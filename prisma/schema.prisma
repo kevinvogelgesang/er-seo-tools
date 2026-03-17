@@ -1,0 +1,22 @@
+// Prisma schema for er-seo-tools
+// Migrated from seo-parser-web/backend/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id        String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  status    String   // pending | parsing | complete | error
+  error     String?
+  files     String   // JSON string: ["file1.csv", "file2.csv"]
+  result    String?  // JSON string of AggregatedResult
+  siteName  String?  // Domain extracted from first issue URL
+}

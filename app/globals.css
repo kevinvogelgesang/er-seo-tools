@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply font-body bg-white text-navy;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display;
+  }
+}
+
+@layer utilities {
+  /* Dot grid pattern for hero sections */
+  .dot-grid {
+    background-image: radial-gradient(circle, #dde3ee 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Grid line pattern for dark sections */
+  .grid-lines {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  /* Orange left-accent border for cards */
+  .card-accent {
+    border-left: 3px solid theme('colors.orange.DEFAULT');
+  }
+
+  /* Animated entrance - starts invisible */
+  .anim-init {
+    opacity: 0;
+  }
+}
+
+/* Scroll-triggered fade-up for tool cards */
+@keyframes fadeUpIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tool-card-reveal {
+  animation: fadeUpIn 0.5s ease-out forwards;
+}
+
+.tool-card-reveal:nth-child(1) { animation-delay: 0.1s; }
+.tool-card-reveal:nth-child(2) { animation-delay: 0.2s; }
+.tool-card-reveal:nth-child(3) { animation-delay: 0.3s; }
+
+/* Glow effect for orange elements */
+.orange-glow {
+  box-shadow: 0 0 20px rgba(245, 166, 35, 0.3);
+}
+
+/* Nav dropdown */
+.nav-dropdown {
+  transform-origin: top center;
+  animation: dropdownOpen 0.15s ease-out forwards;
+}
+
+@keyframes dropdownOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scaleY(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
