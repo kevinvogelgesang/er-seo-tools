@@ -228,17 +228,21 @@ export default function QuarterGridV3() {
         return
       }
 
-      // Space: assign to next open slot
+      // Space: assign to frontier (last week with chips → fill its next slot, or move to next week)
       if (e.key === ' ') {
         e.preventDefault()
         const id = hoveredPoolChipId
         const slotsLimit = slotsPerWeekRef.current
-        let targetWeek = NUM_WEEKS
-        for (let w = 1; w <= NUM_WEEKS; w++) {
-          if ((scheduleRef.current[w] || []).length < slotsLimit) {
-            targetWeek = w
-            break
-          }
+        const cur = scheduleRef.current
+        const weeksWithChips = Object.keys(cur).map(Number).filter(w => (cur[w] || []).length > 0)
+        let targetWeek: number
+        if (weeksWithChips.length === 0) {
+          targetWeek = 1
+        } else {
+          const lastWeek = Math.max(...weeksWithChips)
+          targetWeek = (cur[lastWeek] || []).length < slotsLimit
+            ? lastWeek
+            : Math.min(lastWeek + 1, NUM_WEEKS)
         }
         setSchedule(prev => {
           const ns: Schedule = JSON.parse(JSON.stringify(prev))
@@ -898,14 +902,22 @@ export default function QuarterGridV3() {
               )}
             </div>
             {unassigned.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: 12 }}>
+              <div
+                style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: 12 }}
+                onPointerMove={e => {
+                  const el = document.elementFromPoint(e.clientX, e.clientY)
+                  const chipEl = el?.closest('[data-pool-chip]') as HTMLElement | null
+                  const id = chipEl ? (parseInt(chipEl.dataset.poolChip ?? '0', 10) || null) : null
+                  if (id !== hoveredPoolChipId) setHoveredPoolChipId(id)
+                }}
+                onPointerLeave={() => setHoveredPoolChipId(null)}
+              >
                 {unassigned.map(c => {
                   const isHovered = hoveredPoolChipId === c.id
                   return (
                     <div
                       key={c.id}
-                      onMouseEnter={() => setHoveredPoolChipId(c.id)}
-                      onMouseLeave={() => setHoveredPoolChipId(prev => prev === c.id ? null : prev)}
+                      data-pool-chip={c.id}
                       style={{
                         borderRadius: 8,
                         outline: isHovered ? '2px solid #6366f1' : '2px solid transparent',
@@ -947,6 +959,53 @@ export default function QuarterGridV3() {
               </div>
             )}
           </div>
+
+          {/* ─── Assigned Pool ──────────────────────────────────────────────────── */}
+          {assignedIds.size > 0 && (
+            <div style={{ marginTop: 12, background: "#1e293b", border: "1px solid #334155", borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "#0f172a", borderBottom: "1px solid #334155" }}>
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#64748b", letterSpacing: "0.08em", textTransform: "uppercase" }}>Assigned</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: "#334155", color: "#94a3b8" }}>
+                  {assignedIds.size}
+                </span>
+              </div>
+              <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                {Array.from({ length: NUM_WEEKS }, (_, wi) => {
+                  const week = wi + 1
+                  const wChips = (schedule[week] || [])
+                    .map(id => clients.find(c => c.id === id))
+                    .filter((c): c is Client => Boolean(c))
+                  if (wChips.length === 0) return null
+                  const range = getWeekRange(week)
+                  return (
+                    <div key={week} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", flexDirection: "column", width: 44, flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, fontWeight: 500, color: "#64748b" }}>Wk {week}</span>
+                        {range && <span style={{ fontSize: 8, color: "#334155" }}>{range}</span>}
+                      </div>
+                      {wChips.map(c => (
+                        <Chip
+                          key={c.id}
+                          id={c.id}
+                          fromWeek={week}
+                          client={c}
+                          done={completed.has(c.id)}
+                          isDragging={dragging?.id === c.id}
+                          onDragStart={onDragStart}
+                          onDragEnd={onDragEnd}
+                          onToggleDone={toggleDone}
+                          onSetPriority={setPriority}
+                          onReturn={returnToPool}
+                          onSetStatus={setStatus}
+                          onOpenNote={openNoteModal}
+                        />
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
 
