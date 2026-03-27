@@ -199,43 +199,63 @@ export default function QuarterGridV3() {
   const [addClientOpen, setAddClientOpen]         = useState(false)
   const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const csvInputRef = useRef<HTMLInputElement | null>(null)
-  const scheduleRef = useRef(schedule)
-  const clientsRef  = useRef(clients)
+  const scheduleRef     = useRef(schedule)
+  const clientsRef      = useRef(clients)
+  const slotsPerWeekRef = useRef(slotsPerWeek)
   useEffect(() => { scheduleRef.current = schedule }, [schedule])
   useEffect(() => { clientsRef.current = clients }, [clients])
+  useEffect(() => { slotsPerWeekRef.current = slotsPerWeek }, [slotsPerWeek])
 
   // Clear pending toast timer on unmount
   useEffect(() => {
     return () => { if (toastTimer.current) clearTimeout(toastTimer.current) }
   }, [])
 
-  // ─── Keyboard shortcut: hover pool chip + press 1-9 → assign to week N ───
+  // ─── Keyboard shortcuts when hovering a pool chip ────────────────────────
+  //   1–5        → set priority (chip stays in pool)
+  //   Space      → assign to next available open slot across weeks
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!hoveredPoolChipId) return
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
-      let week: number | null = null
-      if (/^[1-9]$/.test(e.key)) week = parseInt(e.key, 10)
-      else if (/^Numpad[1-9]$/.test(e.code)) week = parseInt(e.code.replace('Numpad', ''), 10)
-      if (week === null || week > NUM_WEEKS) return
-      e.preventDefault()
-      const id = hoveredPoolChipId
-      const w  = week
-      setSchedule(prev => {
-        const ns: Schedule = JSON.parse(JSON.stringify(prev))
-        Object.keys(ns).forEach(wk => { ns[+wk] = (ns[+wk] || []).filter(x => x !== id) })
-        if (!ns[w]) ns[w] = []
-        ns[w] = [...ns[w], id]
-        return ns
-      })
-      // Pre-select the next chip so user can keep pressing without moving mouse
-      const currentAssigned = new Set(Object.values(scheduleRef.current).flat())
-      currentAssigned.add(id)
-      const next = clientsRef.current
-        .filter(c => !currentAssigned.has(c.id))
-        .sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))[0]
-      setHoveredPoolChipId(next?.id ?? null)
-      flash(`→ Wk ${w}`)
+
+      // 1–5: set priority
+      if (/^[1-5]$/.test(e.key)) {
+        e.preventDefault()
+        const priority = parseInt(e.key, 10)
+        setClients(prev => prev.map(c => c.id === hoveredPoolChipId ? { ...c, priority } : c))
+        flash(`P${priority}`)
+        return
+      }
+
+      // Space: assign to next open slot
+      if (e.key === ' ') {
+        e.preventDefault()
+        const id = hoveredPoolChipId
+        const slotsLimit = slotsPerWeekRef.current
+        let targetWeek = NUM_WEEKS
+        for (let w = 1; w <= NUM_WEEKS; w++) {
+          if ((scheduleRef.current[w] || []).length < slotsLimit) {
+            targetWeek = w
+            break
+          }
+        }
+        setSchedule(prev => {
+          const ns: Schedule = JSON.parse(JSON.stringify(prev))
+          Object.keys(ns).forEach(wk => { ns[+wk] = (ns[+wk] || []).filter(x => x !== id) })
+          if (!ns[targetWeek]) ns[targetWeek] = []
+          ns[targetWeek] = [...ns[targetWeek], id]
+          return ns
+        })
+        // Pre-select next chip so user can keep going without moving mouse
+        const currentAssigned = new Set(Object.values(scheduleRef.current).flat())
+        currentAssigned.add(id)
+        const next = clientsRef.current
+          .filter(c => !currentAssigned.has(c.id))
+          .sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))[0]
+        setHoveredPoolChipId(next?.id ?? null)
+        flash(`→ Wk ${targetWeek}`)
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -839,7 +859,7 @@ export default function QuarterGridV3() {
               {/* Keyboard hint */}
               {hoveredPoolChipId && unassigned.length > 0 && (
                 <span style={{ fontSize: 9, color: "#6366f1", letterSpacing: "0.03em" }}>
-                  press 1–{Math.min(9, NUM_WEEKS)} → assign to week
+                  1–5 priority · space → next slot
                 </span>
               )}
               <div style={{ flex: 1 }} />
