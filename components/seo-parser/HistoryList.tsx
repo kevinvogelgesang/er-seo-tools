@@ -9,8 +9,15 @@ interface HistoryItem {
   status: string;
   files: string[];
   siteName?: string | null;
+  clientId?: number | null;
+  clientName?: string | null;
   healthScore?: number;
   urlCount?: number;
+}
+
+interface ClientOption {
+  id: number;
+  name: string;
 }
 
 function relativeTime(dateStr: string): string {
@@ -59,21 +66,27 @@ function SkeletonCard() {
 
 export function HistoryList() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [clients, setClients] = useState<ClientOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [clientFilter, setClientFilter] = useState<number | 'unassigned' | ''>('');
   const router = useRouter();
 
   const loadHistory = () => {
     setIsLoading(true);
     setFetchError(false);
     const controller = new AbortController();
-    fetch('/api/parse/history', { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data) => {
-        setHistory(Array.isArray(data) ? data : []);
+
+    Promise.all([
+      fetch('/api/parse/history', { signal: controller.signal }).then((r) => r.json()),
+      fetch('/api/clients', { signal: controller.signal }).then((r) => r.json()),
+    ])
+      .then(([historyData, clientsData]) => {
+        setHistory(Array.isArray(historyData) ? historyData : []);
+        setClients(Array.isArray(clientsData) ? clientsData : []);
         setIsLoading(false);
       })
       .catch((err) => {
@@ -82,6 +95,7 @@ export function HistoryList() {
           setIsLoading(false);
         }
       });
+
     return controller;
   };
 
@@ -139,43 +153,72 @@ export function HistoryList() {
     );
   }
 
-  const filtered = search.trim()
-    ? history.filter((item) => {
-        const name = (item.siteName || item.files[0] || '').toLowerCase();
-        return name.includes(search.trim().toLowerCase());
-      })
-    : history;
+  const filtered = history.filter((item) => {
+    if (search.trim()) {
+      const name = (item.siteName || item.files[0] || '').toLowerCase();
+      if (!name.includes(search.trim().toLowerCase())) return false;
+    }
+    if (clientFilter === 'unassigned') return !item.clientId;
+    if (typeof clientFilter === 'number') return item.clientId === clientFilter;
+    return true;
+  });
 
   return (
     <div className="mt-12">
       <h2 className="text-xl font-bold text-[#1c2d4a] mb-4">Recent Analyses</h2>
 
-      {/* Search input */}
-      <div className="relative mb-4">
-        <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"
+      {/* Filters row */}
+      <div className="flex gap-2 mb-4">
+        {/* Search input */}
+        <div className="relative flex-1">
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+            aria-hidden="true"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"
+            />
+          </svg>
+          <input
+            type="text"
+            placeholder="Filter by site name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white"
           />
-        </svg>
-        <input
-          type="text"
-          placeholder="Filter by site name…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white"
-        />
+        </div>
+
+        {/* Client filter dropdown */}
+        {clients.length > 0 && (
+          <select
+            value={clientFilter === '' ? '' : clientFilter === 'unassigned' ? 'unassigned' : String(clientFilter)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '') setClientFilter('');
+              else if (v === 'unassigned') setClientFilter('unassigned');
+              else setClientFilter(parseInt(v, 10));
+            }}
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white text-gray-600 min-w-[140px]"
+          >
+            <option value="">All clients</option>
+            <option value="unassigned">Unassigned</option>
+            {clients.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-4">No results match &ldquo;{search}&rdquo;.</p>
+        <p className="text-sm text-gray-400 text-center py-4">No results match your filters.</p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {filtered.map((item) => (
@@ -205,6 +248,13 @@ export function HistoryList() {
                     </span>
                   </div>
                 </div>
+                {item.clientName && (
+                  <div className="mb-1">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#1c2d4a]/8 text-[#1c2d4a] font-medium">
+                      {item.clientName}
+                    </span>
+                  </div>
+                )}
                 <div className="text-xs text-gray-400 mb-2 flex items-center gap-2">
                   <span>{relativeTime(item.createdAt)}</span>
                   <span>&middot;</span>

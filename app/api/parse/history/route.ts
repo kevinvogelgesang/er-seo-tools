@@ -18,6 +18,8 @@ export async function GET() {
         status: true,
         files: true,
         siteName: true,
+        clientId: true,
+        client: { select: { id: true, name: true } },
         result: true,
       },
     });
@@ -45,8 +47,15 @@ export async function GET() {
       } catch { /* ignore */ }
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { result: _result, ...rest } = s;
-      return { ...rest, files, healthScore, urlCount };
+      const { result: _result, client: _client, ...rest } = s;
+      return {
+        ...rest,
+        files,
+        healthScore,
+        urlCount,
+        clientId: s.clientId ?? null,
+        clientName: s.client?.name ?? null,
+      };
     });
 
     return NextResponse.json(formatted);

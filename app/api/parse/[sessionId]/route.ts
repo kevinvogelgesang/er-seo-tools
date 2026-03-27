@@ -51,7 +51,8 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     const errors: string[] = [];
 
     // Parse all files in parallel (read + parse concurrently, aggregate serially after)
-    type ParseSuccess = { parserName: string; result: Record<string, unknown>; filename: string };
+    type AnyParser = { parse(): Record<string, unknown>; getPrimaryDomain(): string | null };
+    type ParseSuccess = { parserName: string; result: Record<string, unknown>; filename: string; primaryDomain: string | null };
     const parsePromises = sessionFiles.map(async (filename): Promise<ParseSuccess | null> => {
       const filePath = path.join(uploadDir, filename);
 
@@ -67,13 +68,12 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
 
       try {
         const content = await fs.readFile(filePath, 'utf-8');
-        const ParserConstructor = ParserClass as unknown as new (
-          content: string
-        ) => { parse(): Record<string, unknown> };
+        const ParserConstructor = ParserClass as unknown as new (content: string) => AnyParser;
         const parser = new ParserConstructor(content);
         const result = parser.parse();
+        const primaryDomain = parser.getPrimaryDomain();
         const parserName = ParserClass.name.replace('Parser', '').toLowerCase();
-        return { parserName, result, filename };
+        return { parserName, result, filename, primaryDomain };
       } catch (parseError) {
         const message = parseError instanceof Error ? parseError.message : 'Unknown error';
         errors.push(`Error parsing ${filename}: ${message}`);
@@ -96,7 +96,22 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       (result as unknown as Record<string, unknown>).parsing_errors = errors;
     }
 
-    // Extract site name from the first URL found in any issue
+    // Detect primary domain: tally hostnames from all parsers' Address columns,
+    // pick the most common one (much more reliable than first issue URL).
+    if (!result.metadata.site_name) {
+      const domainCounts = new Map<string, number>();
+      for (const res of parseResults) {
+        if (res?.primaryDomain) {
+          domainCounts.set(res.primaryDomain, (domainCounts.get(res.primaryDomain) ?? 0) + 1);
+        }
+      }
+      if (domainCounts.size > 0) {
+        result.metadata.site_name = [...domainCounts.entries()]
+          .sort((a, b) => b[1] - a[1])[0][0];
+      }
+    }
+
+    // Fallback: first URL found in any issue
     if (!result.metadata.site_name) {
       const allIssues = [
         ...result.issues.critical,
@@ -116,12 +131,28 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Match detected hostname against known client domains
+    let clientId: number | null = null;
+    const siteHostname = result.metadata.site_name as string | undefined;
+    if (siteHostname) {
+      const allClients = await prisma.client.findMany({ select: { id: true, domains: true } });
+      for (const c of allClients) {
+        let clientDomains: string[] = [];
+        try { clientDomains = JSON.parse(c.domains); } catch { clientDomains = []; }
+        const matched = clientDomains.some(
+          (d) => siteHostname === d || siteHostname.endsWith('.' + d) || d.endsWith('.' + siteHostname)
+        );
+        if (matched) { clientId = c.id; break; }
+      }
+    }
+
     await prisma.session.update({
       where: { id: sessionId },
       data: {
         status: 'complete',
         result: JSON.stringify(result),
         siteName: result.metadata.site_name ?? null,
+        clientId,
       },
     });
 

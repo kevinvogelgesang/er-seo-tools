@@ -12,38 +12,7 @@ type Snapshots = Record<string, { schedule: Schedule; completed: number[]; clien
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const INITIAL_CLIENTS: Client[] = [
-  { id: 1,  name: "Beal University" },
-  { id: 2,  name: "BEONAIR (M & S Media Inc.)" },
-  { id: 3,  name: "Bidwell Training Center" },
-  { id: 4,  name: "Boca Beauty Academy" },
-  { id: 5,  name: "Brockway Center for Arts and Technology" },
-  { id: 6,  name: "Brownson Technical School" },
-  { id: 7,  name: "Federico Beauty Institute" },
-  { id: 8,  name: "Florida Education Institute (FEI)" },
-  { id: 9,  name: "Healthcare Career College" },
-  { id: 10, name: "Hilbert College" },
-  { id: 11, name: "Innovate Salon Academy" },
-  { id: 12, name: "Manhattan School of Computer Technology" },
-  { id: 13, name: "Milan Institute" },
-  { id: 14, name: "New York Institute of Massage" },
-  { id: 15, name: "Nuvani Institute" },
-  { id: 16, name: "Penrose Academy" },
-  { id: 17, name: "Prism Career Institute" },
-  { id: 18, name: "San Diego Global Knowledge University" },
-  { id: 19, name: "Southwest Schools" },
-  { id: 20, name: "Sutter County Career Training Center" },
-  { id: 21, name: "The College of Westchester" },
-  { id: 22, name: "The Soma Institute" },
-  { id: 23, name: "Urban River Massage Therapy School" },
-  { id: 24, name: "Valley College" },
-  { id: 25, name: "Wellspring School of Allied Health" },
-  { id: 26, name: "Discovery Community College" },
-  { id: 27, name: "Canadian College of Health Science & Technology" },
-  { id: 28, name: "Canadian College of Business, Science & Technology" },
-  { id: 29, name: "Cambria College" },
-  { id: 30, name: "Glow College of Artistic Design" },
-].map(c => ({ ...c, priority: 3, status: 'not_started' as ClientStatus, note: '' }))
+// Clients are now loaded from the database via /api/clients
 
 const PCOLORS: Record<number, { chip: string; border: string; text: string; badge: string; label: string }> = {
   1: { chip: "#fee2e2", border: "#f87171", text: "#991b1b", badge: "#ef4444", label: "P1 · High" },
@@ -179,7 +148,7 @@ const Chip = memo(function Chip({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function QuarterGridV3() {
-  const [clients, setClients]           = useState<Client[]>(() => INITIAL_CLIENTS)
+  const [clients, setClients]           = useState<Client[]>([])
   const [schedule, setSchedule]         = useState<Schedule>({})
   const [completed, setCompleted]       = useState<Set<number>>(new Set())
   const [slotsPerWeek, setSlots]        = useState(2)
@@ -271,34 +240,70 @@ export default function QuarterGridV3() {
     toastTimer.current = setTimeout(() => setToast(null), 2800)
   }
 
-  // ─── localStorage restore ────────────────────────────────────────────────
+  // ─── Init: fetch clients from DB + restore localStorage ─────────────────
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const d = JSON.parse(raw)
-        if (d.clients) {
-          // Backfill status/note for data persisted before this feature was added
-          setClients(d.clients.map((c: Partial<Client> & { id: number; name: string; priority: number }) => ({
-            status: 'not_started' as ClientStatus,
-            note: '',
-            ...c,
-          })))
+    const init = async () => {
+      // Fetch canonical client list from DB
+      let dbClients: { id: number; name: string }[] = []
+      try {
+        const res = await fetch('/api/clients')
+        if (res.ok) dbClients = await res.json()
+      } catch { /* ignore — show empty list */ }
+
+      // Load per-client scheduling state from localStorage
+      type ClientState = Record<number, { priority: number; status: ClientStatus; note: string }>
+      let clientState: ClientState = {}
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (raw) {
+          const d = JSON.parse(raw)
+          // New format: clientState is a Record keyed by id
+          if (d.clientState) {
+            clientState = d.clientState
+          } else if (Array.isArray(d.clients)) {
+            // Old format: migrate clients array → clientState
+            for (const c of d.clients as Partial<Client>[]) {
+              if (c.id != null) {
+                clientState[c.id] = {
+                  priority: c.priority ?? 3,
+                  status: c.status ?? 'not_started',
+                  note: c.note ?? '',
+                }
+              }
+            }
+          }
+          if (d.schedule)               setSchedule(d.schedule)
+          if (d.completed)              setCompleted(new Set(d.completed))
+          if (d.slotsPerWeek)           setSlots(d.slotsPerWeek)
+          if (d.layouts ?? d.snapshots) setLayouts(d.layouts ?? d.snapshots)
+          if (d.startDate)              setStartDate(d.startDate)
         }
-        if (d.schedule)     setSchedule(d.schedule)
-        if (d.completed)    setCompleted(new Set(d.completed))
-        if (d.slotsPerWeek) setSlots(d.slotsPerWeek)
-        if (d.layouts ?? d.snapshots) setLayouts(d.layouts ?? d.snapshots)
-        if (d.startDate)    setStartDate(d.startDate)
-      }
-    } catch {}
-    setLoaded(true)
+      } catch { /* ignore corrupt localStorage */ }
+
+      // Merge DB clients with stored per-client state
+      const merged: Client[] = dbClients.map((c) => ({
+        id: c.id,
+        name: c.name,
+        priority: clientState[c.id]?.priority ?? 3,
+        status:   clientState[c.id]?.status   ?? 'not_started',
+        note:     clientState[c.id]?.note      ?? '',
+      }))
+      setClients(merged)
+      setLoaded(true)
+    }
+    init()
   }, [])
 
   const persist = (overrides = {}) => {
+    // Save per-client state (priority/status/note) keyed by id.
+    // The client list itself lives in the DB — no need to duplicate it here.
+    const clientState: Record<number, { priority: number; status: ClientStatus; note: string }> = {}
+    for (const c of clients) {
+      clientState[c.id] = { priority: c.priority, status: c.status, note: c.note }
+    }
     const state = {
-      clients, schedule, completed: Array.from(completed),
+      clientState, schedule, completed: Array.from(completed),
       slotsPerWeek, layouts, startDate, ...overrides
     }
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
@@ -403,17 +408,26 @@ export default function QuarterGridV3() {
     flash(`🗑 Deleted layout "${name}"`)
   }
 
-  const addClient = () => {
+  const addClient = async () => {
     if (!newClientName.trim()) return
-    const maxId = Math.max(0, ...clients.map(c => c.id))
-    const nc: Client = { id: maxId + 1, name: newClientName.trim(), priority: 3, status: 'not_started', note: '' }
-    setClients(prev => [...prev, nc])
-    setNewClientName('')
-    setAddClientOpen(false)
-    flash(`+ Added "${nc.name}"`)
+    try {
+      const res = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newClientName.trim() }),
+      })
+      if (!res.ok) return
+      const nc = await res.json()
+      const newClient: Client = { id: nc.id, name: nc.name, priority: 3, status: 'not_started', note: '' }
+      setClients(prev => [...prev, newClient].sort((a, b) => a.name.localeCompare(b.name)))
+      setNewClientName('')
+      setAddClientOpen(false)
+      flash(`+ Added "${newClient.name}"`)
+    } catch { /* ignore */ }
   }
 
   const removeClient = (id: number) => {
+    // Optimistic update
     setClients(prev => prev.filter(c => c.id !== id))
     setSchedule(prev => {
       const ns = { ...prev }
@@ -421,12 +435,15 @@ export default function QuarterGridV3() {
       return ns
     })
     setCompleted(prev => { const n = new Set(prev); n.delete(id); return n })
+    // Persist to DB in background
+    fetch(`/api/clients/${id}`, { method: 'DELETE' }).catch(() => { /* ignore */ })
   }
 
   const resetAll = () => {
     setSchedule({})
     setCompleted(new Set())
-    setClients(INITIAL_CLIENTS)
+    // Reset per-client state to defaults without removing clients from DB
+    setClients(prev => prev.map(c => ({ ...c, priority: 3, status: 'not_started' as ClientStatus, note: '' })))
     flash("🔄 Reset — all clients returned to pool")
   }
 

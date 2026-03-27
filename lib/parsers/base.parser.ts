@@ -143,6 +143,31 @@ export abstract class BaseParser {
   protected truncateUrls = truncateUrlList;
 
   /**
+   * Scan the Address/URL column across all rows and return the most common hostname.
+   * Used by the parse route to reliably identify which site was crawled.
+   */
+  public getPrimaryDomain(): string | null {
+    const addressCol = this.findColumn(['Address', 'URL']);
+    if (!addressCol) return null;
+
+    const counts = new Map<string, number>();
+    for (const row of this.data) {
+      const val = row[addressCol];
+      if (typeof val === 'string' && val.startsWith('http')) {
+        try {
+          const { hostname } = new URL(val);
+          if (hostname) counts.set(hostname, (counts.get(hostname) ?? 0) + 1);
+        } catch {
+          // skip non-URL values
+        }
+      }
+    }
+
+    if (counts.size === 0) return null;
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
+
+  /**
    * Get data length
    */
   protected get length(): number {
