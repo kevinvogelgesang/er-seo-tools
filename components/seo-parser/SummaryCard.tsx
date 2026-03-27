@@ -18,10 +18,56 @@ function StatItem({ label, value, color }: StatItemProps) {
   );
 }
 
-export function SummaryCard({ summary }: { summary: CrawlSummary }) {
+interface HealthBadgeProps {
+  score: number;
+}
+
+function HealthBadge({ score }: HealthBadgeProps) {
+  let bgColor: string;
+  let textColor: string;
+  let label: string;
+
+  if (score >= 70) {
+    bgColor = 'bg-green-100';
+    textColor = 'text-green-700';
+    label = 'Good';
+  } else if (score >= 40) {
+    bgColor = 'bg-orange-100';
+    textColor = 'text-orange-700';
+    label = 'Fair';
+  } else {
+    bgColor = 'bg-red-100';
+    textColor = 'text-red-700';
+    label = 'Poor';
+  }
+
+  return (
+    <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-gray-50 border border-gray-100">
+      <div
+        className={`w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 ${bgColor}`}
+      >
+        <span className={`font-display font-extrabold text-xl leading-none ${textColor}`}>
+          {score}
+        </span>
+      </div>
+      <div>
+        <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Health Score</p>
+        <p className={`text-sm font-semibold ${textColor}`}>{label}</p>
+      </div>
+    </div>
+  );
+}
+
+interface SummaryCardProps {
+  summary: CrawlSummary;
+  healthScore?: number;
+}
+
+export function SummaryCard({ summary, healthScore }: SummaryCardProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-100">
       <h2 className="text-base font-semibold text-[#1c2d4a] mb-4">Crawl Summary</h2>
+      {healthScore !== undefined && <HealthBadge score={healthScore} />}
       <div className="space-y-0">
         <StatItem label="Total URLs" value={summary.total_urls} />
         <StatItem label="Indexable" value={summary.indexable_urls} color="text-green-600" />

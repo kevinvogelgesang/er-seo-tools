@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '@/lib/db';
 import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
@@ -38,38 +38,54 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     });
 
     const uploadDir = getUploadDir(sessionId);
-    const sessionFiles = JSON.parse(session.files) as string[];
+    let sessionFiles: string[] = [];
+    try {
+      const parsed = JSON.parse(session.files);
+      sessionFiles = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      sessionFiles = [];
+    }
 
     const aggregator = new AggregatorService();
     const parsersUsed: string[] = [];
     const errors: string[] = [];
 
-    for (const filename of sessionFiles) {
+    // Parse all files in parallel (read + parse concurrently, aggregate serially after)
+    type ParseSuccess = { parserName: string; result: Record<string, unknown>; filename: string };
+    const parsePromises = sessionFiles.map(async (filename): Promise<ParseSuccess | null> => {
       const filePath = path.join(uploadDir, filename);
 
-      if (!fs.existsSync(filePath)) {
+      try {
+        await fs.access(filePath);
+      } catch {
         errors.push(`File not found: ${filename}`);
-        continue;
+        return null;
       }
 
       const ParserClass = findParserForFile(filename);
-      if (!ParserClass) continue;
+      if (!ParserClass) return null;
 
       try {
-        const content = fs.readFileSync(filePath, 'utf-8');
+        const content = await fs.readFile(filePath, 'utf-8');
         const ParserConstructor = ParserClass as unknown as new (
           content: string
         ) => { parse(): Record<string, unknown> };
         const parser = new ParserConstructor(content);
         const result = parser.parse();
-
         const parserName = ParserClass.name.replace('Parser', '').toLowerCase();
-        aggregator.addParserResult(parserName, result, filename);
-        parsersUsed.push(parserName);
+        return { parserName, result, filename };
       } catch (parseError) {
-        const message =
-          parseError instanceof Error ? parseError.message : 'Unknown error';
+        const message = parseError instanceof Error ? parseError.message : 'Unknown error';
         errors.push(`Error parsing ${filename}: ${message}`);
+        return null;
+      }
+    });
+
+    const parseResults = await Promise.all(parsePromises);
+    for (const res of parseResults) {
+      if (res) {
+        aggregator.addParserResult(res.parserName, res.result, res.filename);
+        parsersUsed.push(res.parserName);
       }
     }
 
@@ -80,11 +96,32 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       (result as unknown as Record<string, unknown>).parsing_errors = errors;
     }
 
+    // Extract site name from the first URL found in any issue
+    if (!result.metadata.site_name) {
+      const allIssues = [
+        ...result.issues.critical,
+        ...result.issues.warnings,
+        ...result.issues.notices,
+      ];
+      for (const issue of allIssues) {
+        if (issue.urls && issue.urls.length > 0) {
+          try {
+            const parsed = new URL(issue.urls[0]);
+            result.metadata.site_name = parsed.hostname;
+            break;
+          } catch {
+            // not a valid URL, skip
+          }
+        }
+      }
+    }
+
     await prisma.session.update({
       where: { id: sessionId },
       data: {
         status: 'complete',
         result: JSON.stringify(result),
+        siteName: result.metadata.site_name ?? null,
       },
     });
 
@@ -125,10 +162,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     }
 
     if (session.status === 'pending') {
+      let files: string[] = [];
+      try { files = JSON.parse(session.files); } catch { files = []; }
       return NextResponse.json({
         status: 'pending',
         message: 'Files uploaded, parsing not started',
-        files: JSON.parse(session.files),
+        files,
       });
     }
 
@@ -143,7 +182,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const result = session.result ? JSON.parse(session.result) : null;
+    let result = null;
+    try { result = session.result ? JSON.parse(session.result) : null; } catch { result = null; }
     return NextResponse.json({ status: 'complete', result });
   } catch (error) {
     console.error('Get parse result error:', error);

@@ -1,5 +1,6 @@
 import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary } from '../types';
 import { PARSERS } from '../parsers';
+import { computeHealthScore } from './scoring.service';
 
 /**
  * Issue deduplication and merging
@@ -173,20 +174,23 @@ export class AggregatorService {
   }
 
   aggregate(): AggregatedResult {
-    return {
+    const issues = this.buildIssues();
+    const result: AggregatedResult = {
       crawl_summary: this.buildCrawlSummary(),
-      issues: this.buildIssues(),
+      issues,
       site_structure: this.buildSiteStructure(),
       resources: this.buildResourcesSummary(),
       technical_seo: this.buildTechnicalSummary(),
       performance: this.buildPerformanceSummary(),
-      recommendations: this.buildRecommendations(),
+      recommendations: this.buildRecommendations(issues),
       metadata: {
         files_processed: this.filesProcessed,
         parsers_used: Object.keys(this.parsedData),
         total_parsers_available: PARSERS.length,
       },
     };
+    result.metadata.health_score = computeHealthScore(result);
+    return result;
   }
 
   private buildCrawlSummary(): CrawlSummary {
@@ -554,9 +558,8 @@ export class AggregatorService {
     return performance;
   }
 
-  private buildRecommendations(): string[] {
+  private buildRecommendations(issues: IssuesResult): string[] {
     const recommendations: string[] = [];
-    const issues = this.buildIssues();
 
     // Generate recommendations from critical and warning issues
     for (const severity of ['critical', 'warnings'] as const) {

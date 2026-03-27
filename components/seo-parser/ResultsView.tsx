@@ -1,15 +1,20 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { AggregatedResult } from '@/lib/types';
 import { SummaryCard } from './SummaryCard';
 import { IssueTabs } from './IssueTabs';
 import { RecommendationList } from './RecommendationList';
 import { ExportButtons } from './ExportButtons';
 import { CopyToClipboard } from './CopyToClipboard';
-import { IssuesPieChart } from './charts/IssuesPieChart';
-import { StatusCodeBarChart } from './charts/StatusCodeBarChart';
-import { CrawlDepthChart } from './charts/CrawlDepthChart';
+import { PageDetailModal } from './PageDetailModal';
+import { ShareModal } from './ShareModal';
+
+const IssuesPieChart = dynamic(() => import('./charts/IssuesPieChart').then(m => ({ default: m.IssuesPieChart })), { ssr: false });
+const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
+const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
 
 interface ResultsViewProps {
   result: AggregatedResult;
@@ -29,6 +34,9 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
   const router = useRouter();
   const siteName = result.metadata?.site_name || 'Site';
 
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-[#f4f6f9] py-12 px-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -45,6 +53,12 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
             <CopyToClipboard result={result} />
             <ExportButtons sessionId={sessionId} />
             <button
+              onClick={() => setShareOpen(true)}
+              className="px-4 py-2 border border-[#1c2d4a] rounded-lg text-sm text-[#1c2d4a] font-medium hover:bg-[#1c2d4a] hover:text-white transition-colors"
+            >
+              Share Report
+            </button>
+            <button
               onClick={() => router.push('/seo-parser')}
               className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
             >
@@ -57,7 +71,7 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: summary + pie */}
           <div className="space-y-6">
-            <SummaryCard summary={result.crawl_summary} />
+            <SummaryCard summary={result.crawl_summary} healthScore={result.metadata?.health_score} />
             <ChartCard title="Issue Breakdown">
               <IssuesPieChart issues={result.issues} />
             </ChartCard>
@@ -65,7 +79,7 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
 
           {/* Center: issues + recommendations */}
           <div className="lg:col-span-2 space-y-6">
-            <IssueTabs issues={result.issues} />
+            <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />
             <RecommendationList recommendations={result.recommendations} />
           </div>
         </div>
@@ -87,6 +101,23 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
           Parsers used: {result.metadata.parsers_used.join(', ')}
         </div>
       </div>
+
+      {/* Per-page drill-down modal */}
+      {selectedUrl !== null && (
+        <PageDetailModal
+          url={selectedUrl}
+          result={result}
+          onClose={() => setSelectedUrl(null)}
+        />
+      )}
+
+      {/* Share report modal */}
+      {shareOpen && (
+        <ShareModal
+          sessionId={sessionId}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -37,13 +37,24 @@ const tools = [
     icon: RedirectIcon,
     accentClass: 'from-orange/20 to-transparent',
   },
+  {
+    id: 'robots-validator',
+    href: '/robots-validator',
+    name: 'Robots Validator',
+    tagline: 'Validate. Test. Protect.',
+    description:
+      'Validate robots.txt syntax, check AI bot access status, test URLs against crawl rules, and verify sitemap structure — all client-side in seconds.',
+    features: ['Robots.txt syntax check', 'AI bot status', 'Sitemap validation'],
+    icon: RobotsValidatorIcon,
+    accentClass: 'from-orange/20 to-transparent',
+  },
 ]
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
 
 function ParserIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
       <path d="M12 12h4m-4 4h2" />
     </svg>
@@ -52,7 +63,7 @@ function ParserIcon({ className }: { className?: string }) {
 
 function GridIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="7" rx="1" />
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -63,16 +74,27 @@ function GridIcon({ className }: { className?: string }) {
 
 function RedirectIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 12h14M13 6l6 6-6 6" />
       <path d="M5 6l4 4-4 4" opacity={0.4} />
     </svg>
   )
 }
 
+function RobotsValidatorIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M12 11V7" />
+      <circle cx="12" cy="5" r="2" />
+      <path d="M8 15h.01M12 15h.01M16 15h.01" strokeWidth={2.5} />
+    </svg>
+  )
+}
+
 function CheckIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 13l4 4L19 7" />
     </svg>
   )
@@ -80,7 +102,7 @@ function CheckIcon({ className }: { className?: string }) {
 
 function ArrowIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 12h14M13 6l6 6-6 6" />
     </svg>
   )
@@ -177,7 +199,7 @@ function HeroVisual() {
       {/* Bottom label */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
         <span className="text-[11px] font-body text-gray-400 tracking-wide">
-          3 tools · All in one place
+          4 tools · All in one place
         </span>
       </div>
     </div>
@@ -252,7 +274,7 @@ function ToolCard({
 // ─── Stats strip ─────────────────────────────────────────────────────────────
 
 const stats = [
-  { value: '3', label: 'SEO Tools' },
+  { value: '4', label: 'SEO Tools' },
   { value: 'Next.js 15', label: 'App Router' },
   { value: 'Git', label: 'Connected Deploy' },
   { value: 'RunCloud', label: 'Hosted' },
@@ -364,12 +386,12 @@ export default function HomePage() {
               Everything you need,<br />in one place.
             </h2>
             <p className="font-body text-[15px] text-white/45 leading-relaxed">
-              Three tools built specifically for the SEO workflows at Enrollment Resources. No login, no subscriptions — just open and go.
+              Four tools built specifically for the SEO workflows at Enrollment Resources. No login, no subscriptions — just open and go.
             </p>
           </div>
 
           {/* Cards */}
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
             {tools.map((tool) => (
               <ToolCard key={tool.id} tool={tool} />
             ))}
@@ -407,6 +429,13 @@ export default function HomePage() {
             >
               <RedirectIcon className="w-4 h-4 text-orange" />
               RankMath Redirects
+            </Link>
+            <Link
+              href="/robots-validator"
+              className="inline-flex items-center gap-2 bg-white/10 text-white font-display font-semibold text-[14px] px-6 py-3 rounded-lg hover:bg-white/15 transition-colors duration-200 border border-white/10"
+            >
+              <RobotsValidatorIcon className="w-4 h-4 text-orange" />
+              Robots Validator
             </Link>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/db';
@@ -95,21 +95,24 @@ export async function POST(request: NextRequest) {
 
     // Write files to disk
     const uploadDir = getUploadDir(sessionId);
-    fs.mkdirSync(uploadDir, { recursive: true });
+    await fs.mkdir(uploadDir, { recursive: true });
 
     const fileNames: string[] = [];
-    for (const { file, filename } of fileEntries) {
-      const dest = path.join(uploadDir, filename);
-      const buffer = Buffer.from(await file.arrayBuffer());
-      fs.writeFileSync(dest, buffer);
-      fileNames.push(filename);
-    }
+    await Promise.all(
+      fileEntries.map(async ({ file, filename }) => {
+        const dest = path.join(uploadDir, filename);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        await fs.writeFile(dest, buffer);
+        fileNames.push(filename);
+      })
+    );
 
     // Create or update session in DB
     const existingSession = await prisma.session.findUnique({ where: { id: sessionId } });
 
     if (existingSession) {
-      const existingFiles = JSON.parse(existingSession.files) as string[];
+      let existingFiles: string[] = [];
+      try { const p = JSON.parse(existingSession.files); existingFiles = Array.isArray(p) ? p : []; } catch { existingFiles = []; }
       const updatedFiles = Array.from(new Set([...existingFiles, ...fileNames]));
       await prisma.session.update({
         where: { id: sessionId },
@@ -157,11 +160,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
+    let files: string[] = [];
+    try { files = JSON.parse(session.files); } catch { files = []; }
     return NextResponse.json({
       id: session.id,
       createdAt: session.createdAt,
       status: session.status,
-      files: JSON.parse(session.files),
+      files,
     });
   } catch (error) {
     console.error('Get session error:', error);

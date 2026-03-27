@@ -18,7 +18,12 @@ const severityMap: Record<TabKey, 'critical' | 'warning' | 'notice'> = {
   notices: 'notice',
 };
 
-export function IssueTabs({ issues }: { issues: IssuesResult }) {
+interface IssueTabsProps {
+  issues: IssuesResult;
+  onUrlClick?: (url: string) => void;
+}
+
+export function IssueTabs({ issues, onUrlClick }: IssueTabsProps) {
   const [active, setActive] = useState<TabKey>('critical');
 
   const counts: Record<TabKey, number> = {
@@ -57,7 +62,7 @@ export function IssueTabs({ issues }: { issues: IssuesResult }) {
         </nav>
       </div>
       <div className="p-4">
-        <IssueList issues={issues[active]} severity={severityMap[active]} />
+        <IssueList issues={issues[active]} severity={severityMap[active]} onUrlClick={onUrlClick} />
       </div>
     </div>
   );

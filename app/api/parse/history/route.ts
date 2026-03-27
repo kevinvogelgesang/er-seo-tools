@@ -17,13 +17,37 @@ export async function GET() {
         createdAt: true,
         status: true,
         files: true,
+        siteName: true,
+        result: true,
       },
     });
 
-    const formatted = sessions.map((s) => ({
-      ...s,
-      files: JSON.parse(s.files) as string[],
-    }));
+    const formatted = sessions.map((s) => {
+      let files: string[] = [];
+      try {
+        const p = JSON.parse(s.files);
+        files = Array.isArray(p) ? p : [];
+      } catch {
+        files = [];
+      }
+
+      // Extract health score from stored result JSON without deserializing the full object
+      let healthScore: number | undefined;
+      if (s.result) {
+        try {
+          const r = JSON.parse(s.result) as { metadata?: { health_score?: number } };
+          if (typeof r.metadata?.health_score === 'number') {
+            healthScore = r.metadata.health_score;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { result: _result, ...rest } = s;
+      return { ...rest, files, healthScore };
+    });
 
     return NextResponse.json(formatted);
   } catch (error) {

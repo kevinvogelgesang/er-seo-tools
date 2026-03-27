@@ -6,12 +6,18 @@ import { isSeoRelevantUrl, truncateUrlList } from '../utils/urlFilter';
 export abstract class BaseParser {
   protected data: CSVData = [];
   protected headers: string[] = [];
+  private headerMap: Map<string, string> = new Map();
 
   // Subclasses should define this to match their target file
   static filenamePattern: string = '';
 
   constructor(csvContent: string) {
     this.parseCSV(csvContent);
+    // Build a case-insensitive lookup map once per parser instantiation (O(n) → O(1) per findColumn call)
+    for (const h of this.headers) {
+      this.headerMap.set(h, h);
+      this.headerMap.set(h.toLowerCase(), h);
+    }
   }
 
   private parseCSV(content: string): void {
@@ -39,10 +45,14 @@ export abstract class BaseParser {
   }
 
   /**
-   * Get a column by checking multiple possible names (case-insensitive)
+   * Get a column by checking multiple possible names (case-insensitive, O(1) via headerMap)
    */
   protected findColumn(possibleNames: string[]): string | null {
-    return findColumnName(this.headers, possibleNames);
+    for (const name of possibleNames) {
+      const found = this.headerMap.get(name) ?? this.headerMap.get(name.toLowerCase());
+      if (found !== undefined) return found;
+    }
+    return null;
   }
 
   /**

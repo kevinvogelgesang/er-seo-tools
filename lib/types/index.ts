@@ -79,6 +79,7 @@ export interface AggregatedResult {
     parsers_used: string[];
     total_parsers_available: number;
     site_name?: string;
+    health_score?: number;
   };
 }
 

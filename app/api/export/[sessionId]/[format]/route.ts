@@ -8,67 +8,122 @@ export const dynamic = 'force-dynamic';
 
 type RouteParams = { params: Promise<{ sessionId: string; format: string }> };
 
-function generateMarkdown(result: AggregatedResult): string {
-  const lines: string[] = [];
-
-  lines.push('# SEO Audit Report');
-  lines.push('');
+function generateMarkdownSections(result: AggregatedResult): string[] {
+  const sections: string[] = [];
 
   const cs = result.crawl_summary;
-  lines.push('## Crawl Summary');
-  lines.push('');
-  lines.push(`- **Total URLs:** ${cs.total_urls}`);
+
+  // Section 1: Header + Crawl Summary
+  const summaryLines: string[] = [
+    '# SEO Audit Report',
+    '',
+    '## Crawl Summary',
+    '',
+    `- **Total URLs:** ${cs.total_urls}`,
+  ];
   if (cs.indexable_urls !== undefined) {
-    lines.push(`- **Indexable:** ${cs.indexable_urls}`);
-    lines.push(`- **Non-Indexable:** ${cs.non_indexable_urls}`);
+    summaryLines.push(`- **Indexable:** ${cs.indexable_urls}`);
+    summaryLines.push(`- **Non-Indexable:** ${cs.non_indexable_urls}`);
   }
   if (cs.ok_responses !== undefined) {
-    lines.push(`- **OK (2xx):** ${cs.ok_responses}`);
-    lines.push(`- **Redirects (3xx):** ${cs.redirects}`);
-    lines.push(`- **Client Errors (4xx):** ${cs.client_errors}`);
-    lines.push(`- **Server Errors (5xx):** ${cs.server_errors}`);
+    summaryLines.push(`- **OK (2xx):** ${cs.ok_responses}`);
+    summaryLines.push(`- **Redirects (3xx):** ${cs.redirects}`);
+    summaryLines.push(`- **Client Errors (4xx):** ${cs.client_errors}`);
+    summaryLines.push(`- **Server Errors (5xx):** ${cs.server_errors}`);
   }
-  if (cs.avg_word_count) lines.push(`- **Avg Word Count:** ${cs.avg_word_count}`);
+  if (cs.avg_word_count) summaryLines.push(`- **Avg Word Count:** ${cs.avg_word_count}`);
   if (cs.avg_crawl_depth) {
-    lines.push(`- **Avg Crawl Depth:** ${cs.avg_crawl_depth}`);
-    lines.push(`- **Max Crawl Depth:** ${cs.max_crawl_depth}`);
+    summaryLines.push(`- **Avg Crawl Depth:** ${cs.avg_crawl_depth}`);
+    summaryLines.push(`- **Max Crawl Depth:** ${cs.max_crawl_depth}`);
   }
-  lines.push('');
+  summaryLines.push('');
+  sections.push(summaryLines.join('\n'));
 
-  lines.push(formatPriorityMarkdown(result.issues));
+  // Section 2: Priority issues
+  sections.push(formatPriorityMarkdown(result.issues) + '\n');
 
-  lines.push('## All Issues');
-  lines.push('');
+  // Section 3: All Issues header
+  sections.push('## All Issues\n\n');
 
-  const formatIssues = (issues: Issue[], title: string) => {
-    if (issues.length === 0) return;
-    lines.push(`### ${title}`);
-    lines.push('');
-    lines.push('| Issue | Count | Description |');
-    lines.push('|-------|-------|-------------|');
-    for (const issue of issues) {
-      lines.push(`| ${issue.type} | ${issue.count} | ${issue.description} |`);
-    }
-    lines.push('');
+  // Section 4+: per-severity issue tables
+  const formatIssueSection = (issues: Issue[], title: string): string => {
+    if (issues.length === 0) return '';
+    const lines: string[] = [
+      `### ${title}`,
+      '',
+      '| Issue | Count | Description |',
+      '|-------|-------|-------------|',
+      ...issues.map((issue) => `| ${issue.type} | ${issue.count} | ${issue.description} |`),
+      '',
+    ];
+    return lines.join('\n');
   };
 
-  formatIssues(result.issues.critical, 'Critical Issues');
-  formatIssues(result.issues.warnings, 'Warnings');
-  formatIssues(result.issues.notices, 'Notices');
+  const criticalSection = formatIssueSection(result.issues.critical, 'Critical Issues');
+  if (criticalSection) sections.push(criticalSection);
 
+  const warningsSection = formatIssueSection(result.issues.warnings, 'Warnings');
+  if (warningsSection) sections.push(warningsSection);
+
+  const noticesSection = formatIssueSection(result.issues.notices, 'Notices');
+  if (noticesSection) sections.push(noticesSection);
+
+  // Section: Recommendations
   if (result.recommendations.length > 0) {
-    lines.push('## Recommendations');
-    lines.push('');
-    result.recommendations.forEach((rec, i) => lines.push(`${i + 1}. ${rec}`));
-    lines.push('');
+    const recLines = [
+      '## Recommendations',
+      '',
+      ...result.recommendations.map((rec, i) => `${i + 1}. ${rec}`),
+      '',
+    ];
+    sections.push(recLines.join('\n'));
   }
 
-  lines.push('---');
-  lines.push('');
-  lines.push(`*Files processed: ${result.metadata.files_processed.join(', ')}*`);
-  lines.push(`*Parsers used: ${result.metadata.parsers_used.join(', ')}*`);
+  // Footer
+  sections.push(
+    [
+      '---',
+      '',
+      `*Files processed: ${result.metadata.files_processed.join(', ')}*`,
+      `*Parsers used: ${result.metadata.parsers_used.join(', ')}*`,
+    ].join('\n')
+  );
 
-  return lines.join('\n');
+  return sections;
+}
+
+function makeStream(chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+}
+
+function makeJsonStream(result: AggregatedResult): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  // Stream top-level keys individually so very large results don't block
+  const keys = Object.keys(result) as (keyof AggregatedResult)[];
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode('{\n'));
+      keys.forEach((key, index) => {
+        const comma = index < keys.length - 1 ? ',' : '';
+        const value = JSON.stringify(result[key], null, 2)
+          // indent nested content by 2 spaces
+          .split('\n')
+          .join('\n  ');
+        const chunk = `  ${JSON.stringify(key)}: ${value}${comma}\n`;
+        controller.enqueue(encoder.encode(chunk));
+      });
+      controller.enqueue(encoder.encode('}\n'));
+      controller.close();
+    },
+  });
 }
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
@@ -96,10 +151,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const result = JSON.parse(session.result) as AggregatedResult;
 
     if (format === 'json') {
-      return new NextResponse(JSON.stringify(result, null, 2), {
+      const stream = makeJsonStream(result);
+      return new NextResponse(stream, {
         headers: {
           'Content-Type': 'application/json',
           'Content-Disposition': `attachment; filename="seo-audit-${sessionId}.json"`,
+          'Transfer-Encoding': 'chunked',
         },
       });
     }
@@ -124,20 +181,30 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         recommendations: result.recommendations.slice(0, 5),
         metadata: result.metadata,
       };
-      return new NextResponse(JSON.stringify(summary, null, 2), {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(JSON.stringify(summary, null, 2)));
+          controller.close();
+        },
+      });
+      return new NextResponse(stream, {
         headers: {
           'Content-Type': 'application/json',
           'Content-Disposition': `attachment; filename="seo-summary-${sessionId}.json"`,
+          'Transfer-Encoding': 'chunked',
         },
       });
     }
 
-    // markdown
-    const markdown = generateMarkdown(result);
-    return new NextResponse(markdown, {
+    // markdown — streamed section by section
+    const sections = generateMarkdownSections(result);
+    const stream = makeStream(sections);
+    return new NextResponse(stream, {
       headers: {
         'Content-Type': 'text/markdown',
         'Content-Disposition': `attachment; filename="seo-audit-${sessionId}.md"`,
+        'Transfer-Encoding': 'chunked',
       },
     });
   } catch (error) {

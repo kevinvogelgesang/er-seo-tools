@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { FileDropzone } from '@/components/seo-parser/FileDropzone';
 import { HistoryList } from '@/components/seo-parser/HistoryList';
 
@@ -117,6 +118,19 @@ export default function SEOParserPage() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Compare link */}
+        <div className="text-center">
+          <Link
+            href="/seo-parser/diff"
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#1c2d4a] transition-colors"
+          >
+            Compare two crawls
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
         </div>
 
         {/* History */}

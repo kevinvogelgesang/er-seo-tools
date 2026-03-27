@@ -6,6 +6,7 @@ import { Issue } from '@/lib/types';
 interface IssueListProps {
   issues: Issue[];
   severity: 'critical' | 'warning' | 'notice';
+  onUrlClick?: (url: string) => void;
 }
 
 const severityColors = {
@@ -14,7 +15,15 @@ const severityColors = {
   notice: 'bg-blue-100 text-blue-800',
 };
 
-function IssueItem({ issue, severity }: { issue: Issue; severity: 'critical' | 'warning' | 'notice' }) {
+function IssueItem({
+  issue,
+  severity,
+  onUrlClick,
+}: {
+  issue: Issue;
+  severity: 'critical' | 'warning' | 'notice';
+  onUrlClick?: (url: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const hasUrls = issue.urls && issue.urls.length > 0;
   const hasGroups = issue.groups && issue.groups.length > 0;
@@ -56,9 +65,20 @@ function IssueItem({ issue, severity }: { issue: Issue; severity: 'critical' | '
               <ul className="text-sm space-y-1 max-h-48 overflow-y-auto">
                 {issue.urls?.map((url, i) => (
                   <li key={i} className="text-gray-600 truncate">
-                    <a href={url} target="_blank" rel="noopener noreferrer" className="hover:text-[#f5a623]">
-                      {url}
-                    </a>
+                    {onUrlClick ? (
+                      <button
+                        type="button"
+                        onClick={() => onUrlClick(url)}
+                        className="hover:text-[#f5a623] text-left truncate max-w-full underline decoration-dotted underline-offset-2"
+                        title={url}
+                      >
+                        {url}
+                      </button>
+                    ) : (
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="hover:text-[#f5a623]">
+                        {url}
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -83,14 +103,19 @@ function IssueItem({ issue, severity }: { issue: Issue; severity: 'critical' | '
   );
 }
 
-export function IssueList({ issues, severity }: IssueListProps) {
+export function IssueList({ issues, severity, onUrlClick }: IssueListProps) {
   if (issues.length === 0) {
     return <p className="text-gray-500 text-center py-4 text-sm">No issues found</p>;
   }
   return (
     <div className="space-y-2">
       {issues.map((issue, i) => (
-        <IssueItem key={`${issue.type}-${i}`} issue={issue} severity={severity} />
+        <IssueItem
+          key={`${issue.type}-${i}`}
+          issue={issue}
+          severity={severity}
+          onUrlClick={onUrlClick}
+        />
       ))}
     </div>
   );

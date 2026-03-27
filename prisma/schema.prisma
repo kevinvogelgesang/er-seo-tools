@@ -1,6 +1,9 @@
 // Prisma schema for er-seo-tools
 // Migrated from seo-parser-web/backend/prisma/schema.prisma
 
+// After adding ShareLink, run:
+//   npx prisma migrate dev --name add-share-links
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,12 +14,29 @@ datasource db {
 }
 
 model Session {
-  id        String   @id
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  status    String   // pending | parsing | complete | error
-  error     String?
-  files     String   // JSON string: ["file1.csv", "file2.csv"]
-  result    String?  // JSON string of AggregatedResult
-  siteName  String?  // Domain extracted from first issue URL
+  id         String      @id
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  status     String      // pending | parsing | complete | error
+  error      String?
+  files      String      // JSON string: ["file1.csv", "file2.csv"]
+  result     String?     // JSON string of AggregatedResult
+  siteName   String?     // Domain extracted from first issue URL
+  shareLinks ShareLink[]
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model ShareLink {
+  id          String   @id @default(cuid())
+  sessionId   String
+  token       String   @unique
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  accessCount Int      @default(0)
+
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([token])
 }

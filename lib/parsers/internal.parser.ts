@@ -264,36 +264,60 @@ export class InternalParser extends BaseParser {
       indexable_html_count: this.countMask(indexableMask),
     };
 
-    // Title analysis (indexable HTML pages only)
-    if (titleCol) {
-      const missingUrls: string[] = [];
-      let missingCount = 0;
-      const titleCounts: Record<string, number> = {};
+    // Single-pass over indexable rows for title, meta, and H1 analysis
+    const missingTitleUrls: string[] = [];
+    let missingTitleCount = 0;
+    const titleCounts: Record<string, number> = {};
 
-      for (let i = 0; i < this.data.length; i++) {
-        if (!indexableMask[i]) continue;
+    const missingMetaUrls: string[] = [];
+    let missingMetaCount = 0;
+    const metaCounts: Record<string, number> = {};
 
+    const missingH1Urls: string[] = [];
+    let missingH1Count = 0;
+
+    for (let i = 0; i < this.data.length; i++) {
+      if (!indexableMask[i]) continue;
+      const addr = addressCol ? toString(this.data[i][addressCol]) : '';
+
+      if (titleCol) {
         const title = toString(this.data[i][titleCol]);
         if (!title) {
-          missingCount++;
-          if (addressCol && missingUrls.length < 20) {
-            missingUrls.push(toString(this.data[i][addressCol]));
-          }
+          missingTitleCount++;
+          if (addr && missingTitleUrls.length < 20) missingTitleUrls.push(addr);
         } else {
           titleCounts[title] = (titleCounts[title] || 0) + 1;
         }
       }
 
-      result.missing_titles_count = missingCount;
-      result.missing_titles_urls = missingUrls;
-      result.missing_titles_truncated = missingCount > 20;
+      if (metaCol) {
+        const meta = toString(this.data[i][metaCol]);
+        if (!meta) {
+          missingMetaCount++;
+          if (addr && missingMetaUrls.length < 20) missingMetaUrls.push(addr);
+        } else {
+          metaCounts[meta] = (metaCounts[meta] || 0) + 1;
+        }
+      }
 
-      // Duplicate titles
+      if (h1Col) {
+        const h1 = toString(this.data[i][h1Col]);
+        if (!h1) {
+          missingH1Count++;
+          if (addr && missingH1Urls.length < 20) missingH1Urls.push(addr);
+        }
+      }
+    }
+
+    if (titleCol) {
+      result.missing_titles_count = missingTitleCount;
+      result.missing_titles_urls = missingTitleUrls;
+      result.missing_titles_truncated = missingTitleCount > 20;
+
       const duplicates = Object.entries(titleCounts)
         .filter(([_, count]) => count > 1)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10);
-
       result.duplicate_titles_count = duplicates.length;
       result.duplicate_title_groups = duplicates.map(([title, count]) => ({
         title: title.slice(0, 100),
@@ -301,54 +325,17 @@ export class InternalParser extends BaseParser {
       }));
     }
 
-    // Meta description analysis
     if (metaCol) {
-      const missingUrls: string[] = [];
-      let missingCount = 0;
-      const metaCounts: Record<string, number> = {};
-
-      for (let i = 0; i < this.data.length; i++) {
-        if (!indexableMask[i]) continue;
-
-        const meta = toString(this.data[i][metaCol]);
-        if (!meta) {
-          missingCount++;
-          if (addressCol && missingUrls.length < 20) {
-            missingUrls.push(toString(this.data[i][addressCol]));
-          }
-        } else {
-          metaCounts[meta] = (metaCounts[meta] || 0) + 1;
-        }
-      }
-
-      result.missing_meta_count = missingCount;
-      result.missing_meta_urls = missingUrls;
-      result.missing_meta_truncated = missingCount > 20;
-
-      const duplicates = Object.entries(metaCounts).filter(([_, count]) => count > 1);
-      result.duplicate_meta_count = duplicates.length;
+      result.missing_meta_count = missingMetaCount;
+      result.missing_meta_urls = missingMetaUrls;
+      result.missing_meta_truncated = missingMetaCount > 20;
+      result.duplicate_meta_count = Object.values(metaCounts).filter(c => c > 1).length;
     }
 
-    // H1 analysis
     if (h1Col) {
-      const missingUrls: string[] = [];
-      let missingCount = 0;
-
-      for (let i = 0; i < this.data.length; i++) {
-        if (!indexableMask[i]) continue;
-
-        const h1 = toString(this.data[i][h1Col]);
-        if (!h1) {
-          missingCount++;
-          if (addressCol && missingUrls.length < 20) {
-            missingUrls.push(toString(this.data[i][addressCol]));
-          }
-        }
-      }
-
-      result.missing_h1_count = missingCount;
-      result.missing_h1_urls = missingUrls;
-      result.missing_h1_truncated = missingCount > 20;
+      result.missing_h1_count = missingH1Count;
+      result.missing_h1_urls = missingH1Urls;
+      result.missing_h1_truncated = missingH1Count > 20;
     }
 
     return result;

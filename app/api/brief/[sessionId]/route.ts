@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '@/lib/db';
 import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
@@ -49,13 +49,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const uploadDir = getUploadDir(sessionId);
     const briefService = new BriefService();
     const filesProcessed: Array<{ name: string; type: string; count: number }> = [];
-    const sessionFiles = JSON.parse(session.files) as string[];
+    let sessionFiles: string[] = [];
+    try { sessionFiles = JSON.parse(session.files) as string[]; } catch { sessionFiles = []; }
 
     for (const filename of sessionFiles) {
       const filePath = path.join(uploadDir, filename);
-      if (!fs.existsSync(filePath)) continue;
+      try { await fs.access(filePath); } catch { continue; }
 
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = await fs.readFile(filePath, 'utf-8');
       const fileType = detectFileType(filename, content);
 
       switch (fileType) {
