@@ -179,30 +179,67 @@ const Chip = memo(function Chip({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function QuarterGridV3() {
-  const [clients, setClients]         = useState<Client[]>(() => INITIAL_CLIENTS)
-  const [schedule, setSchedule]       = useState<Schedule>({})
-  const [completed, setCompleted]     = useState<Set<number>>(new Set())
-  const [slotsPerWeek, setSlots]      = useState(2)
-  const [snapshots, setSnapshots]     = useState<Snapshots>({})
-  const [snapName, setSnapName]       = useState("")
-  const [loadSnap, setLoadSnap]       = useState("")
-  const [startDate, setStartDate]     = useState("")
-  const [dragging, setDragging]       = useState<{ id: number; fromWeek: number | null } | null>(null)
-  const [dropTarget, setDropTarget]   = useState<{ week: number | string; slot: number } | null>(null)
-  const [toast, setToast]             = useState<string | null>(null)
-  const [loaded, setLoaded]           = useState(false)
-  const [exportModal, setExportModal] = useState(false)
-  const [exportText, setExportText]   = useState("")
-  const [view, setView]               = useState<'grid' | 'gantt'>('grid')
-  const [noteModal, setNoteModal]     = useState<{ id: number; note: string } | null>(null)
-  const [noteDraft, setNoteDraft]     = useState("")
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [clients, setClients]           = useState<Client[]>(() => INITIAL_CLIENTS)
+  const [schedule, setSchedule]         = useState<Schedule>({})
+  const [completed, setCompleted]       = useState<Set<number>>(new Set())
+  const [slotsPerWeek, setSlots]        = useState(2)
+  const [layouts, setLayouts]           = useState<Snapshots>({})
+  const [layoutName, setLayoutName]     = useState("")
+  const [activeLayout, setActiveLayout] = useState("")
+  const [startDate, setStartDate]       = useState("")
+  const [dragging, setDragging]         = useState<{ id: number; fromWeek: number | null } | null>(null)
+  const [dropTarget, setDropTarget]     = useState<{ week: number | string; slot: number } | null>(null)
+  const [toast, setToast]               = useState<string | null>(null)
+  const [loaded, setLoaded]             = useState(false)
+  const [view, setView]                 = useState<'grid' | 'gantt'>('grid')
+  const [noteModal, setNoteModal]       = useState<{ id: number; note: string } | null>(null)
+  const [noteDraft, setNoteDraft]       = useState("")
+  const [hoveredPoolChipId, setHoveredPoolChipId] = useState<number | null>(null)
+  const [newClientName, setNewClientName]         = useState("")
+  const [addClientOpen, setAddClientOpen]         = useState(false)
+  const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const csvInputRef = useRef<HTMLInputElement | null>(null)
+  const scheduleRef = useRef(schedule)
+  const clientsRef  = useRef(clients)
+  useEffect(() => { scheduleRef.current = schedule }, [schedule])
+  useEffect(() => { clientsRef.current = clients }, [clients])
 
   // Clear pending toast timer on unmount
   useEffect(() => {
     return () => { if (toastTimer.current) clearTimeout(toastTimer.current) }
   }, [])
+
+  // ─── Keyboard shortcut: hover pool chip + press 1-9 → assign to week N ───
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!hoveredPoolChipId) return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      let week: number | null = null
+      if (/^[1-9]$/.test(e.key)) week = parseInt(e.key, 10)
+      else if (/^Numpad[1-9]$/.test(e.code)) week = parseInt(e.code.replace('Numpad', ''), 10)
+      if (week === null || week > NUM_WEEKS) return
+      e.preventDefault()
+      const id = hoveredPoolChipId
+      const w  = week
+      setSchedule(prev => {
+        const ns: Schedule = JSON.parse(JSON.stringify(prev))
+        Object.keys(ns).forEach(wk => { ns[+wk] = (ns[+wk] || []).filter(x => x !== id) })
+        if (!ns[w]) ns[w] = []
+        ns[w] = [...ns[w], id]
+        return ns
+      })
+      // Pre-select the next chip so user can keep pressing without moving mouse
+      const currentAssigned = new Set(Object.values(scheduleRef.current).flat())
+      currentAssigned.add(id)
+      const next = clientsRef.current
+        .filter(c => !currentAssigned.has(c.id))
+        .sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))[0]
+      setHoveredPoolChipId(next?.id ?? null)
+      flash(`→ Wk ${w}`)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [hoveredPoolChipId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const flash = (msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -228,7 +265,7 @@ export default function QuarterGridV3() {
         if (d.schedule)     setSchedule(d.schedule)
         if (d.completed)    setCompleted(new Set(d.completed))
         if (d.slotsPerWeek) setSlots(d.slotsPerWeek)
-        if (d.snapshots)    setSnapshots(d.snapshots)
+        if (d.layouts ?? d.snapshots) setLayouts(d.layouts ?? d.snapshots)
         if (d.startDate)    setStartDate(d.startDate)
       }
     } catch {}
@@ -238,22 +275,23 @@ export default function QuarterGridV3() {
   const persist = (overrides = {}) => {
     const state = {
       clients, schedule, completed: Array.from(completed),
-      slotsPerWeek, snapshots, startDate, ...overrides
+      slotsPerWeek, layouts, startDate, ...overrides
     }
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
   }
 
-  useEffect(() => { if (loaded) persist() }, [clients, schedule, completed, slotsPerWeek, snapshots, startDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (loaded) persist() }, [clients, schedule, completed, slotsPerWeek, layouts, startDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Derived values ──────────────────────────────────────────────────────
 
-  const assignedIds = new Set(Object.values(schedule).flat())
-  const unassigned  = clients
+  const assignedIds  = new Set(Object.values(schedule).flat())
+  const unassigned   = clients
     .filter(c => !assignedIds.has(c.id))
     .sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))
-  const getClient = (id: number) => clients.find(c => c.id === id)
-  const doneCount = completed.size
-  const pct       = Math.round((doneCount / 30) * 100)
+  const getClient    = (id: number) => clients.find(c => c.id === id)
+  const doneCount    = completed.size
+  const totalClients = clients.length
+  const pct          = totalClients > 0 ? Math.round((doneCount / totalClients) * 100) : 0
 
   // ─── Handlers ────────────────────────────────────────────────────────────
 
@@ -311,33 +349,54 @@ export default function QuarterGridV3() {
     }
   }
 
-  const saveSnapshot = () => {
-    if (!snapName.trim()) return
+  const saveLayout = () => {
+    if (!layoutName.trim()) return
     const snap = {
       schedule:  JSON.parse(JSON.stringify(schedule)),
       completed: Array.from(completed),
       clients:   JSON.parse(JSON.stringify(clients)),
     }
-    setSnapshots(prev => ({ ...prev, [snapName.trim()]: snap }))
-    flash(`💾 Saved "${snapName.trim()}"`)
-    setSnapName("")
+    setLayouts(prev => ({ ...prev, [layoutName.trim()]: snap }))
+    flash(`💾 Saved layout "${layoutName.trim()}"`)
+    setLayoutName("")
   }
 
-  const applySnapshot = () => {
-    if (!loadSnap || !snapshots[loadSnap]) return
-    const s = snapshots[loadSnap]
+  const applyLayout = (name: string) => {
+    if (!name || !layouts[name]) return
+    const s = layouts[name]
     setSchedule(s.schedule)
     setCompleted(new Set(s.completed))
     setClients(s.clients)
-    flash(`📂 Loaded "${loadSnap}"`)
+    setActiveLayout(name)
+    flash(`📂 Loaded "${name}"`)
   }
 
-  const deleteSnapshot = () => {
-    if (!loadSnap) return
-    const name = loadSnap
-    setSnapshots(prev => { const n = { ...prev }; delete n[name]; return n })
-    setLoadSnap("")
-    flash(`🗑 Deleted "${name}"`)
+  const deleteLayout = () => {
+    if (!activeLayout) return
+    const name = activeLayout
+    setLayouts(prev => { const n = { ...prev }; delete n[name]; return n })
+    setActiveLayout("")
+    flash(`🗑 Deleted layout "${name}"`)
+  }
+
+  const addClient = () => {
+    if (!newClientName.trim()) return
+    const maxId = Math.max(0, ...clients.map(c => c.id))
+    const nc: Client = { id: maxId + 1, name: newClientName.trim(), priority: 3, status: 'not_started', note: '' }
+    setClients(prev => [...prev, nc])
+    setNewClientName('')
+    setAddClientOpen(false)
+    flash(`+ Added "${nc.name}"`)
+  }
+
+  const removeClient = (id: number) => {
+    setClients(prev => prev.filter(c => c.id !== id))
+    setSchedule(prev => {
+      const ns = { ...prev }
+      Object.keys(ns).forEach(w => { ns[+w] = (ns[+w] || []).filter(x => x !== id) })
+      return ns
+    })
+    setCompleted(prev => { const n = new Set(prev); n.delete(id); return n })
   }
 
   const resetAll = () => {
@@ -366,41 +425,6 @@ export default function QuarterGridV3() {
     const d = new Date(base)
     d.setDate(base.getDate() + (weekNum - 1) * 7 + offsetDays)
     return d.toISOString().split("T")[0]
-  }
-
-  const buildExport = () => {
-    const rows: object[] = []
-    for (let w = 1; w <= NUM_WEEKS; w++) {
-      ;(schedule[w] || []).forEach((id, si) => {
-        const c = getClient(id)
-        if (!c) return
-        const offsets = [0, 2, 4]
-        rows.push({
-          client:    c.name,
-          priority:  c.priority,
-          status:    c.status,
-          note:      c.note,
-          week:      w,
-          weekStart: isoDate(w, 0),
-          weekEnd:   isoDate(w, 4),
-          slotDay:   SLOT_LABELS[si] ?? `Slot ${si + 1}`,
-          dueDate:   isoDate(w, offsets[si] ?? si * 2),
-          completed: completed.has(id),
-        })
-      })
-    }
-    unassigned.forEach(c => {
-      rows.push({
-        client: c.name, priority: c.priority, status: c.status, note: c.note,
-        week: null, weekStart: null, weekEnd: null, slotDay: null, dueDate: null, completed: false,
-      })
-    })
-    return JSON.stringify(rows, null, 2)
-  }
-
-  const openExport = () => { setExportText(buildExport()); setExportModal(true) }
-  const copyExport = () => {
-    navigator.clipboard.writeText(exportText).then(() => flash("📋 Copied to clipboard"))
   }
 
   // ─── CSV Import ──────────────────────────────────────────────────────────
@@ -578,12 +602,12 @@ export default function QuarterGridV3() {
           <div style={{ minWidth: 200 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 15, fontWeight: 500, color: "#f1f5f9", letterSpacing: "-0.3px" }}>SEO Quarter Grid <span style={{ fontSize: 10, color: "#6366f1", background: "#1e1b4b", padding: "1px 6px", borderRadius: 4, marginLeft: 4 }}>V3</span></span>
-              <span style={{ fontSize: 11, color: "#64748b" }}>30 clients · 13 wks · {pct}%</span>
+              <span style={{ fontSize: 11, color: "#64748b" }}>{totalClients} clients · 13 wks · {pct}%</span>
             </div>
             <div style={{ height: 5, background: "#0f172a", borderRadius: 99, width: 240, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg,#22c55e,#4ade80)", borderRadius: 99, transition: "width 0.3s" }} />
             </div>
-            <div style={{ marginTop: 4, fontSize: 10, color: "#475569" }}>{doneCount}/30 done · {unassigned.length} unassigned</div>
+            <div style={{ marginTop: 4, fontSize: 10, color: "#475569" }}>{doneCount}/{totalClients} done · {unassigned.length} unassigned</div>
           </div>
 
           {/* Controls */}
@@ -650,49 +674,44 @@ export default function QuarterGridV3() {
               cursor: "pointer", fontFamily: "inherit", fontWeight: 500,
             }}>⬆ Import CSV</button>
 
-            <button onClick={openExport} style={{
-              padding: "5px 12px", background: "#0f172a", color: "#34d399",
-              border: "1px solid #34d399", borderRadius: 6, fontSize: 11,
-              cursor: "pointer", fontFamily: "inherit", fontWeight: 500,
-            }}>⬇ Export JSON</button>
-
+            {/* ── Layouts ──────────────────────────────────────────────── */}
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: "#64748b", whiteSpace: "nowrap" }}>Layout:</span>
+              <select
+                value={activeLayout}
+                onChange={e => applyLayout(e.target.value)}
+                style={{
+                  padding: "5px 8px", background: "#0f172a", border: "1px solid #334155",
+                  borderRadius: 6, color: "#e2e8f0", fontSize: 11, fontFamily: "inherit", maxWidth: 160,
+                }}
+              >
+                <option value="">— select —</option>
+                {Object.keys(layouts).map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+              {activeLayout && (
+                <button onClick={deleteLayout} title="Delete this layout" style={{
+                  padding: "5px 8px", background: "transparent", color: "#f87171",
+                  border: "1px solid #334155", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                }}>✕</button>
+              )}
+            </div>
             <div style={{ display: "flex", gap: 4 }}>
               <input
-                value={snapName} onChange={e => setSnapName(e.target.value)}
-                placeholder="snapshot name…"
+                value={layoutName}
+                onChange={e => setLayoutName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveLayout() }}
+                placeholder="save as layout…"
                 style={{
                   padding: "5px 10px", background: "#0f172a", border: "1px solid #334155",
-                  borderRadius: 6, color: "#e2e8f0", fontSize: 11, fontFamily: "inherit", width: 130,
+                  borderRadius: 6, color: "#e2e8f0", fontSize: 11, fontFamily: "inherit", width: 140,
                 }}
               />
-              <button onClick={saveSnapshot} disabled={!snapName.trim()} style={{
-                padding: "5px 10px", background: snapName.trim() ? "#059669" : "#1e293b",
-                color: snapName.trim() ? "#fff" : "#475569", border: "1px solid #334155",
-                borderRadius: 6, fontSize: 11, cursor: snapName.trim() ? "pointer" : "not-allowed", fontFamily: "inherit",
-              }}>Save</button>
+              <button onClick={saveLayout} disabled={!layoutName.trim()} style={{
+                padding: "5px 10px", background: layoutName.trim() ? "#059669" : "#1e293b",
+                color: layoutName.trim() ? "#fff" : "#475569", border: "1px solid #334155",
+                borderRadius: 6, fontSize: 11, cursor: layoutName.trim() ? "pointer" : "not-allowed", fontFamily: "inherit",
+              }}>💾</button>
             </div>
-
-            {Object.keys(snapshots).length > 0 && (
-              <div style={{ display: "flex", gap: 4 }}>
-                <select value={loadSnap} onChange={e => setLoadSnap(e.target.value)} style={{
-                  padding: "5px 8px", background: "#0f172a", border: "1px solid #334155",
-                  borderRadius: 6, color: "#e2e8f0", fontSize: 11, fontFamily: "inherit",
-                }}>
-                  <option value="">load…</option>
-                  {Object.keys(snapshots).map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <button onClick={applySnapshot} disabled={!loadSnap} style={{
-                  padding: "5px 8px", background: loadSnap ? "#0369a1" : "#1e293b",
-                  color: loadSnap ? "#fff" : "#475569", border: "1px solid #334155",
-                  borderRadius: 6, fontSize: 11, cursor: loadSnap ? "pointer" : "not-allowed", fontFamily: "inherit",
-                }}>↩</button>
-                <button onClick={deleteSnapshot} disabled={!loadSnap} style={{
-                  padding: "5px 8px", background: "transparent", color: loadSnap ? "#f87171" : "#475569",
-                  border: "1px solid #334155", borderRadius: 6, fontSize: 11,
-                  cursor: loadSnap ? "pointer" : "not-allowed", fontFamily: "inherit",
-                }}>✕</button>
-              </div>
-            )}
           </div>
         </div>
 
@@ -806,7 +825,8 @@ export default function QuarterGridV3() {
           >
             <div style={{
               display: "flex", alignItems: "center", gap: 8, padding: "9px 14px",
-              background: "#0f172a", borderBottom: unassigned.length > 0 ? "1px solid #334155" : "none",
+              background: "#0f172a", borderBottom: (unassigned.length > 0 || addClientOpen) ? "1px solid #334155" : "none",
+              flexWrap: "wrap",
             }}>
               <span style={{ fontSize: 10, fontWeight: 500, color: "#64748b", letterSpacing: "0.08em", textTransform: "uppercase" }}>Unassigned</span>
               <span style={{
@@ -816,26 +836,94 @@ export default function QuarterGridV3() {
               }}>
                 {unassigned.length > 0 ? unassigned.length : "✓ all assigned"}
               </span>
+              {/* Keyboard hint */}
+              {hoveredPoolChipId && unassigned.length > 0 && (
+                <span style={{ fontSize: 9, color: "#6366f1", letterSpacing: "0.03em" }}>
+                  press 1–{Math.min(9, NUM_WEEKS)} → assign to week
+                </span>
+              )}
+              <div style={{ flex: 1 }} />
+              {/* Add Client */}
+              {addClientOpen ? (
+                <form
+                  onSubmit={e => { e.preventDefault(); addClient() }}
+                  style={{ display: "flex", gap: 4, alignItems: "center" }}
+                >
+                  <input
+                    autoFocus
+                    value={newClientName}
+                    onChange={e => setNewClientName(e.target.value)}
+                    placeholder="client name…"
+                    style={{
+                      padding: "4px 8px", background: "#1e293b", border: "1px solid #6366f1",
+                      borderRadius: 6, color: "#e2e8f0", fontSize: 11, fontFamily: "inherit", width: 160, outline: "none",
+                    }}
+                  />
+                  <button type="submit" disabled={!newClientName.trim()} style={{
+                    padding: "4px 10px", background: newClientName.trim() ? "#6366f1" : "#1e293b",
+                    color: newClientName.trim() ? "#fff" : "#475569", border: "1px solid #334155",
+                    borderRadius: 6, fontSize: 11, cursor: newClientName.trim() ? "pointer" : "not-allowed", fontFamily: "inherit",
+                  }}>Add</button>
+                  <button type="button" onClick={() => { setAddClientOpen(false); setNewClientName('') }} style={{
+                    padding: "4px 8px", background: "transparent", color: "#64748b",
+                    border: "1px solid #334155", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                  }}>✕</button>
+                </form>
+              ) : (
+                <button onClick={() => setAddClientOpen(true)} style={{
+                  padding: "4px 10px", background: "transparent", color: "#6366f1",
+                  border: "1px solid #6366f1", borderRadius: 6, fontSize: 10,
+                  cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                }}>+ Client</button>
+              )}
             </div>
             {unassigned.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: 12 }}>
-                {unassigned.map(c => (
-                  <Chip
-                    key={c.id}
-                    id={c.id}
-                    fromWeek={null}
-                    client={c}
-                    done={completed.has(c.id)}
-                    isDragging={dragging?.id === c.id}
-                    onDragStart={onDragStart}
-                    onDragEnd={onDragEnd}
-                    onToggleDone={toggleDone}
-                    onSetPriority={setPriority}
-                    onReturn={returnToPool}
-                    onSetStatus={setStatus}
-                    onOpenNote={openNoteModal}
-                  />
-                ))}
+                {unassigned.map(c => {
+                  const isHovered = hoveredPoolChipId === c.id
+                  return (
+                    <div
+                      key={c.id}
+                      onMouseEnter={() => setHoveredPoolChipId(c.id)}
+                      onMouseLeave={() => setHoveredPoolChipId(prev => prev === c.id ? null : prev)}
+                      style={{
+                        borderRadius: 8,
+                        outline: isHovered ? '2px solid #6366f1' : '2px solid transparent',
+                        outlineOffset: 1,
+                        transition: 'outline-color 0.1s',
+                        position: 'relative',
+                      }}
+                    >
+                      <Chip
+                        id={c.id}
+                        fromWeek={null}
+                        client={c}
+                        done={completed.has(c.id)}
+                        isDragging={dragging?.id === c.id}
+                        onDragStart={onDragStart}
+                        onDragEnd={onDragEnd}
+                        onToggleDone={toggleDone}
+                        onSetPriority={setPriority}
+                        onReturn={returnToPool}
+                        onSetStatus={setStatus}
+                        onOpenNote={openNoteModal}
+                      />
+                      {/* Remove client button — visible on hover */}
+                      <button
+                        onClick={e => { e.stopPropagation(); removeClient(c.id) }}
+                        title="Remove client"
+                        style={{
+                          display: isHovered ? 'flex' : 'none',
+                          position: 'absolute', top: -6, right: -6,
+                          width: 14, height: 14, alignItems: 'center', justifyContent: 'center',
+                          background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%',
+                          fontSize: 9, cursor: 'pointer', lineHeight: 1, fontWeight: 700, zIndex: 10,
+                          padding: 0,
+                        }}
+                      >×</button>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1026,37 +1114,6 @@ export default function QuarterGridV3() {
         </div>
       )}
 
-      {/* ─── Export Modal ─────────────────────────────────────────────────────── */}
-      {exportModal && (
-        <div
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
-          onClick={() => setExportModal(false)}
-        >
-          <div
-            style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 12, width: "100%", maxWidth: 680, maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: "1px solid #334155", background: "#0f172a" }}>
-              <div>
-                <span style={{ fontSize: 13, fontWeight: 500, color: "#f1f5f9", fontFamily: "'DM Mono',monospace" }}>Export — Teamwork-Ready JSON</span>
-                <div style={{ fontSize: 10, color: "#475569", marginTop: 2, fontFamily: "'DM Mono',monospace" }}>
-                  Fields: client · priority · status · note · week · weekStart · weekEnd · slotDay · dueDate · completed
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={copyExport} style={{ padding: "5px 14px", background: "#059669", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "'DM Mono',monospace", fontWeight: 500 }}>📋 Copy</button>
-                <button onClick={() => setExportModal(false)} style={{ padding: "5px 10px", background: "transparent", color: "#64748b", border: "1px solid #334155", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>✕</button>
-              </div>
-            </div>
-            <pre style={{ flex: 1, overflowY: "auto", margin: 0, padding: 16, fontSize: 11, lineHeight: 1.6, color: "#a3e635", background: "#0a0f1a", fontFamily: "'DM Mono','Courier New',monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-              {exportText}
-            </pre>
-            <div style={{ padding: "10px 18px", borderTop: "1px solid #334155", background: "#0f172a", fontSize: 10, color: "#475569", fontFamily: "'DM Mono',monospace" }}>
-              Tip: paste this into a new chat with the Teamwork MCP connected — ask it to create tasklists from a template under each client&apos;s SEO project, using <code style={{ color: "#94a3b8" }}>dueDate</code> for due dates and <code style={{ color: "#94a3b8" }}>client</code> to match the project name.
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
