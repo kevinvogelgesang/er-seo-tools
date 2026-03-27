@@ -127,6 +127,13 @@ const ISSUE_RECOMMENDATIONS: Record<string, string> = {
   // Anchor Text (additional)
   non_descriptive_anchor_text: 'Replace {count} non-descriptive anchor texts (e.g., "click here", "read more") with keyword-rich, descriptive anchors.',
   single_anchor_variation: 'Diversify anchor text for {count} pages that only receive links with a single anchor text variation.',
+
+  // NEW — Accessibility
+  accessibility_errors: 'CRITICAL: Fix WCAG accessibility errors on {count} pages to meet legal compliance and improve usability for all users.',
+  accessibility_alerts: 'Review WCAG accessibility warnings on {count} pages to improve usability and compliance.',
+
+  // NEW — Images
+  images_missing_dimensions: 'Add width/height attributes to {count} images to prevent Cumulative Layout Shift (CLS) and improve Core Web Vitals.',
 };
 
 export class AggregatorService {
@@ -227,6 +234,17 @@ export class AggregatorService {
     if (depth) {
       summary.avg_crawl_depth = depth.avg_depth || 0;
       summary.max_crawl_depth = depth.max_depth || 0;
+    }
+
+    // NEW — Link Score average (if column was present in the crawl)
+    const linkScore = internal.link_score as Record<string, number> | undefined;
+    if (linkScore) {
+      summary.avg_link_score = linkScore.avg_link_score || 0;
+    }
+
+    // NEW — pages under 300 words (surfaced from content_metrics)
+    if (content) {
+      summary.pages_under_300_words = (content.thin_content_count as number) || 0;
     }
 
     return summary;
@@ -361,6 +379,52 @@ export class AggregatorService {
       }
     }
 
+    // NEW — Accessibility: critical errors surfaced separately from generic issue pass
+    const accessibilityData = this.parsedData.accessibility as Record<string, unknown> | undefined;
+    if (accessibilityData) {
+      const pagesWithErrors = (accessibilityData.pagesWithErrors as number) || 0;
+      if (pagesWithErrors > 0) {
+        critical.push({
+          type: 'accessibility_errors',
+          severity: 'critical',
+          count: pagesWithErrors,
+          description: `${pagesWithErrors} pages have critical WCAG accessibility errors`,
+          source: 'accessibility',
+        });
+      }
+    }
+
+    // NEW — Alt text coverage warning (< 80%)
+    const imagesData = this.parsedData.images as Record<string, unknown> | undefined;
+    if (imagesData) {
+      const stats = imagesData.stats as Record<string, number> | undefined;
+      if (stats) {
+        const altCoverage = stats.alt_coverage_percent;
+        if (altCoverage !== undefined && altCoverage < 80) {
+          const missingAlt = stats.missing_alt || 0;
+          warnings.push({
+            type: 'missing_alt_text',
+            severity: 'warning',
+            count: missingAlt,
+            description: `Alt text coverage is ${altCoverage}% — ${missingAlt} images missing alt text`,
+            source: 'images',
+          });
+        }
+
+        // NEW — Missing image dimensions as a notice
+        const missingDims = stats.missing_dimensions;
+        if (missingDims !== undefined && missingDims > 0) {
+          notices.push({
+            type: 'images_missing_dimensions',
+            severity: 'notice',
+            count: missingDims,
+            description: `${missingDims} images missing width/height attributes (layout shift risk)`,
+            source: 'images',
+          });
+        }
+      }
+    }
+
     return {
       critical: dedupeIssues(critical),
       warnings: dedupeIssues(warnings),
@@ -469,6 +533,17 @@ export class AggregatorService {
       };
     }
 
+    // NEW — Accessibility summary
+    const accessibility = this.parsedData.accessibility as Record<string, unknown> | undefined;
+    if (accessibility) {
+      resources.accessibility = {
+        total_pages: (accessibility.totalPages as number) || 0,
+        pages_with_errors: (accessibility.pagesWithErrors as number) || 0,
+        pages_with_alerts: (accessibility.pagesWithAlerts as number) || 0,
+        error_rate: (accessibility.errorRate as number) || 0,
+      };
+    }
+
     return resources;
   }
 
@@ -481,11 +556,14 @@ export class AggregatorService {
       technical.robots_directives = directives.stats;
     }
 
-    // Canonicals
+    // Canonicals — NEW: include self-referencing, non-self, and missing counts
     const canonicals = this.parsedData.canonicals as Record<string, unknown> | undefined;
     if (canonicals) {
       technical.canonicals = {
-        total_pages: canonicals.total_pages || 0,
+        total_pages: (canonicals.total_pages as number) || 0,
+        self_referencing: (canonicals.self_referencing_count as number) || undefined, // NEW
+        non_self_canonical: (canonicals.non_self_canonical_count as number) || undefined, // NEW
+        missing_canonical: (canonicals.missing_canonical_count as number) || undefined, // NEW
       };
     }
 

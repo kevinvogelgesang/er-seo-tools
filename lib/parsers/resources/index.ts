@@ -7,3 +7,4 @@ export { SecurityParser, InsecureContentParser } from './security.parser';
 export { SitemapsParser, OrphanPagesParser } from './sitemaps.parser';
 export { AnchorTextParser } from './anchorText.parser';
 export { LinksIssuesParser } from './links.parser';
+export { AccessibilityParser } from './accessibility.parser'; // NEW

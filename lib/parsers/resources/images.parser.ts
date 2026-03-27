@@ -15,15 +15,18 @@ export class ImagesParser extends BaseParser {
     const altTextCol = this.findColumn(['Alt Text', 'Alt']);
     const sizeCol = this.findColumn(['Size (Bytes)', 'Size', 'File Size']);
     const statusCol = this.findColumn(['Status Code', 'Status']);
+    const widthCol = this.findColumn(['Width', 'img width', 'Image Width']); // NEW
+    const heightCol = this.findColumn(['Height', 'img height', 'Image Height']); // NEW
 
     const issues: Issue[] = [];
     let totalImages = this.length;
     const stats: Record<string, number> = {};
 
-    // Missing alt text
+    // Missing alt text + coverage percentage
     if (altTextCol) {
       const missingAltUrls: string[] = [];
       let missingAltCount = 0;
+      let imagesWithAlt = 0;
 
       for (let i = 0; i < this.data.length; i++) {
         const alt = toString(this.data[i][altTextCol]);
@@ -32,16 +35,25 @@ export class ImagesParser extends BaseParser {
           if (addressCol && missingAltUrls.length < 30) {
             missingAltUrls.push(toString(this.data[i][addressCol]));
           }
+        } else {
+          imagesWithAlt++;
         }
       }
 
       stats.missing_alt = missingAltCount;
+      // NEW — alt text coverage percentage
+      const altCoveragePercent = totalImages > 0
+        ? Math.round((imagesWithAlt / totalImages) * 1000) / 10
+        : 100;
+      stats.alt_coverage_percent = altCoveragePercent;
+      stats.images_with_alt = imagesWithAlt; // NEW
+
       if (missingAltCount > 0) {
         issues.push({
           type: 'missing_alt_text',
-          severity: 'warning',
+          severity: altCoveragePercent < 80 ? 'warning' : 'notice', // NEW — escalate severity if < 80% coverage
           count: missingAltCount,
-          description: `${missingAltCount} images missing alt text`,
+          description: `${missingAltCount} images missing alt text (${altCoveragePercent}% coverage)`,
           urls: missingAltUrls,
         });
       }
@@ -118,6 +130,37 @@ export class ImagesParser extends BaseParser {
           count: brokenCount,
           description: `${brokenCount} broken images (4xx/5xx)`,
           urls: brokenUrls,
+        });
+      }
+    }
+
+    // NEW — Images missing Width or Height attributes (layout shift risk)
+    if (widthCol || heightCol) {
+      const missingDimsUrls: string[] = [];
+      let missingDimsCount = 0;
+
+      for (let i = 0; i < this.data.length; i++) {
+        const width = widthCol ? toString(this.data[i][widthCol]) : null;
+        const height = heightCol ? toString(this.data[i][heightCol]) : null;
+        const missingWidth = widthCol && (!width || width === '0');
+        const missingHeight = heightCol && (!height || height === '0');
+
+        if (missingWidth || missingHeight) {
+          missingDimsCount++;
+          if (addressCol && missingDimsUrls.length < 30) {
+            missingDimsUrls.push(toString(this.data[i][addressCol]));
+          }
+        }
+      }
+
+      stats.missing_dimensions = missingDimsCount; // NEW
+      if (missingDimsCount > 0) {
+        issues.push({
+          type: 'images_missing_dimensions',
+          severity: 'notice',
+          count: missingDimsCount,
+          description: `${missingDimsCount} images missing width/height attributes (layout shift risk)`,
+          urls: missingDimsUrls,
         });
       }
     }

@@ -25,16 +25,7 @@ const tools: NavTool[] = [
       { name: 'Compare Crawls', href: '/seo-parser/diff' },
     ],
   },
-  {
-    name: 'Quarter Grid',
-    href: '/quarter-grid',
-    dropdown: [
-      { name: 'All Versions', href: '/quarter-grid', description: 'Choose your version' },
-      { name: 'Version 1', href: '/quarter-grid/v1' },
-      { name: 'Version 2', href: '/quarter-grid/v2' },
-      { name: 'Version 3', href: '/quarter-grid/v3' },
-    ],
-  },
+  { name: 'Quarter Grid', href: '/quarter-grid' },
   { name: 'RankMath Redirects', href: '/rankmath-redirects' },
   { name: 'Robots Validator', href: '/robots-validator' },
 ]
@@ -68,6 +59,18 @@ export default function Nav() {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function scheduleClose() {
+    closeTimer.current = setTimeout(() => setOpenDropdown(null), 150)
+  }
+
+  function cancelClose() {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -78,6 +81,11 @@ export default function Nav() {
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  // Clean up close timer on unmount
+  useEffect(() => {
+    return () => { if (closeTimer.current) clearTimeout(closeTimer.current) }
   }, [])
 
   // Close mobile menu on route change
@@ -122,8 +130,8 @@ export default function Nav() {
                 return (
                   <div key={tool.href} className="relative">
                     <button
-                      onMouseEnter={() => setOpenDropdown(tool.name)}
-                      onMouseLeave={() => setOpenDropdown(null)}
+                      onMouseEnter={() => { cancelClose(); setOpenDropdown(tool.name) }}
+                      onMouseLeave={scheduleClose}
                       onClick={() => setOpenDropdown(openDropdown === tool.name ? null : tool.name)}
                       className={`flex items-center gap-1.5 px-4 py-2 text-[14px] font-body rounded-md transition-colors duration-150 ${
                         active
@@ -142,9 +150,9 @@ export default function Nav() {
                     {/* Dropdown */}
                     {openDropdown === tool.name && (
                       <div
-                        className="nav-dropdown absolute top-[calc(100%+4px)] left-0 w-48"
-                        onMouseEnter={() => setOpenDropdown(tool.name)}
-                        onMouseLeave={() => setOpenDropdown(null)}
+                        className="nav-dropdown absolute top-full left-0 w-48"
+                        onMouseEnter={cancelClose}
+                        onMouseLeave={scheduleClose}
                       >
                         <div className="bg-navy-deep border border-navy-border rounded-lg shadow-2xl py-1.5 overflow-hidden">
                           {tool.dropdown.map((item, i) => (

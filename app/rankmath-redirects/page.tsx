@@ -2,72 +2,55 @@
 
 import { useState } from 'react'
 
-// ── Design tokens ────────────────────────────────────────────────────────────
-const T = {
-  bg:      '#0d0f14',
-  surface: '#141720',
-  border:  '#1e2330',
-  accent:  '#00e5a0',
-  accent2: '#4d7cff',
-  warn:    '#ffb340',
-  danger:  '#ff5f57',
-  text:    '#c8cdd8',
-  muted:   '#5a6070',
-  heading: '#f0f2f5',
-  codeBg:  '#0a0c10',
-}
-
 // ── Sub-components ───────────────────────────────────────────────────────────
 
 function Callout({ type, icon, children }: { type: 'warn' | 'info' | 'success' | 'danger'; icon: string; children: React.ReactNode }) {
-  const styles: Record<string, { bg: string; border: string; color: string }> = {
-    warn:    { bg: 'rgba(255,179,64,0.08)',  border: 'rgba(255,179,64,0.25)',  color: T.warn },
-    info:    { bg: 'rgba(77,124,255,0.08)',  border: 'rgba(77,124,255,0.25)',  color: T.accent2 },
-    success: { bg: 'rgba(0,229,160,0.07)',   border: 'rgba(0,229,160,0.2)',    color: T.accent },
-    danger:  { bg: 'rgba(255,95,87,0.08)',   border: 'rgba(255,95,87,0.25)',   color: T.danger },
+  const styles: Record<string, string> = {
+    warn:    'border-l-4 border-amber-500 bg-amber-500/10 text-amber-200',
+    info:    'border-l-4 border-blue-500 bg-blue-500/10 text-blue-200',
+    success: 'border-l-4 border-orange bg-orange/10 text-orange/90',
+    danger:  'border-l-4 border-red-500 bg-red-500/10 text-red-200',
   }
-  const s = styles[type]
   return (
-    <div style={{ borderRadius: 6, padding: '12px 16px', fontSize: 12, display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 12, background: s.bg, border: `1px solid ${s.border}`, color: s.color }}>
-      <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{icon}</span>
-      <span style={{ lineHeight: 1.5, fontFamily: "'JetBrains Mono', monospace" }}>{children}</span>
+    <div className={`flex gap-3 items-start rounded-r-lg px-4 py-3 mt-3 text-[12px] leading-relaxed font-mono ${styles[type]}`}>
+      <span className="text-[14px] flex-shrink-0 mt-0.5">{icon}</span>
+      <span className="leading-relaxed">{children}</span>
     </div>
   )
 }
 
 function StepNum({ n, variant = 'green' }: { n: string | number; variant?: 'green' | 'blue' | 'warn' | 'purple' | 'danger' }) {
   const bg: Record<string, string> = {
-    green:  T.accent,
-    blue:   T.accent2,
-    warn:   T.warn,
-    purple: '#9d6fff',
-    danger: T.danger,
-  }
-  const color: Record<string, string> = {
-    green: '#000', blue: '#fff', warn: '#000', purple: '#fff', danger: '#fff',
+    green:  'bg-orange text-navy-deep',
+    blue:   'bg-blue-500 text-white',
+    warn:   'bg-amber-400 text-navy-deep',
+    purple: 'bg-purple-500 text-white',
+    danger: 'bg-red-500 text-white',
   }
   return (
-    <div style={{
-      width: 28, height: 28, borderRadius: '50%', background: bg[variant], color: color[variant],
-      fontFamily: "'JetBrains Mono', monospace", fontSize: 12, fontWeight: 700,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-    }}>{n}</div>
+    <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-mono text-[11px] font-bold ${bg[variant]}`}>
+      {n}
+    </div>
   )
 }
 
 function SectionHeader({ step, variant, title, phase }: { step: string | number; variant?: 'green' | 'blue' | 'warn' | 'purple' | 'danger'; title: string; phase?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+    <div className="flex items-center gap-3 mb-4">
       <StepNum n={step} variant={variant} />
-      <h2 style={{ fontSize: 16, fontWeight: 700, color: T.heading, margin: 0 }}>{title}</h2>
-      {phase && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: T.muted, marginLeft: 'auto', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{phase}</span>}
+      <h2 className="text-[16px] font-display font-bold text-white m-0">{title}</h2>
+      {phase && (
+        <span className="font-mono text-[10px] text-white/40 ml-auto tracking-widest uppercase">
+          {phase}
+        </span>
+      )}
     </div>
   )
 }
 
 function PhaseBanner({ text }: { text: string }) {
   return (
-    <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: T.muted, padding: '6px 0 16px 0', borderTop: `1px solid ${T.border}`, marginBottom: 24 }}>
+    <div className="font-mono text-[10px] tracking-[0.15em] uppercase text-white/40 pt-1.5 pb-4 border-t border-navy-border mb-6">
       {text}
     </div>
   )
@@ -75,8 +58,10 @@ function PhaseBanner({ text }: { text: string }) {
 
 function Divider() {
   return (
-    <div style={{ position: 'relative', height: 1, background: T.border, margin: '40px 0' }}>
-      <span style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: T.bg, color: T.border, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: '0 12px' }}>//</span>
+    <div className="relative h-px bg-navy-border my-10">
+      <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-navy text-navy-border font-mono text-[11px] px-3">
+        //
+      </span>
     </div>
   )
 }
@@ -92,17 +77,23 @@ function CodeBlock({ label, children }: { label: string; children: React.ReactNo
     })
   }
   return (
-    <div style={{ background: T.codeBg, border: `1px solid ${T.border}`, borderRadius: 6, marginTop: 10, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', borderBottom: `1px solid ${T.border}`, background: '#0f1118' }}>
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: T.muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</span>
+    <div className="rounded-lg bg-[#0a0c10] border border-navy-border mt-3 overflow-hidden">
+      <div className="flex justify-between items-center px-4 py-2 border-b border-navy-border bg-[#0f1118]">
+        <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase">{label}</span>
         <button
           onClick={handleCopy}
-          style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: copied ? T.accent : T.muted, background: 'none', border: `1px solid ${copied ? T.accent : T.border}`, borderRadius: 4, padding: '3px 10px', cursor: 'pointer', transition: 'all 0.15s', letterSpacing: '0.05em' }}
-        >{copied ? 'copied!' : 'copy'}</button>
+          className={`font-mono text-[10px] bg-transparent border rounded px-2.5 py-0.5 cursor-pointer transition-all duration-150 tracking-wide ${
+            copied
+              ? 'text-orange border-orange'
+              : 'text-white/40 border-navy-border hover:text-white/60'
+          }`}
+        >
+          {copied ? 'copied!' : 'copy'}
+        </button>
       </div>
       <pre
         id={`code-${label.replace(/\s+/g, '-')}`}
-        style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, lineHeight: 1.7, padding: 16, color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}
+        className="font-mono text-[12px] leading-relaxed p-4 text-white/70 whitespace-pre-wrap break-all m-0"
       >{children}</pre>
     </div>
   )
@@ -117,15 +108,21 @@ function PromptBox({ id, label, children }: { id: string; label: string; childre
     })
   }
   return (
-    <div style={{ background: T.codeBg, border: '1px solid #9d6fff44', borderRadius: 6, overflow: 'hidden', marginTop: 10 }} id={id}>
-      <div style={{ background: '#1a1228', borderBottom: '1px solid #9d6fff33', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#9d6fff', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</span>
+    <div className="border border-purple-500/30 bg-purple-500/10 rounded-lg overflow-hidden mt-3" id={id}>
+      <div className="bg-purple-900/30 border-b border-purple-500/20 px-4 py-2 flex justify-between items-center">
+        <span className="font-mono text-[10px] text-purple-400 tracking-widest uppercase">{label}</span>
         <button
           onClick={handleCopy}
-          style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: copied ? '#9d6fff' : T.muted, background: 'none', border: `1px solid ${copied ? '#9d6fff' : '#9d6fff44'}`, borderRadius: 4, padding: '3px 10px', cursor: 'pointer', transition: 'all 0.15s' }}
-        >{copied ? 'copied!' : 'copy'}</button>
+          className={`font-mono text-[10px] bg-transparent border rounded px-2.5 py-0.5 cursor-pointer transition-all duration-150 ${
+            copied
+              ? 'text-purple-400 border-purple-400'
+              : 'text-white/40 border-purple-500/30 hover:text-purple-400'
+          }`}
+        >
+          {copied ? 'copied!' : 'copy'}
+        </button>
       </div>
-      <pre style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, lineHeight: 1.8, padding: 16, color: T.text, whiteSpace: 'pre-wrap', margin: 0 }}>{children}</pre>
+      <pre className="font-mono text-[12px] leading-[1.8] p-4 text-white/70 whitespace-pre-wrap m-0">{children}</pre>
     </div>
   )
 }
@@ -138,20 +135,22 @@ function VarTable() {
     { name: 'SSH_USER',   example: 'discovery',                 note: 'RunCloud → SSH credentials' },
   ]
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, marginTop: 4 }}>
+    <table className="w-full border-collapse font-mono text-[12px] mt-1">
       <thead>
         <tr>
-          {['Variable','Example','How to find it'].map(h => (
-            <th key={h} style={{ textAlign: 'left', color: T.muted, fontWeight: 400, letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: 10, padding: '6px 10px', borderBottom: `1px solid ${T.border}` }}>{h}</th>
+          {['Variable', 'Example', 'How to find it'].map(h => (
+            <th key={h} className="text-left text-white/40 font-normal tracking-widest uppercase text-[10px] px-2.5 py-1.5 border-b border-navy-border">
+              {h}
+            </th>
           ))}
         </tr>
       </thead>
       <tbody>
         {rows.map(r => (
           <tr key={r.name}>
-            <td style={{ padding: '8px 10px', borderBottom: `1px solid ${T.border}`, color: T.accent2 }}>{r.name}</td>
-            <td style={{ padding: '8px 10px', borderBottom: `1px solid ${T.border}`, color: T.accent }}>{r.example}</td>
-            <td style={{ padding: '8px 10px', borderBottom: `1px solid ${T.border}`, color: T.muted, fontSize: 11 }}>{r.note}</td>
+            <td className="px-2.5 py-2 border-b border-navy-border text-blue-400">{r.name}</td>
+            <td className="px-2.5 py-2 border-b border-navy-border text-orange">{r.example}</td>
+            <td className="px-2.5 py-2 border-b border-navy-border text-white/40 text-[11px]">{r.note}</td>
           </tr>
         ))}
       </tbody>
@@ -159,14 +158,21 @@ function VarTable() {
   )
 }
 
-const card = (children: React.ReactNode) => (
-  <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
-    {children}
-  </div>
-)
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-navy-card border border-navy-border rounded-xl p-5">
+      {children}
+    </div>
+  )
+}
 
-const p = (text: React.ReactNode) => <p style={{ marginBottom: 12, fontSize: 13 }}>{text}</p>
-const sub = (text: string) => <p style={{ color: T.heading, fontSize: 12, marginBottom: 4, marginTop: 14 }}>{text}</p>
+function P({ children }: { children: React.ReactNode }) {
+  return <p className="mb-3 text-[13px] text-white/70 font-body">{children}</p>
+}
+
+function Sub({ children }: { children: string }) {
+  return <p className="text-white text-[12px] mb-1 mt-3.5 font-body font-semibold">{children}</p>
+}
 
 // ── Prompt templates ─────────────────────────────────────────────────────────
 const PROMPT_A = `You are a WordPress redirect specialist. Generate a SQL INSERT file for Rank Math's wp_rank_math_redirections table.
@@ -211,287 +217,289 @@ export default function RankMathRedirectsPage() {
   }
 
   return (
-    <div style={{ background: T.bg, color: T.text, fontFamily: "'Syne', sans-serif", fontSize: 14, lineHeight: 1.6, padding: '48px 24px', maxWidth: 960, margin: '0 auto' }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
-      `}</style>
+    <div className="min-h-screen bg-navy text-white/70 font-body text-[14px] leading-relaxed py-12 px-6">
+      <div className="max-w-[960px] mx-auto">
 
-      {/* Header */}
-      <header style={{ borderLeft: `3px solid ${T.accent}`, paddingLeft: 20, marginBottom: 36 }}>
-        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: T.accent, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 6 }}>
-          // enrollment resources — internal tooling
+        {/* Header */}
+        <header className="border-l-[3px] border-orange pl-5 mb-9">
+          <div className="font-mono text-[11px] text-orange tracking-[0.15em] uppercase mb-1.5">
+            // enrollment resources — internal tooling
+          </div>
+          <h1 className="font-display text-[32px] font-extrabold text-white leading-tight mb-2">
+            Rank Math Bulk Redirects<br />via WP-CLI + SQL
+          </h1>
+          <p className="text-white/40 font-mono text-[12px]">
+            rankmath free &nbsp;·&nbsp; runcloud servers &nbsp;·&nbsp; wp_rank_math_redirections
+          </p>
+        </header>
+
+        {/* Workflow Toggle */}
+        <div className="flex bg-navy-card border border-navy-border rounded-lg p-1 mb-10 w-fit gap-0">
+          <button
+            onClick={() => switchWorkflow('a')}
+            className={`font-mono text-[11px] tracking-[0.08em] uppercase px-5 py-2.5 border-none rounded-md cursor-pointer transition-all duration-200 ${
+              workflow === 'a'
+                ? 'bg-orange text-navy-deep font-bold'
+                : 'bg-transparent text-white/40 font-normal hover:text-white/60'
+            }`}
+          >
+            Workflow A — Fresh Redirects
+          </button>
+          <button
+            onClick={() => switchWorkflow('b')}
+            className={`font-mono text-[11px] tracking-[0.08em] uppercase px-5 py-2.5 border-none rounded-md cursor-pointer transition-all duration-200 ${
+              workflow === 'b'
+                ? 'bg-blue-500 text-white font-bold'
+                : 'bg-transparent text-white/40 font-normal hover:text-white/60'
+            }`}
+          >
+            Workflow B — Migrate from Safe Redirect Manager
+          </button>
         </div>
-        <h1 style={{ fontSize: 32, fontWeight: 800, color: T.heading, lineHeight: 1.1, marginBottom: 8 }}>
-          Rank Math Bulk Redirects<br />via WP-CLI + SQL
-        </h1>
-        <p style={{ color: T.muted, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
-          rankmath free &nbsp;·&nbsp; runcloud servers &nbsp;·&nbsp; wp_rank_math_redirections
-        </p>
-      </header>
 
-      {/* Workflow Toggle */}
-      <div style={{ display: 'flex', background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 4, marginBottom: 40, width: 'fit-content', gap: 0 }}>
-        <button
-          onClick={() => switchWorkflow('a')}
-          style={{
-            fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
-            padding: '10px 22px', border: 'none', borderRadius: 5, cursor: 'pointer', transition: 'all 0.2s',
-            background: workflow === 'a' ? T.accent : 'transparent',
-            color: workflow === 'a' ? '#000' : T.muted,
-            fontWeight: workflow === 'a' ? 700 : 400,
-          }}
-        >Workflow A — Fresh Redirects</button>
-        <button
-          onClick={() => switchWorkflow('b')}
-          style={{
-            fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
-            padding: '10px 22px', border: 'none', borderRadius: 5, cursor: 'pointer', transition: 'all 0.2s',
-            background: workflow === 'b' ? T.accent2 : 'transparent',
-            color: workflow === 'b' ? '#fff' : T.muted,
-            fontWeight: workflow === 'b' ? 700 : 400,
-          }}
-        >Workflow B — Migrate from Safe Redirect Manager</button>
+        {/* ── WORKFLOW A ── */}
+        {workflow === 'a' && (
+          <div>
+            <PhaseBanner text="— phase 01   pre-flight checks" />
+
+            <div className="mb-9">
+              <SectionHeader step="!" variant="warn" title="Gather Site Variables First" phase="Before anything" />
+              <Card>
+                <P>Confirm these values before running any commands. Swap them in wherever you see placeholders below.</P>
+                <VarTable />
+                <Callout type="warn" icon="⚠">Most sites use <strong>wp_</strong> but custom prefixes break the table name. Always confirm with <strong>wp db prefix</strong> before running SQL.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 02   generate the sql file" />
+
+            <div className="mb-9">
+              <SectionHeader step="AI" variant="purple" title="Generate SQL with Claude" phase="Prep" />
+              <Card>
+                <P>Use the prompt template below each time. Claude will generate a correctly serialized <code className="text-orange font-mono">.sql</code> file — the serialized <code className="text-orange font-mono">sources</code> field is critical and must be generated, not written by hand.</P>
+                <PromptBox id="prompt-a" label="// claude prompt template">{PROMPT_A}</PromptBox>
+                <Callout type="info" icon="ℹ">Never hand-write the serialized <strong>sources</strong> value. The byte-length numbers (s:29:) must exactly match the string — even one character off breaks the redirect silently.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 03   transfer file to server" />
+
+            <div className="mb-9">
+              <SectionHeader step={1} title="Upload the .sql File" phase="Transfer" />
+              <Card>
+                <P>Choose one method:</P>
+                <Sub>Option A — SCP (recommended, from your local machine)</Sub>
+                <CodeBlock label="terminal — local machine">{'scp /path/to/redirects.sql [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
+                <Sub>Option B — Paste directly on server via SSH</Sub>
+                <CodeBlock label="step 1 — ssh in and navigate">{'ssh [SSH_USER]@[SERVER_IP]\ncd /home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
+                <CodeBlock label="step 2 — create and open the file">{'nano redirects.sql'}</CodeBlock>
+                <Callout type="info" icon="ℹ">Paste your SQL content into nano, then save: <strong>Ctrl+X</strong> → <strong>Y</strong> → <strong>Enter</strong></Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 04   execute" />
+
+            <div className="mb-9">
+              <SectionHeader step={2} title="SSH In & Navigate to Site Root" phase="Execute" />
+              <Card>
+                <CodeBlock label="terminal">{'ssh [SSH_USER]@[SERVER_IP]\ncd /home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
+                <Callout type="info" icon="ℹ">Skip this step if you used Option B above — you&apos;re already in the right directory.</Callout>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <SectionHeader step={3} title="Run the SQL Import" phase="Execute" />
+              <Card>
+                <CodeBlock label="wp-cli">{'wp db query < redirects.sql'}</CodeBlock>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <SectionHeader step={4} title="Clear the Redirect Cache" phase="Execute" />
+              <Card>
+                <CodeBlock label="wp-cli">{'wp transient delete --all'}</CodeBlock>
+                <Callout type="warn" icon="⚠">Don&apos;t skip this. Without clearing the cache, redirects may not fire immediately even if the DB rows are correct.</Callout>
+                <Sub>Then flush the site cache from WP Admin:</Sub>
+                <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 05   verify" />
+
+            <div className="mb-9">
+              <SectionHeader step={5} variant="blue" title="Verify the Rows Were Inserted" phase="Verify" />
+              <Card>
+                <CodeBlock label="wp-cli — check all redirects">{'wp db query "SELECT id, url_to, header_code, status FROM [DB_PREFIX]rank_math_redirections;"'}</CodeBlock>
+                <CodeBlock label="wp-cli — check for any remaining 302s">{'wp db query "SELECT id, url_to, header_code FROM [DB_PREFIX]rank_math_redirections WHERE header_code != 301;"'}</CodeBlock>
+                <CodeBlock label="terminal — spot-check a live redirect">{'curl -I https://[SITE_DOMAIN]/[old-url-path]/\n# Look for: HTTP/2 301 and Location: https://[SITE_DOMAIN]/[new-url-path]/'}</CodeBlock>
+                <Callout type="success" icon="✓">Also confirm in WP Admin → Rank Math → Redirections. All rows should appear as active 301s.</Callout>
+              </Card>
+            </div>
+
+            <Divider />
+
+            <div className="mb-9">
+              <SectionHeader step="↻" variant="warn" title="Fix Accidental 302s (if needed)" phase="Cleanup" />
+              <Card>
+                <P>If the DB query above shows any 302s that should be 301s, bulk-update them in one command:</P>
+                <CodeBlock label="wp-cli — bulk fix 302 → 301">{'wp db query "UPDATE [DB_PREFIX]rank_math_redirections SET header_code = 301 WHERE header_code = 302;"'}</CodeBlock>
+                <CodeBlock label="wp-cli — clear cache after update">{'wp transient delete --all'}</CodeBlock>
+                <Sub>Then flush the site cache from WP Admin:</Sub>
+                <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* ── WORKFLOW B ── */}
+        {workflow === 'b' && (
+          <div>
+            <Callout type="info" icon="ℹ">
+              Use this workflow when a site already has redirects stored in <strong>Safe Redirect Manager</strong> that need to be migrated into Rank Math. The Redirection plugin acts as a temporary bridge — it imports from Safe Redirect Manager, exports to CSV, and then both plugins are removed once the SQL is in Rank Math.
+            </Callout>
+            <div className="mt-8" />
+
+            <PhaseBanner text="— phase 01   pre-flight checks" />
+
+            <div className="mb-9">
+              <SectionHeader step="!" variant="warn" title="Gather Site Variables First" phase="Before anything" />
+              <Card>
+                <P>Same as Workflow A — confirm these before running any commands.</P>
+                <VarTable />
+                <Callout type="warn" icon="⚠">Most sites use <strong>wp_</strong> but custom prefixes break the table name. Always confirm with <strong>wp db prefix</strong> before running SQL.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 02   install redirection plugin" />
+
+            <div className="mb-9">
+              <SectionHeader step={1} title="SSH In & Install Redirection via WP-CLI" phase="SSH" />
+              <Card>
+                <CodeBlock label="step 1 — ssh in and navigate">{'ssh [SSH_USER]@[SERVER_IP]\ncd /home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
+                <CodeBlock label="step 2 — install and activate the plugin">{'wp plugin install redirection --activate'}</CodeBlock>
+                <Callout type="danger" icon="⚠">This plugin is <strong>temporary</strong> — it will be removed at the end of this workflow. Do not leave it active on client sites.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 03   import from safe redirect manager" />
+
+            <div className="mb-9">
+              <SectionHeader step={2} title="Import Redirects from Safe Redirect Manager" phase="SSH" />
+              <Card>
+                <CodeBlock label="wp-cli — run the import">{'wp redirection import plugin safe-redirect-manager'}</CodeBlock>
+                <Callout type="warn" icon="⚠">If this command returns an error or isn&apos;t recognised, fall back to WP Admin → <strong>Tools → Redirection → Import/Export → Import from plugin → Safe Redirect Manager</strong>. CLI import availability depends on the installed version of Redirection.</Callout>
+                <Callout type="success" icon="✓">After importing, spot-check the redirect count makes sense before proceeding to export.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 04   export from redirection" />
+
+            <div className="mb-9">
+              <SectionHeader step={3} title="Export Redirects to CSV" phase="SSH" />
+              <Card>
+                <CodeBlock label="wp-cli — export all redirects to csv">{'wp redirection list --format=csv > redirects_export.csv'}</CodeBlock>
+                <CodeBlock label="terminal — copy the csv down to your local machine">{'scp [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/redirects_export.csv ~/Desktop/'}</CodeBlock>
+                <Callout type="info" icon="ℹ">Open the CSV locally and confirm the <strong>source</strong> and <strong>url</strong> columns look correct before pasting into the Claude prompt.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 05   generate the sql file" />
+
+            <div className="mb-9">
+              <SectionHeader step="AI" variant="purple" title="Generate SQL with Claude" phase="Prep" />
+              <Card>
+                <P>Use the prompt template below. Paste the contents of your exported CSV directly into the prompt.</P>
+                <PromptBox id="prompt-b" label="// claude prompt template">{PROMPT_B}</PromptBox>
+                <Callout type="info" icon="ℹ">Never hand-write the serialized <strong>sources</strong> value. The byte-length numbers (s:29:) must exactly match the string — even one character off breaks the redirect silently.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 06   transfer sql file to server" />
+
+            <div className="mb-9">
+              <SectionHeader step={4} title="Upload the .sql File" phase="Transfer" />
+              <Card>
+                <P>Choose one method:</P>
+                <Sub>Option A — SCP from your local machine</Sub>
+                <CodeBlock label="terminal — local machine">{'scp /path/to/redirects.sql [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
+                <Sub>Option B — Paste directly on the server (already SSH&apos;d in)</Sub>
+                <CodeBlock label="create and open the file">{'nano redirects.sql'}</CodeBlock>
+                <Callout type="info" icon="ℹ">Paste your SQL content into nano, then save: <strong>Ctrl+X</strong> → <strong>Y</strong> → <strong>Enter</strong></Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 07   execute" />
+
+            <div className="mb-9">
+              <SectionHeader step={5} title="Run the SQL Import" phase="Execute" />
+              <Card>
+                <Callout type="info" icon="ℹ">You should still be SSH&apos;d in from Phase 02. If your session timed out: <code>ssh [SSH_USER]@[SERVER_IP]</code> then <code>cd /home/runcloud/webapps/[SITE_NAME]/</code></Callout>
+                <CodeBlock label="wp-cli">{'wp db query < redirects.sql'}</CodeBlock>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <SectionHeader step={6} title="Clear the Redirect Cache" phase="Execute" />
+              <Card>
+                <CodeBlock label="wp-cli">{'wp transient delete --all'}</CodeBlock>
+                <Callout type="warn" icon="⚠">Don&apos;t skip this. Without clearing the cache, redirects may not fire immediately even if the DB rows are correct.</Callout>
+                <Sub>Then flush the site cache from WP Admin:</Sub>
+                <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 08   verify" />
+
+            <div className="mb-9">
+              <SectionHeader step={8} variant="blue" title="Verify the Rows Were Inserted" phase="Verify" />
+              <Card>
+                <CodeBlock label="wp-cli — check all redirects">{'wp db query "SELECT id, url_to, header_code, status FROM [DB_PREFIX]rank_math_redirections;"'}</CodeBlock>
+                <CodeBlock label="wp-cli — check for any remaining 302s">{'wp db query "SELECT id, url_to, header_code FROM [DB_PREFIX]rank_math_redirections WHERE header_code != 301;"'}</CodeBlock>
+                <CodeBlock label="terminal — spot-check a live redirect">{'curl -I https://[SITE_DOMAIN]/[old-url-path]/\n# Look for: HTTP/2 301 and Location: https://[SITE_DOMAIN]/[new-url-path]/'}</CodeBlock>
+                <Callout type="success" icon="✓">Also confirm in WP Admin → Rank Math → Redirections. All rows should appear as active 301s.</Callout>
+              </Card>
+            </div>
+
+            <PhaseBanner text="— phase 09   cleanup — remove temporary plugins" />
+
+            <div className="mb-9">
+              <SectionHeader step={9} variant="danger" title="Remove Redirection Plugin" phase="SSH" />
+              <Card>
+                <CodeBlock label="wp-cli — deactivate and delete">{'wp plugin deactivate redirection && wp plugin delete redirection'}</CodeBlock>
+                <Callout type="danger" icon="⚠">Do not leave Redirection active. It runs its own redirect logic and will conflict with Rank Math, causing duplicate or unexpected redirect behaviour.</Callout>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <SectionHeader step={10} variant="danger" title="Remove Safe Redirect Manager" phase="SSH" />
+              <Card>
+                <CodeBlock label="wp-cli — deactivate and delete">{'wp plugin deactivate safe-redirect-manager && wp plugin delete safe-redirect-manager'}</CodeBlock>
+                <Callout type="danger" icon="⚠">All redirects are now managed by Rank Math. Leaving Safe Redirect Manager active means two plugins are handling the same redirects — remove it entirely.</Callout>
+              </Card>
+            </div>
+
+            <Divider />
+
+            <div className="mb-9">
+              <SectionHeader step="↻" variant="warn" title="Fix Accidental 302s (if needed)" phase="Cleanup" />
+              <Card>
+                <P>If the DB query above shows any 302s that should be 301s, bulk-update them in one command:</P>
+                <CodeBlock label="wp-cli — bulk fix 302 → 301">{'wp db query "UPDATE [DB_PREFIX]rank_math_redirections SET header_code = 301 WHERE header_code = 302;"'}</CodeBlock>
+                <CodeBlock label="wp-cli — clear cache after update">{'wp transient delete --all'}</CodeBlock>
+                <Sub>Then flush the site cache from WP Admin:</Sub>
+                <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <footer className="mt-14 pt-5 border-t border-navy-border flex justify-between font-mono text-[10px] text-white/40">
+          <span>enrollment resources — internal tooling</span>
+          <span>rankmath free &nbsp;·&nbsp; runcloud &nbsp;·&nbsp; wp-cli</span>
+        </footer>
+
       </div>
-
-      {/* ── WORKFLOW A ── */}
-      {workflow === 'a' && (
-        <div>
-          <PhaseBanner text="— phase 01   pre-flight checks" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step="!" variant="warn" title="Gather Site Variables First" phase="Before anything" />
-            {card(<>
-              {p("Confirm these values before running any commands. Swap them in wherever you see placeholders below.")}
-              <VarTable />
-              <Callout type="warn" icon="⚠">Most sites use <strong>wp_</strong> but custom prefixes break the table name. Always confirm with <strong>wp db prefix</strong> before running SQL.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 02   generate the sql file" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step="AI" variant="purple" title="Generate SQL with Claude" phase="Prep" />
-            {card(<>
-              {p(<>Use the prompt template below each time. Claude will generate a correctly serialized <code style={{ color: T.accent, fontFamily: "'JetBrains Mono', monospace" }}>.sql</code> file — the serialized <code style={{ color: T.accent, fontFamily: "'JetBrains Mono', monospace" }}>sources</code> field is critical and must be generated, not written by hand.</>)}
-              <PromptBox id="prompt-a" label="// claude prompt template">{PROMPT_A}</PromptBox>
-              <Callout type="info" icon="ℹ">Never hand-write the serialized <strong>sources</strong> value. The byte-length numbers (s:29:) must exactly match the string — even one character off breaks the redirect silently.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 03   transfer file to server" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={1} title="Upload the .sql File" phase="Transfer" />
-            {card(<>
-              {p("Choose one method:")}
-              {sub("Option A — SCP (recommended, from your local machine)")}
-              <CodeBlock label="terminal — local machine">{'scp /path/to/redirects.sql [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
-              {sub("Option B — Paste directly on server via SSH")}
-              <CodeBlock label="step 1 — ssh in and navigate">{'ssh [SSH_USER]@[SERVER_IP]\ncd /home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
-              <CodeBlock label="step 2 — create and open the file">{'nano redirects.sql'}</CodeBlock>
-              <Callout type="info" icon="ℹ">Paste your SQL content into nano, then save: <strong>Ctrl+X</strong> → <strong>Y</strong> → <strong>Enter</strong></Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 04   execute" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={2} title="SSH In & Navigate to Site Root" phase="Execute" />
-            {card(<>
-              <CodeBlock label="terminal">{'ssh [SSH_USER]@[SERVER_IP]\ncd /home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
-              <Callout type="info" icon="ℹ">Skip this step if you used Option B above — you&apos;re already in the right directory.</Callout>
-            </>)}
-          </div>
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={3} title="Run the SQL Import" phase="Execute" />
-            {card(<CodeBlock label="wp-cli">{'wp db query < redirects.sql'}</CodeBlock>)}
-          </div>
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={4} title="Clear the Redirect Cache" phase="Execute" />
-            {card(<>
-              <CodeBlock label="wp-cli">{'wp transient delete --all'}</CodeBlock>
-              <Callout type="warn" icon="⚠">Don&apos;t skip this. Without clearing the cache, redirects may not fire immediately even if the DB rows are correct.</Callout>
-              {sub("Then flush the site cache from WP Admin:")}
-              <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 05   verify" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={5} variant="blue" title="Verify the Rows Were Inserted" phase="Verify" />
-            {card(<>
-              <CodeBlock label="wp-cli — check all redirects">{'wp db query "SELECT id, url_to, header_code, status FROM [DB_PREFIX]rank_math_redirections;"'}</CodeBlock>
-              <CodeBlock label="wp-cli — check for any remaining 302s">{'wp db query "SELECT id, url_to, header_code FROM [DB_PREFIX]rank_math_redirections WHERE header_code != 301;"'}</CodeBlock>
-              <CodeBlock label="terminal — spot-check a live redirect">{'curl -I https://[SITE_DOMAIN]/[old-url-path]/\n# Look for: HTTP/2 301 and Location: https://[SITE_DOMAIN]/[new-url-path]/'}</CodeBlock>
-              <Callout type="success" icon="✓">Also confirm in WP Admin → Rank Math → Redirections. All rows should appear as active 301s.</Callout>
-            </>)}
-          </div>
-
-          <Divider />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step="↻" variant="warn" title="Fix Accidental 302s (if needed)" phase="Cleanup" />
-            {card(<>
-              {p("If the DB query above shows any 302s that should be 301s, bulk-update them in one command:")}
-              <CodeBlock label="wp-cli — bulk fix 302 → 301">{'wp db query "UPDATE [DB_PREFIX]rank_math_redirections SET header_code = 301 WHERE header_code = 302;"'}</CodeBlock>
-              <CodeBlock label="wp-cli — clear cache after update">{'wp transient delete --all'}</CodeBlock>
-              {sub("Then flush the site cache from WP Admin:")}
-              <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
-            </>)}
-          </div>
-        </div>
-      )}
-
-      {/* ── WORKFLOW B ── */}
-      {workflow === 'b' && (
-        <div>
-          <Callout type="info" icon="ℹ">
-            Use this workflow when a site already has redirects stored in <strong>Safe Redirect Manager</strong> that need to be migrated into Rank Math. The Redirection plugin acts as a temporary bridge — it imports from Safe Redirect Manager, exports to CSV, and then both plugins are removed once the SQL is in Rank Math.
-          </Callout>
-          <div style={{ marginTop: 32 }} />
-
-          <PhaseBanner text="— phase 01   pre-flight checks" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step="!" variant="warn" title="Gather Site Variables First" phase="Before anything" />
-            {card(<>
-              {p("Same as Workflow A — confirm these before running any commands.")}
-              <VarTable />
-              <Callout type="warn" icon="⚠">Most sites use <strong>wp_</strong> but custom prefixes break the table name. Always confirm with <strong>wp db prefix</strong> before running SQL.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 02   install redirection plugin" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={1} title="SSH In & Install Redirection via WP-CLI" phase="SSH" />
-            {card(<>
-              <CodeBlock label="step 1 — ssh in and navigate">{'ssh [SSH_USER]@[SERVER_IP]\ncd /home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
-              <CodeBlock label="step 2 — install and activate the plugin">{'wp plugin install redirection --activate'}</CodeBlock>
-              <Callout type="danger" icon="⚠">This plugin is <strong>temporary</strong> — it will be removed at the end of this workflow. Do not leave it active on client sites.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 03   import from safe redirect manager" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={2} title="Import Redirects from Safe Redirect Manager" phase="SSH" />
-            {card(<>
-              <CodeBlock label="wp-cli — run the import">{'wp redirection import plugin safe-redirect-manager'}</CodeBlock>
-              <Callout type="warn" icon="⚠">If this command returns an error or isn&apos;t recognised, fall back to WP Admin → <strong>Tools → Redirection → Import/Export → Import from plugin → Safe Redirect Manager</strong>. CLI import availability depends on the installed version of Redirection.</Callout>
-              <Callout type="success" icon="✓">After importing, spot-check the redirect count makes sense before proceeding to export.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 04   export from redirection" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={3} title="Export Redirects to CSV" phase="SSH" />
-            {card(<>
-              <CodeBlock label="wp-cli — export all redirects to csv">{'wp redirection list --format=csv > redirects_export.csv'}</CodeBlock>
-              <CodeBlock label="terminal — copy the csv down to your local machine">{'scp [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/redirects_export.csv ~/Desktop/'}</CodeBlock>
-              <Callout type="info" icon="ℹ">Open the CSV locally and confirm the <strong>source</strong> and <strong>url</strong> columns look correct before pasting into the Claude prompt.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 05   generate the sql file" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step="AI" variant="purple" title="Generate SQL with Claude" phase="Prep" />
-            {card(<>
-              {p("Use the prompt template below. Paste the contents of your exported CSV directly into the prompt.")}
-              <PromptBox id="prompt-b" label="// claude prompt template">{PROMPT_B}</PromptBox>
-              <Callout type="info" icon="ℹ">Never hand-write the serialized <strong>sources</strong> value. The byte-length numbers (s:29:) must exactly match the string — even one character off breaks the redirect silently.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 06   transfer sql file to server" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={4} title="Upload the .sql File" phase="Transfer" />
-            {card(<>
-              {p("Choose one method:")}
-              {sub("Option A — SCP from your local machine")}
-              <CodeBlock label="terminal — local machine">{'scp /path/to/redirects.sql [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
-              {sub("Option B — Paste directly on the server (already SSH'd in)")}
-              <CodeBlock label="create and open the file">{'nano redirects.sql'}</CodeBlock>
-              <Callout type="info" icon="ℹ">Paste your SQL content into nano, then save: <strong>Ctrl+X</strong> → <strong>Y</strong> → <strong>Enter</strong></Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 07   execute" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={5} title="Run the SQL Import" phase="Execute" />
-            {card(<>
-              <Callout type="info" icon="ℹ">You should still be SSH&apos;d in from Phase 02. If your session timed out: <code>ssh [SSH_USER]@[SERVER_IP]</code> then <code>cd /home/runcloud/webapps/[SITE_NAME]/</code></Callout>
-              <CodeBlock label="wp-cli">{'wp db query < redirects.sql'}</CodeBlock>
-            </>)}
-          </div>
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={6} title="Clear the Redirect Cache" phase="Execute" />
-            {card(<>
-              <CodeBlock label="wp-cli">{'wp transient delete --all'}</CodeBlock>
-              <Callout type="warn" icon="⚠">Don&apos;t skip this. Without clearing the cache, redirects may not fire immediately even if the DB rows are correct.</Callout>
-              {sub("Then flush the site cache from WP Admin:")}
-              <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 08   verify" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={8} variant="blue" title="Verify the Rows Were Inserted" phase="Verify" />
-            {card(<>
-              <CodeBlock label="wp-cli — check all redirects">{'wp db query "SELECT id, url_to, header_code, status FROM [DB_PREFIX]rank_math_redirections;"'}</CodeBlock>
-              <CodeBlock label="wp-cli — check for any remaining 302s">{'wp db query "SELECT id, url_to, header_code FROM [DB_PREFIX]rank_math_redirections WHERE header_code != 301;"'}</CodeBlock>
-              <CodeBlock label="terminal — spot-check a live redirect">{'curl -I https://[SITE_DOMAIN]/[old-url-path]/\n# Look for: HTTP/2 301 and Location: https://[SITE_DOMAIN]/[new-url-path]/'}</CodeBlock>
-              <Callout type="success" icon="✓">Also confirm in WP Admin → Rank Math → Redirections. All rows should appear as active 301s.</Callout>
-            </>)}
-          </div>
-
-          <PhaseBanner text="— phase 09   cleanup — remove temporary plugins" />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={9} variant="danger" title="Remove Redirection Plugin" phase="SSH" />
-            {card(<>
-              <CodeBlock label="wp-cli — deactivate and delete">{'wp plugin deactivate redirection && wp plugin delete redirection'}</CodeBlock>
-              <Callout type="danger" icon="⚠">Do not leave Redirection active. It runs its own redirect logic and will conflict with Rank Math, causing duplicate or unexpected redirect behaviour.</Callout>
-            </>)}
-          </div>
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step={10} variant="danger" title="Remove Safe Redirect Manager" phase="SSH" />
-            {card(<>
-              <CodeBlock label="wp-cli — deactivate and delete">{'wp plugin deactivate safe-redirect-manager && wp plugin delete safe-redirect-manager'}</CodeBlock>
-              <Callout type="danger" icon="⚠">All redirects are now managed by Rank Math. Leaving Safe Redirect Manager active means two plugins are handling the same redirects — remove it entirely.</Callout>
-            </>)}
-          </div>
-
-          <Divider />
-
-          <div style={{ marginBottom: 36 }}>
-            <SectionHeader step="↻" variant="warn" title="Fix Accidental 302s (if needed)" phase="Cleanup" />
-            {card(<>
-              {p("If the DB query above shows any 302s that should be 301s, bulk-update them in one command:")}
-              <CodeBlock label="wp-cli — bulk fix 302 → 301">{'wp db query "UPDATE [DB_PREFIX]rank_math_redirections SET header_code = 301 WHERE header_code = 302;"'}</CodeBlock>
-              <CodeBlock label="wp-cli — clear cache after update">{'wp transient delete --all'}</CodeBlock>
-              {sub("Then flush the site cache from WP Admin:")}
-              <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
-            </>)}
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <footer style={{ marginTop: 56, paddingTop: 20, borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: T.muted }}>
-        <span>enrollment resources — internal tooling</span>
-        <span>rankmath free &nbsp;·&nbsp; runcloud &nbsp;·&nbsp; wp-cli</span>
-      </footer>
     </div>
   )
 }

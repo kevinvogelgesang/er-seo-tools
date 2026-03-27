@@ -5,13 +5,13 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/parse/history
- * Return the last 20 parse sessions.
+ * Return the last 50 parse sessions.
  */
 export async function GET() {
   try {
     const sessions = await prisma.session.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 50,
       select: {
         id: true,
         createdAt: true,
@@ -31,22 +31,22 @@ export async function GET() {
         files = [];
       }
 
-      // Extract health score from stored result JSON without deserializing the full object
+      // Extract health score and URL count from stored result JSON
       let healthScore: number | undefined;
-      if (s.result) {
-        try {
-          const r = JSON.parse(s.result) as { metadata?: { health_score?: number } };
-          if (typeof r.metadata?.health_score === 'number') {
-            healthScore = r.metadata.health_score;
-          }
-        } catch {
-          // ignore
+      let urlCount: number | undefined;
+      try {
+        if (s.result) {
+          const r = JSON.parse(s.result);
+          healthScore = typeof r?.healthScore === 'number' ? r.healthScore :
+                        typeof r?.metadata?.health_score === 'number' ? r.metadata.health_score : undefined;
+          urlCount = typeof r?.summary?.totalUrls === 'number' ? r.summary.totalUrls :
+                     typeof r?.metadata?.total_urls === 'number' ? r.metadata.total_urls : undefined;
         }
-      }
+      } catch { /* ignore */ }
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { result: _result, ...rest } = s;
-      return { ...rest, files, healthScore };
+      return { ...rest, files, healthScore, urlCount };
     });
 
     return NextResponse.json(formatted);

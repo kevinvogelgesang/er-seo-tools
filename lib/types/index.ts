@@ -28,6 +28,8 @@ export interface CrawlSummary {
   avg_word_count?: number;
   avg_crawl_depth?: number;
   max_crawl_depth?: number;
+  avg_link_score?: number; // NEW
+  pages_under_300_words?: number; // NEW
 }
 
 export interface IssuesResult {
@@ -48,13 +50,24 @@ export interface ResourcesSummary {
   javascript?: { total: number; stats?: Record<string, number> };
   css?: { total: number; stats?: Record<string, number> };
   pdfs?: { total: number };
+  accessibility?: { // NEW
+    total_pages: number;
+    pages_with_errors: number;
+    pages_with_alerts: number;
+    error_rate: number;
+  };
 }
 
 export interface TechnicalSummary {
   structured_data?: { pages_with_schema: number; schema_types: Record<string, number> };
   security?: Record<string, number>;
   robots_directives?: Record<string, number>;
-  canonicals?: { total_pages: number };
+  canonicals?: { // NEW — expanded
+    total_pages: number;
+    self_referencing?: number;
+    non_self_canonical?: number;
+    missing_canonical?: number;
+  };
   sitemaps?: { urls_in_sitemap: number; stats: Record<string, number> };
 }
 
@@ -113,6 +126,7 @@ export interface ContentMetrics {
   max_word_count: number;
   thin_content_count: number;
   thin_content_urls: string[];
+  pages_under_300_words?: number; // NEW — alias for thin_content_count for clarity
 }
 
 export interface SEOElementsSummary {
@@ -146,6 +160,42 @@ export interface InternalParserResult extends ParsedData {
   content_metrics: ContentMetrics;
   seo_elements_summary: SEOElementsSummary;
   crawl_depth: CrawlDepthData;
+  link_score?: LinkScoreData; // NEW
+  near_duplicates?: NearDuplicateData; // NEW
+  folder_depth?: FolderDepthData; // NEW
+}
+
+// NEW — Link Score (SF internal PageRank-like metric 0–100)
+export interface LinkScoreData {
+  avg_link_score: number;
+  min_link_score: number;
+  max_link_score: number;
+  distribution: Record<string, number>; // bucketed: "0-10", "11-25", etc.
+}
+
+// NEW — Near Duplicate pages detected by Screaming Frog
+export interface NearDuplicateData {
+  total_near_duplicates: number;
+  near_duplicate_urls: string[];
+  truncated: boolean;
+}
+
+// NEW — Folder Depth distribution
+export interface FolderDepthData {
+  distribution: Record<number, number>;
+  avg_folder_depth: number;
+  max_folder_depth: number;
+}
+
+// NEW — Accessibility parser result
+export interface AccessibilityResult extends ParsedData {
+  totalPages: number;
+  pagesWithErrors: number;
+  pagesWithAlerts: number;
+  totalErrors: number;
+  totalAlerts: number;
+  errorRate: number; // pagesWithErrors / totalPages
+  issues: Issue[];
 }
 
 // Parser type definitions

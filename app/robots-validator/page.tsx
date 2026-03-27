@@ -254,13 +254,42 @@ function InputArea({
   )
 }
 
+// ─── Spinner icon ─────────────────────────────────────────────────────────────
+
+function SpinnerIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+      <path d="M12 2a10 10 0 0 1 10 10" className="opacity-30" />
+      <path d="M12 2a10 10 0 0 1 10 10" style={{ strokeDasharray: 16, strokeDashoffset: 0 }} />
+    </svg>
+  )
+}
+
+// ─── Sitemap Fetch Button (used inside RobotsSection results) ─────────────────
+
+function SitemapFetchButton({ sitemapUrl, onFetch }: { sitemapUrl: string; onFetch: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onFetch(sitemapUrl)}
+      className="flex-shrink-0 inline-flex items-center gap-1 bg-orange/10 text-orange font-display font-bold text-[11px] px-2.5 py-1 rounded-lg hover:bg-orange/20 transition-colors"
+    >
+      <SitemapIcon className="w-3 h-3" />
+      Fetch Sitemap
+    </button>
+  )
+}
+
 // ─── Robots Validator Section ─────────────────────────────────────────────────
 
-function RobotsSection() {
+function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => void }) {
   const [content, setContent] = useState('')
   const [result, setResult] = useState<RobotsParseResult | null>(null)
   const [testUrl, setTestUrl] = useState('')
   const [testResult, setTestResult] = useState<{ allowed: boolean; matchedRule: string; matchedAgent: string } | null>(null)
+  const [urlInput, setUrlInput] = useState('')
+  const [urlFetching, setUrlFetching] = useState(false)
+  const [urlFetchError, setUrlFetchError] = useState<string | null>(null)
 
   const handleValidate = () => {
     if (!content.trim()) return
@@ -279,8 +308,65 @@ function RobotsSection() {
     if (e.key === 'Enter') handleTestUrl()
   }
 
+  async function fetchFromUrl(targetUrl: string, type: 'robots' | 'sitemap') {
+    setUrlFetching(true)
+    setUrlFetchError(null)
+    try {
+      let fetchUrl = targetUrl
+      if (type === 'robots') {
+        const parsed = new URL(targetUrl.startsWith('http') ? targetUrl : 'https://' + targetUrl)
+        fetchUrl = `${parsed.protocol}//${parsed.host}/robots.txt`
+      }
+      const res = await fetch(`/api/fetch-url?url=${encodeURIComponent(fetchUrl)}`)
+      const data = await res.json()
+      if (data.error) {
+        setUrlFetchError(data.error)
+      } else {
+        if (type === 'robots') {
+          setContent(data.content)
+          const parsed = parseRobotsTxt(data.content)
+          setResult(parsed)
+          setTestResult(null)
+        }
+      }
+    } catch {
+      setUrlFetchError('Failed to fetch URL')
+    } finally {
+      setUrlFetching(false)
+    }
+  }
+
   return (
     <SectionCard title="Robots.txt Validator" icon={<RobotsIcon className="w-4 h-4" />}>
+      {/* URL fetch bar */}
+      <div className="mb-4">
+        <label className="font-body text-[13px] font-semibold text-navy/70 block mb-2">Fetch from URL</label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && urlInput.trim()) fetchFromUrl(urlInput.trim(), 'robots') }}
+            placeholder="https://example.com — fetches /robots.txt automatically"
+            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-body text-navy focus:outline-none focus:ring-2 focus:ring-orange/30"
+          />
+          <button
+            type="button"
+            onClick={() => { if (urlInput.trim()) fetchFromUrl(urlInput.trim(), 'robots') }}
+            disabled={!urlInput.trim() || urlFetching}
+            className="inline-flex items-center gap-1.5 bg-orange text-navy font-display font-bold text-[13px] px-4 py-2 rounded-lg hover:bg-orange/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {urlFetching ? (
+              <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />
+            ) : null}
+            {urlFetching ? 'Fetching…' : 'Fetch'}
+          </button>
+        </div>
+        {urlFetchError && (
+          <p className="mt-2 text-[12px] font-body text-red-600">{urlFetchError}</p>
+        )}
+      </div>
+
       <InputArea
         label="Paste your robots.txt content"
         value={content}
@@ -404,10 +490,13 @@ function RobotsSection() {
                       href={url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-mono text-[12px] text-orange hover:underline truncate"
+                      className="font-mono text-[12px] text-orange hover:underline truncate flex-1"
                     >
                       {url}
                     </a>
+                    {onFetchSitemap && (
+                      <SitemapFetchButton sitemapUrl={url} onFetch={onFetchSitemap} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -449,17 +538,91 @@ function RobotsSection() {
 
 // ─── Sitemap Validator Section ────────────────────────────────────────────────
 
-function SitemapSection() {
-  const [content, setContent] = useState('')
-  const [result, setResult] = useState<SitemapParseResult | null>(null)
+function SitemapSection({
+  externalContent,
+  externalResult,
+  onContentChange,
+  onResultChange,
+}: {
+  externalContent?: string
+  externalResult?: SitemapParseResult | null
+  onContentChange?: (v: string) => void
+  onResultChange?: (v: SitemapParseResult | null) => void
+}) {
+  const [internalContent, setInternalContent] = useState('')
+  const [internalResult, setInternalResult] = useState<SitemapParseResult | null>(null)
+
+  const content = externalContent !== undefined ? externalContent : internalContent
+  const result = externalResult !== undefined ? externalResult : internalResult
+  const setContent = (v: string) => {
+    if (onContentChange) onContentChange(v)
+    else setInternalContent(v)
+  }
+  const setResult = (v: SitemapParseResult | null) => {
+    if (onResultChange) onResultChange(v)
+    else setInternalResult(v)
+  }
+
+  const [urlInput, setUrlInput] = useState('')
+  const [urlFetching, setUrlFetching] = useState(false)
+  const [urlFetchError, setUrlFetchError] = useState<string | null>(null)
 
   const handleValidate = () => {
     if (!content.trim()) return
     setResult(parseSitemapXml(content))
   }
 
+  async function fetchFromUrl(targetUrl: string) {
+    setUrlFetching(true)
+    setUrlFetchError(null)
+    try {
+      const fetchUrl = targetUrl.startsWith('http') ? targetUrl : 'https://' + targetUrl
+      const res = await fetch(`/api/fetch-url?url=${encodeURIComponent(fetchUrl)}`)
+      const data = await res.json()
+      if (data.error) {
+        setUrlFetchError(data.error)
+      } else {
+        setContent(data.content)
+        setResult(parseSitemapXml(data.content))
+      }
+    } catch {
+      setUrlFetchError('Failed to fetch URL')
+    } finally {
+      setUrlFetching(false)
+    }
+  }
+
   return (
     <SectionCard title="Sitemap.xml Validator" icon={<SitemapIcon className="w-4 h-4" />}>
+      {/* URL fetch bar */}
+      <div className="mb-4">
+        <label className="font-body text-[13px] font-semibold text-navy/70 block mb-2">Fetch from URL</label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && urlInput.trim()) fetchFromUrl(urlInput.trim()) }}
+            placeholder="https://example.com/sitemap.xml"
+            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-body text-navy focus:outline-none focus:ring-2 focus:ring-orange/30"
+          />
+          <button
+            type="button"
+            onClick={() => { if (urlInput.trim()) fetchFromUrl(urlInput.trim()) }}
+            disabled={!urlInput.trim() || urlFetching}
+            className="inline-flex items-center gap-1.5 bg-orange text-navy font-display font-bold text-[13px] px-4 py-2 rounded-lg hover:bg-orange/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {urlFetching ? (
+              <SpinnerIcon className="w-3.5 h-3.5 animate-spin" />
+            ) : null}
+            {urlFetching ? 'Fetching…' : 'Fetch'}
+          </button>
+        </div>
+        {urlFetchError && (
+          <p className="mt-2 text-[12px] font-body text-red-600">{urlFetchError}</p>
+        )}
+      </div>
+
       <InputArea
         label="Paste your sitemap.xml content"
         value={content}
@@ -601,6 +764,24 @@ function BotReferenceSection() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RobotsValidatorPage() {
+  const [sitemapContent, setSitemapContent] = useState('')
+  const [sitemapResult, setSitemapResult] = useState<SitemapParseResult | null>(null)
+
+  function handleFetchSitemapFromRobots(sitemapUrl: string) {
+    // Scroll to the sitemap section, populate the URL fetch, then trigger fetch
+    const el = document.getElementById('sitemap-section')
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    fetch(`/api/fetch-url?url=${encodeURIComponent(sitemapUrl)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.error) {
+          setSitemapContent(data.content)
+          setSitemapResult(parseSitemapXml(data.content))
+        }
+      })
+      .catch(() => {/* silently ignore — SitemapSection handles its own errors */})
+  }
+
   return (
     <div className="bg-navy min-h-screen">
       {/* Page header */}
@@ -623,8 +804,15 @@ export default function RobotsValidatorPage() {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-        <RobotsSection />
-        <SitemapSection />
+        <RobotsSection onFetchSitemap={handleFetchSitemapFromRobots} />
+        <div id="sitemap-section">
+          <SitemapSection
+            externalContent={sitemapContent}
+            externalResult={sitemapResult}
+            onContentChange={setSitemapContent}
+            onResultChange={setSitemapResult}
+          />
+        </div>
         <BotReferenceSection />
       </div>
     </div>

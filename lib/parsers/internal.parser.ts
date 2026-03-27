@@ -6,6 +6,9 @@ import {
   ContentMetrics,
   SEOElementsSummary,
   CrawlDepthData,
+  LinkScoreData, // NEW
+  NearDuplicateData, // NEW
+  FolderDepthData, // NEW
   Issue
 } from '../types';
 import { toNumber, toString } from '../utils/columnMapper';
@@ -30,7 +33,10 @@ export class InternalParser extends BaseParser {
     meta_description_length: ['Meta Description 1 Length', 'Meta Description Length'],
     h1: ['H1-1', 'H1'],
     h2: ['H2-1', 'H2'],
-    word_count: ['Word Count'],
+    word_count: ['Word Count', 'Words'],
+    link_score: ['Link Score'], // NEW
+    folder_depth: ['Folder Depth'], // NEW
+    near_duplicate: ['Near Duplicate', 'Near Duplicate Details'], // NEW
     crawl_depth: ['Crawl Depth'],
     inlinks: ['Inlinks'],
     outlinks: ['Outlinks'],
@@ -53,7 +59,7 @@ export class InternalParser extends BaseParser {
       ? this.data.map(row => toString(row[addressCol])).filter(Boolean)
       : [];
 
-    return {
+    const result: InternalParserResult = {
       total_urls: this.length,
       urls,
       status_codes: this.parseStatusCodes(),
@@ -62,6 +68,18 @@ export class InternalParser extends BaseParser {
       seo_elements_summary: this.parseSeoElements(),
       crawl_depth: this.parseCrawlDepth(),
     };
+
+    // NEW — optionally attach link score, folder depth, near duplicates when columns exist
+    const linkScoreData = this.parseLinkScore();
+    if (linkScoreData !== null) result.link_score = linkScoreData;
+
+    const folderDepthData = this.parseFolderDepth();
+    if (folderDepthData !== null) result.folder_depth = folderDepthData;
+
+    const nearDuplicateData = this.parseNearDuplicates();
+    if (nearDuplicateData !== null) result.near_duplicates = nearDuplicateData;
+
+    return result;
   }
 
   private getEmptyResult(): InternalParserResult {
@@ -247,6 +265,7 @@ export class InternalParser extends BaseParser {
       max_word_count: max,
       thin_content_count: thinContentUrls.length,
       thin_content_urls: thinContentUrls,
+      pages_under_300_words: thinContentUrls.length, // NEW
     };
   }
 
@@ -379,6 +398,90 @@ export class InternalParser extends BaseParser {
       distribution,
       avg_depth: Math.round(avg * 100) / 100,
       max_depth: max,
+    };
+  }
+
+  // NEW — Parse Link Score column (Screaming Frog's internal PageRank-like metric 0–100)
+  private parseLinkScore(): LinkScoreData | null {
+    const col = this.getColumn('link_score');
+    if (!col) return null;
+
+    const scores: number[] = [];
+    const distribution: Record<string, number> = {};
+    const buckets = ['0-10', '11-25', '26-50', '51-75', '76-100'];
+
+    for (const row of this.data) {
+      const score = toNumber(row[col]);
+      if (score === null || score < 0) continue;
+      scores.push(score);
+
+      let bucket: string;
+      if (score <= 10) bucket = '0-10';
+      else if (score <= 25) bucket = '11-25';
+      else if (score <= 50) bucket = '26-50';
+      else if (score <= 75) bucket = '51-75';
+      else bucket = '76-100';
+      distribution[bucket] = (distribution[bucket] || 0) + 1;
+    }
+
+    if (scores.length === 0) return null;
+
+    const sum = scores.reduce((a, b) => a + b, 0);
+    return {
+      avg_link_score: Math.round((sum / scores.length) * 10) / 10,
+      min_link_score: Math.min(...scores),
+      max_link_score: Math.max(...scores),
+      distribution,
+    };
+  }
+
+  // NEW — Parse Folder Depth column
+  private parseFolderDepth(): FolderDepthData | null {
+    const col = this.getColumn('folder_depth');
+    if (!col) return null;
+
+    const depths: number[] = [];
+    const distribution: Record<number, number> = {};
+
+    for (const row of this.data) {
+      const depth = toNumber(row[col]);
+      if (depth === null || depth < 0) continue;
+      depths.push(depth);
+      distribution[depth] = (distribution[depth] || 0) + 1;
+    }
+
+    if (depths.length === 0) return null;
+
+    const sum = depths.reduce((a, b) => a + b, 0);
+    return {
+      distribution,
+      avg_folder_depth: Math.round((sum / depths.length) * 100) / 100,
+      max_folder_depth: Math.max(...depths),
+    };
+  }
+
+  // NEW — Parse Near Duplicate column
+  private parseNearDuplicates(): NearDuplicateData | null {
+    const col = this.getColumn('near_duplicate');
+    const addressCol = this.getColumn('address');
+    if (!col) return null;
+
+    const nearDuplicateUrls: string[] = [];
+
+    for (let i = 0; i < this.data.length; i++) {
+      const value = toString(this.data[i][col]);
+      // SF populates this cell with a URL or non-empty string when the page is a near-duplicate
+      if (value && value.toLowerCase() !== 'false' && value !== '0') {
+        if (addressCol && nearDuplicateUrls.length < 50) {
+          nearDuplicateUrls.push(toString(this.data[i][addressCol]));
+        }
+      }
+    }
+
+    return {
+      total_near_duplicates: nearDuplicateUrls.length,
+      near_duplicate_urls: nearDuplicateUrls,
+      truncated: nearDuplicateUrls.length >= 50,
     };
   }
 }

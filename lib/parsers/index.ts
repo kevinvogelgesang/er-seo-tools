@@ -35,6 +35,7 @@ import {
   OrphanPagesParser,
   AnchorTextParser,
   LinksIssuesParser,
+  AccessibilityParser, // NEW
 } from './resources';
 
 // Analytics and Search
@@ -96,6 +97,7 @@ export const PARSERS: Array<typeof BaseParser> = [
   SitemapsParser,
   OrphanPagesParser,
   AnchorTextParser,
+  AccessibilityParser, // NEW
 
   // Analytics and Search
   AnalyticsParser,
@@ -152,6 +154,7 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
   sitemaps: SitemapsParser,
   orphanpages: OrphanPagesParser,
   anchortext: AnchorTextParser,
+  accessibility: AccessibilityParser, // NEW
   // Analytics and Search
   analytics: AnalyticsParser,
   searchconsole: SearchConsoleParser,
@@ -221,6 +224,7 @@ export {
   OrphanPagesParser,
   AnchorTextParser,
   LinksIssuesParser,
+  AccessibilityParser, // NEW
 };
 export {
   AnalyticsParser,

@@ -144,6 +144,36 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
 }
 
 /**
+ * DELETE /api/parse/:sessionId
+ * Remove a session and its uploaded files from disk.
+ */
+export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+  const { sessionId } = await params;
+
+  if (!isValidSessionId(sessionId)) {
+    return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
+  }
+
+  try {
+    // Delete upload files first
+    const uploadDir = getUploadDir(sessionId);
+    try {
+      await fs.rm(uploadDir, { recursive: true, force: true });
+    } catch {
+      // Directory may not exist — that's fine
+    }
+
+    // Delete the session (cascade deletes ShareLinks via Prisma)
+    await prisma.session.delete({ where: { id: sessionId } });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Delete failed';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
  * GET /api/parse/:sessionId
  * Return session status and result.
  */
