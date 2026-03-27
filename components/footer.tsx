@@ -1,4 +1,9 @@
+'use client'
+
 import Link from 'next/link'
+import { useState } from 'react'
+
+const DEPLOY_CMD = 'ssh seotools@161.35.235.157 "~/deploy.sh"'
 
 const toolLinks = [
   { name: 'SEO Parser', href: '/seo-parser' },
@@ -10,6 +15,7 @@ const toolLinks = [
 
 export default function Footer() {
   const year = new Date().getFullYear()
+  const [showCmd, setShowCmd] = useState(false)
 
   return (
     <footer className="bg-navy-deep text-white border-t border-navy-border/40">
@@ -22,7 +28,17 @@ export default function Footer() {
               <div className="w-7 h-7 bg-orange rounded flex items-center justify-center flex-shrink-0">
                 <span className="font-display font-extrabold text-navy text-[11px] leading-none">ER</span>
               </div>
-              <span className="font-display font-bold text-[15px]">SEO Tools</span>
+              <span
+                className="font-bold text-[15px] cursor-default select-all transition-all duration-150"
+                onMouseEnter={() => setShowCmd(true)}
+                onMouseLeave={() => setShowCmd(false)}
+                title="Hover to reveal deploy command"
+              >
+                {showCmd
+                  ? <span className="font-mono text-[11px] text-orange/80 tracking-tight">{DEPLOY_CMD}</span>
+                  : <span className="font-display">SEO Tools</span>
+                }
+              </span>
             </div>
             <p className="text-white/50 text-sm font-body leading-relaxed max-w-[220px]">
               Purpose-built SEO tools for enrollment marketers and web teams at Enrollment Resources.
