@@ -28,6 +28,7 @@ const tools: NavTool[] = [
   { name: 'Quarter Grid', href: '/quarter-grid' },
   { name: 'RankMath Redirects', href: '/rankmath-redirects' },
   { name: 'Robots Validator', href: '/robots-validator' },
+  { name: 'ADA Audit', href: '/ada-audit' },
   { name: 'Clients', href: '/clients' },
 ]
 

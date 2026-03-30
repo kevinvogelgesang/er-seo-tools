@@ -19,6 +19,7 @@ model Client {
   domains   String    @default("[]") // JSON array: ["example.com"]
   createdAt DateTime  @default(now())
   sessions  Session[]
+  adaAudits AdaAudit[]
 }
 
 model Session {
@@ -50,4 +51,19 @@ model ShareLink {
   session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([token])
+}
+
+model AdaAudit {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  url       String
+  status    String   // pending | running | complete | error
+  error     String?
+  result    String?  // JSON string of axe-core AxeResults (nodes truncated to 20 per violation)
+  clientId  Int?
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([clientId])
+  @@index([status])
 }

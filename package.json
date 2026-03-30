@@ -14,6 +14,8 @@
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "@types/papaparse": "^5.5.2",
+    "axe-core": "^4.11.1",
+    "jsdom": "^29.0.1",
     "next": "^15.3.0",
     "papaparse": "^5.5.3",
     "react": "^19.0.0",
@@ -22,6 +24,7 @@
     "recharts": "^3.8.0"
   },
   "devDependencies": {
+    "@types/jsdom": "^28.0.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

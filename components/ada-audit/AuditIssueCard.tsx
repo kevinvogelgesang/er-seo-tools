@@ -1,0 +1,114 @@
+'use client'
+
+import { useState } from 'react'
+import type { AxeViolation, ImpactLevel } from '@/lib/ada-audit/types'
+
+interface Props {
+  violation: AxeViolation
+}
+
+const IMPACT_STYLES: Record<NonNullable<ImpactLevel>, { badge: string; dot: string }> = {
+  critical: { badge: 'bg-red-100 text-red-700 border-red-200',    dot: 'bg-red-500' },
+  serious:  { badge: 'bg-orange-100 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
+  moderate: { badge: 'bg-yellow-100 text-yellow-700 border-yellow-200', dot: 'bg-yellow-500' },
+  minor:    { badge: 'bg-blue-100 text-blue-700 border-blue-200',   dot: 'bg-blue-400' },
+}
+
+function ImpactBadge({ impact }: { impact: ImpactLevel | null }) {
+  if (!impact) return null
+  const s = IMPACT_STYLES[impact]
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${s.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {impact}
+    </span>
+  )
+}
+
+export default function AuditIssueCard({ violation }: Props) {
+  const [expanded, setExpanded] = useState(false)
+  const [showDev, setShowDev] = useState(false)
+
+  const wcagTags = violation.tags.filter((t) => t.startsWith('wcag') || t.startsWith('best-practice'))
+  const displayNodes = violation.nodes.slice(0, 5)
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+      {/* Always-visible header */}
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full flex items-start gap-3 px-4 py-3.5 text-left hover:bg-gray-50 transition-colors"
+      >
+        <span className="mt-0.5 flex-shrink-0">
+          <ImpactBadge impact={violation.impact} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-body font-semibold text-navy leading-snug">{violation.help}</p>
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {wcagTags.map((tag) => (
+              <span key={tag} className="text-[10px] font-body bg-gray-100 text-navy/60 px-1.5 py-0.5 rounded">
+                {tag}
+              </span>
+            ))}
+            <span className="text-[10px] font-body text-navy/40">
+              {violation.nodes.length} element{violation.nodes.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+        <svg
+          className={`w-4 h-4 flex-shrink-0 mt-0.5 text-navy/40 transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Expanded: plain-language description */}
+      {expanded && (
+        <div className="border-t border-gray-100 px-4 py-3.5 space-y-3">
+          <p className="text-[13px] font-body text-navy/80 leading-relaxed">{violation.description}</p>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowDev((d) => !d)}
+              className="text-[12px] font-body font-semibold text-orange hover:text-orange-light transition-colors"
+            >
+              {showDev ? 'Hide developer details' : 'Show developer details'}
+            </button>
+            <a
+              href={violation.helpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[12px] font-body text-navy/50 hover:text-navy/80 transition-colors"
+            >
+              Learn more ↗
+            </a>
+          </div>
+
+          {/* Developer details: code snippets */}
+          {showDev && displayNodes.length > 0 && (
+            <div className="space-y-3 mt-1">
+              {displayNodes.map((node, i) => (
+                <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
+                  <pre className="bg-gray-900 text-green-400 text-[11px] font-mono px-3 py-2.5 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                    {node.html}
+                  </pre>
+                  {node.failureSummary && (
+                    <div className="bg-gray-50 border-t border-gray-200 px-3 py-2 text-[11px] font-body text-navy/70 leading-relaxed">
+                      {node.failureSummary}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {violation.nodes.length > 5 && (
+                <p className="text-[11px] font-body text-navy/40">
+                  + {violation.nodes.length - 5} more elements (truncated for display)
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

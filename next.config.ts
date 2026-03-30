@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ['jsdom', 'axe-core'],
   experimental: {
     serverActions: {
       bodySizeLimit: '50mb',
