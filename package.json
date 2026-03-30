@@ -15,7 +15,7 @@
     "@prisma/client": "^5.22.0",
     "@types/papaparse": "^5.5.2",
     "axe-core": "^4.11.1",
-    "jsdom": "^29.0.1",
+    "jsdom": "^25.0.1",
     "next": "^15.3.0",
     "papaparse": "^5.5.3",
     "react": "^19.0.0",
