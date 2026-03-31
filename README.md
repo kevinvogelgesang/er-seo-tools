@@ -4,16 +4,20 @@ A unified Next.js webapp housing all SEO tools for the Enrollment Resources team
 
 ## Tools
 
-| Tool | Status | Route | Description |
-|---|---|---|---|
-| SEO Parser | ✅ Live | `/seo-parser` | Upload Screaming Frog CSVs, get prioritized issue reports, health score, and recommendations |
-| SEO Parser — Crawl Diff | ✅ Live | `/seo-parser/diff` | Compare two crawl sessions to track improvement over time |
-| SEO Parser — Shared Reports | ✅ Live | `/share/[token]` | Read-only shareable links for completed audits (30-day expiry) |
-| Quarter Grid (V1) | ✅ Live | `/quarter-grid/v1` | Basic quarterly planning grid |
-| Quarter Grid (V2) | ✅ Live | `/quarter-grid/v2` | Enhanced quarterly planning |
-| Quarter Grid (V3) | ✅ Live | `/quarter-grid/v3` | Full-featured: drag-and-drop, per-client notes, Gantt view, 5 statuses, CSV import |
-| RankMath Redirects | ✅ Live | `/rankmath-redirects` | WordPress redirect migration guide |
-| Robots Validator | ✅ Live | `/robots-validator` | Validate robots.txt + sitemap.xml; AI bot coverage analysis, URL tester |
+| Tool | Route | Description |
+|---|---|---|
+| SEO Parser | `/seo-parser` | Upload Screaming Frog CSVs, get prioritized issue reports, health score, and recommendations |
+| SEO Parser — Crawl Diff | `/seo-parser/diff` | Compare two crawl sessions to track improvement over time |
+| SEO Parser — Shared Reports | `/share/[token]` | Read-only shareable links for completed audits (30-day expiry) |
+| ADA Audit | `/ada-audit` | Single-page WCAG accessibility audit via headless Chrome + axe-core |
+| ADA Audit — Site-wide | `/ada-audit` (Site tab) | Crawl an entire domain and audit up to 50 pages |
+| ADA Audit — Shared Reports | `/ada-audit/share/[token]` | Read-only shareable links for audit results |
+| Quarter Grid (V1) | `/quarter-grid/v1` | Basic quarterly planning grid |
+| Quarter Grid (V2) | `/quarter-grid/v2` | Enhanced quarterly planning |
+| Quarter Grid (V3) | `/quarter-grid/v3` | Full-featured: drag-and-drop, per-client notes, Gantt view, 5 statuses, CSV import |
+| RankMath Redirects | `/rankmath-redirects` | WordPress redirect migration guide |
+| Robots Validator | `/robots-validator` | Validate robots.txt + sitemap.xml; AI bot coverage analysis, URL tester |
+| Clients | `/clients` | Client management with domain-based auto-matching for audits |
 
 ## Stack
 
@@ -21,10 +25,11 @@ A unified Next.js webapp housing all SEO tools for the Enrollment Resources team
 - **Language:** TypeScript
 - **Styling:** Tailwind CSS v3
 - **Database:** Prisma + SQLite
+- **Accessibility auditing:** puppeteer-core + axe-core (headless Google Chrome)
 - **CSV Parsing:** PapaParse
 - **Charts:** Recharts (lazy-loaded)
 - **Fonts:** Barlow (display) + Source Sans 3 (body)
-- **Hosting:** RunCloud (Native NGINX + Custom Config → Supervisor)
+- **Hosting:** RunCloud (DigitalOcean VPS, Ubuntu 20.04)
 
 ## Getting Started
 
@@ -36,13 +41,15 @@ npm install
 cp .env.example .env
 
 # Set up database
-npx prisma db push
+npx prisma migrate dev
 
 # Start dev server
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+> **Note:** ADA audits require Google Chrome. On macOS, set `CHROME_EXECUTABLE` in `.env` to the path of your Chrome installation (e.g. `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`). On the production server it's installed at `/usr/bin/google-chrome`.
 
 ## SEO Parser Features
 
@@ -52,9 +59,21 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Issue prioritization** — critical / warning / notice tiers with per-page drill-down
 - **Crawl Diff** — compare any two sessions; surfaces new, resolved, worsened, and improved issues with delta metrics
 - **Per-page detail modal** — click any URL in an issue list to see all issues affecting that page
-- **Export** — JSON (full data), plain-text summary, or Markdown report (downloaded directly, no blank-tab)
+- **Export** — JSON (full data), plain-text summary, or Markdown report
 - **Shareable reports** — generate a read-only link valid for 30 days; access count tracked
 - **Session history** — last 20 analyses shown on the upload page with site name and health score badge
+
+## ADA Audit Features
+
+- **Full-render auditing** — headless Chrome loads the page with real CSS and fonts, so color-contrast and focus-indicator checks actually run
+- **WCAG 2.1 AA** (Required) — runs all WCAG 2.0 A/AA + 2.1 A/AA axe-core rules
+- **+ Best Practices** (Aspirational) — adds axe best-practice rules (landmark structure, heading order, label quality) and WCAG 2.2 AA rules on top
+- **Live progress bar** — per-phase progress (verifying URL → loading page → running checks) with elapsed time and estimated completion
+- **Scored results** — 0–100 score with weighted penalty per impact level; compliant/non-compliant badge
+- **Site-wide audits** — discovers up to 50 pages via sitemap.xml with shallow-crawl fallback; runs pages 2 at a time
+- **Shareable links** — one-click share button generates a public read-only URL
+- **JS-rendered SPA detection** — warns when the page has fewer than 50 DOM elements (static HTML shell, results unreliable)
+- **Client association** — link audits to a client record for filtered history views
 
 ## Robots Validator Features
 
@@ -63,9 +82,24 @@ Open [http://localhost:3000](http://localhost:3000).
 - **URL tester** — test any path against any user-agent to see the matching rule
 - Sitemap URL extraction and validation
 
-## Deployment (RunCloud)
+## Deployment
 
-The app runs on RunCloud using **Native NGINX + Custom Config** as a reverse proxy to a Node.js process managed by **Supervisor**.
+The app runs on a DigitalOcean VPS managed by RunCloud, with NGINX as a reverse proxy and the Next.js process kept alive via `nohup`.
+
+### Prerequisites (one-time server setup)
+
+```bash
+# Install Google Chrome (required for ADA audits)
+wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo apt install ./google-chrome-stable_current_amd64.deb
+```
+
+### Standard Deploy
+
+```bash
+git push
+ssh seotools@161.35.235.157 "cd /home/seotools/webapps/er-seo-tools && git pull && npm install && DATABASE_URL='file:/home/seotools/data/er-seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seotools/data/er-seo-tools/db.sqlite' npx prisma migrate deploy && fuser -k 3000/tcp; nohup npm start > /home/seotools/er-seo-tools.log 2>&1 &"
+```
 
 ### NGINX Config
 Type: `location.root` — Predefined: **NGINX Reverse Proxy**
@@ -79,12 +113,6 @@ proxy_set_header Upgrade $http_upgrade;
 proxy_set_header Connection "upgrade";
 ```
 
-### Supervisor Job
-- **Command:** `/usr/bin/npm start`
-- **Directory:** `/home/seotools/webapps/er-seo-tools`
-- **User:** `seotools`
-- **Auto Start / Auto Restart:** enabled
-
 ### Environment Variables
 ```
 DATABASE_URL=file:/home/seotools/data/er-seo-tools/db.sqlite
@@ -92,27 +120,14 @@ UPLOADS_DIR=/home/seotools/data/er-seo-tools/uploads
 PORT=3000
 NODE_ENV=production
 NEXT_PUBLIC_APP_URL=https://your-domain.com
+CHROME_EXECUTABLE=/usr/bin/google-chrome   # optional, this is the default
+BROWSER_POOL_SIZE=2                        # optional, controls max concurrent audits
 ```
 
 > `NEXT_PUBLIC_APP_URL` is used to generate correct absolute URLs for shareable report links. Set it to the public hostname of the app.
 
-### First Deploy (SSH)
-```bash
-mkdir -p /home/seotools/data/er-seo-tools/uploads
-cd /home/seotools/webapps/er-seo-tools
-npm install
-npm run build
-npx prisma generate
-DATABASE_URL="file:/home/seotools/data/er-seo-tools/db.sqlite" npx prisma migrate deploy
-```
-
-### Subsequent Deploys
-```bash
-cd /home/seotools/webapps/er-seo-tools
-git pull
-npm install
-npm run build
-# Only if schema changed:
-DATABASE_URL="file:/home/seotools/data/er-seo-tools/db.sqlite" npx prisma migrate deploy
-supervisorctl restart er-seo-tools
-```
+### Server Paths
+- **App:** `/home/seotools/webapps/er-seo-tools`
+- **DB:** `/home/seotools/data/er-seo-tools/db.sqlite`
+- **Uploads:** `/home/seotools/data/er-seo-tools/uploads`
+- **Log:** `/home/seotools/er-seo-tools.log`
