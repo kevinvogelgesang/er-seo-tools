@@ -25,7 +25,7 @@ CREATE TABLE "new_SiteAudit" (
     "clientId" INTEGER,
     CONSTRAINT "SiteAudit_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
-INSERT INTO "new_SiteAudit" ("clientId", "createdAt", "domain", "error", "id", "pagesComplete", "pagesError", "pagesTotal", "runnerType", "score", "status", "summary", "wcagLevel") SELECT "clientId", "createdAt", "domain", "error", "id", "pagesComplete", "pagesError", "pagesTotal", "runnerType", "score", "status", "summary", "wcagLevel" FROM "SiteAudit";
+INSERT INTO "new_SiteAudit" ("clientId", "createdAt", "updatedAt", "domain", "error", "id", "pagesComplete", "pagesError", "pagesTotal", "runnerType", "score", "status", "summary", "wcagLevel") SELECT "clientId", "createdAt", "createdAt", "domain", "error", "id", "pagesComplete", "pagesError", "pagesTotal", "runnerType", "score", "status", "summary", "wcagLevel" FROM "SiteAudit";
 DROP TABLE "SiteAudit";
 ALTER TABLE "new_SiteAudit" RENAME TO "SiteAudit";
 CREATE INDEX "SiteAudit_createdAt_idx" ON "SiteAudit"("createdAt");
