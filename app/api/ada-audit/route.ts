@@ -19,8 +19,8 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string) 
       data: { status: 'complete', result: JSON.stringify(results) },
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Audit failed'
-    console.error(`[ada-audit] id=${id} error:`, message)
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[ada-audit] id=${id} url=${url} error:`, err)
     await prisma.adaAudit.update({
       where: { id },
       data: { status: 'error', error: message },
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
   const items = audits.map((a) => {
     let scorecard: AuditScorecard | null = null
     let score: number | null = null
-    const wcagLevel = (a as typeof a & { wcagLevel?: string }).wcagLevel ?? 'wcag21aa'
+    const wcagLevel = a.wcagLevel ?? 'wcag21aa'
 
     if (a.status === 'complete' && a.result) {
       try {
