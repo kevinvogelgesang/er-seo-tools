@@ -3,6 +3,7 @@ import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
 import ComplianceBanner from './ComplianceBanner'
 import ShareAuditButton from './ShareAuditButton'
+import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 
 interface Props {
   results: StoredAxeResults
@@ -79,19 +80,22 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
         </div>
       </div>
 
-      {/* Known limitations notice */}
-      <div className="flex gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-[12px] font-body text-amber-800 leading-relaxed">
-        <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span>
-          <strong>Known limitations:</strong> This audit analyzes the static HTML snapshot only.
-          External stylesheets are not loaded, so color-contrast results may not reflect the
-          rendered page. Client-rendered content (React/Angular SPAs), lazy-loaded sections,
-          and content inside modals will not be included. Treat results as a starting point,
-          not a certification.
-        </span>
-      </div>
+      {(results.domElementCount !== undefined && results.domElementCount < 50) && (
+        <div className="flex gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-[12px] font-body text-red-800 leading-relaxed">
+          <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <span>
+            <strong>Unreliable result:</strong> Only {results.domElementCount} DOM elements were found in the static HTML snapshot.
+            This page is likely JavaScript-rendered (React, Angular, etc.) — axe-core had almost nothing to scan,
+            so a score of 100 does not reflect the actual rendered page. Use a browser-based tool like{' '}
+            <a href="https://wave.webaim.org/" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-900">WAVE</a>{' '}
+            or the axe DevTools browser extension for accurate results.
+          </span>
+        </div>
+      )}
+
+      <KnownLimitationsNotice />
 
       {/* Issues */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">

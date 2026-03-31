@@ -116,6 +116,9 @@ async function _runAudit(targetUrl: string, wcagLevel: string): Promise<StoredAx
     resources: 'usable',      // allow loading of subresources the DOM requests
   })
 
+  // Count DOM elements before running axe — low counts indicate a JS-rendered SPA
+  const domElementCount = dom.window.document.querySelectorAll('*').length
+
   // Inject axe-core via eval (executes as "outside" code, not page script)
   dom.window.eval(axeSource)
 
@@ -148,5 +151,7 @@ async function _runAudit(targetUrl: string, wcagLevel: string): Promise<StoredAx
 
   dom.window.close() // free JSDOM memory
 
-  return rawResults as StoredAxeResults
+  const result = rawResults as StoredAxeResults
+  result.domElementCount = domElementCount
+  return result
 }

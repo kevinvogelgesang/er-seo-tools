@@ -29,6 +29,8 @@ export interface StoredAxeResults {
   url: string
   testEngine: { name: string; version: string }
   testRunner: { name: string }
+  /** Total DOM elements found in the page snapshot. Low values (<50) suggest a JS-rendered SPA. */
+  domElementCount?: number
 }
 
 /** Violation counts by impact level */
