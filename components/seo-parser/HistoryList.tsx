@@ -54,13 +54,13 @@ function HealthDot({ score }: { score: number }) {
 
 function SkeletonCard() {
   return (
-    <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm animate-pulse">
+    <div className="p-4 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl shadow-sm animate-pulse">
       <div className="flex justify-between items-start mb-2">
-        <div className="h-4 bg-gray-200 rounded w-2/3" />
-        <div className="h-4 bg-gray-200 rounded w-12 ml-2" />
+        <div className="h-4 bg-gray-200 dark:bg-navy-light rounded w-2/3" />
+        <div className="h-4 bg-gray-200 dark:bg-navy-light rounded w-12 ml-2" />
       </div>
-      <div className="h-3 bg-gray-100 rounded w-1/2 mb-3" />
-      <div className="h-3 bg-gray-100 rounded w-16" />
+      <div className="h-3 bg-gray-100 dark:bg-navy-light/60 rounded w-1/2 mb-3" />
+      <div className="h-3 bg-gray-100 dark:bg-navy-light/60 rounded w-16" />
     </div>
   );
 }
@@ -121,7 +121,7 @@ export function HistoryList() {
   if (isLoading) {
     return (
       <div className="mt-12">
-        <div className="h-7 bg-gray-200 rounded w-40 mb-4 animate-pulse" />
+        <div className="h-7 bg-gray-200 dark:bg-navy-light rounded w-40 mb-4 animate-pulse" />
         <div className="grid gap-4 md:grid-cols-2">
           {[0, 1, 2, 3].map((i) => (
             <SkeletonCard key={i} />
@@ -137,7 +137,7 @@ export function HistoryList() {
         <p className="text-red-400 text-sm mb-3">Failed to load history.</p>
         <button
           onClick={() => loadHistory()}
-          className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors"
+          className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-navy-light hover:bg-gray-200 dark:hover:bg-navy-border text-gray-600 dark:text-white/60 rounded-lg transition-colors"
         >
           Retry
         </button>
@@ -166,7 +166,7 @@ export function HistoryList() {
 
   return (
     <div className="mt-12">
-      <h2 className="text-xl font-bold text-[#1c2d4a] mb-4">Recent Analyses</h2>
+      <h2 className="text-xl font-bold text-[#1c2d4a] dark:text-white mb-4">Recent Analyses</h2>
 
       {/* Filters row */}
       <div className="flex gap-2 mb-4">
@@ -191,7 +191,7 @@ export function HistoryList() {
             placeholder="Filter by site name…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white"
+            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white dark:bg-navy-card dark:text-white dark:placeholder:text-white/40"
           />
         </div>
 
@@ -205,7 +205,7 @@ export function HistoryList() {
               else if (v === 'unassigned') setClientFilter('unassigned');
               else setClientFilter(parseInt(v, 10));
             }}
-            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white text-gray-600 min-w-[140px]"
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white dark:bg-navy-card text-gray-600 dark:text-white min-w-[140px]"
           >
             <option value="">All clients</option>
             <option value="unassigned">Unassigned</option>
@@ -226,10 +226,10 @@ export function HistoryList() {
             <div key={item.id} className="relative group">
               <button
                 onClick={() => router.push(`/seo-parser/results/${item.id}`)}
-                className="text-left w-full p-4 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow"
+                className="text-left w-full p-4 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl shadow-sm hover:shadow-md transition-shadow"
               >
                 <div className="flex justify-between items-start mb-1 pr-6">
-                  <span className="text-sm font-semibold text-gray-800 truncate">
+                  <span className="text-sm font-semibold text-gray-800 dark:text-white truncate">
                     {item.siteName || item.files[0] || 'Unnamed session'}
                   </span>
                   <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
@@ -256,7 +256,7 @@ export function HistoryList() {
                     </span>
                   </div>
                 )}
-                <div className="text-xs text-gray-400 mb-2 flex items-center gap-2">
+                <div className="text-xs text-gray-400 dark:text-white/40 mb-2 flex items-center gap-2">
                   <span>{relativeTime(item.createdAt)}</span>
                   <span>&middot;</span>
                   <span>
@@ -276,8 +276,8 @@ export function HistoryList() {
 
               {/* Delete button — visible on hover */}
               {confirmDelete === item.id ? (
-                <div className="absolute top-2 right-2 flex items-center gap-1 bg-white border border-gray-200 rounded-lg shadow-sm px-2 py-1 z-10">
-                  <span className="text-xs text-gray-600 mr-1">Delete?</span>
+                <div className="absolute top-2 right-2 flex items-center gap-1 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-lg shadow-sm px-2 py-1 z-10">
+                  <span className="text-xs text-gray-600 dark:text-white/60 mr-1">Delete?</span>
                   <button
                     onClick={() => handleDelete(item.id)}
                     className="text-xs text-red-600 font-semibold hover:text-red-800 px-1"
@@ -286,7 +286,7 @@ export function HistoryList() {
                   </button>
                   <button
                     onClick={() => setConfirmDelete(null)}
-                    className="text-xs text-gray-500 hover:text-gray-700 px-1"
+                    className="text-xs text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white px-1"
                   >
                     Cancel
                   </button>

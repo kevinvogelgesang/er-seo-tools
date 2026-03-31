@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
+import { ThemeToggle } from './ThemeToggle'
 
 interface DropdownItem {
   name: string
@@ -208,14 +209,17 @@ export default function Nav() {
             })}
           </div>
 
-          {/* Mobile menu toggle */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="md:hidden p-2 text-white/70 hover:text-white rounded-md hover:bg-white/5 transition-colors"
-            aria-label="Toggle menu"
-          >
-            {mobileOpen ? <CloseIcon /> : <MenuIcon />}
-          </button>
+          {/* Theme toggle + mobile menu toggle */}
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={() => setMobileOpen(!mobileOpen)}
+              className="md:hidden p-2 text-white/70 hover:text-white rounded-md hover:bg-white/5 transition-colors"
+              aria-label="Toggle menu"
+            >
+              {mobileOpen ? <CloseIcon /> : <MenuIcon />}
+            </button>
+          </div>
         </div>
       </div>
 

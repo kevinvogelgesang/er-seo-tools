@@ -140,14 +140,14 @@ function HeroVisual() {
 
       {/* Card 1 — SEO Parser (back left) */}
       <div
-        className="absolute top-6 left-4 w-52 rounded-xl bg-white border border-gray-200 shadow-xl p-4"
+        className="absolute top-6 left-4 w-52 rounded-xl bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border shadow-xl p-4"
         style={{ transform: 'rotate(-4deg) translateZ(0)' }}
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-6 h-6 rounded bg-orange/15 flex items-center justify-center">
             <ParserIcon className="w-3.5 h-3.5 text-orange" />
           </div>
-          <span className="text-[11px] font-display font-bold text-navy">SEO Parser</span>
+          <span className="text-[11px] font-display font-bold text-navy dark:text-white">SEO Parser</span>
         </div>
         <div className="space-y-1.5">
           {[
@@ -158,9 +158,9 @@ function HeroVisual() {
             <div key={row.label} className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${row.color}`} />
-                <span className="text-[10px] text-gray-500 font-body">{row.label}</span>
+                <span className="text-[10px] text-gray-500 dark:text-white/60 font-body">{row.label}</span>
               </div>
-              <span className="text-[10px] font-bold text-navy font-display">{row.count}</span>
+              <span className="text-[10px] font-bold text-navy dark:text-white font-display">{row.count}</span>
             </div>
           ))}
         </div>
@@ -197,20 +197,20 @@ function HeroVisual() {
 
       {/* Card 3 — RankMath (back right) */}
       <div
-        className="absolute top-8 right-2 w-48 rounded-xl bg-white border border-gray-200 shadow-xl p-4"
+        className="absolute top-8 right-2 w-48 rounded-xl bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border shadow-xl p-4"
         style={{ transform: 'rotate(3deg) translateZ(0)' }}
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-6 h-6 rounded bg-orange/15 flex items-center justify-center">
             <RedirectIcon className="w-3.5 h-3.5 text-orange" />
           </div>
-          <span className="text-[11px] font-display font-bold text-navy">Redirects</span>
+          <span className="text-[11px] font-display font-bold text-navy dark:text-white">Redirects</span>
         </div>
         <div className="space-y-2">
           {['Workflow A', 'Workflow B'].map((wf) => (
-            <div key={wf} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5">
+            <div key={wf} className="flex items-center gap-2 bg-gray-50 dark:bg-navy-light rounded px-2 py-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-orange flex-shrink-0" />
-              <span className="text-[10px] font-body text-gray-500">{wf}</span>
+              <span className="text-[10px] font-body text-gray-500 dark:text-white/60">{wf}</span>
             </div>
           ))}
         </div>
@@ -218,7 +218,7 @@ function HeroVisual() {
 
       {/* Bottom label */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
-        <span className="text-[11px] font-body text-gray-400 tracking-wide">
+        <span className="text-[11px] font-body text-gray-400 dark:text-white/40 tracking-wide">
           5 tools · All in one place
         </span>
       </div>
@@ -306,10 +306,10 @@ export default function HomePage() {
   return (
     <>
       {/* ── Hero ───────────────────────────────────────────────────── */}
-      <section className="relative bg-white dot-grid overflow-hidden">
+      <section className="relative bg-white dark:bg-navy-deep dot-grid overflow-hidden">
         {/* Gradient overlay to fade dot grid at edges */}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/0 via-white/0 to-white pointer-events-none" />
-        <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-gray-50 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-white/0 via-white/0 to-white dark:to-navy-deep pointer-events-none" />
+        <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-gray-50 dark:from-navy-deep to-transparent pointer-events-none" />
 
         <div className="relative max-w-7xl mx-auto px-6 pt-20 pb-0">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-0 items-center">
@@ -325,7 +325,7 @@ export default function HomePage() {
               </div>
 
               {/* Headline */}
-              <h1 className="font-display font-extrabold text-[44px] sm:text-[52px] leading-[1.05] text-navy mb-6">
+              <h1 className="font-display font-extrabold text-[44px] sm:text-[52px] leading-[1.05] text-navy dark:text-white mb-6">
                 Your Complete{' '}
                 <span className="text-orange relative">
                   SEO Toolkit
@@ -345,10 +345,10 @@ export default function HomePage() {
                   </svg>
                 </span>
                 {' '}—{' '}
-                <span className="text-navy/70">All in One Place.</span>
+                <span className="text-navy/70 dark:text-white/70">All in One Place.</span>
               </h1>
 
-              <p className="font-body text-[17px] text-navy/55 leading-relaxed mb-10 max-w-[440px]">
+              <p className="font-body text-[17px] text-navy/55 dark:text-white/55 leading-relaxed mb-10 max-w-[440px]">
                 Purpose-built tools for enrollment marketers and web teams. Audit SEO and accessibility, plan quarters, migrate redirects — without switching between scattered files.
               </p>
 

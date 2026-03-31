@@ -43,6 +43,12 @@
   }
 }
 
+/* Dark mode: dot-grid variant */
+html.dark .dot-grid {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
 /* Scroll-triggered fade-up for tool cards */
 @keyframes fadeUpIn {
   from {

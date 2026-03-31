@@ -193,8 +193,8 @@ export default function ClientsPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-display font-bold text-[#1c2d4a] mb-1">Clients</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-3xl font-display font-bold text-[#1c2d4a] dark:text-white mb-1">Clients</h1>
+          <p className="text-sm text-gray-500 dark:text-white/60">
             Shared across the Quarter Grid and SEO Parser. Add domains to enable automatic client matching when uploading crawl files.
           </p>
         </div>
@@ -220,7 +220,7 @@ export default function ClientsPage() {
               placeholder="Client name…"
               value={addForm.name}
               onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value, error: '' }))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white dark:bg-navy-card dark:text-white"
             />
             {addForm.error && <p className="text-xs text-red-500 mt-1">{addForm.error}</p>}
           </div>
@@ -234,7 +234,7 @@ export default function ClientsPage() {
           <button
             type="button"
             onClick={() => setAddForm({ open: false, name: '', error: '', loading: false })}
-            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-navy-light transition-colors"
           >
             Cancel
           </button>
@@ -245,7 +245,7 @@ export default function ClientsPage() {
       {isLoading && (
         <div className="space-y-3">
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />
+            <div key={i} className="h-20 bg-gray-100 dark:bg-navy-light rounded-xl animate-pulse" />
           ))}
         </div>
       )}
@@ -257,7 +257,7 @@ export default function ClientsPage() {
 
       {/* Empty */}
       {!isLoading && !error && clients.length === 0 && (
-        <div className="text-center py-12 text-gray-400">
+        <div className="text-center py-12 text-gray-400 dark:text-white/40">
           <p className="text-sm mb-1">No clients yet.</p>
           <p className="text-xs">Add your first client above.</p>
         </div>
@@ -269,7 +269,7 @@ export default function ClientsPage() {
           {clients.map((client) => (
             <div
               key={client.id}
-              className="bg-white border border-gray-200 rounded-xl px-5 py-4 shadow-sm"
+              className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl px-5 py-4 shadow-sm"
             >
               <div className="flex items-start gap-3">
                 {/* Name / edit */}
@@ -285,7 +285,7 @@ export default function ClientsPage() {
                           if (e.key === 'Enter') saveEdit(client.id);
                           if (e.key === 'Escape') setEditForm({ id: null, name: '', error: '', loading: false });
                         }}
-                        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40"
+                        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 dark:bg-navy-card dark:text-white"
                       />
                       <button
                         onClick={() => saveEdit(client.id)}
@@ -296,7 +296,7 @@ export default function ClientsPage() {
                       </button>
                       <button
                         onClick={() => setEditForm({ id: null, name: '', error: '', loading: false })}
-                        className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                        className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-navy-light transition-colors"
                       >
                         Cancel
                       </button>
@@ -304,11 +304,11 @@ export default function ClientsPage() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="font-semibold text-[#1c2d4a] text-sm">{client.name}</span>
+                      <span className="font-semibold text-[#1c2d4a] dark:text-white text-sm">{client.name}</span>
                       <button
                         onClick={() => startEdit(client)}
                         aria-label="Rename client"
-                        className="p-1 text-gray-400 hover:text-[#1c2d4a] rounded transition-colors"
+                        className="p-1 text-gray-400 dark:text-white/40 hover:text-[#1c2d4a] dark:hover:text-white rounded transition-colors"
                       >
                         <PencilIcon />
                       </button>
@@ -320,7 +320,7 @@ export default function ClientsPage() {
                     {client.domains.map((domain) => (
                       <span
                         key={domain}
-                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-[#1c2d4a]/8 text-[#1c2d4a] rounded-full font-mono"
+                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-[#1c2d4a]/8 dark:bg-white/10 text-[#1c2d4a] dark:text-white/80 rounded-full font-mono"
                       >
                         {domain}
                         <button
@@ -346,7 +346,7 @@ export default function ClientsPage() {
                         onChange={(e) =>
                           setDomainInput((prev) => ({ ...prev, [client.id]: e.target.value }))
                         }
-                        className="w-36 px-2 py-0.5 text-xs border border-dashed border-gray-300 rounded-full focus:outline-none focus:border-[#f5a623] bg-transparent font-mono placeholder:text-gray-400"
+                        className="w-36 px-2 py-0.5 text-xs border border-dashed border-gray-300 dark:border-navy-border rounded-full focus:outline-none focus:border-[#f5a623] bg-transparent dark:text-white font-mono placeholder:text-gray-400 dark:placeholder:text-white/40"
                       />
                       {(domainInput[client.id] ?? '').trim() && (
                         <button
@@ -361,7 +361,7 @@ export default function ClientsPage() {
                   </div>
 
                   {client.domains.length === 0 && (
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-400 dark:text-white/40 mt-1">
                       No domains yet — add one above to enable auto-matching in the SEO Parser.
                     </p>
                   )}
@@ -371,7 +371,7 @@ export default function ClientsPage() {
                 <div className="flex-shrink-0">
                   {deleteConfirm.id === client.id && !deleteConfirm.loading ? (
                     <div className="flex items-center gap-2 text-xs">
-                      <span className="text-gray-600">Delete?</span>
+                      <span className="text-gray-600 dark:text-white/60">Delete?</span>
                       <button
                         onClick={() => handleDelete(client.id)}
                         className="text-red-600 font-semibold hover:text-red-800"
@@ -380,7 +380,7 @@ export default function ClientsPage() {
                       </button>
                       <button
                         onClick={() => setDeleteConfirm({ id: null, loading: false })}
-                        className="text-gray-500 hover:text-gray-700"
+                        className="text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white"
                       >
                         No
                       </button>
@@ -390,7 +390,7 @@ export default function ClientsPage() {
                       onClick={() => setDeleteConfirm({ id: client.id, loading: false })}
                       disabled={deleteConfirm.loading && deleteConfirm.id === client.id}
                       aria-label="Delete client"
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      className="p-1.5 text-gray-400 dark:text-white/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
                     >
                       {deleteConfirm.loading && deleteConfirm.id === client.id ? (
                         <Spinner className="w-4 h-4" />
@@ -406,7 +406,7 @@ export default function ClientsPage() {
         </div>
       )}
 
-      <p className="text-xs text-gray-400 mt-6 text-center">
+      <p className="text-xs text-gray-400 dark:text-white/40 mt-6 text-center">
         {clients.length} client{clients.length !== 1 ? 's' : ''}
       </p>
     </div>
