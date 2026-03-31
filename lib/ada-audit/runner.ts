@@ -28,7 +28,7 @@ const PRIVATE_RANGES = [
   /^0\.0\.0\.0$/,
 ]
 
-async function assertNotPrivate(hostname: string) {
+export async function assertNotPrivate(hostname: string) {
   let address: string
   try {
     const result = await dns.lookup(hostname)

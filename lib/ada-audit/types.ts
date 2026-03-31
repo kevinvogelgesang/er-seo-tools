@@ -65,3 +65,35 @@ export interface AuditDetail {
   clientName: string | null
   results: StoredAxeResults | null
 }
+
+// ─── Site audit types ─────────────────────────────────────────────────────────
+
+/** Per-page summary row inside SiteAuditSummary.pages */
+export interface SitePageResult {
+  adaAuditId: string
+  url: string
+  status: 'complete' | 'error'
+  error: string | null
+  scorecard: AuditScorecard | null
+}
+
+/** Stored in SiteAudit.summary — computed once when all pages finish */
+export interface SiteAuditSummary {
+  aggregate: AuditScorecard
+  pages: SitePageResult[]  // sorted by scorecard.total descending
+}
+
+/** Shape returned by GET /api/site-audit (list) and GET /api/site-audit/[id] */
+export interface SiteAuditDetail {
+  id: string
+  createdAt: string
+  domain: string
+  status: string
+  error: string | null
+  clientId: number | null
+  clientName: string | null
+  pagesTotal: number
+  pagesComplete: number
+  pagesError: number
+  summary: SiteAuditSummary | null
+}

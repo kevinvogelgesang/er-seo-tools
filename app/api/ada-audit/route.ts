@@ -80,7 +80,10 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get('clientId')
-  const where = clientId ? { clientId: parseInt(clientId, 10) } : {}
+  // Exclude child page records that belong to a site audit
+  const where = clientId
+    ? { clientId: parseInt(clientId, 10), siteAuditId: null }
+    : { siteAuditId: null }
 
   const audits = await prisma.adaAudit.findMany({
     where,

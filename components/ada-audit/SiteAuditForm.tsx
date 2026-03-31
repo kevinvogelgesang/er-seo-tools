@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 
 interface Client {
   id: number
@@ -9,19 +9,17 @@ interface Client {
   domains: string[]
 }
 
-export default function AuditForm() {
+export default function SiteAuditForm() {
   const router = useRouter()
-  const searchParams = useSearchParams()
 
-  const [url, setUrl] = useState('')
-  const [urlTouched, setUrlTouched] = useState(false) // true once user manually edits the URL
+  const [domain, setDomain] = useState('')
+  const [domainTouched, setDomainTouched] = useState(false)
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [clients, setClients] = useState<Client[]>([])
   const [clientsLoading, setClientsLoading] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Combobox state
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const comboRef = useRef<HTMLDivElement>(null)
@@ -30,28 +28,15 @@ export default function AuditForm() {
   useEffect(() => {
     fetch('/api/clients')
       .then((r) => r.json())
-      .then((data: Client[]) => {
-        const list = Array.isArray(data) ? data : []
-        setClients(list)
-
-        // Pre-select client from ?clientId= query param
-        const qc = searchParams.get('clientId')
-        if (qc) {
-          const match = list.find((c) => c.id === parseInt(qc, 10))
-          if (match) selectClient(match)
-        }
-      })
+      .then((data: Client[]) => setClients(Array.isArray(data) ? data : []))
       .catch(() => setClients([]))
       .finally(() => setClientsLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (comboRef.current && !comboRef.current.contains(e.target as Node)) {
         setOpen(false)
-        // Reset query to selected client name if one is selected
         if (selectedClient) setQuery(selectedClient.name)
         else setQuery('')
       }
@@ -65,9 +50,9 @@ export default function AuditForm() {
     setOpen(false)
     if (client) {
       setQuery(client.name)
-      // Auto-populate URL from first domain, unless user has manually typed a URL
-      if (!urlTouched && client.domains.length > 0) {
-        setUrl(`https://${client.domains[0]}`)
+      if (!domainTouched && client.domains.length > 0) {
+        // Strip scheme if present, use bare domain
+        setDomain(client.domains[0].replace(/^https?:\/\//i, '').replace(/\/.*$/, ''))
       }
     } else {
       setQuery('')
@@ -77,14 +62,7 @@ export default function AuditForm() {
   function handleQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
     setQuery(e.target.value)
     setOpen(true)
-    // If user clears the field, deselect client
-    if (e.target.value === '') selectClientSilent(null)
-  }
-
-  // Select without triggering URL auto-fill (used for clearing)
-  function selectClientSilent(client: Client | null) {
-    setSelectedClient(client)
-    if (!client) setQuery('')
+    if (e.target.value === '') { setSelectedClient(null) }
   }
 
   const filtered = query === '' || (selectedClient && query === selectedClient.name)
@@ -97,23 +75,30 @@ export default function AuditForm() {
     setIsRunning(true)
 
     try {
-      const res = await fetch('/api/ada-audit', {
+      const res = await fetch('/api/site-audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: url.trim(),
+          domain: domain.trim(),
           clientId: selectedClient?.id ?? null,
         }),
       })
 
       const data = await res.json()
       if (!res.ok) {
+        // 409 = already running — offer to navigate to it
+        if (res.status === 409 && data.id) {
+          setError(`A site audit for this domain is already running.`)
+          setIsRunning(false)
+          router.push(`/ada-audit/site/${data.id}`)
+          return
+        }
         setError(data.error ?? 'Request failed')
         setIsRunning(false)
         return
       }
 
-      router.push(`/ada-audit/${data.id}`)
+      router.push(`/ada-audit/site/${data.id}`)
     } catch {
       setError('Network error — please try again')
       setIsRunning(false)
@@ -122,7 +107,7 @@ export default function AuditForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Client combobox — intentionally above URL so selection can pre-fill it */}
+      {/* Client combobox */}
       <div>
         <label className="block text-[13px] font-body font-semibold text-navy/70 mb-1.5">
           Client <span className="text-navy/40 font-normal">(optional)</span>
@@ -139,11 +124,10 @@ export default function AuditForm() {
             autoComplete="off"
             className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 transition-colors"
           />
-          {/* Clear button */}
           {selectedClient && !isRunning && (
             <button
               type="button"
-              onClick={() => { selectClient(null); setUrlTouched(false); setUrl(''); inputRef.current?.focus() }}
+              onClick={() => { selectClient(null); setDomainTouched(false); setDomain(''); inputRef.current?.focus() }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-navy/30 hover:text-navy/70 transition-colors"
               aria-label="Clear client"
             >
@@ -152,8 +136,6 @@ export default function AuditForm() {
               </svg>
             </button>
           )}
-
-          {/* Dropdown */}
           {open && !clientsLoading && (
             <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
               {filtered.length === 0 ? (
@@ -163,7 +145,7 @@ export default function AuditForm() {
                   <button
                     type="button"
                     onMouseDown={(e) => { e.preventDefault(); selectClient(null) }}
-                    className="w-full text-left px-4 py-2.5 text-[13px] font-body text-navy/40 hover:bg-gray-50 transition-colors border-b border-gray-100"
+                    className="w-full text-left px-4 py-2.5 text-[13px] font-body text-navy/40 hover:bg-gray-50 border-b border-gray-100"
                   >
                     No client
                   </button>
@@ -189,21 +171,24 @@ export default function AuditForm() {
         </div>
       </div>
 
-      {/* URL input */}
+      {/* Domain input */}
       <div>
-        <label htmlFor="audit-url" className="block text-[13px] font-body font-semibold text-navy/70 mb-1.5">
-          Page URL to audit
+        <label htmlFor="site-domain" className="block text-[13px] font-body font-semibold text-navy/70 mb-1.5">
+          Domain to audit
         </label>
         <input
-          id="audit-url"
-          type="url"
+          id="site-domain"
+          type="text"
           required
-          value={url}
-          onChange={(e) => { setUrl(e.target.value); setUrlTouched(true) }}
-          placeholder="https://example.edu"
+          value={domain}
+          onChange={(e) => { setDomain(e.target.value); setDomainTouched(true) }}
+          placeholder="example.edu"
           disabled={isRunning}
           className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 transition-colors"
         />
+        <p className="text-[11px] font-body text-navy/40 mt-1.5">
+          We&apos;ll fetch sitemap.xml and audit up to 50 pages. Large sites may take several minutes.
+        </p>
       </div>
 
       {error && (
@@ -214,7 +199,7 @@ export default function AuditForm() {
 
       <button
         type="submit"
-        disabled={isRunning || !url.trim()}
+        disabled={isRunning || !domain.trim()}
         className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[14px] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isRunning ? (
@@ -223,10 +208,10 @@ export default function AuditForm() {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            Starting audit…
+            Starting…
           </>
         ) : (
-          'Run Audit'
+          'Run Site Audit'
         )}
       </button>
     </form>
