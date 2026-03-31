@@ -123,10 +123,16 @@ async function _runAudit(targetUrl: string, wcagLevel: string): Promise<StoredAx
   dom.window.eval(axeSource)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // WCAG 2.1 AA requires 2.0 A + 2.0 AA + 2.1 A + 2.1 AA rules.
+  // WCAG 2.2 AA adds 2.2 AA on top. Passing only 'wcag21aa' misses all inherited 2.0 rules.
+  const wcagTags = wcagLevel === 'wcag22aa'
+    ? ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
+    : ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
+
   const rawResults = await (dom.window as any).axe.run(
     dom.window.document,
     {
-      runOnly: { type: 'tag', values: [wcagLevel] },
+      runOnly: { type: 'tag', values: wcagTags },
       resultTypes: ['violations', 'incomplete'],
       reporter: 'no-passes',
       iframes: false,
