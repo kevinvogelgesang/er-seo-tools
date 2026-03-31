@@ -27,7 +27,7 @@ function parseScorecard(result: string | null): AuditScorecard | null {
   }
 }
 
-function addScorecards(a: AuditScorecard, b: AuditScorecard): AuditScorecard {
+export function addScorecards(a: AuditScorecard, b: AuditScorecard): AuditScorecard {
   return {
     critical:   a.critical   + b.critical,
     serious:    a.serious    + b.serious,
@@ -39,7 +39,7 @@ function addScorecards(a: AuditScorecard, b: AuditScorecard): AuditScorecard {
   }
 }
 
-const ZERO_SCORECARD: AuditScorecard = {
+export const ZERO_SCORECARD: AuditScorecard = {
   critical: 0, serious: 0, moderate: 0, minor: 0,
   total: 0, passed: 0, incomplete: 0,
 }

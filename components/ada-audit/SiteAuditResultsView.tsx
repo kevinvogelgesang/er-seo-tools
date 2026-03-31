@@ -1,13 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Spinner } from '@/components/Spinner'
-import type { SiteAuditSummary, SitePageResult, AuditScorecard } from '@/lib/ada-audit/types'
+import type { SiteAuditSummary, SitePageResult } from '@/lib/ada-audit/types'
+import type { StoredAxeResults } from '@/lib/ada-audit/types'
 import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
 import ComplianceBanner from './ComplianceBanner'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
-import type { StoredAxeResults } from '@/lib/ada-audit/types'
+import SiteAuditToolbar from './SiteAuditToolbar'
+import SitemapTreeView from './SitemapTreeView'
+import CleanPagesSection from './CleanPagesSection'
+import { useSiteAuditPages, type SortKey, type ImpactFilter } from './useSiteAuditPages'
 
 interface Props {
   domain: string
@@ -120,15 +124,40 @@ function PageRow({ page }: { page: SitePageResult }) {
 
 const PAGE_SIZE = 50
 
+function paginationRange(current: number, total: number): (number | '...')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages: (number | '...')[] = [1]
+  const left = Math.max(2, current - 1)
+  const right = Math.min(total - 1, current + 1)
+  if (left > 2) pages.push('...')
+  for (let i = left; i <= right; i++) pages.push(i)
+  if (right < total - 1) pages.push('...')
+  pages.push(total)
+  return pages
+}
+
 export default function SiteAuditResultsView({
   domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant,
 }: Props) {
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
+
+  const [sortKey, setSortKey] = useState<SortKey>('total')
+  const [filterImpact, setFilterImpact] = useState<ImpactFilter>('all')
+  const [viewMode, setViewMode] = useState<'table' | 'sitemap'>('table')
   const [currentPage, setCurrentPage] = useState(1)
 
-  const totalTablePages = Math.ceil(summary.pages.length / PAGE_SIZE)
+  const { issuePages, cleanPages, treeRoot, counts } = useSiteAuditPages(summary.pages, {
+    sortKey,
+    filterImpact,
+    filterStatus: 'all',
+  })
+
+  // Reset pagination when sort/filter changes
+  useEffect(() => { setCurrentPage(1) }, [sortKey, filterImpact])
+
+  const totalTablePages = Math.ceil(issuePages.length / PAGE_SIZE)
   const start = (currentPage - 1) * PAGE_SIZE
-  const visiblePages = summary.pages.slice(start, start + PAGE_SIZE)
+  const visiblePages = issuePages.slice(start, start + PAGE_SIZE)
 
   return (
     <div className="space-y-6">
@@ -166,8 +195,9 @@ export default function SiteAuditResultsView({
 
       <KnownLimitationsNotice variant="site" />
 
-      {/* Page table */}
+      {/* Pages section */}
       <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
+        {/* Section header */}
         <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
           <div className="w-8 h-8 rounded-lg bg-orange/15 flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -175,67 +205,105 @@ export default function SiteAuditResultsView({
             </svg>
           </div>
           <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">
-            Pages <span className="text-navy/40 dark:text-white/40 font-normal text-[14px]">sorted by violations</span>
+            Pages with Issues
+            <span className="text-navy/40 dark:text-white/40 font-normal text-[14px] ml-2">{issuePages.length}</span>
           </h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
-                <th className="text-left px-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">Page</th>
-                <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-red-400">Crit</th>
-                <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-orange-400">Ser</th>
-                <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-yellow-500">Mod</th>
-                <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-blue-400">Min</th>
-                <th className="text-center pr-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiblePages.map((page) => (
-                <PageRow key={page.adaAuditId} page={page} />
-              ))}
-            </tbody>
-          </table>
-        </div>
 
-        {/* Pagination */}
-        {totalTablePages > 1 && (
-          <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
-            <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
-              Showing {start + 1}–{Math.min(start + PAGE_SIZE, summary.pages.length)} of {summary.pages.length} pages
-            </span>
-            <div className="flex gap-1">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                Prev
-              </button>
-              {Array.from({ length: totalTablePages }, (_, i) => i + 1).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setCurrentPage(p)}
-                  className={`px-2.5 py-1 text-[12px] font-body rounded border transition-colors ${
-                    p === currentPage
-                      ? 'border-orange bg-orange/10 text-orange font-semibold'
-                      : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light'
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalTablePages, p + 1))}
-                disabled={currentPage === totalTablePages}
-                className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                Next
-              </button>
+        {/* Toolbar */}
+        <SiteAuditToolbar
+          sortKey={sortKey}
+          onSortChange={setSortKey}
+          filterImpact={filterImpact}
+          onFilterImpactChange={setFilterImpact}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          counts={counts}
+        />
+
+        {/* Table view */}
+        {viewMode === 'table' && (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
+                    <th className="text-left px-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">Page</th>
+                    <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-red-400">Crit</th>
+                    <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-orange-400">Ser</th>
+                    <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-yellow-500">Mod</th>
+                    <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-blue-400">Min</th>
+                    <th className="text-center pr-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiblePages.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-center text-[13px] font-body text-navy/40 dark:text-white/40">
+                        No pages match the current filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    visiblePages.map((page) => (
+                      <PageRow key={page.adaAuditId} page={page} />
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
-          </div>
+
+            {/* Pagination */}
+            {totalTablePages > 1 && (
+              <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
+                <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
+                  Showing {start + 1}–{Math.min(start + PAGE_SIZE, issuePages.length)} of {issuePages.length} pages
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Prev
+                  </button>
+                  {paginationRange(currentPage, totalTablePages).map((p, i) =>
+                    p === '...' ? (
+                      <span key={`ellipsis-${i}`} className="px-1.5 py-1 text-[12px] font-body text-navy/30 dark:text-white/30">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setCurrentPage(p as number)}
+                        className={`px-2.5 py-1 text-[12px] font-body rounded border transition-colors ${
+                          p === currentPage
+                            ? 'border-orange bg-orange/10 text-orange font-semibold'
+                            : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalTablePages, p + 1))}
+                    disabled={currentPage === totalTablePages}
+                    className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Sitemap view */}
+        {viewMode === 'sitemap' && (
+          <SitemapTreeView root={treeRoot} />
         )}
       </div>
+
+      {/* Clean pages */}
+      <CleanPagesSection pages={cleanPages} />
     </div>
   )
 }
