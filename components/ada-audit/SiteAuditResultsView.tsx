@@ -118,10 +118,17 @@ function PageRow({ page }: { page: SitePageResult }) {
   )
 }
 
+const PAGE_SIZE = 50
+
 export default function SiteAuditResultsView({
   domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant,
 }: Props) {
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const totalTablePages = Math.ceil(summary.pages.length / PAGE_SIZE)
+  const start = (currentPage - 1) * PAGE_SIZE
+  const visiblePages = summary.pages.slice(start, start + PAGE_SIZE)
 
   return (
     <div className="space-y-6">
@@ -184,12 +191,50 @@ export default function SiteAuditResultsView({
               </tr>
             </thead>
             <tbody>
-              {summary.pages.map((page) => (
+              {visiblePages.map((page) => (
                 <PageRow key={page.adaAuditId} page={page} />
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalTablePages > 1 && (
+          <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
+            <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
+              Showing {start + 1}–{Math.min(start + PAGE_SIZE, summary.pages.length)} of {summary.pages.length} pages
+            </span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Prev
+              </button>
+              {Array.from({ length: totalTablePages }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`px-2.5 py-1 text-[12px] font-body rounded border transition-colors ${
+                    p === currentPage
+                      ? 'border-orange bg-orange/10 text-orange font-semibold'
+                      : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalTablePages, p + 1))}
+                disabled={currentPage === totalTablePages}
+                className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

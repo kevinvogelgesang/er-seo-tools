@@ -1,7 +1,6 @@
 import { assertNotPrivate } from './runner'
 
-const MAX_PAGES = 50
-const MAX_CHILD_SITEMAPS = 5
+const HARD_CAP = 1000
 const FETCH_TIMEOUT = 15_000
 const USER_AGENT = 'ER-SEO-Tools/1.0 ada-audit'
 
@@ -51,9 +50,37 @@ async function fetchXml(url: string): Promise<string | null> {
     const ct = res.headers.get('content-type') ?? ''
     // Reject HTML responses (login redirects, 404 pages served as 200, etc.)
     if (ct.includes('html') && !ct.includes('xml')) return null
+
+    // Handle gzip-compressed sitemaps
+    if (url.endsWith('.gz') || ct.includes('gzip')) {
+      const buf = Buffer.from(await res.arrayBuffer())
+      const { gunzipSync } = await import('zlib')
+      return gunzipSync(buf).toString('utf-8')
+    }
+
     return res.text()
   } catch {
     return null
+  }
+}
+
+async function fetchRobotsTxt(base: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${base}/robots.txt`, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      redirect: 'follow',
+    })
+    if (!res.ok) return []
+    const text = await res.text()
+    const urls: string[] = []
+    for (const line of text.split('\n')) {
+      const match = line.match(/^\s*Sitemap:\s*(.+)/i)
+      if (match) urls.push(match[1].trim())
+    }
+    return urls
+  } catch {
+    return []
   }
 }
 
@@ -136,15 +163,45 @@ async function shallowCrawl(base: string, normDomain: string): Promise<string[]>
     }
   }
 
-  return dedupeUrls(resolved).slice(0, MAX_PAGES)
+  return dedupeUrls(resolved)
+}
+
+// ─── Sitemap URL collection ─────────────────────────────────────────────────
+
+/**
+ * Given a sitemap XML (plain or index), collect all page URLs.
+ * Follows child sitemaps in sitemap indexes (no artificial cap).
+ */
+async function collectFromSitemap(xml: string): Promise<string[]> {
+  if (!isSitemapIndex(xml)) {
+    return extractLocs(xml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
+  }
+
+  // Sitemap index — fetch all child sitemaps
+  const childUrls = extractLocs(xml, /<sitemap>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
+  const pageUrls: string[] = []
+
+  // Fetch child sitemaps in batches of 5 to be polite
+  const BATCH = 5
+  for (let i = 0; i < childUrls.length; i += BATCH) {
+    const batch = childUrls.slice(i, i + BATCH)
+    const childXmls = await Promise.all(batch.map((u) => fetchXml(u)))
+    for (const childXml of childXmls) {
+      if (!childXml) continue
+      const locs = extractLocs(childXml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
+      pageUrls.push(...locs)
+    }
+  }
+
+  return pageUrls
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 /**
- * Discovers pages for a domain via sitemap.xml (or sitemap_index.xml).
+ * Discovers pages for a domain via sitemap.xml (checking robots.txt, common paths).
  * Falls back to a shallow homepage link crawl if no sitemap is found.
- * Returns up to MAX_PAGES (50) URLs, all belonging to the domain.
+ * Returns all discovered URLs belonging to the domain, up to HARD_CAP (1000).
  * Throws if the domain fails SSRF checks or no pages are discovered.
  */
 export async function discoverPages(domain: string): Promise<string[]> {
@@ -155,11 +212,44 @@ export async function discoverPages(domain: string): Promise<string[]> {
 
   const base = `https://${normDomain}`
 
-  // Try sitemap.xml, then sitemap_index.xml
-  let xml = await fetchXml(`${base}/sitemap.xml`)
-  if (!xml) xml = await fetchXml(`${base}/sitemap_index.xml`)
-  if (!xml) {
-    // Sitemap not found — attempt shallow homepage crawl as fallback
+  // 1. Check robots.txt for Sitemap: directives
+  const robotsSitemapUrls = await fetchRobotsTxt(base)
+
+  // 2. Build ordered list of sitemap URLs to try
+  const sitemapCandidates = [
+    ...robotsSitemapUrls,
+    `${base}/sitemap.xml`,
+    `${base}/sitemap_index.xml`,
+    `${base}/wp-sitemap.xml`,
+    `${base}/sitemap.xml.gz`,
+  ]
+
+  // Dedupe candidates (robots.txt may list the same as our defaults)
+  const seen = new Set<string>()
+  const uniqueCandidates: string[] = []
+  for (const url of sitemapCandidates) {
+    if (!seen.has(url)) {
+      seen.add(url)
+      uniqueCandidates.push(url)
+    }
+  }
+
+  // 3. Try each candidate until we get pages
+  let allPageUrls: string[] = []
+
+  for (const sitemapUrl of uniqueCandidates) {
+    const xml = await fetchXml(sitemapUrl)
+    if (!xml) continue
+
+    const urls = await collectFromSitemap(xml)
+    if (urls.length > 0) {
+      allPageUrls = urls
+      break
+    }
+  }
+
+  // 4. If no sitemap yielded pages, fall back to shallow crawl
+  if (allPageUrls.length === 0) {
     const crawledPages = await shallowCrawl(base, normDomain)
     if (crawledPages.length === 0) {
       throw new Error(
@@ -169,29 +259,10 @@ export async function discoverPages(domain: string): Promise<string[]> {
     return crawledPages
   }
 
-  let pageUrls: string[] = []
-
-  if (isSitemapIndex(xml)) {
-    // Sitemap index — extract child sitemap URLs and fetch each
-    const childSitemapUrls = extractLocs(xml, /<sitemap>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
-      .slice(0, MAX_CHILD_SITEMAPS)
-
-    const childXmls = await Promise.all(childSitemapUrls.map((u) => fetchXml(u)))
-    for (const childXml of childXmls) {
-      if (!childXml) continue
-      const locs = extractLocs(childXml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
-      pageUrls.push(...locs)
-      if (pageUrls.length >= MAX_PAGES) break
-    }
-  } else {
-    // Plain sitemap
-    pageUrls = extractLocs(xml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
-  }
-
-  // Filter to same domain, deduplicate, cap
+  // 5. Filter to same domain, deduplicate, apply hard cap
   const filtered = dedupeUrls(
-    pageUrls.filter((u) => isSameDomain(u, normDomain))
-  ).slice(0, MAX_PAGES)
+    allPageUrls.filter((u) => isSameDomain(u, normDomain))
+  ).slice(0, HARD_CAP)
 
   if (filtered.length === 0) {
     throw new Error(

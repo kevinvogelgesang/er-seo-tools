@@ -7,16 +7,16 @@ export function KnownLimitationsNotice({ variant = 'single' }: { variant?: 'sing
       <span>
         {variant === 'site' ? (
           <>
-            <strong>Known limitations:</strong> Pages are audited from static HTML only. External stylesheets,
-            client-rendered content, and lazy-loaded sections are not included. Treat results as a starting point.
+            <strong>Known limitations:</strong> Content behind login walls, scroll-triggered lazy loads,
+            and interactive states (open modals, expanded accordions) may not be captured.
+            Treat results as a starting point.
           </>
         ) : (
           <>
-            <strong>Known limitations:</strong> This audit analyzes the static HTML snapshot only.
-            External stylesheets are not loaded, so color-contrast results may not reflect the
-            rendered page. Client-rendered content (React/Angular SPAs), lazy-loaded sections,
-            and content inside modals will not be included. Treat results as a starting point,
-            not a certification.
+            <strong>Known limitations:</strong> This audit runs in a real browser and renders JavaScript,
+            CSS, and fonts. However, content behind login walls, scroll-triggered lazy loads,
+            and interactive states (open modals, expanded accordions) may not be captured.
+            Treat results as a starting point, not a certification.
           </>
         )}
       </span>

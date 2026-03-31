@@ -19,9 +19,14 @@ export default function SiteAuditForm() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [clients, setClients] = useState<Client[]>([])
   const [clientsLoading, setClientsLoading] = useState(true)
+  const [isDiscovering, setIsDiscovering] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
+
+  // Discovery confirmation state
+  const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null)
+  const [discoveredDomain, setDiscoveredDomain] = useState<string | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const { query, setQuery, open, setOpen, comboRef, filtered } = useClientCombobox(clients, selectedClient?.name ?? null)
@@ -40,7 +45,6 @@ export default function SiteAuditForm() {
     if (client) {
       setQuery(client.name)
       if (!domainTouched && client.domains.length > 0) {
-        // Strip scheme if present, use bare domain
         setDomain(client.domains[0].replace(/^https?:\/\//i, '').replace(/\/.*$/, ''))
       }
     } else {
@@ -54,8 +58,41 @@ export default function SiteAuditForm() {
     if (e.target.value === '') { setSelectedClient(null) }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function resetDiscovery() {
+    setDiscoveredUrls(null)
+    setDiscoveredDomain(null)
+  }
+
+  async function handleDiscover(e: React.FormEvent) {
     e.preventDefault()
+    setError(null)
+    resetDiscovery()
+    setIsDiscovering(true)
+
+    try {
+      const res = await fetch('/api/site-audit/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain: domain.trim() }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? 'Discovery failed')
+        setIsDiscovering(false)
+        return
+      }
+
+      setDiscoveredUrls(data.urls)
+      setDiscoveredDomain(data.domain)
+    } catch {
+      setError('Network error — please try again')
+    } finally {
+      setIsDiscovering(false)
+    }
+  }
+
+  async function handleStartAudit() {
     setError(null)
     setIsRunning(true)
 
@@ -64,15 +101,15 @@ export default function SiteAuditForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          domain: domain.trim(),
+          domain: discoveredDomain ?? domain.trim(),
           clientId: selectedClient?.id ?? null,
           wcagLevel,
+          urls: discoveredUrls,
         }),
       })
 
       const data = await res.json()
       if (!res.ok) {
-        // 409 = already running — offer to navigate to it
         if (res.status === 409 && data.id) {
           setError(`A site audit for this domain is already running.`)
           setIsRunning(false)
@@ -91,8 +128,10 @@ export default function SiteAuditForm() {
     }
   }
 
+  const isBusy = isDiscovering || isRunning
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleDiscover} className="space-y-4">
       {/* Client combobox */}
       <div>
         <label className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
@@ -106,11 +145,11 @@ export default function SiteAuditForm() {
             onChange={handleQueryChange}
             onFocus={() => setOpen(true)}
             placeholder={clientsLoading ? 'Loading clients…' : 'Search clients…'}
-            disabled={isRunning || clientsLoading}
+            disabled={isBusy || clientsLoading}
             autoComplete="off"
             className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors"
           />
-          {selectedClient && !isRunning && (
+          {selectedClient && !isBusy && (
             <button
               type="button"
               onClick={() => { selectClient(null); setDomainTouched(false); setDomain(''); inputRef.current?.focus() }}
@@ -167,13 +206,13 @@ export default function SiteAuditForm() {
           type="text"
           required
           value={domain}
-          onChange={(e) => { setDomain(e.target.value); setDomainTouched(true) }}
+          onChange={(e) => { setDomain(e.target.value); setDomainTouched(true); resetDiscovery() }}
           placeholder="example.edu"
-          disabled={isRunning}
+          disabled={isBusy}
           className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors"
         />
         <p className="text-[11px] font-body text-navy/40 dark:text-white/40 mt-1.5">
-          We&apos;ll fetch sitemap.xml and audit up to 50 pages. Large sites may take several minutes.
+          We&apos;ll discover all pages from the sitemap and audit each one.
         </p>
       </div>
 
@@ -191,7 +230,7 @@ export default function SiteAuditForm() {
               key={value}
               type="button"
               onClick={() => setWcagLevel(value)}
-              disabled={isRunning}
+              disabled={isBusy}
               className={`flex-1 flex flex-col items-center px-3 py-2 rounded-lg border text-[13px] font-body transition-colors disabled:opacity-50 ${
                 wcagLevel === value
                   ? 'border-orange bg-orange/5 text-orange font-semibold'
@@ -211,20 +250,58 @@ export default function SiteAuditForm() {
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={isRunning || !domain.trim()}
-        className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[14px] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {isRunning ? (
-          <>
-            <Spinner className="w-4 h-4" />
-            Starting…
-          </>
-        ) : (
-          'Run Site Audit'
-        )}
-      </button>
+      {/* Discovery confirmation */}
+      {discoveredUrls && !isRunning && (
+        <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl px-4 py-3 space-y-2">
+          <p className="text-[13px] font-body text-blue-800 dark:text-blue-300">
+            Found <strong>{discoveredUrls.length.toLocaleString()} page{discoveredUrls.length !== 1 ? 's' : ''}</strong> on {discoveredDomain}.
+            {discoveredUrls.length > 200 && (
+              <> This is a large site — the audit may take a while.</>
+            )}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleStartAudit}
+              className="px-4 py-2 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[13px] rounded-lg transition-colors"
+            >
+              Audit {discoveredUrls.length.toLocaleString()} pages
+            </button>
+            <button
+              type="button"
+              onClick={resetDiscovery}
+              className="px-4 py-2 border border-gray-300 dark:border-navy-border text-navy dark:text-white font-body text-[13px] rounded-lg hover:bg-gray-50 dark:hover:bg-navy-light transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Submit buttons */}
+      {!discoveredUrls && (
+        <button
+          type="submit"
+          disabled={isBusy || !domain.trim()}
+          className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[14px] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isDiscovering ? (
+            <>
+              <Spinner className="w-4 h-4" />
+              Discovering pages…
+            </>
+          ) : (
+            'Discover Pages'
+          )}
+        </button>
+      )}
+
+      {isRunning && (
+        <div className="flex items-center justify-center gap-2 px-5 py-2.5 text-[14px] font-body text-navy/50 dark:text-white/50">
+          <Spinner className="w-4 h-4" />
+          Starting audit…
+        </div>
+      )}
     </form>
   )
 }

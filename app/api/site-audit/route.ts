@@ -10,11 +10,11 @@ export const dynamic = 'force-dynamic'
 
 // ─── Background job ───────────────────────────────────────────────────────────
 
-async function runSiteAuditInBackground(id: string, domain: string, clientId: number | null, wcagLevel: string) {
+async function runSiteAuditInBackground(id: string, domain: string, clientId: number | null, wcagLevel: string, preDiscoveredUrls?: string[]) {
   try {
     await prisma.siteAudit.update({ where: { id }, data: { status: 'running' } })
 
-    const urls = await discoverPages(domain)
+    const urls = preDiscoveredUrls ?? await discoverPages(domain)
     await prisma.siteAudit.update({ where: { id }, data: { pagesTotal: urls.length } })
 
     const CONCURRENCY = 2
@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
   let domain = typeof raw?.domain === 'string' ? raw.domain.trim() : ''
   const clientId = typeof raw?.clientId === 'number' ? raw.clientId : null
   const wcagLevel = typeof raw?.wcagLevel === 'string' && raw.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
+  const preDiscoveredUrls = Array.isArray(raw?.urls) ? (raw.urls as string[]).filter(u => typeof u === 'string') : undefined
 
   if (!domain) {
     return NextResponse.json({ error: 'domain is required' }, { status: 400 })
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
     data: { domain, status: 'pending', clientId, wcagLevel },
   })
 
-  void runSiteAuditInBackground(audit.id, domain, clientId, wcagLevel)
+  void runSiteAuditInBackground(audit.id, domain, clientId, wcagLevel, preDiscoveredUrls)
 
   return NextResponse.json({ id: audit.id, status: 'pending' }, { status: 202 })
 }
