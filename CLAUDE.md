@@ -34,12 +34,16 @@ ssh seotools@161.35.235.157 "cd /home/seotools/webapps/er-seo-tools && git pull 
 - `lib/ada-audit/browser-pool.ts` — singleton headless Chrome + page pool (size 2); `acquirePage()` / `releasePage()` / `closeBrowser()`
 - `lib/ada-audit/runner.ts` — axe-core runner via puppeteer-core; SSRF protection, progress callbacks, `wcagTags` expansion
 - `lib/ada-audit/scoring.ts` — `computeScore(violations, wcagLevel)` → `{ score: 0–100, compliant: boolean }`
-- `lib/ada-audit/sitemap-crawler.ts` — `discoverPages(domain)` with sitemap + shallow crawl fallback
+- `lib/ada-audit/sitemap-crawler.ts` — `discoverPages(domain)` with robots.txt, wp-sitemap, gzip support, 1000-page hard cap
+- `lib/ada-audit/queue-manager.ts` — global FIFO queue: `enqueueAudit()` / `processNext()` / `resetStaleAudits()` / `recoverQueue()`
+- `lib/ada-audit/site-audit-helpers.ts` — `buildSiteAuditSummary()`, `addScorecards()`, `ZERO_SCORECARD`
 - `lib/services/scoring.service.ts` — `computeHealthScore()` for SEO parser crawls
 - `lib/parsers/` — CSV parsers extending `BaseParser` with O(1) `headerMap` column lookup
 
 ## Architecture patterns
 - **ADA audit polling:** POST creates record → background runner updates `progress`/`progressMessage` as it runs → client polls `/api/ada-audit/[id]` every second → `AuditPoller` renders live progress bar with elapsed + estimated time
+- **Site audit queue:** Only one site audit runs at a time. `enqueueAudit()` creates record in `queued` status → `processNext()` picks oldest queued audit when nothing is running → chains to next on completion. `SiteAuditPoller` shows queue position + active audit progress. `SiteAuditForm` polls `/api/site-audit/queue` every 5s to show a live banner. `SiteAuditHistory` smart-polls every 8s when active audits exist.
+- **Stale audit recovery:** `updatedAt` field auto-updates on every Prisma write (heartbeat). `resetStaleAudits()` runs every 10 min + on startup — audits stuck in `running` for 5+ min get errored. `recoverQueue()` on startup also re-queues any `pending` audits.
 - **Browser pool:** `acquirePage()` blocks when both slots are in use; `releasePage()` closes the page and wakes the next waiter. Never hold a page across awaits you don't control.
 - **SIGTERM handler** in `instrumentation.ts` calls `closeBrowser()` so Chrome doesn't orphan on deploy restarts
 - **Recharts** lazy-loaded via `next/dynamic` to avoid SSR issues
@@ -67,7 +71,9 @@ ssh seotools@161.35.235.157 "cd /home/seotools/webapps/er-seo-tools && git pull 
 - `domElementCount` stored in result JSON — values < 50 trigger an "unreliable result" warning (JS-rendered SPA)
 - Score formula: weighted penalty per impact level ÷ log10(totalElements), floor 0
 - `shareToken` on `AdaAudit` enables public read-only view at `/ada-audit/share/[token]`
-- Site audits discover pages via sitemap → fallback shallow crawl (regex `<a href>`, cap 50); concurrency = 2 (matches browser pool size)
+- Site audits discover pages via robots.txt `Sitemap:` directives → `/sitemap.xml` → `/sitemap_index.xml` → `/wp-sitemap.xml` → `.xml.gz` → shallow crawl fallback; hard cap 1000 pages; concurrency = 2 (matches browser pool size)
+- **Queue:** site audits enter `queued` status (FIFO), only one runs at a time; `discoveredUrls` stored as JSON on the SiteAudit row so queued audits don't re-crawl
+- **Results views:** sort/filter toolbar (impact pills, sort dropdown), table vs sitemap tree toggle, paginated at 50 rows, clean pages in separate collapsible section
 - Chrome executable path: `/usr/bin/google-chrome` (override with `CHROME_EXECUTABLE` env var)
 
 ## Do not

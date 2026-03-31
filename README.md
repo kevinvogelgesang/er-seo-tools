@@ -10,7 +10,7 @@ A unified Next.js webapp housing all SEO tools for the Enrollment Resources team
 | SEO Parser — Crawl Diff | `/seo-parser/diff` | Compare two crawl sessions to track improvement over time |
 | SEO Parser — Shared Reports | `/share/[token]` | Read-only shareable links for completed audits (30-day expiry) |
 | ADA Audit | `/ada-audit` | Single-page WCAG accessibility audit via headless Chrome + axe-core |
-| ADA Audit — Site-wide | `/ada-audit` (Site tab) | Crawl an entire domain and audit up to 50 pages |
+| ADA Audit — Site-wide | `/ada-audit` (Site tab) | Crawl an entire domain via sitemap and audit all pages (queued, one at a time) |
 | ADA Audit — Shared Reports | `/ada-audit/share/[token]` | Read-only shareable links for audit results |
 | Quarter Grid (V1) | `/quarter-grid/v1` | Basic quarterly planning grid |
 | Quarter Grid (V2) | `/quarter-grid/v2` | Enhanced quarterly planning |
@@ -71,7 +71,10 @@ Open [http://localhost:3000](http://localhost:3000).
 - **+ Best Practices** (Aspirational) — adds axe best-practice rules (landmark structure, heading order, label quality) and WCAG 2.2 AA rules on top
 - **Live progress bar** — per-phase progress (verifying URL → loading page → running checks) with elapsed time and estimated completion
 - **Scored results** — 0–100 score with weighted penalty per impact level; compliant/non-compliant badge
-- **Site-wide audits** — discovers up to 50 pages via sitemap.xml with shallow-crawl fallback; runs pages 2 at a time
+- **Site-wide audits** — discovers all pages via sitemap (robots.txt directives, `/sitemap.xml`, `/wp-sitemap.xml`, gzip support, 1000-page hard cap); two-step flow: discover pages → confirm count → start audit
+- **Global audit queue** — only one site audit runs at a time (FIFO); queued audits show position and active audit's live progress; queue status visible on the form page, poller page, and history table
+- **Stale audit recovery** — heartbeat via `updatedAt`; audits stuck for 5+ minutes auto-recover on a 10-minute interval and on server startup
+- **Sort, filter, and sitemap view** — results toolbar with impact filter pills, sort dropdown, and table/sitemap tree toggle; clean pages (0 violations) in a separate collapsible section; paginated at 50 rows
 - **Shareable links** — one-click share button generates a public read-only URL
 - **JS-rendered SPA detection** — warns when the page has fewer than 50 DOM elements (static HTML shell, results unreliable)
 - **Client association** — link audits to a client record for filtered history views
