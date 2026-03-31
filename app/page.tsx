@@ -15,6 +15,17 @@ const tools = [
     accentClass: 'from-orange/20 to-transparent',
   },
   {
+    id: 'ada-audit',
+    href: '/ada-audit',
+    name: 'ADA Audit',
+    tagline: 'Audit. Score. Share.',
+    description:
+      'Run WCAG 2.1/2.2 accessibility audits on any page or entire site. Get a scored report with violations grouped by impact — shareable with a single link.',
+    features: ['Single-page & site-wide audits', 'WCAG AA/AAA scoring', 'Shareable report links'],
+    icon: AdaAuditIcon,
+    accentClass: 'from-orange/20 to-transparent',
+  },
+  {
     id: 'quarter-grid',
     href: '/quarter-grid',
     name: 'Quarter Grid',
@@ -88,6 +99,15 @@ function RobotsValidatorIcon({ className }: { className?: string }) {
       <path d="M12 11V7" />
       <circle cx="12" cy="5" r="2" />
       <path d="M8 15h.01M12 15h.01M16 15h.01" strokeWidth={2.5} />
+    </svg>
+  )
+}
+
+function AdaAuditIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l7 3.5v5C19 15.5 16 19.5 12 21c-4-1.5-7-5.5-7-9.5V6.5L12 3z" />
+      <path d="M9 12l2.5 2.5L15 9" />
     </svg>
   )
 }
@@ -199,7 +219,7 @@ function HeroVisual() {
       {/* Bottom label */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
         <span className="text-[11px] font-body text-gray-400 tracking-wide">
-          4 tools · All in one place
+          5 tools · All in one place
         </span>
       </div>
     </div>
@@ -274,7 +294,7 @@ function ToolCard({
 // ─── Stats strip ─────────────────────────────────────────────────────────────
 
 const stats = [
-  { value: '4', label: 'SEO Tools' },
+  { value: '5', label: 'SEO Tools' },
   { value: 'Next.js 15', label: 'App Router' },
   { value: 'Git', label: 'Connected Deploy' },
   { value: 'RunCloud', label: 'Hosted' },
@@ -329,7 +349,7 @@ export default function HomePage() {
               </h1>
 
               <p className="font-body text-[17px] text-navy/55 leading-relaxed mb-10 max-w-[440px]">
-                Purpose-built tools for enrollment marketers and web teams. Audit sites, plan quarters, migrate redirects — without switching between scattered files.
+                Purpose-built tools for enrollment marketers and web teams. Audit SEO and accessibility, plan quarters, migrate redirects — without switching between scattered files.
               </p>
 
               {/* Quick jump pills */}
@@ -386,12 +406,12 @@ export default function HomePage() {
               Everything you need,<br />in one place.
             </h2>
             <p className="font-body text-[15px] text-white/45 leading-relaxed">
-              Four tools built specifically for the SEO workflows at Enrollment Resources. No login, no subscriptions — just open and go.
+              Five tools built specifically for the SEO workflows at Enrollment Resources. No login, no subscriptions — just open and go.
             </p>
           </div>
 
           {/* Cards */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {tools.map((tool) => (
               <ToolCard key={tool.id} tool={tool} />
             ))}
@@ -429,6 +449,13 @@ export default function HomePage() {
             >
               <RedirectIcon className="w-4 h-4 text-orange" />
               RankMath Redirects
+            </Link>
+            <Link
+              href="/ada-audit"
+              className="inline-flex items-center gap-2 bg-white/10 text-white font-display font-semibold text-[14px] px-6 py-3 rounded-lg hover:bg-white/15 transition-colors duration-200 border border-white/10"
+            >
+              <AdaAuditIcon className="w-4 h-4 text-orange" />
+              ADA Audit
             </Link>
             <Link
               href="/robots-validator"
