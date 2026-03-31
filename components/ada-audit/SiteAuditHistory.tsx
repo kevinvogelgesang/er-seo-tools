@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Spinner } from '@/components/Spinner'
 import Link from 'next/link'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
@@ -25,6 +25,7 @@ function StatusBadge({ status }: { status: string }) {
     error:    'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
     running:  'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
     pending:  'bg-gray-100 dark:bg-navy-light text-gray-600 dark:text-white/60',
+    queued:   'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
   }
   return (
     <span className={`text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${map[status] ?? map.pending}`}>
@@ -54,6 +55,48 @@ export default function SiteAuditHistory() {
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  // Smart polling: poll lightweight queue endpoint when there are active/queued audits
+  const auditsRef = useRef(audits)
+  auditsRef.current = audits
+  const hasActive = audits.some(a => ['queued', 'pending', 'running'].includes(a.status))
+
+  useEffect(() => {
+    if (!hasActive) return
+
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch('/api/site-audit/queue')
+        if (!res.ok) return
+        const queue: { active: { id: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null; queued: { id: string }[] } = await res.json()
+
+        const activeIds = new Set<string>()
+        if (queue.active) activeIds.add(queue.active.id)
+        for (const q of queue.queued) activeIds.add(q.id)
+
+        const current = auditsRef.current
+        const wasActive = current.filter(a => ['queued', 'pending', 'running'].includes(a.status))
+        const needsReload = wasActive.some(a => !activeIds.has(a.id))
+
+        if (needsReload) {
+          void load()
+        } else {
+          setAudits(prev => prev.map(a => {
+            if (queue.active && a.id === queue.active.id) {
+              return { ...a, status: 'running', pagesTotal: queue.active.pagesTotal, pagesComplete: queue.active.pagesComplete, pagesError: queue.active.pagesError }
+            }
+            const queuedItem = queue.queued.find(q => q.id === a.id)
+            if (queuedItem && a.status !== 'queued') {
+              return { ...a, status: 'queued' }
+            }
+            return a
+          }))
+        }
+      } catch { /* ignore */ }
+    }, 8000)
+
+    return () => clearInterval(timer)
+  }, [hasActive, load])
 
   async function handleDelete(id: string) {
     setDeleting(id)
@@ -125,9 +168,11 @@ export default function SiteAuditHistory() {
                   {a.clientName ?? <span className="text-navy/25 dark:text-white/25">—</span>}
                 </td>
                 <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">
-                  {a.status === 'running' || a.status === 'pending'
-                    ? <span>{a.pagesComplete}/{a.pagesTotal > 0 ? a.pagesTotal : '?'}</span>
-                    : <span>{a.pagesComplete + a.pagesError}</span>
+                  {a.status === 'queued'
+                    ? <span className="text-amber-600 dark:text-amber-400">queued</span>
+                    : a.status === 'running' || a.status === 'pending'
+                      ? <span>{a.pagesComplete}/{a.pagesTotal > 0 ? a.pagesTotal : '?'}</span>
+                      : <span>{a.pagesComplete + a.pagesError}</span>
                   }
                 </td>
                 <td className="py-2.5 pr-4">

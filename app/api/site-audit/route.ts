@@ -1,63 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { discoverPages } from '@/lib/ada-audit/sitemap-crawler'
-import { runAxeAudit } from '@/lib/ada-audit/runner'
-import { buildSiteAuditSummary } from '@/lib/ada-audit/site-audit-helpers'
+import { enqueueAudit } from '@/lib/ada-audit/queue-manager'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
-
-// ─── Background job ───────────────────────────────────────────────────────────
-
-async function runSiteAuditInBackground(id: string, domain: string, clientId: number | null, wcagLevel: string, preDiscoveredUrls?: string[]) {
-  try {
-    await prisma.siteAudit.update({ where: { id }, data: { status: 'running' } })
-
-    const urls = preDiscoveredUrls ?? await discoverPages(domain)
-    await prisma.siteAudit.update({ where: { id }, data: { pagesTotal: urls.length } })
-
-    const CONCURRENCY = 2
-    for (let i = 0; i < urls.length; i += CONCURRENCY) {
-      await Promise.all(urls.slice(i, i + CONCURRENCY).map(async (url) => {
-        const child = await prisma.adaAudit.create({
-          data: { url, status: 'pending', clientId, siteAuditId: id, wcagLevel },
-        })
-        try {
-          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
-          const results = await runAxeAudit(url, wcagLevel)
-          await prisma.adaAudit.update({
-            where: { id: child.id },
-            data: { status: 'complete', result: JSON.stringify(results), runnerType: 'browser' },
-          })
-          await prisma.siteAudit.update({ where: { id }, data: { pagesComplete: { increment: 1 } } })
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Audit failed'
-          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'error', error: msg } })
-          await prisma.siteAudit.update({ where: { id }, data: { pagesError: { increment: 1 } } })
-        }
-      }))
-    }
-
-    const children = await prisma.adaAudit.findMany({
-      where: { siteAuditId: id },
-      select: { id: true, url: true, status: true, error: true, result: true },
-    })
-    const summary = buildSiteAuditSummary(children)
-
-    await prisma.siteAudit.update({
-      where: { id },
-      data: { status: 'complete', summary: JSON.stringify(summary) },
-    })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Site audit failed'
-    console.error(`[site-audit] id=${id} error:`, message)
-    await prisma.siteAudit.update({
-      where: { id },
-      data: { status: 'error', error: message },
-    }).catch(() => {})
-  }
-}
 
 // ─── POST /api/site-audit ─────────────────────────────────────────────────────
 
@@ -94,23 +41,19 @@ export async function POST(request: NextRequest) {
 
   // Prevent duplicate in-flight site audits for the same domain
   const inFlight = await prisma.siteAudit.findFirst({
-    where: { domain, status: { in: ['pending', 'running'] } },
+    where: { domain, status: { in: ['queued', 'pending', 'running'] } },
     select: { id: true },
   })
   if (inFlight) {
     return NextResponse.json(
-      { error: `A site audit for ${domain} is already running`, id: inFlight.id },
+      { error: `A site audit for ${domain} is already queued or running`, id: inFlight.id },
       { status: 409 }
     )
   }
 
-  const audit = await prisma.siteAudit.create({
-    data: { domain, status: 'pending', clientId, wcagLevel },
-  })
+  const { id, status } = await enqueueAudit(domain, clientId, wcagLevel, preDiscoveredUrls)
 
-  void runSiteAuditInBackground(audit.id, domain, clientId, wcagLevel, preDiscoveredUrls)
-
-  return NextResponse.json({ id: audit.id, status: 'pending' }, { status: 202 })
+  return NextResponse.json({ id, status }, { status: 202 })
 }
 
 // ─── GET /api/site-audit ──────────────────────────────────────────────────────

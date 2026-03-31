@@ -30,8 +30,8 @@ export default async function SiteAuditResultPage({ params }: Props) {
     </div>
   )
 
-  // ── Pending / running ────────────────────────────────────────────────────────
-  if (audit.status === 'pending' || audit.status === 'running') {
+  // ── Queued / Pending / running ────────────────────────────────────────────────
+  if (audit.status === 'queued' || audit.status === 'pending' || audit.status === 'running') {
     return (
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
         {breadcrumb}

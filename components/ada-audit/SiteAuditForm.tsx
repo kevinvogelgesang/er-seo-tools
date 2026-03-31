@@ -11,6 +11,11 @@ interface Client {
   domains: string[]
 }
 
+interface QueueStatus {
+  active: { id: string; domain: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null
+  queued: { id: string; domain: string; position: number }[]
+}
+
 export default function SiteAuditForm() {
   const router = useRouter()
 
@@ -27,6 +32,22 @@ export default function SiteAuditForm() {
   // Discovery confirmation state
   const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null)
   const [discoveredDomain, setDiscoveredDomain] = useState<string | null>(null)
+
+  // Queue status polling
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null)
+  const queueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    const fetchQueue = async () => {
+      try {
+        const res = await fetch('/api/site-audit/queue')
+        if (res.ok) setQueueStatus(await res.json())
+      } catch { /* ignore */ }
+    }
+    void fetchQueue()
+    queueTimerRef.current = setInterval(fetchQueue, 5000)
+    return () => { if (queueTimerRef.current) clearInterval(queueTimerRef.current) }
+  }, [])
 
   const inputRef = useRef<HTMLInputElement>(null)
   const { query, setQuery, open, setOpen, comboRef, filtered } = useClientCombobox(clients, selectedClient?.name ?? null)
@@ -243,6 +264,43 @@ export default function SiteAuditForm() {
           ))}
         </div>
       </div>
+
+      {/* Queue status banner */}
+      {queueStatus && (queueStatus.active || queueStatus.queued.length > 0) && (
+        <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl px-4 py-3 space-y-2">
+          {queueStatus.active && (() => {
+            const a = queueStatus.active
+            const scanned = a.pagesComplete + a.pagesError
+            const pct = a.pagesTotal > 0 ? Math.round((scanned / a.pagesTotal) * 100) : 0
+            return (
+              <div className="space-y-1.5">
+                <p className="text-[12px] font-body font-semibold text-blue-800 dark:text-blue-300">
+                  Currently scanning: {a.domain}
+                  <span className="font-normal text-blue-600/60 dark:text-blue-400/60 ml-2">
+                    {a.pagesTotal > 0 ? `${scanned}/${a.pagesTotal} pages (${pct}%)` : 'Discovering pages…'}
+                  </span>
+                </p>
+                {a.pagesTotal > 0 && (
+                  <div className="w-full bg-blue-200/50 dark:bg-blue-500/20 rounded-full h-1.5 overflow-hidden">
+                    <div className="bg-blue-500 dark:bg-blue-400 h-1.5 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+          {queueStatus.queued.length > 0 && (
+            <p className="text-[11px] font-body text-blue-600/60 dark:text-blue-400/60">
+              {queueStatus.queued.length} audit{queueStatus.queued.length !== 1 ? 's' : ''} queued
+              {queueStatus.queued.length <= 3 && (
+                <> — {queueStatus.queued.map(q => q.domain).join(', ')}</>
+              )}
+            </p>
+          )}
+          <p className="text-[11px] font-body text-blue-600/60 dark:text-blue-400/60">
+            New audits will be queued and start automatically.
+          </p>
+        </div>
+      )}
 
       {error && (
         <p className="text-[13px] font-body text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg px-4 py-2.5">

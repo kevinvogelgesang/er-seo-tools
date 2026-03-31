@@ -81,8 +81,9 @@ model AdaAudit {
 model SiteAudit {
   id            String     @id @default(cuid())
   createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
   domain        String     // "example.edu" — no scheme, no trailing slash
-  status        String     // pending | running | complete | error
+  status        String     // queued | pending | running | complete | error
   error         String?
   pagesTotal    Int        @default(0)
   pagesComplete Int        @default(0)
@@ -91,6 +92,7 @@ model SiteAudit {
   wcagLevel     String     @default("wcag21aa")  // wcag21aa | wcag22aa
   score         Int?                              // 0-100
   runnerType    String     @default("jsdom")      // jsdom | browser
+  discoveredUrls String?   // JSON: string[] — pre-discovered URLs stored for queued audits
   clientId      Int?
   client        Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   pageAudits    AdaAudit[]

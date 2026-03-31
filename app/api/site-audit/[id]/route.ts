@@ -24,6 +24,24 @@ export async function GET(
     try { summary = JSON.parse(audit.summary) } catch { /* ignore */ }
   }
 
+  // If queued, calculate position
+  let queuePosition: number | null = null
+  if (audit.status === 'queued') {
+    const ahead = await prisma.siteAudit.count({
+      where: { status: 'queued', createdAt: { lt: audit.createdAt } },
+    })
+    queuePosition = ahead + 1
+  }
+
+  // If queued or waiting, include active audit info
+  let activeAudit: { id: string; domain: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null = null
+  if (audit.status === 'queued') {
+    activeAudit = await prisma.siteAudit.findFirst({
+      where: { status: { in: ['running', 'pending'] } },
+      select: { id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true },
+    })
+  }
+
   return NextResponse.json({
     id: audit.id,
     createdAt: audit.createdAt.toISOString(),
@@ -36,7 +54,9 @@ export async function GET(
     pagesComplete: audit.pagesComplete,
     pagesError: audit.pagesError,
     summary,
-  } satisfies SiteAuditDetail)
+    queuePosition,
+    activeAudit,
+  } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit })
 }
 
 export async function DELETE(
