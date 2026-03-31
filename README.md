@@ -23,12 +23,13 @@ A unified Next.js webapp housing all SEO tools for the Enrollment Resources team
 
 - **Framework:** Next.js 15 (App Router)
 - **Language:** TypeScript
-- **Styling:** Tailwind CSS v3
+- **Styling:** Tailwind CSS v3 (class-based dark mode with system preference detection)
 - **Database:** Prisma + SQLite
 - **Accessibility auditing:** puppeteer-core + axe-core (headless Google Chrome)
 - **CSV Parsing:** PapaParse
 - **Charts:** Recharts (lazy-loaded)
 - **Fonts:** Barlow (display) + Source Sans 3 (body)
+- **Theming:** Dark/light mode toggle with `localStorage` persistence; anti-FOUC inline script
 - **Hosting:** RunCloud (DigitalOcean VPS, Ubuntu 20.04)
 
 ## Getting Started

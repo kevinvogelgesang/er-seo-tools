@@ -1,6 +1,6 @@
 # ER SEO Tools — Claude Context
 
-Internal SEO toolkit for Enrollment Resources. Next.js 15 App Router, TypeScript, Tailwind CSS, Prisma + SQLite. Deployed on RunCloud (not Vercel/serverless).
+Internal SEO toolkit for Enrollment Resources. Next.js 15 App Router, TypeScript, Tailwind CSS (class-based dark mode), Prisma + SQLite. Deployed on RunCloud (not Vercel/serverless).
 
 ## Stack constraints
 - **Node 18** on production — keep all deps Node 18 compatible
@@ -27,6 +27,8 @@ ssh seotools@161.35.235.157 "cd /home/seotools/webapps/er-seo-tools && git pull 
 3. Production migration runs automatically via `prisma migrate deploy` in the deploy command
 
 ## Key files
+- `components/ThemeProvider.tsx` — React context for dark/light mode; reads `localStorage('er-theme')` + `prefers-color-scheme`; toggles `.dark` class on `<html>`
+- `components/ThemeToggle.tsx` — Sun/Moon toggle button rendered in Nav; waits for `mounted` to avoid hydration mismatch
 - `lib/db.ts` — Prisma client singleton (import as `import { prisma } from '@/lib/db'`)
 - `lib/ada-audit/types.ts` — shared types for axe-core results (`StoredAxeResults`, `AxeViolation`, `AuditDetail`, etc.)
 - `lib/ada-audit/browser-pool.ts` — singleton headless Chrome + page pool (size 2); `acquirePage()` / `releasePage()` / `closeBrowser()`
@@ -44,6 +46,7 @@ ssh seotools@161.35.235.157 "cd /home/seotools/webapps/er-seo-tools && git pull 
 - **File I/O** uses `fs/promises` (async) everywhere
 - **JSON.parse** always wrapped in try-catch in API routes
 - **Share URLs** use `NEXT_PUBLIC_APP_URL` env var (not request origin)
+- **Dark mode:** Tailwind `darkMode: 'class'`; anti-FOUC `<script>` in layout sets `.dark` before React hydrates; `ThemeProvider` context exposes `theme`/`toggle`/`mounted`; every component uses `dark:` variants mapping `bg-white` → `dark:bg-navy-card`, `text-gray-*` → `dark:text-white/*`, `border-gray-*` → `dark:border-navy-border`, semantic status colors → `dark:bg-{color}-500/{opacity}`
 - **Parallel agent pattern for large features:** schema changes first → agents own exclusive file sets in parallel → integration pass → `tsc --noEmit` → build → commit → deploy
 
 ## Tools in the app
