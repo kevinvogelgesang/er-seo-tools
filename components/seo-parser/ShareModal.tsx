@@ -93,15 +93,15 @@ export function ShareModal({ sessionId, onClose }: ShareModalProps) {
       onClick={onClose}
     >
       <div
-        className="relative bg-white rounded-xl shadow-xl w-full max-w-md"
+        className="relative bg-white dark:bg-navy-card rounded-xl shadow-xl w-full max-w-md"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="font-display font-bold text-[#1c2d4a] text-lg">Share Report</h2>
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-navy-border flex items-center justify-between">
+          <h2 className="font-display font-bold text-[#1c2d4a] dark:text-white text-lg">Share Report</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-400 dark:text-white/40 hover:text-gray-600 dark:hover:text-white/60 transition-colors"
             aria-label="Close"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,20 +118,20 @@ export function ShareModal({ sessionId, onClose }: ShareModalProps) {
         {/* Body */}
         <div className="px-6 py-6">
           {state.status === 'loading' && (
-            <div className="flex items-center gap-3 text-gray-600">
-              <Spinner className="w-5 h-5 text-[#1c2d4a]" />
+            <div className="flex items-center gap-3 text-gray-600 dark:text-white/60">
+              <Spinner className="w-5 h-5 text-[#1c2d4a] dark:text-white" />
               <span className="text-sm">Generating share link…</span>
             </div>
           )}
 
           {state.status === 'error' && (
             <div className="space-y-3">
-              <div className="text-sm text-red-700 bg-red-50 rounded-lg p-4 border border-red-200">
+              <div className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg p-4 border border-red-200 dark:border-red-500/30">
                 {state.message}
               </div>
               <button
                 onClick={() => setAttempt((n) => n + 1)}
-                className="text-sm text-[#1c2d4a] font-medium hover:underline"
+                className="text-sm text-[#1c2d4a] dark:text-white font-medium hover:underline"
               >
                 Try again
               </button>
@@ -140,23 +140,23 @@ export function ShareModal({ sessionId, onClose }: ShareModalProps) {
 
           {state.status === 'success' && (
             <div className="space-y-4">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-white/60">
                 Anyone with this link can view a read-only version of this report. The link expires
-                on <span className="font-medium text-gray-800">{formattedExpiry}</span>.
+                on <span className="font-medium text-gray-800 dark:text-white/80">{formattedExpiry}</span>.
               </p>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   readOnly
                   value={state.shareUrl}
-                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 text-gray-700 font-mono truncate focus:outline-none focus:ring-2 focus:ring-[#1c2d4a]/20"
+                  className="flex-1 text-sm border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2 bg-gray-50 dark:bg-navy-deep text-gray-700 dark:text-white/70 font-mono truncate focus:outline-none focus:ring-2 focus:ring-[#1c2d4a]/20"
                   onClick={(e) => (e.target as HTMLInputElement).select()}
                 />
                 <button
                   onClick={handleCopy}
                   className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                     copied
-                      ? 'bg-green-100 text-green-700 border border-green-200'
+                      ? 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-500/30'
                       : 'bg-[#1c2d4a] text-white hover:bg-[#0f1d30]'
                   }`}
                 >
@@ -168,10 +168,10 @@ export function ShareModal({ sessionId, onClose }: ShareModalProps) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+        <div className="px-6 py-4 border-t border-gray-200 dark:border-navy-border flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+            className="px-4 py-2 border border-gray-200 dark:border-navy-border rounded-lg text-sm text-gray-600 dark:text-white/60 hover:bg-gray-50 dark:hover:bg-navy-light transition-colors"
           >
             Close
           </button>

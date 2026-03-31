@@ -14,7 +14,7 @@ export function StatusCodeBarChart({ summary }: { summary: CrawlSummary }) {
   ];
 
   if (!data.some((d) => d.value > 0)) {
-    return <div className="h-64 flex items-center justify-center text-gray-500 text-sm">No status code data</div>;
+    return <div className="h-64 flex items-center justify-center text-gray-500 dark:text-white/50 text-sm">No status code data</div>;
   }
 
   return (

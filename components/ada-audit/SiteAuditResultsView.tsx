@@ -22,7 +22,7 @@ interface Props {
 }
 
 function ImpactCount({ n, color }: { n: number; color: string }) {
-  if (n === 0) return <span className="text-navy/20">—</span>
+  if (n === 0) return <span className="text-navy/20 dark:text-white/20">—</span>
   return <span className={`font-semibold ${color}`}>{n}</span>
 }
 
@@ -53,25 +53,25 @@ function PageRow({ page }: { page: SitePageResult }) {
   return (
     <>
       <tr
-        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${expanded ? 'bg-gray-50' : ''}`}
+        className={`border-b border-gray-100 dark:border-navy-border hover:bg-gray-50 dark:hover:bg-navy-light cursor-pointer transition-colors ${expanded ? 'bg-gray-50 dark:bg-navy-light' : ''}`}
         onClick={handleExpand}
       >
         <td className="py-2.5 pr-3 pl-4">
           <div className="flex items-center gap-2">
             <svg
-              className={`w-3 h-3 flex-shrink-0 text-navy/30 transition-transform ${expanded ? 'rotate-90' : ''}`}
+              className={`w-3 h-3 flex-shrink-0 text-navy/30 dark:text-white/30 transition-transform ${expanded ? 'rotate-90' : ''}`}
               fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
-            <span className="text-[12px] font-body text-navy/80 truncate max-w-xs" title={page.url}>
+            <span className="text-[12px] font-body text-navy/80 dark:text-white/80 truncate max-w-xs" title={page.url}>
               {urlDisplay}
             </span>
           </div>
         </td>
         <td className="py-2.5 pr-3 text-[12px] font-body text-center">
           {page.status === 'error'
-            ? <span className="text-[10px] font-body bg-red-100 text-red-600 px-2 py-0.5 rounded" title={page.error ?? ''}>error</span>
+            ? <span className="text-[10px] font-body bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400 px-2 py-0.5 rounded" title={page.error ?? ''}>error</span>
             : <ImpactCount n={sc?.critical ?? 0} color="text-red-600" />}
         </td>
         <td className="py-2.5 pr-3 text-[12px] font-body text-center">
@@ -83,20 +83,20 @@ function PageRow({ page }: { page: SitePageResult }) {
         <td className="py-2.5 pr-3 text-[12px] font-body text-center">
           {page.status !== 'error' && <ImpactCount n={sc?.minor ?? 0} color="text-blue-600" />}
         </td>
-        <td className="py-2.5 pr-4 text-[12px] font-body font-semibold text-navy/70 text-center">
+        <td className="py-2.5 pr-4 text-[12px] font-body font-semibold text-navy/70 dark:text-white/70 text-center">
           {page.status !== 'error' && (sc?.total ?? 0)}
         </td>
       </tr>
       {expanded && (
-        <tr className="bg-gray-50 border-b border-gray-100">
+        <tr className="bg-gray-50 dark:bg-navy-deep border-b border-gray-100 dark:border-navy-border">
           <td colSpan={6} className="px-8 py-4">
             {loading ? (
-              <div className="flex items-center gap-2 text-[12px] font-body text-navy/40 py-2">
+              <div className="flex items-center gap-2 text-[12px] font-body text-navy/40 dark:text-white/40 py-2">
                 <Spinner />
                 Loading violations…
               </div>
             ) : page.status === 'error' ? (
-              <p className="text-[12px] font-body text-red-600 py-2">{page.error}</p>
+              <p className="text-[12px] font-body text-red-600 dark:text-red-400 py-2">{page.error}</p>
             ) : violations !== null ? (
               <div className="space-y-3">
                 <AuditIssueTabs violations={violations} />
@@ -109,7 +109,7 @@ function PageRow({ page }: { page: SitePageResult }) {
                 </a>
               </div>
             ) : (
-              <p className="text-[12px] font-body text-navy/40 py-2">Could not load violations.</p>
+              <p className="text-[12px] font-body text-navy/40 dark:text-white/40 py-2">Could not load violations.</p>
             )}
           </td>
         </tr>
@@ -128,8 +128,8 @@ export default function SiteAuditResultsView({
       <ComplianceBanner />
 
       {/* Header */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50">
+      <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
           <div className="w-8 h-8 rounded-lg bg-orange/15 flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" />
@@ -137,15 +137,15 @@ export default function SiteAuditResultsView({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="font-display font-bold text-[17px] text-navy">Site Audit — {domain}</h2>
-              <span className="text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-navy/10 text-navy/50">
+              <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">Site Audit — {domain}</h2>
+              <span className="text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-navy/10 dark:bg-white/10 text-navy/50 dark:text-white/50">
                 {wcagLabel}
               </span>
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-              {clientName && <span className="text-[12px] font-body text-navy/40">{clientName}</span>}
-              <span className="text-[12px] font-body text-navy/40">{new Date(createdAt).toLocaleString()}</span>
-              <span className="text-[12px] font-body text-navy/40">
+              {clientName && <span className="text-[12px] font-body text-navy/40 dark:text-white/40">{clientName}</span>}
+              <span className="text-[12px] font-body text-navy/40 dark:text-white/40">{new Date(createdAt).toLocaleString()}</span>
+              <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
                 {pagesTotal} pages
                 {pagesError > 0 && ` · ${pagesError} error${pagesError !== 1 ? 's' : ''}`}
               </span>
@@ -160,27 +160,27 @@ export default function SiteAuditResultsView({
       <KnownLimitationsNotice variant="site" />
 
       {/* Page table */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50">
+      <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
           <div className="w-8 h-8 rounded-lg bg-orange/15 flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <h2 className="font-display font-bold text-[17px] text-navy">
-            Pages <span className="text-navy/40 font-normal text-[14px]">sorted by violations</span>
+          <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">
+            Pages <span className="text-navy/40 dark:text-white/40 font-normal text-[14px]">sorted by violations</span>
           </h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="text-left px-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40">Page</th>
+              <tr className="border-b border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
+                <th className="text-left px-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">Page</th>
                 <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-red-400">Crit</th>
                 <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-orange-400">Ser</th>
                 <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-yellow-500">Mod</th>
                 <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-blue-400">Min</th>
-                <th className="text-center pr-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40">Total</th>
+                <th className="text-center pr-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">Total</th>
               </tr>
             </thead>
             <tbody>

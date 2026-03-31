@@ -179,7 +179,7 @@ export default function SiteAuditForm() {
 
       {/* WCAG level selector */}
       <div>
-        <label className="block text-[13px] font-body font-semibold text-navy/70 mb-1.5">
+        <label className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
           WCAG Level
         </label>
         <div className="flex gap-2">
@@ -195,18 +195,18 @@ export default function SiteAuditForm() {
               className={`flex-1 flex flex-col items-center px-3 py-2 rounded-lg border text-[13px] font-body transition-colors disabled:opacity-50 ${
                 wcagLevel === value
                   ? 'border-orange bg-orange/5 text-orange font-semibold'
-                  : 'border-gray-300 text-navy hover:border-gray-400'
+                  : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:border-gray-400'
               }`}
             >
               <span>{label}</span>
-              <span className={`text-[11px] font-normal mt-0.5 ${wcagLevel === value ? 'text-orange/70' : 'text-navy/40'}`}>{badge}</span>
+              <span className={`text-[11px] font-normal mt-0.5 ${wcagLevel === value ? 'text-orange/70' : 'text-navy/40 dark:text-white/40'}`}>{badge}</span>
             </button>
           ))}
         </div>
       </div>
 
       {error && (
-        <p className="text-[13px] font-body text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+        <p className="text-[13px] font-body text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg px-4 py-2.5">
           {error}
         </p>
       )}

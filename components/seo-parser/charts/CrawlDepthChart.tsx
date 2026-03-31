@@ -8,7 +8,7 @@ export function CrawlDepthChart({ distribution }: { distribution: Record<number,
     .sort((a, b) => parseInt(a.depth.split(' ')[1]) - parseInt(b.depth.split(' ')[1]));
 
   if (data.length === 0) {
-    return <div className="h-64 flex items-center justify-center text-gray-500 text-sm">No crawl depth data</div>;
+    return <div className="h-64 flex items-center justify-center text-gray-500 dark:text-white/50 text-sm">No crawl depth data</div>;
   }
 
   return (

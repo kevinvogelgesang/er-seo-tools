@@ -222,19 +222,19 @@ export default function ClientsPage() {
               onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value, error: '' }))}
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white dark:bg-navy-card dark:text-white"
             />
-            {addForm.error && <p className="text-xs text-red-500 mt-1">{addForm.error}</p>}
+            {addForm.error && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{addForm.error}</p>}
           </div>
           <button
             type="submit"
             disabled={!addForm.name.trim() || addForm.loading}
-            className="px-4 py-2 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold rounded-lg transition-colors"
+            className="px-4 py-2 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 dark:disabled:bg-navy-light disabled:text-gray-400 dark:disabled:text-white/40 text-white text-sm font-semibold rounded-lg transition-colors"
           >
             {addForm.loading ? 'Adding…' : 'Add'}
           </button>
           <button
             type="button"
             onClick={() => setAddForm({ open: false, name: '', error: '', loading: false })}
-            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-navy-light transition-colors"
+            className="px-3 py-2 text-sm text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-navy-light transition-colors"
           >
             Cancel
           </button>
@@ -252,7 +252,7 @@ export default function ClientsPage() {
 
       {/* Error */}
       {error && (
-        <div className="text-center py-8 text-red-500 text-sm">{error}</div>
+        <div className="text-center py-8 text-red-500 dark:text-red-400 text-sm">{error}</div>
       )}
 
       {/* Empty */}
@@ -290,17 +290,17 @@ export default function ClientsPage() {
                       <button
                         onClick={() => saveEdit(client.id)}
                         disabled={!editForm.name.trim() || editForm.loading}
-                        className="px-3 py-1.5 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 text-white text-xs font-semibold rounded-lg transition-colors"
+                        className="px-3 py-1.5 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 dark:disabled:bg-navy-light text-white text-xs font-semibold rounded-lg transition-colors"
                       >
                         {editForm.loading ? 'Saving…' : 'Save'}
                       </button>
                       <button
                         onClick={() => setEditForm({ id: null, name: '', error: '', loading: false })}
-                        className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-navy-light transition-colors"
+                        className="px-3 py-1.5 text-xs text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-navy-light transition-colors"
                       >
                         Cancel
                       </button>
-                      {editForm.error && <span className="text-xs text-red-500">{editForm.error}</span>}
+                      {editForm.error && <span className="text-xs text-red-500 dark:text-red-400">{editForm.error}</span>}
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 mb-3">
@@ -327,7 +327,7 @@ export default function ClientsPage() {
                           onClick={() => removeDomain(client, domain)}
                           disabled={domainLoading[client.id]}
                           aria-label={`Remove domain ${domain}`}
-                          className="ml-0.5 text-gray-400 hover:text-red-500 transition-colors leading-none"
+                          className="ml-0.5 text-gray-400 dark:text-white/40 hover:text-red-500 transition-colors leading-none"
                         >
                           ×
                         </button>
@@ -374,7 +374,7 @@ export default function ClientsPage() {
                       <span className="text-gray-600 dark:text-white/60">Delete?</span>
                       <button
                         onClick={() => handleDelete(client.id)}
-                        className="text-red-600 font-semibold hover:text-red-800"
+                        className="text-red-600 dark:text-red-400 font-semibold hover:text-red-800 dark:hover:text-red-300"
                       >
                         Yes
                       </button>

@@ -2,8 +2,8 @@ export function RecommendationList({ recommendations }: { recommendations: strin
   if (recommendations.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-100">
-      <h2 className="text-base font-semibold text-[#1c2d4a] mb-4">Recommendations</h2>
+    <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm p-6 border border-gray-100 dark:border-navy-border">
+      <h2 className="text-base font-semibold text-[#1c2d4a] dark:text-white mb-4">Recommendations</h2>
       <ol className="space-y-3">
         {recommendations.map((rec, i) => {
           const isCritical = rec.startsWith('CRITICAL:');
@@ -11,7 +11,7 @@ export function RecommendationList({ recommendations }: { recommendations: strin
             <li
               key={i}
               className={`flex items-start space-x-3 p-3 rounded-lg ${
-                isCritical ? 'bg-red-50' : 'bg-gray-50'
+                isCritical ? 'bg-red-50 dark:bg-red-500/10' : 'bg-gray-50 dark:bg-navy-deep'
               }`}
             >
               <span
@@ -21,7 +21,7 @@ export function RecommendationList({ recommendations }: { recommendations: strin
               >
                 {i + 1}
               </span>
-              <span className={`text-sm ${isCritical ? 'text-red-800' : 'text-gray-700'}`}>{rec}</span>
+              <span className={`text-sm ${isCritical ? 'text-red-800 dark:text-red-400' : 'text-gray-700 dark:text-white/70'}`}>{rec}</span>
             </li>
           );
         })}

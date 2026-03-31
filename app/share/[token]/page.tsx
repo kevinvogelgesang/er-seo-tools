@@ -28,11 +28,11 @@ function SharedBanner({ expiresAt }: { expiresAt: Date }) {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className="min-h-screen bg-[#f4f6f9] flex items-center justify-center px-6">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center max-w-md">
+    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep flex items-center justify-center px-6">
+      <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-10 text-center max-w-md">
         <div className="text-4xl mb-4">🔗</div>
-        <h2 className="font-display font-bold text-xl text-[#1c2d4a] mb-2">Link Unavailable</h2>
-        <p className="text-gray-600 text-sm">{message}</p>
+        <h2 className="font-display font-bold text-xl text-[#1c2d4a] dark:text-white mb-2">Link Unavailable</h2>
+        <p className="text-gray-600 dark:text-white/60 text-sm">{message}</p>
       </div>
     </div>
   );
@@ -76,7 +76,7 @@ export default async function SharedReportPage({ params }: Props) {
   const siteName = result.metadata?.site_name ?? session.siteName ?? 'Site';
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9]">
+    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep">
       <SharedBanner expiresAt={shareLink.expiresAt} />
 
       <div className="py-12 px-6">
@@ -84,10 +84,10 @@ export default async function SharedReportPage({ params }: Props) {
 
           {/* Header */}
           <div>
-            <h1 className="font-display font-extrabold text-2xl text-[#1c2d4a]">
+            <h1 className="font-display font-extrabold text-2xl text-[#1c2d4a] dark:text-white">
               {siteName} — SEO Audit
             </h1>
-            <p className="text-gray-500 text-sm mt-1">
+            <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
               {result.metadata.files_processed.length} file
               {result.metadata.files_processed.length !== 1 ? 's' : ''} processed
             </p>
@@ -112,7 +112,7 @@ export default async function SharedReportPage({ params }: Props) {
           </div>
 
           {/* Metadata footer */}
-          <div className="text-xs text-gray-400 pb-4">
+          <div className="text-xs text-gray-400 dark:text-white/40 pb-4">
             Parsers used: {result.metadata.parsers_used.join(', ')}
           </div>
         </div>

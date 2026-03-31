@@ -430,19 +430,19 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
 
           {/* URL Tester */}
           <SubSection title="URL Tester">
-            <p className="text-[13px] font-body text-navy/55 mb-3">
+            <p className="text-[13px] font-body text-navy/55 dark:text-white/55 mb-3">
               Enter a path to test against the parsed rules (e.g. <code className="font-mono text-orange bg-orange/10 px-1 rounded">/blog/post-1</code>).
             </p>
             <div className="flex gap-2">
               <div className="relative flex-1">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-white/40" />
                 <input
                   type="text"
                   value={testUrl}
                   onChange={(e) => setTestUrl(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="/blog/post-1"
-                  className="w-full pl-9 pr-4 py-2.5 font-mono text-[13px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange/50 placeholder:text-gray-400"
+                  className="w-full pl-9 pr-4 py-2.5 font-mono text-[13px] bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange/50 placeholder:text-gray-400 dark:placeholder:text-white/40 dark:text-white"
                 />
               </div>
               <button
@@ -457,17 +457,17 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
             {testResult && (
               <div className={`mt-3 flex items-start gap-3 rounded-lg px-4 py-3 border ${
                 testResult.allowed
-                  ? 'bg-green-50 border-green-200'
-                  : 'bg-red-50 border-red-200'
+                  ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'
+                  : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
               }`}>
                 {testResult.allowed
                   ? <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                   : <XCircleIcon className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />}
                 <div>
-                  <p className={`font-display font-bold text-[14px] ${testResult.allowed ? 'text-green-700' : 'text-red-700'}`}>
+                  <p className={`font-display font-bold text-[14px] ${testResult.allowed ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
                     {testResult.allowed ? 'Allowed' : 'Blocked'}
                   </p>
-                  <p className="font-body text-[12px] text-navy/60 mt-0.5">
+                  <p className="font-body text-[12px] text-navy/60 dark:text-white/60 mt-0.5">
                     Agent: <code className="font-mono">{testResult.matchedAgent}</code>
                     {' · '}
                     Rule: <code className="font-mono">{testResult.matchedRule}</code>
@@ -482,7 +482,7 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
             <SubSection title={`Sitemap URLs Found (${result.sitemapUrls.length})`}>
               <ul className="space-y-1.5">
                 {result.sitemapUrls.map((url, i) => (
-                  <li key={i} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <li key={i} className="flex items-center gap-2 bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2">
                     <span className="w-4 h-4 rounded bg-orange/15 flex items-center justify-center flex-shrink-0">
                       <span className="text-orange text-[9px] font-bold">{i + 1}</span>
                     </span>
@@ -506,8 +506,8 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
           {/* Crawl delay */}
           {result.crawlDelay !== undefined && (
             <SubSection title="Crawl Delay">
-              <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
-                <span className="font-body text-[13px] text-amber-800">
+              <div className="inline-flex items-center gap-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-4 py-2.5">
+                <span className="font-body text-[13px] text-amber-800 dark:text-amber-400">
                   Crawl-delay set to <strong>{result.crawlDelay}s</strong>
                 </span>
               </div>
@@ -518,13 +518,13 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
           <SubSection title={`Parsed Groups (${result.groups.length})`}>
             <div className="space-y-2">
               {result.groups.map((group, i) => (
-                <div key={i} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-                  <p className="font-mono text-[12px] font-semibold text-navy mb-2">
+                <div key={i} className="bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-xl px-4 py-3">
+                  <p className="font-mono text-[12px] font-semibold text-navy dark:text-white mb-2">
                     User-agent: {group.userAgent}
                   </p>
-                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] font-body text-navy/60">
-                    <span><strong className="text-navy">{group.allows.length}</strong> Allow rule{group.allows.length !== 1 ? 's' : ''}</span>
-                    <span><strong className="text-navy">{group.disallows.length}</strong> Disallow rule{group.disallows.length !== 1 ? 's' : ''}</span>
+                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] font-body text-navy/60 dark:text-white/60">
+                    <span><strong className="text-navy dark:text-white">{group.allows.length}</strong> Allow rule{group.allows.length !== 1 ? 's' : ''}</span>
+                    <span><strong className="text-navy dark:text-white">{group.disallows.length}</strong> Disallow rule{group.disallows.length !== 1 ? 's' : ''}</span>
                   </div>
                 </div>
               ))}
@@ -596,7 +596,7 @@ function SitemapSection({
     <SectionCard title="Sitemap.xml Validator" icon={<SitemapIcon className="w-4 h-4" />}>
       {/* URL fetch bar */}
       <div className="mb-4">
-        <label className="font-body text-[13px] font-semibold text-navy/70 block mb-2">Fetch from URL</label>
+        <label className="font-body text-[13px] font-semibold text-navy/70 dark:text-white/70 block mb-2">Fetch from URL</label>
         <div className="flex gap-2">
           <input
             type="text"
@@ -604,7 +604,7 @@ function SitemapSection({
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && urlInput.trim()) fetchFromUrl(urlInput.trim()) }}
             placeholder="https://example.com/sitemap.xml"
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-body text-navy focus:outline-none focus:ring-2 focus:ring-orange/30"
+            className="flex-1 border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2 text-sm font-body text-navy dark:text-white bg-white dark:bg-navy-card focus:outline-none focus:ring-2 focus:ring-orange/30"
           />
           <button
             type="button"
@@ -619,7 +619,7 @@ function SitemapSection({
           </button>
         </div>
         {urlFetchError && (
-          <p className="mt-2 text-[12px] font-body text-red-600">{urlFetchError}</p>
+          <p className="mt-2 text-[12px] font-body text-red-600 dark:text-red-400">{urlFetchError}</p>
         )}
       </div>
 
@@ -644,29 +644,29 @@ function SitemapSection({
 
           {/* Summary strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-center">
-              <div className={`font-display font-extrabold text-[22px] mb-0.5 ${result.valid ? 'text-green-600' : 'text-red-600'}`}>
+            <div className="bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-xl px-4 py-3 text-center">
+              <div className={`font-display font-extrabold text-[22px] mb-0.5 ${result.valid ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                 {result.valid ? 'Valid' : 'Invalid'}
               </div>
-              <div className="font-body text-[11px] text-navy/50 uppercase tracking-wider">Status</div>
+              <div className="font-body text-[11px] text-navy/50 dark:text-white/50 uppercase tracking-wider">Status</div>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-center">
-              <div className="font-display font-extrabold text-[22px] text-navy mb-0.5">
+            <div className="bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-xl px-4 py-3 text-center">
+              <div className="font-display font-extrabold text-[22px] text-navy dark:text-white mb-0.5">
                 {result.urlCount.toLocaleString()}
               </div>
-              <div className="font-body text-[11px] text-navy/50 uppercase tracking-wider">URLs</div>
+              <div className="font-body text-[11px] text-navy/50 dark:text-white/50 uppercase tracking-wider">URLs</div>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-center">
-              <div className="font-display font-extrabold text-[22px] text-navy mb-0.5">
+            <div className="bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-xl px-4 py-3 text-center">
+              <div className="font-display font-extrabold text-[22px] text-navy dark:text-white mb-0.5">
                 {result.isSitemapIndex ? 'Index' : 'Regular'}
               </div>
-              <div className="font-body text-[11px] text-navy/50 uppercase tracking-wider">Type</div>
+              <div className="font-body text-[11px] text-navy/50 dark:text-white/50 uppercase tracking-wider">Type</div>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-center">
+            <div className="bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-xl px-4 py-3 text-center">
               <div className="font-display font-extrabold text-[22px] text-orange mb-0.5">
                 {result.issues.length}
               </div>
-              <div className="font-body text-[11px] text-navy/50 uppercase tracking-wider">Issues</div>
+              <div className="font-body text-[11px] text-navy/50 dark:text-white/50 uppercase tracking-wider">Issues</div>
             </div>
           </div>
 
@@ -689,8 +689,8 @@ function SitemapSection({
             <SubSection title={`Sample URLs (first ${result.sampleUrls.length})`}>
               <ul className="space-y-1.5">
                 {result.sampleUrls.map((url, i) => (
-                  <li key={i} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                    <span className="w-5 h-5 rounded bg-navy/10 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-navy/50 font-mono">
+                  <li key={i} className="flex items-center gap-2 bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2">
+                    <span className="w-5 h-5 rounded bg-navy/10 dark:bg-white/10 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-navy/50 dark:text-white/50 font-mono">
                       {i + 1}
                     </span>
                     <a
@@ -717,32 +717,32 @@ function SitemapSection({
 function BotReferenceSection() {
   return (
     <SectionCard title="Bot User-Agent Reference" icon={<BotIcon className="w-4 h-4" />}>
-      <p className="font-body text-[13px] text-navy/55 mb-4">
+      <p className="font-body text-[13px] text-navy/55 dark:text-white/55 mb-4">
         Use these exact user-agent strings in your robots.txt to target specific crawlers. Note that bots are not required to obey robots.txt — it is advisory only.
       </p>
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-gray-200 dark:border-navy-border overflow-hidden">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 text-[11px] uppercase tracking-wider">Name</th>
-              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 text-[11px] uppercase tracking-wider">User-agent string</th>
-              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 text-[11px] uppercase tracking-wider hidden sm:table-cell">Owner</th>
-              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 text-[11px] uppercase tracking-wider hidden md:table-cell">Type</th>
+            <tr className="bg-gray-50 dark:bg-navy-deep border-b border-gray-200 dark:border-navy-border">
+              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 dark:text-white/60 text-[11px] uppercase tracking-wider">Name</th>
+              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 dark:text-white/60 text-[11px] uppercase tracking-wider">User-agent string</th>
+              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 dark:text-white/60 text-[11px] uppercase tracking-wider hidden sm:table-cell">Owner</th>
+              <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 dark:text-white/60 text-[11px] uppercase tracking-wider hidden md:table-cell">Type</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-navy-border">
             {BOT_REFERENCE.map((bot) => (
-              <tr key={bot.agent} className="bg-white hover:bg-gray-50/50 transition-colors">
-                <td className="px-4 py-3 font-body text-[13px] text-navy font-semibold">{bot.name}</td>
+              <tr key={bot.agent} className="bg-white dark:bg-navy-card hover:bg-gray-50/50 dark:hover:bg-navy-light/50 transition-colors">
+                <td className="px-4 py-3 font-body text-[13px] text-navy dark:text-white font-semibold">{bot.name}</td>
                 <td className="px-4 py-3">
                   <code className="font-mono text-[12px] text-orange bg-orange/10 px-2 py-0.5 rounded">{bot.agent}</code>
                 </td>
-                <td className="px-4 py-3 font-body text-[12px] text-navy/60 hidden sm:table-cell">{bot.owner}</td>
+                <td className="px-4 py-3 font-body text-[12px] text-navy/60 dark:text-white/60 hidden sm:table-cell">{bot.owner}</td>
                 <td className="px-4 py-3 hidden md:table-cell">
                   <span className={`inline-block text-[11px] font-body font-semibold px-2 py-0.5 rounded-full ${
                     bot.type.includes('AI') || bot.type.includes('Search')
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-blue-100 text-blue-700'
+                      ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400'
+                      : 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400'
                   }`}>
                     {bot.type}
                   </span>
@@ -752,8 +752,8 @@ function BotReferenceSection() {
           </tbody>
         </table>
       </div>
-      <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-        <p className="font-body text-[12px] text-amber-800 leading-relaxed">
+      <div className="mt-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-4 py-3">
+        <p className="font-body text-[12px] text-amber-800 dark:text-amber-400 leading-relaxed">
           <strong>Note:</strong> Robots.txt is a courtesy protocol. Bad actors and some AI scrapers may ignore it entirely. For stronger protection, use server-level blocking or authentication.
         </p>
       </div>

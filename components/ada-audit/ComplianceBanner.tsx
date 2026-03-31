@@ -28,7 +28,7 @@ export default function ComplianceBanner() {
   if (!visible) return null
 
   return (
-    <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+    <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl px-4 py-3">
       <svg
         className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5"
         fill="none"
@@ -42,7 +42,7 @@ export default function ComplianceBanner() {
           d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
         />
       </svg>
-      <p className="flex-1 text-[13px] font-body text-amber-800 leading-snug">
+      <p className="flex-1 text-[13px] font-body text-amber-800 dark:text-amber-400 leading-snug">
         WCAG 2.1 AA compliance is required by April 24, 2026 for public universities under the ADA.
       </p>
       <button

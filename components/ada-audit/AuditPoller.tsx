@@ -83,7 +83,7 @@ export default function AuditPoller({
   const displayUrl = url.replace(/^https?:\/\//, '')
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm overflow-hidden">
       {/* Header */}
       <div className="px-6 pt-6 pb-4 flex items-start gap-4">
         <div className="w-10 h-10 rounded-xl bg-orange/10 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -92,8 +92,8 @@ export default function AuditPoller({
           </svg>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-display font-bold text-[17px] text-navy">Auditing page…</p>
-          <p className="text-[12px] font-body text-navy/50 mt-0.5 truncate">{displayUrl}</p>
+          <p className="font-display font-bold text-[17px] text-navy dark:text-white">Auditing page…</p>
+          <p className="text-[12px] font-body text-navy/50 dark:text-white/50 mt-0.5 truncate">{displayUrl}</p>
         </div>
         <div className="text-right flex-shrink-0">
           <span className="font-display font-bold text-[22px] text-orange">{progress}%</span>
@@ -102,7 +102,7 @@ export default function AuditPoller({
 
       {/* Progress bar */}
       <div className="px-6 pb-2">
-        <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+        <div className="w-full bg-gray-100 dark:bg-navy-light rounded-full h-2.5 overflow-hidden">
           <div
             className="bg-orange h-2.5 rounded-full transition-all duration-700 ease-out"
             style={{ width: `${Math.max(3, progress)}%` }}
@@ -112,12 +112,12 @@ export default function AuditPoller({
 
       {/* Step message + timer */}
       <div className="px-6 pb-6 pt-2 flex items-center justify-between gap-4">
-        <p className="text-[13px] font-body text-navy/60 truncate">{message}</p>
-        <div className="flex items-center gap-3 flex-shrink-0 text-[12px] font-body text-navy/40 whitespace-nowrap">
+        <p className="text-[13px] font-body text-navy/60 dark:text-white/60 truncate">{message}</p>
+        <div className="flex items-center gap-3 flex-shrink-0 text-[12px] font-body text-navy/40 dark:text-white/40 whitespace-nowrap">
           <span>{formatSeconds(elapsed)} elapsed</span>
           {estimatedRemaining !== null && (
             <>
-              <span className="text-navy/20">·</span>
+              <span className="text-navy/20 dark:text-white/20">·</span>
               <span>~{formatSeconds(estimatedRemaining)} remaining</span>
             </>
           )}

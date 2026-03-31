@@ -9,9 +9,9 @@ interface StatItemProps {
 function StatItem({ label, value, color }: StatItemProps) {
   if (value === undefined) return null;
   return (
-    <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-      <span className="text-gray-600 text-sm">{label}</span>
-      <span className={`font-semibold text-sm ${color || 'text-gray-900'}`}>
+    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-navy-border last:border-0">
+      <span className="text-gray-600 dark:text-white/60 text-sm">{label}</span>
+      <span className={`font-semibold text-sm ${color || 'text-gray-900 dark:text-white'}`}>
         {typeof value === 'number' ? value.toLocaleString() : value}
       </span>
     </div>
@@ -28,21 +28,21 @@ function HealthBadge({ score }: HealthBadgeProps) {
   let label: string;
 
   if (score >= 70) {
-    bgColor = 'bg-green-100';
-    textColor = 'text-green-700';
+    bgColor = 'bg-green-100 dark:bg-green-500/15';
+    textColor = 'text-green-700 dark:text-green-400';
     label = 'Good';
   } else if (score >= 40) {
-    bgColor = 'bg-orange-100';
-    textColor = 'text-orange-700';
+    bgColor = 'bg-orange-100 dark:bg-orange-500/15';
+    textColor = 'text-orange-700 dark:text-orange-400';
     label = 'Fair';
   } else {
-    bgColor = 'bg-red-100';
-    textColor = 'text-red-700';
+    bgColor = 'bg-red-100 dark:bg-red-500/15';
+    textColor = 'text-red-700 dark:text-red-400';
     label = 'Poor';
   }
 
   return (
-    <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-gray-50 border border-gray-100">
+    <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-gray-50 dark:bg-navy-deep border border-gray-100 dark:border-navy-border">
       <div
         className={`w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 ${bgColor}`}
       >
@@ -51,7 +51,7 @@ function HealthBadge({ score }: HealthBadgeProps) {
         </span>
       </div>
       <div>
-        <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Health Score</p>
+        <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide font-medium">Health Score</p>
         <p className={`text-sm font-semibold ${textColor}`}>{label}</p>
       </div>
     </div>
@@ -65,8 +65,8 @@ interface SummaryCardProps {
 
 export function SummaryCard({ summary, healthScore }: SummaryCardProps) {
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-100">
-      <h2 className="text-base font-semibold text-[#1c2d4a] mb-4">Crawl Summary</h2>
+    <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm p-6 border border-gray-100 dark:border-navy-border">
+      <h2 className="text-base font-semibold text-[#1c2d4a] dark:text-white mb-4">Crawl Summary</h2>
       {healthScore !== undefined && <HealthBadge score={healthScore} />}
       <div className="space-y-0">
         <StatItem label="Total URLs" value={summary.total_urls} />

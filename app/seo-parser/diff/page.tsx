@@ -17,10 +17,10 @@ function DeltaBadge({ value, inverse = false }: { value: number; inverse?: boole
   const isGood = inverse ? !isPositive : isPositive;
   const color =
     value === 0
-      ? 'text-gray-500'
+      ? 'text-gray-500 dark:text-white/50'
       : isGood
-      ? 'text-green-600'
-      : 'text-red-600';
+      ? 'text-green-600 dark:text-green-400'
+      : 'text-red-600 dark:text-red-400';
   const prefix = value > 0 ? '+' : '';
   return (
     <span className={`font-semibold tabular-nums ${color}`}>
@@ -42,21 +42,21 @@ function SummaryDeltaCard({
   const isGood = inverse ? !isPositive : isPositive;
   const border =
     delta === 0
-      ? 'border-gray-100'
+      ? 'border-gray-100 dark:border-navy-border'
       : isGood
-      ? 'border-green-200 bg-green-50'
-      : 'border-red-200 bg-red-50';
+      ? 'border-green-200 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10'
+      : 'border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10';
   const prefix = delta > 0 ? '+' : '';
   const textColor =
     delta === 0
-      ? 'text-gray-700'
+      ? 'text-gray-700 dark:text-white/70'
       : isGood
-      ? 'text-green-700'
-      : 'text-red-700';
+      ? 'text-green-700 dark:text-green-400'
+      : 'text-red-700 dark:text-red-400';
 
   return (
     <div className={`rounded-lg border p-4 ${border}`}>
-      <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide mb-1">{label}</p>
       <p className={`text-2xl font-display font-extrabold ${textColor}`}>
         {prefix}{delta.toLocaleString()}
       </p>
@@ -160,41 +160,41 @@ export default function DiffPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9] py-12 px-6">
+    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep py-12 px-6">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
-            <Link href="/seo-parser" className="hover:text-[#1c2d4a] transition-colors">
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-white/50 mb-3">
+            <Link href="/seo-parser" className="hover:text-[#1c2d4a] dark:hover:text-white transition-colors">
               SEO Parser
             </Link>
             <span>/</span>
-            <span className="text-[#1c2d4a]">Compare Crawls</span>
+            <span className="text-[#1c2d4a] dark:text-white">Compare Crawls</span>
           </div>
-          <h1 className="font-display font-extrabold text-3xl text-[#1c2d4a] mb-2">
+          <h1 className="font-display font-extrabold text-3xl text-[#1c2d4a] dark:text-white mb-2">
             Compare Crawls
           </h1>
-          <p className="text-gray-600 text-sm leading-relaxed">
+          <p className="text-gray-600 dark:text-white/60 text-sm leading-relaxed">
             Select two completed analysis sessions to see what improved, regressed, or changed
             between crawls.
           </p>
         </div>
 
         {/* Session selector card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-          <h2 className="font-semibold text-[#1c2d4a] text-sm mb-5 uppercase tracking-wide">
+        <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6 mb-6">
+          <h2 className="font-semibold text-[#1c2d4a] dark:text-white text-sm mb-5 uppercase tracking-wide">
             Select Sessions
           </h2>
 
           {loadingHistory && (
-            <p className="text-sm text-gray-500">Loading sessions&hellip;</p>
+            <p className="text-sm text-gray-500 dark:text-white/50">Loading sessions&hellip;</p>
           )}
           {historyError && (
-            <p className="text-sm text-red-600">{historyError}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">{historyError}</p>
           )}
 
           {!loadingHistory && sessions.length === 0 && (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-white/50">
               No completed sessions found.{' '}
               <Link href="/seo-parser" className="text-[#f5a623] hover:underline">
                 Run an analysis first.
@@ -205,13 +205,13 @@ export default function DiffPage() {
           {!loadingHistory && sessions.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                <label className="block text-xs font-medium text-gray-600 dark:text-white/60 mb-1.5">
                   Session A (baseline)
                 </label>
                 <select
                   value={sessionAId}
                   onChange={(e) => setSessionAId(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#f5a623] focus:border-transparent"
+                  className="w-full border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2.5 text-sm text-gray-800 dark:text-white/80 bg-white dark:bg-navy-card dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f5a623] focus:border-transparent"
                 >
                   <option value="">Select a session&hellip;</option>
                   {sessions.map((s) => (
@@ -222,13 +222,13 @@ export default function DiffPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                <label className="block text-xs font-medium text-gray-600 dark:text-white/60 mb-1.5">
                   Session B (comparison)
                 </label>
                 <select
                   value={sessionBId}
                   onChange={(e) => setSessionBId(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#f5a623] focus:border-transparent"
+                  className="w-full border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2.5 text-sm text-gray-800 dark:text-white/80 bg-white dark:bg-navy-card dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f5a623] focus:border-transparent"
                 >
                   <option value="">Select a session&hellip;</option>
                   {sessions.map((s) => (
@@ -242,7 +242,7 @@ export default function DiffPage() {
           )}
 
           {compareError && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div className="mb-4 p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg text-sm text-red-700 dark:text-red-400">
               {compareError}
             </div>
           )}
@@ -263,21 +263,21 @@ export default function DiffPage() {
         {diff && (
           <div className="space-y-6">
             {/* Session labels */}
-            <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+            <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-white/50">
               <span>
-                <span className="font-semibold text-gray-700">Session A:</span>{' '}
+                <span className="font-semibold text-gray-700 dark:text-white/70">Session A:</span>{' '}
                 {formatDate(diff.session_a.created_at)}
               </span>
-              <span className="text-gray-300">vs</span>
+              <span className="text-gray-300 dark:text-white/30">vs</span>
               <span>
-                <span className="font-semibold text-gray-700">Session B:</span>{' '}
+                <span className="font-semibold text-gray-700 dark:text-white/70">Session B:</span>{' '}
                 {formatDate(diff.session_b.created_at)}
               </span>
             </div>
 
             {/* Summary deltas */}
             <div>
-              <h2 className="font-semibold text-[#1c2d4a] text-sm mb-3 uppercase tracking-wide">
+              <h2 className="font-semibold text-[#1c2d4a] dark:text-white text-sm mb-3 uppercase tracking-wide">
                 Summary Changes
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -306,36 +306,36 @@ export default function DiffPage() {
 
             {/* Issue lists */}
             <div className="space-y-4">
-              <h2 className="font-semibold text-[#1c2d4a] text-sm uppercase tracking-wide">
+              <h2 className="font-semibold text-[#1c2d4a] dark:text-white text-sm uppercase tracking-wide">
                 Issue Changes
               </h2>
               {diff.new_issues.length === 0 &&
                 diff.resolved_issues.length === 0 &&
                 diff.worsened_issues.length === 0 &&
                 diff.improved_issues.length === 0 && (
-                  <p className="text-sm text-gray-500 bg-white rounded-lg border border-gray-100 p-5">
+                  <p className="text-sm text-gray-500 dark:text-white/50 bg-white dark:bg-navy-card rounded-lg border border-gray-100 dark:border-navy-border p-5">
                     No issue changes detected between these two sessions.
                   </p>
                 )}
               <IssueList
                 issues={diff.new_issues}
                 title="New Issues"
-                colorClass="bg-red-50 border-red-200 text-red-800"
+                colorClass="bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-400"
               />
               <IssueList
                 issues={diff.worsened_issues}
                 title="Worsened Issues"
-                colorClass="bg-orange-50 border-orange-200 text-orange-800"
+                colorClass="bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30 text-orange-800 dark:text-orange-400"
               />
               <IssueList
                 issues={diff.improved_issues}
                 title="Improved Issues"
-                colorClass="bg-blue-50 border-blue-200 text-blue-800"
+                colorClass="bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30 text-blue-800 dark:text-blue-400"
               />
               <IssueList
                 issues={diff.resolved_issues}
                 title="Resolved Issues"
-                colorClass="bg-green-50 border-green-200 text-green-800"
+                colorClass="bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30 text-green-800 dark:text-green-400"
               />
             </div>
           </div>

@@ -33,8 +33,8 @@ export function IssueTabs({ issues, onUrlClick }: IssueTabsProps) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-100">
-      <div className="border-b border-gray-200">
+    <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border">
+      <div className="border-b border-gray-200 dark:border-navy-border">
         <nav className="flex -mb-px">
           {tabs.map((tab) => (
             <button
@@ -44,7 +44,7 @@ export function IssueTabs({ issues, onUrlClick }: IssueTabsProps) {
                 flex-1 py-3 px-4 text-center border-b-2 font-medium text-sm transition-colors
                 ${active === tab.key
                   ? tab.activeColor
-                  : 'border-transparent text-gray-500 hover:text-gray-700'}
+                  : 'border-transparent text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white'}
               `}
             >
               {tab.label}
@@ -52,7 +52,7 @@ export function IssueTabs({ issues, onUrlClick }: IssueTabsProps) {
                 className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
                   active === tab.key
                     ? 'bg-[#1c2d4a] text-white'
-                    : 'bg-gray-100 text-gray-600'
+                    : 'bg-gray-100 dark:bg-navy-light text-gray-600 dark:text-white/60'
                 }`}
               >
                 {counts[tab.key]}

@@ -43,10 +43,10 @@ export default function ShareAuditButton({ auditId }: Props) {
   }
 
   const colorClass: Record<State, string> = {
-    idle: 'bg-white border-gray-300 text-navy hover:border-orange hover:text-orange',
-    loading: 'bg-white border-gray-200 text-navy/50 cursor-not-allowed',
-    copied: 'bg-green-50 border-green-300 text-green-700',
-    error: 'bg-red-50 border-red-300 text-red-700',
+    idle: 'bg-white dark:bg-navy-card border-gray-300 dark:border-navy-border text-navy dark:text-white hover:border-orange hover:text-orange',
+    loading: 'bg-white dark:bg-navy-card border-gray-200 dark:border-navy-border text-navy/50 dark:text-white/50 cursor-not-allowed',
+    copied: 'bg-green-50 dark:bg-green-500/10 border-green-300 dark:border-green-500/30 text-green-700 dark:text-green-400',
+    error: 'bg-red-50 dark:bg-red-500/10 border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-400',
   }
 
   return (

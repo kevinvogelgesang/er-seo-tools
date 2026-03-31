@@ -58,14 +58,14 @@ export default function SiteAuditPoller({
   const discovering = pagesTotal === 0 && status === 'running'
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 space-y-5">
+    <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-8 space-y-5">
       <div className="flex items-center gap-3">
         <Spinner className="w-5 h-5 text-orange flex-shrink-0" />
         <div>
-          <p className="font-display font-bold text-[17px] text-navy">
+          <p className="font-display font-bold text-[17px] text-navy dark:text-white">
             {discovering ? 'Discovering pages…' : 'Scanning pages…'}
           </p>
-          <p className="text-[12px] font-body text-navy/50 mt-0.5">
+          <p className="text-[12px] font-body text-navy/50 dark:text-white/50 mt-0.5">
             {discovering
               ? 'Fetching sitemap.xml to find pages to audit'
               : `${scanned} of ${pagesTotal} pages scanned${pagesError > 0 ? ` · ${pagesError} error${pagesError !== 1 ? 's' : ''}` : ''}`
@@ -76,20 +76,20 @@ export default function SiteAuditPoller({
 
       {!discovering && pagesTotal > 0 && (
         <div className="space-y-1.5">
-          <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-gray-100 dark:bg-navy-light rounded-full h-2 overflow-hidden">
             <div
               className="bg-orange h-2 rounded-full transition-all duration-500"
               style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="flex justify-between text-[11px] font-body text-navy/40">
+          <div className="flex justify-between text-[11px] font-body text-navy/40 dark:text-white/40">
             <span>{progress}%</span>
             <span>{pagesTotal} pages total</span>
           </div>
         </div>
       )}
 
-      <p className="text-[12px] font-body text-navy/40">
+      <p className="text-[12px] font-body text-navy/40 dark:text-white/40">
         Pages are audited one at a time. Large sites may take several minutes.
       </p>
     </div>

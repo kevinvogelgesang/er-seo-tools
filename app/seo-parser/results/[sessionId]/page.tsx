@@ -29,13 +29,13 @@ export default async function ResultsPage({ params }: Props) {
   // Parsing not yet complete — show a waiting screen
   if (session.status !== 'complete' || !session.result) {
     return (
-      <div className="min-h-screen bg-[#f4f6f9] flex items-center justify-center px-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center max-w-md">
+      <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep flex items-center justify-center px-6">
+        <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-10 text-center max-w-md">
           {session.status === 'error' ? (
             <>
               <div className="text-4xl mb-4">⚠️</div>
-              <h2 className="font-display font-bold text-xl text-[#1c2d4a] mb-2">Parsing Failed</h2>
-              <p className="text-gray-600 text-sm mb-6">{session.error || 'An unexpected error occurred.'}</p>
+              <h2 className="font-display font-bold text-xl text-[#1c2d4a] dark:text-white mb-2">Parsing Failed</h2>
+              <p className="text-gray-600 dark:text-white/60 text-sm mb-6">{session.error || 'An unexpected error occurred.'}</p>
               <a
                 href="/seo-parser"
                 className="inline-block px-6 py-3 bg-[#f5a623] text-[#1c2d4a] font-display font-bold text-sm rounded-lg hover:bg-[#e8971a] transition-colors"
@@ -46,10 +46,10 @@ export default async function ResultsPage({ params }: Props) {
           ) : (
             <>
               <div className="text-4xl mb-4">⏳</div>
-              <h2 className="font-display font-bold text-xl text-[#1c2d4a] mb-2">
+              <h2 className="font-display font-bold text-xl text-[#1c2d4a] dark:text-white mb-2">
                 {session.status === 'parsing' ? 'Parsing in Progress…' : 'Not Yet Analyzed'}
               </h2>
-              <p className="text-gray-600 text-sm mb-6">
+              <p className="text-gray-600 dark:text-white/60 text-sm mb-6">
                 {session.status === 'parsing'
                   ? 'The files are being analyzed. Refresh in a moment.'
                   : 'Upload files and click Analyze to generate results.'}
