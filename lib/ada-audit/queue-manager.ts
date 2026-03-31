@@ -13,6 +13,7 @@ import { prisma } from '@/lib/db'
 import { discoverPages } from '@/lib/ada-audit/sitemap-crawler'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { buildSiteAuditSummary } from '@/lib/ada-audit/site-audit-helpers'
+import { closeBrowser } from '@/lib/ada-audit/browser-pool'
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,9 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
       where: { id },
       data: { status: 'complete', summary: JSON.stringify(summary) },
     })
+
+    // Restart browser between site audits to reclaim Chrome memory leaks
+    await closeBrowser().catch(() => {})
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Site audit failed'
     console.error(`[site-audit] id=${id} error:`, message)
@@ -66,6 +70,8 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
       where: { id },
       data: { status: 'error', error: message },
     }).catch(() => {})
+    // Restart browser on error too to clean up any leaked pages
+    await closeBrowser().catch(() => {})
   }
 }
 

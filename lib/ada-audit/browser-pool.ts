@@ -9,6 +9,12 @@ const LAUNCH_ARGS = [
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
   '--disable-gpu',
+  '--disable-extensions',
+  '--disable-background-networking',
+  '--disable-default-apps',
+  '--disable-translate',
+  '--disable-sync',
+  '--js-flags=--max-old-space-size=256',
 ]
 
 // ─── Singleton browser ────────────────────────────────────────────────────────
