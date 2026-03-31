@@ -121,7 +121,7 @@ function PageRow({ page }: { page: SitePageResult }) {
 export default function SiteAuditResultsView({
   domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant,
 }: Props) {
-  const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.2 AA' : 'WCAG 2.1 AA'
+  const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
 
   return (
     <div className="space-y-6">

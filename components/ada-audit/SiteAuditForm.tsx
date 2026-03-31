@@ -185,7 +185,7 @@ export default function SiteAuditForm() {
         <div className="flex gap-2">
           {([
             { value: 'wcag21aa', label: 'WCAG 2.1 AA', badge: 'Required' },
-            { value: 'wcag22aa', label: 'WCAG 2.2 AA', badge: 'Recommended' },
+            { value: 'wcag22aa', label: '+ Best Practices', badge: 'Aspirational' },
           ] as const).map(({ value, label, badge }) => (
             <button
               key={value}

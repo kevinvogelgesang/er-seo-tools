@@ -86,8 +86,9 @@ export async function runAxeAudit(
 
     // WCAG 2.1 AA = all 2.0 A/AA rules + new 2.1 rules.
     // WCAG 2.2 AA adds 2.2 AA on top. Passing only 'wcag21aa' misses all inherited 2.0 rules.
+    // "best practices" mode adds best-practice rules + WCAG 2.2 AA on top of 2.1 AA
     const wcagTags = wcagLevel === 'wcag22aa'
-      ? ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
+      ? ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
       : ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
