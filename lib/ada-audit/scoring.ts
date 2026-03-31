@@ -5,22 +5,31 @@ export interface ScoreResult {
   compliant: boolean // true if zero violations with wcag21aa tags
 }
 
-export function computeScore(violations: AxeViolation[], wcagLevel: string): ScoreResult {
-  const criticalCount = violations.filter((v) => v.impact === 'critical').length
-  const seriousCount  = violations.filter((v) => v.impact === 'serious').length
-  const moderateCount = violations.filter((v) => v.impact === 'moderate').length
-  const minorCount    = violations.filter((v) => v.impact === 'minor').length
-
-  const totalPenalty = criticalCount * 4 + seriousCount * 3 + moderateCount * 2 + minorCount * 1
-
-  const totalElements = violations.reduce((sum, v) => sum + v.nodes.length, 0)
+function scoreFromPenalty(totalPenalty: number, totalElements: number): ScoreResult {
   const divisor = Math.log10(Math.max(10, totalElements))
-  const adjustedPenalty = totalPenalty / divisor
+  const score = Math.max(0, Math.round(100 - totalPenalty / divisor))
+  return { score, compliant: totalElements === 0 }
+}
 
-  const score = Math.max(0, Math.round(100 - adjustedPenalty))
+export function computeScore(violations: AxeViolation[], _wcagLevel: string): ScoreResult {
+  let criticalCount = 0, seriousCount = 0, moderateCount = 0, minorCount = 0, totalElements = 0
+  for (const v of violations) {
+    if (v.impact === 'critical') criticalCount++
+    else if (v.impact === 'serious') seriousCount++
+    else if (v.impact === 'moderate') moderateCount++
+    else if (v.impact === 'minor') minorCount++
+    totalElements += v.nodes.length
+  }
+  const totalPenalty = criticalCount * 4 + seriousCount * 3 + moderateCount * 2 + minorCount
+  return scoreFromPenalty(totalPenalty, totalElements)
+}
 
-  // compliant: zero violations (binary; wcagLevel param reserved for future filtering)
-  const compliant = violations.length === 0
-
-  return { score, compliant }
+/** Compute score from aggregate counts (e.g. site audit summary). */
+export function computeScoreFromCounts(
+  counts: { critical: number; serious: number; moderate: number; minor: number },
+  _wcagLevel: string,
+): ScoreResult {
+  const total = counts.critical + counts.serious + counts.moderate + counts.minor
+  const totalPenalty = counts.critical * 4 + counts.serious * 3 + counts.moderate * 2 + counts.minor
+  return scoreFromPenalty(totalPenalty, total)
 }

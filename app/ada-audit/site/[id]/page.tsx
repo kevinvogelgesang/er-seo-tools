@@ -4,8 +4,7 @@ import { prisma } from '@/lib/db'
 import SiteAuditPoller from '@/components/ada-audit/SiteAuditPoller'
 import SiteAuditResultsView from '@/components/ada-audit/SiteAuditResultsView'
 import type { SiteAuditSummary } from '@/lib/ada-audit/types'
-import { computeScore } from '@/lib/ada-audit/scoring'
-import type { AxeViolation } from '@/lib/ada-audit/types'
+import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
 
@@ -91,14 +90,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
     )
   }
 
-  // Build a synthetic violations list from the aggregate summary counts for scoring
-  const syntheticViolations: AxeViolation[] = [
-    ...Array(summary.aggregate.critical).fill({ impact: 'critical', nodes: [{}] }),
-    ...Array(summary.aggregate.serious).fill({ impact: 'serious', nodes: [{}] }),
-    ...Array(summary.aggregate.moderate).fill({ impact: 'moderate', nodes: [{}] }),
-    ...Array(summary.aggregate.minor).fill({ impact: 'minor', nodes: [{}] }),
-  ]
-  const { score, compliant } = computeScore(syntheticViolations, audit.wcagLevel)
+  const { score, compliant } = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">

@@ -28,8 +28,7 @@ export function IssuesPieChart({ issues }: { issues: IssuesResult }) {
             outerRadius={80}
             paddingAngle={2}
             dataKey="value"
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            label={({ name, percent }: any) =>
+            label={({ name, percent }: { name?: string; percent?: number }) =>
               `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`
             }
             labelLine={false}
@@ -38,8 +37,7 @@ export function IssuesPieChart({ issues }: { issues: IssuesResult }) {
               <Cell key={i} fill={entry.color} />
             ))}
           </Pie>
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          <Tooltip formatter={(value: any) => [value, '']}
+          <Tooltip formatter={(value: number | string | ReadonlyArray<number | string> | undefined) => [value ?? '', '']}
             contentStyle={{ backgroundColor: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: '8px' }}
           />
           <Legend />

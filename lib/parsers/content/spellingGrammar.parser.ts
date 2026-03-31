@@ -70,46 +70,8 @@ export class SpellingGrammarParser extends BaseParser {
   }
 }
 
-export class GrammarParser extends BaseParser {
-  // Match grammar files specifically
+export class GrammarParser extends SpellingGrammarParser {
+  // Match grammar files specifically (no spelling column in these files,
+  // so SpellingGrammarParser.parse() will naturally skip the spelling checks)
   static filenamePattern = 'grammar';
-
-  parse(): ParsedData {
-    if (this.isEmpty) return {};
-
-    const addressCol = this.findColumn(['Address', 'URL', 'Page URL']);
-    const grammarCol = this.findColumn(['Grammar Errors', 'Grammar']);
-
-    const issues: Issue[] = [];
-    let totalGrammarErrors = 0;
-    let pagesWithGrammar = 0;
-
-    for (let i = 0; i < this.data.length; i++) {
-      if (grammarCol) {
-        const errors = toNumber(this.data[i][grammarCol]);
-        if (errors !== null && errors > 0) {
-          totalGrammarErrors += errors;
-          pagesWithGrammar++;
-        }
-      }
-    }
-
-    if (totalGrammarErrors > 0) {
-      issues.push({
-        type: 'grammar_errors',
-        severity: 'notice',
-        count: totalGrammarErrors,
-        description: `${totalGrammarErrors} grammar errors across ${pagesWithGrammar} pages`,
-      });
-    }
-
-    return {
-      total_pages: this.length,
-      stats: totalGrammarErrors > 0 ? {
-        total_grammar_errors: totalGrammarErrors,
-        pages_with_grammar_errors: pagesWithGrammar,
-      } : undefined,
-      issues,
-    };
-  }
 }

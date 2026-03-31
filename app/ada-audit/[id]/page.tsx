@@ -37,20 +37,14 @@ export default async function AdaAuditResultPage({ params }: Props) {
     return (
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
         {breadcrumb}
-        <AuditPoller id={id} initialStatus={audit.status} />
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-10 flex flex-col items-center gap-4 text-center">
-          <svg className="animate-spin w-8 h-8 text-orange" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <div>
-            <p className="font-display font-bold text-[18px] text-navy">Auditing page…</p>
-            <p className="text-[13px] font-body text-navy/60 mt-1">
-              axe-core is running. This usually takes 10–30 seconds.
-            </p>
-            <p className="text-[12px] font-body text-navy/40 mt-2 break-all">{audit.url}</p>
-          </div>
-        </div>
+        <AuditPoller
+          id={id}
+          url={audit.url}
+          createdAt={audit.createdAt.toISOString()}
+          initialStatus={audit.status}
+          initialProgress={audit.progress ?? 0}
+          initialProgressMessage={audit.progressMessage ?? ''}
+        />
       </main>
     )
   }

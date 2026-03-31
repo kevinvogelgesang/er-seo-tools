@@ -1,29 +1,6 @@
 import { CSVRow } from '../types';
 
 /**
- * Get a column value from a CSV row, checking multiple possible column names.
- * Handles case-insensitive matching.
- */
-export function getColumnValue(
-  row: CSVRow,
-  possibleNames: string[]
-): string | number | null {
-  for (const name of possibleNames) {
-    if (row[name] !== undefined && row[name] !== null) {
-      return row[name] as string | number;
-    }
-    // Case-insensitive fallback
-    const lowerName = name.toLowerCase();
-    for (const key of Object.keys(row)) {
-      if (key.toLowerCase() === lowerName && row[key] !== undefined && row[key] !== null) {
-        return row[key] as string | number;
-      }
-    }
-  }
-  return null;
-}
-
-/**
  * Find a column name from possible names in the headers.
  */
 export function findColumnName(

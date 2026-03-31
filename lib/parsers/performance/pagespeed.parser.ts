@@ -13,6 +13,57 @@ export class PageSpeedParser extends BaseParser {
   private static CLS_GOOD = 0.1;
   private static CLS_POOR = 0.25;
 
+  private analyzeMetric(
+    col: string,
+    addressCol: string | null,
+    goodThreshold: number,
+    poorThreshold: number,
+    isMs: boolean,
+    issueType: string,
+    poorLabel: string,
+  ): { issue: Issue | null; vitals: Record<string, number> } {
+    let total = 0, count = 0, good = 0, needsImprovement = 0, poor = 0;
+    const poorUrls: string[] = [];
+
+    for (let i = 0; i < this.data.length; i++) {
+      const val = toNumber(this.data[i][col]);
+      if (val !== null) {
+        total += val;
+        count++;
+        if (val <= goodThreshold) {
+          good++;
+        } else if (val <= poorThreshold) {
+          needsImprovement++;
+        } else {
+          poor++;
+          if (addressCol && poorUrls.length < 20) {
+            poorUrls.push(toString(this.data[i][addressCol]));
+          }
+        }
+      }
+    }
+
+    if (count === 0) return { issue: null, vitals: {} };
+
+    const avg = total / count;
+    const vitals: Record<string, number> = {
+      ...(isMs ? { avg_ms: Math.round(avg) } : { avg: Math.round(avg * 1000) / 1000 }),
+      good,
+      needs_improvement: needsImprovement,
+      poor,
+    };
+
+    const issue: Issue | null = poor > 0 ? {
+      type: issueType,
+      severity: 'warning',
+      count: poor,
+      description: `${poor} pages with poor ${poorLabel}`,
+      urls: poorUrls,
+    } : null;
+
+    return { issue, vitals };
+  }
+
   parse(): ParsedData {
     if (this.isEmpty) return {};
 
@@ -26,151 +77,34 @@ export class PageSpeedParser extends BaseParser {
     const coreWebVitals: Record<string, Record<string, number>> = {};
     const stats: Record<string, number> = {};
 
-    // LCP (Largest Contentful Paint)
     if (lcpCol) {
-      let totalLcp = 0;
-      let lcpCount = 0;
-      let goodCount = 0;
-      let needsImprovementCount = 0;
-      let poorCount = 0;
-      const poorUrls: string[] = [];
-
-      for (let i = 0; i < this.data.length; i++) {
-        const lcp = toNumber(this.data[i][lcpCol]);
-        if (lcp !== null) {
-          totalLcp += lcp;
-          lcpCount++;
-
-          if (lcp <= PageSpeedParser.LCP_GOOD) {
-            goodCount++;
-          } else if (lcp <= PageSpeedParser.LCP_POOR) {
-            needsImprovementCount++;
-          } else {
-            poorCount++;
-            if (addressCol && poorUrls.length < 20) {
-              poorUrls.push(toString(this.data[i][addressCol]));
-            }
-          }
-        }
-      }
-
-      if (lcpCount > 0) {
-        coreWebVitals.lcp = {
-          avg_ms: Math.round(totalLcp / lcpCount),
-          good: goodCount,
-          needs_improvement: needsImprovementCount,
-          poor: poorCount,
-        };
-
-        if (poorCount > 0) {
-          issues.push({
-            type: 'poor_lcp',
-            severity: 'warning',
-            count: poorCount,
-            description: `${poorCount} pages with poor LCP (> 4s)`,
-            urls: poorUrls,
-          });
-        }
-      }
+      const { issue, vitals } = this.analyzeMetric(
+        lcpCol, addressCol, PageSpeedParser.LCP_GOOD, PageSpeedParser.LCP_POOR,
+        true, 'poor_lcp', 'LCP (> 4s)',
+      );
+      if (Object.keys(vitals).length) coreWebVitals.lcp = vitals;
+      if (issue) issues.push(issue);
     }
 
-    // FID (First Input Delay) / INP
     if (fidCol) {
-      let totalFid = 0;
-      let fidCount = 0;
-      let goodCount = 0;
-      let needsImprovementCount = 0;
-      let poorCount = 0;
-      const poorUrls: string[] = [];
-
-      for (let i = 0; i < this.data.length; i++) {
-        const fid = toNumber(this.data[i][fidCol]);
-        if (fid !== null) {
-          totalFid += fid;
-          fidCount++;
-
-          if (fid <= PageSpeedParser.FID_GOOD) {
-            goodCount++;
-          } else if (fid <= PageSpeedParser.FID_POOR) {
-            needsImprovementCount++;
-          } else {
-            poorCount++;
-            if (addressCol && poorUrls.length < 20) {
-              poorUrls.push(toString(this.data[i][addressCol]));
-            }
-          }
-        }
-      }
-
-      if (fidCount > 0) {
-        coreWebVitals.fid = {
-          avg_ms: Math.round(totalFid / fidCount),
-          good: goodCount,
-          needs_improvement: needsImprovementCount,
-          poor: poorCount,
-        };
-
-        if (poorCount > 0) {
-          issues.push({
-            type: 'poor_fid',
-            severity: 'warning',
-            count: poorCount,
-            description: `${poorCount} pages with poor FID/INP (> 300ms)`,
-            urls: poorUrls,
-          });
-        }
-      }
+      const { issue, vitals } = this.analyzeMetric(
+        fidCol, addressCol, PageSpeedParser.FID_GOOD, PageSpeedParser.FID_POOR,
+        true, 'poor_fid', 'FID/INP (> 300ms)',
+      );
+      if (Object.keys(vitals).length) coreWebVitals.fid = vitals;
+      if (issue) issues.push(issue);
     }
 
-    // CLS (Cumulative Layout Shift)
     if (clsCol) {
-      let totalCls = 0;
-      let clsCount = 0;
-      let goodCount = 0;
-      let needsImprovementCount = 0;
-      let poorCount = 0;
-      const poorUrls: string[] = [];
-
-      for (let i = 0; i < this.data.length; i++) {
-        const cls = toNumber(this.data[i][clsCol]);
-        if (cls !== null) {
-          totalCls += cls;
-          clsCount++;
-
-          if (cls <= PageSpeedParser.CLS_GOOD) {
-            goodCount++;
-          } else if (cls <= PageSpeedParser.CLS_POOR) {
-            needsImprovementCount++;
-          } else {
-            poorCount++;
-            if (addressCol && poorUrls.length < 20) {
-              poorUrls.push(toString(this.data[i][addressCol]));
-            }
-          }
-        }
-      }
-
-      if (clsCount > 0) {
-        coreWebVitals.cls = {
-          avg: Math.round((totalCls / clsCount) * 1000) / 1000,
-          good: goodCount,
-          needs_improvement: needsImprovementCount,
-          poor: poorCount,
-        };
-
-        if (poorCount > 0) {
-          issues.push({
-            type: 'poor_cls',
-            severity: 'warning',
-            count: poorCount,
-            description: `${poorCount} pages with poor CLS (> 0.25)`,
-            urls: poorUrls,
-          });
-        }
-      }
+      const { issue, vitals } = this.analyzeMetric(
+        clsCol, addressCol, PageSpeedParser.CLS_GOOD, PageSpeedParser.CLS_POOR,
+        false, 'poor_cls', 'CLS (> 0.25)',
+      );
+      if (Object.keys(vitals).length) coreWebVitals.cls = vitals;
+      if (issue) issues.push(issue);
     }
 
-    // Overall Performance Score
+    // Overall Performance Score (no needs_improvement bucket — keep separate)
     if (scoreCol) {
       let totalScore = 0;
       let scoreCount = 0;
@@ -182,7 +116,6 @@ export class PageSpeedParser extends BaseParser {
         if (score !== null) {
           totalScore += score;
           scoreCount++;
-
           if (score < 50) {
             poorCount++;
             if (addressCol && poorUrls.length < 20) {
@@ -194,7 +127,6 @@ export class PageSpeedParser extends BaseParser {
 
       if (scoreCount > 0) {
         stats.avg_performance_score = Math.round(totalScore / scoreCount);
-
         if (poorCount > 0) {
           issues.push({
             type: 'poor_performance_score',

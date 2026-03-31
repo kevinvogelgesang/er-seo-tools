@@ -4,7 +4,7 @@ import { discoverPages } from '@/lib/ada-audit/sitemap-crawler'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { buildSiteAuditSummary } from '@/lib/ada-audit/site-audit-helpers'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
-import { computeScore } from '@/lib/ada-audit/scoring'
+import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,34 +17,26 @@ async function runSiteAuditInBackground(id: string, domain: string, clientId: nu
     const urls = await discoverPages(domain)
     await prisma.siteAudit.update({ where: { id }, data: { pagesTotal: urls.length } })
 
-    for (const url of urls) {
-      const child = await prisma.adaAudit.create({
-        data: { url, status: 'pending', clientId, siteAuditId: id, wcagLevel },
-      })
-
-      try {
-        await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
-        const results = await runAxeAudit(url, wcagLevel)
-        await prisma.adaAudit.update({
-          where: { id: child.id },
-          data: { status: 'complete', result: JSON.stringify(results) },
+    const CONCURRENCY = 2
+    for (let i = 0; i < urls.length; i += CONCURRENCY) {
+      await Promise.all(urls.slice(i, i + CONCURRENCY).map(async (url) => {
+        const child = await prisma.adaAudit.create({
+          data: { url, status: 'pending', clientId, siteAuditId: id, wcagLevel },
         })
-        await prisma.siteAudit.update({
-          where: { id },
-          data: { pagesComplete: { increment: 1 } },
-        })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Audit failed'
-        await prisma.adaAudit.update({
-          where: { id: child.id },
-          data: { status: 'error', error: msg },
-        })
-        await prisma.siteAudit.update({
-          where: { id },
-          data: { pagesError: { increment: 1 } },
-        })
-        // Continue — one bad page doesn't abort the whole run
-      }
+        try {
+          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
+          const results = await runAxeAudit(url, wcagLevel)
+          await prisma.adaAudit.update({
+            where: { id: child.id },
+            data: { status: 'complete', result: JSON.stringify(results), runnerType: 'browser' },
+          })
+          await prisma.siteAudit.update({ where: { id }, data: { pagesComplete: { increment: 1 } } })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Audit failed'
+          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'error', error: msg } })
+          await prisma.siteAudit.update({ where: { id }, data: { pagesError: { increment: 1 } } })
+        }
+      }))
     }
 
     const children = await prisma.adaAudit.findMany({
@@ -136,21 +128,14 @@ export async function GET(request: NextRequest) {
   const items = audits.map((a) => {
     let summary = null
     let score: number | null = null
-    const wcagLevel = (a as typeof a & { wcagLevel?: string }).wcagLevel ?? 'wcag21aa'
+    const wcagLevel = a.wcagLevel ?? 'wcag21aa'
 
     if (a.status === 'complete' && a.summary) {
       try {
         summary = JSON.parse(a.summary)
-        // Derive score from aggregate violation counts in the summary
         const agg = summary?.aggregate
         if (agg) {
-          const syntheticViolations = [
-            ...Array(agg.critical).fill({ impact: 'critical', nodes: [{}] }),
-            ...Array(agg.serious).fill({ impact: 'serious', nodes: [{}] }),
-            ...Array(agg.moderate).fill({ impact: 'moderate', nodes: [{}] }),
-            ...Array(agg.minor).fill({ impact: 'minor', nodes: [{}] }),
-          ]
-          score = computeScore(syntheticViolations, wcagLevel).score
+          score = computeScoreFromCounts(agg, wcagLevel).score
         }
       } catch { /* ignore */ }
     }

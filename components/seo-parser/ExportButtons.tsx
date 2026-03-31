@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Spinner } from '@/components/Spinner';
 
 interface ExportButtonsProps {
   sessionId: string;
@@ -63,10 +64,7 @@ export function ExportButtons({ sessionId }: ExportButtonsProps) {
               className={`px-4 py-2 ${colors[format]} text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5`}
             >
               {loading === format && (
-                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-                </svg>
+                <Spinner />
               )}
               {labels[format]}
             </button>

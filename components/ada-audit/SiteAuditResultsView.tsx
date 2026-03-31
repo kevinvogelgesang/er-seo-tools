@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import { Spinner } from '@/components/Spinner'
 import type { SiteAuditSummary, SitePageResult, AuditScorecard } from '@/lib/ada-audit/types'
 import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
 import ComplianceBanner from './ComplianceBanner'
+import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
 
 interface Props {
@@ -90,10 +92,7 @@ function PageRow({ page }: { page: SitePageResult }) {
           <td colSpan={6} className="px-8 py-4">
             {loading ? (
               <div className="flex items-center gap-2 text-[12px] font-body text-navy/40 py-2">
-                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
+                <Spinner />
                 Loading violations…
               </div>
             ) : page.status === 'error' ? (
@@ -158,16 +157,7 @@ export default function SiteAuditResultsView({
         </div>
       </div>
 
-      {/* Limitations notice */}
-      <div className="flex gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-[12px] font-body text-amber-800 leading-relaxed">
-        <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span>
-          <strong>Known limitations:</strong> Pages are audited from static HTML only. External stylesheets,
-          client-rendered content, and lazy-loaded sections are not included. Treat results as a starting point.
-        </span>
-      </div>
+      <KnownLimitationsNotice variant="site" />
 
       {/* Page table */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">

@@ -44,7 +44,7 @@ export default function AuditScorecard({ scorecard, score, compliant, wcagLevel 
                   ? 'bg-green-50 text-green-700 border-green-200'
                   : 'bg-red-50 text-red-700 border-red-200'
               }`}>
-                {wcagLevel === 'wcag21aa' || wcagLevel == null ? 'WCAG 2.1 AA' : wcagLevel}
+                {wcagLevel === 'wcag22aa' ? 'WCAG 2.2 AA' : 'WCAG 2.1 AA'}
                 {compliant ? ': Compliant ✓' : ': Non-compliant ✗'}
               </span>
             )}

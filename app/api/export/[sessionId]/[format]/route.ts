@@ -138,7 +138,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const session = await prisma.session.findUnique({ where: { id: sessionId } });
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { status: true, result: true },
+    });
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });

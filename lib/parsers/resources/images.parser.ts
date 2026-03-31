@@ -15,43 +15,83 @@ export class ImagesParser extends BaseParser {
     const altTextCol = this.findColumn(['Alt Text', 'Alt']);
     const sizeCol = this.findColumn(['Size (Bytes)', 'Size', 'File Size']);
     const statusCol = this.findColumn(['Status Code', 'Status']);
-    const widthCol = this.findColumn(['Width', 'img width', 'Image Width']); // NEW
-    const heightCol = this.findColumn(['Height', 'img height', 'Image Height']); // NEW
+    const widthCol = this.findColumn(['Width', 'img width', 'Image Width']);
+    const heightCol = this.findColumn(['Height', 'img height', 'Image Height']);
 
     const issues: Issue[] = [];
-    let totalImages = this.length;
+    const totalImages = this.length;
     const stats: Record<string, number> = {};
 
-    // Missing alt text + coverage percentage
-    if (altTextCol) {
-      const missingAltUrls: string[] = [];
-      let missingAltCount = 0;
-      let imagesWithAlt = 0;
+    const missingAltUrls: string[] = [];
+    const largeUrls: string[] = [];
+    const veryLargeUrls: string[] = [];
+    const brokenUrls: string[] = [];
+    const missingDimsUrls: string[] = [];
 
-      for (let i = 0; i < this.data.length; i++) {
-        const alt = toString(this.data[i][altTextCol]);
+    let missingAltCount = 0, imagesWithAlt = 0;
+    let largeCount = 0, veryLargeCount = 0;
+    let brokenCount = 0;
+    let missingDimsCount = 0;
+
+    for (let i = 0; i < this.data.length; i++) {
+      const row = this.data[i];
+      const addr = addressCol ? toString(row[addressCol]) : '';
+
+      if (altTextCol) {
+        const alt = toString(row[altTextCol]);
         if (!alt) {
           missingAltCount++;
-          if (addressCol && missingAltUrls.length < 30) {
-            missingAltUrls.push(toString(this.data[i][addressCol]));
-          }
+          if (addressCol && missingAltUrls.length < 30) missingAltUrls.push(addr);
         } else {
           imagesWithAlt++;
         }
       }
 
-      stats.missing_alt = missingAltCount;
-      // NEW — alt text coverage percentage
+      if (sizeCol) {
+        const size = toNumber(row[sizeCol]);
+        if (size !== null) {
+          if (size > ImagesParser.VERY_LARGE_IMAGE_SIZE) {
+            veryLargeCount++;
+            if (addressCol && veryLargeUrls.length < 20) veryLargeUrls.push(addr);
+          } else if (size > ImagesParser.LARGE_IMAGE_SIZE) {
+            largeCount++;
+            if (addressCol && largeUrls.length < 30) largeUrls.push(addr);
+          }
+        }
+      }
+
+      if (statusCol) {
+        const status = toNumber(row[statusCol]);
+        if (status !== null && status >= 400 && status < 600) {
+          brokenCount++;
+          if (addressCol && brokenUrls.length < 30) brokenUrls.push(addr);
+        }
+      }
+
+      if (widthCol || heightCol) {
+        const width = widthCol ? toString(row[widthCol]) : null;
+        const height = heightCol ? toString(row[heightCol]) : null;
+        const missingWidth = widthCol && (!width || width === '0');
+        const missingHeight = heightCol && (!height || height === '0');
+        if (missingWidth || missingHeight) {
+          missingDimsCount++;
+          if (addressCol && missingDimsUrls.length < 30) missingDimsUrls.push(addr);
+        }
+      }
+    }
+
+    if (altTextCol) {
       const altCoveragePercent = totalImages > 0
         ? Math.round((imagesWithAlt / totalImages) * 1000) / 10
         : 100;
+      stats.missing_alt = missingAltCount;
       stats.alt_coverage_percent = altCoveragePercent;
-      stats.images_with_alt = imagesWithAlt; // NEW
+      stats.images_with_alt = imagesWithAlt;
 
       if (missingAltCount > 0) {
         issues.push({
           type: 'missing_alt_text',
-          severity: altCoveragePercent < 80 ? 'warning' : 'notice', // NEW — escalate severity if < 80% coverage
+          severity: altCoveragePercent < 80 ? 'warning' : 'notice',
           count: missingAltCount,
           description: `${missingAltCount} images missing alt text (${altCoveragePercent}% coverage)`,
           urls: missingAltUrls,
@@ -59,30 +99,7 @@ export class ImagesParser extends BaseParser {
       }
     }
 
-    // Large images
     if (sizeCol) {
-      const largeUrls: string[] = [];
-      const veryLargeUrls: string[] = [];
-      let largeCount = 0;
-      let veryLargeCount = 0;
-
-      for (let i = 0; i < this.data.length; i++) {
-        const size = toNumber(this.data[i][sizeCol]);
-        if (size === null) continue;
-
-        if (size > ImagesParser.VERY_LARGE_IMAGE_SIZE) {
-          veryLargeCount++;
-          if (addressCol && veryLargeUrls.length < 20) {
-            veryLargeUrls.push(toString(this.data[i][addressCol]));
-          }
-        } else if (size > ImagesParser.LARGE_IMAGE_SIZE) {
-          largeCount++;
-          if (addressCol && largeUrls.length < 30) {
-            largeUrls.push(toString(this.data[i][addressCol]));
-          }
-        }
-      }
-
       stats.large_images = largeCount;
       stats.very_large_images = veryLargeCount;
 
@@ -95,7 +112,6 @@ export class ImagesParser extends BaseParser {
           urls: veryLargeUrls,
         });
       }
-
       if (largeCount > 0) {
         issues.push({
           type: 'large_images',
@@ -107,21 +123,7 @@ export class ImagesParser extends BaseParser {
       }
     }
 
-    // Broken images
     if (statusCol) {
-      const brokenUrls: string[] = [];
-      let brokenCount = 0;
-
-      for (let i = 0; i < this.data.length; i++) {
-        const status = toNumber(this.data[i][statusCol]);
-        if (status !== null && status >= 400 && status < 600) {
-          brokenCount++;
-          if (addressCol && brokenUrls.length < 30) {
-            brokenUrls.push(toString(this.data[i][addressCol]));
-          }
-        }
-      }
-
       stats.broken_images = brokenCount;
       if (brokenCount > 0) {
         issues.push({
@@ -134,26 +136,8 @@ export class ImagesParser extends BaseParser {
       }
     }
 
-    // NEW — Images missing Width or Height attributes (layout shift risk)
     if (widthCol || heightCol) {
-      const missingDimsUrls: string[] = [];
-      let missingDimsCount = 0;
-
-      for (let i = 0; i < this.data.length; i++) {
-        const width = widthCol ? toString(this.data[i][widthCol]) : null;
-        const height = heightCol ? toString(this.data[i][heightCol]) : null;
-        const missingWidth = widthCol && (!width || width === '0');
-        const missingHeight = heightCol && (!height || height === '0');
-
-        if (missingWidth || missingHeight) {
-          missingDimsCount++;
-          if (addressCol && missingDimsUrls.length < 30) {
-            missingDimsUrls.push(toString(this.data[i][addressCol]));
-          }
-        }
-      }
-
-      stats.missing_dimensions = missingDimsCount; // NEW
+      stats.missing_dimensions = missingDimsCount;
       if (missingDimsCount > 0) {
         issues.push({
           type: 'images_missing_dimensions',

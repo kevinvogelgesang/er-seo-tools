@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { Spinner } from '@/components/Spinner'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 
 interface Client {
   id: number
@@ -22,11 +24,8 @@ export default function AuditForm() {
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
 
-  // Combobox state
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const comboRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { query, setQuery, open, setOpen, comboRef, filtered } = useClientCombobox(clients, selectedClient?.name ?? null)
 
   useEffect(() => {
     fetch('/api/clients')
@@ -46,20 +45,6 @@ export default function AuditForm() {
       .finally(() => setClientsLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (comboRef.current && !comboRef.current.contains(e.target as Node)) {
-        setOpen(false)
-        // Reset query to selected client name if one is selected
-        if (selectedClient) setQuery(selectedClient.name)
-        else setQuery('')
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [selectedClient])
 
   function selectClient(client: Client | null) {
     setSelectedClient(client)
@@ -87,10 +72,6 @@ export default function AuditForm() {
     setSelectedClient(client)
     if (!client) setQuery('')
   }
-
-  const filtered = query === '' || (selectedClient && query === selectedClient.name)
-    ? clients
-    : clients.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -249,10 +230,7 @@ export default function AuditForm() {
       >
         {isRunning ? (
           <>
-            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
+            <Spinner className="w-4 h-4" />
             Starting audit…
           </>
         ) : (

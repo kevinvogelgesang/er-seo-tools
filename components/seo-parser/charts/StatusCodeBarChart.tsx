@@ -24,8 +24,7 @@ export function StatusCodeBarChart({ summary }: { summary: CrawlSummary }) {
           <CartesianGrid strokeDasharray="3 3" horizontal vertical={false} />
           <XAxis type="number" />
           <YAxis dataKey="name" type="category" width={80} />
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          <Tooltip formatter={(value: any) => [typeof value === 'number' ? value.toLocaleString() : value, 'Count']}
+          <Tooltip formatter={(value: number | string | ReadonlyArray<number | string> | undefined) => [typeof value === 'number' ? value.toLocaleString() : String(value ?? ''), 'Count']}
             contentStyle={{ backgroundColor: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: '8px' }}
           />
           <Bar dataKey="value" radius={[0, 4, 4, 0]}>

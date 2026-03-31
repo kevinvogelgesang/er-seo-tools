@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { Spinner } from '@/components/Spinner';
 interface Client {
   id: number;
   name: string;
@@ -37,25 +38,13 @@ export default function ClientsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Add client form
-  const [addingName, setAddingName] = useState('');
-  const [addOpen, setAddOpen] = useState(false);
-  const [addError, setAddError] = useState('');
-  const [addLoading, setAddLoading] = useState(false);
-
-  // Edit state (one row at a time)
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editNameError, setEditNameError] = useState('');
-  const [editNameLoading, setEditNameLoading] = useState(false);
+  const [addForm, setAddForm] = useState({ open: false, name: '', error: '', loading: false });
+  const [editForm, setEditForm] = useState<{ id: number | null; name: string; error: string; loading: boolean }>({ id: null, name: '', error: '', loading: false });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: number | null; loading: boolean }>({ id: null, loading: false });
 
   // Domain management
   const [domainInput, setDomainInput] = useState<Record<number, string>>({});
   const [domainLoading, setDomainLoading] = useState<Record<number, boolean>>({});
-
-  // Delete confirm
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
 
   const addInputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -78,21 +67,20 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    if (addOpen) setTimeout(() => addInputRef.current?.focus(), 50);
-  }, [addOpen]);
+    if (addForm.open) setTimeout(() => addInputRef.current?.focus(), 50);
+  }, [addForm.open]);
 
   useEffect(() => {
-    if (editingId !== null) setTimeout(() => editInputRef.current?.focus(), 50);
-  }, [editingId]);
+    if (editForm.id !== null) setTimeout(() => editInputRef.current?.focus(), 50);
+  }, [editForm.id]);
 
   // ── Add client ─────────────────────────────────────────────────────────────
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const name = addingName.trim();
+    const name = addForm.name.trim();
     if (!name) return;
-    setAddLoading(true);
-    setAddError('');
+    setAddForm((prev) => ({ ...prev, loading: true, error: '' }));
     try {
       const res = await fetch('/api/clients', {
         method: 'POST',
@@ -100,30 +88,24 @@ export default function ClientsPage() {
         body: JSON.stringify({ name }),
       });
       const data = await res.json();
-      if (!res.ok) { setAddError(data.error ?? 'Failed to add client'); return; }
+      if (!res.ok) { setAddForm((prev) => ({ ...prev, loading: false, error: data.error ?? 'Failed to add client' })); return; }
       setClients((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-      setAddingName('');
-      setAddOpen(false);
+      setAddForm({ open: false, name: '', error: '', loading: false });
     } catch {
-      setAddError('Failed to add client');
-    } finally {
-      setAddLoading(false);
+      setAddForm((prev) => ({ ...prev, loading: false, error: 'Failed to add client' }));
     }
   };
 
   // ── Rename client ──────────────────────────────────────────────────────────
 
   const startEdit = (client: Client) => {
-    setEditingId(client.id);
-    setEditName(client.name);
-    setEditNameError('');
+    setEditForm({ id: client.id, name: client.name, error: '', loading: false });
   };
 
   const saveEdit = async (id: number) => {
-    const name = editName.trim();
+    const name = editForm.name.trim();
     if (!name) return;
-    setEditNameLoading(true);
-    setEditNameError('');
+    setEditForm((prev) => ({ ...prev, loading: true, error: '' }));
     try {
       const res = await fetch(`/api/clients/${id}`, {
         method: 'PATCH',
@@ -131,16 +113,14 @@ export default function ClientsPage() {
         body: JSON.stringify({ name }),
       });
       const data = await res.json();
-      if (!res.ok) { setEditNameError(data.error ?? 'Failed to rename'); return; }
+      if (!res.ok) { setEditForm((prev) => ({ ...prev, loading: false, error: data.error ?? 'Failed to rename' })); return; }
       setClients((prev) =>
         prev.map((c) => (c.id === id ? { ...c, name: data.name } : c))
           .sort((a, b) => a.name.localeCompare(b.name))
       );
-      setEditingId(null);
+      setEditForm({ id: null, name: '', error: '', loading: false });
     } catch {
-      setEditNameError('Failed to rename');
-    } finally {
-      setEditNameLoading(false);
+      setEditForm((prev) => ({ ...prev, loading: false, error: 'Failed to rename' }));
     }
   };
 
@@ -197,13 +177,12 @@ export default function ClientsPage() {
   // ── Delete client ──────────────────────────────────────────────────────────
 
   const handleDelete = async (id: number) => {
-    setDeleteLoading(id);
-    setConfirmDeleteId(null);
+    setDeleteConfirm({ id, loading: true });
     try {
       const res = await fetch(`/api/clients/${id}`, { method: 'DELETE' });
       if (res.ok) setClients((prev) => prev.filter((c) => c.id !== id));
     } finally {
-      setDeleteLoading(null);
+      setDeleteConfirm({ id: null, loading: false });
     }
   };
 
@@ -220,7 +199,7 @@ export default function ClientsPage() {
           </p>
         </div>
         <button
-          onClick={() => { setAddOpen(true); setAddError(''); }}
+          onClick={() => setAddForm({ open: true, name: '', error: '', loading: false })}
           className="flex items-center gap-1.5 px-4 py-2 bg-[#f5a623] hover:bg-[#e09415] text-white text-sm font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0 ml-6"
         >
           <PlusIcon />
@@ -229,7 +208,7 @@ export default function ClientsPage() {
       </div>
 
       {/* Add client form */}
-      {addOpen && (
+      {addForm.open && (
         <form
           onSubmit={handleAdd}
           className="mb-6 p-4 bg-[#f5a623]/8 border border-[#f5a623]/30 rounded-xl flex items-start gap-3"
@@ -239,22 +218,22 @@ export default function ClientsPage() {
               ref={addInputRef}
               type="text"
               placeholder="Client name…"
-              value={addingName}
-              onChange={(e) => { setAddingName(e.target.value); setAddError(''); }}
+              value={addForm.name}
+              onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value, error: '' }))}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white"
             />
-            {addError && <p className="text-xs text-red-500 mt-1">{addError}</p>}
+            {addForm.error && <p className="text-xs text-red-500 mt-1">{addForm.error}</p>}
           </div>
           <button
             type="submit"
-            disabled={!addingName.trim() || addLoading}
+            disabled={!addForm.name.trim() || addForm.loading}
             className="px-4 py-2 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold rounded-lg transition-colors"
           >
-            {addLoading ? 'Adding…' : 'Add'}
+            {addForm.loading ? 'Adding…' : 'Add'}
           </button>
           <button
             type="button"
-            onClick={() => { setAddOpen(false); setAddingName(''); setAddError(''); }}
+            onClick={() => setAddForm({ open: false, name: '', error: '', loading: false })}
             className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
           >
             Cancel
@@ -295,33 +274,33 @@ export default function ClientsPage() {
               <div className="flex items-start gap-3">
                 {/* Name / edit */}
                 <div className="flex-1 min-w-0">
-                  {editingId === client.id ? (
+                  {editForm.id === client.id ? (
                     <div className="flex items-center gap-2 mb-3">
                       <input
                         ref={editInputRef}
                         type="text"
-                        value={editName}
-                        onChange={(e) => { setEditName(e.target.value); setEditNameError(''); }}
+                        value={editForm.name}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value, error: '' }))}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') saveEdit(client.id);
-                          if (e.key === 'Escape') setEditingId(null);
+                          if (e.key === 'Escape') setEditForm({ id: null, name: '', error: '', loading: false });
                         }}
                         className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40"
                       />
                       <button
                         onClick={() => saveEdit(client.id)}
-                        disabled={!editName.trim() || editNameLoading}
+                        disabled={!editForm.name.trim() || editForm.loading}
                         className="px-3 py-1.5 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 text-white text-xs font-semibold rounded-lg transition-colors"
                       >
-                        {editNameLoading ? 'Saving…' : 'Save'}
+                        {editForm.loading ? 'Saving…' : 'Save'}
                       </button>
                       <button
-                        onClick={() => setEditingId(null)}
+                        onClick={() => setEditForm({ id: null, name: '', error: '', loading: false })}
                         className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
                       >
                         Cancel
                       </button>
-                      {editNameError && <span className="text-xs text-red-500">{editNameError}</span>}
+                      {editForm.error && <span className="text-xs text-red-500">{editForm.error}</span>}
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 mb-3">
@@ -390,7 +369,7 @@ export default function ClientsPage() {
 
                 {/* Delete */}
                 <div className="flex-shrink-0">
-                  {confirmDeleteId === client.id ? (
+                  {deleteConfirm.id === client.id && !deleteConfirm.loading ? (
                     <div className="flex items-center gap-2 text-xs">
                       <span className="text-gray-600">Delete?</span>
                       <button
@@ -400,7 +379,7 @@ export default function ClientsPage() {
                         Yes
                       </button>
                       <button
-                        onClick={() => setConfirmDeleteId(null)}
+                        onClick={() => setDeleteConfirm({ id: null, loading: false })}
                         className="text-gray-500 hover:text-gray-700"
                       >
                         No
@@ -408,16 +387,13 @@ export default function ClientsPage() {
                     </div>
                   ) : (
                     <button
-                      onClick={() => setConfirmDeleteId(client.id)}
-                      disabled={deleteLoading === client.id}
+                      onClick={() => setDeleteConfirm({ id: client.id, loading: false })}
+                      disabled={deleteConfirm.loading && deleteConfirm.id === client.id}
                       aria-label="Delete client"
                       className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                     >
-                      {deleteLoading === client.id ? (
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                        </svg>
+                      {deleteConfirm.loading && deleteConfirm.id === client.id ? (
+                        <Spinner className="w-4 h-4" />
                       ) : (
                         <TrashIcon />
                       )}

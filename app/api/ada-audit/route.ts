@@ -11,12 +11,16 @@ export const dynamic = 'force-dynamic'
 // Updates the DB record directly; errors set status = 'error'.
 
 async function runAuditInBackground(id: string, url: string, wcagLevel: string) {
+  const onProgress = async (progress: number, progressMessage: string) => {
+    await prisma.adaAudit.update({ where: { id }, data: { progress, progressMessage } }).catch(() => {})
+  }
+
   try {
-    await prisma.adaAudit.update({ where: { id }, data: { status: 'running' } })
-    const results = await runAxeAudit(url, wcagLevel)
+    await prisma.adaAudit.update({ where: { id }, data: { status: 'running', progress: 0, progressMessage: 'Starting…' } })
+    const results = await runAxeAudit(url, wcagLevel, onProgress)
     await prisma.adaAudit.update({
       where: { id },
-      data: { status: 'complete', result: JSON.stringify(results) },
+      data: { status: 'complete', result: JSON.stringify(results), progress: 100, progressMessage: 'Complete', runnerType: 'browser' },
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -24,7 +28,7 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string) 
     await prisma.adaAudit.update({
       where: { id },
       data: { status: 'error', error: message },
-    }).catch(() => { /* DB might be gone — ignore */ })
+    }).catch(() => {})
   }
 }
 

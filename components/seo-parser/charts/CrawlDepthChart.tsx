@@ -18,8 +18,7 @@ export function CrawlDepthChart({ distribution }: { distribution: Record<number,
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="depth" tick={{ fontSize: 12 }} />
           <YAxis />
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          <Tooltip formatter={(value: any) => [typeof value === 'number' ? value.toLocaleString() : value, 'Pages']}
+          <Tooltip formatter={(value: number | string | ReadonlyArray<number | string> | undefined) => [typeof value === 'number' ? value.toLocaleString() : String(value ?? ''), 'Pages']}
             contentStyle={{ backgroundColor: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: '8px' }}
           />
           <Bar dataKey="count" fill="#1c2d4a" radius={[4, 4, 0, 0]} />

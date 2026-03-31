@@ -372,7 +372,7 @@ function identifyPrograms(pages: Page[]): Page[] {
   return programs;
 }
 
-function analyzeSchemaConverage(schemaData: SchemaEntry[], pages: Page[]): SchemaAnalysis {
+function analyzeSchemaConverage(schemaData: SchemaEntry[], pages: Page[], programPages: Page[]): SchemaAnalysis {
   const faqPages = new Set<string>();
   const otherSchema: Record<string, string[]> = {};
 
@@ -393,7 +393,6 @@ function analyzeSchemaConverage(schemaData: SchemaEntry[], pages: Page[]): Schem
   }
 
   // Find high-value pages without FAQ
-  const programPages = identifyPrograms(pages);
   const pagesNeedingFaq: string[] = [];
 
   for (const prog of programPages.slice(0, 30)) {
@@ -495,12 +494,14 @@ export function generateBrief(
   // =========================
   lines.push('## Site Structure\n');
 
+  const programs = identifyPrograms(pages);
+
   if (pages.length) {
     const indexable = pages.filter(
       p => p.indexability.toLowerCase() !== 'non-indexable' && p.statusCode < 400
     );
-    const programs = identifyPrograms(pages);
     const orphaned = indexable.filter(p => p.inlinks === 0);
+
 
     lines.push(`- **Total pages crawled:** ${pages.length}`);
     lines.push(`- **Indexable pages:** ${indexable.length}`);
@@ -529,7 +530,7 @@ export function generateBrief(
   lines.push('## Schema Coverage\n');
 
   if (schemaData.length) {
-    const analysis = analyzeSchemaConverage(schemaData, pages);
+    const analysis = analyzeSchemaConverage(schemaData, pages, programs);
 
     lines.push(`- **Pages with FAQ schema:** ${analysis.faqPages.length}`);
 

@@ -176,8 +176,8 @@ export async function discoverPages(domain: string): Promise<string[]> {
     const childSitemapUrls = extractLocs(xml, /<sitemap>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
       .slice(0, MAX_CHILD_SITEMAPS)
 
-    for (const childUrl of childSitemapUrls) {
-      const childXml = await fetchXml(childUrl)
+    const childXmls = await Promise.all(childSitemapUrls.map((u) => fetchXml(u)))
+    for (const childXml of childXmls) {
       if (!childXml) continue
       const locs = extractLocs(childXml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
       pageUrls.push(...locs)

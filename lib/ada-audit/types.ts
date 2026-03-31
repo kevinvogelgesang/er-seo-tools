@@ -66,6 +66,9 @@ export interface AuditDetail {
   clientId: number | null
   clientName: string | null
   results: StoredAxeResults | null
+  progress: number
+  progressMessage: string
+  runnerType: string
 }
 
 // ─── Site audit types ─────────────────────────────────────────────────────────

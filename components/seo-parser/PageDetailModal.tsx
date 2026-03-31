@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { AggregatedResult, Issue } from '@/lib/types';
+import { SEVERITY_BADGE_COLORS } from '@/lib/constants/severity';
 
 interface PageDetailModalProps {
   url: string;
@@ -14,11 +15,7 @@ interface MatchedIssue {
   severity: 'critical' | 'warning' | 'notice';
 }
 
-const severityBadgeColors: Record<'critical' | 'warning' | 'notice', string> = {
-  critical: 'bg-red-100 text-red-800',
-  warning: 'bg-yellow-100 text-yellow-800',
-  notice: 'bg-blue-100 text-blue-800',
-};
+const severityBadgeColors = SEVERITY_BADGE_COLORS;
 
 const severityOrder: Record<'critical' | 'warning' | 'notice', number> = {
   critical: 0,

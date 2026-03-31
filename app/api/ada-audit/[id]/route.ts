@@ -37,6 +37,9 @@ export async function GET(
         clientId: audit.clientId ?? null,
         clientName: audit.client?.name ?? null,
         results: null,
+        progress: audit.progress ?? 0,
+        progressMessage: audit.progressMessage ?? '',
+        runnerType: audit.runnerType ?? 'jsdom',
       } satisfies AuditDetail)
     }
   }
@@ -50,6 +53,9 @@ export async function GET(
     clientId: audit.clientId ?? null,
     clientName: audit.client?.name ?? null,
     results,
+    progress: audit.progress ?? 0,
+    progressMessage: audit.progressMessage ?? '',
+    runnerType: audit.runnerType ?? 'jsdom',
   } satisfies AuditDetail)
 }
 

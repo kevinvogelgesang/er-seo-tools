@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Issue } from '@/lib/types';
+import { SEVERITY_BADGE_COLORS } from '@/lib/constants/severity';
 
 interface IssueListProps {
   issues: Issue[];
@@ -9,11 +10,7 @@ interface IssueListProps {
   onUrlClick?: (url: string) => void;
 }
 
-const severityColors = {
-  critical: 'bg-red-100 text-red-800',
-  warning: 'bg-yellow-100 text-yellow-800',
-  notice: 'bg-blue-100 text-blue-800',
-};
+const severityColors = SEVERITY_BADGE_COLORS;
 
 function IssueItem({
   issue,

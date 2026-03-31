@@ -108,7 +108,10 @@ export async function POST(request: NextRequest) {
     );
 
     // Create or update session in DB
-    const existingSession = await prisma.session.findUnique({ where: { id: sessionId } });
+    const existingSession = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { files: true },
+    });
 
     if (existingSession) {
       let existingFiles: string[] = [];
@@ -154,7 +157,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const session = await prisma.session.findUnique({ where: { id: sessionId } });
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, createdAt: true, status: true, files: true },
+    });
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });

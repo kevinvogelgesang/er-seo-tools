@@ -11,5 +11,12 @@ export async function register() {
       const { File } = await import('buffer');
       (globalThis as unknown as Record<string, unknown>).File = File;
     }
+
+    // Close the headless browser cleanly on shutdown so Chrome doesn't orphan.
+    // fuser -k in the deploy command sends SIGTERM before starting the new process.
+    const { closeBrowser } = await import('@/lib/ada-audit/browser-pool')
+    const shutdown = () => { void closeBrowser() }
+    process.once('SIGTERM', shutdown)
+    process.once('SIGINT', shutdown)
   }
 }
