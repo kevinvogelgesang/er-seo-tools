@@ -121,11 +121,12 @@ async function _runAudit(targetUrl: string, wcagLevel: string): Promise<StoredAx
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawResults = await (dom.window as any).axe.run(
-    { iframes: false },
+    dom.window.document,
     {
       runOnly: { type: 'tag', values: [wcagLevel] },
       resultTypes: ['violations', 'incomplete'],
       reporter: 'no-passes',
+      iframes: false,
     }
   )
 
