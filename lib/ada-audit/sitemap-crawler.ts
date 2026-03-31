@@ -24,6 +24,22 @@ function isSitemapIndex(xml: string): boolean {
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
+async function fetchHtml(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,*/*' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      redirect: 'follow',
+    })
+    if (!res.ok) return null
+    const ct = res.headers.get('content-type') ?? ''
+    if (!ct.includes('html')) return null
+    return res.text()
+  } catch {
+    return null
+  }
+}
+
 async function fetchXml(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
@@ -81,12 +97,55 @@ function dedupeUrls(urls: string[]): string[] {
   return result
 }
 
+// ─── Shallow link crawl ──────────────────────────────────────────────────────
+
+/**
+ * Fetches the homepage and extracts all same-domain <a href> links.
+ * Uses a simple regex — acceptable for a shallow one-page crawl.
+ */
+async function shallowCrawl(base: string, normDomain: string): Promise<string[]> {
+  const html = await fetchHtml(base)
+  if (!html) return []
+
+  const hrefPattern = /<a[^>]+href=["']([^"']+)["']/gi
+  const hrefs: string[] = []
+  let match: RegExpExecArray | null
+  while ((match = hrefPattern.exec(html)) !== null) {
+    hrefs.push(match[1])
+  }
+
+  const resolved: string[] = []
+  for (const href of hrefs) {
+    const trimmed = href.trim()
+    // Skip fragments, mailto, javascript, etc.
+    if (!trimmed || trimmed.startsWith('#') || /^[a-z][a-z\d+\-.]*:/i.test(trimmed) && !trimmed.startsWith('http')) {
+      continue
+    }
+    try {
+      const absolute = trimmed.startsWith('/')
+        ? `${base}${trimmed}`
+        : trimmed
+      // Validate it's a proper URL and belongs to the same domain
+      const parsed = new URL(absolute)
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue
+      if (isSameDomain(absolute, normDomain)) {
+        resolved.push(absolute)
+      }
+    } catch {
+      // malformed — skip
+    }
+  }
+
+  return dedupeUrls(resolved).slice(0, MAX_PAGES)
+}
+
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 /**
  * Discovers pages for a domain via sitemap.xml (or sitemap_index.xml).
+ * Falls back to a shallow homepage link crawl if no sitemap is found.
  * Returns up to MAX_PAGES (50) URLs, all belonging to the domain.
- * Throws if the domain fails SSRF checks or no sitemap is found.
+ * Throws if the domain fails SSRF checks or no pages are discovered.
  */
 export async function discoverPages(domain: string): Promise<string[]> {
   const normDomain = normaliseDomain(domain)
@@ -100,10 +159,14 @@ export async function discoverPages(domain: string): Promise<string[]> {
   let xml = await fetchXml(`${base}/sitemap.xml`)
   if (!xml) xml = await fetchXml(`${base}/sitemap_index.xml`)
   if (!xml) {
-    throw new Error(
-      `No sitemap found at ${base}/sitemap.xml or ${base}/sitemap_index.xml. ` +
-      `Add a sitemap to the site or audit individual pages instead.`
-    )
+    // Sitemap not found — attempt shallow homepage crawl as fallback
+    const crawledPages = await shallowCrawl(base, normDomain)
+    if (crawledPages.length === 0) {
+      throw new Error(
+        `No sitemap found and shallow crawl found 0 pages on ${normDomain}`
+      )
+    }
+    return crawledPages
   }
 
   let pageUrls: string[] = []

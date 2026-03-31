@@ -1,12 +1,18 @@
 import type { StoredAxeResults, AuditScorecard } from '@/lib/ada-audit/types'
 import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
+import ComplianceBanner from './ComplianceBanner'
+import ShareAuditButton from './ShareAuditButton'
 
 interface Props {
   results: StoredAxeResults
   url: string
   clientName: string | null
   createdAt: string
+  auditId?: string
+  wcagLevel?: string
+  score?: number
+  compliant?: boolean
 }
 
 function buildScorecard(results: StoredAxeResults): AuditScorecard {
@@ -22,11 +28,14 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant }: Props) {
   const scorecard = buildScorecard(results)
+  const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.2 AA' : 'WCAG 2.1 AA'
 
   return (
     <div className="space-y-6">
+      <ComplianceBanner />
+
       {/* Header */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
         <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50">
@@ -36,7 +45,12 @@ export default function AuditResultsView({ results, url, clientName, createdAt }
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-display font-bold text-[17px] text-navy truncate">Audit Results</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-display font-bold text-[17px] text-navy truncate">Audit Results</h2>
+              <span className="text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-navy/10 text-navy/50">
+                {wcagLabel}
+              </span>
+            </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
               <a
                 href={url}
@@ -54,9 +68,14 @@ export default function AuditResultsView({ results, url, clientName, createdAt }
               </span>
             </div>
           </div>
+          {auditId && (
+            <div className="flex-shrink-0">
+              <ShareAuditButton auditId={auditId} />
+            </div>
+          )}
         </div>
         <div className="p-6">
-          <AuditScorecardComponent scorecard={scorecard} />
+          <AuditScorecardComponent scorecard={scorecard} score={score} compliant={compliant} wcagLevel={wcagLevel} />
         </div>
       </div>
 
@@ -85,7 +104,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt }
           <h2 className="font-display font-bold text-[17px] text-navy">Violations</h2>
         </div>
         <div className="p-6">
-          <AuditIssueTabs violations={results.violations} />
+          <AuditIssueTabs violations={results.violations} incomplete={results.incomplete ?? []} />
         </div>
       </div>
     </div>

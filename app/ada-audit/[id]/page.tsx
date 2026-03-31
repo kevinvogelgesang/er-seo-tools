@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import AuditResultsView from '@/components/ada-audit/AuditResultsView'
 import AuditPoller from '@/components/ada-audit/AuditPoller'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
+import { computeScore } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
 
@@ -113,6 +114,8 @@ export default async function AdaAuditResultPage({ params }: Props) {
     )
   }
 
+  const { score, compliant } = computeScore(results.violations, audit.wcagLevel)
+
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
       {breadcrumb}
@@ -121,6 +124,10 @@ export default async function AdaAuditResultPage({ params }: Props) {
         url={audit.url}
         clientName={audit.client?.name ?? null}
         createdAt={audit.createdAt.toISOString()}
+        auditId={id}
+        wcagLevel={audit.wcagLevel}
+        score={score}
+        compliant={compliant}
       />
     </main>
   )

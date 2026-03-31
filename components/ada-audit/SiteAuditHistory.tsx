@@ -4,6 +4,20 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
 
+function ScoreBadge({ score }: { score?: number | null }) {
+  if (score == null) return <span className="text-navy/25">—</span>
+  const color = score >= 80
+    ? 'bg-green-100 text-green-700'
+    : score >= 50
+      ? 'bg-amber-100 text-amber-700'
+      : 'bg-red-100 text-red-700'
+  return (
+    <span className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded ${color}`}>
+      {score}
+    </span>
+  )
+}
+
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     complete: 'bg-green-100 text-green-700',
@@ -89,6 +103,7 @@ export default function SiteAuditHistory() {
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Domain</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Client</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Pages</th>
+            <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Score</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Violations</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Status</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Date</th>
@@ -116,6 +131,9 @@ export default function SiteAuditHistory() {
                     ? <span>{a.pagesComplete}/{a.pagesTotal > 0 ? a.pagesTotal : '?'}</span>
                     : <span>{a.pagesComplete + a.pagesError}</span>
                   }
+                </td>
+                <td className="py-2.5 pr-4">
+                  <ScoreBadge score={(a as SiteAuditDetail & { score?: number | null }).score} />
                 </td>
                 <td className="py-2.5 pr-4">
                   {agg ? (

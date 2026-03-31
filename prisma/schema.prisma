@@ -61,6 +61,9 @@ model AdaAudit {
   status       String     // pending | running | complete | error
   error        String?
   result       String?    // JSON string of axe-core AxeResults (nodes truncated to 20 per violation)
+  wcagLevel    String     @default("wcag21aa")  // wcag21aa | wcag22aa
+  score        Int?                              // 0-100
+  shareToken   String?    @unique
   clientId     Int?
   client       Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   siteAuditId  String?
@@ -82,6 +85,8 @@ model SiteAudit {
   pagesComplete Int        @default(0)
   pagesError    Int        @default(0)
   summary       String?    // JSON: SiteAuditSummary (computed once at completion)
+  wcagLevel     String     @default("wcag21aa")  // wcag21aa | wcag22aa
+  score         Int?                              // 0-100
   clientId      Int?
   client        Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   pageAudits    AdaAudit[]

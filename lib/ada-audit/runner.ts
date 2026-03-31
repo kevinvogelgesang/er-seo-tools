@@ -50,7 +50,7 @@ let activeAudits = 0
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
 
-export async function runAxeAudit(targetUrl: string): Promise<StoredAxeResults> {
+export async function runAxeAudit(targetUrl: string, wcagLevel: string = 'wcag21aa'): Promise<StoredAxeResults> {
   if (activeAudits >= MAX_CONCURRENT) {
     throw new Error(`Too many audits running (max ${MAX_CONCURRENT}). Try again shortly.`)
   }
@@ -61,13 +61,13 @@ export async function runAxeAudit(targetUrl: string): Promise<StoredAxeResults> 
 
   activeAudits++
   try {
-    return await _runAudit(targetUrl)
+    return await _runAudit(targetUrl, wcagLevel)
   } finally {
     activeAudits--
   }
 }
 
-async function _runAudit(targetUrl: string): Promise<StoredAxeResults> {
+async function _runAudit(targetUrl: string, wcagLevel: string): Promise<StoredAxeResults> {
   // Fetch the page HTML with a 15-second timeout
   const response = await fetch(targetUrl, {
     headers: {
@@ -120,15 +120,30 @@ async function _runAudit(targetUrl: string): Promise<StoredAxeResults> {
   dom.window.eval(axeSource)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawResults = await (dom.window as any).axe.run()
+  const rawResults = await (dom.window as any).axe.run(
+    { iframes: false },
+    {
+      runOnly: { type: 'tag', values: [wcagLevel] },
+      resultTypes: ['violations', 'incomplete'],
+      reporter: 'no-passes',
+    }
+  )
 
-  // Truncate nodes to 20 per violation to keep the DB blob manageable.
+  // Truncate nodes to 20 per violation/incomplete item to keep the DB blob manageable.
   // Storing the full node list for complex pages can produce multi-MB JSON.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rawResults.violations = rawResults.violations.map((v: any) => ({
     ...v,
     nodes: v.nodes.slice(0, 20),
   }))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (Array.isArray(rawResults.incomplete)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rawResults.incomplete = rawResults.incomplete.map((v: any) => ({
+      ...v,
+      nodes: v.nodes.slice(0, 20),
+    }))
+  }
 
   dom.window.close() // free JSDOM memory
 

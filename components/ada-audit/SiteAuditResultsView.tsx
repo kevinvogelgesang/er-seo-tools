@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { SiteAuditSummary, SitePageResult, AuditScorecard } from '@/lib/ada-audit/types'
 import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
+import ComplianceBanner from './ComplianceBanner'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
 
 interface Props {
@@ -13,6 +14,9 @@ interface Props {
   pagesTotal: number
   pagesError: number
   summary: SiteAuditSummary
+  wcagLevel?: string
+  score?: number
+  compliant?: boolean
 }
 
 function ImpactCount({ n, color }: { n: number; color: string }) {
@@ -116,10 +120,14 @@ function PageRow({ page }: { page: SitePageResult }) {
 }
 
 export default function SiteAuditResultsView({
-  domain, clientName, createdAt, pagesTotal, pagesError, summary,
+  domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant,
 }: Props) {
+  const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.2 AA' : 'WCAG 2.1 AA'
+
   return (
     <div className="space-y-6">
+      <ComplianceBanner />
+
       {/* Header */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
         <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50">
@@ -129,7 +137,12 @@ export default function SiteAuditResultsView({
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-display font-bold text-[17px] text-navy">Site Audit — {domain}</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-display font-bold text-[17px] text-navy">Site Audit — {domain}</h2>
+              <span className="text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-navy/10 text-navy/50">
+                {wcagLabel}
+              </span>
+            </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
               {clientName && <span className="text-[12px] font-body text-navy/40">{clientName}</span>}
               <span className="text-[12px] font-body text-navy/40">{new Date(createdAt).toLocaleString()}</span>
@@ -141,7 +154,7 @@ export default function SiteAuditResultsView({
           </div>
         </div>
         <div className="p-6">
-          <AuditScorecardComponent scorecard={summary.aggregate} />
+          <AuditScorecardComponent scorecard={summary.aggregate} score={score} compliant={compliant} wcagLevel={wcagLevel} />
         </div>
       </div>
 

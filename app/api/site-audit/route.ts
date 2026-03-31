@@ -4,12 +4,13 @@ import { discoverPages } from '@/lib/ada-audit/sitemap-crawler'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { buildSiteAuditSummary } from '@/lib/ada-audit/site-audit-helpers'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
+import { computeScore } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
 
 // ─── Background job ───────────────────────────────────────────────────────────
 
-async function runSiteAuditInBackground(id: string, domain: string, clientId: number | null) {
+async function runSiteAuditInBackground(id: string, domain: string, clientId: number | null, wcagLevel: string) {
   try {
     await prisma.siteAudit.update({ where: { id }, data: { status: 'running' } })
 
@@ -18,12 +19,12 @@ async function runSiteAuditInBackground(id: string, domain: string, clientId: nu
 
     for (const url of urls) {
       const child = await prisma.adaAudit.create({
-        data: { url, status: 'pending', clientId, siteAuditId: id },
+        data: { url, status: 'pending', clientId, siteAuditId: id, wcagLevel },
       })
 
       try {
         await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
-        const results = await runAxeAudit(url)
+        const results = await runAxeAudit(url, wcagLevel)
         await prisma.adaAudit.update({
           where: { id: child.id },
           data: { status: 'complete', result: JSON.stringify(results) },
@@ -77,6 +78,7 @@ export async function POST(request: NextRequest) {
   const raw = body as Record<string, unknown>
   let domain = typeof raw?.domain === 'string' ? raw.domain.trim() : ''
   const clientId = typeof raw?.clientId === 'number' ? raw.clientId : null
+  const wcagLevel = typeof raw?.wcagLevel === 'string' && raw.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
 
   if (!domain) {
     return NextResponse.json({ error: 'domain is required' }, { status: 400 })
@@ -110,10 +112,10 @@ export async function POST(request: NextRequest) {
   }
 
   const audit = await prisma.siteAudit.create({
-    data: { domain, status: 'pending', clientId },
+    data: { domain, status: 'pending', clientId, wcagLevel },
   })
 
-  void runSiteAuditInBackground(audit.id, domain, clientId)
+  void runSiteAuditInBackground(audit.id, domain, clientId, wcagLevel)
 
   return NextResponse.json({ id: audit.id, status: 'pending' }, { status: 202 })
 }
@@ -131,11 +133,28 @@ export async function GET(request: NextRequest) {
     include: { client: { select: { name: true } } },
   })
 
-  const items: SiteAuditDetail[] = audits.map((a) => {
+  const items = audits.map((a) => {
     let summary = null
+    let score: number | null = null
+    const wcagLevel = (a as typeof a & { wcagLevel?: string }).wcagLevel ?? 'wcag21aa'
+
     if (a.status === 'complete' && a.summary) {
-      try { summary = JSON.parse(a.summary) } catch { /* ignore */ }
+      try {
+        summary = JSON.parse(a.summary)
+        // Derive score from aggregate violation counts in the summary
+        const agg = summary?.aggregate
+        if (agg) {
+          const syntheticViolations = [
+            ...Array(agg.critical).fill({ impact: 'critical', nodes: [{}] }),
+            ...Array(agg.serious).fill({ impact: 'serious', nodes: [{}] }),
+            ...Array(agg.moderate).fill({ impact: 'moderate', nodes: [{}] }),
+            ...Array(agg.minor).fill({ impact: 'minor', nodes: [{}] }),
+          ]
+          score = computeScore(syntheticViolations, wcagLevel).score
+        }
+      } catch { /* ignore */ }
     }
+
     return {
       id: a.id,
       createdAt: a.createdAt.toISOString(),
@@ -148,7 +167,9 @@ export async function GET(request: NextRequest) {
       pagesComplete: a.pagesComplete,
       pagesError: a.pagesError,
       summary,
-    }
+      score,
+      wcagLevel,
+    } satisfies SiteAuditDetail & { score: number | null; wcagLevel: string }
   })
 
   return NextResponse.json(items)

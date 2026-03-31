@@ -4,13 +4,24 @@ import { useState } from 'react'
 import type { AxeViolation, ImpactLevel } from '@/lib/ada-audit/types'
 import AuditIssueCard from './AuditIssueCard'
 
-interface Props {
-  violations: AxeViolation[]
+interface AxeIncomplete {
+  id: string
+  help: string
+  impact: ImpactLevel | null
+  nodes: { html: string; failureSummary?: string; target?: string[] }[]
+  tags?: string[]
+  description?: string
+  helpUrl?: string
 }
 
-type TabId = 'all' | ImpactLevel
+interface Props {
+  violations: AxeViolation[]
+  incomplete?: AxeIncomplete[]
+}
 
-const TABS: { id: TabId; label: string }[] = [
+type TabId = 'all' | ImpactLevel | 'needs-review'
+
+const VIOLATION_TABS: { id: TabId; label: string }[] = [
   { id: 'all',      label: 'All' },
   { id: 'critical', label: 'Critical' },
   { id: 'serious',  label: 'Serious' },
@@ -18,19 +29,29 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'minor',    label: 'Minor' },
 ]
 
-export default function AuditIssueTabs({ violations }: Props) {
+export default function AuditIssueTabs({ violations, incomplete = [] }: Props) {
   const [active, setActive] = useState<TabId>('all')
+
+  const showNeedsReview = incomplete.length > 0
+
+  const TABS: { id: TabId; label: string }[] = [
+    ...VIOLATION_TABS,
+    ...(showNeedsReview ? [{ id: 'needs-review' as TabId, label: 'Needs Review' }] : []),
+  ]
 
   const filtered = active === 'all'
     ? violations
-    : violations.filter((v) => v.impact === active)
+    : active === 'needs-review'
+      ? []
+      : violations.filter((v) => v.impact === active)
 
   function countFor(id: TabId) {
     if (id === 'all') return violations.length
+    if (id === 'needs-review') return incomplete.length
     return violations.filter((v) => v.impact === id).length
   }
 
-  if (violations.length === 0) {
+  if (violations.length === 0 && incomplete.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
         <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
@@ -79,7 +100,30 @@ export default function AuditIssueTabs({ violations }: Props) {
       </div>
 
       {/* Issue cards */}
-      {filtered.length === 0 ? (
+      {active === 'needs-review' ? (
+        incomplete.length === 0 ? (
+          <p className="text-[13px] font-body text-navy/50 py-4 text-center">
+            No items need review.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {incomplete.map((item) => (
+              <AuditIssueCard
+                key={item.id}
+                violation={{
+                  id: item.id,
+                  impact: item.impact,
+                  help: item.help,
+                  description: item.description ?? '',
+                  helpUrl: item.helpUrl ?? '',
+                  tags: item.tags ?? [],
+                  nodes: item.nodes,
+                }}
+              />
+            ))}
+          </div>
+        )
+      ) : filtered.length === 0 ? (
         <p className="text-[13px] font-body text-navy/50 py-4 text-center">
           No {active} violations found.
         </p>

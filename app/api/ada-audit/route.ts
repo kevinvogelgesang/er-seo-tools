@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
 import type { AuditListItem, AuditScorecard } from '@/lib/ada-audit/types'
+import { computeScore } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,10 +10,10 @@ export const dynamic = 'force-dynamic'
 // Runs after the route handler has already responded with { id }.
 // Updates the DB record directly; errors set status = 'error'.
 
-async function runAuditInBackground(id: string, url: string) {
+async function runAuditInBackground(id: string, url: string, wcagLevel: string) {
   try {
     await prisma.adaAudit.update({ where: { id }, data: { status: 'running' } })
-    const results = await runAxeAudit(url)
+    const results = await runAxeAudit(url, wcagLevel)
     await prisma.adaAudit.update({
       where: { id },
       data: { status: 'complete', result: JSON.stringify(results) },
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
   const raw = body as Record<string, unknown>
   const url = typeof raw?.url === 'string' ? raw.url.trim() : ''
   const clientId = typeof raw?.clientId === 'number' ? raw.clientId : null
+  const wcagLevel = typeof raw?.wcagLevel === 'string' && raw.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
 
   if (!url) {
     return NextResponse.json({ error: 'url is required' }, { status: 400 })
@@ -65,12 +67,12 @@ export async function POST(request: NextRequest) {
   }
 
   const audit = await prisma.adaAudit.create({
-    data: { url: parsed.toString(), status: 'pending', clientId },
+    data: { url: parsed.toString(), status: 'pending', clientId, wcagLevel },
   })
 
   // Fire-and-forget: audit runs in background, route returns immediately.
   // Node.js will keep the event loop alive while the promise is pending.
-  void runAuditInBackground(audit.id, audit.url)
+  void runAuditInBackground(audit.id, audit.url, wcagLevel)
 
   return NextResponse.json({ id: audit.id, status: 'pending' }, { status: 202 })
 }
@@ -92,8 +94,11 @@ export async function GET(request: NextRequest) {
     include: { client: { select: { name: true } } },
   })
 
-  const items: AuditListItem[] = audits.map((a) => {
+  const items = audits.map((a) => {
     let scorecard: AuditScorecard | null = null
+    let score: number | null = null
+    const wcagLevel = (a as typeof a & { wcagLevel?: string }).wcagLevel ?? 'wcag21aa'
+
     if (a.status === 'complete' && a.result) {
       try {
         const r = JSON.parse(a.result)
@@ -107,6 +112,7 @@ export async function GET(request: NextRequest) {
           passed:   Array.isArray(r?.passes) ? r.passes.length : 0,
           incomplete: Array.isArray(r?.incomplete) ? r.incomplete.length : 0,
         }
+        score = computeScore(violations, wcagLevel).score
       } catch { /* malformed result — leave scorecard null */ }
     }
 
@@ -119,7 +125,9 @@ export async function GET(request: NextRequest) {
       clientId: a.clientId ?? null,
       clientName: a.client?.name ?? null,
       scorecard,
-    }
+      score,
+      wcagLevel,
+    } satisfies AuditListItem & { score: number | null; wcagLevel: string }
   })
 
   return NextResponse.json(items)

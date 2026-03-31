@@ -27,6 +27,20 @@ function IssueCount({ n, label, color }: { n: number; label: string; color: stri
   )
 }
 
+function ScoreBadge({ score }: { score?: number | null }) {
+  if (score == null) return <span className="text-navy/25">—</span>
+  const color = score >= 80
+    ? 'bg-green-100 text-green-700'
+    : score >= 50
+      ? 'bg-amber-100 text-amber-700'
+      : 'bg-red-100 text-red-700'
+  return (
+    <span className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded ${color}`}>
+      {score}
+    </span>
+  )
+}
+
 export default function AuditHistory() {
   const [audits, setAudits] = useState<AuditListItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -97,6 +111,7 @@ export default function AuditHistory() {
           <tr className="text-left border-b border-gray-200">
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">URL</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Client</th>
+            <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Score</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Issues</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Status</th>
             <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50">Date</th>
@@ -117,6 +132,9 @@ export default function AuditHistory() {
               </td>
               <td className="py-2.5 pr-4 text-navy/50">
                 {a.clientName ?? <span className="text-navy/25">—</span>}
+              </td>
+              <td className="py-2.5 pr-4">
+                <ScoreBadge score={(a as AuditListItem & { score?: number | null }).score} />
               </td>
               <td className="py-2.5 pr-4">
                 {a.scorecard ? (
