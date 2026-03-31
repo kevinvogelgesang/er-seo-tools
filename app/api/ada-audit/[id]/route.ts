@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { deleteScreenshots } from '@/lib/ada-audit/screenshot-helpers'
 import type { AuditDetail, StoredAxeResults } from '@/lib/ada-audit/types'
 
 export const dynamic = 'force-dynamic'
@@ -73,5 +74,6 @@ export async function DELETE(
   }
 
   await prisma.adaAudit.delete({ where: { id } })
+  await deleteScreenshots(id)
   return NextResponse.json({ ok: true })
 }

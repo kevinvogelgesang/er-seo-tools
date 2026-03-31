@@ -40,10 +40,10 @@ function HealthDot({ score }: { score: number }) {
     <span
       className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
         score >= 70
-          ? 'bg-green-100 text-green-700'
+          ? 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400'
           : score >= 40
-          ? 'bg-orange-100 text-orange-700'
-          : 'bg-red-100 text-red-700'
+          ? 'bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-400'
+          : 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400'
       }`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${color}`} />
@@ -147,7 +147,7 @@ export function HistoryList() {
 
   if (history.length === 0) {
     return (
-      <div className="mt-12 text-center py-8 text-gray-400">
+      <div className="mt-12 text-center py-8 text-gray-400 dark:text-white/40">
         <p className="text-sm mb-1">No analyses yet.</p>
         <p className="text-xs">Upload files above to get started.</p>
       </div>
@@ -173,7 +173,7 @@ export function HistoryList() {
         {/* Search input */}
         <div className="relative flex-1">
           <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-white/40"
             aria-hidden="true"
             fill="none"
             viewBox="0 0 24 24"
@@ -219,7 +219,7 @@ export function HistoryList() {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-4">No results match your filters.</p>
+        <p className="text-sm text-gray-400 dark:text-white/40 text-center py-4">No results match your filters.</p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {filtered.map((item) => (
@@ -239,10 +239,10 @@ export function HistoryList() {
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full ${
                         item.status === 'complete'
-                          ? 'bg-green-100 text-green-700'
+                          ? 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400'
                           : item.status === 'error'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-blue-100 text-blue-700'
+                          ? 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400'
+                          : 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400'
                       }`}
                     >
                       {item.status}
@@ -251,7 +251,7 @@ export function HistoryList() {
                 </div>
                 {item.clientName && (
                   <div className="mb-1">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#1c2d4a]/8 text-[#1c2d4a] font-medium">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#1c2d4a]/8 dark:bg-white/10 text-[#1c2d4a] dark:text-white font-medium">
                       {item.clientName}
                     </span>
                   </div>
@@ -299,7 +299,7 @@ export function HistoryList() {
                   }}
                   disabled={deletingId === item.id}
                   aria-label="Delete session"
-                  className="absolute top-2 right-2 p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 z-10"
+                  className="absolute top-2 right-2 p-1.5 rounded-md text-gray-400 dark:text-white/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 z-10"
                 >
                   {deletingId === item.id ? (
                     <Spinner />

@@ -17,6 +17,8 @@ export interface AxeViolation {
   helpUrl: string
   tags: string[]
   nodes: AxeNode[]
+  /** Filename of the element screenshot (e.g. "color-contrast.png"), set when captureScreenshots is enabled */
+  screenshotPath?: string
 }
 
 /** Subset of axe-core AxeResults stored in the DB (nodes truncated to 20 per violation) */
@@ -31,6 +33,8 @@ export interface StoredAxeResults {
   testRunner: { name: string }
   /** Total DOM elements found in the page snapshot. Low values (<50) suggest a JS-rendered SPA. */
   domElementCount?: number
+  /** Whether screenshot capture was enabled for this audit */
+  captureScreenshots?: boolean
 }
 
 /** Violation counts by impact level */

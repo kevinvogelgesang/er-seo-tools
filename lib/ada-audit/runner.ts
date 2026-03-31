@@ -1,6 +1,7 @@
 import { promises as dns } from 'dns'
 import path from 'path'
 import { acquirePage, releasePage } from './browser-pool'
+import { captureViolationScreenshots } from './screenshot-helpers'
 import type { StoredAxeResults } from './types'
 
 const AXE_PATH = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js')
@@ -39,10 +40,16 @@ export async function assertNotPrivate(hostname: string) {
 
 export type ProgressCallback = (progress: number, message: string) => Promise<void>
 
+export interface RunAxeOptions {
+  captureScreenshots?: boolean
+  screenshotDir?: string
+}
+
 export async function runAxeAudit(
   targetUrl: string,
   wcagLevel: string = 'wcag21aa',
   onProgress?: ProgressCallback,
+  options?: RunAxeOptions,
 ): Promise<StoredAxeResults> {
   const progress = onProgress ?? (async () => {})
 
@@ -103,7 +110,7 @@ export async function runAxeAudit(
     })
 
     // Truncate nodes to 20 per violation/incomplete item to keep the DB blob manageable
-    await progress(95, 'Processing results…')
+    await progress(90, 'Processing results…')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rawResults.violations = rawResults.violations.map((v: any) => ({
       ...v,
@@ -120,6 +127,13 @@ export async function runAxeAudit(
 
     const result = rawResults as StoredAxeResults
     result.domElementCount = domElementCount
+
+    if (options?.captureScreenshots && options.screenshotDir) {
+      await progress(95, 'Capturing element screenshots…')
+      await captureViolationScreenshots(page, result.violations, options.screenshotDir)
+      result.captureScreenshots = result.violations.some(v => v.screenshotPath != null)
+    }
+
     return result
 
   } finally {

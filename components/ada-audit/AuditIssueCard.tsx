@@ -5,6 +5,7 @@ import type { AxeViolation, ImpactLevel } from '@/lib/ada-audit/types'
 
 interface Props {
   violation: AxeViolation
+  auditId?: string
 }
 
 const IMPACT_STYLES: Record<NonNullable<ImpactLevel>, { badge: string; dot: string }> = {
@@ -25,7 +26,7 @@ function ImpactBadge({ impact }: { impact: ImpactLevel | null }) {
   )
 }
 
-export default function AuditIssueCard({ violation }: Props) {
+export default function AuditIssueCard({ violation, auditId }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [showDev, setShowDev] = useState(false)
 
@@ -84,6 +85,22 @@ export default function AuditIssueCard({ violation }: Props) {
               Learn more ↗
             </a>
           </div>
+
+          {/* Element screenshot */}
+          {showDev && violation.screenshotPath && auditId && (
+            <div className="rounded-lg overflow-hidden border border-gray-200 mt-1">
+              <div className="bg-gray-50 px-3 py-1.5 text-[11px] font-body text-navy/50 border-b border-gray-200">
+                Screenshot — first affected element
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/ada-audit/screenshots/${auditId}/${violation.screenshotPath}`}
+                alt={`Screenshot of element violating: ${violation.help}`}
+                className="w-full max-h-64 object-contain bg-white"
+                loading="lazy"
+              />
+            </div>
+          )}
 
           {/* Developer details: code snippets */}
           {showDev && displayNodes.length > 0 && (

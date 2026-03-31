@@ -32,10 +32,10 @@ const BOT_REFERENCE = [
 // ─── Small shared UI primitives ───────────────────────────────────────────────
 
 function SeverityBadge({ severity }: { severity: 'error' | 'warning' | 'info' }) {
-  const map = {
-    error:   'bg-red-100 text-red-700 border border-red-200',
-    warning: 'bg-amber-100 text-amber-700 border border-amber-200',
-    info:    'bg-blue-100 text-blue-700 border border-blue-200',
+  const map: Record<string, string> = {
+    error:   'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-500/30',
+    warning: 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30',
+    info:    'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30',
   }
   return (
     <span className={`inline-block text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${map[severity]}`}>
@@ -47,7 +47,7 @@ function SeverityBadge({ severity }: { severity: 'error' | 'warning' | 'info' })
 function IssueList({ issues }: { issues: Array<RobotsIssue | SitemapIssue> }) {
   if (issues.length === 0) {
     return (
-      <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+      <div className="flex items-center gap-2 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-lg px-4 py-3">
         <CheckCircleIcon className="w-4 h-4 flex-shrink-0" />
         <span className="text-[13px] font-body font-semibold">No issues found</span>
       </div>
@@ -56,9 +56,9 @@ function IssueList({ issues }: { issues: Array<RobotsIssue | SitemapIssue> }) {
   return (
     <ul className="space-y-2">
       {issues.map((issue, i) => (
-        <li key={i} className="flex items-start gap-3 bg-white border border-gray-200 rounded-lg px-4 py-3">
+        <li key={i} className="flex items-start gap-3 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-lg px-4 py-3">
           <SeverityBadge severity={issue.severity} />
-          <span className="text-[13px] font-body text-navy/80 leading-relaxed">{issue.message}</span>
+          <span className="text-[13px] font-body text-navy/80 dark:text-white/80 leading-relaxed">{issue.message}</span>
         </li>
       ))}
     </ul>
@@ -67,12 +67,12 @@ function IssueList({ issues }: { issues: Array<RobotsIssue | SitemapIssue> }) {
 
 function SectionCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50">
+    <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
         <div className="w-8 h-8 rounded-lg bg-orange/15 flex items-center justify-center text-orange flex-shrink-0">
           {icon}
         </div>
-        <h2 className="font-display font-bold text-[17px] text-navy">{title}</h2>
+        <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">{title}</h2>
       </div>
       <div className="p-6">{children}</div>
     </div>
@@ -82,7 +82,7 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
 function SubSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mt-6">
-      <h3 className="font-display font-semibold text-[13px] uppercase tracking-[0.12em] text-navy/50 mb-3">{title}</h3>
+      <h3 className="font-display font-semibold text-[13px] uppercase tracking-[0.12em] text-navy/50 dark:text-white/50 mb-3">{title}</h3>
       {children}
     </div>
   )
@@ -92,8 +92,8 @@ function MetaBadge({ label, active }: { label: string; active: boolean }) {
   return (
     <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-body font-semibold border ${
       active
-        ? 'bg-green-50 text-green-700 border-green-200'
-        : 'bg-gray-50 text-gray-400 border-gray-200'
+        ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30'
+        : 'bg-gray-50 dark:bg-navy-deep text-gray-400 dark:text-white/40 border-gray-200 dark:border-navy-border'
     }`}>
       {active
         ? <CheckCircleIcon className="w-3.5 h-3.5" />
@@ -231,7 +231,7 @@ function InputArea({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label className="font-body text-[13px] font-semibold text-navy/70">{label}</label>
+        <label className="font-body text-[13px] font-semibold text-navy/70 dark:text-white/70">{label}</label>
         <button
           type="button"
           onClick={openPicker}
@@ -247,7 +247,7 @@ function InputArea({
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
         placeholder={placeholder}
-        className="w-full font-mono text-[12px] text-navy bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange/50 resize-y placeholder:text-gray-400 leading-relaxed"
+        className="w-full font-mono text-[12px] text-navy dark:text-white bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange/50 resize-y placeholder:text-gray-400 dark:placeholder:text-white/40 leading-relaxed"
         spellCheck={false}
       />
     </div>
@@ -340,7 +340,7 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
     <SectionCard title="Robots.txt Validator" icon={<RobotsIcon className="w-4 h-4" />}>
       {/* URL fetch bar */}
       <div className="mb-4">
-        <label className="font-body text-[13px] font-semibold text-navy/70 block mb-2">Fetch from URL</label>
+        <label className="font-body text-[13px] font-semibold text-navy/70 dark:text-white/70 block mb-2">Fetch from URL</label>
         <div className="flex gap-2">
           <input
             type="text"
@@ -348,7 +348,7 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && urlInput.trim()) fetchFromUrl(urlInput.trim(), 'robots') }}
             placeholder="https://example.com — fetches /robots.txt automatically"
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-body text-navy focus:outline-none focus:ring-2 focus:ring-orange/30"
+            className="flex-1 border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2 text-sm font-body text-navy dark:text-white bg-white dark:bg-navy-card focus:outline-none focus:ring-2 focus:ring-orange/30"
           />
           <button
             type="button"
@@ -363,7 +363,7 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
           </button>
         </div>
         {urlFetchError && (
-          <p className="mt-2 text-[12px] font-body text-red-600">{urlFetchError}</p>
+          <p className="mt-2 text-[12px] font-body text-red-600 dark:text-red-400">{urlFetchError}</p>
         )}
       </div>
 
@@ -393,28 +393,28 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
 
           {/* AI Bot Status */}
           <SubSection title="AI Bot Access Status">
-            <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="rounded-xl border border-gray-200 dark:border-navy-border overflow-hidden">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 text-[11px] uppercase tracking-wider">Bot / User-agent</th>
-                    <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 text-[11px] uppercase tracking-wider">Status</th>
+                  <tr className="bg-gray-50 dark:bg-navy-deep border-b border-gray-200 dark:border-navy-border">
+                    <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 dark:text-white/60 text-[11px] uppercase tracking-wider">Bot / User-agent</th>
+                    <th className="text-left px-4 py-2.5 font-body font-semibold text-navy/60 dark:text-white/60 text-[11px] uppercase tracking-wider">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-navy-border">
                   {KNOWN_AI_BOTS.map((bot) => {
                     const blocked = result.blockedBots.includes(bot)
                     return (
-                      <tr key={bot} className="bg-white hover:bg-gray-50/50 transition-colors">
-                        <td className="px-4 py-3 font-mono text-[12px] text-navy">{bot}</td>
+                      <tr key={bot} className="bg-white dark:bg-navy-card hover:bg-gray-50/50 dark:hover:bg-navy-light/50 transition-colors">
+                        <td className="px-4 py-3 font-mono text-[12px] text-navy dark:text-white">{bot}</td>
                         <td className="px-4 py-3">
                           {blocked ? (
-                            <span className="inline-flex items-center gap-1.5 text-red-700 font-body font-semibold text-[12px]">
+                            <span className="inline-flex items-center gap-1.5 text-red-700 dark:text-red-400 font-body font-semibold text-[12px]">
                               <XCircleIcon className="w-3.5 h-3.5" />
                               Blocked
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-green-700 font-body font-semibold text-[12px]">
+                            <span className="inline-flex items-center gap-1.5 text-green-700 dark:text-green-400 font-body font-semibold text-[12px]">
                               <CheckCircleIcon className="w-3.5 h-3.5" />
                               Allowed
                             </span>

@@ -15,7 +15,35 @@ export async function register() {
     // Close the headless browser cleanly on shutdown so Chrome doesn't orphan.
     // fuser -k in the deploy command sends SIGTERM before starting the new process.
     const { closeBrowser } = await import('@/lib/ada-audit/browser-pool')
-    const shutdown = () => { void closeBrowser() }
+    const { SCREENSHOTS_DIR } = await import('@/lib/ada-audit/screenshot-helpers')
+    const { prisma } = await import('@/lib/db')
+    const { promises: fs } = await import('fs')
+    const path = await import('path')
+
+    // Clean up screenshot directories older than 7 days. Runs at startup + once per day.
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+    const runScreenshotCleanup = async () => {
+      try {
+        const entries = await fs.readdir(SCREENSHOTS_DIR).catch(() => [] as string[])
+        const cutoff = Date.now() - SEVEN_DAYS_MS
+        for (const entry of entries) {
+          const audit = await prisma.adaAudit.findUnique({
+            where: { id: entry },
+            select: { createdAt: true },
+          }).catch(() => null)
+          if (!audit || audit.createdAt.getTime() < cutoff) {
+            await fs.rm(path.join(SCREENSHOTS_DIR, entry), { recursive: true, force: true }).catch(() => {})
+          }
+        }
+      } catch { /* never crash the process */ }
+    }
+    void runScreenshotCleanup()
+    const cleanupInterval = setInterval(runScreenshotCleanup, 24 * 60 * 60 * 1000)
+
+    const shutdown = () => {
+      clearInterval(cleanupInterval)
+      void closeBrowser()
+    }
     process.once('SIGTERM', shutdown)
     process.once('SIGINT', shutdown)
   }

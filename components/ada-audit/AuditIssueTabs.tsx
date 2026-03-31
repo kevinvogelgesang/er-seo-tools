@@ -17,6 +17,7 @@ interface AxeIncomplete {
 interface Props {
   violations: AxeViolation[]
   incomplete?: AxeIncomplete[]
+  auditId?: string
 }
 
 type TabId = 'all' | ImpactLevel | 'needs-review'
@@ -29,7 +30,7 @@ const VIOLATION_TABS: { id: TabId; label: string }[] = [
   { id: 'minor',    label: 'Minor' },
 ]
 
-export default function AuditIssueTabs({ violations, incomplete = [] }: Props) {
+export default function AuditIssueTabs({ violations, incomplete = [], auditId }: Props) {
   const [active, setActive] = useState<TabId>('all')
 
   const showNeedsReview = incomplete.length > 0
@@ -110,6 +111,7 @@ export default function AuditIssueTabs({ violations, incomplete = [] }: Props) {
             {incomplete.map((item) => (
               <AuditIssueCard
                 key={item.id}
+                auditId={auditId}
                 violation={{
                   id: item.id,
                   impact: item.impact,
@@ -129,7 +131,7 @@ export default function AuditIssueTabs({ violations, incomplete = [] }: Props) {
         </p>
       ) : (
         <div className="space-y-2">
-          {filtered.map((v) => <AuditIssueCard key={v.id} violation={v} />)}
+          {filtered.map((v) => <AuditIssueCard key={v.id} violation={v} auditId={auditId} />)}
         </div>
       )}
     </div>

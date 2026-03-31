@@ -23,10 +23,10 @@ export default async function SiteAuditResultPage({ params }: Props) {
   if (!audit) notFound()
 
   const breadcrumb = (
-    <div className="flex items-center gap-2 text-[13px] font-body text-navy/50">
+    <div className="flex items-center gap-2 text-[13px] font-body text-navy/50 dark:text-white/50">
       <Link href="/ada-audit" className="hover:text-orange transition-colors">ADA Audit</Link>
       <span>/</span>
-      <span className="text-navy/80">Site — {audit.domain}</span>
+      <span className="text-navy/80 dark:text-white/80">Site — {audit.domain}</span>
     </div>
   )
 
@@ -51,16 +51,16 @@ export default async function SiteAuditResultPage({ params }: Props) {
     return (
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
         {breadcrumb}
-        <div className="bg-white border border-red-200 rounded-2xl shadow-sm p-8 flex flex-col items-center gap-4 text-center">
-          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <div className="bg-white dark:bg-navy-card border border-red-200 dark:border-red-500/30 rounded-2xl shadow-sm p-8 flex flex-col items-center gap-4 text-center">
+          <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-500/15 flex items-center justify-center">
+            <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
           <div>
-            <p className="font-display font-bold text-[18px] text-navy">Site audit failed</p>
-            <p className="text-[13px] font-body text-red-600 mt-1">{audit.error ?? 'An unknown error occurred'}</p>
-            <p className="text-[12px] font-body text-navy/40 mt-1">{audit.domain}</p>
+            <p className="font-display font-bold text-[18px] text-navy dark:text-white">Site audit failed</p>
+            <p className="text-[13px] font-body text-red-600 dark:text-red-400 mt-1">{audit.error ?? 'An unknown error occurred'}</p>
+            <p className="text-[12px] font-body text-navy/40 dark:text-white/40 mt-1">{audit.domain}</p>
           </div>
           <Link
             href="/ada-audit"
@@ -83,8 +83,8 @@ export default async function SiteAuditResultPage({ params }: Props) {
     return (
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
         {breadcrumb}
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 text-center">
-          <p className="text-[13px] font-body text-navy/50">Result data is unavailable. Please run the audit again.</p>
+        <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-8 text-center">
+          <p className="text-[13px] font-body text-navy/50 dark:text-white/50">Result data is unavailable. Please run the audit again.</p>
         </div>
       </main>
     )

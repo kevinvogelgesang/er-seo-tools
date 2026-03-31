@@ -108,7 +108,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
           <h2 className="font-display font-bold text-[17px] text-navy">Violations</h2>
         </div>
         <div className="p-6">
-          <AuditIssueTabs violations={results.violations} incomplete={results.incomplete ?? []} />
+          <AuditIssueTabs violations={results.violations} incomplete={results.incomplete ?? []} auditId={auditId} />
         </div>
       </div>
     </div>
