@@ -1,78 +1,17 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { Spinner } from '@/components/Spinner'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
-
-interface Client {
-  id: number
-  name: string
-  domains: string[]
-}
+import { useRouter } from 'next/navigation'
 
 export default function AuditForm() {
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   const [url, setUrl] = useState('')
-  const [urlTouched, setUrlTouched] = useState(false) // true once user manually edits the URL
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null)
-  const [clients, setClients] = useState<Client[]>([])
-  const [clientsLoading, setClientsLoading] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
   const [captureScreenshots, setCaptureScreenshots] = useState(false)
-
-  const inputRef = useRef<HTMLInputElement>(null)
-  const { query, setQuery, open, setOpen, comboRef, filtered } = useClientCombobox(clients, selectedClient?.name ?? null)
-
-  useEffect(() => {
-    fetch('/api/clients')
-      .then((r) => r.json())
-      .then((data: Client[]) => {
-        const list = Array.isArray(data) ? data : []
-        setClients(list)
-
-        // Pre-select client from ?clientId= query param
-        const qc = searchParams.get('clientId')
-        if (qc) {
-          const match = list.find((c) => c.id === parseInt(qc, 10))
-          if (match) selectClient(match)
-        }
-      })
-      .catch(() => setClients([]))
-      .finally(() => setClientsLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  function selectClient(client: Client | null) {
-    setSelectedClient(client)
-    setOpen(false)
-    if (client) {
-      setQuery(client.name)
-      // Auto-populate URL from first domain, unless user has manually typed a URL
-      if (!urlTouched && client.domains.length > 0) {
-        setUrl(`https://${client.domains[0]}`)
-      }
-    } else {
-      setQuery('')
-    }
-  }
-
-  function handleQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setQuery(e.target.value)
-    setOpen(true)
-    // If user clears the field, deselect client
-    if (e.target.value === '') selectClientSilent(null)
-  }
-
-  // Select without triggering URL auto-fill (used for clearing)
-  function selectClientSilent(client: Client | null) {
-    setSelectedClient(client)
-    if (!client) setQuery('')
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -85,7 +24,6 @@ export default function AuditForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: url.trim(),
-          clientId: selectedClient?.id ?? null,
           wcagLevel,
           captureScreenshots,
         }),
@@ -107,73 +45,6 @@ export default function AuditForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Client combobox — intentionally above URL so selection can pre-fill it */}
-      <div>
-        <label className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
-          Client <span className="text-navy/40 dark:text-white/40 font-normal">(optional)</span>
-        </label>
-        <div ref={comboRef} className="relative">
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={handleQueryChange}
-            onFocus={() => setOpen(true)}
-            placeholder={clientsLoading ? 'Loading clients…' : 'Search clients…'}
-            disabled={isRunning || clientsLoading}
-            autoComplete="off"
-            className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors"
-          />
-          {/* Clear button */}
-          {selectedClient && !isRunning && (
-            <button
-              type="button"
-              onClick={() => { selectClient(null); setUrlTouched(false); setUrl(''); inputRef.current?.focus() }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-navy/30 dark:text-white/30 hover:text-navy/70 dark:hover:text-white/70 transition-colors"
-              aria-label="Clear client"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-
-          {/* Dropdown */}
-          {open && !clientsLoading && (
-            <div className="absolute z-20 mt-1 w-full bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-lg shadow-lg max-h-56 overflow-y-auto">
-              {filtered.length === 0 ? (
-                <div className="px-4 py-3 text-[13px] font-body text-navy/40 dark:text-white/40">No clients match</div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); selectClient(null) }}
-                    className="w-full text-left px-4 py-2.5 text-[13px] font-body text-navy/40 dark:text-white/40 hover:bg-gray-50 dark:hover:bg-navy-light transition-colors border-b border-gray-100 dark:border-navy-border"
-                  >
-                    No client
-                  </button>
-                  {filtered.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); selectClient(c) }}
-                      className={`w-full text-left px-4 py-2.5 text-[13px] font-body transition-colors hover:bg-gray-50 dark:hover:bg-navy-light ${
-                        selectedClient?.id === c.id ? 'text-orange font-semibold bg-orange/5' : 'text-navy dark:text-white'
-                      }`}
-                    >
-                      <span>{c.name}</span>
-                      {c.domains.length > 0 && (
-                        <span className="ml-2 text-[11px] text-navy/35 dark:text-white/35">{c.domains[0]}</span>
-                      )}
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* URL input */}
       <div>
         <label htmlFor="audit-url" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
@@ -184,7 +55,7 @@ export default function AuditForm() {
           type="url"
           required
           value={url}
-          onChange={(e) => { setUrl(e.target.value); setUrlTouched(true) }}
+          onChange={(e) => setUrl(e.target.value)}
           placeholder="https://example.edu"
           disabled={isRunning}
           className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors"

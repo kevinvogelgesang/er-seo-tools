@@ -49,7 +49,6 @@ export async function POST(request: NextRequest) {
 
   const raw = body as Record<string, unknown>
   const url = typeof raw?.url === 'string' ? raw.url.trim() : ''
-  const clientId = typeof raw?.clientId === 'number' ? raw.clientId : null
   const wcagLevel = typeof raw?.wcagLevel === 'string' && raw.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
   const captureScreenshots = raw?.captureScreenshots === true
 
@@ -68,13 +67,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid URL' }, { status: 400 })
   }
 
-  // Validate clientId exists if provided
-  if (clientId !== null) {
-    const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } })
-    if (!client) {
-      return NextResponse.json({ error: 'Client not found' }, { status: 400 })
-    }
-  }
+  // Auto-match client by domain
+  const hostname = parsed.hostname.replace(/^www\./, '')
+  const allClients = await prisma.client.findMany({ select: { id: true, domains: true } })
+  const matchedClient = allClients.find((c) => {
+    const domains: string[] = JSON.parse(c.domains || '[]')
+    return domains.some((d) => d.replace(/^www\./, '') === hostname)
+  })
+  const clientId = matchedClient?.id ?? null
 
   const audit = await prisma.adaAudit.create({
     data: { url: parsed.toString(), status: 'pending', clientId, wcagLevel },
