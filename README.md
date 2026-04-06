@@ -102,7 +102,7 @@ sudo apt install ./google-chrome-stable_current_amd64.deb
 
 ```bash
 git push
-ssh seotools@161.35.235.157 "cd /home/seotools/webapps/er-seo-tools && git pull && npm install && DATABASE_URL='file:/home/seotools/data/er-seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seotools/data/er-seo-tools/db.sqlite' npx prisma migrate deploy && fuser -k 3000/tcp; nohup npm start > /home/seotools/er-seo-tools.log 2>&1 &"
+ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
 ```
 
 ### NGINX Config
