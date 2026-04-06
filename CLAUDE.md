@@ -3,9 +3,9 @@
 Internal SEO toolkit for Enrollment Resources. Next.js 15 App Router, TypeScript, Tailwind CSS (class-based dark mode), Prisma + SQLite. Deployed on RunCloud (not Vercel/serverless).
 
 ## Stack constraints
-- **Node 18** on production — keep all deps Node 18 compatible
+- **Node 22** on production
 - **SQLite only** — no Postgres/MySQL
-- **No serverless** — RunCloud + `nohup npm start`, process killed with `fuser -k 3000/tcp`
+- **No serverless** — RunCloud + PM2
 - **Google Chrome** must be installed on the server (`/usr/bin/google-chrome`) for ADA audits
 - **Do not change the core stack** unless explicitly asked
 
@@ -13,13 +13,13 @@ Internal SEO toolkit for Enrollment Resources. Next.js 15 App Router, TypeScript
 Always `git push` before SSHing — the server pulls from GitHub.
 
 ```bash
-ssh seotools@161.35.235.157 "cd /home/seotools/webapps/er-seo-tools && git pull && npm install && DATABASE_URL='file:/home/seotools/data/er-seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seotools/data/er-seo-tools/db.sqlite' npx prisma migrate deploy && fuser -k 3000/tcp; nohup npm start > /home/seotools/er-seo-tools.log 2>&1 &"
+ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 restart seo-tools"
 ```
 
-- **App path:** `/home/seotools/webapps/er-seo-tools`
-- **DB:** `/home/seotools/data/er-seo-tools/db.sqlite`
-- **Uploads:** `/home/seotools/data/er-seo-tools/uploads`
-- **Log:** `/home/seotools/er-seo-tools.log`
+- **App path:** `/home/seo/webapps/seo-tools`
+- **DB:** `/home/seo/data/seo-tools/db.sqlite`
+- **Uploads:** `/home/seo/data/seo-tools/uploads`
+- **Logs:** `/home/seo/logs/`
 
 ## Schema changes
 1. Edit `prisma/schema.prisma`
