@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import packageJson from '@/package.json'
 
-const DEPLOY_CMD = 'ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL=\'file:/home/seo/data/seo-tools/db.sqlite\' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL=\'file:/home/seo/data/seo-tools/db.sqlite\' npx prisma migrate deploy && pm2 start seo-tools"'
+const DEPLOY_CMD = 'ssh seo@144.126.213.242 "~/deploy.sh"'
 
 const toolLinks = [
   { name: 'SEO Parser', href: '/seo-parser' },
