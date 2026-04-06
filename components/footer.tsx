@@ -2,15 +2,17 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import packageJson from '@/package.json'
 
 const DEPLOY_CMD = 'ssh seotools@161.35.235.157 "~/deploy.sh"'
 
 const toolLinks = [
   { name: 'SEO Parser', href: '/seo-parser' },
-  { name: 'Quarter Grid — V1', href: '/quarter-grid/v1' },
-  { name: 'Quarter Grid — V2', href: '/quarter-grid/v2' },
-  { name: 'Quarter Grid — V3', href: '/quarter-grid/v3' },
+  { name: 'ADA Audit', href: '/ada-audit' },
+  { name: 'Robots Validator', href: '/robots-validator' },
+  { name: 'Quarter Grid', href: '/quarter-grid' },
   { name: 'RankMath Redirects', href: '/rankmath-redirects' },
+  { name: 'Clients', href: '/clients' },
 ]
 
 export default function Footer() {
@@ -85,7 +87,7 @@ export default function Footer() {
           </p>
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-[12px] font-body text-white/30">er-seo-tools v0.1.0</span>
+            <span className="text-[12px] font-body text-white/30">er-seo-tools v{packageJson.version}</span>
           </div>
         </div>
       </div>

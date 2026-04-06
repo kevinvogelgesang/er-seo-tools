@@ -76,7 +76,19 @@ export async function runAxeAudit(
     })
 
     if (!response) throw new Error('No response received from page')
-    if (!response.ok()) throw new Error(`HTTP ${response.status()} — ${response.statusText()}`)
+    const status = response.status()
+    if (status === 304) {
+      throw new Error('HTTP 304 Not Modified — cached response received; re-run to get a fresh scan')
+    }
+    if (!response.ok()) {
+      if (status === 403) {
+        throw new Error(`HTTP 403 — This site is blocking automated scanners. Try adding your server IP to the site's allowlist, or contact the site owner.`)
+      }
+      if (status === 401) {
+        throw new Error(`HTTP 401 — This page requires authentication. The scanner cannot access password-protected pages.`)
+      }
+      throw new Error(`HTTP ${status} — ${response.statusText()}`)
+    }
 
     const contentType = response.headers()['content-type'] ?? ''
     if (!contentType.includes('html')) {

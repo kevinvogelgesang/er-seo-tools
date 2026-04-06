@@ -132,10 +132,10 @@ export default function Nav() {
               if (tool.dropdown) {
                 return (
                   <div key={tool.href} className="relative">
-                    <button
+                    <Link
+                      href={tool.href}
                       onMouseEnter={() => { cancelClose(); setOpenDropdown(tool.name) }}
                       onMouseLeave={scheduleClose}
-                      onClick={() => setOpenDropdown(openDropdown === tool.name ? null : tool.name)}
                       className={`flex items-center gap-1.5 px-4 py-2 text-[14px] font-body rounded-md transition-colors duration-150 ${
                         active
                           ? 'text-orange'
@@ -148,7 +148,7 @@ export default function Nav() {
                           openDropdown === tool.name ? 'rotate-180' : ''
                         }`}
                       />
-                    </button>
+                    </Link>
 
                     {/* Dropdown */}
                     {openDropdown === tool.name && (

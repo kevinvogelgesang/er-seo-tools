@@ -15,6 +15,7 @@ const LAUNCH_ARGS = [
   '--disable-translate',
   '--disable-sync',
   '--js-flags=--max-old-space-size=256',
+  '--disable-http-cache',
 ]
 
 // ─── Singleton browser ────────────────────────────────────────────────────────

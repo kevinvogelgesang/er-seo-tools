@@ -31,7 +31,7 @@ export default function AuditIssueCard({ violation, auditId }: Props) {
   const [showDev, setShowDev] = useState(false)
 
   const wcagTags = violation.tags.filter((t) => t.startsWith('wcag') || t.startsWith('best-practice'))
-  const displayNodes = violation.nodes.slice(0, 5)
+  const displayNodes = violation.nodes
 
   return (
     <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl overflow-hidden shadow-sm">
@@ -117,11 +117,6 @@ export default function AuditIssueCard({ violation, auditId }: Props) {
                   )}
                 </div>
               ))}
-              {violation.nodes.length > 5 && (
-                <p className="text-[11px] font-body text-navy/40 dark:text-white/40">
-                  + {violation.nodes.length - 5} more elements (truncated for display)
-                </p>
-              )}
             </div>
           )}
         </div>

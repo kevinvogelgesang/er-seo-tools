@@ -1,6 +1,6 @@
 import path from 'path'
 import { promises as fs } from 'fs'
-import type { Page } from 'puppeteer-core'
+import type { ElementHandle, Page } from 'puppeteer-core'
 import type { AxeViolation } from './types'
 
 /** Where violation screenshots are stored. One subdirectory per audit ID. */
@@ -47,9 +47,20 @@ export async function captureViolationScreenshots(
 
       try {
         const filename = `${violation.id}.png`
-        await handle.screenshot({ path: path.join(dir, filename), type: 'png' })
-        violation.screenshotPath = filename
-        captured++
+
+        // Walk up to parent for context; fall back to element itself if no parent
+        const screenshotTarget = await page.evaluateHandle(
+          (el) => el.parentElement ?? el,
+          handle
+        )
+
+        try {
+          await (screenshotTarget as ElementHandle).screenshot({ path: path.join(dir, filename), type: 'png' })
+          violation.screenshotPath = filename
+          captured++
+        } finally {
+          await screenshotTarget.dispose()
+        }
       } catch (err) {
         console.warn(`[ada-audit/screenshots] Failed to capture screenshot for violation "${violation.id}":`, err)
       } finally {

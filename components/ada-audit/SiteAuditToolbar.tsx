@@ -2,7 +2,7 @@
 
 import type { SortKey, ImpactFilter, FilterCounts } from './useSiteAuditPages'
 
-type ViewMode = 'table' | 'sitemap'
+type ViewMode = 'table' | 'sitemap' | 'by-violation'
 
 interface Props {
   sortKey: SortKey
@@ -112,6 +112,20 @@ export default function SiteAuditToolbar({
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h2m4 0h10M4 9h2m4 0h10M4 13h2m4 0h6M4 17h2m4 0h6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => onViewModeChange('by-violation')}
+          title="By violation"
+          className={`p-1.5 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-orange/40 ${
+            viewMode === 'by-violation'
+              ? 'bg-white dark:bg-navy-card text-navy dark:text-white shadow-sm'
+              : 'text-navy/50 dark:text-white/50 hover:text-navy dark:hover:text-white'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
         </button>
       </div>

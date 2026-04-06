@@ -9,6 +9,7 @@ export function KnownLimitationsNotice({ variant = 'single' }: { variant?: 'sing
           <>
             <strong>Known limitations:</strong> Content behind login walls, scroll-triggered lazy loads,
             and interactive states (open modals, expanded accordions) may not be captured.
+            Hover, focus, and other interactive states are not evaluated — CSS applied only via <code>:hover</code> or <code>:focus</code> pseudo-classes (e.g., underlines that appear on hover) are not visible to the scanner. WCAG requires links to be distinguishable without relying on interaction.
             Treat results as a starting point.
           </>
         ) : (
