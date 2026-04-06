@@ -13,7 +13,7 @@ Internal SEO toolkit for Enrollment Resources. Next.js 15 App Router, TypeScript
 Always `git push` before SSHing — the server pulls from GitHub.
 
 ```bash
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 restart seo-tools"
+ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
 ```
 
 - **App path:** `/home/seo/webapps/seo-tools`

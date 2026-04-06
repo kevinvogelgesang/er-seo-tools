@@ -462,7 +462,7 @@ After making changes locally:
 git push
 
 # 2. Deploy to server (one-liner)
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 restart seo-tools"
+ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
 ```
 
 What each step does:
@@ -470,8 +470,9 @@ What each step does:
 2. `npm install` -- install any new/updated dependencies
 3. `npx prisma generate` -- regenerate Prisma client (needed if schema changed)
 4. `npm run build` -- rebuild the Next.js production bundle
-5. `npx prisma migrate deploy` -- apply any new database migrations
-6. `pm2 restart seo-tools` -- graceful restart (sends SIGTERM, waits for `kill_timeout`, then starts fresh)
+5. `pm2 stop seo-tools` -- stop app before migration to avoid SQLite lock errors
+6. `npx prisma migrate deploy` -- apply any new database migrations
+7. `pm2 start seo-tools` -- start the app fresh
 
 ### 7.2 Quick Restart (No Code Changes)
 
@@ -757,7 +758,7 @@ pm2 reset seo-tools
 
 ```bash
 # Deploy
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 restart seo-tools"
+ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
 
 # Quick restart
 ssh seo@144.126.213.242 "pm2 restart seo-tools"
