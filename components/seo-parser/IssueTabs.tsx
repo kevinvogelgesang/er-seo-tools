@@ -35,10 +35,12 @@ export function IssueTabs({ issues, onUrlClick }: IssueTabsProps) {
   return (
     <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border">
       <div className="border-b border-gray-200 dark:border-navy-border">
-        <nav className="flex -mb-px">
+        <nav role="tablist" className="flex -mb-px">
           {tabs.map((tab) => (
             <button
               key={tab.key}
+              role="tab"
+              aria-selected={active === tab.key}
               onClick={() => setActive(tab.key)}
               className={`
                 flex-1 py-3 px-4 text-center border-b-2 font-medium text-sm transition-colors

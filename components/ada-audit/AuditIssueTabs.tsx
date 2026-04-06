@@ -73,13 +73,15 @@ export default function AuditIssueTabs({ violations, incomplete = [], auditId }:
   return (
     <div className="space-y-4">
       {/* Tab bar */}
-      <div className="flex gap-1 border-b border-gray-200 dark:border-navy-border">
+      <div role="tablist" className="flex gap-1 border-b border-gray-200 dark:border-navy-border">
         {TABS.map((tab) => {
           const count = countFor(tab.id)
           const isActive = active === tab.id
           return (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={isActive}
               onClick={() => setActive(tab.id)}
               className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-body font-semibold border-b-2 -mb-px transition-colors ${
                 isActive

@@ -64,10 +64,10 @@ export default function AuditForm() {
 
       {/* WCAG level selector */}
       <div>
-        <label className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
+        <p id="wcag-level-label" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
           WCAG Level
-        </label>
-        <div className="flex gap-2">
+        </p>
+        <div role="group" aria-labelledby="wcag-level-label" className="flex gap-2">
           {([
             { value: 'wcag21aa', label: 'WCAG 2.1 AA', badge: 'Required' },
             { value: 'wcag22aa', label: '+ Best Practices', badge: 'Aspirational' },
@@ -75,6 +75,7 @@ export default function AuditForm() {
             <button
               key={value}
               type="button"
+              aria-pressed={wcagLevel === value}
               onClick={() => setWcagLevel(value)}
               disabled={isRunning}
               className={`flex-1 flex flex-col items-center px-3 py-2 rounded-lg border text-[13px] font-body transition-colors disabled:opacity-50 ${

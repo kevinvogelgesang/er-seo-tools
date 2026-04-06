@@ -188,6 +188,7 @@ export function HistoryList() {
           </svg>
           <input
             type="text"
+            aria-label="Filter by site name"
             placeholder="Filter by site name…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -198,6 +199,7 @@ export function HistoryList() {
         {/* Client filter dropdown */}
         {clients.length > 0 && (
           <select
+            aria-label="Filter by client"
             value={clientFilter === '' ? '' : clientFilter === 'unassigned' ? 'unassigned' : String(clientFilter)}
             onChange={(e) => {
               const v = e.target.value;
@@ -276,7 +278,7 @@ export function HistoryList() {
 
               {/* Delete button — visible on hover */}
               {confirmDelete === item.id ? (
-                <div className="absolute top-2 right-2 flex items-center gap-1 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-lg shadow-sm px-2 py-1 z-10">
+                <div role="alert" className="absolute top-2 right-2 flex items-center gap-1 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-lg shadow-sm px-2 py-1 z-10">
                   <span className="text-xs text-gray-600 dark:text-white/60 mr-1">Delete?</span>
                   <button
                     onClick={() => handleDelete(item.id)}

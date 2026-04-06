@@ -155,13 +155,17 @@ export default function SiteAuditForm() {
     <form onSubmit={handleDiscover} className="space-y-4">
       {/* Client combobox */}
       <div>
-        <label className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
+        <label htmlFor="client-combobox" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
           Client <span className="text-navy/40 dark:text-white/40 font-normal">(optional)</span>
         </label>
         <div ref={comboRef} className="relative">
           <input
+            id="client-combobox"
             ref={inputRef}
             type="text"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={open}
             value={query}
             onChange={handleQueryChange}
             onFocus={() => setOpen(true)}
@@ -239,10 +243,10 @@ export default function SiteAuditForm() {
 
       {/* WCAG level selector */}
       <div>
-        <label className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
+        <p id="site-wcag-level-label" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
           WCAG Level
-        </label>
-        <div className="flex gap-2">
+        </p>
+        <div role="group" aria-labelledby="site-wcag-level-label" className="flex gap-2">
           {([
             { value: 'wcag21aa', label: 'WCAG 2.1 AA', badge: 'Required' },
             { value: 'wcag22aa', label: '+ Best Practices', badge: 'Aspirational' },
@@ -250,6 +254,7 @@ export default function SiteAuditForm() {
             <button
               key={value}
               type="button"
+              aria-pressed={wcagLevel === value}
               onClick={() => setWcagLevel(value)}
               disabled={isBusy}
               className={`flex-1 flex flex-col items-center px-3 py-2 rounded-lg border text-[13px] font-body transition-colors disabled:opacity-50 ${

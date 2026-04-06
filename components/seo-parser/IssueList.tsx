@@ -29,6 +29,7 @@ function IssueItem({
     <div className="border border-gray-200 dark:border-navy-border rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-navy-light transition-colors"
       >
         <div className="flex items-center space-x-3">
@@ -41,6 +42,7 @@ function IssueItem({
         </div>
         {(hasUrls || hasGroups) && (
           <svg
+            aria-hidden="true"
             className={`w-5 h-5 text-gray-400 dark:text-white/40 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}
             fill="none"
             stroke="currentColor"

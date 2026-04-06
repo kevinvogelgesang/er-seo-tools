@@ -38,6 +38,7 @@ export default function AuditIssueCard({ violation, auditId }: Props) {
       {/* Always-visible header */}
       <button
         onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
         className="w-full flex items-start gap-3 px-4 py-3.5 text-left hover:bg-gray-50 dark:hover:bg-navy-light transition-colors"
       >
         <span className="mt-0.5 flex-shrink-0">
@@ -57,6 +58,7 @@ export default function AuditIssueCard({ violation, auditId }: Props) {
           </div>
         </div>
         <svg
+          aria-hidden="true"
           className={`w-4 h-4 flex-shrink-0 mt-0.5 text-navy/40 dark:text-white/40 transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
         >
@@ -72,6 +74,7 @@ export default function AuditIssueCard({ violation, auditId }: Props) {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowDev((d) => !d)}
+              aria-expanded={showDev}
               className="text-[12px] font-body font-semibold text-orange hover:text-orange-light transition-colors"
             >
               {showDev ? 'Hide developer details' : 'Show developer details'}

@@ -331,6 +331,7 @@ export default function HomePage() {
                   SEO Toolkit
                   {/* Underline accent */}
                   <svg
+                    aria-hidden="true"
                     className="absolute -bottom-1 left-0 w-full"
                     viewBox="0 0 300 8"
                     fill="none"

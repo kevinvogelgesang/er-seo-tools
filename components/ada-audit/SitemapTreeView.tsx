@@ -9,7 +9,7 @@ import AuditIssueTabs from './AuditIssueTabs'
 // ─── Shared impact count (same as in SiteAuditResultsView) ──────────────────
 
 function ImpactCount({ n, color }: { n: number; color: string }) {
-  if (n === 0) return <span className="text-navy/20 dark:text-white/20">—</span>
+  if (n === 0) return <span className="text-navy/40 dark:text-white/40">—</span>
   return <span className={`font-semibold ${color}`}>{n}</span>
 }
 
@@ -52,18 +52,20 @@ function LeafPageRow({ page, depth }: { page: SitePageResult; depth: number }) {
     <>
       <button
         type="button"
+        aria-expanded={expanded}
         className={`w-full flex items-center border-b border-gray-100 dark:border-navy-border hover:bg-gray-50 dark:hover:bg-navy-light cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-orange/40 ${expanded ? 'bg-gray-50 dark:bg-navy-light' : ''}`}
         style={{ paddingLeft: `${depth * 20 + 16}px` }}
         onClick={handleExpand}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0 py-2.5 pr-3">
           <svg
+            aria-hidden="true"
             className={`w-3 h-3 flex-shrink-0 text-navy/30 dark:text-white/30 transition-transform ${expanded ? 'rotate-90' : ''}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
-          <svg className="w-3.5 h-3.5 flex-shrink-0 text-navy/25 dark:text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <svg aria-hidden="true" className="w-3.5 h-3.5 flex-shrink-0 text-navy/25 dark:text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           <div className="flex items-center gap-1.5 min-w-0">
@@ -74,11 +76,11 @@ function LeafPageRow({ page, depth }: { page: SitePageResult; depth: number }) {
               href={page.url}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label={`Open ${page.url} in new tab`}
               className="flex-shrink-0 text-navy/40 dark:text-white/30 hover:text-orange dark:hover:text-orange transition-colors"
-              title={`Open ${page.url}`}
               onClick={(e) => e.stopPropagation()}
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
             </a>
@@ -140,18 +142,20 @@ function FolderNode({ node, depth }: { node: TreeNode; depth: number }) {
     <>
       <button
         type="button"
+        aria-expanded={expanded}
         className="w-full flex items-center border-b border-gray-100 dark:border-navy-border hover:bg-gray-50 dark:hover:bg-navy-light cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-orange/40"
         style={{ paddingLeft: `${depth * 20 + 16}px` }}
         onClick={() => setExpanded((e) => !e)}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0 py-2.5 pr-3">
           <svg
+            aria-hidden="true"
             className={`w-3 h-3 flex-shrink-0 text-navy/30 dark:text-white/30 transition-transform ${expanded ? 'rotate-90' : ''}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
-          <svg className="w-3.5 h-3.5 flex-shrink-0 text-orange/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <svg aria-hidden="true" className="w-3.5 h-3.5 flex-shrink-0 text-orange/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
           </svg>
           <span className="text-[13px] font-body font-semibold text-navy/70 dark:text-white/70">

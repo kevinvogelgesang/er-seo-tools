@@ -24,9 +24,11 @@ export default function AuditIndexTabs() {
           <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">New Audit</h2>
 
           {/* Tab toggle */}
-          <div className="ml-auto flex items-center bg-gray-100 dark:bg-navy-light rounded-lg p-0.5 gap-0.5">
+          <div role="tablist" aria-label="Audit type" className="ml-auto flex items-center bg-gray-100 dark:bg-navy-light rounded-lg p-0.5 gap-0.5">
             <button
               type="button"
+              role="tab"
+              aria-selected={tab === 'single'}
               onClick={() => setTab('single')}
               className={`px-3 py-1.5 text-[12px] font-body font-semibold rounded-md transition-colors ${
                 tab === 'single'
@@ -38,6 +40,8 @@ export default function AuditIndexTabs() {
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={tab === 'site'}
               onClick={() => setTab('site')}
               className={`px-3 py-1.5 text-[12px] font-body font-semibold rounded-md transition-colors ${
                 tab === 'site'
