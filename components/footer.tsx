@@ -49,7 +49,7 @@ export default function Footer() {
 
           {/* Tools */}
           <div>
-            <h3 className="font-display font-semibold text-[13px] text-white/40 uppercase tracking-widest mb-4">
+            <h3 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest mb-4">
               Tools
             </h3>
             <ul className="space-y-2.5">
@@ -68,7 +68,7 @@ export default function Footer() {
 
           {/* Deployment */}
           <div>
-            <h3 className="font-display font-semibold text-[13px] text-white/40 uppercase tracking-widest mb-4">
+            <h3 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest mb-4">
               Deployment
             </h3>
             <ul className="space-y-2.5">
@@ -82,12 +82,12 @@ export default function Footer() {
         </div>
 
         <div className="mt-10 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-[13px] font-body text-white/30">
+          <p className="text-[13px] font-body text-white/55">
             &copy; {year} Enrollment Resources. Internal tool — not for external distribution.
           </p>
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-[12px] font-body text-white/30">er-seo-tools v{packageJson.version}</span>
+            <span className="text-[12px] font-body text-white/55">er-seo-tools v{packageJson.version}</span>
           </div>
         </div>
       </div>

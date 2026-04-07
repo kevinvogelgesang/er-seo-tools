@@ -5,6 +5,12 @@
   "engines": {
     "node": ">=22"
   },
+  "browserslist": [
+    "Chrome >= 80",
+    "Firefox >= 80",
+    "Safari >= 14",
+    "Edge >= 80"
+  ],
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",

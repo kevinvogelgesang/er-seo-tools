@@ -261,7 +261,7 @@ function ToolCard({
           <h3 className="font-display font-bold text-xl text-white mb-0.5">
             {tool.name}
           </h3>
-          <p className="text-[12px] font-body text-orange/70 tracking-wide uppercase font-semibold">
+          <p className="text-[12px] font-body text-orange tracking-wide uppercase font-semibold">
             {tool.tagline}
           </p>
         </div>
@@ -384,7 +384,7 @@ export default function HomePage() {
                   <div className="font-display font-extrabold text-[22px] text-orange mb-0.5">
                     {s.value}
                   </div>
-                  <div className="font-body text-[12px] text-white/45 uppercase tracking-widest">
+                  <div className="font-body text-[12px] text-white/65 uppercase tracking-widest">
                     {s.label}
                   </div>
                 </div>
@@ -400,13 +400,13 @@ export default function HomePage() {
 
           {/* Section header */}
           <div className="max-w-xl mb-14">
-            <p className="text-[11px] font-body font-semibold text-orange/70 uppercase tracking-[0.2em] mb-3">
+            <p className="text-[11px] font-body font-semibold text-orange uppercase tracking-[0.2em] mb-3">
               The Toolkit
             </p>
             <h2 className="font-display font-extrabold text-[34px] sm:text-[40px] text-white leading-tight mb-4">
               Everything you need,<br />in one place.
             </h2>
-            <p className="font-body text-[15px] text-white/45 leading-relaxed">
+            <p className="font-body text-[15px] text-white/65 leading-relaxed">
               Five tools built specifically for the SEO workflows at Enrollment Resources. No login, no subscriptions — just open and go.
             </p>
           </div>
@@ -426,7 +426,7 @@ export default function HomePage() {
           <h2 className="font-display font-bold text-[26px] text-white mb-3">
             Ready to get started?
           </h2>
-          <p className="font-body text-[15px] text-white/45 mb-8">
+          <p className="font-body text-[15px] text-white/65 mb-8">
             Pick a tool and open it directly — no setup required.
           </p>
           <div className="flex flex-wrap gap-3 justify-center">
