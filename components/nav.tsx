@@ -75,15 +75,22 @@ export default function Nav() {
     }
   }
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click or Escape
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOpenDropdown(null)
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenDropdown(null)
+    }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [])
 
   // Clean up close timer on unmount
@@ -118,7 +125,7 @@ export default function Nav() {
               <div className="font-display font-bold text-[15px] leading-tight text-white">
                 SEO Tools
               </div>
-              <div className="text-white/40 text-[9px] leading-tight tracking-[0.15em] uppercase">
+              <div className="text-white/60 text-[9px] leading-tight tracking-[0.15em] uppercase">
                 Enrollment Resources
               </div>
             </div>
@@ -134,8 +141,12 @@ export default function Nav() {
                   <div key={tool.href} className="relative">
                     <Link
                       href={tool.href}
+                      aria-haspopup="true"
+                      aria-expanded={openDropdown === tool.name}
                       onMouseEnter={() => { cancelClose(); setOpenDropdown(tool.name) }}
                       onMouseLeave={scheduleClose}
+                      onFocus={() => { cancelClose(); setOpenDropdown(tool.name) }}
+                      onBlur={scheduleClose}
                       className={`flex items-center gap-1.5 px-4 py-2 text-[14px] font-body rounded-md transition-colors duration-150 ${
                         active
                           ? 'text-orange'
@@ -156,6 +167,8 @@ export default function Nav() {
                         className="nav-dropdown absolute top-full left-0 w-48"
                         onMouseEnter={cancelClose}
                         onMouseLeave={scheduleClose}
+                        onFocus={cancelClose}
+                        onBlur={scheduleClose}
                       >
                         <div className="bg-navy-deep border border-navy-border rounded-lg shadow-2xl py-1.5 overflow-hidden">
                           {tool.dropdown.map((item, i) => (
@@ -215,7 +228,8 @@ export default function Nav() {
             <button
               onClick={() => setMobileOpen(!mobileOpen)}
               className="md:hidden p-2 text-white/70 hover:text-white rounded-md hover:bg-white/5 transition-colors"
-              aria-label="Toggle menu"
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileOpen}
             >
               {mobileOpen ? <CloseIcon /> : <MenuIcon />}
             </button>
@@ -248,7 +262,7 @@ export default function Nav() {
                         className={`block px-3 py-2 text-[13px] font-body rounded-md transition-colors ${
                           pathname === item.href
                             ? 'text-orange'
-                            : 'text-white/50 hover:text-white/80'
+                            : 'text-white/65 hover:text-white'
                         }`}
                       >
                         V{i + 1}
