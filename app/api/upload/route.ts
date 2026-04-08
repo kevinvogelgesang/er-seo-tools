@@ -8,7 +8,9 @@ import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
 export const dynamic = 'force-dynamic';
 
 function sanitizeFilename(filename: string): string {
-  const sanitized = filename
+  // Strip one level of directory prefix (webkitdirectory sends "FolderName/file.csv")
+  const basename = filename.includes('/') ? filename.split('/').pop()! : filename;
+  const sanitized = basename
     .replace(/[/\\]/g, '_')
     .replace(/\0/g, '')
     .replace(/\.\./g, '_');
@@ -68,14 +70,14 @@ export async function POST(request: NextRequest) {
     for (const [, value] of Array.from(formData.entries())) {
       if (value instanceof File && value.size > 0) {
         const ext = path.extname(value.name).toLowerCase();
-        if (ext === '.csv' || value.type === 'text/csv') {
+        if (ext === '.csv' || ext === '.txt' || value.type === 'text/csv') {
           fileEntries.push({ file: value, filename: sanitizeFilename(value.name) });
         }
       }
     }
 
     if (fileEntries.length === 0) {
-      return NextResponse.json({ error: 'No CSV files uploaded' }, { status: 400 });
+      return NextResponse.json({ error: 'No valid files uploaded. Only .csv and .txt files are accepted.' }, { status: 400 });
     }
 
     // Check upload size limit

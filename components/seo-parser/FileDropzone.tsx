@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 
 interface FileDropzoneProps {
@@ -10,17 +10,35 @@ interface FileDropzoneProps {
 }
 
 export function FileDropzone({ files, isUploading, onDrop }: FileDropzoneProps) {
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
   const handleDrop = useCallback(
     (acceptedFiles: File[]) => {
-      const csvFiles = acceptedFiles.filter((f) => f.name.toLowerCase().endsWith('.csv'));
-      if (csvFiles.length > 0) onDrop(csvFiles);
+      const validFiles = acceptedFiles.filter(
+        (f) => f.name.toLowerCase().endsWith('.csv') || f.name.toLowerCase().endsWith('.txt')
+      );
+      if (validFiles.length > 0) onDrop(validFiles);
+    },
+    [onDrop]
+  );
+
+  const handleFolderChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const fileList = e.target.files;
+      if (!fileList) return;
+      const validFiles = Array.from(fileList).filter(
+        (f) => f.name.toLowerCase().endsWith('.csv') || f.name.toLowerCase().endsWith('.txt')
+      );
+      if (validFiles.length > 0) onDrop(validFiles);
+      // Reset so the same folder can be re-selected if needed
+      e.target.value = '';
     },
     [onDrop]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: handleDrop,
-    accept: { 'text/csv': ['.csv'] },
+    accept: { 'text/csv': ['.csv'], 'text/plain': ['.txt'] },
     multiple: true,
     disabled: isUploading,
   });
@@ -49,14 +67,55 @@ export function FileDropzone({ files, isUploading, onDrop }: FileDropzoneProps) 
           {isUploading ? (
             <p className="text-gray-600 dark:text-white/60">Uploading...</p>
           ) : isDragActive ? (
-            <p className="text-[#f5a623] font-medium">Drop CSV files here</p>
+            <p className="text-[#f5a623] font-medium">Drop CSV or TXT files here</p>
           ) : (
             <>
               <p className="text-gray-600 dark:text-white/60">Drag and drop Screaming Frog CSV exports here</p>
-              <p className="text-sm text-gray-500 dark:text-white/50">or click to select files</p>
+              <p className="text-sm text-gray-500 dark:text-white/50">or click to select files (.csv, .txt)</p>
             </>
           )}
         </div>
+      </div>
+
+      {/* Hidden folder input — webkitdirectory is non-standard but widely supported */}
+      <input
+        ref={folderInputRef}
+        type="file"
+        // @ts-expect-error webkitdirectory is not in standard HTMLInputElement types
+        webkitdirectory=""
+        multiple
+        className="hidden"
+        onChange={handleFolderChange}
+        disabled={isUploading}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+
+      <div className="flex justify-center">
+        <button
+          type="button"
+          onClick={() => folderInputRef.current?.click()}
+          disabled={isUploading}
+          className={`
+            inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+            border border-gray-300 dark:border-navy-border
+            text-gray-700 dark:text-white/70
+            bg-white dark:bg-navy-card
+            hover:border-[#f5a623] hover:text-[#f5a623] dark:hover:text-[#f5a623]
+            transition-colors duration-200
+            ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          `}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+            />
+          </svg>
+          Upload Folder
+        </button>
       </div>
 
       {files.length > 0 && (
