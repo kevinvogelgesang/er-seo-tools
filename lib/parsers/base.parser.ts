@@ -9,7 +9,7 @@ export abstract class BaseParser {
   private headerMap: Map<string, string> = new Map();
 
   // Subclasses should define this to match their target file
-  static filenamePattern: string = '';
+  static filenamePattern: string | string[] = '';
 
   constructor(csvContent: string) {
     this.parseCSV(csvContent);
@@ -41,7 +41,11 @@ export abstract class BaseParser {
    */
   static matchesFile(filename: string): boolean {
     if (!this.filenamePattern) return false;
-    return filename.toLowerCase().includes(this.filenamePattern.toLowerCase());
+    const lower = filename.toLowerCase();
+    if (Array.isArray(this.filenamePattern)) {
+      return this.filenamePattern.some(p => lower.includes(p.toLowerCase()));
+    }
+    return lower.includes(this.filenamePattern.toLowerCase());
   }
 
   /**
