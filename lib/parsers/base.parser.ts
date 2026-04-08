@@ -59,6 +59,15 @@ export abstract class BaseParser {
   }
 
   /**
+   * Check if this parser handles a file by inspecting its raw content (before CSV parsing).
+   * Override in parsers that need to detect metadata headers or non-standard formats.
+   * Base implementation always returns false.
+   */
+  static matchesRawContent(_rawContent: string): boolean {
+    return false;
+  }
+
+  /**
    * Get a column by checking multiple possible names (case-insensitive, O(1) via headerMap)
    */
   protected findColumn(possibleNames: string[]): string | null {

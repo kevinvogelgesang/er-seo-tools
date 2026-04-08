@@ -198,8 +198,7 @@ export function findParserForFile(
 
   // 2. Raw content detection (for files with metadata headers, e.g. Position Tracking)
   for (const ParserClass of PARSERS) {
-    const cls = ParserClass as unknown as { matchesRawContent?(content: string): boolean };
-    if (cls.matchesRawContent?.(rawContent)) {
+    if (ParserClass.matchesRawContent(rawContent)) {
       return ParserClass;
     }
   }
