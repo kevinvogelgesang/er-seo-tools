@@ -166,16 +166,11 @@ export interface KeywordSignals {
   top_pages_by_organic_traffic: TopOrganicPage[];
 }
 
-export interface DuplicateGroup {
-  value: string;
-  affected_urls: string[];
-}
-
 export interface ExactDuplicatePair {
   address: string;
   duplicate_of: string;
   similarity_pct: number;
-  indexability: string;
+  indexability: 'Indexable' | 'Non-Indexable' | string; // SF vocabulary; string fallback for unexpected values
 }
 
 export interface NearDuplicateEntry {
@@ -187,9 +182,9 @@ export interface NearDuplicateEntry {
 export interface DuplicateContent {
   exact_duplicates: ExactDuplicatePair[];
   near_duplicates: NearDuplicateEntry[];
-  duplicate_titles: DuplicateGroup[];
-  duplicate_meta_descriptions: DuplicateGroup[];
-  duplicate_h1s: DuplicateGroup[];
+  duplicate_titles: Array<{ title: string; affected_urls: string[] }>;
+  duplicate_meta_descriptions: Array<{ meta_description: string; affected_urls: string[] }>;
+  duplicate_h1s: Array<{ h1: string; affected_urls: string[] }>;
 }
 
 export interface AggregatedResult {
