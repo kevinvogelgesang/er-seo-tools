@@ -178,6 +178,7 @@ export interface NearDuplicateEntry {
   address: string;
   closest_match: string;
   near_duplicate_count: number;
+  indexability: 'Indexable' | 'Non-Indexable' | string;
 }
 
 export interface DuplicateContent {
