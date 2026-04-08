@@ -2,9 +2,10 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import React from 'react';
 import dynamic from 'next/dynamic';
 import { AggregatedResult } from '@/lib/types';
-import { SummaryCard } from './SummaryCard';
+import { MetricsBar } from './MetricsBar';
 import { IssueTabs } from './IssueTabs';
 import { RecommendationList } from './RecommendationList';
 import { ExportButtons } from './ExportButtons';
@@ -14,7 +15,6 @@ import { ShareModal } from './ShareModal';
 import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
 
-const IssuesPieChart = dynamic(() => import('./charts/IssuesPieChart').then(m => ({ default: m.IssuesPieChart })), { ssr: false });
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
 const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
 
@@ -46,7 +46,7 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
         {/* Header row */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="font-display font-extrabold text-2xl text-[#1c2d4a] dark:text-white">{siteName} — SEO Audit</h1>
+            <h1 className="font-bold text-2xl text-[#1c2d4a] dark:text-white">{siteName} — SEO Audit</h1>
             <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
               {result.metadata.files_processed.length} file{result.metadata.files_processed.length !== 1 ? 's' : ''} processed
             </p>
@@ -69,29 +69,23 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
           </div>
         </div>
 
-        {/* Main 3-col layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: summary + pie */}
-          <div className="space-y-6">
-            <SummaryCard
-              summary={result.crawl_summary}
-              healthScore={result.metadata?.health_score}
-              gscConnected={result.keyword_signals?.gsc_connected}
-              gscTopPages={result.performance?.gsc_top_pages}
-            />
-            <ChartCard title="Issue Breakdown">
-              <IssuesPieChart issues={result.issues} />
-            </ChartCard>
-          </div>
+        {/* Metrics bar */}
+        <MetricsBar
+          healthScore={result.metadata?.health_score}
+          totalUrls={result.crawl_summary.total_urls}
+          criticalCount={result.issues.critical.length}
+          warningsCount={result.issues.warnings.length}
+          noticesCount={result.issues.notices.length}
+          indexableUrls={result.crawl_summary.indexable_urls}
+        />
 
-          {/* Center: issues + recommendations */}
-          <div className="lg:col-span-2 space-y-6">
-            <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />
-            <RecommendationList recommendations={result.recommendations} />
-          </div>
-        </div>
+        {/* Full-width issues */}
+        <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />
 
-        {/* Bottom charts row */}
+        {/* Recommendations */}
+        <RecommendationList recommendations={result.recommendations} />
+
+        {/* Charts row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <ChartCard title="Response Code Distribution">
             <StatusCodeBarChart summary={result.crawl_summary} />
@@ -113,10 +107,12 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
           <KeywordSignalsPanel data={result.keyword_signals} />
         )}
 
-        {/* Metadata footer */}
-        <div className="text-xs text-gray-400 dark:text-white/40 pb-4">
-          Parsers used: {result.metadata.parsers_used.join(', ')}
-        </div>
+        {/* Debug footer */}
+        <details className="text-xs text-gray-400 dark:text-white/40 pb-4">
+          <summary className="cursor-pointer hover:text-gray-600 dark:hover:text-white/60 select-none">Debug info</summary>
+          <p className="mt-1">Parsers used: {result.metadata.parsers_used.join(', ')}</p>
+        </details>
+
       </div>
 
       {/* Per-page drill-down modal */}

@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db';
 import { AggregatedResult } from '@/lib/types';
-import { SummaryCard } from '@/components/seo-parser/SummaryCard';
+import { MetricsBar } from '@/components/seo-parser/MetricsBar';
 import { IssueTabs } from '@/components/seo-parser/IssueTabs';
 import { RecommendationList } from '@/components/seo-parser/RecommendationList';
 import type { Metadata } from 'next';
@@ -93,25 +93,20 @@ export default async function SharedReportPage({ params }: Props) {
             </p>
           </div>
 
-          {/* Main 3-col layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left: summary */}
-            <div className="space-y-6">
-              <SummaryCard
-                summary={result.crawl_summary}
-                healthScore={result.metadata?.health_score}
-                gscConnected={result.keyword_signals?.gsc_connected}
-                gscTopPages={result.performance?.gsc_top_pages}
-              />
-            </div>
+          {/* Metrics bar */}
+          <MetricsBar
+            healthScore={result.metadata?.health_score}
+            totalUrls={result.crawl_summary.total_urls}
+            criticalCount={result.issues.critical.length}
+            warningsCount={result.issues.warnings.length}
+            noticesCount={result.issues.notices.length}
+            indexableUrls={result.crawl_summary.indexable_urls}
+          />
 
-            {/* Center: issues + recommendations */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* IssueTabs is a client component; no onUrlClick = read-only */}
-              <IssueTabs issues={result.issues} />
-              <RecommendationList recommendations={result.recommendations} />
-            </div>
-          </div>
+          {/* Issues + recommendations */}
+          {/* IssueTabs is a client component; no onUrlClick = read-only */}
+          <IssueTabs issues={result.issues} />
+          <RecommendationList recommendations={result.recommendations} />
 
           {/* Metadata footer */}
           <div className="text-xs text-gray-400 dark:text-white/40 pb-4">
