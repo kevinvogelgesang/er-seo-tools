@@ -1,5 +1,6 @@
 import { BaseParser } from '../base.parser';
 import { toString } from '../../utils/columnMapper';
+import { ParsedData } from '../../types';
 
 const REQUIRED_HEADERS = ['Keyword', 'Search Volume', 'Keyword Intents', 'URL'];
 
@@ -23,7 +24,7 @@ function primaryIntent(raw: unknown): string {
   return str.split('|')[0].trim();
 }
 
-export interface SemrushOrganicResult {
+export interface SemrushOrganicResult extends ParsedData {
   total_ranking_keywords: number;
   keyword_cannibalization: Array<{
     keyword: string;

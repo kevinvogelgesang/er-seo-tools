@@ -1,5 +1,6 @@
 import { BaseParser } from '../base.parser';
 import { toString } from '../../utils/columnMapper';
+import { ParsedData } from '../../types';
 
 const REQUIRED_HEADERS = ['Number of Keywords', 'Adwords Positions'];
 
@@ -17,7 +18,7 @@ function parseFloatStrip(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export interface SemrushOrganicPagesResult {
+export interface SemrushOrganicPagesResult extends ParsedData {
   top_pages_by_organic_traffic: Array<{
     url: string;
     estimated_monthly_traffic: number;

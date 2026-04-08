@@ -1,5 +1,5 @@
 import { BaseParser } from '../base.parser';
-import { ParsedData } from '../types';
+import { ParsedData } from '../../types';
 
 export interface SemrushPositionTrackingResult extends ParsedData {
   position_tracking_pages: Array<{
