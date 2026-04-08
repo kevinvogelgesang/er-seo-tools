@@ -6,10 +6,11 @@ import { useDropzone } from 'react-dropzone';
 interface FileDropzoneProps {
   files: string[];
   isUploading: boolean;
+  uploadProgress?: number;
   onDrop: (files: File[]) => void;
 }
 
-export function FileDropzone({ files, isUploading, onDrop }: FileDropzoneProps) {
+export function FileDropzone({ files, isUploading, uploadProgress = 0, onDrop }: FileDropzoneProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrop = useCallback(
@@ -65,7 +66,15 @@ export function FileDropzone({ files, isUploading, onDrop }: FileDropzoneProps) 
             />
           </svg>
           {isUploading ? (
-            <p className="text-gray-600 dark:text-white/60">Uploading...</p>
+            <div className="space-y-2 px-4">
+              <div className="w-full bg-gray-200 dark:bg-navy-border rounded-full h-1.5">
+                <div
+                  className="bg-green-500 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 dark:text-white/50">Uploading… {uploadProgress}%</p>
+            </div>
           ) : isDragActive ? (
             <p className="text-[#f5a623] font-medium">Drop CSV or TXT files here</p>
           ) : (
