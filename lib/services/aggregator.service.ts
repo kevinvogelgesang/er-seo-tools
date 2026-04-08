@@ -21,10 +21,7 @@ function dedupeIssues(issues: Issue[]): Issue[] {
       const existingUrls = existing.urls || [];
       const newUrls = issue.urls || [];
       if (existingUrls.length > 0 || newUrls.length > 0) {
-        const allUrls = Array.from(new Set([...existingUrls, ...newUrls]));
-        existing.urls = allUrls.slice(0, 50);
-        existing.total_affected = allUrls.length;
-        existing.truncated = allUrls.length > 50;
+        existing.urls = Array.from(new Set([...existingUrls, ...newUrls]));
       }
 
       // Keep higher count

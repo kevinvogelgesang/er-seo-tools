@@ -200,7 +200,18 @@ describe('BaseParser (via TestParser)', () => {
       const p = new TestParser([header, ...rows].join('\n'));
       const mask = Array(25).fill(true);
       const urls = p.testGetUrlsWhereMask(mask);
-      expect(urls).toHaveLength(20);
+      expect(urls).toHaveLength(25);
+    });
+  });
+
+  describe('getUrlsWhereMask default limit', () => {
+    it('collects all matching URLs when no limit is passed', () => {
+      const rows = Array.from({ length: 60 }, (_, i) => `https://example.com/page${i}`).join('\n');
+      const csv = `Address\n${rows}`;
+      const parser = new TestParser(csv);
+      const mask = Array(60).fill(true);
+      const urls = parser.testGetUrlsWhereMask(mask);
+      expect(urls.length).toBe(60);
     });
   });
 

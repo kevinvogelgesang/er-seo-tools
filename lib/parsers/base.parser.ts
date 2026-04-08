@@ -146,7 +146,7 @@ export abstract class BaseParser {
   /**
    * Get URLs where mask is true
    */
-  protected getUrlsWhereMask(mask: boolean[], limit: number = 20): string[] {
+  protected getUrlsWhereMask(mask: boolean[], limit: number = Number.MAX_SAFE_INTEGER): string[] {
     const addressCol = this.findColumn(['Address', 'URL']);
     if (!addressCol) return [];
 

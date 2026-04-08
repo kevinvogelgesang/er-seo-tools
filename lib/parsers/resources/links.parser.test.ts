@@ -164,8 +164,8 @@ https://example.com/,https://example.com/broken,404,Broken`;
     });
   });
 
-  describe('url cap', () => {
-    it('caps broken link URL list at 30', () => {
+  describe('url cap removed', () => {
+    it('collects all broken link URLs without capping', () => {
       const rows = Array.from({ length: 40 }, (_, i) =>
         `https://example.com/src,https://example.com/broken${i},404,Link ${i}`
       ).join('\n');
@@ -174,7 +174,7 @@ https://example.com/,https://example.com/broken,404,Broken`;
       const result = parser.parse() as any;
       const issue = result.issues.find((i: any) => i.type === 'broken_internal_links');
       expect(issue.count).toBe(40);
-      expect(issue.urls.length).toBeLessThanOrEqual(30);
+      expect(issue.urls.length).toBe(40);
     });
   });
 });

@@ -7,8 +7,6 @@ export interface Issue {
   description: string;
   urls?: string[];
   groups?: Array<{ title?: string; h1?: string; meta_description?: string; count: number; urls?: string[] }>;
-  total_affected?: number;
-  truncated?: boolean;
   source?: string;
   threshold?: string;
 }

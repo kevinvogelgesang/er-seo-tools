@@ -25,9 +25,7 @@ export class LinksParser extends BaseParser {
         const status = toNumber(this.data[i][statusCol]);
         if (status !== null && status >= 400 && status < 600) {
           brokenCount++;
-          if (brokenUrls.length < 30) {
-            brokenUrls.push(toString(this.data[i][destCol]));
-          }
+          brokenUrls.push(toString(this.data[i][destCol]));
         }
       }
 
@@ -52,7 +50,7 @@ export class LinksParser extends BaseParser {
         const anchor = toString(this.data[i][anchorCol]).trim();
         if (!anchor) {
           emptyCount++;
-          if (destCol && emptyAnchorUrls.length < 30) {
+          if (destCol) {
             emptyAnchorUrls.push(toString(this.data[i][destCol]));
           }
         }
@@ -96,7 +94,7 @@ export class LinksIssuesParser extends BaseParser {
     let maxDepth = 0;
 
     for (let i = 0; i < this.data.length; i++) {
-      if (addressCol && urls.length < 30) {
+      if (addressCol) {
         const url = toString(this.data[i][addressCol]);
         if (url) urls.push(url);
       }
@@ -145,9 +143,7 @@ export class ExternalLinksParser extends BaseParser {
         const status = toNumber(this.data[i][statusCol]);
         if (status !== null && status >= 400 && status < 600) {
           brokenCount++;
-          if (brokenUrls.length < 30) {
-            brokenUrls.push(toString(this.data[i][destCol]));
-          }
+          brokenUrls.push(toString(this.data[i][destCol]));
         }
       }
 

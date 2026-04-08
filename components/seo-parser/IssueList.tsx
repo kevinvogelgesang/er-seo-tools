@@ -59,7 +59,7 @@ function IssueItem({
           {hasUrls && (
             <div className="space-y-1">
               <p className="text-xs font-medium text-gray-500 dark:text-white/50 uppercase">
-                Affected URLs {issue.truncated && `(showing first ${issue.urls?.length})`}
+                Affected URLs
               </p>
               <ul className="text-sm space-y-1 max-h-48 overflow-y-auto">
                 {issue.urls?.map((url, i) => (
