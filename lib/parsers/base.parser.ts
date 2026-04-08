@@ -45,6 +45,16 @@ export abstract class BaseParser {
   }
 
   /**
+   * Check if this parser handles a file by inspecting its header row.
+   * Override in parsers that are detected by content rather than filename
+   * (e.g. SEMRush exports with dynamic date-stamped filenames).
+   * Base implementation always returns false.
+   */
+  static matchesContent(_headers: string[]): boolean {
+    return false;
+  }
+
+  /**
    * Get a column by checking multiple possible names (case-insensitive, O(1) via headerMap)
    */
   protected findColumn(possibleNames: string[]): string | null {

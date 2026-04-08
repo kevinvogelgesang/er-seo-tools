@@ -250,4 +250,15 @@ describe('BaseParser (via TestParser)', () => {
       expect(EmptyPatternParser.matchesFile('anything.csv')).toBe(false);
     });
   });
+
+  // ---- matchesContent static method ----
+  describe('matchesContent', () => {
+    it('returns false by default for any headers', () => {
+      class StubParser extends BaseParser {
+        static filenamePattern = 'stub';
+        parse() { return {}; }
+      }
+      expect(StubParser.matchesContent(['Keyword', 'Position', 'URL'])).toBe(false);
+    });
+  });
 });

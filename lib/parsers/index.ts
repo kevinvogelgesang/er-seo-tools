@@ -175,14 +175,44 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
 };
 
 /**
- * Find the appropriate parser for a given filename
+ * Find the appropriate parser for a given filename.
+ * Falls back to content-based detection when no filename match is found.
+ *
+ * Detection order:
+ * 1. Filename-based (all SF parsers) — fast path
+ * 2. Raw content detection — for files with metadata headers (e.g. Position Tracking)
+ * 3. Header-based detection — for clean CSV files with dynamic filenames (e.g. SEMRush Organic)
  */
-export function findParserForFile(filename: string): typeof BaseParser | null {
+export function findParserForFile(
+  filename: string,
+  rawContent?: string
+): typeof BaseParser | null {
+  // 1. Filename-based detection (fast path, covers all SF parsers)
   for (const ParserClass of PARSERS) {
     if (ParserClass.matchesFile(filename)) {
       return ParserClass;
     }
   }
+
+  if (!rawContent) return null;
+
+  // 2. Raw content detection (for files with metadata headers, e.g. Position Tracking)
+  for (const ParserClass of PARSERS) {
+    const cls = ParserClass as unknown as { matchesRawContent?(content: string): boolean };
+    if (cls.matchesRawContent?.(rawContent)) {
+      return ParserClass;
+    }
+  }
+
+  // 3. Header-based detection (for clean CSV files with dynamic filenames, e.g. SEMRush Organic)
+  const firstLine = rawContent.replace(/^\uFEFF/, '').split('\n')[0] ?? '';
+  const headers = firstLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  for (const ParserClass of PARSERS) {
+    if (ParserClass.matchesContent(headers)) {
+      return ParserClass;
+    }
+  }
+
   return null;
 }
 
