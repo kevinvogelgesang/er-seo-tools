@@ -159,6 +159,7 @@ export interface TopOrganicPage {
 export interface KeywordSignals {
   semrush_connected: boolean;
   gsc_connected: boolean;
+  ga4_connected: boolean;
   total_ranking_keywords: number;
   keyword_cannibalization: CannibalizedKeyword[];
   optimization_gaps: OptimizationGap[];
@@ -274,6 +275,10 @@ export interface InternalParserResult extends ParsedData {
   link_score?: LinkScoreData; // NEW
   near_duplicates?: NearDuplicateData; // NEW
   folder_depth?: FolderDepthData; // NEW
+  gsc_connected?: boolean; // GSC columns present in CSV
+  ga4_connected?: boolean; // GA4 columns present in CSV
+  gsc_top_pages?: GscPageStat[]; // top 50 pages by impressions
+  ga4_top_pages?: Ga4PageStat[]; // top 50 pages by sessions
 }
 
 // NEW — Link Score (SF internal PageRank-like metric 0–100)

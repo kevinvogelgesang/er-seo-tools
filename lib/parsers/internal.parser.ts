@@ -9,6 +9,8 @@ import {
   LinkScoreData, // NEW
   NearDuplicateData, // NEW
   FolderDepthData, // NEW
+  GscPageStat,
+  Ga4PageStat,
   Issue
 } from '../types';
 import { toNumber, toString } from '../utils/columnMapper';
@@ -78,6 +80,23 @@ export class InternalParser extends BaseParser {
 
     const nearDuplicateData = this.parseNearDuplicates();
     if (nearDuplicateData !== null) result.near_duplicates = nearDuplicateData;
+
+    // GSC and GA4 column extraction
+    const gscConnected = this.findColumn(['Clicks']) !== null && this.findColumn(['Impressions']) !== null;
+    const ga4Connected = this.findColumn(['GA4 Sessions']) !== null;
+
+    result.gsc_connected = gscConnected;
+    result.ga4_connected = ga4Connected;
+
+    if (gscConnected) {
+      const gscPages = this.parseGscPages();
+      if (gscPages.length > 0) result.gsc_top_pages = gscPages;
+    }
+
+    if (ga4Connected) {
+      const ga4Pages = this.parseGa4Pages();
+      if (ga4Pages.length > 0) result.ga4_top_pages = ga4Pages;
+    }
 
     return result;
   }
@@ -483,5 +502,102 @@ export class InternalParser extends BaseParser {
       near_duplicate_urls: nearDuplicateUrls,
       truncated: nearDuplicateUrls.length >= 50,
     };
+  }
+
+  /**
+   * Parse a percentage string like "3.5%" → 3.5, or a plain number like 0.035 → 3.5 (if < 1).
+   * Returns NaN on failure.
+   */
+  private parsePct(raw: string | number | null | undefined): number {
+    if (raw === null || raw === undefined) return NaN;
+    if (typeof raw === 'number') {
+      // SF sometimes stores CTR/engagement as a decimal fraction (0–1)
+      // but our column values from PapaParse dynamicTyping may be numeric.
+      // If the value looks like a fraction (0–1) and no % suffix, keep as-is scaled to pct.
+      // However, the real SF CSV always has "%" suffix for these fields, so after
+      // dynamicTyping a string like "3.5%" would be a string. If it's already a number
+      // it was a plain decimal — just return as-is (no scaling needed for position/duration).
+      return raw;
+    }
+    const str = String(raw).trim();
+    if (str.endsWith('%')) {
+      return parseFloat(str.slice(0, -1));
+    }
+    return parseFloat(str);
+  }
+
+  // GSC — extract per-URL data, skip 0-impression rows, sort desc by impressions, cap at 50
+  private parseGscPages(): GscPageStat[] {
+    const addressCol = this.findColumn(['Address', 'URL']);
+    const clicksCol = this.findColumn(['Clicks']);
+    const impressionsCol = this.findColumn(['Impressions']);
+    const ctrCol = this.findColumn(['CTR']);
+    const positionCol = this.findColumn(['Position']);
+
+    if (!addressCol || !clicksCol || !impressionsCol) return [];
+
+    const pages: GscPageStat[] = [];
+
+    for (const row of this.data) {
+      const url = toString(row[addressCol]);
+      if (!url) continue;
+
+      const impressions = toNumber(row[impressionsCol]) ?? 0;
+      if (impressions === 0) continue;
+
+      const clicks = toNumber(row[clicksCol]) ?? 0;
+      const ctr_pct = ctrCol ? this.parsePct(row[ctrCol] as string | number | null) : 0;
+      const average_position = positionCol ? this.parsePct(row[positionCol] as string | number | null) : 0;
+
+      pages.push({
+        url,
+        clicks: Math.round(clicks),
+        impressions: Math.round(impressions),
+        ctr_pct: isNaN(ctr_pct) ? 0 : ctr_pct,
+        average_position: isNaN(average_position) ? 0 : average_position,
+      });
+    }
+
+    pages.sort((a, b) => b.impressions - a.impressions);
+    return pages.slice(0, 50);
+  }
+
+  // GA4 — extract per-URL data, skip 0-session rows, sort desc by sessions, cap at 50
+  private parseGa4Pages(): Ga4PageStat[] {
+    const addressCol = this.findColumn(['Address', 'URL']);
+    const sessionsCol = this.findColumn(['GA4 Sessions']);
+    const viewsCol = this.findColumn(['GA4 Views']);
+    const engagedCol = this.findColumn(['GA4 Engaged sessions']);
+    const bounceCol = this.findColumn(['GA4 Bounce rate']);
+    const durationCol = this.findColumn(['GA4 Average session duration']);
+
+    if (!addressCol || !sessionsCol) return [];
+
+    const pages: Ga4PageStat[] = [];
+
+    for (const row of this.data) {
+      const url = toString(row[addressCol]);
+      if (!url) continue;
+
+      const sessions = toNumber(row[sessionsCol]) ?? 0;
+      if (sessions === 0) continue;
+
+      const views = viewsCol ? (toNumber(row[viewsCol]) ?? 0) : 0;
+      const engaged_sessions = engagedCol ? (toNumber(row[engagedCol]) ?? 0) : 0;
+      const bounce_rate_pct = bounceCol ? this.parsePct(row[bounceCol] as string | number | null) : 0;
+      const average_session_duration_seconds = durationCol ? this.parsePct(row[durationCol] as string | number | null) : 0;
+
+      pages.push({
+        url,
+        sessions: Math.round(sessions),
+        views: Math.round(views),
+        engaged_sessions: Math.round(engaged_sessions),
+        bounce_rate_pct: isNaN(bounce_rate_pct) ? 0 : bounce_rate_pct,
+        average_session_duration_seconds: isNaN(average_session_duration_seconds) ? 0 : average_session_duration_seconds,
+      });
+    }
+
+    pages.sort((a, b) => b.sessions - a.sessions);
+    return pages.slice(0, 50);
   }
 }

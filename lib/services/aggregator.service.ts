@@ -196,6 +196,26 @@ export class AggregatorService {
         total_parsers_available: PARSERS.length,
       },
     };
+
+    // Populate keyword_signals connection flags from internal parser data
+    const internal = this.parsedData.internal || {};
+    const gscConnected = !!(internal.gsc_connected);
+    const ga4Connected = !!(internal.ga4_connected);
+    const semrushConnected = !!(this.parsedData.semrushorganicpositions || this.parsedData.semrushorganicpages);
+
+    if (gscConnected || ga4Connected || semrushConnected) {
+      result.keyword_signals = {
+        semrush_connected: semrushConnected,
+        gsc_connected: gscConnected,
+        ga4_connected: ga4Connected,
+        total_ranking_keywords: 0,
+        keyword_cannibalization: [],
+        optimization_gaps: [],
+        quick_wins: [],
+        top_pages_by_organic_traffic: [],
+      };
+    }
+
     result.metadata.health_score = computeHealthScore(result);
     return result;
   }
@@ -631,6 +651,15 @@ export class AggregatorService {
     const responseTime = this.parsedData.responsetime as Record<string, unknown> | undefined;
     if (responseTime?.stats) {
       performance.server_response = responseTime.stats;
+    }
+
+    // GSC and GA4 top pages extracted from internal_all.csv
+    const internal = this.parsedData.internal || {};
+    if (internal.gsc_top_pages) {
+      performance.gsc_top_pages = internal.gsc_top_pages;
+    }
+    if (internal.ga4_top_pages) {
+      performance.ga4_top_pages = internal.ga4_top_pages;
     }
 
     return performance;
