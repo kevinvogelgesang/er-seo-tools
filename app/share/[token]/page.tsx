@@ -100,6 +100,8 @@ export default async function SharedReportPage({ params }: Props) {
               <SummaryCard
                 summary={result.crawl_summary}
                 healthScore={result.metadata?.health_score}
+                gscConnected={result.keyword_signals?.gsc_connected}
+                gscTopPages={result.performance?.gsc_top_pages}
               />
             </div>
 

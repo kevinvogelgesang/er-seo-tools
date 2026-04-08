@@ -71,7 +71,12 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: summary + pie */}
           <div className="space-y-6">
-            <SummaryCard summary={result.crawl_summary} healthScore={result.metadata?.health_score} />
+            <SummaryCard
+              summary={result.crawl_summary}
+              healthScore={result.metadata?.health_score}
+              gscConnected={result.keyword_signals?.gsc_connected}
+              gscTopPages={result.performance?.gsc_top_pages}
+            />
             <ChartCard title="Issue Breakdown">
               <IssuesPieChart issues={result.issues} />
             </ChartCard>

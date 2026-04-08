@@ -1,4 +1,4 @@
-import { CrawlSummary } from '@/lib/types';
+import { CrawlSummary, GscPageStat } from '@/lib/types';
 
 interface StatItemProps {
   label: string;
@@ -61,9 +61,17 @@ function HealthBadge({ score }: HealthBadgeProps) {
 interface SummaryCardProps {
   summary: CrawlSummary;
   healthScore?: number;
+  gscConnected?: boolean;
+  gscTopPages?: GscPageStat[];
 }
 
-export function SummaryCard({ summary, healthScore }: SummaryCardProps) {
+export function SummaryCard({ summary, healthScore, gscConnected, gscTopPages }: SummaryCardProps) {
+  const showGsc = gscConnected === true && gscTopPages && gscTopPages.length > 0;
+  const gscTotalClicks = showGsc ? gscTopPages!.reduce((sum, p) => sum + p.clicks, 0) : 0;
+  const gscTotalImpressions = showGsc ? gscTopPages!.reduce((sum, p) => sum + p.impressions, 0) : 0;
+  const gscAvgPosition = showGsc
+    ? parseFloat((gscTopPages!.reduce((sum, p) => sum + p.average_position, 0) / gscTopPages!.length).toFixed(1))
+    : 0;
   return (
     <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm p-6 border border-gray-100 dark:border-navy-border">
       <h2 className="text-base font-semibold text-[#1c2d4a] dark:text-white mb-4">Crawl Summary</h2>
@@ -87,6 +95,14 @@ export function SummaryCard({ summary, healthScore }: SummaryCardProps) {
             <StatItem label="Avg Word Count" value={summary.avg_word_count} />
             <StatItem label="Avg Crawl Depth" value={summary.avg_crawl_depth} />
             <StatItem label="Max Crawl Depth" value={summary.max_crawl_depth} />
+          </>
+        )}
+        {showGsc && (
+          <>
+            <div className="h-2" />
+            <StatItem label="Total GSC Clicks" value={gscTotalClicks.toLocaleString()} />
+            <StatItem label="Total GSC Impressions" value={gscTotalImpressions.toLocaleString()} />
+            <StatItem label="Avg GSC Position" value={gscAvgPosition.toFixed(1)} />
           </>
         )}
       </div>
