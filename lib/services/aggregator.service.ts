@@ -842,7 +842,7 @@ export class AggregatorService {
       if (dupTitleIssue?.groups) {
         for (const g of dupTitleIssue.groups) {
           if (g.title) {
-            duplicate_titles.push({ title: g.title, affected_urls: [] });
+            duplicate_titles.push({ title: g.title, affected_urls: g.urls ?? [] });
           }
         }
       }
@@ -854,11 +854,11 @@ export class AggregatorService {
     if (metaData?.issues) {
       const metaIssues = metaData.issues as Issue[];
       const dupMetaIssue = metaIssues.find(i => i.type === 'duplicate_meta_description');
-      if (dupMetaIssue) {
-        // Parser only records a count; groups not stored — expose count as placeholder entries
-        const count = dupMetaIssue.count || 0;
-        if (count > 0) {
-          duplicate_meta_descriptions.push({ meta_description: `${count} groups detected`, affected_urls: [] });
+      if (dupMetaIssue?.groups) {
+        for (const g of dupMetaIssue.groups) {
+          if (g.meta_description) {
+            duplicate_meta_descriptions.push({ meta_description: g.meta_description, affected_urls: g.urls ?? [] });
+          }
         }
       }
     }
@@ -872,7 +872,7 @@ export class AggregatorService {
       if (dupH1Issue?.groups) {
         for (const g of dupH1Issue.groups) {
           if (g.h1) {
-            duplicate_h1s.push({ h1: g.h1, affected_urls: [] });
+            duplicate_h1s.push({ h1: g.h1, affected_urls: g.urls ?? [] });
           }
         }
       }

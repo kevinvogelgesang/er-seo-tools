@@ -100,15 +100,25 @@ export class MetaDescriptionParser extends BaseParser {
     // Duplicates
     if (metaCol) {
       const metaCounts: Record<string, number> = {};
+      const metaUrlMap: Record<string, string[]> = {};
       for (let i = 0; i < this.data.length; i++) {
         if (!mask[i]) continue;
         const meta = toString(this.data[i][metaCol]);
         if (meta) {
           metaCounts[meta] = (metaCounts[meta] || 0) + 1;
+          if (addressCol) {
+            if (!metaUrlMap[meta]) metaUrlMap[meta] = [];
+            if (metaUrlMap[meta].length < 50) {
+              metaUrlMap[meta].push(toString(this.data[i][addressCol]));
+            }
+          }
         }
       }
 
-      const duplicates = Object.entries(metaCounts).filter(([_, count]) => count > 1);
+      const duplicates = Object.entries(metaCounts)
+        .filter(([_, count]) => count > 1)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
 
       if (duplicates.length > 0) {
         issues.push({
@@ -116,6 +126,11 @@ export class MetaDescriptionParser extends BaseParser {
           severity: 'warning',
           count: duplicates.length,
           description: `${duplicates.length} groups of pages with duplicate meta descriptions`,
+          groups: duplicates.map(([meta, count]) => ({
+            meta_description: meta.slice(0, 200),
+            count,
+            urls: metaUrlMap[meta] ?? [],
+          })),
         });
       }
     }

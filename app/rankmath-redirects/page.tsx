@@ -191,21 +191,6 @@ Rules:
 - Add a comment above each row showing the redirect mapping
 - End the file with a comment reminding me to run: wp transient delete --all`
 
-const PROMPT_B = `You are a WordPress redirect specialist. Generate a SQL INSERT file for Rank Math's wp_rank_math_redirections table.
-
-Site: [SITE_DOMAIN e.g. example.com]
-DB prefix: [DB_PREFIX e.g. wp_]
-
-Below is a CSV export from the Redirection plugin. Use the source and destination URL columns to build the redirect list:
-[PASTE CSV CONTENTS HERE]
-
-Rules:
-- All redirects should be 301
-- The \`sources\` column must be correctly PHP-serialized with accurate byte-length counts
-- The \`url_to\` column should use relative paths (e.g. /new-page/)
-- Include hits=0, status='active', created=NOW(), updated=NOW()
-- Add a comment above each row showing the redirect mapping
-- End the file with a comment reminding me to run: wp transient delete --all`
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function RankMathRedirectsPage() {
@@ -355,7 +340,7 @@ export default function RankMathRedirectsPage() {
         {workflow === 'b' && (
           <div>
             <Callout type="info" icon="ℹ">
-              Use this workflow when a site already has redirects stored in <strong>Safe Redirect Manager</strong> that need to be migrated into Rank Math. The Redirection plugin acts as a temporary bridge — it imports from Safe Redirect Manager, exports to CSV, and then both plugins are removed once the SQL is in Rank Math.
+              Use this workflow when a site already has redirects stored in <strong>Safe Redirect Manager</strong> that need to be migrated into Rank Math. The Redirection plugin acts as a temporary bridge — it imports from Safe Redirect Manager, then Rank Math imports directly from Redirection. Both plugins are removed once the migration is complete.
             </Callout>
             <div className="mt-8" />
 
@@ -388,82 +373,35 @@ export default function RankMathRedirectsPage() {
               <Card>
                 <CodeBlock label="wp-cli — run the import">{'wp redirection import plugin safe-redirect-manager'}</CodeBlock>
                 <Callout type="warn" icon="⚠">If this command returns an error or isn&apos;t recognised, fall back to WP Admin → <strong>Tools → Redirection → Import/Export → Import from plugin → Safe Redirect Manager</strong>. CLI import availability depends on the installed version of Redirection.</Callout>
-                <Callout type="success" icon="✓">After importing, spot-check the redirect count makes sense before proceeding to export.</Callout>
+                <Callout type="success" icon="✓">After importing, spot-check the redirect count looks right before moving on.</Callout>
               </Card>
             </div>
 
-            <PhaseBanner text="— phase 04   export from redirection" />
+            <PhaseBanner text="— phase 04   import into rank math" />
 
             <div className="mb-9">
-              <SectionHeader step={3} title="Export Redirects to CSV" phase="SSH" />
+              <SectionHeader step={3} title="Import from Redirection into Rank Math" phase="WP Admin" />
               <Card>
-                <CodeBlock label="wp-cli — export all redirects to csv">{'wp redirection list --format=csv > redirects_export.csv'}</CodeBlock>
-                <CodeBlock label="terminal — copy the csv down to your local machine">{'scp [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/redirects_export.csv ~/Desktop/'}</CodeBlock>
-                <Callout type="info" icon="ℹ">Open the CSV locally and confirm the <strong>source</strong> and <strong>url</strong> columns look correct before pasting into the Claude prompt.</Callout>
+                <P>In WP Admin, navigate to <strong>Rank Math → General Settings → Import &amp; Export</strong>. Under the import section, select <strong>Redirection</strong> as the source and run the import.</P>
+                <Callout type="success" icon="✓">Confirm in WP Admin → <strong>Rank Math → Redirections</strong> that the redirect count matches what was in Redirection before proceeding.</Callout>
               </Card>
             </div>
 
-            <PhaseBanner text="— phase 05   generate the sql file" />
+            <PhaseBanner text="— phase 05   verify" />
 
             <div className="mb-9">
-              <SectionHeader step="AI" variant="purple" title="Generate SQL with Claude" phase="Prep" />
-              <Card>
-                <P>Use the prompt template below. Paste the contents of your exported CSV directly into the prompt.</P>
-                <PromptBox id="prompt-b" label="// claude prompt template">{PROMPT_B}</PromptBox>
-                <Callout type="info" icon="ℹ">Never hand-write the serialized <strong>sources</strong> value. The byte-length numbers (s:29:) must exactly match the string — even one character off breaks the redirect silently.</Callout>
-              </Card>
-            </div>
-
-            <PhaseBanner text="— phase 06   transfer sql file to server" />
-
-            <div className="mb-9">
-              <SectionHeader step={4} title="Upload the .sql File" phase="Transfer" />
-              <Card>
-                <P>Choose one method:</P>
-                <Sub>Option A — SCP from your local machine</Sub>
-                <CodeBlock label="terminal — local machine">{'scp /path/to/redirects.sql [SSH_USER]@[SERVER_IP]:/home/runcloud/webapps/[SITE_NAME]/'}</CodeBlock>
-                <Sub>Option B — Paste directly on the server (already SSH&apos;d in)</Sub>
-                <CodeBlock label="create and open the file">{'nano redirects.sql'}</CodeBlock>
-                <Callout type="info" icon="ℹ">Paste your SQL content into nano, then save: <strong>Ctrl+X</strong> → <strong>Y</strong> → <strong>Enter</strong></Callout>
-              </Card>
-            </div>
-
-            <PhaseBanner text="— phase 07   execute" />
-
-            <div className="mb-9">
-              <SectionHeader step={5} title="Run the SQL Import" phase="Execute" />
-              <Card>
-                <Callout type="info" icon="ℹ">You should still be SSH&apos;d in from Phase 02. If your session timed out: <code>ssh [SSH_USER]@[SERVER_IP]</code> then <code>cd /home/runcloud/webapps/[SITE_NAME]/</code></Callout>
-                <CodeBlock label="wp-cli">{'wp db query < redirects.sql'}</CodeBlock>
-              </Card>
-            </div>
-
-            <div className="mb-9">
-              <SectionHeader step={6} title="Clear the Redirect Cache" phase="Execute" />
-              <Card>
-                <CodeBlock label="wp-cli">{'wp transient delete --all'}</CodeBlock>
-                <Callout type="warn" icon="⚠">Don&apos;t skip this. Without clearing the cache, redirects may not fire immediately even if the DB rows are correct.</Callout>
-                <Sub>Then flush the site cache from WP Admin:</Sub>
-                <Callout type="info" icon="🖥">WP Admin → <strong>Rank Math → Status &amp; Tools → Tools tab</strong> → click <strong>&quot;Flush Redirections Cache&quot;</strong><br /><br />If your site uses an additional caching plugin (e.g. WP Rocket, LiteSpeed, W3 Total Cache), flush that cache too from its own menu.</Callout>
-              </Card>
-            </div>
-
-            <PhaseBanner text="— phase 08   verify" />
-
-            <div className="mb-9">
-              <SectionHeader step={8} variant="blue" title="Verify the Rows Were Inserted" phase="Verify" />
+              <SectionHeader step={4} variant="blue" title="Verify the Redirects" phase="Verify" />
               <Card>
                 <CodeBlock label="wp-cli — check all redirects">{'wp db query "SELECT id, url_to, header_code, status FROM [DB_PREFIX]rank_math_redirections;"'}</CodeBlock>
-                <CodeBlock label="wp-cli — check for any remaining 302s">{'wp db query "SELECT id, url_to, header_code FROM [DB_PREFIX]rank_math_redirections WHERE header_code != 301;"'}</CodeBlock>
                 <CodeBlock label="terminal — spot-check a live redirect">{'curl -I https://[SITE_DOMAIN]/[old-url-path]/\n# Look for: HTTP/2 301 and Location: https://[SITE_DOMAIN]/[new-url-path]/'}</CodeBlock>
-                <Callout type="success" icon="✓">Also confirm in WP Admin → Rank Math → Redirections. All rows should appear as active 301s.</Callout>
+                <Callout type="success" icon="✓">All rows should appear as active 301s. If you see 302s, use the &quot;Fix Accidental 302s&quot; step below before removing the plugins.</Callout>
               </Card>
             </div>
 
-            <PhaseBanner text="— phase 09   cleanup — remove temporary plugins" />
+            <PhaseBanner text="— phase 06   cleanup — remove temporary plugins" />
 
             <div className="mb-9">
-              <SectionHeader step={9} variant="danger" title="Remove Redirection Plugin" phase="SSH" />
+              <SectionHeader step={5} variant="danger" title="Remove Redirection Plugin" phase="SSH" />
               <Card>
                 <CodeBlock label="wp-cli — deactivate and delete">{'wp plugin deactivate redirection && wp plugin delete redirection'}</CodeBlock>
                 <Callout type="danger" icon="⚠">Do not leave Redirection active. It runs its own redirect logic and will conflict with Rank Math, causing duplicate or unexpected redirect behaviour.</Callout>
@@ -471,7 +409,7 @@ export default function RankMathRedirectsPage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step={10} variant="danger" title="Remove Safe Redirect Manager" phase="SSH" />
+              <SectionHeader step={6} variant="danger" title="Remove Safe Redirect Manager" phase="SSH" />
               <Card>
                 <CodeBlock label="wp-cli — deactivate and delete">{'wp plugin deactivate safe-redirect-manager && wp plugin delete safe-redirect-manager'}</CodeBlock>
                 <Callout type="danger" icon="⚠">All redirects are now managed by Rank Math. Leaving Safe Redirect Manager active means two plugins are handling the same redirects — remove it entirely.</Callout>
@@ -483,7 +421,7 @@ export default function RankMathRedirectsPage() {
             <div className="mb-9">
               <SectionHeader step="↻" variant="warn" title="Fix Accidental 302s (if needed)" phase="Cleanup" />
               <Card>
-                <P>If the DB query above shows any 302s that should be 301s, bulk-update them in one command:</P>
+                <P>If the verify step above shows any 302s that should be 301s, bulk-update them in one command:</P>
                 <CodeBlock label="wp-cli — bulk fix 302 → 301">{'wp db query "UPDATE [DB_PREFIX]rank_math_redirections SET header_code = 301 WHERE header_code = 302;"'}</CodeBlock>
                 <CodeBlock label="wp-cli — clear cache after update">{'wp transient delete --all'}</CodeBlock>
                 <Sub>Then flush the site cache from WP Admin:</Sub>

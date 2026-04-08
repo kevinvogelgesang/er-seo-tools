@@ -49,11 +49,18 @@ export class H1Parser extends BaseParser {
     // Duplicate H1s across pages
     if (h1Col) {
       const h1Counts: Record<string, number> = {};
+      const h1UrlMap: Record<string, string[]> = {};
       for (let i = 0; i < this.data.length; i++) {
         if (!mask[i]) continue;
         const h1 = toString(this.data[i][h1Col]);
         if (h1) {
           h1Counts[h1] = (h1Counts[h1] || 0) + 1;
+          if (addressCol) {
+            if (!h1UrlMap[h1]) h1UrlMap[h1] = [];
+            if (h1UrlMap[h1].length < 50) {
+              h1UrlMap[h1].push(toString(this.data[i][addressCol]));
+            }
+          }
         }
       }
 
@@ -71,6 +78,7 @@ export class H1Parser extends BaseParser {
           groups: duplicates.map(([h1, count]) => ({
             h1: h1.slice(0, 100),
             count,
+            urls: h1UrlMap[h1] ?? [],
           })),
         });
       }

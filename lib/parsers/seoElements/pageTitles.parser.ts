@@ -101,11 +101,18 @@ export class PageTitlesParser extends BaseParser {
     // Duplicate titles
     if (titleCol) {
       const titleCounts: Record<string, number> = {};
+      const titleUrlMap: Record<string, string[]> = {};
       for (let i = 0; i < this.data.length; i++) {
         if (!mask[i]) continue;
         const title = toString(this.data[i][titleCol]);
         if (title) {
           titleCounts[title] = (titleCounts[title] || 0) + 1;
+          if (addressCol) {
+            if (!titleUrlMap[title]) titleUrlMap[title] = [];
+            if (titleUrlMap[title].length < 50) {
+              titleUrlMap[title].push(toString(this.data[i][addressCol]));
+            }
+          }
         }
       }
 
@@ -123,6 +130,7 @@ export class PageTitlesParser extends BaseParser {
           groups: duplicates.map(([title, count]) => ({
             title: title.slice(0, 100),
             count,
+            urls: titleUrlMap[title] ?? [],
           })),
         });
       }
