@@ -167,6 +167,10 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       },
     });
 
+    // Upload files are no longer needed — result is stored in the DB.
+    // Delete immediately to reclaim disk space.
+    await fs.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+
     return NextResponse.json({ status: 'complete', result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
