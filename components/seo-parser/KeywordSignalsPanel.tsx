@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -180,8 +180,8 @@ function CannibalizationTable({ rows }: { rows: CannibalizationAlert[] }) {
         {sorted.map((row, idx) => {
           const expanded = expandedRows.has(idx);
           return (
-            <>
-              <tr key={idx}>
+            <React.Fragment key={idx}>
+              <tr>
                 <Td className="max-w-[180px]">
                   <span className="block truncate font-medium" title={row.keyword}>
                     {row.keyword}
@@ -203,7 +203,7 @@ function CannibalizationTable({ rows }: { rows: CannibalizationAlert[] }) {
                 </Td>
               </tr>
               {expanded && (
-                <tr key={`${idx}-detail`}>
+                <tr>
                   <td colSpan={4} className="pb-3 pt-0 pr-3">
                     <ul className="ml-2 space-y-1 border-l-2 border-gray-100 dark:border-navy-border pl-3">
                       {row.competing_urls.map((cu, ci) => (
@@ -223,7 +223,7 @@ function CannibalizationTable({ rows }: { rows: CannibalizationAlert[] }) {
                   </td>
                 </tr>
               )}
-            </>
+            </React.Fragment>
           );
         })}
       </tbody>
@@ -314,8 +314,8 @@ function OptimizationGapsTable({ rows }: { rows: OptimizationGap[] }) {
         {sorted.map((row, idx) => {
           const expanded = expandedRows.has(idx);
           return (
-            <>
-              <tr key={idx}>
+            <React.Fragment key={idx}>
+              <tr>
                 <Td className="max-w-[180px]">
                   <span className="block truncate text-xs" title={row.url}>
                     {row.url}
@@ -338,7 +338,7 @@ function OptimizationGapsTable({ rows }: { rows: OptimizationGap[] }) {
                 </Td>
               </tr>
               {expanded && (
-                <tr key={`${idx}-detail`}>
+                <tr>
                   <td colSpan={3} className="pb-3 pt-0 pr-3">
                     <ul className="ml-2 space-y-1 border-l-2 border-gray-100 dark:border-navy-border pl-3">
                       {row.top_ranking_keywords.map((kw, ki) => (
@@ -356,7 +356,7 @@ function OptimizationGapsTable({ rows }: { rows: OptimizationGap[] }) {
                   </td>
                 </tr>
               )}
-            </>
+            </React.Fragment>
           );
         })}
       </tbody>
