@@ -11,6 +11,8 @@ import { ExportButtons } from './ExportButtons';
 import { CopyToClipboard } from './CopyToClipboard';
 import { PageDetailModal } from './PageDetailModal';
 import { ShareModal } from './ShareModal';
+import { DuplicateContentSection } from './DuplicateContentSection';
+import { KeywordSignalsPanel } from './KeywordSignalsPanel';
 
 const IssuesPieChart = dynamic(() => import('./charts/IssuesPieChart').then(m => ({ default: m.IssuesPieChart })), { ssr: false });
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
@@ -100,6 +102,16 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
             </ChartCard>
           )}
         </div>
+
+        {/* Duplicate content section */}
+        {result.duplicate_content && (
+          <DuplicateContentSection data={result.duplicate_content} />
+        )}
+
+        {/* Keyword signals section */}
+        {result.keyword_signals && (
+          <KeywordSignalsPanel data={result.keyword_signals} />
+        )}
 
         {/* Metadata footer */}
         <div className="text-xs text-gray-400 dark:text-white/40 pb-4">
