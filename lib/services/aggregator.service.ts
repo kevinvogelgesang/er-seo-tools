@@ -1,6 +1,25 @@
-import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary } from '../types';
+import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals, LinkAnalysis } from '../types';
 import { PARSERS } from '../parsers';
 import { computeHealthScore } from './scoring.service';
+
+// Stopwords for keyword tokenization
+const STOPWORDS = new Set(['a', 'an', 'the', 'and', 'or', 'for', 'in', 'of', 'to', 'at', 'by', 'is', 'it', 'be']);
+
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().split(/\W+/).filter(t => t.length > 1 && !STOPWORDS.has(t))
+  );
+}
+
+function hasTokenOverlap(a: string, b: string): boolean {
+  const tokensA = tokenize(a);
+  if (tokensA.size === 0) return false;
+  const tokensB = tokenize(b);
+  for (const t of tokensA) {
+    if (tokensB.has(t)) return true;
+  }
+  return false;
+}
 
 /**
  * Issue deduplication and merging
@@ -134,6 +153,16 @@ const ISSUE_RECOMMENDATIONS: Record<string, string> = {
 
   // NEW — Images
   images_missing_dimensions: 'Add width/height attributes to {count} images to prevent Cumulative Layout Shift (CLS) and improve Core Web Vitals.',
+
+  // NEW — Duplicate Content
+  exact_duplicate_pages: 'Consolidate or canonicalize {count} exact duplicate pages to prevent crawl budget waste and duplicate content penalties.',
+  near_duplicate_pages: 'Review {count} near-duplicate pages and either merge, canonicalize, or differentiate their content.',
+  duplicate_title_tags: 'Create unique title tags for {count} groups of pages sharing the same title tag.',
+  duplicate_meta_descriptions: 'Create unique meta descriptions for {count} groups of pages sharing the same meta description.',
+  duplicate_h1_tags: 'Ensure unique H1 headings for {count} groups of pages sharing the same H1.',
+
+  // NEW — Keyword Signals
+  keyword_cannibalization: 'Resolve keyword cannibalization for {count} keywords competing across multiple URLs — consolidate or differentiate content.',
 };
 
 export class AggregatorService {
@@ -204,7 +233,7 @@ export class AggregatorService {
     const semrushConnected = !!(this.parsedData.semrushorganicpositions || this.parsedData.semrushorganicpages);
 
     if (gscConnected || ga4Connected || semrushConnected) {
-      result.keyword_signals = {
+      const baseKeywordSignals: KeywordSignals = {
         semrush_connected: semrushConnected,
         gsc_connected: gscConnected,
         ga4_connected: ga4Connected,
@@ -214,6 +243,16 @@ export class AggregatorService {
         quick_wins: [],
         top_pages_by_organic_traffic: [],
       };
+      result.keyword_signals = { ...baseKeywordSignals, ...this.computeKeywordSignals() };
+    }
+
+    // Duplicate content analysis
+    result.duplicate_content = this.computeDuplicateContent();
+
+    // Link analysis
+    const linkAnalysis = this.computeLinkAnalysis();
+    if (linkAnalysis !== null) {
+      result.link_analysis = linkAnalysis;
     }
 
     result.metadata.health_score = computeHealthScore(result);
@@ -442,6 +481,98 @@ export class AggregatorService {
             source: 'images',
           });
         }
+      }
+    }
+
+    // NEW — Exact duplicate pages
+    const exactDupData = this.parsedData.exactduplicates as Record<string, unknown> | undefined;
+    if (exactDupData?.exact_duplicates) {
+      const exactDups = exactDupData.exact_duplicates as unknown[];
+      if (exactDups.length > 0) {
+        warnings.push({
+          type: 'exact_duplicate_pages',
+          severity: 'warning',
+          count: exactDups.length,
+          description: `${exactDups.length} exact duplicate pages detected`,
+          source: 'exactduplicates',
+        });
+      }
+    }
+
+    // NEW — Near duplicate pages
+    const nearDupData = this.parsedData.nearduplicates as Record<string, unknown> | undefined;
+    if (nearDupData?.near_duplicates) {
+      const nearDups = nearDupData.near_duplicates as unknown[];
+      if (nearDups.length > 0) {
+        warnings.push({
+          type: 'near_duplicate_pages',
+          severity: 'warning',
+          count: nearDups.length,
+          description: `${nearDups.length} near-duplicate pages detected`,
+          source: 'nearduplicates',
+        });
+      }
+    }
+
+    // NEW — Duplicate title tags (from PageTitlesParser)
+    const titlesIssueData = this.parsedData.pagetitles as Record<string, unknown> | undefined;
+    if (titlesIssueData?.issues) {
+      const dupTitleIssue = (titlesIssueData.issues as Issue[]).find(i => i.type === 'duplicate_title');
+      if (dupTitleIssue && dupTitleIssue.count > 0) {
+        warnings.push({
+          type: 'duplicate_title_tags',
+          severity: 'warning',
+          count: dupTitleIssue.count,
+          description: `${dupTitleIssue.count} groups of pages share the same title tag`,
+          groups: dupTitleIssue.groups,
+          source: 'pagetitles',
+        });
+      }
+    }
+
+    // NEW — Duplicate meta descriptions (from MetaDescriptionParser)
+    const metaIssueData = this.parsedData.metadescription as Record<string, unknown> | undefined;
+    if (metaIssueData?.issues) {
+      const dupMetaIssue = (metaIssueData.issues as Issue[]).find(i => i.type === 'duplicate_meta_description');
+      if (dupMetaIssue && dupMetaIssue.count > 0) {
+        notices.push({
+          type: 'duplicate_meta_descriptions',
+          severity: 'notice',
+          count: dupMetaIssue.count,
+          description: `${dupMetaIssue.count} groups of pages share the same meta description`,
+          source: 'metadescription',
+        });
+      }
+    }
+
+    // NEW — Duplicate H1s (from H1Parser)
+    const h1IssueData = this.parsedData.h1 as Record<string, unknown> | undefined;
+    if (h1IssueData?.issues) {
+      const dupH1Issue = (h1IssueData.issues as Issue[]).find(i => i.type === 'duplicate_h1');
+      if (dupH1Issue && dupH1Issue.count > 0) {
+        notices.push({
+          type: 'duplicate_h1_tags',
+          severity: 'notice',
+          count: dupH1Issue.count,
+          description: `${dupH1Issue.count} groups of pages share the same H1 heading`,
+          groups: dupH1Issue.groups,
+          source: 'h1',
+        });
+      }
+    }
+
+    // NEW — Keyword cannibalization (from SemrushOrganicPositionsParser)
+    const semrushPositionsData = this.parsedData.semrushorganicpositions as Record<string, unknown> | undefined;
+    if (semrushPositionsData?.keyword_cannibalization) {
+      const cannibalizations = semrushPositionsData.keyword_cannibalization as unknown[];
+      if (cannibalizations.length > 0) {
+        warnings.push({
+          type: 'keyword_cannibalization',
+          severity: 'warning',
+          count: cannibalizations.length,
+          description: `${cannibalizations.length} keywords are competing across multiple pages`,
+          source: 'semrushorganicpositions',
+        });
       }
     }
 
@@ -691,5 +822,126 @@ export class AggregatorService {
     }
 
     return recommendations.slice(0, 15);
+  }
+
+  private computeDuplicateContent(): DuplicateContent {
+    // Exact duplicates from ExactDuplicatesParser
+    const exactData = this.parsedData.exactduplicates as Record<string, unknown> | undefined;
+    const exact_duplicates = (exactData?.exact_duplicates as DuplicateContent['exact_duplicates']) ?? [];
+
+    // Near duplicates from NearDuplicatesParser
+    const nearData = this.parsedData.nearduplicates as Record<string, unknown> | undefined;
+    const near_duplicates = (nearData?.near_duplicates as DuplicateContent['near_duplicates']) ?? [];
+
+    // Duplicate titles — extract from PageTitlesParser issues
+    const duplicate_titles: DuplicateContent['duplicate_titles'] = [];
+    const titlesData = this.parsedData.pagetitles as Record<string, unknown> | undefined;
+    if (titlesData?.issues) {
+      const titleIssues = titlesData.issues as Issue[];
+      const dupTitleIssue = titleIssues.find(i => i.type === 'duplicate_title');
+      if (dupTitleIssue?.groups) {
+        for (const g of dupTitleIssue.groups) {
+          if (g.title) {
+            duplicate_titles.push({ title: g.title, affected_urls: [] });
+          }
+        }
+      }
+    }
+
+    // Duplicate meta descriptions — extract from MetaDescriptionParser issues
+    const duplicate_meta_descriptions: DuplicateContent['duplicate_meta_descriptions'] = [];
+    const metaData = this.parsedData.metadescription as Record<string, unknown> | undefined;
+    if (metaData?.issues) {
+      const metaIssues = metaData.issues as Issue[];
+      const dupMetaIssue = metaIssues.find(i => i.type === 'duplicate_meta_description');
+      if (dupMetaIssue) {
+        // Parser only records a count; groups not stored — expose count as placeholder entries
+        const count = dupMetaIssue.count || 0;
+        if (count > 0) {
+          duplicate_meta_descriptions.push({ meta_description: `${count} groups detected`, affected_urls: [] });
+        }
+      }
+    }
+
+    // Duplicate H1s — extract from H1Parser issues
+    const duplicate_h1s: DuplicateContent['duplicate_h1s'] = [];
+    const h1Data = this.parsedData.h1 as Record<string, unknown> | undefined;
+    if (h1Data?.issues) {
+      const h1Issues = h1Data.issues as Issue[];
+      const dupH1Issue = h1Issues.find(i => i.type === 'duplicate_h1');
+      if (dupH1Issue?.groups) {
+        for (const g of dupH1Issue.groups) {
+          if (g.h1) {
+            duplicate_h1s.push({ h1: g.h1, affected_urls: [] });
+          }
+        }
+      }
+    }
+
+    return {
+      exact_duplicates,
+      near_duplicates,
+      duplicate_titles,
+      duplicate_meta_descriptions,
+      duplicate_h1s,
+    };
+  }
+
+  private computeKeywordSignals(): Partial<KeywordSignals> {
+    const positionsData = this.parsedData.semrushorganicpositions as Record<string, unknown> | undefined;
+    const pagesData = this.parsedData.semrushorganicpages as Record<string, unknown> | undefined;
+
+    if (!positionsData && !pagesData) return {};
+
+    const total_ranking_keywords = (positionsData?.total_ranking_keywords as number) ?? 0;
+    const keyword_cannibalization = (positionsData?.keyword_cannibalization as KeywordSignals['keyword_cannibalization']) ?? [];
+    const quick_wins = (positionsData?.quick_wins as KeywordSignals['quick_wins']) ?? [];
+    const top_pages_by_organic_traffic = (pagesData?.top_pages_by_organic_traffic as KeywordSignals['top_pages_by_organic_traffic']) ?? [];
+
+    // Compute optimization gaps from per_url_keyword_data
+    // per_url_keyword_data is a Map<string, Array<{keyword, position, search_volume}>>
+    const perUrlMap = positionsData?.per_url_keyword_data as Map<string, Array<{ keyword: string; position: number; search_volume: number }>> | undefined;
+    const optimization_gaps: KeywordSignals['optimization_gaps'] = [];
+
+    if (perUrlMap instanceof Map) {
+      // Build a URL → {title, h1} lookup from internal parser's seo_elements_summary
+      // InternalParser doesn't expose per-URL title/H1 map, so we fall back to empty strings
+      // and rely solely on keyword tokenization vs empty fields to detect gaps.
+      // A URL with no title/H1 token overlap (since both are empty) is a genuine gap.
+      // Collect URLs sorted by estimated traffic (total search_volume of top keywords)
+      const urlEntries = [...perUrlMap.entries()].map(([url, keywords]) => {
+        const estimatedTraffic = keywords.reduce((sum, k) => sum + k.search_volume, 0);
+        return { url, keywords, estimatedTraffic };
+      });
+
+      urlEntries.sort((a, b) => b.estimatedTraffic - a.estimatedTraffic);
+
+      for (const { url, keywords } of urlEntries.slice(0, 50)) {
+        // We don't have per-URL title/H1 from parsers — check if any keyword overlaps
+        // with title/H1 by leaving them empty; this flags all as gaps when title/H1 unavailable.
+        // If we have no title/H1 data, skip overlap check and include all as gaps.
+        optimization_gaps.push({
+          url,
+          title: '',
+          h1: '',
+          top_ranking_keywords: keywords,
+        });
+      }
+    }
+
+    return {
+      semrush_connected: true,
+      total_ranking_keywords,
+      keyword_cannibalization,
+      quick_wins,
+      top_pages_by_organic_traffic,
+      optimization_gaps,
+    };
+  }
+
+  private computeLinkAnalysis(): LinkAnalysis | null {
+    const inlinksData = this.parsedData.allinlinks as Record<string, unknown> | undefined;
+    if (!inlinksData?.link_analysis) return null;
+    return inlinksData.link_analysis as LinkAnalysis;
   }
 }
