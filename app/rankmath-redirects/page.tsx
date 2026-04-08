@@ -384,6 +384,8 @@ export default function RankMathRedirectsPage() {
               <Card>
                 <P>In WP Admin, navigate to <strong>Rank Math → General Settings → Import &amp; Export</strong>. Under the import section, select <strong>Redirection</strong> as the source and run the import.</P>
                 <Callout type="success" icon="✓">Confirm in WP Admin → <strong>Rank Math → Redirections</strong> that the redirect count matches what was in Redirection before proceeding.</Callout>
+                <Sub>Exporting for a new site</Sub>
+                <P>Once the redirects are in Rank Math, you can export the full settings to bring them to another site. In WP Admin → <strong>Rank Math → General Settings → Import &amp; Export</strong>, click <strong>Export Settings</strong> to download a JSON file. On the new site, go to the same screen and use <strong>Import Settings</strong> to load it. This carries over all Rank Math configuration including the redirections.</P>
               </Card>
             </div>
 

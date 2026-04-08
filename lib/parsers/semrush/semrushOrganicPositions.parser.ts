@@ -43,7 +43,7 @@ export interface SemrushOrganicResult extends ParsedData {
     intent: string;
     url: string;
   }>;
-  per_url_keyword_data: Map<string, Array<{ keyword: string; position: number; search_volume: number }>>;
+  per_url_keyword_data: Array<{ url: string; keywords: Array<{ keyword: string; position: number; search_volume: number }> }>;
 }
 
 export class SemrushOrganicPositionsParser extends BaseParser {
@@ -61,7 +61,7 @@ export class SemrushOrganicPositionsParser extends BaseParser {
         total_ranking_keywords: 0,
         keyword_cannibalization: [],
         quick_wins: [],
-        per_url_keyword_data: new Map(),
+        per_url_keyword_data: [],
       };
     }
 
@@ -147,14 +147,13 @@ export class SemrushOrganicPositionsParser extends BaseParser {
     quick_wins_raw.sort((a, b) => b.search_volume - a.search_volume);
 
     // per_url_keyword_data: top 3 by traffic descending
-    const per_url_keyword_data = new Map<string, Array<{ keyword: string; position: number; search_volume: number }>>();
-    for (const [url, rows] of urlMap) {
-      const top3 = rows
+    const per_url_keyword_data = Array.from(urlMap.entries()).map(([url, rows]) => {
+      const keywords = rows
         .sort((a, b) => b.traffic - a.traffic)
         .slice(0, 3)
         .map(r => ({ keyword: r.keyword, position: r.position, search_volume: r.search_volume }));
-      per_url_keyword_data.set(url, top3);
-    }
+      return { url, keywords };
+    });
 
     return {
       total_ranking_keywords: this.data.length,

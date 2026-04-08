@@ -2,25 +2,6 @@ import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, Duplic
 import { PARSERS } from '../parsers';
 import { computeHealthScore } from './scoring.service';
 
-// Stopwords for keyword tokenization
-const STOPWORDS = new Set(['a', 'an', 'the', 'and', 'or', 'for', 'in', 'of', 'to', 'at', 'by', 'is', 'it', 'be']);
-
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text.toLowerCase().split(/\W+/).filter(t => t.length > 1 && !STOPWORDS.has(t))
-  );
-}
-
-function hasTokenOverlap(a: string, b: string): boolean {
-  const tokensA = tokenize(a);
-  if (tokensA.size === 0) return false;
-  const tokensB = tokenize(b);
-  for (const t of tokensA) {
-    if (tokensB.has(t)) return true;
-  }
-  return false;
-}
-
 /**
  * Issue deduplication and merging
  */
@@ -54,9 +35,9 @@ function dedupeIssues(issues: Issue[]): Issue[] {
 
       // Merge groups
       if (issue.groups && existing.groups) {
-        const existingTitles = new Set(existing.groups.map(g => g.title || g.h1));
+        const existingTitles = new Set(existing.groups.map(g => g.title || g.h1 || g.meta_description));
         for (const g of issue.groups) {
-          const title = g.title || g.h1;
+          const title = g.title || g.h1 || g.meta_description;
           if (title && !existingTitles.has(title)) {
             existing.groups.push(g);
           }
@@ -899,17 +880,13 @@ export class AggregatorService {
     const top_pages_by_organic_traffic = (pagesData?.top_pages_by_organic_traffic as KeywordSignals['top_pages_by_organic_traffic']) ?? [];
 
     // Compute optimization gaps from per_url_keyword_data
-    // per_url_keyword_data is a Map<string, Array<{keyword, position, search_volume}>>
-    const perUrlMap = positionsData?.per_url_keyword_data as Map<string, Array<{ keyword: string; position: number; search_volume: number }>> | undefined;
+    // per_url_keyword_data is Array<{ url: string; keywords: Array<{keyword, position, search_volume}> }>
+    const perUrlData = (positionsData?.per_url_keyword_data as Array<{ url: string; keywords: Array<{ keyword: string; position: number; search_volume: number }> }>) ?? [];
     const optimization_gaps: KeywordSignals['optimization_gaps'] = [];
 
-    if (perUrlMap instanceof Map) {
-      // Build a URL → {title, h1} lookup from internal parser's seo_elements_summary
-      // InternalParser doesn't expose per-URL title/H1 map, so we fall back to empty strings
-      // and rely solely on keyword tokenization vs empty fields to detect gaps.
-      // A URL with no title/H1 token overlap (since both are empty) is a genuine gap.
+    {
       // Collect URLs sorted by estimated traffic (total search_volume of top keywords)
-      const urlEntries = [...perUrlMap.entries()].map(([url, keywords]) => {
+      const urlEntries = perUrlData.map(({ url, keywords }) => {
         const estimatedTraffic = keywords.reduce((sum, k) => sum + k.search_volume, 0);
         return { url, keywords, estimatedTraffic };
       });
@@ -917,9 +894,7 @@ export class AggregatorService {
       urlEntries.sort((a, b) => b.estimatedTraffic - a.estimatedTraffic);
 
       for (const { url, keywords } of urlEntries.slice(0, 50)) {
-        // We don't have per-URL title/H1 from parsers — check if any keyword overlaps
-        // with title/H1 by leaving them empty; this flags all as gaps when title/H1 unavailable.
-        // If we have no title/H1 data, skip overlap check and include all as gaps.
+        // We don't have per-URL title/H1 from parsers — include all as gaps.
         optimization_gaps.push({
           url,
           title: '',

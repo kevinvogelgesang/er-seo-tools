@@ -123,7 +123,7 @@ export class MetaDescriptionParser extends BaseParser {
       if (duplicates.length > 0) {
         issues.push({
           type: 'duplicate_meta_description',
-          severity: 'warning',
+          severity: 'notice',
           count: duplicates.length,
           description: `${duplicates.length} groups of pages with duplicate meta descriptions`,
           groups: duplicates.map(([meta, count]) => ({

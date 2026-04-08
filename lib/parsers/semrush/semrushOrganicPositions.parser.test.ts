@@ -44,12 +44,12 @@ online courses,12,11,500,30,1.20,https://example.com/online,40,8.0,,,,,,,"Inform
       expect(result.quick_wins[0].position).toBe(15);
     });
 
-    it('builds per_url_keyword_data map with top 3 keywords by traffic', () => {
+    it('builds per_url_keyword_data array with top 3 keywords by traffic', () => {
       const result = new SemrushOrganicPositionsParser(csv).parse();
-      const nursingPage = result.per_url_keyword_data.get('https://example.com/nursing');
-      expect(nursingPage).toBeDefined();
-      expect(nursingPage!.length).toBeLessThanOrEqual(3);
-      expect(nursingPage![0].keyword).toBe('nursing programs'); // highest traffic (120 > 90)
+      const nursingEntry = result.per_url_keyword_data.find(e => e.url === 'https://example.com/nursing');
+      expect(nursingEntry).toBeDefined();
+      expect(nursingEntry!.keywords.length).toBeLessThanOrEqual(3);
+      expect(nursingEntry!.keywords[0].keyword).toBe('nursing programs'); // highest traffic (120 > 90)
     });
 
     it('uses first pipe-separated intent as primary intent', () => {

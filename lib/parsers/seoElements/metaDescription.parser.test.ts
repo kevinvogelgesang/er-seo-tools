@@ -129,7 +129,7 @@ describe('MetaDescriptionParser', () => {
       const result = parser.parse() as any;
       const issue = result.issues.find((i: any) => i.type === 'duplicate_meta_description');
       expect(issue).toBeDefined();
-      expect(issue.severity).toBe('warning');
+      expect(issue.severity).toBe('notice');
       expect(issue.count).toBe(1);
     });
 
