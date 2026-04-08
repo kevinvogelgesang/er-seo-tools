@@ -4,7 +4,7 @@ import { ResponseCodesParser } from './responseCodes.parser';
 describe('ResponseCodesParser', () => {
   describe('filenamePattern', () => {
     it('has the correct filenamePattern', () => {
-      expect(ResponseCodesParser.filenamePattern).toBe('response_codes');
+      expect(ResponseCodesParser.filenamePattern).toEqual(['response_codes_all', 'response_codes']);
     });
 
     it('matchesFile returns true for matching filenames', () => {

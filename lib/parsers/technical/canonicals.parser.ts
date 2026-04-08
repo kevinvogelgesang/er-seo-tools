@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class CanonicalsParser extends BaseParser {
-  static filenamePattern = 'canonicals';
+  static filenamePattern = ['canonicals_all', 'canonicals'];
 
   parse(): ParsedData {
     if (this.isEmpty) return {};

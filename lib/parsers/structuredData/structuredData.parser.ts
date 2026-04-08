@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class StructuredDataParser extends BaseParser {
-  static filenamePattern = 'structured_data';
+  static filenamePattern = ['structured_data_all', 'structured_data'];
 
   parse(): ParsedData {
     if (this.isEmpty) return {};

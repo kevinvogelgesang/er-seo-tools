@@ -4,7 +4,7 @@ import { PageTitlesParser } from './pageTitles.parser';
 describe('PageTitlesParser', () => {
   describe('filenamePattern', () => {
     it('has the correct filenamePattern', () => {
-      expect(PageTitlesParser.filenamePattern).toBe('page_titles');
+      expect(PageTitlesParser.filenamePattern).toEqual(['page_titles_all', 'page_titles']);
     });
 
     it('matchesFile returns true for matching filenames', () => {

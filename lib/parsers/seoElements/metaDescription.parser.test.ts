@@ -4,7 +4,7 @@ import { MetaDescriptionParser } from './metaDescription.parser';
 describe('MetaDescriptionParser', () => {
   describe('filenamePattern', () => {
     it('has the correct filenamePattern', () => {
-      expect(MetaDescriptionParser.filenamePattern).toBe('meta_description');
+      expect(MetaDescriptionParser.filenamePattern).toEqual(['meta_description_all', 'meta_description']);
     });
 
     it('matchesFile returns true for matching filenames', () => {

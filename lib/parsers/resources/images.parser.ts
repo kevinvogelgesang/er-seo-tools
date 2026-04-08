@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class ImagesParser extends BaseParser {
-  static filenamePattern = 'images';
+  static filenamePattern = ['images_all', 'images'];
 
   private static LARGE_IMAGE_SIZE = 100 * 1024; // 100KB
   private static VERY_LARGE_IMAGE_SIZE = 500 * 1024; // 500KB

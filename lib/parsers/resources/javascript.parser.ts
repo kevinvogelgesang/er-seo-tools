@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class JavaScriptParser extends BaseParser {
-  static filenamePattern = 'javascript';
+  static filenamePattern = ['javascript_all', 'javascript'];
 
   private static LARGE_JS_SIZE = 100 * 1024; // 100KB
 

@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class SecurityParser extends BaseParser {
-  static filenamePattern = 'security';
+  static filenamePattern = ['security_all', 'security'];
 
   parse(): ParsedData {
     if (this.isEmpty) return {};

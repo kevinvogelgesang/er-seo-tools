@@ -4,7 +4,7 @@ import { SecurityParser, InsecureContentParser } from './security.parser';
 describe('SecurityParser', () => {
   describe('filenamePattern', () => {
     it('has the correct filenamePattern', () => {
-      expect(SecurityParser.filenamePattern).toBe('security');
+      expect(SecurityParser.filenamePattern).toEqual(['security_all', 'security']);
     });
 
     it('matchesFile returns true for matching filenames', () => {

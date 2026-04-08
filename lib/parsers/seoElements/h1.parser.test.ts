@@ -4,7 +4,7 @@ import { H1Parser } from './h1.parser';
 describe('H1Parser', () => {
   describe('static properties', () => {
     it('has filenamePattern of "h1"', () => {
-      expect(H1Parser.filenamePattern).toBe('h1');
+      expect(H1Parser.filenamePattern).toEqual(['h1_all', 'h1']);
     });
 
     it('matchesFile returns true for filenames containing "h1"', () => {

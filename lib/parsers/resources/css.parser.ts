@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class CSSParser extends BaseParser {
-  static filenamePattern = 'css';
+  static filenamePattern = ['internal_css', 'css'];
 
   private static LARGE_CSS_SIZE = 100 * 1024; // 100KB
 

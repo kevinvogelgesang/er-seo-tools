@@ -4,7 +4,7 @@ import { PageSpeedParser } from './pagespeed.parser';
 describe('PageSpeedParser', () => {
   describe('static properties', () => {
     it('has filenamePattern of "pagespeed"', () => {
-      expect(PageSpeedParser.filenamePattern).toBe('pagespeed');
+      expect(PageSpeedParser.filenamePattern).toEqual(['pagespeed_all', 'pagespeed']);
     });
 
     it('matchesFile returns true for filenames containing "pagespeed"', () => {

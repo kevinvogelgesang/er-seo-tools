@@ -4,7 +4,7 @@ import { CanonicalsParser } from './canonicals.parser';
 describe('CanonicalsParser', () => {
   describe('static properties', () => {
     it('has filenamePattern of "canonicals"', () => {
-      expect(CanonicalsParser.filenamePattern).toBe('canonicals');
+      expect(CanonicalsParser.filenamePattern).toEqual(['canonicals_all', 'canonicals']);
     });
 
     it('matchesFile returns true for filenames containing "canonicals"', () => {

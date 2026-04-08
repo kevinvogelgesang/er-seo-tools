@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class H1Parser extends BaseParser {
-  static filenamePattern = 'h1';
+  static filenamePattern = ['h1_all', 'h1'];
 
   parse(): ParsedData {
     if (this.isEmpty) return {};

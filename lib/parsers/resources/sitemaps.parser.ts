@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class SitemapsParser extends BaseParser {
-  static filenamePattern = 'sitemaps';
+  static filenamePattern = ['sitemaps_all', 'sitemaps'];
 
   parse(): ParsedData {
     if (this.isEmpty) return {};

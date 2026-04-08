@@ -3,7 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class DirectivesParser extends BaseParser {
-  static filenamePattern = 'directives';
+  static filenamePattern = ['directives_all', 'directives'];
 
   parse(): ParsedData {
     if (this.isEmpty) return {};

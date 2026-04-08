@@ -4,7 +4,7 @@ import { ImagesParser } from './images.parser';
 describe('ImagesParser', () => {
   describe('static properties', () => {
     it('has filenamePattern of "images"', () => {
-      expect(ImagesParser.filenamePattern).toBe('images');
+      expect(ImagesParser.filenamePattern).toEqual(['images_all', 'images']);
     });
 
     it('matchesFile returns true for filenames containing "images"', () => {
