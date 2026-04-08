@@ -191,7 +191,7 @@ describe('BaseParser (via TestParser)', () => {
       expect(p.testGetUrlsWhereMask([true, true])).toEqual([]);
     });
 
-    it('defaults to a limit of 20', () => {
+    it('returns all matching URLs when no limit is passed', () => {
       // Build a CSV with 25 rows
       const header = 'Address,Content Type,Indexability';
       const rows = Array.from({ length: 25 }, (_, i) =>
