@@ -58,7 +58,7 @@ export default function SEOParserPage() {
           if (!res.ok) throw new Error(data.error || 'Upload failed');
 
           uploadedBytes += batch.reduce((s, f) => s + f.size, 0);
-          setUploadProgress(Math.round((uploadedBytes / totalBytes) * 100));
+          setUploadProgress(totalBytes > 0 ? Math.round((uploadedBytes / totalBytes) * 100) : 0);
 
           activeSessionId = data.sessionId;
           allFiles.push(...data.files);
