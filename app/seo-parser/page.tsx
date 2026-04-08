@@ -13,12 +13,14 @@ export default function SEOParserPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleDrop = useCallback(
     async (droppedFiles: File[]) => {
       setIsUploading(true);
+      setUploadProgress(0);
       setError(null);
 
       try {
@@ -39,6 +41,9 @@ export default function SEOParserPage() {
         }
         if (currentBatch.length > 0) batches.push(currentBatch);
 
+        const totalBytes = droppedFiles.reduce((s, f) => s + f.size, 0);
+        let uploadedBytes = 0;
+
         let activeSessionId = sessionId;
         const allFiles: string[] = [];
 
@@ -52,6 +57,9 @@ export default function SEOParserPage() {
 
           if (!res.ok) throw new Error(data.error || 'Upload failed');
 
+          uploadedBytes += batch.reduce((s, f) => s + f.size, 0);
+          setUploadProgress(Math.round((uploadedBytes / totalBytes) * 100));
+
           activeSessionId = data.sessionId;
           allFiles.push(...data.files);
         }
@@ -62,6 +70,7 @@ export default function SEOParserPage() {
         setError(err instanceof Error ? err.message : 'Upload failed');
       } finally {
         setIsUploading(false);
+        setUploadProgress(0);
       }
     },
     [sessionId]
@@ -89,6 +98,7 @@ export default function SEOParserPage() {
     setSessionId(null);
     setFiles([]);
     setError(null);
+    setUploadProgress(0);
   };
 
   return (
@@ -108,7 +118,12 @@ export default function SEOParserPage() {
           <h2 className="font-semibold text-[#1c2d4a] dark:text-white text-sm mb-4 uppercase tracking-wide">
             Upload CSV Files
           </h2>
-          <FileDropzone files={files} isUploading={isUploading} onDrop={handleDrop} />
+          <FileDropzone
+            files={files}
+            isUploading={isUploading}
+            uploadProgress={uploadProgress}
+            onDrop={handleDrop}
+          />
 
           {error && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
