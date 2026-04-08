@@ -8,3 +8,4 @@ export { SitemapsParser, OrphanPagesParser } from './sitemaps.parser';
 export { AnchorTextParser } from './anchorText.parser';
 export { LinksIssuesParser } from './links.parser';
 export { AccessibilityParser } from './accessibility.parser'; // NEW
+export { AllInlinksParser } from './allInlinks.parser';

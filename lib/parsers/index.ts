@@ -36,6 +36,7 @@ import {
   AnchorTextParser,
   LinksIssuesParser,
   AccessibilityParser, // NEW
+  AllInlinksParser,
 } from './resources';
 
 // Analytics and Search
@@ -49,13 +50,17 @@ import {
 import {
   PageSpeedParser,
   ResponseTimeParser,
+  PageSpeedOpportunitiesParser,
 } from './performance';
 
 // Structured Data
 import { StructuredDataParser } from './structuredData';
 
 // Content
-import { SpellingGrammarParser, GrammarParser, ContentReadabilityParser, LowContentParser } from './content';
+import { SpellingGrammarParser, GrammarParser, ContentReadabilityParser, LowContentParser, ExactDuplicatesParser, NearDuplicatesParser } from './content';
+
+// SEMRush
+import { SemrushOrganicPositionsParser, SemrushOrganicPagesParser, SemrushPositionTrackingParser } from './semrush';
 
 // Issues
 import { IssuesOverviewParser, BestPracticeParser, CarbonParser } from './issues';
@@ -98,6 +103,7 @@ export const PARSERS: Array<typeof BaseParser> = [
   OrphanPagesParser,
   AnchorTextParser,
   AccessibilityParser, // NEW
+  AllInlinksParser,
 
   // Analytics and Search
   AnalyticsParser,
@@ -107,6 +113,7 @@ export const PARSERS: Array<typeof BaseParser> = [
   // Performance
   PageSpeedParser,
   ResponseTimeParser,
+  PageSpeedOpportunitiesParser,
 
   // Structured Data
   StructuredDataParser,
@@ -116,10 +123,17 @@ export const PARSERS: Array<typeof BaseParser> = [
   GrammarParser,
   ContentReadabilityParser,
   LowContentParser,
+  ExactDuplicatesParser,
+  NearDuplicatesParser,
 
   // Issues
   BestPracticeParser,
   CarbonParser,
+
+  // SEMRush (content-based detection — must be after all filename-based parsers)
+  SemrushPositionTrackingParser,
+  SemrushOrganicPositionsParser,
+  SemrushOrganicPagesParser,
 ];
 
 // Parser map by name for easy lookup
@@ -155,6 +169,7 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
   orphanpages: OrphanPagesParser,
   anchortext: AnchorTextParser,
   accessibility: AccessibilityParser, // NEW
+  allinlinks: AllInlinksParser,
   // Analytics and Search
   analytics: AnalyticsParser,
   searchconsole: SearchConsoleParser,
@@ -162,6 +177,7 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
   // Performance
   pagespeed: PageSpeedParser,
   responsetime: ResponseTimeParser,
+  pagespeedopportunities: PageSpeedOpportunitiesParser,
   // Structured Data
   structureddata: StructuredDataParser,
   // Content
@@ -169,9 +185,15 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
   grammar: GrammarParser,
   contentreadability: ContentReadabilityParser,
   lowcontent: LowContentParser,
+  exactduplicates: ExactDuplicatesParser,
+  nearduplicates: NearDuplicatesParser,
   // Issues
   bestpractice: BestPracticeParser,
   carbon: CarbonParser,
+  // SEMRush
+  semrushorganicpositions: SemrushOrganicPositionsParser,
+  semrushorganicpages: SemrushOrganicPagesParser,
+  semrushpositiontracking: SemrushPositionTrackingParser,
 };
 
 /**
@@ -254,6 +276,7 @@ export {
   AnchorTextParser,
   LinksIssuesParser,
   AccessibilityParser, // NEW
+  AllInlinksParser,
 };
 export {
   AnalyticsParser,
@@ -263,7 +286,9 @@ export {
 export {
   PageSpeedParser,
   ResponseTimeParser,
+  PageSpeedOpportunitiesParser,
 };
 export { StructuredDataParser };
-export { SpellingGrammarParser, GrammarParser, ContentReadabilityParser, LowContentParser };
+export { SpellingGrammarParser, GrammarParser, ContentReadabilityParser, LowContentParser, ExactDuplicatesParser, NearDuplicatesParser };
 export { IssuesOverviewParser, BestPracticeParser, CarbonParser };
+export { SemrushOrganicPositionsParser, SemrushOrganicPagesParser, SemrushPositionTrackingParser };
