@@ -1,7 +1,7 @@
 import Papa from 'papaparse';
 import { CSVData, CSVRow, ParsedData } from '../types';
 import { findColumnName, isHtmlContentType, isIndexable, toString } from '../utils/columnMapper';
-import { isSeoRelevantUrl, truncateUrlList } from '../utils/urlFilter';
+import { isSeoRelevantUrl } from '../utils/urlFilter';
 
 export abstract class BaseParser {
   protected data: CSVData = [];
@@ -159,11 +159,6 @@ export abstract class BaseParser {
     }
     return urls;
   }
-
-  /**
-   * Truncate URL list utility
-   */
-  protected truncateUrls = truncateUrlList;
 
   /**
    * Scan the Address/URL column across all rows and return the most common hostname.

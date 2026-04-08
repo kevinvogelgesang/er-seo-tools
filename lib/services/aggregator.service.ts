@@ -39,7 +39,7 @@ function dedupeIssues(issues: Issue[]): Issue[] {
             existing.groups.push(g);
           }
         }
-        existing.groups = existing.groups.slice(0, 10);
+        existing.groups = existing.groups.slice(0, 10); // groups are heavy objects; cap intentional
       }
     }
   }
