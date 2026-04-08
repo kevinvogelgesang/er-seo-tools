@@ -82,7 +82,7 @@ export class InternalParser extends BaseParser {
     if (nearDuplicateData !== null) result.near_duplicates = nearDuplicateData;
 
     // GSC and GA4 column extraction
-    const gscConnected = this.findColumn(['Clicks']) !== null && this.findColumn(['Impressions']) !== null;
+    const gscConnected = this.findColumn(['Impressions']) !== null && this.findColumn(['Position']) !== null;
     const ga4Connected = this.findColumn(['GA4 Sessions']) !== null;
 
     result.gsc_connected = gscConnected;
@@ -505,10 +505,11 @@ export class InternalParser extends BaseParser {
   }
 
   /**
-   * Parse a percentage string like "3.5%" → 3.5, or a plain number like 0.035 → 3.5 (if < 1).
+   * Parse a numeric value that may optionally have a `%` suffix (e.g. "3.5%" → 3.5, "120.5" → 120.5).
+   * Handles plain floats (Position, duration) and percent-suffixed strings (CTR, bounce rate).
    * Returns NaN on failure.
    */
-  private parsePct(raw: string | number | null | undefined): number {
+  private parseNumeric(raw: string | number | null | undefined): number {
     if (raw === null || raw === undefined) return NaN;
     if (typeof raw === 'number') {
       // SF sometimes stores CTR/engagement as a decimal fraction (0–1)
@@ -546,8 +547,8 @@ export class InternalParser extends BaseParser {
       if (impressions === 0) continue;
 
       const clicks = toNumber(row[clicksCol]) ?? 0;
-      const ctr_pct = ctrCol ? this.parsePct(row[ctrCol] as string | number | null) : 0;
-      const average_position = positionCol ? this.parsePct(row[positionCol] as string | number | null) : 0;
+      const ctr_pct = ctrCol ? this.parseNumeric(row[ctrCol] as string | number | null) : 0;
+      const average_position = positionCol ? this.parseNumeric(row[positionCol] as string | number | null) : 0;
 
       pages.push({
         url,
@@ -584,8 +585,9 @@ export class InternalParser extends BaseParser {
 
       const views = viewsCol ? (toNumber(row[viewsCol]) ?? 0) : 0;
       const engaged_sessions = engagedCol ? (toNumber(row[engagedCol]) ?? 0) : 0;
-      const bounce_rate_pct = bounceCol ? this.parsePct(row[bounceCol] as string | number | null) : 0;
-      const average_session_duration_seconds = durationCol ? this.parsePct(row[durationCol] as string | number | null) : 0;
+      const bounce_rate_pct = bounceCol ? this.parseNumeric(row[bounceCol] as string | number | null) : 0;
+      // TODO: GA4 Engagement rate column exists but is not extracted (not in Ga4PageStat interface)
+      const average_session_duration_seconds = durationCol ? this.parseNumeric(row[durationCol] as string | number | null) : 0;
 
       pages.push({
         url,
