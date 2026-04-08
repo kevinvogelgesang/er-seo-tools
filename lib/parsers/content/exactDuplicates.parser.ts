@@ -29,7 +29,7 @@ export class ExactDuplicatesParser extends BaseParser {
       if (!address || isTrackingUrl(address)) continue;
 
       const duplicate_of = toString(duplicateOfCol ? row[duplicateOfCol] : null);
-      const rawSimilarity = duplicateOfCol ? row[similarityCol ?? ''] : null;
+      const rawSimilarity = similarityCol ? row[similarityCol] : null;
       const similarity_pct = Math.round(parseFloat(String(rawSimilarity ?? '0')) * 100);
       const indexability = toString(indexabilityCol ? row[indexabilityCol] : null);
 

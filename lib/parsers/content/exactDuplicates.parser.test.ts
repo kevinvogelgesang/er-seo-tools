@@ -57,6 +57,13 @@ ${longUrl},https://example.com/b,0.99,Indexable,`;
       expect(result.exact_duplicates).toHaveLength(0);
     });
 
+    it('defaults similarity_pct to 0 when Similarity column is absent', () => {
+      const csv = `Address,Exact Duplicate Address,Indexability,Indexability Status
+https://example.com/a,https://example.com/b,Indexable,`;
+      const result = new ExactDuplicatesParser(csv).parse();
+      expect(result.exact_duplicates[0].similarity_pct).toBe(0);
+    });
+
     it('returns empty array for empty CSV', () => {
       const csv = `Address,Exact Duplicate Address,Similarity,Indexability,Indexability Status`;
       const result = new ExactDuplicatesParser(csv).parse();
