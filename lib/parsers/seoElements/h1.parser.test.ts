@@ -13,6 +13,10 @@ describe('H1Parser', () => {
       expect(H1Parser.matchesFile('H1.CSV')).toBe(true);
     });
 
+    it('matches h1_all.csv', () => {
+      expect(H1Parser.matchesFile('h1_all.csv')).toBe(true);
+    });
+
     it('matchesFile returns false for unrelated filenames', () => {
       expect(H1Parser.matchesFile('images.csv')).toBe(false);
       expect(H1Parser.matchesFile('canonicals.csv')).toBe(false);

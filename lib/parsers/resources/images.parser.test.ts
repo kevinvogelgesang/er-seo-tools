@@ -13,6 +13,10 @@ describe('ImagesParser', () => {
       expect(ImagesParser.matchesFile('IMAGES.CSV')).toBe(true);
     });
 
+    it('matches images_all.csv', () => {
+      expect(ImagesParser.matchesFile('images_all.csv')).toBe(true);
+    });
+
     it('matchesFile returns false for unrelated filenames', () => {
       expect(ImagesParser.matchesFile('pagespeed.csv')).toBe(false);
       expect(ImagesParser.matchesFile('h1.csv')).toBe(false);

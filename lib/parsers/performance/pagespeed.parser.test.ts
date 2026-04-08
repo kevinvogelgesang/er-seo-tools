@@ -13,6 +13,10 @@ describe('PageSpeedParser', () => {
       expect(PageSpeedParser.matchesFile('PAGESPEED.CSV')).toBe(true);
     });
 
+    it('matches pagespeed_all.csv', () => {
+      expect(PageSpeedParser.matchesFile('pagespeed_all.csv')).toBe(true);
+    });
+
     it('matchesFile returns false for unrelated filenames', () => {
       expect(PageSpeedParser.matchesFile('images.csv')).toBe(false);
       expect(PageSpeedParser.matchesFile('internal.csv')).toBe(false);

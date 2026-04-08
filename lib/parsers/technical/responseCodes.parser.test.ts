@@ -12,6 +12,10 @@ describe('ResponseCodesParser', () => {
       expect(ResponseCodesParser.matchesFile('internal_html_response_codes.csv')).toBe(true);
     });
 
+    it('matches response_codes_all.csv', () => {
+      expect(ResponseCodesParser.matchesFile('response_codes_all.csv')).toBe(true);
+    });
+
     it('matchesFile returns false for non-matching filenames', () => {
       expect(ResponseCodesParser.matchesFile('page_titles.csv')).toBe(false);
     });
