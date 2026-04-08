@@ -56,6 +56,8 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     const parsePromises = sessionFiles.map(async (filename): Promise<ParseSuccess | null> => {
       const filePath = path.join(uploadDir, filename);
 
+      if (filename.endsWith('.txt')) return null;
+
       try {
         await fs.access(filePath);
       } catch {
@@ -63,11 +65,20 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         return null;
       }
 
-      const ParserClass = findParserForFile(filename);
+      let rawContent: string;
+      try {
+        rawContent = await fs.readFile(filePath, 'utf-8');
+      } catch (readError) {
+        const message = readError instanceof Error ? readError.message : 'Unknown error';
+        errors.push(`Error reading ${filename}: ${message}`);
+        return null;
+      }
+
+      const ParserClass = findParserForFile(filename, rawContent);
       if (!ParserClass) return null;
 
       try {
-        const content = await fs.readFile(filePath, 'utf-8');
+        const content = rawContent;
         const ParserConstructor = ParserClass as unknown as new (content: string) => AnyParser;
         const parser = new ParserConstructor(content);
         const result = parser.parse();
