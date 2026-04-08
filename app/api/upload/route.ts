@@ -54,9 +54,7 @@ function recordUploadSize(ip: string, bytes: number) {
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log('[upload] POST received, content-type:', request.headers.get('content-type'));
     const formData = await request.formData();
-    console.log('[upload] formData parsed, entries:', [...formData.keys()]);
 
     // Extract sessionId field (may be passed to add files to an existing session)
     const rawSessionId = formData.get('sessionId');
@@ -78,10 +76,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('[upload] fileEntries found:', fileEntries.map(e => `${e.filename}(${e.file.size}b)`).join(', '));
-
     if (fileEntries.length === 0) {
-      console.log('[upload] no valid files, returning 400');
       return NextResponse.json({ error: 'No valid files uploaded. Only .csv and .txt files are accepted.' }, { status: 400 });
     }
 

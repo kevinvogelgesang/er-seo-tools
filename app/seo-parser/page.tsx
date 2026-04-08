@@ -22,17 +22,42 @@ export default function SEOParserPage() {
       setError(null);
 
       try {
-        const formData = new FormData();
-        if (sessionId) formData.append('sessionId', sessionId);
-        droppedFiles.forEach((f) => formData.append('files', f));
+        // Split files into batches ≤40MB each to stay under Nginx's 50MB limit
+        const MAX_BATCH_BYTES = 40 * 1024 * 1024;
+        const batches: File[][] = [];
+        let currentBatch: File[] = [];
+        let currentBatchSize = 0;
 
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
-        const data = await res.json();
+        for (const file of droppedFiles) {
+          if (currentBatch.length > 0 && currentBatchSize + file.size > MAX_BATCH_BYTES) {
+            batches.push(currentBatch);
+            currentBatch = [];
+            currentBatchSize = 0;
+          }
+          currentBatch.push(file);
+          currentBatchSize += file.size;
+        }
+        if (currentBatch.length > 0) batches.push(currentBatch);
 
-        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        let activeSessionId = sessionId;
+        const allFiles: string[] = [];
 
-        setSessionId(data.sessionId);
-        setFiles((prev) => Array.from(new Set([...prev, ...data.files])));
+        for (const batch of batches) {
+          const formData = new FormData();
+          if (activeSessionId) formData.append('sessionId', activeSessionId);
+          batch.forEach((f) => formData.append('files', f));
+
+          const res = await fetch('/api/upload', { method: 'POST', body: formData });
+          const data = await res.json();
+
+          if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+          activeSessionId = data.sessionId;
+          allFiles.push(...data.files);
+        }
+
+        setSessionId(activeSessionId);
+        setFiles((prev) => Array.from(new Set([...prev, ...allFiles])));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Upload failed');
       } finally {
