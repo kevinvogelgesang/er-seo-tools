@@ -104,6 +104,21 @@ function makeStream(chunks: string[]): ReadableStream<Uint8Array> {
   });
 }
 
+const EXPORT_EXCLUDED_ISSUE_TYPES = new Set(['spelling_errors', 'grammar_errors']);
+
+function filterResultForExport(result: AggregatedResult): AggregatedResult {
+  const filterIssues = (issues: Issue[]) =>
+    issues.filter(i => !EXPORT_EXCLUDED_ISSUE_TYPES.has(i.type));
+  return {
+    ...result,
+    issues: {
+      critical: filterIssues(result.issues.critical),
+      warnings: filterIssues(result.issues.warnings),
+      notices: filterIssues(result.issues.notices),
+    },
+  };
+}
+
 function makeJsonStream(result: AggregatedResult): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   // Stream top-level keys individually so very large results don't block
@@ -154,7 +169,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const result = JSON.parse(session.result) as AggregatedResult;
 
     if (format === 'json') {
-      const stream = makeJsonStream(result);
+      const stream = makeJsonStream(filterResultForExport(result));
       return new NextResponse(stream, {
         headers: {
           'Content-Type': 'application/json',
