@@ -77,6 +77,119 @@ export interface PerformanceSummary {
   server_response?: Record<string, number>;
   ga4_traffic?: Record<string, number>;
   search_console?: Record<string, number>;
+  pagespeed_opportunities?: PageSpeedOpportunity[];
+  gsc_top_pages?: GscPageStat[];
+  ga4_top_pages?: Ga4PageStat[];
+}
+
+export interface GscPageStat {
+  url: string;
+  clicks: number;
+  impressions: number;
+  ctr_pct: number;
+  average_position: number;
+}
+
+export interface Ga4PageStat {
+  url: string;
+  sessions: number;
+  views: number;
+  engaged_sessions: number;
+  bounce_rate_pct: number;
+  average_session_duration_seconds: number;
+}
+
+export interface PageSpeedOpportunity {
+  opportunity: string;
+  urls_affected: number;
+  total_savings_ms: number;
+  average_savings_ms: number;
+  total_savings_size_bytes: number;
+}
+
+export interface TopLinkedPage {
+  url: string;
+  inlink_count: number;
+}
+
+export interface TopAnchorText {
+  anchor_text: string;
+  count: number;
+  is_descriptive: boolean;
+}
+
+export interface LinkAnalysis {
+  total_internal_links: number;
+  nofollow_ratio_pct: number;
+  non_descriptive_anchor_pct: number;
+  top_linked_pages: TopLinkedPage[];
+  top_anchor_texts: TopAnchorText[];
+}
+
+export interface CannibalizedKeyword {
+  keyword: string;
+  search_volume: number;
+  intent: string;
+  competing_urls: Array<{ url: string; position: number; estimated_traffic: number }>;
+}
+
+export interface OptimizationGap {
+  url: string;
+  title: string;
+  h1: string;
+  top_ranking_keywords: Array<{ keyword: string; position: number; search_volume: number }>;
+}
+
+export interface QuickWin {
+  keyword: string;
+  position: number;
+  search_volume: number;
+  intent: string;
+  url: string;
+}
+
+export interface TopOrganicPage {
+  url: string;
+  estimated_monthly_traffic: number;
+  keyword_count: number;
+  traffic_share_pct: number;
+  dominant_intent: string;
+}
+
+export interface KeywordSignals {
+  semrush_connected: boolean;
+  gsc_connected: boolean;
+  total_ranking_keywords: number;
+  keyword_cannibalization: CannibalizedKeyword[];
+  optimization_gaps: OptimizationGap[];
+  quick_wins: QuickWin[];
+  top_pages_by_organic_traffic: TopOrganicPage[];
+}
+
+export interface DuplicateGroup {
+  value: string;
+  affected_urls: string[];
+}
+
+export interface ExactDuplicatePair {
+  address: string;
+  duplicate_of: string;
+  similarity_pct: number;
+  indexability: string;
+}
+
+export interface NearDuplicateEntry {
+  address: string;
+  closest_match: string;
+  near_duplicate_count: number;
+}
+
+export interface DuplicateContent {
+  exact_duplicates: ExactDuplicatePair[];
+  near_duplicates: NearDuplicateEntry[];
+  duplicate_titles: DuplicateGroup[];
+  duplicate_meta_descriptions: DuplicateGroup[];
+  duplicate_h1s: DuplicateGroup[];
 }
 
 export interface AggregatedResult {
@@ -86,6 +199,9 @@ export interface AggregatedResult {
   resources: ResourcesSummary;
   technical_seo: TechnicalSummary;
   performance: PerformanceSummary;
+  duplicate_content?: DuplicateContent;
+  keyword_signals?: KeywordSignals;
+  link_analysis?: LinkAnalysis;
   recommendations: string[];
   metadata: {
     files_processed: string[];
