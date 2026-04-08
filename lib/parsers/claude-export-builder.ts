@@ -61,6 +61,7 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     non_indexable_reasons: site_structure.non_indexable_reasons,
   };
 
+  // performance.stats (raw pagespeed aggregate bucket) intentionally excluded — not actionable for Claude context
   const technicalPerformance: TechnicalAuditPerformance = {
     core_web_vitals: performance.core_web_vitals,
     server_response: performance.server_response,

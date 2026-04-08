@@ -251,6 +251,15 @@ describe('buildTechnicalAuditExport', () => {
     expect(result.performance.core_web_vitals).toEqual({ lcp: 2500, cls: 0.1 });
   });
 
+  it('excludes performance.stats raw bucket', () => {
+    const withStats = {
+      ...mockResult,
+      performance: { ...mockResult.performance, stats: { lcp_score: 80 } },
+    };
+    const result = buildTechnicalAuditExport(withStats);
+    expect(result.performance).not.toHaveProperty('stats');
+  });
+
   it('preserves recommendations unchanged', () => {
     const result = buildTechnicalAuditExport(mockResult);
     expect(result.recommendations).toEqual(['Fix broken links', 'Add missing alt text']);
