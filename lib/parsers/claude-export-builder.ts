@@ -67,6 +67,7 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     pagespeed_opportunities: performance.pagespeed_opportunities,
   };
 
+  // total_clicks is the canonical presence indicator for GSC data — always set first by SearchConsoleParser
   if (performance.search_console && performance.search_console['total_clicks'] !== undefined) {
     const sc = performance.search_console;
     technicalPerformance.gsc_summary = {

@@ -175,6 +175,15 @@ describe('buildTechnicalAuditExport', () => {
     expect(result.performance).not.toHaveProperty('ga4_summary');
   });
 
+  it('omits ga4_summary when ga4_traffic has no total_sessions key', () => {
+    const partialGa4 = {
+      ...mockResult,
+      performance: { ...mockResult.performance, ga4_traffic: { unrelated_key: 99 } },
+    };
+    const result = buildTechnicalAuditExport(partialGa4);
+    expect(result.performance).not.toHaveProperty('ga4_summary');
+  });
+
   it('excludes site_structure.internal_link_distribution', () => {
     const result = buildTechnicalAuditExport(mockResult);
     expect(result.site_structure).not.toHaveProperty('internal_link_distribution');
