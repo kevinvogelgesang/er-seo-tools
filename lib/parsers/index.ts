@@ -110,10 +110,11 @@ export const PARSERS: Array<typeof BaseParser> = [
   SearchConsoleParser,
   CrawlOverviewParser,
 
-  // Performance
+  // Performance — PageSpeedOpportunitiesParser must come before PageSpeedParser
+  // because 'pagespeed_opportunities_summary' contains 'pagespeed' as a substring
+  PageSpeedOpportunitiesParser,
   PageSpeedParser,
   ResponseTimeParser,
-  PageSpeedOpportunitiesParser,
 
   // Structured Data
   StructuredDataParser,
