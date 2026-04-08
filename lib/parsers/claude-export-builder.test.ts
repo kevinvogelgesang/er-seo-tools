@@ -137,7 +137,7 @@ describe('buildTechnicalAuditExport', () => {
     expect(result.performance).not.toHaveProperty('search_console');
   });
 
-  it('replaces gsc_top_pages with gsc_summary derived from search_console stats', () => {
+  it('derives gsc_summary from search_console stats', () => {
     const result = buildTechnicalAuditExport(mockResult);
     expect(result.performance.gsc_summary).toEqual({
       total_clicks: 150,
@@ -157,6 +157,15 @@ describe('buildTechnicalAuditExport', () => {
   it('omits gsc_summary when no search_console stats present', () => {
     const noGsc = { ...mockResult, performance: { core_web_vitals: { lcp: 2500 } } };
     const result = buildTechnicalAuditExport(noGsc);
+    expect(result.performance).not.toHaveProperty('gsc_summary');
+  });
+
+  it('omits gsc_summary when search_console has no recognized stat keys', () => {
+    const partialGsc = {
+      ...mockResult,
+      performance: { ...mockResult.performance, search_console: { unrelated_key: 42 } },
+    };
+    const result = buildTechnicalAuditExport(partialGsc);
     expect(result.performance).not.toHaveProperty('gsc_summary');
   });
 

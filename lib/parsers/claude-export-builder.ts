@@ -67,15 +67,13 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     pagespeed_opportunities: performance.pagespeed_opportunities,
   };
 
-  if (performance.search_console) {
+  if (performance.search_console && performance.search_console['total_clicks'] !== undefined) {
     const sc = performance.search_console;
-    if (sc.total_clicks !== undefined || sc.total_impressions !== undefined || sc.avg_position !== undefined) {
-      technicalPerformance.gsc_summary = {
-        total_clicks: sc.total_clicks ?? 0,
-        total_impressions: sc.total_impressions ?? 0,
-        avg_position: sc.avg_position ?? 0,
-      };
-    }
+    technicalPerformance.gsc_summary = {
+      total_clicks: sc['total_clicks'] ?? 0,
+      total_impressions: sc['total_impressions'] ?? 0,
+      avg_position: sc['avg_position'] ?? 0,
+    };
   }
 
   if (performance.ga4_traffic) {
