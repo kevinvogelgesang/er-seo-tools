@@ -27,7 +27,6 @@ import {
   JavaScriptParser,
   CSSParser,
   PDFParser,
-  LinksParser,
   ExternalLinksParser,
   SecurityParser,
   InsecureContentParser,
@@ -36,7 +35,6 @@ import {
   AnchorTextParser,
   LinksIssuesParser,
   AccessibilityParser, // NEW
-  AllInlinksParser,
 } from './resources';
 
 // Analytics and Search
@@ -94,7 +92,6 @@ export const PARSERS: Array<typeof BaseParser> = [
   JavaScriptParser,
   CSSParser,
   PDFParser,
-  LinksParser,
   ExternalLinksParser,
   LinksIssuesParser,
   SecurityParser,
@@ -103,7 +100,6 @@ export const PARSERS: Array<typeof BaseParser> = [
   OrphanPagesParser,
   AnchorTextParser,
   AccessibilityParser, // NEW
-  AllInlinksParser,
 
   // Analytics and Search
   AnalyticsParser,
@@ -161,7 +157,6 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
   javascript: JavaScriptParser,
   css: CSSParser,
   pdf: PDFParser,
-  links: LinksParser,
   externallinks: ExternalLinksParser,
   linksissues: LinksIssuesParser,
   security: SecurityParser,
@@ -170,7 +165,6 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
   orphanpages: OrphanPagesParser,
   anchortext: AnchorTextParser,
   accessibility: AccessibilityParser, // NEW
-  allinlinks: AllInlinksParser,
   // Analytics and Search
   analytics: AnalyticsParser,
   searchconsole: SearchConsoleParser,
@@ -268,7 +262,6 @@ export {
   JavaScriptParser,
   CSSParser,
   PDFParser,
-  LinksParser,
   ExternalLinksParser,
   SecurityParser,
   InsecureContentParser,
@@ -277,7 +270,6 @@ export {
   AnchorTextParser,
   LinksIssuesParser,
   AccessibilityParser, // NEW
-  AllInlinksParser,
 };
 export {
   AnalyticsParser,

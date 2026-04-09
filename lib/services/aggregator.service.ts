@@ -1,4 +1,4 @@
-import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals, LinkAnalysis } from '../types';
+import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals } from '../types';
 import { PARSERS } from '../parsers';
 import { computeHealthScore } from './scoring.service';
 
@@ -226,12 +226,6 @@ export class AggregatorService {
 
     // Duplicate content analysis
     result.duplicate_content = this.computeDuplicateContent();
-
-    // Link analysis
-    const linkAnalysis = this.computeLinkAnalysis();
-    if (linkAnalysis !== null) {
-      result.link_analysis = linkAnalysis;
-    }
 
     result.metadata.health_score = computeHealthScore(result);
     return result;
@@ -911,9 +905,4 @@ export class AggregatorService {
     };
   }
 
-  private computeLinkAnalysis(): LinkAnalysis | null {
-    const inlinksData = this.parsedData.allinlinks as Record<string, unknown> | undefined;
-    if (!inlinksData?.link_analysis) return null;
-    return inlinksData.link_analysis as LinkAnalysis;
-  }
 }

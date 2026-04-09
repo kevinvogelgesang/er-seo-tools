@@ -33,12 +33,6 @@ export interface TechnicalAuditPerformance {
   ga4_summary?: Ga4Summary;
 }
 
-export interface TechnicalAuditLinkAnalysis {
-  total_internal_links?: number;
-  nofollow_ratio_pct?: number;
-  non_descriptive_anchor_pct?: number;
-}
-
 export interface TechnicalAuditExport {
   crawl_summary: CrawlSummary;
   issues: IssuesResult;
@@ -47,13 +41,12 @@ export interface TechnicalAuditExport {
   technical_seo: TechnicalSummary;
   performance: TechnicalAuditPerformance;
   duplicate_content?: DuplicateContent;
-  link_analysis?: TechnicalAuditLinkAnalysis;
   recommendations: string[];
   metadata: AggregatedResult['metadata'];
 }
 
 export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAuditExport {
-  const { site_structure, performance, link_analysis } = result;
+  const { site_structure, performance } = result;
 
   const technicalSiteStructure: TechnicalAuditSiteStructure = {
     crawl_depth_distribution: site_structure.crawl_depth_distribution,
@@ -88,15 +81,6 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     }
   }
 
-  let technicalLinkAnalysis: TechnicalAuditLinkAnalysis | undefined;
-  if (link_analysis) {
-    technicalLinkAnalysis = {
-      total_internal_links: link_analysis.total_internal_links,
-      nofollow_ratio_pct: link_analysis.nofollow_ratio_pct,
-      non_descriptive_anchor_pct: link_analysis.non_descriptive_anchor_pct,
-    };
-  }
-
   return {
     crawl_summary: result.crawl_summary,
     issues: result.issues,
@@ -105,7 +89,6 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     technical_seo: result.technical_seo,
     performance: technicalPerformance,
     duplicate_content: result.duplicate_content,
-    link_analysis: technicalLinkAnalysis,
     recommendations: result.recommendations,
     metadata: result.metadata,
   };

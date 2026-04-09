@@ -95,13 +95,6 @@ const mockResult: AggregatedResult = {
     ],
     top_pages_by_organic_traffic: [],
   },
-  link_analysis: {
-    total_internal_links: 500,
-    nofollow_ratio_pct: 5,
-    non_descriptive_anchor_pct: 10,
-    top_linked_pages: [{ url: 'https://example.com/', inlink_count: 100 }],
-    top_anchor_texts: [{ anchor_text: 'click here', count: 50, is_descriptive: false }],
-  },
   recommendations: ['Fix broken links', 'Add missing alt text'],
   metadata: {
     files_processed: ['internal_all.csv'],
@@ -204,23 +197,6 @@ describe('buildTechnicalAuditExport', () => {
     expect(result.site_structure.non_indexable_reasons).toHaveLength(1);
   });
 
-  it('excludes link_analysis.top_linked_pages', () => {
-    const result = buildTechnicalAuditExport(mockResult);
-    expect(result.link_analysis).not.toHaveProperty('top_linked_pages');
-  });
-
-  it('excludes link_analysis.top_anchor_texts', () => {
-    const result = buildTechnicalAuditExport(mockResult);
-    expect(result.link_analysis).not.toHaveProperty('top_anchor_texts');
-  });
-
-  it('preserves link_analysis scalar metrics', () => {
-    const result = buildTechnicalAuditExport(mockResult);
-    expect(result.link_analysis?.total_internal_links).toBe(500);
-    expect(result.link_analysis?.nofollow_ratio_pct).toBe(5);
-    expect(result.link_analysis?.non_descriptive_anchor_pct).toBe(10);
-  });
-
   it('preserves issues with full urls arrays', () => {
     const result = buildTechnicalAuditExport(mockResult);
     expect(result.issues.critical[0].urls).toEqual([
@@ -268,12 +244,6 @@ describe('buildTechnicalAuditExport', () => {
   it('preserves metadata unchanged', () => {
     const result = buildTechnicalAuditExport(mockResult);
     expect(result.metadata).toEqual(mockResult.metadata);
-  });
-
-  it('handles result with no link_analysis', () => {
-    const noLinks = { ...mockResult, link_analysis: undefined };
-    const result = buildTechnicalAuditExport(noLinks);
-    expect(result.link_analysis).toBeUndefined();
   });
 
   it('handles result with no duplicate_content', () => {

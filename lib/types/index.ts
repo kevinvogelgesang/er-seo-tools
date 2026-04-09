@@ -105,24 +105,6 @@ export interface PageSpeedOpportunity {
   total_savings_size_bytes: number;
 }
 
-export interface TopLinkedPage {
-  url: string;
-  inlink_count: number;
-}
-
-export interface TopAnchorText {
-  anchor_text: string;
-  count: number;
-  is_descriptive: boolean;
-}
-
-export interface LinkAnalysis {
-  total_internal_links: number;
-  nofollow_ratio_pct: number;
-  non_descriptive_anchor_pct: number;
-  top_linked_pages: TopLinkedPage[];
-  top_anchor_texts: TopAnchorText[];
-}
 
 export interface CannibalizedKeyword {
   keyword: string;
@@ -196,7 +178,6 @@ export interface AggregatedResult {
   performance: PerformanceSummary;
   duplicate_content?: DuplicateContent;
   keyword_signals?: KeywordSignals;
-  link_analysis?: LinkAnalysis;
   recommendations: string[];
   metadata: {
     files_processed: string[];
