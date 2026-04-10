@@ -141,6 +141,7 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
         compliant={compliant}
         previousScore={previousScore}
         fromAuditId={fromId ?? null}
+        showRescan
       />
     </main>
   )

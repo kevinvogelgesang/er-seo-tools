@@ -18,6 +18,7 @@ interface Props {
   compliant?: boolean
   previousScore?: number | null
   fromAuditId?: string | null
+  showRescan?: boolean
 }
 
 function buildScorecard(results: StoredAxeResults): AuditScorecard {
@@ -33,7 +34,7 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan }: Props) {
   const scorecard = buildScorecard(results)
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
 
@@ -78,7 +79,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
           </div>
           {auditId && (
             <div className="flex-shrink-0 flex items-center gap-2">
-              <ReScanButton url={url} wcagLevel={wcagLevel ?? 'wcag21aa'} auditId={auditId} />
+              {showRescan && <ReScanButton url={url} wcagLevel={wcagLevel ?? 'wcag21aa'} auditId={auditId} />}
               <ShareAuditButton auditId={auditId} />
             </div>
           )}
