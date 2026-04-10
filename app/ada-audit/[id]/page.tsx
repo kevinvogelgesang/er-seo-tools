@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { prisma } from '@/lib/db'
 import AuditResultsView from '@/components/ada-audit/AuditResultsView'
 import AuditPoller from '@/components/ada-audit/AuditPoller'
+import ReScanButton from '@/components/ada-audit/ReScanButton'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
 
@@ -10,10 +11,12 @@ export const dynamic = 'force-dynamic'
 
 interface Props {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string }>
 }
 
-export default async function AdaAuditResultPage({ params }: Props) {
+export default async function AdaAuditResultPage({ params, searchParams }: Props) {
   const { id } = await params
+  const { from } = await searchParams
 
   const audit = await prisma.adaAudit.findUnique({
     where: { id },
@@ -21,6 +24,21 @@ export default async function AdaAuditResultPage({ params }: Props) {
   })
 
   if (!audit) notFound()
+
+  // Fetch previous audit score when this page was reached via Re-scan
+  let previousScore: number | null = null
+  if (from) {
+    const prev = await prisma.adaAudit.findUnique({
+      where: { id: from },
+      select: { result: true, wcagLevel: true },
+    })
+    if (prev?.result) {
+      try {
+        const prevResults = JSON.parse(prev.result) as StoredAxeResults
+        previousScore = computeScore(prevResults.violations, prev.wcagLevel ?? 'wcag21aa').score
+      } catch { /* malformed result — leave null */ }
+    }
+  }
 
   const breadcrumb = (
     <div className="flex items-center gap-2 text-[13px] font-body text-navy/50 dark:text-white/50">
@@ -65,12 +83,9 @@ export default async function AdaAuditResultPage({ params }: Props) {
             <p className="text-[13px] font-body text-red-600 dark:text-red-400 mt-1">{audit.error ?? 'An unknown error occurred'}</p>
             <p className="text-[12px] font-body text-navy/40 dark:text-white/40 mt-2 break-all">{audit.url}</p>
           </div>
-          <Link
-            href="/ada-audit"
-            className="mt-2 px-4 py-2 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[13px] rounded-lg transition-colors"
-          >
-            Try again
-          </Link>
+          <div className="mt-2">
+            <ReScanButton url={audit.url} wcagLevel={audit.wcagLevel} auditId={id} />
+          </div>
         </div>
       </main>
     )
@@ -122,6 +137,8 @@ export default async function AdaAuditResultPage({ params }: Props) {
         wcagLevel={audit.wcagLevel}
         score={score}
         compliant={compliant}
+        previousScore={previousScore}
+        fromAuditId={from ?? null}
       />
     </main>
   )
