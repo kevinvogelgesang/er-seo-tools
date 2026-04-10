@@ -25,11 +25,13 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
 
   if (!audit) notFound()
 
-  // Fetch previous audit score when this page was reached via Re-scan
+  // Fetch previous audit score when this page was reached via Re-scan.
+  // Validate the `from` param is a CUID-shaped string before using it in a query.
+  const fromId = typeof from === 'string' && /^[a-z0-9]{20,30}$/.test(from) ? from : undefined
   let previousScore: number | null = null
-  if (from) {
+  if (fromId) {
     const prev = await prisma.adaAudit.findUnique({
-      where: { id: from },
+      where: { id: fromId },
       select: { result: true, wcagLevel: true },
     })
     if (prev?.result) {
@@ -138,7 +140,7 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
         score={score}
         compliant={compliant}
         previousScore={previousScore}
-        fromAuditId={from ?? null}
+        fromAuditId={fromId ?? null}
       />
     </main>
   )
