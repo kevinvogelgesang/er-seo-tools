@@ -56,15 +56,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'url is required' }, { status: 400 })
   }
 
-  // Validate URL scheme
+  // Normalize: prepend https:// if no protocol present
+  const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`
+
+  // Validate URL scheme and structure
   let parsed: URL
   try {
-    parsed = new URL(url)
+    parsed = new URL(normalized)
     if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return NextResponse.json({ error: 'Only http/https URLs are allowed' }, { status: 400 })
+      return NextResponse.json({ error: 'Only http:// and https:// URLs are supported.' }, { status: 400 })
+    }
+    if (!parsed.hostname.includes('.')) {
+      return NextResponse.json({ error: `"${parsed.hostname}" doesn't look like a valid domain — try something like federico.edu` }, { status: 400 })
     }
   } catch {
-    return NextResponse.json({ error: 'Invalid URL' }, { status: 400 })
+    return NextResponse.json({ error: `"${url}" isn't a valid URL — try federico.edu or https://federico.edu/programs` }, { status: 400 })
   }
 
   // Auto-match client by domain

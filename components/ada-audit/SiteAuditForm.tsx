@@ -65,8 +65,9 @@ export default function SiteAuditForm() {
     setOpen(false)
     if (client) {
       setQuery(client.name)
-      if (!domainTouched && client.domains.length > 0) {
+      if (client.domains.length > 0) {
         setDomain(client.domains[0].replace(/^https?:\/\//i, '').replace(/\/.*$/, ''))
+        setDomainTouched(false)
       }
     } else {
       setQuery('')

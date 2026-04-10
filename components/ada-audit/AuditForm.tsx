@@ -4,18 +4,68 @@ import { useState } from 'react'
 import { Spinner } from '@/components/Spinner'
 import { useRouter } from 'next/navigation'
 
+function normalizeUrl(raw: string): { url: string; error: string | null } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { url: '', error: null }
+
+  // Reject obviously invalid inputs early
+  if (trimmed.includes(' ')) {
+    return { url: trimmed, error: 'URLs can\'t contain spaces — did you mean to enter a single URL?' }
+  }
+
+  // Prepend https:// if no protocol present
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+
+  try {
+    const parsed = new URL(withProtocol)
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { url: trimmed, error: 'Only http:// and https:// URLs are supported.' }
+    }
+
+    if (!parsed.hostname.includes('.')) {
+      return { url: trimmed, error: `"${parsed.hostname}" doesn't look like a valid domain — try something like federico.edu` }
+    }
+
+    return { url: parsed.toString(), error: null }
+  } catch {
+    return { url: trimmed, error: `"${trimmed}" isn't a valid URL — try federico.edu or https://federico.edu/programs` }
+  }
+}
+
 export default function AuditForm() {
   const router = useRouter()
 
   const [url, setUrl] = useState('')
+  const [urlError, setUrlError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
   const [captureScreenshots, setCaptureScreenshots] = useState(false)
 
+  function handleUrlChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setUrl(e.target.value)
+    setUrlError(null)
+    setError(null)
+  }
+
+  function handleUrlBlur() {
+    if (!url.trim()) return
+    const { error } = normalizeUrl(url)
+    setUrlError(error)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+
+    const { url: normalized, error: validationError } = normalizeUrl(url)
+    if (validationError) {
+      setUrlError(validationError)
+      return
+    }
+    if (!normalized) return
+
     setIsRunning(true)
 
     try {
@@ -23,7 +73,7 @@ export default function AuditForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: url.trim(),
+          url: normalized,
           wcagLevel,
           captureScreenshots,
         }),
@@ -43,6 +93,13 @@ export default function AuditForm() {
     }
   }
 
+  const normalizedPreview = url.trim() && !urlError
+    ? (() => {
+        const { url: n } = normalizeUrl(url)
+        return n !== url.trim() ? n : null
+      })()
+    : null
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* URL input */}
@@ -52,14 +109,32 @@ export default function AuditForm() {
         </label>
         <input
           id="audit-url"
-          type="url"
+          type="text"
           required
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://example.edu"
+          onChange={handleUrlChange}
+          onBlur={handleUrlBlur}
+          placeholder="federico.edu or https://federico.edu/programs"
           disabled={isRunning}
-          className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors"
+          className={`w-full px-3.5 py-2.5 text-[14px] font-body text-navy dark:text-white border rounded-lg focus:outline-none focus:ring-2 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors ${
+            urlError
+              ? 'border-red-400 dark:border-red-500 focus:ring-red-400/40'
+              : 'border-gray-300 dark:border-navy-border focus:ring-orange/40'
+          }`}
         />
+        {urlError && (
+          <p className="text-[12px] font-body text-red-600 dark:text-red-400 mt-1.5 flex items-start gap-1.5">
+            <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            {urlError}
+          </p>
+        )}
+        {normalizedPreview && !urlError && (
+          <p className="text-[12px] font-body text-navy/40 dark:text-white/40 mt-1.5">
+            Will audit: <span className="text-navy/60 dark:text-white/60 font-medium">{normalizedPreview}</span>
+          </p>
+        )}
       </div>
 
       {/* WCAG level selector */}
@@ -118,7 +193,7 @@ export default function AuditForm() {
 
       <button
         type="submit"
-        disabled={isRunning || !url.trim()}
+        disabled={isRunning || !url.trim() || !!urlError}
         className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[14px] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isRunning ? (
