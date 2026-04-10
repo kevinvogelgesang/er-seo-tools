@@ -3,6 +3,8 @@ import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
 import ComplianceBanner from './ComplianceBanner'
 import ShareAuditButton from './ShareAuditButton'
+import ReScanButton from './ReScanButton'
+import RescanBanner from './RescanBanner'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 
 interface Props {
@@ -14,6 +16,8 @@ interface Props {
   wcagLevel?: string
   score?: number
   compliant?: boolean
+  previousScore?: number | null
+  fromAuditId?: string | null
 }
 
 function buildScorecard(results: StoredAxeResults): AuditScorecard {
@@ -29,12 +33,15 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId }: Props) {
   const scorecard = buildScorecard(results)
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
 
   return (
     <div className="space-y-6">
+      {fromAuditId && (
+        <RescanBanner previousScore={previousScore ?? null} currentScore={score ?? null} />
+      )}
       <ComplianceBanner />
 
       {/* Header */}
@@ -70,7 +77,8 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
             </div>
           </div>
           {auditId && (
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 flex items-center gap-2">
+              <ReScanButton url={url} wcagLevel={wcagLevel ?? 'wcag21aa'} auditId={auditId} />
               <ShareAuditButton auditId={auditId} />
             </div>
           )}
