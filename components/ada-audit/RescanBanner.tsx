@@ -41,6 +41,7 @@ export default function RescanBanner({ previousScore, currentScore }: Props) {
         )}
       </div>
       <button
+        type="button"
         onClick={() => setDismissed(true)}
         aria-label="Dismiss"
         className="flex-shrink-0 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200 transition-colors"
