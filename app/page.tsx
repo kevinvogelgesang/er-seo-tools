@@ -59,6 +59,17 @@ const tools = [
     icon: RobotsValidatorIcon,
     accentClass: 'from-orange/20 to-transparent',
   },
+  {
+    id: 'oxygen-tailwind-guide',
+    href: '/oxygen-tailwind-guide',
+    name: 'Oxygen + Tailwind Guide',
+    tagline: 'Learn. Reference. Ship.',
+    description:
+      'Interactive guide for building WordPress sites with Oxygen Builder 6 and Tailwind CSS. Live class playground, color explorer, spacing visualizer, and copy-ready UI patterns.',
+    features: ['Live Tailwind playground', 'Color + spacing explorers', 'Copy-ready UI patterns'],
+    icon: OxygenTailwindIcon,
+    accentClass: 'from-orange/20 to-transparent',
+  },
 ]
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -108,6 +119,18 @@ function AdaAuditIcon({ className }: { className?: string }) {
     <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3l7 3.5v5C19 15.5 16 19.5 12 21c-4-1.5-7-5.5-7-9.5V6.5L12 3z" />
       <path d="M9 12l2.5 2.5L15 9" />
+    </svg>
+  )
+}
+
+function OxygenTailwindIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      {/* hex frame — Oxygen */}
+      <path d="M12 2.5l8.5 4.75v9.5L12 21.5l-8.5-4.75v-9.5L12 2.5z" />
+      {/* tailwind double wave inside */}
+      <path d="M7.5 11c1.4-1.6 2.8-1.6 4.2 0 1.4 1.6 2.8 1.6 4.2 0" opacity={0.85} />
+      <path d="M7.5 14.5c1.4-1.6 2.8-1.6 4.2 0 1.4 1.6 2.8 1.6 4.2 0" opacity={0.5} />
     </svg>
   )
 }
@@ -219,7 +242,7 @@ function HeroVisual() {
       {/* Bottom label */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
         <span className="text-[11px] font-body text-gray-400 dark:text-white/40 tracking-wide">
-          5 tools · All in one place
+          6 tools · All in one place
         </span>
       </div>
     </div>
@@ -294,7 +317,7 @@ function ToolCard({
 // ─── Stats strip ─────────────────────────────────────────────────────────────
 
 const stats = [
-  { value: '5', label: 'SEO Tools' },
+  { value: '6', label: 'SEO Tools' },
   { value: 'Next.js 15', label: 'App Router' },
   { value: 'Git', label: 'Connected Deploy' },
   { value: 'RunCloud', label: 'Hosted' },

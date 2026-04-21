@@ -30,6 +30,7 @@ const tools: NavTool[] = [
   { name: 'RankMath Redirects', href: '/rankmath-redirects' },
   { name: 'Robots Validator', href: '/robots-validator' },
   { name: 'ADA Audit', href: '/ada-audit' },
+  { name: 'Oxygen Guide', href: '/oxygen-tailwind-guide' },
   { name: 'Clients', href: '/clients' },
 ]
 
