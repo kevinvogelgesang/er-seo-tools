@@ -28,9 +28,8 @@ const SECTIONS: SidebarSection[] = [
   { id: 'overview',        label: 'Overview',           group: 'Get oriented' },
   { id: 'interface',       label: 'Interface',          group: 'Get oriented' },
   { id: 'concepts',        label: 'Core concepts',      group: 'Get oriented' },
-  { id: 'install',         label: 'Install Oxygen',     group: 'Setup' },
-  { id: 'tailwind-setup',  label: 'Add Tailwind',       group: 'Setup' },
   { id: 'philosophy',      label: 'Utility philosophy', group: 'Tailwind reference' },
+  { id: 'classes-where',   label: 'Where classes go',   group: 'Tailwind reference' },
   { id: 'playground',      label: 'Live playground',    group: 'Tailwind reference' },
   { id: 'spacing',         label: 'Spacing scale',      group: 'Tailwind reference' },
   { id: 'sizing',          label: 'Sizing',             group: 'Tailwind reference' },
@@ -280,105 +279,8 @@ export default function OxygenTailwindGuidePage() {
               </Card>
             </div>
 
-            {/* ───────────────────────── INSTALL ───────────────────────── */}
-            <PhaseBanner id="install" text="— part 02   set up the stack" />
-
-            <div className="mb-9">
-              <SectionHeader step={1} title="Install Oxygen Builder" phase="WordPress admin" />
-              <Card>
-                <Callout type="warn" icon="⚠">
-                  <strong>Take a backup first.</strong> Oxygen will disable your active theme.
-                </Callout>
-                <Sub>Steps</Sub>
-                <ol className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body list-decimal list-inside">
-                  <li>Buy a license from <InlineCode>oxygenbuilder.com</InlineCode></li>
-                  <li>WP admin → <strong>Plugins → Add New → Upload Plugin</strong> → upload <InlineCode>oxygen.zip</InlineCode></li>
-                  <li><strong>Activate</strong> the plugin</li>
-                  <li>Enter your license key under <strong>Oxygen → Settings → License</strong></li>
-                  <li>Visit the front of your site — it will look unstyled. <strong>This is normal.</strong></li>
-                </ol>
-              </Card>
-            </div>
-
-            <div className="mb-9">
-              <SectionHeader step={2} title="Build a Main Template (header + footer)" phase="Oxygen" />
-              <Card>
-                <P>
-                  This is the very first thing to do, before any pages. Without it, every page renders unstyled.
-                </P>
-                <ol className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body list-decimal list-inside">
-                  <li><strong>Oxygen → Templates → Add New</strong>, name it <InlineCode>Main</InlineCode></li>
-                  <li>Inheritance = none, Apply to = Entire Site, Priority = 0</li>
-                  <li>Click <strong>Edit with Oxygen</strong></li>
-                  <li>Add a <strong>Section</strong> at top → set tag <InlineCode>header</InlineCode>. Drop in logo, nav, etc.</li>
-                  <li>At the bottom add an <strong>Inner Content</strong> element — this is where individual page bodies render</li>
-                  <li>After that, add another <strong>Section</strong> → tag <InlineCode>footer</InlineCode>, drop in footer content</li>
-                  <li>Save</li>
-                </ol>
-                <Callout type="info" icon="ℹ">
-                  If your pages render blank later, <strong>Inner Content</strong> is almost always missing from
-                  the Main template.
-                </Callout>
-              </Card>
-            </div>
-
-            {/* ───────────────────────── TAILWIND SETUP ───────────────────────── */}
-            <div className="mb-9">
-              <SectionHeader step={3} variant="purple" title="Wire in Tailwind via WindPress" phase="Plugin" id="tailwind-setup" />
-              <Card>
-                <P>
-                  Oxygen does not ship Tailwind. You add it via a plugin. Most popular options today:
-                </P>
-                <KeyTable
-                  rows={[
-                    { class: 'WindPress', effect: 'Free + Pro · JIT Tailwind v3/v4 · "Plain Classes" input on every Oxygen element with autocomplete' },
-                    { class: 'Winden', effect: 'Similar feature set · includes "dequeue builder styles" toggle' },
-                    { class: 'OxyMade / OxyNinja', effect: 'Tailwind-style frameworks tailored to Oxygen, batteries-included' },
-                    { class: 'TailPress', effect: 'Free, simpler, less Oxygen-specific tooling' },
-                  ]}
-                />
-                <P>This guide assumes <strong>WindPress</strong> — smoothest Oxygen 6 integration, works with stock Tailwind v3 or v4.</P>
-
-                <Sub>Install</Sub>
-                <ol className="text-[13px] text-white/65 space-y-1 mt-2 pl-1 font-body list-decimal list-inside">
-                  <li><strong>Plugins → Add New</strong> → search <InlineCode>WindPress</InlineCode> → install + activate</li>
-                  <li>Open <strong>WindPress → Settings</strong> · confirm Oxygen integration is enabled</li>
-                  <li>Pick Tailwind v3 or v4 (v4 recommended for new projects)</li>
-                  <li>Optionally enable "Sort classes" and "Autocomplete"</li>
-                </ol>
-
-                <Sub>Where to put Tailwind classes in Oxygen</Sub>
-                <div className="grid sm:grid-cols-2 gap-3 mt-2">
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                    <div className="font-mono text-[10px] text-amber-400 uppercase tracking-wider mb-1.5">
-                      Native "Selectors / Classes" field
-                    </div>
-                    <div className="text-[12px] text-white/65 leading-relaxed">
-                      Designed for <em>named</em> classes that get a stylesheet rule (<InlineCode>.cta-card</InlineCode>).
-                      Putting utilities here makes Oxygen treat them as named selectors.
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-orange/40 bg-orange/5 p-3">
-                    <div className="font-mono text-[10px] text-orange uppercase tracking-wider mb-1.5">
-                      WindPress "Plain Classes" field
-                    </div>
-                    <div className="text-[12px] text-white/65 leading-relaxed">
-                      <strong className="text-orange">Where utility classes belong.</strong> Autocomplete, hover preview,
-                      class sorting, written straight to the rendered <InlineCode>class=&quot;&quot;</InlineCode>.
-                    </div>
-                  </div>
-                </div>
-
-                <Callout type="warn" icon="⚠">
-                  <strong>Rule of thumb:</strong> named/component classes (<InlineCode>.btn</InlineCode>,{' '}
-                  <InlineCode>.card</InlineCode>) → Oxygen's Selectors field; utility classes (<InlineCode>flex</InlineCode>,{' '}
-                  <InlineCode>gap-4</InlineCode>, <InlineCode>bg-slate-900</InlineCode>) → WindPress Plain Classes field.
-                </Callout>
-              </Card>
-            </div>
-
             {/* ───────────────────────── TAILWIND REFERENCE ───────────────────────── */}
-            <PhaseBanner id="philosophy" text="— part 03   tailwind reference" />
+            <PhaseBanner id="philosophy" text="— part 02   tailwind reference" />
 
             <div className="mb-9">
               <SectionHeader step="04" title="The utility-class philosophy" phase="Foundation" />
@@ -407,6 +309,42 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
+              <SectionHeader step="05" title="Where Tailwind classes go in Oxygen" phase="WindPress" id="classes-where" />
+              <Card>
+                <P>
+                  Oxygen exposes two places to add classes to an element. Only one is right for Tailwind utilities
+                  — get this wrong and your output is full of redundant CSS rules.
+                </P>
+                <div className="grid sm:grid-cols-2 gap-3 mt-2">
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                    <div className="font-mono text-[10px] text-amber-400 uppercase tracking-wider mb-1.5">
+                      Native &quot;Selectors / Classes&quot; field
+                    </div>
+                    <div className="text-[12px] text-white/65 leading-relaxed">
+                      Designed for <em>named</em> classes that get a stylesheet rule (<InlineCode>.cta-card</InlineCode>).
+                      Putting utilities here makes Oxygen treat them as named selectors — bloated CSS output.
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-orange/40 bg-orange/5 p-3">
+                    <div className="font-mono text-[10px] text-orange uppercase tracking-wider mb-1.5">
+                      WindPress &quot;Plain Classes&quot; field
+                    </div>
+                    <div className="text-[12px] text-white/65 leading-relaxed">
+                      <strong className="text-orange">Where utility classes belong.</strong> Autocomplete, hover preview,
+                      class sorting, written straight to the rendered <InlineCode>class=&quot;&quot;</InlineCode>.
+                    </div>
+                  </div>
+                </div>
+
+                <Callout type="warn" icon="⚠">
+                  <strong>Rule of thumb:</strong> named/component classes (<InlineCode>.btn</InlineCode>,{' '}
+                  <InlineCode>.card</InlineCode>) → Oxygen&apos;s Selectors field; utility classes (<InlineCode>flex</InlineCode>,{' '}
+                  <InlineCode>gap-4</InlineCode>, <InlineCode>bg-slate-900</InlineCode>) → WindPress Plain Classes field.
+                </Callout>
+              </Card>
+            </div>
+
+            <div className="mb-9">
               <SectionHeader step="▶" variant="purple" title="Live Tailwind playground" phase="Interactive" id="playground" />
               <Card className="p-3">
                 <div className="px-2 pt-1 pb-3">
@@ -421,7 +359,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="05" title="Spacing — p, m, gap" phase="Reference" id="spacing" />
+              <SectionHeader step="06" title="Spacing — p, m, gap" phase="Reference" id="spacing" />
               <Card>
                 <P>
                   Tailwind spacing uses a numeric scale where{' '}
@@ -447,7 +385,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="06" title="Sizing — w, h, max-w, min-h" phase="Reference" id="sizing" />
+              <SectionHeader step="07" title="Sizing — w, h, max-w, min-h" phase="Reference" id="sizing" />
               <Card>
                 <P>Same numeric scale as spacing, plus fractions, percentages, and named sizes.</P>
                 <KeyTable
@@ -472,7 +410,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="07" title="Typography" phase="Reference" id="typography" />
+              <SectionHeader step="08" title="Typography" phase="Reference" id="typography" />
               <Card>
                 <CodeBlock label="example">{`<h1 class="text-4xl font-bold leading-tight tracking-tight text-slate-900">
   Hello
@@ -512,7 +450,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="08" variant="purple" title="Color system" phase="Interactive" id="colors" />
+              <SectionHeader step="09" variant="purple" title="Color system" phase="Interactive" id="colors" />
               <Card className="p-3">
                 <div className="px-2 pt-1 pb-3">
                   <P>
@@ -541,7 +479,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="09" title="Flexbox" phase="Reference" id="flexbox" />
+              <SectionHeader step="10" title="Flexbox" phase="Reference" id="flexbox" />
               <Card>
                 <CodeBlock label="example">{`<div class="flex items-center justify-between gap-4">
   <img class="w-10 h-10 rounded-full" />
@@ -571,7 +509,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="10" title="Grid" phase="Reference" id="grid-layout" />
+              <SectionHeader step="11" title="Grid" phase="Reference" id="grid-layout" />
               <Card>
                 <CodeBlock label="example">{`<div class="grid grid-cols-3 gap-6">
   <div>1</div><div>2</div><div>3</div>
@@ -598,7 +536,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="11" title="Responsive prefixes (mobile-first)" phase="Reference" id="responsive" />
+              <SectionHeader step="12" title="Responsive prefixes (mobile-first)" phase="Reference" id="responsive" />
               <Card>
                 <P>
                   Tailwind is <strong>mobile-first</strong>: an unprefixed class applies at every size.
@@ -627,7 +565,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="12" title="State variants" phase="Reference" id="states" />
+              <SectionHeader step="13" title="State variants" phase="Reference" id="states" />
               <Card>
                 <KeyTable
                   rows={[
@@ -658,7 +596,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="13" title="Borders, shadows, rounded" phase="Reference" id="borders-shadows" />
+              <SectionHeader step="14" title="Borders, shadows, rounded" phase="Reference" id="borders-shadows" />
               <Card>
                 <Sub>Borders</Sub>
                 <KeyTable
@@ -712,7 +650,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             {/* ───────────────────────── BUILD WITH IT ───────────────────────── */}
-            <PhaseBanner id="patterns" text="— part 04   build with it" />
+            <PhaseBanner id="patterns" text="— part 03   build with it" />
 
             <div className="mb-9">
               <SectionHeader step="▣" variant="purple" title="UI pattern gallery" phase="Interactive" />
@@ -727,7 +665,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="14" title="Common workflows" phase="Day-to-day" id="workflows" />
+              <SectionHeader step="15" title="Common workflows" phase="Day-to-day" id="workflows" />
               <Card>
                 <Sub>Build a marketing page layout</Sub>
                 <ol className="text-[13px] text-white/65 space-y-1 mt-1 pl-1 font-body list-decimal list-inside">
