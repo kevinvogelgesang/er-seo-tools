@@ -17,19 +17,22 @@ import { ColorPalette } from './_components/color-palette'
 import { SpacingScale } from './_components/spacing-scale'
 import { BreakpointIndicator } from './_components/breakpoint-indicator'
 import { PatternGallery } from './_components/pattern-gallery'
+import { DaisyComponentsSection } from './_components/daisy-components'
 
 export const metadata = {
-  title: 'Oxygen Builder + Tailwind CSS Guide',
+  title: 'Oxygen Builder + Tailwind + DaisyUI Guide',
   description:
-    'A practical reference for building WordPress sites with Oxygen Builder 6 and Tailwind CSS — interactive playground, color explorer, spacing visualizer, and UI pattern gallery.',
+    'A practical reference for building WordPress sites with Oxygen Builder 6, Tailwind CSS v4, and DaisyUI — as actually shipped via the ER FusionCore plugin. Interactive playground, color explorer, spacing visualizer, and a full DaisyUI components reference.',
 }
 
 const SECTIONS: SidebarSection[] = [
   { id: 'overview',        label: 'Overview',           group: 'Get oriented' },
   { id: 'interface',       label: 'Interface',          group: 'Get oriented' },
   { id: 'concepts',        label: 'Core concepts',      group: 'Get oriented' },
+  { id: 'how-it-ships',    label: 'How it ships',       group: 'The ER stack' },
+  { id: 'design-tokens',   label: 'Design tokens',      group: 'The ER stack' },
+  { id: 'classes-where',   label: 'Where classes go',   group: 'The ER stack' },
   { id: 'philosophy',      label: 'Utility philosophy', group: 'Tailwind reference' },
-  { id: 'classes-where',   label: 'Where classes go',   group: 'Tailwind reference' },
   { id: 'playground',      label: 'Live playground',    group: 'Tailwind reference' },
   { id: 'spacing',         label: 'Spacing scale',      group: 'Tailwind reference' },
   { id: 'sizing',          label: 'Sizing',             group: 'Tailwind reference' },
@@ -40,6 +43,12 @@ const SECTIONS: SidebarSection[] = [
   { id: 'responsive',      label: 'Responsive',         group: 'Tailwind reference' },
   { id: 'states',          label: 'State variants',     group: 'Tailwind reference' },
   { id: 'borders-shadows', label: 'Borders & shadows',  group: 'Tailwind reference' },
+  { id: 'daisy-buttons',   label: 'Buttons',            group: 'DaisyUI components' },
+  { id: 'daisy-forms',     label: 'Forms',              group: 'DaisyUI components' },
+  { id: 'daisy-layout',    label: 'Cards & layout',     group: 'DaisyUI components' },
+  { id: 'daisy-navigation',label: 'Navigation',         group: 'DaisyUI components' },
+  { id: 'daisy-feedback',  label: 'Feedback',           group: 'DaisyUI components' },
+  { id: 'daisy-data',      label: 'Data display',       group: 'DaisyUI components' },
   { id: 'patterns',        label: 'UI patterns',        group: 'Build with it' },
   { id: 'workflows',       label: 'Workflows',          group: 'Build with it' },
   { id: 'tips',            label: 'Tips & gotchas',     group: 'Build with it' },
@@ -57,11 +66,11 @@ export default function OxygenTailwindGuidePage() {
             // enrollment resources — internal tooling
           </div>
           <h1 className="font-display text-[32px] font-extrabold text-white leading-tight mb-2">
-            Oxygen Builder + Tailwind CSS<br />
-            <span className="text-white/60 text-[22px] font-bold">A working guide</span>
+            Oxygen + Tailwind + DaisyUI<br />
+            <span className="text-white/60 text-[22px] font-bold">The ER house stack — a working guide</span>
           </h1>
           <p className="text-white/40 font-mono text-[12px]">
-            oxygen 6 &nbsp;·&nbsp; windpress &nbsp;·&nbsp; tailwind v3/v4 &nbsp;·&nbsp; live playground
+            oxygen 6 &nbsp;·&nbsp; tailwind v4 &nbsp;·&nbsp; daisyui v5 &nbsp;·&nbsp; shipped via fusioncore
           </p>
         </header>
 
@@ -74,7 +83,35 @@ export default function OxygenTailwindGuidePage() {
             <PhaseBanner id="overview" text="— part 01   get oriented" />
 
             <div className="mb-9">
-              <SectionHeader step="01" title="What Oxygen Builder is — and why use it" phase="Overview" />
+              <SectionHeader step="01" title="The ER house stack — at a glance" phase="Overview" />
+              <Card>
+                <P>
+                  Every ER client site shares the same front-end stack. This guide is your reference for it.
+                </P>
+                <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                  {[
+                    { label: 'Page builder', value: 'Oxygen 6.0.0', desc: 'Visual WP builder · semantic HTML output' },
+                    { label: 'CSS framework', value: 'Tailwind CSS v4', desc: 'Utility classes · @theme tokens · oklch colors' },
+                    { label: 'Component library', value: 'DaisyUI v5', desc: '.btn / .card / .alert / .menu / etc.' },
+                    { label: 'Distribution', value: 'ER FusionCore', desc: 'In-house plugin enqueues a precompiled bundle' },
+                  ].map((it) => (
+                    <div key={it.label} className="rounded-lg border border-navy-border bg-navy-deep/50 p-3">
+                      <div className="font-mono text-[10px] text-white/40 tracking-widest uppercase mb-1">{it.label}</div>
+                      <div className="font-display font-bold text-[15px] text-white">{it.value}</div>
+                      <div className="text-[12px] text-white/55 mt-0.5">{it.desc}</div>
+                    </div>
+                  ))}
+                </div>
+                <Callout type="tip" icon="💡">
+                  No build step, no plugin to install per-site, no <InlineCode>tailwind.config</InlineCode> to
+                  edit. Tailwind + DaisyUI are precompiled into FusionCore and enqueued on every page. You write
+                  utility classes; they just work.
+                </Callout>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <SectionHeader step="02" title="What Oxygen Builder is — and why use it" phase="Background" />
               <Card>
                 <P>
                   <strong>Oxygen Builder</strong> is a visual WordPress site builder that disables your active theme
@@ -83,18 +120,19 @@ export default function OxygenTailwindGuidePage() {
                   archive, single-post, 404, even the homepage are all built inside Oxygen.
                 </P>
                 <P>
-                  The current major release is <strong>Oxygen 6</strong> (released February 2026), a complete
-                  rebuild of the previous Angular-based 3.x/4.x line.
+                  The current major release is <strong>Oxygen 6</strong> (released February 2026), a rebuild of
+                  the previous Angular-based 3.x/4.x line. ER's client sites are on Oxygen 6.0.0 with the{' '}
+                  <InlineCode>Oxygen Zero</InlineCode> stub theme active.
                 </P>
-                <Sub>What's new in Oxygen 6</Sub>
+                <Sub>Oxygen 6 highlights</Sub>
                 <ul className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body">
                   {[
                     ['Clean, semantic HTML output', 'Properties panel maps directly to CSS — no nested wrapper-div tax'],
-                    ['Full CSS variable support', 'Define design tokens once, reference them everywhere'],
+                    ['Full CSS variable support', 'Reads from FusionCore\'s @theme tokens out of the box'],
                     ['Reusable Components', 'Symbol/instance system — edit once, propagate everywhere'],
-                    ['Loop Builders', 'Map over WordPress posts, CPTs, or taxonomy terms (Term Loop Builder is new)'],
+                    ['Loop Builders', 'Map over WordPress posts, CPTs, or taxonomy terms'],
                     ['Element Studio', 'Build your own custom builder elements visually, no PHP registration code'],
-                    ['Dynamic Data', 'Native ACF and Meta Box integration'],
+                    ['Dynamic Data', 'Native ACF Pro integration (already used heavily on ER sites)'],
                   ].map(([t, d]) => (
                     <li key={t} className="flex gap-2">
                       <span className="text-orange flex-shrink-0">▸</span>
@@ -113,12 +151,33 @@ export default function OxygenTailwindGuidePage() {
 
             {/* ───────────────────────── INTERFACE ───────────────────────── */}
             <div className="mb-9">
-              <SectionHeader step="02" title="The Oxygen interface" phase="Tour" id="interface" />
+              <SectionHeader step="03" title="The Oxygen interface" phase="Tour" id="interface" />
               <Card>
+                <Sub>Where Oxygen lives in WP admin</Sub>
                 <P>
-                  Open any post or page and click <strong>Edit with Oxygen</strong> — the editor takes over the
-                  whole browser tab.
+                  In the WordPress admin sidebar, the <strong>Oxygen</strong> menu has eight top-level entries
+                  (yes, eight — they're not consolidated under Templates the way you'd expect from a v6 builder):
                 </P>
+                <KeyTable
+                  rows={[
+                    { class: 'Oxygen → Home',          effect: 'Plugin landing page' },
+                    { class: 'Oxygen → Templates',     effect: 'Page templates with conditions + priority (excludes header/footer)' },
+                    { class: 'Oxygen → Headers',       effect: 'Site header templates — separate from Templates' },
+                    { class: 'Oxygen → Footers',       effect: 'Site footer templates — also separate' },
+                    { class: 'Oxygen → Components',    effect: 'Reusable design components (the Oxygen 6 instance system)' },
+                    { class: 'Oxygen → Design Library', effect: 'Pre-made starter sections / blocks' },
+                    { class: 'Oxygen → Partner Discounts', effect: 'Marketing — ignore' },
+                    { class: 'Oxygen → Settings',      effect: 'Plugin settings · class manager · cache · Code block defaults' },
+                  ]}
+                />
+                <Callout type="info" icon="ℹ">
+                  To open the visual builder for any page or post, edit it the normal WP way and click{' '}
+                  <strong>Edit with Oxygen</strong> — or hit the URL{' '}
+                  <InlineCode>?oxygen=builder&id=&lt;post_id&gt;</InlineCode> directly. The builder takes over
+                  the whole browser tab.
+                </Callout>
+
+                <Sub>Inside the builder</Sub>
                 {/* Visual diagram */}
                 <div className="mt-3 rounded-lg border border-navy-border overflow-hidden bg-navy-deep/60">
                   <div className="bg-[#0f1118] border-b border-navy-border px-3 py-1.5 flex items-center gap-2">
@@ -217,27 +276,27 @@ export default function OxygenTailwindGuidePage() {
 
             {/* ───────────────────────── CONCEPTS ───────────────────────── */}
             <div className="mb-9">
-              <SectionHeader step="03" title="Core concepts" phase="Mental model" id="concepts" />
+              <SectionHeader step="04" title="Core concepts" phase="Mental model" id="concepts" />
               <Card>
                 <Sub>Elements</Sub>
                 <P>
                   Everything on a page is an <strong>element</strong>. Two flavors: <strong>containers</strong>{' '}
                   (Section, Div, Columns) and <strong>atoms</strong> (Heading, Text, Link, Image, Icon, Button…).
-                  Every element exposes its tag, ID, classes, and HTML attributes.
+                  Every element exposes its tag, ID, classes, and HTML attributes — and that classes field is
+                  where Tailwind utilities go (see <a href="#classes-where" className="text-orange hover:text-orange-light underline-offset-2 hover:underline">Where classes go</a>).
                 </P>
 
-                <Sub>Templates</Sub>
+                <Sub>Templates, Headers & Footers</Sub>
                 <P>
-                  Templates control which pages or post types display what layout — outside of the page content
-                  itself. You'll typically build:
+                  Oxygen splits site-wide layout into <strong>three</strong> separate admin sections rather
+                  than one — Templates (the page body shells), Headers (the top bar), and Footers (the bottom).
+                  Each is its own list of records with its own conditions + priority.
                 </P>
                 <ul className="text-[12px] text-white/65 space-y-1 mt-1 pl-1 font-body">
                   {[
-                    ['Main Template', 'wraps the whole site (header + footer)'],
-                    ['Single - Post', 'layout for any blog post'],
-                    ['Single - Page', 'layout for any page (often inherits from Main)'],
-                    ['Archive - Category', 'category listings'],
-                    ['Search Results / 404', 'self-explanatory'],
+                    ['Templates', 'Single - Post · Single - Page · Archive - Category · Search Results · 404 · Main / fallback'],
+                    ['Headers', 'One per layout variant (e.g. main header, landing-page slim header, microsite header)'],
+                    ['Footers', 'Same — each header/footer is wired to a template via conditions'],
                   ].map(([n, d]) => (
                     <li key={n} className="flex gap-2">
                       <span className="text-orange flex-shrink-0">▸</span>
@@ -248,8 +307,8 @@ export default function OxygenTailwindGuidePage() {
                   ))}
                 </ul>
                 <P>
-                  Each template has <strong>conditions</strong> deciding where it applies. When conditions
-                  overlap, <strong>Priority</strong> (higher wins) decides.
+                  Each entry has <strong>conditions</strong> deciding where it applies. When conditions overlap,{' '}
+                  <strong>Priority</strong> (higher wins) decides.
                 </P>
 
                 <Sub>Reusable Components (Oxygen 6)</Sub>
@@ -262,12 +321,12 @@ export default function OxygenTailwindGuidePage() {
 
                 <Sub>Global Styles & CSS variables</Sub>
                 <P>
-                  <strong>Manage → Stylesheets</strong> for site-wide CSS.{' '}
-                  <strong>Manage → Settings → Global Styles</strong> for design tokens (colors, font sizes,
-                  spacing) as CSS variables. With Tailwind, your tokens generally live in{' '}
-                  <InlineCode>tailwind.config</InlineCode> or a <InlineCode>@theme</InlineCode> block, but
-                  Oxygen's Global Styles are still useful for non-utility values (custom shadows, gradients,
-                  animations).
+                  Oxygen has its own <strong>Manage → Stylesheets</strong> and{' '}
+                  <strong>Manage → Settings → Global Styles</strong> screens, but on ER sites you generally{' '}
+                  <em>don't</em> use them for design tokens — those come from FusionCore's compiled Tailwind
+                  bundle (<InlineCode>--color-primary</InlineCode>,{' '}
+                  <InlineCode>--font-headings</InlineCode>, etc.) Reserve Oxygen's Stylesheets for one-off
+                  per-page overrides or non-utility CSS (custom keyframes, complex gradients).
                 </P>
 
                 <Sub>Conditions</Sub>
@@ -279,11 +338,181 @@ export default function OxygenTailwindGuidePage() {
               </Card>
             </div>
 
-            {/* ───────────────────────── TAILWIND REFERENCE ───────────────────────── */}
-            <PhaseBanner id="philosophy" text="— part 02   tailwind reference" />
+            {/* ───────────────────────── THE ER STACK ───────────────────────── */}
+            <PhaseBanner id="how-it-ships" text="— part 02   the er stack" />
 
             <div className="mb-9">
-              <SectionHeader step="04" title="The utility-class philosophy" phase="Foundation" />
+              <SectionHeader step="05" title="How Tailwind ships at ER" phase="FusionCore" />
+              <Card>
+                <P>
+                  There is no Tailwind plugin to install per-site. The ER FusionCore plugin ships a precompiled
+                  Tailwind v4 + DaisyUI v5 stylesheet and enqueues it on every page automatically. As of writing,
+                  the bundle is roughly 190 KB and lives at:
+                </P>
+                <CodeBlock label="enqueued css">{`/wp-content/uploads/er-plugin/assets/style.<hash>.css`}</CodeBlock>
+                <P>
+                  Practical implications for day-to-day work:
+                </P>
+                <ul className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body">
+                  {[
+                    ['No build step', 'You don\'t run npm. Tailwind is compiled inside FusionCore at plugin build time'],
+                    ['No JIT scanning', 'Every Tailwind utility is already in the bundle — type any class string in Oxygen and it works without rescan'],
+                    ['No per-site config', 'The Tailwind config is in FusionCore. To add a new token or DaisyUI plugin, ship a new FusionCore version'],
+                    ['DaisyUI is included', '.btn, .card, .alert, .menu, .navbar, .toggle, .input, etc. are all available out of the box'],
+                    ['Brand tokens vary per client', 'Each client site overrides --color-primary / -secondary / -tertiary in their own theme — same class name, different value'],
+                  ].map(([t, d]) => (
+                    <li key={t} className="flex gap-2">
+                      <span className="text-orange flex-shrink-0">▸</span>
+                      <span>
+                        <strong className="text-white">{t}.</strong> <span className="text-white/55">{d}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <Callout type="tip" icon="💡">
+                  Need a new utility class or theme token sitewide? It's a FusionCore PR, not a per-site change.
+                  Edit per-page CSS in Oxygen's Stylesheets only for genuine one-offs.
+                </Callout>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <SectionHeader step="06" title="Design tokens" phase="Theme" id="design-tokens" />
+              <Card>
+                <P>
+                  FusionCore exposes a fixed set of <strong>brand tokens</strong>. The token <em>names</em> are
+                  the same on every client; the <em>values</em> are overridden per client. Use the token name —
+                  never hard-code a hex.
+                </P>
+                <Sub>Brand color tokens</Sub>
+                <KeyTable
+                  rows={[
+                    { class: 'primary',              effect: 'Primary brand color · use as bg-primary, text-primary, border-primary' },
+                    { class: 'secondary',            effect: 'Secondary brand color · supporting surfaces' },
+                    { class: 'tertiary',             effect: 'Accent / call-to-action color · usually warm' },
+                    { class: 'background',           effect: 'Page background — usually white' },
+                    { class: 'background-secondary', effect: 'Alternate row / panel background' },
+                    { class: 'text',                 effect: 'Body text color · usually black or near-black' },
+                    { class: 'link',                 effect: 'Text-link color (often = text)' },
+                    { class: 'button',               effect: 'Default button background (often = tertiary)' },
+                    { class: 'buttontext',           effect: 'Default button text color' },
+                  ]}
+                />
+
+                <Sub>DaisyUI semantic tokens (also available)</Sub>
+                <KeyTable
+                  rows={[
+                    { class: 'base-100 / base-200 / base-300', effect: 'Neutral surface scale (lightest → darkest)' },
+                    { class: 'base-content',          effect: 'Default text color on a base surface' },
+                    { class: 'accent',                effect: 'DaisyUI accent (separate from your tertiary)' },
+                    { class: 'neutral / neutral-content', effect: 'Neutral surface + matching text color' },
+                    { class: 'info / success / warning / error', effect: 'Status colors with paired -content text colors' },
+                  ]}
+                />
+
+                <Sub>Typography token</Sub>
+                <KeyTable
+                  rows={[
+                    { class: 'font-headings', effect: 'Per-client heading font (resolves via --client-heading-font)' },
+                    { class: 'font-sans',     effect: 'Default UI sans family (system stack)' },
+                    { class: 'font-mono',     effect: 'Monospace family' },
+                  ]}
+                />
+
+                <Sub>Spacing aliases</Sub>
+                <KeyTable
+                  rows={[
+                    { class: '--spacing-xs (0.25rem)',  effect: 'Smallest gap unit (= space-1)' },
+                    { class: '--spacing-sm (0.5rem)',   effect: '= space-2' },
+                    { class: '--spacing-md (1rem)',     effect: '= space-4' },
+                    { class: '--spacing-lg (1.5rem)',   effect: '= space-6' },
+                    { class: '--spacing-xl (2rem)',     effect: '= space-8' },
+                  ]}
+                />
+
+                <Callout type="warn" icon="⚠">
+                  <strong>Token names are universal; values are per-client.</strong>{' '}
+                  <InlineCode>bg-primary</InlineCode> renders different hex values on different client sites —
+                  always reference by token name. To change a value sitewide, change it in FusionCore, not in
+                  Oxygen.
+                </Callout>
+
+                <Sub>Example — using brand tokens in Oxygen</Sub>
+                <CodeBlock label="hero — token-driven" language="html">{`<section class="bg-primary text-white py-16 px-6">
+  <div class="max-w-7xl mx-auto text-center">
+    <h1 class="font-headings text-5xl font-bold">Welcome to Pro Way</h1>
+    <p class="mt-4 text-white/85 max-w-xl mx-auto">
+      Career-focused programs in cosmetology and barbering.
+    </p>
+    <a class="btn btn-primary mt-8">Apply Now</a>
+  </div>
+</section>`}</CodeBlock>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <SectionHeader step="07" title="Where Tailwind classes go in Oxygen" phase="In the builder" id="classes-where" />
+              <Card>
+                <P>
+                  ER sites don't use WindPress, Winden, or any other Tailwind plugin wrapper. There is no
+                  separate "Plain Classes" input. Utility classes go in <strong>Oxygen's native CSS Class field</strong>,
+                  same place you'd put any class name.
+                </P>
+
+                <Sub>The two class-related fields in the properties panel</Sub>
+                <div className="grid sm:grid-cols-2 gap-3 mt-2">
+                  <div className="rounded-lg border border-orange/40 bg-orange/5 p-3">
+                    <div className="font-mono text-[10px] text-orange uppercase tracking-wider mb-1.5">
+                      CSS Class field
+                    </div>
+                    <div className="text-[12px] text-white/65 leading-relaxed">
+                      <strong className="text-orange">Where everything goes.</strong> Type space-separated
+                      utility classes — <InlineCode>flex items-center gap-4 bg-primary text-white</InlineCode>{' '}
+                      — straight into the Class input. Renders directly into the element's{' '}
+                      <InlineCode>class=&quot;&quot;</InlineCode> attribute.
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3">
+                    <div className="font-mono text-[10px] text-blue-300 uppercase tracking-wider mb-1.5">
+                      Selectors panel (advanced)
+                    </div>
+                    <div className="text-[12px] text-white/65 leading-relaxed">
+                      For defining a <em>named</em> selector with its own CSS rules (<InlineCode>.cta-card</InlineCode>{' '}
+                      → custom CSS). Rarely needed — the FusionCore bundle covers most cases. Use only for
+                      genuinely reusable, non-utility-expressible patterns.
+                    </div>
+                  </div>
+                </div>
+
+                <Callout type="info" icon="ℹ">
+                  Oxygen also auto-adds its own per-element classes (<InlineCode>oxy-container-4824-241</InlineCode>,{' '}
+                  <InlineCode>oxy-text-37-101</InlineCode>, etc.) — those are internal, used by Oxygen for its
+                  own per-element styling. Ignore them; just write your utility classes alongside.
+                </Callout>
+
+                <Sub>Real example from a live page</Sub>
+                <CodeBlock label="rendered html — typical card on a client site" language="html">{`<a class="oxy-container-link oxy-container-link-4824-220 flex flex-col items-center
+        gap-2 p-4 rounded-md bg-base-100 hover:bg-base-200 transition-colors">
+  <svg class="oxy-svg-icon oxy-svg-icon-4824-221 w-8 h-8 text-tertiary">…</svg>
+  <span class="oxy-text oxy-text-4824-222 text-sm font-semibold text-primary">
+    Apply Now
+  </span>
+</a>`}</CodeBlock>
+                <P>
+                  The <InlineCode>oxy-*</InlineCode> classes are auto-generated by Oxygen for its internal
+                  per-element CSS. Everything else — <InlineCode>flex</InlineCode>,{' '}
+                  <InlineCode>flex-col</InlineCode>, <InlineCode>gap-2</InlineCode>,{' '}
+                  <InlineCode>bg-base-100</InlineCode>, <InlineCode>text-primary</InlineCode> — is what your
+                  team typed into the CSS Class field.
+                </P>
+              </Card>
+            </div>
+
+            {/* ───────────────────────── TAILWIND REFERENCE ───────────────────────── */}
+            <PhaseBanner id="philosophy" text="— part 03   tailwind reference" />
+
+            <div className="mb-9">
+              <SectionHeader step="08" title="The utility-class philosophy" phase="Foundation" />
               <Card>
                 <P>Traditional CSS:</P>
                 <CodeBlock label="traditional css" language="css">{`.hero-title {
@@ -302,56 +531,23 @@ export default function OxygenTailwindGuidePage() {
                   visual consistency from the design tokens Tailwind enforces (the spacing scale, the color shades).
                 </P>
                 <P>
-                  The drawback is class-string verbosity. Mitigate by extracting repeated patterns into Reusable
-                  Components in Oxygen, or <InlineCode>@apply</InlineCode> directives in your CSS.
+                  The drawback is class-string verbosity. When a pattern repeats often enough that you're
+                  copy-pasting it, lift it into an Oxygen <strong>Reusable Component</strong> — that's the ER
+                  equivalent of a React component.
                 </P>
               </Card>
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="05" title="Where Tailwind classes go in Oxygen" phase="WindPress" id="classes-where" />
-              <Card>
-                <P>
-                  Oxygen exposes two places to add classes to an element. Only one is right for Tailwind utilities
-                  — get this wrong and your output is full of redundant CSS rules.
-                </P>
-                <div className="grid sm:grid-cols-2 gap-3 mt-2">
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                    <div className="font-mono text-[10px] text-amber-400 uppercase tracking-wider mb-1.5">
-                      Native &quot;Selectors / Classes&quot; field
-                    </div>
-                    <div className="text-[12px] text-white/65 leading-relaxed">
-                      Designed for <em>named</em> classes that get a stylesheet rule (<InlineCode>.cta-card</InlineCode>).
-                      Putting utilities here makes Oxygen treat them as named selectors — bloated CSS output.
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-orange/40 bg-orange/5 p-3">
-                    <div className="font-mono text-[10px] text-orange uppercase tracking-wider mb-1.5">
-                      WindPress &quot;Plain Classes&quot; field
-                    </div>
-                    <div className="text-[12px] text-white/65 leading-relaxed">
-                      <strong className="text-orange">Where utility classes belong.</strong> Autocomplete, hover preview,
-                      class sorting, written straight to the rendered <InlineCode>class=&quot;&quot;</InlineCode>.
-                    </div>
-                  </div>
-                </div>
-
-                <Callout type="warn" icon="⚠">
-                  <strong>Rule of thumb:</strong> named/component classes (<InlineCode>.btn</InlineCode>,{' '}
-                  <InlineCode>.card</InlineCode>) → Oxygen&apos;s Selectors field; utility classes (<InlineCode>flex</InlineCode>,{' '}
-                  <InlineCode>gap-4</InlineCode>, <InlineCode>bg-slate-900</InlineCode>) → WindPress Plain Classes field.
-                </Callout>
-              </Card>
-            </div>
-
-            <div className="mb-9">
-              <SectionHeader step="▶" variant="purple" title="Live Tailwind playground" phase="Interactive" id="playground" />
+              <SectionHeader step="▶" variant="purple" title="Live playground (Tailwind v4 + DaisyUI v5)" phase="Interactive" id="playground" />
               <Card className="p-3">
                 <div className="px-2 pt-1 pb-3">
                   <P>
-                    Edit the HTML on the left — see Tailwind apply on the right. Sandboxed iframe, runs the real
-                    Tailwind compiler, no installs needed. Try the presets, then change classes to see what
-                    happens.
+                    Edit the HTML on the left — see Tailwind apply on the right. Sandboxed iframe runs the same
+                    Tailwind v4 + DaisyUI v5 versions FusionCore ships in production. Brand tokens (
+                    <InlineCode>primary</InlineCode>, <InlineCode>secondary</InlineCode>,{' '}
+                    <InlineCode>tertiary</InlineCode>, <InlineCode>font-headings</InlineCode>) are pre-stubbed
+                    so token-driven examples render with sensible (though not client-specific) values.
                   </P>
                 </div>
                 <Playground />
@@ -359,7 +555,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="06" title="Spacing — p, m, gap" phase="Reference" id="spacing" />
+              <SectionHeader step="09" title="Spacing — p, m, gap" phase="Reference" id="spacing" />
               <Card>
                 <P>
                   Tailwind spacing uses a numeric scale where{' '}
@@ -385,7 +581,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="07" title="Sizing — w, h, max-w, min-h" phase="Reference" id="sizing" />
+              <SectionHeader step="10" title="Sizing — w, h, max-w, min-h" phase="Reference" id="sizing" />
               <Card>
                 <P>Same numeric scale as spacing, plus fractions, percentages, and named sizes.</P>
                 <KeyTable
@@ -410,7 +606,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="08" title="Typography" phase="Reference" id="typography" />
+              <SectionHeader step="11" title="Typography" phase="Reference" id="typography" />
               <Card>
                 <CodeBlock label="example">{`<h1 class="text-4xl font-bold leading-tight tracking-tight text-slate-900">
   Hello
@@ -450,7 +646,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="09" variant="purple" title="Color system" phase="Interactive" id="colors" />
+              <SectionHeader step="12" variant="purple" title="Color system" phase="Interactive" id="colors" />
               <Card className="p-3">
                 <div className="px-2 pt-1 pb-3">
                   <P>
@@ -479,7 +675,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="10" title="Flexbox" phase="Reference" id="flexbox" />
+              <SectionHeader step="13" title="Flexbox" phase="Reference" id="flexbox" />
               <Card>
                 <CodeBlock label="example">{`<div class="flex items-center justify-between gap-4">
   <img class="w-10 h-10 rounded-full" />
@@ -509,7 +705,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="11" title="Grid" phase="Reference" id="grid-layout" />
+              <SectionHeader step="14" title="Grid" phase="Reference" id="grid-layout" />
               <Card>
                 <CodeBlock label="example">{`<div class="grid grid-cols-3 gap-6">
   <div>1</div><div>2</div><div>3</div>
@@ -536,7 +732,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="12" title="Responsive prefixes (mobile-first)" phase="Reference" id="responsive" />
+              <SectionHeader step="15" title="Responsive prefixes (mobile-first)" phase="Reference" id="responsive" />
               <Card>
                 <P>
                   Tailwind is <strong>mobile-first</strong>: an unprefixed class applies at every size.
@@ -565,7 +761,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="13" title="State variants" phase="Reference" id="states" />
+              <SectionHeader step="16" title="State variants" phase="Reference" id="states" />
               <Card>
                 <KeyTable
                   rows={[
@@ -596,7 +792,7 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="14" title="Borders, shadows, rounded" phase="Reference" id="borders-shadows" />
+              <SectionHeader step="17" title="Borders, shadows, rounded" phase="Reference" id="borders-shadows" />
               <Card>
                 <Sub>Borders</Sub>
                 <KeyTable
@@ -649,15 +845,47 @@ export default function OxygenTailwindGuidePage() {
               </Card>
             </div>
 
+            {/* ───────────────────────── DAISYUI COMPONENTS ───────────────────────── */}
+            <PhaseBanner id="daisy-buttons" text="— part 04   daisyui components" />
+
+            <div className="mb-9">
+              <SectionHeader step="✦" variant="purple" title="DaisyUI component reference" phase="Pre-built" />
+              <Card>
+                <P>
+                  DaisyUI ships <strong>component classes</strong> on top of Tailwind utilities — pre-styled
+                  buttons, cards, navbars, alerts, etc. that respect your brand tokens automatically. Use
+                  these <em>before</em> reaching for raw utilities — the team has less to maintain, the result
+                  is more consistent across pages, and theme changes propagate for free.
+                </P>
+                <Callout type="tip" icon="💡">
+                  Every component below picks up your client's brand colors via the same{' '}
+                  <InlineCode>primary</InlineCode>, <InlineCode>secondary</InlineCode>,{' '}
+                  <InlineCode>accent</InlineCode> tokens documented in{' '}
+                  <a href="#design-tokens" className="text-orange hover:text-orange-light underline-offset-2 hover:underline">
+                    Design tokens
+                  </a>. Try any example by pasting it into the{' '}
+                  <a href="#playground" className="text-orange hover:text-orange-light underline-offset-2 hover:underline">
+                    playground
+                  </a>.
+                </Callout>
+              </Card>
+            </div>
+
+            <div className="mb-9">
+              <DaisyComponentsSection />
+            </div>
+
             {/* ───────────────────────── BUILD WITH IT ───────────────────────── */}
-            <PhaseBanner id="patterns" text="— part 03   build with it" />
+            <PhaseBanner id="patterns" text="— part 05   build with it" />
 
             <div className="mb-9">
               <SectionHeader step="▣" variant="purple" title="UI pattern gallery" phase="Interactive" />
               <P>
-                Live previews + copy-ready class strings. Drop straight into Oxygen's WindPress Plain Classes
-                field — these patterns are intentionally framework-stock so they map 1:1 to what your client
-                site will render.
+                Live previews + copy-ready class strings. Drop straight into Oxygen's CSS Class field — these
+                patterns map 1:1 to what your client sites render. Where it makes sense, prefer the DaisyUI
+                versions in the section above (<InlineCode>.btn</InlineCode>,{' '}
+                <InlineCode>.card</InlineCode>) — these raw-utility versions are useful as fallbacks or when
+                you need finer control than DaisyUI provides.
               </P>
               <div className="mt-3">
                 <PatternGallery />
@@ -665,50 +893,48 @@ export default function OxygenTailwindGuidePage() {
             </div>
 
             <div className="mb-9">
-              <SectionHeader step="15" title="Common workflows" phase="Day-to-day" id="workflows" />
+              <SectionHeader step="18" title="Common workflows" phase="Day-to-day" id="workflows" />
               <Card>
-                <Sub>Build a marketing page layout</Sub>
+                <Sub>Build a marketing section</Sub>
                 <ol className="text-[13px] text-white/65 space-y-1 mt-1 pl-1 font-body list-decimal list-inside">
                   <li>Open the page → <strong>Edit with Oxygen</strong></li>
-                  <li>Add a <strong>Section</strong> → tag <InlineCode>section</InlineCode>. Plain Classes: <InlineCode>relative isolate overflow-hidden bg-slate-50</InlineCode></li>
-                  <li>Inside, add a <strong>Div</strong> → tag <InlineCode>div</InlineCode>. Plain Classes: <InlineCode>mx-auto max-w-7xl px-4 py-24</InlineCode></li>
-                  <li>Inside that, a <strong>Heading</strong> (<InlineCode>h1</InlineCode>) and <strong>Text</strong> (<InlineCode>p</InlineCode>), then a Div with two Buttons</li>
-                  <li>Switch the responsive viewport between phone, tablet, desktop and adjust with <InlineCode>md:</InlineCode> and <InlineCode>lg:</InlineCode> prefixes</li>
-                  <li>Repeat for "Features", "Testimonials", "CTA", "Footer" sections</li>
+                  <li>Add a <strong>Section</strong> element → set tag <InlineCode>section</InlineCode>. CSS Class field: <InlineCode>relative isolate overflow-hidden bg-base-100</InlineCode></li>
+                  <li>Inside, add a <strong>Div</strong> → tag <InlineCode>div</InlineCode>. Class field: <InlineCode>mx-auto max-w-7xl px-4 py-24</InlineCode></li>
+                  <li>Drop in a Heading (<InlineCode>h2 font-headings text-4xl font-bold text-primary</InlineCode>), a Text (<InlineCode>mt-4 text-base text-base-content max-w-2xl</InlineCode>), then a Code Block / Div with a DaisyUI button (<InlineCode>btn btn-primary mt-8</InlineCode>)</li>
+                  <li>Switch viewports (phone / tablet / desktop) and add <InlineCode>md:</InlineCode> / <InlineCode>lg:</InlineCode> overrides where the small layout breaks</li>
+                  <li>Repeat for "Features", "Testimonials", "CTA", "Footer" sections — or convert each into a Reusable Component once you've built the second instance</li>
                 </ol>
 
-                <Sub>Make a card a Reusable Component</Sub>
+                <Sub>Lift a repeated section into a Reusable Component</Sub>
                 <ol className="text-[13px] text-white/65 space-y-1 mt-1 pl-1 font-body list-decimal list-inside">
-                  <li>Build the card once with all its Tailwind classes</li>
+                  <li>Build it once with the right utility classes</li>
                   <li>Right-click in the structure tree → <strong>Convert to Component</strong></li>
-                  <li>Mark the Heading and Text as <strong>parameters</strong> so each instance can pass its own copy</li>
-                  <li>Save · insert from the Components library wherever needed</li>
-                  <li>Edit the component once → every instance updates</li>
+                  <li>Mark variable parts (Heading text, Image src, Link URL) as <strong>parameters</strong> so each instance passes its own values</li>
+                  <li>Save · insert from <strong>Oxygen → Components</strong> wherever needed</li>
+                  <li>Edit the component once → every instance updates everywhere it appears</li>
                 </ol>
 
-                <Sub>Define brand colors once, use everywhere</Sub>
-                <CodeBlock label="tailwind v3 — tailwind.config.js">{`module.exports = {
-  theme: {
-    extend: {
-      colors: {
-        brand: {
-          50: '#eef2ff', 100: '#e0e7ff', 500: '#3366ff', 700: '#1e40af',
-        },
-      },
-    },
-  },
-};`}</CodeBlock>
-                <CodeBlock label="tailwind v4 — main.css" language="css">{`@import "tailwindcss";
-
-@theme {
-  --color-brand-50:  #eef2ff;
-  --color-brand-500: #3366ff;
-  --color-brand-700: #1e40af;
-}`}</CodeBlock>
+                <Sub>Add a new design token sitewide</Sub>
                 <P>
-                  Now you can write <InlineCode>bg-brand-500</InlineCode>,{' '}
-                  <InlineCode>text-brand-700</InlineCode>, etc. throughout Oxygen.
+                  Tokens live in FusionCore — <strong>not</strong> in Oxygen, and not in any per-site
+                  <InlineCode>tailwind.config</InlineCode>. To add a token (e.g. a new
+                  <InlineCode>--color-quaternary</InlineCode> or a new spacing alias):
                 </P>
+                <ol className="text-[13px] text-white/65 space-y-1 mt-1 pl-1 font-body list-decimal list-inside">
+                  <li>Open the FusionCore repo, edit the Tailwind <InlineCode>@theme</InlineCode> block</li>
+                  <li>Bump the FusionCore plugin version, build, ship</li>
+                  <li>Update FusionCore on each client site → new token is available everywhere as <InlineCode>bg-quaternary</InlineCode> / <InlineCode>text-quaternary</InlineCode></li>
+                </ol>
+                <Callout type="warn" icon="⚠">
+                  Don't define new theme tokens in Oxygen's per-page Stylesheets — they'll only exist on that
+                  one page and won't show up in autocomplete on the rest of the site.
+                </Callout>
+
+                <Sub>Style a button — DaisyUI vs raw Tailwind</Sub>
+                <CodeBlock label="daisyui — preferred">{`<a class="btn btn-primary btn-lg">Apply Now</a>`}</CodeBlock>
+                <CodeBlock label="raw tailwind — only when DaisyUI doesn't fit">{`<a class="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-base font-medium text-white shadow-sm hover:opacity-90 transition-opacity">
+  Apply Now
+</a>`}</CodeBlock>
 
                 <Sub>Conditionally show content</Sub>
                 <P>
@@ -727,11 +953,11 @@ export default function OxygenTailwindGuidePage() {
                 <Sub>Workflow</Sub>
                 <ul className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body">
                   {[
-                    ['Always build the Main Template first', 'Without it, every page renders unstyled'],
-                    ['Build mobile first', 'Design at the smallest viewport, then add md: / lg: overrides'],
-                    ['Use Reusable Components early', 'Once you copy-paste a card twice, convert it'],
+                    ['Reach for DaisyUI before raw utilities', 'A .btn / .card / .alert / .menu is one short class string + auto theme integration. Raw utilities are the fallback when those don\'t fit'],
+                    ['Build mobile first', 'Design at the smallest viewport, then add md: / lg: overrides — never the reverse'],
+                    ['Use Reusable Components early', 'Once you copy-paste a card or section twice, convert it'],
                     ['Save often', 'The browser editor is a long-running app — refresh recovery exists but is not magic'],
-                    ['Keep a staging site', 'Oxygen takes over your theme — do not learn it on production'],
+                    ['Use the staging site', 'erstaging.site is for experiments. Don\'t learn the builder on a live client site'],
                   ].map(([t, d]) => (
                     <li key={t} className="flex gap-2">
                       <span className="text-orange flex-shrink-0">▸</span>
@@ -740,15 +966,17 @@ export default function OxygenTailwindGuidePage() {
                   ))}
                 </ul>
 
-                <Sub>Tailwind specifics</Sub>
+                <Sub>Tailwind & DaisyUI specifics</Sub>
                 <ul className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body">
                   {[
-                    ['Sort your classes', 'WindPress can do it automatically · order: layout → spacing → sizing → typography → color → effects → state'],
+                    ['Use brand tokens, not hex values', 'bg-primary not bg-[#0b192e] — same class works on every client; hex codes drift'],
                     ['Don\'t fight the scale', 'If a design needs padding: 17px, ask whether p-4 (16px) is fine. Arbitrary values like p-[17px] exist but should be rare'],
-                    ['Use @apply sparingly', 'Re-creates the named-class problem Tailwind exists to solve. Reserve for true repeating components — buttons, form inputs'],
+                    ['Sort your classes', 'Convention: layout → spacing → sizing → typography → color → effects → state. Aids readability and diff review'],
+                    ['Use @apply sparingly', 'Re-creates the named-class problem Tailwind exists to solve. Reserve for true repeating components — and even then, prefer DaisyUI'],
                     ['Watch class string length', 'If a single element has 30+ classes, break it into a Reusable Component'],
-                    ['space-y-* / divide-y only work with direct children', 'Wrapping with another div breaks it'],
+                    ['space-y-* / divide-y only work on direct children', 'Wrapping with another div silently breaks them'],
                     ['Forgetting flex or grid on the parent', 'is the #1 reason gap-* "doesn\'t work"'],
+                    ['DaisyUI color modifiers chain', 'btn-primary, alert-success, badge-warning — same {component}-{semantic} pattern across all components'],
                   ].map(([t, d]) => (
                     <li key={t} className="flex gap-2">
                       <span className="text-blue-400 flex-shrink-0">▸</span>
@@ -757,14 +985,14 @@ export default function OxygenTailwindGuidePage() {
                   ))}
                 </ul>
 
-                <Sub>Oxygen specifics</Sub>
+                <Sub>Oxygen + FusionCore specifics</Sub>
                 <ul className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body">
                   {[
-                    ['Don\'t put utilities in the native "Selectors / Classes" field', 'Use the WindPress "Plain Classes" input — Oxygen treats Selectors as named classes that get redundant CSS dumped into your output'],
-                    ['Disable Oxygen\'s default body font', 'In Manage → Global Styles, if you want Tailwind\'s font-sans to actually be your font'],
-                    ['Backups before plugin updates', 'Major Oxygen updates (5 → 6, etc.) are heavy lifts. Test on staging first'],
+                    ['Utility classes go in the CSS Class field', 'Not in the Selectors panel — that\'s for defining named CSS rules'],
+                    ['Don\'t edit FusionCore CSS per-site', 'Per-site Stylesheets are for one-off overrides only. Token + utility changes belong in the FusionCore repo'],
                     ['Component parameters are nullable', 'Always provide sensible defaults so an empty parameter doesn\'t break the layout'],
-                    ['Inner Content is required in the Main Template', 'If your pages render blank, that\'s almost always why'],
+                    ['oxy-* classes are auto-generated', 'You\'ll see oxy-container-1234-567 etc. in the rendered HTML — those are Oxygen\'s, not yours. Ignore them'],
+                    ['Headers / Footers are separate from Templates', 'Updating the page-template won\'t touch the header or footer. They\'re three different admin sections'],
                   ].map(([t, d]) => (
                     <li key={t} className="flex gap-2">
                       <span className="text-purple-400 flex-shrink-0">▸</span>
@@ -775,17 +1003,18 @@ export default function OxygenTailwindGuidePage() {
 
                 <Sub>Performance</Sub>
                 <ul className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body">
-                  <li className="flex gap-2"><span className="text-orange flex-shrink-0">▸</span><span>Run <strong className="text-white">Manage → CSS Cache → Regenerate</strong> after large changes.</span></li>
-                  <li className="flex gap-2"><span className="text-orange flex-shrink-0">▸</span><span>WindPress JIT only ships the utilities you've used — but if a class is generated dynamically (in PHP, etc.) you may need to add it to the <strong>safelist</strong>.</span></li>
-                  <li className="flex gap-2"><span className="text-orange flex-shrink-0">▸</span><span>Don't include <InlineCode>@tailwindcss/typography</InlineCode> and <InlineCode>@tailwindcss/forms</InlineCode> if you aren't using them — they each add CSS weight.</span></li>
+                  <li className="flex gap-2"><span className="text-orange flex-shrink-0">▸</span><span>Run <strong className="text-white">Oxygen → Settings → CSS Cache → Regenerate</strong> after large structural changes.</span></li>
+                  <li className="flex gap-2"><span className="text-orange flex-shrink-0">▸</span><span>FusionCore is precompiled — there's no JIT scanning step at runtime. Every Tailwind class in the bundle is always available; you don't need a safelist.</span></li>
                   <li className="flex gap-2"><span className="text-orange flex-shrink-0">▸</span><span>For images, prefer Oxygen's Image element + WordPress media library (responsive <InlineCode>srcset</InlineCode> automatically) over hand-rolled <InlineCode>&lt;img&gt;</InlineCode> tags.</span></li>
+                  <li className="flex gap-2"><span className="text-orange flex-shrink-0">▸</span><span>The FusionCore bundle is ~190 KB compiled. If you find yourself adding a third-party CSS lib, ask whether DaisyUI already has the component first.</span></li>
                 </ul>
 
                 <Sub>Debugging</Sub>
                 <ul className="text-[13px] text-white/65 space-y-1.5 mt-2 pl-1 font-body">
-                  <li className="flex gap-2"><span className="text-red-400 flex-shrink-0">▸</span><span><strong className="text-white">Class isn't applying?</strong> Inspect the element. If the class is in the rendered <InlineCode>class=&quot;&quot;</InlineCode> but no style → wasn't generated (typo or not in safelist). If not in the class string → never made it onto the element.</span></li>
+                  <li className="flex gap-2"><span className="text-red-400 flex-shrink-0">▸</span><span><strong className="text-white">Class isn't applying?</strong> Inspect the element. If the class is in the rendered <InlineCode>class=&quot;&quot;</InlineCode> but no style → typo (FusionCore has every real Tailwind class). If not in the class string → never made it onto the element via Oxygen.</span></li>
+                  <li className="flex gap-2"><span className="text-red-400 flex-shrink-0">▸</span><span><strong className="text-white">Brand color looks wrong?</strong> Verify <InlineCode>--color-primary</InlineCode> at <InlineCode>:root</InlineCode> in DevTools. If it's the FusionCore default and not the client value → the per-client theme override isn't loading. Check FusionCore is active and the client config is in place.</span></li>
                   <li className="flex gap-2"><span className="text-red-400 flex-shrink-0">▸</span><span><strong className="text-white">Changes don't show on front-end?</strong> Clear Oxygen's CSS cache, clear your page cache, hard-refresh (<InlineCode>Cmd/Ctrl + Shift + R</InlineCode>).</span></li>
-                  <li className="flex gap-2"><span className="text-red-400 flex-shrink-0">▸</span><span><strong className="text-white">Editor itself looks broken?</strong> Deactivate WindPress temporarily — utility plugins occasionally conflict with editor styles after major Oxygen updates.</span></li>
+                  <li className="flex gap-2"><span className="text-red-400 flex-shrink-0">▸</span><span><strong className="text-white">DaisyUI component looks unstyled?</strong> Confirm FusionCore is enqueued — check that <InlineCode>/wp-content/uploads/er-plugin/assets/style.&lt;hash&gt;.css</InlineCode> is loading on the page.</span></li>
                 </ul>
               </Card>
             </div>
@@ -803,15 +1032,15 @@ export default function OxygenTailwindGuidePage() {
                     </a>
                   </li>
                   <li>
-                    <Pill color="blue">Tailwind</Pill>{' '}
+                    <Pill color="blue">Tailwind v4</Pill>{' '}
                     <a href="https://tailwindcss.com/docs" target="_blank" rel="noreferrer noopener" className="text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline">
                       tailwindcss.com/docs
                     </a>
                   </li>
                   <li>
-                    <Pill color="purple">WindPress</Pill>{' '}
-                    <a href="https://wind.press/" target="_blank" rel="noreferrer noopener" className="text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline">
-                      wind.press
+                    <Pill color="purple">DaisyUI v5</Pill>{' '}
+                    <a href="https://daisyui.com/components/" target="_blank" rel="noreferrer noopener" className="text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline">
+                      daisyui.com/components
                     </a>
                   </li>
                 </ul>
@@ -821,7 +1050,7 @@ export default function OxygenTailwindGuidePage() {
             {/* Footer */}
             <footer className="mt-14 pt-5 border-t border-navy-border flex justify-between font-mono text-[10px] text-white/40">
               <span>enrollment resources — internal tooling</span>
-              <span>oxygen 6 &nbsp;·&nbsp; tailwind v3/v4 &nbsp;·&nbsp; windpress</span>
+              <span>oxygen 6 &nbsp;·&nbsp; tailwind v4 &nbsp;·&nbsp; daisyui v5 &nbsp;·&nbsp; fusioncore</span>
             </footer>
 
           </div>

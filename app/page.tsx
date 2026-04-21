@@ -62,11 +62,11 @@ const tools = [
   {
     id: 'oxygen-tailwind-guide',
     href: '/oxygen-tailwind-guide',
-    name: 'Oxygen + Tailwind Guide',
+    name: 'Oxygen + Tailwind + DaisyUI',
     tagline: 'Learn. Reference. Ship.',
     description:
-      'Interactive guide for building WordPress sites with Oxygen Builder 6 and Tailwind CSS. Live class playground, color explorer, spacing visualizer, and copy-ready UI patterns.',
-    features: ['Live Tailwind playground', 'Color + spacing explorers', 'Copy-ready UI patterns'],
+      'Interactive working guide for the ER house stack — Oxygen 6 + Tailwind v4 + DaisyUI v5 shipped via FusionCore. Live class playground, design-token reference, color & spacing explorers, full DaisyUI component library, and copy-ready UI patterns.',
+    features: ['Live v4 + DaisyUI playground', 'Design-token reference', 'Full DaisyUI component library'],
     icon: OxygenTailwindIcon,
     accentClass: 'from-orange/20 to-transparent',
   },
