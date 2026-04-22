@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { THEMES, type ThemeId, buildPreviewSrcDoc } from './preview-themes'
 
 interface DaisyClass {
   name: string
@@ -324,6 +325,129 @@ const CATEGORIES: DaisyCategory[] = [
   },
 ]
 
+// Inline SVG placeholder used in previews wherever the documented examples use `src="…"`.
+// Keeps the documented HTML readable while making previews render with real-looking images.
+const PLACEHOLDER_IMG_DATA_URL =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150">
+       <defs>
+         <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+           <stop offset="0%" stop-color="#94a3b8"/>
+           <stop offset="100%" stop-color="#475569"/>
+         </linearGradient>
+       </defs>
+       <rect width="200" height="150" fill="url(#g)"/>
+       <circle cx="100" cy="60" r="20" fill="#fff" opacity="0.6"/>
+       <path d="M40 130 Q100 80 160 130" fill="none" stroke="#fff" stroke-width="6" opacity="0.6"/>
+     </svg>`
+  )
+
+function swapPlaceholders(html: string): string {
+  // Replace src="…" (with the ellipsis char) — documented as the canonical image placeholder.
+  return html.replace(/src="…"/g, `src="${PLACEHOLDER_IMG_DATA_URL}"`)
+}
+
+function buildCategoryPreviewHtml(examples: DaisyExample[]): string {
+  return `<div class="space-y-5">
+${examples
+  .map(
+    (ex) => `  <div>
+    <div class="text-[10px] uppercase tracking-widest text-base-content/50 mb-1.5 font-mono">${escapeHtml(ex.label)}</div>
+    <div class="rounded-lg bg-base-100 p-4 border border-base-300">
+${swapPlaceholders(ex.code)}
+    </div>
+  </div>`
+  )
+  .join('\n')}
+</div>`
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+interface LazyPreviewProps {
+  examples: DaisyExample[]
+}
+
+function LazyPreview({ examples }: LazyPreviewProps) {
+  const [theme, setTheme] = useState<ThemeId>('pro-way')
+  const [visible, setVisible] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (visible) return
+    const el = containerRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setVisible(true)
+            observer.disconnect()
+            break
+          }
+        }
+      },
+      { rootMargin: '300px 0px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [visible])
+
+  const innerHtml = useMemo(() => buildCategoryPreviewHtml(examples), [examples])
+  const srcDoc = useMemo(
+    () => (visible ? buildPreviewSrcDoc(innerHtml, theme, { centered: false }) : ''),
+    [visible, innerHtml, theme]
+  )
+
+  return (
+    <div
+      ref={containerRef}
+      className="rounded-lg border border-navy-border overflow-hidden mb-3 bg-[#0a0c10]"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 border-b border-navy-border bg-[#0f1118]">
+        <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase">
+          Live preview
+        </span>
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="font-mono text-[10px] text-white/30 tracking-wider uppercase mr-1">
+            Theme:
+          </span>
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              title={t.hint}
+              className={`font-mono text-[9px] uppercase border rounded px-1.5 py-0.5 transition-colors ${
+                theme === t.id
+                  ? 'border-purple-400 text-purple-300'
+                  : 'border-navy-border text-white/40 hover:text-white/60'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {visible ? (
+        <iframe
+          title="DaisyUI live preview"
+          sandbox="allow-scripts"
+          srcDoc={srcDoc}
+          className="w-full h-[380px] bg-white"
+        />
+      ) : (
+        <div className="h-[380px] flex items-center justify-center text-white/30 font-mono text-[11px]">
+          Preview loads when scrolled into view…
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CodeWithCopy({ label, code }: { label: string; code: string }) {
   const [copied, setCopied] = useState(false)
   const preRef = useRef<HTMLPreElement>(null)
@@ -374,6 +498,8 @@ function CategoryCard({ category }: { category: DaisyCategory }) {
         </span>
       </div>
       <p className="text-[13px] text-white/65 leading-relaxed mb-4">{category.intro}</p>
+
+      <LazyPreview examples={category.examples} />
 
       <div className="rounded-lg border border-navy-border overflow-hidden mb-3">
         <table className="w-full border-collapse font-mono text-[12px]">

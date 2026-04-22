@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { THEMES, type ThemeId, buildPreviewSrcDoc } from './preview-themes'
 
 interface Preset {
   name: string
@@ -132,42 +133,11 @@ const PRESETS: Preset[] = [
   },
 ]
 
-function buildSrcDoc(html: string, bg: 'light' | 'dark') {
-  const bgClass = bg === 'dark' ? 'bg-slate-900' : 'bg-slate-50'
-  // Tailwind v4 + DaisyUI v5 — matches the FusionCore production bundle.
-  // The inline @theme block defines the same brand-token names FusionCore exposes
-  // (primary/secondary/tertiary/headings) so example HTML using `bg-primary` etc.
-  // renders with sensible (though not necessarily client-specific) values.
-  return `<!doctype html>
-<html lang="en" data-theme="light">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<script src="https://unpkg.com/@tailwindcss/browser@4"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5" />
-<style type="text/tailwindcss">
-  @theme {
-    --color-primary:   #0b192e;
-    --color-secondary: #32435e;
-    --color-tertiary:  #e6963d;
-    --font-headings: ui-sans-serif, system-ui, sans-serif;
-  }
-  html, body { height: 100%; }
-  body { margin: 0; padding: 24px; }
-</style>
-</head>
-<body class="${bgClass} font-sans antialiased flex items-center justify-center">
-  <div>
-${html}
-  </div>
-</body>
-</html>`
-}
 
 export function Playground() {
   const [code, setCode] = useState<string>(PRESETS[0].html)
   const [debounced, setDebounced] = useState<string>(code)
-  const [bg, setBg] = useState<'light' | 'dark'>('light')
+  const [theme, setTheme] = useState<ThemeId>('pro-way')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -178,7 +148,7 @@ export function Playground() {
     }
   }, [code])
 
-  const srcDoc = useMemo(() => buildSrcDoc(debounced, bg), [debounced, bg])
+  const srcDoc = useMemo(() => buildPreviewSrcDoc(debounced, theme), [debounced, theme])
 
   return (
     <div className="bg-navy-card border border-navy-border rounded-xl overflow-hidden">
@@ -210,30 +180,24 @@ export function Playground() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <span className="font-mono text-[10px] text-white/40 tracking-widest uppercase mr-1">
-            BG:
+            Theme:
           </span>
-          <button
-            onClick={() => setBg('light')}
-            className={`font-mono text-[10px] uppercase border rounded px-2 py-0.5 ${
-              bg === 'light'
-                ? 'border-orange text-orange'
-                : 'border-navy-border text-white/40 hover:text-white/60'
-            }`}
-          >
-            Light
-          </button>
-          <button
-            onClick={() => setBg('dark')}
-            className={`font-mono text-[10px] uppercase border rounded px-2 py-0.5 ${
-              bg === 'dark'
-                ? 'border-orange text-orange'
-                : 'border-navy-border text-white/40 hover:text-white/60'
-            }`}
-          >
-            Dark
-          </button>
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              title={t.hint}
+              className={`font-mono text-[10px] uppercase border rounded px-2 py-0.5 transition-colors ${
+                theme === t.id
+                  ? 'border-orange text-orange'
+                  : 'border-navy-border text-white/40 hover:text-white/60'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -269,11 +233,8 @@ export function Playground() {
         Edits debounced 350ms · sandboxed iframe · Tailwind v4 (
         <code className="text-orange">@tailwindcss/browser@4</code>) +{' '}
         <code className="text-purple-300">daisyui@5</code> via CDN — same versions as the
-        FusionCore production bundle. Brand tokens (
-        <code className="text-orange">primary</code>,{' '}
-        <code className="text-orange">secondary</code>,{' '}
-        <code className="text-orange">tertiary</code>,{' '}
-        <code className="text-orange">font-headings</code>) are pre-stubbed for demo.
+        FusionCore production bundle. Switch the theme to see how the same markup renders
+        across different brand-token sets.
       </div>
     </div>
   )
