@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db';
 import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
 import { findParserForFile } from '@/lib/parsers';
 import { AggregatorService } from '@/lib/services/aggregator.service';
+import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 
 export const dynamic = 'force-dynamic';
 
@@ -166,6 +167,11 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         clientId,
       },
     });
+
+    // Fire-and-forget trigger; never throws.
+    triggerPillarAnalysis(sessionId).catch((err) =>
+      console.error('[pillar-analysis] trigger failed', err)
+    );
 
     // Upload files are no longer needed — result is stored in the DB.
     // Delete immediately to reclaim disk space.
