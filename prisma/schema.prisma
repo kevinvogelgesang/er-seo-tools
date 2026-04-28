@@ -125,7 +125,7 @@ model PillarAnalysis {
   aiNarrative         String?
   narrativeUpdatedAt  DateTime?
 
-  @@index([sessionId])
+  @@index([sessionId, status])
   @@index([status])
   @@index([createdAt])
 }
