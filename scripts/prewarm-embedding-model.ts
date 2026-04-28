@@ -1,8 +1,6 @@
 // Downloads and caches the MiniLM model so the first pillar-analysis run
 // after a deploy doesn't pay the ~25MB download.
-import { pipeline, env } from '@xenova/transformers';
-
-env.allowLocalModels = false; // force fresh download to model cache
+import { pipeline } from '@xenova/transformers';
 
 async function prewarm() {
   console.log('Pre-warming Xenova/all-MiniLM-L6-v2...');
