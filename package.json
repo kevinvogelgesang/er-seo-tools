@@ -21,11 +21,13 @@
     "db:studio": "prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "postinstall": "tsx scripts/prewarm-embedding-model.ts || true"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "@types/papaparse": "^5.5.2",
+    "@xenova/transformers": "^2.17.2",
     "axe-core": "^4.11.1",
     "jsdom": "^25.0.1",
     "next": "^15.3.0",
@@ -46,6 +48,7 @@
     "postcss": "^8.5.1",
     "prisma": "^5.22.0",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.21.0",
     "typescript": "^5.3.3",
     "vitest": "^2.1.9"
   }
