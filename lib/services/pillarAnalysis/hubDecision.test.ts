@@ -55,4 +55,17 @@ describe('decideHubFormat', () => {
       expect(typeof a.scoreDelta).toBe('number');
     }
   });
+
+  it('returns insufficient-content when zero clusters formed', () => {
+    const records: UrlRecord[] = [
+      // A nav-only site with no informational content
+      urlRec({ pageType: 'nav', topicClusterId: null }),
+      urlRec({ pageType: 'home', topicClusterId: null }),
+    ];
+    const verticality = new Map(); // empty — no clusters
+    const r = decideHubFormat(records, verticality, DEFAULT_CONFIG);
+    expect(r.primary).toBe('insufficient-content');
+    expect(r.alternates).toEqual([]);
+    expect(r.reasoning.length).toBeGreaterThan(0);
+  });
 });

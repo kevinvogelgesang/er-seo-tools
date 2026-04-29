@@ -20,12 +20,26 @@ export function decideHubFormat(
   clusterVerticality: Map<number, number>,
   cfg: PillarConfig,
 ): HubRecommendation {
+  const clusters = Array.from(clusterVerticality.keys());
+
+  // No clusters formed at all — there's literally nothing to organize. Honest
+  // recommendation: the site doesn't have enough informational content to pillar.
+  if (clusters.length === 0) {
+    return {
+      primary: 'insufficient-content',
+      alternates: [],
+      reasoning: [
+        'No topic clusters formed — site has no informational pages or content is too sparse to anchor a pillar model.',
+        'Recommendation: focus on content production first. Re-run pillar analysis once the site has 15+ informational posts AND at least one program or location anchor with associated content.',
+      ],
+    };
+  }
+
   const programs = records.filter((r) => r.pageType === 'program');
   const programsHaveInfoImpressions = programs.some(
     (p) => (p.gscImpressions ?? 0) > 0,
   );
 
-  const clusters = Array.from(clusterVerticality.keys());
   const vertical = clusters.filter(
     (c) => (clusterVerticality.get(c) ?? 0) >= cfg.verticalAlignmentThreshold,
   );

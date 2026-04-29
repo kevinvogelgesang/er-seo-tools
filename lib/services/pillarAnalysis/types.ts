@@ -30,7 +30,8 @@ export type HubFormat =
   | 'hybrid'
   | 'rename-blog-to-resources'
   | 'fresh-resources-hub'
-  | 'fresh-career-guides-hub';
+  | 'fresh-career-guides-hub'
+  | 'insufficient-content';
 
 export interface UrlRecord {
   url: string;

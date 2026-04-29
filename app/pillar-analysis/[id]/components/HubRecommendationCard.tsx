@@ -7,6 +7,7 @@ const FORMAT_LABELS: Record<HubFormat, string> = {
   'rename-blog-to-resources': 'Rename /blog/ → /resources/ (preserves backlink equity)',
   'fresh-resources-hub': 'Build a fresh /resources/ hub',
   'fresh-career-guides-hub': 'Build a fresh /career-guides/ hub',
+  'insufficient-content': 'Insufficient content — needs production before pillaring',
 };
 
 export function HubRecommendationCard({ hub }: { hub: HubRecommendation }) {
