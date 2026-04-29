@@ -42,7 +42,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: 'token_missing_scope' }, { status: 401 });
   }
 
-  const pa = await prisma.pillarAnalysis.findUnique({ where: { id } });
+  const pa = await prisma.pillarAnalysis.findUnique({
+    where: { id },
+    include: { session: true },
+  });
   if (!pa) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
   return NextResponse.json(buildNarrativePayload(pa));

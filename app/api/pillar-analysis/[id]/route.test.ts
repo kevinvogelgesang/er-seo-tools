@@ -46,6 +46,7 @@ describe('GET /api/pillar-analysis/[id] auth', () => {
       urlVerdicts: '[]',
       createdAt: new Date('2026-04-29T10:00:00Z'),
       updatedAt: new Date('2026-04-29T10:00:00Z'),
+      session: { id: 'sess_x', siteName: 'www.example-school.com' },
     });
   });
   afterEach(() => {
@@ -105,5 +106,15 @@ describe('GET /api/pillar-analysis/[id] auth', () => {
     // Old high-volume fields are no longer at the top level — clusters replaces pillarTopics+urlVerdicts.
     expect(body).not.toHaveProperty('urlVerdicts');
     expect(body).not.toHaveProperty('pillarTopics');
+  });
+
+  it('includes siteName from the joined Session so the skill knows the site under analysis', async () => {
+    const { token } = await mintPillarToken('pa_abc');
+    const res = await GET(
+      makeRequest({ Authorization: `Bearer ${token}` }),
+      makeParams('pa_abc'),
+    );
+    const body = await res.json();
+    expect(body.siteName).toBe('www.example-school.com');
   });
 });

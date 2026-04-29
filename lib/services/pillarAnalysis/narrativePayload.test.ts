@@ -40,6 +40,7 @@ function row(args: {
   pillarTopics: PillarTopic[];
   urlVerdicts: UrlRecord[];
   hub?: HubRecommendation;
+  siteName?: string | null;
 }) {
   return {
     id: 'pa_1',
@@ -56,6 +57,9 @@ function row(args: {
     urlVerdicts: JSON.stringify(args.urlVerdicts),
     createdAt: new Date('2026-04-29T10:00:00Z'),
     updatedAt: new Date('2026-04-29T11:00:00Z'),
+    session: args.siteName === undefined
+      ? { siteName: 'www.example.com' }
+      : { siteName: args.siteName },
   };
 }
 
@@ -67,6 +71,18 @@ describe('buildNarrativePayload', () => {
     expect(out.hubRecommendation?.primary).toBe('hybrid');
     expect(out.createdAt).toBe('2026-04-29T10:00:00.000Z');
     expect(out.updatedAt).toBe('2026-04-29T11:00:00.000Z');
+  });
+
+  it('exposes siteName from the joined Session for the skill to reference', () => {
+    const withName = buildNarrativePayload(row({
+      pillarTopics: [], urlVerdicts: [], siteName: 'www.prowayhairschool.com',
+    }));
+    expect(withName.siteName).toBe('www.prowayhairschool.com');
+
+    const noName = buildNarrativePayload(row({
+      pillarTopics: [], urlVerdicts: [], siteName: null,
+    }));
+    expect(noName.siteName).toBeNull();
   });
 
   it('replaces pillarTopics with clusters that include anchor stats and sample members', () => {
@@ -203,11 +219,13 @@ describe('buildNarrativePayload', () => {
       urlVerdicts: 'oops',
       createdAt: new Date('2026-04-29T10:00:00Z'),
       updatedAt: new Date('2026-04-29T10:00:00Z'),
+      session: null,
     });
     expect(out.subscores).toBeNull();
     expect(out.hubRecommendation).toBeNull();
     expect(out.clusters).toEqual([]);
     expect(out.totalUrls).toBe(0);
     expect(out.verdictSummary.pillar).toBe(0);
+    expect(out.siteName).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ description: |
   "Analysis ID:", and "Access token: pat_..." (a JWT). Fetches the
   structured analysis, writes a strategic memo, and posts it back to
   the dashboard. Internal use only at Enrollment Resources.
-version: 1.0.1
+version: 1.0.2
 ---
 
 # Pillar Analysis Narrative
@@ -37,7 +37,7 @@ below). Read it, write the memo, post it back.
 
 Extract three fields from the user's message:
 
-- `webappUrl` — value after `Webapp:`
+- `webappUrl` — value after `Webapp:`. **This is where the er-seo-tools dashboard is hosted (e.g. `https://seo.erstaging.site/` or `https://seo.enrollmentresources.com/`). It is NOT the site being analyzed.**
 - `analysisId` — value after `Analysis ID:`
 - `token` — value after `Access token: ` (must start with `pat_`)
 
@@ -50,6 +50,16 @@ skill at build time.
 If any field can't be parsed, reply: "Couldn't parse the prompt — make
 sure all three fields are present (Webapp, Analysis ID, Access token).
 Click 'Copy Claude Prompt' on the dashboard again to refresh."
+
+**Identifying the site under analysis.** The site whose pillar analysis
+you're writing about is identified by the `siteName` field in the GET
+response (step 2), NOT by `webappUrl`. `webappUrl` always points at
+the er-seo-tools webapp itself; `siteName` is the actual marketing-site
+domain (e.g. `www.prowayhairschool.com`, `nuvani.edu`) that was crawled
+to produce this analysis. Use `siteName` everywhere the memo refers to
+"the site" — bottom line, score interpretation, hub recommendation,
+caveats, and the chat-summary `{site}` slot. If `siteName` is null,
+say "the site under analysis" rather than guessing or using `webappUrl`.
 
 ### 2. Fetch the structured analysis
 
@@ -118,6 +128,7 @@ Keep the chat reply short. The full memo lives in the dashboard.
 
 The GET endpoint returns a narrative-friendly payload (~2–5K tokens):
 
+- `siteName` — **the site under analysis** (e.g. `"www.prowayhairschool.com"`). Use this in the memo and chat summary, NOT `webappUrl`.
 - `score`, `subscores`, `subscorePresence`, `subscoreContext`, `dataCompleteness` — score data
 - `hubRecommendation` — `{primary, alternates: [{format, scoreDelta}], reasoning}`
 - `clusters[]` — replaces the raw `pillarTopics`. Each cluster has:
