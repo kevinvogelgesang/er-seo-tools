@@ -29,11 +29,18 @@ export function MemoPoller({ sessionId, initialNarrativeUpdatedAt, autoStartOnMo
   const router = useRouter();
   const [expired, setExpired] = useState(false);
 
-  // Use a ref for the machine so re-renders don't recreate it.
+  // Capture router via ref so the machine's onChange closure (created once)
+  // always reads the current router instance, robust to any future stability
+  // changes in useRouter().
+  const routerRef = useRef(router);
+  useEffect(() => {
+    routerRef.current = router;
+  });
+
   const machineRef = useRef<ReturnType<typeof createPollingMachine> | null>(null);
   if (machineRef.current === null) {
     machineRef.current = createPollingMachine({
-      onChange: () => router.refresh(),
+      onChange: () => routerRef.current.refresh(),
       lifetimeMs: LIFETIME_MS,
     });
   }
@@ -60,9 +67,12 @@ export function MemoPoller({ sessionId, initialNarrativeUpdatedAt, autoStartOnMo
     });
   }, [machine]);
 
+  const hasAutoStartedRef = useRef(false);
+
   // Auto-start on mount when there's no memo
   useEffect(() => {
-    if (autoStartOnMount) {
+    if (autoStartOnMount && !hasAutoStartedRef.current) {
+      hasAutoStartedRef.current = true;
       machine.start({ baseline: initialNarrativeUpdatedAt, now: Date.now() });
       setExpired(false);
     }
