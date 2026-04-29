@@ -123,6 +123,20 @@ describe('createPollingMachine', () => {
     expect(m.status()).toBe('polling');
   });
 
+  it('start() while paused with pending sentinel resets cleanly', () => {
+    const { m, onChange } = setup();
+    m.start({ baseline: null, now: 0 });
+    m.setVisible(false);
+    m.setVisible(true); // sets sentinel: lastResumedAt = -1
+    // Re-start before any tick fires.
+    m.start({ baseline: null, now: 5000 });
+    expect(m.status()).toBe('polling');
+    // First tick should accumulate from start.now (5000) to tick.now (8000) = 3000ms — no blow-up.
+    m.tick({ latestUpdatedAt: null, now: 8000 });
+    expect(m.status()).toBe('polling');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('stop() transitions to idle', () => {
     const { m } = setup();
     m.start({ baseline: null, now: 0 });
