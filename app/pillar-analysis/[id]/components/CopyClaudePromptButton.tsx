@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { composePayload } from '@/lib/pillar-prompt';
 import { ClipboardFallbackModal } from './ClipboardFallbackModal';
 
 interface Props {
@@ -26,19 +27,6 @@ const STATE_CLASSES: Record<ButtonState, string> = {
   'mint-failed': 'bg-red-500 text-white',
   'service-error': 'bg-red-700 text-white',
 };
-
-function composePayload({ webappUrl, analysisId, token }: { webappUrl: string; analysisId: string; token: string }): string {
-  return [
-    'Run a pillar analysis narrative on this site.',
-    '',
-    `Webapp: ${webappUrl}`,
-    `Analysis ID: ${analysisId}`,
-    `Access token: ${token}`,
-    '(Expires in 1h)',
-    '',
-    'Fetch the structured analysis, write the internal strategic memo, and post it back to the dashboard.',
-  ].join('\n');
-}
 
 export function CopyClaudePromptButton({ analysisId, status, webappUrl }: Props) {
   const [state, setState] = useState<ButtonState>('idle');
