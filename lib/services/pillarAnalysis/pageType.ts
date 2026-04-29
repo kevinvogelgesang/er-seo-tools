@@ -12,6 +12,20 @@ export interface PageTypeResult {
   pageTypeConfidence: number;
 }
 
+// Archive / category / pagination / bare-index patterns. These are navigational
+// listing pages, not content articles, and must not be selected as pillars.
+// Checked BEFORE SLUG_RULES so e.g. `/category/news/` does not match `/news/`.
+const ARCHIVE_PATTERNS: RegExp[] = [
+  /^\/category\/.+/i,                                  // /category/<anything>
+  /^\/tags?\/.+/i,                                     // /tag/<x>, /tags/<x>
+  /^\/author\/.+/i,                                    // /author/<x>
+  /^\/archives?\/.+/i,                                 // /archive/<x>, /archives/<x>
+  /^\/page\/\d+\/?$/i,                                 // /page/2, /page/2/
+  /\/page\/\d+\/?$/i,                                  // /<base>/page/2, /<base>/page/2/
+  // Bare top-level indexes (the listing page itself, not its children)
+  /^\/(news|blog|resources?|career[-_]guides?)\/?$/i,
+];
+
 const SLUG_RULES: Array<{ pattern: RegExp; type: PageType }> = [
   { pattern: /\/programs?\//i, type: 'program' },
   { pattern: /\/(blog|news)\//i, type: 'blog' },
@@ -33,6 +47,13 @@ export function classifyPageType(input: PageTypeInput): PageTypeResult {
   // Homepage
   if (path === '/' || path === '') {
     return { pageType: 'home', pageTypeConfidence: 0.95 };
+  }
+
+  // 0. Archive / category / pagination / bare-index → nav (checked first)
+  for (const re of ARCHIVE_PATTERNS) {
+    if (re.test(path)) {
+      return { pageType: 'nav', pageTypeConfidence: 0.85 };
+    }
   }
 
   // 1. URL-slug primary (high confidence when matched)

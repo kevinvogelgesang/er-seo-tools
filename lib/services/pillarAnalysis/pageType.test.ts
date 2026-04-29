@@ -86,4 +86,37 @@ describe('classifyPageType', () => {
     });
     expect(r.pageType).toBe('nav');
   });
+
+  it('archive: /category/news/ → nav', () => {
+    const r = classifyPageType({ url: 'https://e.edu/category/news/', schemaTypes: [], crawlDepth: 2 });
+    expect(r.pageType).toBe('nav');
+  });
+
+  it('archive: /tag/cosmetology/ → nav', () => {
+    expect(classifyPageType({ url: 'https://e.edu/tag/cosmetology/', schemaTypes: [], crawlDepth: 2 }).pageType).toBe('nav');
+  });
+
+  it('archive: /page/2/ pagination → nav', () => {
+    expect(classifyPageType({ url: 'https://e.edu/blog/page/2/', schemaTypes: [], crawlDepth: 2 }).pageType).toBe('nav');
+  });
+
+  it('bare /news/ → nav (index page)', () => {
+    expect(classifyPageType({ url: 'https://e.edu/news/', schemaTypes: [], crawlDepth: 1 }).pageType).toBe('nav');
+  });
+
+  it('bare /news (no trailing slash) → nav', () => {
+    expect(classifyPageType({ url: 'https://e.edu/news', schemaTypes: [], crawlDepth: 1 }).pageType).toBe('nav');
+  });
+
+  it('bare /blog/ → nav', () => {
+    expect(classifyPageType({ url: 'https://e.edu/blog/', schemaTypes: [], crawlDepth: 1 }).pageType).toBe('nav');
+  });
+
+  it('but /blog/some-post → still blog', () => {
+    expect(classifyPageType({ url: 'https://e.edu/blog/some-post', schemaTypes: [], crawlDepth: 2 }).pageType).toBe('blog');
+  });
+
+  it('but /news/article-slug → still blog', () => {
+    expect(classifyPageType({ url: 'https://e.edu/news/article-slug', schemaTypes: [], crawlDepth: 3 }).pageType).toBe('blog');
+  });
 });

@@ -42,4 +42,17 @@ describe('nameClusters', () => {
   it('returns empty map for no clusters', () => {
     expect(nameClusters([]).size).toBe(0);
   });
+
+  it('disambiguates duplicate names with (N) suffix', () => {
+    const recs = [
+      rec('Nursing Career Paths', 'Nursing Careers', 0),
+      rec('Nursing Salary Guide', 'Nursing Salary', 0),
+      rec('Nursing Career Tips', 'Nursing Tips', 1),
+      rec('Nursing Salary Stats', 'Nursing Salary', 1),
+    ];
+    const names = nameClusters(recs);
+    const values = Array.from(names.values());
+    // The two clusters might generate same name; ensure they're disambiguated
+    expect(new Set(values).size).toBe(values.length); // no duplicates
+  });
 });

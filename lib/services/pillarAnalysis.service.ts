@@ -61,7 +61,7 @@ export async function runPillarAnalysisFromInputs(input: RunInput): Promise<Pill
 
   // 8. Pillar topic groupings (named, with anchor URL)
   const topicNames = nameClusters(records);
-  const pillarTopics = buildPillarTopics(records, topicNames);
+  const pillarTopics = buildPillarTopics(records, topicNames, cfg.minClusterSize);
 
   return {
     score: fit.score,
@@ -80,7 +80,11 @@ function buildEmbeddingText(r: UrlRecord): string {
     .slice(0, 2048);
 }
 
-function buildPillarTopics(records: UrlRecord[], names: Map<number, string>): PillarTopic[] {
+function buildPillarTopics(
+  records: UrlRecord[],
+  names: Map<number, string>,
+  minClusterSize: number,
+): PillarTopic[] {
   const byCluster = new Map<number, UrlRecord[]>();
   for (const r of records) {
     if (r.topicClusterId == null || r.topicClusterId < 0) continue;
@@ -88,16 +92,18 @@ function buildPillarTopics(records: UrlRecord[], names: Map<number, string>): Pi
     arr.push(r);
     byCluster.set(r.topicClusterId, arr);
   }
-  return Array.from(byCluster.entries()).map(([id, members]) => {
-    const pillar = members.find((m) => m.verdict === 'pillar');
-    return {
-      clusterId: id,
-      name: names.get(id) ?? `Cluster ${id + 1}`,
-      pillarUrl: pillar?.url ?? null,
-      clusterUrls: members.filter((m) => m.verdict === 'cluster').map((m) => m.url),
-      size: members.length,
-    };
-  });
+  return Array.from(byCluster.entries())
+    .filter(([, members]) => members.length >= minClusterSize)
+    .map(([id, members]) => {
+      const pillar = members.find((m) => m.verdict === 'pillar');
+      return {
+        clusterId: id,
+        name: names.get(id) ?? `Cluster ${id + 1}`,
+        pillarUrl: pillar?.url ?? null,
+        clusterUrls: members.filter((m) => m.verdict === 'cluster').map((m) => m.url),
+        size: members.length,
+      };
+    });
 }
 
 export type { PillarAnalysisResult, UrlRecord } from './pillarAnalysis/types';

@@ -18,7 +18,9 @@ export interface PillarConfig {
 }
 
 export const DEFAULT_CONFIG: PillarConfig = {
-  clusterSimilarityThreshold: 0.55,
+  // Tuned during the nuvani.edu smoke test: 0.55 produced ~19 clusters where
+  // 5–8 were expected. 0.65 gives tighter, more meaningful groupings.
+  clusterSimilarityThreshold: 0.65,
   nearDuplicateThreshold: 0.85,
   verticalAlignmentThreshold: 0.55,
   minClusterSize: 3,

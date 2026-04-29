@@ -31,7 +31,16 @@ export function nameClusters(records: UrlRecord[]): Map<number, string> {
     }
     out.set(id, top.map(capitalize).join(' '));
   }
-  return out;
+
+  // Disambiguate duplicate names with " (N)" suffix on the second/third/etc.
+  const seen = new Map<string, number>();
+  const deduped = new Map<number, string>();
+  for (const [id, name] of out.entries()) {
+    const count = seen.get(name) ?? 0;
+    seen.set(name, count + 1);
+    deduped.set(id, count === 0 ? name : `${name} (${count + 1})`);
+  }
+  return deduped;
 }
 
 function tokenize(s: string): string[] {
