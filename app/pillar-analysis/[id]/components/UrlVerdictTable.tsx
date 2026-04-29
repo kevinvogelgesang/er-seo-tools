@@ -32,14 +32,14 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
   const visible = filtered.slice(startIdx, endIdx);
 
   return (
-    <div className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6">
+    <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6">
       <div className="flex justify-between items-center mb-4">
-        <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide flex items-center">
+        <h2 className="font-display font-bold text-lg text-[#1c2d4a] dark:text-white flex items-center">
           URL Verdicts ({filtered.length} of {verdicts.length})
           <InfoTooltip>
             Per-URL recommendation. Verdicts: pillar (anchor of a cluster — typically a program or location page), cluster (supports a pillar — link it to the recommended pillar), leave-as-blog (informational but doesn&apos;t fit a cluster — keep as-is), consolidate (merge into another similar page), prune (low value — noindex or 410). Each verdict has a confidence value visible in the underlying record.
           </InfoTooltip>
-        </div>
+        </h2>
         <div className="flex gap-3">
           <select value={filter} onChange={(e) => setFilter(e.target.value as Verdict | 'all')}
             className="text-sm border rounded px-2 py-1 dark:bg-navy-card dark:border-navy-border dark:text-white">

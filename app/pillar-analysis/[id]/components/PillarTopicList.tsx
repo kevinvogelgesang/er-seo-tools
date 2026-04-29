@@ -8,7 +8,7 @@ const CATEGORIES = [
     key: 'program' as const,
     title: 'Program Pillars',
     tooltip:
-      'Blog posts that cluster around your existing program pages. Each program page IS the pillar — the blogs link up to it as supporting cluster pages. This is the canonical higher-ed pillar model: the program page captures commercial intent, cluster pages capture informational queries that funnel toward enrollment.',
+      'Blog posts that cluster around your existing program pages. Each program page IS the pillar — the blogs link up to it as supporting cluster pages. This is the canonical higher-ed pillar model: the program page captures commercial intent, cluster pages capture informational queries that funnel toward enrollment. Note that these pillar names are based on the pages on each site, they may not appear as simple as "Cosmetology Program".',
     filter: (t: PillarTopic) => t.pillarPageType === 'program',
   },
   {
@@ -34,7 +34,7 @@ export function PillarTopicList({
 
   if (topics.length === 0) {
     return (
-      <div className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6 text-gray-600 dark:text-white/60">
+      <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6 text-gray-600 dark:text-white/60">
         No pillar topics identified — clusters were too small or too sparse.
       </div>
     );
@@ -83,13 +83,11 @@ export function PillarTopicList({
         const inCat = topics.filter(cat.filter);
         if (inCat.length === 0) return null;
         return (
-          <div key={cat.key} className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6">
-            <div className="flex items-center mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {cat.title} <span className="text-sm font-normal text-gray-500 dark:text-white/60">({inCat.length})</span>
-              </h2>
+          <div key={cat.key} className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6">
+            <h2 className="font-display font-bold text-lg text-[#1c2d4a] dark:text-white mb-4 flex items-center">
+              {cat.title} <span className="ml-2 text-sm font-normal text-gray-500 dark:text-white/60">({inCat.length})</span>
               <InfoTooltip>{cat.tooltip}</InfoTooltip>
-            </div>
+            </h2>
             <ul className="space-y-3">
               {inCat.map(renderTopic)}
             </ul>

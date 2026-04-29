@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { ScoreCard } from './components/ScoreCard';
@@ -16,7 +17,10 @@ export default async function PillarAnalysisPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const pa = await prisma.pillarAnalysis.findUnique({ where: { id } });
+  const pa = await prisma.pillarAnalysis.findUnique({
+    where: { id },
+    include: { session: true },
+  });
   if (!pa) notFound();
   if (pa.status !== 'complete') {
     return (
@@ -37,33 +41,50 @@ export default async function PillarAnalysisPage({
   const topics = JSON.parse(pa.pillarTopics!) as PillarTopic[];
   const verdicts = JSON.parse(pa.urlVerdicts!) as UrlRecord[];
 
+  const siteName = pa.session?.siteName || 'Site';
+  const numPillars = topics.length;
+  const totalUrls = verdicts.length;
+  const completenessPct = Math.round((pa.dataCompleteness ?? 0) * 100);
+  const generatedAt = pa.createdAt.toLocaleString('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
   return (
-    <main className="p-8 max-w-7xl mx-auto space-y-6">
-      <header className="border-b pb-4 dark:border-navy-border">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-          Pillar Analysis
-        </h1>
-        <p className="text-gray-600 dark:text-white/60 text-sm mt-1">
-          Internal — analyst-only. Generated {pa.createdAt.toISOString()}
-        </p>
-      </header>
+    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep">
+      <main className="max-w-7xl mx-auto px-6 py-12 space-y-6">
+        <header>
+          <Link
+            href={`/seo-parser/results/${pa.session.id}`}
+            className="text-sm text-gray-500 dark:text-white/50 hover:text-[#1c2d4a] dark:hover:text-white inline-flex items-center mb-3"
+          >
+            ← Back to SEO Audit
+          </Link>
+          <h1 className="font-display font-bold text-2xl text-[#1c2d4a] dark:text-white">
+            {siteName} — Pillar Analysis
+          </h1>
+          <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
+            Generated {generatedAt} · {totalUrls} URL{totalUrls === 1 ? '' : 's'} · {numPillars} pillar{numPillars === 1 ? '' : 's'} · {completenessPct}% data completeness
+          </p>
+        </header>
 
-      {pa.dataCompleteness != null && pa.dataCompleteness < 0.5 && (
-        <DataCompletenessBanner completeness={pa.dataCompleteness} />
-      )}
+        {pa.dataCompleteness != null && pa.dataCompleteness < 0.5 && (
+          <DataCompletenessBanner completeness={pa.dataCompleteness} />
+        )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <ScoreCard score={pa.score!} dataCompleteness={pa.dataCompleteness ?? 0} />
-        <div className="lg:col-span-2">
-          <SubscoreBreakdown subscores={subscores} subscorePresence={subscorePresence} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <ScoreCard score={pa.score!} dataCompleteness={pa.dataCompleteness ?? 0} />
+          <div className="lg:col-span-2">
+            <SubscoreBreakdown subscores={subscores} subscorePresence={subscorePresence} />
+          </div>
         </div>
-      </div>
 
-      <HubRecommendationCard hub={hub} />
+        <HubRecommendationCard hub={hub} />
 
-      <PillarTopicList topics={topics} verdicts={verdicts} />
+        <PillarTopicList topics={topics} verdicts={verdicts} />
 
-      <UrlVerdictTable verdicts={verdicts} />
-    </main>
+        <UrlVerdictTable verdicts={verdicts} />
+      </main>
+    </div>
   );
 }

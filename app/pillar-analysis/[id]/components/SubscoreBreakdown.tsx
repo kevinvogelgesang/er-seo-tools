@@ -54,13 +54,13 @@ export function SubscoreBreakdown({
   subscorePresence?: SubscorePresence | null;
 }) {
   return (
-    <div className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6">
-      <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide mb-4 flex items-center">
+    <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6">
+      <h2 className="font-display font-bold text-lg text-[#1c2d4a] dark:text-white mb-4 flex items-center">
         Subscore Breakdown
         <InfoTooltip>
           How each of the six site-fit signals contributed to the composite score. Bars show 0–10 values; N/A means that subscore&apos;s underlying data wasn&apos;t available in the input (e.g., no GSC or Semrush export). The composite score uses neutral 5.0 defaults internally for missing signals so one absence doesn&apos;t tank the score, but those defaults aren&apos;t shown here — only real measurements.
         </InfoTooltip>
-      </div>
+      </h2>
       <ul className="space-y-3">
         {(Object.keys(subscores) as Array<keyof SB>).map((k) => {
           // Backwards-compat: when presence map is null (older records pre-migration),
