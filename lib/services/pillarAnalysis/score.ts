@@ -14,6 +14,7 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
     (r) => r.intentClass === 'informational' && (r.pageType === 'blog' || r.pageType === 'news' || r.pageType === 'resource'),
   );
   const programs = records.filter((r) => r.pageType === 'program');
+  const locations = records.filter((r) => r.pageType === 'location');
 
   const subs: SubscoreBreakdown = {
     contentVolume: contentVolumeScore(informational.length),
@@ -25,13 +26,16 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
   };
 
   // Data-completeness audit: which subscores had real signal vs. neutral default?
+  // Input-availability signals (GSC, inlinks, Semrush) key off ALL records, not just
+  // informational — a site with GSC data on home/nav/program pages and zero blog posts
+  // should still report organicFootprint as PRESENT (the data was uploaded).
   const signalsPresent: SubscorePresence = {
     contentVolume: true,
     topicalConcentration: informational.length > 0,
-    organicFootprint: informational.some((r) => r.gscImpressions != null),
-    internalLinkGap: informational.some((r) => r.inlinks != null),
+    organicFootprint: records.some((r) => r.gscImpressions != null || r.gscClicks != null),
+    internalLinkGap: records.some((r) => r.inlinks != null),
     programPageClarity: programs.length > 0,
-    backlinkDistribution: informational.some((r) => r.referringDomains != null),
+    backlinkDistribution: records.some((r) => r.referringDomains != null),
   };
   const presentCount = Object.values(signalsPresent).filter(Boolean).length;
   const dataCompleteness = presentCount / 6;
@@ -52,7 +56,21 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
     subs.programPageClarity * w.programPageClarity +
     subs.backlinkDistribution * w.backlinkDistribution;
 
-  const score = Math.max(1, Math.min(10, Math.round(composite)));
+  // Viability gate: cap the score when the site lacks pillar prerequisites.
+  // "Site has nothing to pillar around" should produce a low score even if
+  // the composite math props it up via neutral defaults for missing signals.
+  const anchorCount = programs.length + locations.length;
+
+  let viabilityCap = 10;
+  if (informational.length === 0 && anchorCount === 0) {
+    // No content AND no anchors — nothing to cluster, nothing to anchor under.
+    viabilityCap = 1;
+  } else if (informational.length === 0) {
+    // Anchors exist but no content to cluster under them.
+    viabilityCap = 2;
+  }
+
+  const score = Math.max(1, Math.min(viabilityCap, Math.round(composite)));
 
   return { score, subscores: subs, subscorePresence: signalsPresent, dataCompleteness };
 }

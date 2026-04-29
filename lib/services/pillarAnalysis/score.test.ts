@@ -76,6 +76,7 @@ describe('computeFitScore', () => {
   it('subscorePresence flags absent signals (gsc/backlinks) and present signals', () => {
     const records = Array.from({ length: 30 }, () => infoBlog({
       gscImpressions: null,
+      gscClicks: null,
       referringDomains: null,
       // inlinks defaults to 3 in the helper, so internalLinkGap is present
     }));
@@ -87,6 +88,95 @@ describe('computeFitScore', () => {
     // When a signal is absent, the subscore is substituted with neutral 5.0
     expect(r.subscores.organicFootprint).toBe(5);
     expect(r.subscores.backlinkDistribution).toBe(5);
+  });
+
+  it('viability gate: site with 0 informational and 0 anchors scores 1', () => {
+    // Simulate a site that's all-nav/home — no blog/news/resource, no program/location
+    const records: UrlRecord[] = [
+      // home page
+      {
+        url: 'https://e.edu/', pageType: 'home', pageTypeConfidence: 0.95,
+        title: 'Home', h1: 'Home', metaDescription: null, firstParagraph: null,
+        wordCount: 500, crawlDepth: 0, inlinks: 30, outlinks: 15, indexable: true,
+        gscClicks: 200, gscImpressions: 1000, gscCtr: 0.2, gscPosition: 5.0,
+        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
+        referringDomains: null, organicKeywords: null,
+        intentClass: 'navigational', intentConfidence: 0.8,
+        topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
+        recommendedPillar: null, reasoning: [],
+      },
+      // nav pages (multiple)
+      ...Array.from({ length: 5 }, (_, i) => ({
+        url: `https://e.edu/nav-${i}`, pageType: 'nav' as const, pageTypeConfidence: 0.85,
+        title: `Nav ${i}`, h1: `Nav ${i}`, metaDescription: null, firstParagraph: null,
+        wordCount: 300, crawlDepth: 1, inlinks: 5, outlinks: 5, indexable: true,
+        gscClicks: 0, gscImpressions: 0, gscCtr: 0, gscPosition: 0,
+        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
+        referringDomains: null, organicKeywords: null,
+        intentClass: 'navigational' as const, intentConfidence: 0.8,
+        topicClusterId: null, verdict: 'excluded' as const, verdictConfidence: 0,
+        recommendedPillar: null, reasoning: [],
+      })),
+    ];
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    expect(r.score).toBeLessThanOrEqual(1);
+  });
+
+  it('viability gate: site with 0 informational but program anchors caps at 2', () => {
+    // Programs exist but no blog/news/resource content
+    const records: UrlRecord[] = [
+      {
+        url: 'https://e.edu/programs/x', pageType: 'program', pageTypeConfidence: 0.85,
+        title: 'X Program', h1: 'X', metaDescription: null, firstParagraph: null,
+        wordCount: 800, crawlDepth: 1, inlinks: 25, outlinks: 12, indexable: true,
+        gscClicks: 50, gscImpressions: 500, gscCtr: 0.1, gscPosition: 7.0,
+        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
+        referringDomains: 5, organicKeywords: 30,
+        intentClass: 'transactional', intentConfidence: 0.9,
+        topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
+        recommendedPillar: null, reasoning: [],
+      },
+    ];
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    expect(r.score).toBeLessThanOrEqual(2);
+  });
+
+  it('subscorePresence reports organicFootprint=true when GSC data is on non-informational pages', () => {
+    // A nav-page with gscClicks should mark organicFootprint as present
+    const records: UrlRecord[] = [
+      {
+        url: 'https://e.edu/about', pageType: 'nav', pageTypeConfidence: 0.85,
+        title: 'About', h1: 'About', metaDescription: null, firstParagraph: null,
+        wordCount: 400, crawlDepth: 1, inlinks: 10, outlinks: 5, indexable: true,
+        gscClicks: 100, gscImpressions: 500, gscCtr: 0.2, gscPosition: 5.0,
+        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
+        referringDomains: null, organicKeywords: null,
+        intentClass: 'navigational', intentConfidence: 0.8,
+        topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
+        recommendedPillar: null, reasoning: [],
+      },
+    ];
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    expect(r.subscorePresence.organicFootprint).toBe(true);
+    expect(r.subscorePresence.internalLinkGap).toBe(true);
+  });
+
+  it('subscorePresence reports backlinkDistribution=true when Semrush data is on non-informational pages', () => {
+    const records: UrlRecord[] = [
+      {
+        url: 'https://e.edu/programs/x', pageType: 'program', pageTypeConfidence: 0.85,
+        title: 'X', h1: 'X', metaDescription: null, firstParagraph: null,
+        wordCount: 800, crawlDepth: 1, inlinks: 25, outlinks: 12, indexable: true,
+        gscClicks: null, gscImpressions: null, gscCtr: null, gscPosition: null,
+        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
+        referringDomains: 8, organicKeywords: 50,
+        intentClass: 'transactional', intentConfidence: 0.9,
+        topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
+        recommendedPillar: null, reasoning: [],
+      },
+    ];
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    expect(r.subscorePresence.backlinkDistribution).toBe(true);
   });
 
   it('subscorePresence is all true when every signal is provided', () => {
