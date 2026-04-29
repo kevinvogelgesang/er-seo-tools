@@ -27,8 +27,11 @@ Two layers, bundled in one PR.
 ### 3.1 Backend (er-seo-tools)
 
 - **`PATCH /api/pillar-analysis/[id]/narrative`** — accepts a JWT in the `Authorization: Bearer pat_*` header, verifies it via `verifyPillarToken` (Phase 2.1), confirms the token's `sub` matches the path id, confirms `'narrative-write'` scope, then writes `narrative` body field to `aiNarrative` and updates `narrativeUpdatedAt`. Returns `{ok: true, updatedAt}` on success.
+- **Tighten `GET /api/pillar-analysis/[id]` to require Bearer auth.** Currently public — anyone with an analysis UUID can fetch client data. UUIDs are unguessable but still leak via screenshots, logs, browser history. The skill (the only external consumer of this endpoint) already sends the bearer token from the clipboard payload, so adding the requirement is non-breaking for the actual user flow. The dashboard server component uses Prisma directly, not this API endpoint, so it's unaffected. Same JWT verification path as PATCH but checks `'read'` scope instead of `'narrative-write'`. Returns the same structured error codes for auth failures.
 
-The PATCH endpoint is the only new backend surface. All other webapp infra (mint-token, GET, by-session polling, dashboard page) already shipped in Phase 2.1.
+**Leave `GET /api/pillar-analysis/by-session/[sessionId]` public** — that endpoint is consumed by the audit-page polling button which doesn't have a token. The by-session endpoint already returns a trimmed payload (no `urlVerdicts`, etc.), so the data exposure surface is small. Phase 3 can revisit if needed.
+
+These two backend changes (PATCH endpoint + GET auth tightening) are the new backend surface. All other webapp infra (mint-token, by-session polling, dashboard page) already shipped in Phase 2.1.
 
 ### 3.2 Skill artifact
 
@@ -115,6 +118,7 @@ The body validation runs BEFORE auth so a malformed request gets a specific 400 
 ```
 skills/pillar-analysis-narrative/
 ├── SKILL.md
+├── version.txt          ← single source of truth for skill version (e.g. "1.0.0")
 ├── scripts/
 │   ├── fetch_analysis.py
 │   └── post_narrative.py
@@ -122,6 +126,8 @@ skills/pillar-analysis-narrative/
 │   └── memo_structure.md
 └── README.md
 ```
+
+**Why `version.txt` instead of YAML frontmatter parsing:** the build script needs to read the version. Parsing YAML with `awk` is brittle (whitespace sensitivity, quote handling). A dedicated single-line file is robust: `cat version.txt` always works, no parser dependency. SKILL.md references the version too; a sentence in the README notes that the source of truth is `version.txt`.
 
 The SF setup doc gets copied in by the build script (it doesn't live in the source tree under `skills/` to avoid duplicating `docs/screaming-frog-setup.md`).
 
@@ -192,7 +198,7 @@ Internal, blunt. Per the original Phase 1 spec: "the client never sees the outpu
 
 ## 8. scripts/fetch_analysis.py — reference
 
-A small, clear Python reference the skill model can read. Doesn't have to actually execute as a script — the model uses it as a pattern.
+A small, clear Python reference the skill model can read. Doesn't have to actually execute as a script — the model uses it as a pattern. Mirrors the structured-error pattern from `post_narrative.py` (§9) so a 401/404/500 doesn't hand the LLM a raw traceback.
 
 ```python
 """
@@ -204,19 +210,31 @@ equivalent code in its code-execution sandbox.
 import json
 import sys
 import urllib.request
+import urllib.error
 
 def fetch_analysis(webapp_url: str, analysis_id: str, token: str) -> dict:
     url = f"{webapp_url.rstrip('/')}/api/pillar-analysis/{analysis_id}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        # Surface the structured error body for the skill to map to user-facing copy.
+        try:
+            body = json.loads(e.read())
+        except (ValueError, OSError):
+            body = {"error": "unparseable_response"}
+        return {"_status": e.code, **body}
+    except urllib.error.URLError as e:
+        # Network-level failure (DNS, refused, timeout). No structured body.
+        return {"_status": 0, "error": "network_error", "reason": str(e.reason)}
 
 if __name__ == "__main__":
     webapp, aid, tok = sys.argv[1], sys.argv[2], sys.argv[3]
     print(json.dumps(fetch_analysis(webapp, aid, tok), indent=2))
 ```
 
-The GET endpoint at `/api/pillar-analysis/[id]` doesn't currently require auth (it shipped public in Phase 1). The Authorization header here is forward-compatible — if Phase 3 adds auth-protection to GET, this code doesn't have to change. The PATCH endpoint (§4) is the one that strictly requires the bearer token.
+After §3.1's GET-tightening change, this endpoint requires the bearer token. The script's existing `Authorization` header is the right shape — no follow-up change needed.
 
 ## 9. scripts/post_narrative.py — reference
 
@@ -263,9 +281,17 @@ SF_DOC="$REPO_ROOT/docs/screaming-frog-setup.md"
 DIST_DIR="$REPO_ROOT/dist/skills"
 STAGING="$DIST_DIR/pillar-analysis-narrative"
 
-# Read version from SKILL.md frontmatter
-VERSION=$(awk '/^version:/{print $2; exit}' "$SKILL_SRC/SKILL.md" | tr -d '"')
-[ -n "$VERSION" ] || { echo "ERROR: version not found in SKILL.md frontmatter" >&2; exit 1; }
+# Version is a single line in version.txt — robust against YAML formatting drift.
+VERSION_FILE="$SKILL_SRC/version.txt"
+[ -f "$VERSION_FILE" ] || { echo "ERROR: $VERSION_FILE missing" >&2; exit 1; }
+VERSION=$(tr -d ' \n\r\t' < "$VERSION_FILE")
+[ -n "$VERSION" ] || { echo "ERROR: version.txt is empty" >&2; exit 1; }
+
+# Verify the source dir has the expected files before building.
+for f in SKILL.md README.md scripts/fetch_analysis.py scripts/post_narrative.py templates/memo_structure.md; do
+  [ -f "$SKILL_SRC/$f" ] || { echo "ERROR: $SKILL_SRC/$f missing" >&2; exit 1; }
+done
+[ -f "$SF_DOC" ] || { echo "ERROR: $SF_DOC missing (build needs to copy it into the skill)" >&2; exit 1; }
 
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
@@ -279,6 +305,8 @@ zip -r "$ZIP_NAME" "pillar-analysis-narrative/"
 
 echo "Built: $DIST_DIR/$ZIP_NAME"
 ```
+
+The pre-build sanity loop catches structural breakage before zipping (e.g. someone deleted `templates/memo_structure.md`). Failing loud at build time beats shipping an incomplete ZIP.
 
 Wired in `package.json` as `"build:skill": "bash scripts/build-skill.sh"`. Add `dist/` to `.gitignore` if not already.
 
@@ -312,6 +340,20 @@ Total ~9 tests. Mocks `@/lib/db` like the mint-token tests do.
 
 The `token_expired` and `token_invalid_signature` paths are well-covered by the existing `lib/pillar-token.test.ts` — no need to retest at the route level.
 
+### 12.2 GET endpoint auth tightening
+
+`app/api/pillar-analysis/[id]/route.test.ts` — three new tests for the auth tightening:
+
+1. 401 auth_missing (no Authorization header)
+2. 401 token_missing_scope (token lacks 'read' scope)
+3. 200 success — token with 'read' scope returns the full payload
+
+The existing GET wasn't tested at the route level (only end-to-end via the dashboard). Adding these three tests now codifies the new contract.
+
+### 12.3 Prompt-format contract test
+
+`lib/pillar-prompt-contract.test.ts` (new) — a small regression test that **renders the same payload format the dashboard button produces** and runs the skill's regex over it. Asserts that all three fields (`Webapp:`, `Analysis ID:`, `Access token: pat_*`) are extractable. This catches drift between the frontend prompt template and the skill activation regex — see §13 below.
+
 ### 12.2 Skill artifact
 
 No automated tests for the SKILL.md / scripts / templates — they're prompts and reference code, not executable units we own end-to-end. Instead:
@@ -323,8 +365,10 @@ No automated tests for the SKILL.md / scripts / templates — they're prompts an
 
 - [ ] PATCH endpoint round-trips: mint token via Phase 2.1 endpoint, PATCH narrative, GET it back via existing endpoint, verify `aiNarrative` matches.
 - [ ] All 9 PATCH route tests pass.
+- [ ] All 3 GET route auth tests pass (auth-missing, scope-missing, success).
+- [ ] Prompt-format contract test passes (`lib/pillar-prompt-contract.test.ts`).
 - [ ] All existing 873 vitest tests still pass.
-- [ ] `npm run build:skill` produces a valid ZIP at `dist/skills/pillar-analysis-narrative-<v>.zip` containing all 6 files including the SF setup doc.
+- [ ] `npm run build:skill` produces a valid ZIP at `dist/skills/pillar-analysis-narrative-<v>.zip` containing all 7 files (SKILL.md, version.txt, README.md, scripts/, templates/) including the copied-in SF setup doc and prompt-contract doc.
 - [ ] Manual: install the ZIP in Claude Desktop, click Copy Claude Prompt on a complete analysis, paste into the chat, verify:
   - The skill activates (the model recognizes the prompt pattern).
   - The model generates all 6 sections per the strict template.
@@ -338,8 +382,21 @@ No automated tests for the SKILL.md / scripts / templates — they're prompts an
 3. **Memo quality drift over time.** As Claude models update, the few-shot examples may produce different output. The strict template (named sections + lengths) is the primary anchor; periodic re-review of generated memos catches drift.
 4. **Size limits on chat-pasted text.** A very long pasted prompt + the skill's reference reads could push context limits. Empirically this hasn't been a problem; flagging for awareness.
 5. **No automated test of the skill end-to-end.** Manual smoke test is the only validation. If the skill regresses (e.g., a model update changes how it interprets the SKILL.md), we'd find out via real use, not via CI. Acceptable trade-off given the artifact's prompt-like nature.
+6. **Token expiration UX friction.** 1-hour JWT expiry means an analyst who pauses (lunch, meeting) and resumes the chat to revise the memo will hit `token_expired` and have to navigate back to the dashboard, copy a fresh prompt, and paste it. Acceptable V1 limitation — flagging as known friction. If real use surfaces it as a frequent annoyance, options: (a) increase expiry to 4–8h with the security tradeoff acknowledged, (b) add a "regenerate access token" button on the dashboard that returns just the token without regenerating the full payload.
 
-## 15. Out of scope (deferred to Phase 2.3 or later)
+## 15. Prompt-format contract
+
+The Phase 2.1 button (`composePayload` in `CopyClaudePromptButton.tsx`) and the Phase 2.2 skill regex (in `SKILL.md`) **must stay in sync**. If the button format changes — even adding/removing whitespace — the skill might silently fail to activate or parse fields.
+
+To prevent drift:
+
+1. **Single source of truth doc** at `docs/pillar-prompt-contract.md` (new file in this spec's scope) that locks the field labels, separator format, and example payload.
+2. **Cross-reference comments** in both files. `CopyClaudePromptButton.tsx` `composePayload`: `// Format defined in docs/pillar-prompt-contract.md. Update both there and the skill regex if you change this.` Same comment at the top of the skill's parsing section.
+3. **Regression test** (§12.3) renders the button's payload and runs the skill's regex over it. If anyone diverges either side, the test fails.
+
+The doc lives in `docs/`, gets copied into the skill ZIP at build time alongside the SF setup doc — same single-source pattern.
+
+## 16. Out of scope (deferred to Phase 2.3 or later)
 
 - Rendering `aiNarrative` on the dashboard (next phase).
 - "Regenerate narrative" UI affordance.
