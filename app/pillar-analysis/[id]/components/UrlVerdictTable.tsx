@@ -1,13 +1,15 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { UrlRecord, Verdict } from '@/lib/services/pillarAnalysis/types';
 import { InfoTooltip } from './InfoTooltip';
 
 const VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune', 'unclear'];
+const PAGE_SIZE = 25;
 
 export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
   const [filter, setFilter] = useState<Verdict | 'all'>('all');
   const [sortBy, setSortBy] = useState<'wordCount' | 'inlinks' | 'gscClicks'>('inlinks');
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     let xs = verdicts;
@@ -15,13 +17,27 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
     return [...xs].sort((a, b) => (b[sortBy] ?? 0) - (a[sortBy] ?? 0));
   }, [verdicts, filter, sortBy]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+
+  // Reset to page 1 whenever filter or sort changes; clamp if total pages shrinks.
+  useEffect(() => {
+    setPage(1);
+  }, [filter, sortBy]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const startIdx = (page - 1) * PAGE_SIZE;
+  const endIdx = Math.min(startIdx + PAGE_SIZE, filtered.length);
+  const visible = filtered.slice(startIdx, endIdx);
+
   return (
     <div className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6">
       <div className="flex justify-between items-center mb-4">
         <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide flex items-center">
           URL Verdicts ({filtered.length} of {verdicts.length})
           <InfoTooltip>
-            Per-URL recommendation. Verdicts: pillar (anchor of a cluster — typically a program or location page), cluster (supports a pillar — link it to the recommended pillar), leave-as-blog (informational but doesn't fit a cluster — keep as-is), consolidate (merge into another similar page), prune (low value — noindex or 410). Each verdict has a confidence value visible in the underlying record.
+            Per-URL recommendation. Verdicts: pillar (anchor of a cluster — typically a program or location page), cluster (supports a pillar — link it to the recommended pillar), leave-as-blog (informational but doesn&apos;t fit a cluster — keep as-is), consolidate (merge into another similar page), prune (low value — noindex or 410). Each verdict has a confidence value visible in the underlying record.
           </InfoTooltip>
         </div>
         <div className="flex gap-3">
@@ -49,7 +65,7 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
           </tr>
         </thead>
         <tbody>
-          {filtered.slice(0, 200).map((r) => (
+          {visible.map((r) => (
             <tr key={r.url} className="border-b dark:border-navy-border/50">
               <td className="py-2 truncate max-w-md">
                 <a href={r.url} target="_blank" rel="noreferrer"
@@ -61,13 +77,43 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
               <td className="text-right font-mono">{r.gscClicks ?? '—'}</td>
             </tr>
           ))}
+          {visible.length === 0 && (
+            <tr>
+              <td colSpan={5} className="py-6 text-center text-gray-500 dark:text-white/60">
+                No URLs match this filter.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
-      {filtered.length > 200 && (
-        <p className="text-xs text-gray-500 dark:text-white/60 mt-3">
-          Showing first 200 of {filtered.length}.
-        </p>
-      )}
+
+      {/* Pagination controls */}
+      <div className="flex items-center justify-between mt-4 text-sm">
+        <div className="text-gray-500 dark:text-white/60">
+          {filtered.length === 0
+            ? 'No rows'
+            : `Showing rows ${startIdx + 1}–${endIdx} of ${filtered.length}`}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="px-3 py-1 rounded border dark:border-navy-border text-gray-700 dark:text-white/80 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-navy-card/60"
+          >
+            Prev
+          </button>
+          <span className="text-gray-600 dark:text-white/70">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="px-3 py-1 rounded border dark:border-navy-border text-gray-700 dark:text-white/80 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-navy-card/60"
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
