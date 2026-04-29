@@ -122,12 +122,20 @@ export function PillarAnalysisCardClient({ sessionId, initialPa }: Props) {
           Hub recommendation: <span className="font-medium capitalize">{hubLabel}</span>
         </div>
       </div>
-      <Link
-        href={`/pillar-analysis/${pa.id}`}
-        className="rounded-lg bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 text-white px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors"
-      >
-        Open dashboard →
-      </Link>
+      <div className="flex flex-col items-end gap-1">
+        <Link
+          href={`/pillar-analysis/${pa.id}`}
+          className="rounded-lg bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 text-white px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors"
+        >
+          Open dashboard →
+        </Link>
+        <Link
+          href={`/pillar-analysis/${pa.id}#copy-prompt`}
+          className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+        >
+          Generate Claude prompt →
+        </Link>
+      </div>
     </div>
   );
 }
