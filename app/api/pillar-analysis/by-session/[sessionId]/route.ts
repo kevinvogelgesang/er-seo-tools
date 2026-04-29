@@ -29,6 +29,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ses
       hubRecommendation, // parsed
       createdAt: pa.createdAt,
       updatedAt: pa.updatedAt,
+      aiNarrative: pa.aiNarrative,
+      narrativeUpdatedAt: pa.narrativeUpdatedAt,
     },
   });
 }
