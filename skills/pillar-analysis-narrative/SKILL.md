@@ -6,7 +6,7 @@ description: |
   "Analysis ID:", and "Access token: pat_..." (a JWT). Fetches the
   structured analysis, writes a strategic memo, and posts it back to
   the dashboard. Internal use only at Enrollment Resources.
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Pillar Analysis Narrative
@@ -27,6 +27,11 @@ If any field is missing, ask the user to copy a fresh prompt from the
 dashboard. Do not attempt the flow with partial fields.
 
 ## Execution flow
+
+The expected shape is one fetch + one memo write + one PATCH. Don't
+chain inspection scripts to slice the response — the GET endpoint is
+already trimmed to a narrative-shaped payload (see "Response shape"
+below). Read it, write the memo, post it back.
 
 ### 1. Parse the payload
 
@@ -50,17 +55,13 @@ Click 'Copy Claude Prompt' on the dashboard again to refresh."
 
 Use the Python code execution sandbox to GET
 `{webappUrl}/api/pillar-analysis/{analysisId}` with header
-`Authorization: Bearer {token}`. The response is the structured analysis
-(score, subscores, hub recommendation, pillar topics, URL verdicts).
+`Authorization: Bearer {token}`. The response is the narrative-shaped
+analysis (see "Response shape" below). Read it directly — typical
+size is 2–5K tokens, well within a single tool call's read budget.
 
 If the response has a `_status` field (HTTP error from
-`scripts/fetch_analysis.py` pattern), map it to a user-facing message:
-
-- `_status: 401, error: token_expired` → "Token expired (1h limit). Refresh er-seo-tools and click Copy Claude Prompt again."
-- `_status: 401, error: token_invalid_signature` → "Token signature invalid. Webapp may have been redeployed. Copy a fresh prompt."
-- `_status: 401, error: token_wrong_analysis_id` → "Token doesn't match this analysis ID. Did you mix up two clipboard payloads?"
-- `_status: 404` → "Analysis not found. Was it deleted?"
-- `_status: 0, error: network_error` → "Couldn't reach webapp. Check VPN if remote."
+`scripts/fetch_analysis.py` pattern), map it to a user-facing message
+using the table under "Errors and fallbacks" below.
 
 If you got a successful payload, proceed to step 3.
 
@@ -94,7 +95,7 @@ PATCH `{webappUrl}/api/pillar-analysis/{analysisId}/narrative` with the
 generated memo as the `narrative` field. See `scripts/post_narrative.py`
 for the request shape.
 
-If the response has a `_status` error field, map per step 2's table.
+If the response has a `_status` error field, map per the error table.
 
 ### 6. Reply in chat with a one-screen summary
 
@@ -113,6 +114,26 @@ Dashboard: {webappUrl}/pillar-analysis/{analysisId}
 
 Keep the chat reply short. The full memo lives in the dashboard.
 
+## Response shape
+
+The GET endpoint returns a narrative-friendly payload (~2–5K tokens):
+
+- `score`, `subscores`, `subscorePresence`, `subscoreContext`, `dataCompleteness` — score data
+- `hubRecommendation` — `{primary, alternates: [{format, scoreDelta}], reasoning}`
+- `clusters[]` — replaces the raw `pillarTopics`. Each cluster has:
+  - `clusterId`, `name`, `pillarUrl`, `pillarPageType`, `size`
+  - `anchorStats` — title, h1, wordCount, inlinks, gscClicks, gscImpressions, gscPosition (or `null` for catchall clusters)
+  - `sampleMembers[]` — up to 5 members, each `{url, title, verdict, verdictConfidence}`
+- `verdictSummary` — counts per verdict bucket
+- `totalUrls` — total URL count for sample-size sanity
+- `lowConfidenceAssignments` — `{threshold, count, samples[]}` — feeds §6 Caveats
+- `excludedAnchors[]` — program/location pages that didn't form clusters; `{url, pageType, reasoning}`. Use these for the "N anchor pages were excluded" caveat
+- `id`, `sessionId`, `status`, `error`, `createdAt`, `updatedAt`
+
+The full per-URL list is intentionally NOT in this response — it's not
+needed for the memo and used to balloon the payload to 60K+ tokens for
+content-rich sites.
+
 ## Narrative-staleness rule (hard requirement)
 
 If the user asks you to revise the memo within the conversation
@@ -125,8 +146,20 @@ This is not optional. After every memo revision, PATCH again.
 
 ## Errors and fallbacks
 
+Map `_status` and `error` from `scripts/fetch_analysis.py` to user-facing copy:
+
+| `_status` | `error` | Reply to user |
+|---|---|---|
+| 401 | `token_expired` | "Token expired (1h limit). Refresh er-seo-tools and click Copy Claude Prompt again." |
+| 401 | `token_invalid_signature` | "Token signature invalid. Webapp may have been redeployed. Copy a fresh prompt." |
+| 401 | `token_wrong_analysis_id` | "Token doesn't match this analysis ID. Did you mix up two clipboard payloads?" |
+| 401 | `token_missing_scope` | "Token missing required scope. Copy a fresh prompt from the dashboard." |
+| 403 | `network_blocked` | "The Claude environment's egress allowlist blocked the request to `{webappUrl}`. If you're running this in Claude Desktop / web / cloud sandbox, switch to **Claude Code** (which uses your local network) or have your Anthropic org admin add this domain to the bash sandbox allowlist. Headers received: `{response_headers}`." |
+| 404 | (any) | "Analysis not found. Was it deleted?" |
+| 0 | `network_error` | "Couldn't reach webapp. Check VPN if remote, then verify the URL in the prompt is correct." |
+
 If the Python sandbox isn't available in the user's Claude tier, the
-HTTP calls will fail. Tell the user: "This skill needs the Python
-code-execution tool. If you're on a tier that doesn't have it, the
-analyst can manually generate the memo using the structured analysis
-JSON visible at the dashboard URL."
+HTTP calls will fail before reaching this table. Tell the user: "This
+skill needs the Python code-execution tool. If you're on a tier that
+doesn't have it, the analyst can manually generate the memo using the
+structured analysis JSON visible at the dashboard URL."

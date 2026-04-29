@@ -16,6 +16,24 @@ def fetch_analysis(webapp_url: str, analysis_id: str, token: str) -> dict:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
+        # 403 from cloud-Claude egress proxies (not from our webapp) typically
+        # means the host isn't on the bash sandbox's allowlist. Surface the
+        # response headers so the analyst can see exactly what blocked the
+        # request without a second debugging round-trip.
+        if e.code == 403:
+            headers = {k.lower(): v for k, v in (e.headers.items() if e.headers else [])}
+            return {
+                "_status": 403,
+                "error": "network_blocked",
+                "reason": (
+                    "Egress proxy blocked the request before it reached the webapp. "
+                    "If you're in Claude Desktop / web / cloud sandbox, the host "
+                    "is not on the bash sandbox allowlist. Switch to Claude Code "
+                    "(local network) or have an Anthropic org admin add the domain."
+                ),
+                "host": webapp_url,
+                "response_headers": headers,
+            }
         # Surface the structured error body for the skill to map to user-facing copy.
         try:
             body = json.loads(e.read())
