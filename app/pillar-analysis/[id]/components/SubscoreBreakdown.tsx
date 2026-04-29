@@ -46,6 +46,24 @@ const TOOLTIPS: Record<keyof SB, React.ReactNode> = {
   ),
 };
 
+function tierFor(value: number): { bar: string; text: string; label: string } {
+  if (value >= 7) return {
+    bar: 'bg-green-500 dark:bg-green-500/80',
+    text: 'text-green-700 dark:text-green-400',
+    label: 'High opportunity',
+  };
+  if (value >= 4) return {
+    bar: 'bg-orange-400 dark:bg-orange-500/70',
+    text: 'text-orange-700 dark:text-orange-400',
+    label: 'Moderate',
+  };
+  return {
+    bar: 'bg-gray-300 dark:bg-white/20',
+    text: 'text-gray-500 dark:text-white/50',
+    label: 'Low opportunity',
+  };
+}
+
 export function SubscoreBreakdown({
   subscores,
   subscorePresence,
@@ -61,11 +79,16 @@ export function SubscoreBreakdown({
           How each of the six site-fit signals contributed to the composite score. Bars show 0–10 values; N/A means that subscore&apos;s underlying data wasn&apos;t available in the input (e.g., no GSC or Semrush export). The composite score uses neutral 5.0 defaults internally for missing signals so one absence doesn&apos;t tank the score, but those defaults aren&apos;t shown here — only real measurements.
         </InfoTooltip>
       </h2>
+      <p className="text-sm text-gray-600 dark:text-white/70 mb-4">
+        Opportunity scores: higher means more upside from pillaring on this dimension; lower means the site is already strong here (or this signal doesn&apos;t apply).
+      </p>
       <ul className="space-y-3">
         {(Object.keys(subscores) as Array<keyof SB>).map((k) => {
           // Backwards-compat: when presence map is null (older records pre-migration),
           // assume every subscore is present so we don't blanket-N/A historical data.
           const isPresent = subscorePresence ? subscorePresence[k] : true;
+          const value = subscores[k];
+          const tier = isPresent ? tierFor(value) : null;
           return (
             <li key={k} className="flex items-center gap-3">
               <div
@@ -78,22 +101,23 @@ export function SubscoreBreakdown({
                 <span>{LABELS[k]}</span>
                 <InfoTooltip label={`About ${LABELS[k]}`}>{TOOLTIPS[k]}</InfoTooltip>
               </div>
-              {isPresent ? (
+              {isPresent && tier ? (
                 <>
                   <div className="flex-1 h-2 bg-gray-200 dark:bg-navy-border rounded">
                     <div
-                      className="h-2 rounded bg-blue-500 dark:bg-blue-400"
-                      style={{ width: `${subscores[k] * 10}%` }}
+                      className={`h-2 rounded ${tier.bar}`}
+                      style={{ width: `${value * 10}%` }}
                     />
                   </div>
-                  <div className="w-10 text-right font-mono text-sm text-gray-700 dark:text-white/80">
-                    {subscores[k].toFixed(1)}
+                  <div className="w-44 text-right text-sm">
+                    <span className="font-mono text-gray-700 dark:text-white/80">{value.toFixed(1)}</span>
+                    <span className={`ml-2 text-xs font-medium ${tier.text}`}>{tier.label}</span>
                   </div>
                 </>
               ) : (
                 <>
                   <div className="flex-1" />
-                  <div className="w-10 text-right font-mono text-sm text-gray-400 dark:text-white/40">
+                  <div className="w-44 text-right font-mono text-sm text-gray-400 dark:text-white/40">
                     N/A
                   </div>
                 </>

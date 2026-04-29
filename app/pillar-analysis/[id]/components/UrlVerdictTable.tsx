@@ -6,6 +6,15 @@ import { InfoTooltip } from './InfoTooltip';
 const VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune', 'unclear'];
 const PAGE_SIZE = 25;
 
+const VERDICT_COLORS: Record<Verdict, string> = {
+  pillar: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
+  cluster: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
+  'leave-as-blog': 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-white/60',
+  consolidate: 'bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-400',
+  prune: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
+  unclear: 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/50',
+};
+
 export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
   const [filter, setFilter] = useState<Verdict | 'all'>('all');
   const [sortBy, setSortBy] = useState<'wordCount' | 'inlinks' | 'gscClicks'>('inlinks');
@@ -71,7 +80,11 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
                 <a href={r.url} target="_blank" rel="noreferrer"
                    className="text-blue-600 dark:text-blue-400">{r.url}</a>
               </td>
-              <td className="font-mono text-xs">{r.verdict}</td>
+              <td>
+                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${VERDICT_COLORS[r.verdict]}`}>
+                  {r.verdict}
+                </span>
+              </td>
               <td className="text-right font-mono">{r.wordCount ?? '—'}</td>
               <td className="text-right font-mono">{r.inlinks ?? '—'}</td>
               <td className="text-right font-mono">{r.gscClicks ?? '—'}</td>

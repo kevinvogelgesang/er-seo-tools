@@ -18,7 +18,7 @@ export function HubRecommendationCard({ hub }: { hub: HubRecommendation }) {
           Recommended structure for organizing pillars on this site. Options: nest cluster pages under existing program pages, build a fresh /resources/ or /career-guides/ hub, or rename the existing /blog/ folder. Computed from how well each cluster aligns with program pages and how horizontal vs. vertical the topic mix is. Alternates show how close the runner-up choices were.
         </InfoTooltip>
       </h2>
-      <div className="text-2xl font-semibold text-[#1c2d4a] dark:text-white">
+      <div className="font-display font-bold text-2xl text-[#1c2d4a] dark:text-white">
         {FORMAT_LABELS[hub.primary]}
       </div>
       {hub.reasoning.length > 0 && (

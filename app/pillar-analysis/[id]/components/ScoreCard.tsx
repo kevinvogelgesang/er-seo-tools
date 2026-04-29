@@ -1,9 +1,25 @@
 import { InfoTooltip } from './InfoTooltip';
 
+function tierFor(value: number): { text: string; label: string } {
+  if (value >= 7) return {
+    text: 'text-green-700 dark:text-green-400',
+    label: 'High opportunity',
+  };
+  if (value >= 4) return {
+    text: 'text-orange-700 dark:text-orange-400',
+    label: 'Moderate',
+  };
+  return {
+    text: 'text-gray-500 dark:text-white/50',
+    label: 'Low opportunity',
+  };
+}
+
 export function ScoreCard({
   score, dataCompleteness,
 }: { score: number; dataCompleteness: number }) {
   const completenessPct = Math.round(dataCompleteness * 100);
+  const tier = tierFor(score);
   return (
     <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6">
       <h2 className="font-display font-bold text-lg text-[#1c2d4a] dark:text-white flex items-center">
@@ -13,7 +29,7 @@ export function ScoreCard({
         </InfoTooltip>
       </h2>
       <div className="flex items-baseline gap-3 mt-2">
-        <div className="text-5xl font-bold text-[#1c2d4a] dark:text-white">{score}</div>
+        <div className={`text-5xl font-bold ${tier.text}`}>{score}</div>
         <div className="text-xl text-gray-400 dark:text-white/40">/ 10</div>
       </div>
       <div className={`mt-2 text-[13px] ${
@@ -22,6 +38,9 @@ export function ScoreCard({
           : 'text-emerald-600 dark:text-emerald-400'
       }`}>
         {completenessPct}% data completeness
+      </div>
+      <div className={`mt-1 text-sm font-semibold ${tier.text}`}>
+        {tier.label}
       </div>
     </div>
   );
