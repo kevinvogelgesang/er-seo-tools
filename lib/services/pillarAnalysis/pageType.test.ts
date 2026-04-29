@@ -119,4 +119,20 @@ describe('classifyPageType', () => {
   it('but /news/article-slug → still blog', () => {
     expect(classifyPageType({ url: 'https://e.edu/news/article-slug', schemaTypes: [], crawlDepth: 3 }).pageType).toBe('blog');
   });
+
+  it('location: /locations/austin/ → location', () => {
+    expect(classifyPageType({ url: 'https://e.edu/locations/austin/', schemaTypes: [], crawlDepth: 2 }).pageType).toBe('location');
+  });
+
+  it('location: /locations/san-antonio/ → location', () => {
+    expect(classifyPageType({ url: 'https://e.edu/locations/san-antonio/', schemaTypes: [], crawlDepth: 2 }).pageType).toBe('location');
+  });
+
+  it('location: /campus/austin/ → location', () => {
+    expect(classifyPageType({ url: 'https://e.edu/campus/austin/', schemaTypes: [], crawlDepth: 2 }).pageType).toBe('location');
+  });
+
+  it('bare /locations/ → nav (not location)', () => {
+    expect(classifyPageType({ url: 'https://e.edu/locations/', schemaTypes: [], crawlDepth: 1 }).pageType).toBe('nav');
+  });
 });

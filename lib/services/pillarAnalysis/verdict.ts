@@ -2,70 +2,93 @@
 import type { UrlRecord } from './types';
 import type { PillarConfig } from './config';
 
+const ANCHOR_PAGE_TYPES = new Set(['program', 'location']);
 const SCOPE_PAGE_TYPES = new Set(['blog', 'news', 'resource']);
 const STRONG_AUTHORITY_GSC = 100;
 const STRONG_AUTHORITY_RD = 5;
 
+/**
+ * Anchor-based verdict assignment.
+ *
+ *  1. Anchor pages (program/location): if >= minClusterSize in-scope pages list this
+ *     anchor as their `recommendedPillar`, the anchor is `pillar`. Otherwise `unclear`
+ *     (anchor exists, no current cluster forming under it).
+ *  2. In-scope pages (blog/news/resource) with `recommendedPillar` set
+ *     (clusterId points to an anchor): `cluster`.
+ *  3. In-scope pages in catchall (clusterId === -2): if catchall has >= minClusterSize
+ *     members, all → `cluster` (with recommendedPillar=null, hub will own them).
+ *     Otherwise per-page singleton handling: `leave-as-blog` / `prune`.
+ *  4. Out-of-scope (nav, home, unknown): `unclear`.
+ */
 export function assignVerdicts(records: UrlRecord[], cfg: PillarConfig): void {
-  // 1. Out-of-scope page types: stay 'unclear'
+  // 4. Out-of-scope page types → 'unclear' (initial pass; anchors handled below)
   for (const r of records) {
-    if (!SCOPE_PAGE_TYPES.has(r.pageType)) {
+    if (!ANCHOR_PAGE_TYPES.has(r.pageType) && !SCOPE_PAGE_TYPES.has(r.pageType)) {
       r.verdict = 'unclear';
       r.verdictConfidence = 1.0;
       r.reasoning = [`pageType=${r.pageType} (out of scope for pillar conversion)`];
     }
   }
 
-  // 2. Group by cluster
-  const byCluster = new Map<number, UrlRecord[]>();
+  // Count cluster members for each anchor (by URL == recommendedPillar)
+  const anchorMemberCount = new Map<string, number>();
   for (const r of records) {
     if (!SCOPE_PAGE_TYPES.has(r.pageType)) continue;
-    const k = r.topicClusterId ?? -1;
-    const arr = byCluster.get(k) ?? [];
-    arr.push(r);
-    byCluster.set(k, arr);
+    if (!r.recommendedPillar) continue;
+    anchorMemberCount.set(r.recommendedPillar, (anchorMemberCount.get(r.recommendedPillar) ?? 0) + 1);
   }
 
-  for (const [clusterId, members] of byCluster.entries()) {
-    if (clusterId === -1) {
-      // Singletons → leave-as-blog or prune
-      for (const r of members) classifySingleton(r, cfg);
+  // 1. Anchors: pillar if cluster size meets threshold
+  for (const r of records) {
+    if (!ANCHOR_PAGE_TYPES.has(r.pageType)) continue;
+    const count = anchorMemberCount.get(r.url) ?? 0;
+    if (count >= cfg.minClusterSize) {
+      r.verdict = 'pillar';
+      r.verdictConfidence = 0.85;
+      r.reasoning = [
+        `anchor ${r.pageType} page with ${count} cluster members`,
+      ];
+    } else {
+      r.verdict = 'unclear';
+      r.verdictConfidence = 0.7;
+      r.reasoning = [
+        `anchor ${r.pageType} page; ${count} cluster member(s) below minClusterSize=${cfg.minClusterSize}`,
+      ];
+    }
+  }
+
+  // Group in-scope pages by clusterId for catchall handling
+  const catchallMembers: UrlRecord[] = [];
+  for (const r of records) {
+    if (!SCOPE_PAGE_TYPES.has(r.pageType)) continue;
+    if (r.topicClusterId === -2) {
+      catchallMembers.push(r);
       continue;
     }
-
-    // Filter informational members for pillar selection
-    const informational = members.filter((m) => m.intentClass === 'informational');
-    const commercials = members.filter((m) => m.intentClass !== 'informational');
-
-    // Commercial members in a cluster → leave-as-blog
-    for (const r of commercials) {
-      r.verdict = 'leave-as-blog';
-      r.verdictConfidence = 0.8;
-      r.reasoning = ['intent is non-informational; would not fit cluster model'];
-    }
-
-    if (informational.length < cfg.minClusterSize) {
-      // Cluster too small after filtering → all become singletons
-      for (const r of informational) classifySingleton(r, cfg);
-      continue;
-    }
-
-    // Pick pillar: highest authority composite rank
-    const pillar = pickPillar(informational);
-    pillar.verdict = 'pillar';
-    pillar.verdictConfidence = 0.8;
-    pillar.reasoning = [
-      `cluster size ${informational.length}`,
-      `highest authority composite (inlinks=${pillar.inlinks ?? 0}, gscClicks=${pillar.gscClicks ?? 0}, referringDomains=${pillar.referringDomains ?? 0})`,
-    ];
-
-    for (const r of informational) {
-      if (r === pillar) continue;
+    if (r.recommendedPillar) {
+      // 2. Cluster member of an anchor
+      // Non-informational intent? Still cluster (we're not filtering by intent in anchor model).
       r.verdict = 'cluster';
       r.verdictConfidence = 0.75;
-      r.recommendedPillar = pillar.url;
-      r.reasoning = [`cluster member of "${pillar.url}"`];
+      r.reasoning = [`cluster member of anchor "${r.recommendedPillar}"`];
+    } else {
+      // No anchor and not catchall (unusual, but possible if topicClusterId is null) → singleton
+      classifySingleton(r, cfg);
     }
+  }
+
+  // 3. Catchall handling
+  if (catchallMembers.length >= cfg.minClusterSize) {
+    for (const r of catchallMembers) {
+      r.verdict = 'cluster';
+      r.verdictConfidence = 0.6;
+      r.recommendedPillar = null;
+      r.reasoning = [
+        `catchall cluster (${catchallMembers.length} members) — pillar TBD via hub recommendation`,
+      ];
+    }
+  } else {
+    for (const r of catchallMembers) classifySingleton(r, cfg);
   }
 }
 
@@ -90,29 +113,6 @@ function classifySingleton(r: UrlRecord, cfg: PillarConfig): void {
     r.reasoning = [`singleton with standalone authority (clicks=${clicks}, rd=${rd})`];
   } else {
     r.verdictConfidence = 0.6;
-    r.reasoning = ['singleton (no cluster) with no near-duplicate'];
+    r.reasoning = ['singleton (no anchor match) below catchall threshold'];
   }
-}
-
-function pickPillar(members: UrlRecord[]): UrlRecord {
-  // Rank within cluster on each signal (1 = highest); missing signals contribute 0.
-  const rankedSum = members.map((m, i) => ({ idx: i, score: 0, m }));
-  for (const field of ['inlinks', 'gscClicks', 'referringDomains'] as const) {
-    const present = members.filter((m) => m[field] != null);
-    if (present.length === 0) continue;
-    // Sort descending; position determines rank-score
-    const sorted = [...members].sort((a, b) => (b[field] ?? -1) - (a[field] ?? -1));
-    sorted.forEach((m, rank) => {
-      if (m[field] == null) return;
-      const score = present.length - rank; // higher = better
-      const target = rankedSum.find((x) => x.m === m)!;
-      target.score += score;
-    });
-  }
-  // Tiebreak on word count
-  rankedSum.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return (b.m.wordCount ?? 0) - (a.m.wordCount ?? 0);
-  });
-  return rankedSum[0].m;
 }

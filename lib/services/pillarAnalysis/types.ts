@@ -2,6 +2,7 @@
 
 export type PageType =
   | 'program'
+  | 'location'
   | 'blog'
   | 'news'
   | 'resource'

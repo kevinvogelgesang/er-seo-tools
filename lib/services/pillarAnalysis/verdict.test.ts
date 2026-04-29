@@ -20,60 +20,79 @@ function rec(partial: Partial<UrlRecord>): UrlRecord {
   };
 }
 
-describe('assignVerdicts', () => {
-  it('cluster of 3+ → highest authority composite gets pillar, others cluster', () => {
+describe('assignVerdicts (anchor-based)', () => {
+  it('anchor with >= minClusterSize cluster members → pillar', () => {
     const records = [
-      rec({ url: 'a', topicClusterId: 0, inlinks: 10, gscClicks: 50, referringDomains: 5 }),
-      rec({ url: 'b', topicClusterId: 0, inlinks: 3, gscClicks: 5, referringDomains: 1 }),
-      rec({ url: 'c', topicClusterId: 0, inlinks: 1, gscClicks: 0, referringDomains: 0 }),
+      rec({ url: 'https://e.edu/programs/nursing', pageType: 'program', topicClusterId: 0 }),
+      rec({ url: 'https://e.edu/blog/a', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/nursing' }),
+      rec({ url: 'https://e.edu/blog/b', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/nursing' }),
+      rec({ url: 'https://e.edu/blog/c', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/nursing' }),
     ];
     assignVerdicts(records, DEFAULT_CONFIG);
     expect(records[0].verdict).toBe('pillar');
     expect(records[1].verdict).toBe('cluster');
+    expect(records[1].recommendedPillar).toBe('https://e.edu/programs/nursing');
     expect(records[2].verdict).toBe('cluster');
+    expect(records[3].verdict).toBe('cluster');
   });
 
-  it('singleton informational with no traffic → leave-as-blog', () => {
+  it('anchor with too few cluster members → unclear', () => {
     const records = [
-      rec({ url: 'a', topicClusterId: -1, gscClicks: null, referringDomains: null }),
+      rec({ url: 'https://e.edu/programs/nursing', pageType: 'program', topicClusterId: 0 }),
+      rec({ url: 'https://e.edu/blog/a', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/nursing' }),
     ];
     assignVerdicts(records, DEFAULT_CONFIG);
-    expect(records[0].verdict).toBe('leave-as-blog');
+    expect(records[0].verdict).toBe('unclear');
+    // single cluster member with no catchall fallback → singleton handling
+    expect(['leave-as-blog', 'cluster']).toContain(records[1].verdict);
   });
 
-  it('thin content with zero traffic + zero links → prune', () => {
+  it('catchall with >= minClusterSize members → all become cluster (no pillar)', () => {
     const records = [
-      rec({ url: 'a', topicClusterId: -1, wordCount: 80, gscClicks: 0, referringDomains: 0, inlinks: 0 }),
+      rec({ url: 'https://e.edu/blog/a', topicClusterId: -2 }),
+      rec({ url: 'https://e.edu/blog/b', topicClusterId: -2 }),
+      rec({ url: 'https://e.edu/blog/c', topicClusterId: -2 }),
+    ];
+    assignVerdicts(records, DEFAULT_CONFIG);
+    for (const r of records) {
+      expect(r.verdict).toBe('cluster');
+      expect(r.recommendedPillar).toBeNull();
+    }
+  });
+
+  it('catchall below minClusterSize → singleton handling (leave-as-blog or prune)', () => {
+    const records = [
+      rec({ url: 'https://e.edu/blog/thin', topicClusterId: -2, wordCount: 80, gscClicks: 0, referringDomains: 0, inlinks: 0 }),
     ];
     assignVerdicts(records, DEFAULT_CONFIG);
     expect(records[0].verdict).toBe('prune');
   });
 
-  it('commercial-intent in a cluster → leave-as-blog (does not fit cluster model)', () => {
+  it('catchall singleton with strong authority → leave-as-blog', () => {
     const records = [
-      rec({ url: 'a', topicClusterId: 0, intentClass: 'commercial', inlinks: 5 }),
-      rec({ url: 'b', topicClusterId: 0, inlinks: 4 }),
-      rec({ url: 'c', topicClusterId: 0, inlinks: 3 }),
+      rec({ url: 'https://e.edu/blog/strong', topicClusterId: -2, gscClicks: 500, referringDomains: 12 }),
     ];
     assignVerdicts(records, DEFAULT_CONFIG);
     expect(records[0].verdict).toBe('leave-as-blog');
   });
 
-  it('singleton with strong authority → leave-as-blog', () => {
+  it('out-of-scope page types (nav/home) get unclear', () => {
     const records = [
-      rec({ url: 'a', topicClusterId: -1, gscClicks: 500, referringDomains: 12 }),
-    ];
-    assignVerdicts(records, DEFAULT_CONFIG);
-    expect(records[0].verdict).toBe('leave-as-blog');
-  });
-
-  it('non-blog/news/resource URLs receive unclear verdict (out of scope)', () => {
-    const records = [
-      rec({ url: 'a', pageType: 'program' }),
-      rec({ url: 'b', pageType: 'nav' }),
-      rec({ url: 'c', pageType: 'home' }),
+      rec({ url: 'a', pageType: 'nav' }),
+      rec({ url: 'b', pageType: 'home' }),
     ];
     assignVerdicts(records, DEFAULT_CONFIG);
     for (const r of records) expect(r.verdict).toBe('unclear');
+  });
+
+  it('location anchor with cluster members → pillar', () => {
+    const records = [
+      rec({ url: 'https://e.edu/locations/austin', pageType: 'location', topicClusterId: 0 }),
+      rec({ url: 'https://e.edu/blog/a', topicClusterId: 0, recommendedPillar: 'https://e.edu/locations/austin' }),
+      rec({ url: 'https://e.edu/blog/b', topicClusterId: 0, recommendedPillar: 'https://e.edu/locations/austin' }),
+      rec({ url: 'https://e.edu/blog/c', topicClusterId: 0, recommendedPillar: 'https://e.edu/locations/austin' }),
+    ];
+    assignVerdicts(records, DEFAULT_CONFIG);
+    expect(records[0].verdict).toBe('pillar');
   });
 });

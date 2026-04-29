@@ -23,10 +23,12 @@ const ARCHIVE_PATTERNS: RegExp[] = [
   /^\/page\/\d+\/?$/i,                                 // /page/2, /page/2/
   /\/page\/\d+\/?$/i,                                  // /<base>/page/2, /<base>/page/2/
   // Bare top-level indexes (the listing page itself, not its children)
-  /^\/(news|blog|resources?|career[-_]guides?)\/?$/i,
+  /^\/(news|blog|resources?|career[-_]guides?|locations?|campus(es)?)\/?$/i,
 ];
 
 const SLUG_RULES: Array<{ pattern: RegExp; type: PageType }> = [
+  { pattern: /\/locations?\/[^/]+\/?$/i, type: 'location' },
+  { pattern: /\/campus(es)?\/[^/]+\/?$/i, type: 'location' },
   { pattern: /\/programs?\//i, type: 'program' },
   { pattern: /\/(blog|news)\//i, type: 'blog' },
   { pattern: /\/(resources?|career[-_]guides?|guides?)\//i, type: 'resource' },
