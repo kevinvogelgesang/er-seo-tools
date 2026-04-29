@@ -23,9 +23,9 @@ export function StrategicMemoCard({ aiNarrative, narrativeUpdatedAt, sessionId }
       className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6 scroll-mt-16"
     >
       <header className="flex items-start justify-between gap-4 flex-wrap mb-2">
-        <h3 className="font-display font-bold text-lg text-[#1c2d4a] dark:text-white">
+        <h2 className="font-display font-bold text-lg text-[#1c2d4a] dark:text-white">
           Strategic Memo
-        </h3>
+        </h2>
         {hasMemo && narrativeUpdatedAt && (
           <RelativeTime
             value={narrativeUpdatedAt}

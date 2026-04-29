@@ -29,13 +29,16 @@ describe('StrategicMemoCard', () => {
     expect(html).toMatch(/Copy Claude Prompt/);
   });
 
-  it('null state does not render markdown', () => {
+  it('null state does not render the markdown body classes', () => {
     const html = render({
       aiNarrative: null,
       narrativeUpdatedAt: null,
       sessionId: 'sess_x',
     });
-    expect(html).not.toMatch(/<h2/);
+    // MemoMarkdown applies `list-disc` to <ul> and `list-decimal` to <ol>.
+    // Their absence confirms no markdown was rendered in the null state.
+    expect(html).not.toMatch(/list-disc/);
+    expect(html).not.toMatch(/list-decimal/);
   });
 
   it('has-memo state renders the markdown', () => {
