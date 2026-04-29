@@ -8,6 +8,8 @@ import { PillarTopicList } from './components/PillarTopicList';
 import { UrlVerdictTable } from './components/UrlVerdictTable';
 import { DataCompletenessBanner } from './components/DataCompletenessBanner';
 import { CopyClaudePromptButton } from './components/CopyClaudePromptButton';
+import { StrategicMemoCard } from './components/StrategicMemoCard';
+import { SectionNav } from './components/SectionNav';
 import type {
   HubRecommendation, PillarTopic, SubscoreBreakdown as SB, SubscorePresence, SubscoreContext, UrlRecord,
 } from '@/lib/services/pillarAnalysis/types';
@@ -34,13 +36,9 @@ export default async function PillarAnalysisPage({
 
   const webappUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const subscores = JSON.parse(pa.subscores!) as SB;
-  // Older PillarAnalysis records (pre-migration) have no subscorePresence —
-  // pass null and let SubscoreBreakdown treat all subscores as present.
   const subscorePresence = pa.subscorePresence
     ? (JSON.parse(pa.subscorePresence) as SubscorePresence)
     : null;
-  // subscoreContext is null for older PillarAnalysis rows pre-migration —
-  // SubscoreBreakdown falls back to generic Low/Moderate/High labels.
   const subscoreContext = pa.subscoreContext
     ? (JSON.parse(pa.subscoreContext) as SubscoreContext)
     : null;
@@ -56,10 +54,13 @@ export default async function PillarAnalysisPage({
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+  const hasMemo = pa.aiNarrative != null && pa.aiNarrative.length > 0;
 
   return (
     <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep">
       <main className="max-w-7xl mx-auto px-6 py-12 space-y-6">
+        <SectionNav />
+
         <header className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <Link
@@ -79,6 +80,7 @@ export default async function PillarAnalysisPage({
             analysisId={pa.id}
             status={pa.status}
             webappUrl={webappUrl}
+            hasMemo={hasMemo}
           />
         </header>
 
@@ -86,7 +88,7 @@ export default async function PillarAnalysisPage({
           <DataCompletenessBanner completeness={pa.dataCompleteness} />
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div id="score" className="grid grid-cols-1 lg:grid-cols-3 gap-6 scroll-mt-16">
           <ScoreCard score={pa.score!} dataCompleteness={pa.dataCompleteness ?? 0} />
           <div className="lg:col-span-2">
             <SubscoreBreakdown
@@ -97,11 +99,23 @@ export default async function PillarAnalysisPage({
           </div>
         </div>
 
-        <HubRecommendationCard hub={hub} />
+        <StrategicMemoCard
+          aiNarrative={pa.aiNarrative}
+          narrativeUpdatedAt={pa.narrativeUpdatedAt}
+          sessionId={pa.session.id}
+        />
 
-        <PillarTopicList topics={topics} verdicts={verdicts} />
+        <div id="hub" className="scroll-mt-16">
+          <HubRecommendationCard hub={hub} />
+        </div>
 
-        <UrlVerdictTable verdicts={verdicts} />
+        <div id="pillars" className="scroll-mt-16">
+          <PillarTopicList topics={topics} verdicts={verdicts} />
+        </div>
+
+        <div id="urls" className="scroll-mt-16">
+          <UrlVerdictTable verdicts={verdicts} />
+        </div>
       </main>
     </div>
   );
