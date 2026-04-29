@@ -40,6 +40,11 @@ const components: Components = {
   em: ({ children }: { children?: ReactNode }) => (
     <em className="italic">{children}</em>
   ),
+  code: ({ children }: { children?: ReactNode }) => (
+    <code className="font-mono text-[0.875em] bg-gray-100 dark:bg-navy-deep text-[#1c2d4a] dark:text-white px-1.5 py-0.5 rounded border border-gray-200 dark:border-navy-border">
+      {children}
+    </code>
+  ),
 };
 
 export function MemoMarkdown({ source }: { source: string }) {

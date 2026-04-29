@@ -41,6 +41,13 @@ describe('MemoMarkdown', () => {
     expect(html).toMatch(/<em[^>]*class="[^"]*italic[^"]*"[^>]*>italic<\/em>/);
   });
 
+  it('renders inline code as a styled badge with monospace + background', () => {
+    const html = render('Subscore `topicalConcentration` (10) is maxed out.');
+    expect(html).toMatch(/<code[^>]*class="[^"]*font-mono[^"]*"[^>]*>topicalConcentration<\/code>/);
+    expect(html).toMatch(/class="[^"]*bg-gray-100[^"]*"/);
+    expect(html).toMatch(/class="[^"]*rounded[^"]*"/);
+  });
+
   it('escapes raw HTML rather than rendering it', () => {
     const html = render('A paragraph with <script>alert(1)</script> in it.');
     // react-markdown's default behavior is to render HTML as text (no rehype-raw).
