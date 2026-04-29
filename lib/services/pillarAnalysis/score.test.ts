@@ -63,6 +63,17 @@ describe('computeFitScore', () => {
     expect(r.score).toBeLessThanOrEqual(10);
   });
 
+  it('returns a subscoreContext with the expected counts', () => {
+    const records = Array.from({ length: 30 }, () => infoBlog());
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    expect(typeof r.subscoreContext.informationalCount).toBe('number');
+    expect(typeof r.subscoreContext.programCount).toBe('number');
+    expect(typeof r.subscoreContext.locationCount).toBe('number');
+    expect(typeof r.subscoreContext.validClusterCount).toBe('number');
+    expect(r.subscoreContext.informationalCount).toBe(30);
+    expect(r.subscoreContext.programCount).toBe(0);
+  });
+
   it('dataCompleteness reflects which subscores had real input', () => {
     const records = Array.from({ length: 30 }, () => infoBlog({
       gscImpressions: null,

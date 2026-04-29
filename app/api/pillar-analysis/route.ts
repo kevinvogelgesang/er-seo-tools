@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
         score: result.score,
         subscores: JSON.stringify(result.subscores),
         subscorePresence: JSON.stringify(result.subscorePresence),
+        subscoreContext: JSON.stringify(result.subscoreContext),
         dataCompleteness: result.dataCompleteness,
         hubRecommendation: JSON.stringify(result.hubRecommendation),
         pillarTopics: JSON.stringify(result.pillarTopics),

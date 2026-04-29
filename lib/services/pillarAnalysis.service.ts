@@ -65,6 +65,7 @@ export async function runPillarAnalysisFromInputs(input: RunInput): Promise<Pill
     score: fit.score,
     subscores: fit.subscores,
     subscorePresence: fit.subscorePresence,
+    subscoreContext: fit.subscoreContext,
     dataCompleteness: fit.dataCompleteness,
     hubRecommendation: hub,
     pillarTopics,

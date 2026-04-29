@@ -117,6 +117,7 @@ model PillarAnalysis {
   score               Int?     // 1-10 site fit score
   subscores           String?  // JSON: { contentVolume, topicalConcentration, ... }
   subscorePresence    String?  // JSON: { contentVolume: boolean, ... } — false = N/A in UI
+  subscoreContext     String?  // JSON: { informationalCount, programCount, locationCount, validClusterCount }
   dataCompleteness    Float?   // 0.0-1.0 fraction of subscores with real data
   hubRecommendation   String?  // JSON: { primary, alternates: [{format, scoreDelta}] }
   pillarTopics        String?  // JSON: array of cluster groupings

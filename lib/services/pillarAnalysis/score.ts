@@ -1,11 +1,13 @@
 // lib/services/pillarAnalysis/score.ts
 import type { UrlRecord, SubscoreBreakdown, SubscorePresence } from './types';
 import type { PillarConfig } from './config';
+import type { SubscoreContext } from './subscoreLabels';
 
 export interface FitScoreResult {
   score: number;             // 1-10
   subscores: SubscoreBreakdown;
   subscorePresence: SubscorePresence;
+  subscoreContext: SubscoreContext;
   dataCompleteness: number;  // 0.0-1.0
 }
 
@@ -15,6 +17,23 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
   );
   const programs = records.filter((r) => r.pageType === 'program');
   const locations = records.filter((r) => r.pageType === 'location');
+
+  // Count clusters of size >= minClusterSize. Mirrors the logic in
+  // topicalConcentrationScore so context and score stay consistent.
+  const clusterSizes = new Map<number, number>();
+  for (const r of informational) {
+    if (r.topicClusterId == null || r.topicClusterId < 0) continue;
+    clusterSizes.set(r.topicClusterId, (clusterSizes.get(r.topicClusterId) ?? 0) + 1);
+  }
+  const validClusterCount = Array.from(clusterSizes.values())
+    .filter((c) => c >= cfg.minClusterSize).length;
+
+  const subscoreContext: SubscoreContext = {
+    informationalCount: informational.length,
+    programCount: programs.length,
+    locationCount: locations.length,
+    validClusterCount,
+  };
 
   const subs: SubscoreBreakdown = {
     contentVolume: contentVolumeScore(informational.length),
@@ -75,7 +94,7 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
 
   const score = Math.max(1, Math.min(viabilityCap, Math.round(composite)));
 
-  return { score, subscores: subs, subscorePresence: signalsPresent, dataCompleteness };
+  return { score, subscores: subs, subscorePresence: signalsPresent, subscoreContext, dataCompleteness };
 }
 
 function contentVolumeScore(n: number): number {

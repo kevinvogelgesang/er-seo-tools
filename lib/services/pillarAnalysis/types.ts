@@ -1,5 +1,7 @@
 // lib/services/pillarAnalysis/types.ts
 
+export type { SubscoreContext } from './subscoreLabels';
+
 export type PageType =
   | 'program'
   | 'location'
@@ -113,6 +115,7 @@ export interface PillarAnalysisResult {
   score: number;            // 1-10
   subscores: SubscoreBreakdown;
   subscorePresence: SubscorePresence;
+  subscoreContext: import('./subscoreLabels').SubscoreContext;
   dataCompleteness: number; // 0.0-1.0
   hubRecommendation: HubRecommendation;
   pillarTopics: PillarTopic[];
