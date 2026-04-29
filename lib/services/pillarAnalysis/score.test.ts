@@ -76,7 +76,6 @@ describe('computeFitScore', () => {
   it('subscorePresence flags absent signals (gsc/backlinks) and present signals', () => {
     const records = Array.from({ length: 30 }, () => infoBlog({
       gscImpressions: null,
-      gscClicks: null,
       referringDomains: null,
       // inlinks defaults to 3 in the helper, so internalLinkGap is present
     }));
@@ -141,44 +140,6 @@ describe('computeFitScore', () => {
     expect(r.score).toBeLessThanOrEqual(2);
   });
 
-  it('subscorePresence reports organicFootprint=true when GSC data is on non-informational pages', () => {
-    // A nav-page with gscClicks should mark organicFootprint as present
-    const records: UrlRecord[] = [
-      {
-        url: 'https://e.edu/about', pageType: 'nav', pageTypeConfidence: 0.85,
-        title: 'About', h1: 'About', metaDescription: null, firstParagraph: null,
-        wordCount: 400, crawlDepth: 1, inlinks: 10, outlinks: 5, indexable: true,
-        gscClicks: 100, gscImpressions: 500, gscCtr: 0.2, gscPosition: 5.0,
-        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
-        referringDomains: null, organicKeywords: null,
-        intentClass: 'navigational', intentConfidence: 0.8,
-        topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
-        recommendedPillar: null, reasoning: [],
-      },
-    ];
-    const r = computeFitScore(records, DEFAULT_CONFIG);
-    expect(r.subscorePresence.organicFootprint).toBe(true);
-    expect(r.subscorePresence.internalLinkGap).toBe(true);
-  });
-
-  it('subscorePresence reports backlinkDistribution=true when Semrush data is on non-informational pages', () => {
-    const records: UrlRecord[] = [
-      {
-        url: 'https://e.edu/programs/x', pageType: 'program', pageTypeConfidence: 0.85,
-        title: 'X', h1: 'X', metaDescription: null, firstParagraph: null,
-        wordCount: 800, crawlDepth: 1, inlinks: 25, outlinks: 12, indexable: true,
-        gscClicks: null, gscImpressions: null, gscCtr: null, gscPosition: null,
-        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
-        referringDomains: 8, organicKeywords: 50,
-        intentClass: 'transactional', intentConfidence: 0.9,
-        topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
-        recommendedPillar: null, reasoning: [],
-      },
-    ];
-    const r = computeFitScore(records, DEFAULT_CONFIG);
-    expect(r.subscorePresence.backlinkDistribution).toBe(true);
-  });
-
   it('subscorePresence is all true when every signal is provided', () => {
     const records: UrlRecord[] = [];
     records.push(infoBlog({
@@ -202,5 +163,30 @@ describe('computeFitScore', () => {
     for (const v of Object.values(r.subscorePresence)) {
       expect(v).toBe(true);
     }
+  });
+
+  it('subscorePresence: backlinkDistribution=false when Semrush data exists but no informational pages', () => {
+    // Site has Semrush data on a program page but ZERO informational content.
+    // Even though referringDomains is populated somewhere in records,
+    // backlinkDistributionScore is called on `informational` (empty), so it
+    // returns its 5 fallback. Presence must report false so the UI shows N/A
+    // rather than rendering the misleading fallback as a "Moderate" score.
+    const records: UrlRecord[] = [
+      {
+        url: 'https://e.edu/programs/x', pageType: 'program', pageTypeConfidence: 0.85,
+        title: 'X', h1: 'X', metaDescription: null, firstParagraph: null,
+        wordCount: 800, crawlDepth: 1, inlinks: 25, outlinks: 12, indexable: true,
+        gscClicks: null, gscImpressions: null, gscCtr: null, gscPosition: null,
+        ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
+        referringDomains: 8, organicKeywords: 50,
+        intentClass: 'transactional', intentConfidence: 0.9,
+        topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
+        recommendedPillar: null, reasoning: [],
+      },
+    ];
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    expect(r.subscorePresence.backlinkDistribution).toBe(false);
+    expect(r.subscorePresence.organicFootprint).toBe(false);
+    expect(r.subscorePresence.internalLinkGap).toBe(false);
   });
 });

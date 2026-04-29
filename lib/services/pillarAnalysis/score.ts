@@ -25,17 +25,20 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
     backlinkDistribution: backlinkDistributionScore(informational),
   };
 
-  // Data-completeness audit: which subscores had real signal vs. neutral default?
-  // Input-availability signals (GSC, inlinks, Semrush) key off ALL records, not just
-  // informational — a site with GSC data on home/nav/program pages and zero blog posts
-  // should still report organicFootprint as PRESENT (the data was uploaded).
+  // Data-completeness audit: which subscores produced a real value for THIS site
+  // vs. which fell back to the neutral 5.0 default. A subscore is "present" only
+  // if it could be meaningfully computed — meaning the underlying data was uploaded
+  // AND the site has the structure (informational pages / programs) for the score
+  // function to operate on. A site with Semrush data but zero informational posts
+  // gets backlinkDistribution: false (N/A) because the score function returns its
+  // fallback when called on an empty informational array.
   const signalsPresent: SubscorePresence = {
     contentVolume: true,
     topicalConcentration: informational.length > 0,
-    organicFootprint: records.some((r) => r.gscImpressions != null || r.gscClicks != null),
-    internalLinkGap: records.some((r) => r.inlinks != null),
+    organicFootprint: informational.some((r) => r.gscImpressions != null),
+    internalLinkGap: informational.some((r) => r.inlinks != null),
     programPageClarity: programs.length > 0,
-    backlinkDistribution: records.some((r) => r.referringDomains != null),
+    backlinkDistribution: informational.some((r) => r.referringDomains != null),
   };
   const presentCount = Object.values(signalsPresent).filter(Boolean).length;
   const dataCompleteness = presentCount / 6;
