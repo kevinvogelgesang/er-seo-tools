@@ -62,9 +62,11 @@ The skill (Phase 2.2) and the eventual PATCH narrative endpoint (Phase 2.3) will
 
 New env var: `PILLAR_TOKEN_SECRET`.
 
-- **Production (RunCloud):** set in `~/.env` next to existing `DATABASE_URL`. 32+ random bytes (base64).
-- **Dev:** if `PILLAR_TOKEN_SECRET` is unset, the mint endpoint falls back to a deterministic dev-only constant (`'dev-pillar-token-secret-do-not-use-in-prod'`) and logs a warning. This keeps `npm run dev` working out of the box.
+- **Production (RunCloud):** set in `~/.env` next to existing `DATABASE_URL`. 32+ random bytes (base64). **Required** — see fail-fast rule below.
+- **Dev (`NODE_ENV !== 'production'`):** if `PILLAR_TOKEN_SECRET` is unset, the mint endpoint falls back to a deterministic dev-only constant (`'dev-pillar-token-secret-do-not-use-in-prod'`) and logs a one-time warning. This keeps `npm run dev` working out of the box.
 - Add to `.env.example` with a placeholder value and a comment.
+
+**Production fail-fast rule (security-critical):** the dev fallback is gated strictly on `NODE_ENV !== 'production'`. In production, `mintPillarToken` and `verifyPillarToken` both throw if `PILLAR_TOKEN_SECRET` is unset. The mint endpoint catches the throw and returns 500 with an unambiguous error. We also add a startup check in `instrumentation.ts` (existing file) that logs a fatal error and exits if the secret is missing in production — so the app fails at deploy time rather than silently minting weak tokens against the dev constant. This closes the "deployment misconfiguration → silent prod vulnerability" hole.
 
 The secret rotates only manually. Rotation invalidates all outstanding tokens — acceptable since they expire in 1h anyway.
 
@@ -84,6 +86,8 @@ Fetch the structured analysis, write the internal strategic memo, and post it ba
 ```
 
 `{NEXT_PUBLIC_APP_URL}` comes from the same env var used elsewhere (e.g. by the existing share-token feature). Defaults to `http://localhost:3000` in dev.
+
+**Assumption — ER's deployment topology:** `NEXT_PUBLIC_APP_URL` is set at build time to either the production URL (for prod builds) or `http://localhost:3000` (for dev). RunCloud doesn't currently use ephemeral preview/staging environments, so the URL is stable and trustworthy. If we ever add per-PR preview deploys, this assumption breaks: a token minted in a preview env would tell the skill to post back to whatever `NEXT_PUBLIC_APP_URL` was at build time (likely production), causing cross-environment writeback. Phase 2.3 (the actual narrative writeback) should add a defensive check that the writeback URL matches the request's origin before accepting.
 
 ## 7. UI details
 
@@ -110,7 +114,8 @@ The dashboard handles the hash on mount: if `window.location.hash === '#copy-pro
 ### 7.3 Error states
 
 - Network error during mint: button shows red "Mint failed — retry" for 3s, reverts.
-- Clipboard API unavailable (older browsers / Safari without HTTPS in dev): fall back to selecting the payload text in a prompt or modal so the user can manually copy. Detection: `navigator.clipboard?.writeText` is undefined.
+- Clipboard API unavailable (older browsers / Safari without HTTPS in dev): fall back to a small inline modal showing the payload in a `<textarea readonly>` that auto-selects on mount. User does Cmd+C / Ctrl+C to copy. The modal also has a "Copy" button that calls `document.execCommand('copy')` as a secondary path. **Native `window.prompt()` is explicitly NOT used** — it strips newlines and has implementation-specific length limits across browsers, both of which would silently break the multi-line payload. Detection: `navigator.clipboard?.writeText` is undefined.
+- 500 from mint endpoint (e.g. missing secret in prod): button shows red "Token service unavailable — contact admin" and surfaces the error in console. Fail-loud rather than fail-silent so the analyst flags the deploy.
 
 ## 8. Implementation surface
 
@@ -123,11 +128,13 @@ The dashboard handles the hash on mount: if `window.location.hash === '#copy-pro
 | Hash-handler | `app/pillar-analysis/[id]/components/CopyPromptHashHandler.tsx` (new, client) | Effect on mount that handles `#copy-prompt` |
 | Pillar card link | `app/seo-parser/results/[sessionId]/components/PillarAnalysisCardClient.tsx` (modify) | Add secondary link in complete-state render |
 | Env config | `.env.example` (modify) | `PILLAR_TOKEN_SECRET=...` placeholder + comment |
+| Startup check | `instrumentation.ts` (modify) | Production-only fail-fast if `PILLAR_TOKEN_SECRET` is missing |
+| Clipboard fallback | `app/pillar-analysis/[id]/components/ClipboardFallbackModal.tsx` (new) | `<textarea readonly>` modal with auto-select + execCommand copy button; rendered when `navigator.clipboard?.writeText` is undefined |
 | Dependency | `package.json` | Add `jose` (JWT library) — modern, well-maintained, no native bindings |
 
 ## 9. Tests
 
-- **Unit:** `lib/pillar-token.test.ts` — round-trip mint + verify, expiration, wrong analysis id rejection, invalid signature rejection, malformed token rejection (~6 tests).
+- **Unit:** `lib/pillar-token.test.ts` — round-trip mint + verify, expiration, wrong analysis id rejection, invalid signature rejection, malformed token rejection (~6 tests). Plus: `mintPillarToken` throws when `NODE_ENV === 'production'` and `PILLAR_TOKEN_SECRET` is unset; uses dev fallback when `NODE_ENV !== 'production'` and secret is unset (~2 tests).
 - **Route integration:** `app/api/pillar-analysis/[id]/mint-token/route.test.ts` — three thin tests covering the route's branching: 404 on missing analysis, 409 when status !== 'complete', 200 with valid token shape on success. Uses the same Prisma test pattern as existing API route tests.
 - **No UI test** — manual smoke covers the button click + clipboard write. Browser API mocking adds friction without much value here.
 
@@ -143,9 +150,10 @@ The dashboard handles the hash on mount: if `window.location.hash === '#copy-pro
 ## 11. Risks and open items
 
 1. **`jose` is a new dep.** Mature, MIT-licensed, used by NextAuth and many others. Pure JS, no native bindings. Low risk; flagging for awareness.
-2. **`navigator.clipboard.writeText` requires HTTPS or localhost.** RunCloud serves over HTTPS in production; dev is on localhost; both are fine. Won't work over plain HTTP if someone tunnels/proxies the site weirdly.
+2. **`navigator.clipboard.writeText` requires HTTPS or localhost.** RunCloud serves over HTTPS in production; dev is on localhost; both are fine. The textarea+execCommand fallback (§7.3) covers any other case.
 3. **Secret rotation invalidates outstanding tokens immediately.** Acceptable given the 1h expiry baseline. If we ever need overlapping rotation windows (multi-secret JWKS), that's a Phase 3 problem.
 4. **The skill activation pattern depends on `pat_` prefix and the literal phrase "Analysis ID:".** Phase 2.2 will reuse those exact strings in SKILL.md — keeping them stable in this spec is intentional.
+5. **Cross-environment writeback** — see §6 assumption note. If/when ER moves to dynamic preview environments, Phase 2.3's narrative writeback should add a same-origin defensive check. Not actionable for Phase 2.1 (the mint side); flagging for the spec author of 2.3.
 
 ## 12. What we're learning from this spike
 
