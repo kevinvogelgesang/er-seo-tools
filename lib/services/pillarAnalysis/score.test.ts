@@ -72,4 +72,45 @@ describe('computeFitScore', () => {
     const r = computeFitScore(records, DEFAULT_CONFIG);
     expect(r.dataCompleteness).toBeLessThan(1.0);
   });
+
+  it('subscorePresence flags absent signals (gsc/backlinks) and present signals', () => {
+    const records = Array.from({ length: 30 }, () => infoBlog({
+      gscImpressions: null,
+      referringDomains: null,
+      // inlinks defaults to 3 in the helper, so internalLinkGap is present
+    }));
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    expect(r.subscorePresence.organicFootprint).toBe(false);
+    expect(r.subscorePresence.backlinkDistribution).toBe(false);
+    expect(r.subscorePresence.contentVolume).toBe(true);
+    expect(r.subscorePresence.internalLinkGap).toBe(true);
+    // When a signal is absent, the subscore is substituted with neutral 5.0
+    expect(r.subscores.organicFootprint).toBe(5);
+    expect(r.subscores.backlinkDistribution).toBe(5);
+  });
+
+  it('subscorePresence is all true when every signal is provided', () => {
+    const records: UrlRecord[] = [];
+    records.push(infoBlog({
+      pageType: 'program',
+      intentClass: 'transactional',
+      intentConfidence: 0.9,
+      topicClusterId: null,
+      gscImpressions: 100,
+    }));
+    for (let cluster = 0; cluster < 5; cluster++) {
+      for (let i = 0; i < 12; i++) {
+        records.push(infoBlog({
+          topicClusterId: cluster,
+          gscImpressions: 500,
+          referringDomains: 1,
+          inlinks: 5,
+        }));
+      }
+    }
+    const r = computeFitScore(records, DEFAULT_CONFIG);
+    for (const v of Object.values(r.subscorePresence)) {
+      expect(v).toBe(true);
+    }
+  });
 });

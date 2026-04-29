@@ -14,6 +14,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     error: pa.error,
     score: pa.score,
     subscores: pa.subscores ? safeJSON(pa.subscores) : null,
+    subscorePresence: pa.subscorePresence ? safeJSON(pa.subscorePresence) : null,
     dataCompleteness: pa.dataCompleteness,
     hubRecommendation: pa.hubRecommendation ? safeJSON(pa.hubRecommendation) : null,
     pillarTopics: pa.pillarTopics ? safeJSON(pa.pillarTopics) : null,

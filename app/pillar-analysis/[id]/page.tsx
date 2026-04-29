@@ -7,7 +7,7 @@ import { PillarTopicList } from './components/PillarTopicList';
 import { UrlVerdictTable } from './components/UrlVerdictTable';
 import { DataCompletenessBanner } from './components/DataCompletenessBanner';
 import type {
-  HubRecommendation, PillarTopic, SubscoreBreakdown as SB, UrlRecord,
+  HubRecommendation, PillarTopic, SubscoreBreakdown as SB, SubscorePresence, UrlRecord,
 } from '@/lib/services/pillarAnalysis/types';
 
 export default async function PillarAnalysisPage({
@@ -28,6 +28,11 @@ export default async function PillarAnalysisPage({
   }
 
   const subscores = JSON.parse(pa.subscores!) as SB;
+  // Older PillarAnalysis records (pre-migration) have no subscorePresence —
+  // pass null and let SubscoreBreakdown treat all subscores as present.
+  const subscorePresence = pa.subscorePresence
+    ? (JSON.parse(pa.subscorePresence) as SubscorePresence)
+    : null;
   const hub = JSON.parse(pa.hubRecommendation!) as HubRecommendation;
   const topics = JSON.parse(pa.pillarTopics!) as PillarTopic[];
   const verdicts = JSON.parse(pa.urlVerdicts!) as UrlRecord[];
@@ -50,7 +55,7 @@ export default async function PillarAnalysisPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <ScoreCard score={pa.score!} dataCompleteness={pa.dataCompleteness ?? 0} />
         <div className="lg:col-span-2">
-          <SubscoreBreakdown subscores={subscores} />
+          <SubscoreBreakdown subscores={subscores} subscorePresence={subscorePresence} />
         </div>
       </div>
 

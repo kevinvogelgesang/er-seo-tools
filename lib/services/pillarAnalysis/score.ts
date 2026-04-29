@@ -1,10 +1,11 @@
 // lib/services/pillarAnalysis/score.ts
-import type { UrlRecord, SubscoreBreakdown } from './types';
+import type { UrlRecord, SubscoreBreakdown, SubscorePresence } from './types';
 import type { PillarConfig } from './config';
 
 export interface FitScoreResult {
   score: number;             // 1-10
   subscores: SubscoreBreakdown;
+  subscorePresence: SubscorePresence;
   dataCompleteness: number;  // 0.0-1.0
 }
 
@@ -24,7 +25,7 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
   };
 
   // Data-completeness audit: which subscores had real signal vs. neutral default?
-  const signalsPresent: Record<keyof SubscoreBreakdown, boolean> = {
+  const signalsPresent: SubscorePresence = {
     contentVolume: true,
     topicalConcentration: informational.length > 0,
     organicFootprint: informational.some((r) => r.gscImpressions != null),
@@ -35,8 +36,10 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
   const presentCount = Object.values(signalsPresent).filter(Boolean).length;
   const dataCompleteness = presentCount / 6;
 
-  // Substitute neutral 5.0 where signal is absent
-  for (const k of Object.keys(signalsPresent) as Array<keyof SubscoreBreakdown>) {
+  // Substitute neutral 5.0 where signal is absent (so a single missing signal
+  // doesn't tank the composite). The presence map is exposed so the UI can
+  // surface N/A on absent subscores instead of showing the placeholder value.
+  for (const k of Object.keys(signalsPresent) as Array<keyof SubscorePresence>) {
     if (!signalsPresent[k]) subs[k] = 5;
   }
 
@@ -51,7 +54,7 @@ export function computeFitScore(records: UrlRecord[], cfg: PillarConfig): FitSco
 
   const score = Math.max(1, Math.min(10, Math.round(composite)));
 
-  return { score, subscores: subs, dataCompleteness };
+  return { score, subscores: subs, subscorePresence: signalsPresent, dataCompleteness };
 }
 
 function contentVolumeScore(n: number): number {

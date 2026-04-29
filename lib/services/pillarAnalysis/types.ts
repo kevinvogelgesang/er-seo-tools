@@ -77,6 +77,22 @@ export interface SubscoreBreakdown {
   backlinkDistribution: number;
 }
 
+/**
+ * Per-subscore "did we have real data for this?" map. Parallel to
+ * SubscoreBreakdown. When a value is `false` the corresponding subscore
+ * was substituted with the neutral 5.0 default for composite-score
+ * stability — the dashboard surfaces it as N/A so users don't mistake
+ * the placeholder for a real measurement.
+ */
+export interface SubscorePresence {
+  contentVolume: boolean;
+  topicalConcentration: boolean;
+  organicFootprint: boolean;
+  internalLinkGap: boolean;
+  programPageClarity: boolean;
+  backlinkDistribution: boolean;
+}
+
 export interface HubRecommendation {
   primary: HubFormat;
   alternates: Array<{ format: HubFormat; scoreDelta: number }>;
@@ -95,6 +111,7 @@ export interface PillarTopic {
 export interface PillarAnalysisResult {
   score: number;            // 1-10
   subscores: SubscoreBreakdown;
+  subscorePresence: SubscorePresence;
   dataCompleteness: number; // 0.0-1.0
   hubRecommendation: HubRecommendation;
   pillarTopics: PillarTopic[];
