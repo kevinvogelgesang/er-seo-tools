@@ -1,6 +1,7 @@
 'use client';
 import { useState, useMemo } from 'react';
 import type { UrlRecord, Verdict } from '@/lib/services/pillarAnalysis/types';
+import { InfoTooltip } from './InfoTooltip';
 
 const VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune', 'unclear'];
 
@@ -17,8 +18,11 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
   return (
     <div className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6">
       <div className="flex justify-between items-center mb-4">
-        <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide">
+        <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide flex items-center">
           URL Verdicts ({filtered.length} of {verdicts.length})
+          <InfoTooltip>
+            Per-URL recommendation. Verdicts: pillar (anchor of a cluster — typically a program or location page), cluster (supports a pillar — link it to the recommended pillar), leave-as-blog (informational but doesn't fit a cluster — keep as-is), consolidate (merge into another similar page), prune (low value — noindex or 410). Each verdict has a confidence value visible in the underlying record.
+          </InfoTooltip>
         </div>
         <div className="flex gap-3">
           <select value={filter} onChange={(e) => setFilter(e.target.value as Verdict | 'all')}

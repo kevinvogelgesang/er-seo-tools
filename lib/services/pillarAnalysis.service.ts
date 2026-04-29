@@ -124,6 +124,7 @@ function buildPillarTopics(records: UrlRecord[], minClusterSize: number): Pillar
         clusterId,
         name: 'General Resources (catchall)',
         pillarUrl: null,
+        pillarPageType: null,
         clusterUrls: blogs.map((b) => b.url),
         size: blogs.length,
       });
@@ -137,6 +138,7 @@ function buildPillarTopics(records: UrlRecord[], minClusterSize: number): Pillar
         clusterId,
         name: anchor.title || anchor.h1 || prettifyUrl(anchor.url),
         pillarUrl: anchor.url,
+        pillarPageType: anchor.pageType,
         clusterUrls: blogs.map((b) => b.url),
         size: members.length,
       });

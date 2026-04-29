@@ -1,4 +1,5 @@
 import type { HubRecommendation, HubFormat } from '@/lib/services/pillarAnalysis/types';
+import { InfoTooltip } from './InfoTooltip';
 
 const FORMAT_LABELS: Record<HubFormat, string> = {
   'nest-under-programs': 'Nest under existing program pages',
@@ -11,8 +12,11 @@ const FORMAT_LABELS: Record<HubFormat, string> = {
 export function HubRecommendationCard({ hub }: { hub: HubRecommendation }) {
   return (
     <div className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6">
-      <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide mb-2">
+      <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide mb-2 flex items-center">
         Hub Recommendation
+        <InfoTooltip>
+          Recommended structure for organizing pillars on this site. Options: nest cluster pages under existing program pages, build a fresh /resources/ or /career-guides/ hub, or rename the existing /blog/ folder. Computed from how well each cluster aligns with program pages and how horizontal vs. vertical the topic mix is. Alternates show how close the runner-up choices were.
+        </InfoTooltip>
       </div>
       <div className="text-2xl font-semibold text-gray-900 dark:text-white">
         {FORMAT_LABELS[hub.primary]}

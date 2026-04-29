@@ -87,6 +87,7 @@ export interface PillarTopic {
   clusterId: number;
   name: string;            // derived from top-frequency terms
   pillarUrl: string | null; // anchor candidate, null if cluster too small
+  pillarPageType: PageType | null; // 'program' | 'location' | null (null for catchall)
   clusterUrls: string[];
   size: number;
 }

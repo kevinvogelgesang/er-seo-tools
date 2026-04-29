@@ -1,4 +1,5 @@
 import type { SubscoreBreakdown as SB } from '@/lib/services/pillarAnalysis/types';
+import { InfoTooltip } from './InfoTooltip';
 
 const LABELS: Record<keyof SB, string> = {
   contentVolume: 'Informational content volume',
@@ -12,8 +13,11 @@ const LABELS: Record<keyof SB, string> = {
 export function SubscoreBreakdown({ subscores }: { subscores: SB }) {
   return (
     <div className="rounded-lg border bg-white dark:bg-navy-card dark:border-navy-border p-6">
-      <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide mb-4">
+      <div className="text-sm text-gray-500 dark:text-white/60 uppercase tracking-wide mb-4 flex items-center">
         Subscore Breakdown
+        <InfoTooltip>
+          How each of the six site-fit signals contributed to the composite score. Bars show the 0–10 value of each subscore. A subscore at exactly 5 with no variation usually means the underlying data wasn't available (e.g., no Semrush export → backlink distribution defaults to 5).
+        </InfoTooltip>
       </div>
       <ul className="space-y-3">
         {(Object.keys(subscores) as Array<keyof SB>).map((k) => (
