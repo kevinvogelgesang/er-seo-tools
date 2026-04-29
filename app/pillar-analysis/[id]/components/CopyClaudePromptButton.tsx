@@ -1,0 +1,114 @@
+'use client';
+
+import { useState } from 'react';
+import { ClipboardFallbackModal } from './ClipboardFallbackModal';
+
+interface Props {
+  analysisId: string;
+  status: string; // 'pending' | 'running' | 'complete' | 'error'
+  webappUrl: string;
+}
+
+type ButtonState = 'idle' | 'minting' | 'copied' | 'mint-failed' | 'service-error';
+
+const STATE_LABELS: Record<ButtonState, string> = {
+  idle: 'Copy Claude Prompt',
+  minting: 'Minting…',
+  copied: 'Copied!',
+  'mint-failed': 'Mint failed — retry',
+  'service-error': 'Token service unavailable',
+};
+
+const STATE_CLASSES: Record<ButtonState, string> = {
+  idle: 'bg-[#f5a623] text-[#1c2d4a] hover:bg-[#e8971a]',
+  minting: 'bg-gray-300 text-gray-600 cursor-wait',
+  copied: 'bg-green-500 text-white',
+  'mint-failed': 'bg-red-500 text-white',
+  'service-error': 'bg-red-700 text-white',
+};
+
+function composePayload({ webappUrl, analysisId, token }: { webappUrl: string; analysisId: string; token: string }): string {
+  return [
+    'Run a pillar analysis narrative on this site.',
+    '',
+    `Webapp: ${webappUrl}`,
+    `Analysis ID: ${analysisId}`,
+    `Access token: ${token}`,
+    '(Expires in 1h)',
+    '',
+    'Fetch the structured analysis, write the internal strategic memo, and post it back to the dashboard.',
+  ].join('\n');
+}
+
+export function CopyClaudePromptButton({ analysisId, status, webappUrl }: Props) {
+  const [state, setState] = useState<ButtonState>('idle');
+  const [fallbackPayload, setFallbackPayload] = useState<string | null>(null);
+
+  const disabled = status !== 'complete' || state === 'minting';
+
+  const onClick = async () => {
+    if (disabled) return;
+    setState('minting');
+    try {
+      const res = await fetch(`/api/pillar-analysis/${analysisId}/mint-token`, {
+        method: 'POST',
+      });
+      if (res.status === 500) {
+        setState('service-error');
+        setTimeout(() => setState('idle'), 4000);
+        return;
+      }
+      if (!res.ok) {
+        setState('mint-failed');
+        setTimeout(() => setState('idle'), 3000);
+        return;
+      }
+      const { token } = (await res.json()) as { token: string };
+      const payload = composePayload({ webappUrl, analysisId, token });
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(payload);
+          setState('copied');
+          setTimeout(() => setState('idle'), 2000);
+        } catch {
+          // Permission denied or some other clipboard failure — fall back to modal.
+          setFallbackPayload(payload);
+          setState('idle');
+        }
+      } else {
+        setFallbackPayload(payload);
+        setState('idle');
+      }
+    } catch {
+      setState('mint-failed');
+      setTimeout(() => setState('idle'), 3000);
+    }
+  };
+
+  const tooltip = status !== 'complete'
+    ? `Available once analysis completes (current status: ${status})`
+    : '';
+
+  return (
+    <>
+      <button
+        id="copy-prompt"
+        onClick={onClick}
+        disabled={disabled}
+        title={tooltip}
+        className={`px-4 py-2 text-sm font-medium rounded transition-colors ${
+          disabled ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : STATE_CLASSES[state]
+        }`}
+      >
+        {disabled && state === 'idle' ? 'Copy Claude Prompt' : STATE_LABELS[state]}
+      </button>
+      {fallbackPayload && (
+        <ClipboardFallbackModal
+          payload={fallbackPayload}
+          onClose={() => setFallbackPayload(null)}
+        />
+      )}
+    </>
+  );
+}
