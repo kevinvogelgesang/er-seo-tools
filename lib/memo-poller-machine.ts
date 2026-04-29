@@ -1,0 +1,135 @@
+// lib/memo-poller-machine.ts
+// Pure state machine for the memo polling cycle. The React MemoPoller
+// component owns timers and the visibilitychange listener; this module
+// owns transitions and decides whether each tick triggers a refresh.
+//
+// States:
+//   idle      — not polling
+//   polling   — actively polling, visible
+//   paused    — was polling, tab hidden
+//   expired   — exceeded cumulative active-polling lifetime
+//
+// Lifetime accounting: only 'polling' time counts toward the cap.
+// 'paused' time is excluded.
+
+export type PollingStatus = 'idle' | 'polling' | 'paused' | 'expired';
+
+export interface PollingMachineOptions {
+  onChange: () => void;
+  /** Cumulative active-polling lifetime cap in ms. */
+  lifetimeMs: number;
+}
+
+export interface PollingMachine {
+  status(): PollingStatus;
+  start(args: { baseline: string | null; now: number }): void;
+  stop(): void;
+  setVisible(visible: boolean): void;
+  /**
+   * Caller invokes this after each fetch completes. The machine compares
+   * `latestUpdatedAt` to the baseline recorded at start; on change, fires
+   * `onChange` once and returns to idle. Also handles lifetime accounting.
+   */
+  tick(args: { latestUpdatedAt: string | null; now: number }): void;
+}
+
+export function createPollingMachine(opts: PollingMachineOptions): PollingMachine {
+  let status: PollingStatus = 'idle';
+  let baseline: string | null = null;
+  /** Wall-clock time of the most recent transition into 'polling'. */
+  let lastResumedAt = 0;
+  /** Total active-polling time accumulated over this cycle. */
+  let activeAccumulatedMs = 0;
+  /**
+   * The `now` value of the most recent tick, regardless of state. Used to
+   * rebase `lastResumedAt` when resuming from pause — so paused time between
+   * the last tick and setVisible(true) is excluded from the active budget.
+   */
+  let lastTickNow = 0;
+
+  function reset() {
+    status = 'idle';
+    baseline = null;
+    lastResumedAt = 0;
+    activeAccumulatedMs = 0;
+    lastTickNow = 0;
+  }
+
+  function accumulateActiveTime(now: number) {
+    if (status === 'polling') {
+      activeAccumulatedMs += now - lastResumedAt;
+      lastResumedAt = now;
+    }
+  }
+
+  return {
+    status: () => status,
+
+    start({ baseline: newBaseline, now }) {
+      // Fresh cycle: reset budget and baseline regardless of prior state.
+      status = 'polling';
+      baseline = newBaseline;
+      lastResumedAt = now;
+      activeAccumulatedMs = 0;
+      lastTickNow = now;
+    },
+
+    stop() {
+      reset();
+    },
+
+    setVisible(visible) {
+      if (status === 'idle' || status === 'expired') return;
+      if (visible && status === 'paused') {
+        status = 'polling';
+        // Resume: set the active-window start to the last known tick time
+        // (the most recent tick that fired while we were paused, or before).
+        // This way, the gap from that tick to the first active tick counts
+        // toward the lifetime budget, but the time between setVisible(false)
+        // and that last paused tick is also excluded.
+        lastResumedAt = -1; // sentinel: "rebase on next tick using lastTickNow"
+      } else if (!visible && status === 'polling') {
+        // Bank what's elapsed so far is handled lazily in tick(). Since we
+        // don't have `now` here, we accept up to one tick interval of rounding
+        // loss (~3s on a 15-min budget = ~0.3% drift, acceptable).
+        status = 'paused';
+      }
+    },
+
+    tick({ latestUpdatedAt, now }) {
+      if (status !== 'polling') {
+        // Even while paused, record the tick time so that resume can rebase
+        // from the last known tick (excluding the gap to setVisible(true)).
+        lastTickNow = now;
+        return;
+      }
+
+      // If we just resumed from pause, rebase the active-window start to the
+      // last known tick time (set during the most recent paused tick) so that
+      // paused wall-clock time is excluded from the active budget.
+      if (lastResumedAt < 0) {
+        lastResumedAt = lastTickNow;
+      }
+
+      // Update lastTickNow for the active tick.
+      lastTickNow = now;
+
+      // Bank elapsed active time up to this tick.
+      accumulateActiveTime(now);
+
+      // Lifetime check first — even a successful change after expiry
+      // shouldn't fire (caller stopped ticking after expiry).
+      if (activeAccumulatedMs >= opts.lifetimeMs) {
+        status = 'expired';
+        return;
+      }
+
+      // Change detection.
+      if (latestUpdatedAt !== baseline) {
+        opts.onChange();
+        reset();
+        return;
+      }
+    },
+  };
+}
