@@ -88,7 +88,7 @@ export default async function PillarAnalysisPage({
           <DataCompletenessBanner completeness={pa.dataCompleteness} />
         )}
 
-        <div id="score" className="grid grid-cols-1 lg:grid-cols-3 gap-6 scroll-mt-16">
+        <div id="score" className="grid grid-cols-1 lg:grid-cols-3 gap-6 scroll-mt-28">
           <ScoreCard score={pa.score!} dataCompleteness={pa.dataCompleteness ?? 0} />
           <div className="lg:col-span-2">
             <SubscoreBreakdown
@@ -105,15 +105,15 @@ export default async function PillarAnalysisPage({
           sessionId={pa.session.id}
         />
 
-        <div id="hub" className="scroll-mt-16">
+        <div id="hub" className="scroll-mt-28">
           <HubRecommendationCard hub={hub} />
         </div>
 
-        <div id="pillars" className="scroll-mt-16">
+        <div id="pillars" className="scroll-mt-28">
           <PillarTopicList topics={topics} verdicts={verdicts} />
         </div>
 
-        <div id="urls" className="scroll-mt-16">
+        <div id="urls" className="scroll-mt-28">
           <UrlVerdictTable verdicts={verdicts} />
         </div>
       </main>

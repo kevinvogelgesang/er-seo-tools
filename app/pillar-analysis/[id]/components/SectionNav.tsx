@@ -18,7 +18,7 @@ const LINKS = [
 export function SectionNav() {
   return (
     <nav
-      className="sticky top-0 z-10 -mx-6 px-6 py-2 bg-[#f4f6f9]/90 dark:bg-navy-deep/90 backdrop-blur border-b border-gray-200 dark:border-navy-border"
+      className="sticky top-[60px] z-10 -mx-6 px-6 py-2 bg-[#f4f6f9]/90 dark:bg-navy-deep/90 backdrop-blur border-b border-gray-200 dark:border-navy-border"
       aria-label="Page sections"
     >
       <ul className="flex gap-4 text-sm">

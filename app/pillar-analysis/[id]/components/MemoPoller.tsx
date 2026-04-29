@@ -49,6 +49,15 @@ export function MemoPoller({ sessionId, initialNarrativeUpdatedAt, autoStartOnMo
   // Latest baseline / mounted-state tracking via ref so closures see fresh values.
   const baselineRef = useRef<string | null>(initialNarrativeUpdatedAt);
 
+  // Sync baselineRef from the prop after router.refresh() updates it.
+  // Only update while idle — if a cycle is active, the cycle owns the baseline
+  // it was started with, and overwriting would cause a missed change.
+  useEffect(() => {
+    if (machine.status() === 'idle') {
+      baselineRef.current = initialNarrativeUpdatedAt;
+    }
+  }, [initialNarrativeUpdatedAt, machine]);
+
   // Visibility tracking
   useEffect(() => {
     const onVisibility = () => {
