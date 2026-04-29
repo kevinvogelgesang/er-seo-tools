@@ -95,4 +95,34 @@ describe('assignVerdicts (anchor-based)', () => {
     assignVerdicts(records, DEFAULT_CONFIG);
     expect(records[0].verdict).toBe('pillar');
   });
+
+  it('thin content (<150 words) gets prune verdict regardless of cluster assignment', () => {
+    const records = [
+      rec({ url: 'a', pageType: 'blog', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/x', wordCount: 80 }),
+      rec({ url: 'b', pageType: 'blog', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/x', wordCount: 1500 }),
+      rec({ url: 'c', pageType: 'blog', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/x', wordCount: 1200 }),
+    ];
+    // Pretend an anchor exists at clusterId=99 with 3 cluster members assigned to it
+    // For this test, the anchor isn't in the records list — we only test the post-process pass
+    assignVerdicts(records, DEFAULT_CONFIG);
+    expect(records[0].verdict).toBe('prune');
+    expect(records[0].reasoning.some(r => /thin content/i.test(r))).toBe(true);
+    // The other two retain whatever the main logic assigned (won't be 'prune' since they're 1500/1200 words)
+  });
+
+  it('thin content with wordCount=0 (missing data) does NOT get force-pruned', () => {
+    const records = [
+      rec({ url: 'a', pageType: 'blog', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/x', wordCount: 0 }),
+    ];
+    assignVerdicts(records, DEFAULT_CONFIG);
+    expect(records[0].verdict).not.toBe('prune'); // wordCount=0 means missing, not actually thin
+  });
+
+  it('thin content with null wordCount also does not force-prune', () => {
+    const records = [
+      rec({ url: 'a', pageType: 'blog', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/x', wordCount: null }),
+    ];
+    assignVerdicts(records, DEFAULT_CONFIG);
+    expect(records[0].verdict).not.toBe('prune');
+  });
 });

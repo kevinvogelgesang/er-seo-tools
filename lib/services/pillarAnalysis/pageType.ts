@@ -32,7 +32,15 @@ const SLUG_RULES: Array<{ pattern: RegExp; type: PageType }> = [
   { pattern: /\/programs?\//i, type: 'program' },
   { pattern: /\/(blog|news)\//i, type: 'blog' },
   { pattern: /\/(resources?|career[-_]guides?|guides?)\//i, type: 'resource' },
-  { pattern: /\/(about|contact|team|staff|leadership|careers)(\/|$)/i, type: 'nav' },
+  // Nav patterns that allow optional hyphen/underscore suffixes (e.g. -us, -policy, -of-service, -statement).
+  // NOTE: `careers?` is handled in a separate, suffix-less rule below so we don't shadow
+  // content slugs like `/career-guides/<post>`.
+  {
+    pattern: /\/(about|contact|team|staff|leadership|privacy|terms|accessibility|disclaimer|disclosure|cookies?|sitemap|feed|rss|atom|login|signin|sign-in|signup|sign-up|register|account|cart|checkout|thank[-_]?you|confirmation|404|maintenance|search)([-_][\w-]+)?(\/|$)/i,
+    type: 'nav',
+  },
+  // careers / career — strict word boundary, no suffix expansion (would collide with /career-guides/).
+  { pattern: /\/careers?(\/|$)/i, type: 'nav' },
 ];
 
 const SCHEMA_RULES: Record<string, PageType> = {

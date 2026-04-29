@@ -21,4 +21,10 @@ describe('pillarAnalysis config', () => {
     expect(merged.subscoreWeights.contentVolume).toBe(0.30);
     expect(merged.subscoreWeights.topicalConcentration).toBe(DEFAULT_CONFIG.subscoreWeights.topicalConcentration);
   });
+
+  it('mergeConfig overrides minContentWordsForCluster independently', () => {
+    const merged = mergeConfig({ minContentWordsForCluster: 200 });
+    expect(merged.minContentWordsForCluster).toBe(200);
+    expect(merged.clusterSimilarityThreshold).toBe(DEFAULT_CONFIG.clusterSimilarityThreshold);
+  });
 });

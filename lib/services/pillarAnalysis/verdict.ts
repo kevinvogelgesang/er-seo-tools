@@ -90,6 +90,25 @@ export function assignVerdicts(records: UrlRecord[], cfg: PillarConfig): void {
   } else {
     for (const r of catchallMembers) classifySingleton(r, cfg);
   }
+
+  // After all other verdict assignments, override for thin content.
+  // These pages technically classified as blog/news/resource and may have been
+  // assigned to an anchor or catchall, but their word count puts them outside
+  // real cluster candidacy. Treat as `prune` so the analyst sees the recommendation
+  // to remove or consolidate them.
+  for (const r of records) {
+    if (!SCOPE_PAGE_TYPES.has(r.pageType)) continue;
+    const wc = r.wordCount ?? 0;
+    if (wc > 0 && wc < cfg.minContentWordsForCluster) {
+      r.verdict = 'prune';
+      r.verdictConfidence = 0.85;
+      r.recommendedPillar = null;
+      r.reasoning = [
+        `thin content (${wc} words) below cluster-candidacy threshold (${cfg.minContentWordsForCluster})`,
+        'recommend pruning, consolidating into a richer page, or noindex',
+      ];
+    }
+  }
 }
 
 function classifySingleton(r: UrlRecord, cfg: PillarConfig): void {

@@ -7,6 +7,12 @@ export interface PillarConfig {
   minClusterSize: number;               // min pages to constitute a "cluster"
   thinContentMaxWords: number;          // word count below which content is "thin"
   pruneMaxWords: number;                // word count below which content is `prune`-eligible
+  /**
+   * Pages with word count below this threshold are excluded from cluster
+   * candidacy regardless of their pageType — they're typically forms,
+   * stubs, or boilerplate that shouldn't compete for pillar/cluster slots.
+   */
+  minContentWordsForCluster: number;
   subscoreWeights: {
     contentVolume: number;
     topicalConcentration: number;
@@ -26,6 +32,7 @@ export const DEFAULT_CONFIG: PillarConfig = {
   minClusterSize: 3,
   thinContentMaxWords: 500,
   pruneMaxWords: 100,
+  minContentWordsForCluster: 150,
   subscoreWeights: {
     contentVolume: 0.25,
     topicalConcentration: 0.20,
