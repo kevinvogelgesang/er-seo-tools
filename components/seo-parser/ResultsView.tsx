@@ -21,6 +21,7 @@ const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m 
 interface ResultsViewProps {
   result: AggregatedResult;
   sessionId: string;
+  pillarButton?: React.ReactNode;
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -32,7 +33,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-export function ResultsView({ result, sessionId }: ResultsViewProps) {
+export function ResultsView({ result, sessionId, pillarButton }: ResultsViewProps) {
   const router = useRouter();
   const siteName = result.metadata?.site_name || 'Site';
 
@@ -60,6 +61,7 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
             >
               Share Report
             </button>
+            {pillarButton}
             <button
               onClick={() => router.push('/seo-parser')}
               className="px-4 py-2 border border-gray-200 dark:border-navy-border rounded-lg text-sm text-gray-600 dark:text-white/60 hover:bg-gray-50 dark:hover:bg-navy-light transition-colors"

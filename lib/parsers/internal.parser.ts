@@ -602,4 +602,94 @@ export class InternalParser extends BaseParser {
     pages.sort((a, b) => b.sessions - a.sessions);
     return pages.slice(0, 50);
   }
+
+  /**
+   * Per-URL extraction for pillar analysis. Returns one entry per HTML row
+   * with title/H1/meta/word-count/depth/inlinks/outlinks/indexable plus an
+   * optional first-paragraph custom column. `schemaTypes` is always [] here;
+   * structured-data parsing happens via a separate parser and is joined later.
+   *
+   * Does NOT modify or call the existing `parse()` method.
+   */
+  parsePerUrlForPillar(): Array<{
+    url: string;
+    title: string | null;
+    h1: string | null;
+    metaDescription: string | null;
+    firstParagraph: string | null;
+    wordCount: number | null;
+    crawlDepth: number | null;
+    inlinks: number | null;
+    outlinks: number | null;
+    indexable: boolean;
+    schemaTypes: string[];
+  }> {
+    if (this.isEmpty) return [];
+
+    const addressCol = this.getColumn('address');
+    const titleCol = this.getColumn('title');
+    const h1Col = this.getColumn('h1');
+    const metaCol = this.getColumn('meta_description');
+    const wordCountCol = this.getColumn('word_count');
+    const crawlDepthCol = this.getColumn('crawl_depth');
+    const inlinksCol = this.getColumn('inlinks');
+    const outlinksCol = this.getColumn('outlinks');
+    const indexabilityCol = this.getColumn('indexability');
+    const firstParagraphCol = this.findColumn([
+      'First Paragraph',
+      'first_paragraph',
+      'Intro Text',
+    ]);
+
+    const htmlMask = this.getHtmlMask();
+
+    const cleanString = (raw: unknown): string | null => {
+      const s = toString(raw).trim();
+      return s.length > 0 ? s : null;
+    };
+
+    const result: Array<{
+      url: string;
+      title: string | null;
+      h1: string | null;
+      metaDescription: string | null;
+      firstParagraph: string | null;
+      wordCount: number | null;
+      crawlDepth: number | null;
+      inlinks: number | null;
+      outlinks: number | null;
+      indexable: boolean;
+      schemaTypes: string[];
+    }> = [];
+
+    for (let i = 0; i < this.data.length; i++) {
+      if (!htmlMask[i]) continue;
+
+      const row = this.data[i];
+
+      const url = addressCol ? toString(row[addressCol]).trim() : '';
+      if (!url) continue;
+
+      const indexableValue = indexabilityCol
+        ? toString(row[indexabilityCol]).trim().toLowerCase()
+        : '';
+      const indexable = indexableValue === 'indexable';
+
+      result.push({
+        url,
+        title: titleCol ? cleanString(row[titleCol]) : null,
+        h1: h1Col ? cleanString(row[h1Col]) : null,
+        metaDescription: metaCol ? cleanString(row[metaCol]) : null,
+        firstParagraph: firstParagraphCol ? cleanString(row[firstParagraphCol]) : null,
+        wordCount: wordCountCol ? toNumber(row[wordCountCol]) : null,
+        crawlDepth: crawlDepthCol ? toNumber(row[crawlDepthCol]) : null,
+        inlinks: inlinksCol ? toNumber(row[inlinksCol]) : null,
+        outlinks: outlinksCol ? toNumber(row[outlinksCol]) : null,
+        indexable,
+        schemaTypes: [],
+      });
+    }
+
+    return result;
+  }
 }

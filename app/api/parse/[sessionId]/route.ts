@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db';
 import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
 import { findParserForFile } from '@/lib/parsers';
 import { AggregatorService } from '@/lib/services/aggregator.service';
+import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 
 export const dynamic = 'force-dynamic';
 
@@ -167,9 +168,12 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    // Upload files are no longer needed — result is stored in the DB.
-    // Delete immediately to reclaim disk space.
-    await fs.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+    // Fire-and-forget trigger; never throws.
+    // Cleanup of uploadDir is the pillar route's responsibility now (it needs
+    // the original CSVs to re-parse for per-URL extraction). See app/api/pillar-analysis/route.ts.
+    triggerPillarAnalysis(sessionId).catch((err) =>
+      console.error('[pillar-analysis] trigger failed', err)
+    );
 
     return NextResponse.json({ status: 'complete', result });
   } catch (error) {

@@ -202,3 +202,32 @@ https://example.com/,200,500,1000,300,60%,42.75%,95.0`;
     expect(result.ga4_top_pages![0].bounce_rate_pct).toBe(42.75);
   });
 });
+
+describe('InternalParser.parsePerUrlForPillar', () => {
+  it('returns per-URL rows with title/H1/meta/wordCount/depth/inlinks/schemaTypes', () => {
+    const csv = `Address,Status Code,Indexability,Title 1,Meta Description 1,H1-1,Word Count,Crawl Depth,Inlinks,Outlinks,Content Type
+https://e.edu/,200,Indexable,Home,Welcome,Welcome,100,0,50,30,text/html
+https://e.edu/blog/x,200,Indexable,How to X,A guide to X,How to X,1200,3,4,8,text/html`;
+    const parser = new InternalParser(csv);
+    const rows = parser.parsePerUrlForPillar();
+    expect(rows).toHaveLength(2);
+    const blog = rows.find(r => r.url.endsWith('/blog/x'))!;
+    expect(blog.title).toBe('How to X');
+    expect(blog.h1).toBe('How to X');
+    expect(blog.metaDescription).toBe('A guide to X');
+    expect(blog.wordCount).toBe(1200);
+    expect(blog.crawlDepth).toBe(3);
+    expect(blog.inlinks).toBe(4);
+    expect(blog.outlinks).toBe(8);
+    expect(blog.indexable).toBe(true);
+    expect(blog.schemaTypes).toEqual([]);
+  });
+
+  it('skips non-HTML content types', () => {
+    const csv = `Address,Status Code,Indexability,Title 1,Meta Description 1,H1-1,Word Count,Crawl Depth,Inlinks,Outlinks,Content Type
+https://e.edu/file.pdf,200,Indexable,,,Doc,5000,2,3,0,application/pdf`;
+    const parser = new InternalParser(csv);
+    const rows = parser.parsePerUrlForPillar();
+    expect(rows).toHaveLength(0);
+  });
+});

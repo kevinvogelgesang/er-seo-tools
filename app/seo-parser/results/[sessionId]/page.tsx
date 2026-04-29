@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { AggregatedResult } from '@/lib/types';
 import { ResultsView } from '@/components/seo-parser/ResultsView';
+import PillarAnalysisButton from './components/PillarAnalysisButton';
 import type { Metadata } from 'next';
 
 type Props = { params: Promise<{ sessionId: string }> };
@@ -69,5 +70,11 @@ export default async function ResultsPage({ params }: Props) {
 
   const result = JSON.parse(session.result) as AggregatedResult;
 
-  return <ResultsView result={result} sessionId={sessionId} />;
+  return (
+    <ResultsView
+      result={result}
+      sessionId={sessionId}
+      pillarButton={<PillarAnalysisButton sessionId={sessionId} />}
+    />
+  );
 }
