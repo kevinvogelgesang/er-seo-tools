@@ -12,6 +12,18 @@ export async function register() {
       (globalThis as unknown as Record<string, unknown>).File = File;
     }
 
+    // Fail fast in production if the pillar token signing secret is missing.
+    // The mint/verify helpers also throw on use, but failing at startup makes
+    // deployment misconfiguration loud rather than silent. Dev environments
+    // continue with a logged warning + deterministic fallback (see pillar-token.ts).
+    if (process.env.NODE_ENV === 'production' && !process.env.PILLAR_TOKEN_SECRET) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[startup] PILLAR_TOKEN_SECRET is required in production but is unset. Refusing to start.',
+      );
+      process.exit(1);
+    }
+
     // Close the headless browser cleanly on shutdown so Chrome doesn't orphan.
     // fuser -k in the deploy command sends SIGTERM before starting the new process.
     const { closeBrowser } = await import('@/lib/ada-audit/browser-pool')
