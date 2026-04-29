@@ -2,23 +2,17 @@
 
 import { useState } from 'react';
 import { composePayload } from '@/lib/pillar-prompt';
+import { emitMemoPollerTrigger } from '@/lib/memo-poller-events';
 import { ClipboardFallbackModal } from './ClipboardFallbackModal';
 
 interface Props {
   analysisId: string;
   status: string; // 'pending' | 'running' | 'complete' | 'error'
   webappUrl: string;
+  hasMemo: boolean;
 }
 
 type ButtonState = 'idle' | 'minting' | 'copied' | 'mint-failed' | 'service-error';
-
-const STATE_LABELS: Record<ButtonState, string> = {
-  idle: 'Copy Claude Prompt',
-  minting: 'Minting…',
-  copied: 'Copied!',
-  'mint-failed': 'Mint failed — retry',
-  'service-error': 'Token service unavailable',
-};
 
 const STATE_CLASSES: Record<ButtonState, string> = {
   idle: 'bg-[#f5a623] text-[#1c2d4a] hover:bg-[#e8971a]',
@@ -28,7 +22,21 @@ const STATE_CLASSES: Record<ButtonState, string> = {
   'service-error': 'bg-red-700 text-white',
 };
 
-export function CopyClaudePromptButton({ analysisId, status, webappUrl }: Props) {
+function idleLabel(hasMemo: boolean): string {
+  return hasMemo ? 'Regenerate via Claude' : 'Copy Claude Prompt';
+}
+
+function stateLabel(state: ButtonState, hasMemo: boolean): string {
+  switch (state) {
+    case 'idle': return idleLabel(hasMemo);
+    case 'minting': return 'Minting…';
+    case 'copied': return 'Copied!';
+    case 'mint-failed': return 'Mint failed — retry';
+    case 'service-error': return 'Token service unavailable';
+  }
+}
+
+export function CopyClaudePromptButton({ analysisId, status, webappUrl, hasMemo }: Props) {
   const [state, setState] = useState<ButtonState>('idle');
   const [fallbackPayload, setFallbackPayload] = useState<string | null>(null);
 
@@ -58,14 +66,16 @@ export function CopyClaudePromptButton({ analysisId, status, webappUrl }: Props)
         try {
           await navigator.clipboard.writeText(payload);
           setState('copied');
+          emitMemoPollerTrigger();
           setTimeout(() => setState('idle'), 2000);
         } catch {
-          // Permission denied or some other clipboard failure — fall back to modal.
           setFallbackPayload(payload);
+          emitMemoPollerTrigger();
           setState('idle');
         }
       } else {
         setFallbackPayload(payload);
+        emitMemoPollerTrigger();
         setState('idle');
       }
     } catch {
@@ -89,7 +99,7 @@ export function CopyClaudePromptButton({ analysisId, status, webappUrl }: Props)
           disabled ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : STATE_CLASSES[state]
         }`}
       >
-        {disabled && state === 'idle' ? 'Copy Claude Prompt' : STATE_LABELS[state]}
+        {disabled && state === 'idle' ? idleLabel(hasMemo) : stateLabel(state, hasMemo)}
       </button>
       {fallbackPayload && (
         <ClipboardFallbackModal
