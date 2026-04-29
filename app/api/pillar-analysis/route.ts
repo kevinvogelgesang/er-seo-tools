@@ -73,6 +73,15 @@ export async function POST(req: NextRequest) {
       data: { status: 'error', error: err.message?.slice(0, 500) ?? 'unknown' },
     });
     return NextResponse.json({ error: 'analysis_failed', message: err.message }, { status: 500 });
+  } finally {
+    // Clean up the session upload directory now that we've consumed it.
+    // The parse route used to do this but we moved it here so the files survive
+    // long enough for pillar analysis to read them.
+    try {
+      const fs = await import('fs/promises');
+      const uploadDir = getUploadDir(body.sessionId);
+      await fs.rm(uploadDir, { recursive: true, force: true });
+    } catch { /* best-effort cleanup */ }
   }
 }
 
