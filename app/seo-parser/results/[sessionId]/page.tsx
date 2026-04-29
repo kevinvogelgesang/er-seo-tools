@@ -71,11 +71,10 @@ export default async function ResultsPage({ params }: Props) {
   const result = JSON.parse(session.result) as AggregatedResult;
 
   return (
-    <div className="bg-[#f4f6f9] dark:bg-navy-deep">
-      <div className="max-w-6xl mx-auto px-6 pt-12 -mb-6">
-        <PillarAnalysisCard sessionId={sessionId} />
-      </div>
-      <ResultsView result={result} sessionId={sessionId} />
-    </div>
+    <ResultsView
+      result={result}
+      sessionId={sessionId}
+      pillarSlot={<PillarAnalysisCard sessionId={sessionId} />}
+    />
   );
 }

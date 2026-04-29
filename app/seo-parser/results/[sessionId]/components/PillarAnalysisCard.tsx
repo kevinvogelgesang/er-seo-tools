@@ -13,7 +13,7 @@ export default async function PillarAnalysisCard({ sessionId }: PillarAnalysisCa
 
   if (!pa) {
     return (
-      <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border p-4">
+      <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border-l-4 border-l-blue-500 dark:border-l-blue-400 border-y border-r border-gray-100 dark:border-navy-border p-4">
         <div className="text-xs font-semibold text-gray-500 dark:text-white/60 uppercase tracking-wide mb-1">
           Pillar Analysis
         </div>
@@ -27,7 +27,7 @@ export default async function PillarAnalysisCard({ sessionId }: PillarAnalysisCa
 
   if (pa.status === 'pending' || pa.status === 'running') {
     return (
-      <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border p-4">
+      <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border-l-4 border-l-blue-500 dark:border-l-blue-400 border-y border-r border-gray-100 dark:border-navy-border p-4">
         <div className="text-xs font-semibold text-gray-500 dark:text-white/60 uppercase tracking-wide mb-1">
           Pillar Analysis
         </div>
@@ -40,7 +40,7 @@ export default async function PillarAnalysisCard({ sessionId }: PillarAnalysisCa
 
   if (pa.status === 'error') {
     return (
-      <div className="bg-red-50 dark:bg-red-950/40 rounded-lg border-l-4 border-red-500 dark:border-red-400 p-4">
+      <div className="bg-red-50 dark:bg-red-950/40 rounded-lg border-l-4 border-l-blue-500 dark:border-l-blue-400 border-y border-r border-red-200 dark:border-red-900 p-4">
         <div className="font-semibold text-red-800 dark:text-red-300">
           Pillar analysis failed
         </div>
@@ -65,7 +65,7 @@ export default async function PillarAnalysisCard({ sessionId }: PillarAnalysisCa
   const completenessPct = Math.round((pa.dataCompleteness ?? 0) * 100);
 
   return (
-    <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border p-4 flex items-center justify-between gap-4">
+    <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border-l-4 border-l-blue-500 dark:border-l-blue-400 border-y border-r border-gray-100 dark:border-navy-border p-4 flex items-center justify-between gap-4">
       <div>
         <div className="text-xs font-semibold text-gray-500 dark:text-white/60 uppercase tracking-wide mb-1">
           Pillar Analysis

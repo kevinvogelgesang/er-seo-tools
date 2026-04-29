@@ -21,6 +21,7 @@ const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m 
 interface ResultsViewProps {
   result: AggregatedResult;
   sessionId: string;
+  pillarSlot?: React.ReactNode;
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -32,7 +33,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-export function ResultsView({ result, sessionId }: ResultsViewProps) {
+export function ResultsView({ result, sessionId, pillarSlot }: ResultsViewProps) {
   const router = useRouter();
   const siteName = result.metadata?.site_name || 'Site';
 
@@ -78,6 +79,12 @@ export function ResultsView({ result, sessionId }: ResultsViewProps) {
           noticesCount={result.issues.notices.length}
           indexableUrls={result.crawl_summary.indexable_urls}
         />
+
+        {pillarSlot && (
+          <div className="mb-6">
+            {pillarSlot}
+          </div>
+        )}
 
         {/* Full-width issues */}
         <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />
