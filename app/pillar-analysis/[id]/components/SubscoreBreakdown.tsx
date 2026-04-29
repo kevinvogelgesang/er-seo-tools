@@ -1,7 +1,9 @@
 import type {
   SubscoreBreakdown as SB,
   SubscorePresence,
+  SubscoreContext,
 } from '@/lib/services/pillarAnalysis/types';
+import { SUBSCORE_LABEL_FUNCTIONS } from '@/lib/services/pillarAnalysis/subscoreLabels';
 import { InfoTooltip } from './InfoTooltip';
 
 const LABELS: Record<keyof SB, string> = {
@@ -46,30 +48,38 @@ const TOOLTIPS: Record<keyof SB, React.ReactNode> = {
   ),
 };
 
-function tierFor(value: number): { bar: string; text: string; label: string } {
+function tierFor(value: number): { bar: string; text: string } {
   if (value >= 7) return {
     bar: 'bg-green-500 dark:bg-green-500/80',
     text: 'text-green-700 dark:text-green-400',
-    label: 'High opportunity',
   };
   if (value >= 4) return {
     bar: 'bg-orange-400 dark:bg-orange-500/70',
     text: 'text-orange-700 dark:text-orange-400',
-    label: 'Moderate',
   };
   return {
     bar: 'bg-gray-300 dark:bg-white/20',
     text: 'text-gray-500 dark:text-white/50',
-    label: 'Low opportunity',
   };
+}
+
+// Backwards-compat fallback: when an older row has no subscoreContext,
+// fall back to the original generic tier labels so historical analyses
+// keep rendering meaningfully without per-subscore context data.
+function fallbackLabel(value: number): string {
+  if (value >= 7) return 'High opportunity';
+  if (value >= 4) return 'Moderate';
+  return 'Low opportunity';
 }
 
 export function SubscoreBreakdown({
   subscores,
   subscorePresence,
+  subscoreContext,
 }: {
   subscores: SB;
   subscorePresence?: SubscorePresence | null;
+  subscoreContext?: SubscoreContext | null;
 }) {
   return (
     <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6">
@@ -89,6 +99,11 @@ export function SubscoreBreakdown({
           const isPresent = subscorePresence ? subscorePresence[k] : true;
           const value = subscores[k];
           const tier = isPresent ? tierFor(value) : null;
+          const semanticLabel = isPresent
+            ? subscoreContext
+              ? SUBSCORE_LABEL_FUNCTIONS[k](value, subscoreContext)
+              : fallbackLabel(value)
+            : '';
           return (
             <li key={k} className="flex items-center gap-3">
               <div
@@ -111,7 +126,7 @@ export function SubscoreBreakdown({
                   </div>
                   <div className="w-44 text-right text-sm">
                     <span className="font-mono text-gray-700 dark:text-white/80">{value.toFixed(1)}</span>
-                    <span className={`ml-2 text-xs font-medium ${tier.text}`}>{tier.label}</span>
+                    <span className={`ml-2 text-xs font-medium ${tier.text}`}>{semanticLabel}</span>
                   </div>
                 </>
               ) : (
