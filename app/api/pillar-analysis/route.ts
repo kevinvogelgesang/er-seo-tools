@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { runPillarAnalysisFromInputs } from '@/lib/services/pillarAnalysis.service';
 import { InternalParser } from '@/lib/parsers/internal.parser';
 import { gscMapFromParser, ga4MapFromParser, semrushMapFromParser } from '@/lib/services/pillarAnalysis/extractors';
+import { getUploadDir } from '@/lib/upload-helpers';
 import Papa from 'papaparse';
 
 export async function POST(req: NextRequest) {
@@ -78,10 +79,10 @@ export async function POST(req: NextRequest) {
 async function locateInternalCsv(sessionId: string, files: string[]): Promise<string | null> {
   const fs = await import('fs/promises');
   const path = await import('path');
-  const uploadRoot = process.env.UPLOAD_ROOT || '/home/seo/data/seo-tools/uploads';
+  const uploadDir = getUploadDir(sessionId);
   for (const f of files) {
     if (!/internal_all/i.test(f)) continue;
-    const full = path.join(uploadRoot, sessionId, f);
+    const full = path.join(uploadDir, f);
     try {
       await fs.access(full);
       return full;
