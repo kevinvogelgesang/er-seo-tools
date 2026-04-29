@@ -1,15 +1,14 @@
 # Pillar Analysis — Project Handoff
 
-**Last updated:** 2026-04-29
-**Branch:** `feature/pillar-analysis-phase-1` (HEAD: `4727fb4`)
-**Open PR:** [#2 — Pillar Analysis Phase 1](https://github.com/kevinvogelgesang/er-seo-tools/pull/2)
-**70 commits** on the branch. **922 vitest tests passing.** TS clean.
+**Last updated:** 2026-04-29 (post-prod-deploy)
+**Branch:** `main` (Phases 1, 2.1, 2.2, 2.3 squash-merged via PR #2 as commit `1035b0b`; v1.0.1 polish on top)
+**Status: shipped to production and end-to-end validated.**
 
 ---
 
 ## TL;DR
 
-Internal pillar-analysis tool for er-seo-tools. Given a Screaming Frog crawl already imported into `/seo-parser`, it produces a 1–10 site fit score, a hub-format recommendation, and per-URL verdicts (`pillar` / `cluster` / `leave-as-blog` / `consolidate` / `prune` / `excluded`). Surfaced at `/pillar-analysis/[id]` and reachable from a "Pillar Analysis →" button on the seo-parser results page. **Phase 1 (deterministic backbone) and Phase 2.1 (clipboard prompt UX) and Phase 2.2 (skill artifact + narrative writeback) are all implemented and on the branch, but only Phase 1 has been smoke-tested end-to-end on real client data.** Phase 2.3 (dashboard rendering of the narrative memo, plus full end-to-end smoke testing of the skill) is the open work.
+Internal pillar-analysis tool for er-seo-tools. Given a Screaming Frog crawl already imported into `/seo-parser`, it produces a 1–10 site fit score, a hub-format recommendation, and per-URL verdicts (`pillar` / `cluster` / `leave-as-blog` / `consolidate` / `prune` / `excluded`). Surfaced at `/pillar-analysis/[id]` and reachable from a "Pillar Analysis →" button on the seo-parser results page. **All four phases shipped: Phase 1 (deterministic backbone), Phase 2.1 (clipboard prompt UX), Phase 2.2 (skill artifact + narrative writeback), Phase 2.3 (dashboard memo rendering with action-triggered polling, sticky page nav, contextual regenerate button).** End-to-end validated against staging via Claude Code on 2026-04-29 — analyst pasted prompt, skill fetched analysis, generated 6-section memo, PATCHed back, dashboard auto-refreshed. v1.0.1 polish ships alongside: trimmed GET endpoint (60K → ~3K tokens), inline-code styling on memo, 403 sandbox-allowlist diagnosis in fetch script.
 
 ---
 
@@ -111,70 +110,84 @@ Internal pillar-analysis tool for er-seo-tools. Given a Screaming Frog crawl alr
 - Semrush exports use canonical filenames like `*-organic.Positions-*.csv` (not `*semrush*`). → Broadened the loader regex.
 - Subscore presence semantics initially conflated "data uploaded" with "data applicable to this site." → Reverted to informational-scoped presence (a subscore is "present" only if it could be meaningfully computed).
 
-### Phase 2.1 — Clipboard prompt UX — **SHIPPED, locally smoke-tested**
+### Phase 2.1 — Clipboard prompt UX — **SHIPPED + PROD VALIDATED**
 
-**What's in:** `POST /api/pillar-analysis/[id]/mint-token` (1h JWT, HS256). "Copy Claude Prompt" button on the dashboard. Clipboard fallback modal for browsers without `navigator.clipboard.writeText` (auto-select textarea + execCommand). Production fail-fast on missing `PILLAR_TOKEN_SECRET`.
+**What's in:** `POST /api/pillar-analysis/[id]/mint-token` (1h JWT, HS256). "Copy Claude Prompt" button on the dashboard. Clipboard fallback modal for browsers without `navigator.clipboard.writeText`. Production fail-fast on missing `PILLAR_TOKEN_SECRET`.
 
-**Tested:** Mint endpoint via curl. Button click → token in clipboard → JWT decodable on jwt.io with correct `iss`/`aud`/`sub`/`exp`. Disabled state on incomplete analyses works. Dev server flow works.
+**Tested:** Validated end-to-end on prod via Claude Code on 2026-04-29 — analyst pasted prompt, skill fetched analysis with the minted JWT, memo PATCHed back, dashboard auto-refreshed. The fail-fast check on `PILLAR_TOKEN_SECRET` worked (PM2 came up clean after the env var was set).
 
-**Not tested:** Production HTTPS env behavior. Windows Claude Desktop installation parity.
-
-### Phase 2.2 — Skill artifact + narrative writeback — **SHIPPED, NOT YET TESTED END-TO-END**
+### Phase 2.2 — Skill artifact + narrative writeback — **SHIPPED + PROD VALIDATED**
 
 **What's in:**
-- `PATCH /api/pillar-analysis/[id]/narrative` with structured error codes (auth_missing, auth_malformed, token_expired, token_invalid_signature, token_wrong_analysis_id, token_missing_scope, narrative_required, narrative_too_long, not_found, token_service_unavailable). 9 route tests.
-- `GET /api/pillar-analysis/[id]` tightened to require Bearer + `read` scope. 3 route tests.
-- `skills/pillar-analysis-narrative/` folder with SKILL.md (132 lines), version.txt, README.md, two reference Python scripts (fetch_analysis.py, post_narrative.py with structured error handling), `templates/memo_structure.md` (strict 6-section schema + 2 synthetic full-length example memos).
-- `npm run build:skill` packages the folder into `dist/skills/pillar-analysis-narrative-1.0.0.zip` (7 files including the build-time-copied SF setup doc).
+- `PATCH /api/pillar-analysis/[id]/narrative` with structured error codes. 9 route tests.
+- `GET /api/pillar-analysis/[id]` tightened to require Bearer + `read` scope. As of v1.0.1, the response is also trimmed to a narrative-shaped payload (~3K tokens vs ~63K before — see "v1.0.1 polish" below).
+- `skills/pillar-analysis-narrative/` folder with SKILL.md, version.txt, README, two reference Python scripts (fetch_analysis.py, post_narrative.py), `templates/memo_structure.md`.
+- `npm run build:skill` packages the folder into `dist/skills/pillar-analysis-narrative-{version}.zip` (7 files including the build-time-copied SF setup doc).
 
-**Tested:** All API routes via vitest. Build produces a valid ZIP. ZIP contents verified manually.
+**Tested end-to-end on prod (Claude Code, 2026-04-29):** Analyst on staging (`seo.erstaging.site`) clicked "Copy Claude Prompt" → pasted into Claude Code (which uses local network, not cloud sandbox) → skill activated → fetched the analysis → wrote a 6-section memo → PATCHed it back → dashboard auto-refreshed within ~3s and rendered the markdown with dashboard-matched typography.
 
-**NOT tested:** Skill installation in real Claude Desktop. End-to-end flow (paste prompt → skill activates → fetches → generates memo → PATCHes back). The cloud-sandbox attempt failed because the cloud session can't reach localhost (expected — needs a tunnel or production deploy).
+**Cloud-Claude environments (Claude Desktop / web / claude.ai sandbox)** cannot reach the webapp because their bash tool's egress proxy has a hardcoded allowlist that doesn't include `seo.erstaging.site` or `seo.enrollmentresources.com`. v1.0.1's `fetch_analysis.py` now surfaces the 403 + response headers so an analyst hitting this gets a one-line diagnosis ("switch to Claude Code, or have org admin add the domain to the allowlist") instead of a debugging round-trip. To fix this for cloud-Claude analysts, an Anthropic org admin would need to add the domains to the workspace's bash sandbox allowlist.
+
+### Phase 2.3 — Strategic memo rendering — **SHIPPED + PROD VALIDATED**
+
+**What's in:**
+- `StrategicMemoCard` (server component) between Score grid and HubRecommendationCard. Branches on `aiNarrative` presence: renders memo + relative timestamp when set, instructional hint when null.
+- `MemoMarkdown` (client) wraps `react-markdown` with hand-rolled component overrides matching the dashboard's typography. As of v1.0.1, includes inline `code` styling (Tailwind badge with bg/border/rounded/monospace).
+- `RelativeTime` (client) returns `null` on server/initial render to eliminate timezone hydration mismatches.
+- `MemoPoller` (client) wraps a pure state machine in `lib/memo-poller-machine.ts` — action-triggered (page mount with no memo OR Regenerate-button click), 15-min cumulative-active cap, visibility-paused, watches `narrativeUpdatedAt` for change → `router.refresh()`.
+- `SectionNav` (client) sticky page nav at `top-[60px]` (stacks below global Nav). All section anchors use `scroll-mt-28` to clear the combined nav stack.
+- `CopyClaudePromptButton` accepts `hasMemo` prop — label switches to "Regenerate via Claude" when memo exists. Emits a trigger event after successful copy so the poller starts a fresh cycle.
+- Site-wide `scroll-smooth` on `<html>` for polished anchor navigation.
+- `GET /api/pillar-analysis/by-session/[sessionId]` additively returns `aiNarrative` + `narrativeUpdatedAt` for the poller's change detection.
+
+**Tested end-to-end on prod (Claude Code, 2026-04-29):** Memo arrived from the skill and rendered with full 6-section structure on the live dashboard. Auto-refresh worked within ~3s. Sticky nav cleared the global Nav. Inline code styling on backtick-wrapped tokens (`programPageClarity`, `/programs/`, etc.) was the one polish item flagged in QA — addressed in v1.0.1.
+
+### v1.0.1 polish — **SHIPPED**
+
+- **Trimmed GET endpoint** (`/api/pillar-analysis/[id]`). The skill's first prod run did 8 tool calls because the GET endpoint dumped the full Prisma row including the per-URL list with embeddings — 63K tokens for nuvani's 159 URLs. The endpoint now returns a narrative-shaped payload via `lib/services/pillarAnalysis/narrativePayload.ts`: score block, hub, `clusters[]` with anchor stats + sample members, `verdictSummary`, `lowConfidenceAssignments`, `excludedAnchors`. ~3K tokens for typical sites. Skill drops to 1 read + 1 memo write + 1 PATCH. Pure transform, 8 unit tests.
+- **Inline `code` styling** in `MemoMarkdown.tsx` — Tailwind badge with bg + border + rounded + monospace. Visible on backtick-wrapped tokens like `topicalConcentration`, `/programs/`, etc.
+- **403 / network_blocked branch** in `fetch_analysis.py` — surfaces response headers when the cloud-Claude egress proxy blocks the request. SKILL.md error table updated to direct analysts to Claude Code or the allowlist fix.
+- **Skill version bumped** to 1.0.1; ZIP rebuilt.
 
 ---
 
+## Production deployment notes (post-deploy)
+
+- **Real env path is `/home/seo/webapps/seo-tools/.env`**, not `/home/seo/.env` as an earlier draft of CLAUDE.md said. `PILLAR_TOKEN_SECRET` lives there.
+- **`ecosystem.config.js` on the server has long-standing prod-specific customizations** (`seo` user, `seo-tools` paths) that diverge from the repo version (`seotools` user). The deploy works because `git pull` only fast-forwards files that are actually in the incoming diff, and `ecosystem.config.js` hasn't been touched in the repo's recent history. If a future PR modifies `ecosystem.config.js`, expect a merge conflict on the server — manual reconciliation required.
+- **`package-lock.json` accumulates a small drift** between deploys (3-line additions from the npm install during deploy). The deploy script's first `git pull` will refuse to overwrite it. Workaround: `cd /home/seo/webapps/seo-tools && git checkout -- package-lock.json` before re-running deploy. Worth investigating root cause when there's downtime; deploy works fine with the workaround.
+- **MiniLM pre-warm runs in postinstall** and completes in ~0.6s on this VPS. Memory steady-state ~225MB after first analysis.
+- **Cloud-Claude egress allowlist** is a hard barrier for analysts running the skill from Claude Desktop / web / claude.ai. Two options: (a) instruct analysts to use Claude Code locally, OR (b) Anthropic org admin adds `seo.erstaging.site` and `seo.enrollmentresources.com` to the workspace bash sandbox allowlist. Option (a) is in place today; option (b) would unblock the broader team.
+
 ## Known issues / limitations
 
-1. **Phase 2.2 hasn't been validated end-to-end.** A trial run from Anthropic's cloud sandbox correctly identified that it couldn't reach the developer's localhost — and refused to fabricate a memo (correct behavior baked into SKILL.md). To smoke-test, either (a) tunnel the dev server via cloudflared/ngrok and re-mint a token, (b) use Claude Code on the developer's machine where bash can reach localhost, or (c) wait until production deploy.
+1. **Token expiration UX friction.** 1h JWT expiry. If the analyst pauses (lunch, meeting) and resumes the chat to revise the memo, the skill returns `token_expired` and they have to copy a fresh prompt. Acceptable V1.
 
-2. **Token expiration UX friction.** 1h JWT expiry. If the analyst pauses (lunch, meeting) and resumes the chat to revise the memo, the skill returns `token_expired` and they have to copy a fresh prompt. Acceptable V1; flagged in spec §14.6 with mitigation paths.
+2. **Memo regeneration is implicit.** SKILL.md instructs Claude to re-PATCH on every revision (the "narrative-staleness rule"). Validated in the prod smoke test that this works on a single regenerate, but multi-revision behavior hasn't been exercised.
 
-3. **Memo regeneration is implicit.** SKILL.md instructs Claude to re-PATCH on every revision (the "narrative-staleness rule"). Whether Claude reliably follows this in practice hasn't been observed; should be checked during the eventual end-to-end smoke test.
+3. **Dead code from the redesign:** `lib/services/pillarAnalysis/cluster.ts`, `verticality.ts`, `topicNaming.ts` are no longer in the orchestrator's path (replaced by `anchorClustering.ts` + direct anchor naming in the orchestrator). Their tests still pass; they're harmless. Could be deleted in a cleanup commit if desired.
 
-4. **Dead code from the redesign:** `lib/services/pillarAnalysis/cluster.ts`, `verticality.ts`, `topicNaming.ts` are no longer in the orchestrator's path (replaced by `anchorClustering.ts` + direct anchor naming in the orchestrator). Their tests still pass; they're harmless. Could be deleted in a cleanup commit if desired.
+4. **Embedding fallback for sites with no `<main>` landmark.** The Phase 1 spec recommended a SF custom XPath for first-paragraph extraction. Sites where the XPath doesn't match still produce useful clustering from title + H1 + meta description, but cluster quality drops. SF setup doc recommends fallback XPaths.
 
-5. **Embedding fallback for sites with no `<main>` landmark.** The Phase 1 spec recommended a SF custom XPath for first-paragraph extraction. Sites where the XPath doesn't match still produce useful clustering from title + H1 + meta description, but cluster quality drops. SF setup doc recommends fallback XPaths.
+5. **`prisma migrate dev` can fail when the dev server holds the SQLite lock.** Workaround: stop the dev server, run the migration, restart.
 
-6. **`prisma migrate dev` can fail when the dev server holds the SQLite lock.** Workaround: stop the dev server, run the migration, restart. The most recent migration (`add_subscore_context`) was applied manually via `sqlite3` because of this; the migration file is correct and will apply normally on production deploy.
+6. **Windows parity for Claude Desktop skills** is unverified. The SF setup doc + skill ZIP install assume macOS/Linux paths; Windows analysts may hit friction. Less impactful now since the recommended path for cloud-Claude analysts is Claude Code anyway.
 
-7. **Windows parity for Claude Desktop skills** is unverified. The SF setup doc + skill ZIP install assume macOS/Linux paths; Windows analysts may hit friction.
-
-8. **dataCompleteness percentage on the dashboard** can be misleading on small sites — users may interpret "17%" as "data is missing" when it actually means "1 of 6 subscores is meaningfully computable for this site." The semantic-label updates (per-subscore labels) help, but the dashboard's `DataCompletenessBanner.tsx` could use a tooltip update to clarify the meaning.
+7. **dataCompleteness percentage on the dashboard** can be misleading on small sites — users may interpret "17%" as "data is missing" when it actually means "1 of 6 subscores is meaningfully computable for this site." The semantic-label updates (per-subscore labels) help, but the dashboard's `DataCompletenessBanner.tsx` could use a tooltip update to clarify the meaning.
 
 ---
 
 ## Deferred work — what to pick up next
 
-### Pre-merge checklist (gate before shipping Phase 1 + 2.1 + 2.2 to production)
+### Operational follow-ups
 
-- [ ] **Smoke-test the skill end-to-end** in real Claude Desktop. Either tunnel localhost (cloudflared/ngrok) and run with the dev DB, OR deploy a staging environment and run against that.
-- [ ] **Verify the migration applies cleanly** on a fresh deploy — `npx prisma migrate deploy` should produce `Database schema is up to date!` after running through all migrations including `add_subscore_context`.
-- [ ] **Set `PILLAR_TOKEN_SECRET`** in the production env (`/home/seo/.env` on RunCloud). Generate via `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. The `instrumentation.ts` startup check will fail-loud if it's missing.
-- [ ] **RAM check on RunCloud** after first deploy. MiniLM should add ~150MB resident on first analysis.
-- [ ] **Confirm `postinstall` model pre-warm** runs in the deploy environment. Logs should show `Pre-warm complete in {N}s`.
-- [ ] **Build + distribute the skill ZIP** to the team. `npm run build:skill` → upload `dist/skills/pillar-analysis-narrative-1.0.0.zip` to a shared location, update the README's install instructions if the path differs.
-
-### Phase 2.3 — Dashboard rendering of the narrative (NOT YET DESIGNED)
-
-The PATCH endpoint stores the memo on `aiNarrative`. The dashboard currently doesn't render it — analysts have to query the GET endpoint or DB directly. Phase 2.3 should:
-
-- Add a "Strategic memo" section to the dashboard between the score area and the pillar-topics list.
-- Render markdown (the memo is markdown — needs a renderer like `react-markdown` or similar).
-- Show "Last updated: N minutes ago" with the `narrativeUpdatedAt` timestamp.
-- Add a "Regenerate via Claude" affordance — probably just a copy-prompt button that explicitly says "regenerate" and refreshes the token. (Different from the existing Copy Claude Prompt? Or the same? Brainstorm question.)
-- Handle the case where `aiNarrative` is null (memo hasn't been generated yet) — show a hint to use the Copy Claude Prompt button.
-
-This is its own brainstorm-spec-plan-implement cycle. Estimated effort: 1 spec, 1 plan, ~4–6 implementation tasks. Lighter than 2.1 or 2.2 because no new backend or skill work — pure dashboard UI.
+- [x] ~~Smoke-test skill end-to-end~~ Done 2026-04-29 via Claude Code on staging.
+- [x] ~~Set `PILLAR_TOKEN_SECRET` in prod env~~ Done. Lives at `/home/seo/webapps/seo-tools/.env`.
+- [x] ~~Verify migrations apply cleanly~~ Done — all 4 pillar migrations applied on prod deploy.
+- [x] ~~RAM check~~ Done — ~225MB steady-state.
+- [x] ~~Postinstall pre-warm~~ Done — completes in 0.6s.
+- [ ] **Build + distribute the skill ZIP to the team.** `npm run build:skill` → ship `dist/skills/pillar-analysis-narrative-1.0.1.zip`. README has install instructions.
+- [ ] **(Optional) Anthropic egress allowlist.** If the team wants analysts to use Claude Desktop / web instead of Claude Code, an Anthropic org admin needs to add `seo.erstaging.site` and `seo.enrollmentresources.com` to the workspace's bash sandbox allowlist.
 
 ### Phase 3+ — Refinements driven by accumulated use
 
