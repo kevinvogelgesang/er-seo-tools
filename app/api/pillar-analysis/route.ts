@@ -132,7 +132,13 @@ async function loadSemrushMap(dir: string) {
   const path = await import('path');
   let candidates: string[];
   try {
-    candidates = (await fs.readdir(dir)).filter((f) => /semrush/i.test(f) && f.endsWith('.csv'));
+    candidates = (await fs.readdir(dir)).filter((f) => {
+      if (!f.endsWith('.csv')) return false;
+      // Match: legacy "semrush", canonical "*-organic.Positions-*" / "*-organic.Pages-*", "position_tracking*"
+      return /semrush/i.test(f)
+        || /-organic\.(positions|pages)-/i.test(f)
+        || /^position_tracking/i.test(f);
+    });
   } catch { return new Map(); }
   if (candidates.length === 0) return new Map();
   const csv = await fs.readFile(path.join(dir, candidates[0]), 'utf-8');
