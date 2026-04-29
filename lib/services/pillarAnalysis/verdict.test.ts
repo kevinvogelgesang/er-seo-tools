@@ -14,7 +14,7 @@ function rec(partial: Partial<UrlRecord>): UrlRecord {
     ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
     referringDomains: null, organicKeywords: null,
     intentClass: 'informational', intentConfidence: 0.8,
-    topicClusterId: null, verdict: 'unclear', verdictConfidence: 0,
+    topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
     recommendedPillar: null, reasoning: [],
     ...partial,
   };
@@ -36,13 +36,13 @@ describe('assignVerdicts (anchor-based)', () => {
     expect(records[3].verdict).toBe('cluster');
   });
 
-  it('anchor with too few cluster members → unclear', () => {
+  it('anchor with too few cluster members → excluded', () => {
     const records = [
       rec({ url: 'https://e.edu/programs/nursing', pageType: 'program', topicClusterId: 0 }),
       rec({ url: 'https://e.edu/blog/a', topicClusterId: 0, recommendedPillar: 'https://e.edu/programs/nursing' }),
     ];
     assignVerdicts(records, DEFAULT_CONFIG);
-    expect(records[0].verdict).toBe('unclear');
+    expect(records[0].verdict).toBe('excluded');
     // single cluster member with no catchall fallback → singleton handling
     expect(['leave-as-blog', 'cluster']).toContain(records[1].verdict);
   });
@@ -76,13 +76,13 @@ describe('assignVerdicts (anchor-based)', () => {
     expect(records[0].verdict).toBe('leave-as-blog');
   });
 
-  it('out-of-scope page types (nav/home) get unclear', () => {
+  it('out-of-scope page types (nav/home) get excluded', () => {
     const records = [
       rec({ url: 'a', pageType: 'nav' }),
       rec({ url: 'b', pageType: 'home' }),
     ];
     assignVerdicts(records, DEFAULT_CONFIG);
-    for (const r of records) expect(r.verdict).toBe('unclear');
+    for (const r of records) expect(r.verdict).toBe('excluded');
   });
 
   it('location anchor with cluster members → pillar', () => {

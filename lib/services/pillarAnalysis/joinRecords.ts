@@ -91,7 +91,7 @@ export function joinUrlRecords(input: JoinInput): UrlRecord[] {
       intentClass,
       intentConfidence,
       topicClusterId: null,
-      verdict: 'unclear',
+      verdict: 'excluded',
       verdictConfidence: 0,
       recommendedPillar: null,
       reasoning: [],

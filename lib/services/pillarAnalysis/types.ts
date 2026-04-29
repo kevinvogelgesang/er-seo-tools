@@ -23,7 +23,7 @@ export type Verdict =
   | 'leave-as-blog'
   | 'consolidate'
   | 'prune'
-  | 'unclear';
+  | 'excluded';
 
 export type HubFormat =
   | 'nest-under-programs'

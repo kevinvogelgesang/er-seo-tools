@@ -14,7 +14,7 @@ function infoBlog(extras: Partial<UrlRecord> = {}): UrlRecord {
     ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
     referringDomains: null, organicKeywords: null,
     intentClass: 'informational', intentConfidence: 0.8,
-    topicClusterId: 0, verdict: 'unclear', verdictConfidence: 0,
+    topicClusterId: 0, verdict: 'excluded', verdictConfidence: 0,
     recommendedPillar: null, reasoning: [],
     ...extras,
   };

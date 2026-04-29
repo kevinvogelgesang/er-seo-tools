@@ -11,7 +11,7 @@ function rec(p: Partial<UrlRecord>): UrlRecord {
     ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
     referringDomains: null, organicKeywords: null,
     intentClass: 'informational', intentConfidence: 0.8,
-    topicClusterId: null, verdict: 'unclear', verdictConfidence: 0,
+    topicClusterId: null, verdict: 'excluded', verdictConfidence: 0,
     recommendedPillar: null, reasoning: [],
     ...p,
   };

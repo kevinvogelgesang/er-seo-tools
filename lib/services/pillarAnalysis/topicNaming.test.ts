@@ -12,7 +12,7 @@ function rec(title: string, h1: string, clusterId: number): UrlRecord {
     ga4Sessions: null, ga4EngagementRate: null, ga4KeyEvents: null,
     referringDomains: null, organicKeywords: null,
     intentClass: 'informational', intentConfidence: 0.8,
-    topicClusterId: clusterId, verdict: 'unclear', verdictConfidence: 0,
+    topicClusterId: clusterId, verdict: 'excluded', verdictConfidence: 0,
     recommendedPillar: null, reasoning: [],
   };
 }

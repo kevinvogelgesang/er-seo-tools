@@ -11,20 +11,20 @@ const STRONG_AUTHORITY_RD = 5;
  * Anchor-based verdict assignment.
  *
  *  1. Anchor pages (program/location): if >= minClusterSize in-scope pages list this
- *     anchor as their `recommendedPillar`, the anchor is `pillar`. Otherwise `unclear`
+ *     anchor as their `recommendedPillar`, the anchor is `pillar`. Otherwise `excluded`
  *     (anchor exists, no current cluster forming under it).
  *  2. In-scope pages (blog/news/resource) with `recommendedPillar` set
  *     (clusterId points to an anchor): `cluster`.
  *  3. In-scope pages in catchall (clusterId === -2): if catchall has >= minClusterSize
  *     members, all → `cluster` (with recommendedPillar=null, hub will own them).
  *     Otherwise per-page singleton handling: `leave-as-blog` / `prune`.
- *  4. Out-of-scope (nav, home, unknown): `unclear`.
+ *  4. Out-of-scope (nav, home, unknown): `excluded`.
  */
 export function assignVerdicts(records: UrlRecord[], cfg: PillarConfig): void {
-  // 4. Out-of-scope page types → 'unclear' (initial pass; anchors handled below)
+  // 4. Out-of-scope page types → 'excluded' (initial pass; anchors handled below)
   for (const r of records) {
     if (!ANCHOR_PAGE_TYPES.has(r.pageType) && !SCOPE_PAGE_TYPES.has(r.pageType)) {
-      r.verdict = 'unclear';
+      r.verdict = 'excluded';
       r.verdictConfidence = 1.0;
       r.reasoning = [`pageType=${r.pageType} (out of scope for pillar conversion)`];
     }
@@ -49,7 +49,7 @@ export function assignVerdicts(records: UrlRecord[], cfg: PillarConfig): void {
         `anchor ${r.pageType} page with ${count} cluster members`,
       ];
     } else {
-      r.verdict = 'unclear';
+      r.verdict = 'excluded';
       r.verdictConfidence = 0.7;
       r.reasoning = [
         `anchor ${r.pageType} page; ${count} cluster member(s) below minClusterSize=${cfg.minClusterSize}`,

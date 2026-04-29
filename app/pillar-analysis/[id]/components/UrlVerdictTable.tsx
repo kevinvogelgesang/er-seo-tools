@@ -3,8 +3,11 @@ import { useState, useMemo, useEffect } from 'react';
 import type { UrlRecord, Verdict } from '@/lib/services/pillarAnalysis/types';
 import { InfoTooltip } from './InfoTooltip';
 
-const VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune', 'unclear'];
+const VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune', 'excluded'];
+const ACTIONABLE_VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune'];
 const PAGE_SIZE = 25;
+
+type FilterChoice = Verdict | 'all' | 'actionable';
 
 const VERDICT_COLORS: Record<Verdict, string> = {
   pillar: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
@@ -12,17 +15,21 @@ const VERDICT_COLORS: Record<Verdict, string> = {
   'leave-as-blog': 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-white/60',
   consolidate: 'bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-400',
   prune: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
-  unclear: 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/50',
+  excluded: 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/50',
 };
 
 export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
-  const [filter, setFilter] = useState<Verdict | 'all'>('all');
+  const [filter, setFilter] = useState<FilterChoice>('actionable');
   const [sortBy, setSortBy] = useState<'wordCount' | 'inlinks' | 'gscClicks'>('inlinks');
   const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     let xs = verdicts;
-    if (filter !== 'all') xs = xs.filter((r) => r.verdict === filter);
+    if (filter === 'actionable') {
+      xs = xs.filter((r) => ACTIONABLE_VERDICTS.includes(r.verdict));
+    } else if (filter !== 'all') {
+      xs = xs.filter((r) => r.verdict === filter);
+    }
     return [...xs].sort((a, b) => (b[sortBy] ?? 0) - (a[sortBy] ?? 0));
   }, [verdicts, filter, sortBy]);
 
@@ -46,12 +53,13 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
         <h2 className="font-display font-bold text-lg text-[#1c2d4a] dark:text-white flex items-center">
           URL Verdicts ({filtered.length} of {verdicts.length})
           <InfoTooltip>
-            Per-URL recommendation. Verdicts: pillar (anchor of a cluster — typically a program or location page), cluster (supports a pillar — link it to the recommended pillar), leave-as-blog (informational but doesn&apos;t fit a cluster — keep as-is), consolidate (merge into another similar page), prune (low value — noindex or 410). Each verdict has a confidence value visible in the underlying record.
+            Per-URL recommendation. Verdicts: pillar (anchor of a cluster — typically a program or location page), cluster (supports a pillar — link it to the recommended pillar), leave-as-blog (informational but doesn&apos;t fit a cluster — keep as-is), consolidate (merge into another similar page), prune (low value — noindex or 410), excluded (out of scope for pillar work — homepage, nav, legal, anchor pages that didn&apos;t cluster). The table defaults to showing actionable verdicts only; switch to &apos;All verdicts&apos; to see excluded rows.
           </InfoTooltip>
         </h2>
         <div className="flex gap-3">
-          <select value={filter} onChange={(e) => setFilter(e.target.value as Verdict | 'all')}
+          <select value={filter} onChange={(e) => setFilter(e.target.value as FilterChoice)}
             className="text-sm border rounded px-2 py-1 dark:bg-navy-card dark:border-navy-border dark:text-white">
+            <option value="actionable">Actionable only</option>
             <option value="all">All verdicts</option>
             {VERDICTS.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
