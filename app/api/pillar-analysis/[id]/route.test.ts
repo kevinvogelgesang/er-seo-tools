@@ -37,14 +37,15 @@ describe('GET /api/pillar-analysis/[id] auth', () => {
       status: 'complete',
       error: null,
       score: 8,
-      subscores: '{}',
+      subscores: '{"contentVolume":8,"topicalConcentration":9,"organicFootprint":7,"internalLinkGap":3,"programPageClarity":10,"backlinkDistribution":5}',
       subscorePresence: null,
+      subscoreContext: null,
       dataCompleteness: 1.0,
-      hubRecommendation: '{}',
+      hubRecommendation: '{"primary":"hybrid","alternates":[],"reasoning":[]}',
       pillarTopics: '[]',
       urlVerdicts: '[]',
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date('2026-04-29T10:00:00Z'),
+      updatedAt: new Date('2026-04-29T10:00:00Z'),
     });
   });
   afterEach(() => {
@@ -87,5 +88,22 @@ describe('GET /api/pillar-analysis/[id] auth', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.id).toBe('pa_abc');
+  });
+
+  it('returns the narrative-shaped payload (clusters, verdictSummary, lowConfidenceAssignments, excludedAnchors)', async () => {
+    const { token } = await mintPillarToken('pa_abc');
+    const res = await GET(
+      makeRequest({ Authorization: `Bearer ${token}` }),
+      makeParams('pa_abc'),
+    );
+    const body = await res.json();
+    expect(body).toHaveProperty('clusters');
+    expect(body).toHaveProperty('verdictSummary');
+    expect(body).toHaveProperty('lowConfidenceAssignments');
+    expect(body).toHaveProperty('excludedAnchors');
+    expect(body).toHaveProperty('totalUrls');
+    // Old high-volume fields are no longer at the top level — clusters replaces pillarTopics+urlVerdicts.
+    expect(body).not.toHaveProperty('urlVerdicts');
+    expect(body).not.toHaveProperty('pillarTopics');
   });
 });
