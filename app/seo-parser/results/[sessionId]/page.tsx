@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { AggregatedResult } from '@/lib/types';
 import { ResultsView } from '@/components/seo-parser/ResultsView';
-import PillarAnalysisCard from './components/PillarAnalysisCard';
+import PillarAnalysisButton from './components/PillarAnalysisButton';
 import type { Metadata } from 'next';
 
 type Props = { params: Promise<{ sessionId: string }> };
@@ -74,7 +74,7 @@ export default async function ResultsPage({ params }: Props) {
     <ResultsView
       result={result}
       sessionId={sessionId}
-      pillarSlot={<PillarAnalysisCard sessionId={sessionId} />}
+      pillarButton={<PillarAnalysisButton sessionId={sessionId} />}
     />
   );
 }

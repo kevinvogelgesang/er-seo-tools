@@ -8,7 +8,6 @@ import { PillarTopicList } from './components/PillarTopicList';
 import { UrlVerdictTable } from './components/UrlVerdictTable';
 import { DataCompletenessBanner } from './components/DataCompletenessBanner';
 import { CopyClaudePromptButton } from './components/CopyClaudePromptButton';
-import { CopyPromptHashHandler } from './components/CopyPromptHashHandler';
 import type {
   HubRecommendation, PillarTopic, SubscoreBreakdown as SB, SubscorePresence, UrlRecord,
 } from '@/lib/services/pillarAnalysis/types';
@@ -77,7 +76,6 @@ export default async function PillarAnalysisPage({
             webappUrl={webappUrl}
           />
         </header>
-        <CopyPromptHashHandler />
 
         {pa.dataCompleteness != null && pa.dataCompleteness < 0.5 && (
           <DataCompletenessBanner completeness={pa.dataCompleteness} />
