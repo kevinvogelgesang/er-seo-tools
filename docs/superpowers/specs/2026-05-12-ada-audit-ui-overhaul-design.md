@@ -29,7 +29,7 @@ Top to bottom:
 ## Clients section
 
 ### Data source
-New endpoint `GET /api/clients/audit-summary`. Joins `Client` → latest `SiteAudit` (where `status = 'complete'`, ordered by `createdAt desc`, one per client). **In-progress / queued audits are intentionally excluded** — the Clients view is a results dashboard, not a live progress board. Active audits remain visible in the existing Recent Site Audits section. Returns a flat list:
+New endpoint `GET /api/clients/audit-summary`. Joins `Client` → latest `SiteAudit` (where `status = 'complete'`, ordered by `createdAt desc`, one per client). **In-progress / queued audits are intentionally excluded** — the Clients view is a results dashboard, not a live progress board. Active audits remain visible in the existing Recent Site Audits section. Returns a flat list (no wire pagination — see "Pagination" below for the rationale):
 
 ```ts
 type ClientAuditSummary = {
@@ -56,7 +56,7 @@ Single GET, no wire pagination (30ish rows). Polled every 30s while the tab is f
 | Client name | ✓ | Tiebreaker sort. Click toggles asc/desc. |
 | Last audit date | ✓ | **Default sort (descending).** Never-scanned clients always sort to the bottom regardless of direction. |
 | Score + issue pills | ✓ by score | Same badge/pill UI as `SiteAuditHistory`. Cells render `—` for never-scanned clients. |
-| Action | — | Right-most column. For never-scanned clients: renders a **Run audit** button. For clients with a `latestSiteAudit`: renders a "View →" chevron only; the whole row is also clickable. Row-level link target = `/ada-audit/site/{latestSiteAudit.id}`. **Run audit** target = `/ada-audit/?prefillDomain={firstDomain}` and the `SiteAuditForm` reads `prefillDomain` from the search params on mount. If `firstDomain` is also null, the button instead links to `/clients` to add a domain first. |
+| Action | — | Right-most column. For never-scanned clients with at least one domain: renders an enabled **Run audit** button that navigates to `/ada-audit/?prefillDomain={firstDomain}` (the `SiteAuditForm` reads `prefillDomain` from search params on mount and populates the domain input). For never-scanned clients with **no domains**: renders a **disabled** Run audit button with a tooltip `"Add a domain on the Clients page to enable audits."` The button does **not** redirect off-page — the client name in the row links to `/clients` if the user wants to add one. For clients with a `latestSiteAudit`: renders a "View →" chevron only; the whole row is also clickable and links to `/ada-audit/site/{latestSiteAudit.id}`. |
 
 ### Search/filter
 - Single text input above the column headers, placeholder "Search clients by name".
@@ -65,7 +65,9 @@ Single GET, no wire pagination (30ish rows). Polled every 30s while the tab is f
 - Count line below the input: `"Filtered to 3 of 28 clients"` when filtering, hidden otherwise.
 
 ### Pagination
-Same model as the Recents sections: 10 rows visible at a time inside a fixed-height scroll container, 25 rows per page, `[< Prev] Page X of N [Next >]` footer. With 30 clients that's 2 pages total.
+**No pagination footer.** The full client list (~30 rows today) is rendered into a fixed-height scroll container sized to ~10 rows. The user scrolls inside the container to see the rest. Pagination would have manufactured friction — clicking "Next" just to see rows 26–30.
+
+**Threshold for revisiting:** if the client roster crosses ~100 rows, switch to server-side pagination + filtering to match the Recents architecture. Today's API (single GET, no wire pagination) leaves room for that change without breaking callers.
 
 ### Empty state
 - Zero clients in DB: section renders `"No clients yet — add some at /clients."` with a link.
@@ -92,7 +94,11 @@ type PaginatedResponse<T> = {
 }
 ```
 
-**Backward compatibility:** if a request includes no `page` and no `pageSize`, the response is still wrapped (`items: [...first 25...], totalCount, page: 1, pageSize: 25`). Existing client code reads only `items` after a small adapter update; no other consumers exist outside of `AuditHistory.tsx` and `SiteAuditHistory.tsx`.
+**This is a breaking API change**, not a backward-compatible extension. Returning `{ items, totalCount, page, pageSize }` instead of a bare `T[]` is a different root type and any consumer assuming an array would break.
+
+**Consumer audit:** the only callers are `components/ada-audit/AuditHistory.tsx` and `components/ada-audit/SiteAuditHistory.tsx`, both updated atomically in this same PR. No external API consumers exist (no public docs, no third-party callers).
+
+Rationale for not hiding behind a `?paginate=true` opt-in: it would leave permanent dead-weight in the API surface to preserve compat for callers that don't exist. The breaking change is real but contained — accept it, update both consumers in lockstep, move on.
 
 ### UI
 
@@ -101,23 +107,41 @@ type PaginatedResponse<T> = {
 - Loading state on page change: container dims to 50% opacity until fetch resolves; prevents layout flash.
 
 ### URL state
-Page state lives in URL search params:
+Per-section state lives in URL search params so a hard refresh restores context:
 - `recentPagesPage` — page index for Recent Page Audits
 - `recentSitesPage` — page index for Recent Site Audits
-- `clientsPage` — page index for Clients section
 - `clientsSort` — `name-asc | name-desc | date-asc | date-desc | score-asc | score-desc`
 - `clientsSearch` — current search filter
 
+(Clients section has no `clientsPage` because it's scroll-only.)
+
 Reading/writing handled via `useSearchParams` and `router.replace` (no history entry per page change, so back-button doesn't accumulate pagination state).
 
-A hard refresh on page 3 of recents stays on page 3 of recents.
+A hard refresh on page 3 of Recents stays on page 3 of Recents.
 
 ### Polling interaction
 
 `SiteAuditHistory` already smart-polls every 8s when active audits exist. PR 2 keeps that polling but:
 - Polling refreshes the current page only (passes current `page` and `pageSize`).
-- The fetch handler diffs `items` by `id` and only replaces rows that changed, so scroll position inside the container is preserved.
+- Scroll position inside the container is preserved across refreshes.
 - If the page the user is on becomes empty after deletion (e.g. they were on page 4, deleted enough to drop to 3 pages), the UI auto-falls back to the last valid page.
+
+### User-driven state survives polling (both Clients and Recents)
+
+Render derivation pattern, documented here once because it applies to all three sections:
+
+```ts
+const rendered = useMemo(
+  () => deriveView(rawData, { search, sort, page }),
+  [rawData, search, sort, page],
+)
+```
+
+`rawData` is the API response array. User state (`search`, `sort`, `page`) lives in component state / URL search params. A poll refresh updates `rawData` only — search, sort, and page selection are NOT touched. The memoized view re-derives on the new data with the user's filters and sort still applied.
+
+Concrete: a user has filtered to "foo" and sorted by score on the Clients view. 30 seconds passes, the 30s poll fires, the API returns refreshed data. The list does NOT visually reset, jump around, or lose the filter. The filtered/sorted view is recomputed against the new data and re-rendered in place.
+
+Same pattern for Recents: page selection survives polling refreshes because the polling fetch passes the current `page` to the API and the response replaces `rawData` for that page only.
 
 ## Components affected
 
@@ -142,12 +166,14 @@ None. PR 2 is UI + API extension only.
 - Clients section renders one row per client. Default sort: latest audit date desc, with never-scanned clients pinned at the bottom.
 - Column header click toggles asc/desc with a visible sort indicator (arrow).
 - Search input filters case-insensitively in real time and shows the "X of N" count.
-- Pagination footer in all three sections shows correct "Page X of N", prev/next disable correctly at boundaries.
+- Pagination footer in the two Recents sections shows correct "Page X of N", prev/next disable correctly at boundaries. The Clients section has **no** pagination footer (scroll-only).
 - The scroll container preserves scroll position across polling refreshes.
-- Hard refresh restores the page each section was on (URL query state).
-- Existing API consumers that pass no `page` query param continue to work — `items` field contains the first 25 rows, same as the prior bare array.
-- Clicking a never-scanned client's **Run audit** button lands on the audit form with the domain pre-filled.
-- If a client deletion or audit completion changes the row count so the current page is out of range, the UI auto-falls back to the last valid page rather than showing an empty container.
+- Hard refresh restores the page each Recents section was on (URL query state).
+- The two paginated API endpoints (`GET /api/site-audit`, `GET /api/ada-audit`) return the new `{ items, totalCount, page, pageSize }` shape unconditionally. Both internal consumers (`AuditHistory.tsx`, `SiteAuditHistory.tsx`) are updated in the same PR to read `items`. No code outside these two components calls the endpoints.
+- Clicking a never-scanned client's **Run audit** button (when at least one domain exists) lands on the audit form with the domain pre-filled.
+- A never-scanned client with **no domains** shows a disabled Run audit button with the documented tooltip; clicking does nothing. The client name link still leads to `/clients`.
+- A user-applied search filter and sort on the Clients view survive the 30s background poll — list does not visually reset or jump.
+- If a deletion changes the row count so the current Recents page is out of range, the UI auto-falls back to the last valid page rather than showing an empty container.
 
 ## Branch ordering and dependency on PR 1
 
