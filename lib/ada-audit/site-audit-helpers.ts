@@ -1,11 +1,60 @@
 import type { AuditScorecard, SiteAuditSummary, SitePageResult } from './types'
 
+export const SITE_AUDIT_PAGE_CAP = 1000
+
 interface ChildRow {
   id: string
   url: string
   status: string
   error: string | null
   result: string | null
+}
+
+export function normaliseSiteAuditDomain(domain: string): string {
+  return domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase()
+}
+
+export function isAllowedSiteAuditUrl(url: string, domain: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+
+    const host = parsed.hostname.toLowerCase()
+    return host === domain || host === `www.${domain}` || domain === `www.${host}`
+  } catch {
+    return false
+  }
+}
+
+export function normaliseDiscoveredSiteAuditUrls(urls: string[], domain: string): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const rawUrl of urls) {
+    if (typeof rawUrl !== 'string') continue
+
+    let parsed: URL
+    try {
+      parsed = new URL(rawUrl.trim())
+    } catch {
+      continue
+    }
+
+    parsed.hash = ''
+    ;['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach((param) => {
+      parsed.searchParams.delete(param)
+    })
+
+    const url = parsed.toString()
+    if (!isAllowedSiteAuditUrl(url, domain) || seen.has(url)) continue
+
+    seen.add(url)
+    result.push(url)
+
+    if (result.length >= SITE_AUDIT_PAGE_CAP) break
+  }
+
+  return result
 }
 
 function parseScorecard(result: string | null): AuditScorecard | null {

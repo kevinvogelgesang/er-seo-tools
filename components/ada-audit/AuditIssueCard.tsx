@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { AxeViolation, ImpactLevel } from '@/lib/ada-audit/types'
+import { safeExternalHref } from '@/lib/safe-external-href'
 
 interface Props {
   violation: AxeViolation
@@ -32,6 +33,7 @@ export default function AuditIssueCard({ violation, auditId }: Props) {
 
   const wcagTags = violation.tags.filter((t) => t.startsWith('wcag') || t.startsWith('best-practice'))
   const displayNodes = violation.nodes
+  const helpHref = safeExternalHref(violation.helpUrl)
 
   return (
     <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl overflow-hidden shadow-sm">
@@ -79,14 +81,16 @@ export default function AuditIssueCard({ violation, auditId }: Props) {
             >
               {showDev ? 'Hide developer details' : 'Show developer details'}
             </button>
-            <a
-              href={violation.helpUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[12px] font-body text-navy/50 dark:text-white/50 hover:text-navy/80 dark:hover:text-white/80 transition-colors"
-            >
-              Learn more ↗
-            </a>
+            {helpHref && (
+              <a
+                href={helpHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[12px] font-body text-navy/50 dark:text-white/50 hover:text-navy/80 dark:hover:text-white/80 transition-colors"
+              >
+                Learn more ↗
+              </a>
+            )}
           </div>
 
           {/* Element screenshot */}

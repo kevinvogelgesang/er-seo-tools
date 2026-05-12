@@ -1,4 +1,23 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+
+const safeFetchMock = vi.hoisted(() => vi.fn())
+
+vi.mock('../security/safe-url', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../security/safe-url')>()
+  return {
+    ...actual,
+    safeFetch: (...args: unknown[]) => safeFetchMock(...args),
+  }
+})
+
+import { discoverPages } from './sitemap-crawler'
+import { SafeUrlError } from '../security/safe-url'
+
+vi.mock('node:dns', () => ({
+  promises: {
+    lookup: vi.fn(async () => [{ address: '93.184.216.34' }]),
+  },
+}))
 
 // ─── Copies of internal pure functions from sitemap-crawler.ts ──────────────
 // These are not exported from the module, so we duplicate the logic here
@@ -333,5 +352,138 @@ describe('dedupeUrls', () => {
     // After stripping utm_source, both normalise to ?category=news — so only first kept
     expect(result).toHaveLength(1)
     expect(result[0]).toBe('https://example.com/page?category=news&utm_source=twitter')
+  })
+})
+
+describe('discoverPages SSRF protections', () => {
+  afterEach(() => {
+    safeFetchMock.mockReset()
+    vi.clearAllMocks()
+  })
+
+  it('rejects internal hostnames before fetching', async () => {
+    await expect(discoverPages('localhost')).rejects.toThrow(/private\/internal/)
+    expect(safeFetchMock).not.toHaveBeenCalled()
+  })
+
+  it('does not follow sitemap redirects to private addresses', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      requestedUrls.push(url)
+
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('Sitemap: https://example.com/private-sitemap.xml', {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        })
+      }
+
+      if (url === 'https://example.com/private-sitemap.xml') {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: 'http://127.0.0.1/sitemap.xml' },
+        })
+      }
+
+      if (
+        url === 'https://example.com/sitemap.xml' ||
+        url === 'https://example.com/sitemap_index.xml' ||
+        url === 'https://example.com/wp-sitemap.xml' ||
+        url === 'https://example.com/sitemap.xml.gz'
+      ) {
+        return new Response('not found', { status: 404 })
+      }
+
+      if (url === 'https://example.com' || url === 'https://example.com/') {
+        return new Response('<a href="/safe-page">Safe</a>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      if (response.status === 302) {
+        const location = response.headers.get('location')
+        if (location?.includes('127.0.0.1')) {
+          throw new SafeUrlError('Requests to private/internal addresses are not allowed')
+        }
+      }
+      return { response, url: url.toString(), redirects: [] }
+    })
+
+    await expect(discoverPages('example.com')).resolves.toEqual(['https://example.com/safe-page'])
+    expect(requestedUrls).not.toContain('http://127.0.0.1/sitemap.xml')
+  })
+
+  it('does not fetch off-domain robots sitemap URLs', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      requestedUrls.push(url)
+
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('Sitemap: https://other.test/sitemap.xml', {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        })
+      }
+
+      if (url === 'https://example.com/sitemap.xml') {
+        return new Response('<urlset><url><loc>https://example.com/page</loc></url></urlset>', {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+
+    await expect(discoverPages('example.com')).resolves.toEqual(['https://example.com/page'])
+    expect(requestedUrls).not.toContain('https://other.test/sitemap.xml')
+  })
+
+  it('does not fetch off-domain child sitemaps from sitemap indexes', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      requestedUrls.push(url)
+
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('', { status: 404 })
+      }
+
+      if (url === 'https://example.com/sitemap.xml') {
+        return new Response(`
+          <sitemapindex>
+            <sitemap><loc>https://other.test/child.xml</loc></sitemap>
+            <sitemap><loc>https://example.com/child.xml</loc></sitemap>
+          </sitemapindex>
+        `, {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+
+      if (url === 'https://example.com/child.xml') {
+        return new Response('<urlset><url><loc>https://example.com/page</loc></url></urlset>', {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+
+    await expect(discoverPages('example.com')).resolves.toEqual(['https://example.com/page'])
+    expect(requestedUrls).not.toContain('https://other.test/child.xml')
   })
 })

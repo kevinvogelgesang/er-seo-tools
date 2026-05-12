@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import type { UrlRecord, Verdict } from '@/lib/services/pillarAnalysis/types';
 import { InfoTooltip } from './InfoTooltip';
+import { safeExternalHref } from '@/lib/safe-external-href';
 
 const VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune', 'excluded'];
 const ACTIONABLE_VERDICTS: Verdict[] = ['pillar', 'cluster', 'leave-as-blog', 'consolidate', 'prune'];
@@ -82,22 +83,29 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
           </tr>
         </thead>
         <tbody>
-          {visible.map((r) => (
-            <tr key={r.url} className="border-b dark:border-navy-border/50">
-              <td className="py-2 truncate max-w-md">
-                <a href={r.url} target="_blank" rel="noreferrer"
-                   className="text-blue-600 dark:text-blue-400">{r.url}</a>
-              </td>
-              <td>
-                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${VERDICT_COLORS[r.verdict]}`}>
-                  {r.verdict}
-                </span>
-              </td>
-              <td className="text-right font-mono">{r.wordCount ?? '—'}</td>
-              <td className="text-right font-mono">{r.inlinks ?? '—'}</td>
-              <td className="text-right font-mono">{r.gscClicks ?? '—'}</td>
-            </tr>
-          ))}
+          {visible.map((r) => {
+            const href = safeExternalHref(r.url);
+            return (
+              <tr key={r.url} className="border-b dark:border-navy-border/50">
+                <td className="py-2 truncate max-w-md">
+                  {href ? (
+                    <a href={href} target="_blank" rel="noreferrer"
+                       className="text-blue-600 dark:text-blue-400">{r.url}</a>
+                  ) : (
+                    <span>{r.url}</span>
+                  )}
+                </td>
+                <td>
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${VERDICT_COLORS[r.verdict]}`}>
+                    {r.verdict}
+                  </span>
+                </td>
+                <td className="text-right font-mono">{r.wordCount ?? '—'}</td>
+                <td className="text-right font-mono">{r.inlinks ?? '—'}</td>
+                <td className="text-right font-mono">{r.gscClicks ?? '—'}</td>
+              </tr>
+            );
+          })}
           {visible.length === 0 && (
             <tr>
               <td colSpan={5} className="py-6 text-center text-gray-500 dark:text-white/60">

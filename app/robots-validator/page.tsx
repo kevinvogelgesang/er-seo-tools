@@ -9,6 +9,7 @@ import {
   type RobotsIssue,
 } from '@/lib/validators/robots.validator'
 import { parseSitemapXml, type SitemapParseResult, type SitemapIssue } from '@/lib/validators/sitemap.validator'
+import { safeExternalHref } from '@/lib/safe-external-href'
 
 // ─── Reference bot data ───────────────────────────────────────────────────────
 
@@ -481,24 +482,31 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
           {result.sitemapUrls.length > 0 && (
             <SubSection title={`Sitemap URLs Found (${result.sitemapUrls.length})`}>
               <ul className="space-y-1.5">
-                {result.sitemapUrls.map((url, i) => (
-                  <li key={i} className="flex items-center gap-2 bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2">
-                    <span className="w-4 h-4 rounded bg-orange/15 flex items-center justify-center flex-shrink-0">
-                      <span className="text-orange text-[9px] font-bold">{i + 1}</span>
-                    </span>
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-[12px] text-orange hover:underline truncate flex-1"
-                    >
-                      {url}
-                    </a>
-                    {onFetchSitemap && (
-                      <SitemapFetchButton sitemapUrl={url} onFetch={onFetchSitemap} />
-                    )}
-                  </li>
-                ))}
+                {result.sitemapUrls.map((url, i) => {
+                  const href = safeExternalHref(url)
+                  return (
+                    <li key={i} className="flex items-center gap-2 bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2">
+                      <span className="w-4 h-4 rounded bg-orange/15 flex items-center justify-center flex-shrink-0">
+                        <span className="text-orange text-[9px] font-bold">{i + 1}</span>
+                      </span>
+                      {href ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-[12px] text-orange hover:underline truncate flex-1"
+                        >
+                          {url}
+                        </a>
+                      ) : (
+                        <span className="font-mono text-[12px] text-navy/60 dark:text-white/60 truncate flex-1">{url}</span>
+                      )}
+                      {onFetchSitemap && (
+                        <SitemapFetchButton sitemapUrl={url} onFetch={onFetchSitemap} />
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </SubSection>
           )}
@@ -688,21 +696,28 @@ function SitemapSection({
           {result.sampleUrls.length > 0 && (
             <SubSection title={`Sample URLs (first ${result.sampleUrls.length})`}>
               <ul className="space-y-1.5">
-                {result.sampleUrls.map((url, i) => (
-                  <li key={i} className="flex items-center gap-2 bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2">
-                    <span className="w-5 h-5 rounded bg-navy/10 dark:bg-white/10 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-navy/50 dark:text-white/50 font-mono">
-                      {i + 1}
-                    </span>
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-[12px] text-orange hover:underline truncate"
-                    >
-                      {url}
-                    </a>
-                  </li>
-                ))}
+                {result.sampleUrls.map((url, i) => {
+                  const href = safeExternalHref(url)
+                  return (
+                    <li key={i} className="flex items-center gap-2 bg-gray-50 dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2">
+                      <span className="w-5 h-5 rounded bg-navy/10 dark:bg-white/10 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-navy/50 dark:text-white/50 font-mono">
+                        {i + 1}
+                      </span>
+                      {href ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-[12px] text-orange hover:underline truncate"
+                        >
+                          {url}
+                        </a>
+                      ) : (
+                        <span className="font-mono text-[12px] text-navy/60 dark:text-white/60 truncate">{url}</span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </SubSection>
           )}

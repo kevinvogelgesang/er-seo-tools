@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  SafeUrlError,
+  parseSafeHttpUrl,
+  readResponseTextWithLimit,
+  safeFetch,
+} from '@/lib/security/safe-url'
 
 export const dynamic = 'force-dynamic'
+
+const MAX_RESPONSE_BYTES = 1_000_000
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url')
@@ -8,31 +16,32 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'url parameter required' }, { status: 400 })
   }
 
-  // Validate it's a real http/https URL
   let parsed: URL
   try {
-    parsed = new URL(url)
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return NextResponse.json({ error: 'Only http/https URLs allowed' }, { status: 400 })
-    }
-  } catch {
-    return NextResponse.json({ error: 'Invalid URL' }, { status: 400 })
+    parsed = parseSafeHttpUrl(url)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Invalid URL'
+    return NextResponse.json({ error: message }, { status: 400 })
   }
 
   try {
-    const response = await fetch(parsed.toString(), {
+    const { response, url: finalUrl } = await safeFetch(parsed, {
       headers: { 'User-Agent': 'ER-SEO-Tools/1.0 robots-validator' },
       signal: AbortSignal.timeout(10000),
     })
-    const text = await response.text()
+    const { text, truncated } = await readResponseTextWithLimit(response, MAX_RESPONSE_BYTES)
     return NextResponse.json({
       content: text,
+      truncated,
       status: response.status,
-      url: parsed.toString(),
+      url: finalUrl,
       contentType: response.headers.get('content-type') ?? '',
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Fetch failed'
+    if (err instanceof SafeUrlError) {
+      return NextResponse.json({ error: message }, { status: 400 })
+    }
     return NextResponse.json({ error: message }, { status: 502 })
   }
 }

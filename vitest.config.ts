@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { resolve } from 'path';
 
 export default defineConfig({
@@ -6,7 +6,13 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     include: ['**/*.test.ts'],
-    exclude: ['node_modules', '.next'],
+    exclude: [
+      ...configDefaults.exclude,
+      '.next/**',
+      '.claude/worktrees/**',
+      'local-uploads/**',
+      'prisma/local-dev.db*',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

@@ -16,7 +16,7 @@
     "build": "next build",
     "build:skill": "bash scripts/build-skill.sh",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",

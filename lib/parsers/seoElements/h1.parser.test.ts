@@ -132,6 +132,20 @@ https://example.com/e,Duplicate B,text/html,Indexable`;
       expect(issue.groups[1].count).toBe(2);
     });
 
+    it('counts all duplicate groups before applying the top-10 group cap', () => {
+      const rows = Array.from({ length: 12 }, (_, i) => [
+        `https://example.com/group-${i}-a,Duplicate H1 ${i},text/html,Indexable`,
+        `https://example.com/group-${i}-b,Duplicate H1 ${i},text/html,Indexable`,
+      ]).flat();
+      const csv = `Address,H1-1,Content Type,Indexability\n${rows.join('\n')}`;
+      const parser = new H1Parser(csv);
+      const result = parser.parse();
+      const issue = result.issues.find((i: { type: string }) => i.type === 'duplicate_h1');
+
+      expect(issue?.count).toBe(12);
+      expect(issue?.groups).toHaveLength(10);
+    });
+
     it('does not count pages with missing H1 as duplicates', () => {
       const csv = `Address,H1-1,Content Type,Indexability
 https://example.com/a,,text/html,Indexable

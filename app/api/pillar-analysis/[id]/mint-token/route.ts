@@ -1,13 +1,18 @@
 // app/api/pillar-analysis/[id]/mint-token/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { AUTH_COOKIE_NAME, isValidAuthCookie } from '@/lib/auth';
 import { mintPillarToken, PillarTokenError } from '@/lib/pillar-token';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  if (!(await isValidAuthCookie(req.cookies.get(AUTH_COOKIE_NAME)?.value))) {
+    return NextResponse.json({ error: 'auth_required' }, { status: 401 });
+  }
 
   const pa = await prisma.pillarAnalysis.findUnique({ where: { id } });
   if (!pa) {

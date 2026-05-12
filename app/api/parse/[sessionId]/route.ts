@@ -17,6 +17,7 @@ type RouteParams = { params: Promise<{ sessionId: string }> };
  */
 export async function POST(_request: NextRequest, { params }: RouteParams) {
   const { sessionId } = await params;
+  let claimedSession = false;
 
   if (!isValidSessionId(sessionId)) {
     return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
@@ -29,32 +30,47 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    if (session.status === 'parsing') {
-      return NextResponse.json({ error: 'Parsing already in progress' }, { status: 409 });
+    if (session.status !== 'pending') {
+      return NextResponse.json(
+        { error: session.status === 'parsing' ? 'Parsing already in progress' : `Cannot parse a ${session.status} session` },
+        { status: 409 }
+      );
     }
 
-    await prisma.session.update({
-      where: { id: sessionId },
+    const claim = await prisma.session.updateMany({
+      where: {
+        id: sessionId,
+        status: 'pending',
+      },
       data: { status: 'parsing', error: null },
     });
+
+    if (claim.count === 0) {
+      return NextResponse.json({ error: 'Parsing already in progress' }, { status: 409 });
+    }
+    claimedSession = true;
 
     const uploadDir = getUploadDir(sessionId);
     let sessionFiles: string[] = [];
     try {
       const parsed = JSON.parse(session.files);
-      sessionFiles = Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) throw new Error('files must be an array');
+      sessionFiles = parsed.filter((file): file is string => typeof file === 'string');
     } catch {
-      sessionFiles = [];
+      throw new Error('Session file manifest is corrupt');
+    }
+    if (sessionFiles.length === 0) {
+      throw new Error('Session has no files to parse');
     }
 
     const aggregator = new AggregatorService();
     const parsersUsed: string[] = [];
     const errors: string[] = [];
 
-    // Parse all files in parallel (read + parse concurrently, aggregate serially after)
+    // Parse files sequentially to avoid full-file memory spikes on large crawl exports.
     type AnyParser = { parse(): Record<string, unknown>; getPrimaryDomain(): string | null };
     type ParseSuccess = { parserName: string; result: Record<string, unknown>; filename: string; primaryDomain: string | null };
-    const parsePromises = sessionFiles.map(async (filename): Promise<ParseSuccess | null> => {
+    const parseFile = async (filename: string): Promise<ParseSuccess | null> => {
       const filePath = path.join(uploadDir, filename);
 
       if (filename.endsWith('.txt')) return null;
@@ -91,9 +107,12 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         errors.push(`Error parsing ${filename}: ${message}`);
         return null;
       }
-    });
+    };
 
-    const parseResults = await Promise.all(parsePromises);
+    const parseResults: Array<ParseSuccess | null> = [];
+    for (const filename of sessionFiles) {
+      parseResults.push(await parseFile(filename));
+    }
     for (const res of parseResults) {
       if (res) {
         aggregator.addParserResult(res.parserName, res.result, res.filename);
@@ -180,13 +199,15 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Parse error:', error);
 
-    try {
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { status: 'error', error: message },
-      });
-    } catch (dbError) {
-      console.error('Failed to update session error status:', dbError);
+    if (claimedSession) {
+      try {
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { status: 'error', error: message },
+        });
+      } catch (dbError) {
+        console.error('Failed to update session error status:', dbError);
+      }
     }
 
     return NextResponse.json({ error: message }, { status: 500 });
@@ -205,16 +226,23 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    // Delete upload files first
-    const uploadDir = getUploadDir(sessionId);
-    try {
-      await fs.rm(uploadDir, { recursive: true, force: true });
-    } catch {
-      // Directory may not exist — that's fine
+    const existing = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
     // Delete the session (cascade deletes ShareLinks via Prisma)
     await prisma.session.delete({ where: { id: sessionId } });
+
+    const [uploadCleanup] = await Promise.allSettled([
+      fs.rm(getUploadDir(sessionId), { recursive: true, force: true }),
+    ]);
+    if (uploadCleanup.status === 'rejected') {
+      console.warn(`[parse] Failed to clean uploads for deleted session ${sessionId}:`, uploadCleanup.reason);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

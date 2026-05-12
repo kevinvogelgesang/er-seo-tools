@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
+import { getBrowserEgressLaunchArgs, requireBrowserEgressGuardConfig } from './browser-egress'
 
 const CHROME_EXECUTABLE = process.env.CHROME_EXECUTABLE ?? '/usr/bin/google-chrome'
 const POOL_SIZE = parseInt(process.env.BROWSER_POOL_SIZE ?? '2', 10)
@@ -16,6 +17,7 @@ const LAUNCH_ARGS = [
   '--disable-sync',
   '--js-flags=--max-old-space-size=256',
   '--disable-http-cache',
+  ...getBrowserEgressLaunchArgs(),
 ]
 
 // ─── Singleton browser ────────────────────────────────────────────────────────
@@ -24,6 +26,8 @@ let browser: Browser | null = null
 let launching: Promise<Browser> | null = null
 
 async function getBrowser(): Promise<Browser> {
+  requireBrowserEgressGuardConfig()
+
   if (browser?.connected) return browser
 
   if (!launching) {

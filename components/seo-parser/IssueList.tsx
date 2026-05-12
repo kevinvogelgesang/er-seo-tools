@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Issue } from '@/lib/types';
 import { SEVERITY_BADGE_COLORS } from '@/lib/constants/severity';
+import { safeExternalHref } from '@/lib/safe-external-href';
 
 interface IssueListProps {
   issues: Issue[];
@@ -89,31 +90,36 @@ function IssueItem({
               </div>
 
               <ul className="text-sm space-y-1 max-h-64 overflow-y-auto">
-                {pagedUrls.map((url, i) => (
-                  <li key={i} className="flex items-center gap-1.5 text-gray-600 dark:text-white/60 min-w-0">
-                    {onUrlClick ? (
-                      <button
-                        type="button"
-                        onClick={() => onUrlClick(url)}
-                        className="hover:text-[#f5a623] text-left truncate flex-1 underline decoration-dotted underline-offset-2"
-                        title={url}
-                      >
-                        {url}
-                      </button>
-                    ) : (
-                      <span className="truncate flex-1" title={url}>{url}</span>
-                    )}
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="Open in new tab"
-                      className="flex-shrink-0 text-gray-400 dark:text-white/30 hover:text-[#f5a623] dark:hover:text-[#f5a623]"
-                    >
-                      <ExternalLinkIcon />
-                    </a>
-                  </li>
-                ))}
+                {pagedUrls.map((url, i) => {
+                  const href = safeExternalHref(url);
+                  return (
+                    <li key={i} className="flex items-center gap-1.5 text-gray-600 dark:text-white/60 min-w-0">
+                      {onUrlClick ? (
+                        <button
+                          type="button"
+                          onClick={() => onUrlClick(url)}
+                          className="hover:text-[#f5a623] text-left truncate flex-1 underline decoration-dotted underline-offset-2"
+                          title={url}
+                        >
+                          {url}
+                        </button>
+                      ) : (
+                        <span className="truncate flex-1" title={url}>{url}</span>
+                      )}
+                      {href && (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Open in new tab"
+                          className="flex-shrink-0 text-gray-400 dark:text-white/30 hover:text-[#f5a623] dark:hover:text-[#f5a623]"
+                        >
+                          <ExternalLinkIcon />
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
 
               {totalPages > 1 && (

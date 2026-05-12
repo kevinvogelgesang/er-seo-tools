@@ -1,7 +1,15 @@
-import { assertNotPrivate } from './runner'
+import {
+  assertSafeHttpUrl,
+  readResponseBytesWithLimit,
+  readResponseTextWithLimit,
+  safeFetch,
+} from '../security/safe-url'
 
 const HARD_CAP = 1000
 const FETCH_TIMEOUT = 15_000
+const MAX_HTML_BYTES = 1_000_000
+const MAX_XML_BYTES = 5_000_000
+const MAX_ROBOTS_BYTES = 500_000
 const USER_AGENT = 'ER-SEO-Tools/1.0 ada-audit'
 
 // ─── XML helpers ─────────────────────────────────────────────────────────────
@@ -25,15 +33,15 @@ function isSitemapIndex(xml: string): boolean {
 
 async function fetchHtml(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
+    const { response: res } = await safeFetch(url, {
       headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,*/*' },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
-      redirect: 'follow',
     })
     if (!res.ok) return null
     const ct = res.headers.get('content-type') ?? ''
     if (!ct.includes('html')) return null
-    return res.text()
+    const { text, truncated } = await readResponseTextWithLimit(res, MAX_HTML_BYTES)
+    return truncated ? null : text
   } catch {
     return null
   }
@@ -41,10 +49,9 @@ async function fetchHtml(url: string): Promise<string | null> {
 
 async function fetchXml(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
+    const { response: res, url: finalUrl } = await safeFetch(url, {
       headers: { 'User-Agent': USER_AGENT, Accept: 'text/xml,application/xml,*/*' },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
-      redirect: 'follow',
     })
     if (!res.ok) return null
     const ct = res.headers.get('content-type') ?? ''
@@ -52,13 +59,16 @@ async function fetchXml(url: string): Promise<string | null> {
     if (ct.includes('html') && !ct.includes('xml')) return null
 
     // Handle gzip-compressed sitemaps
-    if (url.endsWith('.gz') || ct.includes('gzip')) {
-      const buf = Buffer.from(await res.arrayBuffer())
-      const { gunzipSync } = await import('zlib')
-      return gunzipSync(buf).toString('utf-8')
+    if (finalUrl.endsWith('.gz') || ct.includes('gzip')) {
+      const { bytes, truncated } = await readResponseBytesWithLimit(res, MAX_XML_BYTES)
+      if (truncated) return null
+      const { gunzipSync } = await import('node:zlib')
+      const xml = gunzipSync(Buffer.from(bytes), { maxOutputLength: MAX_XML_BYTES }).toString('utf-8')
+      return xml.length > MAX_XML_BYTES ? null : xml
     }
 
-    return res.text()
+    const { text, truncated } = await readResponseTextWithLimit(res, MAX_XML_BYTES)
+    return truncated ? null : text
   } catch {
     return null
   }
@@ -66,13 +76,13 @@ async function fetchXml(url: string): Promise<string | null> {
 
 async function fetchRobotsTxt(base: string): Promise<string[]> {
   try {
-    const res = await fetch(`${base}/robots.txt`, {
+    const { response: res } = await safeFetch(`${base}/robots.txt`, {
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
-      redirect: 'follow',
     })
     if (!res.ok) return []
-    const text = await res.text()
+    const { text, truncated } = await readResponseTextWithLimit(res, MAX_ROBOTS_BYTES)
+    if (truncated) return []
     const urls: string[] = []
     for (const line of text.split('\n')) {
       const match = line.match(/^\s*Sitemap:\s*(.+)/i)
@@ -172,13 +182,14 @@ async function shallowCrawl(base: string, normDomain: string): Promise<string[]>
  * Given a sitemap XML (plain or index), collect all page URLs.
  * Follows child sitemaps in sitemap indexes (no artificial cap).
  */
-async function collectFromSitemap(xml: string): Promise<string[]> {
+async function collectFromSitemap(xml: string, normDomain: string): Promise<string[]> {
   if (!isSitemapIndex(xml)) {
     return extractLocs(xml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
   }
 
   // Sitemap index — fetch all child sitemaps
   const childUrls = extractLocs(xml, /<sitemap>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
+    .filter((url) => isSameDomain(url, normDomain))
   const pageUrls: string[] = []
 
   // Fetch child sitemaps in batches of 5 to be polite
@@ -208,9 +219,8 @@ export async function discoverPages(domain: string): Promise<string[]> {
   const normDomain = normaliseDomain(domain)
 
   // SSRF check on the domain itself before any fetch
-  await assertNotPrivate(normDomain)
-
   const base = `https://${normDomain}`
+  await assertSafeHttpUrl(base)
 
   // 1. Check robots.txt for Sitemap: directives
   const robotsSitemapUrls = await fetchRobotsTxt(base)
@@ -228,6 +238,7 @@ export async function discoverPages(domain: string): Promise<string[]> {
   const seen = new Set<string>()
   const uniqueCandidates: string[] = []
   for (const url of sitemapCandidates) {
+    if (!isSameDomain(url, normDomain)) continue
     if (!seen.has(url)) {
       seen.add(url)
       uniqueCandidates.push(url)
@@ -241,7 +252,7 @@ export async function discoverPages(domain: string): Promise<string[]> {
     const xml = await fetchXml(sitemapUrl)
     if (!xml) continue
 
-    const urls = await collectFromSitemap(xml)
+    const urls = await collectFromSitemap(xml, normDomain)
     if (urls.length > 0) {
       allPageUrls = urls
       break

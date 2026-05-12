@@ -6,8 +6,8 @@ export class NearDuplicatesParser extends BaseParser {
   static filenamePattern = 'content_near_duplicates';
   static displayName = 'Near Duplicates';
 
-  parse(): { near_duplicates: NearDuplicateEntry[] } {
-    if (this.isEmpty) return { near_duplicates: [] };
+  parse(): { near_duplicates: NearDuplicateEntry[]; near_duplicates_count: number } {
+    if (this.isEmpty) return { near_duplicates: [], near_duplicates_count: 0 };
 
     const addressCol = this.findColumn(['Address']);
     const closestMatchCol = this.findColumn(['Closest Near Duplicate Match']);
@@ -38,6 +38,9 @@ export class NearDuplicatesParser extends BaseParser {
       });
     }
 
-    return { near_duplicates };
+    return {
+      near_duplicates,
+      near_duplicates_count: near_duplicates.length,
+    };
   }
 }

@@ -5,6 +5,7 @@ import { Spinner } from '@/components/Spinner'
 import type { SitePageResult, StoredAxeResults } from '@/lib/ada-audit/types'
 import type { TreeNode } from './useSiteAuditPages'
 import AuditIssueTabs from './AuditIssueTabs'
+import { safeExternalHref } from '@/lib/safe-external-href'
 
 // ─── Shared impact count (same as in SiteAuditResultsView) ──────────────────
 
@@ -37,6 +38,7 @@ function LeafPageRow({ page, depth }: { page: SitePageResult; depth: number }) {
   }
 
   const sc = page.scorecard
+  const pageHref = safeExternalHref(page.url)
 
   // Extract just the last path segment for display
   let label: string
@@ -72,18 +74,20 @@ function LeafPageRow({ page, depth }: { page: SitePageResult; depth: number }) {
             <span className="text-[12px] font-body text-navy/80 dark:text-white/80 truncate" title={page.url}>
               {label}
             </span>
-            <a
-              href={page.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Open ${page.url} in new tab`}
-              className="flex-shrink-0 text-navy/40 dark:text-white/30 hover:text-orange dark:hover:text-orange transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
+            {pageHref && (
+              <a
+                href={pageHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${page.url} in new tab`}
+                className="flex-shrink-0 text-navy/40 dark:text-white/30 hover:text-orange dark:hover:text-orange transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            )}
           </div>
           {page.status === 'error' && (
             <span className="text-[10px] font-body bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400 px-2 py-0.5 rounded" title={page.error ?? ''}>

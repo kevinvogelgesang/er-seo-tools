@@ -24,6 +24,34 @@ export async function register() {
       process.exit(1);
     }
 
+    // Fail fast in production if the app-wide password gate is not configured.
+    // Dev/test can intentionally run without APP_AUTH_PASSWORD; middleware then
+    // enables a local-only bypass when NODE_ENV !== 'production'.
+    const { requireAuthConfig } = await import('@/lib/auth')
+    try {
+      requireAuthConfig()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[startup] ${err instanceof Error ? err.message : 'APP_AUTH_PASSWORD is required in production'}. Refusing to start.`,
+      )
+      process.exit(1)
+    }
+
+    // Chromium owns its own resolver/network stack, so request interception alone
+    // cannot close DNS rebinding. In production require an explicit egress guard:
+    // either a Chrome proxy or a server/network firewall confirmation.
+    const { requireBrowserEgressGuardConfig } = await import('@/lib/ada-audit/browser-egress')
+    try {
+      requireBrowserEgressGuardConfig()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[startup] ${err instanceof Error ? err.message : 'Chromium egress guard is required in production'}. Refusing to start.`,
+      )
+      process.exit(1)
+    }
+
     // Close the headless browser cleanly on shutdown so Chrome doesn't orphan.
     // fuser -k in the deploy command sends SIGTERM before starting the new process.
     const { closeBrowser } = await import('@/lib/ada-audit/browser-pool')

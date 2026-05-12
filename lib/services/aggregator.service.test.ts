@@ -57,3 +57,28 @@ describe('AggregatorService URL deduplication', () => {
     expect(issue!.urls?.length).toBe(4);
   });
 });
+
+describe('AggregatorService duplicate content totals', () => {
+  it('preserves duplicate group counts separately from capped group samples', () => {
+    const aggregator = new AggregatorService();
+    aggregator.addParserResult('pagetitles', {
+      issues: [{
+        type: 'duplicate_title',
+        severity: 'warning',
+        count: 12,
+        description: '12 duplicate title groups',
+        groups: Array.from({ length: 10 }, (_, i) => ({
+          title: `Shared title ${i}`,
+          count: 2,
+          urls: [`https://example.com/${i}-a`, `https://example.com/${i}-b`],
+        })),
+      }],
+    }, 'page_titles_all.csv');
+
+    const result = aggregator.aggregate();
+
+    expect(result.duplicate_content?.duplicate_titles_count).toBe(12);
+    expect(result.duplicate_content?.duplicate_titles).toHaveLength(10);
+    expect(result.duplicate_content?.duplicate_titles[0].count).toBe(2);
+  });
+});

@@ -6,6 +6,7 @@ import ShareAuditButton from './ShareAuditButton'
 import ReScanButton from './ReScanButton'
 import RescanBanner from './RescanBanner'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
+import { safeExternalHref } from '@/lib/safe-external-href'
 
 interface Props {
   results: StoredAxeResults
@@ -19,6 +20,7 @@ interface Props {
   previousScore?: number | null
   fromAuditId?: string | null
   showRescan?: boolean
+  readOnly?: boolean
 }
 
 function buildScorecard(results: StoredAxeResults): AuditScorecard {
@@ -34,9 +36,10 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false }: Props) {
   const scorecard = buildScorecard(results)
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
+  const auditHref = safeExternalHref(url)
 
   return (
     <div className="space-y-6">
@@ -61,14 +64,18 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
               </span>
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[12px] font-body text-navy/50 dark:text-white/50 hover:text-orange truncate transition-colors"
-              >
-                {url} ↗
-              </a>
+              {auditHref ? (
+                <a
+                  href={auditHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[12px] font-body text-navy/50 dark:text-white/50 hover:text-orange truncate transition-colors"
+                >
+                  {url} ↗
+                </a>
+              ) : (
+                <span className="text-[12px] font-body text-navy/50 dark:text-white/50 truncate">{url}</span>
+              )}
               {clientName && (
                 <span className="text-[12px] font-body text-navy/40 dark:text-white/40">{clientName}</span>
               )}
@@ -77,7 +84,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
               </span>
             </div>
           </div>
-          {auditId && (
+          {auditId && !readOnly && (
             <div className="flex-shrink-0 flex items-center gap-2">
               {showRescan && <ReScanButton url={url} wcagLevel={wcagLevel ?? 'wcag21aa'} auditId={auditId} />}
               <ShareAuditButton auditId={auditId} />
@@ -117,7 +124,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
           <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">Violations</h2>
         </div>
         <div className="p-6">
-          <AuditIssueTabs violations={results.violations} incomplete={results.incomplete ?? []} auditId={auditId} />
+          <AuditIssueTabs violations={results.violations} incomplete={results.incomplete ?? []} auditId={readOnly ? undefined : auditId} />
         </div>
       </div>
     </div>

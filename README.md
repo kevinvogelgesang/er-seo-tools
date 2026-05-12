@@ -121,14 +121,22 @@ proxy_set_header Connection "upgrade";
 ```
 DATABASE_URL=file:/home/seotools/data/er-seo-tools/db.sqlite
 UPLOADS_DIR=/home/seotools/data/er-seo-tools/uploads
+UPLOAD_MAX_BODY_BYTES=104857600             # optional, default 100MB per request
 PORT=3000
 NODE_ENV=production
 NEXT_PUBLIC_APP_URL=https://your-domain.com
+APP_AUTH_PASSWORD=replace-with-a-strong-shared-password
 CHROME_EXECUTABLE=/usr/bin/google-chrome   # optional, this is the default
 BROWSER_POOL_SIZE=2                        # optional, controls max concurrent audits
+CHROME_PROXY_SERVER=http://127.0.0.1:3128  # recommended: proxy blocks private/reserved IPs
+# or, if enforced by server/network firewall:
+CHROMIUM_EGRESS_GUARD_CONFIRMED=true
 ```
 
 > `NEXT_PUBLIC_APP_URL` is used to generate correct absolute URLs for shareable report links. Set it to the public hostname of the app.
+> `APP_AUTH_PASSWORD` is required in production. In local dev/test only, leaving it unset disables the auth gate.
+> `UPLOAD_MAX_BODY_BYTES` is checked before multipart parsing; keep your reverse proxy body-size limit at or below the same value.
+> Chromium uses its own resolver/network stack. In production, configure `CHROME_PROXY_SERVER` to an enforcing outbound proxy or set `CHROMIUM_EGRESS_GUARD_CONFIRMED=true` only after deploying egress firewall rules that block private/reserved networks.
 
 ### Server Paths
 - **App:** `/home/seotools/webapps/er-seo-tools`

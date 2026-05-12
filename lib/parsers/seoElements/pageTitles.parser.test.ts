@@ -158,6 +158,19 @@ describe('PageTitlesParser', () => {
       const issue = result.issues.find((i: any) => i.type === 'duplicate_title');
       expect(issue.count).toBe(2);
     });
+
+    it('counts all duplicate groups before applying the top-10 group cap', () => {
+      const rows = Array.from({ length: 12 }, (_, i) => [
+        `https://example.com/group-${i}-a,Shared Title Group ${i},38`,
+        `https://example.com/group-${i}-b,Shared Title Group ${i},38`,
+      ]).flat();
+      const parser = new PageTitlesParser(makeCsv(rows));
+      const result = parser.parse() as any;
+      const issue = result.issues.find((i: any) => i.type === 'duplicate_title');
+
+      expect(issue.count).toBe(12);
+      expect(issue.groups).toHaveLength(10);
+    });
   });
 
   describe('multiple title tags', () => {

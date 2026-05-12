@@ -3,6 +3,10 @@ import { prisma } from '@/lib/db'
 import { enqueueAudit } from '@/lib/ada-audit/queue-manager'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
+import {
+  normaliseDiscoveredSiteAuditUrls,
+  normaliseSiteAuditDomain,
+} from '@/lib/ada-audit/site-audit-helpers'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,14 +22,14 @@ export async function POST(request: NextRequest) {
   let domain = typeof raw?.domain === 'string' ? raw.domain.trim() : ''
   const clientId = typeof raw?.clientId === 'number' ? raw.clientId : null
   const wcagLevel = typeof raw?.wcagLevel === 'string' && raw.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
-  const preDiscoveredUrls = Array.isArray(raw?.urls) ? (raw.urls as string[]).filter(u => typeof u === 'string') : undefined
+  const rawPreDiscoveredUrls = Array.isArray(raw?.urls) ? (raw.urls as string[]).filter(u => typeof u === 'string') : undefined
 
   if (!domain) {
     return NextResponse.json({ error: 'domain is required' }, { status: 400 })
   }
 
   // Strip scheme/path if user accidentally pasted a full URL
-  domain = domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase()
+  domain = normaliseSiteAuditDomain(domain)
 
   // Basic hostname validation
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
@@ -48,6 +52,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: `A site audit for ${domain} is already queued or running`, id: inFlight.id },
       { status: 409 }
+    )
+  }
+
+  const preDiscoveredUrls = rawPreDiscoveredUrls
+    ? normaliseDiscoveredSiteAuditUrls(rawPreDiscoveredUrls, domain)
+    : undefined
+
+  if (rawPreDiscoveredUrls && (!preDiscoveredUrls || preDiscoveredUrls.length === 0)) {
+    return NextResponse.json(
+      { error: `No submitted URLs belong to ${domain}` },
+      { status: 400 }
     )
   }
 

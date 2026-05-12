@@ -15,9 +15,10 @@ describe('ExactDuplicatesParser', () => {
     it('extracts exact duplicate pairs correctly', () => {
       const csv = `Address,Exact Duplicate Address,Similarity,Indexability,Indexability Status
 https://example.com/a,https://example.com/b,0.98,Indexable,
-https://example.com/c,https://example.com/d,0.75,Non-Indexable,`;
+      https://example.com/c,https://example.com/d,0.75,Non-Indexable,`;
       const result = new ExactDuplicatesParser(csv).parse();
       expect(result.exact_duplicates).toHaveLength(2);
+      expect(result.exact_duplicates_count).toBe(2);
       expect(result.exact_duplicates[0]).toEqual({
         address: 'https://example.com/a',
         duplicate_of: 'https://example.com/b',
@@ -62,6 +63,15 @@ ${longUrl},https://example.com/b,0.99,Indexable,`;
 https://example.com/a,https://example.com/b,-,Indexable,`;
       const result = new ExactDuplicatesParser(csv).parse();
       expect(result.exact_duplicates[0].similarity_pct).toBe(0);
+    });
+
+    it('does not multiply percent-formatted Similarity values twice', () => {
+      const csv = `Address,Exact Duplicate Address,Similarity,Indexability,Indexability Status
+https://example.com/a,https://example.com/b,98%,Indexable,
+https://example.com/c,https://example.com/d,100,Indexable,`;
+      const result = new ExactDuplicatesParser(csv).parse();
+      expect(result.exact_duplicates[0].similarity_pct).toBe(98);
+      expect(result.exact_duplicates[1].similarity_pct).toBe(100);
     });
 
     it('defaults similarity_pct to 0 when Similarity column is absent', () => {
