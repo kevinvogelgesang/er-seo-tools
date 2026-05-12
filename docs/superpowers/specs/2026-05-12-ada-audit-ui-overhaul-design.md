@@ -64,6 +64,12 @@ Single GET, no wire pagination (30ish rows). Polled every 30s while the tab is f
 - Client-side filter over the loaded array.
 - Count line below the input: `"Filtered to 3 of 28 clients"` when filtering, hidden otherwise.
 
+**Debouncing.** Two pieces of state:
+- `searchInput` (local component state) — bound directly to the controlled `<input>`. Updates on every keystroke. The filter `useMemo` reads this so filtering applies instantly while typing.
+- `clientsSearch` URL param — written via a 300ms debounced effect on `searchInput`. This keeps `router.replace` off the keystroke path, avoiding layout-wide re-renders and visible typing lag.
+
+On mount, `searchInput` initializes from `clientsSearch` so a hard refresh restores the user's filter.
+
 ### Pagination
 **No pagination footer.** The full client list (~30 rows today) is rendered into a fixed-height scroll container sized to ~10 rows. The user scrolls inside the container to see the rest. Pagination would have manufactured friction — clicking "Next" just to see rows 26–30.
 
@@ -72,6 +78,14 @@ Single GET, no wire pagination (30ish rows). Polled every 30s while the tab is f
 ### Empty state
 - Zero clients in DB: section renders `"No clients yet — add some at /clients."` with a link.
 - Filter matches zero rows: section content area renders `"No clients match 'foo'."` (filter input still shown).
+
+### Error state
+
+Applies to all three paginated sections, same pattern:
+
+- **Initial fetch fails** (no prior data to show): container renders `"Failed to load <section>. [Retry]"` with a retry button that re-runs the fetch. No infinite spinner.
+- **Polling refresh fails** (prior data exists): silent. Keep the last successful data on screen, log the error to `console.warn`, retry on the next poll tick. A subtle stale indicator may be added in a future PR but is **out of scope here** — keeping the UI quiet is the priority.
+- **User-initiated page change fails** (Recents only): container un-dims, current page state is rolled back to the last known good page, and a brief inline error message appears under the pagination footer (`"Failed to load page N. [Retry]"`). The user is not stranded on a blank page.
 
 ## Paginated Recents
 
@@ -104,7 +118,8 @@ Rationale for not hiding behind a `?paginate=true` opt-in: it would leave perman
 
 - Fixed-height scroll container sized to ~10 rows (CSS `max-height: 10 * row-height; overflow-y: auto`).
 - "Page X of N" prev/next footer underneath the container.
-- Loading state on page change: container dims to 50% opacity until fetch resolves; prevents layout flash.
+- **User-initiated page change:** container dims to 50% opacity until the fetch resolves; prevents layout flash if row heights vary slightly between pages.
+- **Background poll refresh: no dim.** Polling fetches are silent — they swap the data in place without any visible loading state. Dimming the dashboard every 8–30 seconds would be highly distracting while reading. The 50% dim is reserved strictly for fetches triggered by an explicit user action (prev/next click, sort change).
 
 ### URL state
 Per-section state lives in URL search params so a hard refresh restores context:
@@ -174,6 +189,9 @@ None. PR 2 is UI + API extension only.
 - A never-scanned client with **no domains** shows a disabled Run audit button with the documented tooltip; clicking does nothing. The client name link still leads to `/clients`.
 - A user-applied search filter and sort on the Clients view survive the 30s background poll — list does not visually reset or jump.
 - If a deletion changes the row count so the current Recents page is out of range, the UI auto-falls back to the last valid page rather than showing an empty container.
+- Typing in the Clients search input remains responsive (no perceptible keystroke lag); URL `clientsSearch` param updates 300ms after the user stops typing, not per-keystroke.
+- The 50% dim loading state appears ONLY on user-initiated page change. Background poll refreshes are visually silent.
+- Initial fetch failures render an inline `"Failed to load … [Retry]"` UI inside each section's container. Polling failures are silent and retain the last good data.
 
 ## Branch ordering and dependency on PR 1
 
