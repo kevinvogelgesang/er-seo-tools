@@ -34,6 +34,17 @@ describe('isPrivateOrInternalAddress', () => {
     expect(isPrivateOrInternalAddress('fd12::1')).toBe(true)
     expect(isPrivateOrInternalAddress('fe80::1')).toBe(true)
   })
+
+  it('blocks IPv6 multicast and reserved ranges', () => {
+    expect(isPrivateOrInternalAddress('ff02::1')).toBe(true)
+    expect(isPrivateOrInternalAddress('ff00::1')).toBe(true)
+    expect(isPrivateOrInternalAddress('100::1')).toBe(true)
+    expect(isPrivateOrInternalAddress('2001:db8::1')).toBe(true)
+  })
+
+  it('allows public IPv6 addresses', () => {
+    expect(isPrivateOrInternalAddress('2606:4700:4700::1111')).toBe(false)
+  })
 })
 
 describe('assertSafeHttpUrl', () => {

@@ -133,7 +133,10 @@ export function isPrivateOrInternalAddress(address: string): boolean {
       lower.startsWith('fe8') ||
       lower.startsWith('fe9') ||
       lower.startsWith('fea') ||
-      lower.startsWith('feb')
+      lower.startsWith('feb') ||
+      lower.startsWith('ff') ||
+      lower.startsWith('100:') ||
+      lower.startsWith('2001:db8')
     )
   }
 
