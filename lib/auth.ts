@@ -13,13 +13,25 @@ export function isAuthBypassedInDev(): boolean {
 }
 
 export function requireAuthConfig(): void {
-  if (process.env.NODE_ENV === 'production' && !isAuthConfigured()) {
-    throw new Error('APP_AUTH_PASSWORD is required in production')
+  if (process.env.NODE_ENV === 'production') {
+    if (!isAuthConfigured()) {
+      throw new Error('APP_AUTH_PASSWORD is required in production')
+    }
+    if (!process.env.APP_AUTH_SECRET) {
+      throw new Error('APP_AUTH_SECRET is required in production')
+    }
   }
 }
 
 function getSigningSecret(): string {
-  return process.env.APP_AUTH_SECRET || process.env.APP_AUTH_PASSWORD || 'dev-auth-secret'
+  const explicit = process.env.APP_AUTH_SECRET
+  if (explicit) return explicit
+  if (process.env.NODE_ENV === 'production') {
+    // Refuse to silently fall back to APP_AUTH_PASSWORD in production: a
+    // leaked password would then also let an attacker forge cookies.
+    throw new Error('APP_AUTH_SECRET is required in production')
+  }
+  return process.env.APP_AUTH_PASSWORD || 'dev-auth-secret'
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {

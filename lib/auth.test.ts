@@ -61,6 +61,22 @@ describe('auth helpers', () => {
     expect(() => requireAuthConfig()).toThrow(/APP_AUTH_PASSWORD/)
   })
 
+  it('requires APP_AUTH_SECRET in production', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.APP_AUTH_PASSWORD = 'correct-password'
+    delete process.env.APP_AUTH_SECRET
+
+    expect(() => requireAuthConfig()).toThrow(/APP_AUTH_SECRET/)
+  })
+
+  it('succeeds when both APP_AUTH_PASSWORD and APP_AUTH_SECRET are set in production', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.APP_AUTH_PASSWORD = 'correct-password'
+    process.env.APP_AUTH_SECRET = 'prod-signing-secret'
+
+    expect(() => requireAuthConfig()).not.toThrow()
+  })
+
   it('normalizes login return paths to same-origin paths only', () => {
     expect(normalizeAuthReturnPath('/clients?tab=active')).toBe('/clients?tab=active')
     expect(normalizeAuthReturnPath('https://evil.test')).toBe('/')
