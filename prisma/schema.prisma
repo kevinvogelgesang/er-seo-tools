@@ -106,10 +106,13 @@ model SiteAudit {
   clientId      Int?
   client        Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   pageAudits    AdaAudit[]
+  batchId       String?
+  batch         AuditBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([status])
   @@index([clientId])
+  @@index([batchId])
 }
 
 model PillarAnalysis {
@@ -159,4 +162,15 @@ model PdfAudit {
   @@index([adaAuditId])
   @@unique([siteAuditId, url])
   @@unique([adaAuditId, url])
+}
+
+model AuditBatch {
+  id         String      @id @default(cuid())
+  startedAt  DateTime    @default(now())
+  closedAt   DateTime?
+  label      String?
+  siteAudits SiteAudit[]
+
+  @@index([closedAt])
+  @@index([startedAt])
 }
