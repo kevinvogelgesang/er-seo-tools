@@ -10,6 +10,8 @@
 
 **Reference spec:** `docs/superpowers/specs/2026-05-13-audit-queue-batches-design.md`
 
+**Local dev DATABASE_URL gotcha:** Prisma resolves SQLite `file:` paths relative to `prisma/schema.prisma`, NOT to the project root. The dev DB lives at `prisma/local-dev.db`, so the correct override is `DATABASE_URL='file:./local-dev.db'` (which resolves to `<repo>/prisma/local-dev.db`). The intuitive-looking `file:./prisma/local-dev.db` resolves to `<repo>/prisma/prisma/local-dev.db` — wrong file. Every CLI snippet in this plan uses the correct form; do not "fix" them.
+
 ---
 
 ## File Structure
@@ -62,7 +64,7 @@ git status
 git log --oneline -3
 ```
 
-Expected: working tree clean apart from session-local junk (`.claude/`, `prisma/local-dev.db*`, `local-uploads/`). Latest commit on main mentions the PDF resilience hotfix (PR #10).
+Expected: working tree clean apart from session-local junk (`.claude/`, `prisma/local-dev.db*`, `local-uploads/`). Main should include the plan commit and the PDF resilience hotfix (PR #10).
 
 - [ ] **Step 2: Create branch**
 
@@ -113,7 +115,7 @@ And add a new index inside the `SiteAudit` `@@index` block:
 - [ ] **Step 2: Generate the migration**
 
 ```bash
-DATABASE_URL='file:./prisma/local-dev.db' npx prisma migrate dev --name add_audit_batches --create-only
+DATABASE_URL='file:./local-dev.db' npx prisma migrate dev --name add_audit_batches --create-only
 ```
 
 `--create-only` writes the SQL but doesn't apply it yet — we need to hand-edit before running.
@@ -136,7 +138,7 @@ CREATE UNIQUE INDEX "audit_batches_one_open"
 - [ ] **Step 4: Apply the migration**
 
 ```bash
-DATABASE_URL='file:./prisma/local-dev.db' npx prisma migrate deploy
+DATABASE_URL='file:./local-dev.db' npx prisma migrate deploy
 ```
 
 Expected: `1 migration applied`, no errors.
@@ -144,7 +146,7 @@ Expected: `1 migration applied`, no errors.
 - [ ] **Step 5: Verify the schema applied**
 
 ```bash
-DATABASE_URL='file:./prisma/local-dev.db' npx tsx -e "
+DATABASE_URL='file:./local-dev.db' npx tsx -e "
 import { prisma } from './lib/db'
 ;(async () => {
   console.log(prisma.auditBatch ? 'AuditBatch OK' : 'missing')
@@ -175,14 +177,29 @@ git commit -m "feat(ada-audit): schema for audit-batches + partial unique open-b
 - Create: `lib/ada-audit/audit-batch-helpers.ts`
 - Create: `lib/ada-audit/audit-batch-helpers.test.ts`
 
-The helpers own two things: closing a drained batch, and resolving a label (DB value or auto-generated from startedAt).
+The helpers own three things: opening (or attaching to) the open batch, closing a drained batch, and resolving a label (DB value or auto-generated from startedAt).
+
+**Test-DB isolation invariant — read first.** The partial unique index `audit_batches_one_open` allows at most one row with `closedAt IS NULL` in `AuditBatch`. Tests that need to *create* an open batch must first ensure no other open batch exists, otherwise Prisma throws P2002. The shared `beforeEach` below closes any pre-existing open batches (a non-destructive UPDATE — the rows survive, they just become eligible as "closed" so the test can create a fresh open one). Every test in this plan that creates an open batch uses this same setup pattern.
 
 - [ ] **Step 1: Write the failing test `audit-batch-helpers.test.ts`**
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
-import { closeBatchIfDrained, resolveBatchLabel } from './audit-batch-helpers'
+import { closeBatchIfDrained, ensureOpenBatch, resolveBatchLabel } from './audit-batch-helpers'
+
+async function clearTestState() {
+  // Test-DB isolation: close any lingering open batches so each test can
+  // create one without hitting the partial unique index. Non-destructive —
+  // we close, not delete.
+  await prisma.auditBatch.updateMany({
+    where: { closedAt: null },
+    data: { closedAt: new Date() },
+  })
+  // Clean test-prefixed rows
+  await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'test-batch-' } } })
+  await prisma.auditBatch.deleteMany({ where: { label: { startsWith: '__test__' } } })
+}
 
 describe('resolveBatchLabel', () => {
   it('returns the stored label when set', () => {
@@ -209,12 +226,7 @@ describe('resolveBatchLabel', () => {
 })
 
 describe('closeBatchIfDrained', () => {
-  beforeEach(async () => {
-    // Clean test data
-    await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://test-batch.example/' } } })
-    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'test-batch-' } } })
-    await prisma.auditBatch.deleteMany({ where: { label: { startsWith: '__test__' } } })
-  })
+  beforeEach(clearTestState)
 
   it('closes the batch when no members are in flight', async () => {
     const batch = await prisma.auditBatch.create({ data: { label: '__test__drained' } })
@@ -261,6 +273,32 @@ describe('closeBatchIfDrained', () => {
     await expect(closeBatchIfDrained('nonexistent-id')).resolves.toBeUndefined()
   })
 })
+
+describe('ensureOpenBatch', () => {
+  beforeEach(clearTestState)
+
+  it('creates a new open batch when none exists', async () => {
+    const id = await ensureOpenBatch()
+    expect(typeof id).toBe('string')
+    const batch = await prisma.auditBatch.findUnique({ where: { id } })
+    expect(batch?.closedAt).toBeNull()
+  })
+
+  it('returns the existing open batch when one exists', async () => {
+    const first = await ensureOpenBatch()
+    const second = await ensureOpenBatch()
+    expect(second).toBe(first)
+  })
+
+  it('opens a new batch after the previous one closes', async () => {
+    const first = await ensureOpenBatch()
+    await prisma.auditBatch.update({ where: { id: first }, data: { closedAt: new Date() } })
+    const second = await ensureOpenBatch()
+    expect(second).not.toBe(first)
+    const batch = await prisma.auditBatch.findUnique({ where: { id: second } })
+    expect(batch?.closedAt).toBeNull()
+  })
+})
 ```
 
 - [ ] **Step 2: Run, verify it fails**
@@ -278,9 +316,14 @@ Expected: FAIL with "Cannot find module './audit-batch-helpers'".
 //
 // Helpers for the AuditBatch lifecycle. The key invariant — "at most one open
 // batch" — is enforced by a SQLite partial unique index on
-// AuditBatch(closedAt IS NULL). This module is the single place that flips a
-// batch from open to closed: callers (queue-manager error path, site-audit-
-// finalizer success path, stale-recovery paths) just hand us the batchId.
+// AuditBatch(closedAt IS NULL). This module owns three operations:
+//
+//  - ensureOpenBatch(): get the open batch id, creating one if none exists.
+//    Race-safe via P2002 retry.
+//  - closeBatchIfDrained(batchId): flip the batch to closed when no member
+//    is still in flight. Idempotent.
+//  - resolveBatchLabel(batch): turn the optional label column into a display
+//    string (auto-generates from startedAt when label is null).
 
 import { prisma } from '@/lib/db'
 
@@ -292,6 +335,34 @@ interface BatchForLabel {
   startedAt: Date
   closedAt: Date | null
   label: string | null
+}
+
+/**
+ * Returns the id of the currently open AuditBatch, creating a new one if
+ * none exists. Race-safe: if two callers observe "no open batch" simultaneously,
+ * the partial unique index `audit_batches_one_open` causes one create() to
+ * succeed; the loser catches P2002 and re-reads.
+ */
+export async function ensureOpenBatch(): Promise<string> {
+  const existing = await prisma.auditBatch.findFirst({
+    where: { closedAt: null },
+    select: { id: true },
+  })
+  if (existing) return existing.id
+
+  try {
+    const created = await prisma.auditBatch.create({ data: {} })
+    return created.id
+  } catch (err) {
+    const code = (err as { code?: string }).code
+    if (code !== 'P2002') throw err
+    const after = await prisma.auditBatch.findFirst({
+      where: { closedAt: null },
+      select: { id: true },
+    })
+    if (!after) throw err  // pathological — P2002 but no open batch visible
+    return after.id
+  }
 }
 
 /**
@@ -340,7 +411,7 @@ export function resolveBatchLabel(batch: BatchForLabel): string {
 npm test -- audit-batch-helpers
 ```
 
-Expected: PASS, 7 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -532,7 +603,15 @@ export async function enqueueAudit(
 }
 ```
 
-- [ ] **Step 2: Replace it with the batch-aware version**
+- [ ] **Step 2: Add the import + replace the function body**
+
+At the top of `lib/ada-audit/queue-manager.ts`, add:
+
+```ts
+import { ensureOpenBatch } from './audit-batch-helpers'
+```
+
+Then replace `enqueueAudit` with:
 
 ```ts
 export async function enqueueAudit(
@@ -541,10 +620,8 @@ export async function enqueueAudit(
   wcagLevel: string,
   preDiscoveredUrls?: string[],
 ): Promise<{ id: string; status: string }> {
-  // Attach to the open batch (or create one). The partial unique index
-  // `audit_batches_one_open` enforces "at most one open batch" at the DB
-  // level — if two enqueue requests race and both observe "no open batch",
-  // exactly one create() will succeed; the other catches P2002 and re-reads.
+  // Attach to the open batch (or create one). `ensureOpenBatch` handles the
+  // race-safe creation via the partial unique index.
   const batchId = await ensureOpenBatch()
 
   const audit = await prisma.siteAudit.create({
@@ -562,34 +639,6 @@ export async function enqueueAudit(
   setTimeout(() => void processNext(), 2000)
   return { id: audit.id, status: 'queued' }
 }
-
-async function ensureOpenBatch(): Promise<string> {
-  // Fast path — open batch already exists.
-  const existing = await prisma.auditBatch.findFirst({
-    where: { closedAt: null },
-    select: { id: true },
-  })
-  if (existing) return existing.id
-
-  // Try to create. P2002 means another request beat us; re-read.
-  try {
-    const created = await prisma.auditBatch.create({ data: {} })
-    return created.id
-  } catch (err) {
-    const code = (err as { code?: string }).code
-    if (code !== 'P2002') throw err
-    const after = await prisma.auditBatch.findFirst({
-      where: { closedAt: null },
-      select: { id: true },
-    })
-    if (!after) {
-      // Pathological: P2002 but no open batch visible. Re-throw to surface
-      // the underlying problem rather than spin.
-      throw err
-    }
-    return after.id
-  }
-}
 ```
 
 - [ ] **Step 3: Run existing tests to verify nothing else broke**
@@ -600,35 +649,13 @@ npm test -- queue-manager
 
 Expected: existing site-audit-helpers + queue-related tests still pass.
 
-- [ ] **Step 4: Smoke test enqueue → batch attachment**
+- [ ] **Step 4: tsc + tests**
 
 ```bash
-DATABASE_URL='file:./prisma/local-dev.db' npx tsx -e "
-import { prisma } from './lib/db'
-import { enqueueAudit } from './lib/ada-audit/queue-manager'
-;(async () => {
-  // Clean up any leftover open batches and stale audits from prior runs
-  await prisma.siteAudit.deleteMany({ where: { domain: 'enqueue-smoke.example' } })
-  await prisma.auditBatch.deleteMany({ where: { closedAt: null } })
-
-  const { id: a1 } = await enqueueAudit('enqueue-smoke.example', null, 'wcag21aa')
-  const audit1 = await prisma.siteAudit.findUnique({ where: { id: a1 } })
-  console.log('audit1.batchId:', audit1?.batchId)
-
-  // Second enqueue should attach to the SAME open batch
-  await prisma.siteAudit.deleteMany({ where: { domain: 'enqueue-smoke.example' } })
-  const { id: a2 } = await enqueueAudit('enqueue-smoke.example', null, 'wcag21aa')
-  const audit2 = await prisma.siteAudit.findUnique({ where: { id: a2 } })
-  console.log('audit2.batchId:', audit2?.batchId, '— matches a1?:', audit1?.batchId === audit2?.batchId)
-
-  // Clean up
-  await prisma.siteAudit.deleteMany({ where: { domain: 'enqueue-smoke.example' } })
-  await prisma.auditBatch.deleteMany({ where: { closedAt: null } })
-})()
-"
+npx tsc --noEmit && npm test -- audit-batch-helpers 2>&1 | tail -8
 ```
 
-Expected: both `batchId` values are the same non-null string. The "matches a1" check prints `true`.
+Expected: type-check clean, 10/10 helper tests pass. (We're trusting the helper-level tests in Task 3 to cover the open-batch attachment logic. We deliberately do NOT smoke-test `enqueueAudit` here because it calls `processNext()` fire-and-forget — running it in a script could kick a real audit worker, launch headless Chrome, and produce noisy/flaky output.)
 
 - [ ] **Step 5: Commit**
 
@@ -855,82 +882,19 @@ git commit -m "feat(ada-audit): close drained batch on runAudit error + stale re
 
 ---
 
-### Task 8: queue-manager.ts test — enqueue attaches to existing/new batch
+### Task 8: (intentionally minimal) — coverage already in Task 3
 
-**Files:**
-- Create: `lib/ada-audit/queue-manager.test.ts` (or extend if it exists)
+The original plan had a `queue-manager.test.ts` integration test for `enqueueAudit`. That call kicks `processNext()` fire-and-forget, which can start real audit work (browser launch + page fetch) during the test run — flaky and slow. The open-batch attachment logic lives in `ensureOpenBatch`, which is fully covered by the Task 3 helper tests. The single line in `enqueueAudit` that calls `ensureOpenBatch` and writes `batchId` is too thin to merit its own integration test.
 
-- [ ] **Step 1: Check if the test file exists**
-
-```bash
-ls lib/ada-audit/queue-manager.test.ts 2>&1
-```
-
-If it exists, append the new `describe('enqueueAudit batch attachment', …)` block. If it doesn't, create with the boilerplate below.
-
-- [ ] **Step 2: Write the test**
-
-```ts
-import { describe, it, expect, beforeEach } from 'vitest'
-import { prisma } from '@/lib/db'
-import { enqueueAudit } from './queue-manager'
-
-describe('enqueueAudit batch attachment', () => {
-  beforeEach(async () => {
-    // Clean prior test rows
-    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'enqtest-' } } })
-    // Clean any orphan open batches from prior runs
-    await prisma.auditBatch.deleteMany({ where: { closedAt: null } })
-  })
-
-  it('creates a new batch when no open batch exists', async () => {
-    const { id } = await enqueueAudit('enqtest-fresh.example', null, 'wcag21aa')
-    const audit = await prisma.siteAudit.findUniqueOrThrow({ where: { id } })
-    expect(audit.batchId).not.toBeNull()
-    const batch = await prisma.auditBatch.findUniqueOrThrow({ where: { id: audit.batchId! } })
-    expect(batch.closedAt).toBeNull()
-  })
-
-  it('attaches a second enqueue to the same open batch', async () => {
-    const a = await enqueueAudit('enqtest-a.example', null, 'wcag21aa')
-    const b = await enqueueAudit('enqtest-b.example', null, 'wcag21aa')
-    const aRow = await prisma.siteAudit.findUniqueOrThrow({ where: { id: a.id } })
-    const bRow = await prisma.siteAudit.findUniqueOrThrow({ where: { id: b.id } })
-    expect(aRow.batchId).toBe(bRow.batchId)
-    expect(aRow.batchId).not.toBeNull()
-  })
-
-  it('opens a new batch after the previous one closes', async () => {
-    const a = await enqueueAudit('enqtest-c.example', null, 'wcag21aa')
-    const aRow = await prisma.siteAudit.findUniqueOrThrow({ where: { id: a.id } })
-    // Simulate batch closing
-    await prisma.auditBatch.update({
-      where: { id: aRow.batchId! },
-      data: { closedAt: new Date() },
-    })
-    const b = await enqueueAudit('enqtest-d.example', null, 'wcag21aa')
-    const bRow = await prisma.siteAudit.findUniqueOrThrow({ where: { id: b.id } })
-    expect(bRow.batchId).not.toBe(aRow.batchId)
-    const bBatch = await prisma.auditBatch.findUniqueOrThrow({ where: { id: bRow.batchId! } })
-    expect(bBatch.closedAt).toBeNull()
-  })
-})
-```
-
-- [ ] **Step 3: Run, verify pass**
+- [ ] **Step 1: No-op task — sanity-check that helper tests + Task 5 changes still pass**
 
 ```bash
-npm test -- queue-manager
+npx tsc --noEmit && npm test -- audit-batch-helpers 2>&1 | tail -5
 ```
 
-Expected: PASS, 3 new tests (plus any existing).
+Expected: tsc clean, 10/10 pass.
 
-- [ ] **Step 4: Commit**
-
-```bash
-git add lib/ada-audit/queue-manager.test.ts
-git commit -m "test(ada-audit): enqueue attaches to or creates open batch"
-```
+- [ ] **Step 2: No commit needed** — Task 5 already committed.
 
 ---
 
@@ -983,10 +947,13 @@ export interface AuditBatchDetail {
 // `batch` describes the currently open batch (null when queue is drained).
 // `clientId` on each active/queued row lets the Clients section drive
 // in-flight chips by client id rather than fragile domain string compare.
+// `status` on the active row lets consumers distinguish `running` from
+// `pdfs-running` (so the chip can read "Running" vs "Scanning PDFs").
 export interface QueueStatusWithBatch {
   active: {
     id: string
     domain: string
+    status: string             // running | pdfs-running | pending
     pagesTotal: number
     pagesComplete: number
     pagesError: number
@@ -1042,7 +1009,8 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
   const active = await prisma.siteAudit.findFirst({
     where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
     select: {
-      id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true,
+      id: true, domain: true, status: true,
+      pagesTotal: true, pagesComplete: true, pagesError: true,
       clientId: true,
     },
     orderBy: { createdAt: 'asc' },
@@ -1060,7 +1028,17 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
   })
 
   return {
-    active: active ? { ...active, clientId: active.clientId ?? null } : null,
+    active: active
+      ? {
+          id: active.id,
+          domain: active.domain,
+          status: active.status,
+          pagesTotal: active.pagesTotal,
+          pagesComplete: active.pagesComplete,
+          pagesError: active.pagesError,
+          clientId: active.clientId ?? null,
+        }
+      : null,
     queued: queuedRows.map((q, i) => ({
       id: q.id,
       domain: q.domain,
@@ -1099,7 +1077,7 @@ Expected: no errors.
 - [ ] **Step 3: Smoke test the endpoint shape**
 
 ```bash
-DATABASE_URL='file:./prisma/local-dev.db' npx tsx -e "
+DATABASE_URL='file:./local-dev.db' npx tsx -e "
 import { getQueueStatus } from './lib/ada-audit/queue-manager'
 ;(async () => {
   const s = await getQueueStatus()
@@ -1139,6 +1117,12 @@ function req(url: string): NextRequest {
 
 describe('GET /api/audit-batches', () => {
   beforeEach(async () => {
+    // Close any pre-existing open batch so our tests can create open rows
+    // without hitting the partial unique index.
+    await prisma.auditBatch.updateMany({
+      where: { closedAt: null },
+      data: { closedAt: new Date() },
+    })
     await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://abtest-' } } })
     await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'abtest-' } } })
     await prisma.auditBatch.deleteMany({ where: { label: { startsWith: '__abtest__' } } })
@@ -1298,6 +1282,10 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
 describe('GET /api/audit-batches/[id]', () => {
   beforeEach(async () => {
+    await prisma.auditBatch.updateMany({
+      where: { closedAt: null },
+      data: { closedAt: new Date() },
+    })
     await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'abd-' } } })
     await prisma.auditBatch.deleteMany({ where: { label: { startsWith: '__abd__' } } })
   })
@@ -1340,6 +1328,10 @@ describe('GET /api/audit-batches/[id]', () => {
 
 describe('PATCH /api/audit-batches/[id]', () => {
   beforeEach(async () => {
+    await prisma.auditBatch.updateMany({
+      where: { closedAt: null },
+      data: { closedAt: new Date() },
+    })
     await prisma.auditBatch.deleteMany({ where: { label: { startsWith: '__abp__' } } })
   })
 
@@ -1631,7 +1623,7 @@ Expected: tsc clean, all tests pass (including the new queue-request tests).
 - [ ] **Step 4: Smoke test the POST**
 
 ```bash
-DATABASE_URL='file:./prisma/local-dev.db' npx tsx -e "
+DATABASE_URL='file:./local-dev.db' npx tsx -e "
 import { POST } from './app/api/site-audit/route'
 import { NextRequest } from 'next/server'
 
@@ -1672,69 +1664,101 @@ git commit -m "refactor(ada-audit): POST /api/site-audit uses queueSiteAuditRequ
 - Create: `app/api/site-audit/bulk-queue/route.ts`
 - Create: `app/api/site-audit/bulk-queue/route.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test (Prisma-mocked)**
+
+`bulk-queue` fetches every client in the DB. Real dev/test DBs have unrelated clients, so we can't reliably control the input set with a prefix-cleanup strategy alone — and we can't blow away real clients. The route is thin enough to mock `prisma.client.findMany` at the test level and rely on the Task 4 helper tests (`queueSiteAuditRequest`) for the actual queueing logic. We only verify the bulk-queue route's two unique responsibilities:
+
+1. The fail-loud branch when any client has no domain (no audits queued, 400 with the offending list).
+2. The duplicate-skipping branch (helper returns `duplicate` → row in `skipped`).
 
 ```ts
-import { describe, it, expect, beforeEach } from 'vitest'
-import { prisma } from '@/lib/db'
-import { POST } from './route'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-const req = (body: unknown = {}) =>
-  new NextRequest('http://localhost/api/site-audit/bulk-queue', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+const req = () =>
+  new NextRequest('http://localhost/api/site-audit/bulk-queue', { method: 'POST' })
 
-async function deleteByPrefix(prefix: string) {
-  await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: prefix } } })
-  const clients = await prisma.client.findMany({ where: { name: { startsWith: prefix } }, select: { id: true } })
-  if (clients.length) await prisma.client.deleteMany({ where: { id: { in: clients.map((c) => c.id) } } })
-}
+// Mock prisma.client.findMany so the route operates on a known seed set.
+// Mock queueSiteAuditRequest so we don't touch the real queue.
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    client: { findMany: vi.fn() },
+  },
+}))
+vi.mock('@/lib/ada-audit/queue-request', () => ({
+  queueSiteAuditRequest: vi.fn(),
+}))
+
+const { prisma } = await import('@/lib/db')
+const { queueSiteAuditRequest } = await import('@/lib/ada-audit/queue-request')
+const { POST } = await import('./route')
+
+beforeEach(() => {
+  vi.mocked(prisma.client.findMany).mockReset()
+  vi.mocked(queueSiteAuditRequest).mockReset()
+})
 
 describe('POST /api/site-audit/bulk-queue', () => {
-  beforeEach(async () => {
-    await deleteByPrefix('bq-test-')
-    // Also nuke any non-test clients we might create — but only by our prefix
-  })
-
   it('returns 400 missing_domains when at least one client has no domain', async () => {
-    await prisma.client.create({ data: { name: 'bq-test-with', domains: JSON.stringify(['bq-test-with.example']) } })
-    await prisma.client.create({ data: { name: 'bq-test-without' /* domains defaults to "[]" */ } })
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'With Domain', domains: JSON.stringify(['ok.example']) },
+      { id: 2, name: 'No Domain', domains: '[]' },
+    ] as never)
 
-    const res = await POST(req())
+    const res = await POST()
     expect(res.status).toBe(400)
     const json = await res.json() as { error: string; clientsWithoutDomains: { id: number; name: string }[] }
     expect(json.error).toBe('missing_domains')
-    expect(json.clientsWithoutDomains.map((c) => c.name)).toContain('bq-test-without')
+    expect(json.clientsWithoutDomains.map((c) => c.name)).toEqual(['No Domain'])
+    // Pre-check failure → no queue attempts
+    expect(queueSiteAuditRequest).not.toHaveBeenCalled()
   })
 
-  it('queues all clients when all have domains, returns queued list', async () => {
-    await prisma.client.create({ data: { name: 'bq-test-a', domains: JSON.stringify(['bq-test-a.example']) } })
-    await prisma.client.create({ data: { name: 'bq-test-b', domains: JSON.stringify(['bq-test-b.example']) } })
+  it('queues all clients when all have domains', async () => {
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
+      { id: 2, name: 'B', domains: JSON.stringify(['b.example']) },
+    ] as never)
+    vi.mocked(queueSiteAuditRequest)
+      .mockResolvedValueOnce({ kind: 'queued', id: 'audit-1' })
+      .mockResolvedValueOnce({ kind: 'queued', id: 'audit-2' })
 
-    const res = await POST(req())
+    const res = await POST()
     expect(res.status).toBe(200)
-    const json = await res.json() as { queued: { clientId: number; auditId: string }[]; skipped: { clientId: number; reason: string }[] }
-    expect(json.queued.length).toBe(2)
-    expect(json.skipped.length).toBe(0)
+    const json = await res.json() as { queued: { clientId: number; auditId: string }[]; skipped: unknown[] }
+    expect(json.queued).toEqual([
+      { clientId: 1, auditId: 'audit-1' },
+      { clientId: 2, auditId: 'audit-2' },
+    ])
+    expect(json.skipped).toEqual([])
   })
 
   it('marks duplicates as skipped without failing the whole batch', async () => {
-    const c = await prisma.client.create({ data: { name: 'bq-test-dup', domains: JSON.stringify(['bq-test-dup.example']) } })
-    // Pre-seed an in-flight audit for that domain
-    await prisma.siteAudit.create({
-      data: { domain: 'bq-test-dup.example', status: 'queued', wcagLevel: 'wcag21aa', clientId: c.id },
-    })
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'Dup', domains: JSON.stringify(['dup.example']) },
+      { id: 2, name: 'Fresh', domains: JSON.stringify(['fresh.example']) },
+    ] as never)
+    vi.mocked(queueSiteAuditRequest)
+      .mockResolvedValueOnce({ kind: 'duplicate', existingId: 'existing-audit-id' })
+      .mockResolvedValueOnce({ kind: 'queued', id: 'audit-2' })
 
-    const res = await POST(req())
+    const res = await POST()
     expect(res.status).toBe(200)
-    const json = await res.json() as { queued: unknown[]; skipped: { clientId: number; reason: string }[] }
-    expect(json.queued.length).toBe(0)
+    const json = await res.json() as { queued: { clientId: number; auditId: string }[]; skipped: { clientId: number; reason: string }[] }
+    expect(json.queued).toEqual([{ clientId: 2, auditId: 'audit-2' }])
     expect(json.skipped).toEqual([
-      expect.objectContaining({ clientId: c.id, reason: expect.stringContaining('already') }),
+      expect.objectContaining({ clientId: 1, reason: expect.stringContaining('already') }),
     ])
+  })
+
+  it('treats clients with whitespace-only domain entries as missing-domain', async () => {
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'Whitespace', domains: JSON.stringify(['   ', '']) },
+    ] as never)
+    const res = await POST()
+    expect(res.status).toBe(400)
+    const json = await res.json() as { clientsWithoutDomains: { id: number }[] }
+    expect(json.clientsWithoutDomains.map((c) => c.id)).toEqual([1])
   })
 })
 ```
@@ -1822,7 +1846,7 @@ export async function POST() {
 npm test -- 'app/api/site-audit/bulk-queue'
 ```
 
-Expected: PASS, 3 tests.
+Expected: PASS, 4 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2044,26 +2068,19 @@ useEffect(() => {
   return () => clearInterval(id)
 }, [])
 
-// Build a clientId -> status map for chip lookup
+// Build a clientId -> status map for chip lookup. The active row carries the
+// literal SiteAudit.status (running | pdfs-running | pending) — the chip
+// renders the matching label.
 const inFlightByClient = useMemo(() => {
   const map = new Map<number, string>()
-  if (queueStatus?.active?.clientId != null) {
-    // Translate 'pdfs-running' / 'running' into a label-friendly string later
-    map.set(queueStatus.active.clientId, queueStatus.active.id ? statusForActive(queueStatus.active) : 'running')
+  if (queueStatus?.active && queueStatus.active.clientId != null) {
+    map.set(queueStatus.active.clientId, queueStatus.active.status)
   }
   for (const q of queueStatus?.queued ?? []) {
     if (q.clientId != null) map.set(q.clientId, 'queued')
   }
   return map
 }, [queueStatus])
-
-function statusForActive(active: NonNullable<QueueStatusWithBatch['active']>): string {
-  // The queue endpoint doesn't carry the literal SiteAudit.status for the
-  // active row, so we can't distinguish running vs pdfs-running here.
-  // Default to 'running' — the Active tab on /ada-audit/queue is where you
-  // see the finer detail.
-  return 'running'
-}
 ```
 
 - [ ] **Step 2: Add the `ChipForStatus` helper (top of file, near `ScoreBadge`)**
@@ -2476,9 +2493,11 @@ export default function QueuePageTabs() {
 }
 ```
 
-- [ ] **Step 3: Commit (placeholder — components don't exist yet, TS will error)**
+- [ ] **Step 3: DO NOT COMMIT YET**
 
-We'll commit at the end of Task 22 when both child views exist.
+`QueuePageTabs.tsx` imports `QueueActiveView` and `QueueHistoryView`, which don't exist until Task 22. `npx tsc --noEmit` will fail on those imports. **Skip the commit at the end of this task** — Tasks 21 and 22 add the missing components and the single Task-22 commit covers all three files together.
+
+If you want to spot-check progress between tasks, you can run `npx tsc --noEmit lib/ada-audit/types.ts components/ada-audit/QueuePageTabs.tsx 2>&1` to verify the new file itself is syntactically valid in isolation — but don't add it to the index.
 
 ---
 
@@ -2759,7 +2778,20 @@ export default function QueueBatchRow({ batch }: { batch: AuditBatchSummary }) {
         setSaveError(body.error ?? `HTTP ${res.status}`)
         return
       }
-      setLabelDisplay(next === '' ? labelDisplay : next)
+      if (next === '') {
+        // User cleared the label. The server now resolves it back to the
+        // auto-label, so re-fetch the batch detail to get the resolved
+        // display string. Falling back to "Batch — startedAt" client-side
+        // would duplicate resolveBatchLabel() formatting and risk drift.
+        const refreshed = await fetch(`/api/audit-batches/${batch.id}`)
+        if (refreshed.ok) {
+          const refreshedJson = await refreshed.json() as { label: string }
+          setLabelDisplay(refreshedJson.label)
+          setLabelDraft(refreshedJson.label)
+        }
+      } else {
+        setLabelDisplay(next)
+      }
       setEditing(false)
     } catch (e) {
       setSaveError((e as Error).message)
