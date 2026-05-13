@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Spinner } from '@/components/Spinner'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 
 interface Client {
@@ -18,9 +18,23 @@ interface QueueStatus {
 
 export default function SiteAuditForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [domain, setDomain] = useState('')
   const [domainTouched, setDomainTouched] = useState(false)
+
+  // Prefill from `?prefillDomain=` on mount (e.g., from the Clients section's
+  // "Run audit" link). Only on mount — subsequent param changes are
+  // user-driven via the form itself.
+  useEffect(() => {
+    const prefill = searchParams.get('prefillDomain')
+    if (prefill && !domain) {
+      setDomain(prefill)
+      setDomainTouched(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [clients, setClients] = useState<Client[]>([])
   const [clientsLoading, setClientsLoading] = useState(true)
