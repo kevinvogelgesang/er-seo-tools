@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { Spinner } from '@/components/Spinner'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
@@ -84,14 +85,21 @@ export default function SiteAuditForm() {
   function selectClient(client: Client | null) {
     setSelectedClient(client)
     setOpen(false)
-    if (client) {
-      setQuery(client.name)
-      if (client.domains.length > 0) {
-        setDomain(client.domains[0].replace(/^https?:\/\//i, '').replace(/\/.*$/, ''))
-        setDomainTouched(false)
-      }
-    } else {
+    if (!client) {
       setQuery('')
+      return
+    }
+
+    setQuery(client.name)
+    if (client.domains.length > 0) {
+      setDomain(client.domains[0].replace(/^https?:\/\//i, '').replace(/\/.*$/, ''))
+      setDomainTouched(false)
+    } else {
+      // Picking a client with no domain shouldn't leave the previous client's
+      // domain sitting in the input. Clear it; the no-domain hint guides the
+      // user to /clients to fix it.
+      setDomain('')
+      setDomainTouched(false)
     }
   }
 
@@ -258,6 +266,12 @@ export default function SiteAuditForm() {
           disabled={isBusy}
           className="w-full px-3.5 py-2.5 text-[14px] font-body text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors"
         />
+        {selectedClient && selectedClient.domains.length === 0 && (
+          <p className="mt-1.5 text-[12px] font-body text-amber-700 dark:text-amber-400">
+            This client has no domain configured.{' '}
+            <Link href="/clients" className="text-orange hover:underline">Add one →</Link>
+          </p>
+        )}
         <p className="text-[11px] font-body text-navy/40 dark:text-white/40 mt-1.5">
           We&apos;ll discover all pages from the sitemap and audit each one.
         </p>
