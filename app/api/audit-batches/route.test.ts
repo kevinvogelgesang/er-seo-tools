@@ -31,8 +31,10 @@ describe('GET /api/audit-batches', () => {
   })
 
   it('orders closed batches newest first by closedAt', async () => {
-    const older = new Date('2026-05-12T00:00:00Z')
-    const newer = new Date('2026-05-13T00:00:00Z')
+    // Use far-future closedAt so these seeds stay at the top of page 1
+    // regardless of how many other closed batches exist in the dev DB.
+    const older = new Date('9999-01-01T00:00:00Z')
+    const newer = new Date('9999-01-02T00:00:00Z')
     await prisma.auditBatch.create({ data: { label: '__abtest__older', closedAt: older, startedAt: older } })
     await prisma.auditBatch.create({ data: { label: '__abtest__newer', closedAt: newer, startedAt: newer } })
 
