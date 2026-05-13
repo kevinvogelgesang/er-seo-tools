@@ -434,31 +434,50 @@ The existing `POST /api/site-audit` route has domain normalization + the in-flig
 
 - [ ] **Step 1: Write the failing test**
 
+The helper composes three concerns: validation/normalization (pure), the duplicate guard (one `prisma.siteAudit.findFirst` against the dev DB), and a tail call to `enqueueAudit`. We mock `enqueueAudit` so the test never reaches `processNext()` (no fire-and-forget queue work) and never creates an `AuditBatch` row (no isolation rule needed). Duplicate-guard tests still seed real `SiteAudit` rows because that path doesn't reach the mocked tail.
+
 ```ts
-import { describe, it, expect, beforeEach } from 'vitest'
-import { prisma } from '@/lib/db'
-import { queueSiteAuditRequest } from './queue-request'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+// Mock enqueueAudit so success-path tests don't fire processNext() or
+// create an open AuditBatch row in the dev DB.
+vi.mock('@/lib/ada-audit/queue-manager', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/ada-audit/queue-manager')>('@/lib/ada-audit/queue-manager')
+  return {
+    ...actual,
+    enqueueAudit: vi.fn(async () => ({ id: 'mock-audit-id', status: 'queued' as const })),
+  }
+})
+
+const { prisma } = await import('@/lib/db')
+const queueManager = await import('@/lib/ada-audit/queue-manager')
+const { queueSiteAuditRequest } = await import('./queue-request')
 
 describe('queueSiteAuditRequest', () => {
   beforeEach(async () => {
-    await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://qr-test.example' } } })
-    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'qr-test' } } })
+    vi.mocked(queueManager.enqueueAudit).mockClear()
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'qr-test-' } } })
   })
 
   it('returns invalid for empty domain', async () => {
     const r = await queueSiteAuditRequest({ domain: '', clientId: null, wcagLevel: 'wcag21aa' })
     expect(r).toEqual({ kind: 'invalid', reason: expect.stringContaining('domain') })
+    expect(queueManager.enqueueAudit).not.toHaveBeenCalled()
   })
 
   it('returns invalid for malformed domain', async () => {
     const r = await queueSiteAuditRequest({ domain: 'not a domain!', clientId: null, wcagLevel: 'wcag21aa' })
     expect(r.kind).toBe('invalid')
+    expect(queueManager.enqueueAudit).not.toHaveBeenCalled()
   })
 
-  it('returns queued with an id on success', async () => {
-    const r = await queueSiteAuditRequest({ domain: 'qr-test-fresh.example', clientId: null, wcagLevel: 'wcag21aa' })
-    expect(r.kind).toBe('queued')
-    if (r.kind === 'queued') expect(typeof r.id).toBe('string')
+  it('returns queued with the mocked enqueue id on success', async () => {
+    const r = await queueSiteAuditRequest({ domain: 'qr-test-fresh.example', clientId: 42, wcagLevel: 'wcag21aa' })
+    expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
+    expect(queueManager.enqueueAudit).toHaveBeenCalledTimes(1)
+    expect(queueManager.enqueueAudit).toHaveBeenCalledWith(
+      'qr-test-fresh.example', 42, 'wcag21aa', undefined,
+    )
   })
 
   it('returns duplicate when a site audit for the domain is already queued', async () => {
@@ -467,6 +486,7 @@ describe('queueSiteAuditRequest', () => {
     })
     const r = await queueSiteAuditRequest({ domain: 'qr-test-dup.example', clientId: null, wcagLevel: 'wcag21aa' })
     expect(r).toEqual({ kind: 'duplicate', existingId: seeded.id })
+    expect(queueManager.enqueueAudit).not.toHaveBeenCalled()
   })
 
   it('treats pdfs-running as in-flight for the duplicate guard', async () => {
@@ -475,13 +495,19 @@ describe('queueSiteAuditRequest', () => {
     })
     const r = await queueSiteAuditRequest({ domain: 'qr-test-pdfs.example', clientId: null, wcagLevel: 'wcag21aa' })
     expect(r).toEqual({ kind: 'duplicate', existingId: seeded.id })
+    expect(queueManager.enqueueAudit).not.toHaveBeenCalled()
   })
 
-  it('normalizes domain (strips scheme/path, lowercases)', async () => {
-    const r = await queueSiteAuditRequest({ domain: 'HTTPS://QR-Test-Norm.Example/some/path', clientId: null, wcagLevel: 'wcag21aa' })
+  it('normalizes domain before forwarding to enqueueAudit (strips scheme/path, lowercases)', async () => {
+    const r = await queueSiteAuditRequest({
+      domain: 'HTTPS://QR-Test-Norm.Example/some/path',
+      clientId: null,
+      wcagLevel: 'wcag21aa',
+    })
     expect(r.kind).toBe('queued')
-    const created = await prisma.siteAudit.findFirst({ where: { domain: 'qr-test-norm.example' } })
-    expect(created).not.toBeNull()
+    expect(queueManager.enqueueAudit).toHaveBeenCalledWith(
+      'qr-test-norm.example', null, 'wcag21aa', undefined,
+    )
   })
 })
 ```
@@ -1620,34 +1646,15 @@ npx tsc --noEmit && npm test 2>&1 | tail -5
 
 Expected: tsc clean, all tests pass (including the new queue-request tests).
 
-- [ ] **Step 4: Smoke test the POST**
+- [ ] **Step 4: No live smoke test here**
+
+POSTing a "valid" payload like `post-smoke.example` would enqueue a real audit and kick `processNext()` — launching headless Chrome, attempting to fetch the fake domain, then erroring it out. Noisy and side-effect-heavy. Trust the queue-request tests (Task 4) for behavior and rely on the integration manual sweep in Task 23 for the live happy-path check. Just verify type-check again:
 
 ```bash
-DATABASE_URL='file:./local-dev.db' npx tsx -e "
-import { POST } from './app/api/site-audit/route'
-import { NextRequest } from 'next/server'
-
-;(async () => {
-  // Valid
-  const a = await POST(new NextRequest('http://localhost/api/site-audit', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ domain: 'post-smoke.example' }),
-  }))
-  console.log('valid:', a.status, await a.json())
-
-  // Bad domain
-  const b = await POST(new NextRequest('http://localhost/api/site-audit', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ domain: 'not a domain' }),
-  }))
-  console.log('bad:  ', b.status, await b.json())
-})()
-"
+npx tsc --noEmit
 ```
 
-Expected: first call returns 202 with `{ id, status: 'queued' }`. Second returns 400 with an error message.
+Expected: clean.
 
 - [ ] **Step 5: Commit**
 
