@@ -1,6 +1,8 @@
 // Shared TypeScript interfaces for the ADA/WCAG accessibility audit tool.
 // These mirror axe-core's result shapes, narrowed to what we actually use.
 
+import type { LighthouseSummary } from './lighthouse-types'
+
 export type ImpactLevel = 'critical' | 'serious' | 'moderate' | 'minor'
 
 export interface AxeNode {
@@ -77,6 +79,13 @@ export interface AuditDetail {
 
 // ─── Site audit types ─────────────────────────────────────────────────────────
 
+export interface SitePagePdfState {
+  total: number      // PdfAudit rows attached to this page
+  complete: number   // status === 'complete'
+  errored: number    // status === 'error'
+  withIssues: number // complete + issues.length > 0
+}
+
 /** Per-page summary row inside SiteAuditSummary.pages */
 export interface SitePageResult {
   adaAuditId: string
@@ -84,11 +93,21 @@ export interface SitePageResult {
   status: 'complete' | 'error'
   error: string | null
   scorecard: AuditScorecard | null
+  lighthouse: LighthouseSummary | null   // null if LH disabled / errored for this page
+  pdfs: SitePagePdfState                  // zero-valued when no PDFs harvested
 }
 
-/** Stored in SiteAudit.summary — computed once when all pages finish */
+export interface SiteAuditPdfAggregate {
+  total: number
+  complete: number
+  errored: number
+  withIssues: number
+}
+
+/** Stored in SiteAudit.summary — computed once when all pages + PDFs finish */
 export interface SiteAuditSummary {
   aggregate: AuditScorecard
+  pdfsAggregate: SiteAuditPdfAggregate
   pages: SitePageResult[]  // sorted by scorecard.total descending
 }
 

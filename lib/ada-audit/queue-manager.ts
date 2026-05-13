@@ -52,7 +52,15 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
 
     const children = await prisma.adaAudit.findMany({
       where: { siteAuditId: id },
-      select: { id: true, url: true, status: true, error: true, result: true },
+      select: {
+        id: true,
+        url: true,
+        status: true,
+        error: true,
+        result: true,
+        lighthouseSummary: true,
+        pdfAudits: { select: { status: true, issues: true } },
+      },
     })
     const summary = buildSiteAuditSummary(children)
 

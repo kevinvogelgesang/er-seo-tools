@@ -68,6 +68,8 @@ describe('buildSiteAuditSummary', () => {
           passes: [{ id: 'p1' }],
           incomplete: [],
         }),
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
       {
         id: 'a2',
@@ -75,6 +77,8 @@ describe('buildSiteAuditSummary', () => {
         status: 'error',
         error: 'Timeout',
         result: null,
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
     ]
     const summary = buildSiteAuditSummary(children)
@@ -104,6 +108,8 @@ describe('buildSiteAuditSummary', () => {
           passes: [],
           incomplete: [],
         }),
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
       {
         id: 'err',
@@ -111,6 +117,8 @@ describe('buildSiteAuditSummary', () => {
         status: 'error',
         error: 'Failed',
         result: null,
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
       {
         id: 'high',
@@ -126,6 +134,8 @@ describe('buildSiteAuditSummary', () => {
           passes: [],
           incomplete: [],
         }),
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
     ]
     const summary = buildSiteAuditSummary(children)
@@ -144,6 +154,8 @@ describe('buildSiteAuditSummary', () => {
           passes: [{ id: 'p1' }, { id: 'p2' }],
           incomplete: [{ id: 'i1' }],
         }),
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
       {
         id: 'a2',
@@ -155,6 +167,8 @@ describe('buildSiteAuditSummary', () => {
           passes: [{ id: 'p3' }],
           incomplete: [],
         }),
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
       {
         id: 'a3',
@@ -162,6 +176,8 @@ describe('buildSiteAuditSummary', () => {
         status: 'error',
         error: 'Network error',
         result: null,
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
     ]
     const summary = buildSiteAuditSummary(children)
@@ -179,6 +195,8 @@ describe('buildSiteAuditSummary', () => {
         status: 'complete',
         error: null,
         result: '<<<not json>>>',
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
     ]
     const summary = buildSiteAuditSummary(children)
@@ -194,6 +212,8 @@ describe('buildSiteAuditSummary', () => {
         status: 'complete',
         error: null,
         result: null,
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
     ]
     const summary = buildSiteAuditSummary(children)
@@ -209,6 +229,8 @@ describe('buildSiteAuditSummary', () => {
         status: 'complete',
         error: null,
         result: JSON.stringify({ passes: [{ id: 'p1' }], incomplete: [] }),
+        lighthouseSummary: null,
+        pdfAudits: [],
       },
     ]
     const summary = buildSiteAuditSummary(children)
@@ -216,6 +238,49 @@ describe('buildSiteAuditSummary', () => {
       critical: 0, serious: 0, moderate: 0, minor: 0,
       total: 0, passed: 1, incomplete: 0,
     })
+  })
+
+  it('aggregates PDF state per page and across the site', () => {
+    const children = [
+      {
+        id: 'p1',
+        url: 'https://example.com/policies',
+        status: 'complete',
+        error: null,
+        result: JSON.stringify({ violations: [{ impact: 'minor' }], passes: [], incomplete: [] }),
+        lighthouseSummary: JSON.stringify({
+          scores: { performance: 80, accessibility: 90, bestPractices: 85 },
+          cwv: { lcp: 2000, cls: 0.05, tbt: 100, lcpStatus: 'pass', clsStatus: 'pass', tbtStatus: 'pass' },
+          topFailures: [],
+        }),
+        pdfAudits: [
+          { status: 'complete', issues: JSON.stringify([{ code: 'not-tagged', severity: 'high', title: 'X', description: 'Y', remediation: 'Z' }]) },
+          { status: 'complete', issues: JSON.stringify([]) },
+          { status: 'error', issues: null },
+        ],
+      },
+      {
+        id: 'p2',
+        url: 'https://example.com/broken',
+        status: 'error',
+        error: 'Network error',
+        result: null,
+        lighthouseSummary: null,
+        pdfAudits: [],
+      },
+    ]
+
+    const summary = buildSiteAuditSummary(children)
+
+    expect(summary.pdfsAggregate).toEqual({ total: 3, complete: 2, errored: 1, withIssues: 1 })
+
+    const p1 = summary.pages.find((p) => p.adaAuditId === 'p1')!
+    expect(p1.pdfs).toEqual({ total: 3, complete: 2, errored: 1, withIssues: 1 })
+    expect(p1.lighthouse?.scores.performance).toBe(80)
+
+    const p2 = summary.pages.find((p) => p.adaAuditId === 'p2')!
+    expect(p2.pdfs).toEqual({ total: 0, complete: 0, errored: 0, withIssues: 0 })
+    expect(p2.lighthouse).toBeNull()
   })
 })
 
