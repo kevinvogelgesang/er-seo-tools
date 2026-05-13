@@ -19,11 +19,16 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
  */
 export async function initPragmas(): Promise<void> {
   if (globalForPrisma.prismaInitDone) return;
-  await prisma.$executeRawUnsafe('PRAGMA journal_mode = WAL');
-  await prisma.$executeRawUnsafe('PRAGMA synchronous = NORMAL');
-  await prisma.$executeRawUnsafe('PRAGMA cache_size = -20000');
-  await prisma.$executeRawUnsafe('PRAGMA busy_timeout = 5000');
-  await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON');
-  await prisma.$executeRawUnsafe('PRAGMA temp_store = MEMORY');
+  // Use $queryRawUnsafe rather than $executeRawUnsafe — several PRAGMAs return
+  // a row when applied to a fresh DB (e.g. `PRAGMA journal_mode = WAL` returns
+  // the new mode as `wal`). Prisma's $executeRaw* rejects any returned rows
+  // with "Execute returned results, which is not allowed in SQLite".
+  // $queryRawUnsafe handles both cases (rows or none).
+  await prisma.$queryRawUnsafe('PRAGMA journal_mode = WAL');
+  await prisma.$queryRawUnsafe('PRAGMA synchronous = NORMAL');
+  await prisma.$queryRawUnsafe('PRAGMA cache_size = -20000');
+  await prisma.$queryRawUnsafe('PRAGMA busy_timeout = 5000');
+  await prisma.$queryRawUnsafe('PRAGMA foreign_keys = ON');
+  await prisma.$queryRawUnsafe('PRAGMA temp_store = MEMORY');
   globalForPrisma.prismaInitDone = true;
 }
