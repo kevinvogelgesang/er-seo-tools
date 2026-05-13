@@ -61,7 +61,15 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
           // attributed to whichever page first discovered it (per-page
           // summary.pages[i].pdfs counts), while still deduping site-wide
           // via @@unique([siteAuditId, url]).
-          void dispatchPdfScans({
+          //
+          // AWAITED on purpose: dispatchPdfScans returns after it has
+          // inserted PdfAudit rows and incremented SiteAudit.pdfsTotal. It
+          // does NOT wait for actual scans — those run via withPdfSlot()
+          // fire-and-forget inside dispatchPdfScans. Awaiting here closes a
+          // race where the page-complete check below could observe
+          // pdfsTotal=0 and finalize the audit before any PdfAudit rows
+          // landed.
+          await dispatchPdfScans({
             urls: harvestedPdfUrls,
             siteAuditId: id,
             adaAuditId: child.id,
@@ -122,7 +130,9 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
  * scanning (status = pdfs-running). The "active?" check below treats
  * pdfs-running as still holding the queue slot, so a subsequent processNext()
  * invocation bails. The post-PDF-settle path in pdf-orchestrator calls
- * finalizeSiteAudit, which re-kicks processNext() when truly done.
+ * finalizeSiteAudit and then kicks processNext() itself once truly done
+ * (finalizer is a leaf module with no queue-manager import — keeps the
+ * dependency graph acyclic).
  */
 export async function processNext() {
   if (processing) return

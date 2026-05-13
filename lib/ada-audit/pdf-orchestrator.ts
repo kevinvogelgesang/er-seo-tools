@@ -133,6 +133,11 @@ export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId }: Dispat
                   (e as Error).message,
                 )
               })
+              // Kick the queue from the orchestrator side so the finalizer
+              // doesn't have to import queue-manager (avoids
+              // queue-manager ↔ finalizer cycle).
+              const { processNext } = await import('./queue-manager')
+              void processNext()
             }
           } catch (e) {
             console.warn(

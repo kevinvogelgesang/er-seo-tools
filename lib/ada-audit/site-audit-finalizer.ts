@@ -3,15 +3,19 @@
 // Single source of truth for "this SiteAudit is done — write the summary and
 // flip status to complete." Called from two places:
 //   1. The per-page worker in queue-manager.ts when the last page settles
-//      AND there are no PDFs in flight.
+//      AND there are no PDFs in flight. (queue-manager's outer processNext()
+//      recursion handles the queue kick after runAudit() returns.)
 //   2. The per-PDF settle callback in pdf-orchestrator.ts when the last
-//      pending PDF row resolves AND all pages are already done.
+//      pending PDF row resolves AND all pages are already done. (That caller
+//      kicks processNext() itself via dynamic import so we don't import
+//      queue-manager here.)
 //
-// Lives in its own module to avoid a queue-manager ↔ pdf-orchestrator cycle.
+// Lives in its own module + has no queue-manager import to keep the
+// dependency graph acyclic: queue-manager → finalizer (static),
+// pdf-orchestrator → finalizer (dynamic), and finalizer is a leaf.
 
 import { prisma } from '@/lib/db'
 import { buildSiteAuditSummary } from './site-audit-helpers'
-import { processNext } from './queue-manager'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   const audit = await prisma.siteAudit.findUnique({
@@ -31,8 +35,4 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
       summary: JSON.stringify(summary),
     },
   })
-
-  // Hand off the queue slot. Site audits don't have `progressMessage`;
-  // only update fields that exist on the SiteAudit model.
-  void processNext()
 }
