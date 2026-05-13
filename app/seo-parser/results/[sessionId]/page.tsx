@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
-import { AggregatedResult } from '@/lib/types';
 import { ResultsView } from '@/components/seo-parser/ResultsView';
 import PillarAnalysisButton from './components/PillarAnalysisButton';
+import { parseStoredResult } from './result-json';
 import type { Metadata } from 'next';
 
 type Props = { params: Promise<{ sessionId: string }> };
@@ -10,6 +10,26 @@ type Props = { params: Promise<{ sessionId: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { sessionId } = await params;
   return { title: `SEO Audit — ${sessionId.slice(0, 8)}` };
+}
+
+function ResultErrorState() {
+  return (
+    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep flex items-center justify-center px-6">
+      <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-10 text-center max-w-md">
+        <div className="text-4xl mb-4">⚠️</div>
+        <h2 className="font-display font-bold text-xl text-[#1c2d4a] dark:text-white mb-2">Results Unavailable</h2>
+        <p className="text-gray-600 dark:text-white/60 text-sm mb-6">
+          This completed session has a stored result that could not be read.
+        </p>
+        <a
+          href="/seo-parser"
+          className="inline-block px-6 py-3 bg-[#1c2d4a] text-white font-display font-bold text-sm rounded-lg hover:bg-[#0f1d30] transition-colors"
+        >
+          Back to Upload
+        </a>
+      </div>
+    </div>
+  );
 }
 
 export default async function ResultsPage({ params }: Props) {
@@ -68,7 +88,10 @@ export default async function ResultsPage({ params }: Props) {
     );
   }
 
-  const result = JSON.parse(session.result) as AggregatedResult;
+  const result = parseStoredResult(session.result);
+  if (!result) {
+    return <ResultErrorState />;
+  }
 
   return (
     <ResultsView

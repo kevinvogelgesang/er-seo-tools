@@ -65,6 +65,7 @@ model AdaAudit {
   wcagLevel        String     @default("wcag21aa")  // wcag21aa | wcag22aa
   score            Int?                              // 0-100
   shareToken       String?    @unique
+  shareExpiresAt   DateTime?
   progress         Int        @default(0)            // 0-100 audit progress
   progressMessage  String     @default("")           // current step label
   runnerType       String     @default("jsdom")      // jsdom | browser
@@ -77,6 +78,7 @@ model AdaAudit {
   @@index([clientId])
   @@index([status])
   @@index([siteAuditId])
+  @@index([shareExpiresAt])
 }
 
 model SiteAudit {
@@ -107,7 +109,7 @@ model PillarAnalysis {
   id                  String   @id @default(cuid())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
-  sessionId           String   // FK to Session (the seo-parser crawl)
+  sessionId           String   @unique // FK to Session (the seo-parser crawl) — one analysis per session
   session             Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   status              String   @default("pending") // pending | running | complete | error
   error               String?

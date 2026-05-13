@@ -164,9 +164,14 @@ export interface NearDuplicateEntry {
 export interface DuplicateContent {
   exact_duplicates: ExactDuplicatePair[];
   near_duplicates: NearDuplicateEntry[];
-  duplicate_titles: Array<{ title: string; affected_urls: string[] }>;
-  duplicate_meta_descriptions: Array<{ meta_description: string; affected_urls: string[] }>;
-  duplicate_h1s: Array<{ h1: string; affected_urls: string[] }>;
+  duplicate_titles: Array<{ title: string; affected_urls: string[]; count?: number }>;
+  duplicate_meta_descriptions: Array<{ meta_description: string; affected_urls: string[]; count?: number }>;
+  duplicate_h1s: Array<{ h1: string; affected_urls: string[]; count?: number }>;
+  exact_duplicates_count?: number;
+  near_duplicates_count?: number;
+  duplicate_titles_count?: number;
+  duplicate_meta_descriptions_count?: number;
+  duplicate_h1s_count?: number;
 }
 
 export interface AggregatedResult {

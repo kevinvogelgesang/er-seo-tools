@@ -3,6 +3,9 @@ import {
   addScorecards,
   ZERO_SCORECARD,
   buildSiteAuditSummary,
+  isAllowedSiteAuditUrl,
+  normaliseDiscoveredSiteAuditUrls,
+  normaliseSiteAuditDomain,
 } from '@/lib/ada-audit/site-audit-helpers'
 import type { AuditScorecard } from '@/lib/ada-audit/types'
 
@@ -213,5 +216,43 @@ describe('buildSiteAuditSummary', () => {
       critical: 0, serious: 0, moderate: 0, minor: 0,
       total: 0, passed: 1, incomplete: 0,
     })
+  })
+})
+
+describe('normaliseSiteAuditDomain', () => {
+  it('strips scheme, path, and lowercases the hostname', () => {
+    expect(normaliseSiteAuditDomain('https://Example.EDU/some/path?x=1')).toBe('example.edu')
+  })
+})
+
+describe('isAllowedSiteAuditUrl', () => {
+  it('allows http and https URLs on the exact domain or www equivalent', () => {
+    expect(isAllowedSiteAuditUrl('https://example.edu/page', 'example.edu')).toBe(true)
+    expect(isAllowedSiteAuditUrl('http://www.example.edu/page', 'example.edu')).toBe(true)
+    expect(isAllowedSiteAuditUrl('https://example.edu/page', 'www.example.edu')).toBe(true)
+  })
+
+  it('rejects other domains and non-http protocols', () => {
+    expect(isAllowedSiteAuditUrl('https://evil.test/page', 'example.edu')).toBe(false)
+    expect(isAllowedSiteAuditUrl('javascript:alert(1)', 'example.edu')).toBe(false)
+    expect(isAllowedSiteAuditUrl('mailto:test@example.edu', 'example.edu')).toBe(false)
+  })
+})
+
+describe('normaliseDiscoveredSiteAuditUrls', () => {
+  it('dedupes, strips fragments and tracking params, and filters outside domains', () => {
+    const urls = normaliseDiscoveredSiteAuditUrls([
+      'https://example.edu/page#section',
+      'https://example.edu/page?utm_source=newsletter#other',
+      'https://evil.test/page',
+      'ftp://example.edu/file',
+      'not a url',
+      'https://www.example.edu/other',
+    ], 'example.edu')
+
+    expect(urls).toEqual([
+      'https://example.edu/page',
+      'https://www.example.edu/other',
+    ])
   })
 })

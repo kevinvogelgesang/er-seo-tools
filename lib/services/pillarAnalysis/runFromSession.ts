@@ -1,48 +1,69 @@
-// app/api/pillar-analysis/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { runPillarAnalysisFromInputs } from '@/lib/services/pillarAnalysis.service';
-import { InternalParser } from '@/lib/parsers/internal.parser';
-import { gscMapFromParser, ga4MapFromParser, semrushMapFromParser } from '@/lib/services/pillarAnalysis/extractors';
-import { getUploadDir } from '@/lib/upload-helpers';
+import { promises as fs } from 'fs';
+import path from 'path';
 import Papa from 'papaparse';
+import { Prisma } from '@prisma/client';
+import { prisma } from '@/lib/db';
+import { InternalParser } from '@/lib/parsers/internal.parser';
+import { getUploadDir } from '@/lib/upload-helpers';
+import { runPillarAnalysisFromInputs } from '@/lib/services/pillarAnalysis.service';
+import {
+  ga4MapFromParser,
+  gscMapFromParser,
+  semrushMapFromParser,
+} from '@/lib/services/pillarAnalysis/extractors';
 
-export async function POST(req: NextRequest) {
-  let body: { sessionId?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
+export class PillarAnalysisRunError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+    public status: number,
+    public detail?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'PillarAnalysisRunError';
   }
-  if (!body.sessionId) {
-    return NextResponse.json({ error: 'sessionId_required' }, { status: 400 });
-  }
+}
 
-  const session = await prisma.session.findUnique({ where: { id: body.sessionId } });
+export async function runPillarAnalysisForSession(sessionId: string): Promise<{ id: string; status: 'complete' }> {
+  const session = await prisma.session.findUnique({ where: { id: sessionId } });
   if (!session) {
-    return NextResponse.json({ error: 'session_not_found' }, { status: 404 });
+    throw new PillarAnalysisRunError('session_not_found', 'Session not found', 404);
   }
   if (session.status !== 'complete') {
-    return NextResponse.json({ error: 'session_not_complete', status: session.status }, { status: 409 });
+    throw new PillarAnalysisRunError('session_not_complete', 'Session is not complete', 409, {
+      status: session.status,
+    });
   }
 
-  // Create the PillarAnalysis record in 'running' state
-  const pa = await prisma.pillarAnalysis.create({
-    data: { sessionId: body.sessionId, status: 'running' },
-  });
+  // Enforce one PillarAnalysis row per session. If one already exists:
+  //   complete → return it (idempotent)
+  //   running  → 409 already_running
+  //   error    → reset to running and re-run on the same row
+  // If none exists, create a new row. A defensive P2002 catch handles the race
+  // where two concurrent callers slip past the findFirst check.
+  const pa = await acquirePillarAnalysisRow(sessionId);
+  if (pa.alreadyComplete) {
+    return { id: pa.id, status: 'complete' };
+  }
 
-  const internalCsvPath = await locateInternalCsv(session.id, JSON.parse(session.files || '[]'));
+  let files: string[];
+  try {
+    const parsed = JSON.parse(session.files || '[]');
+    files = Array.isArray(parsed) ? parsed.filter((file): file is string => typeof file === 'string') : [];
+  } catch {
+    files = [];
+  }
+
+  const internalCsvPath = await locateInternalCsv(session.id, files);
   if (!internalCsvPath) {
     await prisma.pillarAnalysis.update({
       where: { id: pa.id },
       data: { status: 'error', error: 'internal_all.csv not found in session uploads' },
     });
-    return NextResponse.json({ error: 'internal_all_missing' }, { status: 422 });
+    throw new PillarAnalysisRunError('internal_all_missing', 'internal_all.csv not found in session uploads', 422);
   }
 
   try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
     const csv = await fs.readFile(internalCsvPath, 'utf-8');
     const internalRows = new InternalParser(csv).parsePerUrlForPillar();
 
@@ -57,6 +78,7 @@ export async function POST(req: NextRequest) {
       where: { id: pa.id },
       data: {
         status: 'complete',
+        error: null,
         score: result.score,
         subscores: JSON.stringify(result.subscores),
         subscorePresence: JSON.stringify(result.subscorePresence),
@@ -68,47 +90,94 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ id: pa.id, status: 'complete' });
-  } catch (err: any) {
+    // Only clean up upload dir on the success path. On failure we leave the
+    // raw CSVs in place so the user can retry without re-uploading.
+    await fs.rm(getUploadDir(sessionId), { recursive: true, force: true }).catch(() => {});
+
+    return { id: pa.id, status: 'complete' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown';
     await prisma.pillarAnalysis.update({
       where: { id: pa.id },
-      data: { status: 'error', error: err.message?.slice(0, 500) ?? 'unknown' },
+      data: { status: 'error', error: message.slice(0, 500) },
     });
-    return NextResponse.json({ error: 'analysis_failed', message: err.message }, { status: 500 });
-  } finally {
-    // Clean up the session upload directory now that we've consumed it.
-    // The parse route used to do this but we moved it here so the files survive
-    // long enough for pillar analysis to read them.
-    try {
-      const fs = await import('fs/promises');
-      const uploadDir = getUploadDir(body.sessionId);
-      await fs.rm(uploadDir, { recursive: true, force: true });
-    } catch { /* best-effort cleanup */ }
+    throw new PillarAnalysisRunError('analysis_failed', message, 500);
   }
 }
 
+/**
+ * Get-or-create the single PillarAnalysis row for a session, with status
+ * branching for re-runs and a defensive P2002 race fallback.
+ */
+async function acquirePillarAnalysisRow(
+  sessionId: string,
+): Promise<{ id: string; alreadyComplete: boolean }> {
+  const existing = await prisma.pillarAnalysis.findFirst({ where: { sessionId } });
+  if (existing) {
+    return reconcileExisting(existing);
+  }
+
+  try {
+    const created = await prisma.pillarAnalysis.create({
+      data: { sessionId, status: 'running' },
+    });
+    return { id: created.id, alreadyComplete: false };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      // Race: another caller inserted between findFirst and create.
+      const racedRow = await prisma.pillarAnalysis.findFirst({ where: { sessionId } });
+      if (racedRow) {
+        return reconcileExisting(racedRow);
+      }
+    }
+    throw err;
+  }
+}
+
+async function reconcileExisting(
+  row: { id: string; status: string },
+): Promise<{ id: string; alreadyComplete: boolean }> {
+  if (row.status === 'complete') {
+    return { id: row.id, alreadyComplete: true };
+  }
+  if (row.status === 'running') {
+    throw new PillarAnalysisRunError(
+      'already_running',
+      'A pillar analysis is already running for this session',
+      409,
+      { id: row.id },
+    );
+  }
+  // pending | error → reset to running and continue with this row
+  await prisma.pillarAnalysis.update({
+    where: { id: row.id },
+    data: { status: 'running', error: null },
+  });
+  return { id: row.id, alreadyComplete: false };
+}
+
 async function locateInternalCsv(sessionId: string, files: string[]): Promise<string | null> {
-  const fs = await import('fs/promises');
-  const path = await import('path');
   const uploadDir = getUploadDir(sessionId);
-  for (const f of files) {
-    if (!/internal_all/i.test(f)) continue;
-    const full = path.join(uploadDir, f);
+  for (const file of files) {
+    if (!/internal_all/i.test(file)) continue;
+    const full = path.join(uploadDir, file);
     try {
       await fs.access(full);
       return full;
-    } catch { /* keep looking */ }
+    } catch {
+      // keep looking
+    }
   }
   return null;
 }
 
 async function loadGscMap(dir: string) {
-  const fs = await import('fs/promises');
-  const path = await import('path');
   let candidates: string[];
   try {
     candidates = (await fs.readdir(dir)).filter((f) => /search_console|gsc/i.test(f) && f.endsWith('.csv'));
-  } catch { return new Map(); }
+  } catch {
+    return new Map();
+  }
   if (candidates.length === 0) return new Map();
   const csv = await fs.readFile(path.join(dir, candidates[0]), 'utf-8');
   const rows = parseSearchConsoleCsv(csv);
@@ -116,12 +185,12 @@ async function loadGscMap(dir: string) {
 }
 
 async function loadGa4Map(dir: string) {
-  const fs = await import('fs/promises');
-  const path = await import('path');
   let candidates: string[];
   try {
     candidates = (await fs.readdir(dir)).filter((f) => /analytics|ga4/i.test(f) && f.endsWith('.csv'));
-  } catch { return new Map(); }
+  } catch {
+    return new Map();
+  }
   if (candidates.length === 0) return new Map();
   const csv = await fs.readFile(path.join(dir, candidates[0]), 'utf-8');
   const rows = parseGa4Csv(csv);
@@ -129,18 +198,17 @@ async function loadGa4Map(dir: string) {
 }
 
 async function loadSemrushMap(dir: string) {
-  const fs = await import('fs/promises');
-  const path = await import('path');
   let candidates: string[];
   try {
     candidates = (await fs.readdir(dir)).filter((f) => {
       if (!f.endsWith('.csv')) return false;
-      // Match: legacy "semrush", canonical "*-organic.Positions-*" / "*-organic.Pages-*", "position_tracking*"
       return /semrush/i.test(f)
         || /-organic\.(positions|pages)-/i.test(f)
         || /^position_tracking/i.test(f);
     });
-  } catch { return new Map(); }
+  } catch {
+    return new Map();
+  }
   if (candidates.length === 0) return new Map();
   const csv = await fs.readFile(path.join(dir, candidates[0]), 'utf-8');
   const rows = parseSemrushCsv(csv);

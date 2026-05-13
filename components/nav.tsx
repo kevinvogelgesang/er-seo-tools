@@ -58,6 +58,15 @@ function CloseIcon() {
   )
 }
 
+function LogoutIcon() {
+  return (
+    <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9l-3 3m0 0l3 3m-3-3h12" />
+    </svg>
+  )
+}
+
 export default function Nav() {
   const pathname = usePathname()
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
@@ -226,6 +235,16 @@ export default function Nav() {
           {/* Theme toggle + mobile menu toggle */}
           <div className="flex items-center gap-1">
             <ThemeToggle />
+            <form action="/api/auth/logout" method="post" className="hidden md:block">
+              <button
+                type="submit"
+                className="p-2 text-white/70 hover:text-white rounded-md hover:bg-white/5 transition-colors"
+                aria-label="Log out"
+                title="Log out"
+              >
+                <LogoutIcon />
+              </button>
+            </form>
             <button
               onClick={() => setMobileOpen(!mobileOpen)}
               className="md:hidden p-2 text-white/70 hover:text-white rounded-md hover:bg-white/5 transition-colors"
@@ -273,6 +292,15 @@ export default function Nav() {
                 )}
               </div>
             ))}
+            <form action="/api/auth/logout" method="post">
+              <button
+                type="submit"
+                className="mt-2 flex w-full items-center gap-2 px-3 py-2.5 text-[14px] font-body rounded-md text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                <LogoutIcon />
+                <span>Log out</span>
+              </button>
+            </form>
           </div>
         </div>
       )}

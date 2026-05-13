@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Spinner } from '@/components/Spinner'
 import type { ImpactLevel } from '@/lib/ada-audit/types'
 import type { GroupedViolation } from './useGroupedViolations'
+import { safeExternalHref } from '@/lib/safe-external-href'
 
 interface Props {
   groupedViolations: GroupedViolation[]
@@ -30,6 +31,7 @@ function ImpactBadge({ impact }: { impact: ImpactLevel }) {
 
 function ViolationCard({ violation }: { violation: GroupedViolation }) {
   const [expanded, setExpanded] = useState(false)
+  const helpHref = safeExternalHref(violation.helpUrl)
 
   return (
     <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl overflow-hidden shadow-sm">
@@ -50,16 +52,18 @@ function ViolationCard({ violation }: { violation: GroupedViolation }) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <a
-            href={violation.helpUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[11px] font-body text-navy/40 dark:text-white/30 hover:text-orange dark:hover:text-orange transition-colors"
-            title="Learn more about this violation"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Learn more ↗
-          </a>
+          {helpHref && (
+            <a
+              href={helpHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] font-body text-navy/40 dark:text-white/30 hover:text-orange dark:hover:text-orange transition-colors"
+              title="Learn more about this violation"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Learn more ↗
+            </a>
+          )}
           <svg
             className={`w-4 h-4 text-navy/40 dark:text-white/40 transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}

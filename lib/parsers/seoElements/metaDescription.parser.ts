@@ -117,8 +117,7 @@ export class MetaDescriptionParser extends BaseParser {
 
       const duplicates = Object.entries(metaCounts)
         .filter(([_, count]) => count > 1)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
+        .sort((a, b) => b[1] - a[1]);
 
       if (duplicates.length > 0) {
         issues.push({
@@ -126,7 +125,7 @@ export class MetaDescriptionParser extends BaseParser {
           severity: 'notice',
           count: duplicates.length,
           description: `${duplicates.length} groups of pages with duplicate meta descriptions`,
-          groups: duplicates.map(([meta, count]) => ({
+          groups: duplicates.slice(0, 10).map(([meta, count]) => ({
             meta_description: meta.slice(0, 200),
             count,
             urls: metaUrlMap[meta] ?? [],

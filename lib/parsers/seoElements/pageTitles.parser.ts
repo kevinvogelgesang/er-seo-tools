@@ -118,8 +118,7 @@ export class PageTitlesParser extends BaseParser {
 
       const duplicates = Object.entries(titleCounts)
         .filter(([_, count]) => count > 1)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
+        .sort((a, b) => b[1] - a[1]);
 
       if (duplicates.length > 0) {
         issues.push({
@@ -127,7 +126,7 @@ export class PageTitlesParser extends BaseParser {
           severity: 'warning',
           count: duplicates.length,
           description: `${duplicates.length} groups of pages with duplicate titles`,
-          groups: duplicates.map(([title, count]) => ({
+          groups: duplicates.slice(0, 10).map(([title, count]) => ({
             title: title.slice(0, 100),
             count,
             urls: titleUrlMap[title] ?? [],

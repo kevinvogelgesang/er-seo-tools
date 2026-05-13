@@ -800,21 +800,25 @@ export class AggregatorService {
     // Exact duplicates from ExactDuplicatesParser
     const exactData = this.parsedData.exactduplicates as Record<string, unknown> | undefined;
     const exact_duplicates = (exactData?.exact_duplicates as DuplicateContent['exact_duplicates']) ?? [];
+    const exact_duplicates_count = (exactData?.exact_duplicates_count as number | undefined) ?? exact_duplicates.length;
 
     // Near duplicates from NearDuplicatesParser
     const nearData = this.parsedData.nearduplicates as Record<string, unknown> | undefined;
     const near_duplicates = (nearData?.near_duplicates as DuplicateContent['near_duplicates']) ?? [];
+    const near_duplicates_count = (nearData?.near_duplicates_count as number | undefined) ?? near_duplicates.length;
 
     // Duplicate titles — extract from PageTitlesParser issues
     const duplicate_titles: DuplicateContent['duplicate_titles'] = [];
+    let duplicate_titles_count = 0;
     const titlesData = this.parsedData.pagetitles as Record<string, unknown> | undefined;
     if (titlesData?.issues) {
       const titleIssues = titlesData.issues as Issue[];
       const dupTitleIssue = titleIssues.find(i => i.type === 'duplicate_title');
+      duplicate_titles_count = dupTitleIssue?.count ?? 0;
       if (dupTitleIssue?.groups) {
         for (const g of dupTitleIssue.groups) {
           if (g.title) {
-            duplicate_titles.push({ title: g.title, affected_urls: g.urls ?? [] });
+            duplicate_titles.push({ title: g.title, affected_urls: g.urls ?? [], count: g.count });
           }
         }
       }
@@ -822,14 +826,16 @@ export class AggregatorService {
 
     // Duplicate meta descriptions — extract from MetaDescriptionParser issues
     const duplicate_meta_descriptions: DuplicateContent['duplicate_meta_descriptions'] = [];
+    let duplicate_meta_descriptions_count = 0;
     const metaData = this.parsedData.metadescription as Record<string, unknown> | undefined;
     if (metaData?.issues) {
       const metaIssues = metaData.issues as Issue[];
       const dupMetaIssue = metaIssues.find(i => i.type === 'duplicate_meta_description');
+      duplicate_meta_descriptions_count = dupMetaIssue?.count ?? 0;
       if (dupMetaIssue?.groups) {
         for (const g of dupMetaIssue.groups) {
           if (g.meta_description) {
-            duplicate_meta_descriptions.push({ meta_description: g.meta_description, affected_urls: g.urls ?? [] });
+            duplicate_meta_descriptions.push({ meta_description: g.meta_description, affected_urls: g.urls ?? [], count: g.count });
           }
         }
       }
@@ -837,14 +843,16 @@ export class AggregatorService {
 
     // Duplicate H1s — extract from H1Parser issues
     const duplicate_h1s: DuplicateContent['duplicate_h1s'] = [];
+    let duplicate_h1s_count = 0;
     const h1Data = this.parsedData.h1 as Record<string, unknown> | undefined;
     if (h1Data?.issues) {
       const h1Issues = h1Data.issues as Issue[];
       const dupH1Issue = h1Issues.find(i => i.type === 'duplicate_h1');
+      duplicate_h1s_count = dupH1Issue?.count ?? 0;
       if (dupH1Issue?.groups) {
         for (const g of dupH1Issue.groups) {
           if (g.h1) {
-            duplicate_h1s.push({ h1: g.h1, affected_urls: g.urls ?? [] });
+            duplicate_h1s.push({ h1: g.h1, affected_urls: g.urls ?? [], count: g.count });
           }
         }
       }
@@ -856,6 +864,11 @@ export class AggregatorService {
       duplicate_titles,
       duplicate_meta_descriptions,
       duplicate_h1s,
+      exact_duplicates_count,
+      near_duplicates_count,
+      duplicate_titles_count,
+      duplicate_meta_descriptions_count,
+      duplicate_h1s_count,
     };
   }
 

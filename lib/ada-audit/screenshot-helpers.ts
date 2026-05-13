@@ -74,5 +74,25 @@ export async function captureViolationScreenshots(
 
 /** Delete the screenshot directory for a given audit ID. No-op if it doesn't exist. */
 export async function deleteScreenshots(auditId: string): Promise<void> {
-  await fs.rm(path.join(SCREENSHOTS_DIR, auditId), { recursive: true, force: true }).catch(() => {})
+  await fs.rm(path.join(SCREENSHOTS_DIR, auditId), { recursive: true, force: true })
+}
+
+function logCleanupFailures(context: string, results: PromiseSettledResult<void>[]): void {
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.warn(`${context}:`, result.reason)
+    }
+  }
+}
+
+/**
+ * Delete every on-disk artifact associated with an AdaAudit.
+ * Keep this all-settled so future artifact types can fail independently.
+ */
+export async function deleteAuditArtifacts(auditId: string): Promise<PromiseSettledResult<void>[]> {
+  const results = await Promise.allSettled([
+    deleteScreenshots(auditId),
+  ])
+  logCleanupFailures(`[ada-audit/artifacts] Failed to clean artifacts for audit ${auditId}`, results)
+  return results
 }

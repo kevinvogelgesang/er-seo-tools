@@ -12,12 +12,18 @@ vi.mock('@/lib/db', () => ({
 
 import { POST } from './route';
 import { NextRequest } from 'next/server';
+import { AUTH_COOKIE_NAME, createAuthCookieValue } from '@/lib/auth';
 
 const ORIG_ENV = { ...process.env };
 
-function makeRequest() {
+async function makeRequest(authenticated = true) {
+  const headers = new Headers();
+  if (authenticated) {
+    headers.set('cookie', `${AUTH_COOKIE_NAME}=${await createAuthCookieValue()}`);
+  }
   return new NextRequest('http://localhost:3000/api/pillar-analysis/test/mint-token', {
     method: 'POST',
+    headers,
   });
 }
 
@@ -28,15 +34,27 @@ function makeParams(id: string) {
 describe('POST /api/pillar-analysis/[id]/mint-token', () => {
   beforeEach(() => {
     findUniqueMock.mockReset();
-    process.env = { ...ORIG_ENV, PILLAR_TOKEN_SECRET: 'test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaa', NODE_ENV: 'test' };
+    process.env = { ...ORIG_ENV };
+    vi.stubEnv('APP_AUTH_PASSWORD', 'test-app-password');
+    vi.stubEnv('PILLAR_TOKEN_SECRET', 'test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaa');
+    vi.stubEnv('NODE_ENV', 'test');
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     process.env = { ...ORIG_ENV };
+  });
+
+  it('401 when app auth cookie is missing', async () => {
+    const res = await POST(await makeRequest(false), makeParams('pa_complete'));
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe('auth_required');
+    expect(findUniqueMock).not.toHaveBeenCalled();
   });
 
   it('404 when analysis not found', async () => {
     findUniqueMock.mockResolvedValue(null);
-    const res = await POST(makeRequest(), makeParams('pa_missing'));
+    const res = await POST(await makeRequest(), makeParams('pa_missing'));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe('not_found');
@@ -44,7 +62,7 @@ describe('POST /api/pillar-analysis/[id]/mint-token', () => {
 
   it('409 when analysis is not complete', async () => {
     findUniqueMock.mockResolvedValue({ id: 'pa_running', status: 'running' });
-    const res = await POST(makeRequest(), makeParams('pa_running'));
+    const res = await POST(await makeRequest(), makeParams('pa_running'));
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toBe('not_complete');
@@ -53,7 +71,7 @@ describe('POST /api/pillar-analysis/[id]/mint-token', () => {
 
   it('200 with token + expiresAt on success', async () => {
     findUniqueMock.mockResolvedValue({ id: 'pa_complete', status: 'complete' });
-    const res = await POST(makeRequest(), makeParams('pa_complete'));
+    const res = await POST(await makeRequest(), makeParams('pa_complete'));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.token).toMatch(/^pat_/);

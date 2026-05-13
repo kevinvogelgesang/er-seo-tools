@@ -15,9 +15,10 @@ describe('NearDuplicatesParser', () => {
     it('extracts near duplicate entries correctly', () => {
       const csv = `Address,Closest Near Duplicate Match,No. Near Duplicates,Indexability,Indexability Status,Canonical Link Element 1
 https://example.com/a,https://example.com/b,3,Indexable,,
-https://example.com/c,https://example.com/d,1,Non-Indexable,,`;
+      https://example.com/c,https://example.com/d,1,Non-Indexable,,`;
       const result = new NearDuplicatesParser(csv).parse();
       expect(result.near_duplicates).toHaveLength(2);
+      expect(result.near_duplicates_count).toBe(2);
       expect(result.near_duplicates[0]).toEqual({
         address: 'https://example.com/a',
         closest_match: 'https://example.com/b',

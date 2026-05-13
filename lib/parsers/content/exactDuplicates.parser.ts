@@ -10,12 +10,20 @@ function isTrackingUrl(url: string): boolean {
   return TRACKING_PATTERNS.some(pattern => url.includes(pattern));
 }
 
+function parseSimilarityPercent(value: unknown): number {
+  const raw = String(value ?? '').trim();
+  const parsed = parseFloat(raw);
+  if (!Number.isFinite(parsed)) return 0;
+  const percent = raw.includes('%') || parsed > 1 ? parsed : parsed * 100;
+  return Math.round(percent);
+}
+
 export class ExactDuplicatesParser extends BaseParser {
   static filenamePattern = 'exact_duplicates_report';
   static displayName = 'Exact Duplicates';
 
-  parse(): { exact_duplicates: ExactDuplicatePair[] } {
-    if (this.isEmpty) return { exact_duplicates: [] };
+  parse(): { exact_duplicates: ExactDuplicatePair[]; exact_duplicates_count: number } {
+    if (this.isEmpty) return { exact_duplicates: [], exact_duplicates_count: 0 };
 
     const addressCol = this.findColumn(['Address', 'URL']);
     const duplicateOfCol = this.findColumn(['Exact Duplicate Address']);
@@ -32,8 +40,7 @@ export class ExactDuplicatesParser extends BaseParser {
       if (!duplicate_of) continue;
 
       const rawSimilarity = similarityCol ? row[similarityCol] : null;
-      const parsed = parseFloat(String(rawSimilarity ?? ''));
-      const similarity_pct = Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+      const similarity_pct = parseSimilarityPercent(rawSimilarity);
       const indexability = toString(indexabilityCol ? row[indexabilityCol] : null);
 
       exact_duplicates.push({
@@ -44,6 +51,9 @@ export class ExactDuplicatesParser extends BaseParser {
       });
     }
 
-    return { exact_duplicates };
+    return {
+      exact_duplicates,
+      exact_duplicates_count: exact_duplicates.length,
+    };
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
 
 export const dynamic = 'force-dynamic'
@@ -70,7 +71,22 @@ export async function DELETE(
     return NextResponse.json({ error: 'Site audit not found' }, { status: 404 })
   }
 
+  const children = await prisma.adaAudit.findMany({
+    where: { siteAuditId: id },
+    select: { id: true },
+  })
+
   // Cascade deletes all child AdaAudit rows (defined in schema)
   await prisma.siteAudit.delete({ where: { id } })
+
+  const artifactCleanup = await Promise.allSettled(
+    children.map((child) => deleteAuditArtifacts(child.id)),
+  )
+  for (const result of artifactCleanup) {
+    if (result.status === 'rejected') {
+      console.warn(`[site-audit] Failed to clean artifacts for deleted site audit ${id}:`, result.reason)
+    }
+  }
+
   return NextResponse.json({ ok: true })
 }

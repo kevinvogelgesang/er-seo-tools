@@ -157,6 +157,19 @@ describe('MetaDescriptionParser', () => {
       const issue = result.issues.find((i: any) => i.type === 'duplicate_meta_description');
       expect(issue.count).toBe(2);
     });
+
+    it('counts all duplicate groups before applying the top-10 group cap', () => {
+      const rows = Array.from({ length: 12 }, (_, i) => [
+        `https://example.com/group-${i}-a,Shared description group ${i},80`,
+        `https://example.com/group-${i}-b,Shared description group ${i},80`,
+      ]).flat();
+      const parser = new MetaDescriptionParser(makeCsv(rows));
+      const result = parser.parse() as any;
+      const issue = result.issues.find((i: any) => i.type === 'duplicate_meta_description');
+
+      expect(issue.count).toBe(12);
+      expect(issue.groups).toHaveLength(10);
+    });
   });
 
   describe('total_pages and excluded_urls', () => {

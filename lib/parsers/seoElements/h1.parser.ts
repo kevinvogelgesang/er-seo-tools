@@ -66,8 +66,7 @@ export class H1Parser extends BaseParser {
 
       const duplicates = Object.entries(h1Counts)
         .filter(([_, count]) => count > 1)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
+        .sort((a, b) => b[1] - a[1]);
 
       if (duplicates.length > 0) {
         issues.push({
@@ -75,7 +74,7 @@ export class H1Parser extends BaseParser {
           severity: 'notice',
           count: duplicates.length,
           description: `${duplicates.length} groups of pages with duplicate H1 headings`,
-          groups: duplicates.map(([h1, count]) => ({
+          groups: duplicates.slice(0, 10).map(([h1, count]) => ({
             h1: h1.slice(0, 100),
             count,
             urls: h1UrlMap[h1] ?? [],

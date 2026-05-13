@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { deleteScreenshots } from '@/lib/ada-audit/screenshot-helpers'
+import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 import type { AuditDetail, StoredAxeResults } from '@/lib/ada-audit/types'
 
 export const dynamic = 'force-dynamic'
@@ -74,6 +74,10 @@ export async function DELETE(
   }
 
   await prisma.adaAudit.delete({ where: { id } })
-  await deleteScreenshots(id)
+  const [artifactCleanup] = await Promise.allSettled([deleteAuditArtifacts(id)])
+  if (artifactCleanup.status === 'rejected') {
+    console.warn(`[ada-audit] Failed to clean artifacts for deleted audit ${id}:`, artifactCleanup.reason)
+  }
+
   return NextResponse.json({ ok: true })
 }

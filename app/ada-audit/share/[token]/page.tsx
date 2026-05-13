@@ -17,7 +17,7 @@ export default async function SharedAuditPage({ params }: Props) {
     include: { client: { select: { name: true } } },
   })
 
-  if (!audit || audit.status !== 'complete') {
+  if (!audit || audit.status !== 'complete' || !audit.shareExpiresAt || audit.shareExpiresAt < new Date()) {
     return (
       <main className="max-w-5xl mx-auto px-6 py-10">
         <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-10 flex flex-col items-center gap-4 text-center">
@@ -87,6 +87,7 @@ export default async function SharedAuditPage({ params }: Props) {
         wcagLevel={audit.wcagLevel}
         score={score}
         compliant={compliant}
+        readOnly
       />
     </main>
   )

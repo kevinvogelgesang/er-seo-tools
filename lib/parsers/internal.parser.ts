@@ -249,6 +249,7 @@ export class InternalParser extends BaseParser {
     const indexableMask = this.getIndexableHtmlMask();
     const wordCounts: number[] = [];
     const thinContentUrls: string[] = [];
+    let thinContentCount = 0;
 
     for (let i = 0; i < this.data.length; i++) {
       if (!indexableMask[i]) continue;
@@ -257,8 +258,11 @@ export class InternalParser extends BaseParser {
       if (count !== null && count >= 0) {
         wordCounts.push(count);
 
-        if (count < 300 && count > 0 && thinContentUrls.length < 50 && addressCol) {
-          thinContentUrls.push(toString(this.data[i][addressCol]));
+        if (count < 300 && count > 0) {
+          thinContentCount++;
+          if (thinContentUrls.length < 50 && addressCol) {
+            thinContentUrls.push(toString(this.data[i][addressCol]));
+          }
         }
       }
     }
@@ -282,9 +286,9 @@ export class InternalParser extends BaseParser {
       avg_word_count: Math.round(avg * 10) / 10,
       min_word_count: min,
       max_word_count: max,
-      thin_content_count: thinContentUrls.length,
+      thin_content_count: thinContentCount,
       thin_content_urls: thinContentUrls,
-      pages_under_300_words: thinContentUrls.length, // NEW
+      pages_under_300_words: thinContentCount, // NEW
     };
   }
 
@@ -354,10 +358,9 @@ export class InternalParser extends BaseParser {
 
       const duplicates = Object.entries(titleCounts)
         .filter(([_, count]) => count > 1)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
+        .sort((a, b) => b[1] - a[1]);
       result.duplicate_titles_count = duplicates.length;
-      result.duplicate_title_groups = duplicates.map(([title, count]) => ({
+      result.duplicate_title_groups = duplicates.slice(0, 10).map(([title, count]) => ({
         title: title.slice(0, 100),
         count,
       }));
@@ -486,11 +489,13 @@ export class InternalParser extends BaseParser {
     if (!col) return null;
 
     const nearDuplicateUrls: string[] = [];
+    let totalNearDuplicates = 0;
 
     for (let i = 0; i < this.data.length; i++) {
       const value = toString(this.data[i][col]);
       // SF populates this cell with a URL or non-empty string when the page is a near-duplicate
       if (value && value.toLowerCase() !== 'false' && value !== '0') {
+        totalNearDuplicates++;
         if (addressCol && nearDuplicateUrls.length < 50) {
           nearDuplicateUrls.push(toString(this.data[i][addressCol]));
         }
@@ -498,9 +503,9 @@ export class InternalParser extends BaseParser {
     }
 
     return {
-      total_near_duplicates: nearDuplicateUrls.length,
+      total_near_duplicates: totalNearDuplicates,
       near_duplicate_urls: nearDuplicateUrls,
-      truncated: nearDuplicateUrls.length >= 50,
+      truncated: totalNearDuplicates > nearDuplicateUrls.length,
     };
   }
 

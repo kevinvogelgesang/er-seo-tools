@@ -224,7 +224,7 @@ function NearDuplicatesTable({
 
 // ─── Group table (titles / meta / h1s) ──────────────────────────────────────
 
-type GroupRow = { value: string; affected_urls: string[] };
+type GroupRow = { value: string; affected_urls: string[]; affected_count: number };
 
 function GroupTable({ rows }: { rows: GroupRow[] }) {
   const [page, setPage] = useState(0);
@@ -267,7 +267,7 @@ function GroupTable({ rows }: { rows: GroupRow[] }) {
                     &ldquo;{row.value}&rdquo;
                   </span>
                 </Td>
-                <Td className="whitespace-nowrap">{row.affected_urls.length}</Td>
+                <Td className="whitespace-nowrap">{row.affected_count}</Td>
                 <Td>
                   <button
                     type="button"
@@ -304,29 +304,46 @@ function DuplicateMetaPanel({
   duplicate_titles,
   duplicate_meta_descriptions,
   duplicate_h1s,
-}: Pick<DuplicateContent, 'duplicate_titles' | 'duplicate_meta_descriptions' | 'duplicate_h1s'>) {
+  duplicate_titles_count,
+  duplicate_meta_descriptions_count,
+  duplicate_h1s_count,
+}: Pick<
+  DuplicateContent,
+  | 'duplicate_titles'
+  | 'duplicate_meta_descriptions'
+  | 'duplicate_h1s'
+  | 'duplicate_titles_count'
+  | 'duplicate_meta_descriptions_count'
+  | 'duplicate_h1s_count'
+>) {
   const [activeTab, setActiveTab] = useState<MetaTab>('titles');
+  const titleCount = duplicate_titles_count ?? duplicate_titles.length;
+  const metaCount = duplicate_meta_descriptions_count ?? duplicate_meta_descriptions.length;
+  const h1Count = duplicate_h1s_count ?? duplicate_h1s.length;
 
   const tabs: { key: MetaTab; label: string; count: number }[] = [
-    { key: 'titles', label: 'Titles', count: duplicate_titles.length },
-    { key: 'meta', label: 'Meta Descriptions', count: duplicate_meta_descriptions.length },
-    { key: 'h1s', label: 'H1s', count: duplicate_h1s.length },
+    { key: 'titles', label: 'Titles', count: titleCount },
+    { key: 'meta', label: 'Meta Descriptions', count: metaCount },
+    { key: 'h1s', label: 'H1s', count: h1Count },
   ];
 
   const titlesRows: GroupRow[] = duplicate_titles.map((r) => ({
     value: r.title,
     affected_urls: r.affected_urls,
+    affected_count: r.count ?? r.affected_urls.length,
   }));
   const metaRows: GroupRow[] = duplicate_meta_descriptions.map((r) => ({
     value: r.meta_description,
     affected_urls: r.affected_urls,
+    affected_count: r.count ?? r.affected_urls.length,
   }));
   const h1Rows: GroupRow[] = duplicate_h1s.map((r) => ({
     value: r.h1,
     affected_urls: r.affected_urls,
+    affected_count: r.count ?? r.affected_urls.length,
   }));
 
-  const totalCount = titlesRows.length + metaRows.length + h1Rows.length;
+  const totalCount = titleCount + metaCount + h1Count;
 
   return (
     <SubSection title="Duplicate Titles / Meta / H1s" count={totalCount}>
@@ -365,20 +382,30 @@ export function DuplicateContentSection({ data }: DuplicateContentSectionProps) 
     duplicate_titles,
     duplicate_meta_descriptions,
     duplicate_h1s,
+    exact_duplicates_count,
+    near_duplicates_count,
+    duplicate_titles_count,
+    duplicate_meta_descriptions_count,
+    duplicate_h1s_count,
   } = data;
 
+  const exactCount = exact_duplicates_count ?? exact_duplicates.length;
+  const nearCount = near_duplicates_count ?? near_duplicates.length;
+  const titleCount = duplicate_titles_count ?? duplicate_titles.length;
+  const metaCount = duplicate_meta_descriptions_count ?? duplicate_meta_descriptions.length;
+  const h1Count = duplicate_h1s_count ?? duplicate_h1s.length;
   const totalCount =
-    exact_duplicates.length +
-    near_duplicates.length +
-    duplicate_titles.length +
-    duplicate_meta_descriptions.length +
-    duplicate_h1s.length;
-
-  // Don't render if nothing to show
-  if (totalCount === 0) return null;
+    exactCount +
+    nearCount +
+    titleCount +
+    metaCount +
+    h1Count;
 
   const defaultExpanded = totalCount >= 10;
   const [expanded, setExpanded] = useState(defaultExpanded);
+
+  // Don't render if nothing to show
+  if (totalCount === 0) return null;
 
   return (
     <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border overflow-hidden">
@@ -404,12 +431,12 @@ export function DuplicateContentSection({ data }: DuplicateContentSectionProps) 
         <div className="px-6 pb-6 border-t border-gray-100 dark:border-navy-border pt-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Exact duplicates */}
-            <SubSection title="Exact Duplicates" count={exact_duplicates.length}>
+            <SubSection title="Exact Duplicates" count={exactCount}>
               <ExactDuplicatesTable rows={exact_duplicates} />
             </SubSection>
 
             {/* Near duplicates */}
-            <SubSection title="Near Duplicates" count={near_duplicates.length}>
+            <SubSection title="Near Duplicates" count={nearCount}>
               <NearDuplicatesTable rows={near_duplicates} />
             </SubSection>
 
@@ -419,6 +446,9 @@ export function DuplicateContentSection({ data }: DuplicateContentSectionProps) 
                 duplicate_titles={duplicate_titles}
                 duplicate_meta_descriptions={duplicate_meta_descriptions}
                 duplicate_h1s={duplicate_h1s}
+                duplicate_titles_count={duplicate_titles_count}
+                duplicate_meta_descriptions_count={duplicate_meta_descriptions_count}
+                duplicate_h1s_count={duplicate_h1s_count}
               />
             </div>
           </div>

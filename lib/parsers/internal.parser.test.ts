@@ -201,6 +201,48 @@ https://example.com/,200,500,1000,300,60%,42.75%,95.0`;
 
     expect(result.ga4_top_pages![0].bounce_rate_pct).toBe(42.75);
   });
+
+  it('counts all thin pages while keeping thin_content_urls capped', () => {
+    const rows = Array.from({ length: 55 }, (_, i) =>
+      `https://example.com/thin-${i},200,Indexable,text/html,Thin ${i},Short meta ${i},H1 ${i},120,1`
+    );
+    const csvContent = `Address,Status Code,Indexability,Content Type,Title 1,Meta Description 1,H1-1,Word Count,Crawl Depth\n${rows.join('\n')}`;
+
+    const parser = new InternalParser(csvContent);
+    const result = parser.parse();
+
+    expect(result.content_metrics.thin_content_count).toBe(55);
+    expect(result.content_metrics.pages_under_300_words).toBe(55);
+    expect(result.content_metrics.thin_content_urls).toHaveLength(50);
+  });
+
+  it('counts all near duplicate rows while keeping near_duplicate_urls capped', () => {
+    const rows = Array.from({ length: 55 }, (_, i) =>
+      `https://example.com/near-${i},200,Indexable,text/html,https://example.com/canonical-${i}`
+    );
+    const csvContent = `Address,Status Code,Indexability,Content Type,Near Duplicate\n${rows.join('\n')}`;
+
+    const parser = new InternalParser(csvContent);
+    const result = parser.parse();
+
+    expect(result.near_duplicates?.total_near_duplicates).toBe(55);
+    expect(result.near_duplicates?.near_duplicate_urls).toHaveLength(50);
+    expect(result.near_duplicates?.truncated).toBe(true);
+  });
+
+  it('counts duplicate title groups before applying the top-10 group cap', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => [
+      `https://example.com/group-${i}-a,200,Indexable,text/html,Shared Title ${i},Meta ${i}a,H1 ${i}a,500,1`,
+      `https://example.com/group-${i}-b,200,Indexable,text/html,Shared Title ${i},Meta ${i}b,H1 ${i}b,500,1`,
+    ]).flat();
+    const csvContent = `Address,Status Code,Indexability,Content Type,Title 1,Meta Description 1,H1-1,Word Count,Crawl Depth\n${rows.join('\n')}`;
+
+    const parser = new InternalParser(csvContent);
+    const result = parser.parse();
+
+    expect(result.seo_elements_summary.duplicate_titles_count).toBe(12);
+    expect(result.seo_elements_summary.duplicate_title_groups).toHaveLength(10);
+  });
 });
 
 describe('InternalParser.parsePerUrlForPillar', () => {

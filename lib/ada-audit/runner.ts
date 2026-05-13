@@ -1,39 +1,16 @@
-import { promises as dns } from 'dns'
 import path from 'path'
+import type { HTTPRequest } from 'puppeteer-core'
 import { acquirePage, releasePage } from './browser-pool'
 import { captureViolationScreenshots } from './screenshot-helpers'
+import { assertSafeHttpUrl } from '../security/safe-url'
 import type { StoredAxeResults } from './types'
 
 const AXE_PATH = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js')
 
 // ─── SSRF protection ──────────────────────────────────────────────────────────
 
-const PRIVATE_RANGES = [
-  /^127\./,
-  /^10\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^192\.168\./,
-  /^169\.254\./,
-  /^::1$/,
-  /^fc[0-9a-f]{2}:/i,
-  /^fd[0-9a-f]{2}:/i,
-  /^fe80:/i,
-  /^0\.0\.0\.0$/,
-]
-
 export async function assertNotPrivate(hostname: string) {
-  let address: string
-  try {
-    const result = await dns.lookup(hostname)
-    address = result.address
-  } catch {
-    throw new Error(`Could not resolve hostname: ${hostname}`)
-  }
-  for (const range of PRIVATE_RANGES) {
-    if (range.test(address)) {
-      throw new Error(`Requests to private/internal addresses are not allowed`)
-    }
-  }
+  await assertSafeHttpUrl(`https://${hostname}`)
 }
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
@@ -53,27 +30,69 @@ export async function runAxeAudit(
 ): Promise<StoredAxeResults> {
   const progress = onProgress ?? (async () => {})
 
-  // Validate URL scheme
-  const parsed = new URL(targetUrl)
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('Only http/https URLs are allowed')
-  }
-
   // SSRF check
   await progress(5, 'Verifying URL…')
-  await assertNotPrivate(parsed.hostname)
+  const parsed = await assertSafeHttpUrl(targetUrl)
 
   // Acquire a browser page from the pool
   await progress(10, 'Launching browser…')
   const page = await acquirePage()
 
   try {
+    const requestValidationCache = new Map<string, Promise<URL>>()
+    let blockedNavigationError: Error | null = null
+
+    const validateBrowserRequest = (requestUrl: string): Promise<URL> => {
+      const parsedRequestUrl = new URL(requestUrl)
+      if (['data:', 'blob:', 'about:'].includes(parsedRequestUrl.protocol)) {
+        return Promise.resolve(parsedRequestUrl)
+      }
+      if (parsedRequestUrl.protocol !== 'http:' && parsedRequestUrl.protocol !== 'https:') {
+        return Promise.reject(new Error(`Blocked unsupported browser request protocol: ${parsedRequestUrl.protocol}`))
+      }
+
+      const cacheKey = parsedRequestUrl.origin
+      const cached = requestValidationCache.get(cacheKey)
+      if (cached) return cached
+
+      const validation = assertSafeHttpUrl(parsedRequestUrl)
+      requestValidationCache.set(cacheKey, validation)
+      return validation
+    }
+
+    const handleRequest = async (request: HTTPRequest) => {
+      try {
+        await validateBrowserRequest(request.url())
+        if (!request.isInterceptResolutionHandled()) {
+          await request.continue()
+        }
+      } catch (err) {
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+          blockedNavigationError = err instanceof Error ? err : new Error('Unsafe navigation request blocked')
+        }
+        if (!request.isInterceptResolutionHandled()) {
+          await request.abort('blockedbyclient').catch(() => {})
+        }
+      }
+    }
+
+    await page.setRequestInterception(true)
+    page.on('request', (request) => {
+      void handleRequest(request)
+    })
+
     // Navigate to the page — waitUntil: 'networkidle2' ensures stylesheets load
     await progress(20, 'Loading page…')
-    const response = await page.goto(targetUrl, {
-      waitUntil: 'networkidle2',
-      timeout: 30_000,
-    })
+    let response
+    try {
+      response = await page.goto(parsed.toString(), {
+        waitUntil: 'networkidle2',
+        timeout: 30_000,
+      })
+    } catch (err) {
+      if (blockedNavigationError) throw blockedNavigationError
+      throw err
+    }
 
     if (!response) throw new Error('No response received from page')
     const status = response.status()
