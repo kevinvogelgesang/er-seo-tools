@@ -10,6 +10,23 @@ import type { ClientAuditSummary } from '@/lib/ada-audit/types'
 type SortKey = 'name-asc' | 'name-desc' | 'date-asc' | 'date-desc' | 'score-asc' | 'score-desc'
 const DEFAULT_SORT: SortKey = 'date-desc'
 
+const SORT_KEYS: readonly SortKey[] = [
+  'name-asc', 'name-desc', 'date-asc', 'date-desc', 'score-asc', 'score-desc',
+] as const
+
+/**
+ * Coerce an arbitrary URL value into a valid SortKey. Anything not in the
+ * known list (including null) returns DEFAULT_SORT. Without this guard,
+ * `/ada-audit?clientsSort=bad` would let an invalid key reach sortClients,
+ * which has no default branch — it returns undefined, and the consumer
+ * (view.length / view.map) then throws.
+ */
+function parseSort(value: string | null): SortKey {
+  return (SORT_KEYS as readonly string[]).includes(value ?? '')
+    ? (value as SortKey)
+    : DEFAULT_SORT
+}
+
 function ScoreBadge({ score }: { score: number | null }) {
   if (score == null) return <span className="text-navy/25 dark:text-white/25">—</span>
   const color = score >= 80
@@ -69,7 +86,7 @@ export default function ClientsAuditSummary() {
   // Local search input (instant) + debounced URL sync
   const [searchInput, setSearchInput] = useState(searchParams.get('clientsSearch') ?? '')
   const debouncedSearch = useDebouncedValue(searchInput, 300)
-  const sort: SortKey = (searchParams.get('clientsSort') as SortKey) || DEFAULT_SORT
+  const sort: SortKey = parseSort(searchParams.get('clientsSort'))
 
   const fetchClients = useCallback(async (silent: boolean) => {
     if (!silent) setLoading(true)
