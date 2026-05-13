@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { AUTH_COOKIE_NAME } from '@/lib/auth'
+import { AUTH_COOKIE_NAME, getAuthRedirectBase } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Cross-site logout requests are not allowed' }, { status: 403 })
   }
 
-  const response = NextResponse.redirect(new URL('/login', request.url), { status: 303 })
+  const response = NextResponse.redirect(new URL('/login', getAuthRedirectBase(request)), { status: 303 })
   response.cookies.set({
     name: AUTH_COOKIE_NAME,
     value: '',

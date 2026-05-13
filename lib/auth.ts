@@ -97,6 +97,18 @@ export async function isValidAuthCookie(
   return constantTimeEqual(signature, await sign(payload))
 }
 
+/**
+ * Returns the canonical base URL for building auth redirects. Behind a reverse
+ * proxy (RunCloud → Apache → Node on localhost:3000), `request.url` reflects
+ * the internal upstream URL, not the public origin — so naive
+ * `new URL('/login', request.url)` redirects send the browser to
+ * http://localhost:3000/login. Prefer `NEXT_PUBLIC_APP_URL` when configured;
+ * fall back to `request.url` for dev / unproxied setups.
+ */
+export function getAuthRedirectBase(request: { url: string }): string {
+  return process.env.NEXT_PUBLIC_APP_URL || request.url
+}
+
 export function normalizeAuthReturnPath(value: FormDataEntryValue | string | null): string {
   const raw = typeof value === 'string' ? value : ''
   if (!raw.startsWith('/') || raw.startsWith('//')) return '/'
