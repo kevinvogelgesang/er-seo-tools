@@ -1,15 +1,40 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import AuditForm from './AuditForm'
 import SiteAuditForm from './SiteAuditForm'
 import AuditHistory from './AuditHistory'
 import SiteAuditHistory from './SiteAuditHistory'
+import ClientsAuditSummary from './ClientsAuditSummary'
 
 type Tab = 'single' | 'site'
 
+function parseTab(value: string | null): Tab {
+  return value === 'site' ? 'site' : 'single'
+}
+
 export default function AuditIndexTabs() {
-  const [tab, setTab] = useState<Tab>('single')
+  const searchParams = useSearchParams()
+
+  // Initial tab derived from URL so SSR + first paint match. Infer 'site'
+  // when ?prefillDomain= is present without an explicit ?auditTab= (a
+  // prefill is only meaningful on the Full Site form).
+  const [tab, setTab] = useState<Tab>(() => {
+    const explicit = searchParams.get('auditTab')
+    if (explicit) return parseTab(explicit)
+    if (searchParams.get('prefillDomain')) return 'site'
+    return 'single'
+  })
+
+  // Honor URL changes while the page is mounted (e.g., clicking a Clients
+  // "Run audit" link from elsewhere on the same page). We only react to the
+  // search params themselves changing — manual tab clicks call setTab directly.
+  useEffect(() => {
+    const explicit = searchParams.get('auditTab')
+    if (explicit) setTab(parseTab(explicit))
+    else if (searchParams.get('prefillDomain')) setTab('site')
+  }, [searchParams])
 
   return (
     <div className="space-y-8">
@@ -57,6 +82,9 @@ export default function AuditIndexTabs() {
           {tab === 'single' ? <AuditForm /> : <SiteAuditForm />}
         </div>
       </div>
+
+      {/* Clients section — between New Audit and Recents */}
+      <ClientsAuditSummary />
 
       {/* History tables — each component renders its own card via PaginatedSection */}
       <AuditHistory />
