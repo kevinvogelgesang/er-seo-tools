@@ -1,18 +1,24 @@
 /**
  * Global site audit queue manager.
  *
- * Only one site audit runs at a time. When an audit is submitted, it enters
- * status 'queued'. The queue manager picks the oldest queued audit and runs it.
- * When it finishes (complete or error), the next queued audit starts automatically.
+ * Only one site audit holds the queue slot at a time. The slot is held for
+ * BOTH the 'running' phase (pages in flight) and the 'pdfs-running' phase
+ * (PDF scans still settling after the last page completed). The slot is
+ * released via `finalizeSiteAudit` (in site-audit-finalizer.ts), which is the
+ * sole place that flips a SiteAudit to 'complete' and kicks `processNext`.
  *
- * Pre-discovered URLs are stored as JSON on the SiteAudit row so the queue
- * can pass them to the runner without re-crawling.
+ * Status transitions: queued → running → pdfs-running → complete
+ *                                     ↓ (no PDFs at all)
+ *                                     complete
+ *                                     ↓ (top-level error)
+ *                                     error
  */
 
 import { prisma } from '@/lib/db'
 import { discoverPages } from '@/lib/ada-audit/sitemap-crawler'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
-import { buildSiteAuditSummary } from '@/lib/ada-audit/site-audit-helpers'
+import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
+import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { closeBrowser } from '@/lib/ada-audit/browser-pool'
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -36,12 +42,30 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
         })
         try {
           await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
-          const results = await runAxeAudit(url, wcagLevel)
+          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+            url, wcagLevel, undefined, { auditId: child.id },
+          )
           await prisma.adaAudit.update({
             where: { id: child.id },
-            data: { status: 'complete', result: JSON.stringify(results), runnerType: 'browser' },
+            data: {
+              status: 'complete',
+              result: JSON.stringify(axe),
+              lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
+              lighthouseError,
+              runnerType: 'browser',
+            },
           })
           await prisma.siteAudit.update({ where: { id }, data: { pagesComplete: { increment: 1 } } })
+
+          // Dispatch harvested PDFs. Pass BOTH ids so each PdfAudit is
+          // attributed to whichever page first discovered it (per-page
+          // summary.pages[i].pdfs counts), while still deduping site-wide
+          // via @@unique([siteAuditId, url]).
+          void dispatchPdfScans({
+            urls: harvestedPdfUrls,
+            siteAuditId: id,
+            adaAuditId: child.id,
+          })
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Audit failed'
           await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'error', error: msg } })
@@ -50,26 +74,32 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
       }))
     }
 
-    const children = await prisma.adaAudit.findMany({
-      where: { siteAuditId: id },
-      select: {
-        id: true,
-        url: true,
-        status: true,
-        error: true,
-        result: true,
-        lighthouseSummary: true,
-        pdfAudits: { select: { status: true, issues: true } },
-      },
-    })
-    const summary = buildSiteAuditSummary(children)
+    // All pages settled. Decide whether to finalize now or wait for PDFs.
+    const pageState = await prisma.siteAudit.findUnique({ where: { id } })
+    if (!pageState) {
+      await closeBrowser().catch(() => {})
+      return
+    }
 
-    await prisma.siteAudit.update({
-      where: { id },
-      data: { status: 'complete', summary: JSON.stringify(summary) },
-    })
+    const pdfsOutstanding = pageState.pdfsTotal > 0
+      && pageState.pdfsComplete + pageState.pdfsError < pageState.pdfsTotal
 
-    // Restart browser between site audits to reclaim Chrome memory leaks
+    if (pdfsOutstanding) {
+      // PDFs still in flight — flip to pdfs-running. The pdf-orchestrator's
+      // per-PDF settle callback will invoke finalizeSiteAudit once the last
+      // one resolves.
+      await prisma.siteAudit.update({
+        where: { id },
+        data: { status: 'pdfs-running' },
+      })
+    } else {
+      // No PDFs (or all already settled) — finalize now.
+      await finalizeSiteAudit(id)
+    }
+
+    // Restart browser between site audits to reclaim Chrome memory leaks.
+    // Safe even mid-pdfs-running because PDF scanning is pure Node (pdfjs),
+    // independent of the browser pool.
     await closeBrowser().catch(() => {})
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Site audit failed'
@@ -78,7 +108,6 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
       where: { id },
       data: { status: 'error', error: message },
     }).catch(() => {})
-    // Restart browser on error too to clean up any leaked pages
     await closeBrowser().catch(() => {})
   }
 }
@@ -88,23 +117,27 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
 /**
  * Picks the next queued audit and runs it. Calls itself again on completion.
  * Only one instance of this loop runs at a time (guarded by `processing` flag).
+ *
+ * Note: runAudit() returns once page work is done, even if PDFs are still
+ * scanning (status = pdfs-running). The "active?" check below treats
+ * pdfs-running as still holding the queue slot, so a subsequent processNext()
+ * invocation bails. The post-PDF-settle path in pdf-orchestrator calls
+ * finalizeSiteAudit, which re-kicks processNext() when truly done.
  */
 export async function processNext() {
   if (processing) return
   processing = true
 
   try {
-    // Check if anything is already running
-    const running = await prisma.siteAudit.findFirst({
-      where: { status: 'running' },
+    const active = await prisma.siteAudit.findFirst({
+      where: { status: { in: ['running', 'pdfs-running'] } },
       select: { id: true },
     })
-    if (running) {
+    if (active) {
       processing = false
       return
     }
 
-    // Pick the oldest queued audit
     const next = await prisma.siteAudit.findFirst({
       where: { status: 'queued' },
       orderBy: { createdAt: 'asc' },
@@ -115,13 +148,11 @@ export async function processNext() {
       return
     }
 
-    // Parse pre-discovered URLs if stored
     let urls: string[] | undefined
     if (next.discoveredUrls) {
       try { urls = JSON.parse(next.discoveredUrls) } catch { /* re-discover */ }
     }
 
-    // Run the audit — when done, process the next one
     await runAudit(next.id, next.domain, next.clientId, next.wcagLevel, urls)
   } catch (err) {
     console.error('[queue] processNext error:', err)
@@ -129,7 +160,6 @@ export async function processNext() {
     processing = false
   }
 
-  // After finishing, check for more queued audits
   void processNext()
 }
 
@@ -182,7 +212,7 @@ export interface QueueStatus {
 
 export async function getQueueStatus(): Promise<QueueStatus> {
   const active = await prisma.siteAudit.findFirst({
-    where: { status: { in: ['running', 'pending'] } },
+    where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
     select: { id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true },
     orderBy: { createdAt: 'asc' },
   })
@@ -202,14 +232,17 @@ export async function getQueueStatus(): Promise<QueueStatus> {
 // ─── Recovery ────────────────────────────────────────────────────────────────
 
 /**
- * Resets audits stuck in 'running' with no DB activity for 5+ minutes.
- * Called periodically from instrumentation.ts and on startup.
+ * Resets audits stuck in 'running' or 'pdfs-running' with no DB activity for
+ * 5+ minutes. Called periodically from instrumentation.ts and on startup.
  */
 export async function resetStaleAudits() {
   const STALE_MS = 5 * 60 * 1000
   const staleThreshold = new Date(Date.now() - STALE_MS)
   const stale = await prisma.siteAudit.findMany({
-    where: { status: 'running', updatedAt: { lt: staleThreshold } },
+    where: {
+      status: { in: ['running', 'pdfs-running'] },
+      updatedAt: { lt: staleThreshold },
+    },
     select: { id: true },
   })
   for (const s of stale) {
@@ -224,15 +257,17 @@ export async function resetStaleAudits() {
 
 /**
  * Called on server startup to recover from crashes.
- * Resets stale running audits, then kicks the processor.
+ * Resets stale running/pdfs-running audits, then kicks the processor.
  */
 export async function recoverQueue() {
   const STALE_MS = 5 * 60 * 1000
   const staleThreshold = new Date(Date.now() - STALE_MS)
 
-  // Reset running audits that are stale (process crashed)
   const stale = await prisma.siteAudit.findMany({
-    where: { status: 'running', updatedAt: { lt: staleThreshold } },
+    where: {
+      status: { in: ['running', 'pdfs-running'] },
+      updatedAt: { lt: staleThreshold },
+    },
     select: { id: true },
   })
   for (const s of stale) {
@@ -249,6 +284,5 @@ export async function recoverQueue() {
     data: { status: 'queued' },
   })
 
-  // Kick the processor in case there are queued audits
   void processNext()
 }
