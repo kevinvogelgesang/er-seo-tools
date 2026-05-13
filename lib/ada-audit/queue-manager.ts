@@ -21,6 +21,7 @@ import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { closeBrowser } from '@/lib/ada-audit/browser-pool'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
+import type { QueueStatusWithBatch } from './types'
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -221,37 +222,55 @@ export async function enqueueAudit(
 
 // ─── Query helpers ───────────────────────────────────────────────────────────
 
-export interface QueueStatus {
-  active: {
-    id: string
-    domain: string
-    pagesTotal: number
-    pagesComplete: number
-    pagesError: number
-  } | null
-  queued: {
-    id: string
-    domain: string
-    position: number
-  }[]
-}
+export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
+  const { resolveBatchLabel } = await import('./audit-batch-helpers')
 
-export async function getQueueStatus(): Promise<QueueStatus> {
   const active = await prisma.siteAudit.findFirst({
     where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
-    select: { id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true },
+    select: {
+      id: true, domain: true, status: true,
+      pagesTotal: true, pagesComplete: true, pagesError: true,
+      clientId: true,
+    },
     orderBy: { createdAt: 'asc' },
   })
 
   const queuedRows = await prisma.siteAudit.findMany({
     where: { status: 'queued' },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, domain: true },
+    select: { id: true, domain: true, clientId: true },
+  })
+
+  const openBatch = await prisma.auditBatch.findFirst({
+    where: { closedAt: null },
+    select: { id: true, startedAt: true, label: true, closedAt: true },
   })
 
   return {
-    active,
-    queued: queuedRows.map((q, i) => ({ id: q.id, domain: q.domain, position: i + 1 })),
+    active: active
+      ? {
+          id: active.id,
+          domain: active.domain,
+          status: active.status,
+          pagesTotal: active.pagesTotal,
+          pagesComplete: active.pagesComplete,
+          pagesError: active.pagesError,
+          clientId: active.clientId ?? null,
+        }
+      : null,
+    queued: queuedRows.map((q, i) => ({
+      id: q.id,
+      domain: q.domain,
+      position: i + 1,
+      clientId: q.clientId ?? null,
+    })),
+    batch: openBatch
+      ? {
+          id: openBatch.id,
+          startedAt: openBatch.startedAt.toISOString(),
+          label: resolveBatchLabel(openBatch),
+        }
+      : null,
   }
 }
 
