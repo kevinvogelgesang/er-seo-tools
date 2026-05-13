@@ -66,7 +66,7 @@ export function PillarTopicList({
               return (
                 <li key={r.url} className="flex justify-between gap-3">
                   {href ? (
-                    <a href={href} target="_blank" rel="noreferrer"
+                    <a href={href} target="_blank" rel="noopener noreferrer"
                        className="text-blue-600 dark:text-blue-400 truncate">
                       {r.url}
                     </a>

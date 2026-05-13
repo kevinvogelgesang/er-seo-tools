@@ -78,6 +78,22 @@ function formatMB(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
+async function hasBlockedBinarySignature(file: File): Promise<boolean> {
+  const bytes = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  if (bytes.length < 2) return false;
+
+  const isElf = bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46;
+  const isPe = bytes[0] === 0x4d && bytes[1] === 0x5a;
+  const isZip =
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    ((bytes[2] === 0x03 && bytes[3] === 0x04) ||
+      (bytes[2] === 0x05 && bytes[3] === 0x06) ||
+      (bytes[2] === 0x07 && bytes[3] === 0x08));
+
+  return isElf || isPe || isZip;
+}
+
 /**
  * POST /api/upload
  * Accepts multipart/form-data with CSV files and an optional sessionId field.
@@ -134,6 +150,13 @@ export async function POST(request: NextRequest) {
       if (value instanceof File && value.size > 0) {
         const ext = path.extname(value.name).toLowerCase();
         if (ext === '.csv' || ext === '.txt' || value.type === 'text/csv') {
+          if (await hasBlockedBinarySignature(value)) {
+            releaseUploadSize(ip, contentLength);
+            return NextResponse.json(
+              { error: 'Invalid file content. Executables and archives are not accepted.' },
+              { status: 400 }
+            );
+          }
           fileEntries.push({ file: value, filename: sanitizeFilename(value.name) });
         }
       }

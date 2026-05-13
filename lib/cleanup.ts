@@ -75,7 +75,7 @@ export async function cleanOrphanUploadDirectories(): Promise<void> {
     if (!entry.isDirectory() || !isValidSessionId(entry.name)) return;
 
     const dir = path.join(UPLOADS_DIR, entry.name);
-    const stat = await fs.stat(dir).catch(() => null);
+    const stat = await fs.lstat(dir).catch(() => null);
     if (!stat || stat.mtimeMs >= cutoffMs) return;
 
     const session = await prisma.session.findUnique({

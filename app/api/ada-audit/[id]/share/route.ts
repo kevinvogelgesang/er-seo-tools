@@ -5,11 +5,8 @@ export const dynamic = 'force-dynamic'
 
 const SHARE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-function buildShareUrl(request: NextRequest, token: string): string {
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    request.headers.get('origin') ||
-    'http://localhost:3000'
+function buildShareUrl(token: string): string {
+  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   return `${origin}/ada-audit/share/${token}`
 }
 
@@ -17,7 +14,7 @@ function buildShareUrl(request: NextRequest, token: string): string {
 // Generates (or returns existing) share token for a completed audit.
 
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
@@ -57,7 +54,7 @@ export async function POST(
     })
   }
 
-  const shareUrl = buildShareUrl(request, token)
+  const shareUrl = buildShareUrl(token)
   return NextResponse.json({ shareUrl, expiresAt: expiresAt.toISOString() })
 }
 
@@ -65,7 +62,7 @@ export async function POST(
 // Returns share token info for the given audit.
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
@@ -83,7 +80,7 @@ export async function GET(
     return NextResponse.json({ shareToken: null })
   }
 
-  const shareUrl = buildShareUrl(request, audit.shareToken)
+  const shareUrl = buildShareUrl(audit.shareToken)
   return NextResponse.json({
     shareToken: audit.shareToken,
     shareUrl,

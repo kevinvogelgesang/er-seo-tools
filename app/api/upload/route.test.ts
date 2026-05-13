@@ -82,4 +82,17 @@ describe('POST /api/upload', () => {
     expect(sessionCreateMock).toHaveBeenCalled()
     expect(writeFileMock).toHaveBeenCalled()
   })
+
+  it('rejects CSV-named archives before writing files', async () => {
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])]), 'internal_all.csv')
+
+    const res = await POST(uploadRequest(form, 512))
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.error).toMatch(/invalid file content/i)
+    expect(sessionCreateMock).not.toHaveBeenCalled()
+    expect(writeFileMock).not.toHaveBeenCalled()
+  })
 })

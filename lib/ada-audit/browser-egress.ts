@@ -24,7 +24,11 @@ export function getBrowserEgressLaunchArgs(): string[] {
 }
 
 export function hasBrowserEgressGuardConfig(): boolean {
-  return Boolean(process.env.CHROME_PROXY_SERVER) || isTruthy(process.env.CHROMIUM_EGRESS_GUARD_CONFIRMED)
+  return Boolean(process.env.CHROME_PROXY_SERVER) || isTruthy(process.env.CHROMIUM_NETWORK_ISOLATED)
+}
+
+export function hasConfirmedBrowserNetworkIsolation(): boolean {
+  return isTruthy(process.env.CHROMIUM_NETWORK_ISOLATED)
 }
 
 export function requireBrowserEgressGuardConfig(): void {
@@ -34,6 +38,6 @@ export function requireBrowserEgressGuardConfig(): void {
   throw new Error(
     'Chromium ADA audits require an outbound egress guard in production. ' +
     'Set CHROME_PROXY_SERVER to an enforcing proxy, or set ' +
-    'CHROMIUM_EGRESS_GUARD_CONFIRMED=true after deploying a firewall that blocks private/reserved networks.'
+    'CHROMIUM_NETWORK_ISOLATED=true after deploying firewall rules that block private, link-local, and reserved networks.'
   )
 }

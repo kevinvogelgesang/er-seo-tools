@@ -34,9 +34,11 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
     });
   }
 
+  let paCreated = false;
   const pa = await prisma.pillarAnalysis.create({
     data: { sessionId, status: 'running' },
   });
+  paCreated = true;
 
   let files: string[];
   try {
@@ -90,7 +92,9 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
     });
     throw new PillarAnalysisRunError('analysis_failed', message, 500);
   } finally {
-    await fs.rm(getUploadDir(sessionId), { recursive: true, force: true }).catch(() => {});
+    if (paCreated) {
+      await fs.rm(getUploadDir(sessionId), { recursive: true, force: true }).catch(() => {});
+    }
   }
 }
 

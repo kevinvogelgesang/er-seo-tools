@@ -89,7 +89,7 @@ export function UrlVerdictTable({ verdicts }: { verdicts: UrlRecord[] }) {
               <tr key={r.url} className="border-b dark:border-navy-border/50">
                 <td className="py-2 truncate max-w-md">
                   {href ? (
-                    <a href={href} target="_blank" rel="noreferrer"
+                    <a href={href} target="_blank" rel="noopener noreferrer"
                        className="text-blue-600 dark:text-blue-400">{r.url}</a>
                   ) : (
                     <span>{r.url}</span>

@@ -41,7 +41,10 @@ export async function register() {
     // Chromium owns its own resolver/network stack, so request interception alone
     // cannot close DNS rebinding. In production require an explicit egress guard:
     // either a Chrome proxy or a server/network firewall confirmation.
-    const { requireBrowserEgressGuardConfig } = await import('@/lib/ada-audit/browser-egress')
+    const {
+      hasConfirmedBrowserNetworkIsolation,
+      requireBrowserEgressGuardConfig,
+    } = await import('@/lib/ada-audit/browser-egress')
     try {
       requireBrowserEgressGuardConfig()
     } catch (err) {
@@ -50,6 +53,12 @@ export async function register() {
         `[startup] ${err instanceof Error ? err.message : 'Chromium egress guard is required in production'}. Refusing to start.`,
       )
       process.exit(1)
+    }
+    if (process.env.NODE_ENV === 'production' && hasConfirmedBrowserNetworkIsolation()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[startup] CHROMIUM_NETWORK_ISOLATED=true assumes host/network firewall rules block Chromium from private, link-local, and reserved networks.',
+      )
     }
 
     // Close the headless browser cleanly on shutdown so Chrome doesn't orphan.
@@ -69,10 +78,21 @@ export async function register() {
     // Periodic stale audit check (every 10 minutes)
     const staleCheckInterval = setInterval(() => void resetStaleAudits(), 10 * 60 * 1000)
 
-    const shutdown = () => {
+    let shuttingDown = false
+    const shutdown = async () => {
+      if (shuttingDown) return
+      shuttingDown = true
       clearInterval(cleanupInterval)
       clearInterval(staleCheckInterval)
-      void closeBrowser()
+      try {
+        await closeBrowser()
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[shutdown] Failed to close headless browser:', err)
+        process.exitCode = 1
+      } finally {
+        process.exit()
+      }
     }
     process.once('SIGTERM', shutdown)
     process.once('SIGINT', shutdown)

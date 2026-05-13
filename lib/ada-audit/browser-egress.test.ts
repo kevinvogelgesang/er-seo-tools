@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   getBrowserEgressLaunchArgs,
+  hasConfirmedBrowserNetworkIsolation,
   hasBrowserEgressGuardConfig,
   requireBrowserEgressGuardConfig,
 } from './browser-egress'
@@ -15,7 +16,7 @@ describe('browser egress guard config', () => {
   it('requires proxy or firewall confirmation in production', () => {
     process.env = { ...ORIG_ENV, NODE_ENV: 'production' }
     delete process.env.CHROME_PROXY_SERVER
-    delete process.env.CHROMIUM_EGRESS_GUARD_CONFIRMED
+    delete process.env.CHROMIUM_NETWORK_ISOLATED
 
     expect(() => requireBrowserEgressGuardConfig()).toThrow(/egress guard/)
   })
@@ -24,11 +25,12 @@ describe('browser egress guard config', () => {
     process.env = {
       ...ORIG_ENV,
       NODE_ENV: 'production',
-      CHROMIUM_EGRESS_GUARD_CONFIRMED: 'true',
+      CHROMIUM_NETWORK_ISOLATED: 'true',
     }
     delete process.env.CHROME_PROXY_SERVER
 
     expect(hasBrowserEgressGuardConfig()).toBe(true)
+    expect(hasConfirmedBrowserNetworkIsolation()).toBe(true)
     expect(() => requireBrowserEgressGuardConfig()).not.toThrow()
   })
 

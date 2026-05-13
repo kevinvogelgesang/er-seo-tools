@@ -65,7 +65,7 @@
   - Added `AdaAudit.shareExpiresAt`, migration, route minting/rotation, public share-page expiry enforcement, and cleanup for expired ADA share tokens.
 
 - Remaining hardening pass:
-  - Added Chromium production egress guard configuration: `CHROME_PROXY_SERVER` support and startup fail-fast unless a proxy or `CHROMIUM_EGRESS_GUARD_CONFIRMED=true` is configured.
+  - Added Chromium production egress guard configuration: `CHROME_PROXY_SERVER` support and startup fail-fast unless a proxy or `CHROMIUM_NETWORK_ISOLATED=true` is configured.
   - Added `UPLOAD_MAX_BODY_BYTES` request cap before `request.formData()`.
   - Added Origin/Sec-Fetch-Site validation to logout POST.
   - Added cleanup for old complete-session upload directories once no pillar analysis is pending/running.
