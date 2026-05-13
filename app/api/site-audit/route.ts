@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { enqueueAudit } from '@/lib/ada-audit/queue-manager'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
-import {
-  normaliseDiscoveredSiteAuditUrls,
-  normaliseSiteAuditDomain,
-} from '@/lib/ada-audit/site-audit-helpers'
+import { queueSiteAuditRequest } from '@/lib/ada-audit/queue-request'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,22 +15,12 @@ export async function POST(request: NextRequest) {
   }
 
   const raw = body as Record<string, unknown>
-  let domain = typeof raw?.domain === 'string' ? raw.domain.trim() : ''
+  const domain = typeof raw?.domain === 'string' ? raw.domain.trim() : ''
   const clientId = typeof raw?.clientId === 'number' ? raw.clientId : null
   const wcagLevel = typeof raw?.wcagLevel === 'string' && raw.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
-  const rawPreDiscoveredUrls = Array.isArray(raw?.urls) ? (raw.urls as string[]).filter(u => typeof u === 'string') : undefined
-
-  if (!domain) {
-    return NextResponse.json({ error: 'domain is required' }, { status: 400 })
-  }
-
-  // Strip scheme/path if user accidentally pasted a full URL
-  domain = normaliseSiteAuditDomain(domain)
-
-  // Basic hostname validation
-  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
-    return NextResponse.json({ error: 'Invalid domain (e.g. example.edu)' }, { status: 400 })
-  }
+  const rawPreDiscoveredUrls = Array.isArray(raw?.urls)
+    ? (raw.urls as string[]).filter((u) => typeof u === 'string')
+    : undefined
 
   if (clientId !== null) {
     const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } })
@@ -43,32 +29,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Prevent duplicate in-flight site audits for the same domain
-  const inFlight = await prisma.siteAudit.findFirst({
-    where: { domain, status: { in: ['queued', 'pending', 'running'] } },
-    select: { id: true },
+  const result = await queueSiteAuditRequest({
+    domain,
+    clientId,
+    wcagLevel,
+    preDiscoveredUrls: rawPreDiscoveredUrls,
   })
-  if (inFlight) {
+
+  if (result.kind === 'invalid') {
+    return NextResponse.json({ error: result.reason }, { status: 400 })
+  }
+  if (result.kind === 'duplicate') {
+    // Read the in-flight row to surface the existing domain in the response
+    // body, preserving the original 409 shape for any existing callers.
+    const existing = await prisma.siteAudit.findUnique({
+      where: { id: result.existingId },
+      select: { domain: true },
+    })
     return NextResponse.json(
-      { error: `A site audit for ${domain} is already queued or running`, id: inFlight.id },
-      { status: 409 }
+      {
+        error: `A site audit for ${existing?.domain ?? 'this domain'} is already queued or running`,
+        id: result.existingId,
+      },
+      { status: 409 },
     )
   }
-
-  const preDiscoveredUrls = rawPreDiscoveredUrls
-    ? normaliseDiscoveredSiteAuditUrls(rawPreDiscoveredUrls, domain)
-    : undefined
-
-  if (rawPreDiscoveredUrls && (!preDiscoveredUrls || preDiscoveredUrls.length === 0)) {
-    return NextResponse.json(
-      { error: `No submitted URLs belong to ${domain}` },
-      { status: 400 }
-    )
-  }
-
-  const { id, status } = await enqueueAudit(domain, clientId, wcagLevel, preDiscoveredUrls)
-
-  return NextResponse.json({ id, status }, { status: 202 })
+  return NextResponse.json({ id: result.id, status: 'queued' }, { status: 202 })
 }
 
 // ─── GET /api/site-audit ──────────────────────────────────────────────────────
