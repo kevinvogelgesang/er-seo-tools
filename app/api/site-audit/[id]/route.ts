@@ -38,7 +38,7 @@ export async function GET(
   let activeAudit: { id: string; domain: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null = null
   if (audit.status === 'queued') {
     activeAudit = await prisma.siteAudit.findFirst({
-      where: { status: { in: ['running', 'pending'] } },
+      where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
       select: { id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true },
     })
   }

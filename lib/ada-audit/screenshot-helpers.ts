@@ -2,6 +2,7 @@ import path from 'path'
 import { promises as fs } from 'fs'
 import type { ElementHandle, Page } from 'puppeteer-core'
 import type { AxeViolation } from './types'
+import { deleteLighthouseReport } from './lighthouse-storage'
 
 /** Where violation screenshots are stored. One subdirectory per audit ID. */
 export const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR || path.join(process.cwd(), 'screenshots')
@@ -92,6 +93,7 @@ function logCleanupFailures(context: string, results: PromiseSettledResult<void>
 export async function deleteAuditArtifacts(auditId: string): Promise<PromiseSettledResult<void>[]> {
   const results = await Promise.allSettled([
     deleteScreenshots(auditId),
+    deleteLighthouseReport(auditId),
   ])
   logCleanupFailures(`[ada-audit/artifacts] Failed to clean artifacts for audit ${auditId}`, results)
   return results
