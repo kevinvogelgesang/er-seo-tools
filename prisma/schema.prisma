@@ -109,7 +109,7 @@ model PillarAnalysis {
   id                  String   @id @default(cuid())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
-  sessionId           String   // FK to Session (the seo-parser crawl)
+  sessionId           String   @unique // FK to Session (the seo-parser crawl) — one analysis per session
   session             Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   status              String   @default("pending") // pending | running | complete | error
   error               String?

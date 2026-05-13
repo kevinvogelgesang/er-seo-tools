@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import Papa from 'papaparse';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { InternalParser } from '@/lib/parsers/internal.parser';
 import { getUploadDir } from '@/lib/upload-helpers';
@@ -34,11 +35,16 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
     });
   }
 
-  let paCreated = false;
-  const pa = await prisma.pillarAnalysis.create({
-    data: { sessionId, status: 'running' },
-  });
-  paCreated = true;
+  // Enforce one PillarAnalysis row per session. If one already exists:
+  //   complete → return it (idempotent)
+  //   running  → 409 already_running
+  //   error    → reset to running and re-run on the same row
+  // If none exists, create a new row. A defensive P2002 catch handles the race
+  // where two concurrent callers slip past the findFirst check.
+  const pa = await acquirePillarAnalysisRow(sessionId);
+  if (pa.alreadyComplete) {
+    return { id: pa.id, status: 'complete' };
+  }
 
   let files: string[];
   try {
@@ -72,6 +78,7 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
       where: { id: pa.id },
       data: {
         status: 'complete',
+        error: null,
         score: result.score,
         subscores: JSON.stringify(result.subscores),
         subscorePresence: JSON.stringify(result.subscorePresence),
@@ -83,6 +90,10 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
       },
     });
 
+    // Only clean up upload dir on the success path. On failure we leave the
+    // raw CSVs in place so the user can retry without re-uploading.
+    await fs.rm(getUploadDir(sessionId), { recursive: true, force: true }).catch(() => {});
+
     return { id: pa.id, status: 'complete' };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown';
@@ -91,11 +102,58 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
       data: { status: 'error', error: message.slice(0, 500) },
     });
     throw new PillarAnalysisRunError('analysis_failed', message, 500);
-  } finally {
-    if (paCreated) {
-      await fs.rm(getUploadDir(sessionId), { recursive: true, force: true }).catch(() => {});
-    }
   }
+}
+
+/**
+ * Get-or-create the single PillarAnalysis row for a session, with status
+ * branching for re-runs and a defensive P2002 race fallback.
+ */
+async function acquirePillarAnalysisRow(
+  sessionId: string,
+): Promise<{ id: string; alreadyComplete: boolean }> {
+  const existing = await prisma.pillarAnalysis.findFirst({ where: { sessionId } });
+  if (existing) {
+    return reconcileExisting(existing);
+  }
+
+  try {
+    const created = await prisma.pillarAnalysis.create({
+      data: { sessionId, status: 'running' },
+    });
+    return { id: created.id, alreadyComplete: false };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      // Race: another caller inserted between findFirst and create.
+      const racedRow = await prisma.pillarAnalysis.findFirst({ where: { sessionId } });
+      if (racedRow) {
+        return reconcileExisting(racedRow);
+      }
+    }
+    throw err;
+  }
+}
+
+async function reconcileExisting(
+  row: { id: string; status: string },
+): Promise<{ id: string; alreadyComplete: boolean }> {
+  if (row.status === 'complete') {
+    return { id: row.id, alreadyComplete: true };
+  }
+  if (row.status === 'running') {
+    throw new PillarAnalysisRunError(
+      'already_running',
+      'A pillar analysis is already running for this session',
+      409,
+      { id: row.id },
+    );
+  }
+  // pending | error → reset to running and continue with this row
+  await prisma.pillarAnalysis.update({
+    where: { id: row.id },
+    data: { status: 'running', error: null },
+  });
+  return { id: row.id, alreadyComplete: false };
 }
 
 async function locateInternalCsv(sessionId: string, files: string[]): Promise<string | null> {
