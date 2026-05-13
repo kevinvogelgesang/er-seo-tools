@@ -3,7 +3,8 @@ import Link from 'next/link'
 import { prisma } from '@/lib/db'
 import SiteAuditPoller from '@/components/ada-audit/SiteAuditPoller'
 import SiteAuditResultsView from '@/components/ada-audit/SiteAuditResultsView'
-import type { SiteAuditSummary } from '@/lib/ada-audit/types'
+import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
+import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
@@ -17,7 +18,12 @@ export default async function SiteAuditResultPage({ params }: Props) {
 
   const audit = await prisma.siteAudit.findUnique({
     where: { id },
-    include: { client: { select: { name: true } } },
+    include: {
+      client: { select: { name: true } },
+      pdfAudits: {
+        select: { url: true, fileSize: true, pageCount: true, issues: true, scanError: true },
+      },
+    },
   })
 
   if (!audit) notFound()
@@ -92,6 +98,25 @@ export default async function SiteAuditResultPage({ params }: Props) {
 
   const { score, compliant } = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
 
+  const pdfs: AuditPdfRow[] = audit.pdfAudits.map((p) => {
+    let issues: PdfIssue[] = []
+    if (p.issues) {
+      try {
+        const parsed = JSON.parse(p.issues)
+        if (Array.isArray(parsed)) issues = parsed as PdfIssue[]
+      } catch {
+        issues = []
+      }
+    }
+    return {
+      url: p.url,
+      fileSize: p.fileSize,
+      pageCount: p.pageCount,
+      issues,
+      scanError: p.scanError ?? null,
+    }
+  })
+
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
       {breadcrumb}
@@ -105,6 +130,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
         wcagLevel={audit.wcagLevel}
         score={score}
         compliant={compliant}
+        pdfs={pdfs}
       />
     </main>
   )

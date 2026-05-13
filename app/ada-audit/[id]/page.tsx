@@ -4,7 +4,9 @@ import { prisma } from '@/lib/db'
 import AuditResultsView from '@/components/ada-audit/AuditResultsView'
 import AuditPoller from '@/components/ada-audit/AuditPoller'
 import ReScanButton from '@/components/ada-audit/ReScanButton'
-import type { StoredAxeResults } from '@/lib/ada-audit/types'
+import type { StoredAxeResults, AuditPdfRow } from '@/lib/ada-audit/types'
+import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
+import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScore } from '@/lib/ada-audit/scoring'
 
 export const dynamic = 'force-dynamic'
@@ -20,7 +22,12 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
 
   const audit = await prisma.adaAudit.findUnique({
     where: { id },
-    include: { client: { select: { name: true } } },
+    include: {
+      client: { select: { name: true } },
+      pdfAudits: {
+        select: { url: true, fileSize: true, pageCount: true, issues: true, scanError: true },
+      },
+    },
   })
 
   if (!audit) notFound()
@@ -127,6 +134,35 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
 
   const { score, compliant } = computeScore(results.violations, audit.wcagLevel)
 
+  // Parse Lighthouse summary (tolerant of malformed JSON)
+  let lighthouseSummary: LighthouseSummary | null = null
+  if (audit.lighthouseSummary) {
+    try {
+      lighthouseSummary = JSON.parse(audit.lighthouseSummary) as LighthouseSummary
+    } catch {
+      lighthouseSummary = null
+    }
+  }
+
+  const pdfs: AuditPdfRow[] = audit.pdfAudits.map((p) => {
+    let issues: PdfIssue[] = []
+    if (p.issues) {
+      try {
+        const parsed = JSON.parse(p.issues)
+        if (Array.isArray(parsed)) issues = parsed as PdfIssue[]
+      } catch {
+        issues = []
+      }
+    }
+    return {
+      url: p.url,
+      fileSize: p.fileSize,
+      pageCount: p.pageCount,
+      issues,
+      scanError: p.scanError ?? null,
+    }
+  })
+
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
       {breadcrumb}
@@ -142,6 +178,9 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
         previousScore={previousScore}
         fromAuditId={fromId ?? null}
         showRescan
+        lighthouseSummary={lighthouseSummary}
+        lighthouseError={audit.lighthouseError ?? null}
+        pdfs={pdfs}
       />
     </main>
   )

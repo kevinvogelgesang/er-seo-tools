@@ -2,6 +2,16 @@
 // These mirror axe-core's result shapes, narrowed to what we actually use.
 
 import type { LighthouseSummary } from './lighthouse-types'
+import type { PdfIssue } from './pdf-types'
+
+/** Per-PDF row returned by the audit detail endpoints */
+export interface AuditPdfRow {
+  url: string
+  fileSize: number | null
+  pageCount: number | null
+  issues: PdfIssue[]
+  scanError: string | null
+}
 
 export type ImpactLevel = 'critical' | 'serious' | 'moderate' | 'minor'
 
@@ -75,6 +85,9 @@ export interface AuditDetail {
   progress: number
   progressMessage: string
   runnerType: string
+  lighthouseSummary?: LighthouseSummary | null
+  lighthouseError?: string | null
+  pdfs?: AuditPdfRow[]
 }
 
 // ─── Site audit types ─────────────────────────────────────────────────────────
@@ -124,4 +137,8 @@ export interface SiteAuditDetail {
   pagesComplete: number
   pagesError: number
   summary: SiteAuditSummary | null
+  pdfs?: AuditPdfRow[]
+  pdfsTotal?: number
+  pdfsComplete?: number
+  pdfsError?: number
 }

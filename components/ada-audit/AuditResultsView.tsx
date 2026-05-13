@@ -1,10 +1,13 @@
-import type { StoredAxeResults, AuditScorecard } from '@/lib/ada-audit/types'
+import type { StoredAxeResults, AuditScorecard, AuditPdfRow } from '@/lib/ada-audit/types'
+import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
 import ComplianceBanner from './ComplianceBanner'
 import ShareAuditButton from './ShareAuditButton'
 import ReScanButton from './ReScanButton'
 import RescanBanner from './RescanBanner'
+import LighthouseSection from './LighthouseSection'
+import PdfIssuesSection from './PdfIssuesSection'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import { safeExternalHref } from '@/lib/safe-external-href'
 
@@ -21,6 +24,9 @@ interface Props {
   fromAuditId?: string | null
   showRescan?: boolean
   readOnly?: boolean
+  lighthouseSummary?: LighthouseSummary | null
+  lighthouseError?: string | null
+  pdfs?: AuditPdfRow[]
 }
 
 function buildScorecard(results: StoredAxeResults): AuditScorecard {
@@ -36,7 +42,7 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, lighthouseSummary = null, lighthouseError = null, pdfs = [] }: Props) {
   const scorecard = buildScorecard(results)
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
   const auditHref = safeExternalHref(url)
@@ -113,6 +119,11 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
 
       <KnownLimitationsNotice />
 
+      {/* Lighthouse */}
+      {auditId && (
+        <LighthouseSection summary={lighthouseSummary} error={lighthouseError} auditId={auditId} />
+      )}
+
       {/* Issues */}
       <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
         <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
@@ -127,6 +138,9 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
           <AuditIssueTabs violations={results.violations} incomplete={results.incomplete ?? []} auditId={readOnly ? undefined : auditId} />
         </div>
       </div>
+
+      {/* PDFs */}
+      <PdfIssuesSection pdfs={pdfs} />
     </div>
   )
 }
