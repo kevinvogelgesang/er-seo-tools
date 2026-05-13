@@ -73,6 +73,9 @@ model AdaAudit {
   client       Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   siteAuditId  String?
   siteAudit    SiteAudit? @relation(fields: [siteAuditId], references: [id], onDelete: Cascade)
+  lighthouseSummary String?
+  lighthouseError   String?
+  pdfAudits         PdfAudit[]
 
   @@index([createdAt])
   @@index([clientId])
@@ -91,6 +94,10 @@ model SiteAudit {
   pagesTotal    Int        @default(0)
   pagesComplete Int        @default(0)
   pagesError    Int        @default(0)
+  pdfsTotal     Int        @default(0)
+  pdfsComplete  Int        @default(0)
+  pdfsError     Int        @default(0)
+  pdfAudits     PdfAudit[]
   summary       String?    // JSON: SiteAuditSummary (computed once at completion)
   wcagLevel     String     @default("wcag21aa")  // wcag21aa | wcag22aa
   score         Int?                              // 0-100
@@ -132,4 +139,24 @@ model PillarAnalysis {
   @@index([sessionId, status])
   @@index([status])
   @@index([createdAt])
+}
+
+model PdfAudit {
+  id           String     @id @default(cuid())
+  createdAt    DateTime   @default(now())
+  siteAuditId  String?
+  siteAudit    SiteAudit? @relation(fields: [siteAuditId], references: [id], onDelete: Cascade)
+  adaAuditId   String?
+  adaAudit     AdaAudit?  @relation(fields: [adaAuditId], references: [id], onDelete: Cascade)
+  url          String     // normalized URL (query/fragment stripped, host lowercased)
+  fileSize     Int?       // bytes
+  pageCount    Int?
+  status       String     // pending | scanning | complete | error
+  issues       String?    // JSON: PdfIssue[]
+  scanError    String?
+
+  @@index([siteAuditId])
+  @@index([adaAuditId])
+  @@unique([siteAuditId, url])
+  @@unique([adaAuditId, url])
 }
