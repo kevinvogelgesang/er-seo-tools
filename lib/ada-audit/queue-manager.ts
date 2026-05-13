@@ -20,6 +20,7 @@ import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { closeBrowser } from '@/lib/ada-audit/browser-pool'
+import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,15 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
       where: { id },
       data: { status: 'error', error: message },
     }).catch(() => {})
+    // Read back the batchId — we may not have it in scope if the audit errored
+    // before any local variable captured it.
+    const errored = await prisma.siteAudit.findUnique({
+      where: { id },
+      select: { batchId: true },
+    }).catch(() => null)
+    if (errored?.batchId) {
+      await closeBatchIfDrained(errored.batchId).catch(() => {})
+    }
     await closeBrowser().catch(() => {})
   }
 }
@@ -186,6 +196,10 @@ export async function enqueueAudit(
   wcagLevel: string,
   preDiscoveredUrls?: string[],
 ): Promise<{ id: string; status: string }> {
+  // Attach to the open batch (or create one). `ensureOpenBatch` handles the
+  // race-safe creation via the partial unique index.
+  const batchId = await ensureOpenBatch()
+
   const audit = await prisma.siteAudit.create({
     data: {
       domain,
@@ -193,6 +207,7 @@ export async function enqueueAudit(
       clientId,
       wcagLevel,
       discoveredUrls: preDiscoveredUrls ? JSON.stringify(preDiscoveredUrls) : null,
+      batchId,
     },
   })
 
@@ -254,7 +269,7 @@ export async function resetStaleAudits() {
       status: { in: ['running', 'pdfs-running'] },
       updatedAt: { lt: staleThreshold },
     },
-    select: { id: true },
+    select: { id: true, batchId: true },
   })
   for (const s of stale) {
     console.warn(`[queue] Resetting stale audit ${s.id}`)
@@ -262,6 +277,9 @@ export async function resetStaleAudits() {
       where: { id: s.id },
       data: { status: 'error', error: 'Audit timed out (server may have restarted)' },
     }).catch(() => {})
+    if (s.batchId) {
+      await closeBatchIfDrained(s.batchId).catch(() => {})
+    }
   }
   if (stale.length > 0) void processNext()
 }
@@ -279,7 +297,7 @@ export async function recoverQueue() {
       status: { in: ['running', 'pdfs-running'] },
       updatedAt: { lt: staleThreshold },
     },
-    select: { id: true },
+    select: { id: true, batchId: true },
   })
   for (const s of stale) {
     console.warn(`[queue] Startup recovery: resetting stale audit ${s.id}`)
@@ -287,6 +305,9 @@ export async function recoverQueue() {
       where: { id: s.id },
       data: { status: 'error', error: 'Audit interrupted (server restarted)' },
     }).catch(() => {})
+    if (s.batchId) {
+      await closeBatchIfDrained(s.batchId).catch(() => {})
+    }
   }
 
   // Also reset any 'pending' audits (old status, shouldn't exist with new queue)
