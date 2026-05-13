@@ -31,7 +31,7 @@
 | `app/api/ada-audit/route.ts` | Same. |
 | `components/ada-audit/AuditHistory.tsx` | Use `PaginatedSection`. Read `items` from new response. URL state via `recentPagesPage`. |
 | `components/ada-audit/SiteAuditHistory.tsx` | Same treatment. URL state via `recentSitesPage`. Smart-poll preserved. |
-| `components/ada-audit/AuditIndexTabs.tsx` | Insert `<ClientsAuditSummary />` between New Audit card and Recents. |
+| `components/ada-audit/AuditIndexTabs.tsx` | Insert `<ClientsAuditSummary />` between New Audit card and Recents. Initialize `tab` from `?auditTab=` (and infer `site` when `?prefillDomain=` is set without an explicit `auditTab`). |
 | `components/ada-audit/SiteAuditForm.tsx` | Read `prefillDomain` from `useSearchParams` on mount. |
 | `lib/ada-audit/types.ts` | Add `ClientAuditSummary`, `PaginatedResponse<T>` types. |
 
@@ -92,18 +92,12 @@ export interface ClientAuditSummary {
     score: number | null
     pagesTotal: number
     pagesError: number
-    summary: import('./types').SiteAuditSummary | null
+    summary: SiteAuditSummary | null
   } | null
 }
 ```
 
-Note: if there's no existing `SiteAuditSummary` export, leave the inner `summary` typed as `unknown | null` and refine after locating its definition. Verify:
-
-```bash
-grep -n "SiteAuditSummary" lib/ada-audit/types.ts
-```
-
-If found, use that. Otherwise simplify to `summary: unknown | null` and revisit in Task 7.
+`SiteAuditSummary` is already exported earlier in this same file (`lib/ada-audit/types.ts`, around line 73 — verify with `grep -n "export.*SiteAuditSummary" lib/ada-audit/types.ts`). Reference it directly; do **not** use `import('./types').SiteAuditSummary`, which is a circular self-import inside the same module.
 
 - [ ] **Step 2: Type-check**
 
@@ -142,36 +136,59 @@ export async function GET(request: NextRequest) {
   const pageSizeRaw = parseInt(url.searchParams.get('pageSize') ?? '25', 10) || 25
   const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
 
+  // Preserve the existing ?clientId= filter (used by the per-client view)
+  const clientIdParam = url.searchParams.get('clientId')
+  const where = clientIdParam ? { clientId: parseInt(clientIdParam, 10) } : {}
+
   const [items, totalCount] = await Promise.all([
     prisma.siteAudit.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: { client: { select: { name: true } } },
     }),
-    prisma.siteAudit.count(),
+    prisma.siteAudit.count({ where }),
   ])
 
-  const formatted = items.map((a) => ({
-    id: a.id,
-    createdAt: a.createdAt.toISOString(),
-    domain: a.domain,
-    status: a.status,
-    error: a.error ?? null,
-    clientId: a.clientId ?? null,
-    clientName: a.client?.name ?? null,
-    pagesTotal: a.pagesTotal,
-    pagesComplete: a.pagesComplete,
-    pagesError: a.pagesError,
-    score: a.score ?? null,
-    wcagLevel: a.wcagLevel,
-  }))
+  const formatted = items.map((a) => {
+    // The current handler computes score from summary.aggregate via
+    // `computeScoreFromCounts` (exported from lib/ada-audit/scoring.ts:28)
+    // because SiteAudit.score is not persisted by the queue. Preserve that
+    // behavior verbatim — do NOT switch to `a.score ?? null`, which would
+    // always be null on freshly-completed audits. See the existing
+    // transform in app/api/site-audit/route.ts:88-97.
+    let summary: unknown = null
+    let score: number | null = null
+    if (a.status === 'complete' && a.summary) {
+      try {
+        summary = JSON.parse(a.summary)
+        const agg = (summary as { aggregate?: unknown } | null)?.aggregate
+        if (agg) score = computeScoreFromCounts(agg as never, a.wcagLevel).score
+      } catch { /* leave summary/score null */ }
+    }
+    return {
+      id: a.id,
+      createdAt: a.createdAt.toISOString(),
+      domain: a.domain,
+      status: a.status,
+      error: a.error ?? null,
+      clientId: a.clientId ?? null,
+      clientName: a.client?.name ?? null,
+      pagesTotal: a.pagesTotal,
+      pagesComplete: a.pagesComplete,
+      pagesError: a.pagesError,
+      summary,
+      score,
+      wcagLevel: a.wcagLevel,
+    }
+  })
 
   return NextResponse.json({ items: formatted, totalCount, page, pageSize })
 }
 ```
 
-(Adjust the `formatted` mapper to match whatever the previous handler returned — preserve all fields that existing consumers read.)
+**Critical:** read the existing handler first and copy its `summary` + `score` derivation verbatim. The current handler at `app/api/site-audit/route.ts:88-97` derives score from `summary.aggregate` via `computeScoreFromCounts()` — `SiteAudit.score` is not persisted at queue completion time, so a literal `a.score ?? null` would silently null out scores in the Recents view.
 
 - [ ] **Step 3: Smoke test the endpoint**
 
@@ -211,15 +228,22 @@ export async function GET(request: NextRequest) {
   const pageSizeRaw = parseInt(url.searchParams.get('pageSize') ?? '25', 10) || 25
   const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
 
+  // Preserve the existing ?clientId= filter alongside the
+  // "standalone audits only" filter (site-audit children appear under
+  // /api/site-audit, not here).
+  const clientIdParam = url.searchParams.get('clientId')
+  const where: { siteAuditId: null; clientId?: number } = { siteAuditId: null }
+  if (clientIdParam) where.clientId = parseInt(clientIdParam, 10)
+
   const [items, totalCount] = await Promise.all([
     prisma.adaAudit.findMany({
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: { client: { select: { name: true } } },
-      where: { siteAuditId: null },  // Standalone single-page audits only — site-audit children appear via /api/site-audit
+      where,
     }),
-    prisma.adaAudit.count({ where: { siteAuditId: null } }),
+    prisma.adaAudit.count({ where }),
   ])
 
   const formatted = items.map((a) => {
@@ -299,9 +323,9 @@ export async function GET() {
         select: {
           id: true,
           createdAt: true,
-          score: true,
           pagesTotal: true,
           pagesError: true,
+          wcagLevel: true,
           summary: true,
         },
       })
@@ -309,9 +333,20 @@ export async function GET() {
       let domains: string[] = []
       try { domains = JSON.parse(c.domains) } catch { /* keep [] */ }
 
-      let parsedSummary: unknown = null
+      // Score is derived from summary.aggregate the same way /api/site-audit
+      // does it — SiteAudit.score is not persisted by the queue, so reading
+      // it would always be null on freshly completed audits. Keep the
+      // derivation in lockstep with app/api/site-audit/route.ts (or, even
+      // better, factor `deriveScoreFromSummary(summary, wcagLevel)` into
+      // lib/ada-audit/site-audit-helpers.ts and call it from both places).
+      let parsedSummary: SiteAuditSummary | null = null
+      let score: number | null = null
       if (latest?.summary) {
-        try { parsedSummary = JSON.parse(latest.summary) } catch { parsedSummary = null }
+        try {
+          parsedSummary = JSON.parse(latest.summary) as SiteAuditSummary
+          const agg = (parsedSummary as { aggregate?: unknown } | null)?.aggregate
+          if (agg) score = computeScoreFromCounts(agg as never, latest.wcagLevel).score
+        } catch { parsedSummary = null }
       }
 
       return {
@@ -321,7 +356,7 @@ export async function GET() {
         latestSiteAudit: latest ? {
           id: latest.id,
           createdAt: latest.createdAt.toISOString(),
-          score: latest.score ?? null,
+          score,
           pagesTotal: latest.pagesTotal,
           pagesError: latest.pagesError,
           summary: parsedSummary,
@@ -334,7 +369,14 @@ export async function GET() {
 }
 ```
 
-(The complex type narrowing on `parsedSummary` is a workaround for not knowing the exact `SiteAuditSummary` shape at compile time. If `SiteAuditSummary` is exported from types.ts, replace with a direct `let parsedSummary: SiteAuditSummary | null = null` and use `JSON.parse` normally.)
+Imports:
+
+```ts
+import type { ClientAuditSummary, SiteAuditSummary } from '@/lib/ada-audit/types'
+import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
+```
+
+(`computeScoreFromCounts` is exported from `lib/ada-audit/scoring.ts:28`, not from `site-audit-helpers.ts`.) Both this endpoint and `app/api/site-audit/route.ts` should call the same helper; if you find the derivation duplicated, extract `deriveScoreFromSummary(summary, wcagLevel)` into `lib/ada-audit/scoring.ts` (or `site-audit-helpers.ts`) and call it from both places.
 
 - [ ] **Step 2: Smoke test**
 
@@ -406,20 +448,17 @@ If missing:
 npm install --save-dev @testing-library/react @testing-library/dom jsdom
 ```
 
-Update `vitest.config.ts` (or `vite.config.ts`) to use jsdom environment if not already. Quick check:
-```bash
-grep -n "environment" vitest.config.ts vite.config.ts 2>&1 | head
-```
-
-If neither has `environment: 'jsdom'` in the test config, add it. Example minimal vitest config update:
+**Do not switch the global Vitest environment to `jsdom`.** The current `vitest.config.ts` uses `environment: 'node'` (see `vitest.config.ts:5`), and existing server-side tests (parsers, runner helpers, queue manager, etc.) rely on Node globals and would break under jsdom. Instead, opt this single hook test into jsdom with a per-file directive — add it as the **first line** of `lib/hooks/useDebouncedValue.test.ts`:
 
 ```ts
-// vitest.config.ts
-import { defineConfig } from 'vitest/config'
-export default defineConfig({
-  test: { environment: 'jsdom' },
-})
+// @vitest-environment jsdom
+import { describe, it, expect, vi } from 'vitest'
+import { renderHook, act } from '@testing-library/react'
+import { useDebouncedValue } from './useDebouncedValue'
+// …rest of the test from Step 1
 ```
+
+This keeps the global default at `node` and gives React Testing Library a DOM for just this file. If you add more hook/component tests later, repeat the directive per file (or add a vitest project / glob-scoped `environmentMatchGlobs` entry in `vitest.config.ts` — but that is out of scope for this PR).
 
 - [ ] **Step 3: Run, verify fail**
 
@@ -464,7 +503,7 @@ Expected: PASS, 1 test.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/hooks/useDebouncedValue.ts lib/hooks/useDebouncedValue.test.ts vitest.config.ts package.json package-lock.json
+git add lib/hooks/useDebouncedValue.ts lib/hooks/useDebouncedValue.test.ts package.json package-lock.json
 git commit -m "feat(hooks): useDebouncedValue with test"
 ```
 
@@ -484,7 +523,7 @@ This is the shared scroll container + page footer + error state. The Clients sec
 ```tsx
 'use client'
 
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { Spinner } from '@/components/Spinner'
 
 interface Props {
@@ -513,11 +552,16 @@ export default function PaginatedSection({
   const totalPages = pageSize && rowCount > 0 ? Math.max(1, Math.ceil(rowCount / pageSize)) : 1
   const currentPage = page ?? 1
 
-  // Auto-fallback if currentPage exceeds totalPages (e.g. deletion shrank the data)
-  // The parent owns page state; we only fire onPageChange so it can correct.
-  if (pageSize && currentPage > totalPages && onPageChange) {
-    queueMicrotask(() => onPageChange(totalPages))
-  }
+  // Auto-fallback if currentPage exceeds totalPages (e.g. deletion shrank the
+  // data). The parent owns page state; we only fire onPageChange so it can
+  // correct. Side-effects must NOT run in render under React 19 (Strict Mode
+  // would queueMicrotask twice; `router.replace` during render is a hard
+  // warning) — schedule the correction in an effect instead.
+  useEffect(() => {
+    if (pageSize && currentPage > totalPages && onPageChange) {
+      onPageChange(totalPages)
+    }
+  }, [pageSize, currentPage, totalPages, onPageChange])
 
   return (
     <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
@@ -980,7 +1024,11 @@ export default function ClientsAuditSummary() {
                   {la ? (
                     <Link href={`/ada-audit/site/${la.id}`} className="text-[12px] text-orange hover:underline">View →</Link>
                   ) : c.firstDomain ? (
-                    <Link href={`/ada-audit/?prefillDomain=${encodeURIComponent(c.firstDomain)}`} className="text-[12px] text-orange hover:underline">Run audit</Link>
+                    // Include auditTab=site so AuditIndexTabs opens on the
+                    // Full Site tab (its default state is 'single'). Without
+                    // this param the prefilled domain would be invisible to
+                    // the user until they manually click Full Site.
+                    <Link href={`/ada-audit/?auditTab=site&prefillDomain=${encodeURIComponent(c.firstDomain)}`} className="text-[12px] text-orange hover:underline">Run audit</Link>
                   ) : (
                     <button
                       type="button"
@@ -1022,14 +1070,59 @@ git commit -m "feat(ada-audit): ClientsAuditSummary component"
 **Files:**
 - Modify: `components/ada-audit/AuditIndexTabs.tsx`
 
-- [ ] **Step 1: Insert the new section between New Audit and Recents**
+- [ ] **Step 1: Insert the new section between New Audit and Recents, and switch the tab on `?auditTab=site`**
 
-In `AuditIndexTabs.tsx`, locate the `<div className="space-y-8">` wrapper. After the New Audit card and before the Recent Page Audits card, insert:
+In `AuditIndexTabs.tsx`, locate the `<div className="space-y-8">` wrapper. After the New Audit card and before the Recent Page Audits card, insert `<ClientsAuditSummary />`. Also wire up tab initialization from URL params so that links from `ClientsAuditSummary` (which use `?auditTab=site&prefillDomain=...`) open on the Full Site tab.
+
+The current component defaults `tab` to `'single'` via `useState<Tab>('single')`. Replace that with URL-derived initial state plus a sync effect:
 
 ```tsx
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import AuditForm from './AuditForm'
+import SiteAuditForm from './SiteAuditForm'
+import AuditHistory from './AuditHistory'
+import SiteAuditHistory from './SiteAuditHistory'
 import ClientsAuditSummary from './ClientsAuditSummary'
 
-// ... inside the layout, between New Audit card and Recents:
+type Tab = 'single' | 'site'
+
+function parseTab(value: string | null): Tab {
+  return value === 'site' ? 'site' : 'single'
+}
+
+export default function AuditIndexTabs() {
+  const searchParams = useSearchParams()
+  // Initial value derived from URL so SSR + first paint match. Also infer
+  // from prefillDomain (no auditTab) since a prefill is only meaningful on
+  // the site tab today.
+  const [tab, setTab] = useState<Tab>(() => {
+    const explicit = searchParams.get('auditTab')
+    if (explicit) return parseTab(explicit)
+    if (searchParams.get('prefillDomain')) return 'site'
+    return 'single'
+  })
+
+  // If the URL changes while the page is mounted (e.g., user clicks a
+  // Clients "Run audit" link from another section in the same page),
+  // honor it. Don't run this when the user has manually clicked a tab —
+  // only react to the search-param value itself changing.
+  useEffect(() => {
+    const explicit = searchParams.get('auditTab')
+    if (explicit) setTab(parseTab(explicit))
+    else if (searchParams.get('prefillDomain')) setTab('site')
+  }, [searchParams])
+
+  // …rest of the existing component, with <ClientsAuditSummary /> inserted
+  // between the New Audit card and the Recent Page Audits card.
+}
+```
+
+Then, inside the existing layout JSX, insert the new section between the New Audit card and the Recent Page Audits card:
+
+```tsx
 <ClientsAuditSummary />
 ```
 
@@ -1140,7 +1233,7 @@ Visit `/ada-audit`. Verify all spec acceptance criteria:
 7. **Recents pagination footer**: prev/next disable correctly at boundaries; Page X of N math correct.
 8. **Scroll position preserved** across polling refresh (verify by scrolling inside Recents, waiting 8s, watching scroll stay put).
 9. **Hard refresh restoration**: visit `/ada-audit?recentSitesPage=2&clientsSort=score-asc&clientsSearch=test`; reload; state intact.
-10. **Run audit prefill**: click an empty client's Run audit → URL has `?prefillDomain=...` and the form is pre-filled.
+10. **Run audit prefill**: click an empty client's Run audit → URL has `?auditTab=site&prefillDomain=...`, the **Full Site tab is selected**, and the domain input is pre-filled.
 11. **Disabled Run audit tooltip** appears on hover for clients without domains.
 12. **Filter + sort survive poll**: filter to "foo" + sort by score; wait 30s; the filter and sort do not visually reset.
 13. **Initial load failure**: stop the dev server briefly to provoke a 500 or kill mid-load → section shows "Failed to load … [Retry]".
@@ -1201,3 +1294,4 @@ Verify on prod: hit `/ada-audit`, exercise the same 16 manual checks from Step 3
 | `clientsSort` | `ClientsAuditSummary` | `name-asc | name-desc | date-asc | date-desc | score-asc | score-desc`. Omitted = default `date-desc` |
 | `clientsSearch` | `ClientsAuditSummary` | Active name filter (omitted = no filter) |
 | `prefillDomain` | `SiteAuditForm` | One-shot domain seed for the audit form |
+| `auditTab` | `AuditIndexTabs` | `single \| site`. Omitted = `single` unless `prefillDomain` is also present, in which case it defaults to `site`. |
