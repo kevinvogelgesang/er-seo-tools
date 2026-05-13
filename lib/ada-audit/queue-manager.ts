@@ -73,6 +73,7 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
             urls: harvestedPdfUrls,
             siteAuditId: id,
             adaAuditId: child.id,
+            sourcePageUrl: url,
           })
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Audit failed'

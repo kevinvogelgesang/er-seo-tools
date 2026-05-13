@@ -11,6 +11,23 @@ const LARGE_FILE_BYTES = 10 * 1024 * 1024
 const MANY_PAGES = 50
 const PDF_MAX_BYTES = 25 * 1024 * 1024 // hard cap for SSRF-safe fetch; > LARGE_FILE_BYTES so we still scan + flag rather than refuse
 
+// Browser-shaped request signature. CDN/WAF heuristics (Cloudflare, Sucuri,
+// Wordfence, BunnyCDN, etc.) routinely 403 requests with no User-Agent or a
+// transparently bot UA like "ER-SEO-Tools/1.0". Sending a real Chrome UA +
+// Accept matches what a manual browser load looks like to those filters and
+// gets us through nearly all of them.
+const PDF_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+const PDF_ACCEPT = 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8'
+
+// Don't retry deterministic 4xx — the response won't change on the next try.
+// Everything else (5xx, 408, 425, 429, transient 403s from WAF challenges) gets
+// one retry with jittered backoff.
+const NON_RETRYABLE_STATUSES = new Set([400, 401, 404, 405, 410, 414, 416, 451])
+const RETRY_BACKOFF_MS = 1000
+const RETRY_JITTER_MS = 500
+
 const ISSUE_TEMPLATES: Record<PdfIssueCode, Omit<PdfIssue, 'code'>> = {
   'not-tagged': {
     severity: 'high',
@@ -127,12 +144,37 @@ export async function scanPdfBuffer(
   return { url: normalizedUrl, fileSize, pageCount, issues }
 }
 
-/** Fetch + scan. Wraps scanPdfBuffer with SSRF-safe HTTP fetch and error capture. */
-export async function scanPdfUrl(url: string): Promise<PdfScanResult> {
+/**
+ * Fetch + scan a single PDF URL.
+ *
+ * - Sends a browser-shaped request (UA + Accept + optional Referer) to defeat
+ *   common WAF/CDN heuristics that 403 anonymous/bot-looking fetches.
+ * - Retries once with jittered backoff on transient 4xx/5xx (skipping
+ *   deterministic 4xx — 400/401/404/405/410/414/416/451).
+ * - Uses safeFetch for SSRF protection (validates initial URL + every
+ *   redirect target) and readResponseBytesWithLimit for the byte cap.
+ */
+export async function scanPdfUrl(
+  url: string,
+  opts?: { referer?: string },
+): Promise<PdfScanResult> {
   try {
-    // Use safeFetch (validates initial URL + every redirect via assertSafeHttpUrl)
-    // then readResponseBytesWithLimit enforces the byte cap.
-    const { response } = await safeFetch(url, undefined, { maxRedirects: 5 })
+    const headers: Record<string, string> = {
+      'User-Agent': PDF_USER_AGENT,
+      'Accept': PDF_ACCEPT,
+    }
+    if (opts?.referer) headers['Referer'] = opts.referer
+
+    let response = await fetchOnce(url, headers)
+
+    if (!response.ok && !NON_RETRYABLE_STATUSES.has(response.status)) {
+      // Drain the first response body so the underlying socket can be reused
+      // and we don't leak the stream.
+      await response.body?.cancel().catch(() => {})
+      await sleep(RETRY_BACKOFF_MS + Math.floor(Math.random() * RETRY_JITTER_MS))
+      response = await fetchOnce(url, headers)
+    }
+
     if (response.status >= 400) {
       return {
         url,
@@ -162,4 +204,13 @@ export async function scanPdfUrl(url: string): Promise<PdfScanResult> {
       scanError: (e as Error).message,
     }
   }
+}
+
+async function fetchOnce(url: string, headers: Record<string, string>): Promise<Response> {
+  const { response } = await safeFetch(url, { headers }, { maxRedirects: 5 })
+  return response
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

@@ -77,9 +77,11 @@ export default function PdfIssuesSection({ pdfs }: Props) {
                   {copied === pdf.url ? 'Copied!' : 'Copy'}
                 </button>
               </div>
-              <div className="text-[11px] font-body text-navy/40 dark:text-white/40">
-                {formatBytes(pdf.fileSize)} · {pdf.pageCount ?? '?'} pages
-              </div>
+              {!pdf.scanError && (
+                <div className="text-[11px] font-body text-navy/40 dark:text-white/40">
+                  {formatBytes(pdf.fileSize)} · {pdf.pageCount ?? '?'} pages
+                </div>
+              )}
               {pdf.scanError ? (
                 <p className="text-[12px] text-red-600 dark:text-red-400">Scan failed: {pdf.scanError}</p>
               ) : (
