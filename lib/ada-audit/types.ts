@@ -167,3 +167,65 @@ export interface ClientAuditSummary {
     summary: SiteAuditSummary | null
   } | null
 }
+
+// ── Audit batches ──────────────────────────────────────────────────────────
+
+export interface AuditBatchSummary {
+  id: string
+  startedAt: string          // ISO
+  closedAt: string           // ISO (always non-null in list responses)
+  label: string              // resolved auto-label if DB column is null
+  auditCount: number
+  completeCount: number
+  errorCount: number
+}
+
+export interface AuditBatchMember {
+  id: string
+  domain: string
+  clientId: number | null
+  clientName: string | null
+  status: string             // queued | running | pdfs-running | complete | error
+  pagesTotal: number
+  pagesComplete: number
+  pagesError: number
+  score: number | null
+  createdAt: string          // ISO
+}
+
+export interface AuditBatchDetail {
+  id: string
+  startedAt: string          // ISO
+  closedAt: string | null    // null when this is the open batch
+  label: string
+  members: AuditBatchMember[]
+}
+
+// Shape returned by GET /api/site-audit/queue.
+// `batch` describes the currently open batch (null when queue is drained).
+// `clientId` on each active/queued row lets the Clients section drive
+// in-flight chips by client id rather than fragile domain string compare.
+// `status` on the active row lets consumers distinguish `running` from
+// `pdfs-running` (so the chip can read "Running" vs "Scanning PDFs").
+export interface QueueStatusWithBatch {
+  active: {
+    id: string
+    domain: string
+    status: string             // running | pdfs-running | pending
+    pagesTotal: number
+    pagesComplete: number
+    pagesError: number
+    clientId: number | null
+  } | null
+  queued: {
+    id: string
+    domain: string
+    position: number
+    clientId: number | null
+  }[]
+  batch: {
+    id: string
+    startedAt: string
+    label: string
+  } | null
+}
