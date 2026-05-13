@@ -69,12 +69,22 @@ Both live in `lib/ada-audit/queue-manager.ts`. The key invariant: **at most one 
 ### Enqueue (extend existing `enqueueAudit`)
 
 ```
-1. Find the open batch (closedAt IS NULL). If none, create one.
+1. Find the open batch (closedAt IS NULL). If none, attempt to create one.
+   - If creation fails with P2002 (unique-conflict on the partial index), re-read.
+     Another request created the open batch in the race window.
 2. Create the SiteAudit row with batchId = openBatch.id.
 3. Kick processNext() (unchanged from today).
 ```
 
-The "find open batch" step uses `findFirst({ where: { closedAt: null } })`. Race condition: two near-simultaneous enqueues could both observe "no open batch" and both create one. Mitigated by a unique partial index on `closedAt IS NULL`? SQLite doesn't support partial unique indexes well. Acceptable alternative: wrap enqueue in a `$transaction` with serializable behavior, OR live with the rare double-batch case (cosmetic only — both batches would be valid containers; one happens to be empty or holds 1 audit). v1 ships with the transaction approach.
+The "at most one open batch" rule is enforced at the DB level via a SQLite partial unique index. SQLite supports these — the prior version of this spec mis-claimed otherwise. Prisma's schema DSL can't model a partial unique constraint, so the index is added via raw SQL in the same migration that creates `AuditBatch`:
+
+```sql
+CREATE UNIQUE INDEX "audit_batches_one_open"
+  ON "AuditBatch" ((1))
+  WHERE "closedAt" IS NULL;
+```
+
+This makes the invariant a guarantee, not a hope. Enqueue retries on P2002 (Prisma's unique-violation code): re-read the open batch and attach to it. A transaction wrapper would only narrow the race window — the partial index closes it.
 
 ### Close (extend `finalizeSiteAudit` + error paths)
 
@@ -98,12 +108,15 @@ If the user deletes every member SiteAudit of an open batch, the batch stays ope
 
 ### Modified — `GET /api/site-audit/queue`
 
-Existing response shape extended with `batch`:
+Existing response shape extended with `clientId` on each row and a new `batch` field:
 
 ```ts
 {
-  active: { id, domain, pagesTotal, pagesComplete, pagesError } | null  // unchanged
-  queued: { id, domain, position }[]                                    // unchanged
+  active: {
+    id, domain, pagesTotal, pagesComplete, pagesError,
+    clientId: number | null                                             // NEW
+  } | null
+  queued: { id, domain, position, clientId: number | null }[]           // clientId NEW
   batch: {
     id: string
     startedAt: string  // ISO
@@ -112,7 +125,9 @@ Existing response shape extended with `batch`:
 }
 ```
 
-`batch` describes the currently open batch (if any). `null` when no batch is open (i.e. queue is fully drained). Existing callers (`SiteAuditForm`'s queue banner, `SiteAuditHistory`'s smart-poll) ignore the new field — backwards compatible.
+`batch` describes the currently open batch (if any). `null` when no batch is open (i.e. queue is fully drained).
+
+`clientId` is added to `active` and `queued` rows so the Clients section can drive its in-flight chips by client id rather than by fragile domain comparison. Existing callers (`SiteAuditForm`'s queue banner, `SiteAuditHistory`'s smart-poll) read `domain` and `position` / counts; the new fields are additive — backwards compatible.
 
 ### New — `GET /api/audit-batches`
 
@@ -182,13 +197,34 @@ Used by the Clients section's "Queue all" button. Body: nothing — derives the 
    { error: 'missing_domains', clientsWithoutDomains: [{ id, name }] }
    This is the "fail loudly" requirement — bulk-queue refuses to fire if any
    client is missing a domain, so the operator can fix the data first.
-3. For each eligible client, attempt to enqueue an audit for client.domains[0].
-   The existing in-flight duplicate guard returns 409 per row; collect those.
+3. For each eligible client, attempt to queue via the shared helper (see below).
+   Duplicate-in-flight rejections are collected per row, not propagated.
 4. Return 200:
    { queued: [{ clientId, auditId }], skipped: [{ clientId, reason }] }
 ```
 
-The per-client error reporting in the response feeds a result panel in the UI.
+#### Shared queue-request helper
+
+The in-flight duplicate guard currently lives in the `POST /api/site-audit` route handler — not in `enqueueAudit`. If bulk-queue called `enqueueAudit` directly it would bypass the guard. Plan extracts a thin helper:
+
+```ts
+// lib/ada-audit/queue-manager.ts (or a new lib/ada-audit/queue-request.ts)
+export type QueueRequestResult =
+  | { kind: 'queued'; id: string }
+  | { kind: 'duplicate'; existingId: string }
+  | { kind: 'invalid'; reason: string }
+
+export async function queueSiteAuditRequest(input: {
+  domain: string
+  clientId: number | null
+  wcagLevel: string
+  preDiscoveredUrls?: string[]
+}): Promise<QueueRequestResult>
+```
+
+The helper owns: domain normalization, hostname validation, the existing `findFirst({ status: { in: ['queued', 'pending', 'running'] } })` duplicate guard (extended to also include `'pdfs-running'`), and the `enqueueAudit` call on success. Both `POST /api/site-audit` and `POST /api/site-audit/bulk-queue` route handlers call this helper and translate the result into their respective response shapes (single 409 vs. per-row `skipped` entry). The original 4xx/202 contract on the single-audit POST is preserved.
+
+The per-client error reporting in the bulk response feeds a result panel in the UI.
 
 ## UI surfaces
 
@@ -208,7 +244,7 @@ Three changes:
    - `Queue all` button. Click → confirmation modal: `Queue audits for <N> clients?` (counts only eligible clients). Confirm → `POST /api/site-audit/bulk-queue`. If the server returns 400 with `clientsWithoutDomains`, switch modal content to a list of those clients with `/clients` deep-links — user must resolve before the bulk queue runs. Success → result panel summarizing queued vs. skipped.
    - `View queue →` link to `/ada-audit/queue`.
 
-3. **Active-row decoration.** A small chip on each row whose client has a member in the currently open batch — e.g. a `Queued` / `Running` / `Scanning PDFs` badge alongside the score. Driven by polling `/api/site-audit/queue` on the same 30s cadence the section already uses. (Polls are silent — no opacity dim.)
+3. **Active-row decoration.** A small chip on each row whose client has a member in the currently open batch — e.g. a `Queued` / `Running` / `Scanning PDFs` badge alongside the score. Driven by polling `/api/site-audit/queue` on the same 30s cadence the section already uses (now returning `clientId` on each `active`/`queued` row; the chip lookup is a client-id match, not a domain string compare). The chip only covers **in-flight** members (queued / running / pdfs-running) — completed audits within the still-open batch don't get a chip, because /queue doesn't enumerate them. The Queue page is the surface for "what's complete in this open block." (Polls are silent — no opacity dim.)
 
 ### New page — `/ada-audit/queue`
 
@@ -218,12 +254,17 @@ URL state: `?tab=active` (default) or `?tab=history`.
 
 #### Active tab
 
-Renders the currently open batch's members, polled every 5s. Layout:
-- Header: batch auto-label + member counts (`N queued · M running · K complete · J errored`).
+Renders the currently open batch's members, polled every 5s. Two endpoints feed it:
+
+1. `GET /api/site-audit/queue` → returns the open `batch` field (id, label, startedAt) plus the in-flight rows. Used as the **trigger**: when `batch.id` changes (or goes null), the tab reacts.
+2. `GET /api/audit-batches/[id]` (when an open batch exists) → returns ALL members of that batch including completed/errored ones, so the layout can show the running tail of the block.
+
+Layout:
+- Header: batch auto-label + member counts (`N queued · M running · K complete · J errored`) derived from the batch detail response.
 - Body: rows sorted by status (running first, then queued, then complete/error at bottom). Each row links to its `/ada-audit/site/[id]` detail.
 - Empty state when no batch is open: `No audits in flight. Queue some from /ada-audit.`
 
-When the batch closes (poll observes `closedAt != null`), the page surfaces a one-time toast `Batch complete` and the row block goes static. Next poll returns `batch: null`; the page shows the empty state.
+When the previously-observed batch id disappears from `/queue` (the response transitions from `batch: <openId>` to `batch: null`), the page treats that as the close signal — surfaces a one-time toast `Batch complete`, freezes the current member list briefly so the operator can see the final state, then transitions to the empty state. The component tracks the last-seen batch id in a ref to detect the edge. `closedAt` is observable on the per-batch detail response, but the cleaner trigger is the queue endpoint's batch field going null — one polling target, no second request needed to detect closure.
 
 #### History tab
 
@@ -297,7 +338,7 @@ The submit button is already disabled when `domain` is empty, so no extra guard 
   - Enqueue starts first: it attaches to the still-open batch. The close path then sees the new in-flight member and bails (count > 0). Correct.
   - Close starts first: batch is marked closed. Enqueue sees no open batch, creates a new one. Also correct.
 - **`pdfs-running` is in-flight for batch-close purposes.** The query for in-flight siblings uses `status IN ['queued', 'running', 'pdfs-running']`. A batch does not close while any member is still scanning PDFs.
-- **Stale recovery (`resetStaleAudits`).** When a stuck audit gets force-errored, the existing flow runs `closeBatchIfDrained` as part of the error path. No special-case needed.
+- **Stale recovery (`resetStaleAudits` and `recoverQueue`).** Both helpers currently `prisma.siteAudit.update` rows directly to `status: 'error'` without going through `finalizeSiteAudit`. To keep the close invariant honest, both helpers must explicitly call `closeBatchIfDrained(audit.batchId)` after each force-error update (when the row had a `batchId`). This is a named task in the implementation plan, not an incidental detail.
 - **Bulk-queue race:** if two operators hit "Queue all" within the same second, both pre-checks may pass. The server processes each request sequentially; in-flight dup guard rejects per-audit. End state: every client has at most one audit queued, surplus requests get 409 per row.
 
 ## Testing strategy
