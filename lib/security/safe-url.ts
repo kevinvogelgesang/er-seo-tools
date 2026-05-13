@@ -266,6 +266,36 @@ function bodyToRequestPayload(body: BodyInit | null | undefined): string | Uint8
   throw new SafeUrlError('Unsupported request body type')
 }
 
+/**
+ * Builds a `lookup` callback for node:http(s).request that always returns the
+ * pre-resolved, SSRF-validated address. Supports both signatures node:net may
+ * invoke a lookup with:
+ *
+ *  - Legacy form:   `(err, address, family)` — when options.all is not set
+ *  - "All" form:    `(err, [{ address, family }, ...])` — used by Node 20+'s
+ *    Socket when `autoSelectFamily` is enabled (the default since Node 20).
+ *
+ * Returning the legacy form when Node wanted the array form makes node:net
+ * try to read `.address` off a string, surfacing as
+ * `TypeError [ERR_INVALID_IP_ADDRESS]: Invalid IP address: undefined` and
+ * silently breaking every fetch. Exported for unit testing.
+ */
+export function createPinnedLookup(address: { address: string; family: number }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((_hostname: string, options: any, callback: any) => {
+    // Older callers may pass the callback as the second argument; tolerate that.
+    const cb = typeof options === 'function' ? options : callback
+    const opts = typeof options === 'object' && options !== null ? options : undefined
+    const wantsAll = opts && opts.all === true
+    if (wantsAll) {
+      cb(null, [{ address: address.address, family: address.family }])
+    } else {
+      cb(null, address.address, address.family)
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any
+}
+
 async function fetchWithPinnedAddress(
   url: URL,
   init: RequestInit | undefined,
@@ -289,9 +319,7 @@ async function fetchWithPinnedAddress(
       path: `${url.pathname}${url.search}`,
       method: init?.method ?? 'GET',
       headers: headersToObject(init?.headers),
-      lookup: (_hostname, _options, callback) => {
-        callback(null, address.address, address.family)
-      },
+      lookup: createPinnedLookup(address),
     }, (res) => {
       const status = res.statusCode
       if (!status) {

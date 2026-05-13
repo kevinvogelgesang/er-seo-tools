@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   SafeUrlError,
   assertSafeHttpUrl,
+  createPinnedLookup,
   isPrivateOrInternalAddress,
   readResponseTextWithLimit,
   safeFetch,
@@ -119,6 +120,33 @@ describe('safeFetch', () => {
         addresses: [{ address: '93.184.216.34', family: 4 }],
       })
     )
+  })
+})
+
+describe('createPinnedLookup', () => {
+  // Regression: Node 20+'s Socket invokes the lookup with `{ all: true }` when
+  // autoSelectFamily is enabled (default since Node 20). A legacy 3-arg
+  // callback in that mode makes node:net throw "Invalid IP address: undefined"
+  // and silently breaks every safeFetch.
+  it('responds with the array form when options.all is true', () => {
+    const lookup = createPinnedLookup({ address: '93.184.216.34', family: 4 })
+    const cb = vi.fn()
+    lookup('example.com', { all: true, family: 0, hints: 0 }, cb)
+    expect(cb).toHaveBeenCalledWith(null, [{ address: '93.184.216.34', family: 4 }])
+  })
+
+  it('responds with the legacy 3-arg form when options.all is false or missing', () => {
+    const lookup = createPinnedLookup({ address: '93.184.216.34', family: 4 })
+    const cb = vi.fn()
+    lookup('example.com', { family: 4 }, cb)
+    expect(cb).toHaveBeenCalledWith(null, '93.184.216.34', 4)
+  })
+
+  it('tolerates the 2-arg form where the callback is passed as options', () => {
+    const lookup = createPinnedLookup({ address: '2606:4700:4700::1111', family: 6 })
+    const cb = vi.fn()
+    lookup('example.com', cb)
+    expect(cb).toHaveBeenCalledWith(null, '2606:4700:4700::1111', 6)
   })
 })
 
