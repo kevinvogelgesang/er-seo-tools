@@ -122,18 +122,25 @@ export async function POST(request: NextRequest) {
 // Returns last 50 audits. Supports ?clientId= filter.
 
 export async function GET(request: NextRequest) {
-  const clientId = request.nextUrl.searchParams.get('clientId')
-  // Exclude child page records that belong to a site audit
-  const where = clientId
-    ? { clientId: parseInt(clientId, 10), siteAuditId: null }
-    : { siteAuditId: null }
+  const clientIdParam = request.nextUrl.searchParams.get('clientId')
+  const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') ?? '1', 10) || 1)
+  const pageSizeRaw = parseInt(request.nextUrl.searchParams.get('pageSize') ?? '25', 10) || 25
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
 
-  const audits = await prisma.adaAudit.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-    include: { client: { select: { name: true } } },
-  })
+  // Exclude child page records that belong to a site audit
+  const where: { siteAuditId: null; clientId?: number } = { siteAuditId: null }
+  if (clientIdParam) where.clientId = parseInt(clientIdParam, 10)
+
+  const [audits, totalCount] = await Promise.all([
+    prisma.adaAudit.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { client: { select: { name: true } } },
+    }),
+    prisma.adaAudit.count({ where }),
+  ])
 
   const items = audits.map((a) => {
     let scorecard: AuditScorecard | null = null
@@ -171,5 +178,5 @@ export async function GET(request: NextRequest) {
     } satisfies AuditListItem & { score: number | null; wcagLevel: string }
   })
 
-  return NextResponse.json(items)
+  return NextResponse.json({ items, totalCount, page, pageSize })
 }

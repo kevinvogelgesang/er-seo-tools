@@ -142,3 +142,28 @@ export interface SiteAuditDetail {
   pdfsComplete?: number
   pdfsError?: number
 }
+
+// ── Pagination ─────────────────────────────────────────────────────────────
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  totalCount: number
+  page: number
+  pageSize: number
+}
+
+// ── Client audit summary (Clients view on /ada-audit) ──────────────────────
+
+export interface ClientAuditSummary {
+  clientId: number
+  clientName: string
+  firstDomain: string | null
+  latestSiteAudit: {
+    id: string
+    createdAt: string                 // ISO
+    score: number | null
+    pagesTotal: number
+    pagesError: number
+    summary: SiteAuditSummary | null
+  } | null
+}

@@ -74,15 +74,23 @@ export async function POST(request: NextRequest) {
 // ─── GET /api/site-audit ──────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
-  const clientId = request.nextUrl.searchParams.get('clientId')
-  const where = clientId ? { clientId: parseInt(clientId, 10) } : {}
+  const clientIdParam = request.nextUrl.searchParams.get('clientId')
+  const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') ?? '1', 10) || 1)
+  const pageSizeRaw = parseInt(request.nextUrl.searchParams.get('pageSize') ?? '25', 10) || 25
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
 
-  const audits = await prisma.siteAudit.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take: 30,
-    include: { client: { select: { name: true } } },
-  })
+  const where = clientIdParam ? { clientId: parseInt(clientIdParam, 10) } : {}
+
+  const [audits, totalCount] = await Promise.all([
+    prisma.siteAudit.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { client: { select: { name: true } } },
+    }),
+    prisma.siteAudit.count({ where }),
+  ])
 
   const items = audits.map((a) => {
     let summary = null
@@ -116,5 +124,5 @@ export async function GET(request: NextRequest) {
     } satisfies SiteAuditDetail & { score: number | null; wcagLevel: string }
   })
 
-  return NextResponse.json(items)
+  return NextResponse.json({ items, totalCount, page, pageSize })
 }

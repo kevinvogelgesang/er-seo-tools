@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Spinner } from '@/components/Spinner'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 
 interface Client {
@@ -18,9 +18,30 @@ interface QueueStatus {
 
 export default function SiteAuditForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [domain, setDomain] = useState('')
   const [domainTouched, setDomainTouched] = useState(false)
+
+  // Prefill from `?prefillDomain=` (e.g., from the Clients section's "Run
+  // audit" link). Reacts to URL changes too — if the user is already on the
+  // /ada-audit page with the Full Site form mounted and they click a Run
+  // audit link, the URL changes but the component stays mounted, so a
+  // mount-only effect wouldn't pick it up.
+  //
+  // Guard: only apply when the prefillDomain value itself changes (tracked
+  // via a ref). This prevents clobbering manual typing — typing the input
+  // doesn't change the URL param, so the effect's deps don't re-fire.
+  const lastAppliedPrefill = useRef<string | null>(null)
+  useEffect(() => {
+    const prefill = searchParams.get('prefillDomain')
+    if (prefill && prefill !== lastAppliedPrefill.current) {
+      setDomain(prefill)
+      setDomainTouched(true)
+      lastAppliedPrefill.current = prefill
+    }
+  }, [searchParams])
+
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [clients, setClients] = useState<Client[]>([])
   const [clientsLoading, setClientsLoading] = useState(true)
