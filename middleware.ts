@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { AUTH_COOKIE_NAME, isAuthBypassedInDev, isValidAuthCookie } from '@/lib/auth'
+import { AUTH_COOKIE_NAME, getAuthRedirectBase, isAuthBypassedInDev, isValidAuthCookie } from '@/lib/auth'
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -43,7 +43,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.json({ error: 'auth_required' }, { status: 401 })
   }
 
-  const loginUrl = new URL('/login', request.url)
+  const loginUrl = new URL('/login', getAuthRedirectBase(request))
   loginUrl.searchParams.set('next', pathname + request.nextUrl.search)
   return NextResponse.redirect(loginUrl)
 }

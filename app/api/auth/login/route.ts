@@ -3,6 +3,7 @@ import {
   AUTH_COOKIE_NAME,
   AUTH_COOKIE_MAX_AGE_SECONDS,
   createAuthCookieValue,
+  getAuthRedirectBase,
   normalizeAuthReturnPath,
   verifyPassword,
 } from '@/lib/auth'
@@ -14,14 +15,16 @@ export async function POST(request: NextRequest) {
   const password = formData.get('password')
   const nextPath = normalizeAuthReturnPath(formData.get('next'))
 
+  const base = getAuthRedirectBase(request)
+
   if (typeof password !== 'string' || !verifyPassword(password)) {
-    const loginUrl = new URL('/login', request.url)
+    const loginUrl = new URL('/login', base)
     loginUrl.searchParams.set('error', 'invalid')
     loginUrl.searchParams.set('next', nextPath)
     return NextResponse.redirect(loginUrl, { status: 303 })
   }
 
-  const response = NextResponse.redirect(new URL(nextPath, request.url), { status: 303 })
+  const response = NextResponse.redirect(new URL(nextPath, base), { status: 303 })
   response.cookies.set({
     name: AUTH_COOKIE_NAME,
     value: await createAuthCookieValue(),
