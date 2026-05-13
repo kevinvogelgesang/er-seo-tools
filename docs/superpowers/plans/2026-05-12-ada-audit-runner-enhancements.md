@@ -24,6 +24,7 @@
 | `lib/ada-audit/pdf-runner.ts` | Fetch + parse PDF via `pdfjs-dist`; produce `PdfIssue[]` |
 | `lib/ada-audit/pdf-worker-pool.ts` | Independent (non-Chrome) concurrency limiter for PDF scans |
 | `lib/ada-audit/pdf-types.ts` | `PdfIssue`, `PdfScanResult`, issue code enum |
+| `lib/ada-audit/site-audit-finalizer.ts` | Single source of truth for SiteAudit → `complete` transition; called from both queue-manager and pdf-orchestrator (breaks the cycle) |
 | `app/api/ada-audit/[id]/lighthouse-report/route.ts` | GET streams gunzipped LH JSON |
 | `lib/ada-audit/lighthouse-runner.test.ts` | Unit tests for summary extraction (mocked LH output) |
 | `lib/ada-audit/pdf-discovery.test.ts` | Unit tests for URL normalization + dedup |
@@ -38,7 +39,8 @@
 | `lib/ada-audit/browser-pool.ts` | Env-tunable `BROWSER_POOL_SIZE`, `CHROME_MAX_OLD_SPACE` |
 | `lib/ada-audit/runner.ts` | Single-nav flow: optional LH first → reset CDP → axe → PDF harvest |
 | `lib/ada-audit/queue-manager.ts` | Increment `SiteAudit.pdfsTotal/Complete/Error`; complete-when condition |
-| `lib/ada-audit/types.ts` | Re-export `LighthouseSummary`, `PdfIssue` types |
+| `lib/ada-audit/types.ts` | Re-export `LighthouseSummary`, `PdfIssue` types. Extend `SitePageResult` with `lighthouse` + `pdfs` fields and add `pdfsAggregate` to `SiteAuditSummary` (Task 12b). |
+| `lib/ada-audit/site-audit-helpers.ts` | Extend `buildSiteAuditSummary` to read per-page Lighthouse + PDF state from each child `AdaAudit` (Task 12b). |
 | `lib/cleanup.ts` | Add `cleanExpiredLighthouseReports()` to daily run |
 | `app/api/ada-audit/[id]/route.ts` | Also call `deleteLighthouseReport(id)` on DELETE |
 | `app/api/site-audit/[id]/route.ts` | Iterate child audit IDs, clean screenshots + LH, then cascade delete |
@@ -278,6 +280,7 @@ Replace the top of the file:
 ```ts
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
+import { getBrowserEgressLaunchArgs, requireBrowserEgressGuardConfig } from './browser-egress'
 
 const CHROME_EXECUTABLE = process.env.CHROME_EXECUTABLE ?? '/usr/bin/google-chrome'
 const POOL_SIZE = parseInt(process.env.BROWSER_POOL_SIZE ?? '4', 10)
@@ -295,10 +298,11 @@ const LAUNCH_ARGS = [
   '--disable-sync',
   `--js-flags=--max-old-space-size=${MAX_OLD_SPACE}`,
   '--disable-http-cache',
+  ...getBrowserEgressLaunchArgs(),
 ]
 ```
 
-Leave the rest of the file (singleton browser, semaphore) unchanged.
+**Keep the existing browser-egress integration intact** — `getBrowserEgressLaunchArgs()` and `requireBrowserEgressGuardConfig()` (called inside `getBrowser()`) are how this app blocks Chrome from talking to internal hosts. Only the pool size and heap flag are being made env-tunable; the egress hardening stays as-is. Leave the rest of the file (singleton browser, semaphore) unchanged.
 
 - [ ] **Step 2: Verify it parses**
 
@@ -1213,20 +1217,39 @@ export async function scanPdfBuffer(buf: Buffer, normalizedUrl: string): Promise
   return { url: normalizedUrl, fileSize, pageCount, issues }
 }
 
-/** Fetch + scan. Wraps scanPdfBuffer with HTTP fetch and error capture. */
+/** Fetch + scan. Wraps scanPdfBuffer with SSRF-safe HTTP fetch and error capture. */
 export async function scanPdfUrl(url: string): Promise<PdfScanResult> {
   try {
-    const res = await fetch(url, { redirect: 'follow' })
-    if (!res.ok) {
-      return { url, fileSize: null, pageCount: null, issues: [], scanError: `HTTP ${res.status}` }
+    // Use the project's SSRF-safe fetcher rather than raw fetch(). Even
+    // though pdf-discovery filters harvested links to same-domain http(s),
+    // redirects can still point at internal addresses (link-shorteners,
+    // CDNs that resolve to private IPs in dev, etc.). `safeFetch` validates
+    // the initial URL *and every redirect target* through
+    // `assertSafeHttpUrl`; `readResponseBytesWithLimit` then enforces a hard
+    // byte cap so a malicious or runaway response can't exhaust memory.
+    const { response } = await safeFetch(url, undefined, { maxRedirects: 5 })
+    if (response.status >= 400) {
+      return { url, fileSize: null, pageCount: null, issues: [], scanError: `HTTP ${response.status}` }
     }
-    const buf = Buffer.from(await res.arrayBuffer())
-    return await scanPdfBuffer(buf, url)
+    const { bytes, truncated } = await readResponseBytesWithLimit(response, PDF_MAX_BYTES)
+    if (truncated) {
+      return { url, fileSize: null, pageCount: null, issues: [], scanError: `PDF exceeds ${PDF_MAX_BYTES}-byte cap` }
+    }
+    return await scanPdfBuffer(Buffer.from(bytes), url)
   } catch (e) {
     return { url, fileSize: null, pageCount: null, issues: [], scanError: (e as Error).message }
   }
 }
 ```
+
+> **Implementation notes:**
+> - `safeFetch` and `readResponseBytesWithLimit` are the existing exports in `lib/security/safe-url.ts` (see lines 341 and 382 respectively). Do **not** introduce a new `safeFetchBuffer` helper — compose the two existing ones as above.
+> - Add `PDF_MAX_BYTES` as a module-level constant near the top of `pdf-runner.ts` (set to e.g. `25 * 1024 * 1024` to match the `large-file` issue threshold plus headroom; treat anything over the cap as a `scanError`).
+> - Do **not** fall back to bare `fetch(url, { redirect: 'follow' })` — that bypasses redirect validation.
+> - Import shape:
+>   ```ts
+>   import { safeFetch, readResponseBytesWithLimit } from '@/lib/security/safe-url'
+>   ```
 
 - [ ] **Step 5: Run, verify pass**
 
@@ -1298,6 +1321,179 @@ Expected: no errors.
 ```bash
 git add lib/ada-audit/pdf-worker-pool.ts
 git commit -m "feat(ada-audit): pdf worker pool concurrency limiter"
+```
+
+---
+
+### Task 12b: Extend `SiteAuditSummary` + `buildSiteAuditSummary` to include PDF state
+
+**Files:**
+- Modify: `lib/ada-audit/types.ts`
+- Modify: `lib/ada-audit/site-audit-helpers.ts`
+- Modify: `lib/ada-audit/site-audit-helpers.test.ts` (or create if missing)
+
+`buildSiteAuditSummary` (currently at `lib/ada-audit/site-audit-helpers.ts:96`) only consumes axe results from each child `AdaAudit`. Task 13's `finalizeSiteAudit` needs the summary to also describe per-page PDF state so the UI can render the new PDFs section without a second DB round-trip — and so `pdfs-running`-to-`complete` is the only place that mutates `summary`.
+
+**Per-page PDF attribution (see Task 13 for the upstream rationale):** because `PdfAudit` is uniquely keyed on `(siteAuditId, url)`, every PDF that gets scanned is attached to **exactly one** child `AdaAudit` — the page that first discovered it. `SitePageResult.pdfs` therefore counts only the PDFs that *this page first harvested*, not every PDF linked from it. The `pdfsAggregate` total is the right field for "how many unique PDFs across the site"; per-page numbers are an attribution view, not a link-graph view.
+
+- [ ] **Step 1: Extend `SitePageResult` and `SiteAuditSummary` in `lib/ada-audit/types.ts`**
+
+Current shape (around line 80–95):
+
+```ts
+export interface SitePageResult {
+  adaAuditId: string
+  url: string
+  status: 'complete' | 'error'
+  error: string | null
+  scorecard: AuditScorecard | null
+}
+
+export interface SiteAuditSummary {
+  aggregate: AuditScorecard
+  pages: SitePageResult[]
+}
+```
+
+Add a per-page PDF block and a top-level PDF aggregate:
+
+```ts
+export interface SitePagePdfState {
+  total: number      // PdfAudit rows attached to this page
+  complete: number   // status === 'complete'
+  errored: number    // status === 'error'
+  withIssues: number // complete + issues.length > 0
+}
+
+export interface SitePageResult {
+  adaAuditId: string
+  url: string
+  status: 'complete' | 'error'
+  error: string | null
+  scorecard: AuditScorecard | null
+  lighthouse: LighthouseSummary | null   // null if LH disabled / errored for this page
+  pdfs: SitePagePdfState                  // zero-valued when no PDFs harvested
+}
+
+export interface SiteAuditPdfAggregate {
+  total: number
+  complete: number
+  errored: number
+  withIssues: number
+}
+
+export interface SiteAuditSummary {
+  aggregate: AuditScorecard
+  pdfsAggregate: SiteAuditPdfAggregate
+  pages: SitePageResult[]
+}
+```
+
+`LighthouseSummary` is imported from `./lighthouse-types`. If a consumer reads `summary.pages[i].lighthouse` and the page is mid-run, treat `null` as "not available" — do not invent placeholders.
+
+- [ ] **Step 2: Update `buildSiteAuditSummary` to consume the new shape**
+
+The function currently accepts `ChildRow[]` (rows from `prisma.adaAudit.findMany`). After this PR it receives rows with `pdfAudits` and `lighthouseSummary` included. Update the input type:
+
+```ts
+type ChildRow = Pick<AdaAudit, 'id' | 'url' | 'status' | 'error' | 'result' | 'lighthouseSummary'> & {
+  pdfAudits: Pick<PdfAudit, 'status' | 'issues'>[]
+}
+```
+
+Then expand the row mapper:
+
+```ts
+const pages: SitePageResult[] = children.map((child) => {
+  const scorecard = child.status === 'complete' ? parseScorecard(child.result) : null
+
+  let lighthouse: LighthouseSummary | null = null
+  if (child.lighthouseSummary) {
+    try { lighthouse = JSON.parse(child.lighthouseSummary) as LighthouseSummary }
+    catch { lighthouse = null }
+  }
+
+  const pdfs: SitePagePdfState = {
+    total: child.pdfAudits.length,
+    complete: 0,
+    errored: 0,
+    withIssues: 0,
+  }
+  for (const p of child.pdfAudits) {
+    if (p.status === 'complete') {
+      pdfs.complete++
+      const issues = safeParseIssues(p.issues)  // [] on parse failure
+      if (issues.length > 0) pdfs.withIssues++
+    } else if (p.status === 'error') {
+      pdfs.errored++
+    }
+  }
+
+  return {
+    adaAuditId: child.id,
+    url: child.url,
+    status: (child.status === 'complete' ? 'complete' : 'error') as const,
+    error: child.error ?? null,
+    scorecard,
+    lighthouse,
+    pdfs,
+  }
+})
+
+// Sort pages by total violations descending (errors last) — unchanged
+pages.sort((a, b) => {
+  const at = a.scorecard?.total ?? -1
+  const bt = b.scorecard?.total ?? -1
+  return bt - at
+})
+
+const aggregate = pages.reduce(
+  (acc, p) => p.scorecard ? addScorecards(acc, p.scorecard) : acc,
+  ZERO_SCORECARD,
+)
+
+const pdfsAggregate: SiteAuditPdfAggregate = pages.reduce(
+  (acc, p) => ({
+    total:      acc.total      + p.pdfs.total,
+    complete:   acc.complete   + p.pdfs.complete,
+    errored:    acc.errored    + p.pdfs.errored,
+    withIssues: acc.withIssues + p.pdfs.withIssues,
+  }),
+  { total: 0, complete: 0, errored: 0, withIssues: 0 },
+)
+
+return { aggregate, pdfsAggregate, pages }
+```
+
+Add a `safeParseIssues(json: string | null): PdfIssue[]` helper next to `parseScorecard` — `try/catch` around `JSON.parse`, return `[]` on failure or null input.
+
+- [ ] **Step 3: Update or add a focused test**
+
+If `site-audit-helpers.test.ts` exists, extend it with a case that has:
+- 2 pages, one complete with a scorecard + LH summary + 3 PDFs (1 complete-with-issues, 1 complete-no-issues, 1 errored)
+- 1 page errored, no PDFs
+
+Assert: `summary.pdfsAggregate = { total: 3, complete: 2, errored: 1, withIssues: 1 }` and the per-page `pdfs` blocks match. Run:
+
+```bash
+npm test -- site-audit-helpers
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Type-check**
+
+```bash
+npx tsc --noEmit
+```
+
+Existing call sites that just read `summary.aggregate` / `summary.pages[i].scorecard` continue to work — the new fields are additive. The `app/api/site-audit/route.ts` score-derivation path is unaffected.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/ada-audit/types.ts lib/ada-audit/site-audit-helpers.ts lib/ada-audit/site-audit-helpers.test.ts
+git commit -m "feat(ada-audit): SiteAuditSummary tracks lighthouse + PDF state per page"
 ```
 
 ---
@@ -1415,35 +1611,22 @@ Modify `runAxeAudit` so that, when called, it:
 Replace `runAxeAudit`'s signature and body. The full file becomes:
 
 ```ts
-import { promises as dns } from 'dns'
 import path from 'path'
 import { acquirePage, releasePage } from './browser-pool'
 import { captureViolationScreenshots } from './screenshot-helpers'
 import { runLighthouse, resetCdpAfterLighthouse, isLighthouseEnabled } from './lighthouse-runner'
 import { harvestPdfLinks } from './pdf-discovery'
+import { assertSafeHttpUrl } from '@/lib/security/safe-url'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 
 const AXE_PATH = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js')
 
-const PRIVATE_RANGES = [
-  /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
-  /^169\.254\./, /^::1$/, /^fc[0-9a-f]{2}:/i, /^fd[0-9a-f]{2}:/i,
-  /^fe80:/i, /^0\.0\.0\.0$/,
-]
-
-export async function assertNotPrivate(hostname: string) {
-  let address: string
-  try {
-    const result = await dns.lookup(hostname)
-    address = result.address
-  } catch {
-    throw new Error(`Could not resolve hostname: ${hostname}`)
-  }
-  for (const range of PRIVATE_RANGES) {
-    if (range.test(address)) throw new Error('Requests to private/internal addresses are not allowed')
-  }
-}
+// Note: SSRF protection is delegated to `assertSafeHttpUrl` from
+// `lib/security/safe-url.ts`. That helper handles IPv4-mapped IPv6, reserved
+// ranges, blocked host suffixes (`.localhost`, `.local`, `.internal`, …),
+// embedded credentials, and validates all resolved addresses — do not
+// reintroduce a regex-based `assertNotPrivate` here.
 
 export type ProgressCallback = (progress: number, message: string) => Promise<void>
 
@@ -1473,7 +1656,7 @@ export async function runAxeAudit(
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Only http/https URLs are allowed')
 
   await progress(5, 'Verifying URL…')
-  await assertNotPrivate(parsed.hostname)
+  await assertSafeHttpUrl(targetUrl)
 
   await progress(10, 'Launching browser…')
   const page = await acquirePage()
@@ -1551,7 +1734,51 @@ export async function runAxeAudit(
 }
 ```
 
-- [ ] **Step 3: Update `lib/ada-audit/queue-manager.ts` to call `dispatchPdfScans` after each page audit**
+- [ ] **Step 3a: Update the standalone single-page background runner in `app/api/ada-audit/route.ts`**
+
+`runAxeAudit` now requires `options.auditId`, returns a `{ axe, lighthouseSummary, lighthouseError, harvestedPdfUrls }` shape, and emits the harvested PDFs the caller needs to dispatch. The current single-page runner in `runAuditInBackground` only passes screenshot options and stores the entire return value into `result`. Update it:
+
+```ts
+// app/api/ada-audit/route.ts — inside runAuditInBackground
+const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+  url,
+  wcagLevel,
+  onProgress,
+  {
+    auditId: id,
+    ...(captureScreenshots ? {
+      captureScreenshots: true,
+      screenshotDir: path.join(SCREENSHOTS_DIR, id),
+    } : {}),
+  },
+)
+
+await prisma.adaAudit.update({
+  where: { id },
+  data: {
+    status: 'complete',
+    result: JSON.stringify(axe),
+    lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
+    lighthouseError,
+    progress: 100,
+    progressMessage: 'Complete',
+    runnerType: 'browser',
+  },
+})
+
+// Standalone single-page audits dispatch PDFs against their own adaAuditId
+// (no siteAuditId). PDF scans update PdfAudit rows and the AdaAudit
+// progress message; they do not gate single-page completion.
+const { dispatchPdfScans } = await import('@/lib/ada-audit/pdf-orchestrator')
+void dispatchPdfScans({
+  urls: harvestedPdfUrls,
+  adaAuditId: id,
+})
+```
+
+Without this update the single-page route will throw `runAxeAudit: options.auditId is required` on every standalone audit, and it would also miss the new Lighthouse + PDF persistence.
+
+- [ ] **Step 3b: Update `lib/ada-audit/queue-manager.ts` to call `dispatchPdfScans` after each page audit**
 
 Find where `runAxeAudit` is called inside the per-page worker and rewrite the post-call block. Specifically: pass `options.auditId`, persist `lighthouseSummary`/`lighthouseError`, and dispatch PDFs.
 
@@ -1581,45 +1808,196 @@ await prisma.adaAudit.update({
   },
 })
 
-// PDF dispatch — fire-and-forget; updates SiteAudit counters as scans settle
+// PDF dispatch — fire-and-forget; updates SiteAudit counters as scans settle.
+// Pass BOTH ids when this is a site-audit child page: pdf-orchestrator dedupes
+// across the site (via PdfAudit's @@unique([siteAuditId, url])) and stamps the
+// new row with the discovering page's adaAuditId so the row appears under
+// that page in SiteAuditSummary.pages[i].pdfs. Without `adaAuditId`, every
+// per-page `pdfs` block in the summary would be zero (since
+// `pageAudit.pdfAudits` would be empty) even though `pdfsAggregate` is correct.
 const { dispatchPdfScans } = await import('./pdf-orchestrator')
 void dispatchPdfScans({
   urls: harvestedPdfUrls,
-  siteAuditId: siteAuditId ?? undefined,
-  adaAuditId: siteAuditId ? undefined : pageAuditId,
+  siteAuditId,        // present for site-audit children, undefined for standalone
+  adaAuditId: pageAuditId,
 })
 ```
 
 (Adjust variable names — `pageAuditId`, `url`, `siteAuditId` — to match what's actually in `queue-manager.ts` after you read it.)
 
-- [ ] **Step 4: Update completion-check in queue-manager so SiteAudit only flips to 'complete' when PDFs are also done**
+**Site-wide PDF dedup semantics (important — bake this into Task 13 and document in the spec):**
 
-Find the existing completion condition (likely `pagesComplete + pagesError === pagesTotal`) and extend it:
+- `PdfAudit` has `@@unique([siteAuditId, url])`. A PDF linked from multiple pages of the same site is stored **once**, attached to the **first page that discovered it** (whichever child `AdaAudit` won the race).
+- `SiteAuditSummary.pages[i].pdfs` therefore reflects only the PDFs that *this specific page* was the first to harvest — not "every PDF linked from this page." Two pages that both link the same `/policies/foo.pdf` will only show it under the first one.
+- `SiteAuditSummary.pdfsAggregate` is correct regardless and is the right field for "how many unique PDFs did we scan for this site, and how many had issues."
+- The standalone single-page path uses `adaAuditId` only (no `siteAuditId`), so its dedup is per-AdaAudit via `@@unique([adaAuditId, url])` — same row attribution, no cross-page question to worry about.
 
-```ts
-const isFullyDone =
-  audit.pagesComplete + audit.pagesError === audit.pagesTotal
-  && audit.pdfsComplete + audit.pdfsError === audit.pdfsTotal
+If product later wants "every page that links this PDF," that requires a separate `PdfAuditPageLink` join table — explicitly **out of scope** for this PR.
+
+Update the `dispatchPdfScans` dedup query in Step 1 to match: when both ids are present, prefer the site-wide unique constraint so two pages racing on the same URL don't both insert. Existing snippet already keys off `siteAuditId` first (`where: siteAuditId ? { siteAuditId, url: { in: urls } } : { adaAuditId, url: { in: urls } }`) — keep that, but wrap the per-URL `tx.pdfAudit.create({ data: { siteAuditId, adaAuditId, url, status: 'pending' } })` in a `try/catch` for Prisma's `P2002` unique-constraint error so a concurrent insert from another page silently no-ops instead of failing the audit.
+
+- [ ] **Step 4: Rework SiteAudit completion to wait for PDFs before computing the final summary**
+
+The existing flow in `queue-manager.ts` waits for all pages, then computes `summary` and flips status to `complete`. With PDF scans dispatched fire-and-forget *after* page completion, summaries would be written before PDF state lands — or never re-computed after PDFs finish. Fix by introducing a distinct intermediate status and only finalizing the summary once PDFs settle.
+
+**Status transitions:**
+
+```
+queued → pages-running → pdfs-running → complete
+                      ↓ (no PDFs at all)
+                      complete
+                      ↓ (page error path)
+                      error
 ```
 
-Use this in place of the original page-only check when deciding whether to flip status to `complete`. **Also** ensure the per-PDF completion path in `pdf-orchestrator.ts` triggers a re-check — add this at the end of `dispatchPdfScans`'s per-scan callback, after the SiteAudit counter increment:
+`pages-running` is the existing `running` status renamed for clarity once we have a second phase. Keep the literal string `'running'` if renaming the status everywhere is out of scope — the UI and `resetStaleAudits()` both grep on it. In that case, treat the *string* as "still running" and use `progress` / `pagesTotal` math to distinguish the two sub-phases. The condition checks below assume the literal `'running'` is preserved; only the new `'pdfs-running'` is added.
+
+**a. After the last page settles (still inside the per-page worker / chain runner):**
 
 ```ts
-// Re-check whether the parent SiteAudit is now fully done
-if (siteAuditId) {
-  const fresh = await prisma.siteAudit.findUnique({ where: { id: siteAuditId } })
-  if (fresh && fresh.status === 'running'
-      && fresh.pagesComplete + fresh.pagesError === fresh.pagesTotal
-      && fresh.pdfsComplete + fresh.pdfsError === fresh.pdfsTotal) {
+const pageState = await prisma.siteAudit.findUnique({ where: { id: siteAuditId } })
+if (pageState && pageState.pagesComplete + pageState.pagesError === pageState.pagesTotal) {
+  // All pages done. Decide whether we still owe PDFs.
+  if (pageState.pdfsTotal > 0
+      && pageState.pdfsComplete + pageState.pdfsError < pageState.pdfsTotal) {
     await prisma.siteAudit.update({
       where: { id: siteAuditId },
-      data: { status: 'complete', progressMessage: 'Complete' },
+      data: { status: 'pdfs-running' },
+    })
+    // Do NOT compute summary yet — PdfAudit rows are still landing.
+  } else {
+    // No PDFs (or all already in) — finalize now.
+    await finalizeSiteAudit(siteAuditId)
+  }
+}
+```
+
+**b. The per-PDF completion callback in `pdf-orchestrator.ts` triggers the same finalize check after each PdfAudit row resolves:**
+
+```ts
+if (siteAuditId) {
+  const fresh = await prisma.siteAudit.findUnique({ where: { id: siteAuditId } })
+  if (fresh
+      && (fresh.status === 'running' || fresh.status === 'pdfs-running')
+      && fresh.pagesComplete + fresh.pagesError === fresh.pagesTotal
+      && fresh.pdfsComplete + fresh.pdfsError === fresh.pdfsTotal) {
+    await finalizeSiteAudit(siteAuditId).catch((e) => {
+      console.warn('[ada-audit] finalize after PDF settle failed:', (e as Error).message)
     })
   }
 }
 ```
 
-Wrap that re-check in the same try/catch so a single failure doesn't break the chain.
+**c. Introduce `finalizeSiteAudit(id)` in a NEW module `lib/ada-audit/site-audit-finalizer.ts`.**
+
+Why a new file instead of putting it in `queue-manager.ts` or `site-audit-helpers.ts`:
+
+- `pdf-orchestrator.ts` needs to call `finalizeSiteAudit` from its per-PDF settle callback (Step 4b).
+- `queue-manager.ts` already dynamically imports `pdf-orchestrator` (Step 3b / Step 4a).
+- If `finalizeSiteAudit` lived in `queue-manager.ts`, `pdf-orchestrator` would have to import it back — a brittle cycle that only works because both sides happen to use dynamic `await import()` today.
+- `site-audit-helpers.ts` is a pure module (no Prisma, no `processNext`) — `buildSiteAuditSummary` lives there and it should stay free of side effects.
+
+A dedicated finalizer module breaks the cycle cleanly: it owns the Prisma write + status flip + `processNext` kick, depends on `db.ts` + `site-audit-helpers.ts` + `queue-manager.ts` (for `processNext`), and is imported from both `queue-manager.ts` and `pdf-orchestrator.ts` as a leaf.
+
+**Files (add to the File Structure section at the top of this plan):**
+
+- New: `lib/ada-audit/site-audit-finalizer.ts`
+
+```ts
+// lib/ada-audit/site-audit-finalizer.ts
+//
+// Single source of truth for "this SiteAudit is done — write the summary and
+// flip status to complete." Called from two places:
+//   1. The per-page worker in queue-manager.ts when the last page settles
+//      AND there are no PDFs in flight.
+//   2. The per-PDF settle callback in pdf-orchestrator.ts when the last
+//      pending PDF row resolves AND all pages are already done.
+//
+// Lives in its own module to avoid a queue-manager ↔ pdf-orchestrator cycle.
+
+import { prisma } from '@/lib/db'
+import { buildSiteAuditSummary } from './site-audit-helpers'
+import { processNext } from './queue-manager'
+
+export async function finalizeSiteAudit(id: string): Promise<void> {
+  const audit = await prisma.siteAudit.findUnique({
+    where: { id },
+    // The relation on SiteAudit is `pageAudits` (see prisma/schema.prisma:101),
+    // NOT `audits`. `pdfAudits` is the relation added to AdaAudit in this PR.
+    include: { pageAudits: { include: { pdfAudits: true } } },
+  })
+  if (!audit) return
+  if (audit.status === 'complete') return  // idempotent — multiple PDF callbacks can race here
+
+  const summary = buildSiteAuditSummary(audit.pageAudits)
+  await prisma.siteAudit.update({
+    where: { id },
+    data: {
+      status: 'complete',
+      summary: JSON.stringify(summary),
+    },
+  })
+
+  // Hand off the queue slot. Site audits don't have `progressMessage`;
+  // only update fields that exist on the SiteAudit model.
+  void processNext()
+}
+```
+
+Then update the two call sites:
+
+- In `lib/ada-audit/queue-manager.ts` (Step 4a, "after the last page settles"):
+  ```ts
+  import { finalizeSiteAudit } from './site-audit-finalizer'
+  // …
+  await finalizeSiteAudit(siteAuditId)
+  ```
+- In `lib/ada-audit/pdf-orchestrator.ts` (Step 4b, "after each PdfAudit row resolves"):
+  ```ts
+  const { finalizeSiteAudit } = await import('./site-audit-finalizer')
+  await finalizeSiteAudit(siteAuditId).catch((e) => {
+    console.warn('[ada-audit] finalize after PDF settle failed:', (e as Error).message)
+  })
+  ```
+  Keep the `await import()` form in `pdf-orchestrator.ts` so a runtime miss on the new file never silently breaks the per-PDF loop during gradual rollout.
+
+Wrap call sites in try/catch so a single PDF settle that races with finalize doesn't kill the chain. The completion path is idempotent because of the `status === 'complete'` guard at the top — multiple PDF callbacks landing in the same instant will only commit once.
+
+**Important:** `SiteAudit` has no `progressMessage` field (see `prisma/schema.prisma` — only `AdaAudit` has it at line 70). Do not write `progressMessage` on a SiteAudit update. If the UI needs a "Scanning PDFs…" label during `pdfs-running`, derive it client-side from the status string.
+
+**d. Update `processNext()` so it treats `pdfs-running` as "queue slot still held".**
+
+The current loop in `lib/ada-audit/queue-manager.ts:84-126` does two things:
+
+1. Bails if any SiteAudit has `status: 'running'`.
+2. After `runAudit()` resolves, kicks `processNext()` again to chain.
+
+With this PR, `runAudit()` returns as soon as all *pages* settle — PDF scans are still in flight at that point, and the SiteAudit's status will have been flipped to `'pdfs-running'`. If `processNext()` only checks for `'running'`, it would happily start the next queued audit while the current one is still scanning PDFs, doubling the active workload (and the browser pool pressure, even though PDFs don't use Chrome).
+
+Fix in two places:
+
+```ts
+// Inside processNext(): expand the "anything running?" check.
+const active = await prisma.siteAudit.findFirst({
+  where: { status: { in: ['running', 'pdfs-running'] } },
+  select: { id: true },
+})
+if (active) {
+  processing = false
+  return
+}
+```
+
+And in `resetStaleAudits()` (`lib/ada-audit/queue-manager.ts:200`), include `'pdfs-running'` in the staleness sweep so a hung PDF scan doesn't permanently wedge the queue. Use the same 5-minute `updatedAt` heartbeat threshold.
+
+This means the queue advances via exactly one of two paths:
+
+- **No PDFs harvested:** `runAudit()` calls `finalizeSiteAudit(id)` directly (the no-PDFs branch in §a above), which calls `processNext()`.
+- **PDFs harvested:** `runAudit()` returns with the audit in `pdfs-running`. The final per-PDF callback to fire calls `finalizeSiteAudit(id)`, which flips status to `complete` and then calls `processNext()`.
+
+Both paths terminate in `finalizeSiteAudit()` → `processNext()`, so the queue is guaranteed to advance once and only once per audit.
+
+Do **not** make `runAudit()` `await` PDF settlement instead — that would block the queue slot while the browser pool is idle (PDFs use the separate `withPdfSlot` pool from Task 12), wasting capacity for any subsequent audit's pages.
 
 - [ ] **Step 5: Type-check**
 
@@ -1660,36 +2038,24 @@ git commit -m "feat(ada-audit): single-nav flow with lighthouse + pdf dispatch"
 **Files:**
 - Modify: `app/api/ada-audit/[id]/route.ts`
 
-- [ ] **Step 1: Add the import and call**
+- [ ] **Step 1: Extend `deleteAuditArtifacts` to also remove the Lighthouse report**
 
-In `app/api/ada-audit/[id]/route.ts`, find:
+The single-page DELETE route already imports `deleteAuditArtifacts` from `@/lib/ada-audit/screenshot-helpers` (currently at `app/api/ada-audit/[id]/route.ts:3` / used at line 77). It internally calls `deleteScreenshots(id)`. Extend the helper to fan-out to Lighthouse cleanup as well, so the existing route call site continues to do the right thing without changes there.
 
-```ts
-import { deleteScreenshots } from '@/lib/ada-audit/screenshot-helpers'
-```
-
-Add below:
+In `lib/ada-audit/screenshot-helpers.ts`, modify `deleteAuditArtifacts`:
 
 ```ts
-import { deleteLighthouseReport } from '@/lib/ada-audit/lighthouse-storage'
+import { deleteLighthouseReport } from './lighthouse-storage'
+
+export async function deleteAuditArtifacts(auditId: string): Promise<PromiseSettledResult<void>[]> {
+  return Promise.allSettled([
+    deleteScreenshots(auditId),
+    deleteLighthouseReport(auditId),
+  ])
+}
 ```
 
-Find:
-
-```ts
-await prisma.adaAudit.delete({ where: { id } })
-await deleteScreenshots(id)
-```
-
-Change to:
-
-```ts
-await prisma.adaAudit.delete({ where: { id } })
-await Promise.all([
-  deleteScreenshots(id),
-  deleteLighthouseReport(id),
-])
-```
+Do **not** replace the existing `deleteScreenshots` call with a Lighthouse-only call — that would regress screenshot cleanup. The single-page DELETE route's existing `deleteAuditArtifacts(id)` call requires no change after this.
 
 - [ ] **Step 2: Type-check**
 
@@ -1718,8 +2084,7 @@ The current `DELETE` only cascades the DB rows and leaves per-page screenshots o
 In `app/api/site-audit/[id]/route.ts`, replace the existing `DELETE` function:
 
 ```ts
-import { deleteScreenshots } from '@/lib/ada-audit/screenshot-helpers'
-import { deleteLighthouseReport } from '@/lib/ada-audit/lighthouse-storage'
+import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 
 export async function DELETE(
   _request: NextRequest,
@@ -1738,14 +2103,13 @@ export async function DELETE(
 
   // Cascade-delete DB rows first (atomic), then clean up files. If file
   // cleanup partially fails, the daily cleanExpired* sweeps will catch
-  // the orphans.
+  // the orphans. `deleteAuditArtifacts` was extended in Task 14 to fan
+  // out to both screenshots and Lighthouse reports — call it once per
+  // child instead of stacking helpers here.
   await prisma.siteAudit.delete({ where: { id } })
 
   await Promise.allSettled(
-    children.flatMap(({ id: childId }) => [
-      deleteScreenshots(childId),
-      deleteLighthouseReport(childId),
-    ]),
+    children.map(({ id: childId }) => deleteAuditArtifacts(childId)),
   )
 
   return NextResponse.json({ ok: true })

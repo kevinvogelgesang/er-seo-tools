@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
-import type { SiteAuditDetail } from '@/lib/ada-audit/types'
+import type { AuditPdfRow, SiteAuditDetail } from '@/lib/ada-audit/types'
+import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +14,12 @@ export async function GET(
 
   const audit = await prisma.siteAudit.findUnique({
     where: { id },
-    include: { client: { select: { name: true } } },
+    include: {
+      client: { select: { name: true } },
+      pdfAudits: {
+        select: { url: true, fileSize: true, pageCount: true, issues: true, scanError: true },
+      },
+    },
   })
 
   if (!audit) {
@@ -24,6 +30,25 @@ export async function GET(
   if (audit.status === 'complete' && audit.summary) {
     try { summary = JSON.parse(audit.summary) } catch { /* ignore */ }
   }
+
+  const pdfs: AuditPdfRow[] = audit.pdfAudits.map((p) => {
+    let issues: PdfIssue[] = []
+    if (p.issues) {
+      try {
+        const parsed = JSON.parse(p.issues)
+        if (Array.isArray(parsed)) issues = parsed as PdfIssue[]
+      } catch {
+        issues = []
+      }
+    }
+    return {
+      url: p.url,
+      fileSize: p.fileSize,
+      pageCount: p.pageCount,
+      issues,
+      scanError: p.scanError ?? null,
+    }
+  })
 
   // If queued, calculate position
   let queuePosition: number | null = null
@@ -38,7 +63,7 @@ export async function GET(
   let activeAudit: { id: string; domain: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null = null
   if (audit.status === 'queued') {
     activeAudit = await prisma.siteAudit.findFirst({
-      where: { status: { in: ['running', 'pending'] } },
+      where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
       select: { id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true },
     })
   }
@@ -55,6 +80,10 @@ export async function GET(
     pagesComplete: audit.pagesComplete,
     pagesError: audit.pagesError,
     summary,
+    pdfs,
+    pdfsTotal: audit.pdfsTotal,
+    pdfsComplete: audit.pdfsComplete,
+    pdfsError: audit.pdfsError,
     queuePosition,
     activeAudit,
   } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit })

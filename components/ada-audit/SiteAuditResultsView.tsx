@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Spinner } from '@/components/Spinner'
-import type { SiteAuditSummary, SitePageResult } from '@/lib/ada-audit/types'
+import type { SiteAuditSummary, SitePageResult, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
 import AuditScorecardComponent from './AuditScorecard'
 import AuditIssueTabs from './AuditIssueTabs'
@@ -11,6 +11,7 @@ import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import SiteAuditToolbar from './SiteAuditToolbar'
 import SitemapTreeView from './SitemapTreeView'
 import CleanPagesSection from './CleanPagesSection'
+import PdfIssuesSection from './PdfIssuesSection'
 import { useSiteAuditPages, type SortKey, type ImpactFilter } from './useSiteAuditPages'
 import { useGroupedViolations } from './useGroupedViolations'
 import GroupedViolationsView from './GroupedViolationsView'
@@ -26,6 +27,7 @@ interface Props {
   wcagLevel?: string
   score?: number
   compliant?: boolean
+  pdfs?: AuditPdfRow[]
 }
 
 function ImpactCount({ n, color }: { n: number; color: string }) {
@@ -157,7 +159,7 @@ function paginationRange(current: number, total: number): (number | '...')[] {
 }
 
 export default function SiteAuditResultsView({
-  domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant,
+  domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant, pdfs = [],
 }: Props) {
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
 
@@ -219,6 +221,9 @@ export default function SiteAuditResultsView({
       </div>
 
       <KnownLimitationsNotice variant="site" />
+
+      {/* PDFs found across the site */}
+      <PdfIssuesSection pdfs={pdfs} />
 
       {/* Pages section */}
       <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">

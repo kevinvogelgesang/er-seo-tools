@@ -19,13 +19,38 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
 
   try {
     await prisma.adaAudit.update({ where: { id }, data: { status: 'running', progress: 0, progressMessage: 'Starting…' } })
-    const results = await runAxeAudit(url, wcagLevel, onProgress, captureScreenshots ? {
-      captureScreenshots: true,
-      screenshotDir: path.join(SCREENSHOTS_DIR, id),
-    } : undefined)
+    const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+      url,
+      wcagLevel,
+      onProgress,
+      {
+        auditId: id,
+        ...(captureScreenshots ? {
+          captureScreenshots: true,
+          screenshotDir: path.join(SCREENSHOTS_DIR, id),
+        } : {}),
+      },
+    )
     await prisma.adaAudit.update({
       where: { id },
-      data: { status: 'complete', result: JSON.stringify(results), progress: 100, progressMessage: 'Complete', runnerType: 'browser' },
+      data: {
+        status: 'complete',
+        result: JSON.stringify(axe),
+        lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
+        lighthouseError,
+        progress: 100,
+        progressMessage: 'Complete',
+        runnerType: 'browser',
+      },
+    })
+
+    // Dispatch harvested PDFs against this single AdaAudit's id only.
+    // Standalone audits don't have a parent SiteAudit, so completion is not
+    // gated on PDF scans — they update PdfAudit rows in the background.
+    const { dispatchPdfScans } = await import('@/lib/ada-audit/pdf-orchestrator')
+    void dispatchPdfScans({
+      urls: harvestedPdfUrls,
+      adaAuditId: id,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

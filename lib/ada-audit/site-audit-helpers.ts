@@ -1,6 +1,13 @@
-import type { AuditScorecard, SiteAuditSummary, SitePageResult } from './types'
+import type { AuditScorecard, SiteAuditSummary, SitePageResult, SitePagePdfState, SiteAuditPdfAggregate } from './types'
+import type { LighthouseSummary } from './lighthouse-types'
+import type { PdfIssue } from './pdf-types'
 
 export const SITE_AUDIT_PAGE_CAP = 1000
+
+interface ChildPdfAudit {
+  status: string
+  issues: string | null
+}
 
 interface ChildRow {
   id: string
@@ -8,6 +15,8 @@ interface ChildRow {
   status: string
   error: string | null
   result: string | null
+  lighthouseSummary: string | null
+  pdfAudits: ChildPdfAudit[]
 }
 
 export function normaliseSiteAuditDomain(domain: string): string {
@@ -76,6 +85,16 @@ function parseScorecard(result: string | null): AuditScorecard | null {
   }
 }
 
+function safeParseIssues(json: string | null): PdfIssue[] {
+  if (!json) return []
+  try {
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) ? parsed as PdfIssue[] : []
+  } catch {
+    return []
+  }
+}
+
 export function addScorecards(a: AuditScorecard, b: AuditScorecard): AuditScorecard {
   return {
     critical:   a.critical   + b.critical,
@@ -96,12 +115,37 @@ export const ZERO_SCORECARD: AuditScorecard = {
 export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
   const pages: SitePageResult[] = children.map((child) => {
     const scorecard = child.status === 'complete' ? parseScorecard(child.result) : null
+
+    let lighthouse: LighthouseSummary | null = null
+    if (child.lighthouseSummary) {
+      try { lighthouse = JSON.parse(child.lighthouseSummary) as LighthouseSummary }
+      catch { lighthouse = null }
+    }
+
+    const pdfs: SitePagePdfState = {
+      total: child.pdfAudits.length,
+      complete: 0,
+      errored: 0,
+      withIssues: 0,
+    }
+    for (const p of child.pdfAudits) {
+      if (p.status === 'complete') {
+        pdfs.complete++
+        const issues = safeParseIssues(p.issues)
+        if (issues.length > 0) pdfs.withIssues++
+      } else if (p.status === 'error') {
+        pdfs.errored++
+      }
+    }
+
     return {
       adaAuditId: child.id,
       url: child.url,
       status: (child.status === 'complete' ? 'complete' : 'error') as 'complete' | 'error',
       error: child.error ?? null,
       scorecard,
+      lighthouse,
+      pdfs,
     }
   })
 
@@ -117,5 +161,15 @@ export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
     { ...ZERO_SCORECARD }
   )
 
-  return { aggregate, pages }
+  const pdfsAggregate: SiteAuditPdfAggregate = pages.reduce(
+    (acc, p) => ({
+      total:      acc.total      + p.pdfs.total,
+      complete:   acc.complete   + p.pdfs.complete,
+      errored:    acc.errored    + p.pdfs.errored,
+      withIssues: acc.withIssues + p.pdfs.withIssues,
+    }),
+    { total: 0, complete: 0, errored: 0, withIssues: 0 },
+  )
+
+  return { aggregate, pdfsAggregate, pages }
 }

@@ -3,7 +3,8 @@ import type { Browser, Page } from 'puppeteer-core'
 import { getBrowserEgressLaunchArgs, requireBrowserEgressGuardConfig } from './browser-egress'
 
 const CHROME_EXECUTABLE = process.env.CHROME_EXECUTABLE ?? '/usr/bin/google-chrome'
-const POOL_SIZE = parseInt(process.env.BROWSER_POOL_SIZE ?? '2', 10)
+const POOL_SIZE = parseInt(process.env.BROWSER_POOL_SIZE ?? '4', 10)
+const MAX_OLD_SPACE = parseInt(process.env.CHROME_MAX_OLD_SPACE ?? '512', 10)
 
 const LAUNCH_ARGS = [
   '--no-sandbox',
@@ -15,7 +16,7 @@ const LAUNCH_ARGS = [
   '--disable-default-apps',
   '--disable-translate',
   '--disable-sync',
-  '--js-flags=--max-old-space-size=256',
+  `--js-flags=--max-old-space-size=${MAX_OLD_SPACE}`,
   '--disable-http-cache',
   ...getBrowserEgressLaunchArgs(),
 ]

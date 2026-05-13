@@ -61,6 +61,11 @@ export async function register() {
       )
     }
 
+    // Initialize SQLite PRAGMAs before any audit writes so the first write doesn't
+    // race with PRAGMA setup. Idempotent, safe to call multiple times.
+    const { initPragmas } = await import('@/lib/db')
+    await initPragmas()
+
     // Close the headless browser cleanly on shutdown so Chrome doesn't orphan.
     // fuser -k in the deploy command sends SIGTERM before starting the new process.
     const { closeBrowser } = await import('@/lib/ada-audit/browser-pool')
