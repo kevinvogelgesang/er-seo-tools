@@ -10,7 +10,13 @@ const FETCH_TIMEOUT = 15_000
 const MAX_HTML_BYTES = 1_000_000
 const MAX_XML_BYTES = 5_000_000
 const MAX_ROBOTS_BYTES = 500_000
-const USER_AGENT = 'ER-SEO-Tools/1.0 ada-audit'
+// Browser-shaped UA. CDN/WAF heuristics frequently 403 transparently bot
+// user-agents like "ER-SEO-Tools/1.0", which causes silent sitemap discovery
+// failures. Pretending to be Chrome matches what a manual fetch of the same
+// URL looks like to those filters.
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
 // ─── XML helpers ─────────────────────────────────────────────────────────────
 

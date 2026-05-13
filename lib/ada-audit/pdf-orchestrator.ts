@@ -17,9 +17,10 @@ interface DispatchArgs {
   urls: string[]              // already normalized + same-domain filtered
   siteAuditId?: string
   adaAuditId?: string         // for standalone single-page audits OR per-page attribution under a site audit
+  sourcePageUrl?: string      // the audited page the PDFs were harvested from — used as Referer header to defeat anti-hotlinking WAFs
 }
 
-export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId }: DispatchArgs): Promise<void> {
+export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId, sourcePageUrl }: DispatchArgs): Promise<void> {
   if (!siteAuditId && !adaAuditId) {
     throw new Error('pdf-orchestrator: need siteAuditId or adaAuditId')
   }
@@ -80,7 +81,7 @@ export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId }: Dispat
           where: { url, ...(siteAuditId ? { siteAuditId } : { adaAuditId }) },
           data: { status: 'scanning' },
         })
-        const result = await scanPdfUrl(url)
+        const result = await scanPdfUrl(url, { referer: sourcePageUrl })
         const matches = await prisma.pdfAudit.updateMany({
           where: { url, ...(siteAuditId ? { siteAuditId } : { adaAuditId }) },
           data: {

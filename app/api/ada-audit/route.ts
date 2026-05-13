@@ -51,6 +51,7 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
     void dispatchPdfScans({
       urls: harvestedPdfUrls,
       adaAuditId: id,
+      sourcePageUrl: url,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
