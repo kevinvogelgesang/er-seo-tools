@@ -60,8 +60,11 @@ export default function QueueActiveView() {
         // Fetch one last detail (now closed) so the freeze frame is accurate.
         const closedBatchId = lastSeenBatchId.current
         const finalRes = await fetch(`/api/audit-batches/${closedBatchId}`)
-        if (finalRes.ok && isMountedRef.current) {
-          setDetail(await finalRes.json() as AuditBatchDetail)
+        if (finalRes.ok) {
+          const finalJson = await finalRes.json() as AuditBatchDetail
+          // Re-check mount after the JSON parse — an unmount during the
+          // parse would otherwise still call setDetail.
+          if (isMountedRef.current) setDetail(finalJson)
         }
         if (isMountedRef.current) setBatchId(null)
       } else if (incomingId) {
