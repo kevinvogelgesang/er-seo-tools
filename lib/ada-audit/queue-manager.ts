@@ -37,9 +37,21 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 
 // ─── Runner ──────────────────────────────────────────────────────────────────
 
-async function runAudit(id: string, domain: string, clientId: number | null, wcagLevel: string, preDiscoveredUrls?: string[]) {
+// Exported so the queue-manager.test.ts can assert the claim race directly.
+// Not part of the public queue API — callers should go through `enqueueAudit`
+// + `processNext`. The conditional claim below is the single source of truth
+// for the queued → running transition; do not bypass it.
+export async function runAudit(id: string, domain: string, clientId: number | null, wcagLevel: string, preDiscoveredUrls?: string[]) {
   try {
-    await prisma.siteAudit.update({ where: { id }, data: { status: 'running' } })
+    // Conditional claim: only flip to 'running' if the row is still 'queued'.
+    // Closes the race where processNext() picks this row, a concurrent cancel
+    // flips status to 'cancelled', and an unconditional update would resurrect
+    // it. processNext() will retry and pick the next queued row on its own.
+    const claimed = await prisma.siteAudit.updateMany({
+      where: { id, status: 'queued' },
+      data: { status: 'running' },
+    })
+    if (claimed.count === 0) return
 
     const urls = preDiscoveredUrls ?? await discoverPages(domain)
     await prisma.siteAudit.update({ where: { id }, data: { pagesTotal: urls.length } })

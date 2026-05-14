@@ -12,7 +12,7 @@ export async function POST(
 
   const existing = await prisma.siteAudit.findUnique({
     where: { id },
-    select: { status: true, batchId: true },
+    select: { batchId: true },
   })
   if (!existing) {
     return NextResponse.json({ error: 'Site audit not found' }, { status: 404 })
@@ -26,10 +26,17 @@ export async function POST(
   })
 
   if (updated.count === 0) {
+    // Refetch — status may have transitioned since the existence check, so
+    // we can't trust the value we read above.
+    const fresh = await prisma.siteAudit.findUnique({
+      where: { id },
+      select: { status: true },
+    })
+    const currentStatus = fresh?.status ?? 'unknown'
     return NextResponse.json(
       {
-        error: `Site audit is not queued (current status: ${existing.status})`,
-        currentStatus: existing.status,
+        error: `Site audit is not queued (current status: ${currentStatus})`,
+        currentStatus,
       },
       { status: 409 },
     )

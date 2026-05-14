@@ -79,6 +79,24 @@ describe('POST /api/site-audit/[id]/cancel', () => {
     },
   )
 
+  it('refetches status for the 409 body when the row transitions between the existence check and the update', async () => {
+    // Simulates: existence check sees 'queued', then runAudit's conditional
+    // claim wins the race and flips the row to 'running', so our updateMany
+    // observes count===0. The response must report the FRESH status, not
+    // the stale 'queued' we read first.
+    vi.mocked(prisma.siteAudit.findUnique)
+      .mockResolvedValueOnce({ status: 'queued', batchId: 'batch-1' } as never)
+      .mockResolvedValueOnce({ status: 'running' } as never)
+    vi.mocked(prisma.siteAudit.updateMany).mockResolvedValue({ count: 0 } as never)
+
+    const res = await POST(req(), ctx('audit-1'))
+
+    expect(res.status).toBe(409)
+    const json = await res.json() as { currentStatus: string }
+    expect(json.currentStatus).toBe('running')
+    expect(closeBatchIfDrained).not.toHaveBeenCalled()
+  })
+
   it('returns 404 when the audit does not exist', async () => {
     vi.mocked(prisma.siteAudit.findUnique).mockResolvedValue(null)
 
