@@ -12,18 +12,18 @@ module.exports = {
     cwd: APP_HOME,
     instances: 1,
     exec_mode: 'fork',
-    max_memory_restart: '1200M',
+    max_memory_restart: '2400M',
     env: {
       NODE_ENV: 'production',
       PORT: 3000,
       DATABASE_URL: `file:${DATA_HOME}/db.sqlite`,
       UPLOADS_DIR: `${DATA_HOME}/uploads`,
-      NODE_OPTIONS: '--max-old-space-size=1536',
+      NODE_OPTIONS: '--max-old-space-size=2048',
       // Audit-safety knobs are explicit here so `pm2 env <id>` proves
       // what the worker is using. Do not move to .env without that tradeoff.
       BROWSER_POOL_SIZE: '2',
       SITE_AUDIT_CONCURRENCY: '1',
-      SITE_AUDIT_BROWSER_RECYCLE_PAGES: '25',
+      SITE_AUDIT_BROWSER_RECYCLE_PAGES: '15',
     },
 
     // Graceful shutdown — 10s for Chrome cleanup before SIGKILL
