@@ -44,7 +44,7 @@ export default function SiteAuditPoller({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    if (status === 'complete' || status === 'error') return
+    if (status === 'complete' || status === 'error' || status === 'cancelled') return
 
     timerRef.current = setInterval(async () => {
       try {
@@ -59,7 +59,7 @@ export default function SiteAuditPoller({
         setQueuePosition(data.queuePosition)
         setActiveAudit(data.activeAudit)
 
-        if (data.status === 'complete' || data.status === 'error') {
+        if (data.status === 'complete' || data.status === 'error' || data.status === 'cancelled') {
           if (timerRef.current) clearInterval(timerRef.current)
           router.refresh()
         }

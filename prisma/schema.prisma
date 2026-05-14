@@ -89,7 +89,7 @@ model SiteAudit {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   domain        String     // "example.edu" — no scheme, no trailing slash
-  status        String     // queued | pending | running | complete | error
+  status        String     // queued | pending | running | pdfs-running | complete | error | cancelled
   error         String?
   pagesTotal    Int        @default(0)
   pagesComplete Int        @default(0)

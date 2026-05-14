@@ -52,6 +52,33 @@ export default async function SiteAuditResultPage({ params }: Props) {
     )
   }
 
+  // ── Cancelled ─────────────────────────────────────────────────────────────────
+  if (audit.status === 'cancelled') {
+    return (
+      <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
+        {breadcrumb}
+        <div className="bg-white dark:bg-navy-card border border-slate-200 dark:border-slate-500/30 rounded-2xl shadow-sm p-8 flex flex-col items-center gap-4 text-center">
+          <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-500/15 flex items-center justify-center">
+            <svg className="w-6 h-6 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636" />
+            </svg>
+          </div>
+          <div>
+            <p className="font-display font-bold text-[18px] text-navy dark:text-white">Site audit cancelled</p>
+            <p className="text-[13px] font-body text-navy/50 dark:text-white/50 mt-1">This audit was cancelled before it ran.</p>
+            <p className="text-[12px] font-body text-navy/40 dark:text-white/40 mt-1">{audit.domain}</p>
+          </div>
+          <Link
+            href="/ada-audit"
+            className="mt-2 px-4 py-2 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[13px] rounded-lg transition-colors"
+          >
+            Re-queue
+          </Link>
+        </div>
+      </main>
+    )
+  }
+
   // ── Error ────────────────────────────────────────────────────────────────────
   if (audit.status === 'error') {
     return (

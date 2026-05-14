@@ -59,6 +59,15 @@ describe('queueSiteAuditRequest', () => {
     expect(queueManager.enqueueAudit).not.toHaveBeenCalled()
   })
 
+  it('does NOT treat cancelled as in-flight — same domain can be re-queued', async () => {
+    await prisma.siteAudit.create({
+      data: { domain: 'qr-test-cancelled.example', status: 'cancelled', wcagLevel: 'wcag21aa' },
+    })
+    const r = await queueSiteAuditRequest({ domain: 'qr-test-cancelled.example', clientId: null, wcagLevel: 'wcag21aa' })
+    expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
+    expect(queueManager.enqueueAudit).toHaveBeenCalledTimes(1)
+  })
+
   it('normalizes domain before forwarding to enqueueAudit (strips scheme/path, lowercases)', async () => {
     const r = await queueSiteAuditRequest({
       domain: 'HTTPS://QR-Test-Norm.Example/some/path',
