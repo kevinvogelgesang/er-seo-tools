@@ -13,6 +13,7 @@ const STATUS_RANK: Record<string, number> = {
   pending: 2,
   complete: 3,
   error: 4,
+  cancelled: 5,
 }
 
 export default function QueueActiveView() {
@@ -123,9 +124,10 @@ export default function QueueActiveView() {
       else if (m.status === 'running' || m.status === 'pdfs-running') acc.running++
       else if (m.status === 'complete') acc.complete++
       else if (m.status === 'error') acc.errored++
+      else if (m.status === 'cancelled') acc.cancelled++
       return acc
     },
-    { queued: 0, running: 0, complete: 0, errored: 0 },
+    { queued: 0, running: 0, complete: 0, errored: 0, cancelled: 0 },
   )
 
   return (
@@ -142,6 +144,7 @@ export default function QueueActiveView() {
           </h2>
           <p className="text-[12px] font-body text-navy/50 dark:text-white/50 mt-1">
             {counts.queued} queued · {counts.running} running · {counts.complete} complete · {counts.errored} errored
+            {counts.cancelled > 0 ? ` · ${counts.cancelled} cancelled` : ''}
           </p>
         </div>
         <table className="w-full">
@@ -152,10 +155,13 @@ export default function QueueActiveView() {
               <th className="text-left px-6 py-2 text-[11px] uppercase tracking-wider font-body font-semibold text-navy/50 dark:text-white/50">Status</th>
               <th className="text-left px-6 py-2 text-[11px] uppercase tracking-wider font-body font-semibold text-navy/50 dark:text-white/50">Pages</th>
               <th className="text-left px-6 py-2 text-[11px] uppercase tracking-wider font-body font-semibold text-navy/50 dark:text-white/50">Score</th>
+              <th className="text-right px-6 py-2 text-[11px] uppercase tracking-wider font-body font-semibold text-navy/50 dark:text-white/50">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {sortedMembers.map((m) => <QueueMemberRow key={m.id} member={m} />)}
+            {sortedMembers.map((m) => (
+              <QueueMemberRow key={m.id} member={m} onCancelled={() => void tick()} />
+            ))}
           </tbody>
         </table>
       </div>

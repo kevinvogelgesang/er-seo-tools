@@ -26,11 +26,12 @@ function ScoreBadge({ score }: { score?: number | null }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    complete: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
-    error:    'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
-    running:  'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
-    pending:  'bg-gray-100 dark:bg-navy-light text-gray-600 dark:text-white/60',
-    queued:   'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    complete:  'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
+    error:     'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
+    running:   'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
+    pending:   'bg-gray-100 dark:bg-navy-light text-gray-600 dark:text-white/60',
+    queued:    'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    cancelled: 'bg-slate-100 dark:bg-slate-500/15 text-slate-600 dark:text-slate-400',
   }
   return (
     <span className={`text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${map[status] ?? map.pending}`}>
@@ -201,9 +202,11 @@ export default function SiteAuditHistory() {
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">
                     {a.status === 'queued'
                       ? <span className="text-amber-600 dark:text-amber-400">queued</span>
-                      : a.status === 'running' || a.status === 'pending'
-                        ? <span>{a.pagesComplete}/{a.pagesTotal > 0 ? a.pagesTotal : '?'}</span>
-                        : <span>{a.pagesComplete + a.pagesError}</span>
+                      : a.status === 'cancelled'
+                        ? <span className="text-slate-500 dark:text-slate-400">—</span>
+                        : a.status === 'running' || a.status === 'pending'
+                          ? <span>{a.pagesComplete}/{a.pagesTotal > 0 ? a.pagesTotal : '?'}</span>
+                          : <span>{a.pagesComplete + a.pagesError}</span>
                     }
                   </td>
                   <td className="py-2.5 pr-4">
