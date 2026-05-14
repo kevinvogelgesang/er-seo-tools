@@ -16,6 +16,7 @@
 
 import { prisma } from '@/lib/db'
 import { buildSiteAuditSummary } from './site-audit-helpers'
+import { closeBatchIfDrained } from './audit-batch-helpers'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   const audit = await prisma.siteAudit.findUnique({
@@ -34,5 +35,11 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
       status: 'complete',
       summary: JSON.stringify(summary),
     },
+  })
+
+  // Close the batch if this audit was the last in-flight member.
+  // Idempotent — closeBatchIfDrained is a no-op when others are still in flight.
+  await closeBatchIfDrained(audit.batchId).catch((e) => {
+    console.warn('[site-audit-finalizer] closeBatchIfDrained failed for batch', audit.batchId, ':', (e as Error).message)
   })
 }

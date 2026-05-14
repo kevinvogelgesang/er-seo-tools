@@ -5,7 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import PaginatedSection from './PaginatedSection'
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
-import type { ClientAuditSummary } from '@/lib/ada-audit/types'
+import type { ClientAuditSummary, QueueStatusWithBatch } from '@/lib/ada-audit/types'
+import BulkQueueModal from './BulkQueueModal'
 
 type SortKey = 'name-asc' | 'name-desc' | 'date-asc' | 'date-desc' | 'score-asc' | 'score-desc'
 const DEFAULT_SORT: SortKey = 'date-desc'
@@ -35,6 +36,20 @@ function ScoreBadge({ score }: { score: number | null }) {
       ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400'
       : 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400'
   return <span className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded ${color}`}>{score}</span>
+}
+
+function ChipForStatus({ status }: { status: string | undefined }) {
+  if (!status) return null
+  const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : status === 'pdfs-running' ? 'Scanning PDFs' : status
+  const color =
+    status === 'queued'
+      ? 'bg-gray-100 dark:bg-gray-500/15 text-gray-700 dark:text-gray-300'
+      : 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400'
+  return (
+    <span className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded ml-2 ${color}`}>
+      {label}
+    </span>
+  )
 }
 
 function compareDateDesc(a: ClientAuditSummary, b: ClientAuditSummary): number {
@@ -82,6 +97,35 @@ export default function ClientsAuditSummary() {
   const [data, setData] = useState<ClientAuditSummary[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [queueingClientId, setQueueingClientId] = useState<number | null>(null)
+  const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
+  const [queueStatus, setQueueStatus] = useState<QueueStatusWithBatch | null>(null)
+  const [bulkModalOpen, setBulkModalOpen] = useState(false)
+
+  const queueClient = useCallback(async (client: ClientAuditSummary) => {
+    if (!client.firstDomain) return  // disabled state covers this
+    setQueueingClientId(client.clientId)
+    try {
+      const res = await fetch('/api/site-audit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ domain: client.firstDomain, clientId: client.clientId }),
+      })
+      if (res.status === 202) {
+        setToast({ kind: 'success', message: `Queued audit for ${client.clientName}` })
+      } else if (res.status === 409) {
+        setToast({ kind: 'error', message: `${client.clientName} already queued` })
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        setToast({ kind: 'error', message: body.error ?? `Couldn't queue audit (HTTP ${res.status})` })
+      }
+    } catch (e) {
+      setToast({ kind: 'error', message: `Couldn't queue audit: ${(e as Error).message}` })
+    } finally {
+      setQueueingClientId(null)
+      setTimeout(() => setToast(null), 4000)
+    }
+  }, [])
 
   // Local search input (instant) + debounced URL sync
   const [searchInput, setSearchInput] = useState(searchParams.get('clientsSearch') ?? '')
@@ -109,6 +153,32 @@ export default function ClientsAuditSummary() {
     const id = setInterval(() => void fetchClients(true), 30_000)
     return () => clearInterval(id)
   }, [fetchClients])
+
+  useEffect(() => {
+    const fetchQueue = async () => {
+      try {
+        const res = await fetch('/api/site-audit/queue')
+        if (res.ok) setQueueStatus(await res.json() as QueueStatusWithBatch)
+      } catch { /* silent — polling is fail-tolerant */ }
+    }
+    void fetchQueue()
+    const id = setInterval(fetchQueue, 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Build a clientId -> status map for chip lookup. The active row carries the
+  // literal SiteAudit.status (running | pdfs-running | pending) — the chip
+  // renders the matching label.
+  const inFlightByClient = useMemo(() => {
+    const map = new Map<number, string>()
+    if (queueStatus?.active && queueStatus.active.clientId != null) {
+      map.set(queueStatus.active.clientId, queueStatus.active.status)
+    }
+    for (const q of queueStatus?.queued ?? []) {
+      if (q.clientId != null) map.set(q.clientId, 'queued')
+    }
+    return map
+  }, [queueStatus])
 
   // Debounced URL sync for search
   useEffect(() => {
@@ -152,17 +222,42 @@ export default function ClientsAuditSummary() {
     )
   }
 
+  const clientsById = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const c of data ?? []) m.set(c.clientId, c.clientName)
+    return m
+  }, [data])
+
+  const eligibleCount = (data ?? []).filter((c) => c.firstDomain).length
+
   const trailing = (
-    <input
-      type="text"
-      value={searchInput}
-      onChange={(e) => setSearchInput(e.target.value)}
-      placeholder="Search clients by name"
-      className="bg-white dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-md px-3 py-1.5 text-[12px] font-body w-56"
-    />
+    <div className="flex items-center gap-3">
+      <input
+        type="text"
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
+        placeholder="Search clients by name"
+        className="bg-white dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded-md px-3 py-1.5 text-[12px] font-body w-56"
+      />
+      <button
+        type="button"
+        onClick={() => setBulkModalOpen(true)}
+        disabled={eligibleCount === 0}
+        className="text-[12px] font-body font-semibold text-orange hover:underline disabled:opacity-50"
+      >
+        Queue all
+      </button>
+      <Link
+        href="/ada-audit/queue"
+        className="text-[12px] font-body font-semibold text-orange hover:underline"
+      >
+        View queue →
+      </Link>
+    </div>
   )
 
   return (
+    <>
     <PaginatedSection
       title="Clients"
       icon={<svg className="w-4 h-4 text-orange" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5.13a4 4 0 11-8 0 4 4 0 018 0zM21 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>}
@@ -175,6 +270,15 @@ export default function ClientsAuditSummary() {
         ? <>No clients yet — add some at <Link href="/clients" className="text-orange hover:underline">/clients</Link>.</>
         : filtered ? `No clients match "${searchInput}".` : 'No clients.'}
     >
+      {toast && (
+        <div className={`px-6 py-2 text-[12px] font-body ${
+          toast.kind === 'success'
+            ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400'
+            : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400'
+        }`}>
+          {toast.message}
+        </div>
+      )}
       <table className="w-full">
         <thead className="sticky top-0 bg-gray-50 dark:bg-navy-deep">
           <tr className="border-b border-gray-100 dark:border-navy-border">
@@ -204,16 +308,28 @@ export default function ClientsAuditSummary() {
                 <td className="px-6 py-3 font-body text-[12px] text-navy/60 dark:text-white/60">
                   {la ? new Date(la.createdAt).toLocaleDateString() : '—'}
                 </td>
-                <td className="px-6 py-3"><ScoreBadge score={la?.score ?? null} /></td>
-                <td className="px-6 py-3 text-right">
-                  {la ? (
-                    <Link href={`/ada-audit/site/${la.id}`} className="text-[12px] text-orange hover:underline">View →</Link>
-                  ) : c.firstDomain ? (
-                    // Include auditTab=site so AuditIndexTabs opens on the
-                    // Full Site tab (its default state is 'single'). Without
-                    // this param the prefilled domain would be invisible to
-                    // the user until they manually click Full Site.
-                    <Link href={`/ada-audit/?auditTab=site&prefillDomain=${encodeURIComponent(c.firstDomain)}`} className="text-[12px] text-orange hover:underline">Run audit</Link>
+                <td className="px-6 py-3">
+                  <ScoreBadge score={la?.score ?? null} />
+                  <ChipForStatus status={inFlightByClient.get(c.clientId)} />
+                </td>
+                <td className="px-6 py-3 text-right whitespace-nowrap">
+                  {la && (
+                    <Link
+                      href={`/ada-audit/site/${la.id}`}
+                      className="text-[12px] text-orange hover:underline mr-3"
+                    >
+                      View →
+                    </Link>
+                  )}
+                  {c.firstDomain ? (
+                    <button
+                      type="button"
+                      onClick={() => queueClient(c)}
+                      disabled={queueingClientId === c.clientId}
+                      className="text-[12px] text-orange hover:underline disabled:opacity-50 disabled:cursor-wait"
+                    >
+                      {queueingClientId === c.clientId ? 'Queueing…' : (la ? 'Re-queue' : 'Queue audit')}
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -221,7 +337,7 @@ export default function ClientsAuditSummary() {
                       title="Add a domain on the Clients page to enable audits."
                       className="text-[12px] text-navy/30 dark:text-white/30 cursor-not-allowed"
                     >
-                      Run audit
+                      Queue audit
                     </button>
                   )}
                 </td>
@@ -231,5 +347,13 @@ export default function ClientsAuditSummary() {
         </tbody>
       </table>
     </PaginatedSection>
+    <BulkQueueModal
+      open={bulkModalOpen}
+      eligibleCount={eligibleCount}
+      clientsById={clientsById}
+      onClose={() => setBulkModalOpen(false)}
+      onConfirmed={() => { void fetchClients(false) }}
+    />
+    </>
   )
 }

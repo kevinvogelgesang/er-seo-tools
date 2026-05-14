@@ -5,6 +5,11 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
+    // Tests share the dev SQLite DB. The AuditBatch partial unique index
+    // (`audit_batches_one_open`) means parallel test files writing open
+    // batches collide on the singleton invariant. Serialize file execution
+    // so cross-file DB state stays predictable. ~1-2s slower; reliable.
+    fileParallelism: false,
     include: ['**/*.test.ts'],
     exclude: [
       ...configDefaults.exclude,

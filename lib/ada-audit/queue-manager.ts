@@ -20,6 +20,8 @@ import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { closeBrowser } from '@/lib/ada-audit/browser-pool'
+import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
+import type { QueueStatusWithBatch } from './types'
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -117,6 +119,15 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
       where: { id },
       data: { status: 'error', error: message },
     }).catch(() => {})
+    // Read back the batchId — we may not have it in scope if the audit errored
+    // before any local variable captured it.
+    const errored = await prisma.siteAudit.findUnique({
+      where: { id },
+      select: { batchId: true },
+    }).catch(() => null)
+    if (errored?.batchId) {
+      await closeBatchIfDrained(errored.batchId).catch(() => {})
+    }
     await closeBrowser().catch(() => {})
   }
 }
@@ -186,6 +197,10 @@ export async function enqueueAudit(
   wcagLevel: string,
   preDiscoveredUrls?: string[],
 ): Promise<{ id: string; status: string }> {
+  // Attach to the open batch (or create one). `ensureOpenBatch` handles the
+  // race-safe creation via the partial unique index.
+  const batchId = await ensureOpenBatch()
+
   const audit = await prisma.siteAudit.create({
     data: {
       domain,
@@ -193,8 +208,27 @@ export async function enqueueAudit(
       clientId,
       wcagLevel,
       discoveredUrls: preDiscoveredUrls ? JSON.stringify(preDiscoveredUrls) : null,
+      batchId,
     },
   })
+
+  // Race recovery: if `closeBatchIfDrained` ran between `ensureOpenBatch` and
+  // the `create` above, it would have observed zero in-flight members and
+  // closed the batch. Our atomic conditional UPDATE in closeBatchIfDrained
+  // now refuses to close when any in-flight member exists at write-time —
+  // but it can still have ALREADY closed the batch before our row landed.
+  // Verify and reassign if needed.
+  const verify = await prisma.auditBatch.findUnique({
+    where: { id: batchId },
+    select: { closedAt: true },
+  })
+  if (verify?.closedAt) {
+    const newBatchId = await ensureOpenBatch()
+    await prisma.siteAudit.update({
+      where: { id: audit.id },
+      data: { batchId: newBatchId },
+    })
+  }
 
   // Kick the processor (non-blocking). Retry after 2s in case the first kick
   // was dropped because processNext() was mid-execution.
@@ -206,37 +240,55 @@ export async function enqueueAudit(
 
 // ─── Query helpers ───────────────────────────────────────────────────────────
 
-export interface QueueStatus {
-  active: {
-    id: string
-    domain: string
-    pagesTotal: number
-    pagesComplete: number
-    pagesError: number
-  } | null
-  queued: {
-    id: string
-    domain: string
-    position: number
-  }[]
-}
+export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
+  const { resolveBatchLabel } = await import('./audit-batch-helpers')
 
-export async function getQueueStatus(): Promise<QueueStatus> {
   const active = await prisma.siteAudit.findFirst({
     where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
-    select: { id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true },
+    select: {
+      id: true, domain: true, status: true,
+      pagesTotal: true, pagesComplete: true, pagesError: true,
+      clientId: true,
+    },
     orderBy: { createdAt: 'asc' },
   })
 
   const queuedRows = await prisma.siteAudit.findMany({
     where: { status: 'queued' },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, domain: true },
+    select: { id: true, domain: true, clientId: true },
+  })
+
+  const openBatch = await prisma.auditBatch.findFirst({
+    where: { closedAt: null },
+    select: { id: true, startedAt: true, label: true, closedAt: true },
   })
 
   return {
-    active,
-    queued: queuedRows.map((q, i) => ({ id: q.id, domain: q.domain, position: i + 1 })),
+    active: active
+      ? {
+          id: active.id,
+          domain: active.domain,
+          status: active.status,
+          pagesTotal: active.pagesTotal,
+          pagesComplete: active.pagesComplete,
+          pagesError: active.pagesError,
+          clientId: active.clientId ?? null,
+        }
+      : null,
+    queued: queuedRows.map((q, i) => ({
+      id: q.id,
+      domain: q.domain,
+      position: i + 1,
+      clientId: q.clientId ?? null,
+    })),
+    batch: openBatch
+      ? {
+          id: openBatch.id,
+          startedAt: openBatch.startedAt.toISOString(),
+          label: resolveBatchLabel(openBatch),
+        }
+      : null,
   }
 }
 
@@ -254,7 +306,7 @@ export async function resetStaleAudits() {
       status: { in: ['running', 'pdfs-running'] },
       updatedAt: { lt: staleThreshold },
     },
-    select: { id: true },
+    select: { id: true, batchId: true },
   })
   for (const s of stale) {
     console.warn(`[queue] Resetting stale audit ${s.id}`)
@@ -262,6 +314,9 @@ export async function resetStaleAudits() {
       where: { id: s.id },
       data: { status: 'error', error: 'Audit timed out (server may have restarted)' },
     }).catch(() => {})
+    if (s.batchId) {
+      await closeBatchIfDrained(s.batchId).catch(() => {})
+    }
   }
   if (stale.length > 0) void processNext()
 }
@@ -279,7 +334,7 @@ export async function recoverQueue() {
       status: { in: ['running', 'pdfs-running'] },
       updatedAt: { lt: staleThreshold },
     },
-    select: { id: true },
+    select: { id: true, batchId: true },
   })
   for (const s of stale) {
     console.warn(`[queue] Startup recovery: resetting stale audit ${s.id}`)
@@ -287,6 +342,9 @@ export async function recoverQueue() {
       where: { id: s.id },
       data: { status: 'error', error: 'Audit interrupted (server restarted)' },
     }).catch(() => {})
+    if (s.batchId) {
+      await closeBatchIfDrained(s.batchId).catch(() => {})
+    }
   }
 
   // Also reset any 'pending' audits (old status, shouldn't exist with new queue)
