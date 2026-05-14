@@ -324,6 +324,25 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
 // ─── Recovery ────────────────────────────────────────────────────────────────
 
 /**
+ * When a parent SiteAudit is forced into a terminal `error` state by recovery,
+ * any of its AdaAudit children still in `pending` or `running` are orphans —
+ * the runner that owned them is gone and they can never progress. Mark them
+ * as `error` with a clear message so any open per-page poller stops spinning.
+ */
+export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
+  await prisma.adaAudit.updateMany({
+    where: {
+      siteAuditId,
+      status: { in: ['pending', 'running'] },
+    },
+    data: {
+      status: 'error',
+      error: 'Audit interrupted because the site audit was stopped or restarted',
+    },
+  })
+}
+
+/**
  * Resets audits stuck in 'running' or 'pdfs-running' with no DB activity for
  * 5+ minutes. Called periodically from instrumentation.ts and on startup.
  */
