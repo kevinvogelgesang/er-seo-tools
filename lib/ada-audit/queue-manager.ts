@@ -27,6 +27,14 @@ import type { QueueStatusWithBatch } from './types'
 
 let processing = false
 
+const SITE_AUDIT_CONCURRENCY = parsePositiveInt(process.env.SITE_AUDIT_CONCURRENCY, 1)
+const SITE_AUDIT_BROWSER_RECYCLE_PAGES = parsePositiveInt(process.env.SITE_AUDIT_BROWSER_RECYCLE_PAGES, 25)
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 // ─── Runner ──────────────────────────────────────────────────────────────────
 
 async function runAudit(id: string, domain: string, clientId: number | null, wcagLevel: string, preDiscoveredUrls?: string[]) {
@@ -36,9 +44,10 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
     const urls = preDiscoveredUrls ?? await discoverPages(domain)
     await prisma.siteAudit.update({ where: { id }, data: { pagesTotal: urls.length } })
 
-    const CONCURRENCY = 2
-    for (let i = 0; i < urls.length; i += CONCURRENCY) {
-      await Promise.all(urls.slice(i, i + CONCURRENCY).map(async (url) => {
+    let nextBrowserRecycleAt = SITE_AUDIT_BROWSER_RECYCLE_PAGES
+    for (let i = 0; i < urls.length; i += SITE_AUDIT_CONCURRENCY) {
+      const batch = urls.slice(i, i + SITE_AUDIT_CONCURRENCY)
+      await Promise.all(batch.map(async (url) => {
         const child = await prisma.adaAudit.create({
           data: { url, status: 'pending', clientId, siteAuditId: id, wcagLevel },
         })
@@ -83,6 +92,14 @@ async function runAudit(id: string, domain: string, clientId: number | null, wca
           await prisma.siteAudit.update({ where: { id }, data: { pagesError: { increment: 1 } } })
         }
       }))
+
+      const pagesProcessed = Math.min(i + batch.length, urls.length)
+      if (pagesProcessed < urls.length && pagesProcessed >= nextBrowserRecycleAt) {
+        await closeBrowser().catch(() => {})
+        while (nextBrowserRecycleAt <= pagesProcessed) {
+          nextBrowserRecycleAt += SITE_AUDIT_BROWSER_RECYCLE_PAGES
+        }
+      }
     }
 
     // All pages settled. Decide whether to finalize now or wait for PDFs.

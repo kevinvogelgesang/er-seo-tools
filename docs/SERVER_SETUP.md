@@ -782,4 +782,6 @@ ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA inte
 | `PORT` | `3000` | Next.js listen port |
 | `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Headless Chrome path |
 | `BROWSER_POOL_SIZE` | `2` | Max concurrent Chrome pages (default 2, do not increase without more RAM) |
+| `SITE_AUDIT_CONCURRENCY` | `1` | Concurrent pages inside one site audit; keep at 1 on small VPS hosts with Lighthouse enabled |
+| `SITE_AUDIT_BROWSER_RECYCLE_PAGES` | `25` | Restart Chrome after this many site-audit pages to reclaim browser memory |
 | `NODE_ENV` | `production` | Set by PM2 config |

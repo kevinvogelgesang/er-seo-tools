@@ -3,8 +3,13 @@ import type { Browser, Page } from 'puppeteer-core'
 import { getBrowserEgressLaunchArgs, requireBrowserEgressGuardConfig } from './browser-egress'
 
 const CHROME_EXECUTABLE = process.env.CHROME_EXECUTABLE ?? '/usr/bin/google-chrome'
-const POOL_SIZE = parseInt(process.env.BROWSER_POOL_SIZE ?? '4', 10)
-const MAX_OLD_SPACE = parseInt(process.env.CHROME_MAX_OLD_SPACE ?? '512', 10)
+const POOL_SIZE = parsePositiveInt(process.env.BROWSER_POOL_SIZE, 2)
+const MAX_OLD_SPACE = parsePositiveInt(process.env.CHROME_MAX_OLD_SPACE, 512)
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 const LAUNCH_ARGS = [
   '--no-sandbox',

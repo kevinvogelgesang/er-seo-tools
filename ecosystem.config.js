@@ -13,6 +13,9 @@ module.exports = {
       DATABASE_URL: 'file:/home/seotools/data/er-seo-tools/db.sqlite',
       UPLOADS_DIR: '/home/seotools/data/er-seo-tools/uploads',
       NODE_OPTIONS: '--max-old-space-size=1536',
+      BROWSER_POOL_SIZE: '2',
+      SITE_AUDIT_CONCURRENCY: '1',
+      SITE_AUDIT_BROWSER_RECYCLE_PAGES: '25',
     },
 
     // Graceful shutdown — 10s for Chrome cleanup before SIGKILL
