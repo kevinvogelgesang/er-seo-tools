@@ -178,6 +178,37 @@ describe('failOrphanPdfAudits', () => {
   })
 })
 
+const { recoverQueue } = await import('./queue-manager')
+
+describe('recoverQueue — immediate interrupt on startup', () => {
+  beforeEach(clearOrphanTestState)
+
+  it('marks running/pdfs-running parents as interrupted immediately (no 5-min threshold), with full cascade', async () => {
+    // A row whose updatedAt is RECENT — under the old 5-min threshold this would survive recovery
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-fresh.example', status: 'pdfs-running', wcagLevel: 'wcag21aa' },
+    })
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-fresh.example/in-flight', status: 'running', wcagLevel: 'wcag21aa', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-fresh.example/doc.pdf', status: 'scanning', siteAuditId: parent.id },
+    })
+
+    await recoverQueue()
+
+    const refreshedParent = await prisma.siteAudit.findUnique({ where: { id: parent.id } })
+    expect(refreshedParent?.status).toBe('error')
+    expect(refreshedParent?.error).toMatch(/interrupted/i)
+
+    const ada = await prisma.adaAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(ada?.status).toBe('error')
+
+    const pdf = await prisma.pdfAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(pdf?.status).toBe('error')
+  })
+})
+
 const { resetStaleAudits } = await import('./queue-manager')
 
 describe('resetStaleAudits — orphan child cleanup', () => {
