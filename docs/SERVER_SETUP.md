@@ -368,7 +368,7 @@ chown seo:seo /home/seo/webapps/seo-tools/ecosystem.config.js
 
 > **Why fork mode, not cluster:** The app uses a singleton browser pool (headless Chrome) and a global audit queue. Cluster mode would create multiple Node processes, each with its own singleton -- breaking the "one audit at a time" invariant and potentially spawning too many Chrome instances.
 
-> **Why 1200M max_memory_restart:** The app itself uses ~200-300 MB. Each Chrome page uses ~150 MB (pool size 2 = ~300 MB). Setting 1200M provides headroom while still catching genuine memory leaks before they cause OOM.
+> **Why 2400M max_memory_restart:** Node typically uses ~1.0-1.5 GB during Lighthouse trace processing; Chrome resident ~300-600 MB at pool size 2. The 2026-05-14 fei.edu incident proved that 1200M tripped legitimate per-page peaks at concurrency=1 and caused mid-audit SIGKILLs. 2400M leaves headroom for the trace-time spike while still catching genuine leaks. The 2 GB swap below this is the kernel-level safety net.
 
 > **kill_timeout: 10000:** Gives the SIGTERM handler in `instrumentation.ts` enough time to call `closeBrowser()` and cleanly shut down Chrome before PM2 sends SIGKILL.
 
@@ -764,5 +764,5 @@ ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA inte
 | `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Headless Chrome path |
 | `BROWSER_POOL_SIZE` | `2` | Max concurrent Chrome pages (default 2, do not increase without more RAM) |
 | `SITE_AUDIT_CONCURRENCY` | `1` | Concurrent pages inside one site audit; keep at 1 on small VPS hosts with Lighthouse enabled |
-| `SITE_AUDIT_BROWSER_RECYCLE_PAGES` | `25` | Restart Chrome after this many site-audit pages to reclaim browser memory |
+| `SITE_AUDIT_BROWSER_RECYCLE_PAGES` | `15` | Restart Chrome after this many site-audit pages to reclaim browser memory |
 | `NODE_ENV` | `production` | Set by PM2 config |
