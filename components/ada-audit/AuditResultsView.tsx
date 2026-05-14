@@ -120,9 +120,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
       <KnownLimitationsNotice />
 
       {/* Lighthouse */}
-      {auditId && (
-        <LighthouseSection summary={lighthouseSummary} error={lighthouseError} auditId={auditId} />
-      )}
+      <LighthouseSection summary={lighthouseSummary} error={lighthouseError} />
 
       {/* Issues */}
       <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">

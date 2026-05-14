@@ -3,7 +3,6 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { getUploadDir, isValidSessionId, UPLOADS_DIR } from '@/lib/upload-helpers';
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers';
-import { LIGHTHOUSE_REPORTS_DIR } from '@/lib/ada-audit/lighthouse-storage';
 
 /** Parsed sessions and their data are kept for 180 days. */
 const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -24,7 +23,6 @@ export async function runCleanup(): Promise<void> {
     cleanExpiredShareLinks(),
     cleanExpiredAdaShareTokens(),
     cleanExpiredScreenshots(),
-    cleanExpiredLighthouseReports(),
   ]);
   logSettledFailures('[cleanup] Cleanup task failed', results);
 }
@@ -167,24 +165,3 @@ export async function cleanExpiredScreenshots(): Promise<void> {
   logSettledFailures('[cleanup] Failed to clean screenshot directory', results);
 }
 
-/**
- * Delete gzipped Lighthouse reports for AdaAudit records older than 180 days,
- * and any orphaned report files with no matching audit row.
- */
-export async function cleanExpiredLighthouseReports(): Promise<void> {
-  const cutoff = new Date(Date.now() - SESSION_TTL_MS);
-  const entries = await fs.readdir(LIGHTHOUSE_REPORTS_DIR).catch(() => [] as string[]);
-
-  const results = await Promise.allSettled(entries.map(async (entry) => {
-    if (!entry.endsWith('.json.gz')) return;
-    const auditId = entry.replace(/\.json\.gz$/, '');
-    const audit = await prisma.adaAudit
-      .findUnique({ where: { id: auditId }, select: { createdAt: true } })
-      .catch(() => null);
-
-    if (!audit || audit.createdAt < cutoff) {
-      await fs.rm(path.join(LIGHTHOUSE_REPORTS_DIR, entry), { force: true }).catch(() => {});
-    }
-  }));
-  logSettledFailures('[cleanup] Failed to clean lighthouse report', results);
-}
