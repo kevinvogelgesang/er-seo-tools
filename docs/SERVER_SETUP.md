@@ -352,36 +352,17 @@ npm install -g pm2
 
 ### 6.2 Create ecosystem.config.js
 
-```bash
-cat > /home/seo/webapps/seo-tools/ecosystem.config.js << 'JSEOF'
-module.exports = {
-  apps: [{
-    name: 'seo-tools',
-    script: 'node_modules/.bin/next',
-    args: 'start',
-    cwd: '/home/seo/webapps/seo-tools',
-    instances: 1,
-    exec_mode: 'fork',
-    max_memory_restart: '1200M',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 3000,
-      DATABASE_URL: 'file:/home/seo/data/seo-tools/db.sqlite',
-    },
-    kill_timeout: 10000,
-    listen_timeout: 15000,
-    autorestart: true,
-    max_restarts: 10,
-    min_uptime: '10s',
-    restart_delay: 2000,
-    error_file: '/home/seo/logs/seo-tools-error.log',
-    out_file: '/home/seo/logs/seo-tools-out.log',
-    merge_logs: true,
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-  }]
-};
-JSEOF
+The repo ships a working `ecosystem.config.js` at the project root. Paths are derived from `APP_HOME` / `DATA_HOME` / `LOG_HOME` env vars with sane defaults that match this VPS layout:
 
+```js
+const APP_HOME = process.env.APP_HOME || '/home/seo/webapps/seo-tools'
+const DATA_HOME = process.env.DATA_HOME || '/home/seo/data/seo-tools'
+const LOG_HOME = process.env.LOG_HOME || '/home/seo/logs'
+```
+
+So `git pull` already gives you a usable file — no need to overwrite it. If you ever deploy to a host with a different layout, export those three env vars before `pm2 start ecosystem.config.js` and PM2 will pick them up.
+
+```bash
 chown seo:seo /home/seo/webapps/seo-tools/ecosystem.config.js
 ```
 

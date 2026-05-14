@@ -1,18 +1,26 @@
+// Paths derive from APP_HOME / DATA_HOME / LOG_HOME so the same file works
+// across hosts. Defaults match the production VPS layout.
+const APP_HOME = process.env.APP_HOME || '/home/seo/webapps/seo-tools'
+const DATA_HOME = process.env.DATA_HOME || '/home/seo/data/seo-tools'
+const LOG_HOME = process.env.LOG_HOME || '/home/seo/logs'
+
 module.exports = {
   apps: [{
-    name: 'er-seo-tools',
+    name: 'seo-tools',
     script: 'node_modules/.bin/next',
     args: 'start',
-    cwd: '/home/seotools/webapps/er-seo-tools',
+    cwd: APP_HOME,
     instances: 1,
     exec_mode: 'fork',
     max_memory_restart: '1200M',
     env: {
       NODE_ENV: 'production',
       PORT: 3000,
-      DATABASE_URL: 'file:/home/seotools/data/er-seo-tools/db.sqlite',
-      UPLOADS_DIR: '/home/seotools/data/er-seo-tools/uploads',
+      DATABASE_URL: `file:${DATA_HOME}/db.sqlite`,
+      UPLOADS_DIR: `${DATA_HOME}/uploads`,
       NODE_OPTIONS: '--max-old-space-size=1536',
+      // Audit-safety knobs are explicit here so `pm2 env <id>` proves
+      // what the worker is using. Do not move to .env without that tradeoff.
       BROWSER_POOL_SIZE: '2',
       SITE_AUDIT_CONCURRENCY: '1',
       SITE_AUDIT_BROWSER_RECYCLE_PAGES: '25',
@@ -29,8 +37,8 @@ module.exports = {
     restart_delay: 2000,
 
     // Logs
-    error_file: '/home/seotools/logs/er-seo-tools-error.log',
-    out_file: '/home/seotools/logs/er-seo-tools-out.log',
+    error_file: `${LOG_HOME}/seo-tools-error.log`,
+    out_file: `${LOG_HOME}/seo-tools-out.log`,
     merge_logs: true,
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
   }],
