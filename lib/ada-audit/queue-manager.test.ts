@@ -177,3 +177,38 @@ describe('failOrphanPdfAudits', () => {
     await expect(failOrphanPdfAudits(parent.id)).resolves.toBeUndefined()
   })
 })
+
+const { resetStaleAudits } = await import('./queue-manager')
+
+describe('resetStaleAudits — orphan child cleanup', () => {
+  beforeEach(clearOrphanTestState)
+
+  it('cascade-fails AdaAudit and PdfAudit orphans when it errors a stale parent', async () => {
+    const sixMinAgo = new Date(Date.now() - 6 * 60 * 1000)
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-stale.example', status: 'pdfs-running', wcagLevel: 'wcag21aa' },
+    })
+    // Backdate updatedAt past the 5-minute threshold
+    await prisma.$executeRaw`UPDATE "SiteAudit" SET "updatedAt" = ${sixMinAgo} WHERE "id" = ${parent.id}`
+
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-stale.example/in-flight', status: 'running', wcagLevel: 'wcag21aa', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-stale.example/doc.pdf', status: 'scanning', siteAuditId: parent.id },
+    })
+
+    await resetStaleAudits()
+
+    const refreshedParent = await prisma.siteAudit.findUnique({ where: { id: parent.id } })
+    expect(refreshedParent?.status).toBe('error')
+
+    const ada = await prisma.adaAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(ada?.status).toBe('error')
+    expect(ada?.error).toMatch(/site audit/i)
+
+    const pdf = await prisma.pdfAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(pdf?.status).toBe('error')
+    expect(pdf?.scanError).toMatch(/site audit/i)
+  })
+})

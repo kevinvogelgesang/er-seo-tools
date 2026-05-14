@@ -381,6 +381,8 @@ export async function resetStaleAudits() {
       where: { id: s.id },
       data: { status: 'error', error: 'Audit timed out (server may have restarted)' },
     }).catch(() => {})
+    await failOrphanAdaAudits(s.id).catch(() => {})
+    await failOrphanPdfAudits(s.id).catch(() => {})
     if (s.batchId) {
       await closeBatchIfDrained(s.batchId).catch(() => {})
     }
