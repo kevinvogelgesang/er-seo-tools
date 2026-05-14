@@ -212,6 +212,24 @@ export async function enqueueAudit(
     },
   })
 
+  // Race recovery: if `closeBatchIfDrained` ran between `ensureOpenBatch` and
+  // the `create` above, it would have observed zero in-flight members and
+  // closed the batch. Our atomic conditional UPDATE in closeBatchIfDrained
+  // now refuses to close when any in-flight member exists at write-time —
+  // but it can still have ALREADY closed the batch before our row landed.
+  // Verify and reassign if needed.
+  const verify = await prisma.auditBatch.findUnique({
+    where: { id: batchId },
+    select: { closedAt: true },
+  })
+  if (verify?.closedAt) {
+    const newBatchId = await ensureOpenBatch()
+    await prisma.siteAudit.update({
+      where: { id: audit.id },
+      data: { batchId: newBatchId },
+    })
+  }
+
   // Kick the processor (non-blocking). Retry after 2s in case the first kick
   // was dropped because processNext() was mid-execution.
   void processNext()

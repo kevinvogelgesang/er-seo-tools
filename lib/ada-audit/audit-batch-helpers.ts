@@ -55,26 +55,33 @@ export async function ensureOpenBatch(): Promise<string> {
  * If the batch has no in-flight members and is currently open, mark it closed.
  * No-op when batchId is null, the batch doesn't exist, the batch is already
  * closed, or at least one member is still in flight.
+ *
+ * The drain-check and close are a single atomic UPDATE with a correlated
+ * NOT EXISTS subquery. The earlier two-statement approach (count → update)
+ * had a race: a concurrent enqueueAudit could observe the still-open batch,
+ * decide to attach a new SiteAudit to it, AFTER we had counted zero in-flight
+ * but BEFORE we set closedAt. The conditional UPDATE rejects the close if any
+ * in-flight member exists at write time, including ones that landed during
+ * our own execution. Paired with `enqueueAudit`'s post-create verification,
+ * this closes the race in both directions.
  */
 export async function closeBatchIfDrained(batchId: string | null | undefined): Promise<void> {
   if (!batchId) return
 
-  const batch = await prisma.auditBatch.findUnique({
-    where: { id: batchId },
-    select: { id: true, closedAt: true },
-  })
-  if (!batch) return
-  if (batch.closedAt) return  // already closed — idempotent
-
-  const inFlightCount = await prisma.siteAudit.count({
-    where: { batchId, status: { in: IN_FLIGHT_STATUSES } },
-  })
-  if (inFlightCount > 0) return
-
-  await prisma.auditBatch.update({
-    where: { id: batchId },
-    data: { closedAt: new Date() },
-  })
+  // SQLite-compatible: parameterized $executeRaw. Prisma's updateMany doesn't
+  // support correlated subqueries, so we drop to raw. Returns 0 when nothing
+  // matched (already closed, or has in-flight members).
+  await prisma.$executeRaw`
+    UPDATE "AuditBatch"
+    SET "closedAt" = ${new Date()}
+    WHERE "id" = ${batchId}
+      AND "closedAt" IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM "SiteAudit"
+        WHERE "SiteAudit"."batchId" = ${batchId}
+          AND "SiteAudit"."status" IN ('queued', 'pending', 'running', 'pdfs-running')
+      )
+  `
 }
 
 /**

@@ -20,6 +20,21 @@ export default function QueueActiveView() {
   const [detail, setDetail] = useState<AuditBatchDetail | null>(null)
   const [closedToast, setClosedToast] = useState<string | null>(null)
   const lastSeenBatchId = useRef<string | null>(null)
+  // Refs for cancellation on unmount: setTimeout for the freeze-frame, plus
+  // a flag the close-edge fetch checks before setState.
+  const closedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (closedTimerRef.current) {
+        clearTimeout(closedTimerRef.current)
+        closedTimerRef.current = null
+      }
+    }
+  }, [])
 
   // Poll /api/site-audit/queue — the open batch field is the trigger.
   const tick = useCallback(async () => {
@@ -31,22 +46,31 @@ export default function QueueActiveView() {
 
       if (lastSeenBatchId.current && !incomingId) {
         // Edge: open → null. Batch just closed.
+        if (!isMountedRef.current) return
         setClosedToast(`Batch complete`)
         // Briefly freeze the final state so the operator can see it, then
-        // transition to the empty state.
-        setTimeout(() => {
+        // transition to the empty state. Tracked in a ref so unmount cancels.
+        if (closedTimerRef.current) clearTimeout(closedTimerRef.current)
+        closedTimerRef.current = setTimeout(() => {
+          if (!isMountedRef.current) return
           setClosedToast(null)
           setDetail(null)
+          closedTimerRef.current = null
         }, 5000)
         // Fetch one last detail (now closed) so the freeze frame is accurate.
-        const finalRes = await fetch(`/api/audit-batches/${lastSeenBatchId.current}`)
-        if (finalRes.ok) setDetail(await finalRes.json() as AuditBatchDetail)
-        setBatchId(null)
+        const closedBatchId = lastSeenBatchId.current
+        const finalRes = await fetch(`/api/audit-batches/${closedBatchId}`)
+        if (finalRes.ok && isMountedRef.current) {
+          setDetail(await finalRes.json() as AuditBatchDetail)
+        }
+        if (isMountedRef.current) setBatchId(null)
       } else if (incomingId) {
-        setBatchId(incomingId)
+        if (isMountedRef.current) setBatchId(incomingId)
       } else {
-        setBatchId(null)
-        setDetail(null)
+        if (isMountedRef.current) {
+          setBatchId(null)
+          setDetail(null)
+        }
       }
       lastSeenBatchId.current = incomingId
     } catch { /* silent — polling is best-effort */ }
