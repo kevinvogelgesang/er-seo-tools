@@ -638,9 +638,9 @@ pm2 restart seo-tools
 ```
 
 **Prevention:**
-- The `max_memory_restart: '1200M'` in PM2 config will restart the app before it exhausts RAM
+- The `max_memory_restart: '2400M'` in PM2 config will restart the app before it exhausts RAM
 - Browser pool size is 2 (default) -- do not increase without adding more RAM
-- The 4 GB swap provides a buffer, but persistent swapping means you need more RAM
+- The swap file provides a buffer, but persistent swapping means you need more RAM
 
 ### 9.4 Stale Audits (Stuck in "Running")
 

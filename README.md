@@ -129,7 +129,7 @@ APP_AUTH_PASSWORD=replace-with-a-strong-shared-password
 CHROME_EXECUTABLE=/usr/bin/google-chrome   # optional, this is the default
 BROWSER_POOL_SIZE=2                        # optional, max concurrent Chrome pages
 SITE_AUDIT_CONCURRENCY=1                   # optional, concurrent pages within one site audit
-SITE_AUDIT_BROWSER_RECYCLE_PAGES=25        # optional, restart Chrome during long site audits
+SITE_AUDIT_BROWSER_RECYCLE_PAGES=15        # optional, restart Chrome during long site audits
 CHROME_PROXY_SERVER=http://127.0.0.1:3128  # recommended: proxy blocks private/reserved IPs
 # or, only after host/network firewall rules isolate Chromium from private, link-local, and reserved networks:
 CHROMIUM_NETWORK_ISOLATED=true
