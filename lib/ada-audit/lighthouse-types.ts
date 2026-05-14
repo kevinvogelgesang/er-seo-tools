@@ -27,11 +27,36 @@ export interface LighthouseFailure {
   title: string
   score: number | null      // 0–1 in raw LH; we copy as-is
   displayValue?: string
-  category: LighthouseCategory
+  category: LighthouseCategory  // 'performance' | 'best-practices' only — a11y has its own section
+}
+
+export interface LighthouseA11yFailingElement {
+  snippet: string           // HTML, e.g. '<div role="codeblock-dropdown" class="...">'
+  selector?: string         // CSS selector path, when LH provides one
+}
+
+export interface LighthouseA11yAudit {
+  id: string                // 'aria-valid-attr-value'
+  title: string             // '[role] values are not valid'
+  description: string       // long-form explanation
+  failingElements: LighthouseA11yFailingElement[]
+}
+
+export interface LighthouseA11yGroup {
+  id: string                // 'a11y-aria'
+  title: string             // 'ARIA'
+  description: string       // 'These are opportunities to improve ARIA usage…'
+  audits: LighthouseA11yAudit[]
+}
+
+export interface LighthouseAccessibility {
+  score: number             // 0–100; mirrors scores.accessibility for section header
+  groups: LighthouseA11yGroup[]
 }
 
 export interface LighthouseSummary {
   scores: LighthouseScores
   cwv: LighthouseCwv
-  topFailures: LighthouseFailure[]  // up to 5
+  topFailures: LighthouseFailure[]  // up to 5, performance + best-practices only
+  accessibility?: LighthouseAccessibility  // optional for backwards compatibility with old stored summaries
 }

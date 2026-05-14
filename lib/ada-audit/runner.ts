@@ -26,8 +26,8 @@ export type ProgressCallback = (progress: number, message: string) => Promise<vo
 export interface RunAxeOptions {
   captureScreenshots?: boolean
   screenshotDir?: string
-  // Required — used as the lighthouse-reports filename and forwarded to the
-  // PDF orchestrator's adaAuditId attribution.
+  // Required — forwarded to the PDF orchestrator's adaAuditId attribution
+  // and used as the screenshot directory name.
   auditId: string
 }
 
@@ -112,7 +112,7 @@ export async function runAxeAudit(
     if (isLighthouseEnabled()) {
       await progress(20, 'Running Lighthouse…')
       try {
-        const lh = await runLighthouse(parsed.toString(), options.auditId, page)
+        const lh = await runLighthouse(parsed.toString(), page)
         lighthouseSummary = lh.summary
         lighthouseError = lh.error ?? null
       } catch (err) {
