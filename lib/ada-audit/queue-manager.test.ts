@@ -134,3 +134,46 @@ describe('failOrphanAdaAudits', () => {
     await expect(failOrphanAdaAudits(parent.id)).resolves.toBeUndefined()
   })
 })
+
+const { failOrphanPdfAudits } = await import('./queue-manager')
+
+describe('failOrphanPdfAudits', () => {
+  beforeEach(clearOrphanTestState)
+
+  it('marks pending and scanning PDFs as error; leaves complete/error PDFs alone', async () => {
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-pdf.example', status: 'error', wcagLevel: 'wcag21aa' },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/a.pdf', status: 'scanning', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/b.pdf', status: 'pending', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/c.pdf', status: 'complete', siteAuditId: parent.id, issues: '[]' },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/d.pdf', status: 'error', siteAuditId: parent.id, scanError: 'pre-existing' },
+    })
+
+    await failOrphanPdfAudits(parent.id)
+
+    const after = await prisma.pdfAudit.findMany({ where: { siteAuditId: parent.id }, orderBy: { url: 'asc' } })
+    const byUrl = Object.fromEntries(after.map((c) => [c.url, c]))
+
+    expect(byUrl['https://orphan-test-pdf.example/a.pdf'].status).toBe('error')
+    expect(byUrl['https://orphan-test-pdf.example/a.pdf'].scanError).toMatch(/site audit/i)
+    expect(byUrl['https://orphan-test-pdf.example/b.pdf'].status).toBe('error')
+    expect(byUrl['https://orphan-test-pdf.example/b.pdf'].scanError).toMatch(/site audit/i)
+    expect(byUrl['https://orphan-test-pdf.example/c.pdf'].status).toBe('complete')      // untouched
+    expect(byUrl['https://orphan-test-pdf.example/d.pdf'].scanError).toBe('pre-existing')  // untouched
+  })
+
+  it('is a no-op when there are no orphan PDFs', async () => {
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-pdf-empty.example', status: 'error', wcagLevel: 'wcag21aa' },
+    })
+    await expect(failOrphanPdfAudits(parent.id)).resolves.toBeUndefined()
+  })
+})

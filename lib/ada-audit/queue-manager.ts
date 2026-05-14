@@ -343,6 +343,25 @@ export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
 }
 
 /**
+ * Same idea as failOrphanAdaAudits, but for the PdfAudit table. When a parent
+ * SiteAudit is interrupted during the `pdfs-running` phase, any PdfAudit rows
+ * still in `pending` or `scanning` are orphans and would otherwise sit
+ * forever. PdfAudit uses `scanError` for its failure message column.
+ */
+export async function failOrphanPdfAudits(siteAuditId: string): Promise<void> {
+  await prisma.pdfAudit.updateMany({
+    where: {
+      siteAuditId,
+      status: { in: ['pending', 'scanning'] },
+    },
+    data: {
+      status: 'error',
+      scanError: 'Audit interrupted because the site audit was stopped or restarted',
+    },
+  })
+}
+
+/**
  * Resets audits stuck in 'running' or 'pdfs-running' with no DB activity for
  * 5+ minutes. Called periodically from instrumentation.ts and on startup.
  */
