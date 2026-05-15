@@ -60,3 +60,14 @@ export interface LighthouseSummary {
   topFailures: LighthouseFailure[]  // up to 5, performance + best-practices only
   accessibility?: LighthouseAccessibility  // optional for backwards compatibility with old stored summaries
 }
+
+/**
+ * Common shape returned by every Lighthouse provider (local, pagespeed, off).
+ * `summary` is null when the provider was off, when PSI couldn't produce a
+ * result, or when local LH failed. `error` carries the human-readable reason
+ * when summary is null but the run was attempted.
+ */
+export interface RunLighthouseResult {
+  summary: LighthouseSummary | null
+  error?: string
+}
