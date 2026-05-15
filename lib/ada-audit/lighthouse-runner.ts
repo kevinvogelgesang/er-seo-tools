@@ -2,11 +2,12 @@
 import type { Page } from 'puppeteer-core'
 import type { LighthouseSummary, RunLighthouseResult } from './lighthouse-types'
 import { extractSummary } from './lighthouse-summary'
+import { getLighthouseProvider } from './lighthouse-provider'
+import { runPageSpeedInsights } from './lighthouse-pagespeed'
 
-const LIGHTHOUSE_ENABLED = (process.env.LIGHTHOUSE_ENABLED ?? 'true') !== 'false'
 const LIGHTHOUSE_TIMEOUT_MS = parseInt(process.env.LIGHTHOUSE_TIMEOUT_MS ?? '60000', 10)
 
-export const isLighthouseEnabled = () => LIGHTHOUSE_ENABLED
+export const isLighthouseEnabled = () => getLighthouseProvider() !== 'off'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Lhr = any
@@ -21,17 +22,30 @@ type LighthouseFn = (
 ) => Promise<{ lhr: Lhr } | undefined>
 
 /**
- * Run Lighthouse against an existing puppeteer Page. Lighthouse owns the navigation
- * (page.goto is NOT called by us beforehand). After this returns, the page is loaded
- * to `url` but its CDP state (network throttling, CPU throttling, cache) has been
- * mutated — callers must reset before running other tools.
+ * Run Lighthouse against `url`, dispatching to the provider selected by
+ * LIGHTHOUSE_PROVIDER env var: 'local' (default) → puppeteer+LH,
+ * 'pagespeed' → Google PageSpeed Insights API, 'off' → skip entirely.
  */
 export async function runLighthouse(
   url: string,
   page: Page,
 ): Promise<RunLighthouseResult> {
-  if (!LIGHTHOUSE_ENABLED) return { summary: null }
+  const provider = getLighthouseProvider()
+  if (provider === 'off') return { summary: null }
+  if (provider === 'pagespeed') return runPageSpeedInsights(url)
+  return runLocalLighthouse(url, page)
+}
 
+/**
+ * Run Lighthouse against an existing puppeteer Page. Lighthouse owns the navigation
+ * (page.goto is NOT called by us beforehand). After this returns, the page is loaded
+ * to `url` but its CDP state (network throttling, CPU throttling, cache) has been
+ * mutated — callers must reset before running other tools.
+ */
+async function runLocalLighthouse(
+  url: string,
+  page: Page,
+): Promise<RunLighthouseResult> {
   let lighthouse: LighthouseFn
   try {
     lighthouse = (await import('lighthouse')).default as unknown as LighthouseFn
