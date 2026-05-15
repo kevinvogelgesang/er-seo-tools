@@ -28,6 +28,8 @@ function buildPsiUrl(targetUrl: string): string {
 function mapHttpError(status: number): string {
   if (status === 429) return `PSI rate limit exceeded (HTTP 429). Slow down or add an API key.`
   if (status === 400) return `PSI could not fetch the URL (HTTP 400). The page may be private or blocked.`
+  if (status === 401) return `PSI request unauthorized (HTTP 401). Check that PAGESPEED_API_KEY is valid.`
+  if (status === 403) return `PSI request forbidden (HTTP 403). The API key may be restricted or the referrer blocked.`
   if (status >= 500) return `PSI server error (HTTP ${status}).`
   return `PSI request failed (HTTP ${status}).`
 }

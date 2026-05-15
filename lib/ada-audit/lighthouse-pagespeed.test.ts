@@ -149,4 +149,42 @@ describe('runPageSpeedInsights', () => {
     expect(result.summary).toBeNull()
     expect(result.error).toMatch(/timed out/i)
   })
+
+  it('surfaces HTTP 401 with a key-validity hint', async () => {
+    const fetchMock = mockFetch({ ok: false, status: 401, body: { error: { message: 'unauthorized' } } })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(result.summary).toBeNull()
+    expect(result.error).toMatch(/unauthorized|PAGESPEED_API_KEY/i)
+  })
+
+  it('surfaces HTTP 403 with a key-restriction hint', async () => {
+    const fetchMock = mockFetch({ ok: false, status: 403, body: { error: { message: 'forbidden' } } })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(result.summary).toBeNull()
+    expect(result.error).toMatch(/forbidden|restricted|referrer/i)
+  })
+
+  it('honors PAGESPEED_TIMEOUT_MS env var at call time (not at module load)', async () => {
+    process.env.PAGESPEED_TIMEOUT_MS = '15000'
+    // Force a timeout by making fetch hang past 15 s — except we don't want
+    // an actual 15-second test. Instead, mock the fetch to throw an AbortError
+    // immediately and verify the error message includes the configured timeout.
+    const fetchMock = vi.fn(async () => {
+      const err = new Error('aborted')
+      err.name = 'AbortError'
+      throw err
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(result.summary).toBeNull()
+    expect(result.error).toMatch(/15000ms/)
+  })
 })
