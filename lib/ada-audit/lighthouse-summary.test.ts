@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractSummary } from './lighthouse-runner'
+import { extractSummary } from './lighthouse-summary'
 
 const FAKE_LHR = {
   categories: {

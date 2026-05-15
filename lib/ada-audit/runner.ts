@@ -3,7 +3,8 @@ import type { HTTPRequest } from 'puppeteer-core'
 import { acquirePage, releasePage } from './browser-pool'
 import { captureViolationScreenshots } from './screenshot-helpers'
 import { assertSafeHttpUrl } from '../security/safe-url'
-import { runLighthouse, resetCdpAfterLighthouse, isLighthouseEnabled } from './lighthouse-runner'
+import { runLighthouse, resetCdpAfterLighthouse } from './lighthouse-runner'
+import { getLighthouseProvider } from './lighthouse-provider'
 import { harvestPdfLinks } from './pdf-discovery'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
@@ -109,7 +110,10 @@ export async function runAxeAudit(
     })
 
     // ── Phase 1: navigation owned by either Lighthouse or us ─────────────
-    if (isLighthouseEnabled()) {
+    const provider = getLighthouseProvider()
+
+    if (provider === 'local') {
+      // Existing single-navigation optimization: LH owns page.goto
       await progress(20, 'Running Lighthouse…')
       try {
         const lh = await runLighthouse(parsed.toString(), page)
@@ -122,6 +126,7 @@ export async function runAxeAudit(
       // and cache state even if it errors mid-run.
       await resetCdpAfterLighthouse(page).catch(() => {})
     } else {
+      // 'pagespeed' or 'off': we own navigation
       await progress(20, 'Loading page…')
       let response
       try {
@@ -153,6 +158,18 @@ export async function runAxeAudit(
       if (!contentType.includes('html')) {
         throw new Error(`Response is not HTML (Content-Type: ${contentType})`)
       }
+
+      if (provider === 'pagespeed') {
+        await progress(22, 'Fetching Lighthouse from PageSpeed Insights…')
+        try {
+          const lh = await runLighthouse(parsed.toString(), page)
+          lighthouseSummary = lh.summary
+          lighthouseError = lh.error ?? null
+        } catch (err) {
+          lighthouseError = err instanceof Error ? err.message : String(err)
+        }
+      }
+      // provider === 'off' just skips Lighthouse and proceeds to axe (Phase 2 below)
     }
 
     // ── Phase 2: axe on the already-loaded page ──────────────────────────
