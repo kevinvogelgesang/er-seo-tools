@@ -75,6 +75,7 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - **Queue:** site audits enter `queued` status (FIFO), only one runs at a time; `discoveredUrls` stored as JSON on the SiteAudit row so queued audits don't re-crawl
 - **Results views:** sort/filter toolbar (impact pills, sort dropdown), table vs sitemap tree toggle, paginated at 50 rows, clean pages in separate collapsible section
 - Chrome executable path: `/usr/bin/google-chrome` (override with `CHROME_EXECUTABLE` env var)
+- **Lighthouse provider:** controlled by `LIGHTHOUSE_PROVIDER` (`pagespeed` | `local` | `off`). Default is `local` in code, `pagespeed` in the deployed `ecosystem.config.js`. PSI uses Google's infrastructure; expect score variance versus historical local-LH numbers. Per-page PSI failures fail the Lighthouse portion only — axe + PDFs still run.
 
 ## Do not
 - Add Claude AI analysis features — requires separate Anthropic API billing not currently set up

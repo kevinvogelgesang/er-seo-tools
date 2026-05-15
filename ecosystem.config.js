@@ -24,6 +24,8 @@ module.exports = {
       BROWSER_POOL_SIZE: '2',
       SITE_AUDIT_CONCURRENCY: '1',
       SITE_AUDIT_BROWSER_RECYCLE_PAGES: '15',
+      LIGHTHOUSE_PROVIDER: 'pagespeed',
+      PAGESPEED_TIMEOUT_MS: '90000',
     },
 
     // Graceful shutdown — 10s for Chrome cleanup before SIGKILL
