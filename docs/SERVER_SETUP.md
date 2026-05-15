@@ -309,10 +309,13 @@ UPLOADS_DIR=/home/seo/data/seo-tools/uploads
 PORT=3000
 NEXT_PUBLIC_APP_URL=https://your-domain.com
 CHROME_EXECUTABLE=/usr/bin/google-chrome
+PAGESPEED_API_KEY=
 EOF
 ```
 
 Replace `https://your-domain.com` with the actual domain. This is used for generating share links (ADA audit reports).
+
+> `PAGESPEED_API_KEY` raises the PageSpeed Insights quota from keyless (limited) to 25,000/day. Optional — leave empty if not yet provisioned. Must be set before the first deploy that runs with `LIGHTHOUSE_PROVIDER=pagespeed` if you want the higher quota.
 
 ### 5.4 Database Setup
 
@@ -765,4 +768,6 @@ ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA inte
 | `BROWSER_POOL_SIZE` | `2` | Max concurrent Chrome pages (default 2, do not increase without more RAM) |
 | `SITE_AUDIT_CONCURRENCY` | `1` | Concurrent pages inside one site audit; keep at 1 on small VPS hosts with Lighthouse enabled |
 | `SITE_AUDIT_BROWSER_RECYCLE_PAGES` | `15` | Restart Chrome after this many site-audit pages to reclaim browser memory |
+| `LIGHTHOUSE_PROVIDER` | `pagespeed` | `pagespeed` (default in prod), `local`, or `off` |
+| `PAGESPEED_API_KEY` | (none) | Google Cloud key for PageSpeed Insights API; raises quota from keyless to 25k/day |
 | `NODE_ENV` | `production` | Set by PM2 config |
