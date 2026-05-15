@@ -324,6 +324,44 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
 // ─── Recovery ────────────────────────────────────────────────────────────────
 
 /**
+ * When a parent SiteAudit is forced into a terminal `error` state by recovery,
+ * any of its AdaAudit children still in `pending` or `running` are orphans —
+ * the runner that owned them is gone and they can never progress. Mark them
+ * as `error` with a clear message so any open per-page poller stops spinning.
+ */
+export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
+  await prisma.adaAudit.updateMany({
+    where: {
+      siteAuditId,
+      status: { in: ['pending', 'running'] },
+    },
+    data: {
+      status: 'error',
+      error: 'Audit interrupted because the site audit was stopped or restarted',
+    },
+  })
+}
+
+/**
+ * Same idea as failOrphanAdaAudits, but for the PdfAudit table. When a parent
+ * SiteAudit is interrupted during the `pdfs-running` phase, any PdfAudit rows
+ * still in `pending` or `scanning` are orphans and would otherwise sit
+ * forever. PdfAudit uses `scanError` for its failure message column.
+ */
+export async function failOrphanPdfAudits(siteAuditId: string): Promise<void> {
+  await prisma.pdfAudit.updateMany({
+    where: {
+      siteAuditId,
+      status: { in: ['pending', 'scanning'] },
+    },
+    data: {
+      status: 'error',
+      scanError: 'Audit interrupted because the site audit was stopped or restarted',
+    },
+  })
+}
+
+/**
  * Resets audits stuck in 'running' or 'pdfs-running' with no DB activity for
  * 5+ minutes. Called periodically from instrumentation.ts and on startup.
  */
@@ -343,6 +381,8 @@ export async function resetStaleAudits() {
       where: { id: s.id },
       data: { status: 'error', error: 'Audit timed out (server may have restarted)' },
     }).catch(() => {})
+    await failOrphanAdaAudits(s.id).catch(() => {})
+    await failOrphanPdfAudits(s.id).catch(() => {})
     if (s.batchId) {
       await closeBatchIfDrained(s.batchId).catch(() => {})
     }
@@ -351,32 +391,39 @@ export async function resetStaleAudits() {
 }
 
 /**
- * Called on server startup to recover from crashes.
- * Resets stale running/pdfs-running audits, then kicks the processor.
+ * Called on server startup to recover from crashes/restarts.
+ *
+ * Unlike resetStaleAudits (which runs during normal operation and uses a
+ * 5-minute staleness threshold), startup recovery makes the strong assumption
+ * that ANY SiteAudit in `running` or `pdfs-running` is orphaned — the previous
+ * Node process is gone and its in-memory page-work state with it. So every
+ * such row is flipped to `error` immediately, no threshold. Both AdaAudit and
+ * PdfAudit child rows are cascade-failed alongside.
+ *
+ * Old-status `pending` SiteAudits get re-queued in case any predate the
+ * queue-batches feature.
  */
 export async function recoverQueue() {
-  const STALE_MS = 5 * 60 * 1000
-  const staleThreshold = new Date(Date.now() - STALE_MS)
-
-  const stale = await prisma.siteAudit.findMany({
+  const orphans = await prisma.siteAudit.findMany({
     where: {
       status: { in: ['running', 'pdfs-running'] },
-      updatedAt: { lt: staleThreshold },
     },
     select: { id: true, batchId: true },
   })
-  for (const s of stale) {
-    console.warn(`[queue] Startup recovery: resetting stale audit ${s.id}`)
+  for (const o of orphans) {
+    console.warn(`[queue] Startup recovery: resetting orphan audit ${o.id}`)
     await prisma.siteAudit.update({
-      where: { id: s.id },
+      where: { id: o.id },
       data: { status: 'error', error: 'Audit interrupted (server restarted)' },
     }).catch(() => {})
-    if (s.batchId) {
-      await closeBatchIfDrained(s.batchId).catch(() => {})
+    await failOrphanAdaAudits(o.id).catch(() => {})
+    await failOrphanPdfAudits(o.id).catch(() => {})
+    if (o.batchId) {
+      await closeBatchIfDrained(o.batchId).catch(() => {})
     }
   }
 
-  // Also reset any 'pending' audits (old status, shouldn't exist with new queue)
+  // Also reset any 'pending' audits (legacy status, shouldn't exist with the new queue)
   await prisma.siteAudit.updateMany({
     where: { status: 'pending' },
     data: { status: 'queued' },

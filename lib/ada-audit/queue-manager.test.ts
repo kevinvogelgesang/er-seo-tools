@@ -85,3 +85,161 @@ describe('runAudit — conditional claim race', () => {
     expect(after?.status).not.toBe('cancelled')
   })
 })
+
+const { failOrphanAdaAudits } = await import('./queue-manager')
+
+async function clearOrphanTestState() {
+  await prisma.pdfAudit.deleteMany({ where: { url: { startsWith: 'https://orphan-test-' } } })
+  await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://orphan-test-' } } })
+  await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'orphan-test-' } } })
+}
+
+describe('failOrphanAdaAudits', () => {
+  beforeEach(clearOrphanTestState)
+
+  it('marks pending and running children as error; leaves complete/error children alone', async () => {
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-mixed.example', status: 'error', wcagLevel: 'wcag21aa' },
+    })
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-mixed.example/a', status: 'running', wcagLevel: 'wcag21aa', siteAuditId: parent.id },
+    })
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-mixed.example/b', status: 'pending', wcagLevel: 'wcag21aa', siteAuditId: parent.id },
+    })
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-mixed.example/c', status: 'complete', wcagLevel: 'wcag21aa', siteAuditId: parent.id, result: '{}' },
+    })
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-mixed.example/d', status: 'error', wcagLevel: 'wcag21aa', siteAuditId: parent.id, error: 'pre-existing' },
+    })
+
+    await failOrphanAdaAudits(parent.id)
+
+    const after = await prisma.adaAudit.findMany({ where: { siteAuditId: parent.id }, orderBy: { url: 'asc' } })
+    const byUrl = Object.fromEntries(after.map((c) => [c.url, c]))
+
+    expect(byUrl['https://orphan-test-mixed.example/a'].status).toBe('error')
+    expect(byUrl['https://orphan-test-mixed.example/a'].error).toMatch(/site audit/i)
+    expect(byUrl['https://orphan-test-mixed.example/b'].status).toBe('error')
+    expect(byUrl['https://orphan-test-mixed.example/b'].error).toMatch(/site audit/i)
+    expect(byUrl['https://orphan-test-mixed.example/c'].status).toBe('complete')      // untouched
+    expect(byUrl['https://orphan-test-mixed.example/d'].error).toBe('pre-existing')   // untouched
+  })
+
+  it('is a no-op when there are no orphan children', async () => {
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-empty.example', status: 'error', wcagLevel: 'wcag21aa' },
+    })
+    await expect(failOrphanAdaAudits(parent.id)).resolves.toBeUndefined()
+  })
+})
+
+const { failOrphanPdfAudits } = await import('./queue-manager')
+
+describe('failOrphanPdfAudits', () => {
+  beforeEach(clearOrphanTestState)
+
+  it('marks pending and scanning PDFs as error; leaves complete/error PDFs alone', async () => {
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-pdf.example', status: 'error', wcagLevel: 'wcag21aa' },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/a.pdf', status: 'scanning', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/b.pdf', status: 'pending', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/c.pdf', status: 'complete', siteAuditId: parent.id, issues: '[]' },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-pdf.example/d.pdf', status: 'error', siteAuditId: parent.id, scanError: 'pre-existing' },
+    })
+
+    await failOrphanPdfAudits(parent.id)
+
+    const after = await prisma.pdfAudit.findMany({ where: { siteAuditId: parent.id }, orderBy: { url: 'asc' } })
+    const byUrl = Object.fromEntries(after.map((c) => [c.url, c]))
+
+    expect(byUrl['https://orphan-test-pdf.example/a.pdf'].status).toBe('error')
+    expect(byUrl['https://orphan-test-pdf.example/a.pdf'].scanError).toMatch(/site audit/i)
+    expect(byUrl['https://orphan-test-pdf.example/b.pdf'].status).toBe('error')
+    expect(byUrl['https://orphan-test-pdf.example/b.pdf'].scanError).toMatch(/site audit/i)
+    expect(byUrl['https://orphan-test-pdf.example/c.pdf'].status).toBe('complete')      // untouched
+    expect(byUrl['https://orphan-test-pdf.example/d.pdf'].scanError).toBe('pre-existing')  // untouched
+  })
+
+  it('is a no-op when there are no orphan PDFs', async () => {
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-pdf-empty.example', status: 'error', wcagLevel: 'wcag21aa' },
+    })
+    await expect(failOrphanPdfAudits(parent.id)).resolves.toBeUndefined()
+  })
+})
+
+const { recoverQueue } = await import('./queue-manager')
+
+describe('recoverQueue — immediate interrupt on startup', () => {
+  beforeEach(clearOrphanTestState)
+
+  it('marks running/pdfs-running parents as interrupted immediately (no 5-min threshold), with full cascade', async () => {
+    // A row whose updatedAt is RECENT — under the old 5-min threshold this would survive recovery
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-fresh.example', status: 'pdfs-running', wcagLevel: 'wcag21aa' },
+    })
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-fresh.example/in-flight', status: 'running', wcagLevel: 'wcag21aa', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-fresh.example/doc.pdf', status: 'scanning', siteAuditId: parent.id },
+    })
+
+    await recoverQueue()
+
+    const refreshedParent = await prisma.siteAudit.findUnique({ where: { id: parent.id } })
+    expect(refreshedParent?.status).toBe('error')
+    expect(refreshedParent?.error).toMatch(/interrupted/i)
+
+    const ada = await prisma.adaAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(ada?.status).toBe('error')
+
+    const pdf = await prisma.pdfAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(pdf?.status).toBe('error')
+  })
+})
+
+const { resetStaleAudits } = await import('./queue-manager')
+
+describe('resetStaleAudits — orphan child cleanup', () => {
+  beforeEach(clearOrphanTestState)
+
+  it('cascade-fails AdaAudit and PdfAudit orphans when it errors a stale parent', async () => {
+    const sixMinAgo = new Date(Date.now() - 6 * 60 * 1000)
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-stale.example', status: 'pdfs-running', wcagLevel: 'wcag21aa' },
+    })
+    // Backdate updatedAt past the 5-minute threshold
+    await prisma.$executeRaw`UPDATE "SiteAudit" SET "updatedAt" = ${sixMinAgo} WHERE "id" = ${parent.id}`
+
+    await prisma.adaAudit.create({
+      data: { url: 'https://orphan-test-stale.example/in-flight', status: 'running', wcagLevel: 'wcag21aa', siteAuditId: parent.id },
+    })
+    await prisma.pdfAudit.create({
+      data: { url: 'https://orphan-test-stale.example/doc.pdf', status: 'scanning', siteAuditId: parent.id },
+    })
+
+    await resetStaleAudits()
+
+    const refreshedParent = await prisma.siteAudit.findUnique({ where: { id: parent.id } })
+    expect(refreshedParent?.status).toBe('error')
+
+    const ada = await prisma.adaAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(ada?.status).toBe('error')
+    expect(ada?.error).toMatch(/site audit/i)
+
+    const pdf = await prisma.pdfAudit.findFirst({ where: { siteAuditId: parent.id } })
+    expect(pdf?.status).toBe('error')
+    expect(pdf?.scanError).toMatch(/site audit/i)
+  })
+})
