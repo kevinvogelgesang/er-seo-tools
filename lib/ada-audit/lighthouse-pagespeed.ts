@@ -34,12 +34,28 @@ function mapHttpError(status: number): string {
   return `PSI request failed (HTTP ${status}).`
 }
 
-export async function runPageSpeedInsights(targetUrl: string): Promise<RunLighthouseResult> {
-  const timeoutMs = parsePositiveInt(process.env.PAGESPEED_TIMEOUT_MS, 90_000)
+async function fetchPsiWithTimeout(url: string, timeoutMs: number): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(buildPsiUrl(targetUrl), { signal: controller.signal })
+    return await fetch(url, { signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function runPageSpeedInsights(targetUrl: string): Promise<RunLighthouseResult> {
+  const timeoutMs = parsePositiveInt(process.env.PAGESPEED_TIMEOUT_MS, 90_000)
+  const psiUrl = buildPsiUrl(targetUrl)
+  try {
+    let response = await fetchPsiWithTimeout(psiUrl, timeoutMs)
+    if (!response.ok && response.status >= 500) {
+      // Retry once on PSI 5xx — Google-side flake typically resolves on a fresh
+      // backend. No backoff; if the issue is global, retrying fast is no worse
+      // than retrying slow. We do NOT retry on 4xx (deterministic) or AbortError
+      // (don't want to double the wall-clock cost on consistently slow pages).
+      response = await fetchPsiWithTimeout(psiUrl, timeoutMs)
+    }
     if (!response.ok) {
       return { summary: null, error: mapHttpError(response.status) }
     }
@@ -60,8 +76,6 @@ export async function runPageSpeedInsights(targetUrl: string): Promise<RunLighth
       return { summary: null, error: `PSI timed out after ${timeoutMs}ms.` }
     }
     return { summary: null, error: err instanceof Error ? err.message : String(err) }
-  } finally {
-    clearTimeout(timer)
   }
 }
 
