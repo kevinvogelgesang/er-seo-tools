@@ -112,6 +112,7 @@ describe('runPageSpeedInsights', () => {
 
     const result = await runPageSpeedInsights('https://example.com/')
 
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(result.summary).toBeNull()
     expect(result.error).toMatch(/server error|HTTP 5/i)
   })
@@ -186,5 +187,66 @@ describe('runPageSpeedInsights', () => {
 
     expect(result.summary).toBeNull()
     expect(result.error).toMatch(/15000ms/)
+  })
+
+  it('retries once on HTTP 5xx; if the retry succeeds, returns the summary', async () => {
+    // First call: 503. Second call: 200 + valid LHR.
+    const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
+      .mockResolvedValueOnce({
+        ok: false, status: 503,
+        json: async () => ({ error: 'transient' }),
+        text: async () => 'transient',
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ lighthouseResult: MINIMAL_LHR }),
+        text: async () => JSON.stringify({ lighthouseResult: MINIMAL_LHR }),
+      } as unknown as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.error).toBeUndefined()
+    expect(result.summary?.scores.performance).toBe(50)
+  })
+
+  it('retries once on HTTP 5xx; if the retry also 5xx, surfaces the error', async () => {
+    const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
+      .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({}), text: async () => '' } as unknown as Response)
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}), text: async () => '' } as unknown as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.summary).toBeNull()
+    expect(result.error).toMatch(/server error|HTTP 5/i)
+  })
+
+  it('does NOT retry on HTTP 4xx', async () => {
+    const fetchMock = mockFetch({ ok: false, status: 400, body: {} })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/private')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.summary).toBeNull()
+    expect(result.error).toMatch(/private|blocked|unfetch|HTTP 400/i)
+  })
+
+  it('does NOT retry on AbortError (timeout)', async () => {
+    const fetchMock = vi.fn(async () => {
+      const err = new Error('aborted')
+      err.name = 'AbortError'
+      throw err
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.summary).toBeNull()
+    expect(result.error).toMatch(/timed out/i)
   })
 })
