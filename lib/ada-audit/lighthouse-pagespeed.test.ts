@@ -112,6 +112,7 @@ describe('runPageSpeedInsights', () => {
 
     const result = await runPageSpeedInsights('https://example.com/')
 
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(result.summary).toBeNull()
     expect(result.error).toMatch(/server error|HTTP 5/i)
   })
