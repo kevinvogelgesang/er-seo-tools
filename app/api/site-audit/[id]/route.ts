@@ -72,7 +72,14 @@ export async function GET(
   // While the audit is in flight, surface the per-page rows that already
   // exist in the DB so the detail page can show a live table beside the
   // progress card. Capped at LIVE_CHILDREN_LIMIT to keep the payload small.
-  const isInFlight = audit.status === 'running' || audit.status === 'pdfs-running'
+  //
+  // Includes lighthouse-running because the page still renders SiteAuditPoller
+  // for that status. Without it, the live table would disappear for the 3-8
+  // minutes of LH drain even though the per-page rows are already terminal.
+  const isInFlight =
+    audit.status === 'running' ||
+    audit.status === 'pdfs-running' ||
+    audit.status === 'lighthouse-running'
   const liveChildren = isInFlight
     ? buildLiveChildren(
         await prisma.adaAudit.findMany({

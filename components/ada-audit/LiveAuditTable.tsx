@@ -49,7 +49,7 @@ export default function LiveAuditTable({ rows }: Props) {
       <div className="px-6 py-3 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
         <h3 className="font-display font-bold text-[14px] text-navy dark:text-white">Pages so far</h3>
         <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
-          Updates as each page finishes. Click a row to open its audit.
+          Updates as each page finishes — click a URL to open its audit.
         </p>
       </div>
       <table className="w-full text-[13px] font-body">
@@ -60,11 +60,15 @@ export default function LiveAuditTable({ rows }: Props) {
             <th className="px-6 py-2 text-[11px] uppercase tracking-wider font-semibold text-navy/50 dark:text-white/50">Violations</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100 dark:divide-navy-border">
+        <tbody
+          className="divide-y divide-gray-100 dark:divide-navy-border"
+          aria-live="polite"
+          aria-atomic="false"
+        >
           {rows.map((c) => {
             const isTerminal = c.status === 'complete' || c.status === 'error'
             return (
-              <tr key={c.adaAuditId} className="hover:bg-gray-50 dark:hover:bg-navy-light">
+              <tr key={c.adaAuditId}>
                 <td className="px-6 py-2.5 max-w-md">
                   {isTerminal ? (
                     <Link
