@@ -76,6 +76,7 @@ model AdaAudit {
   lighthouseSummary String?
   lighthouseError   String?
   pdfAudits         PdfAudit[]
+  requestedBy       String?    // null on child rows; operator name set at creation for standalone audits
 
   @@index([createdAt])
   @@index([clientId])
@@ -111,6 +112,7 @@ model SiteAudit {
   pageAudits    AdaAudit[]
   batchId       String?
   batch         AuditBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  requestedBy   String?    // operator name from er-operator-name cookie at creation time
 
   @@index([createdAt])
   @@index([status])
