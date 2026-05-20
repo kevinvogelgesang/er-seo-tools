@@ -89,8 +89,11 @@ const ViolationCard = forwardRef<HTMLDivElement, ViolationCardProps>(({ violatio
         </div>
       </button>
 
-      {/* Expanded: affected pages list */}
-      {(expanded || forceExpanded) && (
+      {/* Expanded: affected pages list. `forceExpanded` only seeds `expanded`
+          (via the useEffect above); it does NOT gate the render. That keeps
+          forceExpanded a true one-way open signal so the user can collapse
+          the card afterwards. */}
+      {expanded && (
         <div className="border-t border-gray-100 dark:border-navy-border divide-y divide-gray-100 dark:divide-navy-border">
           {violation.affectedPages.map((ap) => {
             const urlDisplay = ap.url.replace(/^https?:\/\//, '')
