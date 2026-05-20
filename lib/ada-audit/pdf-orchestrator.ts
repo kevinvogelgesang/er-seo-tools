@@ -4,9 +4,10 @@
 // rows for this audit, inserts pending rows, and dispatches scans through
 // the PDF worker pool. Updates SiteAudit pdf counters as scans settle.
 //
-// After the last PDF for a site-audit settles, the orchestrator kicks
-// `finalizeSiteAudit` (via dynamic import) so the site-audit can flip from
-// `pdfs-running` → `complete`.
+// After each PDF for a site-audit settles, the orchestrator delegates to
+// `finalizeSiteAudit` (via dynamic import) which owns the drain predicate
+// (pages done && pdfs done && lighthouse done) and decides whether to flip
+// to `pdfs-running`, `lighthouse-running`, or `complete`.
 
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
