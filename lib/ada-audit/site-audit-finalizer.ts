@@ -1,18 +1,18 @@
 // lib/ada-audit/site-audit-finalizer.ts
 //
-// Single source of truth for "this SiteAudit is done — write the summary and
-// flip status to complete." Called from two places:
-//   1. The per-page worker in queue-manager.ts when the last page settles
-//      AND there are no PDFs in flight. (queue-manager's outer processNext()
-//      recursion handles the queue kick after runAudit() returns.)
-//   2. The per-PDF settle callback in pdf-orchestrator.ts when the last
-//      pending PDF row resolves AND all pages are already done. (That caller
-//      kicks processNext() itself via dynamic import so we don't import
-//      queue-manager here.)
+// Single decision point for a SiteAudit's terminal transition. Called from
+// every settle pathway (page loop, PDF orchestrator, PSI worker). Owns the
+// drain predicate: pages done && pdfs done && lighthouse done.
 //
-// Lives in its own module + has no queue-manager import to keep the
-// dependency graph acyclic: queue-manager → finalizer (static),
-// pdf-orchestrator → finalizer (dynamic), and finalizer is a leaf.
+// When not fully drained, flips to the appropriate transient status
+// (pdfs-running OR lighthouse-running) so the UI knows what we're waiting on
+// and the queue treats this slot as in-flight. When fully drained, builds
+// the summary, writes 'complete', closes the batch, and kicks the queue.
+//
+// Lives in its own module with no queue-manager import to keep the dep
+// graph acyclic: queue-manager → finalizer (static), pdf-orchestrator →
+// finalizer (dynamic), lighthouse-queue → finalizer (static). The queue
+// kick happens here via dynamic import.
 
 import { prisma } from '@/lib/db'
 import { buildSiteAuditSummary } from './site-audit-helpers'
@@ -21,13 +21,32 @@ import { closeBatchIfDrained } from './audit-batch-helpers'
 export async function finalizeSiteAudit(id: string): Promise<void> {
   const audit = await prisma.siteAudit.findUnique({
     where: { id },
-    // The relation on SiteAudit is `pageAudits` (see prisma/schema.prisma),
-    // NOT `audits`. `pdfAudits` is the relation on AdaAudit added in this PR.
     include: { pageAudits: { include: { pdfAudits: true } } },
   })
   if (!audit) return
-  if (audit.status === 'complete') return // idempotent — multiple PDF callbacks can race here
+  if (audit.status === 'complete' || audit.status === 'error') return
 
+  const pagesDone      = audit.pagesComplete + audit.pagesError >= audit.pagesTotal
+  const pdfsDone       = audit.pdfsComplete + audit.pdfsError >= audit.pdfsTotal
+  const lighthouseDone = audit.lighthouseComplete + audit.lighthouseError >= audit.lighthouseTotal
+
+  if (!pagesDone) {
+    // Page loop still owns the row — don't touch status.
+    return
+  }
+
+  if (!pdfsDone || !lighthouseDone) {
+    // PDFs win over lighthouse for the transient status — PDFs are typically
+    // slower and more user-visible, so showing 'pdfs-running' is more
+    // informative when both are outstanding.
+    const next = !pdfsDone ? 'pdfs-running' : 'lighthouse-running'
+    if (audit.status !== next) {
+      await prisma.siteAudit.update({ where: { id }, data: { status: next } })
+    }
+    return
+  }
+
+  // All drained — build summary and finalize.
   const summary = buildSiteAuditSummary(audit.pageAudits)
   await prisma.siteAudit.update({
     where: { id },
@@ -37,9 +56,15 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     },
   })
 
-  // Close the batch if this audit was the last in-flight member.
-  // Idempotent — closeBatchIfDrained is a no-op when others are still in flight.
   await closeBatchIfDrained(audit.batchId).catch((e) => {
     console.warn('[site-audit-finalizer] closeBatchIfDrained failed for batch', audit.batchId, ':', (e as Error).message)
   })
+
+  // Kick the queue from here (via dynamic import to avoid the cycle).
+  try {
+    const { processNext } = await import('./queue-manager')
+    void processNext()
+  } catch (e) {
+    console.warn('[site-audit-finalizer] processNext kick failed:', (e as Error).message)
+  }
 }
