@@ -263,6 +263,10 @@ describe('processNext — recognizes lighthouse-running as in-flight', () => {
     await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'lh-running-' } } })
   })
 
+  async function cleanupAfter() {
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'lh-running-' } } })
+  }
+
   it('does not pick a queued audit when one is in lighthouse-running', async () => {
     await prisma.siteAudit.create({
       data: { domain: 'lh-running-active.example', status: 'lighthouse-running', wcagLevel: 'wcag21aa' },
@@ -278,6 +282,8 @@ describe('processNext — recognizes lighthouse-running as in-flight', () => {
 
     const stillQueued = await prisma.siteAudit.findUnique({ where: { id: queued.id } })
     expect(stillQueued?.status).toBe('queued')
+
+    await cleanupAfter()
   })
 })
 
@@ -287,12 +293,6 @@ describe('getQueueStatus — lighthouse counters + lighthouse-running phase', ()
   beforeEach(async () => {
     await prisma.auditBatch.updateMany({ where: { closedAt: null }, data: { closedAt: new Date() } })
     await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'qstatus-' } } })
-    // Reset any rows left in an active status by earlier describe blocks so
-    // getQueueStatus always finds the row we just created.
-    await prisma.siteAudit.updateMany({
-      where: { status: { in: ['running', 'pending', 'pdfs-running', 'lighthouse-running'] } },
-      data: { status: 'error' },
-    })
   })
 
   it('reports lighthouse-running as the active phase with lighthouse counters', async () => {
