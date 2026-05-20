@@ -187,6 +187,7 @@ export default function SiteAuditHistory() {
             <tr className="text-left border-b border-gray-200 dark:border-navy-border">
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Domain</th>
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Client</th>
+              <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Requested by</th>
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Pages</th>
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Score</th>
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Violations</th>
@@ -210,6 +211,9 @@ export default function SiteAuditHistory() {
                   </td>
                   <td className="py-2.5 pr-4 text-navy/50 dark:text-white/50">
                     {a.clientName ?? <span className="text-navy/25 dark:text-white/25">—</span>}
+                  </td>
+                  <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60 whitespace-nowrap">
+                    {a.requestedBy ?? <span className="text-navy/25 dark:text-white/25">—</span>}
                   </td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">
                     {a.status === 'queued'
