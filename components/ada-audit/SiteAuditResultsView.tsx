@@ -14,6 +14,7 @@ import PdfIssuesSection from './PdfIssuesSection'
 import { useSiteAuditPages, type SortKey, type ImpactFilter } from './useSiteAuditPages'
 import { useGroupedViolations } from './useGroupedViolations'
 import GroupedViolationsView from './GroupedViolationsView'
+import CommonIssueCallout from './CommonIssueCallout'
 import { safeExternalHref } from '@/lib/safe-external-href'
 
 interface Props {
@@ -166,6 +167,16 @@ export default function SiteAuditResultsView({
   const [filterImpact, setFilterImpact] = useState<ImpactFilter>('all')
   const [viewMode, setViewMode] = useState<'table' | 'by-violation'>('table')
   const [currentPage, setCurrentPage] = useState(1)
+  /** Rule id to auto-expand/scroll-to inside the by-violation view.
+   *  Set by the CommonIssueCallout's "View affected pages" CTA. */
+  const [selectedViolationId, setSelectedViolationId] = useState<string | undefined>(undefined)
+
+  const commonIssues = summary.commonIssues ?? []
+
+  const handleViewAffectedPages = (ruleId: string) => {
+    setSelectedViolationId(ruleId)
+    setViewMode('by-violation')
+  }
 
   const { issuePages, cleanPages, counts } = useSiteAuditPages(summary.pages, {
     sortKey,
@@ -265,6 +276,11 @@ export default function SiteAuditResultsView({
           </h2>
         </div>
 
+        {/* Site-wide common issues — renders only when at least one rule hits the threshold */}
+        {commonIssues.length > 0 && (
+          <CommonIssueCallout issues={commonIssues} onViewAffectedPages={handleViewAffectedPages} />
+        )}
+
         {/* Toolbar */}
         <SiteAuditToolbar
           sortKey={sortKey}
@@ -358,6 +374,7 @@ export default function SiteAuditResultsView({
             groupedViolations={groupedViolations}
             loading={groupedLoading}
             error={groupedError}
+            selectedViolationId={selectedViolationId}
           />
         )}
       </div>
