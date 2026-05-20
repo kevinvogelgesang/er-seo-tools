@@ -211,10 +211,16 @@ export interface QueueStatusWithBatch {
   active: {
     id: string
     domain: string
-    status: string             // running | pdfs-running | pending
+    status: string             // running | pdfs-running | lighthouse-running | pending
     pagesTotal: number
     pagesComplete: number
     pagesError: number
+    pdfsTotal: number
+    pdfsComplete: number
+    pdfsError: number
+    lighthouseTotal: number
+    lighthouseComplete: number
+    lighthouseError: number
     clientId: number | null
   } | null
   queued: {

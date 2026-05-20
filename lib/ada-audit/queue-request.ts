@@ -13,7 +13,7 @@ import { prisma } from '@/lib/db'
 import { enqueueAudit } from './queue-manager'
 import { normaliseSiteAuditDomain, normaliseDiscoveredSiteAuditUrls } from './site-audit-helpers'
 
-const IN_FLIGHT_STATUSES = ['queued', 'pending', 'running', 'pdfs-running']
+const IN_FLIGHT_STATUSES = ['queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running']
 
 export type QueueRequestResult =
   | { kind: 'queued'; id: string }

@@ -181,7 +181,7 @@ export async function processNext() {
 
   try {
     const active = await prisma.siteAudit.findFirst({
-      where: { status: { in: ['running', 'pdfs-running'] } },
+      where: { status: { in: ['running', 'pdfs-running', 'lighthouse-running'] } },
       select: { id: true },
     })
     if (active) {
@@ -273,10 +273,12 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
   const { resolveBatchLabel } = await import('./audit-batch-helpers')
 
   const active = await prisma.siteAudit.findFirst({
-    where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
+    where: { status: { in: ['running', 'pending', 'pdfs-running', 'lighthouse-running'] } },
     select: {
       id: true, domain: true, status: true,
       pagesTotal: true, pagesComplete: true, pagesError: true,
+      pdfsTotal: true, pdfsComplete: true, pdfsError: true,
+      lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
       clientId: true,
     },
     orderBy: { createdAt: 'asc' },
@@ -302,6 +304,12 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
           pagesTotal: active.pagesTotal,
           pagesComplete: active.pagesComplete,
           pagesError: active.pagesError,
+          pdfsTotal: active.pdfsTotal,
+          pdfsComplete: active.pdfsComplete,
+          pdfsError: active.pdfsError,
+          lighthouseTotal: active.lighthouseTotal,
+          lighthouseComplete: active.lighthouseComplete,
+          lighthouseError: active.lighthouseError,
           clientId: active.clientId ?? null,
         }
       : null,
@@ -330,6 +338,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
  * as `error` with a clear message so any open per-page poller stops spinning.
  */
 export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
+  // Pending/running children never got their axe results.
   await prisma.adaAudit.updateMany({
     where: {
       siteAuditId,
@@ -338,6 +347,21 @@ export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
     data: {
       status: 'error',
       error: 'Audit interrupted because the site audit was stopped or restarted',
+    },
+  })
+  // axe-complete children have valid axe data but their PSI job was
+  // queued in-memory and never ran. Flip to error so the per-page status
+  // is terminal, and record a lighthouseError so the UI shows why LH is
+  // missing. The axe `result` column is preserved.
+  await prisma.adaAudit.updateMany({
+    where: {
+      siteAuditId,
+      status: 'axe-complete',
+    },
+    data: {
+      status: 'error',
+      error: 'Audit interrupted because the site audit was stopped or restarted',
+      lighthouseError: 'Lighthouse interrupted because the site audit was stopped or restarted',
     },
   })
 }
@@ -370,7 +394,7 @@ export async function resetStaleAudits() {
   const staleThreshold = new Date(Date.now() - STALE_MS)
   const stale = await prisma.siteAudit.findMany({
     where: {
-      status: { in: ['running', 'pdfs-running'] },
+      status: { in: ['running', 'pdfs-running', 'lighthouse-running'] },
       updatedAt: { lt: staleThreshold },
     },
     select: { id: true, batchId: true },
@@ -406,7 +430,7 @@ export async function resetStaleAudits() {
 export async function recoverQueue() {
   const orphans = await prisma.siteAudit.findMany({
     where: {
-      status: { in: ['running', 'pdfs-running'] },
+      status: { in: ['running', 'pdfs-running', 'lighthouse-running'] },
     },
     select: { id: true, batchId: true },
   })
