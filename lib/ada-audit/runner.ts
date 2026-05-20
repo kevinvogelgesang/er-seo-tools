@@ -31,6 +31,11 @@ export interface RunAxeOptions {
   // Required — forwarded to the PDF orchestrator's adaAuditId attribution
   // and used as the screenshot directory name.
   auditId: string
+  // When true, the pagespeed branch skips its inline PSI fetch. The caller
+  // (queue-manager.ts:runAudit) enqueues a PSI job separately via
+  // lighthouse-queue. The local-LH branch is unaffected — local LH genuinely
+  // needs the page slot and is not used in production.
+  siteAudit?: boolean
 }
 
 export interface RunAxeResult {
@@ -165,13 +170,24 @@ export async function runAxeAudit(
       }
 
       if (provider === 'pagespeed') {
-        await progress(22, 'Fetching Lighthouse from PageSpeed Insights…')
-        try {
-          const lh = await runLighthouse(parsed.toString(), page)
-          lighthouseSummary = lh.summary
-          lighthouseError = lh.error ?? null
-        } catch (err) {
-          lighthouseError = err instanceof Error ? err.message : String(err)
+        if (options?.siteAudit) {
+          // Site audit: PSI is queued separately via lighthouse-queue and
+          // does not hold the puppeteer page slot. lighthouseSummary stays
+          // null; the PSI worker fills it in later.
+          await progress(22, 'Queueing Lighthouse…')
+        } else {
+          // Standalone single-page audit: keep PSI inline. The user is
+          // already awaiting this single request — no throughput problem
+          // to solve, and the single-page UI flow expects LH data in the
+          // returned result.
+          await progress(22, 'Fetching Lighthouse from PageSpeed Insights…')
+          try {
+            const lh = await runLighthouse(parsed.toString(), page)
+            lighthouseSummary = lh.summary
+            lighthouseError = lh.error ?? null
+          } catch (err) {
+            lighthouseError = err instanceof Error ? err.message : String(err)
+          }
         }
       }
       // provider === 'off' just skips Lighthouse and proceeds to axe (Phase 2 below)
