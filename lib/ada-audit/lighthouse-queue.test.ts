@@ -34,6 +34,8 @@ describe('lighthouse-queue', () => {
   })
 
   it('honors PSI_CONCURRENCY cap — never runs more than N workers at once', async () => {
+    const originalConcurrency = process.env.PSI_CONCURRENCY
+    try {
     // Reset the module so it re-reads PSI_CONCURRENCY=2 from the test env.
     vi.resetModules()
     process.env.PSI_CONCURRENCY = '2'
@@ -79,12 +81,16 @@ describe('lighthouse-queue', () => {
       await new Promise((r) => setTimeout(r, 50))
     }
     expect(getPsiQueueState()).toEqual({ active: 0, queued: 0 })
+    } finally {
+      if (originalConcurrency === undefined) {
+        delete process.env.PSI_CONCURRENCY
+      } else {
+        process.env.PSI_CONCURRENCY = originalConcurrency
+      }
+    }
   })
 
   it('writes lighthouseSummary, flips AdaAudit to complete, bumps lighthouseComplete on success', async () => {
-    vi.resetModules()
-    process.env.PSI_CONCURRENCY = '1'
-    const { enqueuePsiJob } = await import('./lighthouse-queue')
     vi.mocked(runPageSpeedInsights).mockResolvedValue({
       summary: { performance: 90, accessibility: 95, bestPractices: 92 } as never,
       error: null,
@@ -115,9 +121,6 @@ describe('lighthouse-queue', () => {
   })
 
   it('writes lighthouseError, still flips AdaAudit to complete, bumps lighthouseError on failure', async () => {
-    vi.resetModules()
-    process.env.PSI_CONCURRENCY = '1'
-    const { enqueuePsiJob } = await import('./lighthouse-queue')
     vi.mocked(runPageSpeedInsights).mockResolvedValue({
       summary: null,
       error: 'PSI timed out after 90000ms.',

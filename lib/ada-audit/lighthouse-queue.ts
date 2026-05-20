@@ -101,9 +101,9 @@ async function runJob(job: PsiJob): Promise<void> {
   try {
     await prisma.siteAudit.update({
       where: { id: job.siteAuditId },
-      data: lighthouseError && !lighthouseSummary
-        ? { lighthouseError: { increment: 1 } }
-        : { lighthouseComplete: { increment: 1 } },
+      data: lighthouseSummary !== null
+        ? { lighthouseComplete: { increment: 1 } }
+        : { lighthouseError: { increment: 1 } },
     })
   } catch (err) {
     console.warn('[lighthouse-queue] siteAudit counter bump failed for', job.siteAuditId, ':', (err as Error).message)
