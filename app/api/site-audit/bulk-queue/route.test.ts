@@ -31,7 +31,7 @@ describe('POST /api/site-audit/bulk-queue', () => {
       { id: 2, name: 'No Domain', domains: '[]' },
     ] as never)
 
-    const res = await POST()
+    const res = await POST(req())
     expect(res.status).toBe(400)
     const json = await res.json() as { error: string; clientsWithoutDomains: { id: number; name: string }[] }
     expect(json.error).toBe('missing_domains')
@@ -49,7 +49,7 @@ describe('POST /api/site-audit/bulk-queue', () => {
       .mockResolvedValueOnce({ kind: 'queued', id: 'audit-1' })
       .mockResolvedValueOnce({ kind: 'queued', id: 'audit-2' })
 
-    const res = await POST()
+    const res = await POST(req())
     expect(res.status).toBe(200)
     const json = await res.json() as { queued: { clientId: number; auditId: string }[]; skipped: unknown[] }
     expect(json.queued).toEqual([
@@ -68,7 +68,7 @@ describe('POST /api/site-audit/bulk-queue', () => {
       .mockResolvedValueOnce({ kind: 'duplicate', existingId: 'existing-audit-id' })
       .mockResolvedValueOnce({ kind: 'queued', id: 'audit-2' })
 
-    const res = await POST()
+    const res = await POST(req())
     expect(res.status).toBe(200)
     const json = await res.json() as { queued: { clientId: number; auditId: string }[]; skipped: { clientId: number; reason: string }[] }
     expect(json.queued).toEqual([{ clientId: 2, auditId: 'audit-2' }])
@@ -81,7 +81,7 @@ describe('POST /api/site-audit/bulk-queue', () => {
     vi.mocked(prisma.client.findMany).mockResolvedValue([
       { id: 1, name: 'Whitespace', domains: JSON.stringify(['   ', '']) },
     ] as never)
-    const res = await POST()
+    const res = await POST(req())
     expect(res.status).toBe(400)
     const json = await res.json() as { clientsWithoutDomains: { id: number }[] }
     expect(json.clientsWithoutDomains.map((c) => c.id)).toEqual([1])
