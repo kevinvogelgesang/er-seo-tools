@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Spinner } from '@/components/Spinner'
 import { useRouter } from 'next/navigation'
+import type { LiveAuditChild } from '@/lib/ada-audit/types'
+import LiveAuditTable from './LiveAuditTable'
 
 interface PollData {
   status: string
@@ -23,6 +25,7 @@ interface PollData {
     pagesComplete: number
     pagesError: number
   } | null
+  liveChildren?: LiveAuditChild[]
 }
 
 interface Props {
@@ -53,6 +56,7 @@ export default function SiteAuditPoller({
   const [status, setStatus] = useState(initialStatus)
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
   const [activeAudit, setActiveAudit] = useState<PollData['activeAudit']>(null)
+  const [liveChildren, setLiveChildren] = useState<LiveAuditChild[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -76,6 +80,7 @@ export default function SiteAuditPoller({
         setStatus(data.status)
         setQueuePosition(data.queuePosition)
         setActiveAudit(data.activeAudit)
+        setLiveChildren(data.liveChildren ?? [])
 
         if (data.status === 'complete' || data.status === 'error' || data.status === 'cancelled') {
           if (timerRef.current) clearInterval(timerRef.current)
@@ -210,6 +215,13 @@ export default function SiteAuditPoller({
             Pages are audited one at a time. Large sites may take several minutes.
           </p>
         </div>
+      )}
+
+      {/* Live pages-so-far table — populates once at least one child page
+          finishes. Hidden during the queued state (operator has nothing to
+          look at yet) and when the API hasn't returned liveChildren. */}
+      {!isQueued && liveChildren.length > 0 && (
+        <LiveAuditTable rows={liveChildren} />
       )}
     </div>
   )
