@@ -67,7 +67,7 @@ export function normaliseDiscoveredSiteAuditUrls(urls: string[], domain: string)
   return result
 }
 
-function parseScorecard(result: string | null): AuditScorecard | null {
+export function parseAxeScorecardFromResult(result: string | null): AuditScorecard | null {
   if (!result) return null
   try {
     const r = JSON.parse(result)
@@ -115,7 +115,7 @@ export const ZERO_SCORECARD: AuditScorecard = {
 
 export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
   const pages: SitePageResult[] = children.map((child) => {
-    const scorecard = child.status === 'complete' ? parseScorecard(child.result) : null
+    const scorecard = child.status === 'complete' ? parseAxeScorecardFromResult(child.result) : null
 
     let lighthouse: LighthouseSummary | null = null
     if (child.lighthouseSummary) {
