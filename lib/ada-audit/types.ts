@@ -118,11 +118,35 @@ export interface SiteAuditPdfAggregate {
   withIssues: number
 }
 
+/** Landmark elements we surface as shared-ancestor hints in common-issue callouts. */
+export type LandmarkTag = 'header' | 'footer' | 'nav' | 'aside' | 'main'
+
+/** How confidently we believe a common issue's nodes share a single landmark ancestor. */
+export type AncestorConfidence = 'all' | 'majority'
+
+/** A rule that appears on >= COMMON_ISSUE_THRESHOLD of the scanned pages.
+ *  Stored as part of SiteAuditSummary.commonIssues; rendered by CommonIssueCallout. */
+export interface CommonIssue {
+  ruleId: string
+  impact: ImpactLevel
+  help: string
+  description: string
+  helpUrl: string
+  affectedPagesCount: number
+  totalPagesScanned: number
+  sharedAncestor: LandmarkTag | null
+  ancestorConfidence: AncestorConfidence | null  // null when sharedAncestor is null
+}
+
 /** Stored in SiteAudit.summary — computed once when all pages + PDFs finish */
 export interface SiteAuditSummary {
   aggregate: AuditScorecard
   pdfsAggregate: SiteAuditPdfAggregate
   pages: SitePageResult[]  // sorted by scorecard.total descending
+  /** Issues that hit >= threshold of complete pages, with shared-ancestor hint.
+   *  Older audits (rows where summary JSON predates this feature) lack the
+   *  field; consumers should default to []. */
+  commonIssues?: CommonIssue[]
 }
 
 /** Shape returned by GET /api/site-audit (list) and GET /api/site-audit/[id] */
