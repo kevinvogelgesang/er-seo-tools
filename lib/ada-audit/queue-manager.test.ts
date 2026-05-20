@@ -92,6 +92,13 @@ async function clearOrphanTestState() {
   await prisma.pdfAudit.deleteMany({ where: { url: { startsWith: 'https://orphan-test-' } } })
   await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://orphan-test-' } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'orphan-test-' } } })
+  // New cascade tests
+  await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://orphan-axe-complete.' } } })
+  await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'orphan-axe-complete.' } } })
+  await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://orphan-a.' } } })
+  await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://orphan-b.' } } })
+  await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'orphan-a.' } } })
+  await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'orphan-b.' } } })
 }
 
 describe('failOrphanAdaAudits', () => {
@@ -132,6 +139,44 @@ describe('failOrphanAdaAudits', () => {
       data: { domain: 'orphan-test-empty.example', status: 'error', wcagLevel: 'wcag21aa' },
     })
     await expect(failOrphanAdaAudits(parent.id)).resolves.toBeUndefined()
+  })
+
+  it('flips axe-complete children to error with a lighthouseError set', async () => {
+    const site = await prisma.siteAudit.create({
+      data: { domain: 'orphan-axe-complete.example', status: 'lighthouse-running', wcagLevel: 'wcag21aa' },
+    })
+    const row = await prisma.adaAudit.create({
+      data: {
+        url: 'https://orphan-axe-complete.example/p',
+        status: 'axe-complete',
+        siteAuditId: site.id,
+        wcagLevel: 'wcag21aa',
+        result: '{"violations":[]}',
+      },
+    })
+
+    const { failOrphanAdaAudits } = await import('./queue-manager')
+    await failOrphanAdaAudits(site.id)
+
+    const after = await prisma.adaAudit.findUnique({ where: { id: row.id } })
+    expect(after?.status).toBe('error')
+    expect(after?.error).toContain('Audit interrupted')
+    expect(after?.lighthouseError).toContain('Lighthouse interrupted')
+    // axe result is preserved.
+    expect(after?.result).toBe('{"violations":[]}')
+  })
+
+  it('does not flip axe-complete children of OTHER site audits', async () => {
+    const a = await prisma.siteAudit.create({ data: { domain: 'orphan-a.example', status: 'error', wcagLevel: 'wcag21aa' } })
+    const b = await prisma.siteAudit.create({ data: { domain: 'orphan-b.example', status: 'running', wcagLevel: 'wcag21aa' } })
+    const aRow = await prisma.adaAudit.create({ data: { url: 'https://orphan-a.example/p', status: 'axe-complete', siteAuditId: a.id, wcagLevel: 'wcag21aa' } })
+    const bRow = await prisma.adaAudit.create({ data: { url: 'https://orphan-b.example/p', status: 'axe-complete', siteAuditId: b.id, wcagLevel: 'wcag21aa' } })
+
+    const { failOrphanAdaAudits } = await import('./queue-manager')
+    await failOrphanAdaAudits(a.id)
+
+    expect((await prisma.adaAudit.findUnique({ where: { id: aRow.id } }))?.status).toBe('error')
+    expect((await prisma.adaAudit.findUnique({ where: { id: bRow.id } }))?.status).toBe('axe-complete')
   })
 })
 
@@ -206,6 +251,69 @@ describe('recoverQueue — immediate interrupt on startup', () => {
 
     const pdf = await prisma.pdfAudit.findFirst({ where: { siteAuditId: parent.id } })
     expect(pdf?.status).toBe('error')
+  })
+})
+
+const { processNext } = await import('./queue-manager')
+
+describe('processNext — recognizes lighthouse-running as in-flight', () => {
+  beforeEach(async () => {
+    // Reuse whatever clearTestState the file already defines, or inline:
+    await prisma.auditBatch.updateMany({ where: { closedAt: null }, data: { closedAt: new Date() } })
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'lh-running-' } } })
+  })
+
+  async function cleanupAfter() {
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'lh-running-' } } })
+  }
+
+  it('does not pick a queued audit when one is in lighthouse-running', async () => {
+    await prisma.siteAudit.create({
+      data: { domain: 'lh-running-active.example', status: 'lighthouse-running', wcagLevel: 'wcag21aa' },
+    })
+    const queued = await prisma.siteAudit.create({
+      data: { domain: 'lh-running-queued.example', status: 'queued', wcagLevel: 'wcag21aa' },
+    })
+
+    const { processNext } = await import('./queue-manager')
+    await processNext()
+    // Yield once in case processNext fires its self-tail.
+    await new Promise((r) => setImmediate(r))
+
+    const stillQueued = await prisma.siteAudit.findUnique({ where: { id: queued.id } })
+    expect(stillQueued?.status).toBe('queued')
+
+    await cleanupAfter()
+  })
+})
+
+const { getQueueStatus } = await import('./queue-manager')
+
+describe('getQueueStatus — lighthouse counters + lighthouse-running phase', () => {
+  beforeEach(async () => {
+    await prisma.auditBatch.updateMany({ where: { closedAt: null }, data: { closedAt: new Date() } })
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'qstatus-' } } })
+  })
+
+  it('reports lighthouse-running as the active phase with lighthouse counters', async () => {
+    await prisma.siteAudit.create({
+      data: {
+        domain: 'qstatus-lh.example',
+        status: 'lighthouse-running',
+        wcagLevel: 'wcag21aa',
+        pagesTotal: 5, pagesComplete: 5,
+        pdfsTotal: 0,
+        lighthouseTotal: 5, lighthouseComplete: 2, lighthouseError: 1,
+      },
+    })
+
+    const { getQueueStatus } = await import('./queue-manager')
+    const status = await getQueueStatus()
+
+    expect(status.active?.status).toBe('lighthouse-running')
+    expect(status.active?.lighthouseTotal).toBe(5)
+    expect(status.active?.lighthouseComplete).toBe(2)
+    expect(status.active?.lighthouseError).toBe(1)
   })
 })
 

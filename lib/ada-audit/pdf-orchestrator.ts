@@ -4,9 +4,10 @@
 // rows for this audit, inserts pending rows, and dispatches scans through
 // the PDF worker pool. Updates SiteAudit pdf counters as scans settle.
 //
-// After the last PDF for a site-audit settles, the orchestrator kicks
-// `finalizeSiteAudit` (via dynamic import) so the site-audit can flip from
-// `pdfs-running` → `complete`.
+// After each PDF for a site-audit settles, the orchestrator delegates to
+// `finalizeSiteAudit` (via dynamic import) which owns the drain predicate
+// (pages done && pdfs done && lighthouse done) and decides whether to flip
+// to `pdfs-running`, `lighthouse-running`, or `complete`.
 
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
@@ -113,33 +114,14 @@ export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId, sourcePa
           }).catch(() => {})
         }
       } finally {
-        // After each PDF settles, check if this is the last one for the site
-        // audit AND all pages are done. If so, finalize. Idempotent on the
-        // finalizer side (status === 'complete' guard).
+        // After each PDF settles, ask the centralized finalizer whether the
+        // site audit is fully drained. Idempotent + handles all the state
+        // logic (including transient lighthouse-running) internally. The
+        // finalizer also kicks processNext when it actually finalizes.
         if (siteAuditId) {
           try {
-            const fresh = await prisma.siteAudit.findUnique({
-              where: { id: siteAuditId },
-            })
-            if (
-              fresh &&
-              (fresh.status === 'running' || fresh.status === 'pdfs-running') &&
-              fresh.pagesComplete + fresh.pagesError === fresh.pagesTotal &&
-              fresh.pdfsComplete + fresh.pdfsError === fresh.pdfsTotal
-            ) {
-              const { finalizeSiteAudit } = await import('./site-audit-finalizer')
-              await finalizeSiteAudit(siteAuditId).catch((e) => {
-                console.warn(
-                  '[ada-audit] finalize after PDF settle failed:',
-                  (e as Error).message,
-                )
-              })
-              // Kick the queue from the orchestrator side so the finalizer
-              // doesn't have to import queue-manager (avoids
-              // queue-manager ↔ finalizer cycle).
-              const { processNext } = await import('./queue-manager')
-              void processNext()
-            }
+            const { finalizeSiteAudit } = await import('./site-audit-finalizer')
+            await finalizeSiteAudit(siteAuditId)
           } catch (e) {
             console.warn(
               '[ada-audit] post-pdf finalize check failed:',

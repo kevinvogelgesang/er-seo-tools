@@ -2,16 +2,18 @@
  * Global site audit queue manager.
  *
  * Only one site audit holds the queue slot at a time. The slot is held for
- * BOTH the 'running' phase (pages in flight) and the 'pdfs-running' phase
- * (PDF scans still settling after the last page completed). The slot is
- * released via `finalizeSiteAudit` (in site-audit-finalizer.ts), which is the
- * sole place that flips a SiteAudit to 'complete' and kicks `processNext`.
+ * the 'running' phase (pages in flight), the 'pdfs-running' phase (PDF scans
+ * still settling after the last page completed), and the 'lighthouse-running'
+ * phase (PageSpeed Insights jobs still draining). The slot is released via
+ * `finalizeSiteAudit` (in site-audit-finalizer.ts), which is the sole place
+ * that flips a SiteAudit to 'complete' and kicks `processNext`.
  *
- * Status transitions: queued → running → pdfs-running → complete
- *                                     ↓ (no PDFs at all)
- *                                     complete
- *                                     ↓ (top-level error)
- *                                     error
+ * Status transitions:
+ *   queued → running → (pdfs-running | lighthouse-running) → complete
+ *                   ↓ (no PDFs and no LH outstanding)
+ *                   complete
+ *                   ↓ (top-level error)
+ *                   error
  */
 
 import { prisma } from '@/lib/db'
@@ -20,6 +22,8 @@ import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { closeBrowser } from '@/lib/ada-audit/browser-pool'
+import { enqueuePsiJob } from './lighthouse-queue'
+import { getLighthouseProvider } from './lighthouse-provider'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 import type { QueueStatusWithBatch } from './types'
 
@@ -65,39 +69,81 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
         })
         try {
           await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
-          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
-            url, wcagLevel, undefined, { auditId: child.id },
-          )
-          await prisma.adaAudit.update({
-            where: { id: child.id },
-            data: {
-              status: 'complete',
-              result: JSON.stringify(axe),
-              lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
-              lighthouseError,
-              runnerType: 'browser',
-            },
-          })
-          await prisma.siteAudit.update({ where: { id }, data: { pagesComplete: { increment: 1 } } })
 
-          // Dispatch harvested PDFs. Pass BOTH ids so each PdfAudit is
-          // attributed to whichever page first discovered it (per-page
-          // summary.pages[i].pdfs counts), while still deduping site-wide
-          // via @@unique([siteAuditId, url]).
+          // Detached PSI only applies to the pagespeed provider. local LH
+          // still runs inline (uses the page slot); off skips LH entirely.
+          const provider = getLighthouseProvider()
+          const detachPsi = provider === 'pagespeed'
+
+          // runAxeAudit's siteAudit flag suppresses its inline PSI fetch
+          // (pagespeed branch only). In local/off modes, the flag is false
+          // and the existing inline behavior is preserved.
+          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+            url, wcagLevel, undefined, { auditId: child.id, siteAudit: detachPsi },
+          )
+
+          // Dispatch harvested PDFs FIRST. dispatchPdfScans is awaited (its
+          // inserts + pdfsTotal++ commit before this returns), which
+          // preserves the invariant that pdfsTotal is current before
+          // pagesComplete signals "this page is settled."
           //
           // AWAITED on purpose: dispatchPdfScans returns after it has
           // inserted PdfAudit rows and incremented SiteAudit.pdfsTotal. It
           // does NOT wait for actual scans — those run via withPdfSlot()
           // fire-and-forget inside dispatchPdfScans. Awaiting here closes a
-          // race where the page-complete check below could observe
-          // pdfsTotal=0 and finalize the audit before any PdfAudit rows
-          // landed.
+          // race where the finalizer (called by a fast PSI return or by
+          // end-of-page-loop) could observe pdfsTotal=0 and finalize the
+          // audit before any PdfAudit rows landed.
           await dispatchPdfScans({
             urls: harvestedPdfUrls,
             siteAuditId: id,
             adaAuditId: child.id,
             sourcePageUrl: url,
           })
+
+          // Now commit page-settle state. Transaction shape depends on
+          // provider — detached PSI uses axe-complete + lighthouseTotal++;
+          // local/off use complete + the inline LH fields.
+          if (detachPsi) {
+            await prisma.$transaction([
+              prisma.adaAudit.update({
+                where: { id: child.id },
+                data: {
+                  status: 'axe-complete',
+                  result: JSON.stringify(axe),
+                  runnerType: 'browser',
+                },
+              }),
+              prisma.siteAudit.update({
+                where: { id },
+                data: {
+                  lighthouseTotal: { increment: 1 },
+                  pagesComplete: { increment: 1 },
+                },
+              }),
+            ])
+            enqueuePsiJob({ adaAuditId: child.id, siteAuditId: id, url, wcagLevel })
+          } else {
+            // local or off: inline LH already ran (or was skipped). Write
+            // complete + LH fields + bump pagesComplete in one transaction.
+            // No lighthouseTotal++ — this provider doesn't use the queue.
+            await prisma.$transaction([
+              prisma.adaAudit.update({
+                where: { id: child.id },
+                data: {
+                  status: 'complete',
+                  result: JSON.stringify(axe),
+                  lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
+                  lighthouseError,
+                  runnerType: 'browser',
+                },
+              }),
+              prisma.siteAudit.update({
+                where: { id },
+                data: { pagesComplete: { increment: 1 } },
+              }),
+            ])
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Audit failed'
           await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'error', error: msg } })
@@ -114,31 +160,14 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
       }
     }
 
-    // All pages settled. Decide whether to finalize now or wait for PDFs.
-    const pageState = await prisma.siteAudit.findUnique({ where: { id } })
-    if (!pageState) {
-      await closeBrowser().catch(() => {})
-      return
-    }
-
-    const pdfsOutstanding = pageState.pdfsTotal > 0
-      && pageState.pdfsComplete + pageState.pdfsError < pageState.pdfsTotal
-
-    if (pdfsOutstanding) {
-      // PDFs still in flight — flip to pdfs-running. The pdf-orchestrator's
-      // per-PDF settle callback will invoke finalizeSiteAudit once the last
-      // one resolves.
-      await prisma.siteAudit.update({
-        where: { id },
-        data: { status: 'pdfs-running' },
-      })
-    } else {
-      // No PDFs (or all already settled) — finalize now.
-      await finalizeSiteAudit(id)
-    }
+    // All pages settled. Ask the centralized finalizer to decide what
+    // happens next — it may finalize immediately (no PDFs, no LH
+    // outstanding), or flip to pdfs-running / lighthouse-running.
+    await finalizeSiteAudit(id)
 
     // Restart browser between site audits to reclaim Chrome memory leaks.
-    // Safe even mid-pdfs-running because PDF scanning is pure Node (pdfjs),
+    // Safe even mid-pdfs-running / lighthouse-running because PDF scanning
+    // is pure Node (pdfjs) and PSI is a remote HTTP fetch — both
     // independent of the browser pool.
     await closeBrowser().catch(() => {})
   } catch (err) {
@@ -168,12 +197,12 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
  * Only one instance of this loop runs at a time (guarded by `processing` flag).
  *
  * Note: runAudit() returns once page work is done, even if PDFs are still
- * scanning (status = pdfs-running). The "active?" check below treats
- * pdfs-running as still holding the queue slot, so a subsequent processNext()
- * invocation bails. The post-PDF-settle path in pdf-orchestrator calls
- * finalizeSiteAudit and then kicks processNext() itself once truly done
- * (finalizer is a leaf module with no queue-manager import — keeps the
- * dependency graph acyclic).
+ * scanning (status = pdfs-running) or PSI jobs are still draining
+ * (status = lighthouse-running). The "active?" check below treats both as
+ * still holding the queue slot, so a subsequent processNext() invocation
+ * bails. The post-PDF-settle path in pdf-orchestrator and the post-PSI-settle
+ * path in lighthouse-queue both call finalizeSiteAudit, which kicks
+ * processNext() once the drain predicate (pages + pdfs + lighthouse) is met.
  */
 export async function processNext() {
   if (processing) return
@@ -181,7 +210,7 @@ export async function processNext() {
 
   try {
     const active = await prisma.siteAudit.findFirst({
-      where: { status: { in: ['running', 'pdfs-running'] } },
+      where: { status: { in: ['running', 'pdfs-running', 'lighthouse-running'] } },
       select: { id: true },
     })
     if (active) {
@@ -273,10 +302,12 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
   const { resolveBatchLabel } = await import('./audit-batch-helpers')
 
   const active = await prisma.siteAudit.findFirst({
-    where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
+    where: { status: { in: ['running', 'pending', 'pdfs-running', 'lighthouse-running'] } },
     select: {
       id: true, domain: true, status: true,
       pagesTotal: true, pagesComplete: true, pagesError: true,
+      pdfsTotal: true, pdfsComplete: true, pdfsError: true,
+      lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
       clientId: true,
     },
     orderBy: { createdAt: 'asc' },
@@ -302,6 +333,12 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
           pagesTotal: active.pagesTotal,
           pagesComplete: active.pagesComplete,
           pagesError: active.pagesError,
+          pdfsTotal: active.pdfsTotal,
+          pdfsComplete: active.pdfsComplete,
+          pdfsError: active.pdfsError,
+          lighthouseTotal: active.lighthouseTotal,
+          lighthouseComplete: active.lighthouseComplete,
+          lighthouseError: active.lighthouseError,
           clientId: active.clientId ?? null,
         }
       : null,
@@ -330,6 +367,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
  * as `error` with a clear message so any open per-page poller stops spinning.
  */
 export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
+  // Pending/running children never got their axe results.
   await prisma.adaAudit.updateMany({
     where: {
       siteAuditId,
@@ -340,13 +378,29 @@ export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
       error: 'Audit interrupted because the site audit was stopped or restarted',
     },
   })
+  // axe-complete children have valid axe data but their PSI job was
+  // queued in-memory and never ran. Flip to error so the per-page status
+  // is terminal, and record a lighthouseError so the UI shows why LH is
+  // missing. The axe `result` column is preserved.
+  await prisma.adaAudit.updateMany({
+    where: {
+      siteAuditId,
+      status: 'axe-complete',
+    },
+    data: {
+      status: 'error',
+      error: 'Audit interrupted because the site audit was stopped or restarted',
+      lighthouseError: 'Lighthouse interrupted because the site audit was stopped or restarted',
+    },
+  })
 }
 
 /**
  * Same idea as failOrphanAdaAudits, but for the PdfAudit table. When a parent
- * SiteAudit is interrupted during the `pdfs-running` phase, any PdfAudit rows
- * still in `pending` or `scanning` are orphans and would otherwise sit
- * forever. PdfAudit uses `scanError` for its failure message column.
+ * SiteAudit is interrupted during the `pdfs-running` or `lighthouse-running`
+ * phase, any PdfAudit rows still in `pending` or `scanning` are orphans and
+ * would otherwise sit forever. PdfAudit uses `scanError` for its failure
+ * message column.
  */
 export async function failOrphanPdfAudits(siteAuditId: string): Promise<void> {
   await prisma.pdfAudit.updateMany({
@@ -362,7 +416,7 @@ export async function failOrphanPdfAudits(siteAuditId: string): Promise<void> {
 }
 
 /**
- * Resets audits stuck in 'running' or 'pdfs-running' with no DB activity for
+ * Resets audits stuck in 'running', 'pdfs-running', or 'lighthouse-running' with no DB activity for
  * 5+ minutes. Called periodically from instrumentation.ts and on startup.
  */
 export async function resetStaleAudits() {
@@ -370,7 +424,7 @@ export async function resetStaleAudits() {
   const staleThreshold = new Date(Date.now() - STALE_MS)
   const stale = await prisma.siteAudit.findMany({
     where: {
-      status: { in: ['running', 'pdfs-running'] },
+      status: { in: ['running', 'pdfs-running', 'lighthouse-running'] },
       updatedAt: { lt: staleThreshold },
     },
     select: { id: true, batchId: true },
@@ -395,8 +449,8 @@ export async function resetStaleAudits() {
  *
  * Unlike resetStaleAudits (which runs during normal operation and uses a
  * 5-minute staleness threshold), startup recovery makes the strong assumption
- * that ANY SiteAudit in `running` or `pdfs-running` is orphaned — the previous
- * Node process is gone and its in-memory page-work state with it. So every
+ * that ANY SiteAudit in `running`, `pdfs-running`, or `lighthouse-running` is orphaned — the previous
+ * Node process is gone and its in-memory page-work state (and the in-process PSI queue) with it. So every
  * such row is flipped to `error` immediately, no threshold. Both AdaAudit and
  * PdfAudit child rows are cascade-failed alongside.
  *
@@ -406,7 +460,7 @@ export async function resetStaleAudits() {
 export async function recoverQueue() {
   const orphans = await prisma.siteAudit.findMany({
     where: {
-      status: { in: ['running', 'pdfs-running'] },
+      status: { in: ['running', 'pdfs-running', 'lighthouse-running'] },
     },
     select: { id: true, batchId: true },
   })

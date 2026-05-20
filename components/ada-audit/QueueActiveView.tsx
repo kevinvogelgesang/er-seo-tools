@@ -9,6 +9,7 @@ const POLL_MS = 5_000
 const STATUS_RANK: Record<string, number> = {
   running: 0,
   'pdfs-running': 1,
+  'lighthouse-running': 1,
   queued: 2,
   pending: 2,
   complete: 3,
@@ -121,7 +122,7 @@ export default function QueueActiveView() {
   const counts = (detail?.members ?? []).reduce(
     (acc, m) => {
       if (m.status === 'queued' || m.status === 'pending') acc.queued++
-      else if (m.status === 'running' || m.status === 'pdfs-running') acc.running++
+      else if (m.status === 'running' || m.status === 'pdfs-running' || m.status === 'lighthouse-running') acc.running++
       else if (m.status === 'complete') acc.complete++
       else if (m.status === 'error') acc.errored++
       else if (m.status === 'cancelled') acc.cancelled++

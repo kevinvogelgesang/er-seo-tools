@@ -63,7 +63,7 @@ export async function GET(
   let activeAudit: { id: string; domain: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null = null
   if (audit.status === 'queued') {
     activeAudit = await prisma.siteAudit.findFirst({
-      where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
+      where: { status: { in: ['running', 'pending', 'pdfs-running', 'lighthouse-running'] } },
       select: { id: true, domain: true, pagesTotal: true, pagesComplete: true, pagesError: true },
     })
   }
@@ -84,6 +84,9 @@ export async function GET(
     pdfsTotal: audit.pdfsTotal,
     pdfsComplete: audit.pdfsComplete,
     pdfsError: audit.pdfsError,
+    lighthouseTotal: audit.lighthouseTotal,
+    lighthouseComplete: audit.lighthouseComplete,
+    lighthouseError: audit.lighthouseError,
     queuePosition,
     activeAudit,
   } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit })

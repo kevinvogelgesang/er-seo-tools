@@ -14,7 +14,7 @@
 import { prisma } from '@/lib/db'
 
 /** Statuses that count as "in flight" — a batch with any such member stays open. */
-const IN_FLIGHT_STATUSES = ['queued', 'pending', 'running', 'pdfs-running']
+const IN_FLIGHT_STATUSES = ['queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running']
 
 interface BatchForLabel {
   id: string
@@ -79,7 +79,7 @@ export async function closeBatchIfDrained(batchId: string | null | undefined): P
       AND NOT EXISTS (
         SELECT 1 FROM "SiteAudit"
         WHERE "SiteAudit"."batchId" = ${batchId}
-          AND "SiteAudit"."status" IN ('queued', 'pending', 'running', 'pdfs-running')
+          AND "SiteAudit"."status" IN ('queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running')
       )
   `
 }

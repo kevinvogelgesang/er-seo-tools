@@ -61,7 +61,7 @@ describe('POST /api/site-audit/[id]/cancel', () => {
     expect(closeBatchIfDrained).not.toHaveBeenCalled()
   })
 
-  it.each(['running', 'pdfs-running', 'complete', 'error', 'cancelled', 'pending'])(
+  it.each(['running', 'pdfs-running', 'lighthouse-running', 'complete', 'error', 'cancelled', 'pending'])(
     'returns 409 with current status when audit is %s (no write, no batch close)',
     async (status) => {
       vi.mocked(prisma.siteAudit.findUnique).mockResolvedValue({

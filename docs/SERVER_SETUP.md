@@ -770,4 +770,5 @@ ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA inte
 | `SITE_AUDIT_BROWSER_RECYCLE_PAGES` | `15` | Restart Chrome after this many site-audit pages to reclaim browser memory |
 | `LIGHTHOUSE_PROVIDER` | `pagespeed` | `pagespeed` (default in prod), `local`, or `off` |
 | `PAGESPEED_API_KEY` | (none) | Google Cloud key for PageSpeed Insights API; raises quota from keyless to 25k/day |
+| `PSI_CONCURRENCY` | `6` | Max concurrent PageSpeed Insights HTTP fetches during a site audit. Cheap (I/O-bound). Raising hits Google's PSI rate limit before local resources matter. |
 | `NODE_ENV` | `production` | Set by PM2 config |

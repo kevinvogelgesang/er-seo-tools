@@ -13,7 +13,20 @@ interface Client {
 }
 
 interface QueueStatus {
-  active: { id: string; domain: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null
+  active: {
+    id: string
+    domain: string
+    status: string
+    pagesTotal: number
+    pagesComplete: number
+    pagesError: number
+    pdfsTotal: number
+    pdfsComplete: number
+    pdfsError: number
+    lighthouseTotal: number
+    lighthouseComplete: number
+    lighthouseError: number
+  } | null
   queued: { id: string; domain: string; position: number }[]
 }
 
@@ -311,17 +324,56 @@ export default function SiteAuditForm() {
         <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl px-4 py-3 space-y-2">
           {queueStatus.active && (() => {
             const a = queueStatus.active
-            const scanned = a.pagesComplete + a.pagesError
-            const pct = a.pagesTotal > 0 ? Math.round((scanned / a.pagesTotal) * 100) : 0
+            // Phase-aware banner: during pdfs-running and lighthouse-running,
+            // axe pages are already at 100%; show the active drain phase's
+            // progress instead so the banner doesn't lie about "100% complete"
+            // for the 3-8 minutes of tail-drain.
+            const phase: 'pages' | 'pdfs' | 'lighthouse' =
+              a.status === 'lighthouse-running' ? 'lighthouse'
+              : a.status === 'pdfs-running' ? 'pdfs'
+              : 'pages'
+
+            const { label, complete, total, pct } =
+              phase === 'lighthouse'
+                ? {
+                    label: 'Running Lighthouse',
+                    complete: a.lighthouseComplete + a.lighthouseError,
+                    total: a.lighthouseTotal,
+                    pct: a.lighthouseTotal > 0
+                      ? Math.round(((a.lighthouseComplete + a.lighthouseError) / a.lighthouseTotal) * 100)
+                      : 0,
+                  }
+                : phase === 'pdfs'
+                ? {
+                    label: 'Scanning PDFs',
+                    complete: a.pdfsComplete + a.pdfsError,
+                    total: a.pdfsTotal,
+                    pct: a.pdfsTotal > 0
+                      ? Math.round(((a.pdfsComplete + a.pdfsError) / a.pdfsTotal) * 100)
+                      : 0,
+                  }
+                : {
+                    label: 'Currently scanning',
+                    complete: a.pagesComplete + a.pagesError,
+                    total: a.pagesTotal,
+                    pct: a.pagesTotal > 0
+                      ? Math.round(((a.pagesComplete + a.pagesError) / a.pagesTotal) * 100)
+                      : 0,
+                  }
+
+            const unit = phase === 'pages' ? 'pages' : phase === 'pdfs' ? 'PDFs' : 'pages'
+
             return (
               <div className="space-y-1.5">
                 <p className="text-[12px] font-body font-semibold text-blue-800 dark:text-blue-300">
-                  Currently scanning: {a.domain}
+                  {label}: {a.domain}
                   <span className="font-normal text-blue-600/60 dark:text-blue-400/60 ml-2">
-                    {a.pagesTotal > 0 ? `${scanned}/${a.pagesTotal} pages (${pct}%)` : 'Discovering pages…'}
+                    {total > 0
+                      ? `${complete}/${total} ${unit} (${pct}%)`
+                      : phase === 'pages' ? 'Discovering pages…' : `Awaiting ${unit}…`}
                   </span>
                 </p>
-                {a.pagesTotal > 0 && (
+                {total > 0 && (
                   <div className="w-full bg-blue-200/50 dark:bg-blue-500/20 rounded-full h-1.5 overflow-hidden">
                     <div className="bg-blue-500 dark:bg-blue-400 h-1.5 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
                   </div>

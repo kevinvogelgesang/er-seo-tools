@@ -107,6 +107,9 @@ export async function GET(request: NextRequest) {
       summary,
       score,
       wcagLevel,
+      lighthouseTotal: a.lighthouseTotal,
+      lighthouseComplete: a.lighthouseComplete,
+      lighthouseError: a.lighthouseError,
     } satisfies SiteAuditDetail & { score: number | null; wcagLevel: string }
   })
 

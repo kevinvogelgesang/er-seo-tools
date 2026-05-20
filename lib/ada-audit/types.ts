@@ -141,6 +141,9 @@ export interface SiteAuditDetail {
   pdfsTotal?: number
   pdfsComplete?: number
   pdfsError?: number
+  lighthouseTotal: number
+  lighthouseComplete: number
+  lighthouseError: number
 }
 
 // ── Pagination ─────────────────────────────────────────────────────────────
@@ -185,7 +188,7 @@ export interface AuditBatchMember {
   domain: string
   clientId: number | null
   clientName: string | null
-  status: string             // queued | running | pdfs-running | complete | error
+  status: string             // queued | running | pdfs-running | lighthouse-running | complete | error
   pagesTotal: number
   pagesComplete: number
   pagesError: number
@@ -211,10 +214,16 @@ export interface QueueStatusWithBatch {
   active: {
     id: string
     domain: string
-    status: string             // running | pdfs-running | pending
+    status: string             // running | pdfs-running | lighthouse-running | pending
     pagesTotal: number
     pagesComplete: number
     pagesError: number
+    pdfsTotal: number
+    pdfsComplete: number
+    pdfsError: number
+    lighthouseTotal: number
+    lighthouseComplete: number
+    lighthouseError: number
     clientId: number | null
   } | null
   queued: {
