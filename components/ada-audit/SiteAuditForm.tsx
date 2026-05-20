@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { Spinner } from '@/components/Spinner'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
+import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
+import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 
 interface Client {
   id: number
@@ -12,25 +14,13 @@ interface Client {
   domains: string[]
 }
 
-interface QueueStatus {
-  active: {
-    id: string
-    domain: string
-    status: string
-    pagesTotal: number
-    pagesComplete: number
-    pagesError: number
-    pdfsTotal: number
-    pdfsComplete: number
-    pdfsError: number
-    lighthouseTotal: number
-    lighthouseComplete: number
-    lighthouseError: number
-  } | null
-  queued: { id: string; domain: string; position: number }[]
+interface Props {
+  /** Lifted queue snapshot fed from the parent's 5s poll. `null` until the
+   *  first poll resolves; banner stays hidden in that case. */
+  queueStatus: QueueStatusWithBatch | null
 }
 
-export default function SiteAuditForm() {
+export default function SiteAuditForm({ queueStatus }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -68,21 +58,8 @@ export default function SiteAuditForm() {
   const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null)
   const [discoveredDomain, setDiscoveredDomain] = useState<string | null>(null)
 
-  // Queue status polling
-  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null)
-  const queueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    const fetchQueue = async () => {
-      try {
-        const res = await fetch('/api/site-audit/queue')
-        if (res.ok) setQueueStatus(await res.json())
-      } catch { /* ignore */ }
-    }
-    void fetchQueue()
-    queueTimerRef.current = setInterval(fetchQueue, 5000)
-    return () => { if (queueTimerRef.current) clearInterval(queueTimerRef.current) }
-  }, [])
+  // queueStatus is owned by AuditIndexTabs and arrives via props. No local
+  // poll, no setInterval.
 
   const inputRef = useRef<HTMLInputElement>(null)
   const { query, setQuery, open, setOpen, comboRef, filtered } = useClientCombobox(clients, selectedClient?.name ?? null)
@@ -324,45 +301,7 @@ export default function SiteAuditForm() {
         <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl px-4 py-3 space-y-2">
           {queueStatus.active && (() => {
             const a = queueStatus.active
-            // Phase-aware banner: during pdfs-running and lighthouse-running,
-            // axe pages are already at 100%; show the active drain phase's
-            // progress instead so the banner doesn't lie about "100% complete"
-            // for the 3-8 minutes of tail-drain.
-            const phase: 'pages' | 'pdfs' | 'lighthouse' =
-              a.status === 'lighthouse-running' ? 'lighthouse'
-              : a.status === 'pdfs-running' ? 'pdfs'
-              : 'pages'
-
-            const { label, complete, total, pct } =
-              phase === 'lighthouse'
-                ? {
-                    label: 'Running Lighthouse',
-                    complete: a.lighthouseComplete + a.lighthouseError,
-                    total: a.lighthouseTotal,
-                    pct: a.lighthouseTotal > 0
-                      ? Math.round(((a.lighthouseComplete + a.lighthouseError) / a.lighthouseTotal) * 100)
-                      : 0,
-                  }
-                : phase === 'pdfs'
-                ? {
-                    label: 'Scanning PDFs',
-                    complete: a.pdfsComplete + a.pdfsError,
-                    total: a.pdfsTotal,
-                    pct: a.pdfsTotal > 0
-                      ? Math.round(((a.pdfsComplete + a.pdfsError) / a.pdfsTotal) * 100)
-                      : 0,
-                  }
-                : {
-                    label: 'Currently scanning',
-                    complete: a.pagesComplete + a.pagesError,
-                    total: a.pagesTotal,
-                    pct: a.pagesTotal > 0
-                      ? Math.round(((a.pagesComplete + a.pagesError) / a.pagesTotal) * 100)
-                      : 0,
-                  }
-
-            const unit = phase === 'pages' ? 'pages' : phase === 'pdfs' ? 'PDFs' : 'pages'
-
+            const { label, complete, total, pct, unit } = computeActivePhaseSummary(a)
             return (
               <div className="space-y-1.5">
                 <p className="text-[12px] font-body font-semibold text-blue-800 dark:text-blue-300">
@@ -370,7 +309,7 @@ export default function SiteAuditForm() {
                   <span className="font-normal text-blue-600/60 dark:text-blue-400/60 ml-2">
                     {total > 0
                       ? `${complete}/${total} ${unit} (${pct}%)`
-                      : phase === 'pages' ? 'Discovering pages…' : `Awaiting ${unit}…`}
+                      : unit === 'pages' ? 'Discovering pages…' : `Awaiting ${unit}…`}
                   </span>
                 </p>
                 {total > 0 && (

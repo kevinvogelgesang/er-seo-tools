@@ -7,6 +7,10 @@ import SiteAuditForm from './SiteAuditForm'
 import AuditHistory from './AuditHistory'
 import SiteAuditHistory from './SiteAuditHistory'
 import ClientsAuditSummary from './ClientsAuditSummary'
+import DashboardQueueStatus from './DashboardQueueStatus'
+import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
+
+const QUEUE_POLL_INTERVAL_MS = 5000
 
 type Tab = 'single' | 'site'
 
@@ -35,6 +39,27 @@ export default function AuditIndexTabs() {
     if (explicit) setTab(parseTab(explicit))
     else if (searchParams.get('prefillDomain')) setTab('site')
   }, [searchParams])
+
+  // Lifted queue poll — single 5s interval feeds DashboardQueueStatus,
+  // SiteAuditForm (banner), and SiteAuditHistory (in-flight row merge).
+  // Replaces the duplicate polls that used to live in SiteAuditForm and
+  // SiteAuditHistory.
+  const [queueStatus, setQueueStatus] = useState<QueueStatusWithBatch | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const res = await fetch('/api/site-audit/queue')
+        if (!res.ok) return
+        const data = (await res.json()) as QueueStatusWithBatch
+        if (!cancelled) setQueueStatus(data)
+      } catch { /* swallow; cards hold last-known state */ }
+    }
+    void tick()
+    const timer = setInterval(tick, QUEUE_POLL_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
 
   return (
     <div className="space-y-8">
@@ -79,16 +104,19 @@ export default function AuditIndexTabs() {
           </div>
         </div>
         <div className="p-6">
-          {tab === 'single' ? <AuditForm /> : <SiteAuditForm />}
+          {tab === 'single' ? <AuditForm /> : <SiteAuditForm queueStatus={queueStatus} />}
         </div>
       </div>
 
-      {/* Clients section — between New Audit and Recents */}
+      {/* Queue status — Current Scan + Queue cards, between New Audit and Clients */}
+      <DashboardQueueStatus queueStatus={queueStatus} />
+
+      {/* Clients section */}
       <ClientsAuditSummary />
 
       {/* History tables — each component renders its own card via PaginatedSection */}
       <AuditHistory />
-      <SiteAuditHistory />
+      <SiteAuditHistory queueStatus={queueStatus} />
     </div>
   )
 }
