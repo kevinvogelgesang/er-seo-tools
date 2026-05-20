@@ -5,6 +5,7 @@ import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers'
 import type { AuditListItem, AuditScorecard } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
+import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -108,8 +109,10 @@ export async function POST(request: NextRequest) {
   })
   const clientId = matchedClient?.id ?? null
 
+  const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+
   const audit = await prisma.adaAudit.create({
-    data: { url: parsed.toString(), status: 'pending', clientId, wcagLevel },
+    data: { url: parsed.toString(), status: 'pending', clientId, wcagLevel, requestedBy },
   })
 
   // Fire-and-forget: audit runs in background, route returns immediately.

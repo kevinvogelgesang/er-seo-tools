@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { queueSiteAuditRequest } from '@/lib/ada-audit/queue-request'
+import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,11 +30,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+
   const result = await queueSiteAuditRequest({
     domain,
     clientId,
     wcagLevel,
     preDiscoveredUrls: rawPreDiscoveredUrls,
+    requestedBy,
   })
 
   if (result.kind === 'invalid') {
