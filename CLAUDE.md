@@ -72,7 +72,7 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - `domElementCount` stored in result JSON — values < 50 trigger an "unreliable result" warning (JS-rendered SPA)
 - Score formula: weighted penalty per impact level ÷ log10(totalElements), floor 0
 - `shareToken` on `AdaAudit` enables public read-only view at `/ada-audit/share/[token]`
-- Site audits discover pages via robots.txt `Sitemap:` directives → `/sitemap.xml` → `/sitemap_index.xml` → `/wp-sitemap.xml` → `.xml.gz` → shallow crawl fallback; hard cap 1000 pages; page concurrency defaults to 1 (`SITE_AUDIT_CONCURRENCY`)
+- Site audits discover pages via robots.txt `Sitemap:` directives → `/sitemap.xml` → `/sitemap_index.xml` → `/wp-sitemap.xml` → `.xml.gz` → shallow crawl fallback; hard cap 1000 pages; per-site concurrency = 2 (configurable via `SITE_AUDIT_CONCURRENCY`), browser pool size = 4 (configurable via `BROWSER_POOL_SIZE`), Chrome recycles every 15 pages within a site audit
 - **Queue:** site audits enter `queued` status (FIFO), only one runs at a time; `discoveredUrls` stored as JSON on the SiteAudit row so queued audits don't re-crawl
 - **Results views:** sort/filter toolbar (impact pills, sort dropdown), table vs sitemap tree toggle, paginated at 50 rows, clean pages in separate collapsible section
 - Chrome executable path: `/usr/bin/google-chrome` (override with `CHROME_EXECUTABLE` env var)
@@ -82,4 +82,4 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - Add Claude AI analysis features — requires separate Anthropic API billing not currently set up
 - Use `npm ci` on production (RunCloud uses `npm install`)
 - Trust request origin headers for share URLs — use `NEXT_PUBLIC_APP_URL`
-- Increase browser pool size (`BROWSER_POOL_SIZE`) or site audit page concurrency (`SITE_AUDIT_CONCURRENCY`) without checking VPS memory — Lighthouse + axe can make each page slot heavy
+- Increase `BROWSER_POOL_SIZE` above 4 without first checking VPS memory headroom — each Chrome page is ~150-200 MB resident
