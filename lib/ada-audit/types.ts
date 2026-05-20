@@ -185,7 +185,7 @@ export interface AuditBatchMember {
   domain: string
   clientId: number | null
   clientName: string | null
-  status: string             // queued | running | pdfs-running | complete | error
+  status: string             // queued | running | pdfs-running | lighthouse-running | complete | error
   pagesTotal: number
   pagesComplete: number
   pagesError: number

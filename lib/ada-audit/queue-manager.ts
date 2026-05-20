@@ -2,16 +2,18 @@
  * Global site audit queue manager.
  *
  * Only one site audit holds the queue slot at a time. The slot is held for
- * BOTH the 'running' phase (pages in flight) and the 'pdfs-running' phase
- * (PDF scans still settling after the last page completed). The slot is
- * released via `finalizeSiteAudit` (in site-audit-finalizer.ts), which is the
- * sole place that flips a SiteAudit to 'complete' and kicks `processNext`.
+ * the 'running' phase (pages in flight), the 'pdfs-running' phase (PDF scans
+ * still settling after the last page completed), and the 'lighthouse-running'
+ * phase (PageSpeed Insights jobs still draining). The slot is released via
+ * `finalizeSiteAudit` (in site-audit-finalizer.ts), which is the sole place
+ * that flips a SiteAudit to 'complete' and kicks `processNext`.
  *
- * Status transitions: queued → running → pdfs-running → complete
- *                                     ↓ (no PDFs at all)
- *                                     complete
- *                                     ↓ (top-level error)
- *                                     error
+ * Status transitions:
+ *   queued → running → (pdfs-running | lighthouse-running) → complete
+ *                   ↓ (no PDFs and no LH outstanding)
+ *                   complete
+ *                   ↓ (top-level error)
+ *                   error
  */
 
 import { prisma } from '@/lib/db'
@@ -168,12 +170,12 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
  * Only one instance of this loop runs at a time (guarded by `processing` flag).
  *
  * Note: runAudit() returns once page work is done, even if PDFs are still
- * scanning (status = pdfs-running). The "active?" check below treats
- * pdfs-running as still holding the queue slot, so a subsequent processNext()
- * invocation bails. The post-PDF-settle path in pdf-orchestrator calls
- * finalizeSiteAudit and then kicks processNext() itself once truly done
- * (finalizer is a leaf module with no queue-manager import — keeps the
- * dependency graph acyclic).
+ * scanning (status = pdfs-running) or PSI jobs are still draining
+ * (status = lighthouse-running). The "active?" check below treats both as
+ * still holding the queue slot, so a subsequent processNext() invocation
+ * bails. The post-PDF-settle path in pdf-orchestrator and the post-PSI-settle
+ * path in lighthouse-queue both call finalizeSiteAudit, which kicks
+ * processNext() once the drain predicate (pages + pdfs + lighthouse) is met.
  */
 export async function processNext() {
   if (processing) return
@@ -368,9 +370,10 @@ export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
 
 /**
  * Same idea as failOrphanAdaAudits, but for the PdfAudit table. When a parent
- * SiteAudit is interrupted during the `pdfs-running` phase, any PdfAudit rows
- * still in `pending` or `scanning` are orphans and would otherwise sit
- * forever. PdfAudit uses `scanError` for its failure message column.
+ * SiteAudit is interrupted during the `pdfs-running` or `lighthouse-running`
+ * phase, any PdfAudit rows still in `pending` or `scanning` are orphans and
+ * would otherwise sit forever. PdfAudit uses `scanError` for its failure
+ * message column.
  */
 export async function failOrphanPdfAudits(siteAuditId: string): Promise<void> {
   await prisma.pdfAudit.updateMany({
