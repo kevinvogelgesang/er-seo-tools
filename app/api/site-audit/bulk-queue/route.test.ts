@@ -77,6 +77,35 @@ describe('POST /api/site-audit/bulk-queue', () => {
     ])
   })
 
+  it('forwards er-operator-name cookie as requestedBy to queueSiteAuditRequest', async () => {
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
+    ] as never)
+    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
+
+    const reqWithCookie = new NextRequest('http://localhost/api/site-audit/bulk-queue', { method: 'POST' })
+    reqWithCookie.cookies.set('er-operator-name', 'Kevin')
+
+    const res = await POST(reqWithCookie)
+    expect(res.status).toBe(200)
+    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedBy: 'Kevin' }),
+    )
+  })
+
+  it('passes requestedBy=null when cookie is absent', async () => {
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
+    ] as never)
+    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
+
+    const res = await POST(req())
+    expect(res.status).toBe(200)
+    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedBy: null }),
+    )
+  })
+
   it('treats clients with whitespace-only domain entries as missing-domain', async () => {
     vi.mocked(prisma.client.findMany).mockResolvedValue([
       { id: 1, name: 'Whitespace', domains: JSON.stringify(['   ', '']) },
