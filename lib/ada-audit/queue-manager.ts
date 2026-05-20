@@ -416,7 +416,7 @@ export async function failOrphanPdfAudits(siteAuditId: string): Promise<void> {
 }
 
 /**
- * Resets audits stuck in 'running' or 'pdfs-running' with no DB activity for
+ * Resets audits stuck in 'running', 'pdfs-running', or 'lighthouse-running' with no DB activity for
  * 5+ minutes. Called periodically from instrumentation.ts and on startup.
  */
 export async function resetStaleAudits() {
@@ -449,8 +449,8 @@ export async function resetStaleAudits() {
  *
  * Unlike resetStaleAudits (which runs during normal operation and uses a
  * 5-minute staleness threshold), startup recovery makes the strong assumption
- * that ANY SiteAudit in `running` or `pdfs-running` is orphaned — the previous
- * Node process is gone and its in-memory page-work state with it. So every
+ * that ANY SiteAudit in `running`, `pdfs-running`, or `lighthouse-running` is orphaned — the previous
+ * Node process is gone and its in-memory page-work state (and the in-process PSI queue) with it. So every
  * such row is flipped to `error` immediately, no threshold. Both AdaAudit and
  * PdfAudit child rows are cascade-failed alongside.
  *
