@@ -222,9 +222,6 @@ export default function SiteAuditResultsView({
 
       <KnownLimitationsNotice variant="site" />
 
-      {/* PDFs found across the site */}
-      <PdfIssuesSection pdfs={pdfs} />
-
       {/* Pages section */}
       <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
         {/* Section header */}
@@ -343,6 +340,9 @@ export default function SiteAuditResultsView({
 
       {/* Clean pages */}
       <CleanPagesSection pages={cleanPages} />
+
+      {/* PDF accessibility issues — supplementary artifact list at the bottom */}
+      <PdfIssuesSection pdfs={pdfs} />
     </div>
   )
 }
