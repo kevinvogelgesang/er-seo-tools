@@ -37,7 +37,10 @@ describe('queueSiteAuditRequest', () => {
     expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
     expect(queueManager.enqueueAudit).toHaveBeenCalledTimes(1)
     expect(queueManager.enqueueAudit).toHaveBeenCalledWith(
-      'qr-test-fresh.example', 42, 'wcag21aa', undefined,
+      'qr-test-fresh.example',
+      42,
+      'wcag21aa',
+      { preDiscoveredUrls: undefined, requestedBy: null },
     )
   })
 
@@ -76,7 +79,10 @@ describe('queueSiteAuditRequest', () => {
     })
     expect(r.kind).toBe('queued')
     expect(queueManager.enqueueAudit).toHaveBeenCalledWith(
-      'qr-test-norm.example', null, 'wcag21aa', undefined,
+      'qr-test-norm.example',
+      null,
+      'wcag21aa',
+      { preDiscoveredUrls: undefined, requestedBy: null },
     )
   })
 })

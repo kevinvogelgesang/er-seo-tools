@@ -245,16 +245,27 @@ export async function processNext() {
 
 // ─── Enqueue ─────────────────────────────────────────────────────────────────
 
+export interface EnqueueAuditOptions {
+  preDiscoveredUrls?: string[]
+  requestedBy?: string | null
+}
+
 /**
  * Queue a new site audit. Creates the DB record in 'queued' status,
  * stores pre-discovered URLs if available, then kicks the processor.
+ *
+ * Optional fields live in an options object so the call signature stays
+ * stable when we add more (avoids the trap of "the fourth positional arg
+ * just changed meaning").
  */
 export async function enqueueAudit(
   domain: string,
   clientId: number | null,
   wcagLevel: string,
-  preDiscoveredUrls?: string[],
+  opts: EnqueueAuditOptions = {},
 ): Promise<{ id: string; status: string }> {
+  const { preDiscoveredUrls, requestedBy } = opts
+
   // Attach to the open batch (or create one). `ensureOpenBatch` handles the
   // race-safe creation via the partial unique index.
   const batchId = await ensureOpenBatch()
@@ -267,6 +278,7 @@ export async function enqueueAudit(
       wcagLevel,
       discoveredUrls: preDiscoveredUrls ? JSON.stringify(preDiscoveredUrls) : null,
       batchId,
+      requestedBy: requestedBy ?? null,
     },
   })
 
