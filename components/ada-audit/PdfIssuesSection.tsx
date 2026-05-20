@@ -95,14 +95,6 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [pdfPage, setPdfPage] = useState(1)
 
-  // Defend against `pdfs` shrinking via prop change (parent re-fetch). If the
-  // current page is now out of range, reset to 1 on the next render.
-  useEffect(() => {
-    if ((pdfPage - 1) * PDF_PAGE_SIZE >= pdfs.length && pdfPage !== 1) {
-      setPdfPage(1)
-    }
-  }, [pdfs.length, pdfPage])
-
   // When the user navigates to a different page, start every visible card
   // collapsed. Avoids a card opened on a previous page bleeding through.
   useEffect(() => {
@@ -112,7 +104,19 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
   if (pdfs.length === 0) return null
 
   const totalPdfPages = Math.max(1, Math.ceil(pdfs.length / PDF_PAGE_SIZE))
-  const pdfStart = (pdfPage - 1) * PDF_PAGE_SIZE
+
+  // Clamp `pdfPage` to the valid range *for this render*. If `pdfs.length`
+  // shrinks via prop change, deriving the slice from a stale `pdfPage` would
+  // briefly render an empty list and an impossible footer ("Showing 16–9 of
+  // 9 PDFs"). Effect-based reset would fire too late.
+  const effectivePdfPage = Math.min(pdfPage, totalPdfPages)
+  if (effectivePdfPage !== pdfPage) {
+    // Sync state for subsequent interactions (Prev/Next/numbered buttons),
+    // but only on render-detected drift. Safe because setPdfPage during
+    // render is allowed in React 18+ when the new value differs.
+    setPdfPage(effectivePdfPage)
+  }
+  const pdfStart = (effectivePdfPage - 1) * PDF_PAGE_SIZE
   const visiblePdfs = pdfs.slice(pdfStart, pdfStart + PDF_PAGE_SIZE)
 
   const copyAll = async () => {
@@ -272,7 +276,10 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
       </div>
 
       {pdfs.length > PDF_PAGE_SIZE && (
-        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
+        <nav
+          aria-label="PDF pagination"
+          className="flex items-center justify-between px-6 py-3 border-t border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50"
+        >
           <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
             Showing {pdfStart + 1}–{Math.min(pdfStart + PDF_PAGE_SIZE, pdfs.length)} of {pdfs.length} PDFs
           </span>
@@ -280,35 +287,42 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
             <button
               type="button"
               onClick={() => setPdfPage((p) => Math.max(1, p - 1))}
-              disabled={pdfPage === 1}
+              disabled={effectivePdfPage === 1}
+              aria-label="Previous PDF page"
               className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               Prev
             </button>
-            {Array.from({ length: totalPdfPages }, (_, i) => i + 1).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPdfPage(p)}
-                className={`px-2.5 py-1 text-[12px] font-body rounded border transition-colors ${
-                  p === pdfPage
-                    ? 'border-orange bg-orange/10 text-orange font-semibold'
-                    : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+            {Array.from({ length: totalPdfPages }, (_, i) => i + 1).map((p) => {
+              const isActive = p === effectivePdfPage
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPdfPage(p)}
+                  aria-label={`Go to PDF page ${p}`}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`px-2.5 py-1 text-[12px] font-body rounded border transition-colors ${
+                    isActive
+                      ? 'border-orange bg-orange/10 text-orange font-semibold'
+                      : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light'
+                  }`}
+                >
+                  {p}
+                </button>
+              )
+            })}
             <button
               type="button"
               onClick={() => setPdfPage((p) => Math.min(totalPdfPages, p + 1))}
-              disabled={pdfPage === totalPdfPages}
+              disabled={effectivePdfPage === totalPdfPages}
+              aria-label="Next PDF page"
               className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               Next
             </button>
           </div>
-        </div>
+        </nav>
       )}
     </div>
   )
