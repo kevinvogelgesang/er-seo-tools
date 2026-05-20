@@ -765,8 +765,8 @@ ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA inte
 | `UPLOADS_DIR` | `/home/seo/data/seo-tools/uploads` | File upload directory |
 | `PORT` | `3000` | Next.js listen port |
 | `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Headless Chrome path |
-| `BROWSER_POOL_SIZE` | `2` | Max concurrent Chrome pages (default 2, do not increase without more RAM) |
-| `SITE_AUDIT_CONCURRENCY` | `1` | Concurrent pages inside one site audit; keep at 1 on small VPS hosts with Lighthouse enabled |
+| `BROWSER_POOL_SIZE` | `4` | Max concurrent Chrome pages (default 4, do not increase without more RAM) |
+| `SITE_AUDIT_CONCURRENCY` | `2` | Concurrent pages inside one site audit; raising past 2 on 2-vCPU hosts hurts more than it helps |
 | `SITE_AUDIT_BROWSER_RECYCLE_PAGES` | `15` | Restart Chrome after this many site-audit pages to reclaim browser memory |
 | `LIGHTHOUSE_PROVIDER` | `pagespeed` | `pagespeed` (default in prod), `local`, or `off` |
 | `PAGESPEED_API_KEY` | (none) | Google Cloud key for PageSpeed Insights API; raises quota from keyless to 25k/day |

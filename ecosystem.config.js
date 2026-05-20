@@ -21,8 +21,8 @@ module.exports = {
       NODE_OPTIONS: '--max-old-space-size=2048',
       // Audit-safety knobs are explicit here so `pm2 env <id>` proves
       // what the worker is using. Do not move to .env without that tradeoff.
-      BROWSER_POOL_SIZE: '2',
-      SITE_AUDIT_CONCURRENCY: '1',
+      BROWSER_POOL_SIZE: '4',
+      SITE_AUDIT_CONCURRENCY: '2',
       SITE_AUDIT_BROWSER_RECYCLE_PAGES: '15',
       LIGHTHOUSE_PROVIDER: 'pagespeed',
       PAGESPEED_TIMEOUT_MS: '150000',
