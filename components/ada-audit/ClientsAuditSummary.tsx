@@ -40,7 +40,7 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 function ChipForStatus({ status }: { status: string | undefined }) {
   if (!status) return null
-  const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : status === 'pdfs-running' ? 'Scanning PDFs' : status
+  const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : status === 'pdfs-running' ? 'Scanning PDFs' : status === 'lighthouse-running' ? 'Running Lighthouse' : status
   const color =
     status === 'queued'
       ? 'bg-gray-100 dark:bg-gray-500/15 text-gray-700 dark:text-gray-300'
@@ -167,7 +167,7 @@ export default function ClientsAuditSummary() {
   }, [])
 
   // Build a clientId -> status map for chip lookup. The active row carries the
-  // literal SiteAudit.status (running | pdfs-running | pending) — the chip
+  // literal SiteAudit.status (running | pdfs-running | lighthouse-running | pending) — the chip
   // renders the matching label.
   const inFlightByClient = useMemo(() => {
     const map = new Map<number, string>()

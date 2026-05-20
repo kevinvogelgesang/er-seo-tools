@@ -8,7 +8,7 @@ import type { PaginatedResponse, SiteAuditDetail } from '@/lib/ada-audit/types'
 
 const PAGE_SIZE = 25
 const URL_PARAM = 'recentSitesPage'
-const ACTIVE_STATUSES = ['queued', 'pending', 'running', 'pdfs-running'] as const
+const ACTIVE_STATUSES = ['queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running'] as const
 
 function ScoreBadge({ score }: { score?: number | null }) {
   if (score == null) return <span className="text-navy/25 dark:text-white/25">—</span>
@@ -121,11 +121,11 @@ export default function SiteAuditHistory() {
               ...prev,
               items: prev.items.map(a => {
                 if (queue.active && a.id === queue.active.id) {
-                  // Preserve `pdfs-running` if the row already has it — the
-                  // queue endpoint doesn't return status, and hardcoding
-                  // 'running' would visually demote rows that have moved on
-                  // to the post-pages, PDF-scanning phase.
-                  return { ...a, status: a.status === 'pdfs-running' ? 'pdfs-running' : 'running', pagesTotal: queue.active.pagesTotal, pagesComplete: queue.active.pagesComplete, pagesError: queue.active.pagesError }
+                  // Preserve `pdfs-running` or `lighthouse-running` if the row
+                  // already has it — the queue endpoint doesn't return status,
+                  // and hardcoding 'running' would visually demote rows that
+                  // have moved on to the post-pages PDF-scanning or LH phase.
+                  return { ...a, status: a.status === 'pdfs-running' || a.status === 'lighthouse-running' ? a.status : 'running', pagesTotal: queue.active.pagesTotal, pagesComplete: queue.active.pagesComplete, pagesError: queue.active.pagesError }
                 }
                 const queuedItem = queue.queued.find(q => q.id === a.id)
                 if (queuedItem && a.status !== 'queued') {

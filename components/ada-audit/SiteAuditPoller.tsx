@@ -9,6 +9,12 @@ interface PollData {
   pagesTotal: number
   pagesComplete: number
   pagesError: number
+  pdfsTotal?: number
+  pdfsComplete?: number
+  pdfsError?: number
+  lighthouseTotal?: number
+  lighthouseComplete?: number
+  lighthouseError?: number
   queuePosition: number | null
   activeAudit: {
     id: string
@@ -38,6 +44,12 @@ export default function SiteAuditPoller({
   const [pagesTotal, setPagesTotal] = useState(initialPagesTotal)
   const [pagesComplete, setPagesComplete] = useState(initialPagesComplete)
   const [pagesError, setPagesError] = useState(initialPagesError)
+  const [pdfsTotal, setPdfsTotal] = useState(0)
+  const [pdfsComplete, setPdfsComplete] = useState(0)
+  const [pdfsError, setPdfsError] = useState(0)
+  const [lighthouseTotal, setLighthouseTotal] = useState(0)
+  const [lighthouseComplete, setLighthouseComplete] = useState(0)
+  const [lighthouseError, setLighthouseError] = useState(0)
   const [status, setStatus] = useState(initialStatus)
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
   const [activeAudit, setActiveAudit] = useState<PollData['activeAudit']>(null)
@@ -55,6 +67,12 @@ export default function SiteAuditPoller({
         setPagesTotal(data.pagesTotal)
         setPagesComplete(data.pagesComplete)
         setPagesError(data.pagesError)
+        setPdfsTotal(data.pdfsTotal ?? 0)
+        setPdfsComplete(data.pdfsComplete ?? 0)
+        setPdfsError(data.pdfsError ?? 0)
+        setLighthouseTotal(data.lighthouseTotal ?? 0)
+        setLighthouseComplete(data.lighthouseComplete ?? 0)
+        setLighthouseError(data.lighthouseError ?? 0)
         setStatus(data.status)
         setQueuePosition(data.queuePosition)
         setActiveAudit(data.activeAudit)
@@ -75,6 +93,8 @@ export default function SiteAuditPoller({
   const progress = pagesTotal > 0 ? Math.round((scanned / pagesTotal) * 100) : 0
   const discovering = pagesTotal === 0 && status === 'running'
   const isQueued = status === 'queued'
+  const isPdfsRunning = status === 'pdfs-running'
+  const isLighthouseRunning = status === 'lighthouse-running'
 
   // Active audit progress (for queued state)
   const activeScanned = activeAudit ? activeAudit.pagesComplete + activeAudit.pagesError : 0
@@ -137,12 +157,23 @@ export default function SiteAuditPoller({
             <Spinner className="w-5 h-5 text-orange flex-shrink-0" />
             <div>
               <p className="font-display font-bold text-[17px] text-navy dark:text-white">
-                {discovering ? 'Discovering pages…' : 'Scanning pages…'}
+                {isPdfsRunning
+                  ? 'Scanning PDFs…'
+                  : isLighthouseRunning
+                    ? 'Running Lighthouse…'
+                    : discovering
+                      ? 'Discovering pages…'
+                      : 'Scanning pages…'
+                }
               </p>
               <p className="text-[12px] font-body text-navy/50 dark:text-white/50 mt-0.5">
-                {discovering
-                  ? 'Fetching sitemap.xml to find pages to audit'
-                  : `${scanned} of ${pagesTotal} pages scanned${pagesError > 0 ? ` · ${pagesError} error${pagesError !== 1 ? 's' : ''}` : ''}`
+                {isPdfsRunning
+                  ? `${pdfsComplete + pdfsError} of ${pdfsTotal > 0 ? pdfsTotal : '?'} PDFs scanned${pdfsError > 0 ? ` · ${pdfsError} error${pdfsError !== 1 ? 's' : ''}` : ''}`
+                  : isLighthouseRunning
+                    ? `${lighthouseComplete + lighthouseError} of ${lighthouseTotal > 0 ? lighthouseTotal : '?'} pages scored${lighthouseError > 0 ? ` · ${lighthouseError} error${lighthouseError !== 1 ? 's' : ''}` : ''}`
+                    : discovering
+                      ? 'Fetching sitemap.xml to find pages to audit'
+                      : `${scanned} of ${pagesTotal} pages scanned${pagesError > 0 ? ` · ${pagesError} error${pagesError !== 1 ? 's' : ''}` : ''}`
                 }
               </p>
             </div>
@@ -160,6 +191,18 @@ export default function SiteAuditPoller({
                 <span>{progress}%</span>
                 <span>{pagesTotal} pages total</span>
               </div>
+            </div>
+          )}
+
+          {isPdfsRunning && pdfsTotal > 0 && (
+            <div className="text-[12px] font-body text-navy/40 dark:text-white/40">
+              Scanning PDFs ({pdfsComplete + pdfsError}/{pdfsTotal})
+            </div>
+          )}
+
+          {isLighthouseRunning && lighthouseTotal > 0 && (
+            <div className="text-[12px] font-body text-navy/40 dark:text-white/40">
+              Running Lighthouse ({lighthouseComplete + lighthouseError}/{lighthouseTotal})
             </div>
           )}
 
