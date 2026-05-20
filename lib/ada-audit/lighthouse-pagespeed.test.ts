@@ -33,6 +33,8 @@ function mockFetch(response: { ok: boolean; status?: number; body?: unknown; jso
 beforeEach(() => {
   delete process.env.PAGESPEED_API_KEY
   delete process.env.PAGESPEED_TIMEOUT_MS
+  // Keep retries fast in tests. Real production base is 10s.
+  process.env.PSI_BACKOFF_BASE_MS = '1'
 })
 afterEach(() => {
   process.env = { ...ORIG }
@@ -86,14 +88,32 @@ describe('runPageSpeedInsights', () => {
     expect(callArg).not.toMatch(/[?&]key=/)
   })
 
-  it('surfaces HTTP 429 as a rate-limit error', async () => {
+  it('surfaces HTTP 429 as a rate-limit error after retries are exhausted', async () => {
     const fetchMock = mockFetch({ ok: false, status: 429, body: { error: { message: 'quota' } } })
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await runPageSpeedInsights('https://example.com/')
 
+    expect(fetchMock).toHaveBeenCalledTimes(3) // initial + 2 backoff retries
     expect(result.summary).toBeNull()
     expect(result.error).toMatch(/rate limit/i)
+  })
+
+  it('retries on HTTP 429 and returns the summary if a retry succeeds', async () => {
+    const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
+      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}), text: async () => '' } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ lighthouseResult: MINIMAL_LHR }),
+        text: async () => JSON.stringify({ lighthouseResult: MINIMAL_LHR }),
+      } as unknown as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.error).toBeUndefined()
+    expect(result.summary?.scores.performance).toBe(50)
   })
 
   it('surfaces HTTP 400 as an unfetchable-URL error', async () => {
@@ -106,13 +126,13 @@ describe('runPageSpeedInsights', () => {
     expect(result.error).toMatch(/private|blocked|unfetch|HTTP 400/i)
   })
 
-  it('surfaces HTTP 5xx as a server error', async () => {
+  it('surfaces HTTP 5xx as a server error after retries are exhausted', async () => {
     const fetchMock = mockFetch({ ok: false, status: 503, body: '' })
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await runPageSpeedInsights('https://example.com/')
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3) // initial + 2 backoff retries
     expect(result.summary).toBeNull()
     expect(result.error).toMatch(/server error|HTTP 5/i)
   })
@@ -189,7 +209,7 @@ describe('runPageSpeedInsights', () => {
     expect(result.error).toMatch(/15000ms/)
   })
 
-  it('retries once on HTTP 5xx; if the retry succeeds, returns the summary', async () => {
+  it('retries on HTTP 5xx; if the first retry succeeds, returns the summary', async () => {
     // First call: 503. Second call: 200 + valid LHR.
     const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
       .mockResolvedValueOnce({
@@ -211,15 +231,35 @@ describe('runPageSpeedInsights', () => {
     expect(result.summary?.scores.performance).toBe(50)
   })
 
-  it('retries once on HTTP 5xx; if the retry also 5xx, surfaces the error', async () => {
+  it('retries on HTTP 5xx; if the second retry succeeds, returns the summary', async () => {
+    // 502 -> 503 -> 200. Verifies we make use of the second retry slot.
     const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
       .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({}), text: async () => '' } as unknown as Response)
       .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}), text: async () => '' } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ lighthouseResult: MINIMAL_LHR }),
+        text: async () => JSON.stringify({ lighthouseResult: MINIMAL_LHR }),
+      } as unknown as Response)
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await runPageSpeedInsights('https://example.com/')
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(result.error).toBeUndefined()
+    expect(result.summary?.scores.performance).toBe(50)
+  })
+
+  it('retries on HTTP 5xx; if all retries also 5xx, surfaces the error', async () => {
+    const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
+      .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({}), text: async () => '' } as unknown as Response)
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}), text: async () => '' } as unknown as Response)
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}), text: async () => '' } as unknown as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runPageSpeedInsights('https://example.com/')
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(result.summary).toBeNull()
     expect(result.error).toMatch(/server error|HTTP 5/i)
   })
