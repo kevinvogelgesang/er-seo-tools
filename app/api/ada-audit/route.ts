@@ -176,6 +176,7 @@ export async function GET(request: NextRequest) {
       scorecard,
       score,
       wcagLevel,
+      requestedBy: a.requestedBy ?? null,
     } satisfies AuditListItem & { score: number | null; wcagLevel: string }
   })
 

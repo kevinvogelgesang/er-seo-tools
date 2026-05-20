@@ -87,6 +87,7 @@ export async function GET(
     lighthouseTotal: audit.lighthouseTotal,
     lighthouseComplete: audit.lighthouseComplete,
     lighthouseError: audit.lighthouseError,
+    requestedBy: audit.requestedBy ?? null,
     queuePosition,
     activeAudit,
   } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit })
