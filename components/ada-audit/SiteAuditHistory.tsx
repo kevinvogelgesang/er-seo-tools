@@ -25,17 +25,29 @@ function ScoreBadge({ score }: { score?: number | null }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    complete:  'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
-    error:     'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
-    running:   'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
-    pending:   'bg-gray-100 dark:bg-navy-light text-gray-600 dark:text-white/60',
-    queued:    'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
-    cancelled: 'bg-slate-100 dark:bg-slate-500/15 text-slate-600 dark:text-slate-400',
+  const colorMap: Record<string, string> = {
+    complete:          'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
+    error:             'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
+    running:           'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
+    pending:           'bg-gray-100 dark:bg-navy-light text-gray-600 dark:text-white/60',
+    queued:            'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    cancelled:         'bg-slate-100 dark:bg-slate-500/15 text-slate-600 dark:text-slate-400',
+    'pdfs-running':    'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    'lighthouse-running': 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  }
+  const labelMap: Record<string, string> = {
+    complete:          'Complete',
+    error:             'Error',
+    running:           'Running',
+    pending:           'Pending',
+    queued:            'Queued',
+    cancelled:         'Cancelled',
+    'pdfs-running':    'Scanning PDFs',
+    'lighthouse-running': 'Running Lighthouse',
   }
   return (
-    <span className={`text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${map[status] ?? map.pending}`}>
-      {status}
+    <span className={`text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${colorMap[status] ?? colorMap.pending}`}>
+      {labelMap[status] ?? status}
     </span>
   )
 }

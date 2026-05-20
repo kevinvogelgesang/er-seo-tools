@@ -89,7 +89,7 @@ export async function GET(
     lighthouseError: audit.lighthouseError,
     queuePosition,
     activeAudit,
-  } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit; lighthouseTotal: number; lighthouseComplete: number; lighthouseError: number })
+  } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit })
 }
 
 export async function DELETE(

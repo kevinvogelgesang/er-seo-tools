@@ -141,9 +141,9 @@ export interface SiteAuditDetail {
   pdfsTotal?: number
   pdfsComplete?: number
   pdfsError?: number
-  lighthouseTotal?: number
-  lighthouseComplete?: number
-  lighthouseError?: number
+  lighthouseTotal: number
+  lighthouseComplete: number
+  lighthouseError: number
 }
 
 // ── Pagination ─────────────────────────────────────────────────────────────
