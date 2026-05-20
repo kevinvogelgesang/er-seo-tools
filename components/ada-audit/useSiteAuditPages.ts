@@ -5,7 +5,7 @@ import { addScorecards, ZERO_SCORECARD } from '@/lib/ada-audit/site-audit-helper
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type SortKey = 'total' | 'critical' | 'serious' | 'url'
-export type ImpactFilter = 'all' | 'critical' | 'serious' | 'moderate' | 'minor'
+export type ImpactFilter = 'all' | 'critical' | 'serious' | 'moderate' | 'minor' | 'error'
 export type StatusFilter = 'all' | 'complete' | 'error'
 
 export interface TreeNode {
@@ -58,9 +58,17 @@ function sortPages(pages: SitePageResult[], key: SortKey): SitePageResult[] {
 
 // ─── Filtering ───────────────────────────────────────────────────────────────
 
-function filterByImpact(pages: SitePageResult[], impact: ImpactFilter): SitePageResult[] {
+export function filterByImpact(pages: SitePageResult[], impact: ImpactFilter): SitePageResult[] {
   if (impact === 'all') return pages
-  return pages.filter((p) => p.scorecard && p.scorecard[impact] > 0)
+  if (impact === 'error') return pages.filter((p) => p.status === 'error')
+  // For specific impact levels (critical/serious/moderate/minor): include pages
+  // where the impact count is > 0, AND any page where we couldn't classify
+  // (status === 'error' OR complete with null scorecard from malformed JSON).
+  // These are still "issue pages" by the hook's own classification — hiding
+  // them when the user filters by impact is the bug being fixed.
+  return pages.filter(
+    (p) => p.scorecard === null || (p.scorecard !== null && p.scorecard[impact] > 0),
+  )
 }
 
 function filterByStatus(pages: SitePageResult[], status: StatusFilter): SitePageResult[] {
@@ -155,7 +163,7 @@ function buildTree(pages: SitePageResult[], sortKey: SortKey): TreeNode {
 
 // ─── Counts ──────────────────────────────────────────────────────────────────
 
-function computeCounts(pages: SitePageResult[]): FilterCounts {
+export function computeCounts(pages: SitePageResult[]): FilterCounts {
   const counts: FilterCounts = { all: 0, critical: 0, serious: 0, moderate: 0, minor: 0, error: 0 }
   for (const p of pages) {
     if (p.status === 'error') { counts.error++; counts.all++; continue }
