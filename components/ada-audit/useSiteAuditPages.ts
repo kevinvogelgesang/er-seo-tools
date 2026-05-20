@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import type { SitePageResult, AuditScorecard } from '@/lib/ada-audit/types'
-import { addScorecards, ZERO_SCORECARD } from '@/lib/ada-audit/site-audit-helpers'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +34,6 @@ interface Options {
 interface Result {
   issuePages: SitePageResult[]
   cleanPages: SitePageResult[]
-  treeRoot: TreeNode
   counts: FilterCounts
 }
 
@@ -74,91 +72,6 @@ export function filterByImpact(pages: SitePageResult[], impact: ImpactFilter): S
 function filterByStatus(pages: SitePageResult[], status: StatusFilter): SitePageResult[] {
   if (status === 'all') return pages
   return pages.filter((p) => p.status === status)
-}
-
-// ─── Tree building ───────────────────────────────────────────────────────────
-
-function buildTree(pages: SitePageResult[], sortKey: SortKey): TreeNode {
-  const root: TreeNode = {
-    segment: '/',
-    fullPath: '/',
-    children: [],
-    pages: [],
-    aggregate: { ...ZERO_SCORECARD },
-    descendantCount: 0,
-  }
-
-  for (const page of pages) {
-    let pathname: string
-    try {
-      pathname = new URL(page.url).pathname.replace(/\/+$/, '') || '/'
-    } catch {
-      pathname = '/'
-    }
-
-    if (pathname === '/') {
-      root.pages.push(page)
-      continue
-    }
-
-    const segments = pathname.split('/').filter(Boolean)
-    let current = root
-    let pathSoFar = ''
-
-    for (let i = 0; i < segments.length; i++) {
-      pathSoFar += '/' + segments[i]
-      let child = current.children.find((c) => c.segment === segments[i])
-      if (!child) {
-        child = {
-          segment: segments[i],
-          fullPath: pathSoFar,
-          children: [],
-          pages: [],
-          aggregate: { ...ZERO_SCORECARD },
-          descendantCount: 0,
-        }
-        current.children.push(child)
-      }
-      if (i === segments.length - 1) {
-        child.pages.push(page)
-      }
-      current = child
-    }
-  }
-
-  // Post-order traversal: aggregate scorecards and counts
-  function aggregate(node: TreeNode): AuditScorecard {
-    let sc = { ...ZERO_SCORECARD }
-    node.descendantCount = node.pages.length
-    for (const page of node.pages) {
-      if (page.scorecard) sc = addScorecards(sc, page.scorecard)
-    }
-    for (const child of node.children) {
-      const childSc = aggregate(child)
-      sc = addScorecards(sc, childSc)
-      node.descendantCount += child.descendantCount
-    }
-    node.aggregate = sc
-
-    // Sort children by the active sort key
-    node.children.sort((a, b) => {
-      switch (sortKey) {
-        case 'url':
-          return a.segment.localeCompare(b.segment)
-        case 'critical':
-          return b.aggregate.critical - a.aggregate.critical
-        case 'serious':
-          return b.aggregate.serious - a.aggregate.serious
-        default:
-          return b.aggregate.total - a.aggregate.total
-      }
-    })
-
-    return sc
-  }
-
-  aggregate(root)
-  return root
 }
 
 // ─── Counts ──────────────────────────────────────────────────────────────────
@@ -209,13 +122,9 @@ export function useSiteAuditPages(pages: SitePageResult[], options: Options): Re
     // 5. Sort clean pages alphabetically
     const sortedClean = [...clean].sort((a, b) => a.url.localeCompare(b.url))
 
-    // 6. Build tree from filtered issue pages
-    const treeRoot = buildTree(filtered, sortKey)
-
     return {
       issuePages: sorted,
       cleanPages: sortedClean,
-      treeRoot,
       counts,
     }
   }, [pages, sortKey, filterImpact, filterStatus])

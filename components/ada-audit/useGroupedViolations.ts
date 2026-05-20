@@ -27,6 +27,10 @@ export function useGroupedViolations(pages: SitePageResult[], enabled: boolean) 
   useEffect(() => {
     if (!enabled) return
 
+    // Reset loaded state at the start of every (re-)fetch so the badge
+    // shows "—" instead of a stale count while the new request is in flight.
+    setLoaded(false)
+
     const issuePages = pages.filter((p) => p.status === 'complete' && p.adaAuditId)
     if (issuePages.length === 0) {
       setGroupedViolations([])

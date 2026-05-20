@@ -167,7 +167,7 @@ export default function SiteAuditResultsView({
   const [viewMode, setViewMode] = useState<'table' | 'by-violation'>('table')
   const [currentPage, setCurrentPage] = useState(1)
 
-  const { issuePages, cleanPages, treeRoot, counts } = useSiteAuditPages(summary.pages, {
+  const { issuePages, cleanPages, counts } = useSiteAuditPages(summary.pages, {
     sortKey,
     filterImpact,
     filterStatus: 'all',
@@ -190,15 +190,17 @@ export default function SiteAuditResultsView({
   const handleScorecardImpactClick = (
     impact: 'critical' | 'serious' | 'moderate' | 'minor',
   ) => {
-    setFilterImpact((current) => {
-      const isToggleOff = current === impact
-      if (!isToggleOff) {
-        pagesWithIssuesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-      return isToggleOff ? 'all' : impact
-    })
+    // Decide toggle state from the *current* render's filterImpact, then
+    // perform setters + the scroll side effect outside any state-updater
+    // callback. React state updaters must be pure (Strict Mode may run them
+    // twice, which would double-fire the scroll).
+    const isToggleOff = filterImpact === impact
+    setFilterImpact(isToggleOff ? 'all' : impact)
     setViewMode('table')
     setCurrentPage(1)
+    if (!isToggleOff) {
+      pagesWithIssuesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   }
 
   const totalTablePages = Math.ceil(issuePages.length / PAGE_SIZE)
