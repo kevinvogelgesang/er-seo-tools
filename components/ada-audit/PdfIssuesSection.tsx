@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 
 interface PdfRow {
@@ -88,10 +88,32 @@ interface Props {
   domain?: string
 }
 
+const PDF_PAGE_SIZE = 5
+
 export default function PdfIssuesSection({ pdfs, domain }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [pdfPage, setPdfPage] = useState(1)
+
+  // Defend against `pdfs` shrinking via prop change (parent re-fetch). If the
+  // current page is now out of range, reset to 1 on the next render.
+  useEffect(() => {
+    if ((pdfPage - 1) * PDF_PAGE_SIZE >= pdfs.length && pdfPage !== 1) {
+      setPdfPage(1)
+    }
+  }, [pdfs.length, pdfPage])
+
+  // When the user navigates to a different page, start every visible card
+  // collapsed. Avoids a card opened on a previous page bleeding through.
+  useEffect(() => {
+    setExpanded(new Set())
+  }, [pdfPage])
+
   if (pdfs.length === 0) return null
+
+  const totalPdfPages = Math.max(1, Math.ceil(pdfs.length / PDF_PAGE_SIZE))
+  const pdfStart = (pdfPage - 1) * PDF_PAGE_SIZE
+  const visiblePdfs = pdfs.slice(pdfStart, pdfStart + PDF_PAGE_SIZE)
 
   const copyAll = async () => {
     const text = pdfs.map(plainTextForPdf).join('\n\n')
@@ -123,9 +145,21 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
     })
   }
 
-  const allExpanded = expanded.size === pdfs.length
+  // Scope expand/collapse-all to the *currently visible* page slice. Avoids
+  // a counter-intuitive UX where "Expand all" silently expands invisible
+  // cards on other pages.
+  const allExpanded =
+    visiblePdfs.length > 0 && visiblePdfs.every((p) => expanded.has(p.url))
   const toggleAll = () => {
-    setExpanded(allExpanded ? new Set() : new Set(pdfs.map((p) => p.url)))
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (allExpanded) {
+        for (const p of visiblePdfs) next.delete(p.url)
+      } else {
+        for (const p of visiblePdfs) next.add(p.url)
+      }
+      return next
+    })
   }
 
   return (
@@ -156,7 +190,7 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
       </div>
 
       <div className="divide-y divide-gray-100 dark:divide-navy-border">
-        {pdfs.map((pdf) => {
+        {visiblePdfs.map((pdf) => {
           const filename = pdf.url.split('/').pop() ?? pdf.url
           const isOpen = expanded.has(pdf.url)
           const issueCount = pdf.scanError ? 1 : pdf.issues.length
@@ -236,6 +270,46 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
           )
         })}
       </div>
+
+      {pdfs.length > PDF_PAGE_SIZE && (
+        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
+          <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
+            Showing {pdfStart + 1}–{Math.min(pdfStart + PDF_PAGE_SIZE, pdfs.length)} of {pdfs.length} PDFs
+          </span>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setPdfPage((p) => Math.max(1, p - 1))}
+              disabled={pdfPage === 1}
+              className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Prev
+            </button>
+            {Array.from({ length: totalPdfPages }, (_, i) => i + 1).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPdfPage(p)}
+                className={`px-2.5 py-1 text-[12px] font-body rounded border transition-colors ${
+                  p === pdfPage
+                    ? 'border-orange bg-orange/10 text-orange font-semibold'
+                    : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPdfPage((p) => Math.min(totalPdfPages, p + 1))}
+              disabled={pdfPage === totalPdfPages}
+              className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
