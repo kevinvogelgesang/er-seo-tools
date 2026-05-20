@@ -12,6 +12,7 @@ vi.mock('@/lib/ada-audit/queue-manager', () => ({
 
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('./site-audit-finalizer')
+const { processNext } = await import('@/lib/ada-audit/queue-manager')
 
 async function clearTestState() {
   await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://finalize-test-' } } })
@@ -43,7 +44,10 @@ async function makeAudit(overrides: Partial<{
 }
 
 describe('finalizeSiteAudit — centralized drain predicate', () => {
-  beforeEach(clearTestState)
+  beforeEach(async () => {
+    vi.mocked(processNext).mockClear()
+    await clearTestState()
+  })
 
   it('does NOT finalize when lighthouse is still draining (pages done, lh pending)', async () => {
     const audit = await makeAudit({
@@ -54,6 +58,7 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.status).toBe('lighthouse-running')
     expect(after?.summary).toBeNull()
+    expect(processNext).not.toHaveBeenCalled()
   })
 
   it('does NOT finalize when PDFs are still draining (pages done, pdfs pending, lh done)', async () => {
@@ -66,6 +71,7 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.status).toBe('pdfs-running')
     expect(after?.summary).toBeNull()
+    expect(processNext).not.toHaveBeenCalled()
   })
 
   it('PDFs win over lighthouse for transient status when both are outstanding', async () => {
@@ -77,6 +83,7 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     await finalizeSiteAudit(audit.id)
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.status).toBe('pdfs-running')
+    expect(processNext).not.toHaveBeenCalled()
   })
 
   it('finalizes to complete when pages, PDFs, and lighthouse are all drained', async () => {
@@ -89,6 +96,7 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.status).toBe('complete')
     expect(after?.summary).not.toBeNull()
+    expect(processNext).toHaveBeenCalled()
   })
 
   it('is idempotent — calling on an already-complete audit is a no-op', async () => {
@@ -102,6 +110,7 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     await finalizeSiteAudit(audit.id)
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.summary).toBe('{"sentinel":true}')
+    expect(processNext).not.toHaveBeenCalled()
   })
 
   it('returns without changing status when pages are not done', async () => {
@@ -112,6 +121,7 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     await finalizeSiteAudit(audit.id)
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.status).toBe('running')
+    expect(processNext).not.toHaveBeenCalled()
   })
 
   it('finalizes a zero-work audit (no pages, no pdfs, no lighthouse)', async () => {
@@ -119,5 +129,6 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     await finalizeSiteAudit(audit.id)
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.status).toBe('complete')
+    expect(processNext).toHaveBeenCalled()
   })
 })

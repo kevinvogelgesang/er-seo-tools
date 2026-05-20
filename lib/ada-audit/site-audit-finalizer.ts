@@ -24,7 +24,7 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     include: { pageAudits: { include: { pdfAudits: true } } },
   })
   if (!audit) return
-  if (audit.status === 'complete' || audit.status === 'error') return
+  if (audit.status === 'complete' || audit.status === 'error' || audit.status === 'cancelled') return
 
   const pagesDone      = audit.pagesComplete + audit.pagesError >= audit.pagesTotal
   const pdfsDone       = audit.pdfsComplete + audit.pdfsError >= audit.pdfsTotal
