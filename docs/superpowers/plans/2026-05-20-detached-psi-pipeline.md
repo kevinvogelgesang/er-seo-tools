@@ -27,12 +27,20 @@
 | `lib/ada-audit/runner.ts` | Modify | Add `siteAudit?: boolean` to `RunAxeOptions`; skip inline PSI when set. |
 | `lib/ada-audit/queue-manager.ts` | Modify | Per-page sequence: axe → persist `axe-complete` + bump `lighthouseTotal` → enqueue PSI. Add `'lighthouse-running'` to all in-flight status filters. Extend `failOrphanAdaAudits` to cover `'axe-complete'`. Drop end-of-page-loop pdfs-vs-finalize decision (let finalizer own it). |
 | `lib/ada-audit/site-audit-finalizer.ts` | Modify | Centralized drain predicate: pages done && pdfs done && lighthouse done. Picks transient status (`pdfs-running` / `lighthouse-running`) when not fully drained. |
-| `lib/ada-audit/site-audit-finalizer.test.ts` | Create | Drain-predicate cases (six scenarios, see Task 7). |
+| `lib/ada-audit/site-audit-finalizer.test.ts` | Create | Drain-predicate cases (seven scenarios, see Task 6). |
 | `lib/ada-audit/pdf-orchestrator.ts` | Modify | Settle callback drops state inspection; just calls `finalizeSiteAudit`. |
 | `lib/ada-audit/queue-request.ts` | Modify | `IN_FLIGHT_STATUSES` learns `'lighthouse-running'`. |
 | `lib/ada-audit/audit-batch-helpers.ts` | Modify | `IN_FLIGHT_STATUSES` constant + raw SQL `IN(...)` clause both learn `'lighthouse-running'`. |
 | `lib/ada-audit/queue-manager.test.ts` | Modify | New tests for `failOrphanAdaAudits` on `axe-complete`, `processNext` defers to `lighthouse-running`, `recoverQueue` cascades the new status. |
 | `app/ada-audit/[id]/page.tsx` | Modify | Treat `axe-complete` like `running` for the per-page poller (in case a user navigates to a site-audit child during the LH-pending window). |
+| `app/ada-audit/site/[id]/page.tsx` | Modify | Route `lighthouse-running` (and `pdfs-running` if missing) to the SiteAuditPoller branch. |
+| `app/api/site-audit/[id]/route.ts` | Modify | Add `lighthouse-running` to the active-audit filter; include lighthouse counters in the response shape. |
+| `components/ada-audit/SiteAuditPoller.tsx` | Modify | Render the lighthouse-running phase + counters; treat the new status as non-terminal. |
+| `components/ada-audit/SiteAuditHistory.tsx` | Modify | `ACTIVE_STATUSES` includes `lighthouse-running`; smart-poll merge preserves it. |
+| `components/ada-audit/QueueActiveView.tsx` | Modify | Status-rank map + running-count tally include `lighthouse-running`. |
+| `components/ada-audit/QueueMemberRow.tsx` | Modify | Label + chip-style maps include `lighthouse-running`. |
+| `components/ada-audit/ClientsAuditSummary.tsx` | Modify | Status label ternary includes `lighthouse-running`. |
+| `app/api/site-audit/[id]/cancel/route.test.ts` | Modify | Test enumeration includes `lighthouse-running` as cancellable. |
 | `ecosystem.config.js` | Modify | Add `PSI_CONCURRENCY: '6'`. |
 | `docs/SERVER_SETUP.md` | Modify | Document `PSI_CONCURRENCY` env var. |
 | `CLAUDE.md` | Modify | Mention the new `lighthouse-running` site-audit phase + `axe-complete` AdaAudit status alongside the existing `pdfs-running` description. |
@@ -571,17 +579,34 @@ async function runJob(job: PsiJob): Promise<void> {
     lighthouseError = err instanceof Error ? err.message : String(err)
   }
 
-  // Update the AdaAudit row first, then bump the SiteAudit counter.
-  // Workers that throw inside the DB write are caught so the queue keeps draining.
+  // Conditional update on status='axe-complete'. This prevents a stale worker
+  // from resurrecting a row that recovery (resetStaleAudits / recoverQueue)
+  // already flipped to 'error'. If updateMany matches 0 rows, the row was
+  // taken from us — skip the counter bump and skip finalize.
+  let claimed = false
   try {
-    await prisma.adaAudit.update({
-      where: { id: job.adaAuditId },
+    const result = await prisma.adaAudit.updateMany({
+      where: { id: job.adaAuditId, status: 'axe-complete' },
       data: {
         status: 'complete',
         lighthouseSummary,
         lighthouseError,
       },
     })
+    claimed = result.count === 1
+  } catch (err) {
+    console.warn('[lighthouse-queue] adaAudit update failed for', job.adaAuditId, ':', (err as Error).message)
+    return  // do NOT call finalizeSiteAudit — counters weren't bumped
+  }
+
+  if (!claimed) {
+    // Row was already terminal (error / complete) — recovery beat us, or
+    // a second worker raced. Either way, don't bump counters; the orphan
+    // path already accounted for this row.
+    return
+  }
+
+  try {
     await prisma.siteAudit.update({
       where: { id: job.siteAuditId },
       data: lighthouseError && !lighthouseSummary
@@ -589,7 +614,8 @@ async function runJob(job: PsiJob): Promise<void> {
         : { lighthouseComplete: { increment: 1 } },
     })
   } catch (err) {
-    console.warn('[lighthouse-queue] DB write failed for', job.adaAuditId, ':', (err as Error).message)
+    console.warn('[lighthouse-queue] siteAudit counter bump failed for', job.siteAuditId, ':', (err as Error).message)
+    return  // do NOT call finalizeSiteAudit — the audit would wedge in lighthouse-running otherwise
   }
 
   // Centralized drain check — may finalize, or may flip to a transient phase.
@@ -830,6 +856,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 vi.mock('@/lib/ada-audit/audit-batch-helpers', () => ({
   closeBatchIfDrained: vi.fn(async () => undefined),
+}))
+// finalizeSiteAudit dynamic-imports queue-manager to kick processNext.
+// Mock it so the test doesn't pull the real queue runner (with side effects
+// and a queue-manager → finalizer cycle) into scope.
+vi.mock('@/lib/ada-audit/queue-manager', () => ({
+  processNext: vi.fn(async () => undefined),
 }))
 
 const { prisma } = await import('@/lib/db')
@@ -1170,11 +1202,21 @@ In `lib/ada-audit/queue-manager.ts`, near the existing imports (around lines 17-
 
 ```ts
 import { enqueuePsiJob } from './lighthouse-queue'
+import { getLighthouseProvider } from './lighthouse-provider'
 ```
 
 - [ ] **Step 2: Rewrite the per-page block**
 
 Find the per-page block inside `runAudit` (around lines 62-106). Current code awaits `runAxeAudit`, writes `result + lighthouseSummary + lighthouseError + status='complete'`, then bumps `pagesComplete`.
+
+The new block must respect TWO ordering invariants, both load-bearing:
+
+- **`pdfsTotal++` must land before `pagesComplete++`.** Otherwise a fast PSI return could trigger `finalizeSiteAudit` with `pagesDone=true` while the page's harvested PDFs are still being inserted, finalizing the audit before the PDF orchestrator counts them. This is the pre-existing invariant from PR #15 — `dispatchPdfScans` is awaited specifically to enforce it.
+- **`lighthouseTotal++` must land with/before `pagesComplete++`.** Otherwise a fast PSI return on this page could see `pagesDone=true` with `lighthouseTotal=0` and finalize early.
+
+The sequence that satisfies both: axe → dispatch PDFs (awaited; increments `pdfsTotal`) → transaction (axe-complete + lighthouseTotal++ + pagesComplete++) → enqueue PSI.
+
+Also: the runner currently has three provider modes (`pagespeed`, `local`, `off`). Only `pagespeed` benefits from detached PSI. `local` keeps inline LH (genuinely needs the page slot; receives `siteAudit: false`). `off` runs no LH and no PSI enqueue.
 
 Replace the inner `try` block:
 
@@ -1216,55 +1258,86 @@ with:
         try {
           await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
 
-          // siteAudit: true tells runAxeAudit to skip its inline PSI fetch
-          // (pagespeed branch). lighthouseSummary/lighthouseError will be
-          // null here; the PSI worker fills them in later.
-          const { axe, harvestedPdfUrls } = await runAxeAudit(
-            url, wcagLevel, undefined, { auditId: child.id, siteAudit: true },
+          // Detached PSI only applies to the pagespeed provider. local LH
+          // still runs inline (uses the page slot); off skips LH entirely.
+          const provider = getLighthouseProvider()
+          const detachPsi = provider === 'pagespeed'
+
+          // runAxeAudit's siteAudit flag suppresses its inline PSI fetch
+          // (pagespeed branch only). In local/off modes, the flag is false
+          // and the existing inline behavior is preserved.
+          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+            url, wcagLevel, undefined, { auditId: child.id, siteAudit: detachPsi },
           )
 
-          // CRITICAL ORDERING:
-          //   1. Persist axe-complete + result, bump lighthouseTotal, bump
-          //      pagesComplete — all in one transaction so finalizeSiteAudit
-          //      can never observe "pages done + lighthouseTotal=0" for a
-          //      page whose PSI job hasn't been counted yet.
-          //   2. Enqueue the PSI job (in-memory; fire-and-forget).
-          await prisma.$transaction([
-            prisma.adaAudit.update({
-              where: { id: child.id },
-              data: {
-                status: 'axe-complete',
-                result: JSON.stringify(axe),
-                runnerType: 'browser',
-              },
-            }),
-            prisma.siteAudit.update({
-              where: { id },
-              data: {
-                lighthouseTotal: { increment: 1 },
-                pagesComplete: { increment: 1 },
-              },
-            }),
-          ])
-
-          enqueuePsiJob({ adaAuditId: child.id, siteAuditId: id, url, wcagLevel })
-
-          // Dispatch harvested PDFs. AWAITED on purpose — see the long
-          // comment in the original block (unchanged semantics).
+          // Dispatch harvested PDFs FIRST. dispatchPdfScans is awaited (its
+          // inserts + pdfsTotal++ commit before this returns), which
+          // preserves the invariant that pdfsTotal is current before
+          // pagesComplete signals "this page is settled."
+          //
+          // AWAITED on purpose: dispatchPdfScans returns after it has
+          // inserted PdfAudit rows and incremented SiteAudit.pdfsTotal. It
+          // does NOT wait for actual scans — those run via withPdfSlot()
+          // fire-and-forget inside dispatchPdfScans. Awaiting here closes a
+          // race where the finalizer (called by a fast PSI return or by
+          // end-of-page-loop) could observe pdfsTotal=0 and finalize the
+          // audit before any PdfAudit rows landed.
           await dispatchPdfScans({
             urls: harvestedPdfUrls,
             siteAuditId: id,
             adaAuditId: child.id,
             sourcePageUrl: url,
           })
+
+          // Now commit page-settle state. Transaction shape depends on
+          // provider — detached PSI uses axe-complete + lighthouseTotal++;
+          // local/off use complete + the inline LH fields.
+          if (detachPsi) {
+            await prisma.$transaction([
+              prisma.adaAudit.update({
+                where: { id: child.id },
+                data: {
+                  status: 'axe-complete',
+                  result: JSON.stringify(axe),
+                  runnerType: 'browser',
+                },
+              }),
+              prisma.siteAudit.update({
+                where: { id },
+                data: {
+                  lighthouseTotal: { increment: 1 },
+                  pagesComplete: { increment: 1 },
+                },
+              }),
+            ])
+            enqueuePsiJob({ adaAuditId: child.id, siteAuditId: id, url, wcagLevel })
+          } else {
+            // local or off: inline LH already ran (or was skipped). Write
+            // complete + LH fields + bump pagesComplete in one transaction.
+            // No lighthouseTotal++ — this provider doesn't use the queue.
+            await prisma.$transaction([
+              prisma.adaAudit.update({
+                where: { id: child.id },
+                data: {
+                  status: 'complete',
+                  result: JSON.stringify(axe),
+                  lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
+                  lighthouseError,
+                  runnerType: 'browser',
+                },
+              }),
+              prisma.siteAudit.update({
+                where: { id },
+                data: { pagesComplete: { increment: 1 } },
+              }),
+            ])
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Audit failed'
           await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'error', error: msg } })
           await prisma.siteAudit.update({ where: { id }, data: { pagesError: { increment: 1 } } })
         }
 ```
-
-Preserve the long PDF-dispatch comment block from the original (lines 83-94 in the current file) — it's load-bearing context about awaiting `dispatchPdfScans`. Copy it across verbatim.
 
 - [ ] **Step 3: Replace the end-of-page-loop finalization block**
 
@@ -1436,30 +1509,273 @@ describe('processNext — recognizes lighthouse-running as in-flight', () => {
 })
 ```
 
-- [ ] **Step 4: Run the queue-manager tests**
+- [ ] **Step 4: Add a `getQueueStatus` shape test**
+
+Task 3 expanded `getQueueStatus`'s return shape to include lighthouse counters. Pin the new shape so future regressions surface immediately. Add to `queue-manager.test.ts`:
+
+```ts
+describe('getQueueStatus — lighthouse counters + lighthouse-running phase', () => {
+  beforeEach(async () => {
+    await prisma.auditBatch.updateMany({ where: { closedAt: null }, data: { closedAt: new Date() } })
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'qstatus-' } } })
+  })
+
+  it('reports lighthouse-running as the active phase with lighthouse counters', async () => {
+    await prisma.siteAudit.create({
+      data: {
+        domain: 'qstatus-lh.example',
+        status: 'lighthouse-running',
+        wcagLevel: 'wcag21aa',
+        pagesTotal: 5, pagesComplete: 5,
+        pdfsTotal: 0,
+        lighthouseTotal: 5, lighthouseComplete: 2, lighthouseError: 1,
+      },
+    })
+
+    const { getQueueStatus } = await import('./queue-manager')
+    const status = await getQueueStatus()
+
+    expect(status.active?.status).toBe('lighthouse-running')
+    expect(status.active?.lighthouseTotal).toBe(5)
+    expect(status.active?.lighthouseComplete).toBe(2)
+    expect(status.active?.lighthouseError).toBe(1)
+  })
+})
+```
+
+- [ ] **Step 5: Run the queue-manager tests**
 
 ```bash
 DATABASE_URL='file:./local-dev.db' npx vitest run lib/ada-audit/queue-manager.test.ts
 ```
 
-Expected: PASS, with 3 new test cases passing.
+Expected: PASS, with 4 new test cases passing (axe-complete cascade, cross-site isolation, lighthouse-running blocks processNext, getQueueStatus shape).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/ada-audit/queue-manager.test.ts
 git commit -m "test(ada-audit): cover axe-complete cascade + lighthouse-running guard
 
 Two new failOrphanAdaAudits cases (axe-complete → error with
-lighthouseError; doesn't cross site boundaries) and one processNext
-case (lighthouse-running holds the queue slot).
+lighthouseError; doesn't cross site boundaries), one processNext case
+(lighthouse-running holds the queue slot), and one getQueueStatus
+case (lighthouse counters exposed on the active row).
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 10: UI — per-page route treats `axe-complete` as still running
+### Task 10: Site-audit UI + API surface — teach `lighthouse-running` everywhere
+
+`lighthouse-running` is a `SiteAudit.status`, so every UI surface that currently treats only `pdfs-running` as a transient phase needs to learn it too. Without this, a site audit in `lighthouse-running` falls through to the "complete" rendering branch and the user sees "Result data is unavailable" during the LH tail-drain window. The active-audit API filter also currently excludes `lighthouse-running`, so the queue page would show an idle queue when one is actually still draining.
+
+**Files:**
+- Modify: `app/ada-audit/site/[id]/page.tsx`
+- Modify: `app/api/site-audit/[id]/route.ts`
+- Modify: `components/ada-audit/SiteAuditPoller.tsx`
+- Modify: `components/ada-audit/SiteAuditHistory.tsx`
+- Modify: `components/ada-audit/QueueActiveView.tsx`
+- Modify: `components/ada-audit/QueueMemberRow.tsx`
+- Modify: `components/ada-audit/ClientsAuditSummary.tsx`
+
+- [ ] **Step 1: Route `lighthouse-running` to the poller in the site results page**
+
+In `app/ada-audit/site/[id]/page.tsx`, find line 40:
+
+```tsx
+  if (audit.status === 'queued' || audit.status === 'pending' || audit.status === 'running') {
+```
+
+Replace with:
+
+```tsx
+  if (
+    audit.status === 'queued' ||
+    audit.status === 'pending' ||
+    audit.status === 'running' ||
+    audit.status === 'pdfs-running' ||
+    audit.status === 'lighthouse-running'
+  ) {
+```
+
+(`pdfs-running` was also missing from this branch — included here because it's the same class of bug. Verify the current file: if `pdfs-running` is already handled via a separate `if` clause below, leave it alone and only add `lighthouse-running`. Use `grep -n "pdfs-running" app/ada-audit/site/\[id\]/page.tsx` to check.)
+
+- [ ] **Step 2: Add `lighthouse-running` to the active-audit filter in the API route**
+
+In `app/api/site-audit/[id]/route.ts`, find line 66:
+
+```ts
+      where: { status: { in: ['running', 'pending', 'pdfs-running'] } },
+```
+
+Replace with:
+
+```ts
+      where: { status: { in: ['running', 'pending', 'pdfs-running', 'lighthouse-running'] } },
+```
+
+Also expose the lighthouse counters in the response shape. Find the SELECT/return block in the same file (search for `pagesTotal` to anchor):
+
+```bash
+grep -n "pagesTotal\|pdfsTotal" app/api/site-audit/\[id\]/route.ts
+```
+
+For every place `pdfsTotal/pdfsComplete/pdfsError` is selected or returned, add the matching `lighthouseTotal/lighthouseComplete/lighthouseError` lines. The response shape returned to the SiteAuditPoller must include these so the UI can render a "Lighthouse: N/M" line.
+
+- [ ] **Step 3: Update `SiteAuditPoller` to render the `lighthouse-running` phase**
+
+In `components/ada-audit/SiteAuditPoller.tsx`, find where `status === 'pdfs-running'` is handled (or where the status label/copy is computed). Add a parallel branch for `'lighthouse-running'`:
+
+```bash
+grep -n "pdfs-running\|status ===" components/ada-audit/SiteAuditPoller.tsx
+```
+
+Wherever a label like "Scanning PDFs (X/Y)" is rendered, add an equivalent for "Running Lighthouse (X/Y)" using `lighthouseComplete + lighthouseError` over `lighthouseTotal`. Wherever a status type union is declared, add `'lighthouse-running'`.
+
+Also: the poller's "still polling" check (search for `status === 'complete'`) must include `'lighthouse-running'` and `'pdfs-running'` as continue-polling, NOT terminal. Specifically, `complete` and `error` are the only terminals.
+
+- [ ] **Step 4: Update `SiteAuditHistory` ACTIVE_STATUSES**
+
+In `components/ada-audit/SiteAuditHistory.tsx`, find line 11:
+
+```ts
+const ACTIVE_STATUSES = ['queued', 'pending', 'running', 'pdfs-running'] as const
+```
+
+Replace with:
+
+```ts
+const ACTIVE_STATUSES = ['queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running'] as const
+```
+
+Also find the smart-poll merge logic (around line 124-128) — the comment mentions preserving `pdfs-running` if already set. Extend it to also preserve `lighthouse-running`:
+
+```ts
+                  return { ...a, status: a.status === 'pdfs-running' || a.status === 'lighthouse-running' ? a.status : 'running', pagesTotal: queue.active.pagesTotal, pagesComplete: queue.active.pagesComplete, pagesError: queue.active.pagesError }
+```
+
+- [ ] **Step 5: Update `QueueActiveView` status ranking + counting**
+
+In `components/ada-audit/QueueActiveView.tsx`, find the status-rank map (around line 11):
+
+```ts
+  'pdfs-running': 1,
+```
+
+Add `'lighthouse-running'` with the same priority as `pdfs-running` (rank 1):
+
+```ts
+  'pdfs-running': 1,
+  'lighthouse-running': 1,
+```
+
+(If the surrounding object uses a numeric scale where lower = higher priority, mirror whatever `pdfs-running` has. Both transient phases are conceptually equivalent for queue UI purposes.)
+
+Also find the running-count tally (around line 124):
+
+```ts
+      else if (m.status === 'running' || m.status === 'pdfs-running') acc.running++
+```
+
+Replace with:
+
+```ts
+      else if (m.status === 'running' || m.status === 'pdfs-running' || m.status === 'lighthouse-running') acc.running++
+```
+
+- [ ] **Step 6: Update `QueueMemberRow` status labels + chip styles**
+
+In `components/ada-audit/QueueMemberRow.tsx`, find the status-label map (around line 11):
+
+```ts
+  'pdfs-running': 'Scanning PDFs',
+```
+
+Add a sibling entry:
+
+```ts
+  'pdfs-running': 'Scanning PDFs',
+  'lighthouse-running': 'Running Lighthouse',
+```
+
+Find the chip-style map (around line 21):
+
+```ts
+  'pdfs-running': 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+```
+
+Add a sibling entry using the same amber palette (both transient phases look the same to the user):
+
+```ts
+  'pdfs-running': 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  'lighthouse-running': 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+```
+
+- [ ] **Step 7: Update `ClientsAuditSummary` status label**
+
+In `components/ada-audit/ClientsAuditSummary.tsx`, find line 43:
+
+```ts
+  const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : status === 'pdfs-running' ? 'Scanning PDFs' : status
+```
+
+Extend the ternary chain:
+
+```ts
+  const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : status === 'pdfs-running' ? 'Scanning PDFs' : status === 'lighthouse-running' ? 'Running Lighthouse' : status
+```
+
+Also update the comment around line 170 if it enumerates the status values:
+
+```bash
+grep -n "running | pdfs-running" components/ada-audit/ClientsAuditSummary.tsx
+```
+
+If found, add `| lighthouse-running` to the comment for accuracy.
+
+- [ ] **Step 8: Search for any remaining hardcoded `pdfs-running` that need the new sibling**
+
+```bash
+grep -rn "pdfs-running" components/ app/ --include="*.tsx" --include="*.ts" | grep -v node_modules | grep -v ".next"
+```
+
+For each result not yet covered by Steps 1-7, decide: does it represent "an in-flight transient phase"? If yes, add a matching `lighthouse-running` line. If it's something status-specific (e.g., the cancel route's status check at `app/api/site-audit/[id]/cancel/route.test.ts:64` — that's a test against specific statuses, and the new status changes its expectation), update it explicitly.
+
+Note for the cancel route test specifically: site audits in `lighthouse-running` should also be cancellable (same as `pdfs-running`). Update the test's `it.each` array to include `'lighthouse-running'` and verify the cancel endpoint accepts it.
+
+- [ ] **Step 9: Run the test suite to catch regressions**
+
+```bash
+DATABASE_URL='file:./local-dev.db' npx vitest run
+```
+
+Expected: PASS. If the cancel-route tests fail because the status enumeration changed, update them explicitly (see Step 8).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add app/ada-audit/site/\[id\]/page.tsx app/api/site-audit/ components/ada-audit/
+git commit -m "feat(ada-audit): teach UI + API surface about lighthouse-running
+
+Every place that recognized 'pdfs-running' as a transient in-flight
+phase now also recognizes 'lighthouse-running'. Site results route,
+site API filter (+ lighthouse counters in response), SiteAuditPoller,
+SiteAuditHistory ACTIVE_STATUSES, QueueActiveView status rank +
+running tally, QueueMemberRow label + chip style, ClientsAuditSummary
+label. Cancel route test now treats lighthouse-running as cancellable.
+
+Without this, an audit in lighthouse-running falls through to the
+'complete' render branch and shows 'Result data is unavailable' during
+the LH tail-drain.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 11: UI — per-page route treats `axe-complete` as still running
 
 **Files:**
 - Modify: `app/ada-audit/[id]/page.tsx`
@@ -1504,7 +1820,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 11: Env config + docs
+### Task 12: Env config + docs
 
 **Files:**
 - Modify: `ecosystem.config.js`
@@ -1567,7 +1883,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 12: Lint, full test suite, build
+### Task 13: Lint, full test suite, build
 
 **Files:** none
 
@@ -1601,7 +1917,7 @@ Do NOT skip with `--no-verify` or downgrade types to `any`. The fei.edu preceden
 
 ---
 
-### Task 13: Open the PR
+### Task 14: Open the PR
 
 **Files:** none
 
@@ -1647,7 +1963,7 @@ A plain `pm2 restart` will NOT re-read the new `PSI_CONCURRENCY` env var. Same g
 ## Test plan
 - [x] 3 new tests in `lib/ada-audit/lighthouse-queue.test.ts` (concurrency cap, success path, error path)
 - [x] 7 new tests in `lib/ada-audit/site-audit-finalizer.test.ts` (drain predicate cases)
-- [x] 3 new tests in `lib/ada-audit/queue-manager.test.ts` (axe-complete cascade, cross-site isolation, lighthouse-running as in-flight)
+- [x] 4 new tests in `lib/ada-audit/queue-manager.test.ts` (axe-complete cascade, cross-site isolation, lighthouse-running as in-flight, getQueueStatus shape)
 - [x] Existing tests still pass
 - [x] Lint, build clean
 - [ ] **Post-deploy:** queue a ~30-page audit (e.g. fei.edu). Watch wall-clock vs the most recent baseline run of the same site — expect ~3-4× faster.
@@ -1669,10 +1985,14 @@ EOF
 
 ## Self-review checklist
 
-- [x] **Spec coverage:** every section of `docs/superpowers/specs/2026-05-20-detached-psi-pipeline-design.md` has a corresponding task. Data model → Task 2. Worker pool → Task 4. Runner flag → Task 5. Finalizer → Task 6. PDF orchestrator → Task 7. Page loop → Task 8. In-flight cascade → Task 3 + Task 9 tests. UI → Task 10. Env/docs → Task 11. Verification → Task 12. Ship → Task 13.
+- [x] **Spec coverage:** every section of `docs/superpowers/specs/2026-05-20-detached-psi-pipeline-design.md` has a corresponding task. Data model → Task 2. Worker pool → Task 4. Runner flag → Task 5. Finalizer → Task 6. PDF orchestrator → Task 7. Page loop → Task 8. In-flight cascade → Task 3 + Task 9 tests. Site-audit UI/API → Task 10. Per-page UI → Task 11. Env/docs → Task 12. Verification → Task 13. Ship → Task 14.
+- [x] **Three-mode provider branching covered:** Task 8 Step 2 explicitly branches on `getLighthouseProvider()` so `local` (inline LH preserved) and `off` (no LH at all) keep working alongside the new `pagespeed`-only detached path.
+- [x] **Ordering invariants both preserved:** Task 8 Step 2 awaits `dispatchPdfScans` BEFORE the transaction that bumps `pagesComplete`, and the same transaction increments `lighthouseTotal`. `pagesComplete` is the last per-page signal; both `pdfsTotal` and `lighthouseTotal` are committed before it can fire a finalize check.
+- [x] **Worker resurrection guarded:** Task 4 PSI worker uses `updateMany({ where: { id, status: 'axe-complete' } })` so a row already errored by recovery isn't resurrected; finalize only runs after the counter bump succeeds (otherwise the audit could wedge in `lighthouse-running`).
+- [x] **Finalizer test mocks the dynamic queue-manager import:** Task 6 test file adds `vi.mock('@/lib/ada-audit/queue-manager', ...)` so the finalizer's dynamic import doesn't pull the real queue runner into the test.
 - [x] **No placeholders:** every code block is concrete. Tests have full bodies. SQL/JS quoted verbatim from the existing files.
 - [x] **Type consistency:** `PsiJob` shape (`adaAuditId`, `siteAuditId`, `url`, `wcagLevel`) is identical in the module, the tests, and the queue-manager call site. The finalizer signature (`finalizeSiteAudit(id: string)`) is unchanged from the existing file.
 - [x] **Ordering invariant called out:** Task 8 Step 2 explicitly documents that `lighthouseTotal++` must land in the same transaction as `pagesComplete++` so the finalizer can never see a half-counted state.
 - [x] **Recovery path closed:** Task 3 extends `failOrphanAdaAudits` to catch `axe-complete`; Task 9 verifies the behavior. No separate `failOrphanLighthouseJobs` helper — that simplification matches the spec's final form.
-- [x] **Deploy gotcha called out:** Task 13's PR body documents the `pm2 delete && pm2 start` requirement for the env-var change.
+- [x] **Deploy gotcha called out:** Task 14's PR body documents the `pm2 delete && pm2 start` requirement for the env-var change.
 - [x] **Throughput tuning kept separate:** Tasks do NOT bump `BROWSER_POOL_SIZE` or `SITE_AUDIT_CONCURRENCY`. PR body links to the follow-up plan.
