@@ -6,6 +6,7 @@ import { assertSafeHttpUrl } from '../security/safe-url'
 import { runLighthouse, resetCdpAfterLighthouse } from './lighthouse-runner'
 import { getLighthouseProvider } from './lighthouse-provider'
 import { harvestPdfLinks } from './pdf-discovery'
+import { gotoWithRetryOn5xx } from './page-load'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 
@@ -130,10 +131,14 @@ export async function runAxeAudit(
       await progress(20, 'Loading page…')
       let response
       try {
-        response = await page.goto(parsed.toString(), {
-          waitUntil: 'networkidle2',
-          timeout: 30_000,
-        })
+        response = await gotoWithRetryOn5xx(
+          page,
+          parsed.toString(),
+          { waitUntil: 'networkidle2', timeout: 30_000 },
+          async () => {
+            await progress(22, 'Retrying (upstream 5xx)…')
+          },
+        )
       } catch (err) {
         if (blockedNavigationError) throw blockedNavigationError
         throw err
