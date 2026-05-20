@@ -75,6 +75,13 @@ export default function SiteAuditHistory({ queueStatus }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
 
+  // Track `data` via a ref so the error-gate read inside fetchPage doesn't
+  // require `data` in fetchPage's deps. Without this, the queueStatus effect
+  // below would loop: setData → fetchPage identity change → effect re-runs →
+  // setData → ... (the render-loop codex flagged).
+  const dataRef = useRef<PaginatedResponse<SiteAuditDetail> | null>(null)
+  dataRef.current = data
+
   const fetchPage = useCallback(async (silent: boolean) => {
     if (!silent) setLoading(true)
     try {
@@ -84,7 +91,7 @@ export default function SiteAuditHistory({ queueStatus }: Props) {
       setData(json)
       setError(null)
     } catch (e) {
-      if (data === null) {
+      if (dataRef.current === null) {
         setError(e instanceof Error ? e.message : 'Failed to load')
       } else {
         console.warn('[SiteAuditHistory] poll failed:', e)
@@ -92,7 +99,7 @@ export default function SiteAuditHistory({ queueStatus }: Props) {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [page, data])
+  }, [page])
 
   useEffect(() => {
     void fetchPage(false)
@@ -133,34 +140,46 @@ export default function SiteAuditHistory({ queueStatus }: Props) {
     }
 
     // Merge live queue counts into matching rows without re-fetching.
+    // Return `prev` unchanged when no row actually changed — otherwise React
+    // would treat each merge as a new state and re-run the effect (loop).
     setData(prev => {
       if (!prev) return prev
-      return {
-        ...prev,
-        items: prev.items.map(a => {
-          if (queueStatus.active && a.id === queueStatus.active.id) {
-            // Preserve `pdfs-running` or `lighthouse-running` if the row
-            // already has it — forcing 'running' would visually demote
-            // rows that have moved on to the post-pages drain phases.
-            const liveStatus =
-              a.status === 'pdfs-running' || a.status === 'lighthouse-running'
-                ? a.status
-                : 'running'
-            return {
-              ...a,
-              status: liveStatus,
-              pagesTotal: queueStatus.active.pagesTotal,
-              pagesComplete: queueStatus.active.pagesComplete,
-              pagesError: queueStatus.active.pagesError,
-            }
+      let changed = false
+      const nextItems = prev.items.map(a => {
+        if (queueStatus.active && a.id === queueStatus.active.id) {
+          // Preserve `pdfs-running` or `lighthouse-running` if the row
+          // already has it — forcing 'running' would visually demote
+          // rows that have moved on to the post-pages drain phases.
+          const liveStatus =
+            a.status === 'pdfs-running' || a.status === 'lighthouse-running'
+              ? a.status
+              : 'running'
+          if (
+            a.status === liveStatus &&
+            a.pagesTotal === queueStatus.active.pagesTotal &&
+            a.pagesComplete === queueStatus.active.pagesComplete &&
+            a.pagesError === queueStatus.active.pagesError
+          ) {
+            return a
           }
-          const queuedItem = queueStatus.queued.find(q => q.id === a.id)
-          if (queuedItem && a.status !== 'queued') {
-            return { ...a, status: 'queued' }
+          changed = true
+          return {
+            ...a,
+            status: liveStatus,
+            pagesTotal: queueStatus.active.pagesTotal,
+            pagesComplete: queueStatus.active.pagesComplete,
+            pagesError: queueStatus.active.pagesError,
           }
-          return a
-        }),
-      }
+        }
+        const queuedItem = queueStatus.queued.find(q => q.id === a.id)
+        if (queuedItem && a.status !== 'queued') {
+          changed = true
+          return { ...a, status: 'queued' }
+        }
+        return a
+      })
+      if (!changed) return prev
+      return { ...prev, items: nextItems }
     })
   }, [queueStatus, fetchPage])
 
