@@ -26,7 +26,7 @@ module.exports = {
       SITE_AUDIT_BROWSER_RECYCLE_PAGES: '15',
       LIGHTHOUSE_PROVIDER: 'pagespeed',
       PAGESPEED_TIMEOUT_MS: '150000',
-      PSI_CONCURRENCY: '10',
+      PSI_CONCURRENCY: '15',
     },
 
     // Graceful shutdown — 10s for Chrome cleanup before SIGKILL
