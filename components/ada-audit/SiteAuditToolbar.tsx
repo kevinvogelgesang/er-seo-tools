@@ -2,7 +2,7 @@
 
 import type { SortKey, ImpactFilter, FilterCounts } from './useSiteAuditPages'
 
-type ViewMode = 'table' | 'sitemap' | 'by-violation'
+type ViewMode = 'table' | 'by-violation'
 
 interface Props {
   sortKey: SortKey
@@ -12,6 +12,9 @@ interface Props {
   viewMode: ViewMode
   onViewModeChange: (mode: ViewMode) => void
   counts: FilterCounts
+  /** Count of unique violations for the Violations tab badge. `undefined`
+   *  while the grouped fetch hasn't completed yet — renders as "—". */
+  violationsCount?: number
 }
 
 const IMPACT_FILTERS: { id: ImpactFilter; label: string; countKey: keyof FilterCounts }[] = [
@@ -23,7 +26,7 @@ const IMPACT_FILTERS: { id: ImpactFilter; label: string; countKey: keyof FilterC
 ]
 
 export default function SiteAuditToolbar({
-  sortKey, onSortChange, filterImpact, onFilterImpactChange, viewMode, onViewModeChange, counts,
+  sortKey, onSortChange, filterImpact, onFilterImpactChange, viewMode, onViewModeChange, counts, violationsCount,
 }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-gray-100 dark:border-navy-border">
@@ -54,19 +57,25 @@ export default function SiteAuditToolbar({
             </button>
           )
         })}
-        {counts.error > 0 && (
-          <button
-            type="button"
-            onClick={() => onFilterImpactChange('all')}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-body font-semibold rounded-md bg-gray-100 dark:bg-navy-light text-red-500 dark:text-red-400"
-            title="Error pages are included in the 'All' filter"
-          >
-            Errors
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-100 dark:bg-red-500/15 text-red-500 dark:text-red-400">
-              {counts.error}
-            </span>
-          </button>
-        )}
+        {counts.error > 0 && (() => {
+          const active = filterImpact === 'error'
+          return (
+            <button
+              type="button"
+              onClick={() => onFilterImpactChange(active ? 'all' : 'error')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-body font-semibold rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-orange/40 ${
+                active
+                  ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
+                  : 'bg-gray-100 dark:bg-navy-light text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
+              }`}
+            >
+              Errors
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-100 dark:bg-red-500/15 text-red-500 dark:text-red-400">
+                {counts.error}
+              </span>
+            </button>
+          )
+        })()}
       </div>
 
       {/* Spacer */}
@@ -84,49 +93,43 @@ export default function SiteAuditToolbar({
         <option value="url">Sort: URL (A-Z)</option>
       </select>
 
-      {/* View toggle */}
+      {/* View toggle: Pages vs Violations */}
       <div className="flex items-center bg-gray-100 dark:bg-navy-light rounded-lg p-0.5 gap-0.5">
         <button
           type="button"
           onClick={() => onViewModeChange('table')}
-          title="Table view"
-          className={`p-1.5 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-orange/40 ${
+          className={`flex items-center gap-1.5 px-3 py-1 text-[12px] font-body font-semibold rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-orange/40 ${
             viewMode === 'table'
               ? 'bg-white dark:bg-navy-card text-navy dark:text-white shadow-sm'
               : 'text-navy/50 dark:text-white/50 hover:text-navy dark:hover:text-white'
           }`}
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={() => onViewModeChange('sitemap')}
-          title="Sitemap view"
-          className={`p-1.5 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-orange/40 ${
-            viewMode === 'sitemap'
-              ? 'bg-white dark:bg-navy-card text-navy dark:text-white shadow-sm'
-              : 'text-navy/50 dark:text-white/50 hover:text-navy dark:hover:text-white'
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h2m4 0h10M4 9h2m4 0h10M4 13h2m4 0h6M4 17h2m4 0h6" />
-          </svg>
+          Pages
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+            viewMode === 'table'
+              ? 'bg-gray-100 dark:bg-navy-deep text-navy/60 dark:text-white/60'
+              : 'bg-gray-200/60 dark:bg-navy-deep text-navy/40 dark:text-white/40'
+          }`}>
+            {counts.all}
+          </span>
         </button>
         <button
           type="button"
           onClick={() => onViewModeChange('by-violation')}
-          title="By violation"
-          className={`p-1.5 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-orange/40 ${
+          className={`flex items-center gap-1.5 px-3 py-1 text-[12px] font-body font-semibold rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-orange/40 ${
             viewMode === 'by-violation'
               ? 'bg-white dark:bg-navy-card text-navy dark:text-white shadow-sm'
               : 'text-navy/50 dark:text-white/50 hover:text-navy dark:hover:text-white'
           }`}
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
+          Violations
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+            viewMode === 'by-violation'
+              ? 'bg-gray-100 dark:bg-navy-deep text-navy/60 dark:text-white/60'
+              : 'bg-gray-200/60 dark:bg-navy-deep text-navy/40 dark:text-white/40'
+          }`}>
+            {violationsCount ?? '—'}
+          </span>
         </button>
       </div>
     </div>

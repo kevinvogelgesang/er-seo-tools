@@ -9,7 +9,6 @@ import AuditIssueTabs from './AuditIssueTabs'
 import ComplianceBanner from './ComplianceBanner'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import SiteAuditToolbar from './SiteAuditToolbar'
-import SitemapTreeView from './SitemapTreeView'
 import CleanPagesSection from './CleanPagesSection'
 import PdfIssuesSection from './PdfIssuesSection'
 import { useSiteAuditPages, type SortKey, type ImpactFilter } from './useSiteAuditPages'
@@ -165,7 +164,7 @@ export default function SiteAuditResultsView({
 
   const [sortKey, setSortKey] = useState<SortKey>('total')
   const [filterImpact, setFilterImpact] = useState<ImpactFilter>('all')
-  const [viewMode, setViewMode] = useState<'table' | 'sitemap' | 'by-violation'>('table')
+  const [viewMode, setViewMode] = useState<'table' | 'by-violation'>('table')
   const [currentPage, setCurrentPage] = useState(1)
 
   const { issuePages, cleanPages, treeRoot, counts } = useSiteAuditPages(summary.pages, {
@@ -321,11 +320,6 @@ export default function SiteAuditResultsView({
               </div>
             )}
           </>
-        )}
-
-        {/* Sitemap view */}
-        {viewMode === 'sitemap' && (
-          <SitemapTreeView root={treeRoot} />
         )}
 
         {/* By-violation view */}
