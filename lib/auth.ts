@@ -4,6 +4,21 @@ const SIGNATURE_SEPARATOR = '.'
 const PAYLOAD_SEPARATOR = ':'
 export const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12
 
+// Operator-name cookie: captured on login, used to attribute requested audits.
+// Not a credential — no signing, JS-readable. 1-year max-age so operators
+// only enter their name once per machine even though the auth cookie expires
+// every 12 hours.
+export const OPERATOR_NAME_COOKIE_NAME = 'er-operator-name'
+export const OPERATOR_NAME_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
+export const OPERATOR_NAME_MAX_LENGTH = 64
+
+export function sanitizeOperatorName(raw: FormDataEntryValue | string | null | undefined): string | null {
+  if (raw == null) return null
+  const value = typeof raw === 'string' ? raw : ''
+  const trimmed = value.trim().slice(0, OPERATOR_NAME_MAX_LENGTH)
+  return trimmed.length > 0 ? trimmed : null
+}
+
 export function isAuthConfigured(): boolean {
   return Boolean(process.env.APP_AUTH_PASSWORD)
 }
