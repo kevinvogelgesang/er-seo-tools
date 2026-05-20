@@ -81,18 +81,26 @@ async function writeRichClipboard(html: string, text: string): Promise<void> {
 
 interface Props {
   pdfs: PdfRow[]
+  /** Optional. When provided, the section heading reads
+   *  "PDF Accessibility Issues for {domain} (N files)". When omitted (e.g. in
+   *  the single-page AuditResultsView), the heading falls back to
+   *  "PDF Accessibility Issues (N files)". */
+  domain?: string
 }
 
-export default function PdfIssuesSection({ pdfs }: Props) {
+export default function PdfIssuesSection({ pdfs, domain }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (pdfs.length === 0) return null
 
   const copyAll = async () => {
     const text = pdfs.map(plainTextForPdf).join('\n\n')
+    const preambleLabel = domain
+      ? `PDF accessibility issues for ${escapeHtml(domain)}`
+      : `PDF accessibility issues`
     const html =
       `<div>` +
-      `<p style="margin:0 0 12px 0"><strong>PDF accessibility issues</strong> (${pdfs.length} files)</p>` +
+      `<p style="margin:0 0 12px 0"><strong>${preambleLabel}</strong> (${pdfs.length} files)</p>` +
       pdfs.map(htmlForPdf).join('') +
       `</div>`
     await writeRichClipboard(html, text)
@@ -115,7 +123,6 @@ export default function PdfIssuesSection({ pdfs }: Props) {
     })
   }
 
-  const totalIssues = pdfs.reduce((n, p) => n + p.issues.length, 0)
   const allExpanded = expanded.size === pdfs.length
   const toggleAll = () => {
     setExpanded(allExpanded ? new Set() : new Set(pdfs.map((p) => p.url)))
@@ -125,7 +132,10 @@ export default function PdfIssuesSection({ pdfs }: Props) {
     <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden">
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
         <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">
-          PDFs Found <span className="text-navy/40 dark:text-white/40 font-normal">({pdfs.length} files, {totalIssues} issues)</span>
+          {domain
+            ? `PDF Accessibility Issues for ${domain}`
+            : 'PDF Accessibility Issues'}{' '}
+          <span className="text-navy/40 dark:text-white/40 font-normal">({pdfs.length} files)</span>
         </h2>
         <div className="flex items-center gap-4">
           <button

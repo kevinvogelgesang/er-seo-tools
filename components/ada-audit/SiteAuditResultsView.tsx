@@ -342,7 +342,7 @@ export default function SiteAuditResultsView({
       <CleanPagesSection pages={cleanPages} />
 
       {/* PDF accessibility issues — supplementary artifact list at the bottom */}
-      <PdfIssuesSection pdfs={pdfs} />
+      <PdfIssuesSection pdfs={pdfs} domain={domain} />
     </div>
   )
 }
