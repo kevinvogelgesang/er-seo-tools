@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 import { Spinner } from '@/components/Spinner'
 import type { ImpactLevel } from '@/lib/ada-audit/types'
 import type { GroupedViolation } from './useGroupedViolations'
@@ -10,6 +10,10 @@ interface Props {
   groupedViolations: GroupedViolation[]
   loading: boolean
   error?: string | null
+  /** When set, the matching violation card is auto-expanded and scrolled
+   *  into view on mount/change. Used by the common-issue callout's
+   *  "View affected pages" CTA. */
+  selectedViolationId?: string
 }
 
 const IMPACT_STYLES: Record<ImpactLevel, { badge: string; dot: string }> = {
@@ -29,12 +33,24 @@ function ImpactBadge({ impact }: { impact: ImpactLevel }) {
   )
 }
 
-function ViolationCard({ violation }: { violation: GroupedViolation }) {
+interface ViolationCardProps {
+  violation: GroupedViolation
+  forceExpanded?: boolean
+}
+
+const ViolationCard = forwardRef<HTMLDivElement, ViolationCardProps>(({ violation, forceExpanded }, ref) => {
   const [expanded, setExpanded] = useState(false)
   const helpHref = safeExternalHref(violation.helpUrl)
 
+  // When forceExpanded flips to true (e.g. the parent landed on this rule),
+  // open the card. The user can still collapse afterwards — this is a
+  // one-way signal, not a controlled-open lock.
+  useEffect(() => {
+    if (forceExpanded) setExpanded(true)
+  }, [forceExpanded])
+
   return (
-    <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl overflow-hidden shadow-sm">
+    <div ref={ref} className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl overflow-hidden shadow-sm">
       {/* Header */}
       <button
         onClick={() => setExpanded((e) => !e)}
@@ -73,7 +89,10 @@ function ViolationCard({ violation }: { violation: GroupedViolation }) {
         </div>
       </button>
 
-      {/* Expanded: affected pages list */}
+      {/* Expanded: affected pages list. `forceExpanded` only seeds `expanded`
+          (via the useEffect above); it does NOT gate the render. That keeps
+          forceExpanded a true one-way open signal so the user can collapse
+          the card afterwards. */}
       {expanded && (
         <div className="border-t border-gray-100 dark:border-navy-border divide-y divide-gray-100 dark:divide-navy-border">
           {violation.affectedPages.map((ap) => {
@@ -102,9 +121,26 @@ function ViolationCard({ violation }: { violation: GroupedViolation }) {
       )}
     </div>
   )
-}
+})
+ViolationCard.displayName = 'ViolationCard'
 
-export default function GroupedViolationsView({ groupedViolations, loading, error }: Props) {
+export default function GroupedViolationsView({ groupedViolations, loading, error, selectedViolationId }: Props) {
+  const cardRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
+
+  // When selectedViolationId is set (or changes), wait for the next paint then
+  // scroll the matching card into view. Pairs with forceExpanded on the
+  // ViolationCard to open the rule.
+  useEffect(() => {
+    if (!selectedViolationId) return
+    const exists = groupedViolations.some((g) => g.id === selectedViolationId)
+    if (!exists) return
+    const handle = window.requestAnimationFrame(() => {
+      const el = cardRefs.current.get(selectedViolationId)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(handle)
+  }, [selectedViolationId, groupedViolations])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-3 py-16 text-[13px] font-body text-navy/50 dark:text-white/50">
@@ -136,7 +172,12 @@ export default function GroupedViolationsView({ groupedViolations, loading, erro
         {groupedViolations.length} unique violation{groupedViolations.length !== 1 ? 's' : ''} across all pages
       </p>
       {groupedViolations.map((violation) => (
-        <ViolationCard key={violation.id} violation={violation} />
+        <ViolationCard
+          key={violation.id}
+          violation={violation}
+          forceExpanded={violation.id === selectedViolationId}
+          ref={(el) => { cardRefs.current.set(violation.id, el) }}
+        />
       ))}
     </div>
   )

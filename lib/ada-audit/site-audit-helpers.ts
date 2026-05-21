@@ -1,6 +1,7 @@
 import type { AuditScorecard, SiteAuditSummary, SitePageResult, SitePagePdfState, SiteAuditPdfAggregate } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 import type { PdfIssue } from './pdf-types'
+import { detectCommonIssues } from './common-issues'
 
 export const SITE_AUDIT_PAGE_CAP = 1000
 
@@ -171,5 +172,12 @@ export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
     { total: 0, complete: 0, errored: 0, withIssues: 0 },
   )
 
-  return { aggregate, pdfsAggregate, pages }
+  // Site-wide common-issue analysis: rules that hit >= COMMON_ISSUE_THRESHOLD
+  // of complete pages, with best-effort shared-ancestor hint. Stored alongside
+  // aggregate/pdfsAggregate/pages so the callout renders without extra fetch.
+  const commonIssues = detectCommonIssues(
+    children.map((c) => ({ id: c.id, status: c.status, result: c.result })),
+  )
+
+  return { aggregate, pdfsAggregate, pages, commonIssues }
 }
