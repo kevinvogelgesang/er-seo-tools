@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 import type { AuditPdfRow, SiteAuditDetail } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
+import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-children-helpers'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +69,28 @@ export async function GET(
     })
   }
 
+  // While the audit is in flight, surface the per-page rows that already
+  // exist in the DB so the detail page can show a live table beside the
+  // progress card. Capped at LIVE_CHILDREN_LIMIT to keep the payload small.
+  //
+  // Includes lighthouse-running because the page still renders SiteAuditPoller
+  // for that status. Without it, the live table would disappear for the 3-8
+  // minutes of LH drain even though the per-page rows are already terminal.
+  const isInFlight =
+    audit.status === 'running' ||
+    audit.status === 'pdfs-running' ||
+    audit.status === 'lighthouse-running'
+  const liveChildren = isInFlight
+    ? buildLiveChildren(
+        await prisma.adaAudit.findMany({
+          where: { siteAuditId: audit.id },
+          orderBy: { createdAt: 'desc' },
+          take: LIVE_CHILDREN_LIMIT,
+          select: { id: true, url: true, status: true, result: true, error: true },
+        }),
+      )
+    : undefined
+
   return NextResponse.json({
     id: audit.id,
     createdAt: audit.createdAt.toISOString(),
@@ -90,6 +113,7 @@ export async function GET(
     requestedBy: audit.requestedBy ?? null,
     queuePosition,
     activeAudit,
+    ...(liveChildren ? { liveChildren } : {}),
   } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit })
 }
 

@@ -100,6 +100,22 @@ export interface SitePagePdfState {
   withIssues: number // complete + issues.length > 0
 }
 
+/**
+ * One row rendered in the live-children table while a SiteAudit is in flight.
+ * Computed at request time in buildLiveChildren() — never persisted.
+ *
+ * Deliberately omits any timestamp field: the route returns rows in
+ * createdAt desc already, and these rows never get re-written between
+ * fetches, so exposing a timestamp would be misleading.
+ */
+export interface LiveAuditChild {
+  adaAuditId: string
+  url: string
+  status: 'pending' | 'running' | 'complete' | 'error'
+  scorecard: AuditScorecard | null  // null until status === 'complete'
+  error: string | null              // populated when status === 'error'
+}
+
 /** Per-page summary row inside SiteAuditSummary.pages */
 export interface SitePageResult {
   adaAuditId: string
@@ -170,6 +186,8 @@ export interface SiteAuditDetail {
   lighthouseComplete: number
   lighthouseError: number
   requestedBy: string | null
+  /** Optional — present only when the audit is in a running state. */
+  liveChildren?: LiveAuditChild[]
 }
 
 // ── Pagination ─────────────────────────────────────────────────────────────
