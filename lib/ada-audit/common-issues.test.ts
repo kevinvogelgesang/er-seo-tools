@@ -3,7 +3,11 @@ import {
   detectCommonIssues,
   extractTagsFromSelector,
   extractLandmarkFromTarget,
+  tierForRatio,
   COMMON_ISSUE_THRESHOLD,
+  COMMON_ISSUE_TIER_TEMPLATE,
+  COMMON_ISSUE_TIER_COMMON,
+  COMMON_ISSUE_TIER_RECURRING,
   COMMON_ISSUE_MIN_PAGES,
   type CommonIssueInputRow,
 } from './common-issues'
@@ -129,15 +133,15 @@ describe('detectCommonIssues — threshold / floor', () => {
     expect(detectCommonIssues(rows)).toEqual([])
   })
 
-  it('returns [] when no rule meets the threshold', () => {
-    // 10 pages, violation on only 4 (< ceil(10*0.8)=8)
-    const rows = makeRows(10, (i) =>
+  it('returns [] when no rule meets the lowest threshold', () => {
+    // 20 pages, violation on only 4 (< ceil(20*0.25)=5)
+    const rows = makeRows(20, (i) =>
       i < 4 ? [colorContrast([{ target: ['footer > a'] }])] : [],
     )
     expect(detectCommonIssues(rows)).toEqual([])
   })
 
-  it('returns a CommonIssue at the exact 80% boundary (5 pages, 4 hits)', () => {
+  it('returns a CommonIssue at the exact 80% boundary (5 pages, 4 hits) tier=template', () => {
     const rows = makeRows(5, (i) =>
       i < 4 ? [colorContrast([{ target: ['footer > a'] }])] : [],
     )
@@ -146,35 +150,74 @@ describe('detectCommonIssues — threshold / floor', () => {
     expect(out[0].ruleId).toBe('color-contrast')
     expect(out[0].affectedPagesCount).toBe(4)
     expect(out[0].totalPagesScanned).toBe(5)
+    expect(out[0].tier).toBe('template')
   })
 
-  it('20/25 qualifies (catches floating-point ambiguity)', () => {
+  it('20/25 qualifies as template (catches floating-point ambiguity)', () => {
     const rows = makeRows(25, (i) =>
       i < 20 ? [colorContrast([{ target: ['footer > a'] }])] : [],
     )
-    expect(detectCommonIssues(rows)).toHaveLength(1)
+    const out = detectCommonIssues(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].tier).toBe('template')
   })
 
-  it('19/25 does NOT qualify (just below)', () => {
-    const rows = makeRows(25, (i) =>
-      i < 19 ? [colorContrast([{ target: ['footer > a'] }])] : [],
+  it('5/20 qualifies as recurring (≥25% boundary)', () => {
+    const rows = makeRows(20, (i) =>
+      i < 5 ? [colorContrast([{ target: ['footer > a'] }])] : [],
+    )
+    const out = detectCommonIssues(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].tier).toBe('recurring')
+    expect(out[0].affectedPagesCount).toBe(5)
+  })
+
+  it('10/20 qualifies as common (≥50% boundary)', () => {
+    const rows = makeRows(20, (i) =>
+      i < 10 ? [colorContrast([{ target: ['footer > a'] }])] : [],
+    )
+    const out = detectCommonIssues(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].tier).toBe('common')
+  })
+
+  it('4/20 does NOT qualify (below 25%)', () => {
+    const rows = makeRows(20, (i) =>
+      i < 4 ? [colorContrast([{ target: ['footer > a'] }])] : [],
     )
     expect(detectCommonIssues(rows)).toHaveLength(0)
   })
 
   it('excludes errored pages from N and from hit counts', () => {
     // 25 rows: 23 complete (all with the violation), 2 errored.
-    // N = 23, minHits = ceil(23 * 0.8) = 19. Violation hits = 23 → qualifies.
+    // N = 23, minHits = ceil(23 * 0.25) = 6. Violation hits = 23 → qualifies as template.
     const rows = makeRows(25, () => [colorContrast([{ target: ['footer > a'] }])], { erroredFrom: 23 })
     const out = detectCommonIssues(rows)
     expect(out).toHaveLength(1)
     expect(out[0].affectedPagesCount).toBe(23)
     expect(out[0].totalPagesScanned).toBe(23)
+    expect(out[0].tier).toBe('template')
   })
 
-  it('asserts the threshold constants are what the spec says', () => {
-    expect(COMMON_ISSUE_THRESHOLD).toBe(0.8)
+  it('asserts the threshold constants', () => {
+    expect(COMMON_ISSUE_THRESHOLD).toBe(0.25)
+    expect(COMMON_ISSUE_TIER_TEMPLATE).toBe(0.8)
+    expect(COMMON_ISSUE_TIER_COMMON).toBe(0.5)
+    expect(COMMON_ISSUE_TIER_RECURRING).toBe(0.25)
     expect(COMMON_ISSUE_MIN_PAGES).toBe(5)
+  })
+})
+
+describe('tierForRatio', () => {
+  it('maps ratios to the correct tier', () => {
+    expect(tierForRatio(1.0)).toBe('template')
+    expect(tierForRatio(0.8)).toBe('template')
+    expect(tierForRatio(0.79)).toBe('common')
+    expect(tierForRatio(0.5)).toBe('common')
+    expect(tierForRatio(0.49)).toBe('recurring')
+    expect(tierForRatio(0.25)).toBe('recurring')
+    expect(tierForRatio(0.24)).toBeNull()
+    expect(tierForRatio(0)).toBeNull()
   })
 })
 
@@ -313,6 +356,42 @@ describe('detectCommonIssues — defensive guards', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('detectCommonIssues — sort order', () => {
+  it('sorts a minor template-tier issue ABOVE a critical recurring-tier issue (tier wins over impact)', () => {
+    // 20 pages. Minor rule hits all 20 (100% → template). Critical rule hits 5 (25% → recurring).
+    const rows: CommonIssueInputRow[] = Array.from({ length: 20 }, (_, i) => {
+      const violations: FixtureViolation[] = [
+        {
+          id: 'minor-everywhere',
+          impact: 'minor',
+          help: 'm',
+          description: '',
+          helpUrl: '',
+          nodes: [{ target: ['footer > a'] }],
+        },
+      ]
+      if (i < 5) {
+        violations.push({
+          id: 'critical-recurring',
+          impact: 'critical',
+          help: 'c',
+          description: '',
+          helpUrl: '',
+          nodes: [{ target: ['header > a'] }],
+        })
+      }
+      return {
+        id: `c-${i}`,
+        status: 'complete',
+        result: JSON.stringify({ violations, passes: [], incomplete: [] }),
+      }
+    })
+    const out = detectCommonIssues(rows)
+    expect(out.map((o) => ({ id: o.ruleId, tier: o.tier }))).toEqual([
+      { id: 'minor-everywhere', tier: 'template' },
+      { id: 'critical-recurring', tier: 'recurring' },
+    ])
+  })
+
   it('sorts by impact severity (critical → minor), then by affectedPagesCount desc', () => {
     const rows: CommonIssueInputRow[] = Array.from({ length: 10 }, (_, i) => ({
       id: `c-${i}`,

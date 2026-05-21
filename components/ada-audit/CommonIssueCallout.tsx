@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { CommonIssue, ImpactLevel } from '@/lib/ada-audit/types'
+import type { CommonIssue, CommonIssueTier, ImpactLevel } from '@/lib/ada-audit/types'
 import { COMMON_ISSUE_MAX_CALLOUTS } from '@/lib/ada-audit/common-issues'
 import { safeExternalHref } from '@/lib/safe-external-href'
 
@@ -40,20 +40,50 @@ const IMPACT_ACCENT: Record<ImpactLevel, { border: string; bg: string; chip: str
   },
 }
 
+const TIER_LABEL: Record<CommonIssueTier, string> = {
+  template: 'Template-wide',
+  common: 'Shared component',
+  recurring: 'Recurring element',
+}
+
+const TIER_CHIP: Record<CommonIssueTier, string> = {
+  template:  'bg-navy/10 dark:bg-white/10 text-navy dark:text-white border-navy/15 dark:border-white/15',
+  common:    'bg-navy/[0.06] dark:bg-white/[0.06] text-navy/80 dark:text-white/80 border-navy/10 dark:border-white/10',
+  recurring: 'bg-transparent text-navy/60 dark:text-white/60 border-navy/15 dark:border-white/15',
+}
+
 function ancestorSentence(issue: CommonIssue): string {
   const { affectedPagesCount: hits, totalPagesScanned: n, sharedAncestor, ancestorConfidence } = issue
-  if (sharedAncestor && ancestorConfidence === 'all') {
-    return `Appears on all ${n} scanned pages inside <${sharedAncestor}> — likely a one-time fix in your ${sharedAncestor} template.`
+  const tier: CommonIssueTier = issue.tier ?? 'template'
+
+  if (tier === 'template') {
+    if (sharedAncestor && ancestorConfidence === 'all') {
+      return `Appears on all ${n} scanned pages inside <${sharedAncestor}> — likely a one-time fix in your ${sharedAncestor} template.`
+    }
+    if (sharedAncestor && ancestorConfidence === 'majority') {
+      return `Appears on ${hits} of ${n} scanned pages, most often inside <${sharedAncestor}> — likely a one-time template fix.`
+    }
+    return `Appears on ${hits} of ${n} scanned pages — likely a one-time template fix.`
   }
-  if (sharedAncestor && ancestorConfidence === 'majority') {
-    return `Appears on ${hits} of ${n} scanned pages, most often inside <${sharedAncestor}>.`
+
+  if (tier === 'common') {
+    if (sharedAncestor) {
+      return `Appears on ${hits} of ${n} scanned pages, most often inside <${sharedAncestor}> — likely a shared component or layout block.`
+    }
+    return `Appears on ${hits} of ${n} scanned pages — likely a shared component or layout block.`
   }
-  return `Appears on ${hits} of ${n} scanned pages.`
+
+  // recurring
+  if (sharedAncestor) {
+    return `Appears on ${hits} of ${n} scanned pages, most often inside <${sharedAncestor}> — may point to a recurring element or page-type pattern.`
+  }
+  return `Appears on ${hits} of ${n} scanned pages — may point to a recurring element or page-type pattern.`
 }
 
 function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; onViewAffectedPages: (ruleId: string) => void }) {
   const accent = IMPACT_ACCENT[issue.impact]
   const helpHref = safeExternalHref(issue.helpUrl)
+  const tier: CommonIssueTier = issue.tier ?? 'template'
 
   return (
     <div
@@ -63,6 +93,9 @@ function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; o
         <span className={`inline-flex items-center gap-1.5 text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${accent.chip} mt-0.5 flex-shrink-0`}>
           <span className={`w-1.5 h-1.5 rounded-full ${accent.dot}`} />
           {issue.impact}
+        </span>
+        <span className={`inline-flex items-center text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${TIER_CHIP[tier]} mt-0.5 flex-shrink-0`}>
+          {TIER_LABEL[tier]}
         </span>
         <div className="flex-1 min-w-0">
           <p className="font-body font-semibold text-[13px] text-navy dark:text-white leading-snug">
@@ -109,7 +142,7 @@ export default function CommonIssueCallout({ issues, onViewAffectedPages }: Prop
       <p className="text-[11px] font-body font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">
         Site-wide patterns
         <span className="text-navy/30 dark:text-white/30 font-normal normal-case tracking-normal ml-2">
-          {issues.length} issue{issues.length !== 1 ? 's' : ''} appearing across most pages
+          {issues.length} issue{issues.length !== 1 ? 's' : ''} repeating across multiple pages
         </span>
       </p>
       <div className="space-y-2">

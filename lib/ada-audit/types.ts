@@ -140,6 +140,12 @@ export type LandmarkTag = 'header' | 'footer' | 'nav' | 'aside' | 'main'
 /** How confidently we believe a common issue's nodes share a single landmark ancestor. */
 export type AncestorConfidence = 'all' | 'majority'
 
+/** Tier expresses how strongly the cross-page frequency suggests a template/shared origin.
+ *  - 'template'  → ≥80% of scanned pages: almost certainly one fix in a global template.
+ *  - 'common'    → ≥50%: likely a shared component or recurring layout block.
+ *  - 'recurring' → ≥25%: may be a recurring element on a page type or template variant. */
+export type CommonIssueTier = 'template' | 'common' | 'recurring'
+
 /** A rule that appears on >= COMMON_ISSUE_THRESHOLD of the scanned pages.
  *  Stored as part of SiteAuditSummary.commonIssues; rendered by CommonIssueCallout. */
 export interface CommonIssue {
@@ -152,6 +158,9 @@ export interface CommonIssue {
   totalPagesScanned: number
   sharedAncestor: LandmarkTag | null
   ancestorConfidence: AncestorConfidence | null  // null when sharedAncestor is null
+  /** Frequency tier. Older audits (predating the tier rollout) may omit this — consumers
+   *  should treat a missing field as 'template' since the old detector only emitted ≥80% rows. */
+  tier?: CommonIssueTier
 }
 
 /** Stored in SiteAudit.summary — computed once when all pages + PDFs finish */

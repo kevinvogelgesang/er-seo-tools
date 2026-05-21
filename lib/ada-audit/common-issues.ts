@@ -3,11 +3,28 @@
 // no React, no I/O. Consumed at finalization by `buildSiteAuditSummary` and
 // stored in `SiteAudit.summary.commonIssues`.
 
-import type { CommonIssue, ImpactLevel, LandmarkTag, AncestorConfidence } from './types'
+import type { CommonIssue, CommonIssueTier, ImpactLevel, LandmarkTag, AncestorConfidence } from './types'
 
-export const COMMON_ISSUE_THRESHOLD = 0.8
+// Lowest tier gates inclusion. Each tier's lower bound determines its label.
+export const COMMON_ISSUE_THRESHOLD = 0.25
+export const COMMON_ISSUE_TIER_TEMPLATE = 0.8
+export const COMMON_ISSUE_TIER_COMMON = 0.5
+export const COMMON_ISSUE_TIER_RECURRING = 0.25
 export const COMMON_ISSUE_MIN_PAGES = 5
 export const COMMON_ISSUE_MAX_CALLOUTS = 5
+
+const TIER_RANK: Record<CommonIssueTier, number> = {
+  template: 0,
+  common: 1,
+  recurring: 2,
+}
+
+export function tierForRatio(ratio: number): CommonIssueTier | null {
+  if (ratio >= COMMON_ISSUE_TIER_TEMPLATE) return 'template'
+  if (ratio >= COMMON_ISSUE_TIER_COMMON) return 'common'
+  if (ratio >= COMMON_ISSUE_TIER_RECURRING) return 'recurring'
+  return null
+}
 
 const LANDMARK_TAGS: readonly LandmarkTag[] = ['header', 'footer', 'nav', 'aside', 'main']
 const IMPACT_RANK: Record<ImpactLevel, number> = {
@@ -169,8 +186,10 @@ function isViolationLike(v: unknown): v is ViolationLike {
 
 /**
  * Main entry: detect rules appearing on >= COMMON_ISSUE_THRESHOLD of complete
- * pages. Returns empty when below the page floor or when no rule meets the
- * threshold. Output sorted by impact severity then by affected-page count.
+ * pages, bucketed into 'template' (≥80%), 'common' (≥50%), or 'recurring'
+ * (≥25%). Returns empty when below the page floor or when no rule meets the
+ * threshold. Output sorted by tier, then impact severity, then affected-page
+ * count (desc).
  */
 export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
   const completeRows = rows.filter((r) => r.status === 'complete')
@@ -222,6 +241,9 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
     const affectedPagesCount = entry.pageIds.size
     if (affectedPagesCount < minHits) continue
 
+    const tier = tierForRatio(affectedPagesCount / N)
+    if (!tier) continue
+
     const { sharedAncestor, ancestorConfidence } = voteAcrossPages(entry.landmarkByPage, affectedPagesCount)
 
     out.push({
@@ -234,10 +256,14 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
       totalPagesScanned: N,
       sharedAncestor,
       ancestorConfidence,
+      tier,
     })
   }
 
   out.sort((a, b) => {
+    const ta = TIER_RANK[a.tier ?? 'template']
+    const tb = TIER_RANK[b.tier ?? 'template']
+    if (ta !== tb) return ta - tb
     const ia = IMPACT_RANK[a.impact]
     const ib = IMPACT_RANK[b.impact]
     if (ia !== ib) return ia - ib
