@@ -21,14 +21,20 @@ const IMPACT_ORDER: ImpactLevel[] = ['critical', 'serious', 'moderate', 'minor']
 export function useGroupedViolations(pages: SitePageResult[], enabled: boolean) {
   const [groupedViolations, setGroupedViolations] = useState<GroupedViolation[]>([])
   const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!enabled) return
 
+    // Reset loaded state at the start of every (re-)fetch so the badge
+    // shows "—" instead of a stale count while the new request is in flight.
+    setLoaded(false)
+
     const issuePages = pages.filter((p) => p.status === 'complete' && p.adaAuditId)
     if (issuePages.length === 0) {
       setGroupedViolations([])
+      setLoaded(true)
       return
     }
 
@@ -95,6 +101,7 @@ export function useGroupedViolations(pages: SitePageResult[], enabled: boolean) 
         })
 
         setGroupedViolations(sorted)
+        setLoaded(true)
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load violation data')
@@ -108,5 +115,5 @@ export function useGroupedViolations(pages: SitePageResult[], enabled: boolean) 
     return () => { cancelled = true }
   }, [enabled, pages])
 
-  return { groupedViolations, loading, error }
+  return { groupedViolations, loading, loaded, error }
 }

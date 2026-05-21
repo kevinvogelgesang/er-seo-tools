@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Spinner } from '@/components/Spinner'
 import type { SiteAuditSummary, SitePageResult, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
@@ -9,7 +9,6 @@ import AuditIssueTabs from './AuditIssueTabs'
 import ComplianceBanner from './ComplianceBanner'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import SiteAuditToolbar from './SiteAuditToolbar'
-import SitemapTreeView from './SitemapTreeView'
 import CleanPagesSection from './CleanPagesSection'
 import PdfIssuesSection from './PdfIssuesSection'
 import { useSiteAuditPages, type SortKey, type ImpactFilter } from './useSiteAuditPages'
@@ -165,22 +164,44 @@ export default function SiteAuditResultsView({
 
   const [sortKey, setSortKey] = useState<SortKey>('total')
   const [filterImpact, setFilterImpact] = useState<ImpactFilter>('all')
-  const [viewMode, setViewMode] = useState<'table' | 'sitemap' | 'by-violation'>('table')
+  const [viewMode, setViewMode] = useState<'table' | 'by-violation'>('table')
   const [currentPage, setCurrentPage] = useState(1)
 
-  const { issuePages, cleanPages, treeRoot, counts } = useSiteAuditPages(summary.pages, {
+  const { issuePages, cleanPages, counts } = useSiteAuditPages(summary.pages, {
     sortKey,
     filterImpact,
     filterStatus: 'all',
   })
 
-  const { groupedViolations, loading: groupedLoading, error: groupedError } = useGroupedViolations(
+  const { groupedViolations, loading: groupedLoading, loaded: groupedLoaded, error: groupedError } = useGroupedViolations(
     summary.pages,
     viewMode === 'by-violation'
   )
 
   // Reset pagination when sort/filter changes
   useEffect(() => { setCurrentPage(1) }, [sortKey, filterImpact])
+
+  // Ref for scroll-to behavior when a scorecard tile is clicked
+  const pagesWithIssuesRef = useRef<HTMLDivElement>(null)
+
+  // Scorecard impact tile click: filter + jump to Pages-with-Issues.
+  // Per spec section 6g: re-clicking the active tile clears the filter and
+  // does NOT scroll again (the user is already at the section).
+  const handleScorecardImpactClick = (
+    impact: 'critical' | 'serious' | 'moderate' | 'minor',
+  ) => {
+    // Decide toggle state from the *current* render's filterImpact, then
+    // perform setters + the scroll side effect outside any state-updater
+    // callback. React state updaters must be pure (Strict Mode may run them
+    // twice, which would double-fire the scroll).
+    const isToggleOff = filterImpact === impact
+    setFilterImpact(isToggleOff ? 'all' : impact)
+    setViewMode('table')
+    setCurrentPage(1)
+    if (!isToggleOff) {
+      pagesWithIssuesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   const totalTablePages = Math.ceil(issuePages.length / PAGE_SIZE)
   const start = (currentPage - 1) * PAGE_SIZE
@@ -216,14 +237,21 @@ export default function SiteAuditResultsView({
           </div>
         </div>
         <div className="p-6">
-          <AuditScorecardComponent scorecard={summary.aggregate} score={score} compliant={compliant} wcagLevel={wcagLevel} />
+          <AuditScorecardComponent
+            scorecard={summary.aggregate}
+            score={score}
+            compliant={compliant}
+            wcagLevel={wcagLevel}
+            onImpactClick={handleScorecardImpactClick}
+            activeImpact={filterImpact}
+          />
         </div>
       </div>
 
       <KnownLimitationsNotice variant="site" />
 
       {/* Pages section */}
-      <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
+      <div ref={pagesWithIssuesRef} className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
         {/* Section header */}
         <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
           <div className="w-8 h-8 rounded-lg bg-orange/15 flex items-center justify-center flex-shrink-0">
@@ -246,6 +274,7 @@ export default function SiteAuditResultsView({
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           counts={counts}
+          violationsCount={groupedLoaded ? groupedViolations.length : undefined}
         />
 
         {/* Table view */}
@@ -321,11 +350,6 @@ export default function SiteAuditResultsView({
               </div>
             )}
           </>
-        )}
-
-        {/* Sitemap view */}
-        {viewMode === 'sitemap' && (
-          <SitemapTreeView root={treeRoot} />
         )}
 
         {/* By-violation view */}
