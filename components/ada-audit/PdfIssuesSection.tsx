@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 
 interface PdfRow {
@@ -81,18 +81,52 @@ async function writeRichClipboard(html: string, text: string): Promise<void> {
 
 interface Props {
   pdfs: PdfRow[]
+  /** Optional. When provided, the section heading reads
+   *  "PDF Accessibility Issues for {domain} (N files)". When omitted (e.g. in
+   *  the single-page AuditResultsView), the heading falls back to
+   *  "PDF Accessibility Issues (N files)". */
+  domain?: string
 }
 
-export default function PdfIssuesSection({ pdfs }: Props) {
+const PDF_PAGE_SIZE = 5
+
+export default function PdfIssuesSection({ pdfs, domain }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [pdfPage, setPdfPage] = useState(1)
+
+  // When the user navigates to a different page, start every visible card
+  // collapsed. Avoids a card opened on a previous page bleeding through.
+  useEffect(() => {
+    setExpanded(new Set())
+  }, [pdfPage])
+
   if (pdfs.length === 0) return null
+
+  const totalPdfPages = Math.max(1, Math.ceil(pdfs.length / PDF_PAGE_SIZE))
+
+  // Clamp `pdfPage` to the valid range *for this render*. If `pdfs.length`
+  // shrinks via prop change, deriving the slice from a stale `pdfPage` would
+  // briefly render an empty list and an impossible footer ("Showing 16–9 of
+  // 9 PDFs"). Effect-based reset would fire too late.
+  const effectivePdfPage = Math.min(pdfPage, totalPdfPages)
+  if (effectivePdfPage !== pdfPage) {
+    // Sync state for subsequent interactions (Prev/Next/numbered buttons),
+    // but only on render-detected drift. Safe because setPdfPage during
+    // render is allowed in React 18+ when the new value differs.
+    setPdfPage(effectivePdfPage)
+  }
+  const pdfStart = (effectivePdfPage - 1) * PDF_PAGE_SIZE
+  const visiblePdfs = pdfs.slice(pdfStart, pdfStart + PDF_PAGE_SIZE)
 
   const copyAll = async () => {
     const text = pdfs.map(plainTextForPdf).join('\n\n')
+    const preambleLabel = domain
+      ? `PDF accessibility issues for ${escapeHtml(domain)}`
+      : `PDF accessibility issues`
     const html =
       `<div>` +
-      `<p style="margin:0 0 12px 0"><strong>PDF accessibility issues</strong> (${pdfs.length} files)</p>` +
+      `<p style="margin:0 0 12px 0"><strong>${preambleLabel}</strong> (${pdfs.length} files)</p>` +
       pdfs.map(htmlForPdf).join('') +
       `</div>`
     await writeRichClipboard(html, text)
@@ -115,17 +149,31 @@ export default function PdfIssuesSection({ pdfs }: Props) {
     })
   }
 
-  const totalIssues = pdfs.reduce((n, p) => n + p.issues.length, 0)
-  const allExpanded = expanded.size === pdfs.length
+  // Scope expand/collapse-all to the *currently visible* page slice. Avoids
+  // a counter-intuitive UX where "Expand all" silently expands invisible
+  // cards on other pages.
+  const allExpanded =
+    visiblePdfs.length > 0 && visiblePdfs.every((p) => expanded.has(p.url))
   const toggleAll = () => {
-    setExpanded(allExpanded ? new Set() : new Set(pdfs.map((p) => p.url)))
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (allExpanded) {
+        for (const p of visiblePdfs) next.delete(p.url)
+      } else {
+        for (const p of visiblePdfs) next.add(p.url)
+      }
+      return next
+    })
   }
 
   return (
     <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden">
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
         <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">
-          PDFs Found <span className="text-navy/40 dark:text-white/40 font-normal">({pdfs.length} files, {totalIssues} issues)</span>
+          {domain
+            ? `PDF Accessibility Issues for ${domain}`
+            : 'PDF Accessibility Issues'}{' '}
+          <span className="text-navy/40 dark:text-white/40 font-normal">({pdfs.length} files)</span>
         </h2>
         <div className="flex items-center gap-4">
           <button
@@ -146,7 +194,7 @@ export default function PdfIssuesSection({ pdfs }: Props) {
       </div>
 
       <div className="divide-y divide-gray-100 dark:divide-navy-border">
-        {pdfs.map((pdf) => {
+        {visiblePdfs.map((pdf) => {
           const filename = pdf.url.split('/').pop() ?? pdf.url
           const isOpen = expanded.has(pdf.url)
           const issueCount = pdf.scanError ? 1 : pdf.issues.length
@@ -226,6 +274,56 @@ export default function PdfIssuesSection({ pdfs }: Props) {
           )
         })}
       </div>
+
+      {pdfs.length > PDF_PAGE_SIZE && (
+        <nav
+          aria-label="PDF pagination"
+          className="flex items-center justify-between px-6 py-3 border-t border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50"
+        >
+          <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
+            Showing {pdfStart + 1}–{Math.min(pdfStart + PDF_PAGE_SIZE, pdfs.length)} of {pdfs.length} PDFs
+          </span>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setPdfPage((p) => Math.max(1, p - 1))}
+              disabled={effectivePdfPage === 1}
+              aria-label="Previous PDF page"
+              className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Prev
+            </button>
+            {Array.from({ length: totalPdfPages }, (_, i) => i + 1).map((p) => {
+              const isActive = p === effectivePdfPage
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPdfPage(p)}
+                  aria-label={`Go to PDF page ${p}`}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`px-2.5 py-1 text-[12px] font-body rounded border transition-colors ${
+                    isActive
+                      ? 'border-orange bg-orange/10 text-orange font-semibold'
+                      : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light'
+                  }`}
+                >
+                  {p}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              onClick={() => setPdfPage((p) => Math.min(totalPdfPages, p + 1))}
+              disabled={effectivePdfPage === totalPdfPages}
+              aria-label="Next PDF page"
+              className="px-2.5 py-1 text-[12px] font-body rounded border border-gray-300 dark:border-navy-border text-navy dark:text-white hover:bg-gray-100 dark:hover:bg-navy-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </nav>
+      )}
     </div>
   )
 }
