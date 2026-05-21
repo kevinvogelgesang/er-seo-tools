@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import PaginatedSection from './PaginatedSection'
-import type { PaginatedResponse, SiteAuditDetail } from '@/lib/ada-audit/types'
+import type { PaginatedResponse, QueueStatusWithBatch, SiteAuditDetail } from '@/lib/ada-audit/types'
 
 const PAGE_SIZE = 25
 const URL_PARAM = 'recentSitesPage'
@@ -58,7 +58,13 @@ const HEADER_ICON = (
   </svg>
 )
 
-export default function SiteAuditHistory() {
+interface Props {
+  /** Lifted queue snapshot from the parent's 5s poll. `null` until the
+   *  first poll resolves. */
+  queueStatus: QueueStatusWithBatch | null
+}
+
+export default function SiteAuditHistory({ queueStatus }: Props) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const page = Math.max(1, parseInt(searchParams.get(URL_PARAM) ?? '1', 10) || 1)
@@ -69,6 +75,13 @@ export default function SiteAuditHistory() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
 
+  // Track `data` via a ref so the error-gate read inside fetchPage doesn't
+  // require `data` in fetchPage's deps. Without this, the queueStatus effect
+  // below would loop: setData → fetchPage identity change → effect re-runs →
+  // setData → ... (the render-loop codex flagged).
+  const dataRef = useRef<PaginatedResponse<SiteAuditDetail> | null>(null)
+  dataRef.current = data
+
   const fetchPage = useCallback(async (silent: boolean) => {
     if (!silent) setLoading(true)
     try {
@@ -78,7 +91,7 @@ export default function SiteAuditHistory() {
       setData(json)
       setError(null)
     } catch (e) {
-      if (data === null) {
+      if (dataRef.current === null) {
         setError(e instanceof Error ? e.message : 'Failed to load')
       } else {
         console.warn('[SiteAuditHistory] poll failed:', e)
@@ -86,7 +99,7 @@ export default function SiteAuditHistory() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [page, data])
+  }, [page])
 
   useEffect(() => {
     void fetchPage(false)
@@ -100,59 +113,75 @@ export default function SiteAuditHistory() {
     router.replace(`?${params.toString()}`, { scroll: false })
   }, [router, searchParams])
 
-  // Smart polling: poll lightweight queue endpoint when there are active/queued audits
+  // queueStatus arrives via props from AuditIndexTabs (single lifted 5s poll).
+  // We react to it: merge live counts into matching rows, and trigger a
+  // full re-fetch when any previously-active row drops out of the queue
+  // (completion-edge refresh — without this, rows stay frozen at "running"
+  // visually until the next page change).
   const items = data?.items ?? []
   const totalCount = data?.totalCount ?? 0
   const itemsRef = useRef(items)
   itemsRef.current = items
-  const hasActive = items.some(a => (ACTIVE_STATUSES as readonly string[]).includes(a.status))
 
   useEffect(() => {
-    if (!hasActive) return
+    if (!queueStatus) return
 
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch('/api/site-audit/queue')
-        if (!res.ok) return
-        const queue: { active: { id: string; pagesTotal: number; pagesComplete: number; pagesError: number } | null; queued: { id: string }[] } = await res.json()
+    const activeIds = new Set<string>()
+    if (queueStatus.active) activeIds.add(queueStatus.active.id)
+    for (const q of queueStatus.queued) activeIds.add(q.id)
 
-        const activeIds = new Set<string>()
-        if (queue.active) activeIds.add(queue.active.id)
-        for (const q of queue.queued) activeIds.add(q.id)
+    const current = itemsRef.current
+    const wasActive = current.filter(a => (ACTIVE_STATUSES as readonly string[]).includes(a.status))
+    const needsReload = wasActive.some(a => !activeIds.has(a.id))
 
-        const current = itemsRef.current
-        const wasActive = current.filter(a => (ACTIVE_STATUSES as readonly string[]).includes(a.status))
-        const needsReload = wasActive.some(a => !activeIds.has(a.id))
+    if (needsReload) {
+      void fetchPage(true)
+      return
+    }
 
-        if (needsReload) {
-          void fetchPage(true)
-        } else {
-          setData(prev => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              items: prev.items.map(a => {
-                if (queue.active && a.id === queue.active.id) {
-                  // Preserve `pdfs-running` or `lighthouse-running` if the row
-                  // already has it — the queue endpoint doesn't return status,
-                  // and hardcoding 'running' would visually demote rows that
-                  // have moved on to the post-pages PDF-scanning or LH phase.
-                  return { ...a, status: a.status === 'pdfs-running' || a.status === 'lighthouse-running' ? a.status : 'running', pagesTotal: queue.active.pagesTotal, pagesComplete: queue.active.pagesComplete, pagesError: queue.active.pagesError }
-                }
-                const queuedItem = queue.queued.find(q => q.id === a.id)
-                if (queuedItem && a.status !== 'queued') {
-                  return { ...a, status: 'queued' }
-                }
-                return a
-              }),
-            }
-          })
+    // Merge live queue counts into matching rows without re-fetching.
+    // Return `prev` unchanged when no row actually changed — otherwise React
+    // would treat each merge as a new state and re-run the effect (loop).
+    setData(prev => {
+      if (!prev) return prev
+      let changed = false
+      const nextItems = prev.items.map(a => {
+        if (queueStatus.active && a.id === queueStatus.active.id) {
+          // Preserve `pdfs-running` or `lighthouse-running` if the row
+          // already has it — forcing 'running' would visually demote
+          // rows that have moved on to the post-pages drain phases.
+          const liveStatus =
+            a.status === 'pdfs-running' || a.status === 'lighthouse-running'
+              ? a.status
+              : 'running'
+          if (
+            a.status === liveStatus &&
+            a.pagesTotal === queueStatus.active.pagesTotal &&
+            a.pagesComplete === queueStatus.active.pagesComplete &&
+            a.pagesError === queueStatus.active.pagesError
+          ) {
+            return a
+          }
+          changed = true
+          return {
+            ...a,
+            status: liveStatus,
+            pagesTotal: queueStatus.active.pagesTotal,
+            pagesComplete: queueStatus.active.pagesComplete,
+            pagesError: queueStatus.active.pagesError,
+          }
         }
-      } catch { /* ignore */ }
-    }, 8000)
-
-    return () => clearInterval(timer)
-  }, [hasActive, fetchPage])
+        const queuedItem = queueStatus.queued.find(q => q.id === a.id)
+        if (queuedItem && a.status !== 'queued') {
+          changed = true
+          return { ...a, status: 'queued' }
+        }
+        return a
+      })
+      if (!changed) return prev
+      return { ...prev, items: nextItems }
+    })
+  }, [queueStatus, fetchPage])
 
   async function handleDelete(id: string) {
     setDeleting(id)

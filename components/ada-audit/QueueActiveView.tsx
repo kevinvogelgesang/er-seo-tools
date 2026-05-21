@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import QueueMemberRow from './QueueMemberRow'
 import type { AuditBatchDetail, QueueStatusWithBatch } from '@/lib/ada-audit/types'
 
@@ -107,7 +108,7 @@ export default function QueueActiveView() {
   if (!batchId && !detail) {
     return (
       <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl p-6 text-center font-body text-[13px] text-navy/60 dark:text-white/60">
-        No audits in flight. Queue some from <a href="/ada-audit" className="text-orange hover:underline">/ada-audit</a>.
+        No audits in flight. Queue some from <Link href="/ada-audit" className="text-orange hover:underline">/ada-audit</Link>.
       </div>
     )
   }
