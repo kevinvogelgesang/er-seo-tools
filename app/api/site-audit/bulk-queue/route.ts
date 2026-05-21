@@ -6,13 +6,16 @@
 // duplicates (already in flight) are collected in the response's `skipped`
 // list, not propagated as failures.
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { queueSiteAuditRequest } from '@/lib/ada-audit/queue-request'
+import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+
   const clients = await prisma.client.findMany({
     orderBy: { name: 'asc' },
     select: { id: true, name: true, domains: true },
@@ -50,6 +53,7 @@ export async function POST() {
       domain: c.firstDomain,
       clientId: c.id,
       wcagLevel: 'wcag21aa',
+      requestedBy,
     })
     if (result.kind === 'queued') {
       queued.push({ clientId: c.id, auditId: result.id })

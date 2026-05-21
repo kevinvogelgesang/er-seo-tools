@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   AUTH_COOKIE_NAME,
   AUTH_COOKIE_MAX_AGE_SECONDS,
+  OPERATOR_NAME_COOKIE_NAME,
+  OPERATOR_NAME_MAX_AGE_SECONDS,
   createAuthCookieValue,
   getAuthRedirectBase,
   normalizeAuthReturnPath,
+  sanitizeOperatorName,
   verifyPassword,
 } from '@/lib/auth'
 
@@ -34,5 +37,22 @@ export async function POST(request: NextRequest) {
     path: '/',
     maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
   })
+
+  // Operator-name cookie (optional, non-credential): set when provided,
+  // delete when empty/whitespace so a stale value doesn't survive.
+  const operatorName = sanitizeOperatorName(formData.get('operatorName'))
+  if (operatorName) {
+    response.cookies.set({
+      name: OPERATOR_NAME_COOKIE_NAME,
+      value: operatorName,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: OPERATOR_NAME_MAX_AGE_SECONDS,
+    })
+  } else {
+    response.cookies.delete(OPERATOR_NAME_COOKIE_NAME)
+  }
+
   return response
 }

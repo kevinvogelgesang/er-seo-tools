@@ -70,6 +70,7 @@ export interface AuditListItem {
   clientId: number | null
   clientName: string | null
   scorecard: AuditScorecard | null
+  requestedBy: string | null
 }
 
 /** Shape returned by GET /api/ada-audit/[id] */
@@ -144,6 +145,7 @@ export interface SiteAuditDetail {
   lighthouseTotal: number
   lighthouseComplete: number
   lighthouseError: number
+  requestedBy: string | null
 }
 
 // ── Pagination ─────────────────────────────────────────────────────────────

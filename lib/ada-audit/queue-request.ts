@@ -25,6 +25,7 @@ export interface QueueRequestInput {
   clientId: number | null
   wcagLevel: string
   preDiscoveredUrls?: string[]
+  requestedBy?: string | null
 }
 
 export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<QueueRequestResult> {
@@ -51,6 +52,9 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
   }
 
   const wcagLevel = input.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
-  const { id } = await enqueueAudit(domain, input.clientId, wcagLevel, normalisedUrls)
+  const { id } = await enqueueAudit(domain, input.clientId, wcagLevel, {
+    preDiscoveredUrls: normalisedUrls,
+    requestedBy: input.requestedBy ?? null,
+  })
   return { kind: 'queued', id }
 }
