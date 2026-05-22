@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import type { AuditBatchMember } from '@/lib/ada-audit/types'
+import { formatDuration, formatDurationHover } from '@/lib/ada-audit/duration'
 
 const STATUS_LABEL: Record<string, string> = {
   queued: 'Queued',
@@ -36,6 +37,10 @@ export default function QueueMemberRow({ member, onCancelled }: Props) {
   const [confirming, setConfirming] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const durationStart = member.startedAt ? new Date(member.startedAt) : null
+  const durationEnd = member.completedAt ? new Date(member.completedAt) : null
+  const duration = formatDuration(durationStart, durationEnd)
 
   async function handleCancel() {
     setConfirming(false)
@@ -82,6 +87,11 @@ export default function QueueMemberRow({ member, onCancelled }: Props) {
       </td>
       <td className="px-6 py-3 font-body text-[12px] text-navy dark:text-white">
         {member.score ?? '—'}
+      </td>
+      <td className="px-6 py-3 font-body text-[11px] text-navy/40 dark:text-white/40 whitespace-nowrap">
+        {duration !== null ? (
+          <span title={formatDurationHover(durationStart, durationEnd) ?? ''}>{duration}</span>
+        ) : '—'}
       </td>
       <td className="px-6 py-3 text-right">
         {member.status === 'queued' && (

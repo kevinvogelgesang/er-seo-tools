@@ -112,6 +112,8 @@ export async function GET(
     lighthouseComplete: audit.lighthouseComplete,
     lighthouseError: audit.lighthouseError,
     requestedBy: audit.requestedBy ?? null,
+    startedAt: audit.startedAt?.toISOString() ?? null,
+    completedAt: audit.completedAt?.toISOString() ?? null,
     queuePosition,
     activeAudit,
     ...(liveChildren ? { liveChildren } : {}),

@@ -51,6 +51,8 @@ export async function GET(
       pagesError: m.pagesError,
       score,
       createdAt: m.createdAt.toISOString(),
+      startedAt: m.startedAt?.toISOString() ?? null,
+      completedAt: m.completedAt?.toISOString() ?? null,
     }
   })
 

@@ -115,6 +115,8 @@ export async function GET(request: NextRequest) {
       lighthouseComplete: a.lighthouseComplete,
       lighthouseError: a.lighthouseError,
       requestedBy: a.requestedBy ?? null,
+      startedAt: a.startedAt?.toISOString() ?? null,
+      completedAt: a.completedAt?.toISOString() ?? null,
     } satisfies SiteAuditDetail & { score: number | null; wcagLevel: string }
   })
 
