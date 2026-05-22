@@ -1,5 +1,5 @@
 import path from 'path'
-import type { HTTPRequest } from 'puppeteer-core'
+import type { HTTPRequest, HTTPResponse, Page } from 'puppeteer-core'
 import { acquirePage, releasePage } from './browser-pool'
 import { captureViolationScreenshots } from './screenshot-helpers'
 import { assertSafeHttpUrl } from '../security/safe-url'
@@ -148,9 +148,9 @@ export async function runAxeAudit(
       // 'pagespeed' or 'off': we own navigation
       await progress(20, 'Loading page…')
 
-      let response: import('puppeteer-core').HTTPResponse | null = null
+      let response: HTTPResponse | null = null
 
-      const attemptNavigation = async (currentPage: import('puppeteer-core').Page): Promise<void> => {
+      const attemptNavigation = async (currentPage: Page): Promise<void> => {
         try {
           response = await gotoWithRetryOn5xx(
             currentPage,
