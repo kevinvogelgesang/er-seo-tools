@@ -8,6 +8,7 @@ import { getLighthouseProvider } from './lighthouse-provider'
 import { harvestPdfLinks } from './pdf-discovery'
 import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
+import { isTransientRunnerError } from './runner-retry'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 
@@ -63,7 +64,7 @@ export async function runAxeAudit(
   const parsed = await assertSafeHttpUrl(targetUrl)
 
   await progress(10, 'Launching browser…')
-  const page = await acquirePage()
+  let page = await acquirePage()
 
   let lighthouseSummary: LighthouseSummary | null = null
   let lighthouseError: string | null = null
@@ -146,59 +147,81 @@ export async function runAxeAudit(
     } else {
       // 'pagespeed' or 'off': we own navigation
       await progress(20, 'Loading page…')
-      let response
+
+      let response: import('puppeteer-core').HTTPResponse | null = null
+
+      const attemptNavigation = async (currentPage: import('puppeteer-core').Page): Promise<void> => {
+        try {
+          response = await gotoWithRetryOn5xx(
+            currentPage,
+            parsed.toString(),
+            { waitUntil: 'domcontentloaded', timeout: 30_000 },
+            async () => { await progress(22, 'Retrying (upstream 5xx)…') },
+          )
+          // Settle stays INSIDE the same try so that any non-timeout rejection
+          // during settle (frame detach, navigation reset) surfaces here and
+          // the Phase 2 transient-retry layer sees it. The helper only swallows
+          // waitForNetworkIdle's own timeout. See spec §"Decision 1".
+          await postLoadSettle(currentPage)
+        } catch (err) {
+          if (blockedNavigationError) throw blockedNavigationError
+          throw err
+        }
+
+        if (!response) throw new Error('No response received from page')
+        const status = response.status()
+
+        if (status === 304) {
+          // Cache hardening on the page (browser-pool.ts) should have prevented this,
+          // but if Chrome still served a validator-only response, retry once with a
+          // cache-busting query param and explicit no-store headers. Failure surfaces
+          // the original 304 message so the operator can re-run manually.
+          await currentPage.setExtraHTTPHeaders({
+            'Cache-Control': 'no-store',
+            'Pragma': 'no-cache',
+          }).catch(() => {})
+          const bustUrl = new URL(parsed.toString())
+          bustUrl.searchParams.set('_cb', String(Date.now()))
+          response = await currentPage.goto(bustUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 })
+          await postLoadSettle(currentPage)
+          if (!response) throw new Error('HTTP 304 Not Modified — retry also returned no response; re-run to get a fresh scan')
+          if (response.status() === 304) {
+            throw new Error('HTTP 304 Not Modified — cached response received twice; re-run to get a fresh scan')
+          }
+        }
+        if (!response.ok()) {
+          if (status === 403) throw new Error(`HTTP 403 — This site is blocking automated scanners. Try adding your server IP to the site's allowlist, or contact the site owner.`)
+          if (status === 401) throw new Error(`HTTP 401 — This page requires authentication. The scanner cannot access password-protected pages.`)
+          throw new Error(`HTTP ${status} — ${response.statusText()}`)
+        }
+
+        const contentType = response.headers()['content-type'] ?? ''
+        if (!contentType.includes('html')) throw new Error(`Response is not HTML (Content-Type: ${contentType})`)
+      }
+
       try {
-        response = await gotoWithRetryOn5xx(
-          page,
-          parsed.toString(),
-          { waitUntil: 'domcontentloaded', timeout: 30_000 },
-          async () => {
-            await progress(22, 'Retrying (upstream 5xx)…')
-          },
-        )
-        // Settle stays INSIDE the same try so that any non-timeout rejection
-        // during settle (frame detach, navigation reset) surfaces here and
-        // the Phase 2 transient-retry layer sees it. The helper only swallows
-        // waitForNetworkIdle's own timeout. See spec §"Decision 1".
-        await postLoadSettle(page)
+        await attemptNavigation(page)
       } catch (err) {
-        if (blockedNavigationError) throw blockedNavigationError
-        throw err
-      }
+        if (!isTransientRunnerError(err)) throw err
 
-      if (!response) throw new Error('No response received from page')
-      const status = response.status()
-      if (status === 304) {
-        // Cache hardening on the page (browser-pool.ts) should have prevented this,
-        // but if Chrome still served a validator-only response, retry once with a
-        // cache-busting query param and explicit no-store headers. Failure surfaces
-        // the original 304 message so the operator can re-run manually.
-        await page.setExtraHTTPHeaders({
-          'Cache-Control': 'no-store',
-          'Pragma': 'no-cache',
-        }).catch(() => {})
-        const bustUrl = new URL(parsed.toString())
-        bustUrl.searchParams.set('_cb', String(Date.now()))
-        response = await page.goto(bustUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 })
-        await postLoadSettle(page)
-        if (!response) throw new Error('HTTP 304 Not Modified — retry also returned no response; re-run to get a fresh scan')
-        if (response.status() === 304) {
-          throw new Error('HTTP 304 Not Modified — cached response received twice; re-run to get a fresh scan')
-        }
-      }
-      if (!response.ok()) {
-        if (status === 403) {
-          throw new Error(`HTTP 403 — This site is blocking automated scanners. Try adding your server IP to the site's allowlist, or contact the site owner.`)
-        }
-        if (status === 401) {
-          throw new Error(`HTTP 401 — This page requires authentication. The scanner cannot access password-protected pages.`)
-        }
-        throw new Error(`HTTP ${status} — ${response.statusText()}`)
-      }
+        await progress(23, 'Transient error — retrying with fresh page…')
 
-      const contentType = response.headers()['content-type'] ?? ''
-      if (!contentType.includes('html')) {
-        throw new Error(`Response is not HTML (Content-Type: ${contentType})`)
+        // Release the failing page and acquire a fresh one. `about:blank` is
+        // insufficient for `Navigating frame was detached` because Puppeteer's
+        // frame tree may be in an unrecoverable state. A fresh page also clears
+        // any half-applied request-interception state.
+        await releasePage(page).catch(() => {})
+        page = await acquirePage()
+
+        // Re-apply hardening from browser-pool (idempotent) and re-register the
+        // request handler on the new page.
+        await page.setRequestInterception(true)
+        page.on('request', (request) => { void handleRequest(request) })
+        // Note: `validateBrowserRequest` and `blockedNavigationError` close over
+        // the outer scope and continue to work without re-binding.
+
+        blockedNavigationError = null
+        await attemptNavigation(page)
       }
 
       if (provider === 'pagespeed') {
