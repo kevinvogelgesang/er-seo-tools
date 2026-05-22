@@ -69,6 +69,18 @@ export async function acquirePage(): Promise<Page> {
   const b = await getBrowser()
   const page = await b.newPage()
   page.setDefaultTimeout(60_000)
+
+  // Defense-in-depth cache hardening. Browser launch already sets
+  // --disable-http-cache, but 304 responses still surfaced (2 pages on the
+  // 2026-05-21 run). Per-page disabling closes the remaining vectors:
+  // service workers, validator-only memory cache, and conditional headers.
+  await page.setCacheEnabled(false).catch(() => {})
+  await page.setBypassServiceWorker(true).catch(() => {})
+  await page.setExtraHTTPHeaders({
+    'Cache-Control': 'no-store, no-cache, max-age=0',
+    'Pragma': 'no-cache',
+  }).catch(() => {})
+
   return page
 }
 
