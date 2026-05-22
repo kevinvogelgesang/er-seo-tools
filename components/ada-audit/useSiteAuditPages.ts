@@ -34,6 +34,7 @@ interface Options {
 interface Result {
   issuePages: SitePageResult[]
   cleanPages: SitePageResult[]
+  redirectedPages: SitePageResult[]
   counts: FilterCounts
 }
 
@@ -97,11 +98,20 @@ export function useSiteAuditPages(pages: SitePageResult[], options: Options): Re
   const { sortKey, filterImpact, filterStatus } = options
 
   return useMemo(() => {
+    // 0. Separate redirected rows — they have no axe data and don't belong
+    // in either "with issues" or "clean" buckets.
+    const redirected: SitePageResult[] = []
+    const nonRedirected: SitePageResult[] = []
+    for (const p of pages) {
+      if (p.status === 'redirected') redirected.push(p)
+      else nonRedirected.push(p)
+    }
+
     // 1. Split clean vs issues
     const clean: SitePageResult[] = []
     const issues: SitePageResult[] = []
 
-    for (const p of pages) {
+    for (const p of nonRedirected) {
       if (p.status === 'complete' && p.scorecard && p.scorecard.total === 0) {
         clean.push(p)
       } else {
@@ -121,10 +131,12 @@ export function useSiteAuditPages(pages: SitePageResult[], options: Options): Re
 
     // 5. Sort clean pages alphabetically
     const sortedClean = [...clean].sort((a, b) => a.url.localeCompare(b.url))
+    const sortedRedirected = [...redirected].sort((a, b) => a.url.localeCompare(b.url))
 
     return {
       issuePages: sorted,
       cleanPages: sortedClean,
+      redirectedPages: sortedRedirected,
       counts,
     }
   }, [pages, sortKey, filterImpact, filterStatus])

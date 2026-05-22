@@ -124,11 +124,12 @@ export interface LiveAuditChild {
 export interface SitePageResult {
   adaAuditId: string
   url: string
-  status: 'complete' | 'error'
+  status: 'complete' | 'error' | 'redirected'
   error: string | null
   scorecard: AuditScorecard | null
   lighthouse: LighthouseSummary | null   // null if LH disabled / errored for this page
   pdfs: SitePagePdfState                  // zero-valued when no PDFs harvested
+  finalUrl?: string | null                // populated when status === 'redirected'
 }
 
 export interface SiteAuditPdfAggregate {
