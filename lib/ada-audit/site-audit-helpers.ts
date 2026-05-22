@@ -202,7 +202,7 @@ export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
   // of complete pages, with best-effort shared-ancestor hint. Stored alongside
   // aggregate/pdfsAggregate/pages so the callout renders without extra fetch.
   const commonIssues = detectCommonIssues(
-    children.map((c) => ({ id: c.id, status: c.status, result: c.result })),
+    children.map((c) => ({ id: c.id, status: c.status, result: c.result, url: c.url })),
   )
 
   return { aggregate, pdfsAggregate, pages, commonIssues }

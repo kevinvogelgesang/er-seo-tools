@@ -4,6 +4,7 @@ import {
   extractTagsFromSelector,
   extractLandmarkFromTarget,
   tierForRatio,
+  computeCanonicalSelector,
   COMMON_ISSUE_THRESHOLD,
   COMMON_ISSUE_TIER_TEMPLATE,
   COMMON_ISSUE_TIER_COMMON,
@@ -45,13 +46,14 @@ function makeRows(
   const erroredFrom = opts?.erroredFrom ?? n
   return Array.from({ length: n }, (_, i) => {
     if (i >= erroredFrom) {
-      return { id: `e-${i}`, status: 'error', result: null }
+      return { id: `e-${i}`, status: 'error', result: null, url: `https://example.com/e-${i}` }
     }
     const violations = buildViolations(i)
     return {
       id: `c-${i}`,
       status: 'complete',
       result: JSON.stringify({ violations, passes: [], incomplete: [] }),
+      url: `https://example.com/c-${i}`,
     }
   })
 }
@@ -328,7 +330,7 @@ describe('detectCommonIssues — defensive guards', () => {
   it('skips a row whose `result` is malformed JSON without throwing', () => {
     const rows: CommonIssueInputRow[] = [
       ...makeRows(9, () => [colorContrast([{ target: ['footer > a'] }])]),
-      { id: 'c-bad', status: 'complete', result: '{not-json' },
+      { id: 'c-bad', status: 'complete', result: '{not-json', url: 'https://example.com/bad' },
     ]
     // N=10 (the bad row still counts as a complete page), hits = 9, minHits = 8 → qualifies
     const out = detectCommonIssues(rows)
@@ -340,8 +342,8 @@ describe('detectCommonIssues — defensive guards', () => {
   it('skips a row whose result has missing or non-array violations', () => {
     const rows: CommonIssueInputRow[] = [
       ...makeRows(8, () => [colorContrast([{ target: ['footer > a'] }])]),
-      { id: 'c-no-vs', status: 'complete', result: JSON.stringify({ /* no violations */ }) },
-      { id: 'c-bad-vs', status: 'complete', result: JSON.stringify({ violations: 'not-an-array' }) },
+      { id: 'c-no-vs', status: 'complete', result: JSON.stringify({ /* no violations */ }), url: 'https://example.com/no-vs' },
+      { id: 'c-bad-vs', status: 'complete', result: JSON.stringify({ violations: 'not-an-array' }), url: 'https://example.com/bad-vs' },
     ]
     // N = 10, hits = 8, minHits = 8 → qualifies
     const out = detectCommonIssues(rows)
@@ -383,6 +385,7 @@ describe('detectCommonIssues — sort order', () => {
         id: `c-${i}`,
         status: 'complete',
         result: JSON.stringify({ violations, passes: [], incomplete: [] }),
+        url: `https://example.com/c-${i}`,
       }
     })
     const out = detectCommonIssues(rows)
@@ -396,6 +399,7 @@ describe('detectCommonIssues — sort order', () => {
     const rows: CommonIssueInputRow[] = Array.from({ length: 10 }, (_, i) => ({
       id: `c-${i}`,
       status: 'complete',
+      url: `https://example.com/c-${i}`,
       result: JSON.stringify({
         violations: [
           {
@@ -421,5 +425,137 @@ describe('detectCommonIssues — sort order', () => {
     }))
     const out = detectCommonIssues(rows)
     expect(out.map((o) => o.ruleId)).toEqual(['critical-rule', 'serious-rule'])
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// computeCanonicalSelector — page-based mode-of-modes voting
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('computeCanonicalSelector', () => {
+  it('returns null when no pages', () => {
+    expect(computeCanonicalSelector([])).toEqual({
+      canonicalSelector: null, selectorConfidence: 0, examplePageUrl: null,
+    })
+  })
+
+  it('picks the per-page mode then the cross-page mode', () => {
+    const result = computeCanonicalSelector([
+      { url: '/a', nodes: [{ target: ['nav.x'] }, { target: ['nav.x'] }, { target: ['p'] }] },
+      { url: '/b', nodes: [{ target: ['nav.x'] }] },
+      { url: '/c', nodes: [{ target: ['footer'] }] },
+    ])
+    expect(result.canonicalSelector).toBe('nav.x')
+    expect(result.examplePageUrl).toBe('/a')
+    expect(result.selectorConfidence).toBeCloseTo(2 / 3)
+  })
+
+  it('returns null when no strict majority across affected pages', () => {
+    const result = computeCanonicalSelector([
+      { url: '/a', nodes: [{ target: ['x'] }] },
+      { url: '/b', nodes: [{ target: ['y'] }] },
+    ])
+    expect(result.canonicalSelector).toBeNull()
+  })
+
+  it('joins multi-element targets with a space when scoring votes', () => {
+    const result = computeCanonicalSelector([
+      { url: '/a', nodes: [{ target: ['header', 'a.cta'] }] },
+      { url: '/b', nodes: [{ target: ['header', 'a.cta'] }] },
+      { url: '/c', nodes: [{ target: ['footer'] }] },
+    ])
+    expect(result.canonicalSelector).toBe('header a.cta')
+  })
+
+  it('returns null when canonical vote is exactly half (not strict majority)', () => {
+    const result = computeCanonicalSelector([
+      { url: '/a', nodes: [{ target: ['nav.x'] }] },
+      { url: '/b', nodes: [{ target: ['nav.x'] }] },
+      { url: '/c', nodes: [{ target: ['nav.y'] }] },
+      { url: '/d', nodes: [{ target: ['nav.y'] }] },
+    ])
+    expect(result.canonicalSelector).toBeNull()
+  })
+
+  it('skips a page whose top selector is tied with another within the same page', () => {
+    // /a has a tie between nav.x and nav.y (1-1). Its vote must be skipped,
+    // so only /b and /c contribute. nav.x wins 2-1 across them; with 3 total
+    // affected pages, 2/3 is a strict majority and 2/3 is the confidence.
+    const result = computeCanonicalSelector([
+      { url: '/a', nodes: [{ target: ['nav.x'] }, { target: ['nav.y'] }] }, // tied — skipped
+      { url: '/b', nodes: [{ target: ['nav.x'] }] },
+      { url: '/c', nodes: [{ target: ['nav.x'] }] },
+    ])
+    expect(result.canonicalSelector).toBe('nav.x')
+    expect(result.examplePageUrl).toBe('/b')
+    expect(result.selectorConfidence).toBeCloseTo(2 / 3)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// detectCommonIssues — canonical-selector wiring
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('detectCommonIssues — canonical selector', () => {
+  it('attaches canonicalSelector + examplePageUrl for template-tier rules', () => {
+    // 5 complete pages, all hit by color-contrast on the same selector → template tier.
+    // Each page has two nodes of footer > a.cta and one of p, so the per-page top
+    // is unambiguously footer > a.cta (no tie).
+    const rows: CommonIssueInputRow[] = Array.from({ length: 5 }, (_, i) => ({
+      id: `c-${i}`,
+      status: 'complete',
+      url: `https://example.com/page-${i}`,
+      result: JSON.stringify({
+        violations: [colorContrast([
+          { target: ['footer > a.cta'] },
+          { target: ['footer > a.cta'] },
+          { target: ['p'] },
+        ])],
+        passes: [],
+        incomplete: [],
+      }),
+    }))
+    const out = detectCommonIssues(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].tier).toBe('template')
+    expect(out[0].canonicalSelector).toBe('footer > a.cta')
+    expect(out[0].examplePageUrl).toBe('https://example.com/page-0')
+    expect(out[0].selectorConfidence).toBeCloseTo(1)
+  })
+
+  it('does NOT attach canonicalSelector for recurring-tier rules', () => {
+    // 20 pages, 5 affected (25% → recurring), all with the same selector.
+    const rows = makeRows(20, (i) =>
+      i < 5 ? [colorContrast([{ target: ['footer > a.cta'] }])] : [],
+    )
+    const out = detectCommonIssues(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].tier).toBe('recurring')
+    expect(out[0].canonicalSelector).toBeNull()
+    expect(out[0].examplePageUrl).toBeNull()
+  })
+
+  it('reports canonicalSelector=null when no selector wins a strict majority of affected pages', () => {
+    // 5 pages: 2 with nav.x, 2 with nav.y, 1 with nav.z → no majority for any selector.
+    const rows: CommonIssueInputRow[] = Array.from({ length: 5 }, (_, i) => {
+      let target = 'nav.z'
+      if (i < 2) target = 'nav.x'
+      else if (i < 4) target = 'nav.y'
+      return {
+        id: `c-${i}`,
+        status: 'complete',
+        url: `https://example.com/page-${i}`,
+        result: JSON.stringify({
+          violations: [colorContrast([{ target: [target] }])],
+          passes: [],
+          incomplete: [],
+        }),
+      }
+    })
+    const out = detectCommonIssues(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].tier).toBe('template')
+    expect(out[0].canonicalSelector).toBeNull()
+    expect(out[0].examplePageUrl).toBeNull()
   })
 })

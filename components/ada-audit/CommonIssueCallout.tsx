@@ -104,6 +104,28 @@ function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; o
           <p className="text-[12px] font-body text-navy/60 dark:text-white/60 mt-1">
             {ancestorSentence(issue)}
           </p>
+          {issue.canonicalSelector && issue.examplePageUrl && (() => {
+            const exampleHref = safeExternalHref(issue.examplePageUrl)
+            return (
+              <p className="text-[12px] font-body text-navy/60 dark:text-white/60 mt-1">
+                CSS selector:{' '}
+                <code className="text-orange font-mono text-[11px]">{issue.canonicalSelector}</code>
+                {exampleHref && (
+                  <>
+                    {' · '}
+                    <a
+                      href={exampleHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-orange hover:underline"
+                    >
+                      View on {issue.examplePageUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                    </a>
+                  </>
+                )}
+              </p>
+            )
+          })()}
           <div className="flex items-center gap-3 mt-2">
             <button
               type="button"

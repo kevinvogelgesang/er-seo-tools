@@ -39,6 +39,9 @@ export interface CommonIssueInputRow {
   id: string
   status: string
   result: string | null
+  /** Page URL — used to attribute selector votes back to a specific page for
+   *  the "View on …" example link in the common-issue callout. */
+  url: string
 }
 
 /**
@@ -162,6 +165,66 @@ interface RuleAccumulator {
   metadata: { impact: ImpactLevel; help: string; description: string; helpUrl: string }
   pageIds: Set<string>
   landmarkByPage: Map<string, LandmarkTag>
+  /** Per-affected-page bundles of (url, node targets) used by canonical-selector voting. */
+  pagesForSelector: { url: string; nodes: { target: string[] }[] }[]
+}
+
+/**
+ * Page-based selector voting: each affected page contributes one vote — the
+ * most-frequent target selector among that page's violation nodes. The
+ * cross-page mode of those votes is the canonical selector, requiring a
+ * strict majority of all affected pages (half or less → no canonical).
+ *
+ * Confidence is reported relative to total affected pages (not just voting
+ * pages), so a rule that fires on a page with zero target data dilutes
+ * confidence as expected.
+ */
+export function computeCanonicalSelector(
+  affectedPages: { url: string; nodes: { target: string[] }[] }[],
+): { canonicalSelector: string | null; selectorConfidence: number; examplePageUrl: string | null } {
+  if (affectedPages.length === 0) {
+    return { canonicalSelector: null, selectorConfidence: 0, examplePageUrl: null }
+  }
+  const votes: { selector: string; pageUrl: string }[] = []
+  for (const page of affectedPages) {
+    if (page.nodes.length === 0) continue
+    const counts = new Map<string, number>()
+    for (const n of page.nodes) {
+      if (!Array.isArray(n.target) || n.target.length === 0) continue
+      const key = n.target.join(' ')
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    let topSelector: string | null = null
+    let topCount = -1
+    let tiedAtTop = false
+    for (const [s, c] of counts) {
+      if (c > topCount) { topSelector = s; topCount = c; tiedAtTop = false }
+      else if (c === topCount) { tiedAtTop = true }
+    }
+    // Skip the page's vote when its top selector is tied with another within
+    // the same page — we cannot honestly attribute one canonical selector.
+    if (topSelector && !tiedAtTop) votes.push({ selector: topSelector, pageUrl: page.url })
+  }
+  if (votes.length === 0) {
+    return { canonicalSelector: null, selectorConfidence: 0, examplePageUrl: null }
+  }
+  const tally = new Map<string, number>()
+  for (const v of votes) tally.set(v.selector, (tally.get(v.selector) ?? 0) + 1)
+  let canonical: string | null = null
+  let canonicalCount = 0
+  for (const [s, c] of tally) {
+    if (c > canonicalCount) { canonical = s; canonicalCount = c }
+  }
+  // Strict majority required across affected pages.
+  if (canonical === null || canonicalCount * 2 <= affectedPages.length) {
+    return { canonicalSelector: null, selectorConfidence: 0, examplePageUrl: null }
+  }
+  const examplePage = votes.find((v) => v.selector === canonical)?.pageUrl ?? null
+  return {
+    canonicalSelector: canonical,
+    selectorConfidence: canonicalCount / affectedPages.length,
+    examplePageUrl: examplePage,
+  }
 }
 
 interface ParsedResult { violations?: unknown }
@@ -227,12 +290,19 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
           },
           pageIds: new Set(),
           landmarkByPage: new Map(),
+          pagesForSelector: [],
         }
         accumulator.set(id, entry)
       }
       entry.pageIds.add(row.id)
       const pageLandmark = computeModalLandmarkForPage(nodes)
       if (pageLandmark) entry.landmarkByPage.set(row.id, pageLandmark)
+      entry.pagesForSelector.push({
+        url: row.url,
+        nodes: nodes
+          .filter((n): n is { target: string[] } => Array.isArray(n?.target))
+          .map((n) => ({ target: n.target })),
+      })
     }
   }
 
@@ -246,6 +316,13 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
 
     const { sharedAncestor, ancestorConfidence } = voteAcrossPages(entry.landmarkByPage, affectedPagesCount)
 
+    // Canonical selector identifies the shared DOM element only when the
+    // pattern is concentrated enough to be a single fix (template/common).
+    // 'recurring' issues span too many distinct contexts to warrant one.
+    const selectorExtras = (tier === 'template' || tier === 'common')
+      ? computeCanonicalSelector(entry.pagesForSelector)
+      : { canonicalSelector: null, selectorConfidence: 0, examplePageUrl: null }
+
     out.push({
       ruleId,
       impact: entry.metadata.impact,
@@ -257,6 +334,9 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
       sharedAncestor,
       ancestorConfidence,
       tier,
+      canonicalSelector: selectorExtras.canonicalSelector,
+      selectorConfidence: selectorExtras.selectorConfidence,
+      examplePageUrl: selectorExtras.examplePageUrl,
     })
   }
 
