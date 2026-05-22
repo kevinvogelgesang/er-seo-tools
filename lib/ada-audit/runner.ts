@@ -206,6 +206,19 @@ export async function runAxeAudit(
           if (status >= 300 && status < 400) {
             const finalUrl = response.url()
             const location = response.headers()['location'] ?? null
+            const chain = response.request().redirectChain()
+            // Puppeteer didn't auto-follow but a Location header is present —
+            // classify as a redirected page rather than an error. Resolve the
+            // Location against the requested URL so relative redirects work.
+            if (location && chain.length === 0) {
+              try {
+                const resolved = new URL(location, parsed.toString()).toString()
+                redirectedHolder.value = { finalUrl: resolved }
+                return  // exit attemptNavigation — outer code checks redirectedHolder
+              } catch {
+                // Malformed Location — fall through to error path
+              }
+            }
             const detail = location
               ? `Redirected to ${location} (final URL was ${finalUrl}); puppeteer did not auto-follow`
               : `Server returned ${status} with no Location header (final URL: ${finalUrl})`
@@ -214,18 +227,21 @@ export async function runAxeAudit(
           throw new Error(`HTTP ${status} — ${response.statusText()}`)
         }
 
-        const contentType = response.headers()['content-type'] ?? ''
-        if (!contentType.includes('html')) throw new Error(`Response is not HTML (Content-Type: ${contentType})`)
-
         // Server-side redirect detection. Use puppeteer's chain data —
         // page.url() after settle can change due to meta refresh / JS
         // navigation, which we do NOT want to flag as redirects.
+        // IMPORTANT: this runs BEFORE the content-type check so a redirect
+        // whose final destination isn't HTML (e.g. PDF) reports as redirected
+        // rather than as "Response is not HTML".
         const chain = response!.request().redirectChain()
         const detected = detectRedirect(parsed.toString(), chain, response!.url())
         if (detected.kind === 'redirected') {
           redirectedHolder.value = { finalUrl: detected.finalUrl }
           return  // exit attemptNavigation — outer code will check redirectedHolder
         }
+
+        const contentType = response.headers()['content-type'] ?? ''
+        if (!contentType.includes('html')) throw new Error(`Response is not HTML (Content-Type: ${contentType})`)
       }
 
       try {

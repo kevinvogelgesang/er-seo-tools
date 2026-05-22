@@ -10,7 +10,7 @@ import { parseAxeScorecardFromResult } from './site-audit-helpers'
  *  will only see the most recent rows until the audit finalizes. */
 export const LIVE_CHILDREN_LIMIT = 100
 
-const LIVE_STATUSES = ['pending', 'running', 'complete', 'error'] as const
+const LIVE_STATUSES = ['pending', 'running', 'complete', 'error', 'redirected'] as const
 type LiveStatus = typeof LIVE_STATUSES[number]
 
 /** Row shape the route should `select` from `prisma.adaAudit.findMany`. */

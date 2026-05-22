@@ -9,10 +9,11 @@ interface Props {
 
 function StatusPill({ status }: { status: LiveAuditChild['status'] }) {
   const styles: Record<LiveAuditChild['status'], string> = {
-    complete: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
-    error:    'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
-    running:  'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
-    pending:  'bg-gray-100 dark:bg-navy-light text-navy/60 dark:text-white/60',
+    complete:   'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
+    error:      'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
+    running:    'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    pending:    'bg-gray-100 dark:bg-navy-light text-navy/60 dark:text-white/60',
+    redirected: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
   }
   return (
     <span
@@ -66,7 +67,7 @@ export default function LiveAuditTable({ rows }: Props) {
           aria-atomic="false"
         >
           {rows.map((c) => {
-            const isTerminal = c.status === 'complete' || c.status === 'error'
+            const isTerminal = c.status === 'complete' || c.status === 'error' || c.status === 'redirected'
             return (
               <tr key={c.adaAuditId}>
                 <td className="px-6 py-2.5 max-w-md">

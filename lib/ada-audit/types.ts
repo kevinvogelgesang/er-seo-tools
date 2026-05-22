@@ -115,7 +115,7 @@ export interface SitePagePdfState {
 export interface LiveAuditChild {
   adaAuditId: string
   url: string
-  status: 'pending' | 'running' | 'complete' | 'error'
+  status: 'pending' | 'running' | 'complete' | 'error' | 'redirected'
   scorecard: AuditScorecard | null  // null until status === 'complete'
   error: string | null              // populated when status === 'error'
 }
@@ -195,6 +195,7 @@ export interface SiteAuditDetail {
   pagesTotal: number
   pagesComplete: number
   pagesError: number
+  pagesRedirected: number
   summary: SiteAuditSummary | null
   pdfs?: AuditPdfRow[]
   pdfsTotal?: number
