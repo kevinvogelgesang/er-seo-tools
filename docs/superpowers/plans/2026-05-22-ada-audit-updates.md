@@ -572,14 +572,15 @@ git commit -m "feat(ada-audit): duration column on standalone audit history"
 
 ---
 
-### Task 1.7: Add Duration to SiteAuditHistory, QueueActiveView, QueueHistoryView
+### Task 1.7: Add Duration to SiteAuditHistory and Queue rows
 
 **Files:**
 - Modify: `components/ada-audit/SiteAuditHistory.tsx`
-- Modify: `components/ada-audit/QueueActiveView.tsx`
-- Modify: `components/ada-audit/QueueHistoryView.tsx`
-- Modify: `app/api/site-audit/route.ts` (or wherever site audits are listed)
-- Modify: `lib/ada-audit/types.ts` (`SiteAuditListItem` or equivalent)
+- Modify: `components/ada-audit/QueueMemberRow.tsx` (per-row component used by QueueActiveView / inside QueueBatchRow)
+- Modify: `lib/ada-audit/types.ts` (`AuditBatchMember` and the site-audit list item type)
+- Modify: `app/api/audit-batches/[id]/route.ts` and `app/api/site-audit/route.ts` (whichever serializes each row — extend serialization)
+
+`QueueActiveView` and `QueueHistoryView` are parent shells that render `QueueMemberRow` and `QueueBatchRow`. Duration belongs on the per-row component. `QueueBatchRow` already shows batch-level started/closed duration; we add Duration to each *member row* (the individual audit inside a batch).
 
 - [ ] **Step 1: Find the site audit list type and API**
 
@@ -629,57 +630,71 @@ In the row-rendering loop, after the Date `<td>` and before any Actions `<td>`, 
 import { formatDuration, formatDurationHover } from '@/lib/ada-audit/duration'
 ```
 
-- [ ] **Step 5: Add Duration column to QueueActiveView**
+- [ ] **Step 5: Extend AuditBatchMember type with timestamps**
 
-Open `components/ada-audit/QueueActiveView.tsx`. Inspect the existing table layout. After the last current `<th>` in the header (the rightmost column before any actions), insert:
+Open `lib/ada-audit/types.ts`. Find the `AuditBatchMember` interface (search for `AuditBatchMember`). Add:
 
-```tsx
-<th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Duration</th>
+```ts
+  startedAt: string | null
+  completedAt: string | null
 ```
 
-In each row, after the equivalent rightmost `<td>`, insert:
+- [ ] **Step 6: Serialize startedAt/completedAt from audit-batches API**
 
-```tsx
-<td className="py-2.5 pr-4 text-navy/40 dark:text-white/40 whitespace-nowrap" title={(() => {
-  const start = row.startedAt ? new Date(row.startedAt) : null
-  const end = row.completedAt ? new Date(row.completedAt) : null
-  return formatDurationHover(start, end) ?? ''
-})()}>
-  {(() => {
-    const start = row.startedAt ? new Date(row.startedAt) : null
-    const end = row.completedAt ? new Date(row.completedAt) : null
-    return formatDuration(start, end) ?? '—'
-  })()}
-</td>
+Open `app/api/audit-batches/[id]/route.ts`. Find where each member row is serialized for the response (look for fields like `id`, `domain`, `status`). Add to the per-member object:
+
+```ts
+      startedAt: m.startedAt?.toISOString() ?? null,
+      completedAt: m.completedAt?.toISOString() ?? null,
 ```
 
-Replace `row` with the loop variable name. Active rows will have `completedAt === null` → cell renders `—`.
+Adjust `m.` to whatever variable the existing map uses.
 
-Add the import:
+- [ ] **Step 7: Render Duration cell inside QueueMemberRow**
+
+Open `components/ada-audit/QueueMemberRow.tsx`. Identify the row's column layout (it may be flex / grid based, not a table). Add a Duration display element using `formatDuration(member.startedAt, member.completedAt)` and a `title={formatDurationHover(...)}` for the hover. Place it next to other status/timing details in the row.
+
+Concrete pattern — adapt to the actual layout:
 
 ```tsx
 import { formatDuration, formatDurationHover } from '@/lib/ada-audit/duration'
+
+const start = member.startedAt ? new Date(member.startedAt) : null
+const end = member.completedAt ? new Date(member.completedAt) : null
+const duration = formatDuration(start, end)
+
+// Inside the rendered row JSX, in an appropriate slot:
+{duration !== null && (
+  <span
+    className="text-[11px] font-body text-navy/40 dark:text-white/40 whitespace-nowrap"
+    title={formatDurationHover(start, end) ?? ''}
+  >
+    {duration}
+  </span>
+)}
 ```
 
-- [ ] **Step 6: Add Duration column to QueueHistoryView**
+The display is conditional (no `—` placeholder needed) so queued/running rows without a `completedAt` simply don't show duration. If you want a placeholder while running, swap `duration !== null` for an always-render that shows `—` when null.
 
-Open `components/ada-audit/QueueHistoryView.tsx`. Apply the same pattern as Step 5: add the `<th>Duration</th>` header and the matching `<td>` in each row (history rows generally have a populated `completedAt`).
+- [ ] **Step 8: Confirm QueueBatchRow's existing duration is untouched**
 
-- [ ] **Step 7: Run tsc**
+`QueueBatchRow` already renders batch-level "Started {startedAt} · Closed {closedAt} ({formatDuration(...)})". Do not touch that — it represents the batch as a whole, not the new per-audit duration.
+
+- [ ] **Step 9: Run tsc**
 
 Run: `npx tsc --noEmit`
 Expected: PASS.
 
-- [ ] **Step 8: Manual smoke test**
+- [ ] **Step 10: Manual smoke test**
 
 Start the dev server: `npm run dev`
-Navigate to `/ada-audit`. Confirm the new Duration column appears on the existing history tables. Older audits should show `—`. Run a fresh audit and confirm Duration populates correctly after completion.
+Navigate to `/ada-audit`. Confirm the new Duration column appears on the existing site-audit history table. Older audits should show `—`. Open the queue view — running rows show no duration; completed members show their duration. Run a fresh audit and confirm Duration populates after completion.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add components/ada-audit/SiteAuditHistory.tsx components/ada-audit/QueueActiveView.tsx components/ada-audit/QueueHistoryView.tsx lib/ada-audit/types.ts app/api/site-audit/
-git commit -m "feat(ada-audit): duration column on site audit history and queue views"
+git add components/ada-audit/SiteAuditHistory.tsx components/ada-audit/QueueMemberRow.tsx lib/ada-audit/types.ts app/api/audit-batches app/api/site-audit
+git commit -m "feat(ada-audit): duration display on site audit history and queue rows"
 ```
 
 PR 1 is now complete. Open PR but do not push/deploy until user review.
@@ -863,50 +878,68 @@ Find the existing `return { axe, lighthouseSummary, lighthouseError, harvestedPd
     return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls }
 ```
 
-- [ ] **Step 3: Add redirect detection after successful navigation (pagespeed/off path only)**
+- [ ] **Step 3: Add redirect detection inside attemptNavigation via an outer captured variable**
 
-Locate the block after `if (!response.ok()) { ... }` and the content-type check — i.e. just after the navigation has succeeded and before any axe work. The pagespeed/off branch is the only one where we own navigation; the local-LH branch does not get redirect detection (see spec §3.3).
+`runAxeAudit` defines a nested `attemptNavigation(currentPage: Page): Promise<void>` (around runner.ts:153) that returns `void`. We cannot return a value from it directly. Instead, capture redirect detection into an outer-scoped variable that `runAxeAudit` reads after `await attemptNavigation(page)` resolves.
 
-Add an import at the top of the file:
+Add an import at the top of `runner.ts`:
 
 ```ts
 import { detectRedirect } from './redirect-detect'
 ```
 
-In the `pagespeed`/`off` branch (the `else` block after `if (provider === 'local')`), immediately after the `if (!contentType.includes('html'))` line but before whatever runs next, add:
+Inside `runAxeAudit`, just before the `attemptNavigation` declaration, add the captured-state variable:
 
 ```ts
-        // Server-side redirect detection. Use puppeteer's chain data — page.url()
-        // after settle can change due to meta refresh / JS navigation, which we
-        // do NOT want to flag as redirects.
-        const chain = response.request().redirectChain()
-        const detected = detectRedirect(parsed.toString(), chain, response.url())
+      let redirectedResult: { finalUrl: string } | null = null
+```
+
+Inside `attemptNavigation`, after `if (!contentType.includes('html')) throw new Error(...)` but before the function returns, add:
+
+```ts
+        // Server-side redirect detection. Use puppeteer's chain data —
+        // page.url() after settle can change due to meta refresh / JS
+        // navigation, which we do NOT want to flag as redirects.
+        const chain = response!.request().redirectChain()
+        const detected = detectRedirect(parsed.toString(), chain, response!.url())
         if (detected.kind === 'redirected') {
-          // Bail out early — caller handles status writes.
-          return { kind: 'redirected', finalUrl: detected.finalUrl }
+          redirectedResult = { finalUrl: detected.finalUrl }
+          return  // exit attemptNavigation — outer code will check redirectedResult
         }
 ```
 
-Note: this early-return short-circuits the rest of `runAxeAudit`. The page slot is still released by the existing finally/teardown, since we're returning from inside `try`. Verify with a quick read that `page.close()` / `releasePage(page)` happens in `finally`.
+(The `response!` is fine — earlier `if (!response) throw new Error(...)` narrowed it.)
+
+After `await attemptNavigation(page)` resolves in the calling code (search runner.ts for the call sites — there's a non-retry path around line 211 and a retry path around line 232), add the bail-out:
+
+```ts
+      if (redirectedResult) {
+        return { kind: 'redirected', finalUrl: redirectedResult.finalUrl }
+      }
+```
+
+Place this immediately after each `await attemptNavigation(page)` call so both code paths (initial attempt and post-retry) return correctly. The outer `try / finally` that owns `releasePage(page)` (search for `releasePage` to confirm placement) still runs because we're returning from inside the `try`.
 
 - [ ] **Step 4: Verify page cleanup in finally**
 
-Run: `grep -n "finally\|releasePage\|closePage" lib/ada-audit/runner.ts`
-Expected: confirm the page is released in a `finally` block that wraps the entire navigation+axe section. If not, the early `return` would leak the page. Adjust if needed.
+Run: `grep -n "finally\|releasePage" lib/ada-audit/runner.ts`
+Expected: confirm `releasePage(page)` runs in a `finally` block that wraps the whole nav+axe section. If not, the new `return` would leak the page — fix runner.ts to wrap cleanup in finally first, in a separate isolated commit before continuing.
 
-- [ ] **Step 5: Run tsc**
+- [ ] **Step 5: Tasks 2.2 + 2.3 + 2.4 ship as one logical commit chain**
 
-Run: `npx tsc --noEmit`
-Expected: PASS — but: callers of `runAxeAudit` will now fail TypeScript because they destructure `{ axe, lighthouseSummary, ... }` expecting the old flat shape. We'll fix them in 2.3 and 2.4. So expect tsc to fail on those caller sites only.
+`tsc` will fail after this task alone (callers destructure the old flat shape). Two safe options:
 
-If tsc fails on call sites in `app/api/ada-audit/route.ts` and `lib/ada-audit/queue-manager.ts` — that's expected. Leave them broken until 2.3 / 2.4. If tsc fails elsewhere, that's a real problem.
+**Option A (recommended):** Do not commit after Task 2.2. Proceed straight into Tasks 2.3 and 2.4 (in the same session), get `tsc` green after Task 2.4, then commit the runner + standalone route + queue-manager changes together using the three planned commit messages as separate commits (you'll have a clean staging area each time because the prior commit landed only some files).
 
-- [ ] **Step 6: Commit (broken-tsc state — we'll fix in next task)**
+**Option B:** If you must commit Task 2.2 standalone for review, mark the commit explicitly:
 
 ```bash
-git add lib/ada-audit/runner.ts
-git commit -m "feat(ada-audit): runAxeAudit returns RunAxeResult discriminated union"
+git commit -m "feat(ada-audit): runAxeAudit returns RunAxeResult — WIP, tsc broken until 2.4"
 ```
+
+Either way, do not push or merge until Task 2.4's commit lands and `npx tsc --noEmit` passes.
+
+- [ ] **Step 6: Continue to Task 2.3 — do NOT run tsc yet, callers are intentionally broken**
 
 ---
 
@@ -995,21 +1028,36 @@ git commit -m "feat(ada-audit): handle redirected outcome in standalone audit ro
 
 Open `lib/ada-audit/queue-manager.ts`. Find the call to `runAxeAudit` inside the page-loop's per-child handler (around lines 100-145). It currently destructures `axe, lighthouseSummary, ...` directly.
 
-- [ ] **Step 2: Switch on result.kind**
+- [ ] **Step 2: Switch on result.kind — use `return` (the loop body is an async map callback)**
 
-Replace the call + downstream blocks. Pattern:
+The page loop is `Promise.all(batch.map(async (url) => { ... }))` — the body is an async arrow, so the early-exit keyword is `return`, not `continue`. Also preserve the existing `provider`/`detachPsi` logic that controls the `siteAudit` flag passed to `runAxeAudit`.
+
+Find the existing call (around line 82):
 
 ```ts
-        try {
-          const result = await runAxeAudit(url, wcagLevel, undefined, { auditId: child.id, siteAudit: true })
+          const provider = getLighthouseProvider()
+          const detachPsi = provider === 'pagespeed'
+          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+            url, wcagLevel, undefined, { auditId: child.id, siteAudit: detachPsi },
+          )
+```
 
-          if (result.kind === 'redirected') {
+Replace with:
+
+```ts
+          const provider = getLighthouseProvider()
+          const detachPsi = provider === 'pagespeed'
+          const runResult = await runAxeAudit(
+            url, wcagLevel, undefined, { auditId: child.id, siteAudit: detachPsi },
+          )
+
+          if (runResult.kind === 'redirected') {
             await prisma.$transaction([
               prisma.adaAudit.update({
                 where: { id: child.id },
                 data: {
                   status: 'redirected',
-                  finalUrl: result.finalUrl,
+                  finalUrl: runResult.finalUrl,
                   redirected: true,
                   completedAt: new Date(),
                   runnerType: 'browser',
@@ -1020,20 +1068,13 @@ Replace the call + downstream blocks. Pattern:
                 data: { pagesRedirected: { increment: 1 } },
               }),
             ])
-            continue  // skip PDF dispatch + PSI enqueue for redirected pages
+            return  // skip PDF dispatch + PSI enqueue for redirected pages
           }
 
-          // result.kind === 'audited'
-          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = result
-
-          // ... existing PDF-dispatch code stays here unchanged ...
-          // ... existing detached-PSI vs inline-LH branches stay here unchanged ...
-        } catch (err) {
-          // ... existing catch ...
-        }
+          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = runResult
 ```
 
-Inspect the surrounding for-loop structure to confirm `continue` is the right control-flow word (vs returning from a wrapper). If the runner call is inside `Promise.all(batch.map(...))`, the loop body is a function and you need `return` instead.
+The rest of the existing try-block (PDF dispatch, detached-PSI branch, inline-LH branch) stays unchanged below this destructuring.
 
 - [ ] **Step 3: Confirm finalizer is kicked after redirected child**
 
@@ -1168,24 +1209,82 @@ git commit -m "feat(ada-audit): render redirected state on standalone audit deta
 ### Task 2.7: Add Redirects section to SiteAuditResultsView
 
 **Files:**
-- Modify: `components/ada-audit/SiteAuditResultsView.tsx`
-- Maybe: `lib/ada-audit/types.ts` (`SitePageResult` may need a `redirected` flag)
-- Maybe: `lib/ada-audit/site-audit-helpers.ts` (filter out redirected from common-issues; populate redirect rows in summary)
+- Modify: `lib/ada-audit/types.ts` (`SitePageResult` — widen `status` + add finalUrl)
+- Modify: `lib/ada-audit/site-audit-helpers.ts` (`buildSiteAuditSummary` — handle redirected children)
+- Modify: `lib/ada-audit/common-issues.ts` (filter redirected rows from common-issue aggregation)
+- Modify: `components/ada-audit/useSiteAuditPages.ts` (exclude redirected from issuePages/cleanPages)
+- Modify: `components/ada-audit/SiteAuditResultsView.tsx` (render the Redirects section)
 
-- [ ] **Step 1: Add redirected flag to per-page summary**
+- [ ] **Step 1: Widen SitePageResult.status and add finalUrl**
 
-Open `lib/ada-audit/site-audit-helpers.ts`. Find `buildSiteAuditSummary`. In the per-page row construction, add `redirected: page.status === 'redirected'` and `finalUrl: page.finalUrl ?? null` to each row. Update `SitePageResult` in `types.ts` accordingly:
+Open `lib/ada-audit/types.ts`. Find `SitePageResult` and:
+- Widen the `status` union to include `'redirected'` if it's currently `'complete' | 'error'`.
+- Add `finalUrl?: string | null`.
+
+- [ ] **Step 2: Emit redirected rows from the summary builder**
+
+Open `lib/ada-audit/site-audit-helpers.ts`. Find `buildSiteAuditSummary`. The existing builder iterates child `AdaAudit` rows and constructs per-page summary rows. For each child whose `status === 'redirected'`, build a redirected row without trying to parse `result`:
 
 ```ts
-  redirected?: boolean
-  finalUrl?: string | null
+if (child.status === 'redirected') {
+  pages.push({
+    adaAuditId: child.id,
+    url: child.url,
+    status: 'redirected',
+    finalUrl: child.finalUrl ?? null,
+    // Whatever the existing scorecard/score defaults are — set them to zero/null
+    // to match how other status branches handle "no axe data":
+    scorecard: { critical: 0, serious: 0, moderate: 0, minor: 0, total: 0, passed: 0, incomplete: 0 },
+    score: null,
+  })
+  continue
+}
 ```
 
-- [ ] **Step 2: Exclude redirected pages from common-issue aggregation**
+Adapt field names and the surrounding structure to whatever the existing builder uses — open the file and read the existing `'error'` branch as a template, then add `redirected` as a peer branch.
 
-In `buildSiteAuditSummary`, where it iterates page violations for common-issue analysis, skip any page where `page.status === 'redirected'` (no `result` to mine).
+- [ ] **Step 3: Exclude redirected pages from common-issue analysis**
 
-- [ ] **Step 3: Render Redirects section**
+Open `lib/ada-audit/common-issues.ts`. Find `detectCommonIssues`. At the top of the analysis (where it iterates `CommonIssueInputRow[]`), skip rows whose `status !== 'complete'` (this excludes both `error` and `redirected`). Confirm by reading the existing code:
+
+```ts
+for (const row of rows) {
+  if (row.status !== 'complete' || !row.result) continue
+  // ...existing analysis...
+}
+```
+
+If a similar guard already exists, no change needed — just confirm `redirected` falls through it. If guard is missing, add it.
+
+- [ ] **Step 4: Filter redirected pages out of useSiteAuditPages**
+
+Open `components/ada-audit/useSiteAuditPages.ts`. Find where `issuePages` and `cleanPages` are built (around lines 96-127). Exclude `status === 'redirected'` from both, e.g. by filtering at the top of the input list before partitioning:
+
+```ts
+const nonRedirected = pages.filter((p) => p.status !== 'redirected')
+// ...existing partitioning into issuePages/cleanPages runs on nonRedirected...
+```
+
+Also expose `redirectedPages` for the caller:
+
+```ts
+interface Result {
+  issuePages: SitePageResult[]
+  cleanPages: SitePageResult[]
+  redirectedPages: SitePageResult[]   // NEW
+  counts: ...
+}
+
+// In the return:
+return {
+  issuePages: sorted,
+  cleanPages: sortedClean,
+  redirectedPages: pages.filter((p) => p.status === 'redirected'),
+  counts,
+}
+```
+
+- [ ] **Step 5: Render Redirects section**
 
 Open `components/ada-audit/SiteAuditResultsView.tsx`. Identify where "Pages with Issues" ends and "Clean Pages" begins. Between them, insert a new section:
 
@@ -1217,13 +1316,13 @@ Open `components/ada-audit/SiteAuditResultsView.tsx`. Identify where "Pages with
 )}
 ```
 
-Compute `redirectedPages` at the top of the component:
+`redirectedPages` now comes from `useSiteAuditPages` directly (added in Step 4 above). Destructure it from the existing hook call (around `SiteAuditResultsView.tsx:181`):
 
 ```tsx
-const redirectedPages = pages.filter((p) => p.redirected)
+const { issuePages, cleanPages, redirectedPages, counts } = useSiteAuditPages(summary.pages, { ... })
 ```
 
-Also exclude redirected pages from the existing `issuePages` and `cleanPages` derivations.
+No additional filtering needed in the component.
 
 - [ ] **Step 4: Run tsc**
 
@@ -1284,11 +1383,12 @@ PR 3 complete.
 
 # PR 4 — Shared element identification
 
-### Task 4.1: Compute canonical selector during summary build
+### Task 4.1: Compute canonical selector inside common-issue analysis
 
 **Files:**
-- Modify: `lib/ada-audit/site-audit-helpers.ts`
+- Modify: `lib/ada-audit/common-issues.ts` (common-issue detection lives here, not in site-audit-helpers)
 - Modify: `lib/ada-audit/types.ts`
+- Modify: `lib/ada-audit/site-audit-helpers.ts` (only to extend the `CommonIssueInputRow` it builds — make sure `url` is included so the voter has page-level context)
 
 - [ ] **Step 1: Extend the CommonIssue type**
 
@@ -1302,11 +1402,11 @@ Open `lib/ada-audit/types.ts`. Find the `CommonIssue` interface (around line 154
 
 - [ ] **Step 2: Find the common-issue analysis function**
 
-Open `lib/ada-audit/site-audit-helpers.ts`. Locate the function that builds common issues from page violations.
+Open `lib/ada-audit/common-issues.ts`. Locate `detectCommonIssues` — this is the actual aggregator. `site-audit-helpers.ts` only calls it. Confirm `CommonIssueInputRow` has `url` available (it should; if not, extend it and update the call site in `site-audit-helpers.ts` to pass `url`).
 
 - [ ] **Step 3: Add page-based selector voting**
 
-In the common-issue analysis, after determining the affected pages for a rule, compute:
+Inside `common-issues.ts`, near `detectCommonIssues`, add and export the helper:
 
 ```ts
 function computeCanonicalSelector(
@@ -1357,15 +1457,24 @@ function computeCanonicalSelector(
 
 - [ ] **Step 4: Wire it into the common-issue construction**
 
-Where each common-issue object is built for the summary, only for rows whose tier is `'template'` or `'common'` (i.e. ratio ≥0.5), call `computeCanonicalSelector` with the rule's affected-page data and merge its result into the issue object.
+In `detectCommonIssues`, where each `CommonIssue` object is built for the result, gate on tier (`'template'` or `'common'`) and merge in selector data:
+
+```ts
+const extras = (tier === 'template' || tier === 'common')
+  ? computeCanonicalSelector(affectedPagesForRule)
+  : { canonicalSelector: null, selectorConfidence: 0, examplePageUrl: null }
+// ...spread extras into the returned issue object...
+```
+
+`affectedPagesForRule` should be shaped as `{ url, nodes: { target: string[] }[] }[]` — the per-page violation node arrays for this rule. If the existing aggregator doesn't already collect that shape, extend it.
 
 - [ ] **Step 5: Add a unit test**
 
-Create or extend `lib/ada-audit/site-audit-helpers.test.ts`:
+Create or extend `lib/ada-audit/common-issues.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { computeCanonicalSelector } from './site-audit-helpers'  // export the helper for testability
+import { computeCanonicalSelector } from './common-issues'
 
 describe('computeCanonicalSelector', () => {
   it('returns null when no pages', () => {
@@ -1395,17 +1504,17 @@ describe('computeCanonicalSelector', () => {
 })
 ```
 
-Export `computeCanonicalSelector` from `site-audit-helpers.ts` (or move it to its own file if you prefer; the test imports from wherever it lives).
+Export `computeCanonicalSelector` from `common-issues.ts`.
 
 - [ ] **Step 6: Run tests**
 
-Run: `npx vitest run lib/ada-audit/site-audit-helpers.test.ts`
+Run: `npx vitest run lib/ada-audit/common-issues.test.ts`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib/ada-audit/site-audit-helpers.ts lib/ada-audit/site-audit-helpers.test.ts lib/ada-audit/types.ts
+git add lib/ada-audit/common-issues.ts lib/ada-audit/common-issues.test.ts lib/ada-audit/types.ts lib/ada-audit/site-audit-helpers.ts
 git commit -m "feat(ada-audit): page-based canonical-selector voting for common issues"
 ```
 
@@ -1623,7 +1732,8 @@ git commit -m "feat(ada-audit): /ada-audit/recents page filtered by operator coo
 
 **Files:**
 - Create: `components/ada-audit/MyRecentsCard.tsx`
-- Modify: `app/ada-audit/page.tsx`
+- Modify: `app/ada-audit/page.tsx` (server component — fetches recents and passes them down)
+- Modify: `components/ada-audit/AuditIndexTabs.tsx` (this is where `AuditHistory` + `SiteAuditHistory` are actually mounted — see lines 118-119)
 
 - [ ] **Step 1: Build the compact MyRecentsCard**
 
@@ -1676,15 +1786,16 @@ export default function MyRecentsCard({ items, operator }: Props) {
 }
 ```
 
-- [ ] **Step 2: Mount it on the dashboard**
+- [ ] **Step 2: Fetch recents in the server page and pass them into AuditIndexTabs**
 
-Open `app/ada-audit/page.tsx`. Add cookie + recents fetch at the top:
+`app/ada-audit/page.tsx` currently just renders `<AuditIndexTabs />`. Extend it to fetch recents server-side and pass them down.
+
+At the top of `app/ada-audit/page.tsx`:
 
 ```tsx
 import { cookies } from 'next/headers'
 import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
 import { fetchRecentsForOperator } from '@/lib/ada-audit/recents-query'
-import MyRecentsCard from '@/components/ada-audit/MyRecentsCard'
 ```
 
 In the page function:
@@ -1694,15 +1805,46 @@ In the page function:
   const recentItems = operator ? await fetchRecentsForOperator(operator, 5) : []
 ```
 
-- [ ] **Step 3: Replace AuditHistory + SiteAuditHistory with MyRecentsCard**
-
-Locate the JSX in `app/ada-audit/page.tsx` that mounts `<AuditHistory />` and `<SiteAuditHistory />`. Replace both with:
+Pass them to AuditIndexTabs:
 
 ```tsx
-<MyRecentsCard items={recentItems} operator={operator} />
+<AuditIndexTabs recentItems={recentItems} operator={operator} />
 ```
 
-Adjust grid columns if those components occupied wider lanes. Keep all other dashboard cards (forms, queue status, etc.) unchanged.
+- [ ] **Step 3: Replace AuditHistory + SiteAuditHistory inside AuditIndexTabs**
+
+Open `components/ada-audit/AuditIndexTabs.tsx`. At lines 118-119:
+
+```tsx
+      <AuditHistory />
+      <SiteAuditHistory queueStatus={queueStatus} />
+```
+
+Replace both with:
+
+```tsx
+      <MyRecentsCard items={recentItems} operator={operator} />
+```
+
+Add to the component's props interface:
+
+```ts
+  recentItems: RecentItem[]
+  operator: string | null
+```
+
+Add the imports:
+
+```tsx
+import MyRecentsCard from './MyRecentsCard'
+import type { RecentItem } from '@/lib/ada-audit/recents-query'
+```
+
+Remove the now-unused imports for `AuditHistory` and `SiteAuditHistory` from the top of the file.
+
+Note: `AuditHistory` and `SiteAuditHistory` components remain in the codebase — they're still used in standalone contexts (e.g. the recents page may reuse parts). Do not delete them.
+
+Note: Because `AuditIndexTabs` is a client component (search for `'use client'` at top to confirm), passing the pre-fetched recents from the server page works cleanly — no extra fetch on the client.
 
 - [ ] **Step 4: Run tsc**
 
@@ -2130,9 +2272,11 @@ git commit -m "feat(ada-audit): PUT/GET checks API for single-page and site audi
 
 Run: `cat app/api/ada-audit/share/\[token\]/route.ts` (path may differ — adapt). Read the expiry-check pattern used by the existing share endpoint.
 
-- [ ] **Step 2: Implement read-only checks endpoint**
+- [ ] **Step 2: Implement read-only checks endpoint matching the share-page guards**
 
-Create `app/api/ada-audit/share/[token]/checks/route.ts` using the same expiry check:
+The share page rejects audits where `status !== 'complete'`, `shareExpiresAt` is null, OR `shareExpiresAt` is in the past. Mirror exactly:
+
+Create `app/api/ada-audit/share/[token]/checks/route.ts`:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
@@ -2145,16 +2289,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   const { token } = await params
   const audit = await prisma.adaAudit.findUnique({
     where: { shareToken: token },
-    select: { id: true, shareExpiresAt: true },
+    select: { id: true, status: true, shareExpiresAt: true },
   })
-  if (!audit) return NextResponse.json({ error: 'Share link not found' }, { status: 404 })
-  if (audit.shareExpiresAt && audit.shareExpiresAt.getTime() < Date.now()) {
-    return NextResponse.json({ error: 'Share link expired' }, { status: 410 })
+  if (!audit || audit.status !== 'complete' || !audit.shareExpiresAt || audit.shareExpiresAt < new Date()) {
+    return NextResponse.json({ error: 'Share link not found or expired' }, { status: 404 })
   }
   const checks = await getAdaAuditChecks(audit.id)
   return NextResponse.json({ checks })
 }
 ```
+
+(Match the existing share page's response code — if it returns 404 for expired tokens, we do the same; if it returns 410 for expired specifically, switch the expired branch to 410.)
 
 - [ ] **Step 3: Run tsc**
 
@@ -2177,7 +2322,9 @@ git commit -m "feat(ada-audit): read-only checks endpoint for share view"
 - Modify: `components/ada-audit/AuditIssueCard.tsx` (or wherever each rule + nodes render)
 - Create: `components/ada-audit/useChecks.ts` (client hook)
 
-- [ ] **Step 1: Build the useChecks hook**
+- [ ] **Step 1: Build the useChecks hook (pessimistic — wait for server, then render)**
+
+Per spec §3.4: "do not optimistically update UI past confirmation." The hook sets a pending flag during the PUT, then replaces state with the server's returned full set.
 
 Create `components/ada-audit/useChecks.ts`:
 
@@ -2189,7 +2336,7 @@ import { useCallback, useEffect, useState } from 'react'
 export interface CheckRow { scope: string; key: string }
 
 interface UseChecksArgs {
-  endpoint: string  // e.g. /api/ada-audit/<id>/checks
+  endpoint: string  // e.g. /api/ada-audit/<id>/checks or /api/ada-audit/share/<token>/checks
   enabled: boolean
   readOnly?: boolean
 }
@@ -2197,6 +2344,7 @@ interface UseChecksArgs {
 export function useChecks({ endpoint, enabled, readOnly = false }: UseChecksArgs) {
   const [checks, setChecks] = useState<CheckRow[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -2214,13 +2362,12 @@ export function useChecks({ endpoint, enabled, readOnly = false }: UseChecksArgs
     checks.some((c) => c.scope === scope && c.key === key)
   , [checks])
 
-  const setCheck = useCallback(async (scope: string, key: string, checked: boolean) => {
+  // setCheck waits for the server response before mutating local state.
+  // The UI shows the pre-click state until the PUT resolves; consumers
+  // can use `pending` to disable controls briefly.
+  const setCheck = useCallback(async (scope: string, key: string, checked: boolean): Promise<void> => {
     if (readOnly) return
-    const prev = checks
-    setChecks(checked
-      ? [...prev, { scope, key }]
-      : prev.filter((c) => !(c.scope === scope && c.key === key))
-    )
+    setPending(true)
     try {
       const r = await fetch(endpoint, {
         method: 'PUT',
@@ -2231,28 +2378,68 @@ export function useChecks({ endpoint, enabled, readOnly = false }: UseChecksArgs
       const j = await r.json()
       setChecks(j.checks ?? [])
     } catch (e) {
-      setChecks(prev)  // rollback
       setError(e instanceof Error ? e.message : String(e))
+      throw e
+    } finally {
+      setPending(false)
     }
-  }, [checks, endpoint, readOnly])
+  }, [endpoint, readOnly])
 
-  return { checks, loaded, error, has, setCheck }
+  // Sequential fan-out — used when the rule checkbox toggles all nodes.
+  // Sequential (not parallel) avoids the response-ordering race that would
+  // otherwise let the last-received PUT overwrite earlier writes' results.
+  const setManyChecks = useCallback(async (entries: { scope: string; key: string; checked: boolean }[]): Promise<void> => {
+    if (readOnly) return
+    setPending(true)
+    try {
+      let last: CheckRow[] | null = null
+      for (const e of entries) {
+        const r = await fetch(endpoint, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(e),
+        })
+        if (!r.ok) throw new Error(`PUT failed: ${r.status}`)
+        const j = await r.json()
+        last = j.checks ?? []
+      }
+      if (last) setChecks(last)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      throw e
+    } finally {
+      setPending(false)
+    }
+  }, [endpoint, readOnly])
+
+  return { checks, loaded, pending, error, has, setCheck, setManyChecks }
 }
 ```
 
-- [ ] **Step 2: Add Triage Mode toggle to AuditResultsView toolbar**
+- [ ] **Step 2: Add shareToken prop and Triage Mode toggle to AuditResultsView**
 
-Open `components/ada-audit/AuditResultsView.tsx`. At the top of the component, add Triage Mode state:
+Open `components/ada-audit/AuditResultsView.tsx`. Confirm the file already has `'use client'` (it imports `RescanBanner` which is a client component — check the top of the file). If not, add it. Then:
+
+Update the `Props` interface to include `shareToken`:
 
 ```tsx
-'use client'
-// (file may already be 'use client'; if not, mark it. If marking it breaks server-rendering callers,
-// instead split the toolbar + checkbox layer into a child client component.)
+interface Props {
+  // ...existing props...
+  shareToken?: string  // present only when rendering from /ada-audit/share/[token]
+}
+```
 
+Destructure the new prop in the component signature alongside existing props.
+
+Add imports:
+
+```tsx
 import { useEffect, useState } from 'react'
 import { useChecks } from './useChecks'
 import { keyForNode } from '@/lib/ada-audit/checks-keys-browser'
 ```
+
+Add state + storage + hook usage near the top of the component body:
 
 ```tsx
   const [triageMode, setTriageMode] = useState(false)
@@ -2270,14 +2457,18 @@ import { keyForNode } from '@/lib/ada-audit/checks-keys-browser'
     })
   }
 
+  const checksEndpoint = readOnly && shareToken
+    ? `/api/ada-audit/share/${shareToken}/checks`
+    : `/api/ada-audit/${auditId}/checks`
+
   const checks = useChecks({
-    endpoint: readOnly ? `/api/ada-audit/share/${shareToken}/checks` : `/api/ada-audit/${auditId}/checks`,
+    endpoint: checksEndpoint,
     enabled: triageMode || readOnly,
     readOnly,
   })
 ```
 
-If `shareToken` isn't already a prop, thread it through from the page that mounts AuditResultsView in share mode.
+The share-view caller (Task 6.8) will pass `shareToken`. Internal callers omit it. When `readOnly` is true but `shareToken` is undefined the endpoint falls back to the regular endpoint — verify all share callers pass `shareToken`.
 
 Add a toolbar button (placed next to existing toolbar controls):
 
@@ -2337,20 +2528,18 @@ Per-rule "derived" struck state:
 const allNodesChecked = nodeKeys.length > 0 && nodeKeys.every((k) => checks?.has('node', k))
 ```
 
-Render the rule-header checkbox (gated on `triageMode`):
+Render the rule-header checkbox (gated on `triageMode`). Use the hook's `setManyChecks` for sequential fan-out so node writes can't race:
 
 ```tsx
 {triageMode && (
   <input
     type="checkbox"
     checked={allNodesChecked}
-    disabled={readOnly || !checks?.loaded || nodeKeys.length === 0}
+    disabled={readOnly || !checks?.loaded || checks?.pending || nodeKeys.length === 0}
     onChange={(e) => {
       const target = e.currentTarget.checked
-      // Fan out: PUT every node key to `target`.
-      for (const k of nodeKeys) {
-        checks?.setCheck('node', k, target)
-      }
+      const entries = nodeKeys.map((k) => ({ scope: 'node', key: k, checked: target }))
+      void checks?.setManyChecks(entries)
     }}
     aria-label={`Mark rule ${violation.id} as resolved`}
   />
@@ -2406,7 +2595,14 @@ git commit -m "feat(ada-audit): triage mode + per-node/rule checkboxes on single
 
 **Files:**
 - Modify: `components/ada-audit/SiteAuditResultsView.tsx`
-- Modify: `components/ada-audit/GroupedViolationsView.tsx` (or whichever component renders each page's violations within Pages with Issues)
+- Modify: `components/ada-audit/AuditIssueTabs.tsx` (this is what renders the per-page violations when a row in "Pages with Issues" expands — see SiteAuditResultsView.tsx:128)
+- Modify: `components/ada-audit/AuditIssueCard.tsx` (for per-violation checkbox surface inside AuditIssueTabs)
+
+**Note on data shape:** `SitePageResult` does NOT include the raw violations — it only has the scorecard. Per-violation data is fetched lazily when a row expands (SiteAuditResultsView.tsx:49 `fetch('/api/ada-audit/${page.adaAuditId}')`). So:
+- The **page-level** checkbox can be wired on the summary row directly (page URL is enough to compute the page key).
+- The **per-violation** checkbox needs the lazy fetch's results — compute violation keys after the fetch resolves, inside the expanded child.
+
+Page-level "all violations checked" derived state is therefore complicated: we don't know all the violations until the row is expanded. Approach: extend the per-page summary row to include `violationIds: string[]` so the parent can compute "all keys present" without expanding.
 
 - [ ] **Step 1: Add Triage Mode toggle to SiteAuditResultsView**
 
@@ -2428,66 +2624,125 @@ const checks = useChecks({
 })
 ```
 
-- [ ] **Step 2: Per-page checkbox in the Pages with Issues table**
+- [ ] **Step 2: Extend SitePageResult and summary builder with violationIds**
 
-In the `PageRow` component, pre-compute `pageKey` (async):
+Open `lib/ada-audit/types.ts`. Add to `SitePageResult`:
+
+```ts
+  violationIds?: string[]   // rule IDs present on this page, for triage-mode rollup
+```
+
+Open `lib/ada-audit/site-audit-helpers.ts`. In `buildSiteAuditSummary`, where each per-page row is built for a `'complete'` child, also collect `violationIds` from the parsed axe result:
+
+```ts
+violationIds: Array.isArray(parsed?.violations)
+  ? parsed.violations.map((v: { id: string }) => v.id)
+  : [],
+```
+
+Set `violationIds: []` for `redirected` and `error` rows.
+
+- [ ] **Step 3: Per-page checkbox + derived "all violations checked" on the summary row**
+
+In `SiteAuditResultsView.tsx`'s `PageRow`, pre-compute page + per-violation keys from `page.url` and `page.violationIds`:
 
 ```tsx
 const [pageKey, setPageKey] = useState<string>('')
-useEffect(() => {
-  keyForPage({ pageUrl: page.url }).then(setPageKey)
-}, [page.url])
+const [violationKeyMap, setViolationKeyMap] = useState<Record<string, string>>({})
 
-const [violationKeys, setViolationKeys] = useState<Record<string, string>>({})
 useEffect(() => {
   let cancelled = false
-  Promise.all(page.violations.map((v) => keyForPageViolation({ pageUrl: page.url, ruleId: v.id }).then((k) => [v.id, k] as const)))
-    .then((entries) => { if (!cancelled) setViolationKeys(Object.fromEntries(entries)) })
+  ;(async () => {
+    const pk = await keyForPage({ pageUrl: page.url })
+    const vks: Record<string, string> = {}
+    for (const ruleId of page.violationIds ?? []) {
+      vks[ruleId] = await keyForPageViolation({ pageUrl: page.url, ruleId })
+    }
+    if (!cancelled) {
+      setPageKey(pk)
+      setViolationKeyMap(vks)
+    }
+  })()
   return () => { cancelled = true }
-}, [page.url, page.violations])
+}, [page.url, page.violationIds])
 
-const allViolationsChecked = page.violations.length > 0 &&
-  Object.values(violationKeys).length === page.violations.length &&
-  Object.values(violationKeys).every((k) => checks?.has('page-violation', k))
-
-const pageStruck = checks?.has('page', pageKey) || allViolationsChecked
+const violationKeys = Object.values(violationKeyMap)
+const allViolationsChecked =
+  violationKeys.length > 0 &&
+  violationKeys.every((k) => checks?.has('page-violation', k))
+const pageStruck = (checks?.has('page', pageKey) ?? false) || allViolationsChecked
 ```
 
-Render the page-row checkbox:
+Render the page-row checkbox (gated on `triageMode`):
 
 ```tsx
 {triageMode && (
   <td className="py-2.5 pr-2">
     <input
       type="checkbox"
-      checked={!!pageStruck}
-      disabled={!checks?.loaded || !pageKey}
-      onChange={(e) => checks?.setCheck('page', pageKey, e.currentTarget.checked)}
+      checked={pageStruck}
+      disabled={!checks?.loaded || !pageKey || checks?.pending}
+      onChange={(e) => void checks?.setCheck('page', pageKey, e.currentTarget.checked)}
       aria-label={`Mark page ${page.url} as handled`}
     />
   </td>
 )}
 ```
 
-Apply strike to the URL cell when `pageStruck`.
+Apply `line-through text-navy/40 dark:text-white/30` to the URL cell when `pageStruck`.
 
-- [ ] **Step 3: Per-violation checkboxes inside expanded page detail**
+- [ ] **Step 4: Per-violation checkboxes inside the expanded page detail**
 
-Inside whichever component renders the violations list for an expanded page row, add a checkbox per violation row:
+The expanded row renders `<AuditIssueTabs violations={violations} />` (SiteAuditResultsView.tsx:128) after the lazy `/api/ada-audit/${page.adaAuditId}` fetch resolves. Two-step plumbing:
+
+a) Add optional props to `AuditIssueTabs`:
 
 ```tsx
-{triageMode && (
+interface Props {
+  violations: AxeViolation[]
+  incomplete?: AxeViolation[]
+  auditId?: string
+  // NEW — when present, render per-violation checkboxes that toggle SiteAuditCheck rows
+  siteCheckContext?: {
+    pageUrl: string
+    triageMode: boolean
+    readOnly: boolean
+    checks: ReturnType<typeof import('./useChecks').useChecks>
+  }
+}
+```
+
+b) Inside `AuditIssueTabs`, for each violation row, if `siteCheckContext?.triageMode`, compute the violation key (`keyForPageViolation`) and render a checkbox + strike-through, mirroring the per-node pattern from Task 6.6 step 4:
+
+```tsx
+const ctx = siteCheckContext
+const [violationKey, setViolationKey] = useState<string>('')
+useEffect(() => {
+  if (!ctx) return
+  let cancelled = false
+  keyForPageViolation({ pageUrl: ctx.pageUrl, ruleId: violation.id }).then((k) => {
+    if (!cancelled) setViolationKey(k)
+  })
+  return () => { cancelled = true }
+}, [ctx?.pageUrl, violation.id])
+
+const violationChecked = ctx?.checks?.has('page-violation', violationKey) ?? false
+
+// in the JSX:
+{ctx?.triageMode && (
   <input
     type="checkbox"
-    checked={checks?.has('page-violation', violationKeys[v.id] ?? '') ?? false}
-    disabled={!checks?.loaded || !violationKeys[v.id]}
-    onChange={(e) => checks?.setCheck('page-violation', violationKeys[v.id]!, e.currentTarget.checked)}
-    aria-label={`Mark violation ${v.id} on ${page.url} as resolved`}
+    checked={violationChecked}
+    disabled={!ctx.checks?.loaded || !violationKey || ctx.checks?.pending || ctx.readOnly}
+    onChange={(e) => void ctx.checks?.setCheck('page-violation', violationKey, e.currentTarget.checked)}
+    aria-label={`Mark violation ${violation.id} on ${ctx.pageUrl} as resolved`}
   />
 )}
 ```
 
-Apply strike when checked.
+c) Pass `siteCheckContext` from `SiteAuditResultsView`'s `PageRow` (after expansion + lazy fetch) into `<AuditIssueTabs siteCheckContext={...} />`. The context object is just `{ pageUrl, triageMode, readOnly, checks }`.
+
+Note: `AuditIssueTabs` is also used in single-page audit context, where `siteCheckContext` is undefined and the new behavior is dormant.
 
 - [ ] **Step 4: Run tsc**
 
@@ -2504,7 +2759,7 @@ Open a completed site audit. Toggle Triage on. Confirm:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add components/ada-audit/SiteAuditResultsView.tsx components/ada-audit/GroupedViolationsView.tsx
+git add components/ada-audit/SiteAuditResultsView.tsx components/ada-audit/AuditIssueTabs.tsx components/ada-audit/AuditIssueCard.tsx lib/ada-audit/types.ts lib/ada-audit/site-audit-helpers.ts
 git commit -m "feat(ada-audit): per-page and per-violation checkboxes on site audits"
 ```
 
