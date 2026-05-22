@@ -4,6 +4,7 @@ import {
   readResponseTextWithLimit,
   safeFetch,
 } from '../security/safe-url'
+import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 
 const HARD_CAP = 1000
 const FETCH_TIMEOUT = 15_000
@@ -265,15 +266,30 @@ export async function discoverPages(domain: string): Promise<string[]> {
     }
   }
 
-  // 4. If no sitemap yielded pages, fall back to shallow crawl
+  // 4. If no sitemap yielded pages, try shallow crawl
   if (allPageUrls.length === 0) {
     const crawledPages = await shallowCrawl(base, normDomain)
-    if (crawledPages.length === 0) {
+    if (crawledPages.length > 0) return crawledPages
+
+    // 4b. Browser fallback — safeFetch was likely 403'd by a CDN/WAF.
+    // Retry the same candidates via Puppeteer (real Chrome TLS handshake
+    // bypasses most fingerprint-based bot blocks). The browser-fetch helper
+    // owns its own SSRF interception.
+    for (const sitemapUrl of uniqueCandidates) {
+      const xml = await fetchSitemapViaBrowser(sitemapUrl)
+      if (!xml) continue
+      const urls = await collectFromSitemap(xml, normDomain)
+      if (urls.length > 0) {
+        allPageUrls = urls
+        break
+      }
+    }
+
+    if (allPageUrls.length === 0) {
       throw new Error(
-        `No sitemap found and shallow crawl found 0 pages on ${normDomain}`
+        `No sitemap found on ${normDomain} (tried direct fetch and browser fallback) and shallow crawl found 0 pages`
       )
     }
-    return crawledPages
   }
 
   // 5. Filter to same domain, deduplicate, apply hard cap
