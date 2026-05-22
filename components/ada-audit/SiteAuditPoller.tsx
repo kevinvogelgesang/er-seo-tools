@@ -14,6 +14,7 @@ interface PollData {
   pdfsTotal?: number
   pdfsComplete?: number
   pdfsError?: number
+  pdfsSkipped?: number
   lighthouseTotal?: number
   lighthouseComplete?: number
   lighthouseError?: number
@@ -50,6 +51,7 @@ export default function SiteAuditPoller({
   const [pdfsTotal, setPdfsTotal] = useState(0)
   const [pdfsComplete, setPdfsComplete] = useState(0)
   const [pdfsError, setPdfsError] = useState(0)
+  const [pdfsSkipped, setPdfsSkipped] = useState(0)
   const [lighthouseTotal, setLighthouseTotal] = useState(0)
   const [lighthouseComplete, setLighthouseComplete] = useState(0)
   const [lighthouseError, setLighthouseError] = useState(0)
@@ -74,6 +76,7 @@ export default function SiteAuditPoller({
         setPdfsTotal(data.pdfsTotal ?? 0)
         setPdfsComplete(data.pdfsComplete ?? 0)
         setPdfsError(data.pdfsError ?? 0)
+        setPdfsSkipped(data.pdfsSkipped ?? 0)
         setLighthouseTotal(data.lighthouseTotal ?? 0)
         setLighthouseComplete(data.lighthouseComplete ?? 0)
         setLighthouseError(data.lighthouseError ?? 0)
@@ -173,7 +176,7 @@ export default function SiteAuditPoller({
               </p>
               <p className="text-[12px] font-body text-navy/50 dark:text-white/50 mt-0.5">
                 {isPdfsRunning
-                  ? `${pdfsComplete + pdfsError} of ${pdfsTotal > 0 ? pdfsTotal : '?'} PDFs scanned${pdfsError > 0 ? ` · ${pdfsError} error${pdfsError !== 1 ? 's' : ''}` : ''}`
+                  ? `${pdfsComplete + pdfsError + pdfsSkipped} of ${pdfsTotal > 0 ? pdfsTotal : '?'} PDFs scanned${pdfsError > 0 ? ` · ${pdfsError} error${pdfsError !== 1 ? 's' : ''}` : ''}${pdfsSkipped > 0 ? ` · ${pdfsSkipped} skipped` : ''}`
                   : isLighthouseRunning
                     ? `${lighthouseComplete + lighthouseError} of ${lighthouseTotal > 0 ? lighthouseTotal : '?'} pages scored${lighthouseError > 0 ? ` · ${lighthouseError} error${lighthouseError !== 1 ? 's' : ''}` : ''}`
                     : discovering
@@ -201,7 +204,7 @@ export default function SiteAuditPoller({
 
           {isPdfsRunning && pdfsTotal > 0 && (
             <div className="text-[12px] font-body text-navy/40 dark:text-white/40">
-              Scanning PDFs ({pdfsComplete + pdfsError}/{pdfsTotal})
+              Scanning PDFs ({pdfsComplete + pdfsError + pdfsSkipped}/{pdfsTotal})
             </div>
           )}
 

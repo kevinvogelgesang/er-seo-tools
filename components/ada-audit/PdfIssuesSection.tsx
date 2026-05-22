@@ -9,6 +9,8 @@ interface PdfRow {
   pageCount: number | null
   issues: PdfIssue[]
   scanError?: string | null
+  status?: string | null
+  skipReason?: string | null
 }
 
 function formatBytes(b: number | null): string {
@@ -31,6 +33,7 @@ function plainTextForPdf(pdf: PdfRow): string {
   const filename = pdf.url.split('/').pop() ?? pdf.url
   const meta = `${formatBytes(pdf.fileSize)}, ${pdf.pageCount ?? '?'} pages`
   const head = `${filename}\n${pdf.url}\n${meta}`
+  if (pdf.status === 'skipped') return `${head}\nSkipped: ${pdf.skipReason ?? 'unknown'}`
   if (pdf.scanError) return `${head}\nScan failed: ${pdf.scanError}`
   if (pdf.issues.length === 0) return `${head}\nNo issues detected.`
   const lines = pdf.issues.flatMap((i) => [
@@ -48,6 +51,9 @@ function htmlForPdf(pdf: PdfRow): string {
     `<p style="margin:0 0 4px 0"><strong>${escapeHtml(filename)}</strong></p>` +
     `<p style="margin:0 0 4px 0"><a href="${escapeHtml(pdf.url)}">${escapeHtml(pdf.url)}</a></p>` +
     `<p style="margin:0 0 8px 0; color:#555">${escapeHtml(meta)}</p>`
+  if (pdf.status === 'skipped') {
+    return head + `<p style="margin:0 0 12px 0; color:#6b7280">Skipped: ${escapeHtml(pdf.skipReason ?? 'unknown')}</p>`
+  }
   if (pdf.scanError) {
     return head + `<p style="margin:0 0 12px 0; color:#b00">Scan failed: ${escapeHtml(pdf.scanError)}</p>`
   }
@@ -197,7 +203,9 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
         {visiblePdfs.map((pdf) => {
           const filename = pdf.url.split('/').pop() ?? pdf.url
           const isOpen = expanded.has(pdf.url)
-          const issueCount = pdf.scanError ? 1 : pdf.issues.length
+          const isSkipped = pdf.status === 'skipped'
+          const isErrored = !isSkipped && !!pdf.scanError
+          const issueCount = isErrored ? 1 : pdf.issues.length
           return (
             <div key={pdf.url}>
               <button
@@ -220,17 +228,23 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
                     {formatBytes(pdf.fileSize)} · {pdf.pageCount ?? '?'} pages
                   </div>
                 </div>
-                <span
-                  className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
-                    pdf.scanError
-                      ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300'
-                      : issueCount === 0
-                        ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300'
-                        : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
-                  }`}
-                >
-                  {pdf.scanError ? 'scan failed' : `${issueCount} ${issueCount === 1 ? 'issue' : 'issues'}`}
-                </span>
+                {isSkipped ? (
+                  <span className="inline-flex items-center text-[11px] font-body px-2 py-0.5 rounded-full whitespace-nowrap bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-white/60 border border-gray-200 dark:border-white/10">
+                    Skipped{pdf.skipReason ? ` — ${pdf.skipReason}` : ''}
+                  </span>
+                ) : (
+                  <span
+                    className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                      isErrored
+                        ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300'
+                        : issueCount === 0
+                          ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                    }`}
+                  >
+                    {isErrored ? 'scan failed' : `${issueCount} ${issueCount === 1 ? 'issue' : 'issues'}`}
+                  </span>
+                )}
               </button>
 
               {isOpen && (
@@ -255,7 +269,9 @@ export default function PdfIssuesSection({ pdfs, domain }: Props) {
                       {copied === pdf.url ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
-                  {pdf.scanError ? (
+                  {isSkipped ? (
+                    <p className="text-[12px] text-gray-600 dark:text-white/50">Skipped: {pdf.skipReason ?? 'unknown reason'}</p>
+                  ) : isErrored ? (
                     <p className="text-[12px] text-red-600 dark:text-red-400">Scan failed: {pdf.scanError}</p>
                   ) : pdf.issues.length === 0 ? (
                     <p className="text-[12px] text-navy/60 dark:text-white/60">No issues detected.</p>
