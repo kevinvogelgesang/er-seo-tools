@@ -82,8 +82,8 @@ export default function AuditIssueCard({ violation, auditId, checksContext, site
   // - Site audit: strike when per-violation box checked
   const ruleStruck = allNodesChecked || siteViolationChecked
 
-  const showSinglePageRuleCheckbox = !!checksContext && checksContext.triageMode
-  const showSiteViolationCheckbox = !!siteCheckContext && siteCheckContext.triageMode
+  const showSinglePageRuleCheckbox = !!checksContext && checksContext.triageMode && !checksContext.readOnly
+  const showSiteViolationCheckbox = !!siteCheckContext && siteCheckContext.triageMode && !siteCheckContext.readOnly
   const checkboxDisabledSingle = !!checksContext && (checksContext.readOnly || !checksContext.checks.loaded || checksContext.checks.pending || nodeKeys.length === 0)
   const checkboxDisabledSite = !!siteCheckContext && (siteCheckContext.readOnly || !siteCheckContext.checks.loaded || !violationKey || siteCheckContext.checks.pending)
 
@@ -199,7 +199,7 @@ export default function AuditIssueCard({ violation, auditId, checksContext, site
               {displayNodes.map((node, i) => {
                 const nodeKey = nodeKeys[i]
                 const nodeChecked = !!(checksContext && nodeKey && checksContext.checks.has('node', nodeKey))
-                const showNodeCheckbox = !!checksContext && checksContext.triageMode
+                const showNodeCheckbox = !!checksContext && checksContext.triageMode && !checksContext.readOnly
                 const nodeStruck = nodeChecked
                 return (
                   <div key={i} className="rounded-lg overflow-hidden border border-gray-800">

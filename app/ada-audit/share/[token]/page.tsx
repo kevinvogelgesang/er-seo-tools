@@ -88,6 +88,7 @@ export default async function SharedAuditPage({ params }: Props) {
         score={score}
         compliant={compliant}
         readOnly
+        shareToken={token}
       />
     </main>
   )
