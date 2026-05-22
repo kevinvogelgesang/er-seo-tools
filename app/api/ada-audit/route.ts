@@ -19,7 +19,15 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
   }
 
   try {
-    await prisma.adaAudit.update({ where: { id }, data: { status: 'running', progress: 0, progressMessage: 'Starting…' } })
+    await prisma.adaAudit.update({
+      where: { id },
+      data: {
+        status: 'running',
+        progress: 0,
+        progressMessage: 'Starting…',
+        startedAt: new Date(),
+      },
+    })
     const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
       url,
       wcagLevel,
@@ -42,6 +50,7 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
         progress: 100,
         progressMessage: 'Complete',
         runnerType: 'browser',
+        completedAt: new Date(),
       },
     })
 
@@ -59,7 +68,7 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
     console.error(`[ada-audit] id=${id} url=${url} error:`, err)
     await prisma.adaAudit.update({
       where: { id },
-      data: { status: 'error', error: message },
+      data: { status: 'error', error: message, completedAt: new Date() },
     }).catch(() => {})
   }
 }
