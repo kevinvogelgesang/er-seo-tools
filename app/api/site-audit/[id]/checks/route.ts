@@ -27,6 +27,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if ((scope !== 'page' && scope !== 'page-violation') || typeof key !== 'string' || typeof checked !== 'boolean') {
     return NextResponse.json({ error: 'scope must be "page" or "page-violation", key must be string, checked must be boolean' }, { status: 400 })
   }
+  // Keys are sha256 hex digests produced client-side. Reject anything that
+  // isn't the canonical 64-char lowercase hex shape so the table can't be
+  // poisoned with arbitrary strings.
+  if (!/^[0-9a-f]{64}$/.test(key)) {
+    return NextResponse.json({ error: 'key must be a 64-char lowercase hex string' }, { status: 400 })
+  }
 
   const operator = sanitizeOperatorName(req.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
   const checks = await setSiteAuditCheck({ siteAuditId: id, scope, key, checked, operator })

@@ -74,6 +74,17 @@ export function useChecks({ endpoint, enabled, readOnly = false }: UseChecksArgs
       }
       if (last) setChecks(last)
     } catch (e) {
+      // A PUT in the middle of the sequence may have failed AFTER earlier
+      // PUTs succeeded on the server. Local state from before the call no
+      // longer reflects the server. Refetch the canonical set so the UI
+      // recovers, then still surface the original error.
+      try {
+        const r = await fetch(endpoint)
+        if (r.ok) {
+          const j = await r.json()
+          setChecks(j.checks ?? [])
+        }
+      } catch { /* refetch failed — keep prior state */ }
       setError(e instanceof Error ? e.message : String(e))
       throw e
     } finally {
