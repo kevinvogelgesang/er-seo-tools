@@ -18,6 +18,7 @@ describe('queueSiteAuditRequest', () => {
   beforeEach(async () => {
     vi.mocked(queueManager.enqueueAudit).mockClear()
     await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'qr-test-' } } })
+    await prisma.client.deleteMany({ where: { name: { startsWith: 'qr-test-client-' } } })
   })
 
   it('returns invalid for empty domain', async () => {
@@ -84,5 +85,50 @@ describe('queueSiteAuditRequest', () => {
       'wcag21aa',
       { preDiscoveredUrls: undefined, requestedBy: null },
     )
+  })
+
+  it('falls back to client seedUrls when preDiscoveredUrls is not provided and clientId is set', async () => {
+    const client = await prisma.client.create({
+      data: {
+        name: 'qr-test-client-seed',
+        seedUrls: JSON.stringify([
+          'https://qr-test-seed.example/',
+          'https://qr-test-seed.example/about/',
+        ]),
+      },
+    })
+    const r = await queueSiteAuditRequest({
+      domain: 'qr-test-seed.example',
+      clientId: client.id,
+      wcagLevel: 'wcag21aa',
+    })
+    expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
+    expect(queueManager.enqueueAudit).toHaveBeenCalledTimes(1)
+    const [, , , opts] = vi.mocked(queueManager.enqueueAudit).mock.calls[0]
+    expect(opts.preDiscoveredUrls).toBeDefined()
+    expect(opts.preDiscoveredUrls).toHaveLength(2)
+    expect(opts.preDiscoveredUrls).toContain('https://qr-test-seed.example/')
+    expect(opts.preDiscoveredUrls).toContain('https://qr-test-seed.example/about/')
+    await prisma.client.delete({ where: { id: client.id } })
+  })
+
+  it('does NOT use seedUrls when preDiscoveredUrls is explicitly provided', async () => {
+    const client = await prisma.client.create({
+      data: {
+        name: 'qr-test-client-noseed',
+        seedUrls: JSON.stringify(['https://qr-test-noseed.example/seed-only/']),
+      },
+    })
+    const r = await queueSiteAuditRequest({
+      domain: 'qr-test-noseed.example',
+      clientId: client.id,
+      wcagLevel: 'wcag21aa',
+      preDiscoveredUrls: ['https://qr-test-noseed.example/explicit/'],
+    })
+    expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
+    const [, , , opts] = vi.mocked(queueManager.enqueueAudit).mock.calls[0]
+    expect(opts.preDiscoveredUrls).toHaveLength(1)
+    expect(opts.preDiscoveredUrls![0]).toBe('https://qr-test-noseed.example/explicit/')
+    await prisma.client.delete({ where: { id: client.id } })
   })
 })

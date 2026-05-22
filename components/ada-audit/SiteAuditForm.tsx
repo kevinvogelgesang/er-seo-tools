@@ -13,6 +13,13 @@ interface Client {
   id: number
   name: string
   domains: string[]
+  seedUrls?: string[] | null
+  seedUrlsUpdatedAt?: string | null
+}
+
+function formatSeedDate(dt: string | null | undefined): string {
+  if (!dt) return ''
+  return new Date(dt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 interface Props {
@@ -62,6 +69,10 @@ export default function SiteAuditForm({ queueStatus }: Props) {
   // Manual URL mode (for Cloudflare-challenged sites)
   const [manualMode, setManualMode] = useState(false)
   const [manualUrlsText, setManualUrlsText] = useState('')
+  // Track whether the operator has typed in the manual textarea (suppress re-prefill after edit)
+  const [manualUrlsTouched, setManualUrlsTouched] = useState(false)
+  // Save-to-client checkbox
+  const [saveToClient, setSaveToClient] = useState(false)
 
   // queueStatus is owned by AuditIndexTabs and arrives via props. No local
   // poll, no setInterval.
@@ -77,11 +88,33 @@ export default function SiteAuditForm({ queueStatus }: Props) {
       .finally(() => setClientsLoading(false))
   }, [])
 
+  // Auto-prefill manual URLs from client's saved seedUrls
+  useEffect(() => {
+    if (!selectedClient) {
+      // Selecting "No client" resets the save checkbox
+      setSaveToClient(false)
+      return
+    }
+    if (manualUrlsTouched) return
+    const saved = selectedClient.seedUrls
+    if (saved && saved.length > 0) {
+      setManualMode(true)
+      setManualUrlsText(saved.join('\n'))
+      setSaveToClient(false) // don't silently overwrite an existing list
+    } else {
+      setSaveToClient(true) // default-checked when no list exists yet
+    }
+  }, [selectedClient]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function selectClient(client: Client | null) {
     setSelectedClient(client)
     setOpen(false)
+    setManualUrlsTouched(false) // reset so the effect can prefill for the new client
     if (!client) {
       setQuery('')
+      // Clear manual mode state when deselecting
+      setManualMode(false)
+      setManualUrlsText('')
       return
     }
 
@@ -187,6 +220,21 @@ export default function SiteAuditForm({ queueStatus }: Props) {
       return
     }
     setIsRunning(true)
+
+    // Save seed URLs to client before starting the audit (non-fatal)
+    if (saveToClient && selectedClient) {
+      try {
+        await fetch(`/api/clients/${selectedClient.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seedUrls: urls }),
+        })
+      } catch {
+        // non-fatal — log but continue with the audit
+        console.warn('Failed to save seed URLs to client — continuing with audit')
+      }
+    }
+
     try {
       const res = await fetch('/api/site-audit', {
         method: 'POST',
@@ -341,10 +389,24 @@ export default function SiteAuditForm({ queueStatus }: Props) {
                 ← Back to discovery
               </button>
             </div>
+            {/* Banner when prefilled from saved seedUrls */}
+            {selectedClient?.seedUrls && selectedClient.seedUrls.length > 0 && !manualUrlsTouched && (
+              <p className="text-[11px] font-body text-blue-700 dark:text-blue-300">
+                Using saved seed URLs from {selectedClient.name}
+                {selectedClient.seedUrlsUpdatedAt && <> · updated {formatSeedDate(selectedClient.seedUrlsUpdatedAt)}</>}
+                <button
+                  type="button"
+                  onClick={() => { setManualMode(false); setManualUrlsText(''); setManualUrlsTouched(true) }}
+                  className="ml-2 text-orange hover:underline"
+                >
+                  Use live discovery instead
+                </button>
+              </p>
+            )}
             <textarea
               id="manual-urls"
               value={manualUrlsText}
-              onChange={(e) => setManualUrlsText(e.target.value)}
+              onChange={(e) => { setManualUrlsText(e.target.value); setManualUrlsTouched(true) }}
               disabled={isBusy}
               rows={6}
               placeholder={'https://example.edu/\nhttps://example.edu/about/\nhttps://example.edu/programs/'}
@@ -356,6 +418,21 @@ export default function SiteAuditForm({ queueStatus }: Props) {
                 <> · <span className="text-navy dark:text-white/70">{parseManualUrls(manualUrlsText).length}</span> URL{parseManualUrls(manualUrlsText).length !== 1 ? 's' : ''} parsed</>
               )}
             </p>
+            {/* Save-to-client checkbox */}
+            {selectedClient && (
+              <label className="flex items-center gap-2 text-[12px] font-body text-navy/70 dark:text-white/70 mt-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={saveToClient}
+                  onChange={(e) => setSaveToClient(e.target.checked)}
+                  disabled={isBusy}
+                />
+                Save these URLs to {selectedClient.name}
+                {selectedClient.seedUrls && selectedClient.seedUrls.length > 0 && (
+                  <span className="text-navy/40 dark:text-white/40">(overwrites existing {selectedClient.seedUrls.length}-URL list)</span>
+                )}
+              </label>
+            )}
           </div>
         )}
       </div>

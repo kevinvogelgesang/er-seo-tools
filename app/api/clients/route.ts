@@ -8,13 +8,15 @@ export async function GET() {
   try {
     const clients = await prisma.client.findMany({
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, domains: true, createdAt: true },
+      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, createdAt: true },
     });
 
     const formatted = clients.map((c) => {
       let domains: string[] = [];
       try { domains = JSON.parse(c.domains); } catch { domains = []; }
-      return { ...c, domains };
+      let seedUrls: string[] | null = null;
+      if (c.seedUrls) { try { seedUrls = JSON.parse(c.seedUrls); } catch { seedUrls = null; } }
+      return { ...c, domains, seedUrls };
     });
 
     return NextResponse.json(formatted);
@@ -35,10 +37,10 @@ export async function POST(request: NextRequest) {
 
     const client = await prisma.client.create({
       data: { name },
-      select: { id: true, name: true, domains: true, createdAt: true },
+      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, createdAt: true },
     });
 
-    return NextResponse.json({ ...client, domains: [] }, { status: 201 });
+    return NextResponse.json({ ...client, domains: [], seedUrls: null }, { status: 201 });
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2002') {
       return NextResponse.json({ error: 'A client with that name already exists' }, { status: 409 });

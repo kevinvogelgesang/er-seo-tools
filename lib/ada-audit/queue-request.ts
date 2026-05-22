@@ -43,11 +43,28 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
   })
   if (existing) return { kind: 'duplicate', existingId: existing.id }
 
-  const normalisedUrls = input.preDiscoveredUrls
-    ? normaliseDiscoveredSiteAuditUrls(input.preDiscoveredUrls, domain)
+  let effectivePreDiscoveredUrls = input.preDiscoveredUrls
+  if (
+    (!effectivePreDiscoveredUrls || effectivePreDiscoveredUrls.length === 0) &&
+    typeof input.clientId === 'number'
+  ) {
+    const client = await prisma.client.findUnique({
+      where: { id: input.clientId },
+      select: { seedUrls: true },
+    })
+    if (client?.seedUrls) {
+      try {
+        const parsed = JSON.parse(client.seedUrls)
+        if (Array.isArray(parsed)) effectivePreDiscoveredUrls = parsed
+      } catch { /* ignore — treat as no seedUrls */ }
+    }
+  }
+
+  const normalisedUrls = effectivePreDiscoveredUrls
+    ? normaliseDiscoveredSiteAuditUrls(effectivePreDiscoveredUrls, domain)
     : undefined
 
-  if (input.preDiscoveredUrls && (!normalisedUrls || normalisedUrls.length === 0)) {
+  if (effectivePreDiscoveredUrls && effectivePreDiscoveredUrls.length > 0 && (!normalisedUrls || normalisedUrls.length === 0)) {
     return { kind: 'invalid', reason: `No submitted URLs belong to ${domain}` }
   }
 

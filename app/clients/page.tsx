@@ -6,7 +6,14 @@ interface Client {
   id: number;
   name: string;
   domains: string[];
+  seedUrls: string[] | null;
+  seedUrlsUpdatedAt: string | null;
   createdAt: string;
+}
+
+function formatDate(dt: string | null | undefined): string {
+  if (!dt) return '';
+  return new Date(dt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function PlusIcon() {
@@ -45,6 +52,10 @@ export default function ClientsPage() {
   // Domain management
   const [domainInput, setDomainInput] = useState<Record<number, string>>({});
   const [domainLoading, setDomainLoading] = useState<Record<number, boolean>>({});
+
+  // Seed URL management
+  const [localSeedUrlsText, setLocalSeedUrlsText] = useState<Record<number, string>>({});
+  const [seedUrlsLoading, setSeedUrlsLoading] = useState<Record<number, boolean>>({});
 
   const addInputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -171,6 +182,34 @@ export default function ClientsPage() {
       }
     } finally {
       setDomainLoading((prev) => ({ ...prev, [client.id]: false }));
+    }
+  };
+
+  // ── Seed URL management ────────────────────────────────────────────────────
+
+  const handleSaveSeedUrls = async (clientId: number, text: string) => {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
+    // Extract first http(s) URL per line (lenient, same as parseManualUrls)
+    const HTTP_URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/i;
+    const urls = lines.map((l) => { const m = l.match(HTTP_URL_RE); return m ? m[0] : null; }).filter(Boolean) as string[];
+    const seedUrls = urls.length > 0 ? urls : null;
+    setSeedUrlsLoading((prev) => ({ ...prev, [clientId]: true }));
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seedUrls }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setClients((prev) =>
+          prev.map((c) => (c.id === clientId ? { ...c, seedUrls: data.seedUrls, seedUrlsUpdatedAt: data.seedUrlsUpdatedAt } : c))
+        );
+        // Clear local override so the textarea reflects saved state
+        setLocalSeedUrlsText((prev) => { const next = { ...prev }; delete next[clientId]; return next; });
+      }
+    } finally {
+      setSeedUrlsLoading((prev) => ({ ...prev, [clientId]: false }));
     }
   };
 
@@ -365,6 +404,42 @@ export default function ClientsPage() {
                       No domains yet — add one above to enable auto-matching in the SEO Parser.
                     </p>
                   )}
+
+                  {/* Seed URLs */}
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-[12px] font-body font-semibold text-[#1c2d4a]/70 dark:text-white/70 hover:text-[#f5a623] select-none">
+                      Manual seed URLs
+                      {client.seedUrls && client.seedUrls.length > 0 && (
+                        <span className="font-normal text-[#1c2d4a]/40 dark:text-white/40">
+                          {' '}· {client.seedUrls.length} saved
+                        </span>
+                      )}
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      <textarea
+                        value={localSeedUrlsText[client.id] ?? (client.seedUrls?.join('\n') ?? '')}
+                        onChange={(e) => setLocalSeedUrlsText((prev) => ({ ...prev, [client.id]: e.target.value }))}
+                        rows={6}
+                        placeholder={'https://example.edu/\nhttps://example.edu/about/'}
+                        className="w-full px-3 py-2 text-[12px] font-mono text-[#1c2d4a] dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 focus:border-[#f5a623] bg-white dark:bg-navy-card transition-colors resize-y"
+                      />
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-body text-[#1c2d4a]/50 dark:text-white/50">
+                          {client.seedUrlsUpdatedAt
+                            ? `Saved · ${client.seedUrls?.length ?? 0} URLs · updated ${formatDate(client.seedUrlsUpdatedAt)}`
+                            : 'Not saved'}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={seedUrlsLoading[client.id]}
+                          onClick={() => handleSaveSeedUrls(client.id, localSeedUrlsText[client.id] ?? (client.seedUrls?.join('\n') ?? ''))}
+                          className="text-[12px] font-body font-semibold text-[#f5a623] hover:text-[#e09415] disabled:opacity-50 transition-colors"
+                        >
+                          {seedUrlsLoading[client.id] ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  </details>
                 </div>
 
                 {/* Delete */}

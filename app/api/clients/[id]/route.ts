@@ -15,7 +15,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
   try {
     const body = await request.json();
-    const data: { name?: string; domains?: string } = {};
+    const data: { name?: string; domains?: string; seedUrls?: string | null; seedUrlsUpdatedAt?: Date | null } = {};
 
     if (typeof body?.name === 'string') {
       const name = body.name.trim();
@@ -30,6 +30,21 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       data.domains = JSON.stringify(domains);
     }
 
+    if ('seedUrls' in body) {
+      if (body.seedUrls === null) {
+        data.seedUrls = null;
+        data.seedUrlsUpdatedAt = null;
+      } else if (Array.isArray(body.seedUrls)) {
+        const urls = (body.seedUrls as unknown[])
+          .map((u: unknown) => (typeof u === 'string' ? u.trim() : ''))
+          .filter(Boolean);
+        data.seedUrls = urls.length > 0 ? JSON.stringify(urls) : null;
+        data.seedUrlsUpdatedAt = urls.length > 0 ? new Date() : null;
+      } else {
+        return NextResponse.json({ error: 'seedUrls must be an array or null' }, { status: 400 });
+      }
+    }
+
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
     }
@@ -37,13 +52,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const client = await prisma.client.update({
       where: { id: clientId },
       data,
-      select: { id: true, name: true, domains: true, createdAt: true },
+      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, createdAt: true },
     });
 
     let domains: string[] = [];
     try { domains = JSON.parse(client.domains); } catch { domains = []; }
+    let seedUrls: string[] | null = null;
+    if (client.seedUrls) { try { seedUrls = JSON.parse(client.seedUrls); } catch { seedUrls = null; } }
 
-    return NextResponse.json({ ...client, domains });
+    return NextResponse.json({ ...client, domains, seedUrls });
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'code' in error) {
       const code = (error as { code: string }).code;
