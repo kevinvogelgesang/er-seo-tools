@@ -6,7 +6,7 @@ import { assertSafeHttpUrl } from '../security/safe-url'
 import { runLighthouse, resetCdpAfterLighthouse } from './lighthouse-runner'
 import { getLighthouseProvider } from './lighthouse-provider'
 import { harvestPdfLinks } from './pdf-discovery'
-import { gotoWithRetryOn5xx } from './page-load'
+import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 
@@ -139,11 +139,16 @@ export async function runAxeAudit(
         response = await gotoWithRetryOn5xx(
           page,
           parsed.toString(),
-          { waitUntil: 'networkidle2', timeout: 30_000 },
+          { waitUntil: 'domcontentloaded', timeout: 30_000 },
           async () => {
             await progress(22, 'Retrying (upstream 5xx)…')
           },
         )
+        // Settle stays INSIDE the same try so that any non-timeout rejection
+        // during settle (frame detach, navigation reset) surfaces here and
+        // the Phase 2 transient-retry layer sees it. The helper only swallows
+        // waitForNetworkIdle's own timeout. See spec §"Decision 1".
+        await postLoadSettle(page)
       } catch (err) {
         if (blockedNavigationError) throw blockedNavigationError
         throw err
