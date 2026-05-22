@@ -43,6 +43,12 @@ describe('isNoiseRequest — hostname matcher', () => {
     expect(NOISE_HOSTS).toContain('static.hotjar.com')
   })
 
+  it('blocks all subdomains of google-analytics.com via the bare entry', () => {
+    expect(isNoiseRequest('https://www.google-analytics.com/g/collect', 'xhr')).toBe(true)
+    expect(isNoiseRequest('https://region1.google-analytics.com/collect', 'xhr')).toBe(true)
+    expect(isNoiseRequest('https://ssl.google-analytics.com/r/collect', 'xhr')).toBe(true)
+  })
+
   it('explicitly does NOT block FB SDK or Intercom (accessibility-relevant widgets)', () => {
     expect(NOISE_HOSTS).not.toContain('connect.facebook.net')
     expect(NOISE_HOSTS).not.toContain('widget.intercom.io')

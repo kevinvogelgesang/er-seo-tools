@@ -19,10 +19,8 @@
 export const NOISE_HOSTS: readonly string[] = [
   // Tag management + analytics
   'googletagmanager.com',
-  'www.google-analytics.com',
+  'google-analytics.com',
   'analytics.google.com',
-  'region1.google-analytics.com',
-  'region1.analytics.google.com',
   'stats.g.doubleclick.net',
   'www.googleadservices.com',
   'googlesyndication.com',
