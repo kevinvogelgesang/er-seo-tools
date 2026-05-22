@@ -178,7 +178,7 @@ export default function SiteAuditResultsView({
     setViewMode('by-violation')
   }
 
-  const { issuePages, cleanPages, counts } = useSiteAuditPages(summary.pages, {
+  const { issuePages, cleanPages, redirectedPages, counts } = useSiteAuditPages(summary.pages, {
     sortKey,
     filterImpact,
     filterStatus: 'all',
@@ -378,6 +378,33 @@ export default function SiteAuditResultsView({
           />
         )}
       </div>
+
+      {/* Redirected pages */}
+      {redirectedPages.length > 0 && (
+        <section className="rounded-2xl border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card p-6">
+          <details>
+            <summary className="cursor-pointer font-display font-bold text-[17px] text-navy dark:text-white">
+              Redirects <span className="text-navy/40 dark:text-white/40 font-normal text-[14px] ml-2">{redirectedPages.length}</span>
+            </summary>
+            <div className="mt-4 space-y-2">
+              {redirectedPages.map((p) => (
+                <div key={p.url} className="flex items-center gap-2 text-[13px] font-body">
+                  <span className="text-navy/60 dark:text-white/60 truncate">{p.url}</span>
+                  <span className="text-navy/30 dark:text-white/30">→</span>
+                  <a
+                    href={p.finalUrl ?? '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-orange hover:underline truncate"
+                  >
+                    {p.finalUrl}
+                  </a>
+                </div>
+              ))}
+            </div>
+          </details>
+        </section>
+      )}
 
       {/* Clean pages */}
       <CleanPagesSection pages={cleanPages} />

@@ -18,6 +18,7 @@ interface ChildRow {
   result: string | null
   lighthouseSummary: string | null
   pdfAudits: ChildPdfAudit[]
+  finalUrl?: string | null
 }
 
 export function normaliseSiteAuditDomain(domain: string): string {
@@ -115,6 +116,22 @@ export const ZERO_SCORECARD: AuditScorecard = {
 
 export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
   const pages: SitePageResult[] = children.map((child) => {
+    // Redirected children carry no axe data and no harvested PDFs — emit a
+    // minimal row so the consumer can render the Redirects section without
+    // trying to parse a missing result blob.
+    if (child.status === 'redirected') {
+      return {
+        adaAuditId: child.id,
+        url: child.url,
+        status: 'redirected' as const,
+        error: null,
+        scorecard: null,
+        lighthouse: null,
+        pdfs: { total: 0, complete: 0, errored: 0, withIssues: 0 },
+        finalUrl: child.finalUrl ?? null,
+      }
+    }
+
     const scorecard = child.status === 'complete' ? parseAxeScorecardFromResult(child.result) : null
 
     let lighthouse: LighthouseSummary | null = null

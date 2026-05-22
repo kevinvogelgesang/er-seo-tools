@@ -108,6 +108,7 @@ export async function GET(request: NextRequest) {
       pagesTotal: a.pagesTotal,
       pagesComplete: a.pagesComplete,
       pagesError: a.pagesError,
+      pagesRedirected: a.pagesRedirected,
       summary,
       score,
       wcagLevel,

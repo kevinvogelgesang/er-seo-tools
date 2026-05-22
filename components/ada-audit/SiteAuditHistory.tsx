@@ -252,8 +252,8 @@ export default function SiteAuditHistory({ queueStatus }: Props) {
                       : a.status === 'cancelled'
                         ? <span className="text-slate-500 dark:text-slate-400">—</span>
                         : a.status === 'running' || a.status === 'pending'
-                          ? <span>{a.pagesComplete}/{a.pagesTotal > 0 ? a.pagesTotal : '?'}</span>
-                          : <span>{a.pagesComplete + a.pagesError}</span>
+                          ? <span>{a.pagesComplete + a.pagesRedirected}/{a.pagesTotal > 0 ? a.pagesTotal : '?'}</span>
+                          : <span>{a.pagesComplete + a.pagesError + a.pagesRedirected}</span>
                     }
                   </td>
                   <td className="py-2.5 pr-4">

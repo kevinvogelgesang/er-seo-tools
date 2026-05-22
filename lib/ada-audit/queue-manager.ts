@@ -78,9 +78,31 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
           // runAxeAudit's siteAudit flag suppresses its inline PSI fetch
           // (pagespeed branch only). In local/off modes, the flag is false
           // and the existing inline behavior is preserved.
-          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+          const runResult = await runAxeAudit(
             url, wcagLevel, undefined, { auditId: child.id, siteAudit: detachPsi },
           )
+
+          if (runResult.kind === 'redirected') {
+            await prisma.$transaction([
+              prisma.adaAudit.update({
+                where: { id: child.id },
+                data: {
+                  status: 'redirected',
+                  finalUrl: runResult.finalUrl,
+                  redirected: true,
+                  completedAt: new Date(),
+                  runnerType: 'browser',
+                },
+              }),
+              prisma.siteAudit.update({
+                where: { id },
+                data: { pagesRedirected: { increment: 1 } },
+              }),
+            ])
+            return  // skip PDF dispatch + PSI enqueue for redirected pages
+          }
+
+          const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = runResult
 
           // Dispatch harvested PDFs FIRST. dispatchPdfScans is awaited (its
           // inserts + pdfsTotal++ commit before this returns), which

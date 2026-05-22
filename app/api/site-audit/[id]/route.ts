@@ -102,6 +102,7 @@ export async function GET(
     pagesTotal: audit.pagesTotal,
     pagesComplete: audit.pagesComplete,
     pagesError: audit.pagesError,
+    pagesRedirected: audit.pagesRedirected,
     summary,
     pdfs,
     pdfsTotal: audit.pdfsTotal,

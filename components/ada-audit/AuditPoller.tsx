@@ -47,7 +47,7 @@ export default function AuditPoller({
 
   // Poll DB every second
   useEffect(() => {
-    if (status === 'complete' || status === 'error') return
+    if (status === 'complete' || status === 'error' || status === 'redirected') return
 
     pollRef.current = setInterval(async () => {
       try {
@@ -59,7 +59,7 @@ export default function AuditPoller({
         setMessage(data.progressMessage || 'Running…')
         setStatus(data.status)
 
-        if (data.status === 'complete' || data.status === 'error') {
+        if (data.status === 'complete' || data.status === 'error' || data.status === 'redirected') {
           if (pollRef.current) clearInterval(pollRef.current)
           if (tickRef.current) clearInterval(tickRef.current)
           router.refresh()

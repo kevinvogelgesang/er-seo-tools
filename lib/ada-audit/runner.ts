@@ -9,6 +9,7 @@ import { harvestPdfLinks } from './pdf-discovery'
 import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
 import { isTransientRunnerError } from './runner-retry'
+import { detectRedirect } from './redirect-detect'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 
@@ -40,14 +41,20 @@ export interface RunAxeOptions {
   siteAudit?: boolean
 }
 
-export interface RunAxeResult {
-  axe: StoredAxeResults
-  lighthouseSummary: LighthouseSummary | null
-  lighthouseError: string | null
-  // Normalized + same-domain PDFs harvested from the loaded DOM. The caller
-  // dispatches these through pdf-orchestrator.
-  harvestedPdfUrls: string[]
-}
+export type RunAxeResult =
+  | {
+      kind: 'audited'
+      axe: StoredAxeResults
+      lighthouseSummary: LighthouseSummary | null
+      lighthouseError: string | null
+      // Normalized + same-domain PDFs harvested from the loaded DOM. The caller
+      // dispatches these through pdf-orchestrator.
+      harvestedPdfUrls: string[]
+    }
+  | {
+      kind: 'redirected'
+      finalUrl: string
+    }
 
 export async function runAxeAudit(
   targetUrl: string,
@@ -149,6 +156,10 @@ export async function runAxeAudit(
       await progress(20, 'Loading page…')
 
       let response: HTTPResponse | null = null
+      // Typed as a mutable holder so TS doesn't narrow it to `null` based on
+      // initialization — the mutation happens inside attemptNavigation, which
+      // is a closure that TS' control-flow analysis can't see through.
+      const redirectedHolder: { value: { finalUrl: string } | null } = { value: null }
 
       const attemptNavigation = async (currentPage: Page): Promise<void> => {
         try {
@@ -195,6 +206,19 @@ export async function runAxeAudit(
           if (status >= 300 && status < 400) {
             const finalUrl = response.url()
             const location = response.headers()['location'] ?? null
+            const chain = response.request().redirectChain()
+            // Puppeteer didn't auto-follow but a Location header is present —
+            // classify as a redirected page rather than an error. Resolve the
+            // Location against the requested URL so relative redirects work.
+            if (location && chain.length === 0) {
+              try {
+                const resolved = new URL(location, parsed.toString()).toString()
+                redirectedHolder.value = { finalUrl: resolved }
+                return  // exit attemptNavigation — outer code checks redirectedHolder
+              } catch {
+                // Malformed Location — fall through to error path
+              }
+            }
             const detail = location
               ? `Redirected to ${location} (final URL was ${finalUrl}); puppeteer did not auto-follow`
               : `Server returned ${status} with no Location header (final URL: ${finalUrl})`
@@ -203,12 +227,28 @@ export async function runAxeAudit(
           throw new Error(`HTTP ${status} — ${response.statusText()}`)
         }
 
+        // Server-side redirect detection. Use puppeteer's chain data —
+        // page.url() after settle can change due to meta refresh / JS
+        // navigation, which we do NOT want to flag as redirects.
+        // IMPORTANT: this runs BEFORE the content-type check so a redirect
+        // whose final destination isn't HTML (e.g. PDF) reports as redirected
+        // rather than as "Response is not HTML".
+        const chain = response!.request().redirectChain()
+        const detected = detectRedirect(parsed.toString(), chain, response!.url())
+        if (detected.kind === 'redirected') {
+          redirectedHolder.value = { finalUrl: detected.finalUrl }
+          return  // exit attemptNavigation — outer code will check redirectedHolder
+        }
+
         const contentType = response.headers()['content-type'] ?? ''
         if (!contentType.includes('html')) throw new Error(`Response is not HTML (Content-Type: ${contentType})`)
       }
 
       try {
         await attemptNavigation(page)
+        if (redirectedHolder.value) {
+          return { kind: 'redirected', finalUrl: redirectedHolder.value.finalUrl }
+        }
       } catch (err) {
         if (!isTransientRunnerError(err)) throw err
 
@@ -230,6 +270,9 @@ export async function runAxeAudit(
 
         blockedNavigationError = null
         await attemptNavigation(page)
+        if (redirectedHolder.value) {
+          return { kind: 'redirected', finalUrl: redirectedHolder.value.finalUrl }
+        }
       }
 
       if (provider === 'pagespeed') {
@@ -314,7 +357,7 @@ export async function runAxeAudit(
       harvestedPdfUrls = []
     }
 
-    return { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls }
+    return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls }
   } finally {
     await releasePage(page)
   }

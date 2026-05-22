@@ -91,6 +91,8 @@ export interface AuditDetail {
   lighthouseSummary?: LighthouseSummary | null
   lighthouseError?: string | null
   pdfs?: AuditPdfRow[]
+  finalUrl?: string | null
+  redirected?: boolean
 }
 
 // ─── Site audit types ─────────────────────────────────────────────────────────
@@ -113,7 +115,7 @@ export interface SitePagePdfState {
 export interface LiveAuditChild {
   adaAuditId: string
   url: string
-  status: 'pending' | 'running' | 'complete' | 'error'
+  status: 'pending' | 'running' | 'complete' | 'error' | 'redirected'
   scorecard: AuditScorecard | null  // null until status === 'complete'
   error: string | null              // populated when status === 'error'
 }
@@ -122,11 +124,12 @@ export interface LiveAuditChild {
 export interface SitePageResult {
   adaAuditId: string
   url: string
-  status: 'complete' | 'error'
+  status: 'complete' | 'error' | 'redirected'
   error: string | null
   scorecard: AuditScorecard | null
   lighthouse: LighthouseSummary | null   // null if LH disabled / errored for this page
   pdfs: SitePagePdfState                  // zero-valued when no PDFs harvested
+  finalUrl?: string | null                // populated when status === 'redirected'
 }
 
 export interface SiteAuditPdfAggregate {
@@ -192,6 +195,7 @@ export interface SiteAuditDetail {
   pagesTotal: number
   pagesComplete: number
   pagesError: number
+  pagesRedirected: number
   summary: SiteAuditSummary | null
   pdfs?: AuditPdfRow[]
   pdfsTotal?: number

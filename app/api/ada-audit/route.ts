@@ -28,7 +28,7 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
         startedAt: new Date(),
       },
     })
-    const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = await runAxeAudit(
+    const result = await runAxeAudit(
       url,
       wcagLevel,
       onProgress,
@@ -40,6 +40,24 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
         } : {}),
       },
     )
+
+    if (result.kind === 'redirected') {
+      await prisma.adaAudit.update({
+        where: { id },
+        data: {
+          status: 'redirected',
+          finalUrl: result.finalUrl,
+          redirected: true,
+          progress: 100,
+          progressMessage: 'Redirected',
+          completedAt: new Date(),
+        },
+      })
+      return
+    }
+
+    // result.kind === 'audited'
+    const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = result
     await prisma.adaAudit.update({
       where: { id },
       data: {
