@@ -170,6 +170,16 @@ export interface CommonIssue {
   /** Frequency tier. Older audits (predating the tier rollout) may omit this — consumers
    *  should treat a missing field as 'template' since the old detector only emitted ≥80% rows. */
   tier?: CommonIssueTier
+  /** Canonical CSS selector identifying the shared element across affected pages,
+   *  computed via page-based mode-of-modes voting. Only set for 'template'/'common'
+   *  tiers with a strict majority. Older summaries lack this field. */
+  canonicalSelector?: string | null
+  /** Share of affected pages whose per-page-modal selector matched the canonical
+   *  (0..1). Set when canonicalSelector is set. */
+  selectorConfidence?: number
+  /** Page URL of one row whose modal selector matched the canonical — used as
+   *  the "View on …" example link in the callout. */
+  examplePageUrl?: string | null
 }
 
 /** Stored in SiteAudit.summary — computed once when all pages + PDFs finish */
