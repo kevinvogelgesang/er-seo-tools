@@ -196,10 +196,14 @@ export function computeCanonicalSelector(
     }
     let topSelector: string | null = null
     let topCount = -1
+    let tiedAtTop = false
     for (const [s, c] of counts) {
-      if (c > topCount) { topSelector = s; topCount = c }
+      if (c > topCount) { topSelector = s; topCount = c; tiedAtTop = false }
+      else if (c === topCount) { tiedAtTop = true }
     }
-    if (topSelector) votes.push({ selector: topSelector, pageUrl: page.url })
+    // Skip the page's vote when its top selector is tied with another within
+    // the same page — we cannot honestly attribute one canonical selector.
+    if (topSelector && !tiedAtTop) votes.push({ selector: topSelector, pageUrl: page.url })
   }
   if (votes.length === 0) {
     return { canonicalSelector: null, selectorConfidence: 0, examplePageUrl: null }

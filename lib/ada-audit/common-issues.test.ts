@@ -476,6 +476,20 @@ describe('computeCanonicalSelector', () => {
     ])
     expect(result.canonicalSelector).toBeNull()
   })
+
+  it('skips a page whose top selector is tied with another within the same page', () => {
+    // /a has a tie between nav.x and nav.y (1-1). Its vote must be skipped,
+    // so only /b and /c contribute. nav.x wins 2-1 across them; with 3 total
+    // affected pages, 2/3 is a strict majority and 2/3 is the confidence.
+    const result = computeCanonicalSelector([
+      { url: '/a', nodes: [{ target: ['nav.x'] }, { target: ['nav.y'] }] }, // tied — skipped
+      { url: '/b', nodes: [{ target: ['nav.x'] }] },
+      { url: '/c', nodes: [{ target: ['nav.x'] }] },
+    ])
+    expect(result.canonicalSelector).toBe('nav.x')
+    expect(result.examplePageUrl).toBe('/b')
+    expect(result.selectorConfidence).toBeCloseTo(2 / 3)
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -485,12 +499,18 @@ describe('computeCanonicalSelector', () => {
 describe('detectCommonIssues — canonical selector', () => {
   it('attaches canonicalSelector + examplePageUrl for template-tier rules', () => {
     // 5 complete pages, all hit by color-contrast on the same selector → template tier.
+    // Each page has two nodes of footer > a.cta and one of p, so the per-page top
+    // is unambiguously footer > a.cta (no tie).
     const rows: CommonIssueInputRow[] = Array.from({ length: 5 }, (_, i) => ({
       id: `c-${i}`,
       status: 'complete',
       url: `https://example.com/page-${i}`,
       result: JSON.stringify({
-        violations: [colorContrast([{ target: ['footer > a.cta'] }, { target: ['p'] }])],
+        violations: [colorContrast([
+          { target: ['footer > a.cta'] },
+          { target: ['footer > a.cta'] },
+          { target: ['p'] },
+        ])],
         passes: [],
         incomplete: [],
       }),
