@@ -81,6 +81,17 @@ async function fetchXml(url: string): Promise<string | null> {
   }
 }
 
+/**
+ * Try direct fetch first, fall back to a Puppeteer-driven fetch when direct
+ * returns null (CDN/WAF blocking). The browser path is expensive (~1 s
+ * warmup, up to 20 s navigation) but only fires when needed.
+ */
+async function fetchSitemapXml(url: string): Promise<string | null> {
+  const direct = await fetchXml(url)
+  if (direct) return direct
+  return await fetchSitemapViaBrowser(url)
+}
+
 async function fetchRobotsTxt(base: string): Promise<string[]> {
   try {
     const { response: res } = await safeFetch(`${base}/robots.txt`, {
@@ -203,7 +214,7 @@ async function collectFromSitemap(xml: string, normDomain: string): Promise<stri
   const BATCH = 5
   for (let i = 0; i < childUrls.length; i += BATCH) {
     const batch = childUrls.slice(i, i + BATCH)
-    const childXmls = await Promise.all(batch.map((u) => fetchXml(u)))
+    const childXmls = await Promise.all(batch.map((u) => fetchSitemapXml(u)))
     for (const childXml of childXmls) {
       if (!childXml) continue
       const locs = extractLocs(childXml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
@@ -252,11 +263,11 @@ export async function discoverPages(domain: string): Promise<string[]> {
     }
   }
 
-  // 3. Try each candidate until we get pages
+  // 3. Try each candidate until we get pages (direct fetch, then browser fallback)
   let allPageUrls: string[] = []
 
   for (const sitemapUrl of uniqueCandidates) {
-    const xml = await fetchXml(sitemapUrl)
+    const xml = await fetchSitemapXml(sitemapUrl)
     if (!xml) continue
 
     const urls = await collectFromSitemap(xml, normDomain)
@@ -266,30 +277,15 @@ export async function discoverPages(domain: string): Promise<string[]> {
     }
   }
 
-  // 4. If no sitemap yielded pages, try shallow crawl
+  // 4. If no sitemap yielded pages, fall back to shallow crawl
   if (allPageUrls.length === 0) {
     const crawledPages = await shallowCrawl(base, normDomain)
-    if (crawledPages.length > 0) return crawledPages
-
-    // 4b. Browser fallback — safeFetch was likely 403'd by a CDN/WAF.
-    // Retry the same candidates via Puppeteer (real Chrome TLS handshake
-    // bypasses most fingerprint-based bot blocks). The browser-fetch helper
-    // owns its own SSRF interception.
-    for (const sitemapUrl of uniqueCandidates) {
-      const xml = await fetchSitemapViaBrowser(sitemapUrl)
-      if (!xml) continue
-      const urls = await collectFromSitemap(xml, normDomain)
-      if (urls.length > 0) {
-        allPageUrls = urls
-        break
-      }
-    }
-
-    if (allPageUrls.length === 0) {
+    if (crawledPages.length === 0) {
       throw new Error(
-        `No sitemap found on ${normDomain} (tried direct fetch and browser fallback) and shallow crawl found 0 pages`
+        `No sitemap found on ${normDomain} (tried direct + browser fetch on all candidates) and shallow crawl found 0 pages`
       )
     }
+    return crawledPages
   }
 
   // 5. Filter to same domain, deduplicate, apply hard cap

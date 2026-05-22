@@ -10,8 +10,13 @@ vi.mock('../security/safe-url', async (importOriginal) => {
   }
 })
 
+vi.mock('./sitemap-crawler-browser-fetch', () => ({
+  fetchSitemapViaBrowser: vi.fn(),
+}))
+
 import { discoverPages } from './sitemap-crawler'
 import { SafeUrlError } from '../security/safe-url'
+import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 
 vi.mock('node:dns', () => ({
   promises: {
@@ -485,5 +490,62 @@ describe('discoverPages SSRF protections', () => {
 
     await expect(discoverPages('example.com')).resolves.toEqual(['https://example.com/page'])
     expect(requestedUrls).not.toContain('https://other.test/child.xml')
+  })
+})
+
+describe('discoverPages browser fallback', () => {
+  afterEach(() => {
+    safeFetchMock.mockReset()
+    vi.mocked(fetchSitemapViaBrowser).mockReset()
+  })
+
+  it('falls back to browser-fetch for both top-level AND child sitemaps when WAF 403s direct fetches', async () => {
+    // All safeFetch calls return 403 (CDN/WAF blocks our IP)
+    safeFetchMock.mockImplementation(async (url: string | URL) => ({
+      response: new Response('Forbidden', {
+        status: 403,
+        statusText: 'Forbidden',
+        headers: { 'content-type': 'text/html' },
+      }),
+      url: url.toString(),
+      redirects: [],
+    }))
+
+    // Browser fetch succeeds: index returns two child sitemaps, each child returns pages
+    vi.mocked(fetchSitemapViaBrowser).mockImplementation(async (url: string) => {
+      if (url.includes('sitemap_index.xml')) {
+        return `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <sitemap><loc>https://example.edu/post-sitemap.xml</loc></sitemap>
+          <sitemap><loc>https://example.edu/page-sitemap.xml</loc></sitemap>
+        </sitemapindex>`
+      }
+      if (url.includes('post-sitemap.xml')) {
+        return `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://example.edu/post-1/</loc></url>
+          <url><loc>https://example.edu/post-2/</loc></url>
+        </urlset>`
+      }
+      if (url.includes('page-sitemap.xml')) {
+        return `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://example.edu/about/</loc></url>
+        </urlset>`
+      }
+      return null
+    })
+
+    const result = await discoverPages('example.edu')
+    expect(result.sort()).toEqual([
+      'https://example.edu/about/',
+      'https://example.edu/post-1/',
+      'https://example.edu/post-2/',
+    ].sort())
+
+    // Browser fetch must have been called (at minimum for the index, plus both children)
+    expect(vi.mocked(fetchSitemapViaBrowser)).toHaveBeenCalled()
+    // Specifically the index and both child sitemaps should have gone through the browser
+    const browserCalls = vi.mocked(fetchSitemapViaBrowser).mock.calls.map(([u]) => u)
+    expect(browserCalls.some((u) => u.includes('sitemap_index.xml'))).toBe(true)
+    expect(browserCalls.some((u) => u.includes('post-sitemap.xml'))).toBe(true)
+    expect(browserCalls.some((u) => u.includes('page-sitemap.xml'))).toBe(true)
   })
 })
