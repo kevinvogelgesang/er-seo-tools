@@ -98,6 +98,7 @@ model SiteAudit {
   pdfsTotal     Int        @default(0)
   pdfsComplete  Int        @default(0)
   pdfsError     Int        @default(0)
+  pdfsSkipped   Int        @default(0)
   lighthouseTotal     Int        @default(0)
   lighthouseComplete  Int        @default(0)
   lighthouseError     Int        @default(0)
@@ -159,9 +160,10 @@ model PdfAudit {
   url          String     // normalized URL (query/fragment stripped, host lowercased)
   fileSize     Int?       // bytes
   pageCount    Int?
-  status       String     // pending | scanning | complete | error
+  status       String     // pending | scanning | complete | error | skipped
   issues       String?    // JSON: PdfIssue[]
   scanError    String?
+  skipReason   String?    // populated when status === 'skipped' (e.g. 'oversize')
 
   @@index([siteAuditId])
   @@index([adaAuditId])
