@@ -58,6 +58,10 @@ export default function SiteAuditForm({ queueStatus }: Props) {
   const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null)
   const [discoveredDomain, setDiscoveredDomain] = useState<string | null>(null)
 
+  // Manual URL mode (for Cloudflare-challenged sites)
+  const [manualMode, setManualMode] = useState(false)
+  const [manualUrlsText, setManualUrlsText] = useState('')
+
   // queueStatus is owned by AuditIndexTabs and arrives via props. No local
   // poll, no setInterval.
 
@@ -169,10 +173,57 @@ export default function SiteAuditForm({ queueStatus }: Props) {
     }
   }
 
+  function parseManualUrls(text: string): string[] {
+    return text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'))
+  }
+
+  async function handleStartManualAudit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    const urls = parseManualUrls(manualUrlsText)
+    if (urls.length === 0) {
+      setError('Please paste at least one URL (one per line).')
+      return
+    }
+    if (!domain.trim()) {
+      setError('Domain is required even when using manual URLs.')
+      return
+    }
+    setIsRunning(true)
+    try {
+      const res = await fetch('/api/site-audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          domain: domain.trim(),
+          clientId: selectedClient?.id ?? null,
+          wcagLevel,
+          urls,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        if (res.status === 409 && data.id) {
+          setError('A site audit for this domain is already running.')
+          setIsRunning(false)
+          router.push(`/ada-audit/site/${data.id}`)
+          return
+        }
+        setError(data.error ?? 'Request failed')
+        setIsRunning(false)
+        return
+      }
+      router.push(`/ada-audit/site/${data.id}`)
+    } catch {
+      setError('Network error — please try again')
+      setIsRunning(false)
+    }
+  }
+
   const isBusy = isDiscovering || isRunning
 
   return (
-    <form onSubmit={handleDiscover} className="space-y-4">
+    <form onSubmit={manualMode ? handleStartManualAudit : handleDiscover} className="space-y-4">
       {/* Client combobox */}
       <div>
         <label htmlFor="client-combobox" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
@@ -265,6 +316,51 @@ export default function SiteAuditForm({ queueStatus }: Props) {
         <p className="text-[11px] font-body text-navy/40 dark:text-white/40 mt-1.5">
           We&apos;ll discover all pages from the sitemap and audit each one.
         </p>
+      </div>
+
+      {/* Manual URL list (for hard-to-discover sites like Cloudflare-challenged) */}
+      <div>
+        {!manualMode ? (
+          <button
+            type="button"
+            onClick={() => setManualMode(true)}
+            disabled={isBusy}
+            className="text-[12px] font-body text-orange hover:text-orange-light underline disabled:opacity-50"
+          >
+            Paste URL list instead (for sites where discovery fails)
+          </button>
+        ) : (
+          <div className="space-y-2 rounded-lg border border-gray-300 dark:border-navy-border p-4 bg-gray-50/40 dark:bg-navy-deep/30">
+            <div className="flex items-center justify-between">
+              <label htmlFor="manual-urls" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70">
+                Paste URLs (one per line)
+              </label>
+              <button
+                type="button"
+                onClick={() => { setManualMode(false); setManualUrlsText('') }}
+                disabled={isBusy}
+                className="text-[11px] font-body text-navy/50 dark:text-white/50 hover:text-orange"
+              >
+                ← Back to discovery
+              </button>
+            </div>
+            <textarea
+              id="manual-urls"
+              value={manualUrlsText}
+              onChange={(e) => setManualUrlsText(e.target.value)}
+              disabled={isBusy}
+              rows={6}
+              placeholder={'https://example.edu/\nhttps://example.edu/about/\nhttps://example.edu/programs/'}
+              className="w-full px-3 py-2 text-[12px] font-mono text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange disabled:opacity-50 disabled:bg-gray-50 dark:bg-navy-card dark:disabled:bg-navy-deep transition-colors"
+            />
+            <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
+              Use this when sitemap discovery fails (e.g. Cloudflare-challenged sites). URLs must be on the same domain as above; off-domain URLs are dropped server-side.
+              {manualUrlsText.trim() && (
+                <> · <span className="text-navy dark:text-white/70">{parseManualUrls(manualUrlsText).length}</span> URL{parseManualUrls(manualUrlsText).length !== 1 ? 's' : ''} parsed</>
+              )}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* WCAG level selector */}
@@ -372,7 +468,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
       {!discoveredUrls && (
         <button
           type="submit"
-          disabled={isBusy || !domain.trim()}
+          disabled={isBusy || !domain.trim() || (manualMode && parseManualUrls(manualUrlsText).length === 0)}
           className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-orange hover:bg-orange-light text-white font-body font-semibold text-[14px] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isDiscovering ? (
@@ -380,6 +476,8 @@ export default function SiteAuditForm({ queueStatus }: Props) {
               <Spinner className="w-4 h-4" />
               Discovering pages…
             </>
+          ) : manualMode ? (
+            `Audit ${parseManualUrls(manualUrlsText).length || ''} URL${parseManualUrls(manualUrlsText).length !== 1 ? 's' : ''}`.trim()
           ) : (
             'Discover Pages'
           )}
