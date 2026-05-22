@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
+import { parseManualUrls } from '@/lib/ada-audit/manual-urls'
 
 interface Client {
   id: number
@@ -171,10 +172,6 @@ export default function SiteAuditForm({ queueStatus }: Props) {
       setError('Network error — please try again')
       setIsRunning(false)
     }
-  }
-
-  function parseManualUrls(text: string): string[] {
-    return text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'))
   }
 
   async function handleStartManualAudit(e: React.FormEvent) {
