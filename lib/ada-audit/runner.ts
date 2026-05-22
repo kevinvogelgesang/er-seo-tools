@@ -192,6 +192,14 @@ export async function runAxeAudit(
         if (!response.ok()) {
           if (status === 403) throw new Error(`HTTP 403 — This site is blocking automated scanners. Try adding your server IP to the site's allowlist, or contact the site owner.`)
           if (status === 401) throw new Error(`HTTP 401 — This page requires authentication. The scanner cannot access password-protected pages.`)
+          if (status >= 300 && status < 400) {
+            const finalUrl = response.url()
+            const location = response.headers()['location'] ?? null
+            const detail = location
+              ? `Redirected to ${location} (final URL was ${finalUrl}); puppeteer did not auto-follow`
+              : `Server returned ${status} with no Location header (final URL: ${finalUrl})`
+            throw new Error(`HTTP ${status} — ${detail}`)
+          }
           throw new Error(`HTTP ${status} — ${response.statusText()}`)
         }
 
