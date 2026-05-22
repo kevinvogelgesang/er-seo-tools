@@ -53,7 +53,7 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
     // it. processNext() will retry and pick the next queued row on its own.
     const claimed = await prisma.siteAudit.updateMany({
       where: { id, status: 'queued' },
-      data: { status: 'running' },
+      data: { status: 'running', startedAt: new Date() },
     })
     if (claimed.count === 0) return
 
@@ -68,7 +68,7 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
           data: { url, status: 'pending', clientId, siteAuditId: id, wcagLevel },
         })
         try {
-          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running' } })
+          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'running', startedAt: new Date() } })
 
           // Detached PSI only applies to the pagespeed provider. local LH
           // still runs inline (uses the page slot); off skips LH entirely.
@@ -136,6 +136,7 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
                   lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
                   lighthouseError,
                   runnerType: 'browser',
+                  completedAt: new Date(),
                 },
               }),
               prisma.siteAudit.update({
@@ -146,7 +147,7 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Audit failed'
-          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'error', error: msg } })
+          await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'error', error: msg, completedAt: new Date() } })
           await prisma.siteAudit.update({ where: { id }, data: { pagesError: { increment: 1 } } })
         }
       }))
@@ -175,7 +176,7 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
     console.error(`[site-audit] id=${id} error:`, message)
     await prisma.siteAudit.update({
       where: { id },
-      data: { status: 'error', error: message },
+      data: { status: 'error', error: message, completedAt: new Date() },
     }).catch(() => {})
     // Read back the batchId — we may not have it in scope if the audit errored
     // before any local variable captured it.
@@ -389,6 +390,7 @@ export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
     data: {
       status: 'error',
       error: 'Audit interrupted because the site audit was stopped or restarted',
+      completedAt: new Date(),
     },
   })
   // axe-complete children have valid axe data but their PSI job was
@@ -404,6 +406,7 @@ export async function failOrphanAdaAudits(siteAuditId: string): Promise<void> {
       status: 'error',
       error: 'Audit interrupted because the site audit was stopped or restarted',
       lighthouseError: 'Lighthouse interrupted because the site audit was stopped or restarted',
+      completedAt: new Date(),
     },
   })
 }
@@ -446,7 +449,7 @@ export async function resetStaleAudits() {
     console.warn(`[queue] Resetting stale audit ${s.id}`)
     await prisma.siteAudit.update({
       where: { id: s.id },
-      data: { status: 'error', error: 'Audit timed out (server may have restarted)' },
+      data: { status: 'error', error: 'Audit timed out (server may have restarted)', completedAt: new Date() },
     }).catch(() => {})
     await failOrphanAdaAudits(s.id).catch(() => {})
     await failOrphanPdfAudits(s.id).catch(() => {})
@@ -481,7 +484,7 @@ export async function recoverQueue() {
     console.warn(`[queue] Startup recovery: resetting orphan audit ${o.id}`)
     await prisma.siteAudit.update({
       where: { id: o.id },
-      data: { status: 'error', error: 'Audit interrupted (server restarted)' },
+      data: { status: 'error', error: 'Audit interrupted (server restarted)', completedAt: new Date() },
     }).catch(() => {})
     await failOrphanAdaAudits(o.id).catch(() => {})
     await failOrphanPdfAudits(o.id).catch(() => {})

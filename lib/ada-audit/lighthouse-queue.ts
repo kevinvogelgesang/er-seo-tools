@@ -83,6 +83,7 @@ async function runJob(job: PsiJob): Promise<void> {
         status: 'complete',
         lighthouseSummary,
         lighthouseError,
+        completedAt: new Date(),
       },
     })
     claimed = result.count === 1
