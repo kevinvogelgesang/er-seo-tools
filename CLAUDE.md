@@ -65,7 +65,7 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 | `/clients` | Client management with domain matching |
 
 ## ADA Audit specifics
-- axe-core runs inside headless Chrome (puppeteer-core) with `waitUntil: 'networkidle2'` so CSS and fonts load — color-contrast checks work
+- axe-core runs inside headless Chrome (puppeteer-core). Navigation uses `waitUntil: 'domcontentloaded'` (30 s budget) followed by a best-effort `waitForNetworkIdle({ idleTime: 500, timeout: 5_000 })` settle via `postLoadSettle` in `lib/ada-audit/page-load.ts`. The settle is non-fatal — analytics/chat poll traffic on real client sites would otherwise prevent network-idle from ever firing. CSS and fonts that block first-paint are already in the DOM at DCL; color-contrast checks still work.
 - `wcagLevel`: `wcag21aa` (default, "Required") runs `['wcag2a','wcag2aa','wcag21a','wcag21aa']`; `wcag22aa` ("Aspirational") adds `['wcag22aa','best-practice']`
 - Progress written to DB at each phase (5→10→20→75→82→95→100%); client polls every second and shows live bar + estimated time
 - `runnerType` column on `AdaAudit`/`SiteAudit`: `'browser'` for new audits, `'jsdom'` for legacy
