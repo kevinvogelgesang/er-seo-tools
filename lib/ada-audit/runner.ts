@@ -7,6 +7,7 @@ import { runLighthouse, resetCdpAfterLighthouse } from './lighthouse-runner'
 import { getLighthouseProvider } from './lighthouse-provider'
 import { harvestPdfLinks } from './pdf-discovery'
 import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
+import { isNoiseRequest } from './scanner-noise'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 
@@ -95,6 +96,17 @@ export async function runAxeAudit(
     }
 
     const handleRequest = async (request: HTTPRequest) => {
+      // Cheap noise-filter first. Never blocks the main frame — only sub-resources.
+      if (
+        !request.isNavigationRequest() &&
+        isNoiseRequest(request.url(), request.resourceType())
+      ) {
+        if (!request.isInterceptResolutionHandled()) {
+          await request.abort('blockedbyclient').catch(() => {})
+        }
+        return
+      }
+
       try {
         await validateBrowserRequest(request.url())
         if (!request.isInterceptResolutionHandled()) {
