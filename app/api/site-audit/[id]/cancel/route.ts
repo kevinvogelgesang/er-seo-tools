@@ -22,7 +22,7 @@ export async function POST(
   // audit transitions queued → running between findUnique and updateMany.
   const updated = await prisma.siteAudit.updateMany({
     where: { id, status: 'queued' },
-    data: { status: 'cancelled' },
+    data: { status: 'cancelled', completedAt: new Date() },
   })
 
   if (updated.count === 0) {
