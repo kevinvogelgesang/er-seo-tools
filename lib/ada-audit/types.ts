@@ -71,6 +71,8 @@ export interface AuditListItem {
   clientName: string | null
   scorecard: AuditScorecard | null
   requestedBy: string | null
+  startedAt: string | null
+  completedAt: string | null
 }
 
 /** Shape returned by GET /api/ada-audit/[id] */
