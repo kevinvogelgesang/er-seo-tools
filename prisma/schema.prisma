@@ -79,12 +79,18 @@ model AdaAudit {
   lighthouseError   String?
   pdfAudits         PdfAudit[]
   requestedBy       String?    // null on child rows; operator name set at creation for standalone audits
+  startedAt        DateTime?
+  completedAt      DateTime?
+  finalUrl         String?
+  redirected       Boolean    @default(false)
+  checks           AdaAuditCheck[]
 
   @@index([createdAt])
   @@index([clientId])
   @@index([status])
   @@index([siteAuditId])
   @@index([shareExpiresAt])
+  @@index([requestedBy, createdAt])
 }
 
 model SiteAudit {
@@ -116,11 +122,16 @@ model SiteAudit {
   batchId       String?
   batch         AuditBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
   requestedBy   String?    // operator name from er-operator-name cookie at creation time
+  startedAt        DateTime?
+  completedAt      DateTime?
+  pagesRedirected  Int       @default(0)
+  checks           SiteAuditCheck[]
 
   @@index([createdAt])
   @@index([status])
   @@index([clientId])
   @@index([batchId])
+  @@index([requestedBy, createdAt])
 }
 
 model PillarAnalysis {
@@ -182,4 +193,32 @@ model AuditBatch {
 
   @@index([closedAt])
   @@index([startedAt])
+}
+
+model AdaAuditCheck {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  adaAuditId  String
+  adaAudit    AdaAudit @relation(fields: [adaAuditId], references: [id], onDelete: Cascade)
+  scope       String   // 'node' (rule-level state is derived, never persisted)
+  key         String   // sha256 of canonical JSON — see lib/ada-audit/checks-keys.ts
+  checkedBy   String?  // er-operator-name at time of check
+
+  @@unique([adaAuditId, scope, key])
+  @@index([adaAuditId])
+}
+
+model SiteAuditCheck {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  siteAuditId String
+  siteAudit   SiteAudit @relation(fields: [siteAuditId], references: [id], onDelete: Cascade)
+  scope       String   // 'page' | 'page-violation'
+  key         String
+  checkedBy   String?
+
+  @@unique([siteAuditId, scope, key])
+  @@index([siteAuditId])
 }
