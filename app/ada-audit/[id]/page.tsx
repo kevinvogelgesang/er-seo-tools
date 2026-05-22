@@ -76,6 +76,32 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
     )
   }
 
+  // ── Redirected state ─────────────────────────────────────────────────────────
+  if (audit.status === 'redirected' && audit.finalUrl) {
+    return (
+      <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
+        {breadcrumb}
+        <div className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 p-6">
+          <h2 className="font-display font-bold text-[17px] text-navy dark:text-white mb-2">
+            Page redirected
+          </h2>
+          <p className="text-[13px] font-body text-navy/70 dark:text-white/70">
+            {audit.url} redirects to{' '}
+            <a
+              href={audit.finalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-orange hover:underline"
+            >
+              {audit.finalUrl}
+            </a>
+            . No accessibility scan was run — re-submit the final URL above to audit the destination.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
   // ── Error state ──────────────────────────────────────────────────────────────
   if (audit.status === 'error') {
     return (
