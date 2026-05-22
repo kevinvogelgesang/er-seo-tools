@@ -91,6 +91,8 @@ export interface AuditDetail {
   lighthouseSummary?: LighthouseSummary | null
   lighthouseError?: string | null
   pdfs?: AuditPdfRow[]
+  finalUrl?: string | null
+  redirected?: boolean
 }
 
 // ─── Site audit types ─────────────────────────────────────────────────────────

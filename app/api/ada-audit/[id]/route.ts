@@ -80,6 +80,8 @@ export async function GET(
         lighthouseSummary,
         lighthouseError: audit.lighthouseError ?? null,
         pdfs,
+        finalUrl: audit.finalUrl ?? null,
+        redirected: audit.redirected,
       } satisfies AuditDetail)
     }
   }
@@ -99,6 +101,8 @@ export async function GET(
     lighthouseSummary,
     lighthouseError: audit.lighthouseError ?? null,
     pdfs,
+    finalUrl: audit.finalUrl ?? null,
+    redirected: audit.redirected,
   } satisfies AuditDetail)
 }
 
