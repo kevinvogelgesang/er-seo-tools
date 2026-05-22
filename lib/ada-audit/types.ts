@@ -131,8 +131,12 @@ export interface SiteAuditPdfAggregate {
   total: number
   complete: number
   errored: number
+  skipped: number
   withIssues: number
 }
+
+export type PdfAuditStatus = 'pending' | 'scanning' | 'complete' | 'error' | 'skipped'
+export type PdfSkipReason = 'oversize'
 
 /** Landmark elements we surface as shared-ancestor hints in common-issue callouts. */
 export type LandmarkTag = 'header' | 'footer' | 'nav' | 'aside' | 'main'
@@ -191,6 +195,7 @@ export interface SiteAuditDetail {
   pdfsTotal?: number
   pdfsComplete?: number
   pdfsError?: number
+  pdfsSkipped?: number
   lighthouseTotal: number
   lighthouseComplete: number
   lighthouseError: number
@@ -274,6 +279,7 @@ export interface QueueStatusWithBatch {
     pdfsTotal: number
     pdfsComplete: number
     pdfsError: number
+    pdfsSkipped: number
     lighthouseTotal: number
     lighthouseComplete: number
     lighthouseError: number

@@ -137,6 +137,8 @@ export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
       } else if (p.status === 'error') {
         pdfs.errored++
       }
+      // 'skipped' rows are terminal but not counted in complete/errored;
+      // they are captured in pdfsAggregate.skipped below.
     }
 
     return {
@@ -162,14 +164,21 @@ export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
     { ...ZERO_SCORECARD }
   )
 
+  // Count skipped PDFs across all child pdfAudits (not tracked in SitePagePdfState).
+  const pdfsSkippedCount = children.reduce(
+    (acc, child) => acc + child.pdfAudits.filter((p) => p.status === 'skipped').length,
+    0,
+  )
+
   const pdfsAggregate: SiteAuditPdfAggregate = pages.reduce(
     (acc, p) => ({
       total:      acc.total      + p.pdfs.total,
       complete:   acc.complete   + p.pdfs.complete,
       errored:    acc.errored    + p.pdfs.errored,
+      skipped:    acc.skipped,
       withIssues: acc.withIssues + p.pdfs.withIssues,
     }),
-    { total: 0, complete: 0, errored: 0, withIssues: 0 },
+    { total: 0, complete: 0, errored: 0, skipped: pdfsSkippedCount, withIssues: 0 },
   )
 
   // Site-wide common-issue analysis: rules that hit >= COMMON_ISSUE_THRESHOLD

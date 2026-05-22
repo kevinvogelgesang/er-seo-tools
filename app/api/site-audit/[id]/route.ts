@@ -107,6 +107,7 @@ export async function GET(
     pdfsTotal: audit.pdfsTotal,
     pdfsComplete: audit.pdfsComplete,
     pdfsError: audit.pdfsError,
+    pdfsSkipped: audit.pdfsSkipped,
     lighthouseTotal: audit.lighthouseTotal,
     lighthouseComplete: audit.lighthouseComplete,
     lighthouseError: audit.lighthouseError,

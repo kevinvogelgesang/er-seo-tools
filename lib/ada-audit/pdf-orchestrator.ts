@@ -83,22 +83,27 @@ export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId, sourcePa
           data: { status: 'scanning' },
         })
         const result = await scanPdfUrl(url, { referer: sourcePageUrl })
+        const isSkipped = !!result.skipReason
+        const isErrored = !isSkipped && !!result.scanError
         const matches = await prisma.pdfAudit.updateMany({
           where: { url, ...(siteAuditId ? { siteAuditId } : { adaAuditId }) },
           data: {
             fileSize: result.fileSize,
             pageCount: result.pageCount,
             issues: JSON.stringify(result.issues),
-            status: result.scanError ? 'error' : 'complete',
-            scanError: result.scanError,
+            status: isSkipped ? 'skipped' : isErrored ? 'error' : 'complete',
+            skipReason: isSkipped ? result.skipReason : null,
+            scanError: isErrored ? result.scanError : null,
           },
         })
         if (siteAuditId && matches.count > 0) {
           await prisma.siteAudit.update({
             where: { id: siteAuditId },
-            data: result.scanError
-              ? { pdfsError: { increment: 1 } }
-              : { pdfsComplete: { increment: 1 } },
+            data: isSkipped
+              ? { pdfsSkipped: { increment: 1 } }
+              : isErrored
+                ? { pdfsError: { increment: 1 } }
+                : { pdfsComplete: { increment: 1 } },
           })
         }
       } catch (e) {

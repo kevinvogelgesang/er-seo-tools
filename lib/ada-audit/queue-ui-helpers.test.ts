@@ -15,6 +15,7 @@ function makeActive(parts: Partial<ActiveAudit>): ActiveAudit {
     pdfsTotal: 0,
     pdfsComplete: 0,
     pdfsError: 0,
+    pdfsSkipped: 0,
     lighthouseTotal: 0,
     lighthouseComplete: 0,
     lighthouseError: 0,

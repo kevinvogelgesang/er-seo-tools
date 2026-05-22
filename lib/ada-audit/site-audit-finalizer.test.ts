@@ -22,7 +22,7 @@ async function clearTestState() {
 async function makeAudit(overrides: Partial<{
   status: string
   pagesTotal: number; pagesComplete: number; pagesError: number
-  pdfsTotal: number; pdfsComplete: number; pdfsError: number
+  pdfsTotal: number; pdfsComplete: number; pdfsError: number; pdfsSkipped: number
   lighthouseTotal: number; lighthouseComplete: number; lighthouseError: number
 }>) {
   return prisma.siteAudit.create({
@@ -36,6 +36,7 @@ async function makeAudit(overrides: Partial<{
       pdfsTotal: overrides.pdfsTotal ?? 0,
       pdfsComplete: overrides.pdfsComplete ?? 0,
       pdfsError: overrides.pdfsError ?? 0,
+      pdfsSkipped: overrides.pdfsSkipped ?? 0,
       lighthouseTotal: overrides.lighthouseTotal ?? 0,
       lighthouseComplete: overrides.lighthouseComplete ?? 0,
       lighthouseError: overrides.lighthouseError ?? 0,
@@ -129,6 +130,19 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     await finalizeSiteAudit(audit.id)
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.status).toBe('complete')
+    expect(processNext).toHaveBeenCalled()
+  })
+
+  it('treats skipped PDFs as terminal — site flips to complete when only skipped + complete remain', async () => {
+    const audit = await makeAudit({
+      pagesTotal: 3, pagesComplete: 3,
+      pdfsTotal: 3, pdfsComplete: 2, pdfsError: 0, pdfsSkipped: 1,
+      lighthouseTotal: 3, lighthouseComplete: 3,
+    })
+    await finalizeSiteAudit(audit.id)
+    const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
+    expect(after?.status).toBe('complete')
+    expect(after?.summary).not.toBeNull()
     expect(processNext).toHaveBeenCalled()
   })
 })

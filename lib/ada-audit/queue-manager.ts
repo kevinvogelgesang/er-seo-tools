@@ -318,7 +318,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
     select: {
       id: true, domain: true, status: true,
       pagesTotal: true, pagesComplete: true, pagesError: true,
-      pdfsTotal: true, pdfsComplete: true, pdfsError: true,
+      pdfsTotal: true, pdfsComplete: true, pdfsError: true, pdfsSkipped: true,
       lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
       clientId: true,
     },
@@ -348,6 +348,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
           pdfsTotal: active.pdfsTotal,
           pdfsComplete: active.pdfsComplete,
           pdfsError: active.pdfsError,
+          pdfsSkipped: active.pdfsSkipped,
           lighthouseTotal: active.lighthouseTotal,
           lighthouseComplete: active.lighthouseComplete,
           lighthouseError: active.lighthouseError,

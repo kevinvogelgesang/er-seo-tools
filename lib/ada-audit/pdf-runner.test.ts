@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'node:url'
-import { scanPdfBuffer } from './pdf-runner'
+import { scanPdfBuffer, scanPdfUrl } from './pdf-runner'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -34,5 +34,31 @@ describe('scanPdfBuffer', () => {
   it('reports pageCount', async () => {
     const r = await scanPdfBuffer(await load('untagged.pdf'), 'https://x/u.pdf')
     expect(r.pageCount).toBe(1)
+  })
+})
+
+describe('scanPdfUrl — oversize handling', () => {
+  it('returns skipReason="oversize" instead of scanError when the PDF exceeds the cap', async () => {
+    vi.mock('@/lib/security/safe-url', () => ({
+      safeFetch: vi.fn(async () => ({
+        response: new Response('', { status: 200 }),
+        url: 'https://x/big.pdf',
+        redirects: [],
+      })),
+      readResponseBytesWithLimit: vi.fn(async () => ({
+        bytes: new Uint8Array(0),
+        truncated: true,
+      })),
+    }))
+
+    const { scanPdfUrl: scanPdfUrlFresh } = await import('./pdf-runner?t=oversize')
+    const r = await scanPdfUrlFresh('https://x/big.pdf')
+    expect(r.skipReason).toBe('oversize')
+    expect(r.scanError).toBeUndefined()
+    expect(r.fileSize).toBeNull()
+    expect(r.pageCount).toBeNull()
+    expect(r.issues).toEqual([])
+
+    vi.restoreAllMocks()
   })
 })

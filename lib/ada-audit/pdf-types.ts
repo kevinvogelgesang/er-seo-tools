@@ -1,4 +1,8 @@
 // lib/ada-audit/pdf-types.ts
+import type { PdfSkipReason } from './types'
+
+export type { PdfSkipReason }
+
 export type PdfIssueSeverity = 'high' | 'medium' | 'low'
 
 export type PdfIssueCode =
@@ -24,4 +28,5 @@ export interface PdfScanResult {
   pageCount: number | null
   issues: PdfIssue[]
   scanError?: string
+  skipReason?: PdfSkipReason
 }

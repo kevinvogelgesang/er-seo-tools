@@ -191,7 +191,7 @@ export async function scanPdfUrl(
         fileSize: null,
         pageCount: null,
         issues: [],
-        scanError: `PDF exceeds ${PDF_MAX_BYTES}-byte cap`,
+        skipReason: 'oversize',
       }
     }
     return await scanPdfBuffer(Buffer.from(bytes), url)

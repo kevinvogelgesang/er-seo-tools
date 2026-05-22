@@ -44,7 +44,7 @@ export function computeActivePhaseSummary(active: ActiveAudit): ActivePhaseSumma
   }
 
   if (active.status === 'pdfs-running') {
-    const complete = active.pdfsComplete + active.pdfsError
+    const complete = active.pdfsComplete + active.pdfsError + active.pdfsSkipped
     const total = active.pdfsTotal
     return {
       label: 'Scanning PDFs',
