@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import AuditForm from './AuditForm'
 import SiteAuditForm from './SiteAuditForm'
-import AuditHistory from './AuditHistory'
-import SiteAuditHistory from './SiteAuditHistory'
 import ClientsAuditSummary from './ClientsAuditSummary'
 import DashboardQueueStatus from './DashboardQueueStatus'
+import MyRecentsCard from './MyRecentsCard'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
+import type { RecentItem } from '@/lib/ada-audit/recents-query'
 
 const QUEUE_POLL_INTERVAL_MS = 5000
 
@@ -18,7 +18,12 @@ function parseTab(value: string | null): Tab {
   return value === 'site' ? 'site' : 'single'
 }
 
-export default function AuditIndexTabs() {
+interface Props {
+  recentItems: RecentItem[]
+  operator: string | null
+}
+
+export default function AuditIndexTabs({ recentItems, operator }: Props) {
   const searchParams = useSearchParams()
 
   // Initial tab derived from URL so SSR + first paint match. Infer 'site'
@@ -114,9 +119,8 @@ export default function AuditIndexTabs() {
       {/* Clients section */}
       <ClientsAuditSummary />
 
-      {/* History tables — each component renders its own card via PaginatedSection */}
-      <AuditHistory />
-      <SiteAuditHistory queueStatus={queueStatus} />
+      {/* Operator-filtered recents — replaces full history tables on the dashboard */}
+      <MyRecentsCard items={recentItems} operator={operator} />
     </div>
   )
 }
