@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { AxeViolation, ImpactLevel } from '@/lib/ada-audit/types'
 import AuditIssueCard from './AuditIssueCard'
+import type { UseChecksReturn } from './useChecks'
 
 interface AxeIncomplete {
   id: string
@@ -14,10 +15,27 @@ interface AxeIncomplete {
   helpUrl?: string
 }
 
+export interface SinglePageChecksContext {
+  triageMode: boolean
+  readOnly: boolean
+  checks: UseChecksReturn
+}
+
+export interface SiteCheckContext {
+  pageUrl: string
+  triageMode: boolean
+  readOnly: boolean
+  checks: UseChecksReturn
+}
+
 interface Props {
   violations: AxeViolation[]
   incomplete?: AxeIncomplete[]
   auditId?: string
+  // Single-page audit checks (per-node, per-rule rollup)
+  checksContext?: SinglePageChecksContext
+  // Site audit per-page-violation checks (page-violation scope)
+  siteCheckContext?: SiteCheckContext
 }
 
 type TabId = 'all' | ImpactLevel | 'needs-review'
@@ -30,7 +48,7 @@ const VIOLATION_TABS: { id: TabId; label: string }[] = [
   { id: 'minor',    label: 'Minor' },
 ]
 
-export default function AuditIssueTabs({ violations, incomplete = [], auditId }: Props) {
+export default function AuditIssueTabs({ violations, incomplete = [], auditId, checksContext, siteCheckContext }: Props) {
   const [active, setActive] = useState<TabId>('all')
 
   const showNeedsReview = incomplete.length > 0
@@ -133,7 +151,15 @@ export default function AuditIssueTabs({ violations, incomplete = [], auditId }:
         </p>
       ) : (
         <div className="space-y-2">
-          {filtered.map((v) => <AuditIssueCard key={v.id} violation={v} auditId={auditId} />)}
+          {filtered.map((v) => (
+            <AuditIssueCard
+              key={v.id}
+              violation={v}
+              auditId={auditId}
+              checksContext={checksContext}
+              siteCheckContext={siteCheckContext}
+            />
+          ))}
         </div>
       )}
     </div>

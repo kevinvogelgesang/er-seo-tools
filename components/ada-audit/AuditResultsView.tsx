@@ -1,3 +1,6 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import type { StoredAxeResults, AuditScorecard, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 import AuditScorecardComponent from './AuditScorecard'
@@ -10,6 +13,7 @@ import LighthouseSection from './LighthouseSection'
 import PdfIssuesSection from './PdfIssuesSection'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import { safeExternalHref } from '@/lib/safe-external-href'
+import { useChecks } from './useChecks'
 
 interface Props {
   results: StoredAxeResults
@@ -24,6 +28,7 @@ interface Props {
   fromAuditId?: string | null
   showRescan?: boolean
   readOnly?: boolean
+  shareToken?: string
   lighthouseSummary?: LighthouseSummary | null
   lighthouseError?: string | null
   pdfs?: AuditPdfRow[]
@@ -42,10 +47,41 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, lighthouseSummary = null, lighthouseError = null, pdfs = [] }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, shareToken, lighthouseSummary = null, lighthouseError = null, pdfs = [] }: Props) {
   const scorecard = buildScorecard(results)
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
   const auditHref = safeExternalHref(url)
+
+  const [triageMode, setTriageMode] = useState(false)
+
+  useEffect(() => {
+    if (!auditId) return
+    const stored = localStorage.getItem(`er-triage-mode:${auditId}`)
+    if (stored === '1') setTriageMode(true)
+  }, [auditId])
+
+  const onToggleTriage = () => {
+    setTriageMode((prev) => {
+      const next = !prev
+      if (auditId) localStorage.setItem(`er-triage-mode:${auditId}`, next ? '1' : '0')
+      return next
+    })
+  }
+
+  const checksEndpoint = readOnly && shareToken
+    ? `/api/ada-audit/share/${shareToken}/checks`
+    : auditId
+      ? `/api/ada-audit/${auditId}/checks`
+      : ''
+
+  const checks = useChecks({
+    endpoint: checksEndpoint,
+    enabled: !!checksEndpoint && (triageMode || readOnly),
+    readOnly,
+  })
+
+  // In readOnly (share view), strikes display whenever any checks loaded.
+  const displayChecks = triageMode || readOnly
 
   return (
     <div className="space-y-6">
@@ -92,6 +128,13 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
           </div>
           {auditId && !readOnly && (
             <div className="flex-shrink-0 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onToggleTriage}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
+              >
+                {triageMode ? 'Triage on' : 'Triage off'}
+              </button>
               {showRescan && <ReScanButton url={url} wcagLevel={wcagLevel ?? 'wcag21aa'} auditId={auditId} />}
               <ShareAuditButton auditId={auditId} />
             </div>
@@ -133,7 +176,12 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
           <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">Violations</h2>
         </div>
         <div className="p-6">
-          <AuditIssueTabs violations={results.violations} incomplete={results.incomplete ?? []} auditId={readOnly ? undefined : auditId} />
+          <AuditIssueTabs
+            violations={results.violations}
+            incomplete={results.incomplete ?? []}
+            auditId={readOnly ? undefined : auditId}
+            checksContext={displayChecks ? { triageMode: displayChecks, readOnly, checks } : undefined}
+          />
         </div>
       </div>
 

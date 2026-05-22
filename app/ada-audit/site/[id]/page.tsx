@@ -164,6 +164,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
         score={score}
         compliant={compliant}
         pdfs={pdfs}
+        siteAuditId={audit.id}
       />
     </main>
   )
