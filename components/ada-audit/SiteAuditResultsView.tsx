@@ -16,6 +16,8 @@ import { useGroupedViolations } from './useGroupedViolations'
 import GroupedViolationsView from './GroupedViolationsView'
 import CommonIssueCallout from './CommonIssueCallout'
 import { safeExternalHref } from '@/lib/safe-external-href'
+import { useChecks, type UseChecksReturn } from './useChecks'
+import { keyForPage, keyForPageViolation } from '@/lib/ada-audit/checks-keys-browser'
 
 interface Props {
   domain: string
@@ -28,6 +30,7 @@ interface Props {
   score?: number
   compliant?: boolean
   pdfs?: AuditPdfRow[]
+  siteAuditId: string
 }
 
 function ImpactCount({ n, color }: { n: number; color: string }) {
@@ -35,10 +38,44 @@ function ImpactCount({ n, color }: { n: number; color: string }) {
   return <span className={`font-semibold ${color}`}>{n}</span>
 }
 
-function PageRow({ page }: { page: SitePageResult }) {
+interface PageRowProps {
+  page: SitePageResult
+  triageMode: boolean
+  readOnly: boolean
+  checks: UseChecksReturn
+}
+
+function PageRow({ page, triageMode, readOnly, checks }: PageRowProps) {
   const [expanded, setExpanded] = useState(false)
   const [violations, setViolations] = useState<StoredAxeResults['violations'] | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Pre-compute page + per-violation keys for this page.
+  const [pageKey, setPageKey] = useState<string>('')
+  const [violationKeyMap, setViolationKeyMap] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const pk = await keyForPage({ pageUrl: page.url })
+      const vks: Record<string, string> = {}
+      for (const ruleId of page.violationIds ?? []) {
+        vks[ruleId] = await keyForPageViolation({ pageUrl: page.url, ruleId })
+      }
+      if (!cancelled) {
+        setPageKey(pk)
+        setViolationKeyMap(vks)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [page.url, page.violationIds])
+
+  const violationKeys = Object.values(violationKeyMap)
+  const allViolationsChecked =
+    violationKeys.length > 0 &&
+    violationKeys.every((k) => checks.has('page-violation', k))
+  const pageChecked = !!pageKey && checks.has('page', pageKey)
+  const pageStruck = pageChecked || allViolationsChecked
 
   async function handleExpand() {
     if (expanded) { setExpanded(false); return }
@@ -60,13 +97,27 @@ function PageRow({ page }: { page: SitePageResult }) {
   const sc = page.scorecard
   const pageHref = safeExternalHref(page.url)
 
+  const colSpan = triageMode ? 7 : 6
+
   return (
     <>
       <tr
         className={`border-b border-gray-100 dark:border-navy-border hover:bg-gray-50 dark:hover:bg-navy-light cursor-pointer transition-colors ${expanded ? 'bg-gray-50 dark:bg-navy-light' : ''}`}
         onClick={handleExpand}
       >
-        <td className="py-2.5 pr-3 pl-4">
+        {triageMode && (
+          <td className="py-2.5 pl-4 pr-2 w-8" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              className="accent-orange"
+              checked={pageStruck}
+              disabled={readOnly || !checks.loaded || !pageKey || checks.pending}
+              onChange={(e) => void checks.setCheck('page', pageKey, e.currentTarget.checked)}
+              aria-label={`Mark page ${page.url} as handled`}
+            />
+          </td>
+        )}
+        <td className={`py-2.5 pr-3 ${triageMode ? 'pl-2' : 'pl-4'}`}>
           <div className="flex items-center gap-2">
             <svg
               className={`w-3 h-3 flex-shrink-0 text-navy/30 dark:text-white/30 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -75,7 +126,10 @@ function PageRow({ page }: { page: SitePageResult }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[12px] font-body text-navy/80 dark:text-white/80 truncate max-w-xs" title={page.url}>
+              <span
+                className={`text-[12px] font-body truncate max-w-xs ${pageStruck ? 'line-through text-navy/40 dark:text-white/30' : 'text-navy/80 dark:text-white/80'}`}
+                title={page.url}
+              >
                 {urlDisplay}
               </span>
               {pageHref && (
@@ -115,7 +169,7 @@ function PageRow({ page }: { page: SitePageResult }) {
       </tr>
       {expanded && (
         <tr className="bg-gray-50 dark:bg-navy-deep border-b border-gray-100 dark:border-navy-border">
-          <td colSpan={6} className="px-8 py-4">
+          <td colSpan={colSpan} className="px-8 py-4">
             {loading ? (
               <div className="flex items-center gap-2 text-[12px] font-body text-navy/40 dark:text-white/40 py-2">
                 <Spinner />
@@ -125,7 +179,15 @@ function PageRow({ page }: { page: SitePageResult }) {
               <p className="text-[12px] font-body text-red-600 dark:text-red-400 py-2">{page.error}</p>
             ) : violations !== null ? (
               <div className="space-y-3">
-                <AuditIssueTabs violations={violations} />
+                <AuditIssueTabs
+                  violations={violations}
+                  siteCheckContext={{
+                    pageUrl: page.url,
+                    triageMode,
+                    readOnly,
+                    checks,
+                  }}
+                />
                 <a
                   href={`/ada-audit/${page.adaAuditId}`}
                   className="inline-block text-[12px] font-body font-semibold text-orange hover:text-orange-light transition-colors"
@@ -159,7 +221,7 @@ function paginationRange(current: number, total: number): (number | '...')[] {
 }
 
 export default function SiteAuditResultsView({
-  domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant, pdfs = [],
+  domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant, pdfs = [], siteAuditId,
 }: Props) {
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
 
@@ -167,6 +229,26 @@ export default function SiteAuditResultsView({
   const [filterImpact, setFilterImpact] = useState<ImpactFilter>('all')
   const [viewMode, setViewMode] = useState<'table' | 'by-violation'>('table')
   const [currentPage, setCurrentPage] = useState(1)
+
+  const [triageMode, setTriageMode] = useState(false)
+
+  useEffect(() => {
+    const stored = localStorage.getItem(`er-triage-mode:${siteAuditId}`)
+    if (stored === '1') setTriageMode(true)
+  }, [siteAuditId])
+
+  const onToggleTriage = () => {
+    setTriageMode((prev) => {
+      const next = !prev
+      localStorage.setItem(`er-triage-mode:${siteAuditId}`, next ? '1' : '0')
+      return next
+    })
+  }
+
+  const checks = useChecks({
+    endpoint: `/api/site-audit/${siteAuditId}/checks`,
+    enabled: triageMode,
+  })
   /** Rule id to auto-expand/scroll-to inside the by-violation view.
    *  Set by the CommonIssueCallout's "View affected pages" CTA. */
   const [selectedViolationId, setSelectedViolationId] = useState<string | undefined>(undefined)
@@ -246,6 +328,15 @@ export default function SiteAuditResultsView({
               </span>
             </div>
           </div>
+          <div className="flex-shrink-0">
+            <button
+              type="button"
+              onClick={onToggleTriage}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
+            >
+              {triageMode ? 'Triage on' : 'Triage off'}
+            </button>
+          </div>
         </div>
         <div className="p-6">
           <AuditScorecardComponent
@@ -300,7 +391,10 @@ export default function SiteAuditResultsView({
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-navy-border bg-gray-50/50 dark:bg-navy-deep/50">
-                    <th className="text-left px-4 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">Page</th>
+                    {triageMode && (
+                      <th className="text-left pl-4 pr-2 py-2 w-8 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40">✓</th>
+                    )}
+                    <th className={`text-left py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-navy/40 dark:text-white/40 ${triageMode ? 'pl-2 pr-3' : 'px-4'}`}>Page</th>
                     <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-red-400">Crit</th>
                     <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-orange-400">Ser</th>
                     <th className="text-center pr-3 py-2 text-[10px] font-body font-semibold uppercase tracking-wider text-yellow-500">Mod</th>
@@ -311,13 +405,19 @@ export default function SiteAuditResultsView({
                 <tbody>
                   {visiblePages.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-[13px] font-body text-navy/40 dark:text-white/40">
+                      <td colSpan={triageMode ? 7 : 6} className="px-6 py-8 text-center text-[13px] font-body text-navy/40 dark:text-white/40">
                         No pages match the current filters.
                       </td>
                     </tr>
                   ) : (
                     visiblePages.map((page) => (
-                      <PageRow key={page.adaAuditId} page={page} />
+                      <PageRow
+                        key={page.adaAuditId}
+                        page={page}
+                        triageMode={triageMode}
+                        readOnly={false}
+                        checks={checks}
+                      />
                     ))
                   )}
                 </tbody>

@@ -87,6 +87,19 @@ export function parseAxeScorecardFromResult(result: string | null): AuditScoreca
   }
 }
 
+export function parseAxeViolationIdsFromResult(result: string | null): string[] {
+  if (!result) return []
+  try {
+    const r = JSON.parse(result)
+    const violations = Array.isArray(r?.violations) ? r.violations : []
+    return violations
+      .map((v: { id?: unknown }) => v?.id)
+      .filter((id: unknown): id is string => typeof id === 'string')
+  } catch {
+    return []
+  }
+}
+
 function safeParseIssues(json: string | null): PdfIssue[] {
   if (!json) return []
   try {
@@ -129,10 +142,12 @@ export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
         lighthouse: null,
         pdfs: { total: 0, complete: 0, errored: 0, withIssues: 0 },
         finalUrl: child.finalUrl ?? null,
+        violationIds: [],
       }
     }
 
     const scorecard = child.status === 'complete' ? parseAxeScorecardFromResult(child.result) : null
+    const violationIds = child.status === 'complete' ? parseAxeViolationIdsFromResult(child.result) : []
 
     let lighthouse: LighthouseSummary | null = null
     if (child.lighthouseSummary) {
@@ -166,6 +181,7 @@ export function buildSiteAuditSummary(children: ChildRow[]): SiteAuditSummary {
       scorecard,
       lighthouse,
       pdfs,
+      violationIds,
     }
   })
 

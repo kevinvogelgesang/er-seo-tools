@@ -130,6 +130,7 @@ export interface SitePageResult {
   lighthouse: LighthouseSummary | null   // null if LH disabled / errored for this page
   pdfs: SitePagePdfState                  // zero-valued when no PDFs harvested
   finalUrl?: string | null                // populated when status === 'redirected'
+  violationIds?: string[]                 // rule IDs present on this page, for triage-mode rollup
 }
 
 export interface SiteAuditPdfAggregate {
