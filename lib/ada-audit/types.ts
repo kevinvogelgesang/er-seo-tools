@@ -71,6 +71,8 @@ export interface AuditListItem {
   clientName: string | null
   scorecard: AuditScorecard | null
   requestedBy: string | null
+  startedAt: string | null
+  completedAt: string | null
 }
 
 /** Shape returned by GET /api/ada-audit/[id] */
@@ -200,6 +202,8 @@ export interface SiteAuditDetail {
   lighthouseComplete: number
   lighthouseError: number
   requestedBy: string | null
+  startedAt: string | null
+  completedAt: string | null
   /** Optional — present only when the audit is in a running state. */
   liveChildren?: LiveAuditChild[]
 }
@@ -252,6 +256,8 @@ export interface AuditBatchMember {
   pagesError: number
   score: number | null
   createdAt: string          // ISO
+  startedAt: string | null
+  completedAt: string | null
 }
 
 export interface AuditBatchDetail {

@@ -43,7 +43,7 @@ describe('POST /api/site-audit/[id]/cancel', () => {
     expect(json).toEqual({ ok: true, id: 'audit-1', status: 'cancelled' })
     expect(prisma.siteAudit.updateMany).toHaveBeenCalledWith({
       where: { id: 'audit-1', status: 'queued' },
-      data: { status: 'cancelled' },
+      data: { status: 'cancelled', completedAt: expect.any(Date) },
     })
     expect(closeBatchIfDrained).toHaveBeenCalledWith('batch-1')
   })

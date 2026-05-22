@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import PaginatedSection from './PaginatedSection'
 import type { PaginatedResponse, QueueStatusWithBatch, SiteAuditDetail } from '@/lib/ada-audit/types'
+import { formatDuration, formatDurationHover } from '@/lib/ada-audit/duration'
 
 const PAGE_SIZE = 25
 const URL_PARAM = 'recentSitesPage'
@@ -222,6 +223,7 @@ export default function SiteAuditHistory({ queueStatus }: Props) {
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Violations</th>
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Status</th>
               <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Date</th>
+              <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50">Duration</th>
               <th className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-navy/50 dark:text-white/50 text-right">Actions</th>
             </tr>
           </thead>
@@ -271,6 +273,17 @@ export default function SiteAuditHistory({ queueStatus }: Props) {
                   </td>
                   <td className="py-2.5 pr-4 text-navy/40 dark:text-white/40 whitespace-nowrap">
                     {new Date(a.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="py-2.5 pr-4 text-navy/40 dark:text-white/40 whitespace-nowrap" title={(() => {
+                    const start = a.startedAt ? new Date(a.startedAt) : null
+                    const end = a.completedAt ? new Date(a.completedAt) : null
+                    return formatDurationHover(start, end) ?? ''
+                  })()}>
+                    {(() => {
+                      const start = a.startedAt ? new Date(a.startedAt) : null
+                      const end = a.completedAt ? new Date(a.completedAt) : null
+                      return formatDuration(start, end) ?? '—'
+                    })()}
                   </td>
                   <td className="py-2.5 text-right">
                     {confirmDeleteId === a.id ? (
