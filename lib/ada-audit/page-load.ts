@@ -1,4 +1,5 @@
 import type { GoToOptions, HTTPResponse, Page } from 'puppeteer-core'
+import { TimeoutError } from 'puppeteer-core'
 
 /**
  * page.goto wrapper that retries once on an HTTP 5xx response.
@@ -24,4 +25,25 @@ export async function gotoWithRetryOn5xx(
     return page.goto(url, options)
   }
   return first
+}
+
+/**
+ * Best-effort post-navigation settle. After `domcontentloaded` fires, give the
+ * page a short grace period to finish XHR/fetch work — but only the
+ * `waitForNetworkIdle` TimeoutError is swallowed. Other failures (frame
+ * detach, navigation, target closed) propagate so the runner's transient-
+ * retry layer can see and act on them. This is the contract the spec calls
+ * out: settle's failure is benign only when it's the configured timeout.
+ */
+export async function postLoadSettle(
+  page: Pick<Page, 'waitForNetworkIdle'>,
+  opts: { idleTime?: number; timeout?: number } = {},
+): Promise<void> {
+  const { idleTime = 500, timeout = 5_000 } = opts
+  try {
+    await page.waitForNetworkIdle({ idleTime, timeout })
+  } catch (err) {
+    if (err instanceof TimeoutError) return
+    throw err
+  }
 }

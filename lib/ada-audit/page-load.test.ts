@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GoToOptions, HTTPResponse, Page } from 'puppeteer-core'
-import { gotoWithRetryOn5xx } from './page-load'
+import { TimeoutError } from 'puppeteer-core'
+import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 
 function stubResponse(status: number): HTTPResponse {
   return { status: () => status } as unknown as HTTPResponse
@@ -92,5 +93,35 @@ describe('gotoWithRetryOn5xx', () => {
 
     expect(a.calls()).toBe(2)
     expect(b.calls()).toBe(2)
+  })
+})
+
+describe('postLoadSettle', () => {
+  it('resolves normally when waitForNetworkIdle resolves', async () => {
+    const fakePage = { waitForNetworkIdle: vi.fn().mockResolvedValue(undefined) }
+    await expect(postLoadSettle(fakePage as never)).resolves.toBeUndefined()
+    expect(fakePage.waitForNetworkIdle).toHaveBeenCalledWith({ idleTime: 500, timeout: 5_000 })
+  })
+
+  it('swallows ONLY the TimeoutError from waitForNetworkIdle', async () => {
+    const fakePage = { waitForNetworkIdle: vi.fn().mockRejectedValue(new TimeoutError('timed out')) }
+    await expect(postLoadSettle(fakePage as never)).resolves.toBeUndefined()
+  })
+
+  it('rethrows non-timeout failures (e.g. frame detach during settle)', async () => {
+    const fakePage = { waitForNetworkIdle: vi.fn().mockRejectedValue(new Error('Navigating frame was detached')) }
+    await expect(postLoadSettle(fakePage as never)).rejects.toThrow('Navigating frame was detached')
+  })
+
+  it('rethrows unknown errors so the transient-retry layer can see them', async () => {
+    class WeirdError extends Error {}
+    const fakePage = { waitForNetworkIdle: vi.fn().mockRejectedValue(new WeirdError('boom')) }
+    await expect(postLoadSettle(fakePage as never)).rejects.toThrow('boom')
+  })
+
+  it('honors a caller-supplied timeout', async () => {
+    const fakePage = { waitForNetworkIdle: vi.fn().mockResolvedValue(undefined) }
+    await postLoadSettle(fakePage as never, { timeout: 2_000 })
+    expect(fakePage.waitForNetworkIdle).toHaveBeenCalledWith({ idleTime: 500, timeout: 2_000 })
   })
 })
