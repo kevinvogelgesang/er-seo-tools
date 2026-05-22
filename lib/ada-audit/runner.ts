@@ -169,7 +169,22 @@ export async function runAxeAudit(
       if (!response) throw new Error('No response received from page')
       const status = response.status()
       if (status === 304) {
-        throw new Error('HTTP 304 Not Modified — cached response received; re-run to get a fresh scan')
+        // Cache hardening on the page (browser-pool.ts) should have prevented this,
+        // but if Chrome still served a validator-only response, retry once with a
+        // cache-busting query param and explicit no-store headers. Failure surfaces
+        // the original 304 message so the operator can re-run manually.
+        await page.setExtraHTTPHeaders({
+          'Cache-Control': 'no-store',
+          'Pragma': 'no-cache',
+        }).catch(() => {})
+        const bustUrl = new URL(parsed.toString())
+        bustUrl.searchParams.set('_cb', String(Date.now()))
+        response = await page.goto(bustUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        await postLoadSettle(page)
+        if (!response) throw new Error('HTTP 304 Not Modified — retry also returned no response; re-run to get a fresh scan')
+        if (response.status() === 304) {
+          throw new Error('HTTP 304 Not Modified — cached response received twice; re-run to get a fresh scan')
+        }
       }
       if (!response.ok()) {
         if (status === 403) {
