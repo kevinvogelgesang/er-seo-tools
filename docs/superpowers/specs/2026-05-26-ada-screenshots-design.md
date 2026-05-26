@@ -65,11 +65,34 @@ No DB schema migration — screenshot paths live inside the existing JSON `resul
 
 ### Runner glue
 
-`lib/ada-audit/runner.ts` already accepts `captureScreenshots: boolean` and `screenshotDir: string`. Change:
+`lib/ada-audit/runner.ts` already accepts `captureScreenshots: boolean` and `screenshotDir: string`, but **capture only fires when BOTH are truthy** (`runner.ts:344`). "Just omitting the flag" would capture nothing. So always-on requires real default logic in the runner, not just API edits (Codex fix):
 
-- The option still exists but defaults to `true` when an `auditId` is supplied. Tests can override by passing `false`.
-- The single-page API route (`app/api/ada-audit/route.ts`) stops reading the `captureScreenshots` field from the request body and always passes `true` (or just omits — relying on default).
-- The site audit code path (`lib/ada-audit/queue-manager.ts`, line ~81) gets `captureScreenshots: true, screenshotDir: path.join(SCREENSHOTS_DIR, child.id)` added to its `runAxeAudit` call.
+```ts
+// runner.ts, replacing the line-344 guard
+const shouldCapture = options?.captureScreenshots !== false  // default ON
+const screenshotDir = options?.screenshotDir ?? path.join(SCREENSHOTS_DIR, options.auditId)
+if (shouldCapture) {
+  await progress(93, 'Capturing element screenshots…')
+  try {
+    await captureViolationScreenshots(page, axe.violations, screenshotDir)
+  } catch (err) {
+    console.warn('[ada-audit/screenshots] capture phase failed, continuing:', err)
+  }
+  axe.captureScreenshots = axe.violations.some(
+    v => v.nodes.some(n => n.screenshotPath != null) || v.screenshotPath != null
+  )
+}
+```
+
+Three fixes baked in here:
+1. **Default ON** (`!== false`) so both page and site audits capture without a flag.
+2. **`screenshotDir` defaulted** from `auditId` so callers don't have to pass it.
+3. **Boundary try/catch** around the whole capture phase — see "disk-full handling" below. Today `captureViolationScreenshots` is `await`ed at `runner.ts:346` with no boundary catch, and its internal `fs.mkdir` (`screenshot-helpers.ts:23`) is *outside* the per-element try, so an mkdir failure (disk full / unwritable) would currently bubble up and fail the whole audit.
+4. **Flag calc updated** to check `node.screenshotPath` (paths now live on nodes), keeping the legacy `violation.screenshotPath` check for old audits.
+
+Callers:
+- The single-page API route (`app/api/ada-audit/route.ts`) stops reading `captureScreenshots` from the request body entirely. It passes only `{ auditId, ... }`; the runner default does the rest. Any leftover field from an old client is ignored.
+- The site audit code path (`lib/ada-audit/queue-manager.ts:81`) needs **no change** once the runner defaults are in place — it already passes `{ auditId: child.id, siteAudit: detachPsi }`, and capture now defaults on with a derived dir. (Optionally pass `screenshotDir` explicitly for clarity; not required.)
 
 ### Form change
 
@@ -105,7 +128,7 @@ export async function sweepExpiredScreenshots(): Promise<{ checked: number; dele
     const auditId = dir  // directories are named by AdaAudit.id
     const audit = await prisma.adaAudit.findUnique({
       where: { id: auditId },
-      select: { completedAt: true, status: true },
+      select: { completedAt: true, status: true, createdAt: true },
     })
 
     // Delete if:
@@ -113,8 +136,13 @@ export async function sweepExpiredScreenshots(): Promise<{ checked: number; dele
     //  - audit has completedAt and it's older than the cutoff, OR
     //  - audit errored more than retention ago (use createdAt fallback)
     const shouldDelete = (() => {
-      if (!audit) return true
+      if (!audit) return true  // orphan dir — audit row gone
       if (audit.completedAt && audit.completedAt.getTime() < cutoff) return true
+      // Fallback (Codex fix): terminal row that somehow never got completedAt
+      // (old/malformed row, or a future lifecycle bug) — fall back to createdAt
+      // so its screenshots can't leak forever.
+      const terminal = audit.status === 'complete' || audit.status === 'error' || audit.status === 'redirected'
+      if (terminal && !audit.completedAt && audit.createdAt.getTime() < cutoff) return true
       return false
     })()
 
@@ -197,6 +225,12 @@ The `(i === 0 ? violation.screenshotPath : undefined)` fallback keeps legacy aud
 
 `onError` is the silent-hide path for expired files.
 
+### Screenshot route cache header (critical — Codex finding)
+
+`app/api/ada-audit/screenshots/[auditId]/[filename]/route.ts:27` currently sends `Cache-Control: public, max-age=31536000, immutable`. Once a browser caches a screenshot it serves the cached copy for a year — so after the sweeper deletes the file, the request never reaches the server, the 404 never happens, `onError` never fires, and the "silently hide expired" behavior **breaks** (the user keeps seeing a stale image, or a broken one that doesn't trigger `onError`).
+
+Change to `Cache-Control: private, max-age=3600` (1 hour). Short enough that, well within the 24h retention window, an expired file yields a real 404 → `onError` → hidden. `private` because these are internal audit artifacts, not public assets. The route still returns 404 when the file is missing — no other change.
+
 ## Storage math (reproduced for record)
 
 - Element screenshot avg ~80 KB (PNG of a typical card-sized DOM block, parent of the failing node).
@@ -211,14 +245,18 @@ The `(i === 0 ? violation.screenshotPath : undefined)` fallback keeps legacy aud
 - **Disk full mid-audit:** screenshot write throws, `captureViolationScreenshots` catches and warns; axe results still complete and persist. Acceptable: the audit doesn't fail, the screenshots just stop. Future enhancement (out of scope): emit a per-audit warning flag.
 - **Sweeper crash:** the `try/catch` per directory means one bad delete doesn't halt the sweep. The next tick retries.
 - **Sweeper races with active audit:** the screenshot dir for a running audit has no `completedAt`, so `shouldDelete` returns false. Safe.
-- **`completedAt` null on errored audit:** errored audits never get sweeped. Acceptable for now; if it bothers us, add `audit.status === 'error' && audit.createdAt < cutoff` to `shouldDelete`. Leave out of V1 to keep the rule simple.
+- **`completedAt` null on terminal audit:** handled by the `shouldDelete` fallback (terminal status + `createdAt` older than cutoff). No leak.
+- **Detached PageSpeed children (verified against code):** in the `pagespeed` provider path, a site-audit child row is left at `status: 'axe-complete'` with **no `completedAt`** (`queue-manager.ts:134`) while the detached PSI job drains. `lib/ada-audit/lighthouse-queue.ts:80` later flips it to `complete` and sets `completedAt`; startup/stale recovery also marks orphan `axe-complete` rows terminal with `completedAt`. So screenshots for these children are retained until 24h after PSI settles — correct, not leaked. The sweeper's fallback rule does **not** match `axe-complete` (it's not in the terminal set), so an in-flight PSI child is never swept early.
 - **Orphan directories** (e.g., audit row deleted but dir remains): swept on first tick. The `!audit` branch handles them.
+- **Coexistence with existing cleanup:** `lib/cleanup.ts:150` already deletes audit artifacts on a 180-day horizon. The new 24h sweeper is stricter and runs independently; both use `fs.rm(..., { force: true })` so double-deletes are safe no-ops. No conflict.
 
 ## Testing
 
 - **Unit:** `sweepExpiredScreenshots` against a temp directory and a mocked Prisma client — exercises (a) recent completed audit kept, (b) old completed audit deleted, (c) orphan dir deleted, (d) errored audit kept, (e) ENOENT root dir returns `{ 0, 0 }`.
 - **Unit:** `captureViolationScreenshots` with synthetic violations — verifies (a) cap at 50, (b) one file per node, (c) skips nodes without targets, (d) writes paths onto `node.screenshotPath`.
-- **Manual:** run a page audit; confirm `screenshots/<id>/<violationId>-0.png`, `…-1.png`, etc. Open the issue card; verify the grid renders. Wait or fake `completedAt` to past cutoff; trigger the sweeper; confirm files gone and UI hides silently.
+- **Manual:** run a page audit; confirm `screenshots/<id>/<violationId>-0.png`, `…-1.png`, etc. Open the issue card; verify the grid renders. Wait or fake `completedAt` to past cutoff; trigger the sweeper; confirm files gone and UI hides silently — **including for an already-viewed (cached) screenshot**, which validates the cache-header fix.
+- **Manual (perf):** run a representative heavy site page and benchmark wall-clock for 50 sequential `ElementHandle.screenshot()` calls (Codex flagged CPU/latency, not memory, as the concern). If it adds material time to already-slow site audits, consider lowering the per-page cap. Peak memory is per-shot, not cumulative, so the 3.8GB box is not the bottleneck.
+- **Manual (PSI path):** with `LIGHTHOUSE_PROVIDER=pagespeed`, run a site audit; confirm a child sits at `axe-complete` with screenshots present, then flips to `complete` with `completedAt` after PSI, and is swept only 24h after that.
 
 ## Risks and trade-offs
 
