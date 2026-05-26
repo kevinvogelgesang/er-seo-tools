@@ -257,6 +257,7 @@ describe('buildSiteAuditSummary', () => {
           { status: 'complete', issues: JSON.stringify([{ code: 'not-tagged', severity: 'high', title: 'X', description: 'Y', remediation: 'Z' }]) },
           { status: 'complete', issues: JSON.stringify([]) },
           { status: 'error', issues: null },
+          { status: 'skipped', issues: null },
         ],
       },
       {
@@ -272,10 +273,10 @@ describe('buildSiteAuditSummary', () => {
 
     const summary = buildSiteAuditSummary(children)
 
-    expect(summary.pdfsAggregate).toEqual({ total: 3, complete: 2, errored: 1, withIssues: 1 })
+    expect(summary.pdfsAggregate).toEqual({ total: 4, complete: 2, errored: 1, skipped: 1, withIssues: 1 })
 
     const p1 = summary.pages.find((p) => p.adaAuditId === 'p1')!
-    expect(p1.pdfs).toEqual({ total: 3, complete: 2, errored: 1, withIssues: 1 })
+    expect(p1.pdfs).toEqual({ total: 4, complete: 2, errored: 1, withIssues: 1 })
     expect(p1.lighthouse?.scores.performance).toBe(80)
 
     const p2 = summary.pages.find((p) => p.adaAuditId === 'p2')!
