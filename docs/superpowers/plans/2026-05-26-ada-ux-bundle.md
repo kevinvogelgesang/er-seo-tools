@@ -14,7 +14,8 @@
 
 ## File Structure
 
-- `components/ClientDate.tsx` — **create.** `ClientDate` component + `formatInBrowserTZ` string helper.
+- `lib/ada-audit/format-date.ts` — **create.** Non-client `formatInBrowserTZ` string helper + formatter table (so server-imported modules like `duration.ts` can use it without pulling in `'use client'`).
+- `components/ClientDate.tsx` — **create.** `ClientDate` component; re-exports `formatInBrowserTZ` from `format-date.ts`.
 - `lib/ada-audit/recents-query.ts` — **modify.** Add `fetchAllRecents`, change timestamps to ISO strings, derive scores from blobs.
 - `app/api/ada-audit/recents/route.ts` — **create.** GET endpoint with limit clamp + cookie-based scope.
 - `components/ada-audit/RecentsTable.tsx` — **create.** Shared table for home + full views, with scope toggle + stale-response guard.
@@ -22,7 +23,7 @@
 - `app/ada-audit/recents/page.tsx` — **modify.** Use `RecentsTable` (variant=full).
 - `components/ada-audit/AuditIndexTabs.tsx` — **modify.** Swap `MyRecentsCard` → `RecentsTable` (variant=home).
 - `app/ada-audit/page.tsx` — **modify.** Pass both scope datasets / operator.
-- `components/Nav.tsx` — **modify.** Add ADA dropdown, fix mobile `V{i+1}` bug, drop numeric badge.
+- `components/nav.tsx` — **modify.** Add ADA dropdown, fix mobile `V{i+1}` bug, drop numeric badge. (Note: file is lowercase `nav.tsx`; `app/layout.tsx` imports `@/components/nav`.)
 - `lib/ada-audit/types.ts` — **modify.** `AuditBatchSummary.operatorSummary`, `label: string | null`, `AuditBatchMember.requestedBy`.
 - `app/api/audit-batches/route.ts` — **modify.** Select `requestedBy`, add `summarizeOperators`, return nullable label.
 - `app/api/audit-batches/[id]/route.ts` — **modify.** Return `requestedBy` per member, nullable label.
@@ -33,19 +34,57 @@
 
 ---
 
-## Task 1: ClientDate component + formatInBrowserTZ helper
+## Task 0: Enable React component tests in Vitest + tsconfig
+
+**Why:** `vitest.config.ts` uses `environment: 'node'` and `include: ['**/*.test.ts']`, so `.test.tsx` files (this plan's React tests) are neither included nor given a DOM. `tsconfig.json` excludes `**/*.test.ts` but not `.test.tsx`, so those would get type-checked. `@testing-library/react` + `jsdom` are already in `package.json`.
 
 **Files:**
-- Create: `components/ClientDate.tsx`
-- Test: `components/ClientDate.test.tsx`
+- Modify: `vitest.config.ts`
+- Modify: `tsconfig.json`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Include `.test.tsx` in Vitest**
+
+In `vitest.config.ts`, change `include: ['**/*.test.ts']` to `include: ['**/*.test.ts', '**/*.test.tsx']`. Leave `environment: 'node'` as the default — React tests opt into jsdom per-file (Step 3 below) so the DB-backed node tests are unaffected.
+
+- [ ] **Step 2: Exclude `.test.tsx` from tsc**
+
+In `tsconfig.json`, change `"exclude": ["node_modules", "**/*.test.ts"]` to `"exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]`.
+
+- [ ] **Step 3: Convention for React tests**
+
+Every `.test.tsx` file in this plan MUST begin with this line so it gets a DOM:
 
 ```tsx
-// components/ClientDate.test.tsx
-import { render } from '@testing-library/react'
+// @vitest-environment jsdom
+```
+
+- [ ] **Step 4: Sanity check**
+
+Run: `npx vitest run` — expect existing suite still passes (no `.test.tsx` exists yet, so behavior is unchanged).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add vitest.config.ts tsconfig.json
+git commit -m "test: enable jsdom React component tests (.test.tsx)"
+```
+
+---
+
+## Task 1: format-date helper + ClientDate component
+
+**Files:**
+- Create: `lib/ada-audit/format-date.ts`
+- Create: `components/ClientDate.tsx`
+- Test: `lib/ada-audit/format-date.test.ts`
+- Test: `components/ClientDate.test.tsx`
+
+- [ ] **Step 1: Write the failing test for the helper (node env)**
+
+```ts
+// lib/ada-audit/format-date.test.ts
 import { describe, it, expect } from 'vitest'
-import { ClientDate, formatInBrowserTZ } from './ClientDate'
+import { formatInBrowserTZ } from './format-date'
 
 describe('formatInBrowserTZ', () => {
   it('returns em dash for null/undefined/invalid', () => {
@@ -53,52 +92,84 @@ describe('formatInBrowserTZ', () => {
     expect(formatInBrowserTZ(undefined)).toBe('—')
     expect(formatInBrowserTZ('not-a-date')).toBe('—')
   })
-  it('formats a valid ISO string', () => {
-    const out = formatInBrowserTZ('2026-05-13T19:15:00.000Z', 'date')
-    expect(out).toMatch(/\d{4}/) // contains a year; no TZ assertion
-  })
-})
-
-describe('ClientDate', () => {
-  it('renders em dash for null iso', () => {
-    const { container } = render(<ClientDate iso={null} />)
-    expect(container.textContent).toBe('—')
-  })
-  it('renders the SSR fallback (date slice) before mount without throwing', () => {
-    const { container } = render(<ClientDate iso="2026-05-13T19:15:00.000Z" />)
-    expect(container.textContent).toContain('2026-05-13')
+  it('formats a valid ISO string (contains a year)', () => {
+    expect(formatInBrowserTZ('2026-05-13T19:15:00.000Z', 'date')).toMatch(/\d{4}/)
   })
 })
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run components/ClientDate.test.tsx`
-Expected: FAIL — module `./ClientDate` not found.
+Run: `npx vitest run lib/ada-audit/format-date.test.ts`
+Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the component**
+- [ ] **Step 3: Implement the non-client helper**
 
-```tsx
-// components/ClientDate.tsx
-'use client'
-import { useEffect, useState } from 'react'
+```ts
+// lib/ada-audit/format-date.ts
+export type DateVariant = 'date' | 'dateTime' | 'dateTimeShort'
 
-type Variant = 'date' | 'dateTime' | 'dateTimeShort'
-
-const formatters: Record<Variant, Intl.DateTimeFormatOptions> = {
+export const dateFormatters: Record<DateVariant, Intl.DateTimeFormatOptions> = {
   date:          { year: 'numeric', month: 'short', day: 'numeric' },
   dateTime:      { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' },
   dateTimeShort: { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' },
 }
 
-export function formatInBrowserTZ(iso: string | null | undefined, variant: Variant = 'date'): string {
+export function formatInBrowserTZ(iso: string | null | undefined, variant: DateVariant = 'date'): string {
   if (!iso) return '—'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString('en-US', formatters[variant])
+  return date.toLocaleString('en-US', dateFormatters[variant])
 }
+```
 
-export function ClientDate({ iso, variant = 'date' }: { iso: string | null | undefined; variant?: Variant }) {
+This file has **no** `'use client'` directive and no React import, so server components (e.g. `duration.ts`, which `app/ada-audit/recents/page.tsx` imports — verified) can use it safely.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run lib/ada-audit/format-date.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Write the ClientDate test (jsdom)**
+
+```tsx
+// components/ClientDate.test.tsx
+// @vitest-environment jsdom
+import { render } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
+import { describe, it, expect } from 'vitest'
+import { ClientDate } from './ClientDate'
+
+describe('ClientDate', () => {
+  it('renders em dash for null iso', () => {
+    const { container } = render(<ClientDate iso={null} />)
+    expect(container.textContent).toBe('—')
+  })
+  it('SSR output shows the ISO date slice (pre-mount fallback)', () => {
+    // renderToString never runs effects, so this captures the pre-mount branch
+    // deterministically (testing-library would flush the effect during act()).
+    const html = renderToString(<ClientDate iso="2026-05-13T19:15:00.000Z" />)
+    expect(html).toContain('2026-05-13')
+  })
+})
+```
+
+- [ ] **Step 6: Run it (fails — no component yet)**
+
+Run: `npx vitest run components/ClientDate.test.tsx`
+Expected: FAIL — `./ClientDate` not found.
+
+- [ ] **Step 7: Implement ClientDate (re-exports the helper)**
+
+```tsx
+// components/ClientDate.tsx
+'use client'
+import { useEffect, useState } from 'react'
+import { dateFormatters, formatInBrowserTZ, type DateVariant } from '@/lib/ada-audit/format-date'
+
+export { formatInBrowserTZ }
+
+export function ClientDate({ iso, variant = 'date' }: { iso: string | null | undefined; variant?: DateVariant }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
@@ -107,20 +178,20 @@ export function ClientDate({ iso, variant = 'date' }: { iso: string | null | und
 
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return <>—</>
-  return <span>{date.toLocaleString('en-US', formatters[variant])}</span>
+  return <span>{date.toLocaleString('en-US', dateFormatters[variant])}</span>
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 8: Run test to verify it passes**
 
 Run: `npx vitest run components/ClientDate.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add components/ClientDate.tsx components/ClientDate.test.tsx
-git commit -m "feat(ada): add ClientDate component for browser-tz timestamps"
+git add lib/ada-audit/format-date.ts lib/ada-audit/format-date.test.ts components/ClientDate.tsx components/ClientDate.test.tsx
+git commit -m "feat(ada): add format-date helper + ClientDate browser-tz component"
 ```
 
 ---
@@ -392,6 +463,7 @@ git commit -m "feat(ada): add /api/ada-audit/recents endpoint with limit clamp +
 
 ```tsx
 // components/ada-audit/RecentsTable.test.tsx
+// @vitest-environment jsdom
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import RecentsTable from './RecentsTable'
@@ -615,7 +687,7 @@ git commit -m "feat(ada): use RecentsTable on home + recents pages, drop MyRecen
 ## Task 6: Nav dropdown + mobile bug fix
 
 **Files:**
-- Modify: `components/Nav.tsx`
+- Modify: `components/nav.tsx` (lowercase filename)
 
 - [ ] **Step 1: Add the ADA dropdown**
 
@@ -648,7 +720,7 @@ Run `npm run dev`. Desktop: hover ADA Audit → dropdown shows "ADA Audit / Audi
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/Nav.tsx
+git add components/nav.tsx
 git commit -m "feat(ada): add Queue/Recents nav dropdown; fix mobile V1/V2 label bug"
 ```
 
@@ -772,6 +844,10 @@ Replace the local `formatTime()` calls with `<ClientDate iso={batch.startedAt} v
 
 Append the operator to the metadata line: `· by {batch.operatorSummary}`.
 
+- [ ] **Step 2b: Fix nullable-label state (Codex)**
+
+`batch.label` is now `string | null`. The existing state at `QueueBatchRow.tsx:22` and the `labelDraft.trim()` at `:37` assume a non-null string. Initialize `const [labelDraft, setLabelDraft] = useState(batch.label ?? '')` and type `labelDisplay` as `string | null` (`useState<string | null>(batch.label)`). All `.trim()` calls operate on `labelDraft` (always a string) — never on `labelDisplay`.
+
 - [ ] **Step 3: Guard Escape-then-blur from PATCHing**
 
 Add `const escapedRef = useRef(false)`. On `Escape`: `escapedRef.current = true; setEditing(false); setLabelDraft(displayLabel ?? '')`. In `saveLabel` (the blur/Enter handler): `if (escapedRef.current) { escapedRef.current = false; return }` at the top. On `Enter`: set `escapedRef.current = false` then save.
@@ -815,7 +891,7 @@ Replace each `new Date(x).toLocaleString()` / `.toLocaleDateString()` with `<Cli
 
 - [ ] **Step 2: duration.ts hover title**
 
-`formatDurationHover` returns a string used in a `title=` attribute. Change its internal date formatting to use `formatInBrowserTZ(iso, 'dateTime')` from `@/components/ClientDate`. If `duration.ts` is imported by server components, keep `formatInBrowserTZ` import-safe (it's a plain function, no React) — but it's exported from a `'use client'` file. To avoid pulling `'use client'` into server code, move `formatInBrowserTZ` into a separate non-client module `lib/ada-audit/format-date.ts` and re-export it from `ClientDate.tsx`. Update Task 1's import accordingly if needed.
+`formatDurationHover` returns a string used in a `title=` attribute. Change its internal date formatting to import `formatInBrowserTZ` from `@/lib/ada-audit/format-date` (the non-client module created in Task 1 — **not** from `@/components/ClientDate`, which is `'use client'`). `duration.ts` is imported by the server component `app/ada-audit/recents/page.tsx` (verified), so the import must stay server-safe. No `'use client'` leaks this way.
 
 - [ ] **Step 3: Detail headers + pollers**
 
@@ -867,6 +943,7 @@ git commit -m "chore(ada): type-check + build fixes for UX bundle"
 ## Self-Review Notes
 
 - **Spec coverage:** Nav dropdown (T6) + mobile bug (T6), recents-all + Mine toggle (T2/T3/T4/T5), home consistency via shared RecentsTable (T4/T5), batch expand + pencil + operator (T7/T8), client-side TZ incl. all Codex callsites + batch label (T1/T8/T9). Score-derivation fix (T2). Endpoint hardening (T3). Operator determinism (T7).
-- **Type consistency:** `RecentItem` ISO strings flow through T2→T3→T4. `AuditBatchSummary.operatorSummary` / `label: string | null` defined T7, consumed T8. `formatInBrowserTZ` defined T1, possibly relocated to `lib/ada-audit/format-date.ts` in T9 Step 2 — if relocated, update T1's export and all importers.
+- **Type consistency:** `RecentItem` ISO strings flow through T2→T3→T4. `AuditBatchSummary.operatorSummary` / `label: string | null` defined T7, consumed T8 (nullable-label state fixed in T8 Step 2b). `formatInBrowserTZ` lives in non-client `lib/ada-audit/format-date.ts` (T1), re-exported by `ClientDate.tsx`, and imported server-safely by `duration.ts` (T9 Step 2).
+- **Test infra:** `.test.tsx` files require the T0 vitest/tsconfig changes and a `// @vitest-environment jsdom` header (ClientDate, RecentsTable tests).
 - **Placeholder scan:** none.
-- **Known follow-up:** if `formatInBrowserTZ` is needed by server-imported `duration.ts`, it must live in a non-`'use client'` module (T9 Step 2 handles this).
+- **Casing:** the nav file is `components/nav.tsx` (lowercase) — all references use that.

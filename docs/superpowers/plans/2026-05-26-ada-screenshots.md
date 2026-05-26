@@ -183,7 +183,7 @@ git commit -m "feat(ada): capture one screenshot per axe node, cap 50/page"
 
 - [ ] **Step 1: Replace the line-344 capture block**
 
-Add `import path from 'path'` and `import { SCREENSHOTS_DIR } from './screenshot-helpers'` (if not present). Replace the block:
+`runner.ts:1` already has `import path from 'path'` — do **not** add a duplicate. Extend the **existing** `screenshot-helpers` import to add `SCREENSHOTS_DIR` (it's exported at `screenshot-helpers.ts:7`); the runner already imports `captureViolationScreenshots` from that module. Replace the block:
 
 ```ts
     const shouldCapture = options?.captureScreenshots !== false  // default ON
@@ -328,17 +328,18 @@ const SWEEP_INTERVAL_MS = 30 * 60 * 1000
 let intervalHandle: NodeJS.Timeout | null = null
 
 export async function sweepExpiredScreenshots(): Promise<{ checked: number; deleted: number }> {
-  let entries: string[]
+  let dirents: import('fs').Dirent[]
   try {
-    entries = await fs.readdir(SCREENSHOTS_DIR)
+    dirents = await fs.readdir(SCREENSHOTS_DIR, { withFileTypes: true })
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { checked: 0, deleted: 0 }
     throw err
   }
 
+  const subdirs = dirents.filter((d) => d.isDirectory()).map((d) => d.name)
   const cutoff = Date.now() - SCREENSHOT_RETENTION_MS
   let deleted = 0
-  for (const auditId of entries) {
+  for (const auditId of subdirs) {
     const audit = await prisma.adaAudit.findUnique({
       where: { id: auditId },
       select: { completedAt: true, status: true, createdAt: true },
@@ -355,7 +356,7 @@ export async function sweepExpiredScreenshots(): Promise<{ checked: number; dele
       catch (err) { console.warn(`[screenshot-sweeper] failed to delete ${auditId}:`, err) }
     }
   }
-  return { checked: entries.length, deleted }
+  return { checked: subdirs.length, deleted }
 }
 
 export function startScreenshotSweeper(): void {
