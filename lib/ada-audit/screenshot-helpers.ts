@@ -6,12 +6,17 @@ import type { AxeViolation } from './types'
 /** Where violation screenshots are stored. One subdirectory per audit ID. */
 export const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR || path.join(process.cwd(), 'screenshots')
 
-/** Max screenshots to capture per audit to bound execution time */
-const MAX_SCREENSHOTS = 15
+/** Max screenshots to capture per page to bound execution time */
+export const MAX_SCREENSHOTS_PER_PAGE = 50
+
+/** How long (ms) to retain screenshot files before the sweeper deletes them */
+export const SCREENSHOT_RETENTION_MS =
+  Number(process.env.SCREENSHOT_RETENTION_HOURS ?? 24) * 60 * 60 * 1000
 
 /**
- * Capture a PNG screenshot of the first findable failing element for each violation.
- * Mutates each violation's `screenshotPath` in-place. Silently skips failures.
+ * Capture a PNG screenshot of each failing node for every violation.
+ * Mutates each node's `screenshotPath` in-place. Silently skips failures.
+ * Capped at MAX_SCREENSHOTS_PER_PAGE total across all violations.
  */
 export async function captureViolationScreenshots(
   page: Page,
@@ -20,54 +25,46 @@ export async function captureViolationScreenshots(
 ): Promise<void> {
   if (violations.length === 0) return
 
-  await fs.mkdir(dir, { recursive: true })
+  try {
+    await fs.mkdir(dir, { recursive: true })
+  } catch (err) {
+    console.warn('[ada-audit/screenshots] mkdir failed, skipping capture:', err)
+    return
+  }
 
   let captured = 0
+  outer:
   for (const violation of violations) {
-    if (captured >= MAX_SCREENSHOTS) {
-      console.warn(`[ada-audit/screenshots] Reached cap of ${MAX_SCREENSHOTS} screenshots, skipping remaining violations`)
-      break
-    }
-
-    const node = violation.nodes[0]
-    if (!node?.target?.length) {
-      console.warn(`[ada-audit/screenshots] No target selector for violation "${violation.id}", skipping`)
-      continue
-    }
-
-    // Use the last (most specific) CSS selector from axe's target path
-    const selector = node.target[node.target.length - 1]
-
-    try {
-      const handle = await page.$(selector)
-      if (!handle) {
-        console.warn(`[ada-audit/screenshots] Element not found for violation "${violation.id}" (selector: ${selector}), skipping`)
-        continue
+    for (let i = 0; i < violation.nodes.length; i++) {
+      if (captured >= MAX_SCREENSHOTS_PER_PAGE) {
+        console.warn(`[ada-audit/screenshots] Reached cap of ${MAX_SCREENSHOTS_PER_PAGE}, skipping rest`)
+        break outer
       }
-
+      const node = violation.nodes[i]
+      if (!node?.target?.length) continue
+      const selector = node.target[node.target.length - 1]
       try {
-        const filename = `${violation.id}.png`
-
-        // Walk up to parent for context; fall back to element itself if no parent
-        const screenshotTarget = await page.evaluateHandle(
-          (el) => el.parentElement ?? el,
-          handle
-        )
-
+        const handle = await page.$(selector)
+        if (!handle) continue
         try {
-          await (screenshotTarget as ElementHandle).screenshot({ path: path.join(dir, filename), type: 'png' })
-          violation.screenshotPath = filename
-          captured++
+          const filename = `${violation.id}-${i}.png`
+          // Walk up to parent for context; fall back to element itself if no parent
+          const screenshotTarget = await page.evaluateHandle((el) => el.parentElement ?? el, handle)
+          try {
+            await (screenshotTarget as ElementHandle).screenshot({ path: path.join(dir, filename), type: 'png' })
+            node.screenshotPath = filename
+            captured++
+          } finally {
+            await screenshotTarget.dispose()
+          }
+        } catch (err) {
+          console.warn(`[ada-audit/screenshots] capture failed for "${violation.id}" node ${i}:`, err)
         } finally {
-          await screenshotTarget.dispose()
+          await handle.dispose()
         }
       } catch (err) {
-        console.warn(`[ada-audit/screenshots] Failed to capture screenshot for violation "${violation.id}":`, err)
-      } finally {
-        await handle.dispose()
+        console.warn(`[ada-audit/screenshots] selector failed for "${violation.id}" node ${i}:`, err)
       }
-    } catch (err) {
-      console.warn(`[ada-audit/screenshots] Failed to find element for violation "${violation.id}":`, err)
     }
   }
 }

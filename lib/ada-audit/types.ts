@@ -19,6 +19,8 @@ export interface AxeNode {
   html: string
   failureSummary?: string
   target?: string[]
+  /** Filename of this node's element screenshot (e.g. "color-contrast-0.png"). */
+  screenshotPath?: string
 }
 
 export interface AxeViolation {
@@ -29,7 +31,7 @@ export interface AxeViolation {
   helpUrl: string
   tags: string[]
   nodes: AxeNode[]
-  /** Filename of the element screenshot (e.g. "color-contrast.png"), set when captureScreenshots is enabled */
+  /** @deprecated 2026-05-26 — new audits set screenshotPath on each AxeNode. Kept for legacy audits. */
   screenshotPath?: string
 }
 
