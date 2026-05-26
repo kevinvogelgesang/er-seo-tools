@@ -1,3 +1,5 @@
+import { formatInBrowserTZ } from '@/lib/ada-audit/format-date'
+
 function toDate(v: string | Date | null | undefined): Date | null {
   if (!v) return null
   if (v instanceof Date) return isNaN(v.getTime()) ? null : v
@@ -24,5 +26,5 @@ export function formatDurationHover(startedAt: string | Date | null | undefined,
   const s = toDate(startedAt)
   const c = toDate(completedAt)
   if (!s || !c) return null
-  return `Started ${s.toLocaleTimeString()} → Ended ${c.toLocaleTimeString()}`
+  return `Started ${formatInBrowserTZ(s.toISOString(), 'dateTime')} → Ended ${formatInBrowserTZ(c.toISOString(), 'dateTime')}`
 }

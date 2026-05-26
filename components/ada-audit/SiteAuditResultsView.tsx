@@ -18,6 +18,7 @@ import CommonIssueCallout from './CommonIssueCallout'
 import { safeExternalHref } from '@/lib/safe-external-href'
 import { useChecks, type UseChecksReturn } from './useChecks'
 import { keyForPage, keyForPageViolation } from '@/lib/ada-audit/checks-keys-browser'
+import { ClientDate } from '@/components/ClientDate'
 
 interface Props {
   domain: string
@@ -321,7 +322,7 @@ export default function SiteAuditResultsView({
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
               {clientName && <span className="text-[12px] font-body text-navy/40 dark:text-white/40">{clientName}</span>}
-              <span className="text-[12px] font-body text-navy/40 dark:text-white/40">{new Date(createdAt).toLocaleString()}</span>
+              <span className="text-[12px] font-body text-navy/40 dark:text-white/40"><ClientDate iso={createdAt} variant="dateTime" /></span>
               <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
                 {pagesTotal} pages
                 {pagesError > 0 && ` · ${pagesError} error${pagesError !== 1 ? 's' : ''}`}

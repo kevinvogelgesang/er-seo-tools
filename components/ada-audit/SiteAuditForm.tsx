@@ -8,6 +8,7 @@ import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import { parseManualUrls } from '@/lib/ada-audit/manual-urls'
+import { formatInBrowserTZ } from '@/lib/ada-audit/format-date'
 
 interface Client {
   id: number
@@ -19,7 +20,7 @@ interface Client {
 
 function formatSeedDate(dt: string | null | undefined): string {
   if (!dt) return ''
-  return new Date(dt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatInBrowserTZ(dt, 'date')
 }
 
 interface Props {
