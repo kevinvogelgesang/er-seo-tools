@@ -1,6 +1,15 @@
-export function formatDuration(startedAt: Date | null, completedAt: Date | null): string | null {
-  if (!startedAt || !completedAt) return null
-  const ms = completedAt.getTime() - startedAt.getTime()
+function toDate(v: string | Date | null | undefined): Date | null {
+  if (!v) return null
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v
+  const d = new Date(v)
+  return isNaN(d.getTime()) ? null : d
+}
+
+export function formatDuration(startedAt: string | Date | null | undefined, completedAt: string | Date | null | undefined): string | null {
+  const s = toDate(startedAt)
+  const c = toDate(completedAt)
+  if (!s || !c) return null
+  const ms = c.getTime() - s.getTime()
   const seconds = Math.max(0, Math.floor(ms / 1000))
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
@@ -11,7 +20,9 @@ export function formatDuration(startedAt: Date | null, completedAt: Date | null)
   return `${hours}h ${remMin}m`
 }
 
-export function formatDurationHover(startedAt: Date | null, completedAt: Date | null): string | null {
-  if (!startedAt || !completedAt) return null
-  return `Started ${startedAt.toLocaleTimeString()} → Ended ${completedAt.toLocaleTimeString()}`
+export function formatDurationHover(startedAt: string | Date | null | undefined, completedAt: string | Date | null | undefined): string | null {
+  const s = toDate(startedAt)
+  const c = toDate(completedAt)
+  if (!s || !c) return null
+  return `Started ${s.toLocaleTimeString()} → Ended ${c.toLocaleTimeString()}`
 }
