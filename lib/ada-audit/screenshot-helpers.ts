@@ -11,7 +11,7 @@ export const MAX_SCREENSHOTS_PER_PAGE = 50
 
 /** How long (ms) to retain screenshot files before the sweeper deletes them */
 export const SCREENSHOT_RETENTION_MS =
-  Number(process.env.SCREENSHOT_RETENTION_HOURS ?? 24) * 60 * 60 * 1000
+  (Number(process.env.SCREENSHOT_RETENTION_HOURS) || 24) * 60 * 60 * 1000
 
 /**
  * Capture a PNG screenshot of each failing node for every violation.

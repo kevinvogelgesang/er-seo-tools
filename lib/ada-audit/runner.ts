@@ -350,9 +350,9 @@ export async function runAxeAudit(
       } catch (err) {
         console.warn('[ada-audit/screenshots] capture phase failed, continuing:', err)
       }
-      axe.captureScreenshots = axe.violations.some(
-        (v) => v.nodes.some((n) => n.screenshotPath != null) || v.screenshotPath != null,
-      )
+      // Capture was attempted; record that, independent of whether any
+      // violations existed (a clean page legitimately yields zero shots).
+      axe.captureScreenshots = true
     }
 
     // ── Phase 3: PDF harvest from same DOM ───────────────────────────────
