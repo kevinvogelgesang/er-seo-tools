@@ -83,12 +83,17 @@ export async function register() {
     // Periodic stale audit check (every 10 minutes)
     const staleCheckInterval = setInterval(() => void resetStaleAudits(), 10 * 60 * 1000)
 
+    // Delete screenshot dirs older than 24h after their audit completed.
+    const { startScreenshotSweeper, stopScreenshotSweeper } = await import('@/lib/ada-audit/screenshot-sweeper')
+    startScreenshotSweeper()
+
     let shuttingDown = false
     const shutdown = async () => {
       if (shuttingDown) return
       shuttingDown = true
       clearInterval(cleanupInterval)
       clearInterval(staleCheckInterval)
+      stopScreenshotSweeper()
       try {
         await closeBrowser()
       } catch (err) {
