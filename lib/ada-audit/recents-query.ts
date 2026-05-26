@@ -32,7 +32,8 @@ function pageScore(status: string, result: string | null, wcagLevel: string): nu
   if (status !== 'complete' || !result) return null
   try {
     const parsed = JSON.parse(result) as { violations?: AxeViolation[] }
-    return computeScore(parsed.violations ?? [], wcagLevel).score
+    const { score } = computeScore(parsed.violations ?? [], wcagLevel)
+    return Number.isFinite(score) ? score : null
   } catch { return null }
 }
 
@@ -41,7 +42,8 @@ function siteScore(status: string, summary: string | null, wcagLevel: string): n
   try {
     const parsed = JSON.parse(summary) as { aggregate?: unknown } | null
     if (!parsed?.aggregate) return null
-    return computeScoreFromCounts(parsed.aggregate as never, wcagLevel).score
+    const { score } = computeScoreFromCounts(parsed.aggregate as never, wcagLevel)
+    return Number.isFinite(score) ? score : null
   } catch { return null }
 }
 
