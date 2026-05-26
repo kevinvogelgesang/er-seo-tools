@@ -1,7 +1,7 @@
 // app/api/audit-batches/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { resolveBatchLabel } from '@/lib/ada-audit/audit-batch-helpers'
+import { customLabelOrNull } from '@/lib/ada-audit/audit-batch-helpers'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import type { AuditBatchDetail, AuditBatchMember } from '@/lib/ada-audit/types'
 
@@ -53,6 +53,7 @@ export async function GET(
       createdAt: m.createdAt.toISOString(),
       startedAt: m.startedAt?.toISOString() ?? null,
       completedAt: m.completedAt?.toISOString() ?? null,
+      requestedBy: m.requestedBy ?? null,
     }
   })
 
@@ -60,7 +61,7 @@ export async function GET(
     id: batch.id,
     startedAt: batch.startedAt.toISOString(),
     closedAt: batch.closedAt ? batch.closedAt.toISOString() : null,
-    label: resolveBatchLabel(batch),
+    label: customLabelOrNull(batch),
     members,
   }
 

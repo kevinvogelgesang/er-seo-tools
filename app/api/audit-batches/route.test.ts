@@ -25,8 +25,8 @@ describe('GET /api/audit-batches', () => {
     await prisma.auditBatch.create({ data: { label: '__abtest__closed', closedAt: new Date() } })
 
     const res = await GET(req('http://localhost/api/audit-batches'))
-    const json = await res.json() as { items: { label: string }[] }
-    const ours = json.items.filter((i) => i.label.startsWith('__abtest__'))
+    const json = await res.json() as { items: { label: string | null }[] }
+    const ours = json.items.filter((i) => i.label?.startsWith('__abtest__'))
     expect(ours.map((i) => i.label)).toEqual(['__abtest__closed'])
   })
 
@@ -39,8 +39,8 @@ describe('GET /api/audit-batches', () => {
     await prisma.auditBatch.create({ data: { label: '__abtest__newer', closedAt: newer, startedAt: newer } })
 
     const res = await GET(req('http://localhost/api/audit-batches'))
-    const json = await res.json() as { items: { label: string }[] }
-    const ours = json.items.filter((i) => i.label.startsWith('__abtest__'))
+    const json = await res.json() as { items: { label: string | null }[] }
+    const ours = json.items.filter((i) => i.label?.startsWith('__abtest__'))
     expect(ours.map((i) => i.label)).toEqual(['__abtest__newer', '__abtest__older'])
   })
 
@@ -51,7 +51,7 @@ describe('GET /api/audit-batches', () => {
     await prisma.siteAudit.create({ data: { domain: 'abtest-3.example', status: 'error', wcagLevel: 'wcag21aa', batchId: b.id } })
 
     const res = await GET(req('http://localhost/api/audit-batches'))
-    const json = await res.json() as { items: { label: string; auditCount: number; completeCount: number; errorCount: number }[] }
+    const json = await res.json() as { items: { label: string | null; auditCount: number; completeCount: number; errorCount: number }[] }
     const ours = json.items.find((i) => i.label === '__abtest__counts')!
     expect(ours).toMatchObject({ auditCount: 3, completeCount: 2, errorCount: 1 })
   })
@@ -66,7 +66,7 @@ describe('GET /api/audit-batches', () => {
       })
     }
     const res = await GET(req('http://localhost/api/audit-batches?page=2&pageSize=2'))
-    const json = await res.json() as { items: { label: string }[]; totalCount: number; page: number; pageSize: number }
+    const json = await res.json() as { items: { label: string | null }[]; totalCount: number; page: number; pageSize: number }
     expect(json.page).toBe(2)
     expect(json.pageSize).toBe(2)
     expect(json.totalCount).toBeGreaterThanOrEqual(5)

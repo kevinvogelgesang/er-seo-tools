@@ -254,10 +254,11 @@ export interface AuditBatchSummary {
   id: string
   startedAt: string          // ISO
   closedAt: string           // ISO (always non-null in list responses)
-  label: string              // resolved auto-label if DB column is null
+  label: string | null       // null means no custom label; client renders auto-label in its own timezone
   auditCount: number
   completeCount: number
   errorCount: number
+  operatorSummary: string    // aggregated requestedBy across member site audits
 }
 
 export interface AuditBatchMember {
@@ -273,13 +274,14 @@ export interface AuditBatchMember {
   createdAt: string          // ISO
   startedAt: string | null
   completedAt: string | null
+  requestedBy: string | null
 }
 
 export interface AuditBatchDetail {
   id: string
   startedAt: string          // ISO
   closedAt: string | null    // null when this is the open batch
-  label: string
+  label: string | null       // null means no custom label; client renders auto-label in its own timezone
   members: AuditBatchMember[]
 }
 
