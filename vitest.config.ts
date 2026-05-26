@@ -10,7 +10,7 @@ export default defineConfig({
     // batches collide on the singleton invariant. Serialize file execution
     // so cross-file DB state stays predictable. ~1-2s slower; reliable.
     fileParallelism: false,
-    include: ['**/*.test.ts'],
+    include: ['**/*.test.ts', '**/*.test.tsx'],
     exclude: [
       ...configDefaults.exclude,
       '.next/**',
