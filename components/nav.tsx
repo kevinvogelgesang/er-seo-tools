@@ -29,7 +29,15 @@ const tools: NavTool[] = [
   { name: 'Quarter Grid', href: '/quarter-grid' },
   { name: 'RankMath Redirects', href: '/rankmath-redirects' },
   { name: 'Robots Validator', href: '/robots-validator' },
-  { name: 'ADA Audit', href: '/ada-audit' },
+  {
+    name: 'ADA Audit',
+    href: '/ada-audit',
+    dropdown: [
+      { name: 'ADA Audit', href: '/ada-audit', description: 'Run an audit' },
+      { name: 'Audit Queue', href: '/ada-audit/queue' },
+      { name: 'Recents', href: '/ada-audit/recents' },
+    ],
+  },
   { name: 'Oxygen Stack Guide', href: '/oxygen-tailwind-guide' },
   { name: 'Clients', href: '/clients' },
 ]
@@ -194,18 +202,7 @@ export default function Nav() {
                                     : 'text-white/65 hover:text-white hover:bg-white/5'
                                 }`}
                               >
-                                {i === 0 ? (
-                                  <>
-                                    <span className="font-body">{item.name}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="w-4 h-4 rounded-sm bg-orange/20 flex items-center justify-center text-orange text-[9px] font-bold flex-shrink-0">
-                                      {i}
-                                    </span>
-                                    <span className="font-body">{item.name}</span>
-                                  </>
-                                )}
+                                <span className="font-body">{item.name}</span>
                               </Link>
                             </div>
                           ))}
@@ -285,7 +282,7 @@ export default function Nav() {
                             : 'text-white/65 hover:text-white'
                         }`}
                       >
-                        V{i + 1}
+                        {item.name}
                       </Link>
                     ))}
                   </div>
