@@ -1,7 +1,7 @@
 // app/api/audit-batches/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { resolveBatchLabel } from '@/lib/ada-audit/audit-batch-helpers'
+import { customLabelOrNull, summarizeOperators } from '@/lib/ada-audit/audit-batch-helpers'
 import type { AuditBatchSummary } from '@/lib/ada-audit/types'
 
 export const dynamic = 'force-dynamic'
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
-        siteAudits: { select: { status: true } },
+        siteAudits: { select: { status: true, requestedBy: true } },
       },
     }),
     prisma.auditBatch.count({ where }),
@@ -39,10 +39,11 @@ export async function GET(request: NextRequest) {
       id: b.id,
       startedAt: b.startedAt.toISOString(),
       closedAt: b.closedAt!.toISOString(),
-      label: resolveBatchLabel(b),
+      label: customLabelOrNull(b),
       auditCount,
       completeCount,
       errorCount,
+      operatorSummary: summarizeOperators(b.siteAudits),
     }
   })
 

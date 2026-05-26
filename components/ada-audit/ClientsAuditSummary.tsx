@@ -7,6 +7,7 @@ import PaginatedSection from './PaginatedSection'
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
 import type { ClientAuditSummary, QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import BulkQueueModal from './BulkQueueModal'
+import { ClientDate } from '@/components/ClientDate'
 
 type SortKey = 'name-asc' | 'name-desc' | 'date-asc' | 'date-desc' | 'score-asc' | 'score-desc'
 const DEFAULT_SORT: SortKey = 'date-desc'
@@ -306,7 +307,7 @@ export default function ClientsAuditSummary() {
                   )}
                 </td>
                 <td className="px-6 py-3 font-body text-[12px] text-navy/60 dark:text-white/60">
-                  {la ? new Date(la.createdAt).toLocaleDateString() : '—'}
+                  {la ? <ClientDate iso={la.createdAt} variant="date" /> : '—'}
                 </td>
                 <td className="px-6 py-3">
                   <ScoreBadge score={la?.score ?? null} />

@@ -1,7 +1,7 @@
 import path from 'path'
 import type { HTTPRequest, HTTPResponse, Page } from 'puppeteer-core'
 import { acquirePage, releasePage } from './browser-pool'
-import { captureViolationScreenshots } from './screenshot-helpers'
+import { captureViolationScreenshots, SCREENSHOTS_DIR } from './screenshot-helpers'
 import { assertSafeHttpUrl } from '../security/safe-url'
 import { runLighthouse, resetCdpAfterLighthouse } from './lighthouse-runner'
 import { getLighthouseProvider } from './lighthouse-provider'
@@ -341,10 +341,18 @@ export async function runAxeAudit(
     const axe = rawResults as StoredAxeResults
     axe.domElementCount = domElementCount
 
-    if (options?.captureScreenshots && options.screenshotDir) {
+    const shouldCapture = options?.captureScreenshots !== false  // default ON
+    if (shouldCapture && options?.auditId) {
+      const screenshotDir = options.screenshotDir ?? path.join(SCREENSHOTS_DIR, options.auditId)
       await progress(93, 'Capturing element screenshots…')
-      await captureViolationScreenshots(page, axe.violations, options.screenshotDir)
-      axe.captureScreenshots = axe.violations.some(v => v.screenshotPath != null)
+      try {
+        await captureViolationScreenshots(page, axe.violations, screenshotDir)
+      } catch (err) {
+        console.warn('[ada-audit/screenshots] capture phase failed, continuing:', err)
+      }
+      // Capture was attempted; record that, independent of whether any
+      // violations existed (a clean page legitimately yields zero shots).
+      axe.captureScreenshots = true
     }
 
     // ── Phase 3: PDF harvest from same DOM ───────────────────────────────

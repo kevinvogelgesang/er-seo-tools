@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
-import { closeBatchIfDrained, ensureOpenBatch, resolveBatchLabel } from './audit-batch-helpers'
+import { closeBatchIfDrained, ensureOpenBatch, resolveBatchLabel, summarizeOperators } from './audit-batch-helpers'
 
 async function clearTestState() {
   // Test-DB isolation: close any lingering open batches so each test can
@@ -14,6 +14,18 @@ async function clearTestState() {
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'test-batch-' } } })
   await prisma.auditBatch.deleteMany({ where: { label: { startsWith: '__test__' } } })
 }
+
+describe('summarizeOperators', () => {
+  it('returns unknown for empty', () => expect(summarizeOperators([])).toBe('unknown'))
+  it('returns the single operator', () =>
+    expect(summarizeOperators([{ requestedBy: 'Alice' }])).toBe('Alice'))
+  it('all null/blank → unknown', () =>
+    expect(summarizeOperators([{ requestedBy: null }, { requestedBy: '  ' }])).toBe('unknown'))
+  it('lead by count, deterministic tie-break by name asc', () =>
+    expect(summarizeOperators([{ requestedBy: 'Bob' }, { requestedBy: 'Alice' }])).toBe('Alice +1'))
+  it('unknown sorts last on tie', () =>
+    expect(summarizeOperators([{ requestedBy: null }, { requestedBy: 'Alice' }])).toBe('Alice +1'))
+})
 
 describe('resolveBatchLabel', () => {
   it('returns the stored label when set', () => {

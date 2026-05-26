@@ -38,9 +38,15 @@ next-env.d.ts
 # prisma
 /prisma/dev.db
 /prisma/dev.db-journal
+/prisma/local-dev.db
+/prisma/local-dev.db-shm
+/prisma/local-dev.db-wal
 
 # uploads
 /uploads/
+
+# ada-audit element screenshots (runtime output)
+/screenshots/
 prisma/prisma/
 .superpowers/
 .worktrees/

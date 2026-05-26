@@ -18,6 +18,7 @@ module.exports = {
       PORT: 3000,
       DATABASE_URL: `file:${DATA_HOME}/db.sqlite`,
       UPLOADS_DIR: `${DATA_HOME}/uploads`,
+      SCREENSHOTS_DIR: `${DATA_HOME}/screenshots`,
       NODE_OPTIONS: '--max-old-space-size=2048',
       // Audit-safety knobs are explicit here so `pm2 env <id>` proves
       // what the worker is using. Do not move to .env without that tradeoff.

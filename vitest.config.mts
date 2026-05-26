@@ -1,7 +1,9 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 import { resolve } from 'path';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  plugins: [react()],
   test: {
     environment: 'node',
     globals: false,
@@ -10,7 +12,7 @@ export default defineConfig({
     // batches collide on the singleton invariant. Serialize file execution
     // so cross-file DB state stays predictable. ~1-2s slower; reliable.
     fileParallelism: false,
-    include: ['**/*.test.ts'],
+    include: ['**/*.test.ts', '**/*.test.tsx'],
     exclude: [
       ...configDefaults.exclude,
       '.next/**',
@@ -27,7 +29,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, '.'),
+      '@': resolve(new URL('.', import.meta.url).pathname, '.'),
     },
   },
 });

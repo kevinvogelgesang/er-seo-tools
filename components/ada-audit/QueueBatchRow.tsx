@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { ClientDate } from '@/components/ClientDate'
 import QueueMemberRow from './QueueMemberRow'
 import type { AuditBatchDetail, AuditBatchSummary } from '@/lib/ada-audit/types'
 
@@ -11,19 +12,16 @@ function formatDuration(startedAt: string, closedAt: string): string {
   return `${(ms / 3_600_000).toFixed(1)}h`
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-}
-
 export default function QueueBatchRow({ batch }: { batch: AuditBatchSummary }) {
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState<AuditBatchDetail | null>(null)
   const [editing, setEditing] = useState(false)
-  const [labelDraft, setLabelDraft] = useState(batch.label)
-  const [labelDisplay, setLabelDisplay] = useState(batch.label)
+  const [labelDraft, setLabelDraft] = useState(batch.label ?? '')
+  const [labelDisplay, setLabelDisplay] = useState<string | null>(batch.label)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const escapedRef = useRef(false)
 
-  const expand = async () => {
+  const toggleExpand = async () => {
     setExpanded((v) => !v)
     if (!detail) {
       try {
@@ -33,7 +31,17 @@ export default function QueueBatchRow({ batch }: { batch: AuditBatchSummary }) {
     }
   }
 
+  const enterEdit = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setLabelDraft(labelDisplay ?? '')
+    setEditing(true)
+  }
+
   const saveLabel = async () => {
+    if (escapedRef.current) {
+      escapedRef.current = false
+      return
+    }
     const next = labelDraft.trim()
     setSaveError(null)
     try {
@@ -48,16 +56,9 @@ export default function QueueBatchRow({ batch }: { batch: AuditBatchSummary }) {
         return
       }
       if (next === '') {
-        // User cleared the label. The server now resolves it back to the
-        // auto-label, so re-fetch the batch detail to get the resolved
-        // display string. Falling back to "Batch — startedAt" client-side
-        // would duplicate resolveBatchLabel() formatting and risk drift.
-        const refreshed = await fetch(`/api/audit-batches/${batch.id}`)
-        if (refreshed.ok) {
-          const refreshedJson = await refreshed.json() as { label: string }
-          setLabelDisplay(refreshedJson.label)
-          setLabelDraft(refreshedJson.label)
-        }
+        // User cleared the label — render auto-label client-side (null triggers it)
+        setLabelDisplay(null)
+        setLabelDraft('')
       } else {
         setLabelDisplay(next)
       }
@@ -69,51 +70,84 @@ export default function QueueBatchRow({ batch }: { batch: AuditBatchSummary }) {
 
   return (
     <div className="border-b border-gray-100 dark:border-navy-border">
-      <div className="flex items-center gap-3 px-6 py-3">
-        <button
-          type="button"
-          onClick={expand}
-          className="text-navy/40 dark:text-white/40 hover:text-orange w-4 text-[12px]"
-          aria-label={expanded ? 'Collapse' : 'Expand'}
-        >
-          {expanded ? '▾' : '▸'}
-        </button>
-        <div className="flex-1 min-w-0">
-          {editing ? (
+      <div className="flex items-center gap-3 px-6 py-3 group">
+        {/* Expand button — flex-1, takes up the label/metadata region */}
+        {editing ? (
+          /* When editing: show input as sibling to the rename/expand controls */
+          <div className="flex-1 min-w-0">
             <input
               autoFocus
               value={labelDraft}
               onChange={(e) => setLabelDraft(e.target.value)}
-              onBlur={saveLabel}
+              onBlur={() => void saveLabel()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') void saveLabel()
-                if (e.key === 'Escape') { setEditing(false); setLabelDraft(labelDisplay) }
+                if (e.key === 'Enter') { escapedRef.current = false; void saveLabel() }
+                if (e.key === 'Escape') {
+                  escapedRef.current = true
+                  setEditing(false)
+                  setLabelDraft(labelDisplay ?? '')
+                }
               }}
               className="font-body text-[14px] bg-white dark:bg-navy-deep border border-gray-200 dark:border-navy-border rounded px-2 py-0.5 w-full max-w-sm"
             />
-          ) : (
-            <button
-              type="button"
-              onClick={() => { setEditing(true); setLabelDraft(labelDisplay) }}
-              className="font-body text-[14px] text-navy dark:text-white text-left hover:text-orange truncate"
-              title="Click to rename"
-            >
-              {labelDisplay}
-            </button>
-          )}
-          <p className="text-[11px] font-body text-navy/40 dark:text-white/40">
-            Started {formatTime(batch.startedAt)} · Closed {formatTime(batch.closedAt)} ({formatDuration(batch.startedAt, batch.closedAt)})
-          </p>
-          {saveError && (
-            <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">{saveError}</p>
-          )}
-        </div>
-        <div className="text-[12px] font-body text-navy/60 dark:text-white/60 whitespace-nowrap">
+            {saveError && (
+              <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">{saveError}</p>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void toggleExpand()}
+            aria-expanded={expanded}
+            aria-controls={`batch-panel-${batch.id}`}
+            className="flex-1 flex items-center gap-3 text-left min-w-0"
+          >
+            {/* Caret indicator */}
+            <span className="text-navy/40 dark:text-white/40 group-hover:text-orange w-4 text-[12px] shrink-0">
+              {expanded ? '▾' : '▸'}
+            </span>
+            {/* Label + metadata */}
+            <div className="min-w-0">
+              <span className="font-body text-[14px] text-navy dark:text-white truncate block">
+                {labelDisplay !== null ? (
+                  labelDisplay
+                ) : (
+                  <>Batch — <ClientDate iso={batch.startedAt} variant="dateTime" /></>
+                )}
+              </span>
+              <p className="text-[11px] font-body text-navy/40 dark:text-white/40">
+                Started <ClientDate iso={batch.startedAt} variant="dateTime" />
+                {' · '}Closed <ClientDate iso={batch.closedAt} variant="dateTime" />
+                {' '}({formatDuration(batch.startedAt, batch.closedAt)})
+                {' · '}by {batch.operatorSummary}
+              </p>
+              {saveError && (
+                <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">{saveError}</p>
+              )}
+            </div>
+          </button>
+        )}
+
+        {/* Rename button — sibling to expand button, NOT nested inside it */}
+        {!editing && (
+          <button
+            type="button"
+            aria-label="Rename batch"
+            onClick={enterEdit}
+            className="opacity-0 group-hover:opacity-100 text-navy/40 dark:text-white/40 hover:text-orange text-[14px] shrink-0 transition-opacity"
+          >
+            ✎
+          </button>
+        )}
+
+        {/* Right-aligned audit count summary */}
+        <div className="text-[12px] font-body text-navy/60 dark:text-white/60 whitespace-nowrap shrink-0">
           {batch.auditCount} audits · {batch.completeCount} complete{batch.errorCount > 0 ? ` · ${batch.errorCount} errored` : ''}
         </div>
       </div>
+
       {expanded && (
-        <div className="bg-gray-50/50 dark:bg-navy-deep/30">
+        <div id={`batch-panel-${batch.id}`} className="bg-gray-50/50 dark:bg-navy-deep/30">
           {detail ? (
             <table className="w-full">
               <tbody>

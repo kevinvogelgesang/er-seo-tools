@@ -20,6 +20,22 @@ const IMPACT_STYLES: Record<NonNullable<ImpactLevel>, { badge: string; dot: stri
   minor:    { badge: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30',   dot: 'bg-blue-400' },
 }
 
+function NodeScreenshot({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return (
+    <div className="bg-gray-50 dark:bg-navy-deep border-b border-gray-200 dark:border-navy-border px-3 py-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-48 max-w-full w-auto rounded border border-gray-200 dark:border-navy-border object-contain"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  )
+}
+
 function ImpactBadge({ impact }: { impact: ImpactLevel | null }) {
   if (!impact) return null
   const s = IMPACT_STYLES[impact]
@@ -177,23 +193,7 @@ export default function AuditIssueCard({ violation, auditId, checksContext, site
             )}
           </div>
 
-          {/* Element screenshot */}
-          {showDev && violation.screenshotPath && auditId && (
-            <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-navy-border mt-1">
-              <div className="bg-gray-50 dark:bg-navy-deep px-3 py-1.5 text-[11px] font-body text-navy/50 dark:text-white/50 border-b border-gray-200 dark:border-navy-border">
-                Screenshot — first affected element
-              </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/ada-audit/screenshots/${auditId}/${violation.screenshotPath}`}
-                alt={`Screenshot of element violating: ${violation.help}`}
-                className="w-full max-h-64 object-contain bg-white"
-                loading="lazy"
-              />
-            </div>
-          )}
-
-          {/* Developer details: code snippets */}
+          {/* Developer details: per-node screenshot + code snippet */}
           {showDev && displayNodes.length > 0 && (
             <div className="space-y-3 mt-1">
               {displayNodes.map((node, i) => {
@@ -201,6 +201,7 @@ export default function AuditIssueCard({ violation, auditId, checksContext, site
                 const nodeChecked = !!(checksContext && nodeKey && checksContext.checks.has('node', nodeKey))
                 const showNodeCheckbox = !!checksContext && checksContext.triageMode && !checksContext.readOnly
                 const nodeStruck = nodeChecked
+                const screenshotFile = node.screenshotPath ?? (i === 0 ? violation.screenshotPath : undefined)
                 return (
                   <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
                     {showNodeCheckbox && (
@@ -220,6 +221,12 @@ export default function AuditIssueCard({ violation, auditId, checksContext, site
                           Element {i + 1}
                         </span>
                       </div>
+                    )}
+                    {auditId && screenshotFile && (
+                      <NodeScreenshot
+                        src={`/api/ada-audit/screenshots/${auditId}/${screenshotFile}`}
+                        alt={`Element ${i + 1} for ${violation.help}`}
+                      />
                     )}
                     <pre className={`bg-gray-900 text-green-400 text-[11px] font-mono px-3 py-2.5 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed ${nodeStruck ? 'line-through opacity-50' : ''}`}>
                       {node.html}

@@ -14,6 +14,7 @@ import PdfIssuesSection from './PdfIssuesSection'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import { safeExternalHref } from '@/lib/safe-external-href'
 import { useChecks } from './useChecks'
+import { ClientDate } from '@/components/ClientDate'
 
 interface Props {
   results: StoredAxeResults
@@ -122,7 +123,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
                 <span className="text-[12px] font-body text-navy/40 dark:text-white/40">{clientName}</span>
               )}
               <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
-                {new Date(createdAt).toLocaleString()}
+                <ClientDate iso={createdAt} variant="dateTime" />
               </span>
             </div>
           </div>
