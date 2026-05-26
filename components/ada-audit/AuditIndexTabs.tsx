@@ -6,7 +6,7 @@ import AuditForm from './AuditForm'
 import SiteAuditForm from './SiteAuditForm'
 import ClientsAuditSummary from './ClientsAuditSummary'
 import DashboardQueueStatus from './DashboardQueueStatus'
-import MyRecentsCard from './MyRecentsCard'
+import RecentsTable from './RecentsTable'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import type { RecentItem } from '@/lib/ada-audit/recents-query'
 
@@ -21,9 +21,10 @@ function parseTab(value: string | null): Tab {
 interface Props {
   recentItems: RecentItem[]
   operator: string | null
+  initialScope: 'all' | 'mine'
 }
 
-export default function AuditIndexTabs({ recentItems, operator }: Props) {
+export default function AuditIndexTabs({ recentItems, operator, initialScope }: Props) {
   const searchParams = useSearchParams()
 
   // Initial tab derived from URL so SSR + first paint match. Infer 'site'
@@ -119,8 +120,8 @@ export default function AuditIndexTabs({ recentItems, operator }: Props) {
       {/* Clients section */}
       <ClientsAuditSummary />
 
-      {/* Operator-filtered recents — replaces full history tables on the dashboard */}
-      <MyRecentsCard items={recentItems} operator={operator} />
+      {/* Recents — filtered by operator on home, all on full page */}
+      <RecentsTable initialItems={recentItems} initialScope={initialScope} operator={operator} variant="home" />
     </div>
   )
 }

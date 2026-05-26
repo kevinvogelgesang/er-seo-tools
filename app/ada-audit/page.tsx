@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { cookies } from 'next/headers'
 import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
-import { fetchRecentsForOperator } from '@/lib/ada-audit/recents-query'
+import { fetchAllRecents } from '@/lib/ada-audit/recents-query'
 import AuditIndexTabs from '@/components/ada-audit/AuditIndexTabs'
 
 export const metadata = { title: 'ADA Audit — ER SEO Tools' }
@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic'
 
 export default async function AdaAuditPage() {
   const operator = sanitizeOperatorName((await cookies()).get(OPERATOR_NAME_COOKIE_NAME)?.value)
-  const recentItems = operator ? await fetchRecentsForOperator(operator, 5) : []
+  const initialScope = operator ? 'mine' : 'all'
+  const recentItems = await fetchAllRecents(10, operator ?? undefined)
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
@@ -20,7 +21,7 @@ export default async function AdaAuditPage() {
         </p>
       </div>
       <Suspense>
-        <AuditIndexTabs recentItems={recentItems} operator={operator} />
+        <AuditIndexTabs recentItems={recentItems} operator={operator} initialScope={initialScope} />
       </Suspense>
     </main>
   )
