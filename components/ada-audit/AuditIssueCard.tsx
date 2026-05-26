@@ -177,19 +177,26 @@ export default function AuditIssueCard({ violation, auditId, checksContext, site
             )}
           </div>
 
-          {/* Element screenshot */}
-          {showDev && violation.screenshotPath && auditId && (
-            <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-navy-border mt-1">
-              <div className="bg-gray-50 dark:bg-navy-deep px-3 py-1.5 text-[11px] font-body text-navy/50 dark:text-white/50 border-b border-gray-200 dark:border-navy-border">
-                Screenshot — first affected element
-              </div>
+          {/* Element screenshots — one per node */}
+          {showDev && auditId && (
+            <div className="mt-1">
+              <p className="text-[11px] font-body text-navy/50 dark:text-white/50 mb-1.5">Element screenshots</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/ada-audit/screenshots/${auditId}/${violation.screenshotPath}`}
-                alt={`Screenshot of element violating: ${violation.help}`}
-                className="w-full max-h-64 object-contain bg-white"
-                loading="lazy"
-              />
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                {violation.nodes.map((node, i) => {
+                  const file = node.screenshotPath ?? (i === 0 ? violation.screenshotPath : undefined)
+                  if (!file) return null
+                  return (
+                    <img
+                      key={`${violation.id}-${i}`}
+                      src={`/api/ada-audit/screenshots/${auditId}/${file}`}
+                      alt={`Element ${i + 1} for ${violation.help}`}
+                      className="rounded border border-gray-200 dark:border-navy-border max-w-full h-auto"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                    />
+                  )
+                })}
+              </div>
             </div>
           )}
 
