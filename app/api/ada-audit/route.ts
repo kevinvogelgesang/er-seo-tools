@@ -1,8 +1,6 @@
-import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
-import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers'
 import type { AuditListItem, AuditScorecard } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
 import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
@@ -13,7 +11,7 @@ export const dynamic = 'force-dynamic'
 // Runs after the route handler has already responded with { id }.
 // Updates the DB record directly; errors set status = 'error'.
 
-async function runAuditInBackground(id: string, url: string, wcagLevel: string, captureScreenshots: boolean) {
+async function runAuditInBackground(id: string, url: string, wcagLevel: string) {
   const onProgress = async (progress: number, progressMessage: string) => {
     await prisma.adaAudit.update({ where: { id }, data: { progress, progressMessage } }).catch(() => {})
   }
@@ -34,10 +32,6 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string, 
       onProgress,
       {
         auditId: id,
-        ...(captureScreenshots ? {
-          captureScreenshots: true,
-          screenshotDir: path.join(SCREENSHOTS_DIR, id),
-        } : {}),
       },
     )
 
@@ -104,7 +98,6 @@ export async function POST(request: NextRequest) {
   const raw = body as Record<string, unknown>
   const url = typeof raw?.url === 'string' ? raw.url.trim() : ''
   const wcagLevel = typeof raw?.wcagLevel === 'string' && raw.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
-  const captureScreenshots = raw?.captureScreenshots === true
 
   if (!url) {
     return NextResponse.json({ error: 'url is required' }, { status: 400 })
@@ -144,7 +137,7 @@ export async function POST(request: NextRequest) {
 
   // Fire-and-forget: audit runs in background, route returns immediately.
   // Node.js will keep the event loop alive while the promise is pending.
-  void runAuditInBackground(audit.id, audit.url, wcagLevel, captureScreenshots)
+  void runAuditInBackground(audit.id, audit.url, wcagLevel)
 
   return NextResponse.json({ id: audit.id, status: 'pending' }, { status: 202 })
 }

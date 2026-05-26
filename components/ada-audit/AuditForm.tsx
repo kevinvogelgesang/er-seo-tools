@@ -41,7 +41,6 @@ export default function AuditForm() {
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
-  const [captureScreenshots, setCaptureScreenshots] = useState(false)
 
   function handleUrlChange(e: React.ChangeEvent<HTMLInputElement>) {
     setUrl(e.target.value)
@@ -75,7 +74,6 @@ export default function AuditForm() {
         body: JSON.stringify({
           url: normalized,
           wcagLevel,
-          captureScreenshots,
         }),
       })
 
@@ -165,25 +163,6 @@ export default function AuditForm() {
           ))}
         </div>
       </div>
-
-      {/* Screenshot toggle */}
-      <label className="flex items-start gap-3 cursor-pointer group">
-        <input
-          type="checkbox"
-          checked={captureScreenshots}
-          onChange={(e) => setCaptureScreenshots(e.target.checked)}
-          disabled={isRunning}
-          className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-navy-border text-orange focus:ring-orange/40 disabled:opacity-50"
-        />
-        <div>
-          <span className="text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 group-hover:text-navy dark:group-hover:text-white transition-colors">
-            Capture element screenshots
-          </span>
-          <p className="text-[11px] font-body text-navy/40 dark:text-white/40 mt-0.5">
-            Saves a PNG for the first failing element of each violation. Adds a few seconds to the audit.
-          </p>
-        </div>
-      </label>
 
       {error && (
         <p className="text-[13px] font-body text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg px-4 py-2.5">
