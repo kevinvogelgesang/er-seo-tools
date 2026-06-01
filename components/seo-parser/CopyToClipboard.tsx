@@ -2,12 +2,17 @@
 
 import { useState } from 'react';
 import { AggregatedResult } from '@/lib/types';
+import { buildTechnicalAuditExport } from '@/lib/parsers/claude-export-builder';
 
 export function CopyToClipboard({ result }: { result: AggregatedResult }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    const text = JSON.stringify(result, null, 2);
+    const payload = buildTechnicalAuditExport(result);
+    const text =
+      `Run the seo-audit-roadmap skill on the SEO audit payload below.\n` +
+      `It contains complete affected-URL sets (compact refs in url_registry).\n\n` +
+      '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -23,10 +28,10 @@ export function CopyToClipboard({ result }: { result: AggregatedResult }) {
       className={`px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
         copied
           ? 'bg-green-600 text-white'
-          : 'bg-gray-200 dark:bg-navy-light text-gray-700 dark:text-white/70 hover:bg-gray-300 dark:hover:bg-navy-border'
+          : 'bg-[#c07f2a] hover:bg-[#a86e22] text-white'
       }`}
     >
-      {copied ? 'Copied!' : 'Copy JSON'}
+      {copied ? 'Copied!' : 'Copy for Claude'}
     </button>
   );
 }
