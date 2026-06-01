@@ -15,11 +15,12 @@ export function kindForIssueType(type: string): UrlKind {
 }
 
 export function deriveIssueTypesForPage(r: PerUrlRecord): string[] {
+  if (!r.indexable) return [];
   const t: string[] = [];
   if (r.title == null || r.title === '') t.push('missing_title');
   if (r.h1 == null || r.h1 === '') t.push('missing_h1');
   if (r.metaDescription == null || r.metaDescription === '') t.push('missing_meta_description');
-  if (r.wordCount != null && r.wordCount < 300) t.push('thin_content');
+  if (r.wordCount != null && r.wordCount > 0 && r.wordCount < 300) t.push('thin_content');
   return t;
 }
 
@@ -27,13 +28,13 @@ export function buildAffectedRefs(
   issue: Issue,
   pageIndex: PageIndexEntry[],
   builder: UrlRegistryBuilder,
-): { refs: UrlRef[]; complete: boolean; source: NonNullable<Issue['affectedUrlSource']> } {
+): { refs: UrlRef[]; complete: boolean; source: 'derived-page-index' | 'parser-sample' } {
   const kind = kindForIssueType(issue.type);
   const refs = new Set<UrlRef>();
   for (const u of issue.urls ?? []) refs.add(builder.intern(u, kind));
   for (const p of pageIndex) {
     if (p.issueTypes.includes(issue.type)) refs.add(p.ref);
   }
-  const complete = DERIVABLE_COMPLETE.has(issue.type);
+  const complete = DERIVABLE_COMPLETE.has(issue.type) && pageIndex.length > 0;
   return { refs: [...refs], complete, source: complete ? 'derived-page-index' : 'parser-sample' };
 }
