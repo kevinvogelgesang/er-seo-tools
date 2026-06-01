@@ -227,6 +227,21 @@ export interface DuplicateContent {
   duplicate_h1s_count?: number;
 }
 
+export interface Recommendation {
+  issueType: string;
+  severity: 'critical' | 'warning' | 'notice';
+  count: number;
+  effort: 'low' | 'medium' | 'high';
+  fixGuidance: string;
+  affectedUrlRefs: UrlRef[];
+  affectedUrlCount: number;
+  affectedUrlComplete: boolean;
+  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample';
+  affectedSetHash: string;
+  groups?: Issue['groups'];
+  sampleUrls?: string[];
+}
+
 export interface AggregatedResult {
   crawl_summary: CrawlSummary;
   issues: IssuesResult;
@@ -237,6 +252,7 @@ export interface AggregatedResult {
   duplicate_content?: DuplicateContent;
   keyword_signals?: KeywordSignals;
   recommendations: string[];
+  structured_recommendations?: Recommendation[];
   metadata: {
     files_processed: string[];
     parsers_used: string[];
