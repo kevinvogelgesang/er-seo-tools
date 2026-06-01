@@ -1,11 +1,64 @@
 // Core types for SEO Parser
 
+// --- URL Registry / Page Index (SEO Audit Overhaul Phase 1) ---
+
+export type UrlKind = 'page' | 'resource' | 'external' | 'redirect-target' | 'sitemap' | 'hreflang';
+
+export interface UrlRegistryEntry {
+  id: number;          // UrlRef target = index in UrlRegistry.urls
+  kind: UrlKind;
+  hostId: number;      // index into UrlRegistry.hosts
+  scheme: string;      // per-entry scheme (external links may differ from sessionOrigin)
+  path: string;        // path (+ optional query); host omitted only for sessionOrigin host
+  query?: string;
+  originalUrl?: string; // fallback when canonical reconstruction is unsafe
+}
+
+export interface UrlRegistry {
+  sessionOrigin: { scheme: string; host: string };
+  hosts: string[];
+  urls: UrlRegistryEntry[];
+}
+
+export type UrlRef = number; // index into UrlRegistry.urls
+
+export interface PageIndexEntry {
+  ref: UrlRef;
+  title: string | null;
+  h1: string | null;
+  metaDescription: string | null;
+  wordCount: number | null;
+  crawlDepth: number | null;
+  indexable: boolean;
+  issueTypes: string[];
+}
+
+export interface SupplementalData {
+  dataforseo?: Record<string, unknown>;
+  liveChecks?: Record<string, unknown>;
+}
+
+export interface PerUrlRecord {
+  url: string;
+  title: string | null;
+  h1: string | null;
+  metaDescription: string | null;
+  wordCount: number | null;
+  crawlDepth: number | null;
+  indexable: boolean;
+}
+
+// --- End URL Registry / Page Index ---
+
 export interface Issue {
   type: string;
   severity: 'critical' | 'warning' | 'notice';
   count: number;
   description: string;
-  urls?: string[];
+  urls?: string[];         // display/sample/back-compat only — not the full affected set
+  affectedUrlRefs?: UrlRef[];      // best-available set (see flags below)
+  affectedUrlRefsComplete?: boolean;  // true only when the full affected set is known
+  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample';
   groups?: Array<{ title?: string; h1?: string; meta_description?: string; count: number; urls?: string[] }>;
   source?: string;
   threshold?: string;
@@ -191,6 +244,9 @@ export interface AggregatedResult {
     site_name?: string;
     health_score?: number;
   };
+  url_registry?: UrlRegistry;
+  page_index?: PageIndexEntry[];
+  supplemental_data?: SupplementalData;
 }
 
 export interface Session {
@@ -264,6 +320,7 @@ export interface InternalParserResult extends ParsedData {
   ga4_connected?: boolean; // GA4 columns present in CSV
   gsc_top_pages?: GscPageStat[]; // top 50 pages by impressions
   ga4_top_pages?: Ga4PageStat[]; // top 50 pages by sessions
+  per_url_index?: PerUrlRecord[]; // full per-URL record set for registry/export
 }
 
 // NEW — Link Score (SF internal PageRank-like metric 0–100)
