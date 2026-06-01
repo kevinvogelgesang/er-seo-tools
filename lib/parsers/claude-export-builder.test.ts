@@ -257,4 +257,43 @@ describe('buildTechnicalAuditExport', () => {
     const result = buildTechnicalAuditExport(noDups);
     expect(result.duplicate_content).toBeUndefined();
   });
+
+  it('embeds url_registry, page_index and per-issue affectedUrlRefs', () => {
+    const extendedResult = {
+      ...mockResult,
+      url_registry: {
+        sessionOrigin: { scheme: 'https', host: 'example.com' },
+        hosts: ['example.com'],
+        urls: [
+          { id: 0, kind: 'page' as const, hostId: 0, scheme: 'https', path: '/' },
+          { id: 1, kind: 'page' as const, hostId: 0, scheme: 'https', path: '/broken-1' },
+        ],
+      },
+      page_index: [
+        {
+          ref: 0,
+          title: 'Home',
+          h1: 'Welcome',
+          metaDescription: 'Home page',
+          wordCount: 500,
+          crawlDepth: 0,
+          indexable: true,
+          issueTypes: [],
+        },
+      ],
+      issues: {
+        ...mockResult.issues,
+        critical: [
+          {
+            ...mockResult.issues.critical[0],
+            affectedUrlRefs: [1],
+          },
+        ],
+      },
+    };
+    const out = buildTechnicalAuditExport(extendedResult);
+    expect(out.url_registry).toBeDefined();
+    expect(out.page_index).toBeDefined();
+    expect(out.issues.critical[0].affectedUrlRefs).toBeDefined();
+  });
 });
