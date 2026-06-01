@@ -14,6 +14,7 @@ import { PageDetailModal } from './PageDetailModal';
 import { ShareModal } from './ShareModal';
 import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
+import { SuggestedPriorities } from './SuggestedPriorities';
 
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
 const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
@@ -79,6 +80,9 @@ export function ResultsView({ result, sessionId, pillarButton }: ResultsViewProp
           noticesCount={result.issues.notices.length}
           indexableUrls={result.crawl_summary.indexable_urls}
         />
+
+        {/* Suggested priorities */}
+        <SuggestedPriorities issues={result.issues} />
 
         {/* Full-width issues */}
         <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />
