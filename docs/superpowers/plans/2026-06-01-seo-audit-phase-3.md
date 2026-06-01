@@ -211,8 +211,12 @@ export function buildSessionPages(
     : [];
 
   const scalars: SessionPageScalars = {
-    siteHost: reg?.sessionOrigin.host ?? result.metadata.site_name ?? null,
+    // Prefer the detected site_name; the registry origin can be a 'localhost' placeholder
+    // when no internal_all was uploaded (empty registry before site_name detection).
+    siteHost: result.metadata.site_name ?? reg?.sessionOrigin.host ?? null,
     totalUrls: result.crawl_summary?.total_urls ?? pageIndex.length,
+    // NOTE: these are ISSUE-TYPE counts (issues.*.length), NOT affected-page counts.
+    // Label them as such wherever P5 trends consume them, to avoid confusion.
     criticalCount: result.issues.critical.length,
     warningCount: result.issues.warnings.length,
     noticeCount: result.issues.notices.length,
@@ -245,9 +249,18 @@ import { buildSessionPages } from '@/lib/services/session-page-builder';
 // ...
 const { pages, scalars } = buildSessionPages(sessionId, result);
 
+// Chunk createMany — a single 1000-row insert can hit SQLite's bound-variable limit
+// (each row binds ~10 params). 75 rows/chunk keeps us well under it.
+const chunk = <T,>(arr: T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
+const pageChunks = chunk(pages, 75);
+
 await prisma.$transaction([
   prisma.sessionPage.deleteMany({ where: { sessionId } }),
-  ...(pages.length ? [prisma.sessionPage.createMany({ data: pages })] : []),
+  ...pageChunks.map((data) => prisma.sessionPage.createMany({ data })),
   prisma.session.update({
     where: { id: sessionId },
     data: {
@@ -265,7 +278,7 @@ await prisma.$transaction([
 ]);
 ```
 
-Keep the subsequent `triggerPillarAnalysis(sessionId)` fire-and-forget exactly as-is, AFTER the transaction.
+Keep the subsequent `triggerPillarAnalysis(sessionId)` fire-and-forget exactly as-is, AFTER the transaction. (`pageChunks` is `[]` when there are no pages, so the spread contributes nothing — the deleteMany + update still run.)
 
 - [ ] **Step 2: Verify no existing parse test breaks.** Run `npx vitest run app/api/parse` (if such tests exist) and `npx tsc --noEmit`. If there's a parse-route test that asserts the exact `session.update` call shape, update it to the transaction shape. Report what you found.
 
@@ -300,8 +313,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ sess
 
   const where = {
     sessionId,
-    ...(issueType ? { issueTypes: { contains: JSON.stringify(issueType).slice(1, -1) } } : {}),
-    // contains the bare token (quoted) so 'missing_title' matches the JSON array element "missing_title"
+    // Match the QUOTED JSON token so 'missing_title' matches the array element
+    // "missing_title" and NOT a substring like "missing_title_something".
+    ...(issueType ? { issueTypes: { contains: JSON.stringify(issueType) } } : {}),
   };
   const orderBy =
     sort === 'wordCount' ? { wordCount: 'asc' as const }
@@ -323,7 +337,7 @@ function safeParse(s: string): string[] {
   try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 ```
-Note on the `issueType` filter: `issueTypes` stores e.g. `["missing_title","thin_content"]`. `JSON.stringify('missing_title')` → `"missing_title"` (with quotes); `.slice(1,-1)` strips the outer quotes leaving `missing_title`... that's WRONG (it would match substrings). Instead filter with the QUOTED token so it matches a JSON element: use `{ issueTypes: { contains: '"' + issueType + '"' } }`. Implement it that way (quoted), and add a test proving `missing_title` does not match a page whose only type is `missing_title_something`. (If no such risk exists in the type vocabulary, still prefer the quoted-contains form.)
+The `issueType` filter uses the QUOTED token (`{ issueTypes: { contains: JSON.stringify(issueType) } }`), which embeds the surrounding double-quotes, so `missing_title` matches the JSON element `"missing_title"` and NOT a substring like `missing_title_something`. Add a test proving that distinction. `wordCount` ascending puts NULLs first in SQLite — for the "Fewest words" sort, either filter `wordCount: { not: null }` or note that null-word pages sort first (acceptable; document the choice in the component).
 
 - [ ] **Step 2: Test** `route.test.ts` — mock `@/lib/db` prisma. Cover: default pagination returns `{ pages, total }` with `issueTypes` parsed to arrays; `limit`/`offset` clamping; `issueType` filter passes a quoted-contains `where`; `sort=wordCount` vs default `issues` sets the right `orderBy`. (Assert the `where`/`orderBy`/`take`/`skip` passed to the mocked `findMany`.)
 
@@ -348,6 +362,11 @@ git commit -m "feat(seo): paginated SessionPage read API"
   - Controls: an issue-type `<select>` (options from `issueTypeOptions` + "All"), a sort `<select>` (Most issues / Fewest words / Deepest), and Prev/Next pagination using `total`.
   - Empty state: "No crawled-page data for this session — re-run the analysis with an internal_all.csv to populate per-page detail." (covers historical/blob-less sessions).
   - Match the existing seo-parser table styling (look at `IssueTabs`/`KeywordSignalsPanel` for the card/table classes + dark-mode variants).
+
+- [ ] **Step 1b: Fix `PageDetailModal` issue matching (required — else the drill-down lies).** `components/seo-parser/PageDetailModal.tsx`'s `findIssuesForUrl` currently matches only `issue.urls?.includes(url)` — but `issue.urls` is the CAPPED sample. A page recovered via `affectedUrlRefs` (Phase 1) will then show "no tracked issues" even though `SessionPage.issueTypes` lists issues. Fix `findIssuesForUrl(url, result)` to ALSO match when the url is in the issue's `affectedUrlRefs` rehydrated through `result.url_registry`:
+  - Build a `Set<string>` of affected URLs per issue: `(issue.affectedUrlRefs ?? []).map(ref => rehydrate(result.url_registry!, ref))` (guard when `url_registry` is absent), unioned with `issue.urls ?? []`.
+  - Match if `url` is in that set.
+  - Import `rehydrate` from `@/lib/services/url-registry`. Keep the existing `issue.urls` fallback for old sessions with no registry. Add/adjust a `PageDetailModal` test if one exists; otherwise this is covered by the exit checklist.
 
 - [ ] **Step 2: Wire into `ResultsView.tsx`** — add a collapsible "Crawled Pages" section (a `<details>` or a section card) BELOW the charts row. Compute `issueTypeOptions` from the in-memory result (union of `result.issues.{critical,warnings,notices}[].type`). Pass `onUrlClick={(url) => setSelectedUrl(url)}` so it reuses the existing `PageDetailModal` (already wired to `selectedUrl`). Do not disturb existing sections.
 
