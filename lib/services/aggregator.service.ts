@@ -4,6 +4,7 @@ import { UrlRegistryBuilder } from './url-registry';
 import { urlJoinKey } from './url-normalize';
 import { buildAffectedRefs, deriveIssueTypesForPage } from './issue-membership';
 import { ISSUE_RECOMMENDATIONS } from '@/lib/constants/issue-recommendations';
+import { buildStructuredRecommendations } from './recommendation-builder';
 
 function deriveOrigin(sampleUrl: string | undefined, siteName?: string): { scheme: string; host: string } {
   const src = sampleUrl ?? (siteName ? `https://${siteName}` : 'https://localhost');
@@ -171,6 +172,8 @@ export class AggregatorService {
     }
     result.page_index = pageIndex;
     result.url_registry = builder.build();
+
+    result.structured_recommendations = buildStructuredRecommendations(result);
 
     return result;
   }
