@@ -98,6 +98,9 @@ export class InternalParser extends BaseParser {
       if (ga4Pages.length > 0) result.ga4_top_pages = ga4Pages;
     }
 
+    const perUrlIndex = this.parsePerUrlForPillar();
+    result.per_url_index = perUrlIndex;
+
     return result;
   }
 
