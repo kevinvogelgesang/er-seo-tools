@@ -11,7 +11,8 @@ export function CopyToClipboard({ result }: { result: AggregatedResult }) {
     const payload = buildTechnicalAuditExport(result);
     const text =
       `Run the seo-audit-roadmap skill on the SEO audit payload below.\n` +
-      `It contains complete affected-URL sets (compact refs in url_registry).\n\n` +
+      `Affected URLs are compact refs in url_registry; each issue's affectedUrlSource ` +
+      `says whether its set is complete ('derived-page-index') or a sample ('parser-sample').\n\n` +
       '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
     try {
       await navigator.clipboard.writeText(text);
