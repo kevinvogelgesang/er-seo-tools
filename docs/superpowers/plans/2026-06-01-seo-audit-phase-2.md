@@ -213,6 +213,7 @@ git commit -m "feat(seo): roadmap clipboard prompt composer"
 
 ```typescript
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { AUTH_COOKIE_NAME, isValidAuthCookie } from '@/lib/auth';
 import { mintSeoRoadmapToken, SeoRoadmapTokenError } from '@/lib/seo-roadmap-token';
@@ -230,33 +231,53 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ses
     return NextResponse.json({ error: 'session_not_complete', status: session.status }, { status: 409 });
   }
 
-  // Get-or-create the roadmap row (one per session). Handle the unique-race like pillar's acquire.
+  // Get-or-create the roadmap row (one per session) as 'pending'. Catch ONLY the unique race (P2002);
+  // rethrow any other Prisma/DB error so real schema/migration failures aren't swallowed.
   let roadmap = await prisma.seoRoadmap.findUnique({ where: { sessionId } });
   if (!roadmap) {
     try {
-      roadmap = await prisma.seoRoadmap.create({ data: { sessionId, status: 'processing', tokenMintedAt: new Date() } });
-    } catch {
-      roadmap = await prisma.seoRoadmap.findUnique({ where: { sessionId } });
+      roadmap = await prisma.seoRoadmap.create({ data: { sessionId } }); // defaults to status='pending'
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        roadmap = await prisma.seoRoadmap.findUnique({ where: { sessionId } });
+      } else {
+        throw err;
+      }
       if (!roadmap) return NextResponse.json({ error: 'roadmap_unavailable' }, { status: 500 });
     }
-  } else {
-    roadmap = await prisma.seoRoadmap.update({ where: { id: roadmap.id }, data: { status: 'processing', tokenMintedAt: new Date() } });
   }
 
+  // Mint FIRST — only flip to 'processing' once we actually have a token to hand out.
+  let minted;
   try {
-    const minted = await mintSeoRoadmapToken(roadmap.id);
-    return NextResponse.json({ ...minted, roadmapId: roadmap.id });
+    minted = await mintSeoRoadmapToken(roadmap.id);
   } catch (err) {
     if (err instanceof SeoRoadmapTokenError) {
       console.error('[seo-roadmap-token] mint failed:', err.message);
+      await prisma.seoRoadmap.update({
+        where: { id: roadmap.id },
+        data: { status: 'error', error: 'token_service_unavailable' },
+      });
       return NextResponse.json({ error: 'token_service_unavailable' }, { status: 500 });
     }
     throw err;
   }
+
+  await prisma.seoRoadmap.update({
+    where: { id: roadmap.id },
+    data: { status: 'processing', tokenMintedAt: new Date(), error: null }, // clear any stale error on a fresh run
+  });
+  return NextResponse.json({ ...minted, roadmapId: roadmap.id });
 }
 ```
 
-- [ ] **Step 2: Test** `route.test.ts` — mirror the pillar mint-token test (read `app/api/pillar-analysis/[id]/mint-token/route.test.ts` for how it mocks `@/lib/auth` and `@/lib/db`). Cover: 401 when no auth cookie; 404 for missing session; 409 when session not complete; 200 returns `{ token: 'srt_…', expiresAt, roadmapId }` and creates a `processing` row when authed + session complete. Mock `isValidAuthCookie` → true and `prisma` accordingly.
+- [ ] **Step 2: Test** `route.test.ts` — mirror the pillar mint-token test EXACTLY (read `app/api/pillar-analysis/[id]/mint-token/route.test.ts`). IMPORTANT: pillar's mint test does **not** `vi.mock('@/lib/auth')` — it builds a real valid cookie via `createAuthCookieValue()` with `APP_AUTH_PASSWORD` stubbed in the env. Copy that exact auth-setup pattern (real cookie), not a mock of `isValidAuthCookie`. Cover:
+  - 401 when no/invalid auth cookie
+  - 404 for missing session; 409 when `session.status !== 'complete'`
+  - 200 returns `{ token: 'srt_…', expiresAt, roadmapId }` and the row is now `status: 'processing'` with `tokenMintedAt` set — for (a) **no existing row** (create path) and (b) **an existing row** (regenerate path)
+  - the **unique-race** path: `create` throws a `Prisma.PrismaClientKnownRequestError` with `code: 'P2002'`, then `findUnique` returns the row → still 200 (mock prisma to simulate this)
+  - mint failure: `mintSeoRoadmapToken` throws `SeoRoadmapTokenError` → 500 and the row is set to `status: 'error'`
+  Mock `@/lib/db` `prisma` for session + seoRoadmap calls following pillar's prisma-mock style.
 
 - [ ] **Step 3:** Run the test → PASS; `npx tsc --noEmit`.
 
@@ -355,6 +376,7 @@ import { verifySeoRoadmapToken, SeoRoadmapTokenError } from '@/lib/seo-roadmap-t
 
 const REQUIRED_SCOPE = 'roadmap-write';
 const MAX_ROADMAP_CHARS = 50_000;
+const MAX_STRUCTURED_CHARS = 200_000; // generous cap; structured JSON still must not be unbounded
 
 function tokenErrorCode(message: string): string {
   const m = message.toLowerCase();
@@ -376,7 +398,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'roadmap_too_long' }, { status: 400 });
   }
   const roadmapMarkdown = body.roadmap;
-  const structured = body.structured !== undefined ? JSON.stringify(body.structured) : undefined;
+  let structured: string | undefined;
+  if (body.structured !== undefined) {
+    structured = JSON.stringify(body.structured);
+    if (structured.length > MAX_STRUCTURED_CHARS) {
+      return NextResponse.json({ error: 'structured_too_long' }, { status: 400 });
+    }
+  }
 
   const authHeader = req.headers.get('authorization');
   if (!authHeader) return NextResponse.json({ error: 'auth_missing' }, { status: 401 });
@@ -399,7 +427,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const now = new Date();
   const updated = await prisma.seoRoadmap.update({
     where: { id },
-    data: { roadmapMarkdown, ...(structured !== undefined ? { structured } : {}), status: 'complete', roadmapUpdatedAt: now },
+    data: { roadmapMarkdown, ...(structured !== undefined ? { structured } : {}), status: 'complete', error: null, roadmapUpdatedAt: now },
   });
   return NextResponse.json({ ok: true, updatedAt: (updated.roadmapUpdatedAt ?? now).toISOString() });
 }
@@ -535,26 +563,33 @@ git commit -m "feat(seo): Generate Roadmap button (mint + copy prompt)"
 
 - [ ] **Step 1: `RoadmapMarkdown.tsx`** — mirror `app/pillar-analysis/[id]/components/MemoMarkdown.tsx` (read it): a `react-markdown` renderer with the same component overrides (h2/h3/p/ul/ol/li/strong/em/code, dark-mode classes, no `rehype-raw`).
 
-- [ ] **Step 2: `SeoRoadmapCard.tsx`** (client) — mirror `StrategicMemoCard.tsx` + `MemoPoller.tsx`. It receives `{ sessionId, initialRoadmapMarkdown, initialRoadmapUpdatedAt }`. Renders the markdown when present, else a "not yet generated — click Generate Roadmap" empty state. Reuses the existing `lib/memo-poller-machine.ts` but polls `/api/seo-roadmap/by-session/${sessionId}` and reads `body?.seoRoadmap?.roadmapUpdatedAt`; on change calls `router.refresh()`. Read `MemoPoller.tsx` and copy its poller wiring exactly, swapping the endpoint and the response field path. Include the `GenerateRoadmapButton` in this card's header (pass `hasRoadmap`).
+- [ ] **Step 2: `SeoRoadmapCard.tsx`** (client) — mirror `StrategicMemoCard.tsx` + `MemoPoller.tsx`. It receives `{ sessionId, initialStatus, initialRoadmapMarkdown, initialRoadmapUpdatedAt }` (note `initialStatus`: `'none' | 'pending' | 'processing' | 'complete' | 'error'`). Renders the markdown when present, else a "not yet generated — click Generate Roadmap" empty state. Reuses the existing poller machine (read `lib/memo-poller-machine.ts` — the real factory export is **`createPollingMachine`**, NOT `createMemoPollerMachine`) but polls `/api/seo-roadmap/by-session/${sessionId}` and reads `body?.seoRoadmap?.roadmapUpdatedAt`; on change calls `router.refresh()`. Read `MemoPoller.tsx` and copy its poller wiring exactly, swapping ONLY the endpoint and the response field path. **Do NOT import `MemoPoller` directly** — it hardcodes the pillar endpoint/response; copy the wiring into this component.
+
+  **Auto-start rule (important — differs from pillar):** SEO roadmap rows are lazy/manual, so do NOT auto-poll on every results page that lacks a roadmap. Auto-start polling only when `initialStatus === 'processing'`. Otherwise start polling on the `onMemoPollerTrigger` event the `GenerateRoadmapButton` emits after a successful mint. (Pillar auto-starts whenever there's no memo because its analysis row always pre-exists; ours does not.)
+
+  Include `GenerateRoadmapButton` in this card's header; pass `hasRoadmap={!!initialRoadmapMarkdown}`.
 
 ```tsx
 'use client';
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef } from 'react';
-import { createMemoPollerMachine } from '@/lib/memo-poller-machine'; // confirm exact export name
+import { createPollingMachine } from '@/lib/memo-poller-machine'; // real export name — verify on read
 import { onMemoPollerTrigger } from '@/lib/memo-poller-events';
 import { RoadmapMarkdown } from './RoadmapMarkdown';
 import { GenerateRoadmapButton } from './GenerateRoadmapButton';
 
-// ... poller wiring copied from MemoPoller.tsx, endpoint = /api/seo-roadmap/by-session/${sessionId},
-//     latest = body?.seoRoadmap?.roadmapUpdatedAt; on change -> router.refresh()
+// ... poller wiring copied from MemoPoller.tsx:
+//   endpoint = `/api/seo-roadmap/by-session/${sessionId}`
+//   latest   = body?.seoRoadmap?.roadmapUpdatedAt
+//   on change -> router.refresh()
+//   autoStartOnMount = initialStatus === 'processing'
+//   also start on onMemoPollerTrigger(...) (button emits after mint)
 ```
-(The implementer must read `MemoPoller.tsx` + `lib/memo-poller-machine.ts` for the exact machine API and copy it faithfully — do not invent a new poller.)
+(Read `MemoPoller.tsx` + `lib/memo-poller-machine.ts` for the exact machine API and copy it faithfully — do not invent a new poller. Confirm the real factory/export names on read and use them.)
 
 - [ ] **Step 3: Wire into `ResultsView.tsx`** — add a `roadmap?: React.ReactNode` prop (mirroring the existing `pillarButton?` prop pattern) and render `{roadmap}` as a full-width section below `SuggestedPriorities` (or near the recommendations). Keep the header buttons as-is.
 
-- [ ] **Step 4: Wire into the page** `app/seo-parser/results/[sessionId]/page.tsx` — server-load the existing roadmap (`prisma.seoRoadmap.findUnique({ where: { sessionId } })`), and pass `roadmap={<SeoRoadmapCard sessionId={sessionId} initialRoadmapMarkdown={rm?.roadmapMarkdown ?? null} initialRoadmapUpdatedAt={rm?.roadmapUpdatedAt?.toISOString() ?? null} />}` into `ResultsView`.
+- [ ] **Step 4: Wire into the page** `app/seo-parser/results/[sessionId]/page.tsx` — server-load the existing roadmap (`prisma.seoRoadmap.findUnique({ where: { sessionId } })`), and pass `roadmap={<SeoRoadmapCard sessionId={sessionId} initialStatus={rm?.status ?? 'none'} initialRoadmapMarkdown={rm?.roadmapMarkdown ?? null} initialRoadmapUpdatedAt={rm?.roadmapUpdatedAt?.toISOString() ?? null} />}` into `ResultsView`.
 
 - [ ] **Step 5:** `npx tsc --noEmit && npm run build`. Both PASS.
 
