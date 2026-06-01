@@ -6,6 +6,7 @@ import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
 import { findParserForFile } from '@/lib/parsers';
 import { AggregatorService } from '@/lib/services/aggregator.service';
 import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
+import { buildSessionPages } from '@/lib/services/session-page-builder';
 
 export const dynamic = 'force-dynamic';
 
@@ -177,15 +178,34 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    await prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        status: 'complete',
-        result: JSON.stringify(result),
-        siteName: result.metadata.site_name ?? null,
-        clientId,
-      },
-    });
+    const { pages, scalars } = buildSessionPages(sessionId, result);
+
+    // Chunk createMany — a 1000-row insert can hit SQLite's bound-variable limit.
+    const chunk = <T,>(arr: T[], size: number): T[][] => {
+      const out: T[][] = [];
+      for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+      return out;
+    };
+    const pageChunks = chunk(pages, 75);
+
+    await prisma.$transaction([
+      prisma.sessionPage.deleteMany({ where: { sessionId } }),
+      ...pageChunks.map((data) => prisma.sessionPage.createMany({ data })),
+      prisma.session.update({
+        where: { id: sessionId },
+        data: {
+          status: 'complete',
+          result: JSON.stringify(result),
+          siteName: result.metadata.site_name ?? null,
+          clientId,
+          siteHost: scalars.siteHost,
+          totalUrls: scalars.totalUrls,
+          criticalCount: scalars.criticalCount,
+          warningCount: scalars.warningCount,
+          noticeCount: scalars.noticeCount,
+        },
+      }),
+    ]);
 
     // Fire-and-forget trigger; never throws.
     // Cleanup of uploadDir is the pillar route's responsibility now (it needs
