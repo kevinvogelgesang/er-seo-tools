@@ -103,6 +103,16 @@ describe('PATCH /api/seo-roadmap/[id]/roadmap', () => {
     expect((await res.json()).error).toBe('structured_too_long');
   });
 
+  it('400 structured_invalid when structured is a non-object (e.g. a pre-stringified value)', async () => {
+    const auth = await authHeader(ROADMAP_ID);
+    const res = await PATCH(
+      makeRequest({ roadmap: '# Roadmap', structured: 'already-a-string' }, auth),
+      makeParams(ROADMAP_ID),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('structured_invalid');
+  });
+
   // ─── Auth: missing / malformed ───────────────────────────────────────────
 
   it('401 auth_missing when no Authorization header', async () => {

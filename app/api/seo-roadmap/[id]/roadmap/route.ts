@@ -34,6 +34,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   let structured: string | undefined;
   if (body.structured !== undefined) {
+    // Must be an object/array — reject a pre-stringified or primitive value to avoid double-encoding.
+    if (typeof body.structured !== 'object' || body.structured === null) {
+      return NextResponse.json({ error: 'structured_invalid' }, { status: 400 });
+    }
     structured = JSON.stringify(body.structured);
     if (structured.length > MAX_STRUCTURED_CHARS) {
       return NextResponse.json({ error: 'structured_too_long' }, { status: 400 });
