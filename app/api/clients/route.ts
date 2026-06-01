@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const clients = await prisma.client.findMany({
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, createdAt: true },
+      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, teamworkTasklistId: true, createdAt: true },
     });
 
     const formatted = clients.map((c) => {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     const client = await prisma.client.create({
       data: { name },
-      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, createdAt: true },
+      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, teamworkTasklistId: true, createdAt: true },
     });
 
     return NextResponse.json({ ...client, domains: [], seedUrls: null }, { status: 201 });

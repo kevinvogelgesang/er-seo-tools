@@ -15,7 +15,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
   try {
     const body = await request.json();
-    const data: { name?: string; domains?: string; seedUrls?: string | null; seedUrlsUpdatedAt?: Date | null } = {};
+    const data: { name?: string; domains?: string; seedUrls?: string | null; seedUrlsUpdatedAt?: Date | null; teamworkTasklistId?: string | null } = {};
 
     if (typeof body?.name === 'string') {
       const name = body.name.trim();
@@ -28,6 +28,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         .map((d: unknown) => (typeof d === 'string' ? d.trim().toLowerCase() : ''))
         .filter(Boolean);
       data.domains = JSON.stringify(domains);
+    }
+
+    if ('teamworkTasklistId' in body) {
+      const v = body.teamworkTasklistId;
+      data.teamworkTasklistId = typeof v === 'string' && v.trim() ? v.trim() : null;
     }
 
     if ('seedUrls' in body) {
@@ -52,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const client = await prisma.client.update({
       where: { id: clientId },
       data,
-      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, createdAt: true },
+      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, teamworkTasklistId: true, createdAt: true },
     });
 
     let domains: string[] = [];

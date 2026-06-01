@@ -14,15 +14,16 @@ datasource db {
 }
 
 model Client {
-  id                Int          @id @default(autoincrement())
-  name              String       @unique
-  domains           String       @default("[]") // JSON array: ["example.com"]
-  seedUrls          String?      // JSON array: ["https://example.com/a", ...]
-  seedUrlsUpdatedAt DateTime?
-  createdAt         DateTime     @default(now())
-  sessions          Session[]
-  adaAudits         AdaAudit[]
-  siteAudits        SiteAudit[]
+  id                    Int          @id @default(autoincrement())
+  name                  String       @unique
+  domains               String       @default("[]") // JSON array: ["example.com"]
+  seedUrls              String?      // JSON array: ["https://example.com/a", ...]
+  seedUrlsUpdatedAt     DateTime?
+  teamworkTasklistId    String?      // Teamwork tasklist holding this client's "Audit Optimizations" task
+  createdAt             DateTime     @default(now())
+  sessions              Session[]
+  adaAudits             AdaAudit[]
+  siteAudits            SiteAudit[]
 }
 
 model Session {
