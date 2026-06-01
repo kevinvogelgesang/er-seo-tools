@@ -929,6 +929,11 @@ export class AggregatorService {
     const perUrlData = (positionsData?.per_url_keyword_data as Array<{ url: string; keywords: Array<{ keyword: string; position: number; search_volume: number }> }>) ?? [];
     const optimization_gaps: KeywordSignals['optimization_gaps'] = [];
 
+    // Build title/H1 lookup from internal per_url_index (populated by Task 4)
+    const internal = this.parsedData.internal as Record<string, unknown> | undefined;
+    const perUrlIndex = (internal?.per_url_index as Array<{ url: string; title: string | null; h1: string | null }>) ?? [];
+    const metaByUrl = new Map(perUrlIndex.map((p) => [p.url, { title: p.title ?? '', h1: p.h1 ?? '' }]));
+
     {
       // Collect URLs sorted by estimated traffic (total search_volume of top keywords)
       const urlEntries = perUrlData.map(({ url, keywords }) => {
@@ -939,11 +944,11 @@ export class AggregatorService {
       urlEntries.sort((a, b) => b.estimatedTraffic - a.estimatedTraffic);
 
       for (const { url, keywords } of urlEntries.slice(0, 50)) {
-        // We don't have per-URL title/H1 from parsers — include all as gaps.
+        const meta = metaByUrl.get(url) ?? { title: '', h1: '' };
         optimization_gaps.push({
           url,
-          title: '',
-          h1: '',
+          title: meta.title,
+          h1: meta.h1,
           top_ranking_keywords: keywords,
         });
       }
