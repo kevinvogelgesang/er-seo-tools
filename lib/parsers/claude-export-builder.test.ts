@@ -241,9 +241,15 @@ describe('buildTechnicalAuditExport', () => {
     expect(result.recommendations).toEqual(['Fix broken links', 'Add missing alt text']);
   });
 
-  it('preserves metadata unchanged', () => {
+  it('preserves metadata (minus health_score)', () => {
     const result = buildTechnicalAuditExport(mockResult);
-    expect(result.metadata).toEqual(mockResult.metadata);
+    const { health_score: _, ...expectedMeta } = mockResult.metadata;
+    expect(result.metadata).toEqual(expectedMeta);
+  });
+
+  it('strips health_score from exported metadata', () => {
+    const result = buildTechnicalAuditExport(mockResult);
+    expect(result.metadata).not.toHaveProperty('health_score');
   });
 
   it('handles result with no duplicate_content', () => {

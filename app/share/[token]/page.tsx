@@ -95,7 +95,6 @@ export default async function SharedReportPage({ params }: Props) {
 
           {/* Metrics bar */}
           <MetricsBar
-            healthScore={result.metadata?.health_score}
             totalUrls={result.crawl_summary.total_urls}
             criticalCount={result.issues.critical.length}
             warningsCount={result.issues.warnings.length}

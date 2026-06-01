@@ -1,6 +1,5 @@
 import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals, PageIndexEntry, PerUrlRecord } from '../types';
 import { PARSERS } from '../parsers';
-import { computeHealthScore } from './scoring.service';
 import { UrlRegistryBuilder } from './url-registry';
 import { buildAffectedRefs, deriveIssueTypesForPage } from './issue-membership';
 
@@ -241,8 +240,6 @@ export class AggregatorService {
 
     // Duplicate content analysis
     result.duplicate_content = this.computeDuplicateContent();
-
-    result.metadata.health_score = computeHealthScore(result);
 
     // Build the URL registry + page index, then resolve complete affected-URL
     // sets for each issue. Page-index issueTypes are derived INDEPENDENTLY from

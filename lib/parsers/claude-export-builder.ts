@@ -81,6 +81,8 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     }
   }
 
+  const { health_score, ...metadataForClaude } = result.metadata;
+
   return {
     crawl_summary: result.crawl_summary,
     issues: result.issues,
@@ -90,6 +92,6 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     performance: technicalPerformance,
     duplicate_content: result.duplicate_content,
     recommendations: result.recommendations,
-    metadata: result.metadata,
+    metadata: metadataForClaude,
   };
 }
