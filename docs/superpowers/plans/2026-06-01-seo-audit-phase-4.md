@@ -69,9 +69,13 @@ export interface Recommendation {
   affectedUrlCount: number;
   affectedUrlComplete: boolean;        // from Issue.affectedUrlRefsComplete
   affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample';
-  affectedSetHash: string;             // stable, URL-based (idempotency marker)
+  affectedSetHash: string;             // stable, URL+source-based (idempotency marker; sample-based when not complete)
+  // Detail the skill needs WITHOUT cross-referencing audit.issues (Codex fix #2):
+  groups?: Issue['groups'];            // duplicate-group issues → grouped subsections in the task body
+  sampleUrls?: string[];               // raw issue.urls (may encode "source -> target" strings for some parsers)
 }
 ```
+(`Issue` and `UrlRef` are already declared in this file — no new import.)
 And add to `AggregatedResult`: `structured_recommendations?: Recommendation[];`
 
 - [ ] **Step 3:** `npx tsc --noEmit` → PASS (map move is behavior-preserving; type additions are optional).
@@ -173,9 +177,13 @@ export function buildStructuredRecommendations(result: AggregatedResult): Recomm
 
   const recs: Recommendation[] = all.map(({ issue, severity }) => {
     const refs: UrlRef[] = issue.affectedUrlRefs ?? [];
-    const urls = reg ? refs.map((r) => rehydrate(reg, r)).filter(Boolean) : [];
+    // Fallback to issue.urls for old/partial results so the hash + count aren't empty-by-accident (Codex fix #1).
+    const urls = reg && refs.length
+      ? refs.map((r) => rehydrate(reg, r)).filter(Boolean)
+      : (issue.urls ?? []);
     const sortedUrls = [...urls].sort();
     const template = ISSUE_RECOMMENDATIONS[issue.type];
+    const source = issue.affectedUrlSource ?? 'unknown';
     return {
       issueType: issue.type,
       severity,
@@ -183,10 +191,13 @@ export function buildStructuredRecommendations(result: AggregatedResult): Recomm
       effort: calculateEffort(issue),
       fixGuidance: template ? fillRecommendationTemplate(template, issue.count) : `Address ${issue.count} ${issue.type} issue(s).`,
       affectedUrlRefs: refs,
-      affectedUrlCount: refs.length,
+      affectedUrlCount: refs.length || urls.length,
       affectedUrlComplete: issue.affectedUrlRefsComplete ?? false,
       affectedUrlSource: issue.affectedUrlSource,
-      affectedSetHash: stableHash(`${issue.type}|${sortedUrls.join(',')}`),
+      // Hash includes the source so a sample-hash never collides with/implies a complete-set hash (Codex fix #3).
+      affectedSetHash: stableHash(`${issue.type}|${source}|${sortedUrls.join(',')}`),
+      groups: issue.groups,
+      sampleUrls: issue.urls,
     };
   });
 
@@ -210,7 +221,7 @@ git commit -m "feat(seo): structured recommendation builder (effort + guidance +
 
 **Files:** Modify `lib/services/aggregator.service.ts` (`aggregate()` — near where `result.recommendations` / `result.page_index` are set).
 
-- [ ] **Step 1:** Import `buildStructuredRecommendations` and, in `aggregate()` AFTER `result.url_registry`/`page_index`/issues are set (the structured recs need `affectedUrlRefs` + `url_registry`, both set in the Phase 1 block), add:
+- [ ] **Step 1:** Import `buildStructuredRecommendations` and, in `aggregate()` **strictly AFTER the Phase 1 block that sets `result.url_registry`, `result.page_index`, and every `issue.affectedUrlRefs`/`affectedUrlSource`** (non-negotiable ordering — the builder reads all of those), add:
 
 ```typescript
 result.structured_recommendations = buildStructuredRecommendations(result);
@@ -248,7 +259,7 @@ if ('teamworkTasklistId' in body) {
   data.teamworkTasklistId = typeof v === 'string' && v.trim() ? v.trim() : null;
 }
 ```
-Add `teamworkTasklistId: true` to the `select` and return it (parse not needed — it's a plain string). Also add it to the `select` in `GET /api/clients` (`app/api/clients/route.ts`) so the UI can show it.
+Add `teamworkTasklistId: true` to the `select` and return it (parse not needed — it's a plain string). Also add it to the `select` in **both** `GET` and `POST` of `app/api/clients/route.ts` (the POST create path must return `teamworkTasklistId: null` for new clients), and update the `Client` TypeScript interface in `app/clients/page.tsx` to include `teamworkTasklistId: string | null` (Codex fix #5).
 
 - [ ] **Step 3: UI** — on `app/clients/page.tsx`, add a small "Teamwork tasklist ID" text input per client (next to the existing domains/seed-url editing), saving via the existing PATCH flow. Match the page's existing edit pattern (read the file; keep it minimal — one input + the existing save mechanism). If the clients page edit UX is complex, add the input in the same row/section the seedUrls/domains use.
 
@@ -328,13 +339,14 @@ git commit -m "feat(seo): in-app structured recommendations panel (effort + affe
   - Read `payload.teamwork` (from the GET response) and `payload.audit.structured_recommendations`.
   - **Only when the user approves** (the skill offers: "Push N issues to Teamwork as subtasks of 'Audit Optimizations'?"). Never auto-push.
   - Resolve the tasklist: use `teamwork.tasklistId` if present; else ask the user / search via `mcp__claude_ai_Teamwork__twprojects-list_tasklists`.
-  - Find the parent task named **`teamwork.parentTaskName` ("Audit Optimizations")** in that tasklist (`twprojects-list_tasks` / `twprojects-get_tasklist`). Read its **assignee**.
-  - **Idempotency:** list existing subtasks of that parent (`twprojects-list_tasks` with the parent filter); skip any whose description contains `seo-hash:<affectedSetHash>` already.
+  - Find the parent task named **`teamwork.parentTaskName` ("Audit Optimizations")** in that tasklist (`twprojects-list_tasks` / `twprojects-get_tasklist`). **If multiple tasks share that name, ask the user which one.** Read its **assignee(s)**.
+  - **Idempotency (Codex fix #7):** list ALL existing subtasks of that parent, **handling MCP pagination** (loop until no more pages). Skip creating any subtask whose description contains the **plain-text** marker `seo-hash:<affectedSetHash>`. Use a plain-text marker line (NOT an HTML comment — Teamwork may strip/hide those). Match by hash as primary; also write `seo-issue-type:<issueType>` as a human/audit fallback.
   - For each `structured_recommendations` entry, create a subtask (`twprojects-create_task` with the parent task id):
     - Title: e.g. `[SEO] {humanized issueType} — {count}`.
-    - Description (markdown): `fixGuidance`; then the affected URLs (rehydrate `affectedUrlRefs` via `payload.audit.url_registry`; if `affectedUrlSource !== 'derived-page-index'` or `!affectedUrlComplete`, label "sample of N — see full audit"); for source+target issue types, include both "Pages where found" and "Broken target"; for duplicate-group types, include grouped sub-sections; end with a hidden marker line `seo-hash:{affectedSetHash}`.
-    - **Match the parent task's assignee. Do NOT set a time/effort estimate. Do NOT set a priority flag.** (Effort is shown in the body text only, never as a Teamwork estimate/priority.)
+    - Description (markdown): `fixGuidance`; then affected URLs (rehydrate `affectedUrlRefs` via `payload.audit.url_registry`; if `!affectedUrlComplete` or `affectedUrlSource !== 'derived-page-index'`, label "sample of N — see full audit"). Use `groups` to render grouped sub-sections for duplicate-title/H1/meta issues. **Only render a "source → target" split when the data actually encodes it** (e.g. `sampleUrls` entries containing `->`); otherwise just list affected URLs — do NOT fabricate source/target structure (most parsers only give targets). End with the two marker lines: `seo-hash:{affectedSetHash}` and `seo-issue-type:{issueType}`.
+    - **Assignee (Codex fix #8):** match the parent task's assignee. If the parent has none → create unassigned. If it has multiple and Teamwork supports multiple assignees → copy all; otherwise ask the user. **Do NOT set a time/effort estimate. Do NOT set a priority flag.** (Effort is body text only.)
   - Reply with a summary (created N, skipped M duplicates) + the dashboard URL.
+  - **Document the idempotency failure modes** in the skill (user edits/deletes the marker or subtasks; parent renamed/missing; duplicate parents; a changed affected set yields a new hash → a new subtask rather than an update — acceptable until the deferred auto-resolve phase).
 
 - [ ] **Step 2:** Bump `~/.claude/skills/seo-audit-roadmap/version.txt`. Update its README. No repo tests — verified in the exit checklist against a real client. Note in the PR description that the skill changed (out of repo).
 
