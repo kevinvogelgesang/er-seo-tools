@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { FileDropzone } from '@/components/seo-parser/FileDropzone';
+import { UploadChecklist } from '@/components/seo-parser/UploadChecklist';
 import { Spinner } from '@/components/Spinner';
 import { HistoryList } from '@/components/seo-parser/HistoryList';
 
@@ -124,6 +125,10 @@ export default function SEOParserPage() {
             uploadProgress={uploadProgress}
             onDrop={handleDrop}
           />
+
+          <div className="mt-4">
+            <UploadChecklist />
+          </div>
 
           {error && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">

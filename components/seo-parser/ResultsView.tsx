@@ -50,7 +50,8 @@ export function ResultsView({ result, sessionId, pillarButton }: ResultsViewProp
           <div>
             <h1 className="font-bold text-2xl text-[#1c2d4a] dark:text-white">{siteName} — SEO Audit</h1>
             <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
-              {result.metadata.files_processed.length} file{result.metadata.files_processed.length !== 1 ? 's' : ''} processed
+              {result.metadata.files_processed.length} files · {result.metadata.parsers_used.length}
+              {result.metadata.total_parsers_available ? `/${result.metadata.total_parsers_available}` : ''} parsers matched
             </p>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
