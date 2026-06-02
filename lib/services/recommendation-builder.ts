@@ -24,9 +24,14 @@ export function buildStructuredRecommendations(result: AggregatedResult): Recomm
     const urls = reg && refs.length
       ? refs.map((r) => rehydrate(reg, r)).filter(Boolean)
       : (issue.urls ?? []);
-    const sortedUrls = [...urls].sort();
+    // Fold in group URLs: grouped issues (duplicate_title_tags, duplicate_h1_tags,
+    // duplicate meta) carry their affected URLs in groups[*].urls, NOT in
+    // issue.urls / affectedUrlRefs. Without this they'd hash an empty set and
+    // report affectedUrlCount: 0, colliding across all grouped types.
+    const groupUrls = (issue.groups ?? []).flatMap((g) => g.urls ?? []);
+    const knownUrls = Array.from(new Set([...urls, ...groupUrls]));
+    const sortedUrls = [...knownUrls].sort();
     const template = ISSUE_RECOMMENDATIONS[issue.type];
-    const source = issue.affectedUrlSource ?? 'unknown';
     return {
       issueType: issue.type,
       severity,
@@ -34,10 +39,15 @@ export function buildStructuredRecommendations(result: AggregatedResult): Recomm
       effort: calculateEffort(issue),
       fixGuidance: template ? fillRecommendationTemplate(template, issue.count) : `Address ${issue.count} ${issue.type} issue(s).`,
       affectedUrlRefs: refs,
-      affectedUrlCount: refs.length || urls.length,
+      affectedUrlCount: refs.length || knownUrls.length,
       affectedUrlComplete: issue.affectedUrlRefsComplete ?? false,
       affectedUrlSource: issue.affectedUrlSource,
-      affectedSetHash: stableHash(`${issue.type}|${source}|${sortedUrls.join(',')}`),
+      // Hash the affected-URL SET only. Exclude `source`: it can flip
+      // (parser-sample -> derived-page-index) for an unchanged URL set and would
+      // break cross-crawl dedupe / future auto-resolve. JSON.stringify the
+      // sorted list so URLs containing commas can't collide. (Callers should
+      // treat this as authoritative only when affectedUrlComplete === true.)
+      affectedSetHash: stableHash(`${issue.type}|${JSON.stringify(sortedUrls)}`),
       groups: issue.groups,
       sampleUrls: issue.urls,
     };

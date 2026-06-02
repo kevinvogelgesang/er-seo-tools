@@ -46,4 +46,35 @@ describe('buildStructuredRecommendations', () => {
     const recs = buildStructuredRecommendations(makeResult());
     expect(recs[0].severity).toBe('critical');
   });
+
+  // ─── Review T-P38: hash excludes `source` ────────────────────────────────
+  it('hash is unchanged when affectedUrlSource flips for the same URL set', () => {
+    const derived = makeResult();
+    const sampled = makeResult();
+    // same affected URLs, only the source differs
+    sampled.issues.critical[0].affectedUrlSource = 'parser-sample';
+    const a = buildStructuredRecommendations(derived).find(r => r.issueType === 'missing_title')!;
+    const b = buildStructuredRecommendations(sampled).find(r => r.issueType === 'missing_title')!;
+    expect(a.affectedSetHash).toBe(b.affectedSetHash);
+  });
+
+  // ─── Review T-P38: grouped issues fold groups[*].urls into hash + count ───
+  it('grouped issues hash their group URLs (non-empty set, real count)', () => {
+    const res = makeResult();
+    res.issues.warnings = [{
+      type: 'duplicate_title_tags', severity: 'warning', count: 2, description: '',
+      groups: [{ title: 'Home', count: 2, urls: ['https://x.edu/a', 'https://x.edu/b'] }],
+    }];
+    const rec = buildStructuredRecommendations(res).find(r => r.issueType === 'duplicate_title_tags')!;
+    expect(rec.affectedUrlCount).toBe(2);              // not 0
+    // hash reflects the group URL set, not an empty set, and differs from a
+    // same-type issue with a different group set
+    const res2 = makeResult();
+    res2.issues.warnings = [{
+      type: 'duplicate_title_tags', severity: 'warning', count: 2, description: '',
+      groups: [{ title: 'Home', count: 2, urls: ['https://x.edu/c', 'https://x.edu/d'] }],
+    }];
+    const rec2 = buildStructuredRecommendations(res2).find(r => r.issueType === 'duplicate_title_tags')!;
+    expect(rec.affectedSetHash).not.toBe(rec2.affectedSetHash);
+  });
 });
