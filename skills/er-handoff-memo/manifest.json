@@ -1,0 +1,30 @@
+{
+  "skill": "er-handoff-memo",
+  "core_transport_version": "2.0.0",
+  "replaces": [
+    "pillar-analysis-narrative@1.0.2",
+    "seo-audit-roadmap@1.1.0",
+    "keyword-strategy-memo@1.0.0"
+  ],
+  "workflows": {
+    "pillar-analysis": {
+      "token_prefix": "pat_",
+      "template": "templates/memo_structure.md",
+      "template_version": "1.0.0",
+      "ported_from": "pillar-analysis-narrative@1.0.2"
+    },
+    "seo-roadmap": {
+      "token_prefix": "srt_",
+      "template": "templates/roadmap_structure.md",
+      "template_version": "1.1.0",
+      "ported_from": "seo-audit-roadmap@1.1.0",
+      "teamwork_push": true
+    },
+    "keyword-memo": {
+      "token_prefix": "krt_",
+      "template": "templates/keyword_memo_structure.md",
+      "template_version": "1.0.0",
+      "ported_from": "keyword-strategy-memo@1.0.0"
+    }
+  }
+}
