@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { CrawlDiff } from '@/lib/services/diff.service';
 import { Issue } from '@/lib/types';
@@ -114,6 +114,30 @@ export default function DiffPage() {
   const [compareError, setCompareError] = useState<string | null>(null);
   const [diff, setDiff] = useState<CrawlDiff | null>(null);
 
+  // Tracks whether an auto-run from query params is pending
+  const autoRunPending = useRef(false);
+
+  // Read ?a=&b= query params on mount and pre-select + auto-run
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const a = params.get('a');
+    const b = params.get('b');
+    if (a && b && a.trim() !== '' && b.trim() !== '' && a !== b) {
+      setSessionAId(a.trim());
+      setSessionBId(b.trim());
+      autoRunPending.current = true;
+    }
+  }, []);
+
+  // Auto-run the compare once both ids are set from query params
+  useEffect(() => {
+    if (autoRunPending.current && sessionAId && sessionBId && sessionAId !== sessionBId) {
+      autoRunPending.current = false;
+      void handleCompare();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionAId, sessionBId]);
+
   useEffect(() => {
     async function fetchHistory() {
       try {
@@ -214,6 +238,11 @@ export default function DiffPage() {
                   className="w-full border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2.5 text-sm text-gray-800 dark:text-white/80 bg-white dark:bg-navy-card dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f5a623] focus:border-transparent"
                 >
                   <option value="">Select a session&hellip;</option>
+                  {sessionAId && !sessions.find((s) => s.id === sessionAId) && (
+                    <option key={sessionAId} value={sessionAId}>
+                      Session {sessionAId.slice(0, 8)}&hellip;
+                    </option>
+                  )}
                   {sessions.map((s) => (
                     <option key={s.id} value={s.id}>
                       {labelForSession(s)}
@@ -231,6 +260,11 @@ export default function DiffPage() {
                   className="w-full border border-gray-200 dark:border-navy-border rounded-lg px-3 py-2.5 text-sm text-gray-800 dark:text-white/80 bg-white dark:bg-navy-card dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f5a623] focus:border-transparent"
                 >
                   <option value="">Select a session&hellip;</option>
+                  {sessionBId && !sessions.find((s) => s.id === sessionBId) && (
+                    <option key={sessionBId} value={sessionBId}>
+                      Session {sessionBId.slice(0, 8)}&hellip;
+                    </option>
+                  )}
                   {sessions.map((s) => (
                     <option key={s.id} value={s.id}>
                       {labelForSession(s)}
