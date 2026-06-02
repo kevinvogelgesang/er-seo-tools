@@ -14,6 +14,7 @@ import { PageDetailModal } from './PageDetailModal';
 import { ShareModal } from './ShareModal';
 import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
+import { SuggestedPriorities } from './SuggestedPriorities';
 
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
 const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
@@ -49,7 +50,8 @@ export function ResultsView({ result, sessionId, pillarButton }: ResultsViewProp
           <div>
             <h1 className="font-bold text-2xl text-[#1c2d4a] dark:text-white">{siteName} — SEO Audit</h1>
             <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
-              {result.metadata.files_processed.length} file{result.metadata.files_processed.length !== 1 ? 's' : ''} processed
+              {result.metadata.files_processed.length} files · {result.metadata.parsers_used.length}
+              {result.metadata.total_parsers_available ? `/${result.metadata.total_parsers_available}` : ''} parsers matched
             </p>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -73,13 +75,15 @@ export function ResultsView({ result, sessionId, pillarButton }: ResultsViewProp
 
         {/* Metrics bar */}
         <MetricsBar
-          healthScore={result.metadata?.health_score}
           totalUrls={result.crawl_summary.total_urls}
           criticalCount={result.issues.critical.length}
           warningsCount={result.issues.warnings.length}
           noticesCount={result.issues.notices.length}
           indexableUrls={result.crawl_summary.indexable_urls}
         />
+
+        {/* Suggested priorities */}
+        <SuggestedPriorities issues={result.issues} />
 
         {/* Full-width issues */}
         <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />

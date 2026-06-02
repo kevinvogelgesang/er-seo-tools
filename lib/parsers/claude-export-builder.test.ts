@@ -241,14 +241,59 @@ describe('buildTechnicalAuditExport', () => {
     expect(result.recommendations).toEqual(['Fix broken links', 'Add missing alt text']);
   });
 
-  it('preserves metadata unchanged', () => {
+  it('preserves metadata (minus health_score)', () => {
     const result = buildTechnicalAuditExport(mockResult);
-    expect(result.metadata).toEqual(mockResult.metadata);
+    const { health_score: _, ...expectedMeta } = mockResult.metadata;
+    expect(result.metadata).toEqual(expectedMeta);
+  });
+
+  it('strips health_score from exported metadata', () => {
+    const result = buildTechnicalAuditExport(mockResult);
+    expect(result.metadata).not.toHaveProperty('health_score');
   });
 
   it('handles result with no duplicate_content', () => {
     const noDups = { ...mockResult, duplicate_content: undefined };
     const result = buildTechnicalAuditExport(noDups);
     expect(result.duplicate_content).toBeUndefined();
+  });
+
+  it('embeds url_registry, page_index and per-issue affectedUrlRefs', () => {
+    const extendedResult = {
+      ...mockResult,
+      url_registry: {
+        sessionOrigin: { scheme: 'https', host: 'example.com' },
+        hosts: ['example.com'],
+        urls: [
+          { id: 0, kind: 'page' as const, hostId: 0, scheme: 'https', path: '/' },
+          { id: 1, kind: 'page' as const, hostId: 0, scheme: 'https', path: '/broken-1' },
+        ],
+      },
+      page_index: [
+        {
+          ref: 0,
+          title: 'Home',
+          h1: 'Welcome',
+          metaDescription: 'Home page',
+          wordCount: 500,
+          crawlDepth: 0,
+          indexable: true,
+          issueTypes: [],
+        },
+      ],
+      issues: {
+        ...mockResult.issues,
+        critical: [
+          {
+            ...mockResult.issues.critical[0],
+            affectedUrlRefs: [1],
+          },
+        ],
+      },
+    };
+    const out = buildTechnicalAuditExport(extendedResult);
+    expect(out.url_registry).toBeDefined();
+    expect(out.page_index).toBeDefined();
+    expect(out.issues.critical[0].affectedUrlRefs).toBeDefined();
   });
 });

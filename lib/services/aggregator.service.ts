@@ -1,6 +1,14 @@
-import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals } from '../types';
+import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals, PageIndexEntry, PerUrlRecord } from '../types';
 import { PARSERS } from '../parsers';
-import { computeHealthScore } from './scoring.service';
+import { UrlRegistryBuilder } from './url-registry';
+import { urlJoinKey } from './url-normalize';
+import { buildAffectedRefs, deriveIssueTypesForPage } from './issue-membership';
+
+function deriveOrigin(sampleUrl: string | undefined, siteName?: string): { scheme: string; host: string } {
+  const src = sampleUrl ?? (siteName ? `https://${siteName}` : 'https://localhost');
+  try { const u = new URL(src); return { scheme: u.protocol.replace(/:$/, ''), host: u.host }; }
+  catch { return { scheme: 'https', host: siteName ?? 'localhost' }; }
+}
 
 /**
  * Issue deduplication and merging
@@ -168,6 +176,13 @@ export class AggregatorService {
         merged[key] = value;
       } else if (key === 'issues' && Array.isArray(value)) {
         merged[key] = [...(merged[key] as Issue[] || []), ...value];
+      } else if (key === 'per_url_index' && Array.isArray(merged[key]) && Array.isArray(value)) {
+        // Object arrays can't dedupe via includes() (object identity); key by url, latest-wins.
+        const byUrl = new Map<string, unknown>();
+        for (const row of [...(merged[key] as { url: string }[]), ...(value as { url: string }[])]) {
+          byUrl.set(row.url, row);
+        }
+        merged[key] = [...byUrl.values()];
       } else if (Array.isArray(value)) {
         const existingList = merged[key] as unknown[];
         const uniqueItems = value.filter(item => !existingList.includes(item));
@@ -227,7 +242,31 @@ export class AggregatorService {
     // Duplicate content analysis
     result.duplicate_content = this.computeDuplicateContent();
 
-    result.metadata.health_score = computeHealthScore(result);
+    // Build the URL registry + page index, then resolve complete affected-URL
+    // sets for each issue. Page-index issueTypes are derived INDEPENDENTLY from
+    // page attributes (not from capped issue.urls) so capped lists for the
+    // derivable types recover their full membership.
+    const internalParser = this.parsedData.internal as Record<string, unknown> | undefined;
+    const rawPerUrl = (internalParser?.per_url_index as PerUrlRecord[]) ?? [];
+    const origin = deriveOrigin(rawPerUrl[0]?.url, result.metadata.site_name);
+    const builder = new UrlRegistryBuilder(origin);
+    const pageIndex: PageIndexEntry[] = rawPerUrl.map((p) => ({
+      ref: builder.intern(p.url, 'page'),
+      title: p.title, h1: p.h1, metaDescription: p.metaDescription,
+      wordCount: p.wordCount, crawlDepth: p.crawlDepth, indexable: p.indexable,
+      issueTypes: deriveIssueTypesForPage(p),
+    }));
+    for (const list of [result.issues.critical, result.issues.warnings, result.issues.notices]) {
+      for (const issue of list) {
+        const { refs, complete, source } = buildAffectedRefs(issue, pageIndex, builder);
+        issue.affectedUrlRefs = refs;
+        issue.affectedUrlRefsComplete = complete;
+        issue.affectedUrlSource = source;
+      }
+    }
+    result.page_index = pageIndex;
+    result.url_registry = builder.build();
+
     return result;
   }
 
@@ -888,6 +927,13 @@ export class AggregatorService {
     const perUrlData = (positionsData?.per_url_keyword_data as Array<{ url: string; keywords: Array<{ keyword: string; position: number; search_volume: number }> }>) ?? [];
     const optimization_gaps: KeywordSignals['optimization_gaps'] = [];
 
+    // Build title/H1 lookup from internal per_url_index (populated by Task 4)
+    const internal = this.parsedData.internal as Record<string, unknown> | undefined;
+    const perUrlIndex = (internal?.per_url_index as Array<{ url: string; title: string | null; h1: string | null }>) ?? [];
+    // Key on a canonical join key so Screaming Frog vs SEMRush URL formatting differences
+    // (scheme, trailing slash, UTM params) don't leave title/H1 blank.
+    const metaByUrl = new Map(perUrlIndex.map((p) => [urlJoinKey(p.url), { title: p.title ?? '', h1: p.h1 ?? '' }]));
+
     {
       // Collect URLs sorted by estimated traffic (total search_volume of top keywords)
       const urlEntries = perUrlData.map(({ url, keywords }) => {
@@ -898,11 +944,11 @@ export class AggregatorService {
       urlEntries.sort((a, b) => b.estimatedTraffic - a.estimatedTraffic);
 
       for (const { url, keywords } of urlEntries.slice(0, 50)) {
-        // We don't have per-URL title/H1 from parsers — include all as gaps.
+        const meta = metaByUrl.get(urlJoinKey(url)) ?? { title: '', h1: '' };
         optimization_gaps.push({
           url,
-          title: '',
-          h1: '',
+          title: meta.title,
+          h1: meta.h1,
           top_ranking_keywords: keywords,
         });
       }

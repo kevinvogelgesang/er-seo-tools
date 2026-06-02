@@ -6,6 +6,9 @@ import type {
   TechnicalSummary,
   DuplicateContent,
   PageSpeedOpportunity,
+  UrlRegistry,
+  PageIndexEntry,
+  SupplementalData,
 } from '@/lib/types';
 
 export interface TechnicalAuditSiteStructure {
@@ -43,6 +46,9 @@ export interface TechnicalAuditExport {
   duplicate_content?: DuplicateContent;
   recommendations: string[];
   metadata: AggregatedResult['metadata'];
+  url_registry?: UrlRegistry;
+  page_index?: PageIndexEntry[];
+  supplemental_data?: SupplementalData;
 }
 
 export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAuditExport {
@@ -81,6 +87,8 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     }
   }
 
+  const { health_score, ...metadataForClaude } = result.metadata;
+
   return {
     crawl_summary: result.crawl_summary,
     issues: result.issues,
@@ -90,6 +98,9 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     performance: technicalPerformance,
     duplicate_content: result.duplicate_content,
     recommendations: result.recommendations,
-    metadata: result.metadata,
+    metadata: metadataForClaude,
+    url_registry: result.url_registry,
+    page_index: result.page_index,
+    supplemental_data: result.supplemental_data,
   };
 }

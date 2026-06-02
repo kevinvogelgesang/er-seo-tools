@@ -273,3 +273,18 @@ https://e.edu/file.pdf,200,Indexable,,,Doc,5000,2,3,0,application/pdf`;
     expect(rows).toHaveLength(0);
   });
 });
+
+describe('InternalParser.parse() per_url_index', () => {
+  it('parse() includes a per_url_index with title/h1 per url', () => {
+    const csv = [
+      'Address,Title 1,H1-1,Meta Description 1,Word Count,Crawl Depth,Indexability',
+      'https://x.edu/a,Home,Welcome,Desc A,800,0,Indexable',
+      'https://x.edu/b,About,About Us,Desc B,300,1,Indexable',
+    ].join('\n');
+    const parser = new InternalParser(csv);   // BaseParser ctor takes CSV content only
+    const out = parser.parse() as Record<string, unknown>;
+    const idx = out.per_url_index as Array<{ url: string; title: string | null }>;
+    expect(idx).toHaveLength(2);
+    expect(idx.find(r => r.url === 'https://x.edu/a')?.title).toBe('Home');
+  });
+});
