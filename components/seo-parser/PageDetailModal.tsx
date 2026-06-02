@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { AggregatedResult, Issue } from '@/lib/types';
 import { SEVERITY_BADGE_COLORS } from '@/lib/constants/severity';
+import { rehydrate } from '@/lib/services/url-registry';
 
 interface PageDetailModalProps {
   url: string;
@@ -26,9 +27,19 @@ const severityOrder: Record<'critical' | 'warning' | 'notice', number> = {
 function findIssuesForUrl(url: string, result: AggregatedResult): MatchedIssue[] {
   const matched: MatchedIssue[] = [];
 
+  const registry = result.url_registry;
+
   const checkIssue = (issue: Issue, severity: 'critical' | 'warning' | 'notice') => {
-    const inUrls = issue.urls?.includes(url) ?? false;
-    if (inUrls) {
+    // issue.urls is a CAPPED sample. Pages recovered via affectedUrlRefs would
+    // wrongly show "no issues" unless we also rehydrate the refs through the
+    // url_registry. Old sessions without a registry fall back to urls only.
+    const affected = new Set<string>(issue.urls ?? []);
+    if (registry) {
+      for (const ref of issue.affectedUrlRefs ?? []) {
+        affected.add(rehydrate(registry, ref));
+      }
+    }
+    if (affected.has(url)) {
       matched.push({ issue, severity });
     }
   };

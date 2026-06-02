@@ -15,6 +15,7 @@ import { ShareModal } from './ShareModal';
 import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
 import { SuggestedPriorities } from './SuggestedPriorities';
+import { PagesTable } from './PagesTable';
 
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
 const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
@@ -41,6 +42,16 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
 
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+
+  const issueTypeOptions = Array.from(
+    new Set(
+      [
+        ...result.issues.critical,
+        ...result.issues.warnings,
+        ...result.issues.notices,
+      ].map((i) => i.type),
+    ),
+  );
 
   return (
     <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep py-12 px-6">
@@ -116,6 +127,25 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
         {result.keyword_signals && (
           <KeywordSignalsPanel data={result.keyword_signals} />
         )}
+
+        {/* Crawled pages drill-down */}
+        <details className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border overflow-hidden group">
+          <summary className="px-6 py-4 flex items-center gap-3 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-navy-light transition-colors">
+            <span className="text-sm font-semibold text-[#1c2d4a] dark:text-white uppercase tracking-wide">
+              Crawled Pages
+            </span>
+            <span className="text-gray-400 dark:text-white/40 text-base leading-none ml-auto group-open:rotate-90 transition-transform">
+              ▶
+            </span>
+          </summary>
+          <div className="px-6 pb-6 border-t border-gray-100 dark:border-navy-border pt-4">
+            <PagesTable
+              sessionId={sessionId}
+              issueTypeOptions={issueTypeOptions}
+              onUrlClick={(url) => setSelectedUrl(url)}
+            />
+          </div>
+        </details>
 
         {/* Debug footer */}
         <details className="text-xs text-gray-400 dark:text-white/40 pb-4">
