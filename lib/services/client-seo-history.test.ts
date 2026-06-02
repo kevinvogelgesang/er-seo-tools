@@ -91,7 +91,7 @@ describe('getClientSeoHistory', () => {
     };
 
     expect(callArg.where).toEqual({ clientId: 7, status: 'complete' });
-    expect(callArg.orderBy).toEqual({ createdAt: 'asc' });
+    expect(callArg.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
 
     // Confirm the select includes the expected scalar fields
     expect(callArg.select).toMatchObject({

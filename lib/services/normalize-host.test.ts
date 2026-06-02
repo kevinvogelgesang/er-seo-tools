@@ -23,4 +23,9 @@ describe('normalizeHost', () => {
   it('only strips a leading www., not embedded', () => {
     expect(normalizeHost('wwwx.example.edu')).toBe('wwwx.example.edu');
   });
+  it('strips a trailing dot on absolute FQDNs so they match the non-dotted host', () => {
+    expect(normalizeHost('example.edu.')).toBe('example.edu');
+    expect(normalizeHost('WWW.Example.EDU.')).toBe('example.edu');
+    expect(normalizeHost('example.edu.')).toBe(normalizeHost('example.edu'));
+  });
 });

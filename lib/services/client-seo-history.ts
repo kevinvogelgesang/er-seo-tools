@@ -23,7 +23,9 @@ export async function getClientSeoHistory(clientId: number): Promise<ClientSeoHi
 
   const rows = await prisma.session.findMany({
     where: { clientId, status: 'complete' },
-    orderBy: { createdAt: 'asc' },
+    // `id` tiebreaker keeps ordering (and therefore latestTwo) deterministic
+    // when two sessions share the same createdAt timestamp.
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: {
       id: true, createdAt: true, siteName: true, siteHost: true,
       totalUrls: true, criticalCount: true, warningCount: true, noticeCount: true,
