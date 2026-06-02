@@ -8,6 +8,7 @@ interface Client {
   domains: string[];
   seedUrls: string[] | null;
   seedUrlsUpdatedAt: string | null;
+  teamworkTasklistId: string | null;
   createdAt: string;
 }
 
@@ -56,6 +57,10 @@ export default function ClientsPage() {
   // Seed URL management
   const [localSeedUrlsText, setLocalSeedUrlsText] = useState<Record<number, string>>({});
   const [seedUrlsLoading, setSeedUrlsLoading] = useState<Record<number, boolean>>({});
+
+  // Teamwork tasklist ID management
+  const [localTasklistId, setLocalTasklistId] = useState<Record<number, string>>({});
+  const [tasklistIdLoading, setTasklistIdLoading] = useState<Record<number, boolean>>({});
 
   const addInputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -210,6 +215,28 @@ export default function ClientsPage() {
       }
     } finally {
       setSeedUrlsLoading((prev) => ({ ...prev, [clientId]: false }));
+    }
+  };
+
+  // ── Teamwork tasklist ID management ──────────────────────────────────────
+
+  const handleSaveTasklistId = async (clientId: number, value: string) => {
+    setTasklistIdLoading((prev) => ({ ...prev, [clientId]: true }));
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamworkTasklistId: value.trim() || null }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setClients((prev) =>
+          prev.map((c) => (c.id === clientId ? { ...c, teamworkTasklistId: data.teamworkTasklistId } : c))
+        );
+        setLocalTasklistId((prev) => { const next = { ...prev }; delete next[clientId]; return next; });
+      }
+    } finally {
+      setTasklistIdLoading((prev) => ({ ...prev, [clientId]: false }));
     }
   };
 
@@ -436,6 +463,40 @@ export default function ClientsPage() {
                           className="text-[12px] font-body font-semibold text-[#f5a623] hover:text-[#e09415] disabled:opacity-50 transition-colors"
                         >
                           {seedUrlsLoading[client.id] ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  {/* Teamwork tasklist ID */}
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-[12px] font-body font-semibold text-[#1c2d4a]/70 dark:text-white/70 hover:text-[#f5a623] select-none">
+                      Teamwork tasklist ID
+                      {client.teamworkTasklistId && (
+                        <span className="font-normal font-mono text-[#1c2d4a]/40 dark:text-white/40">
+                          {' '}· {client.teamworkTasklistId}
+                        </span>
+                      )}
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      <input
+                        type="text"
+                        value={localTasklistId[client.id] ?? (client.teamworkTasklistId ?? '')}
+                        onChange={(e) => setLocalTasklistId((prev) => ({ ...prev, [client.id]: e.target.value }))}
+                        placeholder="e.g. 12345678"
+                        className="w-full px-3 py-2 text-[12px] font-mono text-[#1c2d4a] dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 focus:border-[#f5a623] bg-white dark:bg-navy-card transition-colors"
+                      />
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-body text-[#1c2d4a]/50 dark:text-white/50">
+                          {client.teamworkTasklistId ? `Saved · ${client.teamworkTasklistId}` : 'Not set'}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={tasklistIdLoading[client.id]}
+                          onClick={() => handleSaveTasklistId(client.id, localTasklistId[client.id] ?? (client.teamworkTasklistId ?? ''))}
+                          className="text-[12px] font-body font-semibold text-[#f5a623] hover:text-[#e09415] disabled:opacity-50 transition-colors"
+                        >
+                          {tasklistIdLoading[client.id] ? 'Saving…' : 'Save'}
                         </button>
                       </div>
                     </div>

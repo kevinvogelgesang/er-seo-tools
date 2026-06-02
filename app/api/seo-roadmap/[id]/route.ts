@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const scopes = Array.isArray(payload.scope) ? (payload.scope as string[]) : [];
   if (!scopes.includes('read')) return NextResponse.json({ error: 'token_missing_scope' }, { status: 401 });
 
-  const roadmap = await prisma.seoRoadmap.findUnique({ where: { id }, include: { session: true } });
+  const roadmap = await prisma.seoRoadmap.findUnique({ where: { id }, include: { session: { include: { client: true } } } });
   if (!roadmap) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   if (!roadmap.session.result) return NextResponse.json({ error: 'session_result_missing' }, { status: 409 });
 
@@ -41,11 +41,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: 'session_result_invalid' }, { status: 500 });
   }
 
+  const client = roadmap.session.client;
+
   return NextResponse.json({
     id: roadmap.id,
     sessionId: roadmap.sessionId,
     siteName: roadmap.session.siteName,
     status: roadmap.status,
     audit: buildTechnicalAuditExport(result),
+    teamwork: {
+      tasklistId: client?.teamworkTasklistId ?? null,
+      parentTaskName: 'Audit Optimizations',
+      taskType: 'subtask',
+      rules: { matchParentAssignee: true, addTimeEstimates: false, usePriorityFlags: false },
+    },
   });
 }

@@ -41,6 +41,24 @@ const minimalResult: AggregatedResult = {
   },
 };
 
+/** AggregatedResult with structured_recommendations present */
+const resultWithStructuredRecs: AggregatedResult = {
+  ...minimalResult,
+  structured_recommendations: [
+    {
+      issueType: 'broken_internal_links',
+      severity: 'critical',
+      count: 5,
+      effort: 'low',
+      fixGuidance: 'Fix all broken internal links.',
+      affectedUrlRefs: [1, 2],
+      affectedUrlCount: 2,
+      affectedUrlComplete: true,
+      affectedSetHash: 'abc123',
+    },
+  ],
+};
+
 function makeRequest(headers: Record<string, string> = {}) {
   return new NextRequest(`http://localhost:3000/api/seo-roadmap/${ROADMAP_ID}`, {
     method: 'GET',
@@ -60,7 +78,7 @@ describe('GET /api/seo-roadmap/[id]', () => {
       SEO_ROADMAP_TOKEN_SECRET: 'test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaa',
       NODE_ENV: 'test',
     };
-    // Default: roadmap found with a valid session result
+    // Default: roadmap found with a valid session result and a client with teamworkTasklistId
     findUniqueMock.mockResolvedValue({
       id: ROADMAP_ID,
       sessionId: SESSION_ID,
@@ -69,6 +87,7 @@ describe('GET /api/seo-roadmap/[id]', () => {
         id: SESSION_ID,
         siteName: SITE_NAME,
         result: JSON.stringify(minimalResult),
+        client: { teamworkTasklistId: 'tl_123' },
       },
     });
   });
@@ -159,7 +178,7 @@ describe('GET /api/seo-roadmap/[id]', () => {
       id: ROADMAP_ID,
       sessionId: SESSION_ID,
       status: 'pending',
-      session: { id: SESSION_ID, siteName: SITE_NAME, result: null },
+      session: { id: SESSION_ID, siteName: SITE_NAME, result: null, client: null },
     });
     const { token } = await mintSeoRoadmapToken(ROADMAP_ID);
     const res = await GET(
@@ -221,6 +240,48 @@ describe('GET /api/seo-roadmap/[id]', () => {
     expect(body.audit.url_registry).toBeDefined();
     expect(body.audit.page_index).toBeDefined();
     expect(body.audit.page_index).toHaveLength(1);
+  });
+
+  it('200 payload carries structured_recommendations + the Teamwork directive (client tasklist)', async () => {
+    findUniqueMock.mockResolvedValue({
+      id: ROADMAP_ID,
+      sessionId: SESSION_ID,
+      status: 'complete',
+      session: {
+        id: SESSION_ID,
+        siteName: SITE_NAME,
+        result: JSON.stringify(resultWithStructuredRecs),
+        client: { teamworkTasklistId: 'tl_123' },
+      },
+    });
+    const { token } = await mintSeoRoadmapToken(ROADMAP_ID);
+    const res = await GET(makeRequest({ Authorization: `Bearer ${token}` }), makeParams(ROADMAP_ID));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // structured recommendations flow through the audit export
+    expect(Array.isArray(body.audit.structured_recommendations)).toBe(true);
+    expect(body.audit.structured_recommendations.length).toBeGreaterThan(0);
+    // Teamwork directive reflects the client's tasklist + Kevin's rules
+    expect(body.teamwork.tasklistId).toBe('tl_123');
+    expect(body.teamwork.parentTaskName).toBe('Audit Optimizations');
+    expect(body.teamwork.taskType).toBe('subtask');
+    expect(body.teamwork.rules.matchParentAssignee).toBe(true);
+    expect(body.teamwork.rules.addTimeEstimates).toBe(false);
+    expect(body.teamwork.rules.usePriorityFlags).toBe(false);
+  });
+
+  it('200 teamwork.tasklistId is null when the session has no client', async () => {
+    findUniqueMock.mockResolvedValue({
+      id: ROADMAP_ID,
+      sessionId: SESSION_ID,
+      status: 'complete',
+      session: { id: SESSION_ID, siteName: SITE_NAME, result: JSON.stringify(minimalResult), client: null },
+    });
+    const { token } = await mintSeoRoadmapToken(ROADMAP_ID);
+    const res = await GET(makeRequest({ Authorization: `Bearer ${token}` }), makeParams(ROADMAP_ID));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.teamwork.tasklistId).toBeNull();
   });
 
   it('200 minimal result (no url_registry) still returns valid audit object', async () => {

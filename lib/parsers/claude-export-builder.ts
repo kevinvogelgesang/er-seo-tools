@@ -9,6 +9,7 @@ import type {
   UrlRegistry,
   PageIndexEntry,
   SupplementalData,
+  Recommendation,
 } from '@/lib/types';
 
 export interface TechnicalAuditSiteStructure {
@@ -45,6 +46,7 @@ export interface TechnicalAuditExport {
   performance: TechnicalAuditPerformance;
   duplicate_content?: DuplicateContent;
   recommendations: string[];
+  structured_recommendations?: Recommendation[];
   metadata: AggregatedResult['metadata'];
   url_registry?: UrlRegistry;
   page_index?: PageIndexEntry[];
@@ -98,6 +100,7 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     performance: technicalPerformance,
     duplicate_content: result.duplicate_content,
     recommendations: result.recommendations,
+    structured_recommendations: result.structured_recommendations,
     metadata: metadataForClaude,
     url_registry: result.url_registry,
     page_index: result.page_index,

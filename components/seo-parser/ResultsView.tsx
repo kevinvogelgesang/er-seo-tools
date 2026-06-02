@@ -8,6 +8,7 @@ import { AggregatedResult } from '@/lib/types';
 import { MetricsBar } from './MetricsBar';
 import { IssueTabs } from './IssueTabs';
 import { RecommendationList } from './RecommendationList';
+import { RecommendationsPanel } from './RecommendationsPanel';
 import { ExportButtons } from './ExportButtons';
 import { CopyToClipboard } from './CopyToClipboard';
 import { PageDetailModal } from './PageDetailModal';
@@ -104,7 +105,11 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
         <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />
 
         {/* Recommendations */}
-        <RecommendationList recommendations={result.recommendations} />
+        {result.structured_recommendations && result.structured_recommendations.length > 0 ? (
+          <RecommendationsPanel recommendations={result.structured_recommendations} />
+        ) : (
+          <RecommendationList recommendations={result.recommendations} />
+        )}
 
         {/* Charts row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
