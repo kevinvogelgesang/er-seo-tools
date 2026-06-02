@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class SearchConsoleParser extends BaseParser {
+  static parserKey = 'searchconsole';
   static filenamePattern = 'search_console';
 
   parse(): ParsedData {

@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class SpellingGrammarParser extends BaseParser {
+  static parserKey = 'spellinggrammar';
   // Match both spelling and grammar files
   static filenamePattern = 'spelling';
 
@@ -71,6 +72,7 @@ export class SpellingGrammarParser extends BaseParser {
 }
 
 export class GrammarParser extends SpellingGrammarParser {
+  static parserKey = 'grammar';
   // Match grammar files specifically (no spelling column in these files,
   // so SpellingGrammarParser.parse() will naturally skip the spelling checks)
   static filenamePattern = 'grammar';

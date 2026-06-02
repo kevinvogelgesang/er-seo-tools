@@ -11,6 +11,12 @@ export abstract class BaseParser {
   // Subclasses should define this to match their target file
   static filenamePattern: string | string[] = '';
 
+  // Stable key under which this parser's output is stored on the aggregator's
+  // parsedData. MUST be an explicit string literal on each subclass — the parse
+  // route used to derive it from the class name, which the production build
+  // minifies, breaking the aggregator's hardcoded parsedData.<key> lookups.
+  static parserKey: string = '';
+
   constructor(csvContent: string) {
     this.parseCSV(csvContent);
     // Build a case-insensitive lookup map once per parser instantiation (O(n) → O(1) per findColumn call)

@@ -7,6 +7,7 @@ import { toString, toNumber } from '../../utils/columnMapper';
  * Analyzes internal link anchor text for SEO optimization opportunities.
  */
 export class AnchorTextParser extends BaseParser {
+  static parserKey = 'anchortext';
   static filenamePattern = 'all_anchor_text';
 
   // Common non-descriptive anchor text patterns

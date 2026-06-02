@@ -7,6 +7,7 @@ import { ParsedData } from '../../types';
  * This file has a different format than other CSVs (key-value pairs, not tabular data)
  */
 export class CrawlOverviewParser extends BaseParser {
+  static parserKey = 'crawloverview';
   private kvData: string[][] = [];
 
   static filenamePattern = 'crawl_overview';

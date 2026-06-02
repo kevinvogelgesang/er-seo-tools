@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class SitemapsParser extends BaseParser {
+  static parserKey = 'sitemaps';
   static filenamePattern = ['sitemaps_all', 'sitemaps'];
 
   parse(): ParsedData {
@@ -99,6 +100,7 @@ export class SitemapsParser extends BaseParser {
 }
 
 export class OrphanPagesParser extends BaseParser {
+  static parserKey = 'orphanpages';
   static filenamePattern = 'orphan';
 
   parse(): ParsedData {

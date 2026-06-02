@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class MetaDescriptionParser extends BaseParser {
+  static parserKey = 'metadescription';
   static filenamePattern = ['meta_description_all', 'meta_description'];
 
   private static META_MIN_LENGTH = 70;
