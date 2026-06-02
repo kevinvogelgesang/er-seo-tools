@@ -28,6 +28,9 @@ interface Props {
   initialStatus: string;
   initialRoadmapMarkdown: string | null;
   initialRoadmapUpdatedAt: string | null;
+  /** ISO time the current token was minted; anchors the poll window to mint
+   * time so a stale 'processing' row doesn't restart a 15-min cycle on reload. */
+  initialTokenMintedAt: string | null;
 }
 
 // Hydration-safe relative timestamp. Mirrors RelativeTime from pillar-analysis:
@@ -62,6 +65,7 @@ export function SeoRoadmapCard({
   initialStatus,
   initialRoadmapMarkdown,
   initialRoadmapUpdatedAt,
+  initialTokenMintedAt,
 }: Props) {
   const router = useRouter();
   const [expired, setExpired] = useState(false);
@@ -114,14 +118,22 @@ export function SeoRoadmapCard({
 
   const hasAutoStartedRef = useRef(false);
 
-  // Auto-start on mount ONLY when a generation is already in flight.
+  // Auto-start on mount ONLY when a generation is already in flight. Anchor the
+  // poll window to mint time, not page-load time: a 'processing' row whose token
+  // window already elapsed (skill never wrote back) must NOT restart a fresh
+  // 15-minute poll cycle on every reload — show the expired state instead.
   useEffect(() => {
     if (initialStatus === 'processing' && !hasAutoStartedRef.current) {
       hasAutoStartedRef.current = true;
-      machine.start({ baseline: initialRoadmapUpdatedAt, now: Date.now() });
-      setExpired(false);
+      const mintedMs = initialTokenMintedAt ? new Date(initialTokenMintedAt).getTime() : null;
+      if (mintedMs != null && Date.now() - mintedMs >= LIFETIME_MS) {
+        setExpired(true);
+      } else {
+        machine.start({ baseline: initialRoadmapUpdatedAt, now: mintedMs ?? Date.now() });
+        setExpired(false);
+      }
     }
-  }, [initialStatus, initialRoadmapUpdatedAt, machine]);
+  }, [initialStatus, initialRoadmapUpdatedAt, initialTokenMintedAt, machine]);
 
   // Polling loop
   useEffect(() => {

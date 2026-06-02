@@ -107,6 +107,7 @@ export default async function ResultsPage({ params }: Props) {
           initialStatus={rm?.status ?? 'none'}
           initialRoadmapMarkdown={rm?.roadmapMarkdown ?? null}
           initialRoadmapUpdatedAt={rm?.roadmapUpdatedAt ? rm.roadmapUpdatedAt.toISOString() : null}
+          initialTokenMintedAt={rm?.tokenMintedAt ? rm.tokenMintedAt.toISOString() : null}
         />
       }
     />
