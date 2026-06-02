@@ -16,6 +16,8 @@ import { ShareModal } from './ShareModal';
 import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
 import { SuggestedPriorities } from './SuggestedPriorities';
+import { AuditCompletenessBanner } from './AuditCompletenessBanner';
+import { computeCompleteness } from '@/lib/services/completeness';
 import { PagesTable } from './PagesTable';
 
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
@@ -85,6 +87,9 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
             </button>
           </div>
         </div>
+
+        {/* Completeness guard — recompute if absent so pre-feature sessions are covered too */}
+        <AuditCompletenessBanner completeness={result.completeness ?? computeCompleteness(result)} />
 
         {/* Metrics bar */}
         <MetricsBar
