@@ -120,11 +120,11 @@ export default function DiffPage() {
   // Read ?a=&b= query params on mount and pre-select + auto-run
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const a = params.get('a');
-    const b = params.get('b');
-    if (a && b && a.trim() !== '' && b.trim() !== '' && a !== b) {
-      setSessionAId(a.trim());
-      setSessionBId(b.trim());
+    const a = params.get('a')?.trim();
+    const b = params.get('b')?.trim();
+    if (a && b && a !== b) {
+      setSessionAId(a);
+      setSessionBId(b);
       autoRunPending.current = true;
     }
   }, []);

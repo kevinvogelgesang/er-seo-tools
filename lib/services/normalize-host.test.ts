@@ -12,6 +12,10 @@ describe('normalizeHost', () => {
   it('strips a path on scheme-less input', () => {
     expect(normalizeHost('www.example.edu/foo')).toBe('example.edu');
   });
+  it('drops a port', () => {
+    expect(normalizeHost('https://example.edu:443/a')).toBe('example.edu');
+    expect(normalizeHost('example.edu:8080')).toBe('example.edu');
+  });
   it('handles null/empty', () => {
     expect(normalizeHost(null)).toBeNull();
     expect(normalizeHost('')).toBeNull();

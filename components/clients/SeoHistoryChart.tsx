@@ -25,8 +25,10 @@ export function SeoHistoryChart({ sessions }: { sessions: ChartSession[] }) {
     );
   }
 
+  // Key the X axis on the full ISO timestamp so multiple same-day crawls don't collapse;
+  // format to a short date label only for display.
   const data = plottable.map((s) => ({
-    date: new Date(s.createdAt).toLocaleDateString(),
+    date: s.createdAt,
     critical: s.criticalCount as number,
     warning: s.warningCount as number,
     notice: s.noticeCount as number,
@@ -37,7 +39,7 @@ export function SeoHistoryChart({ sessions }: { sessions: ChartSession[] }) {
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+          <XAxis dataKey="date" tickFormatter={(iso: string) => new Date(iso).toLocaleDateString()} tick={{ fontSize: 12 }} />
           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
           <Tooltip
             contentStyle={{ backgroundColor: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: '8px' }}
