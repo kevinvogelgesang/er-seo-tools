@@ -370,7 +370,12 @@ export default function ClientsPage() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="font-semibold text-[#1c2d4a] dark:text-white text-sm">{client.name}</span>
+                      <a
+                        href={`/clients/${client.id}`}
+                        className="font-semibold text-[#1c2d4a] dark:text-white text-sm hover:text-[#f5a623] dark:hover:text-[#f5a623] transition-colors"
+                      >
+                        {client.name}
+                      </a>
                       <button
                         onClick={() => startEdit(client)}
                         aria-label="Rename client"
@@ -378,6 +383,12 @@ export default function ClientsPage() {
                       >
                         <PencilIcon />
                       </button>
+                      <a
+                        href={`/clients/${client.id}`}
+                        className="text-xs text-gray-400 dark:text-white/40 hover:text-[#f5a623] transition-colors"
+                      >
+                        SEO history →
+                      </a>
                     </div>
                   )}
 

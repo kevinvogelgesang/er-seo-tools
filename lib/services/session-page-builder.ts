@@ -1,5 +1,6 @@
 import type { AggregatedResult } from '@/lib/types';
 import { rehydrate } from './url-registry';
+import { normalizeHost } from './normalize-host';
 
 export interface SessionPageScalars {
   siteHost: string | null;
@@ -48,7 +49,7 @@ export function buildSessionPages(
     : [];
 
   const scalars: SessionPageScalars = {
-    siteHost: result.metadata.site_name ?? reg?.sessionOrigin.host ?? null,
+    siteHost: normalizeHost(result.metadata.site_name ?? reg?.sessionOrigin.host ?? null),
     totalUrls: result.crawl_summary?.total_urls ?? pageIndex.length,
     criticalCount: result.issues.critical.length,
     warningCount: result.issues.warnings.length,
