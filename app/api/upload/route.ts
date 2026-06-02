@@ -144,6 +144,11 @@ export async function POST(request: NextRequest) {
 
     const sessionId = existingSessionId || randomUUID();
 
+    // Workflow marker: keyword-research uploads (SEMRush exports) must not trigger
+    // pillar analysis or pollute the technical client SEO trend. Default 'technical'.
+    const rawWorkflow = formData.get('workflow');
+    const workflow = rawWorkflow === 'keyword-research' ? 'keyword-research' : 'technical';
+
     // Collect all file entries
     const fileEntries: { file: File; filename: string }[] = [];
     for (const [, value] of Array.from(formData.entries())) {
@@ -222,6 +227,7 @@ export async function POST(request: NextRequest) {
           id: sessionId,
           files: JSON.stringify(fileNames),
           status: 'pending',
+          workflow,
         },
       });
     }

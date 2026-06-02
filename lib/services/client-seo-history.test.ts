@@ -90,7 +90,7 @@ describe('getClientSeoHistory', () => {
       select: Record<string, unknown>;
     };
 
-    expect(callArg.where).toEqual({ clientId: 7, status: 'complete' });
+    expect(callArg.where).toEqual({ clientId: 7, status: 'complete', workflow: 'technical' });
     expect(callArg.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
 
     // Confirm the select includes the expected scalar fields

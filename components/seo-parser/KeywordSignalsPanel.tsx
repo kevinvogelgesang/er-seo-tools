@@ -40,6 +40,13 @@ interface TopOrganicPage {
   dominant_intent: string;
 }
 
+interface GapKeyword {
+  keyword: string;
+  volume: number;
+  difficulty?: number;
+  intent?: string;
+}
+
 export interface KeywordSignals {
   semrush_connected: boolean;
   gsc_connected: boolean;
@@ -49,6 +56,7 @@ export interface KeywordSignals {
   optimization_gaps: OptimizationGap[];
   quick_wins: QuickWin[];
   top_pages_by_organic_traffic: TopOrganicPage[];
+  gap_keywords?: GapKeyword[];
 }
 
 interface KeywordSignalsPanelProps {
@@ -405,6 +413,45 @@ function TopOrganicPagesTable({ rows }: { rows: TopOrganicPage[] }) {
   );
 }
 
+// ─── Content Gap Keywords ────────────────────────────────────────────────────
+
+function GapKeywordsTable({ rows }: { rows: GapKeyword[] }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-gray-400 dark:text-white/40">No content gap keywords found.</p>;
+  }
+
+  const sorted = [...rows].sort((a, b) => b.volume - a.volume);
+
+  return (
+    <Table>
+      <thead>
+        <tr>
+          <Th>Keyword</Th>
+          <Th>Volume</Th>
+          <Th>Difficulty</Th>
+          <Th>Intent</Th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100 dark:divide-navy-border">
+        {sorted.map((row, idx) => (
+          <tr key={idx}>
+            <Td className="max-w-[200px]">
+              <span className="block truncate font-medium" title={row.keyword}>
+                {row.keyword}
+              </span>
+            </Td>
+            <Td className="whitespace-nowrap">{fmt(row.volume)}</Td>
+            <Td className="whitespace-nowrap">
+              {typeof row.difficulty === 'number' ? row.difficulty : '—'}
+            </Td>
+            <Td>{row.intent ? <IntentBadge intent={row.intent} /> : '—'}</Td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function KeywordSignalsPanel({ data }: KeywordSignalsPanelProps) {
@@ -424,11 +471,14 @@ export function KeywordSignalsPanel({ data }: KeywordSignalsPanelProps) {
     return null;
   }
 
+  const gapKeywords = data.gap_keywords ?? [];
+
   const totalItems =
     data.keyword_cannibalization.length +
     data.quick_wins.length +
     data.optimization_gaps.length +
-    data.top_pages_by_organic_traffic.length;
+    data.top_pages_by_organic_traffic.length +
+    gapKeywords.length;
 
   return (
     <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border overflow-hidden">
@@ -482,6 +532,13 @@ export function KeywordSignalsPanel({ data }: KeywordSignalsPanelProps) {
             >
               <TopOrganicPagesTable rows={data.top_pages_by_organic_traffic} />
             </SubSection>
+
+            {/* Content Gap Keywords */}
+            {gapKeywords.length > 0 && (
+              <SubSection title="Content Gap Keywords" count={gapKeywords.length}>
+                <GapKeywordsTable rows={gapKeywords} />
+              </SubSection>
+            )}
           </div>
         </div>
       )}
