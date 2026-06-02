@@ -1,4 +1,4 @@
-import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals, PageIndexEntry, PerUrlRecord } from '../types';
+import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals, GapKeyword, PageIndexEntry, PerUrlRecord } from '../types';
 import { PARSERS } from '../parsers';
 import { UrlRegistryBuilder } from './url-registry';
 import { urlJoinKey } from './url-normalize';
@@ -129,7 +129,7 @@ export class AggregatorService {
     const internal = this.parsedData.internal || {};
     const gscConnected = !!(internal.gsc_connected);
     const ga4Connected = !!(internal.ga4_connected);
-    const semrushConnected = !!(this.parsedData.semrushorganicpositions || this.parsedData.semrushorganicpages);
+    const semrushConnected = !!(this.parsedData.semrushorganicpositions || this.parsedData.semrushorganicpages || this.parsedData.semrushkeywordgap);
 
     if (gscConnected || ga4Connected || semrushConnected) {
       const baseKeywordSignals: KeywordSignals = {
@@ -822,8 +822,9 @@ export class AggregatorService {
   private computeKeywordSignals(): Partial<KeywordSignals> {
     const positionsData = this.parsedData.semrushorganicpositions as Record<string, unknown> | undefined;
     const pagesData = this.parsedData.semrushorganicpages as Record<string, unknown> | undefined;
+    const gapData = this.parsedData.semrushkeywordgap as Record<string, unknown> | undefined;
 
-    if (!positionsData && !pagesData) return {};
+    if (!positionsData && !pagesData && !gapData) return {};
 
     const total_ranking_keywords = (positionsData?.total_ranking_keywords as number) ?? 0;
     const keyword_cannibalization = (positionsData?.keyword_cannibalization as KeywordSignals['keyword_cannibalization']) ?? [];
@@ -869,6 +870,7 @@ export class AggregatorService {
       quick_wins,
       top_pages_by_organic_traffic,
       optimization_gaps,
+      gap_keywords: (gapData?.gap_keywords as GapKeyword[]) ?? [],
     };
   }
 

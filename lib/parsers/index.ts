@@ -58,7 +58,7 @@ import { StructuredDataParser } from './structuredData';
 import { SpellingGrammarParser, GrammarParser, ContentReadabilityParser, LowContentParser, ExactDuplicatesParser, NearDuplicatesParser } from './content';
 
 // SEMRush
-import { SemrushOrganicPositionsParser, SemrushOrganicPagesParser, SemrushPositionTrackingParser } from './semrush';
+import { SemrushOrganicPositionsParser, SemrushOrganicPagesParser, SemrushPositionTrackingParser, SemrushKeywordGapParser } from './semrush';
 
 // Issues
 import { IssuesOverviewParser, BestPracticeParser, CarbonParser } from './issues';
@@ -128,8 +128,13 @@ export const PARSERS: Array<typeof BaseParser> = [
   CarbonParser,
 
   // SEMRush (content-based detection — must be after all filename-based parsers)
+  // Order: PositionTracking (raw-content) → OrganicPositions → KeywordGap → OrganicPages
+  // KeywordGap must come after OrganicPositions so the negative-header check (URL, Position, etc.)
+  // disambiguates them cleanly.  OrganicPages is last because its REQUIRED_HEADERS
+  // (Number of Keywords, Adwords Positions) are unique enough to not conflict.
   SemrushPositionTrackingParser,
   SemrushOrganicPositionsParser,
+  SemrushKeywordGapParser,
   SemrushOrganicPagesParser,
 ];
 
@@ -189,6 +194,7 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
   semrushorganicpositions: SemrushOrganicPositionsParser,
   semrushorganicpages: SemrushOrganicPagesParser,
   semrushpositiontracking: SemrushPositionTrackingParser,
+  semrushkeywordgap: SemrushKeywordGapParser,
 };
 
 /**
@@ -284,4 +290,4 @@ export {
 export { StructuredDataParser };
 export { SpellingGrammarParser, GrammarParser, ContentReadabilityParser, LowContentParser, ExactDuplicatesParser, NearDuplicatesParser };
 export { IssuesOverviewParser, BestPracticeParser, CarbonParser };
-export { SemrushOrganicPositionsParser, SemrushOrganicPagesParser, SemrushPositionTrackingParser };
+export { SemrushOrganicPositionsParser, SemrushOrganicPagesParser, SemrushPositionTrackingParser, SemrushKeywordGapParser };
