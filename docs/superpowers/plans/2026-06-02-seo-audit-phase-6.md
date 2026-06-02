@@ -53,11 +53,15 @@ export interface GapKeyword {
 ```
 Add `gap_keywords?: GapKeyword[];` to the `KeywordSignals` interface.
 
-- [ ] **Step 2: Parser** `semrushKeywordGap.parser.ts` — extend `BaseParser` like the sibling SEMRush parsers. `static matchesContent(headers)` returns true when headers include `Keyword` AND `Search Volume` AND `Keyword Difficulty` AND do **NOT** include `URL` (that disambiguates from Organic Positions, which has URL+Position). `parse()` returns `{ gap_keywords: GapKeyword[], gap_keywords_count, total_gap_volume }` — map columns (Keyword, Search Volume→volume, Keyword Difficulty→difficulty, Intent→intent), parse comma-numbers like the other SEMRush parsers do. Write the test first (TDD): assert `matchesContent` true for a Gap header row and false for an Organic-Positions header row (which has URL/Position); assert `parse()` extracts keywords + volumes from a small CSV. **Flag in a code comment** that the exact Gap-export headers should be validated against a real SEMRush "Keyword Gap → Missing" export and adjusted if needed.
+- [ ] **Step 2: Parser** `semrushKeywordGap.parser.ts` — extend `BaseParser` like the sibling SEMRush parsers. `static matchesContent(headers)` (Codex-hardened detection — READ all three sibling parsers' `matchesContent` first):
+  - **Required:** `Keyword` AND a volume alias (`Search Volume` OR `Volume`) AND a difficulty alias (`Keyword Difficulty` OR `Keyword Difficulty %` OR `KD` OR `KD %`).
+  - **Must NOT include any of:** `URL`, `Landing Page`, `Page`, `Position`, `Previous position`, `Number of Keywords`, `Adwords Positions`, `Average Position`, `Avg. Position`, `Estimated Traffic`. (These disambiguate from Organic Positions [requires Keyword+Search Volume+Keyword Intents+URL], Organic Pages [requires Number of Keywords+Adwords Positions], and Position Tracking [raw-content/metadata detected].)
+  - Optional parse: intent alias (`Intent` OR `Keyword Intent` OR `Keyword Intents`).
+  `parse()` returns `{ gap_keywords: GapKeyword[], gap_keywords_count, total_gap_volume }` — map columns via the aliases, parse comma-numbers like the other SEMRush parsers. **TDD:** write `matchesContent` tests asserting TRUE for a Gap header row and FALSE for each of the Organic Positions, Organic Pages, and Position Tracking header sets (copy their expected headers from the sibling tests); assert `parse()` extracts keywords + volumes. **Code comment:** flag that real SEMRush "Keyword Gap → Missing" headers (often `Volume`/`KD %`) must be validated against an actual export.
 
 - [ ] **Step 3: Register** in `lib/parsers/index.ts` `PARSERS` array — place it with the other SEMRush content-detected parsers (after filename-based parsers; near the other `semrush*` entries). Confirm ordering doesn't let Organic Positions swallow a Gap file or vice-versa (the URL-absent check handles it; add a routing assertion to the test if the index has a routing test).
 
-- [ ] **Step 4: Aggregator** — in `computeKeywordSignals()` (`aggregator.service.ts`), read the keyword-gap parser output (`this.parsedData.semrushkeywordgap`) and include `gap_keywords` in the returned `KeywordSignals`. Mirror how it reads `semrushorganicpositions`/`semrushorganicpages`. Default to `[]` when absent.
+- [ ] **Step 4: Aggregator** — in `computeKeywordSignals()` (`aggregator.service.ts`), read the keyword-gap parser output (`this.parsedData.semrushkeywordgap`) and include `gap_keywords` in the returned `KeywordSignals`. Mirror how it reads `semrushorganicpositions`/`semrushorganicpages`; default `[]` when absent. **IMPORTANT (Codex fix #2):** the method currently early-returns `{}` when neither Organic Positions nor Organic Pages is present (~aggregator.service.ts:825). Add `gapData` (the keyword-gap output) to that condition so a **gap-only upload still produces `keyword_signals` with `gap_keywords`** (and `semrush_connected: true`).
 
 - [ ] **Step 5:** `npx vitest run lib/parsers lib/services/aggregator` + `npx tsc --noEmit` → PASS.
 
@@ -96,7 +100,15 @@ model KeywordResearchSession {
   @@index([createdAt])
 }
 ```
-Add the inverse relation to `Session`: `keywordResearch  KeywordResearchSession? @relation("KeywordResearchForSession")`. (Use a named relation since `Session` already has `seoRoadmap` + `pages` + `pillarAnalyses`; confirm no relation-name clash.)
+Add the inverse relation to `Session`: `keywordResearch  KeywordResearchSession? @relation("KeywordResearchForSession")` (named relation; Codex confirmed no clash with `seoRoadmap`/`pages`/`pillarAnalyses`/`shareLinks`).
+
+**Also add a `workflow` marker to `Session`** (Codex fix #3 — keyword uploads reuse `/api/parse` and would otherwise pollute parse history + Phase 5 client trends + trigger pillar analysis):
+```prisma
+  workflow        String   @default("technical") // 'technical' | 'keyword-research'
+
+  @@index([workflow])
+```
+This one migration adds BOTH the `KeywordResearchSession` table and the `Session.workflow` column (additive, defaulted — old rows become `'technical'`).
 
 - [ ] **Step 2: Migrate** `npx prisma migrate dev --name keyword_research_session` (local-dev DATABASE_URL override). Verify the table + unique index on `sessionId`. `npx tsc --noEmit`.
 
@@ -132,7 +144,7 @@ git commit -m "feat(seo): keyword-memo token + prompt + research export builder"
 
 **Files:** `app/api/keyword-memo/by-session/[sessionId]/mint-token/route.ts` (+test) and `app/api/keyword-memo/by-session/[sessionId]/route.ts` (+test). **Mirror the seo-roadmap equivalents EXACTLY** (`app/api/seo-roadmap/by-session/[sessionId]/mint-token/route.ts` and `.../by-session/[sessionId]/route.ts`), swapping: `prisma.seoRoadmap`→`prisma.keywordResearchSession`, `mintSeoRoadmapToken`→`mintKeywordMemoToken`, `SeoRoadmapTokenError`→`KeywordMemoTokenError`, response key `roadmapId`→`memoId`, `seoRoadmap`→`keywordResearch` in the poll response, field `roadmapMarkdown`→`memoMarkdown`/`roadmapUpdatedAt`→`memoUpdatedAt`.
 
-- [ ] **Step 1: Mint route** — same get-or-create-as-pending → mint → flip to processing (error on mint failure), P2002-only race catch, `session.status === 'complete'` gate. **Additionally**, at row creation, auto-link `technicalSessionId`: the most recent OTHER `status:'complete'` session for the same `clientId` (if the session has a clientId), else null. Return `{ token, expiresAt, memoId }`.
+- [ ] **Step 1: Mint route** — same get-or-create-as-pending → mint → flip to processing (error on mint failure), P2002-only race catch, `session.status === 'complete'` gate. At row creation, **set `clientId: session.clientId`** (Codex fix #4) and **auto-link `technicalSessionId`** (Codex fix #5) = the most recent session matching: same `clientId` (only if non-null), `status:'complete'`, `id != current`, `workflow: 'technical'`, and `keywordResearch: null` (no keyword row) — else null. Return `{ token, expiresAt, memoId }`.
 - [ ] **Step 2: Poll route** — returns `{ keywordResearch: { id, sessionId, status, error, memoMarkdown, memoUpdatedAt, createdAt, updatedAt } | null }`.
 - [ ] **Step 3: Tests** — mirror the seo-roadmap mint + by-session tests (real auth cookie via `createAuthCookieValue` for mint; the create/regenerate/race/mint-failure cases; the null + shaped cases for poll). Add one assertion that `technicalSessionId` is set when a prior complete session for the same client exists.
 - [ ] **Step 4:** `npx vitest run "app/api/keyword-memo"` + `npx tsc --noEmit` → PASS.
@@ -148,7 +160,7 @@ git commit -m "feat(seo): keyword-memo mint-token + by-session poll routes"
 
 **Files:** `app/api/keyword-memo/[id]/route.ts` (+test), `app/api/keyword-memo/[id]/memo/route.ts` (+test). **Mirror `app/api/seo-roadmap/[id]/route.ts` and `.../[id]/roadmap/route.ts` EXACTLY**, swapping token/model/field names and using `buildKeywordResearchExport` instead of `buildTechnicalAuditExport`.
 
-- [ ] **Step 1: GET payload** `app/api/keyword-memo/[id]/route.ts` — Bearer `krt_` + `read` scope + sub===id; load `keywordResearchSession` incl. `session`; parse `session.result`; return `{ id, sessionId, siteName, status, keyword: buildKeywordResearchExport(result) }`. (No `teamwork` block — keyword memo doesn't push tasks.)
+- [ ] **Step 1: GET payload** `app/api/keyword-memo/[id]/route.ts` — Bearer `krt_` + `read` scope + sub===id; load `keywordResearchSession` incl. `session`; parse `session.result`; return `{ id, sessionId, technicalSessionId, siteName, status, keyword: buildKeywordResearchExport(result) }` (include `technicalSessionId` so the skill can disclose linked technical context — Codex fix #6). (No `teamwork` block — keyword memo doesn't push tasks.)
 - [ ] **Step 2: PATCH** `app/api/keyword-memo/[id]/memo/route.ts` — Bearer `memo-write` scope; body `{ memo: string, structured? }`; 50k cap on `memo`, 200k cap + object guard on `structured`; write `memoMarkdown` (+structured) + `status:'complete'` + `error:null` + `memoUpdatedAt`. Validate body before auth (mirror).
 - [ ] **Step 3: Tests** — mirror the seo-roadmap GET + PATCH route tests (auth/scope/token cases; 200 returns `keyword` payload with `keyword_signals`; PATCH writes memo + complete; caps; hand-minted scopeless token for the scope case).
 - [ ] **Step 4:** `npx vitest run "app/api/keyword-memo"` + `npx tsc --noEmit` → PASS.
@@ -164,10 +176,17 @@ git commit -m "feat(seo): keyword-memo GET payload + PATCH write-back routes"
 
 **Files:** `app/keyword-research/page.tsx`; `app/keyword-research/[sessionId]/page.tsx`; `components/keyword-research/{GenerateKeywordMemoButton,KeywordMemoCard}.tsx`. Reuse `components/seo-parser/FileDropzone.tsx`, `KeywordSignalsPanel.tsx`, `RoadmapMarkdown.tsx` (or a copy), `lib/memo-poller-machine.ts`, `lib/keyword-memo-prompt.ts`.
 
-- [ ] **Step 1: Upload page** `app/keyword-research/page.tsx` — mirror `app/seo-parser/page.tsx`'s upload flow (FileDropzone → `/api/upload` → `/api/parse/[sessionId]`), but: (a) hint SEMRush exports (Organic Positions/Pages + Keyword Gap "Missing") in the copy, (b) on completion `router.push('/keyword-research/' + sessionId)`. Reuse the existing components; this is mostly a copy of the seo-parser upload page with different copy + redirect target.
+- [ ] **Step 0: Mark keyword uploads with `workflow` + keep them out of the technical surfaces.**
+  - `/api/upload`: accept an optional `workflow` form field and store it on the created `Session` (default `'technical'`). The keyword-research upload page sends `workflow=keyword-research`.
+  - `/api/parse/[sessionId]`: when the session's `workflow === 'keyword-research'`, **skip `triggerPillarAnalysis`** (it's a technical-only side effect). Everything else (parsers, SessionPage persistence, scalars) runs as normal.
+  - **Phase 5 contamination fix:** in `lib/services/client-seo-history.ts` `getClientSeoHistory`, add `workflow: 'technical'` to the `where` so keyword-research sessions don't appear in the client SEO trend/history. (Update its test accordingly.)
+
+- [ ] **Step 1: Upload page** `app/keyword-research/page.tsx` — mirror `app/seo-parser/page.tsx`'s upload flow (FileDropzone → `/api/upload` with `workflow=keyword-research` in the form data → `/api/parse/[sessionId]`), but: (a) hint SEMRush exports (Organic Positions/Pages + Keyword Gap "Missing") in the copy, (b) on completion `router.push('/keyword-research/' + sessionId)`. Reuse the existing components; mostly a copy of the seo-parser upload page with different copy + redirect + the workflow flag.
 - [ ] **Step 2: `GenerateKeywordMemoButton.tsx`** — mirror `components/seo-parser/GenerateRoadmapButton.tsx`: POST `/api/keyword-memo/by-session/${sessionId}/mint-token`, compose via `composeKeywordMemoPayload`, copy to clipboard, `emitMemoPollerTrigger()`. Label "Generate Keyword Memo" / "Regenerate Keyword Memo".
 - [ ] **Step 3: `KeywordMemoCard.tsx`** — mirror `components/seo-parser/SeoRoadmapCard.tsx` (copy its poller wiring via `createPollingMachine`, auto-start only when `initialStatus==='processing'`): props `{ sessionId, initialStatus, initialMemoMarkdown, initialMemoUpdatedAt }`; polls `/api/keyword-memo/by-session/${sessionId}`, reads `keywordResearch.memoUpdatedAt`, `router.refresh()` on change; renders the memo markdown (reuse `RoadmapMarkdown` or a `KeywordMemoMarkdown` copy) or empty state; includes `GenerateKeywordMemoButton`.
-- [ ] **Step 4: Results page** `app/keyword-research/[sessionId]/page.tsx` (server) — load the session (`prisma.session.findUnique`), parse `result`; if no `keyword_signals` show a "no SEMRush keyword data in this upload" notice. Load the `keywordResearchSession` row for `initialStatus`/memo. Render: a header, the existing `<KeywordSignalsPanel data={result.keyword_signals} />` (+ a small gap-keywords list if `gap_keywords` present and the panel doesn't already show it), and `<KeywordMemoCard ... />`. `notFound()` if session missing.
+- [ ] **Step 4: Results page** `app/keyword-research/[sessionId]/page.tsx` (server) — load the session (`prisma.session.findUnique`), parse `result`; if no `keyword_signals` show a "no SEMRush keyword data in this upload" notice. Load the `keywordResearchSession` row for `initialStatus`/memo. Render: a header, the existing `<KeywordSignalsPanel data={result.keyword_signals} />` (+ a small gap-keywords list if `gap_keywords` present), and `<KeywordMemoCard ... />`. `notFound()` if session missing.
+
+- [ ] **Step 4b: Update `KeywordSignalsPanel` typing** (Codex fix #7) — the component defines its own local `KeywordSignals` interface WITHOUT `gap_keywords`. Add `gap_keywords?: GapKeyword[]` to that local type (or import the shared type from `@/lib/types`) and render a compact gap-keywords list/table (keyword · volume · difficulty · intent) when present. Keep it null-safe for sessions without gap data.
 - [ ] **Step 5:** `npx tsc --noEmit && npm run build` → PASS.
 - [ ] **Step 6: Commit**
 ```bash
@@ -207,4 +226,5 @@ git commit -m "feat(seo): /keyword-research route (upload + keyword view + memo 
 - **Keyword Gap header detection is a best guess** — validate `matchesContent` against a real SEMRush "Keyword Gap → Missing" export and adjust required headers; the URL-absent check is the key disambiguator from Organic Positions.
 - **Heavy mirror of seo-roadmap** — keep the token/route/skill structure identical to reduce bugs; only names + the payload builder differ. No new auth/handoff invention.
 - **`KEYWORD_MEMO_TOKEN_SECRET`** must be set in production (same as the other token secrets).
-- Reusing `/api/upload`+`/api/parse` means a keyword session is a normal `Session` (it also runs the technical parsers harmlessly); the keyword view simply focuses on `keyword_signals`.
+- Reusing `/api/upload`+`/api/parse` means a keyword session is a normal `Session` (it also runs the technical parsers harmlessly), now tagged `workflow:'keyword-research'` so it skips pillar analysis and is excluded from Phase 5 client trends; the keyword view focuses on `keyword_signals`.
+- **Gap-only uploads** (Keyword Gap "Missing" alone) have no URL column → likely no `siteName`/`clientId` → no client auto-link and no `technicalSessionId`. For client association + linking, upload Organic Positions alongside the Gap export. An explicit client picker on the keyword upload page is a possible follow-up (out of scope now).
