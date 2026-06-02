@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { ResultsView } from '@/components/seo-parser/ResultsView';
+import { SeoRoadmapCard } from '@/components/seo-parser/SeoRoadmapCard';
 import PillarAnalysisButton from './components/PillarAnalysisButton';
 import { parseStoredResult } from './result-json';
 import type { Metadata } from 'next';
@@ -93,11 +94,22 @@ export default async function ResultsPage({ params }: Props) {
     return <ResultErrorState />;
   }
 
+  const rm = await prisma.seoRoadmap.findUnique({ where: { sessionId } });
+
   return (
     <ResultsView
       result={result}
       sessionId={sessionId}
       pillarButton={<PillarAnalysisButton sessionId={sessionId} />}
+      roadmap={
+        <SeoRoadmapCard
+          sessionId={sessionId}
+          initialStatus={rm?.status ?? 'none'}
+          initialRoadmapMarkdown={rm?.roadmapMarkdown ?? null}
+          initialRoadmapUpdatedAt={rm?.roadmapUpdatedAt ? rm.roadmapUpdatedAt.toISOString() : null}
+          initialTokenMintedAt={rm?.tokenMintedAt ? rm.tokenMintedAt.toISOString() : null}
+        />
+      }
     />
   );
 }

@@ -101,6 +101,16 @@ describe('createPollingMachine', () => {
     expect(m.status()).toBe('expired');
   });
 
+  it('a change observed on the lifetime-boundary tick fires onChange, not expiry', () => {
+    const { m, onChange } = setup();
+    m.start({ baseline: null, now: 0 });
+    // This tick BOTH crosses the lifetime cap AND observes a write-back.
+    // The confirmed change must win — the result must not be dropped.
+    m.tick({ latestUpdatedAt: 'wrote-back', now: FIFTEEN_MIN_MS + 1000 });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(m.status()).not.toBe('expired');
+  });
+
   it('start() while polling resets the baseline and lifetime budget', () => {
     const { m, onChange } = setup();
     m.start({ baseline: null, now: 0 });

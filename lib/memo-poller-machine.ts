@@ -117,17 +117,20 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
       // Bank elapsed active time up to this tick.
       accumulateActiveTime(now);
 
-      // Lifetime check first — even a successful change after expiry
-      // shouldn't fire (caller stopped ticking after expiry).
-      if (activeAccumulatedMs >= opts.lifetimeMs) {
-        status = 'expired';
-        return;
-      }
-
-      // Change detection.
+      // Change detection FIRST. A confirmed write-back must always win over a
+      // lifetime timeout, even when both land on the same tick — otherwise a
+      // short poll window (e.g. one anchored to mint time) can expire on the
+      // exact tick the result arrives and silently drop the refresh.
       if (latestUpdatedAt !== baseline) {
         opts.onChange();
         reset();
+        return;
+      }
+
+      // Lifetime cap: stop polling once cumulative active time exceeds the
+      // budget and nothing changed.
+      if (activeAccumulatedMs >= opts.lifetimeMs) {
+        status = 'expired';
         return;
       }
     },

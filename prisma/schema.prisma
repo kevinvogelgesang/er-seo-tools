@@ -38,6 +38,7 @@ model Session {
   client          Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
   shareLinks      ShareLink[]
   pillarAnalyses  PillarAnalysis[]
+  seoRoadmap      SeoRoadmap?
 
   @@index([createdAt])
   @@index([status])
@@ -157,6 +158,25 @@ model PillarAnalysis {
   // Phase 2 narrative slot — declared now to avoid migration churn later
   aiNarrative         String?
   narrativeUpdatedAt  DateTime?
+
+  @@index([sessionId, status])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SeoRoadmap {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  sessionId         String   @unique
+  session           Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  status            String   @default("pending") // pending | processing | complete | error
+  error             String?
+  tokenMintedAt     DateTime?
+
+  roadmapMarkdown   String?
+  structured        String?   // JSON (optional; Teamwork uses this in Phase 4)
+  roadmapUpdatedAt  DateTime?
 
   @@index([sessionId, status])
   @@index([status])

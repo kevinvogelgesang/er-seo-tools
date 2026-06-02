@@ -23,6 +23,7 @@ interface ResultsViewProps {
   result: AggregatedResult;
   sessionId: string;
   pillarButton?: React.ReactNode;
+  roadmap?: React.ReactNode;
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -34,7 +35,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-export function ResultsView({ result, sessionId, pillarButton }: ResultsViewProps) {
+export function ResultsView({ result, sessionId, pillarButton, roadmap }: ResultsViewProps) {
   const router = useRouter();
   const siteName = result.metadata?.site_name || 'Site';
 
@@ -84,6 +85,9 @@ export function ResultsView({ result, sessionId, pillarButton }: ResultsViewProp
 
         {/* Suggested priorities */}
         <SuggestedPriorities issues={result.issues} />
+
+        {/* Technical SEO roadmap */}
+        {roadmap}
 
         {/* Full-width issues */}
         <IssueTabs issues={result.issues} onUrlClick={(url) => setSelectedUrl(url)} />
