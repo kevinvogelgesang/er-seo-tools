@@ -3,6 +3,7 @@ import { PARSERS } from '../parsers';
 import { UrlRegistryBuilder } from './url-registry';
 import { urlJoinKey } from './url-normalize';
 import { computeCompleteness } from './completeness';
+import { dropSupersededSfIssues } from './sf-issue-dedup';
 import { buildAffectedRefs, deriveIssueTypesForPage } from './issue-membership';
 import { ISSUE_RECOMMENDATIONS } from '@/lib/constants/issue-recommendations';
 import { buildStructuredRecommendations } from './recommendation-builder';
@@ -499,11 +500,14 @@ export class AggregatorService {
       }
     }
 
-    return {
+    // Drop count-only sf_* passthrough issues that a richer, URL-bearing
+    // curated issue already covers (prevents duplicate Teamwork tasks and an
+    // inflated no-URL ratio). Runs after by-type dedupe so the present-set is final.
+    return dropSupersededSfIssues({
       critical: dedupeIssues(critical),
       warnings: dedupeIssues(warnings),
       notices: dedupeIssues(notices),
-    };
+    });
   }
 
   private buildSiteStructure() {
