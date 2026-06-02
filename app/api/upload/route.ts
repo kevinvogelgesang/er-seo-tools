@@ -219,7 +219,8 @@ export async function POST(request: NextRequest) {
       const updatedFiles = Array.from(new Set([...existingFiles, ...fileNames]));
       await prisma.session.update({
         where: { id: sessionId },
-        data: { files: JSON.stringify(updatedFiles) },
+        // Honor an explicit keyword-research workflow on a still-pending append (avoids a stale 'technical' marker).
+        data: { files: JSON.stringify(updatedFiles), ...(workflow === 'keyword-research' ? { workflow } : {}) },
       });
     } else {
       await prisma.session.create({

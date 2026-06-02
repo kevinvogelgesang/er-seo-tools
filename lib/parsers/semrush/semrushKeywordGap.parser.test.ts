@@ -93,15 +93,13 @@ accelerated nursing programs,720,55,Commercial`;
       expect(result.total_gap_volume).toBe(2400 + 1900 + 1600 + 880 + 720);
     });
 
-    it('handles comma-formatted volume numbers', () => {
-      const csvCommas = `Keyword,Volume,KD %
-enterprise seo software,12"000",72
+    it('handles comma-formatted volume numbers (quoted thousands)', () => {
+      // SEMRush quotes thousands separators: "8,500"; papaparse yields the field 8,500
+      // and the parser strips the comma → 8500.
+      const csv = `Keyword,Volume,KD %
+enterprise seo software,"12,000",72
 keyword research tool,"8,500",65`;
-      // Note: papaparse may not strip quotes the same way — test with plain commas
-      const csvPlain = `Keyword,Volume,KD %
-enterprise seo software,12000,72
-keyword research tool,8500,65`;
-      const result = new SemrushKeywordGapParser(csvPlain).parse();
+      const result = new SemrushKeywordGapParser(csv).parse();
       expect(result.gap_keywords[0].volume).toBe(12000);
       expect(result.gap_keywords[1].volume).toBe(8500);
     });

@@ -26,6 +26,9 @@ function parseStoredResult(raw: string | null): AggregatedResult | null {
 export default async function KeywordResearchResultsPage({ params }: Props) {
   const { sessionId } = await params;
 
+  // Intentionally NOT gated on session.workflow: the keyword memo works for ANY session that
+  // has keyword_signals (a technical upload that included SEMRush exports is fine). The workflow
+  // marker only keeps keyword-origin uploads out of the technical history/trends.
   const session = await prisma.session.findUnique({ where: { id: sessionId } });
   if (!session) {
     notFound();
