@@ -159,6 +159,8 @@ export interface PageSpeedOpportunity {
 }
 
 
+export interface GapKeyword { keyword: string; volume: number; difficulty?: number; intent?: string; }
+
 export interface CannibalizedKeyword {
   keyword: string;
   search_volume: number;
@@ -198,6 +200,7 @@ export interface KeywordSignals {
   optimization_gaps: OptimizationGap[];
   quick_wins: QuickWin[];
   top_pages_by_organic_traffic: TopOrganicPage[];
+  gap_keywords?: GapKeyword[];
 }
 
 export interface ExactDuplicatePair {

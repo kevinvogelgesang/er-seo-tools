@@ -144,6 +144,11 @@ export async function POST(request: NextRequest) {
 
     const sessionId = existingSessionId || randomUUID();
 
+    // Workflow marker: keyword-research uploads (SEMRush exports) must not trigger
+    // pillar analysis or pollute the technical client SEO trend. Default 'technical'.
+    const rawWorkflow = formData.get('workflow');
+    const workflow = rawWorkflow === 'keyword-research' ? 'keyword-research' : 'technical';
+
     // Collect all file entries
     const fileEntries: { file: File; filename: string }[] = [];
     for (const [, value] of Array.from(formData.entries())) {
@@ -214,7 +219,8 @@ export async function POST(request: NextRequest) {
       const updatedFiles = Array.from(new Set([...existingFiles, ...fileNames]));
       await prisma.session.update({
         where: { id: sessionId },
-        data: { files: JSON.stringify(updatedFiles) },
+        // Honor an explicit keyword-research workflow on a still-pending append (avoids a stale 'technical' marker).
+        data: { files: JSON.stringify(updatedFiles), ...(workflow === 'keyword-research' ? { workflow } : {}) },
       });
     } else {
       await prisma.session.create({
@@ -222,6 +228,7 @@ export async function POST(request: NextRequest) {
           id: sessionId,
           files: JSON.stringify(fileNames),
           status: 'pending',
+          workflow,
         },
       });
     }

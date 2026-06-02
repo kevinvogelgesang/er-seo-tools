@@ -40,6 +40,8 @@ model Session {
   shareLinks      ShareLink[]
   pillarAnalyses  PillarAnalysis[]
   seoRoadmap      SeoRoadmap?
+  keywordResearch KeywordResearchSession? @relation("KeywordResearchForSession")
+  workflow        String   @default("technical") // 'technical' | 'keyword-research'
   siteHost        String?
   totalUrls       Int?
   criticalCount   Int?
@@ -50,6 +52,7 @@ model Session {
   @@index([createdAt])
   @@index([status])
   @@index([clientId])
+  @@index([workflow])
 }
 
 model ShareLink {
@@ -187,6 +190,26 @@ model SeoRoadmap {
 
   @@index([sessionId, status])
   @@index([status])
+  @@index([createdAt])
+}
+
+model KeywordResearchSession {
+  id                 String   @id @default(cuid())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  sessionId          String   @unique
+  session            Session  @relation("KeywordResearchForSession", fields: [sessionId], references: [id], onDelete: Cascade)
+  clientId           Int?
+  technicalSessionId String?
+  status             String   @default("pending")
+  error              String?
+  tokenMintedAt      DateTime?
+  memoMarkdown       String?
+  structured         String?
+  memoUpdatedAt      DateTime?
+
+  @@index([sessionId, status])
+  @@index([clientId])
   @@index([createdAt])
 }
 

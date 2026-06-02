@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const sessions = await prisma.session.findMany({
+      where: { workflow: 'technical' }, // keep keyword-research uploads out of the technical history + diff picker
       orderBy: { createdAt: 'desc' },
       take: 50,
       select: {
