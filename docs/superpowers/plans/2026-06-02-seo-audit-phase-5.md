@@ -56,6 +56,9 @@ describe('normalizeHost', () => {
   it('strips a scheme/path if a full URL sneaks in', () => {
     expect(normalizeHost('https://www.example.edu/a')).toBe('example.edu');
   });
+  it('strips a path on scheme-less input', () => {
+    expect(normalizeHost('www.example.edu/foo')).toBe('example.edu');
+  });
   it('handles null/empty', () => {
     expect(normalizeHost(null)).toBeNull();
     expect(normalizeHost('')).toBeNull();
@@ -79,6 +82,8 @@ export function normalizeHost(input: string | null | undefined): string | null {
     try { host = new URL(host).host; } catch { /* fall through */ }
   }
   host = host.toLowerCase();
+  // Strip any path/query on scheme-less input ("www.example.edu/foo" → "www.example.edu").
+  host = host.split('/')[0].split('?')[0];
   if (host.startsWith('www.')) host = host.slice(4);
   return host || null;
 }
@@ -92,37 +97,61 @@ siteHost: normalizeHost(result.metadata.site_name ?? reg?.sessionOrigin.host ?? 
 ```
 Update the `session-page-builder.test.ts` scalar expectation if needed (`siteHost` for `site_name: 'x.edu'` stays `'x.edu'`; if a test used `www.` it'd now strip — adjust to match).
 
+- [ ] **Step 4b: Use `normalizeHost` in parse-time client matching.** In `app/api/parse/[sessionId]/route.ts` (~line 167-178, the `siteHostname` vs client-domain loop), normalize BOTH sides before comparing so `www.`/case variants match consistently:
+```typescript
+import { normalizeHost } from '@/lib/services/normalize-host';
+// ...
+const normHost = normalizeHost(siteHostname);
+const matched = clientDomains.some((d) => {
+  const nd = normalizeHost(d);
+  return !!normHost && !!nd && (normHost === nd || normHost.endsWith('.' + nd) || nd.endsWith('.' + normHost));
+});
+```
+Keep the existing behavior otherwise. (This makes future client grouping more robust without changing the clientId grouping key.)
+
 - [ ] **Step 5:** `npx vitest run lib/services/` + `npx tsc --noEmit` → PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/services/normalize-host.ts lib/services/normalize-host.test.ts lib/services/session-page-builder.ts lib/services/session-page-builder.test.ts
-git commit -m "feat(seo): normalizeHost util applied to siteHost scalar"
+git add lib/services/normalize-host.ts lib/services/normalize-host.test.ts lib/services/session-page-builder.ts lib/services/session-page-builder.test.ts "app/api/parse/[sessionId]/route.ts"
+git commit -m "feat(seo): normalizeHost util — siteHost scalar + parse-time client matching"
 ```
 (End each commit body with: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`)
 
 ---
 
-## Task 2: Client SEO-history API
+## Task 2: Shared `getClientSeoHistory` helper + SEO-history API
 
-**Files:** Create `app/api/clients/[id]/seo-history/route.ts` + `route.test.ts`.
+**Files:** Create `lib/services/client-seo-history.ts` (+ test); `app/api/clients/[id]/seo-history/route.ts` (+ test). **Both the API (Task 2) and the `/clients/[id]` server page (Task 3) call this ONE helper** so the scalar query/shape can't drift (Codex fix #2).
 
-- [ ] **Step 1: Implement** — reads ONLY scalar columns (no `result` blob):
+- [ ] **Step 1: Shared helper** `lib/services/client-seo-history.ts` (server-only; reads ONLY scalar columns, never `result`):
 
 ```typescript
-import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const clientId = parseInt(id, 10);
-  if (Number.isNaN(clientId)) return NextResponse.json({ error: 'invalid_client_id' }, { status: 400 });
+export interface ClientSeoHistorySession {
+  id: string;
+  createdAt: string;   // ISO (serialized for client components)
+  siteName: string | null;
+  siteHost: string | null;
+  totalUrls: number | null;
+  criticalCount: number | null;
+  warningCount: number | null;
+  noticeCount: number | null;
+}
+export interface ClientSeoHistory {
+  client: { id: number; name: string } | null;
+  sessions: ClientSeoHistorySession[];
+  latestTwo: [string, string] | null;
+  lastAuditedAt: string | null;
+}
 
+export async function getClientSeoHistory(clientId: number): Promise<ClientSeoHistory> {
   const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, name: true } });
-  if (!client) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (!client) return { client: null, sessions: [], latestTwo: null, lastAuditedAt: null };
 
-  const sessions = await prisma.session.findMany({
+  const rows = await prisma.session.findMany({
     where: { clientId, status: 'complete' },
     orderBy: { createdAt: 'asc' },
     select: {
@@ -131,25 +160,51 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     },
   });
 
-  // latest two (chronological) for a one-click compare
+  const sessions: ClientSeoHistorySession[] = rows.map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt.toISOString(),   // serialize Date → string (Codex fix #3)
+    siteName: r.siteName,
+    siteHost: r.siteHost,
+    totalUrls: r.totalUrls,
+    criticalCount: r.criticalCount,
+    warningCount: r.warningCount,
+    noticeCount: r.noticeCount,
+  }));
+
   const latestTwo = sessions.length >= 2
-    ? [sessions[sessions.length - 2].id, sessions[sessions.length - 1].id]
+    ? [sessions[sessions.length - 2].id, sessions[sessions.length - 1].id] as [string, string]
     : null;
   const lastAuditedAt = sessions.length ? sessions[sessions.length - 1].createdAt : null;
 
-  return NextResponse.json({ client, sessions, latestTwo, lastAuditedAt });
+  return { client, sessions, latestTwo, lastAuditedAt };
 }
 ```
 
-- [ ] **Step 2: Test** `route.test.ts` — mock `@/lib/db` prisma. Cover: 400 invalid id; 404 unknown client; 200 returns `{ client, sessions (ordered, scalar fields only), latestTwo, lastAuditedAt }`; `latestTwo` is null with <2 sessions and the last two ids with ≥2; confirm `findMany` is called with `where: { clientId, status: 'complete' }` and a `select` that does NOT include `result`.
+- [ ] **Step 2: API route** `app/api/clients/[id]/seo-history/route.ts` — thin wrapper over the helper:
 
-- [ ] **Step 3:** Test PASS; `npx tsc --noEmit`.
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { getClientSeoHistory } from '@/lib/services/client-seo-history';
 
-- [ ] **Step 4: Commit**
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const clientId = Number(id);
+  if (!Number.isInteger(clientId) || clientId <= 0) return NextResponse.json({ error: 'invalid_client_id' }, { status: 400 });
+  const data = await getClientSeoHistory(clientId);
+  if (!data.client) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  return NextResponse.json(data);
+}
+```
+
+- [ ] **Step 3: Tests.** `lib/services/client-seo-history.test.ts` — mock `@/lib/db` prisma; assert: null client → `{client:null,...}`; sessions mapped with `createdAt` as ISO string; `findMany` `where: { clientId, status:'complete' }` and a `select` that does NOT include `result`; `latestTwo` null with <2 and last-two with ≥2. `app/api/clients/[id]/seo-history/route.test.ts` — 400 for non-integer/≤0 id, 404 when helper returns null client, 200 passes through the helper data (mock the helper or prisma).
+
+- [ ] **Step 4:** `npx vitest run lib/services app/api/clients` + `npx tsc --noEmit` → PASS.
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add "app/api/clients/[id]/seo-history"
-git commit -m "feat(seo): client SEO-history API (scalar columns, no blob)"
+git add lib/services/client-seo-history.ts lib/services/client-seo-history.test.ts "app/api/clients/[id]/seo-history"
+git commit -m "feat(seo): shared getClientSeoHistory helper + SEO-history API (scalar only)"
 ```
 
 ---
@@ -160,7 +215,7 @@ git commit -m "feat(seo): client SEO-history API (scalar columns, no blob)"
 
 - [ ] **Step 1: `SeoHistoryChart.tsx`** (client) — a Recharts line chart, lazy-loaded the way the existing seo-parser charts are (look at `components/seo-parser/charts/StatusCodeBarChart.tsx` for the `'use client'` + Recharts import pattern; ResultsView lazy-loads charts via `next/dynamic`). Props: `{ sessions: Array<{ createdAt: string; criticalCount: number|null; warningCount: number|null; noticeCount: number|null }> }`. Plot three lines (critical=red, warning=orange, notice=blue) over a date X-axis. Skip/representation for null counts (filter them out or render gaps). Empty state when 0 sessions with scalar data.
 
-- [ ] **Step 2: `SeoHistoryView.tsx`** (client) — orchestrates the client detail body: fetches `/api/clients/${clientId}/seo-history` (plain `fetch` + `useState`, or accept the data as props from the server page — prefer props from the server page to avoid an extra round trip; see Step 3). Renders:
+- [ ] **Step 2: `SeoHistoryView.tsx`** (client) — receives `{ sessions, latestTwo, lastAuditedAt }` as PROPS from the server page (no fetch — the server page already loaded it via the shared helper). Renders:
   - a header line "Last audited: {relative time}" (reuse `lib/relative-time` if present),
   - the lazy `<SeoHistoryChart>` (via `next/dynamic`, `ssr:false`),
   - a session table: Date · Total URLs · Critical · Warnings · Notices · link to `/seo-parser/results/{id}`,
@@ -168,7 +223,7 @@ git commit -m "feat(seo): client SEO-history API (scalar columns, no blob)"
   - an empty state ("No completed SEO audits for this client yet").
   Match the dark-mode card styling used across the app.
 
-- [ ] **Step 3: `app/clients/[id]/page.tsx`** (server component) — `const clientId = Number(params.id)`; load the client (`prisma.client.findUnique`) and the same scalar-only session query as the API (or call the API). Prefer querying prisma directly in the server component and passing `{ client, sessions, latestTwo, lastAuditedAt }` to `<SeoHistoryView>` as props (one round trip). `notFound()` if the client doesn't exist. Render a page shell (heading = client name, its domains) + `<SeoHistoryView ... />`.
+- [ ] **Step 3: `app/clients/[id]/page.tsx`** (server component) — `const { id } = await params; const clientId = Number(id);` then **validate `Number.isInteger(clientId) && clientId > 0` → `notFound()` otherwise** (Codex fix #4, before any Prisma call). Call the SHARED helper `await getClientSeoHistory(clientId)` (NOT a duplicate query — Codex fix #2); `notFound()` if `data.client` is null. Pass the helper's already-ISO-serialized `{ sessions, latestTwo, lastAuditedAt }` to `<SeoHistoryView>` as props (one round trip, no Date objects crossing into client components — Codex fix #3). Render a page shell (heading = client name) + `<SeoHistoryView ... />`.
 
 - [ ] **Step 4: Link from the list.** In `app/clients/page.tsx`, make each client row/name link to `/clients/${client.id}` (add a link/anchor; don't disturb the existing edit controls — read the page and add a "View SEO history" link or make the name a link).
 
@@ -187,9 +242,9 @@ git commit -m "feat(seo): per-client SEO history page (trend + sessions + compar
 
 **Files:** Modify `app/seo-parser/diff/page.tsx`.
 
-- [ ] **Step 1:** Read `app/seo-parser/diff/page.tsx`. It has two session pickers (A and B) and POSTs to `/api/diff`. Add support for reading `?a=<id>&b=<id>` from the URL (via `useSearchParams` in the client component, or `searchParams` prop if it's a server component) and pre-selecting those sessions on mount (and optionally auto-running the diff if both are present and valid). Keep manual selection working. If the page is a server component wrapping a client picker, thread the params down.
+- [ ] **Step 1:** Read `app/seo-parser/diff/page.tsx`. It is ALREADY a `'use client'` component with two session pickers (A and B) that POSTs to `/api/diff`. **Do NOT introduce `useSearchParams`** (it would force a Suspense boundary in Next 15 and risk a build error — Codex fix #5). Instead, in a mount `useEffect`, read `window.location.search` (e.g. `new URLSearchParams(window.location.search)`), pull `a`/`b`, and if both look like valid session ids, pre-select them into the A/B state and auto-run the diff. **Auto-run must call `/api/diff` directly with the ids** — do NOT require `a`/`b` to be present in the global recent-history dropdown options (the latest two for a client may fall outside the global cap; `/api/diff` accepts any valid complete ids — Codex fix #6). Keep manual selection fully working; if the dropdown doesn't contain the preselected id, still run the diff (and it's fine if the select shows a placeholder).
 
-- [ ] **Step 2:** `npx tsc --noEmit && npm run build` → PASS. Manually reason: visiting `/seo-parser/diff?a=X&b=Y` pre-selects X and Y.
+- [ ] **Step 2:** `npx tsc --noEmit && npm run build` → PASS (the build specifically confirms no `useSearchParams`/Suspense issue). Reason through: visiting `/seo-parser/diff?a=X&b=Y` pre-selects + runs the diff even if X/Y aren't in the dropdown.
 
 - [ ] **Step 3: Commit**
 
