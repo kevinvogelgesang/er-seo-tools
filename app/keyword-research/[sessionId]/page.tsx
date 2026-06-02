@@ -70,6 +70,7 @@ export default async function KeywordResearchResultsPage({ params }: Props) {
           initialStatus={row?.status ?? 'none'}
           initialMemoMarkdown={row?.memoMarkdown ?? null}
           initialMemoUpdatedAt={row?.memoUpdatedAt ? row.memoUpdatedAt.toISOString() : null}
+          initialTokenMintedAt={row?.tokenMintedAt ? row.tokenMintedAt.toISOString() : null}
         />
       </div>
     </div>
