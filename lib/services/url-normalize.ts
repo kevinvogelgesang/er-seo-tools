@@ -30,3 +30,17 @@ export function normalizeUrl(input: string): NormalizedUrl {
     originalUrl: strippedAny ? input : undefined,
   };
 }
+
+/**
+ * Canonical key for joining the same page across tools (e.g. Screaming Frog vs SEMRush),
+ * which often disagree on scheme (http/https) and trailing slash. Ignores scheme and trailing
+ * slash, lowercases host, drops UTM params (via normalizeUrl), keeps non-UTM query.
+ * Unparseable input falls back to a trimmed/lowercased best-effort key.
+ */
+export function urlJoinKey(input: string): string {
+  const n = normalizeUrl(input);
+  if (!n.host) return input.trim().toLowerCase();
+  const path = n.path.replace(/\/+$/, '') || '/';
+  const query = n.query ? `?${n.query}` : '';
+  return `${n.host}${path}${query}`;
+}

@@ -1,6 +1,7 @@
 import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, DuplicateContent, KeywordSignals, PageIndexEntry, PerUrlRecord } from '../types';
 import { PARSERS } from '../parsers';
 import { UrlRegistryBuilder } from './url-registry';
+import { urlJoinKey } from './url-normalize';
 import { buildAffectedRefs, deriveIssueTypesForPage } from './issue-membership';
 
 function deriveOrigin(sampleUrl: string | undefined, siteName?: string): { scheme: string; host: string } {
@@ -929,7 +930,9 @@ export class AggregatorService {
     // Build title/H1 lookup from internal per_url_index (populated by Task 4)
     const internal = this.parsedData.internal as Record<string, unknown> | undefined;
     const perUrlIndex = (internal?.per_url_index as Array<{ url: string; title: string | null; h1: string | null }>) ?? [];
-    const metaByUrl = new Map(perUrlIndex.map((p) => [p.url, { title: p.title ?? '', h1: p.h1 ?? '' }]));
+    // Key on a canonical join key so Screaming Frog vs SEMRush URL formatting differences
+    // (scheme, trailing slash, UTM params) don't leave title/H1 blank.
+    const metaByUrl = new Map(perUrlIndex.map((p) => [urlJoinKey(p.url), { title: p.title ?? '', h1: p.h1 ?? '' }]));
 
     {
       // Collect URLs sorted by estimated traffic (total search_volume of top keywords)
@@ -941,7 +944,7 @@ export class AggregatorService {
       urlEntries.sort((a, b) => b.estimatedTraffic - a.estimatedTraffic);
 
       for (const { url, keywords } of urlEntries.slice(0, 50)) {
-        const meta = metaByUrl.get(url) ?? { title: '', h1: '' };
+        const meta = metaByUrl.get(urlJoinKey(url)) ?? { title: '', h1: '' };
         optimization_gaps.push({
           url,
           title: meta.title,

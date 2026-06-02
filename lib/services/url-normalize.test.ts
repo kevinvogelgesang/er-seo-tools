@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeUrl } from './url-normalize';
+import { normalizeUrl, urlJoinKey } from './url-normalize';
 
 describe('normalizeUrl', () => {
   it('lowercases host but not path', () => {
@@ -26,5 +26,24 @@ describe('normalizeUrl', () => {
     const r = normalizeUrl('not a url');
     expect(r.originalUrl).toBe('not a url');
     expect(r.host).toBe('');
+  });
+});
+
+describe('urlJoinKey', () => {
+  it('matches across scheme + trailing-slash differences', () => {
+    expect(urlJoinKey('https://x.edu/page/')).toBe(urlJoinKey('http://x.edu/page'));
+  });
+  it('lowercases host but preserves path case', () => {
+    expect(urlJoinKey('https://X.EDU/Page')).toBe('x.edu/Page');
+  });
+  it('keeps root path as "/"', () => {
+    expect(urlJoinKey('https://x.edu/')).toBe('x.edu/');
+    expect(urlJoinKey('https://x.edu')).toBe('x.edu/');
+  });
+  it('drops UTM params but keeps real query', () => {
+    expect(urlJoinKey('https://x.edu/a?utm_source=g&q=1')).toBe('x.edu/a?q=1');
+  });
+  it('falls back to trimmed lowercase for unparseable input', () => {
+    expect(urlJoinKey('  NotAUrl  ')).toBe('notaurl');
   });
 });
