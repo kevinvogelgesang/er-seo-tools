@@ -15,10 +15,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ sess
     // "missing_title" and NOT a substring like "missing_title_something".
     ...(issueType ? { issueTypes: { contains: JSON.stringify(issueType) } } : {}),
   };
+  // Secondary `url` sort is a deterministic tiebreaker: ordering by a single
+  // non-unique column lets offset pagination duplicate/skip rows across pages
+  // when many rows tie. `url` is unique per session, so it fully orders the set.
   const orderBy =
-    sort === 'wordCount' ? { wordCount: 'asc' as const }
-    : sort === 'crawlDepth' ? { crawlDepth: 'desc' as const }
-    : { issueCount: 'desc' as const };
+    sort === 'wordCount' ? [{ wordCount: 'asc' as const }, { url: 'asc' as const }]
+    : sort === 'crawlDepth' ? [{ crawlDepth: 'desc' as const }, { url: 'asc' as const }]
+    : [{ issueCount: 'desc' as const }, { url: 'asc' as const }];
 
   const [rows, total] = await Promise.all([
     prisma.sessionPage.findMany({ where, orderBy, take: limit, skip: offset }),

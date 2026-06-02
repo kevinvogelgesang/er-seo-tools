@@ -48,7 +48,7 @@ describe('GET /api/seo-parser/[sessionId]/pages', () => {
   });
 
   // ─── Default params ──────────────────────────────────────────────────────
-  it('uses defaults: take=50, skip=0, orderBy issueCount desc, no issueType filter', async () => {
+  it('uses defaults: take=50, skip=0, orderBy issueCount desc + url tiebreaker, no issueType filter', async () => {
     const res = await GET(
       makeRequest(`http://t/api/seo-parser/${SESSION_ID}/pages`),
       makeParams(SESSION_ID),
@@ -57,7 +57,7 @@ describe('GET /api/seo-parser/[sessionId]/pages', () => {
 
     expect(findManyMock).toHaveBeenCalledWith({
       where: { sessionId: SESSION_ID },
-      orderBy: { issueCount: 'desc' },
+      orderBy: [{ issueCount: 'desc' }, { url: 'asc' }],
       take: 50,
       skip: 0,
     });
@@ -132,33 +132,33 @@ describe('GET /api/seo-parser/[sessionId]/pages', () => {
   });
 
   // ─── sort variants ───────────────────────────────────────────────────────
-  it('sort=wordCount → orderBy { wordCount: "asc" }', async () => {
+  it('sort=wordCount → orderBy [{ wordCount: "asc" }, { url: "asc" }]', async () => {
     await GET(
       makeRequest(`http://t/api/seo-parser/${SESSION_ID}/pages?sort=wordCount`),
       makeParams(SESSION_ID),
     );
     expect(findManyMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orderBy: { wordCount: 'asc' } }),
+      expect.objectContaining({ orderBy: [{ wordCount: 'asc' }, { url: 'asc' }] }),
     );
   });
 
-  it('sort=crawlDepth → orderBy { crawlDepth: "desc" }', async () => {
+  it('sort=crawlDepth → orderBy [{ crawlDepth: "desc" }, { url: "asc" }]', async () => {
     await GET(
       makeRequest(`http://t/api/seo-parser/${SESSION_ID}/pages?sort=crawlDepth`),
       makeParams(SESSION_ID),
     );
     expect(findManyMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orderBy: { crawlDepth: 'desc' } }),
+      expect.objectContaining({ orderBy: [{ crawlDepth: 'desc' }, { url: 'asc' }] }),
     );
   });
 
-  it('default sort → orderBy { issueCount: "desc" }', async () => {
+  it('default sort → orderBy [{ issueCount: "desc" }, { url: "asc" }]', async () => {
     await GET(
       makeRequest(`http://t/api/seo-parser/${SESSION_ID}/pages?sort=issues`),
       makeParams(SESSION_ID),
     );
     expect(findManyMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orderBy: { issueCount: 'desc' } }),
+      expect.objectContaining({ orderBy: [{ issueCount: 'desc' }, { url: 'asc' }] }),
     );
   });
 
