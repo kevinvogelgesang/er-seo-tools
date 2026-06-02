@@ -7,6 +7,7 @@ import { findParserForFile } from '@/lib/parsers';
 import { AggregatorService } from '@/lib/services/aggregator.service';
 import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 import { buildSessionPages } from '@/lib/services/session-page-builder';
+import { normalizeHost } from '@/lib/services/normalize-host';
 
 export const dynamic = 'force-dynamic';
 
@@ -171,9 +172,11 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       for (const c of allClients) {
         let clientDomains: string[] = [];
         try { clientDomains = JSON.parse(c.domains); } catch { clientDomains = []; }
-        const matched = clientDomains.some(
-          (d) => siteHostname === d || siteHostname.endsWith('.' + d) || d.endsWith('.' + siteHostname)
-        );
+        const normHost = normalizeHost(siteHostname);
+        const matched = clientDomains.some((d) => {
+          const nd = normalizeHost(d);
+          return !!normHost && !!nd && (normHost === nd || normHost.endsWith('.' + nd) || nd.endsWith('.' + normHost));
+        });
         if (matched) { clientId = c.id; break; }
       }
     }
