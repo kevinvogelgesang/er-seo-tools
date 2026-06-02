@@ -266,6 +266,23 @@ export interface AggregatedResult {
   url_registry?: UrlRegistry;
   page_index?: PageIndexEntry[];
   supplemental_data?: SupplementalData;
+  completeness?: Completeness;
+}
+
+/**
+ * Post-parse verdict on whether the uploaded crawl is rich enough to act on.
+ * The webapp is the source of truth; the export carries this so the handoff
+ * skill can surface a factual scope caveat without re-deriving thresholds.
+ */
+export interface Completeness {
+  verdict: 'complete' | 'partial' | 'thin';
+  pageIndexCount: number;        // crawled pages with per-URL data (0 ⇒ no internal crawl)
+  totalIssues: number;
+  noUrlIssues: number;           // issues with neither affectedUrlRefs nor sample urls
+  noUrlIssueRatio: number;       // noUrlIssues / totalIssues (0 when no issues)
+  hasInternalCrawl: boolean;     // pageIndexCount > 0
+  missingInputs: string[];       // human-readable inputs that would complete the audit
+  message: string;               // short banner copy; '' when verdict === 'complete'
 }
 
 export interface Session {

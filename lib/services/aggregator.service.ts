@@ -2,6 +2,7 @@ import { ParsedData, AggregatedResult, Issue, IssuesResult, CrawlSummary, Duplic
 import { PARSERS } from '../parsers';
 import { UrlRegistryBuilder } from './url-registry';
 import { urlJoinKey } from './url-normalize';
+import { computeCompleteness } from './completeness';
 import { buildAffectedRefs, deriveIssueTypesForPage } from './issue-membership';
 import { ISSUE_RECOMMENDATIONS } from '@/lib/constants/issue-recommendations';
 import { buildStructuredRecommendations } from './recommendation-builder';
@@ -174,6 +175,9 @@ export class AggregatorService {
     result.url_registry = builder.build();
 
     result.structured_recommendations = buildStructuredRecommendations(result);
+
+    // Post-parse completeness verdict (depends on page_index + issues above).
+    result.completeness = computeCompleteness(result);
 
     return result;
   }

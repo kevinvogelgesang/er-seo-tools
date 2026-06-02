@@ -10,6 +10,7 @@ import type {
   PageIndexEntry,
   SupplementalData,
   Recommendation,
+  Completeness,
 } from '@/lib/types';
 
 export interface TechnicalAuditSiteStructure {
@@ -51,6 +52,7 @@ export interface TechnicalAuditExport {
   url_registry?: UrlRegistry;
   page_index?: PageIndexEntry[];
   supplemental_data?: SupplementalData;
+  completeness?: Completeness;
 }
 
 export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAuditExport {
@@ -105,5 +107,6 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     url_registry: result.url_registry,
     page_index: result.page_index,
     supplemental_data: result.supplemental_data,
+    completeness: result.completeness,
   };
 }
