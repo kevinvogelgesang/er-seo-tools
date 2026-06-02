@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class UrlIssuesParser extends BaseParser {
+  static parserKey = 'urlissues';
   static filenamePattern = 'url_';
 
   parse(): ParsedData {

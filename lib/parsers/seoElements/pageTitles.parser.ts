@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class PageTitlesParser extends BaseParser {
+  static parserKey = 'pagetitles';
   static filenamePattern = ['page_titles_all', 'page_titles'];
 
   private static TITLE_MIN_LENGTH = 30;

@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class PageSpeedParser extends BaseParser {
+  static parserKey = 'pagespeed';
   static filenamePattern = ['pagespeed_all', 'pagespeed'];
 
   // Core Web Vitals thresholds

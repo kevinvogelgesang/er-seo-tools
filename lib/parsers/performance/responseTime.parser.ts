@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class ResponseTimeParser extends BaseParser {
+  static parserKey = 'responsetime';
   static filenamePattern = 'response_time';
 
   private static TTFB_GOOD = 200; // ms

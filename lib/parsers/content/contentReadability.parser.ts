@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class ContentReadabilityParser extends BaseParser {
+  static parserKey = 'contentreadability';
   static filenamePattern = 'readability';
 
   parse(): ParsedData {
@@ -38,6 +39,7 @@ export class ContentReadabilityParser extends BaseParser {
 }
 
 export class LowContentParser extends BaseParser {
+  static parserKey = 'lowcontent';
   static filenamePattern = 'low_content';
 
   parse(): ParsedData {

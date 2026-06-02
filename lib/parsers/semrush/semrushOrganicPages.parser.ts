@@ -29,6 +29,7 @@ export interface SemrushOrganicPagesResult extends ParsedData {
 }
 
 export class SemrushOrganicPagesParser extends BaseParser {
+  static parserKey = 'semrushorganicpages';
   static filenamePattern = '';
   static displayName = 'SEMRush Organic Pages';
 

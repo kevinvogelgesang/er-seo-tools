@@ -43,6 +43,7 @@ function stripMetadataHeader(rawContent: string): string {
 }
 
 export class SemrushPositionTrackingParser extends BaseParser {
+  static parserKey = 'semrushpositiontracking';
   static filenamePattern = '';
   static displayName = 'SEMRush Position Tracking';
 

@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class BestPracticeParser extends BaseParser {
+  static parserKey = 'bestpractice';
   static filenamePattern = 'best_practice';
 
   parse(): ParsedData {

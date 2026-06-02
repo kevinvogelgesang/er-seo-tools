@@ -54,6 +54,7 @@ export interface SemrushKeywordGapResult extends ParsedData {
 }
 
 export class SemrushKeywordGapParser extends BaseParser {
+  static parserKey = 'semrushkeywordgap';
   static filenamePattern = '';
   static displayName = 'SEMRush Keyword Gap';
 

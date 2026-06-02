@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class H2Parser extends BaseParser {
+  static parserKey = 'h2';
   static filenamePattern = ['h2_all', 'h2'];
 
   parse(): ParsedData {

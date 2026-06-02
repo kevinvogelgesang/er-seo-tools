@@ -3,6 +3,7 @@ import { NearDuplicateEntry } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class NearDuplicatesParser extends BaseParser {
+  static parserKey = 'nearduplicates';
   static filenamePattern = 'content_near_duplicates';
   static displayName = 'Near Duplicates';
 

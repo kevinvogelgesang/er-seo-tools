@@ -8,6 +8,7 @@ import { toString, toNumber } from '../../utils/columnMapper';
  * description, and "how to fix" recommendations.
  */
 export class IssuesOverviewParser extends BaseParser {
+  static parserKey = 'issuesoverview';
   static filenamePattern = 'issues_overview';
 
   // Map ScreamingFrog issue types to our severity levels

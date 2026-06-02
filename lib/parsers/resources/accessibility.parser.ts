@@ -8,6 +8,7 @@ import { toNumber, toString } from '../../utils/columnMapper';
  * Typical columns: Address, Issues, Errors, Alerts, Features
  */
 export class AccessibilityParser extends BaseParser {
+  static parserKey = 'accessibility';
   static filenamePattern = 'accessibility';
 
   parse(): AccessibilityResult {

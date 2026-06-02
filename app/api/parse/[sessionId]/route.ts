@@ -102,7 +102,11 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         const parser = new ParserConstructor(content);
         const result = parser.parse();
         const primaryDomain = parser.getPrimaryDomain();
-        const parserName = ParserClass.name.replace('Parser', '').toLowerCase();
+        // Use the explicit static parserKey, NOT ParserClass.name — the prod
+        // build minifies class names, which broke the aggregator's hardcoded
+        // parsedData.<key> lookups (page_index/keyword data came out empty).
+        const parserName = (ParserClass as unknown as { parserKey?: string }).parserKey
+          || ParserClass.name.replace('Parser', '').toLowerCase();
         return { parserName, result, filename, primaryDomain };
       } catch (parseError) {
         const message = parseError instanceof Error ? parseError.message : 'Unknown error';

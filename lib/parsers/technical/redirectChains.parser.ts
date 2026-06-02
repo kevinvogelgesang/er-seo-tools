@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class RedirectChainsParser extends BaseParser {
+  static parserKey = 'redirectchains';
   static filenamePattern = 'redirect_chains';
 
   parse(): ParsedData {

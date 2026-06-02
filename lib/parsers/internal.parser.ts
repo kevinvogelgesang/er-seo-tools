@@ -20,6 +20,7 @@ import { toNumber, toString } from '../utils/columnMapper';
  * This is the most critical parser as it contains comprehensive crawl data.
  */
 export class InternalParser extends BaseParser {
+  static parserKey = 'internal';
   static filenamePattern = 'internal_all';
 
   // Column name mappings for different Screaming Frog versions

@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class LinksIssuesParser extends BaseParser {
+  static parserKey = 'linksissues';
   // Matches issues_reports/links_* files (crawl depth, outlinks, anchor quality, etc.)
   static filenamePattern = 'links_';
 
@@ -49,6 +50,7 @@ export class LinksIssuesParser extends BaseParser {
 }
 
 export class ExternalLinksParser extends BaseParser {
+  static parserKey = 'externallinks';
   static filenamePattern = 'all_outlinks';
 
   parse(): ParsedData {

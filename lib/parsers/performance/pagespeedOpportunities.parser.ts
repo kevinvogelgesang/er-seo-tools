@@ -7,6 +7,7 @@ function toInt(value: unknown): number {
 }
 
 export class PageSpeedOpportunitiesParser extends BaseParser {
+  static parserKey = 'pagespeedopportunities';
   static filenamePattern = 'pagespeed_opportunities_summary';
   static displayName = 'PageSpeed Opportunities';
 

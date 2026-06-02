@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toString } from '../../utils/columnMapper';
 
 export class PaginationParser extends BaseParser {
+  static parserKey = 'pagination';
   static filenamePattern = 'pagination';
 
   parse(): ParsedData {

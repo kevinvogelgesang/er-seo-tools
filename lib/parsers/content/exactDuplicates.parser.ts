@@ -19,6 +19,7 @@ function parseSimilarityPercent(value: unknown): number {
 }
 
 export class ExactDuplicatesParser extends BaseParser {
+  static parserKey = 'exactduplicates';
   static filenamePattern = 'exact_duplicates_report';
   static displayName = 'Exact Duplicates';
 

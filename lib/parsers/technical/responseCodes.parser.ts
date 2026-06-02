@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class ResponseCodesParser extends BaseParser {
+  static parserKey = 'responsecodes';
   static filenamePattern = ['response_codes_all', 'response_codes'];
 
   parse(): ParsedData {

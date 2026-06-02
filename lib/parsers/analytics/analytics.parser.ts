@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class AnalyticsParser extends BaseParser {
+  static parserKey = 'analytics';
   static filenamePattern = 'analytics';
 
   parse(): ParsedData {

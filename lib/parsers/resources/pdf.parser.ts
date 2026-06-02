@@ -3,6 +3,7 @@ import { ParsedData, Issue } from '../../types';
 import { toNumber, toString } from '../../utils/columnMapper';
 
 export class PDFParser extends BaseParser {
+  static parserKey = 'pdf';
   static filenamePattern = 'pdf';
 
   private static LARGE_PDF_SIZE = 5 * 1024 * 1024; // 5MB
