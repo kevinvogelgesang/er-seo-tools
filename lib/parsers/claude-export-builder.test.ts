@@ -296,4 +296,28 @@ describe('buildTechnicalAuditExport', () => {
     expect(out.page_index).toBeDefined();
     expect(out.issues.critical[0].affectedUrlRefs).toBeDefined();
   });
+
+  it('passes through structured_recommendations', () => {
+    const extendedResult = {
+      ...mockResult,
+      structured_recommendations: [
+        {
+          issueType: 'missing_title',
+          severity: 'critical' as const,
+          count: 2,
+          effort: 'medium' as const,
+          fixGuidance: 'Add title tags to 2 pages.',
+          affectedUrlRefs: [0, 1],
+          affectedUrlCount: 2,
+          affectedUrlComplete: true,
+          affectedUrlSource: 'derived-page-index' as const,
+          affectedSetHash: 'abc123',
+        },
+      ],
+    };
+    const out = buildTechnicalAuditExport(extendedResult);
+    expect(out.structured_recommendations).toBeDefined();
+    expect(out.structured_recommendations).toHaveLength(1);
+    expect(out.structured_recommendations![0].issueType).toBe('missing_title');
+  });
 });

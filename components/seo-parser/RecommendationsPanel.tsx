@@ -10,7 +10,8 @@ function humanize(issueType: string): string {
 }
 
 function Row({ rec }: { rec: Recommendation }) {
-  const isSample = rec.affectedUrlComplete === false || (rec.affectedUrlSource && rec.affectedUrlSource !== 'derived-page-index');
+  // affectedUrlComplete is the source of truth — a 'parser-complete' set is NOT a sample.
+  const isSample = !rec.affectedUrlComplete;
   return (
     <li className="py-3 border-b border-gray-100 dark:border-navy-border last:border-0">
       <div className="flex items-center justify-between gap-3">
@@ -19,7 +20,7 @@ function Row({ rec }: { rec: Recommendation }) {
           <span className={`text-xs font-semibold ${SEV_TEXT[rec.severity]}`}>{rec.severity}</span>
           <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-navy-light text-gray-600 dark:text-white/60">{rec.effort} effort</span>
           <span className="text-xs text-gray-400">
-            {rec.affectedUrlCount} page{rec.affectedUrlCount === 1 ? '' : 's'}
+            {rec.affectedUrlCount} URL{rec.affectedUrlCount === 1 ? '' : 's'}
             {isSample && <span className="text-gray-400 dark:text-white/30"> (sample)</span>}
           </span>
         </span>

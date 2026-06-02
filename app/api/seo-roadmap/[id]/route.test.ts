@@ -242,6 +242,48 @@ describe('GET /api/seo-roadmap/[id]', () => {
     expect(body.audit.page_index).toHaveLength(1);
   });
 
+  it('200 payload carries structured_recommendations + the Teamwork directive (client tasklist)', async () => {
+    findUniqueMock.mockResolvedValue({
+      id: ROADMAP_ID,
+      sessionId: SESSION_ID,
+      status: 'complete',
+      session: {
+        id: SESSION_ID,
+        siteName: SITE_NAME,
+        result: JSON.stringify(resultWithStructuredRecs),
+        client: { teamworkTasklistId: 'tl_123' },
+      },
+    });
+    const { token } = await mintSeoRoadmapToken(ROADMAP_ID);
+    const res = await GET(makeRequest({ Authorization: `Bearer ${token}` }), makeParams(ROADMAP_ID));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // structured recommendations flow through the audit export
+    expect(Array.isArray(body.audit.structured_recommendations)).toBe(true);
+    expect(body.audit.structured_recommendations.length).toBeGreaterThan(0);
+    // Teamwork directive reflects the client's tasklist + Kevin's rules
+    expect(body.teamwork.tasklistId).toBe('tl_123');
+    expect(body.teamwork.parentTaskName).toBe('Audit Optimizations');
+    expect(body.teamwork.taskType).toBe('subtask');
+    expect(body.teamwork.rules.matchParentAssignee).toBe(true);
+    expect(body.teamwork.rules.addTimeEstimates).toBe(false);
+    expect(body.teamwork.rules.usePriorityFlags).toBe(false);
+  });
+
+  it('200 teamwork.tasklistId is null when the session has no client', async () => {
+    findUniqueMock.mockResolvedValue({
+      id: ROADMAP_ID,
+      sessionId: SESSION_ID,
+      status: 'complete',
+      session: { id: SESSION_ID, siteName: SITE_NAME, result: JSON.stringify(minimalResult), client: null },
+    });
+    const { token } = await mintSeoRoadmapToken(ROADMAP_ID);
+    const res = await GET(makeRequest({ Authorization: `Bearer ${token}` }), makeParams(ROADMAP_ID));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.teamwork.tasklistId).toBeNull();
+  });
+
   it('200 minimal result (no url_registry) still returns valid audit object', async () => {
     const { token } = await mintSeoRoadmapToken(ROADMAP_ID);
     const res = await GET(
