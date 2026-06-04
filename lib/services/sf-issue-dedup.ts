@@ -29,6 +29,8 @@ export const SF_SUPERSEDED_BY: Record<string, string[]> = {
   sf_directives_nofollow: ['nofollow_pages'],
   // Links / anchors
   sf_links_internal_outlinks_with_no_anchor_text: ['empty_anchor_text'],
+  // Headings (H2). Keep sf_h2_multiple — no curated twin.
+  sf_h2_missing: ['missing_h2'],
 };
 
 /**

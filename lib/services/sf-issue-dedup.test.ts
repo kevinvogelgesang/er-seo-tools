@@ -56,6 +56,18 @@ describe('dropSupersededSfIssues', () => {
     expect([...out.critical, ...out.warnings, ...out.notices]).toHaveLength(3);
   });
 
+  it('drops sf_h2_missing when curated missing_h2 is present, keeps sf_h2_multiple', () => {
+    const out = dropSupersededSfIssues(group([
+      iss('sf_h2_missing', 'notice', 42),
+      iss('missing_h2', 'warning', 42),
+      iss('sf_h2_multiple', 'notice', 84),
+    ]));
+    const types = [...out.critical, ...out.warnings, ...out.notices].map((i) => i.type);
+    expect(types).not.toContain('sf_h2_missing');
+    expect(types).toContain('missing_h2');
+    expect(types).toContain('sf_h2_multiple');
+  });
+
   it('every mapped curated target is a plausible issue type (sanity on the table)', () => {
     for (const [sf, targets] of Object.entries(SF_SUPERSEDED_BY)) {
       expect(sf.startsWith('sf_')).toBe(true);
