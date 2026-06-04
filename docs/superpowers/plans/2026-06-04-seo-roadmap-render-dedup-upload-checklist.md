@@ -959,9 +959,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 8: Remove orphaned `ResponseTimeParser`; reconcile redirect patterns
+## Task 8: Reconcile redirect manifest entries with real SF filenames
 
-**Background:** `ResponseTimeParser` (`filenamePattern = 'response_time'`) matches no standalone SF export — response time is a column in `internal_all`. Remove its registration. `RedirectsParser` (`'redirects'`) and `RedirectChainsParser` (`'redirect_chains'`): confirm against real SF export filenames and reconcile with the manifest's `all_redirects` entry.
+> **DESCOPED during implementation (commit `194f967`).** The handoff's filename assumptions were wrong: there is **no** `all_redirects.csv`, `redirect_chains.csv`, or `response_time.csv` in real SF exports. Real redirect data ships inside `response_codes_internal_redirect_chain.csv` and `response_codes_redirection_(3xx).csv`, both of which correctly route to `ResponseCodesParser`. And `ResponseTimeParser` is NOT a clean orphan — it has a dormant consumer chain (aggregator reads `parsedData.responsetime` → `server_response` → claude-export-builder; plus a weighted `slow_server_response` issue), so removing it is risky with zero runtime benefit (it never fires anyway).
+>
+> **Decision:** the parser removals / TTFB-repoint were descoped (separate, riskier cleanup with no user-facing benefit). The bounded, shipped change is: (1) fix the **manifest** redirect entries to match real SF filenames so the Phase 3 checklist is accurate, and (2) document `ResponseTimeParser`/`RedirectsParser`/`RedirectChainsParser` as latent. The original removal steps below are retained for the record but were intentionally NOT executed.
+
+**Background (original, premise incorrect):** `ResponseTimeParser` (`filenamePattern = 'response_time'`) matches no standalone SF export — response time is a column in `internal_all`. Remove its registration. `RedirectsParser` (`'redirects'`) and `RedirectChainsParser` (`'redirect_chains'`): confirm against real SF export filenames and reconcile with the manifest's `all_redirects` entry.
 
 **Files:**
 - Modify: `lib/parsers/index.ts`
