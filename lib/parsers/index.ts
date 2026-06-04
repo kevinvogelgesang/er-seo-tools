@@ -85,6 +85,7 @@ export const PARSERS: Array<typeof BaseParser> = [
   ResponseCodesParser,
   CanonicalsParser,
   DirectivesParser,
+  // NOTE: Screaming Frog ships redirect data inside the response_codes_* exports (e.g. response_codes_internal_redirect_chain.csv, response_codes_redirection_(3xx).csv), which match ResponseCodesParser first. These two parsers are retained but match no standalone SF export today.
   RedirectChainsParser,
   HreflangParser,
   RedirectsParser,
@@ -113,6 +114,7 @@ export const PARSERS: Array<typeof BaseParser> = [
   // because 'pagespeed_opportunities_summary' contains 'pagespeed' as a substring
   PageSpeedOpportunitiesParser,
   PageSpeedParser,
+  // NOTE: latent — SF has no standalone response_time export (response time is a column in internal_all). Retained because aggregator/export-builder still read parsedData.responsetime when present.
   ResponseTimeParser,
 
   // Structured Data

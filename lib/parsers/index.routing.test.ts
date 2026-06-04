@@ -12,3 +12,12 @@ describe('findParserForFile — security vs insecure-content routing', () => {
     expect(parser?.parserKey).toBe('security');
   });
 });
+
+describe('findParserForFile — redirect data routes through ResponseCodesParser', () => {
+  it('routes the SF redirect-chain export to responsecodes', () => {
+    expect(findParserForFile('response_codes_internal_redirect_chain.csv')?.parserKey).toBe('responsecodes');
+  });
+  it('routes the SF 3xx redirection export to responsecodes', () => {
+    expect(findParserForFile('response_codes_redirection_(3xx).csv')?.parserKey).toBe('responsecodes');
+  });
+});

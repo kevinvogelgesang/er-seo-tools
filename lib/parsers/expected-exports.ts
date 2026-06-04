@@ -89,17 +89,16 @@ export const EXPECTED_EXPORTS: ExpectedExport[] = [
   {
     id: 'redirect_chains',
     label: 'Redirect Chains',
-    filenamePatterns: ['redirect_chains'],
+    filenamePatterns: ['redirect_chain'],
     tier: 'optional',
-    sfInstructions: 'Reports → Redirects → Redirect Chains.',
+    sfInstructions: 'Reports → Redirects → Redirect Chains (Screaming Frog exports this as response_codes_internal_redirect_chain.csv).',
   },
   {
-    id: 'all_redirects',
-    label: 'All Redirects',
-    // NOTE: reconcile against the real SF export filename in Task 8.
-    filenamePatterns: ['all_redirects', 'redirects'],
+    id: 'redirection_3xx',
+    label: 'Redirects (3xx)',
+    filenamePatterns: ['redirection'],
     tier: 'optional',
-    sfInstructions: 'Reports → Redirects → All Redirects.',
+    sfInstructions: 'Bulk Export → Response Codes → Redirection (3xx) (exports as response_codes_redirection_(3xx).csv).',
   },
   {
     id: 'pagespeed',
