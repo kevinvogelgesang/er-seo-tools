@@ -7,6 +7,7 @@ function makeResult(opts: {
   critical?: Issue[];
   warnings?: Issue[];
   notices?: Issue[];
+  files?: string[];
 }): AggregatedResult {
   const page_index: PageIndexEntry[] = Array.from({ length: opts.pages ?? 0 }, (_, i) => ({
     ref: i, title: 't', h1: 'h', metaDescription: 'm',
@@ -20,7 +21,7 @@ function makeResult(opts: {
     technical_seo: {} as AggregatedResult['technical_seo'],
     performance: {} as AggregatedResult['performance'],
     recommendations: [],
-    metadata: { files_processed: [], parsers_used: [], total_parsers_available: 43 },
+    metadata: { files_processed: opts.files ?? [], parsers_used: [], total_parsers_available: 43 },
     page_index,
   } as AggregatedResult;
 }
@@ -40,6 +41,15 @@ describe('computeCompleteness', () => {
     expect(c.pageIndexCount).toBe(0);
     expect(c.missingInputs.join(' ').toLowerCase()).toContain('internal');
     expect(c.message.length).toBeGreaterThan(0);
+  });
+
+  it('distinguishes an empty crawl (internal_all uploaded, 0 pages) from a missing file', () => {
+    const c = computeCompleteness(makeResult({ pages: 0, files: ['internal_all.csv'], warnings: [withUrls('a')] }));
+    expect(c.verdict).toBe('thin');          // still hollow — no page data
+    expect(c.hasInternalCrawl).toBe(true);   // but the file WAS uploaded
+    expect(c.missingInputs).toEqual([]);     // nothing is missing
+    expect(c.message.toLowerCase()).toContain('no indexable');
+    expect(c.message.toLowerCase()).not.toContain('upload internal_all');
   });
 
   it('returns "complete" when the page index is populated and issues carry URLs', () => {

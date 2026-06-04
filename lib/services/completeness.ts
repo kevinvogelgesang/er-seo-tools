@@ -17,7 +17,12 @@ function hasNoUrls(issue: Issue): boolean {
  */
 export function computeCompleteness(result: AggregatedResult): Completeness {
   const pageIndexCount = result.page_index?.length ?? 0;
-  const hasInternalCrawl = pageIndexCount > 0;
+  // Whether the internal crawl FILE was uploaded — distinct from whether it
+  // yielded pages. internal_all can be present yet capture 0 indexable HTML
+  // pages (crawl blocked / wrong scope / assets only); that's a different
+  // problem than not uploading the file at all.
+  const hasInternalFile = (result.metadata?.files_processed ?? []).some((f) => /internal_all/i.test(f));
+  const hasInternalCrawl = pageIndexCount > 0 || hasInternalFile;
 
   const issues = [
     ...result.issues.critical,
@@ -32,13 +37,21 @@ export function computeCompleteness(result: AggregatedResult): Completeness {
   let verdict: Completeness['verdict'];
   let message = '';
 
-  if (!hasInternalCrawl) {
+  if (pageIndexCount === 0 && !hasInternalFile) {
+    // The internal crawl was never uploaded.
     verdict = 'thin';
     missingInputs.push('Internal crawl (Screaming Frog internal_all export)');
     message =
-      'No internal crawl detected — on-page content (titles, meta, H1, thin content) and ' +
-      'internal-link analysis are missing, and most issues have no affected URLs. Re-export ' +
-      'with the Screaming Frog internal_all crawl for a complete audit.';
+      'No internal crawl uploaded — on-page content (titles, meta, H1, thin content) and ' +
+      'internal-link analysis are missing, and most issues have no affected URLs. Upload internal_all ' +
+      'from Screaming Frog for a complete audit.';
+  } else if (pageIndexCount === 0) {
+    // internal_all WAS uploaded but captured no indexable HTML pages.
+    verdict = 'thin';
+    message =
+      'Internal crawl uploaded but it captured no indexable HTML pages — the crawl likely did not ' +
+      'reach the site (blocked, wrong scope, or assets/redirects only). Verify the crawl reached the ' +
+      'real pages, then re-run.';
   } else if (noUrlIssueRatio > NO_URL_PARTIAL_THRESHOLD) {
     verdict = 'partial';
     message =

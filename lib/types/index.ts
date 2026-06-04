@@ -280,7 +280,7 @@ export interface Completeness {
   totalIssues: number;
   noUrlIssues: number;           // issues with neither affectedUrlRefs nor sample urls
   noUrlIssueRatio: number;       // noUrlIssues / totalIssues (0 when no issues)
-  hasInternalCrawl: boolean;     // pageIndexCount > 0
+  hasInternalCrawl: boolean;     // pageIndexCount > 0 OR the internal_all file was uploaded
   missingInputs: string[];       // human-readable inputs that would complete the audit
   message: string;               // short banner copy; '' when verdict === 'complete'
 }
