@@ -62,19 +62,19 @@ describe('buildStructuredRecommendations', () => {
   it('grouped issues hash their group URLs (non-empty set, real count)', () => {
     const res = makeResult();
     res.issues.warnings = [{
-      type: 'duplicate_title_tags', severity: 'warning', count: 2, description: '',
+      type: 'duplicate_title', severity: 'warning', count: 2, description: '',
       groups: [{ title: 'Home', count: 2, urls: ['https://x.edu/a', 'https://x.edu/b'] }],
     }];
-    const rec = buildStructuredRecommendations(res).find(r => r.issueType === 'duplicate_title_tags')!;
+    const rec = buildStructuredRecommendations(res).find(r => r.issueType === 'duplicate_title')!;
     expect(rec.affectedUrlCount).toBe(2);              // not 0
     // hash reflects the group URL set, not an empty set, and differs from a
     // same-type issue with a different group set
     const res2 = makeResult();
     res2.issues.warnings = [{
-      type: 'duplicate_title_tags', severity: 'warning', count: 2, description: '',
+      type: 'duplicate_title', severity: 'warning', count: 2, description: '',
       groups: [{ title: 'Home', count: 2, urls: ['https://x.edu/c', 'https://x.edu/d'] }],
     }];
-    const rec2 = buildStructuredRecommendations(res2).find(r => r.issueType === 'duplicate_title_tags')!;
+    const rec2 = buildStructuredRecommendations(res2).find(r => r.issueType === 'duplicate_title')!;
     expect(rec.affectedSetHash).not.toBe(rec2.affectedSetHash);
   });
 });
