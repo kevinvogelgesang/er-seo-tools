@@ -8,6 +8,7 @@ import { AggregatorService } from '@/lib/services/aggregator.service';
 import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 import { buildSessionPages } from '@/lib/services/session-page-builder';
 import { normalizeHost } from '@/lib/services/normalize-host';
+import { missingCoreExports } from '@/lib/parsers/expected-exports';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,39 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         { error: session.status === 'parsing' ? 'Parsing already in progress' : `Cannot parse a ${session.status} session` },
         { status: 409 }
       );
+    }
+
+    // Core-export gate (technical workflow only). Keyword-research/SEMRush-only
+    // sessions are never gated. Runs before claiming so a rejected parse leaves
+    // the session 'pending' (the user can add the missing exports and retry).
+    //
+    // If the manifest can't be parsed here, we SKIP the gate (do NOT report it as
+    // missing-core) and let the existing file-manifest parse below raise the real
+    // "Session file manifest is corrupt" error.
+    if (session.workflow !== 'keyword-research') {
+      let filesForGate: string[] | null = null;
+      try {
+        const parsed = JSON.parse(session.files);
+        if (Array.isArray(parsed)) {
+          filesForGate = parsed.filter((f): f is string => typeof f === 'string');
+        }
+      } catch {
+        filesForGate = null; // corrupt → skip gate, handled downstream
+      }
+      if (filesForGate !== null) {
+        const missing = missingCoreExports(filesForGate);
+        if (missing.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Missing required Screaming Frog export(s): ${missing
+                .map((m) => m.label)
+                .join(', ')}. ${missing.map((m) => m.sfInstructions).join(' ')}`,
+              missingCore: missing.map((m) => m.id),
+            },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const claim = await prisma.session.updateMany({
