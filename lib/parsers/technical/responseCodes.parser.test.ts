@@ -157,3 +157,37 @@ https://example.com/broken,404`;
     });
   });
 });
+
+describe('ResponseCodesParser — client_errors_4xx scope', () => {
+  // NOTE: match the parser construction style already used in this file.
+  const parse = (csv: string) => new ResponseCodesParser(csv).parse();
+
+  it('counts only internal 4xx rows when an Internal scope column is present', () => {
+    const csv = [
+      'Address,Status Code,Internal',
+      'https://site.com/missing,404,true',
+      'https://external.example/dead,404,false',
+      'https://other.example/gone,403,false',
+    ].join('\n');
+    const issues = (parse(csv).issues ?? []) as Array<{ type: string; count: number; urls?: string[] }>;
+    const clientErr = issues.find((i) => i.type === 'client_errors_4xx');
+    expect(clientErr?.count).toBe(1);
+    expect(clientErr?.urls).toEqual(['https://site.com/missing']);
+  });
+
+  it('counts all 4xx rows when no scope column exists (legacy behavior preserved)', () => {
+    const csv = ['Address,Status Code', 'https://site.com/a,404', 'https://site.com/b,410'].join('\n');
+    const issues = (parse(csv).issues ?? []) as Array<{ type: string; count: number }>;
+    expect(issues.find((i) => i.type === 'client_errors_4xx')?.count).toBe(2);
+  });
+
+  it('counts all 4xx rows when the scope column has UNRECOGNIZED values (no silent zeroing)', () => {
+    const csv = [
+      'Address,Status Code,Type',
+      'https://site.com/a,404,Client Error',
+      'https://site.com/b,403,Client Error',
+    ].join('\n');
+    const issues = (parse(csv).issues ?? []) as Array<{ type: string; count: number }>;
+    expect(issues.find((i) => i.type === 'client_errors_4xx')?.count).toBe(2);
+  });
+});
