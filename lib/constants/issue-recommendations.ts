@@ -83,9 +83,6 @@ export const ISSUE_RECOMMENDATIONS: Record<string, string> = {
   // NEW — Duplicate Content
   exact_duplicate_pages: 'Consolidate or canonicalize {count} exact duplicate pages to prevent crawl budget waste and duplicate content penalties.',
   near_duplicate_pages: 'Review {count} near-duplicate pages and either merge, canonicalize, or differentiate their content.',
-  duplicate_title_tags: 'Create unique title tags for {count} groups of pages sharing the same title tag.',
-  duplicate_meta_descriptions: 'Create unique meta descriptions for {count} groups of pages sharing the same meta description.',
-  duplicate_h1_tags: 'Ensure unique H1 headings for {count} groups of pages sharing the same H1.',
 
   // NEW — Keyword Signals
   keyword_cannibalization: 'Resolve keyword cannibalization for {count} keywords competing across multiple URLs — consolidate or differentiate content.',
