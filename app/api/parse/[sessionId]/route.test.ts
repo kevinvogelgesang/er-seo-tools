@@ -62,4 +62,23 @@ describe('POST /api/parse/[sessionId] — core-export gate', () => {
     expect(body.missingCore).toBeUndefined(); // not the core-gate rejection
     expect(sessionUpdateManyMock).toHaveBeenCalled(); // got past the gate to the claim
   });
+
+  it('does NOT return a core-missing 400 for a corrupt file manifest (gate skipped, claim proceeds)', async () => {
+    sessionFindUniqueMock.mockResolvedValue({
+      id: VALID_ID,
+      status: 'pending',
+      workflow: 'technical',
+      files: 'not-valid-json{',
+    });
+
+    let body: { missingCore?: unknown } = {};
+    const res = await POST({} as never, ctx as never);
+    try { body = await res.json(); } catch { /* downstream may not return JSON */ }
+
+    // The corrupt manifest must NOT be reported as missing-core; the gate is
+    // skipped and the session is claimed (the downstream corrupt-manifest path
+    // handles the real error).
+    expect(body.missingCore).toBeUndefined();
+    expect(sessionUpdateManyMock).toHaveBeenCalled();
+  });
 });
