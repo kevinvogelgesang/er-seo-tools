@@ -127,7 +127,7 @@ export default function SEOParserPage() {
           />
 
           <div className="mt-4">
-            <UploadChecklist />
+            <UploadChecklist files={files} />
           </div>
 
           {error && (
