@@ -33,7 +33,7 @@
 - Modify: `lib/services/sf-issue-dedup.ts` — add `sf_h2_missing → missing_h2`.
 - Modify: `lib/services/sf-issue-dedup.test.ts` — cover the new mapping.
 - Modify: `lib/parsers/technical/responseCodes.parser.ts` — scope `client_errors_4xx` to internal rows.
-- Create: `lib/parsers/technical/responseCodes.parser.test.ts` — internal/external 4xx fixture.
+- Modify: `lib/parsers/technical/responseCodes.parser.test.ts` (already exists) — append internal/external 4xx cases; do not overwrite existing coverage.
 
 **Phase 2 — manifest + parser routing**
 - Create: `lib/parsers/expected-exports.ts` — `EXPECTED_EXPORTS`, `matchExpectedExports`, `missingCoreExports`.
@@ -260,10 +260,10 @@ export function KeywordMemoMarkdown({ source }: { source: string }) {
 
 If the original prop name differs (e.g. `markdown` instead of `source`), keep the original signature and pass it through: `<DashboardMarkdown source={markdown} />`.
 
-- [ ] **Step 4: Typecheck**
+- [ ] **Step 4: Typecheck + run existing markdown tests**
 
-Run: `npx tsc --noEmit`
-Expected: no errors (imports resolve, prop types match).
+Run: `npx tsc --noEmit && npx vitest run app/pillar-analysis/[id]/components/MemoMarkdown.test.ts components/markdown/DashboardMarkdown.test.tsx`
+Expected: no type errors; the existing `MemoMarkdown.test.ts` (which still imports `MemoMarkdown`) and the new `DashboardMarkdown` test both PASS. If `MemoMarkdown.test.ts` asserts on specific element output that changes under the shared renderer, update those assertions — the wrapper must keep `MemoMarkdown`'s export name and `source` prop.
 
 - [ ] **Step 5: Commit**
 
@@ -525,30 +525,22 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `lib/parsers/technical/responseCodes.parser.ts`
-- Create: `lib/parsers/technical/responseCodes.parser.test.ts`
+- Modify: `lib/parsers/technical/responseCodes.parser.test.ts` (**already exists** — append a new `describe` block; do NOT overwrite the existing filename-pattern / empty-CSV / distribution / 4xx-5xx / redirects / cap coverage).
 
-- [ ] **Step 1: Confirm the real scope-column name**
+- [ ] **Step 1: Confirm the real scope-column name AND its values**
 
 Run: `grep -rn "Internal" lib/parsers/technical/responseCodes.parser.ts; echo "---"; head -1 /Users/kevin/enrollment-resources/sf-crawls/pro-way-hair-school/*/response_codes*.csv 2>/dev/null | tr ',' '\n' | grep -iE "internal|type|indexab"`
-Expected: identify whether SF's response-code export has an `Internal` column (values like `true`/`false`) or a `Type` column (values `Internal`/`External`). Use the column you find in Step 3. If neither exists in the available exports, default the candidate list to `['Internal']` and rely on the regression fixture (Step 2) to prove the filter; note this in the commit.
+Expected: identify the scope column AND inspect its VALUES. SF may have an `Internal` boolean (`true`/`false`) OR a `Type` column whose values are NOT internal/external (it can mean content type / response category). **Do not assume `Type` means internal-vs-external** — only treat a column as scope if its values are recognizably internal/external (Step 4's tri-state handles unknown values safely). If you confirm `Type` is unrelated to scope here, drop `'Type'` from the candidate list and use `['Internal']` only.
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 2: Append the failing tests**
 
-Create `lib/parsers/technical/responseCodes.parser.test.ts`:
+Open the existing `lib/parsers/technical/responseCodes.parser.test.ts`, note how it constructs the parser (mirror that exact setup — the snippet below uses `new ResponseCodesParser(csv)` as a placeholder), and append:
 
 ```ts
-import { describe, it, expect } from 'vitest';
-import { ResponseCodesParser } from './responseCodes.parser';
-
-function parse(csv: string) {
-  // BaseParser is constructed from raw CSV content in this codebase's pattern.
-  // If the constructor signature differs, mirror an existing parser test
-  // (e.g. lib/parsers/seoElements/pageTitles.parser.test.ts) for setup.
-  const parser = new ResponseCodesParser(csv);
-  return parser.parse();
-}
-
 describe('ResponseCodesParser — client_errors_4xx scope', () => {
+  // NOTE: match the parser construction style already used in this file.
+  const parse = (csv: string) => new ResponseCodesParser(csv).parse();
+
   it('counts only internal 4xx rows when an Internal scope column is present', () => {
     const csv = [
       'Address,Status Code,Internal',
@@ -556,21 +548,26 @@ describe('ResponseCodesParser — client_errors_4xx scope', () => {
       'https://external.example/dead,404,false',
       'https://other.example/gone,403,false',
     ].join('\n');
-    const result = parse(csv);
-    const issues = (result.issues ?? []) as Array<{ type: string; count: number; urls?: string[] }>;
+    const issues = (parse(csv).issues ?? []) as Array<{ type: string; count: number; urls?: string[] }>;
     const clientErr = issues.find((i) => i.type === 'client_errors_4xx');
     expect(clientErr?.count).toBe(1);
     expect(clientErr?.urls).toEqual(['https://site.com/missing']);
   });
 
   it('counts all 4xx rows when no scope column exists (legacy behavior preserved)', () => {
+    const csv = ['Address,Status Code', 'https://site.com/a,404', 'https://site.com/b,410'].join('\n');
+    const issues = (parse(csv).issues ?? []) as Array<{ type: string; count: number }>;
+    expect(issues.find((i) => i.type === 'client_errors_4xx')?.count).toBe(2);
+  });
+
+  it('counts all 4xx rows when the scope column has UNRECOGNIZED values (no silent zeroing)', () => {
+    // Guards against a column named e.g. `Type` whose values are not internal/external.
     const csv = [
-      'Address,Status Code',
-      'https://site.com/a,404',
-      'https://site.com/b,410',
+      'Address,Status Code,Type',
+      'https://site.com/a,404,Client Error',
+      'https://site.com/b,403,Client Error',
     ].join('\n');
-    const result = parse(csv);
-    const issues = (result.issues ?? []) as Array<{ type: string; count: number }>;
+    const issues = (parse(csv).issues ?? []) as Array<{ type: string; count: number }>;
     expect(issues.find((i) => i.type === 'client_errors_4xx')?.count).toBe(2);
   });
 });
@@ -579,22 +576,26 @@ describe('ResponseCodesParser — client_errors_4xx scope', () => {
 - [ ] **Step 3: Run the test to verify it fails**
 
 Run: `npx vitest run lib/parsers/technical/responseCodes.parser.test.ts`
-Expected: FAIL on the first test — current parser counts 3 (all 4xx), not 1. (If the constructor signature is wrong, fix the test setup to match an existing parser test first, then re-run.)
+Expected: FAIL on the first test — current parser counts 3 (all 4xx), not 1. (The legacy + unrecognized-value tests should already pass.)
 
-- [ ] **Step 4: Implement the internal-scope filter**
+- [ ] **Step 4: Implement the tri-state internal-scope filter**
 
 In `lib/parsers/technical/responseCodes.parser.ts`, after the existing column lookups (after line 13 `const statusCol = this.findColumn(['Status Code', 'Status']);`), add:
 
 ```ts
     // Optional internal-scope column. SF response-code exports may carry an
-    // `Internal` boolean or a `Type` (Internal/External) column. When present,
-    // client_errors_4xx counts ONLY internal pages — external 4xx targets are
-    // covered by broken_external_links. When absent, behavior is unchanged.
-    const internalCol = this.findColumn(['Internal', 'Type']);
+    // `Internal` boolean or an internal/external `Type` column. Tri-state so an
+    // unrelated column (or blank cell) never silently zeroes the count:
+    //   recognized external/false → exclude; recognized internal/true → include;
+    //   unrecognized/blank → include (legacy). External 4xx are covered by
+    //   broken_external_links, so excluding them here is correct.
+    const scopeCol = this.findColumn(['Internal', 'Type']);
     const isInternalRow = (row: Record<string, unknown>): boolean => {
-      if (!internalCol) return true; // no scope info → count all (legacy)
-      const v = toString(row[internalCol]).trim().toLowerCase();
-      return v === 'true' || v === 'internal' || v === 'yes' || v === '1';
+      if (!scopeCol) return true; // no scope column → count all (legacy)
+      const v = toString(row[scopeCol]).trim().toLowerCase();
+      if (v === 'false' || v === 'external' || v === 'no' || v === '0') return false;
+      // 'true'/'internal'/'yes'/'1' and any unrecognized/blank value → include
+      return true;
     };
 ```
 
@@ -626,7 +627,7 @@ Note: `continue` skips this row entirely (it is an external 4xx), which is corre
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npx vitest run lib/parsers/technical/responseCodes.parser.test.ts`
-Expected: PASS (2 tests).
+Expected: PASS (all cases — the new 3 plus the file's pre-existing tests).
 
 - [ ] **Step 6: Typecheck + commit**
 
@@ -986,23 +987,48 @@ Then verify:
 - `RedirectChainsParser` pattern `'redirect_chains'` matches SF's `Reports → Redirects → Redirect Chains` export filename.
 - `RedirectsParser` pattern `'redirects'` matches SF's `Reports → Redirects → All Redirects` export filename. If SF exports it as `all_redirects.csv`, add `'all_redirects'` to `RedirectsParser.filenamePattern` so `static filenamePattern = ['all_redirects', 'redirects'];`, and ensure it does NOT collide with `response_codes_redirection_(3xx).csv` (matched by `responsecodes`) — `'redirects'` does not substring-match `redirection`, so they are distinct.
 
-Align the manifest `all_redirects` entry's `filenamePatterns` (Task 6) with whatever pattern you finalize here.
+Align the manifest `all_redirects` entry's `filenamePatterns` (Task 6) with whatever pattern you finalize here. Prefer the specific `all_redirects` pattern; keep the broad `'redirects'` substring ONLY if a real export verified in this step requires it.
 
-- [ ] **Step 4: Typecheck + run parser tests**
+- [ ] **Step 4: Add redirect routing tests**
+
+Append to `lib/parsers/index.routing.test.ts` (created in Task 7) a `describe('findParserForFile — redirects', ...)` with cases for the EXACT real SF filenames you confirmed in Step 3 — e.g.:
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { findParserForFile } from './index';
+
+describe('findParserForFile — redirects', () => {
+  it('routes the redirect-chains export to RedirectChainsParser', () => {
+    expect(findParserForFile('redirect_chains.csv')?.parserKey).toBe('redirectchains');
+  });
+  it('routes the all-redirects export to RedirectsParser', () => {
+    // Use the EXACT filename confirmed in Step 3 (e.g. all_redirects.csv).
+    expect(findParserForFile('all_redirects.csv')?.parserKey).toBe('redirects');
+  });
+  it('does NOT route a 3xx response-codes redirection export to RedirectsParser', () => {
+    // response_codes_redirection_(3xx).csv must match responsecodes, not redirects.
+    expect(findParserForFile('response_codes_redirection_(3xx).csv')?.parserKey).toBe('responsecodes');
+  });
+});
+```
+
+Adjust the asserted filenames to whatever Step 3 confirmed are the real exports. If the third case fails (the broad `'redirects'` pattern swallows the 3xx export), that proves `'redirects'` is too broad — narrow `RedirectsParser` to `['all_redirects']` only.
+
+- [ ] **Step 5: Typecheck + run parser tests**
 
 Run: `npx tsc --noEmit && npx vitest run lib/parsers`
-Expected: PASS; no unresolved `ResponseTimeParser` references.
+Expected: PASS; no unresolved `ResponseTimeParser` references; redirect routing tests green.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/parsers/index.ts lib/parsers/performance lib/parsers/expected-exports.ts
+git add lib/parsers/index.ts lib/parsers/performance lib/parsers/expected-exports.ts lib/parsers/index.routing.test.ts
 git commit -m "fix(seo): drop orphaned ResponseTimeParser; reconcile redirect export patterns
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Phase 2 verification gate**
+- [ ] **Step 7: Phase 2 verification gate**
 
 Run: `npm test && npx tsc --noEmit && npm run build`
 Expected: all green.
@@ -1046,9 +1072,10 @@ describe('UploadChecklist', () => {
     expect((container.querySelector('[data-testid="core-missing"]'))).toBeNull();
   });
 
-  it('renders with no files (initial state) without throwing', () => {
+  it('does NOT show the core-missing block in the initial empty state', () => {
     const { container } = render(<UploadChecklist files={[]} />);
     expect(container.textContent).toBeTruthy();
+    expect(container.querySelector('[data-testid="core-missing"]')).toBeNull();
   });
 });
 ```
@@ -1075,7 +1102,11 @@ const TIER_LABEL: Record<ExportTier, string> = {
 
 export function UploadChecklist({ files }: { files: string[] }) {
   const coverage = matchExpectedExports(files);
-  const missingCore = coverage.filter((c) => c.export.tier === 'core' && !c.present);
+  // Only flag missing core AFTER the user has selected files — an empty initial
+  // state should not show a red "missing required exports" block.
+  const missingCore = files.length > 0
+    ? coverage.filter((c) => c.export.tier === 'core' && !c.present)
+    : [];
 
   return (
     <div className="text-sm text-gray-600 dark:text-white/60 space-y-3">
@@ -1240,8 +1271,10 @@ vi.mock('@/lib/db', () => ({
 }));
 
 // Keep the heavy parse pipeline + pillar trigger out of the gate test.
+// NOTE: route.ts imports the trigger from '../pillar-analysis-trigger' (parent
+// dir), so the mock path MUST match exactly or it won't intercept.
 vi.mock('@/lib/services/aggregator.service', () => ({ AggregatorService: class {} }));
-vi.mock('./pillar-analysis-trigger', () => ({ triggerPillarAnalysis: vi.fn() }));
+vi.mock('../pillar-analysis-trigger', () => ({ triggerPillarAnalysis: vi.fn() }));
 
 import { POST } from './route';
 
@@ -1272,7 +1305,12 @@ describe('POST /api/parse/[sessionId] — core-export gate', () => {
     expect(sessionUpdateManyMock).not.toHaveBeenCalled(); // not claimed
   });
 
-  it('does NOT gate a keyword-research session', async () => {
+  it('does NOT reject a keyword-research session on the core gate; it claims and proceeds', async () => {
+    // Purpose is precise: the gate must NOT fire for keyword-research, so the
+    // route gets PAST the gate and reaches the claim (updateMany). The downstream
+    // parse pipeline reads files from disk and is intentionally NOT fully mocked
+    // here, so it may throw and yield a 500 — that is fine. We assert only that
+    // (a) it is not the 400 core-missing rejection, and (b) the session was claimed.
     sessionFindUniqueMock.mockResolvedValue({
       id: VALID_ID,
       status: 'pending',
@@ -1280,10 +1318,12 @@ describe('POST /api/parse/[sessionId] — core-export gate', () => {
       files: JSON.stringify(['semrush_organic_positions.csv']),
     });
 
+    let body: { missingCore?: unknown } = {};
     const res = await POST({} as never, ctx as never);
-    // Past the gate, it proceeds to claim (status 200/other) — NOT a 400 core-missing rejection.
-    expect(res.status).not.toBe(400);
-    expect(sessionUpdateManyMock).toHaveBeenCalled();
+    try { body = await res.json(); } catch { /* downstream may not return JSON */ }
+
+    expect(body.missingCore).toBeUndefined(); // not the core-gate rejection
+    expect(sessionUpdateManyMock).toHaveBeenCalled(); // got past the gate to the claim
   });
 });
 ```
@@ -1309,27 +1349,34 @@ After the `if (session.status !== 'pending') { ... }` block and BEFORE the `cons
     // Core-export gate (technical workflow only). Keyword-research/SEMRush-only
     // sessions are never gated. Runs before claiming so a rejected parse leaves
     // the session 'pending' (the user can add the missing exports and retry).
+    //
+    // If the manifest can't be parsed here, we SKIP the gate (do NOT report it as
+    // missing-core) and let the existing file-manifest parse below raise the real
+    // "Session file manifest is corrupt" error — otherwise a corrupt manifest
+    // would be misreported as a missing-core rejection.
     if (session.workflow !== 'keyword-research') {
-      let filesForGate: string[] = [];
+      let filesForGate: string[] | null = null;
       try {
         const parsed = JSON.parse(session.files);
         if (Array.isArray(parsed)) {
           filesForGate = parsed.filter((f): f is string => typeof f === 'string');
         }
       } catch {
-        /* corrupt manifest is handled by the existing parse below */
+        filesForGate = null; // corrupt → skip gate, handled downstream
       }
-      const missing = missingCoreExports(filesForGate);
-      if (missing.length > 0) {
-        return NextResponse.json(
-          {
-            error: `Missing required Screaming Frog export(s): ${missing
-              .map((m) => m.label)
-              .join(', ')}. ${missing.map((m) => m.sfInstructions).join(' ')}`,
-            missingCore: missing.map((m) => m.id),
-          },
-          { status: 400 }
-        );
+      if (filesForGate !== null) {
+        const missing = missingCoreExports(filesForGate);
+        if (missing.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Missing required Screaming Frog export(s): ${missing
+                .map((m) => m.label)
+                .join(', ')}. ${missing.map((m) => m.sfInstructions).join(' ')}`,
+              missingCore: missing.map((m) => m.id),
+            },
+            { status: 400 }
+          );
+        }
       }
     }
 ```
