@@ -24,7 +24,7 @@ export function buildStructuredRecommendations(result: AggregatedResult): Recomm
     const urls = reg && refs.length
       ? refs.map((r) => rehydrate(reg, r)).filter(Boolean)
       : (issue.urls ?? []);
-    // Fold in group URLs: grouped issues (duplicate_title_tags, duplicate_h1_tags,
+    // Fold in group URLs: grouped issues (duplicate_title, duplicate_h1,
     // duplicate meta) carry their affected URLs in groups[*].urls, NOT in
     // issue.urls / affectedUrlRefs. Without this they'd hash an empty set and
     // report affectedUrlCount: 0, colliding across all grouped types.

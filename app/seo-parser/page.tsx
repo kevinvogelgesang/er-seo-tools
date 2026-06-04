@@ -7,6 +7,7 @@ import { FileDropzone } from '@/components/seo-parser/FileDropzone';
 import { UploadChecklist } from '@/components/seo-parser/UploadChecklist';
 import { Spinner } from '@/components/Spinner';
 import { HistoryList } from '@/components/seo-parser/HistoryList';
+import { missingCoreExports } from '@/lib/parsers/expected-exports';
 
 export default function SEOParserPage() {
   const router = useRouter();
@@ -17,6 +18,8 @@ export default function SEOParserPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const coreMissing = files.length > 0 ? missingCoreExports(files) : [];
 
   const handleDrop = useCallback(
     async (droppedFiles: File[]) => {
@@ -127,7 +130,7 @@ export default function SEOParserPage() {
           />
 
           <div className="mt-4">
-            <UploadChecklist />
+            <UploadChecklist files={files} />
           </div>
 
           {error && (
@@ -137,29 +140,36 @@ export default function SEOParserPage() {
           )}
 
           {files.length > 0 && (
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                onClick={handleAnalyze}
-                disabled={isParsing || isUploading}
-                className="flex-1 bg-[#f5a623] text-[#1c2d4a] font-display font-bold text-sm px-6 py-3 rounded-lg hover:bg-[#e8971a] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isParsing ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Spinner className="w-4 h-4" />
-                    Analyzing…
-                  </span>
-                ) : (
-                  `Analyze ${files.length} File${files.length !== 1 ? 's' : ''}`
-                )}
-              </button>
-              <button
-                onClick={handleReset}
-                disabled={isParsing}
-                className="px-4 py-3 border border-gray-200 dark:border-navy-border text-gray-600 dark:text-white/60 rounded-lg hover:bg-gray-50 dark:hover:bg-navy-light text-sm transition-colors disabled:opacity-60"
-              >
-                Reset
-              </button>
-            </div>
+            <>
+              <div className="mt-6 flex items-center gap-3">
+                <button
+                  onClick={handleAnalyze}
+                  disabled={isParsing || isUploading || coreMissing.length > 0}
+                  className="flex-1 bg-[#f5a623] text-[#1c2d4a] font-display font-bold text-sm px-6 py-3 rounded-lg hover:bg-[#e8971a] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isParsing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Spinner className="w-4 h-4" />
+                      Analyzing…
+                    </span>
+                  ) : (
+                    `Analyze ${files.length} File${files.length !== 1 ? 's' : ''}`
+                  )}
+                </button>
+                <button
+                  onClick={handleReset}
+                  disabled={isParsing}
+                  className="px-4 py-3 border border-gray-200 dark:border-navy-border text-gray-600 dark:text-white/60 rounded-lg hover:bg-gray-50 dark:hover:bg-navy-light text-sm transition-colors disabled:opacity-60"
+                >
+                  Reset
+                </button>
+              </div>
+              {coreMissing.length > 0 && (
+                <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                  Add {coreMissing.map((c) => c.label).join(' and ')} to enable analysis.
+                </p>
+              )}
+            </>
           )}
         </div>
 

@@ -4,6 +4,7 @@ import { UrlRegistryBuilder } from './url-registry';
 import { urlJoinKey } from './url-normalize';
 import { computeCompleteness } from './completeness';
 import { dropSupersededSfIssues } from './sf-issue-dedup';
+import { canonicalizeCuratedIssues } from './curated-issue-dedup';
 import { buildAffectedRefs, deriveIssueTypesForPage } from './issue-membership';
 import { ISSUE_RECOMMENDATIONS } from '@/lib/constants/issue-recommendations';
 import { buildStructuredRecommendations } from './recommendation-builder';
@@ -438,53 +439,6 @@ export class AggregatorService {
       }
     }
 
-    // NEW — Duplicate title tags (from PageTitlesParser)
-    const titlesIssueData = this.parsedData.pagetitles as Record<string, unknown> | undefined;
-    if (titlesIssueData?.issues) {
-      const dupTitleIssue = (titlesIssueData.issues as Issue[]).find(i => i.type === 'duplicate_title');
-      if (dupTitleIssue && dupTitleIssue.count > 0) {
-        warnings.push({
-          type: 'duplicate_title_tags',
-          severity: 'warning',
-          count: dupTitleIssue.count,
-          description: `${dupTitleIssue.count} groups of pages share the same title tag`,
-          groups: dupTitleIssue.groups,
-          source: 'pagetitles',
-        });
-      }
-    }
-
-    // NEW — Duplicate meta descriptions (from MetaDescriptionParser)
-    const metaIssueData = this.parsedData.metadescription as Record<string, unknown> | undefined;
-    if (metaIssueData?.issues) {
-      const dupMetaIssue = (metaIssueData.issues as Issue[]).find(i => i.type === 'duplicate_meta_description');
-      if (dupMetaIssue && dupMetaIssue.count > 0) {
-        notices.push({
-          type: 'duplicate_meta_descriptions',
-          severity: 'notice',
-          count: dupMetaIssue.count,
-          description: `${dupMetaIssue.count} groups of pages share the same meta description`,
-          source: 'metadescription',
-        });
-      }
-    }
-
-    // NEW — Duplicate H1s (from H1Parser)
-    const h1IssueData = this.parsedData.h1 as Record<string, unknown> | undefined;
-    if (h1IssueData?.issues) {
-      const dupH1Issue = (h1IssueData.issues as Issue[]).find(i => i.type === 'duplicate_h1');
-      if (dupH1Issue && dupH1Issue.count > 0) {
-        notices.push({
-          type: 'duplicate_h1_tags',
-          severity: 'notice',
-          count: dupH1Issue.count,
-          description: `${dupH1Issue.count} groups of pages share the same H1 heading`,
-          groups: dupH1Issue.groups,
-          source: 'h1',
-        });
-      }
-    }
-
     // NEW — Keyword cannibalization (from SemrushOrganicPositionsParser)
     const semrushPositionsData = this.parsedData.semrushorganicpositions as Record<string, unknown> | undefined;
     if (semrushPositionsData?.keyword_cannibalization) {
@@ -503,11 +457,13 @@ export class AggregatorService {
     // Drop count-only sf_* passthrough issues that a richer, URL-bearing
     // curated issue already covers (prevents duplicate Teamwork tasks and an
     // inflated no-URL ratio). Runs after by-type dedupe so the present-set is final.
-    return dropSupersededSfIssues({
-      critical: dedupeIssues(critical),
-      warnings: dedupeIssues(warnings),
-      notices: dedupeIssues(notices),
-    });
+    return dropSupersededSfIssues(
+      canonicalizeCuratedIssues({
+        critical: dedupeIssues(critical),
+        warnings: dedupeIssues(warnings),
+        notices: dedupeIssues(notices),
+      })
+    );
   }
 
   private buildSiteStructure() {
