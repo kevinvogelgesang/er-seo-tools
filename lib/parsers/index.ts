@@ -77,6 +77,10 @@ export const PARSERS: Array<typeof BaseParser> = [
   H1Parser,
   H2Parser,
 
+  // Must precede UrlIssuesParser (url_) and SecurityParser (security): both bare
+  // substring patterns would swallow security_*_insecure.csv first.
+  InsecureContentParser,
+
   // Technical
   ResponseCodesParser,
   CanonicalsParser,
@@ -95,7 +99,6 @@ export const PARSERS: Array<typeof BaseParser> = [
   ExternalLinksParser,
   LinksIssuesParser,
   SecurityParser,
-  InsecureContentParser,
   SitemapsParser,
   OrphanPagesParser,
   AnchorTextParser,
