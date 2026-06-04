@@ -1440,3 +1440,7 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - Confirm the `missing_h2` curated emitter exists (Task 4 Step 4).
 - Confirm `KeywordMemoMarkdown`'s exact export + prop name (Task 2 Step 3).
 - Whether `issues_overview` warrants a `recommended` manifest entry (Task 6 — additive, non-blocking; add if desired).
+
+## Deferred follow-up (surfaced by the final whole-branch review)
+
+- **`broken_pages` vs `client_errors_4xx`/`server_errors_5xx` double-count (pre-existing, NOT a regression of this branch).** The aggregator emits `broken_pages` from `internal.status_codes` as a combined 4xx **+** 5xx count, while `ResponseCodesParser` emits the split `client_errors_4xx` and `server_errors_5xx`. When both `internal_all` and `response_codes` are uploaded, all three can appear. This is *not* a clean `CURATED_CANONICAL` alias (broken_pages is a superset of two other types), so a naive preference-list entry would risk dropping the 5xx signal. A correct fix drops `broken_pages` only when *both* `client_errors_4xx` and `server_errors_5xx` (or the response_codes export) are present. Left for a dedicated follow-up to avoid the conservative-dedup "don't drop a real finding" trap.
