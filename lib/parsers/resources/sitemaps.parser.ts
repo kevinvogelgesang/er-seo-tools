@@ -71,7 +71,15 @@ export class SitemapsParser extends BaseParser {
 
       for (let i = 0; i < this.data.length; i++) {
         const indexability = toString(this.data[i][indexabilityCol]).toLowerCase();
-        if (indexability === 'non-indexable') {
+        // Only count REACHABLE (2xx) non-indexable URLs. A 4xx/5xx URL is already
+        // a sitemap_error and a 3xx a sitemap_redirect; a status-0/unfetched URL
+        // (often a CSS/asset) was never evaluated. Counting those here just
+        // double-flags errors and pulls non-page assets in as "pages".
+        const status = statusCol ? toNumber(this.data[i][statusCol]) : null;
+        // When status is unavailable (no column), fall back to counting all
+        // non-indexable (old behavior) rather than silently dropping to zero.
+        const reachable = !statusCol || (status !== null && status >= 200 && status < 300);
+        if (indexability === 'non-indexable' && reachable) {
           nonIndexableCount++;
           if (addressCol && nonIndexableUrls.length < 30) {
             nonIndexableUrls.push(toString(this.data[i][addressCol]));
