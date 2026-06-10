@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-10 · **Updated by:** A1 close-out + Phase 2 session
+**Last updated:** 2026-06-10 · **Updated by:** A1 Phase 3 build session
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,90 +23,103 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **Done:** A1 Phases 0–2 + Phase 1 close-out, **merged (PRs #51, #52),
-  deployed, and verified in production 2026-06-10**. Legacy in-memory PSI
-  pool + `JOB_QUEUE_PSI` flag deleted; PDF scans run as durable `pdf-scan`
-  jobs (`lib/jobs/handlers/pdf-scan.ts`, concurrency `PDF_POOL_SIZE`=4);
-  `pdf-worker-pool.ts` deleted; `pdfs-running` parents survive restarts;
-  finalize-before-fail in both recovery paths. Production verification:
-  nyinstituteofmassage.com (23 pages, 11 PDFs) completed in 59s, 0 errors;
-  restart mid-`pdfs-running` with an in-flight durable pdf job resumed and
-  finalized 11/11; drained `pdfs-running` parent with zero jobs was
-  finalized, not failed ("finalized drained audit" in logs). 1,679 tests
-  green.
-- **Incident + fix this session (PR #52):** the first PDF-bearing audit
-  wedged with SQLite "Operations timed out". Root cause: interactive
-  `$transaction(async tx =>)` holds SQLite's write lock across event-loop
-  round-trips; concurrent pdfjs parsing starves the loop; the lock outlives
-  `busy_timeout=5000` and every other writer times out. All three
-  interactive transactions were converted to array-form `$transaction([...])`
-  with SQL `EXISTS` conditional counter bumps + manual `updatedAt`
-  (`Date.now()` — integer-ms storage; raw SQL bypasses `@updatedAt`). The
-  rule now lives in CLAUDE.md "Do not".
-- **In progress:** A1 (tracker `[~]`) — Phases 3–4 remain.
+- **Done & deployed:** A1 Phases 0–2 (job queue core, PSI, PDF scans) —
+  merged (PRs #50–#52), production-verified 2026-06-10.
+- **Built, awaiting merge/deploy:** **A1 Phase 3 (site-audit page loop)** on
+  branch `feat/job-queue-phase3-page-loop` (PR open). Two new job types:
+  `site-audit-discover` (claim/discovery/fan-out; raw-SQL `queued→running`
+  claim with `NOT EXISTS` one-active guard) and `site-audit-page` (per-URL
+  axe + settle + PSI/PDF dispatch). `processNext` is a stateless promoter;
+  `runAudit()` + the `processing` mutex are deleted; `running` parents now
+  survive restarts. Browser recycling moved into `browser-pool.ts`
+  (pages-served drain gate + 60 s idle close). New migration:
+  `@@unique([siteAuditId, url])` on AdaAudit **with a dedupe DELETE** —
+  check production for duplicate pairs before deploying. 1,704 tests green;
+  tsc + build green. Spec:
+  `docs/superpowers/specs/2026-06-10-durable-job-queue-phase3-design.md` ·
+  plan: `docs/superpowers/plans/2026-06-10-durable-job-queue-phase3.md`
+  (both Codex-reviewed, accept-with-fixes ×8 each, all applied).
+- **In progress:** A1 (tracker `[~]`) — Phase 4 (cleanup ticks) remains
+  after Phase 3 ships.
 - **Blocked / gated:** Anthropic API billing decision (gates 03 Phase 3);
   DB-growth projection and sitemap miss-rate measurement not yet run.
 
 ## Next item
 
-**A1 Phase 3 — site-audit page loop onto the queue**
-(`site-audit-page` job type), then Phase 4 (cleanup ticks as scheduled
-jobs). Spec phase table says what each deletes.
+**Merge + deploy Phase 3, verify in production, then A1 Phase 4**
+(cleanup ticks + screenshot sweeper as scheduled jobs — deletes the
+`setInterval`s in `instrumentation.ts`; parent spec phase table row 4).
 
-Key context for Phase 3:
-- Today the page loop lives in `runAudit()` (`lib/ada-audit/queue-manager.ts`):
-  conditional `queued→running` claim, `discoverPages`, then batched inline
-  page work (axe via browser pool → PDF dispatch → page-settle transaction →
-  PSI enqueue), guarded globally by the in-memory `processing` mutex in
-  `processNext()`.
-- Phase 3 shape: one `site-audit-page` job per URL (groupKey
-  `site-audit:<id>`, concurrency = `SITE_AUDIT_CONCURRENCY`), with discovery
-  + child-row creation moving to an enqueue step. Deletes the `processing`
-  mutex and most of `resetStaleAudits`/`recoverQueue`/`failOrphanAdaAudits`
-  — `running` parents become restart-survivable like the other phases.
-- Design decisions Phase 3 must make (worth a brainstorm/spec pass):
-  per-page job vs page-batch job; where browser recycling
-  (`SITE_AUDIT_BROWSER_RECYCLE_PAGES`, currently loop-index-based) lives
-  under a job model; how "only one site audit at a time" is enforced once
-  the mutex dies (likely: keep SiteAudit-level `queued` FIFO, jobs only
-  exist for the active audit); redirected-page handling in the handler.
-- The handler must hold the browser-pool page only inside the job body
-  (never across enqueues), and the page-settle transaction + `pagesComplete`
-  bump must stay atomic — same one-transaction pattern as psi/pdf-scan
-  handlers, and it MUST be array-form (see gotcha below).
+Production verification checklist for Phase 3 (mirror the Phase 1/2 drills):
+1. Before deploy: `sqlite3 db "SELECT siteAuditId, url, COUNT(*) FROM
+   AdaAudit WHERE siteAuditId IS NOT NULL GROUP BY siteAuditId, url HAVING
+   COUNT(*) > 1"` — the migration deletes these (keeps earliest); eyeball
+   the count first.
+2. Clean run: a PDF-bearing site audit (nyinstituteofmassage.com was the
+   Phase 2 reference: 23 pages, 11 PDFs) completes with counters exact.
+3. **Restart mid-`running`** (the new payoff): `pm2 restart` while pages
+   are in flight → log shows "Startup recovery: resuming audit … (N durable
+   job(s) outstanding)" → audit completes with all pages settled, no
+   orphan children.
+4. Restart mid-discovery (harder to time — optional): discover job re-runs,
+   no duplicate children (unique index), pagesTotal consistent.
+5. Queue order: enqueue two audits → second stays queued until first
+   completes (one-active guard), then auto-promotes.
+
+Phase 4 key context: `runCleanup()` daily interval + `resetStaleAudits()`
+10-min interval + `startScreenshotSweeper()` in `instrumentation.ts` become
+`Schedule` rows (`cadence` grammar: `every:<n>m|h|d` / `daily@HH:MM`) with
+small job handlers. The Schedule tick + exactly-once-per-slot machinery
+already exists and is tested — Phase 4 is mostly wiring + deleting
+intervals. Decide whether `resetStaleAudits` even survives (it's now a
+thin safety net; keeping it as a `every:10m` scheduled job is fine).
 
 ## Gotchas / decisions already made (don't relitigate)
 
 - Stack stays: SQLite + single PM2 process + Next.js. No Postgres/Redis/BullMQ.
 - **NEVER use interactive `prisma.$transaction(async tx => ...)`** — array
   form only, conditional logic via SQL `EXISTS`, manual `updatedAt =
-  Date.now()` in raw statements. Interactive transactions hold SQLite's
-  write lock across event-loop round-trips and wedge every writer when
-  pdfjs parses concurrently (2026-06-10 production incident; see CLAUDE.md
-  "Do not" + comments in `lib/jobs/handlers/psi.ts` / `pdf-scan.ts`).
+  Date.now()` in raw statements (2026-06-10 production incident; CLAUDE.md
+  "Do not").
 - Job-queue invariants are load-bearing: attempt-fenced heartbeat/settle,
   handler timeout race, active-slot release AFTER settle, never hold a DB
   transaction across network/browser work, `onExhausted` fires from every
   error-flip path, `countActiveJobsByGroup` ignores `runAfter`, failed
-  group-count = skip-don't-fail, **finalize-before-fail on drained
-  transients** (new this session).
-- groupKey `site-audit:<id>` is shared by `psi` + `pdf-scan` (+ future
-  `site-audit-page`) jobs — survival checks and `cancelJobsByGroup` are
-  deliberately type-agnostic.
-- Standalone single-page audits dispatch PDFs with `adaAuditId` only:
-  groupKey `ada-audit:<id>`, no counters, no finalize. Don't "fix" that.
-- PDF scan domain errors (`scanError`/`skipReason` from `scanPdfUrl`, which
-  never throws) complete the job; only DB failures throw/retry.
+  group-count = skip-don't-fail, finalize-before-fail on drained transients.
+- Phase 3 invariants (new): one-active is enforced by the **discover claim's
+  `NOT EXISTS` guard**, not the promoter (the promoter is best-effort
+  ordering); `discoveredUrls`+`pagesTotal` are always written together (the
+  finalizer's discovery guard depends on it — `running` + null
+  `discoveredUrls` is never finalized); PDFs dispatch BEFORE the page
+  settle; domain errors settle / DB errors throw; page-job claim-0 path
+  re-enqueues PSI for `axe-complete` children (closes the legacy
+  lost-enqueue window); `failSiteAudit` never clobbers terminal parents.
+- Browser pool: the drain gate is set at ACQUIRE time when the threshold is
+  hit; `closeBrowser()` always resets gate state + notifies waiters (no
+  parked-forever waiters). `SITE_AUDIT_BROWSER_RECYCLE_PAGES` is now
+  pool-global (prod 15).
+- groupKey `site-audit:<id>` is shared by `psi` + `pdf-scan` +
+  `site-audit-page` + `site-audit-discover` — survival checks and
+  `cancelJobsByGroup` are deliberately type-agnostic.
+- Standalone single-page audits are untouched: own POST-driven runner,
+  `ada-audit:<id>` PDF groups, NULL `siteAuditId` (exempt from the new
+  unique index — SQLite NULLs are distinct).
+- Test gotcha: the one-active guard and the promoter are GLOBAL over the
+  shared dev DB — `queue-manager.test.ts` and `site-audit-discover.test.ts`
+  neutralize stray transient/queued SiteAudits in `clearTestState`. New
+  test files touching promotion must do the same.
 - Boot order in `instrumentation.ts` is deliberate: register handlers →
   recoverJobsOnStartup → await recoverQueue → startJobWorker. Don't reorder.
 - **Local dev quirk:** `.env` points at `file:/var/lib/er-seo-tools/db.sqlite`
   (doesn't exist on the Mac). Run prisma CLI and vitest with
-  `DATABASE_URL="file:./local-dev.db"` prefixed (resolves to
-  `prisma/local-dev.db`).
+  `DATABASE_URL="file:./local-dev.db"` prefixed. `prisma migrate dev` is
+  interactive-only — generate SQL via `prisma migrate diff`, write the
+  migration folder by hand, apply with `prisma migrate deploy`.
 - Findings tables (A2) are named `CrawlRun` / `CrawlPage` / `Finding` /
   `Violation`; dual-write + parity on 3–5 clients before readers flip.
 - Codex reviews: route new specs/plans through Codex per Kevin's standing
-  instruction (this session: 1 consult, accept-with-fixes, applied).
+  instruction (this session: 2 consults, accept-with-fixes ×8 each, all
+  applied).
 
 ## History
 
@@ -115,3 +128,4 @@ Key context for Phase 3:
 - 2026-06-10 — PR #50 merged + deployed. `JOB_QUEUE_PSI=1` enabled. Parity PASSED in production incl. restart-resume mid-`lighthouse-running`. Next: legacy-pool deletion + Phase 2 (PDF scans).
 - 2026-06-10 — Phase 1 close-out (legacy pool + flag deleted) + Phase 2 (PDF scans durable, `pdfs-running` survives restarts, finalize-before-fail) built on `feat/job-queue-phase2-pdf-scans`; PR opened. Next: merge/deploy + restart-test, then Phase 3 (page loop).
 - 2026-06-10 — PRs #51 + #52 merged + deployed. Incident: first PDF-bearing audit wedged SQLite (interactive-transaction write-lock starvation under pdfjs load); fixed by converting all itxs to array form. Production verified: clean 23-page/11-PDF audit, restart-resume mid-`pdfs-running`, drained-parent finalize. Next: Phase 3 (page loop).
+- 2026-06-10 — **A1 Phase 3 built** on `feat/job-queue-phase3-page-loop`; PR opened. Page loop fully durable (`site-audit-discover` + `site-audit-page`), mutex deleted, `running` parents restart-survivable, browser recycling pool-level, AdaAudit unique index + dedupe migration. 1,704 tests green. Next: merge/deploy + restart-test mid-`running`, then Phase 4 (cleanup ticks).
