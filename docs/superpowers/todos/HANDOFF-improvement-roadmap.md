@@ -23,33 +23,33 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **Done:** A1 Phases 0–2 + Phase 1 close-out. PSI parity passed in
-  production 2026-06-10 (PR #50, incl. restart-resume). This session
-  (branch `feat/job-queue-phase2-pdf-scans`, PR open — merge/deploy
-  pending): legacy in-memory PSI pool + `JOB_QUEUE_PSI` flag **deleted**;
-  PDF scans migrated to durable `pdf-scan` jobs
-  (`lib/jobs/handlers/pdf-scan.ts`, concurrency `PDF_POOL_SIZE`=4);
-  `pdf-worker-pool.ts` deleted; `pdfs-running` parents survive restarts.
-  Codex plan review accept-with-fixes ×5, all applied — notably
-  **finalize-before-fail**: in `recoverQueue`/`resetStaleAudits`, a
-  `pdfs-running`/`lighthouse-running` parent with zero active group jobs
-  gets one `finalizeSiteAudit` attempt (crash window: last job committed
-  counters, died before finalize) and is only failed if still transient.
-  1,677 tests green; tsc + build green.
+- **Done:** A1 Phases 0–2 + Phase 1 close-out, **merged (PRs #51, #52),
+  deployed, and verified in production 2026-06-10**. Legacy in-memory PSI
+  pool + `JOB_QUEUE_PSI` flag deleted; PDF scans run as durable `pdf-scan`
+  jobs (`lib/jobs/handlers/pdf-scan.ts`, concurrency `PDF_POOL_SIZE`=4);
+  `pdf-worker-pool.ts` deleted; `pdfs-running` parents survive restarts;
+  finalize-before-fail in both recovery paths. Production verification:
+  nyinstituteofmassage.com (23 pages, 11 PDFs) completed in 59s, 0 errors;
+  restart mid-`pdfs-running` with an in-flight durable pdf job resumed and
+  finalized 11/11; drained `pdfs-running` parent with zero jobs was
+  finalized, not failed ("finalized drained audit" in logs). 1,679 tests
+  green.
+- **Incident + fix this session (PR #52):** the first PDF-bearing audit
+  wedged with SQLite "Operations timed out". Root cause: interactive
+  `$transaction(async tx =>)` holds SQLite's write lock across event-loop
+  round-trips; concurrent pdfjs parsing starves the loop; the lock outlives
+  `busy_timeout=5000` and every other writer times out. All three
+  interactive transactions were converted to array-form `$transaction([...])`
+  with SQL `EXISTS` conditional counter bumps + manual `updatedAt`
+  (`Date.now()` — integer-ms storage; raw SQL bypasses `@updatedAt`). The
+  rule now lives in CLAUDE.md "Do not".
 - **In progress:** A1 (tracker `[~]`) — Phases 3–4 remain.
 - **Blocked / gated:** Anthropic API billing decision (gates 03 Phase 3);
   DB-growth projection and sitemap miss-rate measurement not yet run.
 
 ## Next item
 
-**First: merge + deploy the open PR from `feat/job-queue-phase2-pdf-scans`,
-then verify in production** — run a site audit with PDFs on a real domain and
-`pm2 restart seo-tools` mid-`pdfs-running`; the audit should resume and
-complete (look for "Startup recovery: resuming audit … durable job(s)
-outstanding" in the logs). Also worth one check on a WAF-protected PDF
-(Referer header passes through `sourcePageUrl` in the job payload).
-
-**Then: A1 Phase 3 — site-audit page loop onto the queue**
+**A1 Phase 3 — site-audit page loop onto the queue**
 (`site-audit-page` job type), then Phase 4 (cleanup ticks as scheduled
 jobs). Spec phase table says what each deletes.
 
@@ -73,11 +73,17 @@ Key context for Phase 3:
 - The handler must hold the browser-pool page only inside the job body
   (never across enqueues), and the page-settle transaction + `pagesComplete`
   bump must stay atomic — same one-transaction pattern as psi/pdf-scan
-  handlers.
+  handlers, and it MUST be array-form (see gotcha below).
 
 ## Gotchas / decisions already made (don't relitigate)
 
 - Stack stays: SQLite + single PM2 process + Next.js. No Postgres/Redis/BullMQ.
+- **NEVER use interactive `prisma.$transaction(async tx => ...)`** — array
+  form only, conditional logic via SQL `EXISTS`, manual `updatedAt =
+  Date.now()` in raw statements. Interactive transactions hold SQLite's
+  write lock across event-loop round-trips and wedge every writer when
+  pdfjs parses concurrently (2026-06-10 production incident; see CLAUDE.md
+  "Do not" + comments in `lib/jobs/handlers/psi.ts` / `pdf-scan.ts`).
 - Job-queue invariants are load-bearing: attempt-fenced heartbeat/settle,
   handler timeout race, active-slot release AFTER settle, never hold a DB
   transaction across network/browser work, `onExhausted` fires from every
@@ -108,3 +114,4 @@ Key context for Phase 3:
 - 2026-06-10 — A1 Phases 0–1 built (job queue core + PSI migration behind flag) on `feat/durable-job-queue`; PR opened. Next: merge/deploy/parity (Kevin), then Phase 2 (PDF scans).
 - 2026-06-10 — PR #50 merged + deployed. `JOB_QUEUE_PSI=1` enabled. Parity PASSED in production incl. restart-resume mid-`lighthouse-running`. Next: legacy-pool deletion + Phase 2 (PDF scans).
 - 2026-06-10 — Phase 1 close-out (legacy pool + flag deleted) + Phase 2 (PDF scans durable, `pdfs-running` survives restarts, finalize-before-fail) built on `feat/job-queue-phase2-pdf-scans`; PR opened. Next: merge/deploy + restart-test, then Phase 3 (page loop).
+- 2026-06-10 — PRs #51 + #52 merged + deployed. Incident: first PDF-bearing audit wedged SQLite (interactive-transaction write-lock starvation under pdfjs load); fixed by converting all itxs to array form. Production verified: clean 23-page/11-PDF audit, restart-resume mid-`pdfs-running`, drained-parent finalize. Next: Phase 3 (page loop).
