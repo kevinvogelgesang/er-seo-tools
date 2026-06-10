@@ -1,0 +1,147 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - navigation [ref=e3]:
+    - generic [ref=e5]:
+      - link "ER SEO Tools Enrollment Resources" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]: ER
+        - generic [ref=e9]:
+          - generic [ref=e10]: SEO Tools
+          - generic [ref=e11]: Enrollment Resources
+      - generic [ref=e12]:
+        - link "SEO Parser" [ref=e14] [cursor=pointer]:
+          - /url: /seo-parser
+          - text: SEO Parser
+          - img [ref=e15]
+        - link "Quarter Grid" [ref=e17] [cursor=pointer]:
+          - /url: /quarter-grid
+        - link "RankMath Redirects" [ref=e18] [cursor=pointer]:
+          - /url: /rankmath-redirects
+        - link "Robots Validator" [ref=e19] [cursor=pointer]:
+          - /url: /robots-validator
+        - link "ADA Audit" [ref=e21] [cursor=pointer]:
+          - /url: /ada-audit
+          - text: ADA Audit
+          - img [ref=e22]
+        - link "Oxygen Stack Guide" [ref=e24] [cursor=pointer]:
+          - /url: /oxygen-tailwind-guide
+        - link "Clients" [ref=e25] [cursor=pointer]:
+          - /url: /clients
+      - generic [ref=e26]:
+        - button "Switch to dark mode" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Log out" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+  - main [ref=e35]:
+    - main [ref=e36]:
+      - generic [ref=e37]:
+        - heading "ADA / WCAG Audit" [level=1] [ref=e38]
+        - paragraph [ref=e39]: Audit pages for accessibility violations using axe-core. Results are saved and shared across the team.
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - img [ref=e44]
+            - heading "New Audit" [level=2] [ref=e46]
+            - tablist "Audit type" [ref=e47]:
+              - tab "Single Page" [selected] [ref=e48] [cursor=pointer]
+              - tab "Full Site" [ref=e49] [cursor=pointer]
+          - generic [ref=e51]:
+            - generic [ref=e52]:
+              - generic [ref=e53]: Page URL to audit
+              - textbox "Page URL to audit" [ref=e54]:
+                - /placeholder: federico.edu or https://federico.edu/programs
+            - generic [ref=e55]:
+              - paragraph [ref=e56]: WCAG Level
+              - group "WCAG Level" [ref=e57]:
+                - button "WCAG 2.1 AA Required" [pressed] [ref=e58] [cursor=pointer]:
+                  - generic [ref=e59]: WCAG 2.1 AA
+                  - generic [ref=e60]: Required
+                - button "+ Best Practices Aspirational" [ref=e61] [cursor=pointer]:
+                  - generic [ref=e62]: + Best Practices
+                  - generic [ref=e63]: Aspirational
+            - button "Run Audit" [disabled] [ref=e64]
+        - generic [ref=e65]:
+          - generic [ref=e68]: Current Scan
+          - generic [ref=e75]: Queue
+        - generic [ref=e80]:
+          - generic [ref=e81]:
+            - img [ref=e83]
+            - heading "Clients" [level=2] [ref=e85]
+            - generic [ref=e87]:
+              - textbox "Search clients by name" [ref=e88]
+              - button "Queue all" [disabled] [ref=e89]
+              - link "View queue →" [ref=e90] [cursor=pointer]:
+                - /url: /ada-audit/queue
+          - generic [ref=e92]: No clients.
+        - generic [ref=e93]:
+          - generic [ref=e94]:
+            - generic [ref=e95]:
+              - button "All" [ref=e96] [cursor=pointer]
+              - button "Mine" [ref=e97] [cursor=pointer]
+            - link "See all recents →" [ref=e98] [cursor=pointer]:
+              - /url: /ada-audit/recents
+          - table [ref=e99]:
+            - rowgroup [ref=e100]:
+              - row "Type URL / Domain Client Operator Status Score Duration Date" [ref=e101]:
+                - columnheader "Type" [ref=e102]
+                - columnheader "URL / Domain" [ref=e103]
+                - columnheader "Client" [ref=e104]
+                - columnheader "Operator" [ref=e105]
+                - columnheader "Status" [ref=e106]
+                - columnheader "Score" [ref=e107]
+                - columnheader "Duration" [ref=e108]
+                - columnheader "Date" [ref=e109]
+            - rowgroup [ref=e110]:
+              - row "site proway.erstaging.site — Claude (parity test) complete 82 1m 51s Jun 10, 2026" [ref=e111]:
+                - cell "site" [ref=e112]:
+                  - generic [ref=e113]: site
+                - cell "proway.erstaging.site" [ref=e114]:
+                  - link "proway.erstaging.site" [ref=e115] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmq8dkacm0002kgnpohrotbhx
+                - cell "—" [ref=e116]
+                - cell "Claude (parity test)" [ref=e117]
+                - cell "complete" [ref=e118]
+                - cell "82" [ref=e119]
+                - cell "1m 51s" [ref=e120]
+                - cell "Jun 10, 2026" [ref=e121]
+  - contentinfo [ref=e122]:
+    - generic [ref=e123]:
+      - generic [ref=e124]:
+        - generic [ref=e125]:
+          - generic [ref=e126]:
+            - generic [ref=e128]: ER
+            - generic "Hover to reveal deploy command" [ref=e129]: SEO Tools
+          - paragraph [ref=e130]: Purpose-built SEO tools for enrollment marketers and web teams at Enrollment Resources.
+        - generic [ref=e131]:
+          - heading "Tools" [level=3] [ref=e132]
+          - list [ref=e133]:
+            - listitem [ref=e134]:
+              - link "SEO Parser" [ref=e135] [cursor=pointer]:
+                - /url: /seo-parser
+            - listitem [ref=e136]:
+              - link "ADA Audit" [ref=e137] [cursor=pointer]:
+                - /url: /ada-audit
+            - listitem [ref=e138]:
+              - link "Robots Validator" [ref=e139] [cursor=pointer]:
+                - /url: /robots-validator
+            - listitem [ref=e140]:
+              - link "Quarter Grid" [ref=e141] [cursor=pointer]:
+                - /url: /quarter-grid
+            - listitem [ref=e142]:
+              - link "RankMath Redirects" [ref=e143] [cursor=pointer]:
+                - /url: /rankmath-redirects
+            - listitem [ref=e144]:
+              - link "Clients" [ref=e145] [cursor=pointer]:
+                - /url: /clients
+        - generic [ref=e146]:
+          - heading "Deployment" [level=3] [ref=e147]
+          - list [ref=e148]:
+            - listitem [ref=e149]: RunCloud — Node.js App
+            - listitem [ref=e150]: Next.js 15 + App Router
+            - listitem [ref=e151]: Prisma + SQLite
+            - listitem [ref=e152]: Git-connected Deploy
+      - generic [ref=e153]:
+        - paragraph [ref=e154]: © 2026 Enrollment Resources. Internal tool — not for external distribution.
+        - generic [ref=e157]: er-seo-tools v0.2.0
+  - alert [ref=e158]

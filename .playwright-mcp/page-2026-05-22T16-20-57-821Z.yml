@@ -1,0 +1,1154 @@
+- generic [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - navigation [ref=e3]:
+    - generic [ref=e5]:
+      - link "ER SEO Tools Enrollment Resources" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]: ER
+        - generic [ref=e9]:
+          - generic [ref=e10]: SEO Tools
+          - generic [ref=e11]: Enrollment Resources
+      - generic [ref=e12]:
+        - link "SEO Parser" [ref=e14] [cursor=pointer]:
+          - /url: /seo-parser
+          - text: SEO Parser
+          - img [ref=e15]
+        - link "Quarter Grid" [ref=e17] [cursor=pointer]:
+          - /url: /quarter-grid
+        - link "RankMath Redirects" [ref=e18] [cursor=pointer]:
+          - /url: /rankmath-redirects
+        - link "Robots Validator" [ref=e19] [cursor=pointer]:
+          - /url: /robots-validator
+        - link "ADA Audit" [ref=e20] [cursor=pointer]:
+          - /url: /ada-audit
+        - link "Oxygen Stack Guide" [ref=e21] [cursor=pointer]:
+          - /url: /oxygen-tailwind-guide
+        - link "Clients" [ref=e22] [cursor=pointer]:
+          - /url: /clients
+      - generic [ref=e23]:
+        - button "Switch to dark mode" [ref=e24] [cursor=pointer]:
+          - img [ref=e25]
+        - button "Log out" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+  - main [ref=e32]:
+    - main [ref=e33]:
+      - generic [ref=e34]:
+        - heading "ADA / WCAG Audit" [level=1] [ref=e35]
+        - paragraph [ref=e36]: Audit pages for accessibility violations using axe-core. Results are saved and shared across the team.
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]:
+            - img [ref=e41]
+            - heading "New Audit" [level=2] [ref=e43]
+            - tablist "Audit type" [ref=e44]:
+              - tab "Single Page" [ref=e45] [cursor=pointer]
+              - tab "Full Site" [active] [selected] [ref=e46] [cursor=pointer]
+          - generic [ref=e147]:
+            - generic [ref=e148]:
+              - generic [ref=e149]: Client (optional)
+              - combobox "Client (optional)" [ref=e151]
+            - generic [ref=e152]:
+              - generic [ref=e153]: Domain to audit
+              - textbox "Domain to audit" [ref=e154]:
+                - /placeholder: example.edu
+              - paragraph [ref=e155]: We'll discover all pages from the sitemap and audit each one.
+            - generic [ref=e156]:
+              - paragraph [ref=e157]: WCAG Level
+              - group "WCAG Level" [ref=e158]:
+                - button "WCAG 2.1 AA Required" [pressed] [ref=e159] [cursor=pointer]:
+                  - generic [ref=e160]: WCAG 2.1 AA
+                  - generic [ref=e161]: Required
+                - button "+ Best Practices Aspirational" [ref=e162] [cursor=pointer]:
+                  - generic [ref=e163]: + Best Practices
+                  - generic [ref=e164]: Aspirational
+            - generic [ref=e165]:
+              - paragraph [ref=e167]: "Scanning pages: prismcareerinstitute.edu5/300 pages (2%)"
+              - paragraph [ref=e170]: New audits will be queued and start automatically.
+            - button "Discover Pages" [disabled] [ref=e171]
+        - generic [ref=e66]:
+          - generic [ref=e67]:
+            - link "Current Scan" [ref=e172] [cursor=pointer]:
+              - /url: /ada-audit/site/cmph4m32600087zvsp2ub3q7x
+              - generic [ref=e173]: Current Scan
+            - generic [ref=e174]:
+              - paragraph [ref=e175]: prismcareerinstitute.edu
+              - paragraph [ref=e176]: Scanning pages · 5 / 300 pages (2%)
+          - generic [ref=e74]:
+            - generic [ref=e76]: Queue
+            - paragraph [ref=e179]: No audits waiting
+        - generic [ref=e81]:
+          - generic [ref=e82]:
+            - img [ref=e84]
+            - heading "Clients" [level=2] [ref=e86]
+            - generic [ref=e88]:
+              - textbox "Search clients by name" [ref=e89]
+              - button "Queue all" [ref=e90] [cursor=pointer]
+              - link "View queue →" [ref=e91] [cursor=pointer]:
+                - /url: /ada-audit/queue
+          - table [ref=e180]:
+            - rowgroup [ref=e181]:
+              - row "Client Last audit Score Action" [ref=e182]:
+                - columnheader "Client" [ref=e183]:
+                  - button "Client" [ref=e184] [cursor=pointer]
+                - columnheader "Last audit" [ref=e185]:
+                  - button "Last audit" [ref=e186] [cursor=pointer]:
+                    - text: Last audit
+                    - generic [ref=e187]: ↓
+                - columnheader "Score" [ref=e188]:
+                  - button "Score" [ref=e189] [cursor=pointer]
+                - columnheader "Action" [ref=e190]
+            - rowgroup [ref=e191]:
+              - row "Valley College 5/21/2026 0 View → Re-queue" [ref=e192]:
+                - cell "Valley College" [ref=e193]:
+                  - link "Valley College" [ref=e194] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgg001k6koecnwigkwz
+                - cell "5/21/2026" [ref=e195]
+                - cell "0" [ref=e196]
+                - cell "View → Re-queue" [ref=e197]:
+                  - link "View →" [ref=e198] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgg001k6koecnwigkwz
+                  - button "Re-queue" [ref=e199] [cursor=pointer]
+              - row "Urban River Massage Therapy School 5/21/2026 87 View → Re-queue" [ref=e200]:
+                - cell "Urban River Massage Therapy School" [ref=e201]:
+                  - link "Urban River Massage Therapy School" [ref=e202] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgd001i6koe5pich9a7
+                - cell "5/21/2026" [ref=e203]
+                - cell "87" [ref=e204]
+                - cell "View → Re-queue" [ref=e205]:
+                  - link "View →" [ref=e206] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgd001i6koe5pich9a7
+                  - button "Re-queue" [ref=e207] [cursor=pointer]
+              - row "The Soma Institute 5/21/2026 86 View → Re-queue" [ref=e208]:
+                - cell "The Soma Institute" [ref=e209]:
+                  - link "The Soma Institute" [ref=e210] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgb001g6koepdn3q5s5
+                - cell "5/21/2026" [ref=e211]
+                - cell "86" [ref=e212]
+                - cell "View → Re-queue" [ref=e213]:
+                  - link "View →" [ref=e214] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgb001g6koepdn3q5s5
+                  - button "Re-queue" [ref=e215] [cursor=pointer]
+              - row "The College of Westchester 5/21/2026 0 View → Re-queue" [ref=e216]:
+                - cell "The College of Westchester" [ref=e217]:
+                  - link "The College of Westchester" [ref=e218] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg8001e6koe00inf6v9
+                - cell "5/21/2026" [ref=e219]
+                - cell "0" [ref=e220]
+                - cell "View → Re-queue" [ref=e221]:
+                  - link "View →" [ref=e222] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg8001e6koe00inf6v9
+                  - button "Re-queue" [ref=e223] [cursor=pointer]
+              - row "Sutter County Career Training Center 5/21/2026 0 View → Re-queue" [ref=e224]:
+                - cell "Sutter County Career Training Center" [ref=e225]:
+                  - link "Sutter County Career Training Center" [ref=e226] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg5001c6koebmcnfc4z
+                - cell "5/21/2026" [ref=e227]
+                - cell "0" [ref=e228]
+                - cell "View → Re-queue" [ref=e229]:
+                  - link "View →" [ref=e230] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg5001c6koebmcnfc4z
+                  - button "Re-queue" [ref=e231] [cursor=pointer]
+              - row "Southwest Schools 5/21/2026 0 View → Re-queue" [ref=e232]:
+                - cell "Southwest Schools" [ref=e233]:
+                  - link "Southwest Schools" [ref=e234] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg2001a6koe34se0smp
+                - cell "5/21/2026" [ref=e235]
+                - cell "0" [ref=e236]
+                - cell "View → Re-queue" [ref=e237]:
+                  - link "View →" [ref=e238] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg2001a6koe34se0smp
+                  - button "Re-queue" [ref=e239] [cursor=pointer]
+              - row "San Diego Global Knowledge University 5/21/2026 0 View → Re-queue" [ref=e240]:
+                - cell "San Diego Global Knowledge University" [ref=e241]:
+                  - link "San Diego Global Knowledge University" [ref=e242] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfz00186koeyfgy91y0
+                - cell "5/21/2026" [ref=e243]
+                - cell "0" [ref=e244]
+                - cell "View → Re-queue" [ref=e245]:
+                  - link "View →" [ref=e246] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfz00186koeyfgy91y0
+                  - button "Re-queue" [ref=e247] [cursor=pointer]
+              - row "Prism Career Institute 5/21/2026 78 View → Re-queue" [ref=e248]:
+                - cell "Prism Career Institute" [ref=e249]:
+                  - link "Prism Career Institute" [ref=e250] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfw00166koej0v505qb
+                - cell "5/21/2026" [ref=e251]
+                - cell "78" [ref=e252]
+                - cell "View → Re-queue" [ref=e253]:
+                  - link "View →" [ref=e254] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfw00166koej0v505qb
+                  - button "Re-queue" [ref=e255] [cursor=pointer]
+              - row "Penrose Academy 5/21/2026 0 View → Re-queue" [ref=e256]:
+                - cell "Penrose Academy" [ref=e257]:
+                  - link "Penrose Academy" [ref=e258] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfs00146koej82rjkao
+                - cell "5/21/2026" [ref=e259]
+                - cell "0" [ref=e260]
+                - cell "View → Re-queue" [ref=e261]:
+                  - link "View →" [ref=e262] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfs00146koej82rjkao
+                  - button "Re-queue" [ref=e263] [cursor=pointer]
+              - row "Nuvani Institute 5/21/2026 97 View → Re-queue" [ref=e264]:
+                - cell "Nuvani Institute" [ref=e265]:
+                  - link "Nuvani Institute" [ref=e266] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfp00126koe0gvs2y9c
+                - cell "5/21/2026" [ref=e267]
+                - cell "97" [ref=e268]
+                - cell "View → Re-queue" [ref=e269]:
+                  - link "View →" [ref=e270] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfp00126koe0gvs2y9c
+                  - button "Re-queue" [ref=e271] [cursor=pointer]
+              - row "New York Institute of Massage 5/21/2026 76 View → Re-queue" [ref=e272]:
+                - cell "New York Institute of Massage" [ref=e273]:
+                  - link "New York Institute of Massage" [ref=e274] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfm00106koeyxaikzci
+                - cell "5/21/2026" [ref=e275]
+                - cell "76" [ref=e276]
+                - cell "View → Re-queue" [ref=e277]:
+                  - link "View →" [ref=e278] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfm00106koeyxaikzci
+                  - button "Re-queue" [ref=e279] [cursor=pointer]
+              - row "Manhattan School of Computer Technology 5/21/2026 0 View → Re-queue" [ref=e280]:
+                - cell "Manhattan School of Computer Technology" [ref=e281]:
+                  - link "Manhattan School of Computer Technology" [ref=e282] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfk000y6koeo0shj1a0
+                - cell "5/21/2026" [ref=e283]
+                - cell "0" [ref=e284]
+                - cell "View → Re-queue" [ref=e285]:
+                  - link "View →" [ref=e286] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfk000y6koeo0shj1a0
+                  - button "Re-queue" [ref=e287] [cursor=pointer]
+              - row "Innovate Salon Academy 5/21/2026 0 View → Re-queue" [ref=e288]:
+                - cell "Innovate Salon Academy" [ref=e289]:
+                  - link "Innovate Salon Academy" [ref=e290] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkff000w6koerp80x73o
+                - cell "5/21/2026" [ref=e291]
+                - cell "0" [ref=e292]
+                - cell "View → Re-queue" [ref=e293]:
+                  - link "View →" [ref=e294] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkff000w6koerp80x73o
+                  - button "Re-queue" [ref=e295] [cursor=pointer]
+              - row "Hilbert College 5/21/2026 0 View → Re-queue" [ref=e296]:
+                - cell "Hilbert College" [ref=e297]:
+                  - link "Hilbert College" [ref=e298] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkf2000u6koezeg0lors
+                - cell "5/21/2026" [ref=e299]
+                - cell "0" [ref=e300]
+                - cell "View → Re-queue" [ref=e301]:
+                  - link "View →" [ref=e302] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkf2000u6koezeg0lors
+                  - button "Re-queue" [ref=e303] [cursor=pointer]
+              - row "Healthcare Career College 5/21/2026 100 View → Re-queue" [ref=e304]:
+                - cell "Healthcare Career College" [ref=e305]:
+                  - link "Healthcare Career College" [ref=e306] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkez000s6koe33nqqaw9
+                - cell "5/21/2026" [ref=e307]
+                - cell "100" [ref=e308]
+                - cell "View → Re-queue" [ref=e309]:
+                  - link "View →" [ref=e310] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkez000s6koe33nqqaw9
+                  - button "Re-queue" [ref=e311] [cursor=pointer]
+              - row "Glow College of Artistic Design 5/21/2026 0 View → Re-queue" [ref=e312]:
+                - cell "Glow College of Artistic Design" [ref=e313]:
+                  - link "Glow College of Artistic Design" [ref=e314] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkex000q6koe11kkautn
+                - cell "5/21/2026" [ref=e315]
+                - cell "0" [ref=e316]
+                - cell "View → Re-queue" [ref=e317]:
+                  - link "View →" [ref=e318] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkex000q6koe11kkautn
+                  - button "Re-queue" [ref=e319] [cursor=pointer]
+              - row "Federico Beauty Institute 5/21/2026 0 View → Re-queue" [ref=e320]:
+                - cell "Federico Beauty Institute" [ref=e321]:
+                  - link "Federico Beauty Institute" [ref=e322] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogker000m6koewgpd6u3l
+                - cell "5/21/2026" [ref=e323]
+                - cell "0" [ref=e324]
+                - cell "View → Re-queue" [ref=e325]:
+                  - link "View →" [ref=e326] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogker000m6koewgpd6u3l
+                  - button "Re-queue" [ref=e327] [cursor=pointer]
+              - row "Discovery Community College 5/21/2026 0 View → Re-queue" [ref=e328]:
+                - cell "Discovery Community College" [ref=e329]:
+                  - link "Discovery Community College" [ref=e330] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkeo000k6koean1gff2h
+                - cell "5/21/2026" [ref=e331]
+                - cell "0" [ref=e332]
+                - cell "View → Re-queue" [ref=e333]:
+                  - link "View →" [ref=e334] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkeo000k6koean1gff2h
+                  - button "Re-queue" [ref=e335] [cursor=pointer]
+              - row "Canadian College of Health Science & Technology 5/21/2026 60 View → Re-queue" [ref=e336]:
+                - cell "Canadian College of Health Science & Technology" [ref=e337]:
+                  - link "Canadian College of Health Science & Technology" [ref=e338] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkef000i6koe5yqm9r7c
+                - cell "5/21/2026" [ref=e339]
+                - cell "60" [ref=e340]
+                - cell "View → Re-queue" [ref=e341]:
+                  - link "View →" [ref=e342] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkef000i6koe5yqm9r7c
+                  - button "Re-queue" [ref=e343] [cursor=pointer]
+              - row "Canadian College of Business, Science & Technology 5/21/2026 0 View → Re-queue" [ref=e344]:
+                - cell "Canadian College of Business, Science & Technology" [ref=e345]:
+                  - link "Canadian College of Business, Science & Technology" [ref=e346] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogke5000g6koer7wlkrwy
+                - cell "5/21/2026" [ref=e347]
+                - cell "0" [ref=e348]
+                - cell "View → Re-queue" [ref=e349]:
+                  - link "View →" [ref=e350] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogke5000g6koer7wlkrwy
+                  - button "Re-queue" [ref=e351] [cursor=pointer]
+              - row "Cambria College 5/21/2026 0 View → Re-queue" [ref=e352]:
+                - cell "Cambria College" [ref=e353]:
+                  - link "Cambria College" [ref=e354] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogke1000e6koec2m9xvmd
+                - cell "5/21/2026" [ref=e355]
+                - cell "0" [ref=e356]
+                - cell "View → Re-queue" [ref=e357]:
+                  - link "View →" [ref=e358] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogke1000e6koec2m9xvmd
+                  - button "Re-queue" [ref=e359] [cursor=pointer]
+              - row "Brownson Technical School 5/21/2026 76 View → Re-queue" [ref=e360]:
+                - cell "Brownson Technical School" [ref=e361]:
+                  - link "Brownson Technical School" [ref=e362] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdx000c6koew4f5h6en
+                - cell "5/21/2026" [ref=e363]
+                - cell "76" [ref=e364]
+                - cell "View → Re-queue" [ref=e365]:
+                  - link "View →" [ref=e366] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdx000c6koew4f5h6en
+                  - button "Re-queue" [ref=e367] [cursor=pointer]
+              - row "Brockway Center for Arts and Technology 5/21/2026 0 View → Re-queue" [ref=e368]:
+                - cell "Brockway Center for Arts and Technology" [ref=e369]:
+                  - link "Brockway Center for Arts and Technology" [ref=e370] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdo000a6koeyqeq7z57
+                - cell "5/21/2026" [ref=e371]
+                - cell "0" [ref=e372]
+                - cell "View → Re-queue" [ref=e373]:
+                  - link "View →" [ref=e374] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdo000a6koeyqeq7z57
+                  - button "Re-queue" [ref=e375] [cursor=pointer]
+              - row "Boca Beauty Academy 5/21/2026 39 View → Re-queue" [ref=e376]:
+                - cell "Boca Beauty Academy" [ref=e377]:
+                  - link "Boca Beauty Academy" [ref=e378] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdl00086koecezyy9mg
+                - cell "5/21/2026" [ref=e379]
+                - cell "39" [ref=e380]
+                - cell "View → Re-queue" [ref=e381]:
+                  - link "View →" [ref=e382] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdl00086koecezyy9mg
+                  - button "Re-queue" [ref=e383] [cursor=pointer]
+              - row "Bidwell Training Center 5/21/2026 100 View → Re-queue" [ref=e384]:
+                - cell "Bidwell Training Center" [ref=e385]:
+                  - link "Bidwell Training Center" [ref=e386] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdi00066koeus1knhwl
+                - cell "5/21/2026" [ref=e387]
+                - cell "100" [ref=e388]
+                - cell "View → Re-queue" [ref=e389]:
+                  - link "View →" [ref=e390] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdi00066koeus1knhwl
+                  - button "Re-queue" [ref=e391] [cursor=pointer]
+              - row "BEONAIR (M & S Media Inc.) 5/21/2026 0 View → Re-queue" [ref=e392]:
+                - cell "BEONAIR (M & S Media Inc.)" [ref=e393]:
+                  - link "BEONAIR (M & S Media Inc.)" [ref=e394] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkd900026koen2rp9shv
+                - cell "5/21/2026" [ref=e395]
+                - cell "0" [ref=e396]
+                - cell "View → Re-queue" [ref=e397]:
+                  - link "View →" [ref=e398] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkd900026koen2rp9shv
+                  - button "Re-queue" [ref=e399] [cursor=pointer]
+              - row "Beal University — — Queue audit" [ref=e400]:
+                - cell "Beal University" [ref=e401]:
+                  - link "Beal University" [ref=e402] [cursor=pointer]:
+                    - /url: /clients
+                - cell "—" [ref=e403]
+                - cell "—" [ref=e404]
+                - cell "Queue audit" [ref=e405]:
+                  - button "Queue audit" [ref=e406] [cursor=pointer]
+        - generic [ref=e94]:
+          - generic [ref=e95]:
+            - img [ref=e97]
+            - heading "Recent Page Audits" [level=2] [ref=e99]
+          - table [ref=e407]:
+            - rowgroup [ref=e408]:
+              - row "URL Client Requested by Score Issues Status Date Actions" [ref=e409]:
+                - columnheader "URL" [ref=e410]
+                - columnheader "Client" [ref=e411]
+                - columnheader "Requested by" [ref=e412]
+                - columnheader "Score" [ref=e413]
+                - columnheader "Issues" [ref=e414]
+                - columnheader "Status" [ref=e415]
+                - columnheader "Date" [ref=e416]
+                - columnheader "Actions" [ref=e417]
+            - rowgroup [ref=e418]:
+              - row "nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/ Nuvani Institute Testing 100 Clean complete 5/22/2026 Delete" [ref=e419]:
+                - cell "nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/" [ref=e420]:
+                  - link "nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/" [ref=e421] [cursor=pointer]:
+                    - /url: /ada-audit/cmph4ggif00057zvs4xu1my5u
+                - cell "Nuvani Institute" [ref=e422]
+                - cell "Testing" [ref=e423]
+                - cell "100" [ref=e424]
+                - cell "Clean" [ref=e425]:
+                  - generic [ref=e427]: Clean
+                - cell "complete" [ref=e428]
+                - cell "5/22/2026" [ref=e429]
+                - cell "Delete" [ref=e430]:
+                  - button "Delete" [ref=e431] [cursor=pointer]
+              - row "discoverycommunitycollege.com/programs/business/business-administration/ Discovery Community College Testing 95 1 ser 1 mod complete 5/22/2026 Delete" [ref=e432]:
+                - cell "discoverycommunitycollege.com/programs/business/business-administration/" [ref=e433]:
+                  - link "discoverycommunitycollege.com/programs/business/business-administration/" [ref=e434] [cursor=pointer]:
+                    - /url: /ada-audit/cmph4f9e200037zvsz6wxuxh0
+                - cell "Discovery Community College" [ref=e435]
+                - cell "Testing" [ref=e436]
+                - cell "95" [ref=e437]
+                - cell "1 ser 1 mod" [ref=e438]:
+                  - generic [ref=e439]:
+                    - generic [ref=e440]: 1 ser
+                    - generic [ref=e441]: 1 mod
+                - cell "complete" [ref=e442]
+                - cell "5/22/2026" [ref=e443]
+                - cell "Delete" [ref=e444]:
+                  - button "Delete" [ref=e445] [cursor=pointer]
+              - row "www.soma.edu/about-soma/ The Soma Institute Testing 97 1 ser complete 5/22/2026 Delete" [ref=e446]:
+                - cell "www.soma.edu/about-soma/" [ref=e447]:
+                  - link "www.soma.edu/about-soma/" [ref=e448] [cursor=pointer]:
+                    - /url: /ada-audit/cmph4d04b00017zvsfxad8a00
+                - cell "The Soma Institute" [ref=e449]
+                - cell "Testing" [ref=e450]
+                - cell "97" [ref=e451]
+                - cell "1 ser" [ref=e452]:
+                  - generic [ref=e454]: 1 ser
+                - cell "complete" [ref=e455]
+                - cell "5/22/2026" [ref=e456]
+                - cell "Delete" [ref=e457]:
+                  - button "Delete" [ref=e458] [cursor=pointer]
+              - row "nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/ Nuvani Institute Kevin — — error 5/21/2026 Delete" [ref=e459]:
+                - cell "nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/" [ref=e460]:
+                  - link "nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/" [ref=e461] [cursor=pointer]:
+                    - /url: /ada-audit/cmpfu9gex047s6koewy3f4kml
+                - cell "Nuvani Institute" [ref=e462]
+                - cell "Kevin" [ref=e463]
+                - cell "—" [ref=e464]
+                - cell "—" [ref=e465]
+                - cell "error" [ref=e466]
+                - cell "5/21/2026" [ref=e467]
+                - cell "Delete" [ref=e468]:
+                  - button "Delete" [ref=e469] [cursor=pointer]
+              - row "proway.erstaging.site/thank-you/ — Testing 100 Clean complete 5/20/2026 Delete" [ref=e470]:
+                - cell "proway.erstaging.site/thank-you/" [ref=e471]:
+                  - link "proway.erstaging.site/thank-you/" [ref=e472] [cursor=pointer]:
+                    - /url: /ada-audit/cmpenveqd008032vmtqntlq4f
+                - cell "—" [ref=e473]
+                - cell "Testing" [ref=e474]
+                - cell "100" [ref=e475]
+                - cell "Clean" [ref=e476]:
+                  - generic [ref=e478]: Clean
+                - cell "complete" [ref=e479]
+                - cell "5/20/2026" [ref=e480]
+                - cell "Delete" [ref=e481]:
+                  - button "Delete" [ref=e482] [cursor=pointer]
+              - row "nuvani.edu/ Nuvani Institute Testing 100 Clean complete 5/20/2026 Delete" [ref=e483]:
+                - cell "nuvani.edu/" [ref=e484]:
+                  - link "nuvani.edu/" [ref=e485] [cursor=pointer]:
+                    - /url: /ada-audit/cmpegvtvk0001prvaqtj28vwx
+                - cell "Nuvani Institute" [ref=e486]
+                - cell "Testing" [ref=e487]
+                - cell "100" [ref=e488]
+                - cell "Clean" [ref=e489]:
+                  - generic [ref=e491]: Clean
+                - cell "complete" [ref=e492]
+                - cell "5/20/2026" [ref=e493]
+                - cell "Delete" [ref=e494]:
+                  - button "Delete" [ref=e495] [cursor=pointer]
+              - row "tint.erstaging.site/ — Testing 98 1 ser complete 5/19/2026 Delete" [ref=e496]:
+                - cell "tint.erstaging.site/" [ref=e497]:
+                  - link "tint.erstaging.site/" [ref=e498] [cursor=pointer]:
+                    - /url: /ada-audit/cmpd3il8200j7qfq9tovlg6hl
+                - cell "—" [ref=e499]
+                - cell "Testing" [ref=e500]
+                - cell "98" [ref=e501]
+                - cell "1 ser" [ref=e502]:
+                  - generic [ref=e504]: 1 ser
+                - cell "complete" [ref=e505]
+                - cell "5/19/2026" [ref=e506]
+                - cell "Delete" [ref=e507]:
+                  - button "Delete" [ref=e508] [cursor=pointer]
+              - row "enrollmentresources.com/ — Testing 88 1 crit 3 ser complete 5/19/2026 Delete" [ref=e509]:
+                - cell "enrollmentresources.com/" [ref=e510]:
+                  - link "enrollmentresources.com/" [ref=e511] [cursor=pointer]:
+                    - /url: /ada-audit/cmpcu5lv3005yqfq9mahnf1m3
+                - cell "—" [ref=e512]
+                - cell "Testing" [ref=e513]
+                - cell "88" [ref=e514]
+                - cell "1 crit 3 ser" [ref=e515]:
+                  - generic [ref=e516]:
+                    - generic [ref=e517]: 1 crit
+                    - generic [ref=e518]: 3 ser
+                - cell "complete" [ref=e519]
+                - cell "5/19/2026" [ref=e520]
+                - cell "Delete" [ref=e521]:
+                  - button "Delete" [ref=e522] [cursor=pointer]
+              - row "sdgku.edu/academic-calendar/ — Testing 100 Clean complete 5/13/2026 Delete" [ref=e523]:
+                - cell "sdgku.edu/academic-calendar/" [ref=e524]:
+                  - link "sdgku.edu/academic-calendar/" [ref=e525] [cursor=pointer]:
+                    - /url: /ada-audit/cmp4ju1vd000175bxe8egy8ex
+                - cell "—" [ref=e526]
+                - cell "Testing" [ref=e527]
+                - cell "100" [ref=e528]
+                - cell "Clean" [ref=e529]:
+                  - generic [ref=e531]: Clean
+                - cell "complete" [ref=e532]
+                - cell "5/13/2026" [ref=e533]
+                - cell "Delete" [ref=e534]:
+                  - button "Delete" [ref=e535] [cursor=pointer]
+              - row "federico.edu/ — Testing 98 1 ser complete 5/13/2026 Delete" [ref=e536]:
+                - cell "federico.edu/" [ref=e537]:
+                  - link "federico.edu/" [ref=e538] [cursor=pointer]:
+                    - /url: /ada-audit/cmp4hnzsx000390opaqjs8s5q
+                - cell "—" [ref=e539]
+                - cell "Testing" [ref=e540]
+                - cell "98" [ref=e541]
+                - cell "1 ser" [ref=e542]:
+                  - generic [ref=e544]: 1 ser
+                - cell "complete" [ref=e545]
+                - cell "5/13/2026" [ref=e546]
+                - cell "Delete" [ref=e547]:
+                  - button "Delete" [ref=e548] [cursor=pointer]
+              - row "fei.edu/ — Testing 100 Clean complete 5/13/2026 Delete" [ref=e549]:
+                - cell "fei.edu/" [ref=e550]:
+                  - link "fei.edu/" [ref=e551] [cursor=pointer]:
+                    - /url: /ada-audit/cmp4hlf01000190opgcpv19jd
+                - cell "—" [ref=e552]
+                - cell "Testing" [ref=e553]
+                - cell "100" [ref=e554]
+                - cell "Clean" [ref=e555]:
+                  - generic [ref=e557]: Clean
+                - cell "complete" [ref=e558]
+                - cell "5/13/2026" [ref=e559]
+                - cell "Delete" [ref=e560]:
+                  - button "Delete" [ref=e561] [cursor=pointer]
+              - row "federico.edu/ — Testing 98 1 ser complete 5/13/2026 Delete" [ref=e562]:
+                - cell "federico.edu/" [ref=e563]:
+                  - link "federico.edu/" [ref=e564] [cursor=pointer]:
+                    - /url: /ada-audit/cmp4g87au000113yrtxf8dopu
+                - cell "—" [ref=e565]
+                - cell "Testing" [ref=e566]
+                - cell "98" [ref=e567]
+                - cell "1 ser" [ref=e568]:
+                  - generic [ref=e570]: 1 ser
+                - cell "complete" [ref=e571]
+                - cell "5/13/2026" [ref=e572]
+                - cell "Delete" [ref=e573]:
+                  - button "Delete" [ref=e574] [cursor=pointer]
+              - row "proway.erstaging.site/programs/barbering/ — Testing 93 1 crit 1 ser complete 5/12/2026 Delete" [ref=e575]:
+                - cell "proway.erstaging.site/programs/barbering/" [ref=e576]:
+                  - link "proway.erstaging.site/programs/barbering/" [ref=e577] [cursor=pointer]:
+                    - /url: /ada-audit/cmp2qvlia02918qpolvs468ns
+                - cell "—" [ref=e578]
+                - cell "Testing" [ref=e579]
+                - cell "93" [ref=e580]
+                - cell "1 crit 1 ser" [ref=e581]:
+                  - generic [ref=e582]:
+                    - generic [ref=e583]: 1 crit
+                    - generic [ref=e584]: 1 ser
+                - cell "complete" [ref=e585]
+                - cell "5/12/2026" [ref=e586]
+                - cell "Delete" [ref=e587]:
+                  - button "Delete" [ref=e588] [cursor=pointer]
+              - row "proway.erstaging.site/programs/barbering/ — Testing 94 1 crit 1 ser complete 5/12/2026 Delete" [ref=e589]:
+                - cell "proway.erstaging.site/programs/barbering/" [ref=e590]:
+                  - link "proway.erstaging.site/programs/barbering/" [ref=e591] [cursor=pointer]:
+                    - /url: /ada-audit/cmp2qswgb028z8qpolwa2dlhp
+                - cell "—" [ref=e592]
+                - cell "Testing" [ref=e593]
+                - cell "94" [ref=e594]
+                - cell "1 crit 1 ser" [ref=e595]:
+                  - generic [ref=e596]:
+                    - generic [ref=e597]: 1 crit
+                    - generic [ref=e598]: 1 ser
+                - cell "complete" [ref=e599]
+                - cell "5/12/2026" [ref=e600]
+                - cell "Delete" [ref=e601]:
+                  - button "Delete" [ref=e602] [cursor=pointer]
+              - row "proway.erstaging.site/programs/barbering/ — Testing 94 1 crit 1 ser complete 5/12/2026 Delete" [ref=e603]:
+                - cell "proway.erstaging.site/programs/barbering/" [ref=e604]:
+                  - link "proway.erstaging.site/programs/barbering/" [ref=e605] [cursor=pointer]:
+                    - /url: /ada-audit/cmp2qs85f028x8qpognvunia6
+                - cell "—" [ref=e606]
+                - cell "Testing" [ref=e607]
+                - cell "94" [ref=e608]
+                - cell "1 crit 1 ser" [ref=e609]:
+                  - generic [ref=e610]:
+                    - generic [ref=e611]: 1 crit
+                    - generic [ref=e612]: 1 ser
+                - cell "complete" [ref=e613]
+                - cell "5/12/2026" [ref=e614]
+                - cell "Delete" [ref=e615]:
+                  - button "Delete" [ref=e616] [cursor=pointer]
+              - row "federico.edu/ — Testing 98 1 ser complete 5/11/2026 Delete" [ref=e617]:
+                - cell "federico.edu/" [ref=e618]:
+                  - link "federico.edu/" [ref=e619] [cursor=pointer]:
+                    - /url: /ada-audit/cmp1nyv02028v8qpordc4z46z
+                - cell "—" [ref=e620]
+                - cell "Testing" [ref=e621]
+                - cell "98" [ref=e622]
+                - cell "1 ser" [ref=e623]:
+                  - generic [ref=e625]: 1 ser
+                - cell "complete" [ref=e626]
+                - cell "5/11/2026" [ref=e627]
+                - cell "Delete" [ref=e628]:
+                  - button "Delete" [ref=e629] [cursor=pointer]
+              - row "proway.erstaging.site/programs/barbering/ — Testing 94 1 crit 1 ser complete 5/11/2026 Delete" [ref=e630]:
+                - cell "proway.erstaging.site/programs/barbering/" [ref=e631]:
+                  - link "proway.erstaging.site/programs/barbering/" [ref=e632] [cursor=pointer]:
+                    - /url: /ada-audit/cmp1lhv7j028t8qpos83w5k5s
+                - cell "—" [ref=e633]
+                - cell "Testing" [ref=e634]
+                - cell "94" [ref=e635]
+                - cell "1 crit 1 ser" [ref=e636]:
+                  - generic [ref=e637]:
+                    - generic [ref=e638]: 1 crit
+                    - generic [ref=e639]: 1 ser
+                - cell "complete" [ref=e640]
+                - cell "5/11/2026" [ref=e641]
+                - cell "Delete" [ref=e642]:
+                  - button "Delete" [ref=e643] [cursor=pointer]
+              - row "proway.erstaging.site/programs/barbering/ — Testing 94 1 crit 1 ser complete 5/11/2026 Delete" [ref=e644]:
+                - cell "proway.erstaging.site/programs/barbering/" [ref=e645]:
+                  - link "proway.erstaging.site/programs/barbering/" [ref=e646] [cursor=pointer]:
+                    - /url: /ada-audit/cmp1le23f028r8qpozg4qryp1
+                - cell "—" [ref=e647]
+                - cell "Testing" [ref=e648]
+                - cell "94" [ref=e649]
+                - cell "1 crit 1 ser" [ref=e650]:
+                  - generic [ref=e651]:
+                    - generic [ref=e652]: 1 crit
+                    - generic [ref=e653]: 1 ser
+                - cell "complete" [ref=e654]
+                - cell "5/11/2026" [ref=e655]
+                - cell "Delete" [ref=e656]:
+                  - button "Delete" [ref=e657] [cursor=pointer]
+              - row "sdgku.edu/ — Testing 100 Clean complete 4/30/2026 Delete" [ref=e658]:
+                - cell "sdgku.edu/" [ref=e659]:
+                  - link "sdgku.edu/" [ref=e660] [cursor=pointer]:
+                    - /url: /ada-audit/cmolsyxn0001b8qpon9fa6plu
+                - cell "—" [ref=e661]
+                - cell "Testing" [ref=e662]
+                - cell "100" [ref=e663]
+                - cell "Clean" [ref=e664]:
+                  - generic [ref=e666]: Clean
+                - cell "complete" [ref=e667]
+                - cell "4/30/2026" [ref=e668]
+                - cell "Delete" [ref=e669]:
+                  - button "Delete" [ref=e670] [cursor=pointer]
+              - row "prismcareerinstitute.edu/ — Testing 93 1 crit 1 ser complete 4/30/2026 Delete" [ref=e671]:
+                - cell "prismcareerinstitute.edu/" [ref=e672]:
+                  - link "prismcareerinstitute.edu/" [ref=e673] [cursor=pointer]:
+                    - /url: /ada-audit/cmolsyffi00198qpo5bnv7abz
+                - cell "—" [ref=e674]
+                - cell "Testing" [ref=e675]
+                - cell "93" [ref=e676]
+                - cell "1 crit 1 ser" [ref=e677]:
+                  - generic [ref=e678]:
+                    - generic [ref=e679]: 1 crit
+                    - generic [ref=e680]: 1 ser
+                - cell "complete" [ref=e681]
+                - cell "4/30/2026" [ref=e682]
+                - cell "Delete" [ref=e683]:
+                  - button "Delete" [ref=e684] [cursor=pointer]
+              - row "penrose.edu/ — Testing 94 2 ser complete 4/30/2026 Delete" [ref=e685]:
+                - cell "penrose.edu/" [ref=e686]:
+                  - link "penrose.edu/" [ref=e687] [cursor=pointer]:
+                    - /url: /ada-audit/cmolsxzaq00178qpoovlicwki
+                - cell "—" [ref=e688]
+                - cell "Testing" [ref=e689]
+                - cell "94" [ref=e690]
+                - cell "2 ser" [ref=e691]:
+                  - generic [ref=e693]: 2 ser
+                - cell "complete" [ref=e694]
+                - cell "4/30/2026" [ref=e695]
+                - cell "Delete" [ref=e696]:
+                  - button "Delete" [ref=e697] [cursor=pointer]
+              - row "nuvani.edu/ — Testing 100 Clean complete 4/30/2026 Delete" [ref=e698]:
+                - cell "nuvani.edu/" [ref=e699]:
+                  - link "nuvani.edu/" [ref=e700] [cursor=pointer]:
+                    - /url: /ada-audit/cmolsxhfb00158qpoo7jhuq2l
+                - cell "—" [ref=e701]
+                - cell "Testing" [ref=e702]
+                - cell "100" [ref=e703]
+                - cell "Clean" [ref=e704]:
+                  - generic [ref=e706]: Clean
+                - cell "complete" [ref=e707]
+                - cell "4/30/2026" [ref=e708]
+                - cell "Delete" [ref=e709]:
+                  - button "Delete" [ref=e710] [cursor=pointer]
+              - row "www.nyinstituteofmassage.com/ — Testing 100 Clean complete 4/30/2026 Delete" [ref=e711]:
+                - cell "www.nyinstituteofmassage.com/" [ref=e712]:
+                  - link "www.nyinstituteofmassage.com/" [ref=e713] [cursor=pointer]:
+                    - /url: /ada-audit/cmolsx0mm00138qpo0umyshng
+                - cell "—" [ref=e714]
+                - cell "Testing" [ref=e715]
+                - cell "100" [ref=e716]
+                - cell "Clean" [ref=e717]:
+                  - generic [ref=e719]: Clean
+                - cell "complete" [ref=e720]
+                - cell "4/30/2026" [ref=e721]
+                - cell "Delete" [ref=e722]:
+                  - button "Delete" [ref=e723] [cursor=pointer]
+              - row "www.molloy.edu/certificates/ — Testing 100 Clean complete 4/30/2026 Delete" [ref=e724]:
+                - cell "www.molloy.edu/certificates/" [ref=e725]:
+                  - link "www.molloy.edu/certificates/" [ref=e726] [cursor=pointer]:
+                    - /url: /ada-audit/cmolswjpa00118qpogr6hcfni
+                - cell "—" [ref=e727]
+                - cell "Testing" [ref=e728]
+                - cell "100" [ref=e729]
+                - cell "Clean" [ref=e730]:
+                  - generic [ref=e732]: Clean
+                - cell "complete" [ref=e733]
+                - cell "4/30/2026" [ref=e734]
+                - cell "Delete" [ref=e735]:
+                  - button "Delete" [ref=e736] [cursor=pointer]
+              - row "manhattanschool.edu/ — Testing 97 1 ser complete 4/30/2026 Delete" [ref=e737]:
+                - cell "manhattanschool.edu/" [ref=e738]:
+                  - link "manhattanschool.edu/" [ref=e739] [cursor=pointer]:
+                    - /url: /ada-audit/cmolsvrw8000z8qpoi8u0gyj4
+                - cell "—" [ref=e740]
+                - cell "Testing" [ref=e741]
+                - cell "97" [ref=e742]
+                - cell "1 ser" [ref=e743]:
+                  - generic [ref=e745]: 1 ser
+                - cell "complete" [ref=e746]
+                - cell "4/30/2026" [ref=e747]
+                - cell "Delete" [ref=e748]:
+                  - button "Delete" [ref=e749] [cursor=pointer]
+          - generic [ref=e750]:
+            - button "← Prev" [disabled] [ref=e751]
+            - generic [ref=e752]: Page 1 of 4
+            - button "Next →" [ref=e753] [cursor=pointer]
+        - generic [ref=e102]:
+          - generic [ref=e103]:
+            - img [ref=e105]
+            - heading "Recent Site Audits" [level=2] [ref=e107]
+          - table [ref=e754]:
+            - rowgroup [ref=e755]:
+              - row "Domain Client Requested by Pages Score Violations Status Date Actions" [ref=e756]:
+                - columnheader "Domain" [ref=e757]
+                - columnheader "Client" [ref=e758]
+                - columnheader "Requested by" [ref=e759]
+                - columnheader "Pages" [ref=e760]
+                - columnheader "Score" [ref=e761]
+                - columnheader "Violations" [ref=e762]
+                - columnheader "Status" [ref=e763]
+                - columnheader "Date" [ref=e764]
+                - columnheader "Actions" [ref=e765]
+            - rowgroup [ref=e766]:
+              - row "prismcareerinstitute.edu — Testing 5/300 — — Running 5/22/2026 Delete" [ref=e767]:
+                - cell "prismcareerinstitute.edu" [ref=e768]:
+                  - link "prismcareerinstitute.edu" [ref=e769] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmph4m32600087zvsp2ub3q7x
+                - cell "—" [ref=e770]
+                - cell "Testing" [ref=e771]
+                - cell "5/300" [ref=e772]:
+                  - generic [ref=e773]: 5/300
+                - cell "—" [ref=e774]
+                - cell "—" [ref=e775]
+                - cell "Running" [ref=e776]
+                - cell "5/22/2026" [ref=e777]
+                - cell "Delete" [ref=e778]:
+                  - button "Delete" [ref=e779] [cursor=pointer]
+              - row "wellspring.edu — Kevin 0 — — Error 5/21/2026 Delete" [ref=e780]:
+                - cell "wellspring.edu" [ref=e781]:
+                  - link "wellspring.edu" [ref=e782] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgj001m6koe6hb25dpe
+                - cell "—" [ref=e783]
+                - cell "Kevin" [ref=e784]
+                - cell "0" [ref=e785]
+                - cell "—" [ref=e786]
+                - cell "—" [ref=e787]
+                - cell "Error" [ref=e788]
+                - cell "5/21/2026" [ref=e789]
+                - cell "Delete" [ref=e790]:
+                  - button "Delete" [ref=e791] [cursor=pointer]
+              - row "valley.edu Valley College Kevin 146 0 179 ser Complete 5/21/2026 Delete" [ref=e792]:
+                - cell "valley.edu" [ref=e793]:
+                  - link "valley.edu" [ref=e794] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgg001k6koecnwigkwz
+                - cell "Valley College" [ref=e795]
+                - cell "Kevin" [ref=e796]
+                - cell "146" [ref=e797]
+                - cell "0" [ref=e798]
+                - cell "179 ser" [ref=e799]:
+                  - generic [ref=e801]: 179 ser
+                - cell "Complete" [ref=e802]
+                - cell "5/21/2026" [ref=e803]
+                - cell "Delete" [ref=e804]:
+                  - button "Delete" [ref=e805] [cursor=pointer]
+              - row "urbanriver.edu Urban River Massage Therapy School Kevin 17 87 1 crit 3 ser Complete 5/21/2026 Delete" [ref=e806]:
+                - cell "urbanriver.edu" [ref=e807]:
+                  - link "urbanriver.edu" [ref=e808] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgd001i6koe5pich9a7
+                - cell "Urban River Massage Therapy School" [ref=e809]
+                - cell "Kevin" [ref=e810]
+                - cell "17" [ref=e811]
+                - cell "87" [ref=e812]
+                - cell "1 crit 3 ser" [ref=e813]:
+                  - generic [ref=e814]:
+                    - generic [ref=e815]: 1 crit
+                    - generic [ref=e816]: 3 ser
+                - cell "Complete" [ref=e817]
+                - cell "5/21/2026" [ref=e818]
+                - cell "Delete" [ref=e819]:
+                  - button "Delete" [ref=e820] [cursor=pointer]
+              - row "soma.edu The Soma Institute Kevin 838 86 4 ser Complete 5/21/2026 Delete" [ref=e821]:
+                - cell "soma.edu" [ref=e822]:
+                  - link "soma.edu" [ref=e823] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkgb001g6koepdn3q5s5
+                - cell "The Soma Institute" [ref=e824]
+                - cell "Kevin" [ref=e825]
+                - cell "838" [ref=e826]
+                - cell "86" [ref=e827]
+                - cell "4 ser" [ref=e828]:
+                  - generic [ref=e830]: 4 ser
+                - cell "Complete" [ref=e831]
+                - cell "5/21/2026" [ref=e832]
+                - cell "Delete" [ref=e833]:
+                  - button "Delete" [ref=e834] [cursor=pointer]
+              - row "cw.edu The College of Westchester Kevin 554 0 17 crit 46 ser Complete 5/21/2026 Delete" [ref=e835]:
+                - cell "cw.edu" [ref=e836]:
+                  - link "cw.edu" [ref=e837] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg8001e6koe00inf6v9
+                - cell "The College of Westchester" [ref=e838]
+                - cell "Kevin" [ref=e839]
+                - cell "554" [ref=e840]
+                - cell "0" [ref=e841]
+                - cell "17 crit 46 ser" [ref=e842]:
+                  - generic [ref=e843]:
+                    - generic [ref=e844]: 17 crit
+                    - generic [ref=e845]: 46 ser
+                - cell "Complete" [ref=e846]
+                - cell "5/21/2026" [ref=e847]
+                - cell "Delete" [ref=e848]:
+                  - button "Delete" [ref=e849] [cursor=pointer]
+              - row "suttercountyctc.edu Sutter County Career Training Center Kevin 50 0 71 ser Complete 5/21/2026 Delete" [ref=e850]:
+                - cell "suttercountyctc.edu" [ref=e851]:
+                  - link "suttercountyctc.edu" [ref=e852] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg5001c6koebmcnfc4z
+                - cell "Sutter County Career Training Center" [ref=e853]
+                - cell "Kevin" [ref=e854]
+                - cell "50" [ref=e855]
+                - cell "0" [ref=e856]
+                - cell "71 ser" [ref=e857]:
+                  - generic [ref=e859]: 71 ser
+                - cell "Complete" [ref=e860]
+                - cell "5/21/2026" [ref=e861]
+                - cell "Delete" [ref=e862]:
+                  - button "Delete" [ref=e863] [cursor=pointer]
+              - row "sws.edu Southwest Schools Kevin 117 0 136 ser Complete 5/21/2026 Delete" [ref=e864]:
+                - cell "sws.edu" [ref=e865]:
+                  - link "sws.edu" [ref=e866] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkg2001a6koe34se0smp
+                - cell "Southwest Schools" [ref=e867]
+                - cell "Kevin" [ref=e868]
+                - cell "117" [ref=e869]
+                - cell "0" [ref=e870]
+                - cell "136 ser" [ref=e871]:
+                  - generic [ref=e873]: 136 ser
+                - cell "Complete" [ref=e874]
+                - cell "5/21/2026" [ref=e875]
+                - cell "Delete" [ref=e876]:
+                  - button "Delete" [ref=e877] [cursor=pointer]
+              - row "sdgku.edu San Diego Global Knowledge University Kevin 79 0 1 crit 80 ser Complete 5/21/2026 Delete" [ref=e878]:
+                - cell "sdgku.edu" [ref=e879]:
+                  - link "sdgku.edu" [ref=e880] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfz00186koeyfgy91y0
+                - cell "San Diego Global Knowledge University" [ref=e881]
+                - cell "Kevin" [ref=e882]
+                - cell "79" [ref=e883]
+                - cell "0" [ref=e884]
+                - cell "1 crit 80 ser" [ref=e885]:
+                  - generic [ref=e886]:
+                    - generic [ref=e887]: 1 crit
+                    - generic [ref=e888]: 80 ser
+                - cell "Complete" [ref=e889]
+                - cell "5/21/2026" [ref=e890]
+                - cell "Delete" [ref=e891]:
+                  - button "Delete" [ref=e892] [cursor=pointer]
+              - row "prismcareerinstitute.edu Prism Career Institute Kevin 300 78 1 crit 6 ser Complete 5/21/2026 Delete" [ref=e893]:
+                - cell "prismcareerinstitute.edu" [ref=e894]:
+                  - link "prismcareerinstitute.edu" [ref=e895] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfw00166koej0v505qb
+                - cell "Prism Career Institute" [ref=e896]
+                - cell "Kevin" [ref=e897]
+                - cell "300" [ref=e898]
+                - cell "78" [ref=e899]
+                - cell "1 crit 6 ser" [ref=e900]:
+                  - generic [ref=e901]:
+                    - generic [ref=e902]: 1 crit
+                    - generic [ref=e903]: 6 ser
+                - cell "Complete" [ref=e904]
+                - cell "5/21/2026" [ref=e905]
+                - cell "Delete" [ref=e906]:
+                  - button "Delete" [ref=e907] [cursor=pointer]
+              - row "penrose.edu Penrose Academy Kevin 233 0 271 ser Complete 5/21/2026 Delete" [ref=e908]:
+                - cell "penrose.edu" [ref=e909]:
+                  - link "penrose.edu" [ref=e910] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfs00146koej82rjkao
+                - cell "Penrose Academy" [ref=e911]
+                - cell "Kevin" [ref=e912]
+                - cell "233" [ref=e913]
+                - cell "0" [ref=e914]
+                - cell "271 ser" [ref=e915]:
+                  - generic [ref=e917]: 271 ser
+                - cell "Complete" [ref=e918]
+                - cell "5/21/2026" [ref=e919]
+                - cell "Delete" [ref=e920]:
+                  - button "Delete" [ref=e921] [cursor=pointer]
+              - row "nuvani.edu Nuvani Institute Kevin 121 97 1 ser Complete 5/21/2026 Delete" [ref=e922]:
+                - cell "nuvani.edu" [ref=e923]:
+                  - link "nuvani.edu" [ref=e924] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfp00126koe0gvs2y9c
+                - cell "Nuvani Institute" [ref=e925]
+                - cell "Kevin" [ref=e926]
+                - cell "121" [ref=e927]
+                - cell "97" [ref=e928]
+                - cell "1 ser" [ref=e929]:
+                  - generic [ref=e931]: 1 ser
+                - cell "Complete" [ref=e932]
+                - cell "5/21/2026" [ref=e933]
+                - cell "Delete" [ref=e934]:
+                  - button "Delete" [ref=e935] [cursor=pointer]
+              - row "www.nyinstituteofmassage.com New York Institute of Massage Kevin 23 76 8 ser Complete 5/21/2026 Delete" [ref=e936]:
+                - cell "www.nyinstituteofmassage.com" [ref=e937]:
+                  - link "www.nyinstituteofmassage.com" [ref=e938] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfm00106koeyxaikzci
+                - cell "New York Institute of Massage" [ref=e939]
+                - cell "Kevin" [ref=e940]
+                - cell "23" [ref=e941]
+                - cell "76" [ref=e942]
+                - cell "8 ser" [ref=e943]:
+                  - generic [ref=e945]: 8 ser
+                - cell "Complete" [ref=e946]
+                - cell "5/21/2026" [ref=e947]
+                - cell "Delete" [ref=e948]:
+                  - button "Delete" [ref=e949] [cursor=pointer]
+              - row "manhattanschool.edu Manhattan School of Computer Technology Kevin 60 0 61 ser Complete 5/21/2026 Delete" [ref=e950]:
+                - cell "manhattanschool.edu" [ref=e951]:
+                  - link "manhattanschool.edu" [ref=e952] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkfk000y6koeo0shj1a0
+                - cell "Manhattan School of Computer Technology" [ref=e953]
+                - cell "Kevin" [ref=e954]
+                - cell "60" [ref=e955]
+                - cell "0" [ref=e956]
+                - cell "61 ser" [ref=e957]:
+                  - generic [ref=e959]: 61 ser
+                - cell "Complete" [ref=e960]
+                - cell "5/21/2026" [ref=e961]
+                - cell "Delete" [ref=e962]:
+                  - button "Delete" [ref=e963] [cursor=pointer]
+              - row "innovatesalonacademy.com Innovate Salon Academy Kevin 102 0 224 crit 201 ser Complete 5/21/2026 Delete" [ref=e964]:
+                - cell "innovatesalonacademy.com" [ref=e965]:
+                  - link "innovatesalonacademy.com" [ref=e966] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkff000w6koerp80x73o
+                - cell "Innovate Salon Academy" [ref=e967]
+                - cell "Kevin" [ref=e968]
+                - cell "102" [ref=e969]
+                - cell "0" [ref=e970]
+                - cell "224 crit 201 ser" [ref=e971]:
+                  - generic [ref=e972]:
+                    - generic [ref=e973]: 224 crit
+                    - generic [ref=e974]: 201 ser
+                - cell "Complete" [ref=e975]
+                - cell "5/21/2026" [ref=e976]
+                - cell "Delete" [ref=e977]:
+                  - button "Delete" [ref=e978] [cursor=pointer]
+              - row "online.hilbert.edu Hilbert College Kevin 126 0 182 ser Complete 5/21/2026 Delete" [ref=e979]:
+                - cell "online.hilbert.edu" [ref=e980]:
+                  - link "online.hilbert.edu" [ref=e981] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkf2000u6koezeg0lors
+                - cell "Hilbert College" [ref=e982]
+                - cell "Kevin" [ref=e983]
+                - cell "126" [ref=e984]
+                - cell "0" [ref=e985]
+                - cell "182 ser" [ref=e986]:
+                  - generic [ref=e988]: 182 ser
+                - cell "Complete" [ref=e989]
+                - cell "5/21/2026" [ref=e990]
+                - cell "Delete" [ref=e991]:
+                  - button "Delete" [ref=e992] [cursor=pointer]
+              - row "healthcarecareercollege.edu Healthcare Career College Kevin 30 100 Clean Complete 5/21/2026 Delete" [ref=e993]:
+                - cell "healthcarecareercollege.edu" [ref=e994]:
+                  - link "healthcarecareercollege.edu" [ref=e995] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkez000s6koe33nqqaw9
+                - cell "Healthcare Career College" [ref=e996]
+                - cell "Kevin" [ref=e997]
+                - cell "30" [ref=e998]
+                - cell "100" [ref=e999]
+                - cell "Clean" [ref=e1000]:
+                  - generic [ref=e1002]: Clean
+                - cell "Complete" [ref=e1003]
+                - cell "5/21/2026" [ref=e1004]
+                - cell "Delete" [ref=e1005]:
+                  - button "Delete" [ref=e1006] [cursor=pointer]
+              - row "glowcollegecanada.ca Glow College of Artistic Design Kevin 287 0 6 crit 439 ser Complete 5/21/2026 Delete" [ref=e1007]:
+                - cell "glowcollegecanada.ca" [ref=e1008]:
+                  - link "glowcollegecanada.ca" [ref=e1009] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkex000q6koe11kkautn
+                - cell "Glow College of Artistic Design" [ref=e1010]
+                - cell "Kevin" [ref=e1011]
+                - cell "287" [ref=e1012]
+                - cell "0" [ref=e1013]
+                - cell "6 crit 439 ser" [ref=e1014]:
+                  - generic [ref=e1015]:
+                    - generic [ref=e1016]: 6 crit
+                    - generic [ref=e1017]: 439 ser
+                - cell "Complete" [ref=e1018]
+                - cell "5/21/2026" [ref=e1019]
+                - cell "Delete" [ref=e1020]:
+                  - button "Delete" [ref=e1021] [cursor=pointer]
+              - row "fei.edu — Kevin — — — Cancelled 5/21/2026 Delete" [ref=e1022]:
+                - cell "fei.edu" [ref=e1023]:
+                  - link "fei.edu" [ref=e1024] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkeu000o6koegqz95hgd
+                - cell "—" [ref=e1025]
+                - cell "Kevin" [ref=e1026]
+                - cell "—" [ref=e1027]
+                - cell "—" [ref=e1028]
+                - cell "—" [ref=e1029]
+                - cell "Cancelled" [ref=e1030]
+                - cell "5/21/2026" [ref=e1031]
+                - cell "Delete" [ref=e1032]:
+                  - button "Delete" [ref=e1033] [cursor=pointer]
+              - row "federico.edu Federico Beauty Institute Kevin 157 0 111 ser Complete 5/21/2026 Delete" [ref=e1034]:
+                - cell "federico.edu" [ref=e1035]:
+                  - link "federico.edu" [ref=e1036] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogker000m6koewgpd6u3l
+                - cell "Federico Beauty Institute" [ref=e1037]
+                - cell "Kevin" [ref=e1038]
+                - cell "157" [ref=e1039]
+                - cell "0" [ref=e1040]
+                - cell "111 ser" [ref=e1041]:
+                  - generic [ref=e1043]: 111 ser
+                - cell "Complete" [ref=e1044]
+                - cell "5/21/2026" [ref=e1045]
+                - cell "Delete" [ref=e1046]:
+                  - button "Delete" [ref=e1047] [cursor=pointer]
+              - row "discoverycommunitycollege.com Discovery Community College Kevin 610 0 1 crit 1103 ser Complete 5/21/2026 Delete" [ref=e1048]:
+                - cell "discoverycommunitycollege.com" [ref=e1049]:
+                  - link "discoverycommunitycollege.com" [ref=e1050] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkeo000k6koean1gff2h
+                - cell "Discovery Community College" [ref=e1051]
+                - cell "Kevin" [ref=e1052]
+                - cell "610" [ref=e1053]
+                - cell "0" [ref=e1054]
+                - cell "1 crit 1103 ser" [ref=e1055]:
+                  - generic [ref=e1056]:
+                    - generic [ref=e1057]: 1 crit
+                    - generic [ref=e1058]: 1103 ser
+                - cell "Complete" [ref=e1059]
+                - cell "5/21/2026" [ref=e1060]
+                - cell "Delete" [ref=e1061]:
+                  - button "Delete" [ref=e1062] [cursor=pointer]
+              - row "canadiancollege-hst.com Canadian College of Health Science & Technology Kevin 31 60 2 crit 13 ser Complete 5/21/2026 Delete" [ref=e1063]:
+                - cell "canadiancollege-hst.com" [ref=e1064]:
+                  - link "canadiancollege-hst.com" [ref=e1065] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkef000i6koe5yqm9r7c
+                - cell "Canadian College of Health Science & Technology" [ref=e1066]
+                - cell "Kevin" [ref=e1067]
+                - cell "31" [ref=e1068]
+                - cell "60" [ref=e1069]
+                - cell "2 crit 13 ser" [ref=e1070]:
+                  - generic [ref=e1071]:
+                    - generic [ref=e1072]: 2 crit
+                    - generic [ref=e1073]: 13 ser
+                - cell "Complete" [ref=e1074]
+                - cell "5/21/2026" [ref=e1075]
+                - cell "Delete" [ref=e1076]:
+                  - button "Delete" [ref=e1077] [cursor=pointer]
+              - row "ccbst.ca Canadian College of Business, Science & Technology Kevin 120 0 205 ser Complete 5/21/2026 Delete" [ref=e1078]:
+                - cell "ccbst.ca" [ref=e1079]:
+                  - link "ccbst.ca" [ref=e1080] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogke5000g6koer7wlkrwy
+                - cell "Canadian College of Business, Science & Technology" [ref=e1081]
+                - cell "Kevin" [ref=e1082]
+                - cell "120" [ref=e1083]
+                - cell "0" [ref=e1084]
+                - cell "205 ser" [ref=e1085]:
+                  - generic [ref=e1087]: 205 ser
+                - cell "Complete" [ref=e1088]
+                - cell "5/21/2026" [ref=e1089]
+                - cell "Delete" [ref=e1090]:
+                  - button "Delete" [ref=e1091] [cursor=pointer]
+              - row "cambriacollege.ca Cambria College Kevin 87 0 118 ser Complete 5/21/2026 Delete" [ref=e1092]:
+                - cell "cambriacollege.ca" [ref=e1093]:
+                  - link "cambriacollege.ca" [ref=e1094] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogke1000e6koec2m9xvmd
+                - cell "Cambria College" [ref=e1095]
+                - cell "Kevin" [ref=e1096]
+                - cell "87" [ref=e1097]
+                - cell "0" [ref=e1098]
+                - cell "118 ser" [ref=e1099]:
+                  - generic [ref=e1101]: 118 ser
+                - cell "Complete" [ref=e1102]
+                - cell "5/21/2026" [ref=e1103]
+                - cell "Delete" [ref=e1104]:
+                  - button "Delete" [ref=e1105] [cursor=pointer]
+              - row "brownson.edu Brownson Technical School Kevin 85 76 8 ser Complete 5/21/2026 Delete" [ref=e1106]:
+                - cell "brownson.edu" [ref=e1107]:
+                  - link "brownson.edu" [ref=e1108] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpfogkdx000c6koew4f5h6en
+                - cell "Brownson Technical School" [ref=e1109]
+                - cell "Kevin" [ref=e1110]
+                - cell "85" [ref=e1111]
+                - cell "76" [ref=e1112]
+                - cell "8 ser" [ref=e1113]:
+                  - generic [ref=e1115]: 8 ser
+                - cell "Complete" [ref=e1116]
+                - cell "5/21/2026" [ref=e1117]
+                - cell "Delete" [ref=e1118]:
+                  - button "Delete" [ref=e1119] [cursor=pointer]
+          - generic [ref=e1120]:
+            - button "← Prev" [disabled] [ref=e1121]
+            - generic [ref=e1122]: Page 1 of 5
+            - button "Next →" [ref=e1123] [cursor=pointer]
+  - contentinfo [ref=e110]:
+    - generic [ref=e111]:
+      - generic [ref=e112]:
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - generic [ref=e116]: ER
+            - generic "Hover to reveal deploy command" [ref=e117]: SEO Tools
+          - paragraph [ref=e118]: Purpose-built SEO tools for enrollment marketers and web teams at Enrollment Resources.
+        - generic [ref=e119]:
+          - heading "Tools" [level=3] [ref=e120]
+          - list [ref=e121]:
+            - listitem [ref=e122]:
+              - link "SEO Parser" [ref=e123] [cursor=pointer]:
+                - /url: /seo-parser
+            - listitem [ref=e124]:
+              - link "ADA Audit" [ref=e125] [cursor=pointer]:
+                - /url: /ada-audit
+            - listitem [ref=e126]:
+              - link "Robots Validator" [ref=e127] [cursor=pointer]:
+                - /url: /robots-validator
+            - listitem [ref=e128]:
+              - link "Quarter Grid" [ref=e129] [cursor=pointer]:
+                - /url: /quarter-grid
+            - listitem [ref=e130]:
+              - link "RankMath Redirects" [ref=e131] [cursor=pointer]:
+                - /url: /rankmath-redirects
+            - listitem [ref=e132]:
+              - link "Clients" [ref=e133] [cursor=pointer]:
+                - /url: /clients
+        - generic [ref=e134]:
+          - heading "Deployment" [level=3] [ref=e135]
+          - list [ref=e136]:
+            - listitem [ref=e137]: RunCloud — Node.js App
+            - listitem [ref=e138]: Next.js 15 + App Router
+            - listitem [ref=e139]: Prisma + SQLite
+            - listitem [ref=e140]: Git-connected Deploy
+      - generic [ref=e141]:
+        - paragraph [ref=e142]: © 2026 Enrollment Resources. Internal tool — not for external distribution.
+        - generic [ref=e145]: er-seo-tools v0.2.0
+  - alert [ref=e146]

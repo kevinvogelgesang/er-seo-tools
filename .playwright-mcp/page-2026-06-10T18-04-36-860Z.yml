@@ -1,0 +1,433 @@
+- generic [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - navigation [ref=e3]:
+    - generic [ref=e5]:
+      - link "ER SEO Tools Enrollment Resources" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]: ER
+        - generic [ref=e9]:
+          - generic [ref=e10]: SEO Tools
+          - generic [ref=e11]: Enrollment Resources
+      - generic [ref=e12]:
+        - link "SEO Parser" [ref=e14] [cursor=pointer]:
+          - /url: /seo-parser
+          - text: SEO Parser
+          - img [ref=e15]
+        - link "Quarter Grid" [ref=e17] [cursor=pointer]:
+          - /url: /quarter-grid
+        - link "RankMath Redirects" [ref=e18] [cursor=pointer]:
+          - /url: /rankmath-redirects
+        - link "Robots Validator" [ref=e19] [cursor=pointer]:
+          - /url: /robots-validator
+        - link "ADA Audit" [ref=e21] [cursor=pointer]:
+          - /url: /ada-audit
+          - text: ADA Audit
+          - img [ref=e22]
+        - link "Oxygen Stack Guide" [ref=e24] [cursor=pointer]:
+          - /url: /oxygen-tailwind-guide
+        - link "Clients" [ref=e25] [cursor=pointer]:
+          - /url: /clients
+      - generic [ref=e26]:
+        - button "Switch to dark mode" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Log out" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+  - main [ref=e35]:
+    - main [ref=e36]:
+      - generic [ref=e37]:
+        - heading "ADA / WCAG Audit" [level=1] [ref=e38]
+        - paragraph [ref=e39]: Audit pages for accessibility violations using axe-core. Results are saved and shared across the team.
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - img [ref=e44]
+            - heading "New Audit" [level=2] [ref=e46]
+            - tablist "Audit type" [ref=e47]:
+              - tab "Single Page" [selected] [ref=e48] [cursor=pointer]
+              - tab "Full Site" [ref=e49] [cursor=pointer]
+          - generic [ref=e51]:
+            - generic [ref=e52]:
+              - generic [ref=e53]: Page URL to audit
+              - textbox "Page URL to audit" [ref=e54]:
+                - /placeholder: federico.edu or https://federico.edu/programs
+            - generic [ref=e55]:
+              - paragraph [ref=e56]: WCAG Level
+              - group "WCAG Level" [ref=e57]:
+                - button "WCAG 2.1 AA Required" [pressed] [ref=e58] [cursor=pointer]:
+                  - generic [ref=e59]: WCAG 2.1 AA
+                  - generic [ref=e60]: Required
+                - button "+ Best Practices Aspirational" [ref=e61] [cursor=pointer]:
+                  - generic [ref=e62]: + Best Practices
+                  - generic [ref=e63]: Aspirational
+            - button "Run Audit" [disabled] [ref=e64]
+        - generic [ref=e65]:
+          - generic [ref=e66]:
+            - generic [ref=e68]: Current Scan
+            - paragraph [ref=e159]: No scans running or queued
+          - generic [ref=e73]:
+            - generic [ref=e75]: Queue
+            - paragraph [ref=e160]: No scans running or queued
+        - generic [ref=e80]:
+          - generic [ref=e81]:
+            - img [ref=e83]
+            - heading "Clients" [level=2] [ref=e85]
+            - generic [ref=e87]:
+              - textbox "Search clients by name" [active] [ref=e88]
+              - button "Queue all" [ref=e89] [cursor=pointer]
+              - link "View queue →" [ref=e90] [cursor=pointer]:
+                - /url: /ada-audit/queue
+          - table [ref=e161]:
+            - rowgroup [ref=e162]:
+              - row "Client Last audit Score Action" [ref=e163]:
+                - columnheader "Client" [ref=e164]:
+                  - button "Client" [ref=e165] [cursor=pointer]
+                - columnheader "Last audit" [ref=e166]:
+                  - button "Last audit" [ref=e167] [cursor=pointer]:
+                    - text: Last audit
+                    - generic [ref=e168]: ↓
+                - columnheader "Score" [ref=e169]:
+                  - button "Score" [ref=e170] [cursor=pointer]
+                - columnheader "Action" [ref=e171]
+            - rowgroup [ref=e172]:
+              - row "Valley College Jun 9, 2026 0 View → Re-queue" [ref=e173]:
+                - cell "Valley College" [ref=e174]:
+                  - link "Valley College" [ref=e175] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmq75rplj00m3aact8xg9q8pt
+                - cell "Jun 9, 2026" [ref=e176]
+                - cell "0" [ref=e177]
+                - cell "View → Re-queue" [ref=e178]:
+                  - link "View →" [ref=e179] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmq75rplj00m3aact8xg9q8pt
+                  - button "Re-queue" [ref=e180] [cursor=pointer]
+              - row "Southwest Schools Jun 5, 2026 97 View → Re-queue" [ref=e181]:
+                - cell "Southwest Schools" [ref=e182]:
+                  - link "Southwest Schools" [ref=e183] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmq1cz95600eeaacttms3zqa7
+                - cell "Jun 5, 2026" [ref=e184]
+                - cell "97" [ref=e185]
+                - cell "View → Re-queue" [ref=e186]:
+                  - link "View →" [ref=e187] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmq1cz95600eeaacttms3zqa7
+                  - button "Re-queue" [ref=e188] [cursor=pointer]
+              - row "Prism Career Institute Jun 3, 2026 51 View → Re-queue" [ref=e189]:
+                - cell "Prism Career Institute" [ref=e190]:
+                  - link "Prism Career Institute" [ref=e191] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpymjgjf088z7uol9kwxjizf
+                - cell "Jun 3, 2026" [ref=e192]
+                - cell "51" [ref=e193]
+                - cell "View → Re-queue" [ref=e194]:
+                  - link "View →" [ref=e195] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpymjgjf088z7uol9kwxjizf
+                  - button "Re-queue" [ref=e196] [cursor=pointer]
+              - row "The Soma Institute Jun 3, 2026 55 View → Re-queue" [ref=e197]:
+                - cell "The Soma Institute" [ref=e198]:
+                  - link "The Soma Institute" [ref=e199] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpyhncrn06ef7uol2t8aqi9t
+                - cell "Jun 3, 2026" [ref=e200]
+                - cell "55" [ref=e201]
+                - cell "View → Re-queue" [ref=e202]:
+                  - link "View →" [ref=e203] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpyhncrn06ef7uol2t8aqi9t
+                  - button "Re-queue" [ref=e204] [cursor=pointer]
+              - row "New York Institute of Massage Jun 3, 2026 79 View → Re-queue" [ref=e205]:
+                - cell "New York Institute of Massage" [ref=e206]:
+                  - link "New York Institute of Massage" [ref=e207] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpyajnod05ee7uol8wkdykal
+                - cell "Jun 3, 2026" [ref=e208]
+                - cell "79" [ref=e209]
+                - cell "View → Re-queue" [ref=e210]:
+                  - link "View →" [ref=e211] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpyajnod05ee7uol8wkdykal
+                  - button "Re-queue" [ref=e212] [cursor=pointer]
+              - row "San Diego Global Knowledge University Jun 3, 2026 100 View → Re-queue" [ref=e213]:
+                - cell "San Diego Global Knowledge University" [ref=e214]:
+                  - link "San Diego Global Knowledge University" [ref=e215] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpy9c706055o7uolh1e7r0ic
+                - cell "Jun 3, 2026" [ref=e216]
+                - cell "100" [ref=e217]
+                - cell "View → Re-queue" [ref=e218]:
+                  - link "View →" [ref=e219] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpy9c706055o7uolh1e7r0ic
+                  - button "Re-queue" [ref=e220] [cursor=pointer]
+              - row "Urban River Massage Therapy School May 29, 2026 100 View → Re-queue" [ref=e221]:
+                - cell "Urban River Massage Therapy School" [ref=e222]:
+                  - link "Urban River Massage Therapy School" [ref=e223] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpr802a2015cgknzg5t02qoz
+                - cell "May 29, 2026" [ref=e224]
+                - cell "100" [ref=e225]
+                - cell "View → Re-queue" [ref=e226]:
+                  - link "View →" [ref=e227] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpr802a2015cgknzg5t02qoz
+                  - button "Re-queue" [ref=e228] [cursor=pointer]
+              - row "Manhattan School of Computer Technology May 29, 2026 100 View → Re-queue" [ref=e229]:
+                - cell "Manhattan School of Computer Technology" [ref=e230]:
+                  - link "Manhattan School of Computer Technology" [ref=e231] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpr6utsg011bgknzy9ing998
+                - cell "May 29, 2026" [ref=e232]
+                - cell "100" [ref=e233]
+                - cell "View → Re-queue" [ref=e234]:
+                  - link "View →" [ref=e235] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpr6utsg011bgknzy9ing998
+                  - button "Re-queue" [ref=e236] [cursor=pointer]
+              - row "Federico Beauty Institute May 29, 2026 0 View → Re-queue" [ref=e237]:
+                - cell "Federico Beauty Institute" [ref=e238]:
+                  - link "Federico Beauty Institute" [ref=e239] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpr3zzau00n6gknzym0z16li
+                - cell "May 29, 2026" [ref=e240]
+                - cell "0" [ref=e241]
+                - cell "View → Re-queue" [ref=e242]:
+                  - link "View →" [ref=e243] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpr3zzau00n6gknzym0z16li
+                  - button "Re-queue" [ref=e244] [cursor=pointer]
+              - row "Bidwell Training Center May 28, 2026 100 View → Re-queue" [ref=e245]:
+                - cell "Bidwell Training Center" [ref=e246]:
+                  - link "Bidwell Training Center" [ref=e247] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpq0oqy900b7gknz9zgx8fj2
+                - cell "May 28, 2026" [ref=e248]
+                - cell "100" [ref=e249]
+                - cell "View → Re-queue" [ref=e250]:
+                  - link "View →" [ref=e251] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmpq0oqy900b7gknz9zgx8fj2
+                  - button "Re-queue" [ref=e252] [cursor=pointer]
+              - row "The College of Westchester May 25, 2026 0 View → Re-queue" [ref=e253]:
+                - cell "The College of Westchester" [ref=e254]:
+                  - link "The College of Westchester" [ref=e255] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3hp08pu100hfyg7fyox
+                - cell "May 25, 2026" [ref=e256]
+                - cell "0" [ref=e257]
+                - cell "View → Re-queue" [ref=e258]:
+                  - link "View →" [ref=e259] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3hp08pu100hfyg7fyox
+                  - button "Re-queue" [ref=e260] [cursor=pointer]
+              - row "Sutter County Career Training Center May 25, 2026 0 View → Re-queue" [ref=e261]:
+                - cell "Sutter County Career Training Center" [ref=e262]:
+                  - link "Sutter County Career Training Center" [ref=e263] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3hl08ps100hg10vood1
+                - cell "May 25, 2026" [ref=e264]
+                - cell "0" [ref=e265]
+                - cell "View → Re-queue" [ref=e266]:
+                  - link "View →" [ref=e267] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3hl08ps100hg10vood1
+                  - button "Re-queue" [ref=e268] [cursor=pointer]
+              - row "Penrose Academy May 25, 2026 0 View → Re-queue" [ref=e269]:
+                - cell "Penrose Academy" [ref=e270]:
+                  - link "Penrose Academy" [ref=e271] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3h808pk100hbo0z203c
+                - cell "May 25, 2026" [ref=e272]
+                - cell "0" [ref=e273]
+                - cell "View → Re-queue" [ref=e274]:
+                  - link "View →" [ref=e275] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3h808pk100hbo0z203c
+                  - button "Re-queue" [ref=e276] [cursor=pointer]
+              - row "Nuvani Institute May 25, 2026 100 View → Re-queue" [ref=e277]:
+                - cell "Nuvani Institute" [ref=e278]:
+                  - link "Nuvani Institute" [ref=e279] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3h408pi100h10p473xu
+                - cell "May 25, 2026" [ref=e280]
+                - cell "100" [ref=e281]
+                - cell "View → Re-queue" [ref=e282]:
+                  - link "View →" [ref=e283] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3h408pi100h10p473xu
+                  - button "Re-queue" [ref=e284] [cursor=pointer]
+              - row "Innovate Salon Academy May 25, 2026 0 View → Re-queue" [ref=e285]:
+                - cell "Innovate Salon Academy" [ref=e286]:
+                  - link "Innovate Salon Academy" [ref=e287] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gu08pc100hsebfnu31
+                - cell "May 25, 2026" [ref=e288]
+                - cell "0" [ref=e289]
+                - cell "View → Re-queue" [ref=e290]:
+                  - link "View →" [ref=e291] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gu08pc100hsebfnu31
+                  - button "Re-queue" [ref=e292] [cursor=pointer]
+              - row "Hilbert College May 25, 2026 0 View → Re-queue" [ref=e293]:
+                - cell "Hilbert College" [ref=e294]:
+                  - link "Hilbert College" [ref=e295] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gr08pa100hal4f4wl5
+                - cell "May 25, 2026" [ref=e296]
+                - cell "0" [ref=e297]
+                - cell "View → Re-queue" [ref=e298]:
+                  - link "View →" [ref=e299] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gr08pa100hal4f4wl5
+                  - button "Re-queue" [ref=e300] [cursor=pointer]
+              - row "Healthcare Career College May 25, 2026 100 View → Re-queue" [ref=e301]:
+                - cell "Healthcare Career College" [ref=e302]:
+                  - link "Healthcare Career College" [ref=e303] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gn08p8100h8o4l4dcz
+                - cell "May 25, 2026" [ref=e304]
+                - cell "100" [ref=e305]
+                - cell "View → Re-queue" [ref=e306]:
+                  - link "View →" [ref=e307] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gn08p8100h8o4l4dcz
+                  - button "Re-queue" [ref=e308] [cursor=pointer]
+              - row "Glow College of Artistic Design May 25, 2026 0 View → Re-queue" [ref=e309]:
+                - cell "Glow College of Artistic Design" [ref=e310]:
+                  - link "Glow College of Artistic Design" [ref=e311] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gk08p6100htbv6uwil
+                - cell "May 25, 2026" [ref=e312]
+                - cell "0" [ref=e313]
+                - cell "View → Re-queue" [ref=e314]:
+                  - link "View →" [ref=e315] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gk08p6100htbv6uwil
+                  - button "Re-queue" [ref=e316] [cursor=pointer]
+              - row "Discovery Community College May 25, 2026 0 View → Re-queue" [ref=e317]:
+                - cell "Discovery Community College" [ref=e318]:
+                  - link "Discovery Community College" [ref=e319] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gd08p2100hqal9kol6
+                - cell "May 25, 2026" [ref=e320]
+                - cell "0" [ref=e321]
+                - cell "View → Re-queue" [ref=e322]:
+                  - link "View →" [ref=e323] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3gd08p2100hqal9kol6
+                  - button "Re-queue" [ref=e324] [cursor=pointer]
+              - row "Canadian College of Health Science & Technology May 25, 2026 62 View → Re-queue" [ref=e325]:
+                - cell "Canadian College of Health Science & Technology" [ref=e326]:
+                  - link "Canadian College of Health Science & Technology" [ref=e327] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3g908p0100h20n86b6j
+                - cell "May 25, 2026" [ref=e328]
+                - cell "62" [ref=e329]
+                - cell "View → Re-queue" [ref=e330]:
+                  - link "View →" [ref=e331] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3g908p0100h20n86b6j
+                  - button "Re-queue" [ref=e332] [cursor=pointer]
+              - row "Canadian College of Business, Science & Technology May 25, 2026 0 View → Re-queue" [ref=e333]:
+                - cell "Canadian College of Business, Science & Technology" [ref=e334]:
+                  - link "Canadian College of Business, Science & Technology" [ref=e335] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3g408oy100hwpudmoor
+                - cell "May 25, 2026" [ref=e336]
+                - cell "0" [ref=e337]
+                - cell "View → Re-queue" [ref=e338]:
+                  - link "View →" [ref=e339] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3g408oy100hwpudmoor
+                  - button "Re-queue" [ref=e340] [cursor=pointer]
+              - row "Cambria College May 25, 2026 0 View → Re-queue" [ref=e341]:
+                - cell "Cambria College" [ref=e342]:
+                  - link "Cambria College" [ref=e343] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3g208ow100hihhcpltg
+                - cell "May 25, 2026" [ref=e344]
+                - cell "0" [ref=e345]
+                - cell "View → Re-queue" [ref=e346]:
+                  - link "View →" [ref=e347] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3g208ow100hihhcpltg
+                  - button "Re-queue" [ref=e348] [cursor=pointer]
+              - row "Brownson Technical School May 25, 2026 79 View → Re-queue" [ref=e349]:
+                - cell "Brownson Technical School" [ref=e350]:
+                  - link "Brownson Technical School" [ref=e351] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fx08ou100hlw25wn61
+                - cell "May 25, 2026" [ref=e352]
+                - cell "79" [ref=e353]
+                - cell "View → Re-queue" [ref=e354]:
+                  - link "View →" [ref=e355] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fx08ou100hlw25wn61
+                  - button "Re-queue" [ref=e356] [cursor=pointer]
+              - row "Brockway Center for Arts and Technology May 25, 2026 0 View → Re-queue" [ref=e357]:
+                - cell "Brockway Center for Arts and Technology" [ref=e358]:
+                  - link "Brockway Center for Arts and Technology" [ref=e359] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fu08os100hp17mi1oc
+                - cell "May 25, 2026" [ref=e360]
+                - cell "0" [ref=e361]
+                - cell "View → Re-queue" [ref=e362]:
+                  - link "View →" [ref=e363] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fu08os100hp17mi1oc
+                  - button "Re-queue" [ref=e364] [cursor=pointer]
+              - row "Boca Beauty Academy May 25, 2026 39 View → Re-queue" [ref=e365]:
+                - cell "Boca Beauty Academy" [ref=e366]:
+                  - link "Boca Beauty Academy" [ref=e367] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fq08oq100hqtmujz8j
+                - cell "May 25, 2026" [ref=e368]
+                - cell "39" [ref=e369]
+                - cell "View → Re-queue" [ref=e370]:
+                  - link "View →" [ref=e371] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fq08oq100hqtmujz8j
+                  - button "Re-queue" [ref=e372] [cursor=pointer]
+              - row "Beal University May 25, 2026 5 View → Re-queue" [ref=e373]:
+                - cell "Beal University" [ref=e374]:
+                  - link "Beal University" [ref=e375] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fj08om100h0ccdagl7
+                - cell "May 25, 2026" [ref=e376]
+                - cell "5" [ref=e377]
+                - cell "View → Re-queue" [ref=e378]:
+                  - link "View →" [ref=e379] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fj08om100h0ccdagl7
+                  - button "Re-queue" [ref=e380] [cursor=pointer]
+              - row "BEONAIR (M & S Media Inc.) May 25, 2026 0 View → Re-queue" [ref=e381]:
+                - cell "BEONAIR (M & S Media Inc.)" [ref=e382]:
+                  - link "BEONAIR (M & S Media Inc.)" [ref=e383] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fd08ok100h3nhu1xgh
+                - cell "May 25, 2026" [ref=e384]
+                - cell "0" [ref=e385]
+                - cell "View → Re-queue" [ref=e386]:
+                  - link "View →" [ref=e387] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmplbw3fd08ok100h3nhu1xgh
+                  - button "Re-queue" [ref=e388] [cursor=pointer]
+        - generic [ref=e93]:
+          - generic [ref=e94]:
+            - generic [ref=e95]:
+              - button "All" [ref=e96] [cursor=pointer]
+              - button "Mine" [ref=e97] [cursor=pointer]
+            - link "See all recents →" [ref=e98] [cursor=pointer]:
+              - /url: /ada-audit/recents
+          - table [ref=e99]:
+            - rowgroup [ref=e100]:
+              - row "Type URL / Domain Client Operator Status Score Duration Date" [ref=e101]:
+                - columnheader "Type" [ref=e102]
+                - columnheader "URL / Domain" [ref=e103]
+                - columnheader "Client" [ref=e104]
+                - columnheader "Operator" [ref=e105]
+                - columnheader "Status" [ref=e106]
+                - columnheader "Score" [ref=e107]
+                - columnheader "Duration" [ref=e108]
+                - columnheader "Date" [ref=e109]
+            - rowgroup [ref=e110]:
+              - row "site proway.erstaging.site — Claude (parity test) complete 82 1m 51s Jun 10, 2026" [ref=e111]:
+                - cell "site" [ref=e112]:
+                  - generic [ref=e113]: site
+                - cell "proway.erstaging.site" [ref=e114]:
+                  - link "proway.erstaging.site" [ref=e115] [cursor=pointer]:
+                    - /url: /ada-audit/site/cmq8dkacm0002kgnpohrotbhx
+                - cell "—" [ref=e116]
+                - cell "Claude (parity test)" [ref=e117]
+                - cell "complete" [ref=e118]
+                - cell "82" [ref=e119]
+                - cell "1m 51s" [ref=e120]
+                - cell "Jun 10, 2026" [ref=e121]
+  - contentinfo [ref=e122]:
+    - generic [ref=e123]:
+      - generic [ref=e124]:
+        - generic [ref=e125]:
+          - generic [ref=e126]:
+            - generic [ref=e128]: ER
+            - generic "Hover to reveal deploy command" [ref=e129]: SEO Tools
+          - paragraph [ref=e130]: Purpose-built SEO tools for enrollment marketers and web teams at Enrollment Resources.
+        - generic [ref=e131]:
+          - heading "Tools" [level=3] [ref=e132]
+          - list [ref=e133]:
+            - listitem [ref=e134]:
+              - link "SEO Parser" [ref=e135] [cursor=pointer]:
+                - /url: /seo-parser
+            - listitem [ref=e136]:
+              - link "ADA Audit" [ref=e137] [cursor=pointer]:
+                - /url: /ada-audit
+            - listitem [ref=e138]:
+              - link "Robots Validator" [ref=e139] [cursor=pointer]:
+                - /url: /robots-validator
+            - listitem [ref=e140]:
+              - link "Quarter Grid" [ref=e141] [cursor=pointer]:
+                - /url: /quarter-grid
+            - listitem [ref=e142]:
+              - link "RankMath Redirects" [ref=e143] [cursor=pointer]:
+                - /url: /rankmath-redirects
+            - listitem [ref=e144]:
+              - link "Clients" [ref=e145] [cursor=pointer]:
+                - /url: /clients
+        - generic [ref=e146]:
+          - heading "Deployment" [level=3] [ref=e147]
+          - list [ref=e148]:
+            - listitem [ref=e149]: RunCloud — Node.js App
+            - listitem [ref=e150]: Next.js 15 + App Router
+            - listitem [ref=e151]: Prisma + SQLite
+            - listitem [ref=e152]: Git-connected Deploy
+      - generic [ref=e153]:
+        - paragraph [ref=e154]: © 2026 Enrollment Resources. Internal tool — not for external distribution.
+        - generic [ref=e157]: er-seo-tools v0.2.0
+  - alert [ref=e158]

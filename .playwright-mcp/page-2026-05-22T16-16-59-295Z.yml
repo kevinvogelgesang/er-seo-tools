@@ -1,0 +1,181 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - navigation [ref=e3]:
+    - generic [ref=e5]:
+      - link "ER SEO Tools Enrollment Resources" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]: ER
+        - generic [ref=e9]:
+          - generic [ref=e10]: SEO Tools
+          - generic [ref=e11]: Enrollment Resources
+      - generic [ref=e12]:
+        - link "SEO Parser" [ref=e14] [cursor=pointer]:
+          - /url: /seo-parser
+          - text: SEO Parser
+          - img [ref=e15]
+        - link "Quarter Grid" [ref=e17] [cursor=pointer]:
+          - /url: /quarter-grid
+        - link "RankMath Redirects" [ref=e18] [cursor=pointer]:
+          - /url: /rankmath-redirects
+        - link "Robots Validator" [ref=e19] [cursor=pointer]:
+          - /url: /robots-validator
+        - link "ADA Audit" [ref=e20] [cursor=pointer]:
+          - /url: /ada-audit
+        - link "Oxygen Stack Guide" [ref=e21] [cursor=pointer]:
+          - /url: /oxygen-tailwind-guide
+        - link "Clients" [ref=e22] [cursor=pointer]:
+          - /url: /clients
+      - generic [ref=e23]:
+        - button "Switch to dark mode" [ref=e24] [cursor=pointer]:
+          - img [ref=e25]
+        - button "Log out" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+  - main [ref=e32]:
+    - main [ref=e1096]:
+      - generic [ref=e1097]:
+        - link "ADA Audit" [ref=e1098] [cursor=pointer]:
+          - /url: /ada-audit
+        - generic [ref=e1099]: /
+        - generic "https://nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/" [ref=e1100]: nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/
+      - generic [ref=e1120]:
+        - generic [ref=e1121]:
+          - img [ref=e1122]
+          - paragraph [ref=e1124]: WCAG 2.1 AA compliance is required by April 24, 2026 for public universities under the ADA.
+          - button "Dismiss" [ref=e1125] [cursor=pointer]:
+            - img [ref=e1126]
+        - generic [ref=e1128]:
+          - generic [ref=e1129]:
+            - img [ref=e1131]
+            - generic [ref=e1133]:
+              - generic [ref=e1134]:
+                - heading "Audit Results" [level=2] [ref=e1135]
+                - generic [ref=e1136]: WCAG 2.1 AA
+              - generic [ref=e1137]:
+                - link "https://nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/ ↗" [ref=e1138] [cursor=pointer]:
+                  - /url: https://nuvani.edu/blog/self-employment-vs-salon-work-pros-and-cons-for-future-nail-technicians/
+                - generic [ref=e1139]: Nuvani Institute
+                - generic [ref=e1140]: 5/22/2026, 4:16:19 PM
+            - generic [ref=e1141]:
+              - button "Re-scan" [ref=e1142] [cursor=pointer]:
+                - img [ref=e1143]
+                - text: Re-scan
+              - button "Share" [ref=e1145] [cursor=pointer]:
+                - img [ref=e1146]
+                - text: Share
+          - generic [ref=e1149]:
+            - generic [ref=e1150]:
+              - generic [ref=e1151]: "100"
+              - generic [ref=e1152]:
+                - generic [ref=e1153]: Score
+                - generic [ref=e1154]: "WCAG 2.1 AA: Compliant ✓"
+            - generic [ref=e1155]:
+              - generic [ref=e1156]:
+                - generic [ref=e1157]: "0"
+                - generic [ref=e1158]: Critical
+              - generic [ref=e1159]:
+                - generic [ref=e1160]: "0"
+                - generic [ref=e1161]: Serious
+              - generic [ref=e1162]:
+                - generic [ref=e1163]: "0"
+                - generic [ref=e1164]: Moderate
+              - generic [ref=e1165]:
+                - generic [ref=e1166]: "0"
+                - generic [ref=e1167]: Minor
+            - generic [ref=e1168]:
+              - generic [ref=e1169]:
+                - strong [ref=e1170]: "0"
+                - text: rules passed
+              - generic [ref=e1171]:
+                - strong [ref=e1172]: "0"
+                - text: total violations
+        - generic [ref=e1173]:
+          - img [ref=e1174]
+          - generic [ref=e1176]:
+            - strong [ref=e1177]: "Known limitations:"
+            - text: This audit runs in a real browser and renders JavaScript, CSS, and fonts. However, content behind login walls, scroll-triggered lazy loads, and interactive states (open modals, expanded accordions) may not be captured. Treat results as a starting point, not a certification.
+        - generic [ref=e1178]:
+          - heading "Lighthouse" [level=2] [ref=e1179]
+          - generic [ref=e1180]:
+            - generic [ref=e1181]:
+              - generic [ref=e1182]: "69"
+              - generic [ref=e1183]: Performance
+            - generic [ref=e1184]:
+              - generic [ref=e1185]: "100"
+              - generic [ref=e1186]: Accessibility
+            - generic [ref=e1187]:
+              - generic [ref=e1188]: "77"
+              - generic [ref=e1189]: Best Practices
+          - generic [ref=e1190]:
+            - generic [ref=e1191]: LCP 937 ms
+            - generic [ref=e1192]: CLS 0.07
+            - generic [ref=e1193]: TBT 953 ms
+          - generic [ref=e1194]:
+            - generic [ref=e1195]: Top failing audits
+            - list [ref=e1196]:
+              - listitem [ref=e1197]:
+                - generic [ref=e1198]: Layout shift culprits
+              - listitem [ref=e1199]:
+                - generic [ref=e1200]: Font display
+                - generic [ref=e1201]: Est savings of 60 ms
+              - listitem [ref=e1202]:
+                - generic [ref=e1203]: Forced reflow
+              - listitem [ref=e1204]:
+                - generic [ref=e1205]: Improve image delivery
+                - generic [ref=e1206]: Est savings of 48 KiB
+              - listitem [ref=e1207]:
+                - generic [ref=e1208]: Network dependency tree
+          - generic [ref=e1210]:
+            - generic [ref=e1211]: "100"
+            - generic [ref=e1212]:
+              - generic [ref=e1213]: Accessibility
+              - generic [ref=e1214]: No failing audits 🎉
+        - generic [ref=e1215]:
+          - generic [ref=e1216]:
+            - img [ref=e1218]
+            - heading "Violations" [level=2] [ref=e1220]
+          - generic [ref=e1222]:
+            - img [ref=e1224]
+            - generic [ref=e1226]:
+              - paragraph [ref=e1227]: No violations found
+              - paragraph [ref=e1228]: axe-core found no accessibility violations on this page.
+  - contentinfo [ref=e110]:
+    - generic [ref=e111]:
+      - generic [ref=e112]:
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - generic [ref=e116]: ER
+            - generic "Hover to reveal deploy command" [ref=e117]: SEO Tools
+          - paragraph [ref=e118]: Purpose-built SEO tools for enrollment marketers and web teams at Enrollment Resources.
+        - generic [ref=e119]:
+          - heading "Tools" [level=3] [ref=e120]
+          - list [ref=e121]:
+            - listitem [ref=e122]:
+              - link "SEO Parser" [ref=e123] [cursor=pointer]:
+                - /url: /seo-parser
+            - listitem [ref=e124]:
+              - link "ADA Audit" [ref=e125] [cursor=pointer]:
+                - /url: /ada-audit
+            - listitem [ref=e126]:
+              - link "Robots Validator" [ref=e127] [cursor=pointer]:
+                - /url: /robots-validator
+            - listitem [ref=e128]:
+              - link "Quarter Grid" [ref=e129] [cursor=pointer]:
+                - /url: /quarter-grid
+            - listitem [ref=e130]:
+              - link "RankMath Redirects" [ref=e131] [cursor=pointer]:
+                - /url: /rankmath-redirects
+            - listitem [ref=e132]:
+              - link "Clients" [ref=e133] [cursor=pointer]:
+                - /url: /clients
+        - generic [ref=e134]:
+          - heading "Deployment" [level=3] [ref=e135]
+          - list [ref=e136]:
+            - listitem [ref=e137]: RunCloud — Node.js App
+            - listitem [ref=e138]: Next.js 15 + App Router
+            - listitem [ref=e139]: Prisma + SQLite
+            - listitem [ref=e140]: Git-connected Deploy
+      - generic [ref=e141]:
+        - paragraph [ref=e142]: © 2026 Enrollment Resources. Internal tool — not for external distribution.
+        - generic [ref=e145]: er-seo-tools v0.2.0
+  - alert [ref=e146]: ER SEO Tools

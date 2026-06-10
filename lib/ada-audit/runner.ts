@@ -35,7 +35,7 @@ export interface RunAxeOptions {
   // and used as the screenshot directory name.
   auditId: string
   // When true, the pagespeed branch skips its inline PSI fetch. The caller
-  // (queue-manager.ts:runAudit) enqueues a PSI job separately via
+  // (lib/jobs/handlers/site-audit-page.ts) enqueues a PSI job separately via
   // lighthouse-queue. The local-LH branch is unaffected — local LH genuinely
   // needs the page slot and is not used in production.
   siteAudit?: boolean
