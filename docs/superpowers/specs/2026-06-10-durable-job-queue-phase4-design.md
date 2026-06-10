@@ -193,7 +193,8 @@ one-active-guard neutralization in `queue-manager.test.ts`).
   maxAttempts 1) and delegation to the underlying function (vi.mock the
   domain module); handler resolves when the body resolves, throws when it
   throws.
-- `cleanup.test.ts` addition — `cleanOldTerminalJobs()`: deletes old
+- `lib/jobs/retention.test.ts` (real-DB, jobs-test style — not the
+  mock-based `lib/cleanup.test.ts`) — `cleanOldTerminalJobs()`: deletes old
   complete/cancelled, keeps young ones, keeps errors < 30 d, deletes errors
   > 30 d, never touches queued/running; **slot-record guard:** keeps an old
   terminal job referenced by `Schedule.lastJobId`, and keeps one whose
