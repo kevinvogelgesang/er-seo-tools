@@ -469,10 +469,12 @@ export async function resetStaleAudits() {
     select: { id: true, batchId: true, status: true },
   })
   for (const s of stale) {
-    // PSI completions bump SiteAudit.updatedAt, but a backoff window can
-    // exceed the 5-min threshold — don't kill a parent whose durable PSI
-    // jobs are still outstanding.
-    if (s.status === 'lighthouse-running') {
+    // Job settles bump SiteAudit.updatedAt, but a backoff window can exceed
+    // the 5-min threshold — don't kill a parent whose durable jobs (PSI or
+    // PDF scans) are still outstanding. The group count is type-agnostic,
+    // which also covers the mixed case (finalizeSiteAudit shows
+    // pdfs-running when both PDFs and PSI are outstanding).
+    if (s.status === 'lighthouse-running' || s.status === 'pdfs-running') {
       // A failed count must NOT be treated as "no active jobs" — that would
       // bias a transient DB read error toward destructively failing the
       // parent. Skip this parent for this pass; the next pass retries.
@@ -484,6 +486,20 @@ export async function resetStaleAudits() {
         continue
       }
       if (outstanding > 0) continue
+      // No active jobs ≠ dead: the last job may have committed its row +
+      // counters and the process (or the finalize call) died before
+      // finalizeSiteAudit ran. Give the finalizer one chance; only fall
+      // through to the fail path if the parent is still transient.
+      try {
+        await finalizeSiteAudit(s.id)
+      } catch (err) {
+        console.warn(`[queue] Stale check: finalize attempt failed for ${s.id}:`, (err as Error).message)
+      }
+      const refreshed = await prisma.siteAudit.findUnique({ where: { id: s.id }, select: { status: true } })
+      if (refreshed?.status === 'complete') {
+        console.warn(`[queue] Stale check: finalized drained audit ${s.id}`)
+        continue
+      }
     }
     console.warn(`[queue] Resetting stale audit ${s.id}`)
     await prisma.siteAudit.update({
@@ -509,9 +525,12 @@ export async function resetStaleAudits() {
  * Unlike resetStaleAudits (which runs during normal operation and uses a
  * 5-minute staleness threshold), startup recovery makes the strong assumption
  * that ANY SiteAudit in `running`, `pdfs-running`, or `lighthouse-running` is orphaned — the previous
- * Node process is gone and its in-memory page-work state (and the in-process PSI queue) with it. So every
- * such row is flipped to `error` immediately, no threshold. Both AdaAudit and
- * PdfAudit child rows are cascade-failed alongside.
+ * Node process is gone and its in-memory page-work state with it.
+ * `pdfs-running` / `lighthouse-running` parents with outstanding durable jobs
+ * are resumed instead of failed; drained transient parents get one finalize
+ * attempt; everything still transient after that is flipped to `error`
+ * immediately, no threshold. Both AdaAudit and PdfAudit child rows are
+ * cascade-failed alongside.
  *
  * Old-status `pending` SiteAudits get re-queued in case any predate the
  * queue-batches feature.
@@ -524,13 +543,14 @@ export async function recoverQueue() {
     select: { id: true, batchId: true, status: true },
   })
   for (const o of orphans) {
-    // Durable-PSI survival: a lighthouse-running parent's only outstanding
-    // work is PSI, and those jobs live in the durable Job table
-    // (already re-queued by recoverJobsOnStartup, which runs first). The
-    // worker drains them; the last settle finalizes the audit. Parents in
-    // running/pdfs-running still fail — page + PDF work isn't durable until
-    // Phases 2-3.
-    if (o.status === 'lighthouse-running') {
+    // Durable-job survival: a pdfs-running / lighthouse-running parent's
+    // outstanding work (PDF scans, PSI) lives in the durable Job table —
+    // already re-queued by recoverJobsOnStartup, which runs first. The
+    // worker drains them; the last settle finalizes the audit. The group
+    // count is type-agnostic, covering the mixed case (finalizeSiteAudit
+    // shows pdfs-running when both are outstanding). Parents in 'running'
+    // still fail — the page loop isn't durable until Phase 3.
+    if (o.status === 'lighthouse-running' || o.status === 'pdfs-running') {
       // A failed count must NOT be treated as "no active jobs" — that would
       // bias a transient DB read error toward destructively failing the
       // parent. Skip this parent for this pass; the next pass retries.
@@ -542,7 +562,21 @@ export async function recoverQueue() {
         continue
       }
       if (outstanding > 0) {
-        console.warn(`[queue] Startup recovery: resuming audit ${o.id} (${outstanding} durable PSI job(s) outstanding)`)
+        console.warn(`[queue] Startup recovery: resuming audit ${o.id} (${outstanding} durable job(s) outstanding)`)
+        continue
+      }
+      // No active jobs ≠ dead: the last job may have committed its row +
+      // counters and the process died before finalizeSiteAudit ran. Give
+      // the finalizer one chance; only fall through to the fail path if
+      // the parent is still transient.
+      try {
+        await finalizeSiteAudit(o.id)
+      } catch (err) {
+        console.warn(`[queue] Startup recovery: finalize attempt failed for ${o.id}:`, (err as Error).message)
+      }
+      const refreshed = await prisma.siteAudit.findUnique({ where: { id: o.id }, select: { status: true } })
+      if (refreshed?.status === 'complete') {
+        console.warn(`[queue] Startup recovery: finalized drained audit ${o.id}`)
         continue
       }
     }
