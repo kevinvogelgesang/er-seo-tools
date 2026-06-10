@@ -455,6 +455,42 @@ export async function failOrphanPdfAudits(siteAuditId: string): Promise<void> {
 }
 
 /**
+ * Shared destructive path for a site audit that cannot proceed: flip the
+ * parent to error (conditionally — never clobber a terminal row), cascade
+ * orphan children + PDFs, cancel outstanding durable jobs, close the batch
+ * if drained, and kick the promoter so the queue slot is released.
+ */
+export async function failSiteAudit(id: string, message: string): Promise<void> {
+  let flipped: number
+  try {
+    const res = await prisma.siteAudit.updateMany({
+      where: { id, status: { notIn: ['complete', 'error', 'cancelled'] } },
+      data: { status: 'error', error: message, completedAt: new Date() },
+    })
+    flipped = res.count
+  } catch {
+    flipped = 0
+  }
+  if (flipped === 0) {
+    // Parent already terminal (or flip failed) — do not cascade-fail the
+    // children/jobs of an audit that completed or was cancelled cleanly.
+    void processNext()
+    return
+  }
+  await failOrphanAdaAudits(id).catch(() => {})
+  await failOrphanPdfAudits(id).catch(() => {})
+  await cancelJobsByGroup(`site-audit:${id}`).catch(() => {})
+  const row = await prisma.siteAudit.findUnique({
+    where: { id },
+    select: { batchId: true },
+  }).catch(() => null)
+  if (row?.batchId) {
+    await closeBatchIfDrained(row.batchId).catch(() => {})
+  }
+  void processNext()
+}
+
+/**
  * Resets audits stuck in 'running', 'pdfs-running', or 'lighthouse-running' with no DB activity for
  * 5+ minutes. Called periodically from instrumentation.ts and on startup.
  */

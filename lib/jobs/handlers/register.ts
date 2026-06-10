@@ -7,8 +7,12 @@
 
 import { registerPsiHandler } from './psi'
 import { registerPdfScanHandler } from './pdf-scan'
+import { registerSiteAuditPageHandler } from './site-audit-page'
+import { registerSiteAuditDiscoverHandler } from './site-audit-discover'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
   registerPdfScanHandler()
+  registerSiteAuditPageHandler()
+  registerSiteAuditDiscoverHandler()
 }
