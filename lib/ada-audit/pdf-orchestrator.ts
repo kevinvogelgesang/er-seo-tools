@@ -1,18 +1,16 @@
 // lib/ada-audit/pdf-orchestrator.ts
 //
 // Takes harvested PDF URLs from a page, dedupes against existing PdfAudit
-// rows for this audit, inserts pending rows, and dispatches scans through
-// the PDF worker pool. Updates SiteAudit pdf counters as scans settle.
-//
-// After each PDF for a site-audit settles, the orchestrator delegates to
-// `finalizeSiteAudit` (via dynamic import) which owns the drain predicate
-// (pages done && pdfs done && lighthouse done) and decides whether to flip
-// to `pdfs-running`, `lighthouse-running`, or `complete`.
+// rows for this audit, inserts pending rows, and enqueues one durable
+// 'pdf-scan' job per row (lib/jobs/handlers/pdf-scan.ts owns scan +
+// settle + counters + finalize). pdfsTotal is bumped here, at insert time,
+// so the finalizer's drain predicate is correct before the page settles.
 
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
-import { withPdfSlot } from './pdf-worker-pool'
-import { scanPdfUrl } from './pdf-runner'
+import { enqueueJob } from '@/lib/jobs/queue'
+import { PDF_SCAN_JOB_TYPE, settlePdfFailure } from '@/lib/jobs/handlers/pdf-scan'
+import type { PdfScanJob } from '@/lib/jobs/handlers/pdf-scan'
 
 interface DispatchArgs {
   urls: string[]              // already normalized + same-domain filtered
@@ -74,67 +72,27 @@ export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId, sourcePa
 
   if (inserted.length === 0) return
 
-  // Fire scans through the pool — do NOT await here; let caller continue.
+  // Enqueue one durable job per inserted row. Awaited — these are cheap DB
+  // inserts, and a failed enqueue must settle its row NOW: pdfsTotal already
+  // committed above, so a row with no job would strand the audit in
+  // pdfs-running forever. settlePdfFailure flips the row to error, bumps
+  // pdfsError, and finalizes — mirroring the PSI enqueue-failure fallback.
   for (const url of inserted) {
-    void withPdfSlot(async () => {
+    const job: PdfScanJob = { url, siteAuditId, adaAuditId, sourcePageUrl }
+    try {
+      await enqueueJob({
+        type: PDF_SCAN_JOB_TYPE,
+        payload: job,
+        dedupKey: siteAuditId ? `pdf:${siteAuditId}:${url}` : `pdf:ada:${adaAuditId}:${url}`,
+        groupKey: siteAuditId ? `site-audit:${siteAuditId}` : `ada-audit:${adaAuditId}`,
+      })
+    } catch (err) {
+      console.error('[pdf-orchestrator] durable PDF enqueue failed for', url, ':', (err as Error).message)
       try {
-        await prisma.pdfAudit.updateMany({
-          where: { url, ...(siteAuditId ? { siteAuditId } : { adaAuditId }) },
-          data: { status: 'scanning' },
-        })
-        const result = await scanPdfUrl(url, { referer: sourcePageUrl })
-        const isSkipped = !!result.skipReason
-        const isErrored = !isSkipped && !!result.scanError
-        const matches = await prisma.pdfAudit.updateMany({
-          where: { url, ...(siteAuditId ? { siteAuditId } : { adaAuditId }) },
-          data: {
-            fileSize: result.fileSize,
-            pageCount: result.pageCount,
-            issues: JSON.stringify(result.issues),
-            status: isSkipped ? 'skipped' : isErrored ? 'error' : 'complete',
-            skipReason: isSkipped ? result.skipReason : null,
-            scanError: isErrored ? result.scanError : null,
-          },
-        })
-        if (siteAuditId && matches.count > 0) {
-          await prisma.siteAudit.update({
-            where: { id: siteAuditId },
-            data: isSkipped
-              ? { pdfsSkipped: { increment: 1 } }
-              : isErrored
-                ? { pdfsError: { increment: 1 } }
-                : { pdfsComplete: { increment: 1 } },
-          })
-        }
-      } catch (e) {
-        // Last-resort: don't leave row in 'scanning' forever.
-        await prisma.pdfAudit.updateMany({
-          where: { url, ...(siteAuditId ? { siteAuditId } : { adaAuditId }) },
-          data: { status: 'error', scanError: (e as Error).message },
-        }).catch(() => {})
-        if (siteAuditId) {
-          await prisma.siteAudit.update({
-            where: { id: siteAuditId },
-            data: { pdfsError: { increment: 1 } },
-          }).catch(() => {})
-        }
-      } finally {
-        // After each PDF settles, ask the centralized finalizer whether the
-        // site audit is fully drained. Idempotent + handles all the state
-        // logic (including transient lighthouse-running) internally. The
-        // finalizer also kicks processNext when it actually finalizes.
-        if (siteAuditId) {
-          try {
-            const { finalizeSiteAudit } = await import('./site-audit-finalizer')
-            await finalizeSiteAudit(siteAuditId)
-          } catch (e) {
-            console.warn(
-              '[ada-audit] post-pdf finalize check failed:',
-              (e as Error).message,
-            )
-          }
-        }
+        await settlePdfFailure(job, `Failed to enqueue durable PDF scan job: ${(err as Error).message}`)
+      } catch (settleErr) {
+        console.error('[pdf-orchestrator] PDF enqueue-failure settle also failed for', url, ':', (settleErr as Error).message)
       }
-    })
+    }
   }
 }

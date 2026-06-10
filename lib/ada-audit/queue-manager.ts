@@ -111,9 +111,9 @@ export async function runAudit(id: string, domain: string, clientId: number | nu
           // pagesComplete signals "this page is settled."
           //
           // AWAITED on purpose: dispatchPdfScans returns after it has
-          // inserted PdfAudit rows and incremented SiteAudit.pdfsTotal. It
-          // does NOT wait for actual scans — those run via withPdfSlot()
-          // fire-and-forget inside dispatchPdfScans. Awaiting here closes a
+          // inserted PdfAudit rows, incremented SiteAudit.pdfsTotal, and
+          // enqueued the durable pdf-scan jobs. It does NOT wait for actual
+          // scans — the jobs worker drains those. Awaiting here closes a
           // race where the finalizer (called by a fast PSI return or by
           // end-of-page-loop) could observe pdfsTotal=0 and finalize the
           // audit before any PdfAudit rows landed.
