@@ -172,6 +172,22 @@ describe('jobs/handlers/pdf-scan', () => {
     expect(finalizeSiteAudit).not.toHaveBeenCalled()
   })
 
+  it('settle bumps SiteAudit.updatedAt (stale-recovery heartbeat)', async () => {
+    // The counter bump is raw SQL (array-form txn), which bypasses Prisma's
+    // @updatedAt — the statement must set updatedAt manually, in the integer
+    // ms format Prisma uses for SQLite, or resetStaleAudits mis-orders it.
+    vi.mocked(scanPdfUrl).mockResolvedValue({
+      url: 'x', fileSize: 10, pageCount: 1, issues: [],
+    } as never)
+    const { site, url } = await seedSite('heartbeat.example')
+    const backdated = Date.now() - 60 * 60 * 1000
+    await prisma.$executeRaw`UPDATE "SiteAudit" SET "updatedAt" = ${backdated} WHERE "id" = ${site.id}`
+    await runPdfScanJob({ url, siteAuditId: site.id })
+    const fresh = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(fresh!.updatedAt).toBeInstanceOf(Date)
+    expect(fresh!.updatedAt.getTime()).toBeGreaterThan(Date.now() - 60_000)
+  })
+
   it('rejects a malformed payload', async () => {
     await expect(runPdfScanJob({ nope: true } as never)).rejects.toThrow(/payload/i)
     await expect(runPdfScanJob({ url: 'https://x/doc.pdf' } as never)).rejects.toThrow(/payload/i)

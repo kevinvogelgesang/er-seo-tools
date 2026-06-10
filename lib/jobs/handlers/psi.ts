@@ -20,6 +20,7 @@
 //   and never finalize, so retrying would make things worse. Another
 //   settling job or stale recovery picks it up — same exposure as legacy.
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { runPageSpeedInsights } from '@/lib/ada-audit/lighthouse-pagespeed'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
@@ -43,13 +44,29 @@ function assertPsiPayload(payload: unknown): PsiJob {
  * bump the matching SiteAudit counter. Returns false when the row was
  * already terminal (recovery beat us / idempotent re-run). On true, the
  * caller must invoke finalizeSiteAudit (outside the transaction).
+ *
+ * MUST stay an ARRAY-FORM transaction — never the interactive
+ * $transaction(async tx => ...) form. Interactive transactions hold SQLite's
+ * write lock across event-loop round-trips; concurrent pdfjs parsing starves
+ * the loop, the lock outlives busy_timeout, and every other writer times out
+ * (production incident 2026-06-10). Array form executes BEGIN..COMMIT
+ * engine-side with no JS in between. The counter bump is therefore expressed
+ * in SQL: it fires IFF the row is still claimable (EXISTS over the pre-flip
+ * state, same snapshot as the flip), and sets updatedAt manually (raw SQL
+ * bypasses Prisma's @updatedAt; storage is integer ms in SQLite).
  */
 async function settlePsiOutcome(
   job: PsiJob,
   data: { lighthouseSummary: string | null; lighthouseError: string | null },
 ): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const claimed = await tx.adaAudit.updateMany({
+  const counter = data.lighthouseSummary !== null ? 'lighthouseComplete' : 'lighthouseError'
+  const [, flipped] = await prisma.$transaction([
+    prisma.$executeRaw`
+      UPDATE "SiteAudit"
+      SET ${Prisma.raw(`"${counter}" = "${counter}" + 1`)}, "updatedAt" = ${Date.now()}
+      WHERE "id" = ${job.siteAuditId}
+        AND EXISTS (SELECT 1 FROM "AdaAudit" WHERE "id" = ${job.adaAuditId} AND "status" = 'axe-complete')`,
+    prisma.adaAudit.updateMany({
       where: { id: job.adaAuditId, status: 'axe-complete' },
       data: {
         status: 'complete',
@@ -57,16 +74,9 @@ async function settlePsiOutcome(
         lighthouseError: data.lighthouseError,
         completedAt: new Date(),
       },
-    })
-    if (claimed.count !== 1) return false
-    await tx.siteAudit.update({
-      where: { id: job.siteAuditId },
-      data: data.lighthouseSummary !== null
-        ? { lighthouseComplete: { increment: 1 } }
-        : { lighthouseError: { increment: 1 } },
-    })
-    return true
-  })
+    }),
+  ])
+  return flipped.count === 1
 }
 
 export async function runPsiJob(payload: unknown): Promise<void> {
