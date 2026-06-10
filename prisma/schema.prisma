@@ -24,6 +24,7 @@ model Client {
   sessions              Session[]
   adaAudits             AdaAudit[]
   siteAudits            SiteAudit[]
+  schedules             Schedule[]
 }
 
 model Session {
@@ -289,4 +290,49 @@ model SiteAuditCheck {
 
   @@unique([siteAuditId, scope, key])
   @@index([siteAuditId])
+}
+
+model Job {
+  id           String    @id @default(cuid())
+  type         String    // 'psi' | (later: 'pdf-scan' | 'site-audit-page' | 'cleanup')
+  payload      String    @default("{}") // JSON string
+  status       String    @default("queued") // queued | running | complete | error | cancelled
+  priority     Int       @default(0)    // higher claims first within a type
+  attempts     Int       @default(0)    // incremented at claim time; doubles as the fencing token
+  maxAttempts  Int       @default(3)
+  runAfter     DateTime  @default(now())
+  heartbeatAt  DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  lastError    String?
+  dedupKey     String?   // active-window idempotency key (partial unique index, see migration)
+  groupKey     String?   // owner linkage, e.g. 'site-audit:<id>'
+  scheduleId   String?   // set when enqueued by the scheduler tick
+  scheduledFor DateTime? // the Schedule.nextRunAt slot that produced this job
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([scheduleId, scheduledFor]) // durable exactly-once-per-slot (NULLs exempt in SQLite)
+  @@index([status, runAfter])
+  @@index([type, status])
+  @@index([groupKey, status])
+  @@index([createdAt])
+}
+
+model Schedule {
+  id        String    @id @default(cuid())
+  jobType   String
+  payload   String    @default("{}")
+  cadence   String    // 'every:<n>m|h|d' | 'daily@HH:MM' | 'weekly:<0-6>@HH:MM' (server-local)
+  nextRunAt DateTime
+  enabled   Boolean   @default(true)
+  clientId  Int?
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lastRunAt DateTime?
+  lastJobId String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([enabled, nextRunAt])
+  @@index([clientId])
 }
