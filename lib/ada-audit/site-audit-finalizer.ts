@@ -19,19 +19,35 @@ import { buildSiteAuditSummary } from './site-audit-helpers'
 import { closeBatchIfDrained } from './audit-batch-helpers'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
+  // Scalar-first: page settles call finalize once per page; loading every
+  // child (with PDFs) on each call is O(pages²) over an audit. The heavy
+  // include runs once, after the drain predicate passes.
   const audit = await prisma.siteAudit.findUnique({
     where: { id },
-    include: { pageAudits: { include: { pdfAudits: true } } },
+    select: {
+      status: true, batchId: true, discoveredUrls: true,
+      pagesTotal: true, pagesComplete: true, pagesError: true, pagesRedirected: true,
+      pdfsTotal: true, pdfsComplete: true, pdfsError: true, pdfsSkipped: true,
+      lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
+    },
   })
   if (!audit) return
   if (audit.status === 'complete' || audit.status === 'error' || audit.status === 'cancelled') return
+  if (audit.status === 'queued') return // promoter owns queued rows
+
+  // Discovery guard: while the discover handler owns a 'running' row, all
+  // counters are legitimately 0 and the drain predicate would be a lie.
+  // discoveredUrls + pagesTotal are always written together (at creation for
+  // pre-discovered audits, by the discover persist otherwise), so non-null
+  // discoveredUrls means the predicate is meaningful.
+  if (audit.status === 'running' && audit.discoveredUrls === null) return
 
   const pagesDone      = audit.pagesComplete + audit.pagesError + audit.pagesRedirected >= audit.pagesTotal
   const pdfsDone       = audit.pdfsComplete + audit.pdfsError + audit.pdfsSkipped >= audit.pdfsTotal
   const lighthouseDone = audit.lighthouseComplete + audit.lighthouseError >= audit.lighthouseTotal
 
   if (!pagesDone) {
-    // Page loop still owns the row — don't touch status.
+    // Page jobs still own the row — don't touch status.
     return
   }
 
@@ -46,8 +62,12 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     return
   }
 
-  // All drained — build summary and finalize.
-  const summary = buildSiteAuditSummary(audit.pageAudits)
+  // All drained — NOW load the children for the summary build.
+  const pageAudits = await prisma.adaAudit.findMany({
+    where: { siteAuditId: id },
+    include: { pdfAudits: true },
+  })
+  const summary = buildSiteAuditSummary(pageAudits)
   await prisma.siteAudit.update({
     where: { id },
     data: {
