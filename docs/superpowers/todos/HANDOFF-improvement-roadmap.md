@@ -26,7 +26,7 @@ Continue the er-seo-tools improvement roadmap.
 - **Done & deployed:** A1 Phases 0–2 (job queue core, PSI, PDF scans) —
   merged (PRs #50–#52), production-verified 2026-06-10.
 - **Built, awaiting merge/deploy:** **A1 Phase 3 (site-audit page loop)** on
-  branch `feat/job-queue-phase3-page-loop` (PR open). Two new job types:
+  branch `feat/job-queue-phase3-page-loop` (**PR #53**). Two new job types:
   `site-audit-discover` (claim/discovery/fan-out; raw-SQL `queued→running`
   claim with `NOT EXISTS` one-active guard) and `site-audit-page` (per-URL
   axe + settle + PSI/PDF dispatch). `processNext` is a stateless promoter;
@@ -128,4 +128,4 @@ thin safety net; keeping it as a `every:10m` scheduled job is fine).
 - 2026-06-10 — PR #50 merged + deployed. `JOB_QUEUE_PSI=1` enabled. Parity PASSED in production incl. restart-resume mid-`lighthouse-running`. Next: legacy-pool deletion + Phase 2 (PDF scans).
 - 2026-06-10 — Phase 1 close-out (legacy pool + flag deleted) + Phase 2 (PDF scans durable, `pdfs-running` survives restarts, finalize-before-fail) built on `feat/job-queue-phase2-pdf-scans`; PR opened. Next: merge/deploy + restart-test, then Phase 3 (page loop).
 - 2026-06-10 — PRs #51 + #52 merged + deployed. Incident: first PDF-bearing audit wedged SQLite (interactive-transaction write-lock starvation under pdfjs load); fixed by converting all itxs to array form. Production verified: clean 23-page/11-PDF audit, restart-resume mid-`pdfs-running`, drained-parent finalize. Next: Phase 3 (page loop).
-- 2026-06-10 — **A1 Phase 3 built** on `feat/job-queue-phase3-page-loop`; PR opened. Page loop fully durable (`site-audit-discover` + `site-audit-page`), mutex deleted, `running` parents restart-survivable, browser recycling pool-level, AdaAudit unique index + dedupe migration. 1,704 tests green. Next: merge/deploy + restart-test mid-`running`, then Phase 4 (cleanup ticks).
+- 2026-06-10 — **A1 Phase 3 built** on `feat/job-queue-phase3-page-loop`; PR #53 opened. Page loop fully durable (`site-audit-discover` + `site-audit-page`), mutex deleted, `running` parents restart-survivable, browser recycling pool-level, AdaAudit unique index + dedupe migration. 1,704 tests green. Next: merge/deploy + restart-test mid-`running`, then Phase 4 (cleanup ticks).
