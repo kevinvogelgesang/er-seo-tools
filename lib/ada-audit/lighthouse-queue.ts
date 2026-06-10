@@ -32,10 +32,43 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 
 const PSI_CONCURRENCY = parsePositiveInt(process.env.PSI_CONCURRENCY, 6)
 
+/** JOB_QUEUE_PSI=1 routes PSI work through the durable Job table (spec Phase 1).
+ *  Read at call time so tests and ecosystem.config.js control it without module reloads. */
+export function isPsiJobQueueEnabled(): boolean {
+  return process.env.JOB_QUEUE_PSI === '1' || process.env.JOB_QUEUE_PSI === 'true'
+}
+
 const queue: PsiJob[] = []
 let active = 0
 
 export function enqueuePsiJob(job: PsiJob): void {
+  if (isPsiJobQueueEnabled()) {
+    // Durable path: the jobs worker picks this up (lib/jobs/handlers/psi.ts).
+    // Dynamic import keeps the legacy path dependency-free.
+    void import('@/lib/jobs/queue')
+      .then(({ enqueueJob }) =>
+        enqueueJob({
+          type: 'psi',
+          payload: job,
+          dedupKey: `psi:${job.adaAuditId}`,
+          groupKey: `site-audit:${job.siteAuditId}`,
+        }),
+      )
+      .catch(async (err) => {
+        // The page loop already committed axe-complete + lighthouseTotal++.
+        // With no durable job, nothing would ever drain this page — settle
+        // the LH portion as failed NOW instead of waiting for the parent's
+        // stale-failure path.
+        console.error('[lighthouse-queue] durable PSI enqueue failed for', job.adaAuditId, ':', (err as Error).message)
+        try {
+          const { settlePsiFailure } = await import('@/lib/jobs/handlers/psi')
+          await settlePsiFailure(job, `Failed to enqueue durable PSI job: ${(err as Error).message}`)
+        } catch (settleErr) {
+          console.error('[lighthouse-queue] PSI enqueue-failure settle also failed for', job.adaAuditId, ':', (settleErr as Error).message)
+        }
+      })
+    return
+  }
   queue.push(job)
   pump()
 }

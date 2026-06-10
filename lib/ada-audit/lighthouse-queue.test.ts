@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Stub the PSI provider so the test controls timing.
 vi.mock('@/lib/ada-audit/lighthouse-pagespeed', () => ({
@@ -17,6 +17,7 @@ const { enqueuePsiJob, getPsiQueueState } = await import('./lighthouse-queue')
 async function clearTestState() {
   await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://psi-test-' } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'psi-test-' } } })
+  await prisma.job.deleteMany({ where: { type: 'psi', payload: { contains: 'psi-test-' } } })
 }
 
 function deferred<T>() {
@@ -148,5 +149,68 @@ describe('lighthouse-queue', () => {
     expect(siteFinal?.lighthouseError).toBe(1)
     expect(siteFinal?.lighthouseComplete).toBe(0)
     expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
+  })
+
+  describe('JOB_QUEUE_PSI flag', () => {
+    const original = process.env.JOB_QUEUE_PSI
+    afterEach(() => {
+      if (original === undefined) delete process.env.JOB_QUEUE_PSI
+      else process.env.JOB_QUEUE_PSI = original
+    })
+
+    it('flag off: legacy in-memory pool used, no Job row created', async () => {
+      delete process.env.JOB_QUEUE_PSI
+      vi.mocked(runPageSpeedInsights).mockResolvedValue({ summary: null, error: 'x' })
+      const site = await prisma.siteAudit.create({
+        data: { domain: 'psi-test-flag-off.example', status: 'running', wcagLevel: 'wcag21aa', lighthouseTotal: 1 },
+      })
+      const row = await prisma.adaAudit.create({
+        data: { url: 'https://psi-test-flag-off.example/p', status: 'axe-complete', siteAuditId: site.id, wcagLevel: 'wcag21aa' },
+      })
+      enqueuePsiJob({ adaAuditId: row.id, siteAuditId: site.id, url: row.url, wcagLevel: 'wcag21aa' })
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setImmediate(r))
+        if ((await prisma.adaAudit.findUnique({ where: { id: row.id } }))?.status === 'complete') break
+      }
+      expect((await prisma.adaAudit.findUnique({ where: { id: row.id } }))?.status).toBe('complete')
+      expect(await prisma.job.count({ where: { type: 'psi', payload: { contains: 'psi-test-flag-off' } } })).toBe(0)
+    })
+
+    it('flag on: creates a durable Job row with dedupKey + groupKey, legacy pool untouched', async () => {
+      process.env.JOB_QUEUE_PSI = '1'
+      const site = await prisma.siteAudit.create({
+        data: { domain: 'psi-test-flag-on.example', status: 'running', wcagLevel: 'wcag21aa', lighthouseTotal: 1 },
+      })
+      const row = await prisma.adaAudit.create({
+        data: { url: 'https://psi-test-flag-on.example/p', status: 'axe-complete', siteAuditId: site.id, wcagLevel: 'wcag21aa' },
+      })
+      enqueuePsiJob({ adaAuditId: row.id, siteAuditId: site.id, url: row.url, wcagLevel: 'wcag21aa' })
+      // enqueue is async behind the sync facade — poll for the row.
+      let job = null
+      for (let i = 0; i < 20 && !job; i++) {
+        await new Promise((r) => setTimeout(r, 25))
+        job = await prisma.job.findFirst({ where: { type: 'psi', dedupKey: `psi:${row.id}` } })
+      }
+      expect(job).not.toBeNull()
+      expect(job!.groupKey).toBe(`site-audit:${site.id}`)
+      expect(JSON.parse(job!.payload)).toMatchObject({ adaAuditId: row.id, siteAuditId: site.id })
+      expect(getPsiQueueState()).toEqual({ active: 0, queued: 0 })
+      expect(runPageSpeedInsights).not.toHaveBeenCalled() // worker not running in tests
+    })
+
+    it('flag on: double enqueue dedups to one Job row', async () => {
+      process.env.JOB_QUEUE_PSI = '1'
+      const site = await prisma.siteAudit.create({
+        data: { domain: 'psi-test-dedup.example', status: 'running', wcagLevel: 'wcag21aa', lighthouseTotal: 1 },
+      })
+      const row = await prisma.adaAudit.create({
+        data: { url: 'https://psi-test-dedup.example/p', status: 'axe-complete', siteAuditId: site.id, wcagLevel: 'wcag21aa' },
+      })
+      const j = { adaAuditId: row.id, siteAuditId: site.id, url: row.url, wcagLevel: 'wcag21aa' }
+      enqueuePsiJob(j)
+      enqueuePsiJob(j)
+      await new Promise((r) => setTimeout(r, 200))
+      expect(await prisma.job.count({ where: { type: 'psi', dedupKey: `psi:${row.id}` } })).toBe(1)
+    })
   })
 })

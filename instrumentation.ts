@@ -76,9 +76,25 @@ export async function register() {
     void runCleanup()
     const cleanupInterval = setInterval(() => void runCleanup(), 24 * 60 * 60 * 1000)
 
+    // Job queue boot order (each step depends on the previous):
+    // 1. Register handlers — startup recovery may run onExhausted hooks,
+    //    which need a populated registry.
+    // 2. recoverJobsOnStartup — recoverQueue decides parent-audit survival
+    //    based on active jobs in the Job table.
+    // 3. recoverQueue (awaited) — parent recovery decisions are still partly
+    //    non-durable in Phase 1; make them deterministic before any claims.
+    // 4. startJobWorker — only now may jobs start draining.
+    const { registerBuiltInJobHandlers } = await import('@/lib/jobs/handlers/register')
+    registerBuiltInJobHandlers()
+    const { recoverJobsOnStartup } = await import('@/lib/jobs/recovery')
+    await recoverJobsOnStartup()
+
     // Recover queued/stale audits from crashes and kick the queue processor
     const { recoverQueue, resetStaleAudits } = await import('@/lib/ada-audit/queue-manager')
-    void recoverQueue()
+    await recoverQueue()
+
+    const { startJobWorker, stopJobWorker } = await import('@/lib/jobs/worker')
+    await startJobWorker()
 
     // Periodic stale audit check (every 10 minutes)
     const staleCheckInterval = setInterval(() => void resetStaleAudits(), 10 * 60 * 1000)
@@ -94,6 +110,12 @@ export async function register() {
       clearInterval(cleanupInterval)
       clearInterval(staleCheckInterval)
       stopScreenshotSweeper()
+      try {
+        await stopJobWorker()
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[shutdown] Failed to stop job worker:', err)
+      }
       try {
         await closeBrowser()
       } catch (err) {
