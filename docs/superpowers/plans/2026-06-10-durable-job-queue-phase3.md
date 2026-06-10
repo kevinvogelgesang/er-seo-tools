@@ -196,6 +196,29 @@ describe('browser-pool recycle gate + idle close', () => {
     await pool.releasePage(p3)
   })
 
+  it('gates at acquire time: threshold below pool capacity holds the next acquirer', async () => {
+    const pool = await loadPool({ recycle: '1', pool: '4' })
+    const p1 = await pool.acquirePage() // pagesServed=1 = threshold → gate set
+    let acquired = false
+    const pending = pool.acquirePage().then((p) => { acquired = true; return p })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(acquired).toBe(false) // slots were free, but the gate holds
+    await pool.releasePage(p1) // recycles (all pages back) → gate opens
+    const p2 = await pending
+    expect(launchCount).toBe(2)
+    await pool.releasePage(p2)
+  })
+
+  it('restores the slot when browser launch fails', async () => {
+    const pool = await loadPool({ recycle: '100', pool: '1' })
+    const puppeteer = (await import('puppeteer-core')).default
+    vi.mocked(puppeteer.launch).mockRejectedValueOnce(new Error('no chrome'))
+    await expect(pool.acquirePage()).rejects.toThrow('no chrome')
+    // Slot must be back — next acquire succeeds on the recovered mock.
+    const p = await pool.acquirePage()
+    await pool.releasePage(p)
+  })
+
   it('external closeBrowser releases the gate and leaves no waiter stuck', async () => {
     const pool = await loadPool({ recycle: '1', pool: '1' })
     const p1 = await pool.acquirePage() // threshold hit immediately
@@ -279,8 +302,24 @@ export async function acquirePage(): Promise<Page> {
   }
   slots--
   pagesServed++
-  const b = await getBrowser()
-  const page = await b.newPage()
+  // Gate at ACQUIRE time, not just release: if the threshold is reached
+  // while slots remain free, a later caller must not slip in ahead of the
+  // recycle. This acquirer (the one that hit the threshold) proceeds; the
+  // gate holds everyone after it.
+  if (pagesServed >= recyclePagesThreshold()) {
+    draining = true
+  }
+  let page: Page
+  try {
+    const b = await getBrowser()
+    page = await b.newPage()
+  } catch (err) {
+    // Restore the slot or it leaks forever (browser launch / newPage threw).
+    slots++
+    notifyWaiters()
+    maybeArmIdleTimer()
+    throw err
+  }
   page.setDefaultTimeout(60_000)
 
   // (existing per-page cache hardening block stays here unchanged)
@@ -299,10 +338,10 @@ export async function releasePage(page: Page): Promise<void> {
   slots++
   if (pagesServed >= recyclePagesThreshold()) {
     draining = true
-    if (slots === POOL_SIZE) {
-      // Last active page gone — recycle now.
-      await closeBrowser()
-    }
+  }
+  if (draining && slots === POOL_SIZE) {
+    // Last active page gone — recycle now.
+    await closeBrowser()
   }
   notifyWaiters()
   maybeArmIdleTimer()
@@ -745,8 +784,8 @@ type PageCounter = 'pagesComplete' | 'pagesError' | 'pagesRedirected' | 'lightho
  */
 async function settlePage(
   job: SiteAuditPageJob,
-  counters: PageCounter[],
-  childData: Record<string, unknown>,
+  counters: PageCounter[], // never empty — every settle bumps at least one
+  childData: Prisma.AdaAuditUpdateManyMutationInput,
   claimable: string[],
 ): Promise<boolean> {
   const bumps = counters.map((c) => `"${c}" = "${c}" + 1`).join(', ')
@@ -953,10 +992,22 @@ Depends on `failSiteAudit` which lands in Task 6 — to keep tasks committable i
  * if drained, and kick the promoter so the queue slot is released.
  */
 export async function failSiteAudit(id: string, message: string): Promise<void> {
-  await prisma.siteAudit.updateMany({
-    where: { id, status: { notIn: ['complete', 'error', 'cancelled'] } },
-    data: { status: 'error', error: message, completedAt: new Date() },
-  }).catch(() => {})
+  let flipped: number
+  try {
+    const res = await prisma.siteAudit.updateMany({
+      where: { id, status: { notIn: ['complete', 'error', 'cancelled'] } },
+      data: { status: 'error', error: message, completedAt: new Date() },
+    })
+    flipped = res.count
+  } catch {
+    flipped = 0
+  }
+  if (flipped === 0) {
+    // Parent already terminal (or flip failed) — do not cascade-fail the
+    // children/jobs of an audit that completed or was cancelled cleanly.
+    void processNext()
+    return
+  }
   await failOrphanAdaAudits(id).catch(() => {})
   await failOrphanPdfAudits(id).catch(() => {})
   await cancelJobsByGroup(`site-audit:${id}`).catch(() => {})
@@ -995,7 +1046,17 @@ const { runSiteAuditDiscoverJob, onSiteAuditDiscoverExhausted } = await import('
 const PREFIX = 'sad-handler-test-'
 
 async function clearTestState() {
-  await prisma.job.deleteMany({ where: { groupKey: { contains: PREFIX } } })
+  // groupKeys are site-audit:<id> and payloads carry IDs, not domains —
+  // resolve the test sites' IDs first, then delete their jobs by groupKey.
+  const sites = await prisma.siteAudit.findMany({
+    where: { domain: { startsWith: PREFIX } },
+    select: { id: true },
+  })
+  if (sites.length > 0) {
+    await prisma.job.deleteMany({
+      where: { groupKey: { in: sites.map((s) => `site-audit:${s.id}`) } },
+    })
+  }
   await prisma.adaAudit.deleteMany({ where: { url: { contains: PREFIX } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
 }
@@ -1285,13 +1346,21 @@ export async function runSiteAuditDiscoverJob(payload: unknown): Promise<void> {
   }
   // Dedupe defensively (stored legacy sets may contain duplicates — the
   // unique child index would otherwise make pagesTotal undrainable) and
-  // make pagesTotal authoritative. Deterministic across attempts because
-  // the stored set is.
+  // make pagesTotal authoritative. Also repairs a corrupt non-null
+  // discoveredUrls (re-discovered above): re-store the clean set so every
+  // future attempt fans out the same list. Deterministic across attempts
+  // because the stored set is.
   urls = [...new Set(urls)]
-  await prisma.siteAudit.updateMany({
+  const ensured = await prisma.siteAudit.updateMany({
     where: { id: siteAuditId, status: 'running' },
-    data: { pagesTotal: urls.length },
+    data: { discoveredUrls: JSON.stringify(urls), pagesTotal: urls.length },
   })
+  if (ensured.count === 0) {
+    // Parent is no longer running (cancelled/failed/completed under a stale
+    // attempt) — do NOT create children or enqueue work for a dead parent.
+    kickPromoter()
+    return
+  }
 
   // Create missing children. Per-row create with P2002 skip — idempotent
   // under any zombie/retry interleaving thanks to @@unique([siteAuditId, url]).
@@ -1668,10 +1737,17 @@ const { processNext, recoverQueue, resetStaleAudits, failSiteAudit } = await imp
 const PREFIX = 'qm3-test-'
 
 async function clearTestState() {
-  await prisma.job.deleteMany({ where: { groupKey: { contains: PREFIX } } })
-  await prisma.job.deleteMany({
-    where: { type: 'site-audit-discover', payload: { contains: PREFIX } },
+  // groupKeys are site-audit:<id> and payloads carry IDs, not domains —
+  // resolve the test sites' IDs first, then delete their jobs by groupKey.
+  const sites = await prisma.siteAudit.findMany({
+    where: { domain: { startsWith: PREFIX } },
+    select: { id: true },
   })
+  if (sites.length > 0) {
+    await prisma.job.deleteMany({
+      where: { groupKey: { in: sites.map((s) => `site-audit:${s.id}`) } },
+    })
+  }
   await prisma.pdfAudit.deleteMany({ where: { url: { contains: PREFIX } } })
   await prisma.adaAudit.deleteMany({ where: { url: { contains: PREFIX } } })
   await prisma.auditBatch.updateMany({ where: { closedAt: null }, data: { closedAt: new Date() } })
@@ -1821,10 +1897,18 @@ describe('failSiteAudit', () => {
     expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('cancelled')
   })
 
-  it('never clobbers a terminal parent', async () => {
+  it('never clobbers a terminal parent — and does not cascade its children or jobs', async () => {
     const site = await seedSite('terminal', 'complete')
+    const child = await prisma.adaAudit.create({
+      data: { url: `https://${PREFIX}terminal/a`, status: 'complete', siteAuditId: site.id, wcagLevel: 'wcag21aa' },
+    })
+    const job = await prisma.job.create({
+      data: { type: 'site-audit-page', payload: '{}', status: 'queued', groupKey: `site-audit:${site.id}` },
+    })
     await failSiteAudit(site.id, 'should not land')
     expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.status).toBe('complete')
+    expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('complete')
+    expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('queued')
   })
 })
 ```
@@ -1837,13 +1921,13 @@ DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/queue-manager.te
 
 Expected: PASS.
 
-- [ ] **Step 6.5: Grep for orphaned references** to deleted exports:
+- [ ] **Step 6.5: Grep for orphaned references** to deleted exports — code AND comments (stale comments pointing at a deleted control path mislead future debugging):
 
 ```bash
-grep -rn "runAudit\b" app lib --include="*.ts" --include="*.tsx" | grep -v "runAxeAudit" | grep -v test
+grep -rn "runAudit" app lib instrumentation.ts --include="*.ts" --include="*.tsx" | grep -v "runAxeAudit"
 ```
 
-Expected: no hits (fix any that appear — likely none; `runAudit` was only called by `processNext`).
+Expected: only comment hits. Fix each — known ones: `lib/ada-audit/runner.ts` (the `RunAxeOptions.siteAudit` doc comment names `queue-manager.ts:runAudit` as the caller; point it at `lib/jobs/handlers/site-audit-page.ts`), and any in `pdf-orchestrator.ts`/`lighthouse-queue.ts` headers that describe "the page loop".
 
 - [ ] **Step 6.6: Commit**
 
