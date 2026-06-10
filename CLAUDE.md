@@ -93,6 +93,7 @@ whenever Kevin asks for "the handoff prompt" / "handoff". Do all three, in order
 - **Lighthouse provider:** controlled by `LIGHTHOUSE_PROVIDER` (`pagespeed` | `local` | `off`). Default is `local` in code, `pagespeed` in the deployed `ecosystem.config.js`. PSI uses Google's infrastructure; expect score variance versus historical local-LH numbers. Per-page PSI failures fail the Lighthouse portion only — axe + PDFs still run.
 
 ## Do not
+- Use interactive `prisma.$transaction(async tx => ...)` anywhere — array-form `$transaction([...])` only. Interactive transactions hold SQLite's write lock across event-loop round-trips; concurrent pdfjs parsing starves the loop and every other writer times out ("Operations timed out", 2026-06-10 production incident). Express conditional logic in SQL (`EXISTS` predicates) instead, and set `updatedAt` manually in raw statements (`Date.now()` — storage is integer ms; raw SQL bypasses `@updatedAt`).
 - Add Claude AI analysis features — requires separate Anthropic API billing not currently set up
 - Use `npm ci` on production (RunCloud uses `npm install`)
 - Trust request origin headers for share URLs — use `NEXT_PUBLIC_APP_URL`

@@ -39,36 +39,44 @@ export async function dispatchPdfScans({ urls, siteAuditId, adaAuditId, sourcePa
   const fresh = urls.filter((u) => !known.has(u))
   if (fresh.length === 0) return
 
-  // Insert pending rows. Wrap each create in try/catch so a concurrent insert
-  // from another page racing on the same URL silently no-ops via P2002 instead
-  // of failing the audit. After the race, the row is attributed to whichever
-  // page won — that's the desired behavior.
+  // Insert pending rows. Per-URL ARRAY-FORM transaction: the row insert and
+  // its pdfsTotal increment move together — a P2002 race (another page beat
+  // us to the same URL) rolls back both and we skip the URL; the row is
+  // attributed to whichever page won. Never use the interactive
+  // $transaction(async tx => ...) form here: interactive transactions hold
+  // SQLite's write lock across event-loop round-trips, and concurrent pdfjs
+  // parsing starves the loop until every other writer times out (production
+  // incident 2026-06-10). Array form runs BEGIN..COMMIT engine-side.
   const inserted: string[] = []
-  await prisma.$transaction(async (tx) => {
-    for (const url of fresh) {
-      try {
-        await tx.pdfAudit.create({
+  for (const url of fresh) {
+    try {
+      if (siteAuditId) {
+        await prisma.$transaction([
+          prisma.pdfAudit.create({
+            data: { siteAuditId, adaAuditId, url, status: 'pending' },
+          }),
+          prisma.siteAudit.update({
+            where: { id: siteAuditId },
+            data: { pdfsTotal: { increment: 1 } },
+          }),
+        ])
+      } else {
+        await prisma.pdfAudit.create({
           data: { siteAuditId, adaAuditId, url, status: 'pending' },
         })
-        inserted.push(url)
-      } catch (e) {
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          e.code === 'P2002'
-        ) {
-          // Another page beat us to it — silent no-op.
-          continue
-        }
-        throw e
       }
+      inserted.push(url)
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        // Another page beat us to it — silent no-op.
+        continue
+      }
+      throw e
     }
-    if (siteAuditId && inserted.length > 0) {
-      await tx.siteAudit.update({
-        where: { id: siteAuditId },
-        data: { pdfsTotal: { increment: inserted.length } },
-      })
-    }
-  })
+  }
 
   if (inserted.length === 0) return
 

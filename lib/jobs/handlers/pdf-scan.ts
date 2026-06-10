@@ -24,6 +24,7 @@
 //   warns-and-continues — another settling job or stale recovery picks it
 //   up, same exposure as the PSI handler.
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { scanPdfUrl } from '@/lib/ada-audit/pdf-runner'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
@@ -73,31 +74,49 @@ interface PdfOutcome {
  * Returns false when no row matched the claimable statuses (recovery beat
  * us / idempotent re-run). On true and a site-audit job, the caller must
  * invoke finalizeSiteAudit (outside the transaction).
+ *
+ * MUST stay an ARRAY-FORM transaction — never the interactive
+ * $transaction(async tx => ...) form. Interactive transactions hold SQLite's
+ * write lock across event-loop round-trips; concurrent pdfjs parsing starves
+ * the loop, the lock outlives busy_timeout, and every other writer times out
+ * (production incident 2026-06-10). Array form executes BEGIN..COMMIT
+ * engine-side with no JS in between. The counter bump is therefore expressed
+ * in SQL: it fires IFF the row is still claimable (EXISTS over the pre-flip
+ * state, same snapshot as the flip), and sets updatedAt manually (raw SQL
+ * bypasses Prisma's @updatedAt; storage is integer ms in SQLite).
  */
 async function settlePdfOutcome(
   job: PdfScanJob,
   outcome: PdfOutcome,
   claimableStatuses: string[],
 ): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const claimed = await tx.pdfAudit.updateMany({
+  if (!job.siteAuditId) {
+    // Standalone single-page audit: no counters, single autocommit write.
+    const flipped = await prisma.pdfAudit.updateMany({
       where: { ...rowWhere(job), status: { in: claimableStatuses } },
       data: outcome,
     })
-    if (claimed.count !== 1) return false
-    if (job.siteAuditId) {
-      await tx.siteAudit.update({
-        where: { id: job.siteAuditId },
-        data:
-          outcome.status === 'skipped'
-            ? { pdfsSkipped: { increment: 1 } }
-            : outcome.status === 'error'
-              ? { pdfsError: { increment: 1 } }
-              : { pdfsComplete: { increment: 1 } },
-      })
-    }
-    return true
-  })
+    return flipped.count === 1
+  }
+
+  const counter =
+    outcome.status === 'skipped' ? 'pdfsSkipped' : outcome.status === 'error' ? 'pdfsError' : 'pdfsComplete'
+  const [, flipped] = await prisma.$transaction([
+    prisma.$executeRaw`
+      UPDATE "SiteAudit"
+      SET ${Prisma.raw(`"${counter}" = "${counter}" + 1`)}, "updatedAt" = ${Date.now()}
+      WHERE "id" = ${job.siteAuditId}
+        AND EXISTS (
+          SELECT 1 FROM "PdfAudit"
+          WHERE "siteAuditId" = ${job.siteAuditId} AND "url" = ${job.url}
+            AND "status" IN (${Prisma.join(claimableStatuses)})
+        )`,
+    prisma.pdfAudit.updateMany({
+      where: { ...rowWhere(job), status: { in: claimableStatuses } },
+      data: outcome,
+    }),
+  ])
+  return flipped.count === 1
 }
 
 export async function runPdfScanJob(payload: unknown): Promise<void> {
