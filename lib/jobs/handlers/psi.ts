@@ -1,8 +1,8 @@
 // lib/jobs/handlers/psi.ts
 //
-// Durable-queue PSI handler — the Job-table replacement for the in-memory
-// pool in lib/ada-audit/lighthouse-queue.ts (legacy path kept behind the
-// JOB_QUEUE_PSI flag until parity is proven; see spec Phase 1).
+// Durable-queue PSI handler. lib/ada-audit/lighthouse-queue.ts is the
+// enqueue facade; this module owns execution. The legacy in-memory pool
+// was deleted after production parity (2026-06-10).
 //
 // Idempotency: the conditional claim on AdaAudit.status='axe-complete' makes
 // re-runs (crash recovery, zombie attempts) no-ops — same pattern as legacy.

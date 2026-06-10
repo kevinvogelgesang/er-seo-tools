@@ -352,12 +352,15 @@ describe('resetStaleAudits — orphan child cleanup', () => {
   })
 })
 
-describe('recoverQueue with JOB_QUEUE_PSI=1', () => {
-  const original = process.env.JOB_QUEUE_PSI
-  beforeEach(() => { process.env.JOB_QUEUE_PSI = '1' })
-  afterEach(() => {
-    if (original === undefined) delete process.env.JOB_QUEUE_PSI
-    else process.env.JOB_QUEUE_PSI = original
+const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
+
+describe('recoverQueue — durable-job survival', () => {
+  // The file-top mock's default no-op models a not-yet-drained audit:
+  // finalize runs but doesn't flip the status. "Drained" tests override it
+  // once to actually flip the row, simulating the real finalizer.
+  beforeEach(() => {
+    vi.mocked(finalizeSiteAudit).mockReset()
+    vi.mocked(finalizeSiteAudit).mockResolvedValue(undefined)
   })
 
   async function makeParent(domain: string, status: string) {
@@ -402,10 +405,86 @@ describe('recoverQueue with JOB_QUEUE_PSI=1', () => {
     }
   })
 
-  it('mixed-outstanding: pdfs-running parent is failed even with active PSI jobs, and its queued jobs are cancelled', async () => {
+  it('pdfs-running parent with active pdf-scan group jobs survives', async () => {
+    const parent = await makeParent('pdf-survives.example', 'pdfs-running')
+    await prisma.job.create({
+      data: { type: 'pdf-scan', status: 'queued', groupKey: `site-audit:${parent.id}` },
+    })
+    try {
+      await recoverQueue()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('pdfs-running')
+    } finally {
+      await cleanup([parent.id])
+    }
+  })
+
+  it('mixed-outstanding: pdfs-running parent with active PSI jobs survives (both types are durable)', async () => {
     const parent = await makeParent('mixed.example', 'pdfs-running')
-    const job = await prisma.job.create({
+    await prisma.job.create({
       data: { type: 'psi', status: 'queued', groupKey: `site-audit:${parent.id}` },
+    })
+    try {
+      await recoverQueue()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('pdfs-running')
+    } finally {
+      await cleanup([parent.id])
+    }
+  })
+
+  it('drained pdfs-running parent with no active jobs is finalized, not failed', async () => {
+    // Crash window: last job committed counters, process died before
+    // finalize. Recovery must give the finalizer one chance.
+    const parent = await makeParent('pdf-finalize.example', 'pdfs-running')
+    vi.mocked(finalizeSiteAudit).mockImplementationOnce(async (id: string) => {
+      await prisma.siteAudit.update({ where: { id }, data: { status: 'complete', completedAt: new Date() } })
+    })
+    try {
+      await recoverQueue()
+      expect(finalizeSiteAudit).toHaveBeenCalledWith(parent.id)
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('complete')
+    } finally {
+      await cleanup([parent.id])
+    }
+  })
+
+  it('drained lighthouse-running parent with no active jobs is finalized, not failed', async () => {
+    const parent = await makeParent('lh-finalize.example', 'lighthouse-running')
+    vi.mocked(finalizeSiteAudit).mockImplementationOnce(async (id: string) => {
+      await prisma.siteAudit.update({ where: { id }, data: { status: 'complete', completedAt: new Date() } })
+    })
+    try {
+      await recoverQueue()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('complete')
+    } finally {
+      await cleanup([parent.id])
+    }
+  })
+
+  it('not-drained pdfs-running parent with no active jobs is failed after the finalize attempt; orphans cascade', async () => {
+    // Default finalizer mock no-ops (models "counters not drained") —
+    // recovery must fall through to the fail path with full cascade.
+    const parent = await makeParent('pdf-drained.example', 'pdfs-running')
+    const pdf = await prisma.pdfAudit.create({
+      data: { siteAuditId: parent.id, url: 'https://qm-jobs-test-pdf-drained.example/a.pdf', status: 'scanning' },
+    })
+    await prisma.job.create({
+      data: { type: 'pdf-scan', status: 'error', groupKey: `site-audit:${parent.id}` },
+    })
+    try {
+      await recoverQueue()
+      expect(finalizeSiteAudit).toHaveBeenCalledWith(parent.id)
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('error')
+      expect((await prisma.pdfAudit.findUnique({ where: { id: pdf.id } }))?.status).toBe('error')
+    } finally {
+      await prisma.pdfAudit.deleteMany({ where: { url: { startsWith: 'https://qm-jobs-test-' } } })
+      await cleanup([parent.id])
+    }
+  })
+
+  it('running parent is failed even with active group jobs (page loop is not durable)', async () => {
+    const parent = await makeParent('page-loop.example', 'running')
+    const job = await prisma.job.create({
+      data: { type: 'pdf-scan', status: 'queued', groupKey: `site-audit:${parent.id}` },
     })
     try {
       await recoverQueue()
@@ -416,18 +495,42 @@ describe('recoverQueue with JOB_QUEUE_PSI=1', () => {
     }
   })
 
-  it('flag off: lighthouse-running parent is failed even with active group jobs', async () => {
-    delete process.env.JOB_QUEUE_PSI
-    const parent = await makeParent('flag-off.example', 'lighthouse-running')
+})
+
+describe('resetStaleAudits — durable-job survival', () => {
+  beforeEach(async () => {
+    vi.mocked(finalizeSiteAudit).mockReset()
+    vi.mocked(finalizeSiteAudit).mockResolvedValue(undefined)
+    await clearOrphanTestState()
+  })
+
+  it('stale pdfs-running parent with active group jobs survives the sweep', async () => {
+    const sixMinAgo = new Date(Date.now() - 6 * 60 * 1000)
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-stale-pdf.example', status: 'pdfs-running', wcagLevel: 'wcag21aa' },
+    })
+    await prisma.$executeRaw`UPDATE "SiteAudit" SET "updatedAt" = ${sixMinAgo} WHERE "id" = ${parent.id}`
     const job = await prisma.job.create({
-      data: { type: 'psi', status: 'queued', groupKey: `site-audit:${parent.id}` },
+      data: { type: 'pdf-scan', status: 'queued', groupKey: `site-audit:${parent.id}`, runAfter: new Date(Date.now() + 60_000) },
     })
     try {
-      await recoverQueue()
-      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('error')
-      expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('cancelled')
+      await resetStaleAudits()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('pdfs-running')
     } finally {
-      await cleanup([parent.id])
+      await prisma.job.delete({ where: { id: job.id } }).catch(() => {})
     }
+  })
+
+  it('stale drained pdfs-running parent with no active jobs is finalized, not failed', async () => {
+    const sixMinAgo = new Date(Date.now() - 6 * 60 * 1000)
+    const parent = await prisma.siteAudit.create({
+      data: { domain: 'orphan-test-stale-finalize.example', status: 'pdfs-running', wcagLevel: 'wcag21aa' },
+    })
+    await prisma.$executeRaw`UPDATE "SiteAudit" SET "updatedAt" = ${sixMinAgo} WHERE "id" = ${parent.id}`
+    vi.mocked(finalizeSiteAudit).mockImplementationOnce(async (id: string) => {
+      await prisma.siteAudit.update({ where: { id }, data: { status: 'complete', completedAt: new Date() } })
+    })
+    await resetStaleAudits()
+    expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('complete')
   })
 })

@@ -6,7 +6,9 @@
 // calls it again (harmless re-register).
 
 import { registerPsiHandler } from './psi'
+import { registerPdfScanHandler } from './pdf-scan'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
+  registerPdfScanHandler()
 }

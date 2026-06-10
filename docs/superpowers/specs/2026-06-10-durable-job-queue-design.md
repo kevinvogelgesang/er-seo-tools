@@ -264,8 +264,11 @@ interface JobHandlerConfig {
 | **3** | Site-audit page loop (`site-audit-page` type; respects browser pool) | `processing` mutex, most of `resetStaleAudits`/`recoverQueue`/`failOrphanAdaAudits` |
 | **4** | Cleanup ticks + screenshot sweeper as scheduled jobs | the `setInterval`s in `instrumentation.ts` |
 
-Phases 0–1 are this implementation; 2–4 are follow-up sessions under the same
-tracker item.
+Phases 0–1 shipped 2026-06-10 (PR #50; parity + restart-resume verified in
+production; legacy pool deleted). Phase 2 shipped 2026-06-10 (plan:
+`../plans/2026-06-10-durable-job-queue-phase2.md`, incl. the
+finalize-before-fail recovery refinement from Codex review). Phases 3–4 are
+follow-up sessions under the same tracker item.
 
 ### Phase 1: PSI on the queue
 
