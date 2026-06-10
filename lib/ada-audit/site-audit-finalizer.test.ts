@@ -21,6 +21,7 @@ async function clearTestState() {
 
 async function makeAudit(overrides: Partial<{
   status: string
+  discoveredUrls: string | null
   pagesTotal: number; pagesComplete: number; pagesError: number
   pdfsTotal: number; pdfsComplete: number; pdfsError: number; pdfsSkipped: number
   lighthouseTotal: number; lighthouseComplete: number; lighthouseError: number
@@ -29,6 +30,10 @@ async function makeAudit(overrides: Partial<{
     data: {
       domain: `finalize-test-${Math.random().toString(36).slice(2, 8)}.example`,
       status: overrides.status ?? 'running',
+      // Discovery-done marker: a running audit with null discoveredUrls is
+      // owned by the discover handler and the finalizer must not touch it.
+      // Default to '[]' so the drain-predicate tests exercise what they mean.
+      discoveredUrls: overrides.discoveredUrls === undefined ? '[]' : overrides.discoveredUrls,
       wcagLevel: 'wcag21aa',
       pagesTotal: overrides.pagesTotal ?? 0,
       pagesComplete: overrides.pagesComplete ?? 0,
@@ -144,5 +149,39 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     expect(after?.status).toBe('complete')
     expect(after?.summary).not.toBeNull()
     expect(processNext).toHaveBeenCalled()
+  })
+})
+
+describe('finalizeSiteAudit — phase 3 guards', () => {
+  beforeEach(async () => {
+    vi.mocked(processNext).mockClear()
+    await clearTestState()
+  })
+
+  it('leaves a running audit with null discoveredUrls untouched (discovery owns the row)', async () => {
+    const audit = await makeAudit({ discoveredUrls: null })
+    await finalizeSiteAudit(audit.id)
+    expect((await prisma.siteAudit.findUnique({ where: { id: audit.id } }))?.status).toBe('running')
+  })
+
+  it('leaves a queued audit untouched', async () => {
+    const audit = await makeAudit({ status: 'queued', discoveredUrls: null })
+    await finalizeSiteAudit(audit.id)
+    expect((await prisma.siteAudit.findUnique({ where: { id: audit.id } }))?.status).toBe('queued')
+  })
+
+  it('does not complete a pre-discovered running audit whose pages have not settled', async () => {
+    const audit = await makeAudit({
+      discoveredUrls: JSON.stringify(['https://finalize-test-guard.example/a']),
+      pagesTotal: 1,
+    })
+    await finalizeSiteAudit(audit.id)
+    expect((await prisma.siteAudit.findUnique({ where: { id: audit.id } }))?.status).toBe('running')
+  })
+
+  it('completes a running audit with discoveredUrls=[] and zero pages', async () => {
+    const audit = await makeAudit({ discoveredUrls: '[]', pagesTotal: 0 })
+    await finalizeSiteAudit(audit.id)
+    expect((await prisma.siteAudit.findUnique({ where: { id: audit.id } }))?.status).toBe('complete')
   })
 })

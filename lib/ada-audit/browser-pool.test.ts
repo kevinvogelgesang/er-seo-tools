@@ -1,0 +1,138 @@
+// lib/ada-audit/browser-pool.test.ts
+//
+// Pool semantics only — puppeteer is mocked. Uses vi.resetModules() so each
+// test gets fresh module state (slots, counters, gate).
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+const newPageMock = () => ({
+  setDefaultTimeout: vi.fn(),
+  setCacheEnabled: vi.fn(async () => undefined),
+  setBypassServiceWorker: vi.fn(async () => undefined),
+  setExtraHTTPHeaders: vi.fn(async () => undefined),
+  close: vi.fn(async () => undefined),
+})
+
+let launchCount = 0
+const makeBrowser = () => {
+  const b = {
+    connected: true,
+    newPage: vi.fn(async () => newPageMock()),
+    close: vi.fn(async () => { b.connected = false }),
+    on: vi.fn(),
+  }
+  return b
+}
+
+const launchMock = vi.fn(async () => {
+  launchCount++
+  return makeBrowser()
+})
+
+vi.mock('puppeteer-core', () => ({
+  default: { launch: launchMock },
+}))
+
+async function loadPool(env: { recycle?: string; pool?: string } = {}) {
+  vi.resetModules()
+  process.env.SITE_AUDIT_BROWSER_RECYCLE_PAGES = env.recycle ?? '3'
+  process.env.BROWSER_POOL_SIZE = env.pool ?? '2'
+  return import('./browser-pool')
+}
+
+describe('browser-pool recycle gate + idle close', () => {
+  beforeEach(() => {
+    launchCount = 0
+    launchMock.mockClear()
+    vi.useRealTimers()
+  })
+
+  it('recycles Chrome after N pages served, waking waiters on a fresh browser', async () => {
+    const pool = await loadPool({ recycle: '2', pool: '2' })
+    const p1 = await pool.acquirePage()
+    const p2 = await pool.acquirePage() // pagesServed = 2 = threshold
+    expect(launchCount).toBe(1)
+
+    // Third acquire must wait behind the drain gate.
+    let acquired = false
+    const pending = pool.acquirePage().then((p) => { acquired = true; return p })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(acquired).toBe(false)
+
+    await pool.releasePage(p1)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(acquired).toBe(false) // one page still active — gate holds
+
+    await pool.releasePage(p2)
+    const p3 = await pending // gate released after recycle
+    expect(acquired).toBe(true)
+    expect(launchCount).toBe(2) // fresh Chrome
+    await pool.releasePage(p3)
+  })
+
+  it('does not recycle below the threshold', async () => {
+    const pool = await loadPool({ recycle: '10', pool: '2' })
+    const p1 = await pool.acquirePage()
+    await pool.releasePage(p1)
+    const p2 = await pool.acquirePage()
+    await pool.releasePage(p2)
+    expect(launchCount).toBe(1)
+  })
+
+  it('gates at acquire time: threshold below pool capacity holds the next acquirer', async () => {
+    const pool = await loadPool({ recycle: '1', pool: '4' })
+    const p1 = await pool.acquirePage() // pagesServed=1 = threshold → gate set
+    let acquired = false
+    const pending = pool.acquirePage().then((p) => { acquired = true; return p })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(acquired).toBe(false) // slots were free, but the gate holds
+    await pool.releasePage(p1) // recycles (all pages back) → gate opens
+    const p2 = await pending
+    expect(launchCount).toBe(2)
+    await pool.releasePage(p2)
+  })
+
+  it('restores the slot when browser launch fails', async () => {
+    const pool = await loadPool({ recycle: '100', pool: '1' })
+    launchMock.mockRejectedValueOnce(new Error('no chrome'))
+    await expect(pool.acquirePage()).rejects.toThrow('no chrome')
+    // Slot must be back — next acquire succeeds on the recovered mock.
+    const p = await pool.acquirePage()
+    await pool.releasePage(p)
+  })
+
+  it('idle close: closes Chrome after the idle delay, cancelled by a new acquire', async () => {
+    vi.useFakeTimers()
+    const pool = await loadPool({ recycle: '100', pool: '2' })
+    const p1 = await pool.acquirePage()
+    await pool.releasePage(p1)
+    // Pool fully idle — idle timer armed. Acquire again before it fires.
+    await vi.advanceTimersByTimeAsync(30_000)
+    const p2 = await pool.acquirePage()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(launchCount).toBe(1) // timer was cancelled; same browser
+    await pool.releasePage(p2)
+    await vi.advanceTimersByTimeAsync(120_000)
+    const p3 = await pool.acquirePage() // after idle close, relaunches
+    expect(launchCount).toBe(2)
+    await pool.releasePage(p3)
+  })
+
+  it('external closeBrowser releases the gate and leaves no waiter stuck', async () => {
+    const pool = await loadPool({ recycle: '1', pool: '1' })
+    const p1 = await pool.acquirePage() // threshold hit immediately
+    let acquired = false
+    const pending = pool.acquirePage().then((p) => { acquired = true; return p })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(acquired).toBe(false)
+    await pool.releasePage(p1) // recycle path runs, gate opens
+    const p2 = await pending
+    expect(acquired).toBe(true)
+    // Now park another waiter on the slot and call closeBrowser directly.
+    const pending2 = pool.acquirePage()
+    await pool.closeBrowser() // must not deadlock the waiter
+    await pool.releasePage(p2)
+    const p3 = await pending2
+    await pool.releasePage(p3)
+    expect(true).toBe(true) // reaching here = no deadlock
+  })
+})

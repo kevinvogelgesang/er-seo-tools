@@ -10,7 +10,7 @@ const SITEMAP_ROOT_RE = /^\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)?<(urls
 /**
  * Browser-based fallback for fetching a sitemap when Node's fetch is being
  * 403'd by a CDN/WAF. Owns its own request-interception layer for SSRF
- * defense — the runner's interception is per-runAudit() and not inherited.
+ * defense — the runner's interception is per-runAxeAudit() and not inherited.
  * Returns null on any failure; caller surfaces.
  */
 export async function fetchSitemapViaBrowser(url: string): Promise<string | null> {

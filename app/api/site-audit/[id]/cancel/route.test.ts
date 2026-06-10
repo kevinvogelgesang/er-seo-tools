@@ -80,8 +80,8 @@ describe('POST /api/site-audit/[id]/cancel', () => {
   )
 
   it('refetches status for the 409 body when the row transitions between the existence check and the update', async () => {
-    // Simulates: existence check sees 'queued', then runAudit's conditional
-    // claim wins the race and flips the row to 'running', so our updateMany
+    // Simulates: existence check sees 'queued', then the discover handler's
+    // conditional claim flips the row to 'running', so our updateMany
     // observes count===0. The response must report the FRESH status, not
     // the stale 'queued' we read first.
     vi.mocked(prisma.siteAudit.findUnique)

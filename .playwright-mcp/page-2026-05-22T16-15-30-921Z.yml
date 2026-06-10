@@ -1,0 +1,93 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - navigation [ref=e3]:
+    - generic [ref=e5]:
+      - link "ER SEO Tools Enrollment Resources" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]: ER
+        - generic [ref=e9]:
+          - generic [ref=e10]: SEO Tools
+          - generic [ref=e11]: Enrollment Resources
+      - generic [ref=e12]:
+        - link "SEO Parser" [ref=e14] [cursor=pointer]:
+          - /url: /seo-parser
+          - text: SEO Parser
+          - img [ref=e15]
+        - link "Quarter Grid" [ref=e17] [cursor=pointer]:
+          - /url: /quarter-grid
+        - link "RankMath Redirects" [ref=e18] [cursor=pointer]:
+          - /url: /rankmath-redirects
+        - link "Robots Validator" [ref=e19] [cursor=pointer]:
+          - /url: /robots-validator
+        - link "ADA Audit" [ref=e20] [cursor=pointer]:
+          - /url: /ada-audit
+        - link "Oxygen Stack Guide" [ref=e21] [cursor=pointer]:
+          - /url: /oxygen-tailwind-guide
+        - link "Clients" [ref=e22] [cursor=pointer]:
+          - /url: /clients
+      - generic [ref=e23]:
+        - button "Switch to dark mode" [ref=e24] [cursor=pointer]:
+          - img [ref=e25]
+        - button "Log out" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+  - main [ref=e32]:
+    - main [ref=e1095]:
+      - generic [ref=e1096]:
+        - link "ADA Audit" [ref=e1097] [cursor=pointer]:
+          - /url: /ada-audit
+        - generic [ref=e1098]: /
+        - generic "https://discoverycommunitycollege.com/programs/business/business-administration/" [ref=e1099]: discoverycommunitycollege.com/programs/business/business-administration/
+      - generic [ref=e1100]:
+        - generic [ref=e1101]:
+          - img [ref=e1103]
+          - generic [ref=e1105]:
+            - paragraph [ref=e1106]: Auditing page…
+            - paragraph [ref=e1107]: discoverycommunitycollege.com/programs/business/business-administration/
+          - generic [ref=e1109]: 22%
+        - generic [ref=e1113]:
+          - paragraph [ref=e1114]: Fetching Lighthouse from PageSpeed Insights…
+          - generic [ref=e1115]:
+            - generic [ref=e1116]: 6s elapsed
+            - generic [ref=e1117]: ·
+            - generic [ref=e1118]: ~21s remaining
+  - contentinfo [ref=e110]:
+    - generic [ref=e111]:
+      - generic [ref=e112]:
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - generic [ref=e116]: ER
+            - generic "Hover to reveal deploy command" [ref=e117]: SEO Tools
+          - paragraph [ref=e118]: Purpose-built SEO tools for enrollment marketers and web teams at Enrollment Resources.
+        - generic [ref=e119]:
+          - heading "Tools" [level=3] [ref=e120]
+          - list [ref=e121]:
+            - listitem [ref=e122]:
+              - link "SEO Parser" [ref=e123] [cursor=pointer]:
+                - /url: /seo-parser
+            - listitem [ref=e124]:
+              - link "ADA Audit" [ref=e125] [cursor=pointer]:
+                - /url: /ada-audit
+            - listitem [ref=e126]:
+              - link "Robots Validator" [ref=e127] [cursor=pointer]:
+                - /url: /robots-validator
+            - listitem [ref=e128]:
+              - link "Quarter Grid" [ref=e129] [cursor=pointer]:
+                - /url: /quarter-grid
+            - listitem [ref=e130]:
+              - link "RankMath Redirects" [ref=e131] [cursor=pointer]:
+                - /url: /rankmath-redirects
+            - listitem [ref=e132]:
+              - link "Clients" [ref=e133] [cursor=pointer]:
+                - /url: /clients
+        - generic [ref=e134]:
+          - heading "Deployment" [level=3] [ref=e135]
+          - list [ref=e136]:
+            - listitem [ref=e137]: RunCloud — Node.js App
+            - listitem [ref=e138]: Next.js 15 + App Router
+            - listitem [ref=e139]: Prisma + SQLite
+            - listitem [ref=e140]: Git-connected Deploy
+      - generic [ref=e141]:
+        - paragraph [ref=e142]: © 2026 Enrollment Resources. Internal tool — not for external distribution.
+        - generic [ref=e145]: er-seo-tools v0.2.0
+  - alert [ref=e146]: ER SEO Tools

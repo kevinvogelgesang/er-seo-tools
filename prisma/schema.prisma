@@ -97,6 +97,7 @@ model AdaAudit {
   redirected       Boolean    @default(false)
   checks           AdaAuditCheck[]
 
+  @@unique([siteAuditId, url])
   @@index([createdAt])
   @@index([clientId])
   @@index([status])
