@@ -1,0 +1,81 @@
+# Improvement Roadmap — Master Tracker
+
+**Created:** 2026-06-10 · **Source docs:** `../nyi/improvement-roadmaps/` (00–06, Codex-reviewed)
+**Scope:** critical-path spine ≈ 12–16 wks; full backlog ≈ 25–35 engineer-weeks.
+
+How to use this file: work top-to-bottom within a track; tracks B–D unlock as
+Track A milestones land. Check items off here; when a milestone gets a real
+spec/plan, write it via the normal brainstorming → writing-plans flow, park it
+in `specs/`/`plans/`, and link it next to the item. Statuses: `[ ]` not
+started · `[~]` in progress · `[x]` shipped.
+
+**Handoff rule:** whenever an item is completed (or meaningfully advanced),
+update this tracker (checkbox + status-log line) **and** rewrite
+`HANDOFF-improvement-roadmap.md` in the same commit, so any new chat can pick
+up by reading the handoff doc alone.
+
+---
+
+## Track A — Platform foundations (4–5.5 wks) → `06-platform.md`
+
+Spine items — everything else depends on these two:
+
+- [ ] **A1. Durable job queue + Schedule table** (2–2.5 wks)
+  Job table (claim via conditional update, heartbeat, retries, dedupKey,
+  type-keyed concurrency) + worker loop + cron-ish Schedule tick.
+  Migrate in order: PSI jobs → PDF scans → site-audit page loop → cleanup.
+  Old path stays behind a flag until parity proven.
+- [ ] **A2. Normalized findings layer** (2–3 wks)
+  `CrawlRun` / `CrawlPage` / `Finding` / `Violation`; dual-write from parse +
+  ADA runners; blobs demoted to archive columns; validate parity on 3–5
+  representative clients before any reader flips.
+
+Interleave as needed (not blockers):
+
+- [ ] A3. API route kit (`withRoute()` wrapper) + tests for the 14 untested routes (1 wk)
+- [ ] A4. Observability floor: `/api/health`, pino logging, `/admin/ops` page (0.5–1 wk)
+- [ ] A5. Shared status hook → optional SSE notification layer (0.5 wk)
+- [ ] A6. Shared UI primitives in `components/ui/` + data-driven nav (1 wk)
+- [ ] A7. Auth hardening + per-worker test DBs + Playwright smoke suite (1 wk)
+
+## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
+
+- [ ] **B1. Client dashboard MVP from existing scalar data** (1.5–2 wks) —
+  scorecards, activity timeline, fleet table. No dependency on Track A.
+- [ ] B2. Findings/action center on the dashboard (1–1.5 wks) — needs A2.
+- [ ] B3. Quarter Grid state localStorage → DB (`QuarterPlan`/`QuarterAssignment` + importer) (1–1.5 wks)
+- [ ] B4. Quarter Grid monolith split (1,215-LOC page → hook + components) (1 wk)
+- [ ] B5. Grid ↔ tools ↔ Teamwork closure (push cycle to Teamwork tasklists) (1–1.5 wks)
+
+## Track C — Continuous monitoring (needs A1; diffing needs A2) → `02-ada-audit.md`, `01-seo-parser.md`
+
+- [ ] **C1. ADA orchestration onto the job queue** (2–3 wks) — needs A1.
+- [ ] **C2. Scheduled recurring audits + score-level deltas** (1.5–2 wks) — needs C1.
+- [ ] C3. Relational ADA violations → real run-over-run diffing + regression alerts (1–1.5 wks) — needs A2.
+- [ ] C4. Reporting layer: branded PDF export, site-audit share links, CSV, VPAT scaffold (1.5–2 wks) — best after C3.
+- [ ] C5. SEO parser source-agnostic ingestion (SF-CSV as one adapter; live-scan as the second) (1.5–2 wks) — needs A2.
+- [ ] C6. Live SEO phases per `../nyi/2026-06-04-screaming-frog-retirement-roadmap.md`
+  (Phase 1 broken-link verifier first; its decision gates apply) — needs C5 to land in the findings model.
+- [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
+- [ ] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk)
+- [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)
+
+## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
+
+- [ ] D1. Handoff engine consolidation: token factory, `HANDOFF_TYPES` registry,
+  one `<MemoHandoffCard>`; retire legacy `pillar-analysis-narrative` skill (1 wk)
+- [ ] D2. Memo arrival via SSE notification (0.5 wk) — needs A5.
+- [ ] D3. Shared `lib/seo-fetch/` (robots/sitemap parsing through `safeFetch`) (1–2 days)
+- [ ] D4. Client-attached robots/sitemap checks + history (2–3 days)
+- [ ] D5. Scheduled robots/sitemap monitoring with change-only alerts (3–4 days) — needs A1.
+- [ ] D6. RankMath redirect generator + dry-run + post-deploy verifier (1–1.5 wks) — or explicitly freeze as a doc; decide, don't drift.
+
+## Gated decisions (block specific items; decide, then unblock)
+
+- [ ] **Anthropic API billing** — gates direct memo generation (03 Phase 3). Until decided, all AI stays skill-handoff.
+- [ ] **DB growth projection** — project SQLite size for nightly ADA + Live SEO before committing retention windows (feeds A2/C2).
+- [ ] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier.
+
+## Status log
+
+- 2026-06-10 — Tracker created. All items not started. Roadmap docs written + Codex-reviewed (accept-with-fixes, fixes applied).
