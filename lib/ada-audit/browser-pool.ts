@@ -42,32 +42,99 @@ async function getBrowser(): Promise<Browser> {
       headless: true,
       args: LAUNCH_ARGS,
       timeout: 30_000,
-    }).then((b) => {
-      browser = b
-      launching = null
-      b.on('disconnected', () => { browser = null })
-      return b
-    })
+    }).then(
+      (b) => {
+        browser = b
+        launching = null
+        b.on('disconnected', () => { browser = null })
+        return b
+      },
+      (err) => {
+        // Clear the cached promise on failure — a poisoned `launching` would
+        // make every future acquire reject with this same stale error.
+        launching = null
+        throw err
+      },
+    )
   }
 
   return launching
 }
 
-// ─── Concurrency semaphore ────────────────────────────────────────────────────
-// Limits the number of active pages to POOL_SIZE.
-// Callers that exceed the limit wait in a queue.
+// ─── Concurrency semaphore + recycle gate ────────────────────────────────────
+// Limits active pages to POOL_SIZE. Every SITE_AUDIT_BROWSER_RECYCLE_PAGES
+// pages served, the pool drains (new acquirers wait), closes Chrome to
+// reclaim leaked memory, and resumes on a fresh browser. Replaces the old
+// loop-index recycle in the site-audit page loop — and unlike that one, it
+// waits for ALL active pages (a concurrent standalone audit's page can no
+// longer be killed mid-flight). When the pool goes fully idle, Chrome is
+// closed after IDLE_CLOSE_MS (replaces the old between-site-audit
+// closeBrowser()).
+//
+// Waiters use notify-all + re-check-loop semantics: every releasePage and
+// closeBrowser notifies, and closeBrowser resets the gate, so no waiter can
+// be parked forever behind a stale drain.
+
+const IDLE_CLOSE_MS = 60_000
+
+function recyclePagesThreshold(): number {
+  return parsePositiveInt(process.env.SITE_AUDIT_BROWSER_RECYCLE_PAGES, 25)
+}
 
 let slots = POOL_SIZE
-const waitQueue: Array<() => void> = []
+let pagesServed = 0
+let draining = false
+const waiters: Array<() => void> = []
+let idleTimer: NodeJS.Timeout | null = null
+
+function notifyWaiters(): void {
+  const woken = waiters.splice(0)
+  for (const w of woken) w()
+}
+
+function cancelIdleTimer(): void {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+}
+
+function maybeArmIdleTimer(): void {
+  if (slots === POOL_SIZE && waiters.length === 0 && browser) {
+    cancelIdleTimer()
+    idleTimer = setTimeout(() => {
+      idleTimer = null
+      void closeBrowser()
+    }, IDLE_CLOSE_MS)
+    idleTimer.unref?.()
+  }
+}
 
 export async function acquirePage(): Promise<Page> {
-  if (slots > 0) {
-    slots--
-  } else {
-    await new Promise<void>((resolve) => waitQueue.push(resolve))
+  cancelIdleTimer()
+  while (draining || slots === 0) {
+    await new Promise<void>((resolve) => waiters.push(resolve))
   }
-  const b = await getBrowser()
-  const page = await b.newPage()
+  slots--
+  pagesServed++
+  // Gate at ACQUIRE time, not just release: if the threshold is reached
+  // while slots remain free, a later caller must not slip in ahead of the
+  // recycle. This acquirer (the one that hit the threshold) proceeds; the
+  // gate holds everyone after it.
+  if (pagesServed >= recyclePagesThreshold()) {
+    draining = true
+  }
+  let page: Page
+  try {
+    const b = await getBrowser()
+    page = await b.newPage()
+  } catch (err) {
+    // Restore the slot or it leaks forever (browser launch / newPage threw).
+    slots++
+    notifyWaiters()
+    maybeArmIdleTimer()
+    throw err
+  }
   page.setDefaultTimeout(60_000)
 
   // Defense-in-depth cache hardening. Browser launch already sets
@@ -86,17 +153,27 @@ export async function acquirePage(): Promise<Page> {
 
 export async function releasePage(page: Page): Promise<void> {
   await page.close().catch(() => {})
-  const next = waitQueue.shift()
-  if (next) {
-    next() // pass slot directly to next waiter
-  } else {
-    slots++
+  slots++
+  if (pagesServed >= recyclePagesThreshold()) {
+    draining = true
   }
+  if (draining && slots === POOL_SIZE) {
+    // Last active page gone — recycle now.
+    await closeBrowser()
+  }
+  notifyWaiters()
+  maybeArmIdleTimer()
 }
 
 export async function closeBrowser(): Promise<void> {
+  cancelIdleTimer()
+  // Reset the recycle state on EVERY close (recycle, idle, shutdown, between
+  // deploys) so no waiter can be left parked behind a stale drain gate.
+  pagesServed = 0
+  draining = false
   if (browser) {
     await browser.close().catch(() => {})
     browser = null
   }
+  notifyWaiters()
 }
