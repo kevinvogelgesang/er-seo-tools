@@ -26,8 +26,9 @@ Spine items — everything else depends on these two:
   Migrate in order: PSI jobs → PDF scans → site-audit page loop → cleanup.
   Old path stays behind a flag until parity proven.
   Spec: `../specs/2026-06-10-durable-job-queue-design.md` ·
-  Plan: `../plans/2026-06-10-durable-job-queue.md` (Phases 0–1 done;
-  Phases 2–4 + parity flip remain).
+  Plans: `../plans/2026-06-10-durable-job-queue.md` (Phases 0–1, done) ·
+  `../plans/2026-06-10-durable-job-queue-phase2.md` (close-out + Phase 2,
+  done). Phases 3 (page loop) + 4 (cleanup ticks) remain.
 - [ ] **A2. Normalized findings layer** (2–3 wks)
   `CrawlRun` / `CrawlPage` / `Finding` / `Violation`; dual-write from parse +
   ADA runners; blobs demoted to archive columns; validate parity on 3–5
@@ -84,3 +85,4 @@ Interleave as needed (not blockers):
 - 2026-06-10 — Tracker created. All items not started. Roadmap docs written + Codex-reviewed (accept-with-fixes, fixes applied).
 - 2026-06-10 — **A1 meaningfully advanced** (Phases 0–1 of 4): Job + Schedule schema, worker loop (fenced claim/heartbeat/settle, timeout, type-keyed concurrency, backoff, onExhausted), startup/stale recovery, scheduler tick (exactly-once-per-slot), introspection, and PSI migrated behind `JOB_QUEUE_PSI` flag (default off) with flag-aware `recoverQueue`/`resetStaleAudits` survival logic. Spec + plan each Codex-reviewed (accept-with-fixes ×2, all fixes applied). 38 new tests; full suite 1,659 green; build green. Branch `feat/durable-job-queue` → PR. Remaining: Phase 2 (PDF scans), Phase 3 (page loop), Phase 4 (cleanup ticks), parity verification + flag flip + legacy-pool deletion.
 - 2026-06-10 — **A1 PSI parity PASSED in production.** PR #50 merged + deployed; `JOB_QUEUE_PSI=1` enabled in `ecosystem.config.js`. Run 1 (proway.erstaging.site, 20 pages): complete, 19/19 lighthouse, 0 errors — exact match with legacy runs. Run 2: PM2 restarted mid-`lighthouse-running` with 10 PSI jobs in flight — startup recovery re-queued all 10 (`attempts=2`, lastError "interrupted by restart"), `recoverQueue` resumed the parent instead of failing it, audit completed 19/19 with no errors. Remaining for Phase 1 close-out: delete the legacy in-memory pool + flag branching in `lighthouse-queue.ts`.
+- 2026-06-10 — **A1 Phase 1 close-out + Phase 2 (PDF scans) built** on `feat/job-queue-phase2-pdf-scans`. Close-out: legacy in-memory PSI pool, `JOB_QUEUE_PSI` flag, and all flag branching deleted; `enqueuePsiJob` is a thin durable facade. Phase 2: `pdf-scan` job type (`lib/jobs/handlers/pdf-scan.ts`, concurrency `PDF_POOL_SIZE`=4) with conditional `pending|scanning` claim, one-transaction settle + counter bump, `onExhausted`/enqueue-failure via `settlePdfFailure`; `pdf-worker-pool.ts` deleted; `pdfs-running` parents now survive restarts (type-agnostic group survival check). Codex plan review: accept-with-fixes ×5, all applied — incl. **finalize-before-fail**: drained transient parents with zero active jobs get one `finalizeSiteAudit` attempt before the destructive fail path (both `recoverQueue` and `resetStaleAudits`). Plan: `../plans/2026-06-10-durable-job-queue-phase2.md`. 1,677 tests green; tsc + build green. Next: merge/deploy + restart-test mid-`pdfs-running` (Kevin), then Phase 3 (page loop).
