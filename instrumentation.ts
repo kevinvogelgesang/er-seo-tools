@@ -81,8 +81,9 @@ export async function register() {
     //    which need a populated registry.
     // 2. recoverJobsOnStartup — recoverQueue decides parent-audit survival
     //    based on active jobs in the Job table.
-    // 3. recoverQueue (awaited) — parent recovery decisions are still partly
-    //    non-durable in Phase 1; make them deterministic before any claims.
+    // 3. recoverQueue (awaited) — resumes transient parents with outstanding
+    //    durable jobs (incl. 'running' since Phase 3), finalizes drained
+    //    ones, fails the rest. Deterministic before any claims.
     // 4. startJobWorker — only now may jobs start draining.
     const { registerBuiltInJobHandlers } = await import('@/lib/jobs/handlers/register')
     registerBuiltInJobHandlers()
