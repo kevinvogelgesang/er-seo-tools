@@ -352,14 +352,7 @@ describe('resetStaleAudits — orphan child cleanup', () => {
   })
 })
 
-describe('recoverQueue with JOB_QUEUE_PSI=1', () => {
-  const original = process.env.JOB_QUEUE_PSI
-  beforeEach(() => { process.env.JOB_QUEUE_PSI = '1' })
-  afterEach(() => {
-    if (original === undefined) delete process.env.JOB_QUEUE_PSI
-    else process.env.JOB_QUEUE_PSI = original
-  })
-
+describe('recoverQueue — durable-job survival', () => {
   async function makeParent(domain: string, status: string) {
     return prisma.siteAudit.create({
       data: { domain: `qm-jobs-test-${domain}`, status, wcagLevel: 'wcag21aa' },
@@ -416,18 +409,4 @@ describe('recoverQueue with JOB_QUEUE_PSI=1', () => {
     }
   })
 
-  it('flag off: lighthouse-running parent is failed even with active group jobs', async () => {
-    delete process.env.JOB_QUEUE_PSI
-    const parent = await makeParent('flag-off.example', 'lighthouse-running')
-    const job = await prisma.job.create({
-      data: { type: 'psi', status: 'queued', groupKey: `site-audit:${parent.id}` },
-    })
-    try {
-      await recoverQueue()
-      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('error')
-      expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('cancelled')
-    } finally {
-      await cleanup([parent.id])
-    }
-  })
 })

@@ -22,7 +22,7 @@ import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { closeBrowser } from '@/lib/ada-audit/browser-pool'
-import { enqueuePsiJob, isPsiJobQueueEnabled } from './lighthouse-queue'
+import { enqueuePsiJob } from './lighthouse-queue'
 import { cancelJobsByGroup, countActiveJobsByGroup } from '@/lib/jobs/queue'
 import { getLighthouseProvider } from './lighthouse-provider'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
@@ -472,7 +472,7 @@ export async function resetStaleAudits() {
     // PSI completions bump SiteAudit.updatedAt, but a backoff window can
     // exceed the 5-min threshold — don't kill a parent whose durable PSI
     // jobs are still outstanding.
-    if (s.status === 'lighthouse-running' && isPsiJobQueueEnabled()) {
+    if (s.status === 'lighthouse-running') {
       // A failed count must NOT be treated as "no active jobs" — that would
       // bias a transient DB read error toward destructively failing the
       // parent. Skip this parent for this pass; the next pass retries.
@@ -525,12 +525,12 @@ export async function recoverQueue() {
   })
   for (const o of orphans) {
     // Durable-PSI survival: a lighthouse-running parent's only outstanding
-    // work is PSI, and with JOB_QUEUE_PSI=1 those jobs live in the Job table
+    // work is PSI, and those jobs live in the durable Job table
     // (already re-queued by recoverJobsOnStartup, which runs first). The
     // worker drains them; the last settle finalizes the audit. Parents in
     // running/pdfs-running still fail — page + PDF work isn't durable until
     // Phases 2-3.
-    if (o.status === 'lighthouse-running' && isPsiJobQueueEnabled()) {
+    if (o.status === 'lighthouse-running') {
       // A failed count must NOT be treated as "no active jobs" — that would
       // bias a transient DB read error toward destructively failing the
       // parent. Skip this parent for this pass; the next pass retries.
