@@ -1,7 +1,7 @@
 # Durable Job Queue — Phase 4: Cleanup Ticks as Scheduled Jobs
 
 **Date:** 2026-06-10 · **Parent spec:** `2026-06-10-durable-job-queue-design.md` (phase table row 4)
-**Status:** spec
+**Status:** spec — Codex-reviewed (accept with named fixes ×5; all applied 2026-06-10)
 **Scope:** small — wiring + deletions. The Schedule tick, exactly-once-per-slot
 unique index, and `tickSchedules()` machinery already exist and are tested.
 
@@ -85,16 +85,29 @@ const SYSTEM_SCHEDULES = [
   inline startup run keeps the "cleanup soon after deploy" property.
 - `seedSystemSchedules()` — for each entry, `prisma.schedule.upsert` by
   `name`:
-  - **create:** `{ name, jobType, cadence, payload: '{}', enabled: true,
-    nextRunAt: now }` — first deploy runs each task almost immediately, which
-    doubles as a production smoke test of the scheduler.
-  - **update:** refresh `jobType` + `cadence` + `enabled: true`; recompute
-    `nextRunAt = nextRun(cadence, now)` **only when the stored cadence
-    differs** (otherwise preserve scheduling continuity across restarts).
+  - **create:** `{ name, jobType, cadence, payload: '{}', enabled: true }`
+    with `nextRunAt: now` for `system-screenshot-sweep` and
+    `system-stale-audit-reset` (first deploy runs them almost immediately,
+    doubling as a production smoke test of the scheduler) but
+    `nextRunAt: nextRun(cadence, now)` for `system-cleanup` — the inline
+    startup `runCleanup()` already covers "cleanup soon after deploy," and
+    seeding it immediate would race two concurrent cleanups at first boot
+    (idempotent but noisy with duplicate-delete warnings).
+  - **update:** refresh `jobType` + `cadence` + `payload` + `enabled: true`
+    (payload refresh keeps the primitive drift-free for C2/D5 reuse);
+    recompute `nextRunAt = nextRun(cadence, now)` **only when the stored
+    cadence differs** (otherwise preserve scheduling continuity across
+    restarts).
+- **`system-*` is a reserved, code-owned namespace.** The seed is the source
+  of truth: a manual DB disable of a `system-*` row is temporary by design
+  and gets re-enabled at next boot. An operator kill switch, if ever needed,
+  is an env/config flag — not DB mutation.
 - **Retired-schedule sweep:** after upserts, disable (`enabled: false`) any
-  schedule whose `name` starts with `system-` and is not in the current list.
-  A renamed/removed system schedule must not keep enqueuing jobs that no
-  handler will ever claim.
+  schedule whose `name` starts with `system-` and is not in the current
+  list, **and cancel its queued jobs** (`updateMany` queued → cancelled by
+  `scheduleId`). A renamed/removed system schedule must not keep enqueuing
+  jobs no handler will claim — and its already-queued orphans would
+  otherwise sit `queued` forever (retention never touches queued rows).
 
 ## Job handlers (`lib/jobs/handlers/`)
 
@@ -103,7 +116,7 @@ Three thin wrappers, registered in `register.ts`:
 | File | type | concurrency | maxAttempts | timeoutMs | body |
 |---|---|---|---|---|---|
 | `cleanup.ts` | `cleanup` | 1 | 1 | 10 min | `await runCleanup()` |
-| `screenshot-sweep.ts` | `screenshot-sweep` | 1 | 1 | default (5 min) | `await sweepExpiredScreenshots()` |
+| `screenshot-sweep.ts` | `screenshot-sweep` | 1 | 1 | 10 min | `await sweepExpiredScreenshots()` |
 | `stale-audit-reset.ts` | `stale-audit-reset` | 1 | 1 | default (5 min) | `await resetStaleAudits()` |
 
 - `maxAttempts: 1` — these are periodic; the next slot *is* the retry,
@@ -117,8 +130,9 @@ Three thin wrappers, registered in `register.ts`:
   unexpected (DB down, FS error) and correctly fails the job.
 - Handlers ignore `ctx.signal` (the bodies are loops of small idempotent
   deletes/updates); a timeout zombie finishing late is harmless.
-- `cleanup` gets 10 min because FS-heavy passes over 180-day-old sessions can
-  be slow on the VPS.
+- `cleanup` and `screenshot-sweep` get 10 min because both walk the
+  filesystem (180-day session dirs; one DB lookup per screenshot dir) and
+  can be slow on the VPS.
 
 ## Job-row retention (new task in `runCleanup()`)
 
@@ -127,9 +141,19 @@ Three thin wrappers, registered in `register.ts`:
 - `status IN ('complete','cancelled') AND updatedAt < now − 7 days` → delete
 - `status = 'error' AND updatedAt < now − 30 days` → delete (errors kept
   longer for debugging; `getJobQueueState()` surfaces recent failures)
-- Two plain `deleteMany` calls; `updatedAt`-based because `completedAt` is
-  not set on every terminal path (e.g. cancellation).
-- Queued/running rows are never touched.
+- `updatedAt`-based because `completedAt` is not set on every terminal path
+  (e.g. cancellation). Queued/running rows are never touched.
+- **Slot-record guard:** scheduled jobs double as the durable
+  exactly-once-per-slot record (`@@unique([scheduleId, scheduledFor])`).
+  Retention must never delete (a) a job referenced by any
+  `Schedule.lastJobId`, or (b) a job whose `(scheduleId, scheduledFor)`
+  matches its schedule's **current** `nextRunAt` — a stuck/unadvanced
+  schedule would otherwise lose its slot record and re-run the slot.
+  Implemented as raw-SQL `DELETE … WHERE … AND id NOT IN (SELECT lastJobId
+  FROM Schedule WHERE lastJobId IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM
+  Schedule s WHERE s.id = Job.scheduleId AND s.nextRunAt =
+  Job.scheduledFor)` (house style: conditional logic in SQL, no interactive
+  transactions).
 
 ## Wiring (`instrumentation.ts`)
 
@@ -157,10 +181,12 @@ worker; drive `tickSchedules()` directly. Test cleanup deletes
 create (`name startsWith 'system-'` — same global-state discipline as the
 one-active-guard neutralization in `queue-manager.test.ts`).
 
-- `system-schedules.test.ts` — seed creates all three rows with
-  `nextRunAt ≈ now`; re-seed is idempotent (no dupes, `nextRunAt` preserved
-  when cadence unchanged); cadence change recomputes `nextRunAt`; re-seed
-  re-enables a manually disabled row; retired `system-*` rows get disabled;
+- `system-schedules.test.ts` — seed creates all three rows (`nextRunAt ≈
+  now` for sweep/stale-reset, `nextRun(cadence, now)` for cleanup); re-seed
+  is idempotent (no dupes, `nextRunAt` preserved when cadence unchanged);
+  cadence change recomputes `nextRunAt`; payload refresh on update; re-seed
+  re-enables a manually disabled row; retired `system-*` rows get disabled
+  **and their queued jobs cancelled** (running/terminal jobs untouched);
   a NULL-name schedule is untouched by the sweep.
 - `handlers/cleanup.test.ts` / `screenshot-sweep.test.ts` /
   `stale-audit-reset.test.ts` — registration config (type, concurrency 1,
@@ -169,7 +195,9 @@ one-active-guard neutralization in `queue-manager.test.ts`).
   throws.
 - `cleanup.test.ts` addition — `cleanOldTerminalJobs()`: deletes old
   complete/cancelled, keeps young ones, keeps errors < 30 d, deletes errors
-  > 30 d, never touches queued/running.
+  > 30 d, never touches queued/running; **slot-record guard:** keeps an old
+  terminal job referenced by `Schedule.lastJobId`, and keeps one whose
+  `(scheduleId, scheduledFor)` matches its schedule's current `nextRunAt`.
 - Integration (in `system-schedules.test.ts`): after seeding,
   `tickSchedules()` enqueues one job per due system schedule with the right
   `type` and `scheduleId`.
@@ -179,8 +207,7 @@ one-active-guard neutralization in `queue-manager.test.ts`).
 - **Scheduler wedge disables the stale-audit safety net** — accepted (see
   design decisions); boot-time `recoverQueue()` remains the backstop.
 - **Unclaimed-job buildup from retired schedules** — closed by the
-  retired-schedule sweep; queued orphans from a retired type would also be
-  visible in introspection.
+  retired-schedule sweep (disable + cancel queued orphans).
 - **Behavior change:** cleanup moves from "24 h after boot" to a fixed daily
   slot, and the screenshot sweep loses its boot-time run. Both are
   retention-window tasks where ±hours don't matter.
