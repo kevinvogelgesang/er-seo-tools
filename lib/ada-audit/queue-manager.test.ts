@@ -7,7 +7,7 @@
 // Exercised by calling runAudit directly on a row whose status has already
 // been flipped to 'cancelled' — runAudit's conditional claim should observe
 // status≠'queued', count===0, and return without touching the row.
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Stub the work-doers so a successful claim path would call into them; if any
 // fire, the test fails (proves we didn't return early when we should have).
@@ -349,5 +349,85 @@ describe('resetStaleAudits — orphan child cleanup', () => {
     const pdf = await prisma.pdfAudit.findFirst({ where: { siteAuditId: parent.id } })
     expect(pdf?.status).toBe('error')
     expect(pdf?.scanError).toMatch(/site audit/i)
+  })
+})
+
+describe('recoverQueue with JOB_QUEUE_PSI=1', () => {
+  const original = process.env.JOB_QUEUE_PSI
+  beforeEach(() => { process.env.JOB_QUEUE_PSI = '1' })
+  afterEach(() => {
+    if (original === undefined) delete process.env.JOB_QUEUE_PSI
+    else process.env.JOB_QUEUE_PSI = original
+  })
+
+  async function makeParent(domain: string, status: string) {
+    return prisma.siteAudit.create({
+      data: { domain: `qm-jobs-test-${domain}`, status, wcagLevel: 'wcag21aa' },
+    })
+  }
+
+  async function cleanup(siteIds: string[]) {
+    await prisma.job.deleteMany({ where: { groupKey: { in: siteIds.map((id) => `site-audit:${id}`) } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'qm-jobs-test-' } } })
+  }
+
+  it('lighthouse-running parent with active group jobs survives (incl. backoff-delayed)', async () => {
+    const parent = await makeParent('survives.example', 'lighthouse-running')
+    await prisma.job.create({
+      data: { type: 'psi', status: 'queued', groupKey: `site-audit:${parent.id}`, runAfter: new Date(Date.now() + 60_000) },
+    })
+    try {
+      await recoverQueue()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('lighthouse-running')
+    } finally {
+      await cleanup([parent.id])
+    }
+  })
+
+  it('lighthouse-running parent with no active jobs is failed and orphans cascade', async () => {
+    const parent = await makeParent('drained.example', 'lighthouse-running')
+    const child = await prisma.adaAudit.create({
+      data: { url: 'https://qm-jobs-test-drained.example/p', status: 'axe-complete', siteAuditId: parent.id, wcagLevel: 'wcag21aa' },
+    })
+    await prisma.job.create({
+      data: { type: 'psi', status: 'error', groupKey: `site-audit:${parent.id}` },
+    })
+    try {
+      await recoverQueue()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('error')
+      expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('error')
+    } finally {
+      await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://qm-jobs-test-' } } })
+      await cleanup([parent.id])
+    }
+  })
+
+  it('mixed-outstanding: pdfs-running parent is failed even with active PSI jobs, and its queued jobs are cancelled', async () => {
+    const parent = await makeParent('mixed.example', 'pdfs-running')
+    const job = await prisma.job.create({
+      data: { type: 'psi', status: 'queued', groupKey: `site-audit:${parent.id}` },
+    })
+    try {
+      await recoverQueue()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('error')
+      expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('cancelled')
+    } finally {
+      await cleanup([parent.id])
+    }
+  })
+
+  it('flag off: lighthouse-running parent is failed even with active group jobs', async () => {
+    delete process.env.JOB_QUEUE_PSI
+    const parent = await makeParent('flag-off.example', 'lighthouse-running')
+    const job = await prisma.job.create({
+      data: { type: 'psi', status: 'queued', groupKey: `site-audit:${parent.id}` },
+    })
+    try {
+      await recoverQueue()
+      expect((await prisma.siteAudit.findUnique({ where: { id: parent.id } }))?.status).toBe('error')
+      expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('cancelled')
+    } finally {
+      await cleanup([parent.id])
+    }
   })
 })

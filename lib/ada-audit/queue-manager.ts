@@ -22,7 +22,8 @@ import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { closeBrowser } from '@/lib/ada-audit/browser-pool'
-import { enqueuePsiJob } from './lighthouse-queue'
+import { enqueuePsiJob, isPsiJobQueueEnabled } from './lighthouse-queue'
+import { cancelJobsByGroup, countActiveJobsByGroup } from '@/lib/jobs/queue'
 import { getLighthouseProvider } from './lighthouse-provider'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 import type { QueueStatusWithBatch } from './types'
@@ -465,9 +466,25 @@ export async function resetStaleAudits() {
       status: { in: ['running', 'pdfs-running', 'lighthouse-running'] },
       updatedAt: { lt: staleThreshold },
     },
-    select: { id: true, batchId: true },
+    select: { id: true, batchId: true, status: true },
   })
   for (const s of stale) {
+    // PSI completions bump SiteAudit.updatedAt, but a backoff window can
+    // exceed the 5-min threshold — don't kill a parent whose durable PSI
+    // jobs are still outstanding.
+    if (s.status === 'lighthouse-running' && isPsiJobQueueEnabled()) {
+      // A failed count must NOT be treated as "no active jobs" — that would
+      // bias a transient DB read error toward destructively failing the
+      // parent. Skip this parent for this pass; the next pass retries.
+      let outstanding: number
+      try {
+        outstanding = await countActiveJobsByGroup(`site-audit:${s.id}`)
+      } catch (err) {
+        console.warn(`[queue] Stale check: job count failed for ${s.id}, skipping this pass:`, (err as Error).message)
+        continue
+      }
+      if (outstanding > 0) continue
+    }
     console.warn(`[queue] Resetting stale audit ${s.id}`)
     await prisma.siteAudit.update({
       where: { id: s.id },
@@ -475,6 +492,10 @@ export async function resetStaleAudits() {
     }).catch(() => {})
     await failOrphanAdaAudits(s.id).catch(() => {})
     await failOrphanPdfAudits(s.id).catch(() => {})
+    // Cancel queued durable jobs so they don't run pointlessly against a dead
+    // parent. A running job that slips through settles harmlessly — its
+    // conditional axe-complete claim matches 0 rows. No-op when none exist.
+    await cancelJobsByGroup(`site-audit:${s.id}`).catch(() => {})
     if (s.batchId) {
       await closeBatchIfDrained(s.batchId).catch(() => {})
     }
@@ -500,9 +521,31 @@ export async function recoverQueue() {
     where: {
       status: { in: ['running', 'pdfs-running', 'lighthouse-running'] },
     },
-    select: { id: true, batchId: true },
+    select: { id: true, batchId: true, status: true },
   })
   for (const o of orphans) {
+    // Durable-PSI survival: a lighthouse-running parent's only outstanding
+    // work is PSI, and with JOB_QUEUE_PSI=1 those jobs live in the Job table
+    // (already re-queued by recoverJobsOnStartup, which runs first). The
+    // worker drains them; the last settle finalizes the audit. Parents in
+    // running/pdfs-running still fail — page + PDF work isn't durable until
+    // Phases 2-3.
+    if (o.status === 'lighthouse-running' && isPsiJobQueueEnabled()) {
+      // A failed count must NOT be treated as "no active jobs" — that would
+      // bias a transient DB read error toward destructively failing the
+      // parent. Skip this parent for this pass; the next pass retries.
+      let outstanding: number
+      try {
+        outstanding = await countActiveJobsByGroup(`site-audit:${o.id}`)
+      } catch (err) {
+        console.warn(`[queue] Startup recovery: job count failed for ${o.id}, skipping this pass:`, (err as Error).message)
+        continue
+      }
+      if (outstanding > 0) {
+        console.warn(`[queue] Startup recovery: resuming audit ${o.id} (${outstanding} durable PSI job(s) outstanding)`)
+        continue
+      }
+    }
     console.warn(`[queue] Startup recovery: resetting orphan audit ${o.id}`)
     await prisma.siteAudit.update({
       where: { id: o.id },
@@ -510,6 +553,10 @@ export async function recoverQueue() {
     }).catch(() => {})
     await failOrphanAdaAudits(o.id).catch(() => {})
     await failOrphanPdfAudits(o.id).catch(() => {})
+    // Cancel queued durable jobs so they don't run pointlessly against a dead
+    // parent. A running job that slips through settles harmlessly — its
+    // conditional axe-complete claim matches 0 rows. No-op when none exist.
+    await cancelJobsByGroup(`site-audit:${o.id}`).catch(() => {})
     if (o.batchId) {
       await closeBatchIfDrained(o.batchId).catch(() => {})
     }
