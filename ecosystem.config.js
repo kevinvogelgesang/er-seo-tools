@@ -28,6 +28,11 @@ module.exports = {
       LIGHTHOUSE_PROVIDER: 'pagespeed',
       PAGESPEED_TIMEOUT_MS: '150000',
       PSI_CONCURRENCY: '15',
+      // Durable job queue for PSI (spec Phase 1). Under parity validation —
+      // once a flag-on site audit matches legacy counters and survives a
+      // restart, the legacy in-memory pool gets deleted and this flag goes
+      // away. Unset to fall back to the legacy pool.
+      JOB_QUEUE_PSI: '1',
     },
 
     // Graceful shutdown — 10s for Chrome cleanup before SIGKILL
