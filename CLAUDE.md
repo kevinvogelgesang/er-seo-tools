@@ -21,6 +21,19 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - **Uploads:** `/home/seo/data/seo-tools/uploads`
 - **Logs:** `/home/seo/logs/`
 
+## Improvement-roadmap handoff protocol
+
+Triggered when a session completes (or meaningfully advances) an item in
+`docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md`, **or**
+whenever Kevin asks for "the handoff prompt" / "handoff". Do all three, in order:
+
+1. Update the tracker: checkbox status + a dated status-log line.
+2. Rewrite `docs/superpowers/todos/HANDOFF-improvement-roadmap.md` — current
+   state, the single next item with key context, gotchas. Commit it together
+   with the tracker change.
+3. **End your final reply with the handoff doc's "Paste this into a new chat"
+   prompt in a code block**, so Kevin can copy it straight into the next chat.
+
 ## Schema changes
 1. Edit `prisma/schema.prisma`
 2. `npx prisma migrate dev --name <name>` — creates migration + regenerates client locally

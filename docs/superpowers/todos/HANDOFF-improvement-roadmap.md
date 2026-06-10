@@ -17,7 +17,8 @@ Continue the er-seo-tools improvement roadmap.
 3. Read the roadmap doc section named under "Next item" below.
 4. Follow the normal flow: brainstorm/spec if the item needs one, write the plan,
    implement, test, commit. When the item is done: check it off in the tracker,
-   add a status-log line, and rewrite this handoff doc for the next item.
+   add a status-log line, rewrite this handoff doc for the next item, and end
+   your final reply with this doc's updated paste-in prompt in a code block.
 ```
 
 ## Current state
