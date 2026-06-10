@@ -273,12 +273,20 @@ tracker item.
   - legacy (default): in-memory pool, unchanged.
   - `JOB_QUEUE_PSI=1`: `enqueueJob({ type: 'psi', payload: PsiJob, dedupKey:
     'psi:' + adaAuditId, groupKey: 'site-audit:' + siteAuditId })`.
-- `handlers/psi.ts` is `runJob()` moved verbatim (same conditional claim,
-  counter bump, `finalizeSiteAudit` call). Exception: the two "DB write
-  failed → warn + return" paths become **throws**, so the queue's retry
-  covers transient SQLITE_BUSY instead of wedging the audit until stale
-  reset. `concurrency = PSI_CONCURRENCY` (default 6), `maxAttempts = 3`,
-  `backoffBaseMs = 30_000`.
+- `handlers/psi.ts` mirrors `runJob()` with two deliberate changes: (1) the
+  conditional `axe-complete` claim and the SiteAudit counter bump run in
+  **one short transaction** (no network work inside — the PSI fetch completes
+  first), closing the legacy wedge where the row flips, the counter bump
+  fails, and a retry no-ops forever; (2) DB failures **throw**, so the
+  queue's retry covers transient SQLITE_BUSY instead of wedging the audit
+  until stale reset. `concurrency = PSI_CONCURRENCY` (default 6),
+  `maxAttempts = 3`, `backoffBaseMs = 30_000`.
+- **Durable enqueue failure is settled immediately:** if the flag-on
+  `enqueuePsiJob` path fails to create the Job row, the page loop has
+  already committed `axe-complete` + `lighthouseTotal++` and nothing would
+  ever drain that page. The catch path calls the same domain-settle helper
+  as exhaustion (`settlePsiFailure`): conditional claim → `lighthouseError`
+  → counter bump → finalize.
 - **Exhaustion is a domain settle, not just a Job error.**
   `finalizeSiteAudit`'s drain predicate only counts
   `lighthouseComplete + lighthouseError`; a PSI job dying with
@@ -312,19 +320,19 @@ tracker item.
 
 ## Wiring (`instrumentation.ts`)
 
-After `initPragmas()` and before `recoverQueue()`:
+Boot order after `initPragmas()` — each step depends on the previous:
 
-```ts
-const { recoverJobsOnStartup } = await import('@/lib/jobs/recovery')
-await recoverJobsOnStartup()          // before recoverQueue, which reads job state
-const { startJobWorker, stopJobWorker } = await import('@/lib/jobs/worker')
-startJobWorker()                      // also starts stale sweep + schedule tick
-```
+1. `registerBuiltInJobHandlers()` — startup recovery may run `onExhausted`
+   hooks, which need a populated registry.
+2. `await recoverJobsOnStartup()` — `recoverQueue` decides parent-audit
+   survival based on active jobs in the Job table.
+3. `await recoverQueue()` — parent recovery decisions are still partly
+   non-durable in Phase 1; make them deterministic before any claims.
+4. `await startJobWorker()` — only now may jobs start draining. Also starts
+   the stale sweep (sweep then active-set reconcile, sequentially) and the
+   schedule tick.
 
 `shutdown()` adds `await stopJobWorker()` before `closeBrowser()`.
-Ordering matters: `recoverJobsOnStartup()` must complete before
-`recoverQueue()` runs, because `recoverQueue` decides whether a
-`lighthouse-running` parent survives based on active jobs in its group.
 
 ## Env vars
 

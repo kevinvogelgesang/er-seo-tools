@@ -332,6 +332,11 @@ export function clearJobRegistryForTests(): void {
  * Invoke the type's onExhausted hook (if any). Best-effort: hook errors are
  * logged, never thrown — callers are settle/recovery paths that must finish.
  * Called from EVERY path that flips a job to terminal 'error'.
+ *
+ * KNOWN FALLBACK: if the hook itself fails, the domain settle is lost and the
+ * owning entity (e.g. a lighthouse-running SiteAudit) is eventually cleaned
+ * up by its parent-level stale-failure path (resetStaleAudits). Acceptable
+ * for Phase 1; revisit if a job type ever needs a guaranteed domain settle.
  */
 export async function runOnExhausted(
   type: string,
@@ -581,7 +586,35 @@ git commit -m "feat(jobs): enqueue with total dedup-race handling + group helper
 
 **Files:**
 - Create: `lib/jobs/worker.ts`
+- Create: `lib/jobs/recovery.ts` (stub — replaced in Task 6)
+- Create: `lib/jobs/scheduler.ts` (stub — replaced in Task 7)
+- Create: `lib/jobs/handlers/register.ts` (stub — completed in Task 9)
 - Test: `lib/jobs/worker.test.ts`
+
+- [ ] **Step 0: Create three stubs so every task commits typecheck-green**
+
+`worker.ts` dynamically imports these modules, and TypeScript resolves dynamic import paths statically — so they must exist now. Each stub is replaced/completed by its own later task.
+
+```ts
+// lib/jobs/recovery.ts — STUB, replaced in Task 6
+export async function recoverJobsOnStartup(): Promise<void> {}
+export async function sweepStaleJobs(): Promise<void> {}
+```
+
+```ts
+// lib/jobs/scheduler.ts — STUB, replaced in Task 7
+export async function tickSchedules(): Promise<void> {}
+```
+
+```ts
+// lib/jobs/handlers/register.ts — STUB, completed in Task 9
+//
+// Single registration point for built-in job handlers. Idempotent —
+// instrumentation calls it BEFORE startup recovery (recoverJobsOnStartup may
+// run onExhausted hooks, which need a populated registry) and startJobWorker
+// calls it again (harmless re-register).
+export function registerBuiltInJobHandlers(): void {}
+```
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -797,7 +830,8 @@ Expected: FAIL — cannot resolve `./worker`.
 // - Handlers run OUTSIDE any DB transaction, raced against timeoutMs so the
 //   wrapper always settles even if the underlying promise hangs forever.
 // - Active-slot bookkeeping is a per-type Map<jobId, claimedAttempt>; the
-//   wrapper's finally deletes its own entry idempotently.
+//   wrapper deletes its own entry idempotently AFTER the settle write, so a
+//   poll/kick during settle can't overfill the type's concurrency.
 // - Single-process assumption: concurrency accounting is in-memory. The
 //   conditional claim keeps an accidental second process safe (just
 //   over-concurrent), not corrupt.
@@ -904,53 +938,59 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
 
   let error: string | null = null
   try {
-    let payload: unknown
     try {
-      payload = JSON.parse(job.payload)
-    } catch {
-      throw new Error('Unparseable job payload')
-    }
-    await runWithTimeout(
-      cfg.handler(payload, { jobId: job.id, attempt: job.attempts, signal: abort.signal }),
-      cfg.timeoutMs,
-      abort,
-    )
-  } catch (err) {
-    error = err instanceof Error ? err.message : String(err)
-  } finally {
-    clearInterval(heartbeat)
-    activeSet(job.type).delete(job.id) // idempotent — a Map delete can't double-fire
-  }
-
-  try {
-    if (error === null) {
-      await prisma.job.updateMany({
-        where: fence,
-        data: { status: 'complete', completedAt: new Date() },
-      })
-    } else if (job.attempts >= job.maxAttempts) {
-      const res = await prisma.job.updateMany({
-        where: fence,
-        data: { status: 'error', lastError: error, completedAt: new Date() },
-      })
-      if (res.count === 1) {
-        await runOnExhausted(job.type, job.payload, job.id, job.attempts, error)
+      let payload: unknown
+      try {
+        payload = JSON.parse(job.payload)
+      } catch {
+        throw new Error('Unparseable job payload')
       }
-    } else {
-      await prisma.job.updateMany({
-        where: fence,
-        data: {
-          status: 'queued',
-          lastError: error,
-          runAfter: new Date(Date.now() + backoffMs(cfg.backoffBaseMs, job.attempts)),
-          heartbeatAt: null,
-        },
-      })
+      await runWithTimeout(
+        cfg.handler(payload, { jobId: job.id, attempt: job.attempts, signal: abort.signal }),
+        cfg.timeoutMs,
+        abort,
+      )
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+    } finally {
+      clearInterval(heartbeat)
     }
-  } catch (err) {
-    // Settle write failed (e.g. transient SQLITE_BUSY). The row stays
-    // 'running' with a stale heartbeat; the stale sweep recovers it.
-    console.warn(`[jobs] settle failed for job=${job.id}:`, (err as Error).message)
+
+    try {
+      if (error === null) {
+        await prisma.job.updateMany({
+          where: fence,
+          data: { status: 'complete', completedAt: new Date() },
+        })
+      } else if (job.attempts >= job.maxAttempts) {
+        const res = await prisma.job.updateMany({
+          where: fence,
+          data: { status: 'error', lastError: error, completedAt: new Date() },
+        })
+        if (res.count === 1) {
+          await runOnExhausted(job.type, job.payload, job.id, job.attempts, error)
+        }
+      } else {
+        await prisma.job.updateMany({
+          where: fence,
+          data: {
+            status: 'queued',
+            lastError: error,
+            runAfter: new Date(Date.now() + backoffMs(cfg.backoffBaseMs, job.attempts)),
+            heartbeatAt: null,
+          },
+        })
+      }
+    } catch (err) {
+      // Settle write failed (e.g. transient SQLITE_BUSY). The row stays
+      // 'running' with a stale heartbeat; the stale sweep recovers it.
+      console.warn(`[jobs] settle failed for job=${job.id}:`, (err as Error).message)
+    }
+  } finally {
+    // Release the slot only AFTER settle so a concurrent poll/kick can't
+    // overfill this type's concurrency during the settle window. Map delete
+    // is idempotent — it can't double-fire into negative counts.
+    activeSet(job.type).delete(job.id)
   }
 
   if (!stopped) void runWorkerTickOnce() // backfill the freed slot
@@ -1002,16 +1042,23 @@ export async function startJobWorker(): Promise<void> {
 
   // Dynamic imports keep this module free of domain/scheduler edges
   // (queue.ts ← lighthouse-queue ← queue-manager would otherwise cycle).
-  const { registerPsiHandler } = await import('./handlers/psi')
-  registerPsiHandler()
+  // Idempotent — instrumentation already registered handlers before startup
+  // recovery; this covers any other caller.
+  const { registerBuiltInJobHandlers } = await import('./handlers/register')
+  registerBuiltInJobHandlers()
 
   const { sweepStaleJobs } = await import('./recovery')
   const { tickSchedules } = await import('./scheduler')
 
   pollTimer = setInterval(() => void runWorkerTickOnce(), jobPollMs())
+  // Sweep BEFORE reconcile, sequentially: reconciliation frees in-memory
+  // slots based on DB lease state, so it must observe the sweep's re-queues
+  // in the same pass — racing them delays slot release by a full interval.
   sweepTimer = setInterval(() => {
-    void sweepStaleJobs()
-    void reconcileActiveSets()
+    void (async () => {
+      await sweepStaleJobs()
+      await reconcileActiveSets()
+    })().catch((err) => console.warn('[jobs] sweep pass failed:', (err as Error).message))
   }, jobStaleSweepMs())
   scheduleTimer = setInterval(() => void tickSchedules(), 60_000)
 
@@ -1045,12 +1092,12 @@ export function resetWorkerForTests(): void {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run lib/jobs/worker.test.ts`
-Expected: PASS (11 tests). Note: `startJobWorker` references `./handlers/psi`, `./recovery`, `./scheduler` which don't exist yet — the imports are dynamic and `startJobWorker` is never called in these tests, so nothing fails. `npx tsc --noEmit` WILL fail until Tasks 6, 7, 9 land; that's expected and is why the full typecheck runs in Task 13.
+Expected: PASS (11 tests). The Step 0 stubs keep `npx tsc --noEmit` green — run it to confirm.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/jobs/worker.ts lib/jobs/worker.test.ts
+git add lib/jobs/worker.ts lib/jobs/worker.test.ts lib/jobs/recovery.ts lib/jobs/scheduler.ts lib/jobs/handlers/register.ts
 git commit -m "feat(jobs): worker loop with fenced claim/heartbeat/settle, timeout, backoff"
 ```
 
@@ -1059,7 +1106,7 @@ git commit -m "feat(jobs): worker loop with fenced claim/heartbeat/settle, timeo
 ### Task 6: `lib/jobs/recovery.ts` — startup recovery + stale sweep
 
 **Files:**
-- Create: `lib/jobs/recovery.ts`
+- Modify: `lib/jobs/recovery.ts` (replace the Task 5 stub)
 - Test: `lib/jobs/recovery.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1140,9 +1187,9 @@ describe('jobs/recovery', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run lib/jobs/recovery.test.ts`
-Expected: FAIL — cannot resolve `./recovery`.
+Expected: FAIL — the stub no-ops, so every assertion about changed statuses fails.
 
-- [ ] **Step 3: Implement `lib/jobs/recovery.ts`**
+- [ ] **Step 3: Replace the stub with the real `lib/jobs/recovery.ts`**
 
 ```ts
 // lib/jobs/recovery.ts
@@ -1240,7 +1287,7 @@ git commit -m "feat(jobs): startup recovery + stale-heartbeat sweep with onExhau
 ### Task 7: `lib/jobs/scheduler.ts` — cadence parsing + tick
 
 **Files:**
-- Create: `lib/jobs/scheduler.ts`
+- Modify: `lib/jobs/scheduler.ts` (replace the Task 5 stub)
 - Test: `lib/jobs/scheduler.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1371,9 +1418,9 @@ describe('jobs/scheduler', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run lib/jobs/scheduler.test.ts`
-Expected: FAIL — cannot resolve `./scheduler`.
+Expected: FAIL — the stub exports only a no-op `tickSchedules`; `parseCadence`/`nextRun` don't resolve and the tick assertions fail.
 
-- [ ] **Step 3: Implement `lib/jobs/scheduler.ts`**
+- [ ] **Step 3: Replace the stub with the real `lib/jobs/scheduler.ts`**
 
 ```ts
 // lib/jobs/scheduler.ts
@@ -1603,9 +1650,10 @@ git commit -m "feat(jobs): queue introspection for future admin/ops"
 
 **Files:**
 - Create: `lib/jobs/handlers/psi.ts`
+- Modify: `lib/jobs/handlers/register.ts` (complete the Task 5 stub)
 - Test: `lib/jobs/handlers/psi.test.ts`
 
-The handler body mirrors `runJob()` in `lib/ada-audit/lighthouse-queue.ts` with one deliberate change: the two "DB write failed → warn + return" paths now **throw**, so the queue's retry covers transient SQLITE_BUSY instead of wedging the audit until stale reset. The finalize call still warns-and-continues (a finalize failure after counters are bumped must NOT retry the job — a retried handler would hit the conditional claim, match 0 rows, and never finalize).
+The handler body mirrors `runJob()` in `lib/ada-audit/lighthouse-queue.ts` with two deliberate changes: (1) the AdaAudit settle and SiteAudit counter bump happen in **one short transaction** — the legacy split is exactly the wedge where a row flips to `complete`, the counter bump fails, and a retry no-ops on the conditional claim leaving the parent under-counted forever; (2) DB failures now **throw**, so the queue's retry covers transient SQLITE_BUSY. No browser/network work happens inside the transaction (the PSI fetch completes before it opens), so the spec's no-transactions-across-network rule holds. The finalize call still warns-and-continues (a finalize failure after the transaction committed must NOT retry the job — a retried handler would match 0 rows on the claim and never finalize).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1745,13 +1793,15 @@ Expected: FAIL — cannot resolve `./psi`.
 // Error semantics:
 // - PSI fetch failure (returned error or throw) is a DOMAIN result: recorded
 //   as lighthouseError, row completes, job completes. No job retry.
-// - DB write failures THROW → the queue retries (covers transient
-//   SQLITE_BUSY). Legacy warned-and-returned, wedging the audit until stale
-//   reset; this is the one deliberate behavior change.
-// - finalizeSiteAudit failure after counters are bumped warns-and-continues:
-//   a retried handler would match 0 rows on the claim and never finalize, so
-//   retrying the job would make things worse, not better. Another settling
-//   job or stale recovery picks it up — same exposure as legacy.
+// - The AdaAudit settle + SiteAudit counter bump run in ONE short
+//   transaction (no network work inside) — the legacy split is the wedge
+//   where the row flips but the counter doesn't, and a retry no-ops forever.
+// - DB failures THROW → the queue retries (covers transient SQLITE_BUSY).
+//   Legacy warned-and-returned, wedging the audit until stale reset.
+// - finalizeSiteAudit failure after the transaction committed
+//   warns-and-continues: a retried handler would match 0 rows on the claim
+//   and never finalize, so retrying would make things worse. Another
+//   settling job or stale recovery picks it up — same exposure as legacy.
 
 import { prisma } from '@/lib/db'
 import { runPageSpeedInsights } from '@/lib/ada-audit/lighthouse-pagespeed'
@@ -1771,6 +1821,37 @@ function assertPsiPayload(payload: unknown): PsiJob {
   return p as PsiJob
 }
 
+/**
+ * Atomically claim the axe-complete AdaAudit row, write the LH outcome, and
+ * bump the matching SiteAudit counter. Returns false when the row was
+ * already terminal (recovery beat us / idempotent re-run). On true, the
+ * caller must invoke finalizeSiteAudit (outside the transaction).
+ */
+async function settlePsiOutcome(
+  job: PsiJob,
+  data: { lighthouseSummary: string | null; lighthouseError: string | null },
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const claimed = await tx.adaAudit.updateMany({
+      where: { id: job.adaAuditId, status: 'axe-complete' },
+      data: {
+        status: 'complete',
+        lighthouseSummary: data.lighthouseSummary,
+        lighthouseError: data.lighthouseError,
+        completedAt: new Date(),
+      },
+    })
+    if (claimed.count !== 1) return false
+    await tx.siteAudit.update({
+      where: { id: job.siteAuditId },
+      data: data.lighthouseSummary !== null
+        ? { lighthouseComplete: { increment: 1 } }
+        : { lighthouseError: { increment: 1 } },
+    })
+    return true
+  })
+}
+
 export async function runPsiJob(payload: unknown): Promise<void> {
   const job = assertPsiPayload(payload)
 
@@ -1784,25 +1865,8 @@ export async function runPsiJob(payload: unknown): Promise<void> {
     lighthouseError = err instanceof Error ? err.message : String(err)
   }
 
-  // Conditional claim on status='axe-complete' — prevents resurrecting a row
-  // recovery already settled, and makes crash re-runs idempotent.
-  const claimed = await prisma.adaAudit.updateMany({
-    where: { id: job.adaAuditId, status: 'axe-complete' },
-    data: {
-      status: 'complete',
-      lighthouseSummary,
-      lighthouseError,
-      completedAt: new Date(),
-    },
-  })
-  if (claimed.count !== 1) return // row already terminal — recovery beat us
-
-  await prisma.siteAudit.update({
-    where: { id: job.siteAuditId },
-    data: lighthouseSummary !== null
-      ? { lighthouseComplete: { increment: 1 } }
-      : { lighthouseError: { increment: 1 } },
-  })
+  const settled = await settlePsiOutcome(job, { lighthouseSummary, lighthouseError })
+  if (!settled) return // row already terminal — recovery beat us
 
   try {
     await finalizeSiteAudit(job.siteAuditId)
@@ -1812,31 +1876,25 @@ export async function runPsiJob(payload: unknown): Promise<void> {
 }
 
 /**
- * Domain settle for job-level exhaustion (the handler itself kept throwing —
- * DB hiccups, bugs). Without this, the parent would strand in
- * lighthouse-running until stale recovery failed the whole audit, because
- * finalizeSiteAudit only counts lighthouseComplete + lighthouseError.
+ * Settle a PSI failure that happened OUTSIDE the handler's fetch path —
+ * job exhaustion, or a failed durable enqueue (lighthouse-queue's fallback).
+ * Without this, the parent strands in lighthouse-running until stale
+ * recovery fails the whole audit, because finalizeSiteAudit only counts
+ * lighthouseComplete + lighthouseError.
  */
-export async function onPsiExhausted(payload: unknown, ctx: JobExhaustedContext): Promise<void> {
+export async function settlePsiFailure(payload: unknown, message: string): Promise<void> {
   const job = assertPsiPayload(payload)
-  const claimed = await prisma.adaAudit.updateMany({
-    where: { id: job.adaAuditId, status: 'axe-complete' },
-    data: {
-      status: 'complete',
-      lighthouseError: `PSI job failed after ${ctx.attempts} attempts: ${ctx.lastError}`,
-      completedAt: new Date(),
-    },
-  })
-  if (claimed.count !== 1) return
-  await prisma.siteAudit.update({
-    where: { id: job.siteAuditId },
-    data: { lighthouseError: { increment: 1 } },
-  })
+  const settled = await settlePsiOutcome(job, { lighthouseSummary: null, lighthouseError: message })
+  if (!settled) return
   try {
     await finalizeSiteAudit(job.siteAuditId)
   } catch (err) {
-    console.warn('[jobs/psi] finalize after exhaustion settle failed:', (err as Error).message)
+    console.warn('[jobs/psi] finalize after failure settle failed:', (err as Error).message)
   }
+}
+
+export async function onPsiExhausted(payload: unknown, ctx: JobExhaustedContext): Promise<void> {
+  await settlePsiFailure(payload, `PSI job failed after ${ctx.attempts} attempts: ${ctx.lastError}`)
 }
 
 export function registerPsiHandler(): void {
@@ -1853,6 +1911,23 @@ export function registerPsiHandler(): void {
 }
 ```
 
+Complete `lib/jobs/handlers/register.ts` (replacing the Task 5 stub body):
+
+```ts
+// lib/jobs/handlers/register.ts
+//
+// Single registration point for built-in job handlers. Idempotent —
+// instrumentation calls it BEFORE startup recovery (recoverJobsOnStartup may
+// run onExhausted hooks, which need a populated registry) and startJobWorker
+// calls it again (harmless re-register).
+
+import { registerPsiHandler } from './psi'
+
+export function registerBuiltInJobHandlers(): void {
+  registerPsiHandler()
+}
+```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run lib/jobs/handlers/psi.test.ts`
@@ -1861,8 +1936,8 @@ Expected: PASS (7 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/jobs/handlers/psi.ts lib/jobs/handlers/psi.test.ts
-git commit -m "feat(jobs): durable PSI handler with exhaustion domain settle"
+git add lib/jobs/handlers/psi.ts lib/jobs/handlers/psi.test.ts lib/jobs/handlers/register.ts
+git commit -m "feat(jobs): durable PSI handler with atomic settle + exhaustion hook"
 ```
 
 ---
@@ -1980,8 +2055,18 @@ export function enqueuePsiJob(job: PsiJob): void {
           groupKey: `site-audit:${job.siteAuditId}`,
         }),
       )
-      .catch((err) => {
+      .catch(async (err) => {
+        // The page loop already committed axe-complete + lighthouseTotal++.
+        // With no durable job, nothing would ever drain this page — settle
+        // the LH portion as failed NOW instead of waiting for the parent's
+        // stale-failure path.
         console.error('[lighthouse-queue] durable PSI enqueue failed for', job.adaAuditId, ':', (err as Error).message)
+        try {
+          const { settlePsiFailure } = await import('@/lib/jobs/handlers/psi')
+          await settlePsiFailure(job, `Failed to enqueue durable PSI job: ${(err as Error).message}`)
+        } catch (settleErr) {
+          console.error('[lighthouse-queue] PSI enqueue-failure settle also failed for', job.adaAuditId, ':', (settleErr as Error).message)
+        }
       })
     return
   }
@@ -2130,7 +2215,16 @@ export async function recoverQueue() {
     // running/pdfs-running still fail — page + PDF work isn't durable until
     // Phases 2-3.
     if (o.status === 'lighthouse-running' && isPsiJobQueueEnabled()) {
-      const outstanding = await countActiveJobsByGroup(`site-audit:${o.id}`).catch(() => 0)
+      // A failed count must NOT be treated as "no active jobs" — that would
+      // bias a transient DB read error toward destructively failing the
+      // parent. Skip this parent for this pass; the next pass retries.
+      let outstanding: number
+      try {
+        outstanding = await countActiveJobsByGroup(`site-audit:${o.id}`)
+      } catch (err) {
+        console.warn(`[queue] Startup recovery: job count failed for ${o.id}, skipping this pass:`, (err as Error).message)
+        continue
+      }
       if (outstanding > 0) {
         console.warn(`[queue] Startup recovery: resuming audit ${o.id} (${outstanding} durable PSI job(s) outstanding)`)
         continue
@@ -2173,7 +2267,15 @@ export async function resetStaleAudits() {
     // exceed the 5-min threshold — don't kill a parent whose durable PSI
     // jobs are still outstanding.
     if (s.status === 'lighthouse-running' && isPsiJobQueueEnabled()) {
-      const outstanding = await countActiveJobsByGroup(`site-audit:${s.id}`).catch(() => 0)
+      // As in recoverQueue: a failed count means "unknown", not "zero" —
+      // skip this parent for this pass rather than destructively failing it.
+      let outstanding: number
+      try {
+        outstanding = await countActiveJobsByGroup(`site-audit:${s.id}`)
+      } catch (err) {
+        console.warn(`[queue] Stale check: job count failed for ${s.id}, skipping this pass:`, (err as Error).message)
+        continue
+      }
       if (outstanding > 0) continue
     }
     console.warn(`[queue] Resetting stale audit ${s.id}`)
@@ -2227,17 +2329,25 @@ Replace this block:
 with:
 
 ```ts
-    // Job queue: recover orphaned running jobs FIRST (recoverQueue below
-    // decides parent-audit survival based on active jobs in the Job table),
-    // then start the worker (poll + stale sweep + schedule tick).
+    // Job queue boot order (each step depends on the previous):
+    // 1. Register handlers — startup recovery may run onExhausted hooks,
+    //    which need a populated registry.
+    // 2. recoverJobsOnStartup — recoverQueue decides parent-audit survival
+    //    based on active jobs in the Job table.
+    // 3. recoverQueue (awaited) — parent recovery decisions are still partly
+    //    non-durable in Phase 1; make them deterministic before any claims.
+    // 4. startJobWorker — only now may PSI jobs start draining.
+    const { registerBuiltInJobHandlers } = await import('@/lib/jobs/handlers/register')
+    registerBuiltInJobHandlers()
     const { recoverJobsOnStartup } = await import('@/lib/jobs/recovery')
     await recoverJobsOnStartup()
-    const { startJobWorker, stopJobWorker } = await import('@/lib/jobs/worker')
-    await startJobWorker()
 
     // Recover queued/stale audits from crashes and kick the queue processor
     const { recoverQueue, resetStaleAudits } = await import('@/lib/ada-audit/queue-manager')
-    void recoverQueue()
+    await recoverQueue()
+
+    const { startJobWorker, stopJobWorker } = await import('@/lib/jobs/worker')
+    await startJobWorker()
 ```
 
 And in the `shutdown` function, stop the worker before closing the browser:
