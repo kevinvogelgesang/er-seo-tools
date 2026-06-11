@@ -34,6 +34,10 @@ export function isPublicPath(pathname: string): boolean {
   // keyword-memo: GET payload + PATCH memo write-back
   if (/^\/api\/keyword-memo\/[^/]+$/.test(pathname)) return true
   if (/^\/api\/keyword-memo\/[^/]+\/memo$/.test(pathname)) return true
+  // quarter push (qct_): GET cycle export + POST receipt write-back.
+  // mint-token stays cookie-gated (triggered from the authenticated grid).
+  if (/^\/api\/quarter-plan\/push\/\d+$/.test(pathname)) return true
+  if (/^\/api\/quarter-plan\/push\/\d+\/receipt$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 

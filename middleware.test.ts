@@ -13,6 +13,8 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/seo-roadmap/abc123/roadmap',
     '/api/keyword-memo/abc123',
     '/api/keyword-memo/abc123/memo',
+    '/api/quarter-plan/push/42',
+    '/api/quarter-plan/push/42/receipt',
   ])('exempts token-authed handoff route %s', (p) => {
     expect(isPublicPath(p)).toBe(true);
   });
@@ -34,6 +36,9 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/seo-roadmap/by-session/sess1',
     '/api/keyword-memo/by-session/sess1/mint-token',
     '/api/keyword-memo/by-session/sess1',
+    '/api/quarter-plan/push/mint-token', // dashboard-triggered → cookie-gated
+    '/api/quarter-plan', // grid PUT/GET stays gated
+    '/api/quarter-plan/activity',
     // ordinary app API surface must remain gated
     '/api/parse/history',
     '/api/seo-parser/sess1/pages',
