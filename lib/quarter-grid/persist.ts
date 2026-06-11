@@ -65,13 +65,15 @@ export async function persistPlan(payload: QuarterPlanPayload, opts: { createOnl
   // Pre-reads (outside the transaction): completedAt preservation + valid client ids.
   const [existingRows, clientRows] = await Promise.all([
     prisma.quarterAssignment.findMany({ where: { planId }, select: { clientId: true, completedAt: true } }),
-    prisma.client.findMany({ select: { id: true } }),
+    prisma.client.findMany({ where: { archivedAt: null }, select: { id: true } }),
   ])
   const validIds = new Set(clientRows.map((c) => c.id))
   const prevCompleted = new Map(existingRows.map((r) => [r.clientId, r.completedAt]))
   const now = new Date()
 
-  // Rows whose client no longer exists are dropped silently — failing the
+  // Rows whose client no longer exists OR is archived are dropped silently —
+  // hiding archived clients from /api/clients is not enough (an already-open
+  // browser keeps re-saving its stale state until reload); failing the
   // whole save on an FK violation would lose the analyst's edit.
   const rows = payload.assignments
     .filter((a) => validIds.has(a.clientId))

@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const clients = await prisma.client.findMany({
+    where: { archivedAt: null },
     orderBy: { name: 'asc' },
     select: { id: true, name: true, domains: true },
   })

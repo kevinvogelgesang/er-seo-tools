@@ -15,6 +15,44 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
   try {
     const body = await request.json();
+
+    // Archive/restore is exclusive of other updates — one intent per request.
+    if (body && typeof body === 'object' && 'archived' in body) {
+      if (Object.keys(body).length > 1) {
+        return NextResponse.json({ error: 'archived cannot be combined with other updates' }, { status: 400 });
+      }
+      if (typeof body.archived !== 'boolean') {
+        return NextResponse.json({ error: 'archived must be boolean' }, { status: 400 });
+      }
+      try {
+        if (body.archived) {
+          // Archiving also stops the client's scheduled scans (array-form txn).
+          await prisma.$transaction([
+            prisma.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } }),
+            prisma.schedule.updateMany({ where: { clientId, enabled: true }, data: { enabled: false } }),
+          ]);
+        } else {
+          // Restore nulls archivedAt only — schedules stay disabled (manual re-enable).
+          await prisma.client.update({ where: { id: clientId }, data: { archivedAt: null } });
+        }
+      } catch (err: unknown) {
+        if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'P2025') {
+          return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+        }
+        throw err;
+      }
+      const fresh = await prisma.client.findUnique({
+        where: { id: clientId },
+        select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, teamworkTasklistId: true, archivedAt: true, createdAt: true },
+      });
+      if (!fresh) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+      let freshDomains: string[] = [];
+      try { freshDomains = JSON.parse(fresh.domains); } catch { freshDomains = []; }
+      let freshSeedUrls: string[] | null = null;
+      if (fresh.seedUrls) { try { freshSeedUrls = JSON.parse(fresh.seedUrls); } catch { freshSeedUrls = null; } }
+      return NextResponse.json({ ...fresh, domains: freshDomains, seedUrls: freshSeedUrls });
+    }
+
     const data: { name?: string; domains?: string; seedUrls?: string | null; seedUrlsUpdatedAt?: Date | null; teamworkTasklistId?: string | null } = {};
 
     if (typeof body?.name === 'string') {
@@ -77,7 +115,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-/** DELETE /api/clients/:id — delete a client (sessions get clientId = null) */
+/** DELETE /api/clients/:id — hard-delete an ARCHIVED client (sessions get clientId = null). Active clients must be archived first. */
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
   const clientId = parseInt(id, 10);
@@ -86,6 +124,11 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   }
 
   try {
+    const existing = await prisma.client.findUnique({ where: { id: clientId }, select: { archivedAt: true } });
+    if (!existing) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+    if (existing.archivedAt == null) {
+      return NextResponse.json({ error: 'archive_first' }, { status: 409 });
+    }
     await prisma.client.delete({ where: { id: clientId } });
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

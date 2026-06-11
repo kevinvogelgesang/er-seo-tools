@@ -24,7 +24,8 @@ export async function POST(request: NextRequest) {
     : undefined
 
   if (clientId !== null) {
-    const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } })
+    // findFirst, not findUnique — archived clients are rejected like missing ones
+    const client = await prisma.client.findFirst({ where: { id: clientId, archivedAt: null }, select: { id: true } })
     if (!client) {
       return NextResponse.json({ error: 'Client not found' }, { status: 400 })
     }

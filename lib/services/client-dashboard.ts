@@ -38,6 +38,7 @@ export interface ClientDashboard {
     domains: string[]
     seedUrls: string[]
     teamworkTasklistId: string | null
+    archivedAt: string | null
     createdAt: string
   } | null
   seo: ScorecardData
@@ -73,7 +74,7 @@ const EMPTY: Omit<ClientDashboard, 'client'> = {
 export async function getClientDashboard(clientId: number, _now: Date = new Date()): Promise<ClientDashboard> {
   const client = await prisma.client.findUnique({
     where: { id: clientId },
-    select: { id: true, name: true, domains: true, seedUrls: true, teamworkTasklistId: true, createdAt: true },
+    select: { id: true, name: true, domains: true, seedUrls: true, teamworkTasklistId: true, archivedAt: true, createdAt: true },
   })
   if (!client) return { client: null, ...EMPTY }
 
@@ -197,6 +198,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
       domains: parseJsonArray(client.domains),
       seedUrls: parseJsonArray(client.seedUrls),
       teamworkTasklistId: client.teamworkTasklistId,
+      archivedAt: client.archivedAt?.toISOString() ?? null,
       createdAt: client.createdAt.toISOString(),
     },
     seo,

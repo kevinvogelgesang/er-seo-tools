@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
   const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
 
   const clients = await prisma.client.findMany({
+    where: { archivedAt: null },
     orderBy: { name: 'asc' },
     select: { id: true, name: true, domains: true },
   })

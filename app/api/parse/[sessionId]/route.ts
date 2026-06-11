@@ -207,7 +207,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     let clientId: number | null = null;
     const siteHostname = result.metadata.site_name as string | undefined;
     if (siteHostname) {
-      const allClients = await prisma.client.findMany({ select: { id: true, domains: true } });
+      const allClients = await prisma.client.findMany({ where: { archivedAt: null }, select: { id: true, domains: true } });
       for (const c of allClients) {
         let clientDomains: string[] = [];
         try { clientDomains = JSON.parse(c.domains); } catch { clientDomains = []; }

@@ -88,6 +88,19 @@ describe('PUT /api/quarter-plan', () => {
     expect((await prisma.quarterAssignment.findFirst({ where: { clientId: id } }))!.completedAt).toBeNull()
   })
 
+  it('drops assignments for archived clients on PUT (server-side enforcement)', async () => {
+    const active = await makeClient('b5-active')
+    const archivedRow = await prisma.client.create({ data: { name: `${PREFIX}b5-archived`, archivedAt: new Date() } })
+    const res = await PUT(jsonReq('PUT', payload([
+      { clientId: active, week: 1, position: 0, priority: 3, status: 'not_started', note: '', completed: false },
+      { clientId: archivedRow.id, week: 1, position: 1, priority: 3, status: 'not_started', note: '', completed: false },
+    ])))
+    expect(res.status).toBe(200)
+    const rows = await prisma.quarterAssignment.findMany({})
+    expect(rows.map((r) => r.clientId)).toContain(active)
+    expect(rows.map((r) => r.clientId)).not.toContain(archivedRow.id)
+  })
+
   it('drops rows for nonexistent clients without failing the save', async () => {
     const id = await makeClient('real')
     const res = await PUT(jsonReq('PUT', payload([

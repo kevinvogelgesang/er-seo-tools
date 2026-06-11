@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
 
   // Auto-match client by domain
   const hostname = parsed.hostname.replace(/^www\./, '')
-  const allClients = await prisma.client.findMany({ select: { id: true, domains: true } })
+  const allClients = await prisma.client.findMany({ where: { archivedAt: null }, select: { id: true, domains: true } })
   const matchedClient = allClients.find((c) => {
     const domains: string[] = JSON.parse(c.domains || '[]')
     return domains.some((d) => d.replace(/^www\./, '') === hostname)

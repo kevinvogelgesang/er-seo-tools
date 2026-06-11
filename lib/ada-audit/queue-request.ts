@@ -48,8 +48,8 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
     (!effectivePreDiscoveredUrls || effectivePreDiscoveredUrls.length === 0) &&
     typeof input.clientId === 'number'
   ) {
-    const client = await prisma.client.findUnique({
-      where: { id: input.clientId },
+    const client = await prisma.client.findFirst({
+      where: { id: input.clientId, archivedAt: null }, // archived clients contribute no seed URLs
       select: { seedUrls: true },
     })
     if (client?.seedUrls) {
