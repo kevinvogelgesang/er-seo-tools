@@ -24,12 +24,13 @@ interface WeekGridProps {
   onReturn: (id: number) => void
   onSetStatus: (id: number, status: ClientStatus) => void
   onOpenNote: (id: number, currentNote: string) => void
+  activity: Record<number, string>
 }
 
 export function WeekGrid({
   schedule, completed, slotsPerWeek, startDate, dragging, dropTarget, getClient,
   onDragOver, onDragLeave, onDrop,
-  onDragStart, onDragEnd, onToggleDone, onSetPriority, onReturn, onSetStatus, onOpenNote,
+  onDragStart, onDragEnd, onToggleDone, onSetPriority, onReturn, onSetStatus, onOpenNote, activity,
 }: WeekGridProps) {
   const maxCols = Math.max(slotsPerWeek, ...Array.from({ length: NUM_WEEKS }, (_, i) => (schedule[i + 1] || []).length))
 
@@ -98,6 +99,7 @@ export function WeekGrid({
                           onSetPriority={onSetPriority}
                           onReturn={onReturn}
                           onSetStatus={onSetStatus}
+                          activity={activity[clientId]}
                           onOpenNote={onOpenNote}
                         />
                       : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>

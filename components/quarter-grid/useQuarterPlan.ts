@@ -19,6 +19,8 @@ import {
   type ScheduleMap,
   type Snapshots,
   type ClientStatus,
+  type PushSummary,
+  ACTIVITY_LABELS,
 } from '@/lib/quarter-grid/state'
 import {
   removeFromSchedule, dropChipOnSlot, frontierWeek, placeInWeek, nextPoolChipId,
@@ -43,6 +45,10 @@ export function useQuarterPlan({ onToast }: { onToast: (msg: string) => void }) 
   // /api/quarter-plan fetch leaves this false so a debounced PUT can never
   // clobber (or pre-empt the import of) a plan we couldn't see.
   const [canPersist, setCanPersist] = useState(false)
+  // Derived tool activity (clientId -> preformatted tooltip line) and Teamwork
+  // push metadata — both display-only; neither participates in the persist path.
+  const [activity, setActivity] = useState<Record<number, string>>({})
+  const [pushMeta, setPushMeta] = useState<{ pushedAt: string; summary: PushSummary | null } | null>(null)
 
   // Toast callback behind a ref so the stable useCallbacks below never go stale.
   const onToastRef = useRef(onToast)
@@ -85,6 +91,9 @@ export function useQuarterPlan({ onToast }: { onToast: (msg: string) => void }) 
       const hydrate = (resp: QuarterPlanGetResponse): boolean => {
         const applied = applyPlanResponse(resp, validIds)
         if (!applied) return false
+        if (resp.plan && resp.plan.teamworkPushedAt) {
+          setPushMeta({ pushedAt: resp.plan.teamworkPushedAt, summary: resp.plan.teamworkPushSummary ?? null })
+        }
         clientState = applied.clientState
         setSchedule(applied.schedule)
         setCompleted(new Set(applied.completed))
@@ -117,7 +126,7 @@ export function useQuarterPlan({ onToast }: { onToast: (msg: string) => void }) 
         if (stored && clientsOk) {
           const payload = buildPlanPayload(stored, validIds)
           const localResp: QuarterPlanGetResponse = {
-            plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '' },
+            plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '', teamworkPushedAt: null, teamworkPushSummary: null },
             assignments: payload.assignments,
           }
           try {
@@ -161,7 +170,7 @@ export function useQuarterPlan({ onToast }: { onToast: (msg: string) => void }) 
         if (stored) {
           const payload = buildPlanPayload(stored, validIds)
           hydrate({
-            plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '' },
+            plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '', teamworkPushedAt: null, teamworkPushSummary: null },
             assignments: payload.assignments,
           })
         }
@@ -251,6 +260,25 @@ export function useQuarterPlan({ onToast }: { onToast: (msg: string) => void }) 
     window.addEventListener('pagehide', onPageHide)
     return () => window.removeEventListener('pagehide', onPageHide)
   }, [])
+
+  // Derived tool activity — fetched once after init settles. Best-effort and
+  // display-only: a failure must never touch canPersist/saveState or the
+  // persist effect's dep list.
+  useEffect(() => {
+    if (!loaded) return
+    fetch('/api/quarter-plan/activity')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data || !data.activity) return
+        const fmt: Record<number, string> = {}
+        for (const [id, a] of Object.entries(data.activity as Record<string, { latest: { kind: string; at: string } }>)) {
+          const d = new Date(a.latest.at)
+          fmt[Number(id)] = `${ACTIVITY_LABELS[a.latest.kind] ?? a.latest.kind} · ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+        }
+        setActivity(fmt)
+      })
+      .catch(() => { /* best-effort — activity is decorative */ })
+  }, [loaded])
 
   // ─── Derived values ──────────────────────────────────────────────────────
 
@@ -360,8 +388,13 @@ export function useQuarterPlan({ onToast }: { onToast: (msg: string) => void }) 
     setClients(prev => prev.filter(c => c.id !== id))
     setSchedule(prev => removeFromSchedule(prev, id))
     setCompleted(prev => { const n = new Set(prev); n.delete(id); return n })
-    // Persist to DB in background
-    fetch(`/api/clients/${id}`, { method: 'DELETE' }).catch(() => { /* ignore */ })
+    // Archive in the background — hard DELETE now 409s (archive_first); an
+    // archived client leaves /api/clients, which is all the grid needs.
+    fetch(`/api/clients/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: true }),
+    }).catch(() => { /* ignore */ })
   }
 
   const applyCsv = (rows: Record<string, string>[]) => {
@@ -383,7 +416,7 @@ export function useQuarterPlan({ onToast }: { onToast: (msg: string) => void }) 
 
   return {
     clients, schedule, completed, slotsPerWeek, layouts, startDate,
-    loaded, canPersist, saveState,
+    loaded, canPersist, saveState, activity, pushMeta,
     assignedIds, unassigned, getClient, doneCount, totalClients, pct,
     setSlotsPerWeek: setSlots, setStartDate,
     setPriority, setStatus, saveNote, toggleDone,

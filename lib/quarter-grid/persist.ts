@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client'
 import {
   sortAssignments,
   type ClientStatus,
+  type PushSummary,
   type QuarterPlanGetResponse,
   type QuarterPlanPayload,
   type Snapshots,
@@ -15,6 +16,10 @@ export async function loadPlanResponse(): Promise<QuarterPlanGetResponse> {
   const rows = await prisma.quarterAssignment.findMany({ where: { planId: plan.id } })
   let layouts: Snapshots = {}
   try { layouts = JSON.parse(plan.layouts) } catch { console.error(`[quarter-grid] corrupt layouts JSON on plan ${plan.id}`) }
+  let pushSummary: PushSummary | null = null
+  if (plan.teamworkPushSummary) {
+    try { pushSummary = JSON.parse(plan.teamworkPushSummary) } catch { pushSummary = null }
+  }
   return {
     plan: {
       name: plan.name,
@@ -22,6 +27,8 @@ export async function loadPlanResponse(): Promise<QuarterPlanGetResponse> {
       slotsPerWeek: plan.slotsPerWeek,
       layouts,
       updatedAt: plan.updatedAt.toISOString(),
+      teamworkPushedAt: plan.teamworkPushedAt?.toISOString() ?? null,
+      teamworkPushSummary: pushSummary,
     },
     assignments: sortAssignments(rows).map((r) => ({
       clientId: r.clientId,

@@ -78,6 +78,7 @@ export default function QuarterGridV3() {
   }, [])
 
   const chipHandlers = {
+    activity: plan.activity,
     onDragStart, onDragEnd,
     onToggleDone: plan.toggleDone,
     onSetPriority: plan.setPriority,

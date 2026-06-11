@@ -132,6 +132,22 @@ describe('PUT /api/quarter-plan', () => {
     expect(row.note).toHaveLength(120)
   })
 
+  it('preserves Teamwork push metadata across normal grid saves (read-only invariant)', async () => {
+    await PUT(jsonReq('PUT', payload([])))
+    const plan = (await prisma.quarterPlan.findFirst())!
+    const pushedAt = new Date('2026-06-10T12:00:00Z')
+    const summary = JSON.stringify({ created: 5, skippedExisting: 1, skippedNoTasklist: 2, skippedCompleted: 0 })
+    await prisma.quarterPlan.update({ where: { id: plan.id }, data: { teamworkPushedAt: pushedAt, teamworkPushSummary: summary } })
+    const res = await PUT(jsonReq('PUT', payload([], { name: 'Edited after push', teamworkPushedAt: null, teamworkPushSummary: null })))
+    expect(res.status).toBe(200)
+    const after = (await prisma.quarterPlan.findFirst())!
+    expect(after.teamworkPushedAt!.getTime()).toBe(pushedAt.getTime())
+    expect(after.teamworkPushSummary).toBe(summary)
+    const json = await res.json()
+    expect(json.plan.teamworkPushedAt).toBe(pushedAt.toISOString())
+    expect(json.plan.teamworkPushSummary).toEqual({ created: 5, skippedExisting: 1, skippedNoTasklist: 2, skippedCompleted: 0 })
+  })
+
   it('rejects invalid JSON and oversized layouts with 400', async () => {
     const bad = new NextRequest('http://localhost/api/quarter-plan', { method: 'PUT', body: 'nope{' })
     expect((await PUT(bad)).status).toBe(400)

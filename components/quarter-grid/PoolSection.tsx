@@ -24,12 +24,13 @@ interface PoolSectionProps {
   onReturn: (id: number) => void
   onSetStatus: (id: number, status: ClientStatus) => void
   onOpenNote: (id: number, currentNote: string) => void
+  activity: Record<number, string>
 }
 
 export function PoolSection({
   unassigned, completed, dragging, hoveredPoolChipId, setHoveredPoolChipId,
   onPoolDragOver, onPoolDrop, onPoolDragLeave, addClient, removeClient,
-  onDragStart, onDragEnd, onToggleDone, onSetPriority, onReturn, onSetStatus, onOpenNote,
+  onDragStart, onDragEnd, onToggleDone, onSetPriority, onReturn, onSetStatus, onOpenNote, activity,
 }: PoolSectionProps) {
   // Leaf UI state — nothing outside the add-client form reads these.
   const [newClientName, setNewClientName] = useState('')
@@ -139,6 +140,7 @@ export function PoolSection({
                   onReturn={onReturn}
                   onSetStatus={onSetStatus}
                   onOpenNote={onOpenNote}
+                  activity={activity[c.id]}
                 />
                 {/* Remove client button — visible on hover */}
                 <button

@@ -22,7 +22,7 @@ beforeEach(() => { lsStore.clear(); vi.stubGlobal('localStorage', localStorageMo
 const DB_CLIENTS = [ { id: 1, name: 'Acme' }, { id: 2, name: 'Beta' } ]
 
 const DB_PLAN: QuarterPlanGetResponse = {
-  plan: { name: 'Quarter plan', startDate: '2026-01-05', slotsPerWeek: 2, layouts: {}, updatedAt: 'x' },
+  plan: { name: 'Quarter plan', startDate: '2026-01-05', slotsPerWeek: 2, layouts: {}, updatedAt: 'x', teamworkPushedAt: null, teamworkPushSummary: null },
   assignments: [
     { clientId: 1, week: 1, position: 0, priority: 2, status: 'in_progress', note: 'hi', completed: false },
     { clientId: 2, week: null, position: null, priority: 3, status: 'not_started', note: '', completed: true },
@@ -41,6 +41,7 @@ type Routes = {
   planGet?: RouteResponse
   importPost?: RouteResponse | (() => Promise<Response>)
   put?: RouteResponse | (() => Promise<Response>)
+  activity?: RouteResponse // optional — the hook tolerates a missing/failed activity endpoint
 }
 
 // Records every call; routes by method+path. Unrouted calls throw so a test
@@ -68,6 +69,11 @@ function stubFetch(routes: Routes) {
     if (url === '/api/quarter-plan' && method === 'PUT') {
       if (!routes.put) throw new Error('unrouted PUT /api/quarter-plan')
       return typeof routes.put === 'function' ? routes.put() : res(routes.put)
+    }
+    if (url === '/api/quarter-plan/activity' && method === 'GET') {
+      // Undeclared → reject like a network failure; the hook must tolerate it.
+      if (!routes.activity) throw new Error('activity endpoint down')
+      return res(routes.activity)
     }
     throw new Error(`unrouted fetch ${method} ${url}`)
   }))
@@ -281,6 +287,44 @@ describe('useQuarterPlan persistence', () => {
   })
 })
 
+describe('useQuarterPlan derived activity + push metadata (B5)', () => {
+  beforeEach(() => vi.useFakeTimers())
+
+  it('populates formatted activity after load', async () => {
+    stubFetch({
+      clients: { ok: true, json: DB_CLIENTS },
+      planGet: { ok: true, json: DB_PLAN },
+      activity: { ok: true, json: { activity: { 1: { latest: { kind: 'ada-audit', at: '2026-06-09T12:00:00Z' }, kinds: { 'ada-audit': '2026-06-09T12:00:00Z' } } } } },
+    })
+    const { result } = await renderPlan()
+    for (let i = 0; i < 20 && !result.current.activity[1]; i++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(10) })
+    }
+    expect(result.current.activity[1]).toMatch(/^ADA audit · /)
+    expect(result.current.activity[2]).toBeUndefined()
+  })
+
+  it('tolerates an activity fetch failure: empty activity, canPersist intact, zero PUTs', async () => {
+    const f = stubFetch({ clients: { ok: true, json: DB_CLIENTS }, planGet: { ok: true, json: DB_PLAN } }) // activity unrouted -> rejects
+    const { result } = await renderPlan()
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(result.current.activity).toEqual({})
+    expect(result.current.canPersist).toBe(true)
+    expect(result.current.saveState).toBe('idle')
+    expect(f.puts()).toHaveLength(0)
+  })
+
+  it('exposes pushMeta from the GET response, null when never pushed', async () => {
+    const pushedPlan: QuarterPlanGetResponse = {
+      plan: { ...((DB_PLAN as Extract<QuarterPlanGetResponse, { plan: object }>).plan), teamworkPushedAt: '2026-06-10T12:00:00.000Z', teamworkPushSummary: { created: 3, skippedExisting: 0, skippedNoTasklist: 1, skippedCompleted: 0 } },
+      assignments: [],
+    }
+    stubFetch({ clients: { ok: true, json: DB_CLIENTS }, planGet: { ok: true, json: pushedPlan } })
+    const { result } = await renderPlan()
+    expect(result.current.pushMeta).toEqual({ pushedAt: '2026-06-10T12:00:00.000Z', summary: { created: 3, skippedExisting: 0, skippedNoTasklist: 1, skippedCompleted: 0 } })
+  })
+})
+
 describe('useQuarterPlan client mutations', () => {
   beforeEach(() => vi.useFakeTimers())
 
@@ -301,11 +345,16 @@ describe('useQuarterPlan client mutations', () => {
     expect(onToast).toHaveBeenCalledWith('+ Added "Aardvark U"')
   })
 
-  it('removeClient optimistically drops the client from clients/schedule/completed and DELETEs', async () => {
+  it('removeClient optimistically drops the client and ARCHIVES it (no DELETE — that 409s post-B5)', async () => {
     stubFetch({ clients: { ok: true, json: DB_CLIENTS }, planGet: { ok: true, json: DB_PLAN }, put: { ok: true } })
     const orig = global.fetch
+    const patches: { url: string; body: unknown }[] = []
     const deletes: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        patches.push({ url, body: JSON.parse(init.body as string) })
+        return { ok: true, status: 200, json: async () => ({}) } as Response
+      }
       if (init?.method === 'DELETE') { deletes.push(url); return { ok: true, status: 200, json: async () => ({}) } as Response }
       return (orig as typeof fetch)(url, init)
     }))
@@ -314,7 +363,8 @@ describe('useQuarterPlan client mutations', () => {
     expect(result.current.clients.find(c => c.id === 1)).toBeUndefined()
     expect(result.current.schedule[1] ?? []).not.toContain(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(deletes).toEqual(['/api/clients/1'])
+    expect(patches).toEqual([{ url: '/api/clients/1', body: { archived: true } }])
+    expect(deletes).toEqual([])
   })
 
   it('assignHoveredToFrontier places the chip, toasts the week, returns the next pool id', async () => {

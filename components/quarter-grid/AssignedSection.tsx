@@ -19,11 +19,12 @@ interface AssignedSectionProps {
   onReturn: (id: number) => void
   onSetStatus: (id: number, status: ClientStatus) => void
   onOpenNote: (id: number, currentNote: string) => void
+  activity: Record<number, string>
 }
 
 export function AssignedSection({
   schedule, clients, completed, startDate, assignedCount, dragging,
-  onDragStart, onDragEnd, onToggleDone, onSetPriority, onReturn, onSetStatus, onOpenNote,
+  onDragStart, onDragEnd, onToggleDone, onSetPriority, onReturn, onSetStatus, onOpenNote, activity,
 }: AssignedSectionProps) {
   if (assignedCount === 0) return null
 
@@ -64,6 +65,7 @@ export function AssignedSection({
                   onReturn={onReturn}
                   onSetStatus={onSetStatus}
                   onOpenNote={onOpenNote}
+                  activity={activity[c.id]}
                 />
               ))}
             </div>
