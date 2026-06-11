@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { GET, PUT } from './route'
 import { POST as IMPORT } from './import/route'
+import { GET as ACTIVITY } from './activity/route'
 import type { AssignmentPayload } from '@/lib/quarter-grid/state'
 
 // NOTE: QuarterPlan is a singleton over the shared dev DB — these tests
@@ -153,6 +154,36 @@ describe('POST /api/quarter-plan/import', () => {
     await PUT(jsonReq('PUT', payload([])))
     const res = await IMPORT(jsonReq('POST', payload([])))
     expect(res.status).toBe(409)
+  })
+})
+
+describe('GET /api/quarter-plan/activity', () => {
+  it('returns {} when no plan exists', async () => {
+    const res = await ACTIVITY()
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ activity: {} })
+  })
+
+  it('returns derived activity keyed by clientId for plan clients', async () => {
+    const id = await makeClient('act')
+    await PUT(jsonReq('PUT', payload(
+      [{ clientId: id, week: 1, position: 0, priority: 3, status: 'not_started', note: '', completed: false }],
+      { startDate: null }, // window falls back to plan.createdAt (now) — run below is after it
+    )))
+    await prisma.crawlRun.create({
+      data: {
+        tool: 'ada-audit', source: 'page-audit', domain: 'qp-activity.example', clientId: id,
+        status: 'complete', pagesTotal: 1, completedAt: new Date(Date.now() + 1000),
+      },
+    })
+    try {
+      const json = await (await ACTIVITY()).json()
+      expect(json.activity[id]).toBeTruthy()
+      expect(json.activity[id].latest.kind).toBe('ada-audit')
+      expect(json.activity[id].kinds['ada-audit']).toBeTruthy()
+    } finally {
+      await prisma.crawlRun.deleteMany({ where: { domain: 'qp-activity.example' } })
+    }
   })
 })
 
