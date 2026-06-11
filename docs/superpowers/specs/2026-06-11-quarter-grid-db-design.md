@@ -178,7 +178,10 @@ Returns `{ plan: null }` when no plan exists, else:
 ```
 
 No plan id in the payload — the API is a singleton facade (see above).
-Assignments ordered `week asc, position asc` (nulls last) for determinism.
+Assignments are sorted **in JS after fetch** — SQLite sorts `NULL` first in
+ascending `orderBy`, so Prisma ordering can't express "pool rows last".
+Order: assigned rows by `week asc, position asc`, then pool rows; `clientId`
+asc as the stable tie-breaker throughout.
 
 ### `PUT /api/quarter-plan`
 
@@ -187,20 +190,23 @@ Body = the same shape as GET's response value (`plan` scalars + `layouts` +
 
 1. Validate + clamp (see Validation).
 2. Read the latest plan id. If none, conditional-create:
-   `INSERT INTO QuarterPlan (...) SELECT ... WHERE NOT EXISTS (SELECT 1 FROM QuarterPlan)`
-   via `$executeRaw` (manual `createdAt`/`updatedAt` = `Date.now()` — raw SQL
-   bypasses `@updatedAt`; storage is integer ms). If the insert reports 0
-   rows (lost a creation race), re-read the latest plan id and proceed —
-   last write still wins.
+   `INSERT INTO "QuarterPlan" (...) SELECT ... WHERE NOT EXISTS (SELECT 1 FROM "QuarterPlan")`
+   via `$executeRaw` — table names **quoted** (Prisma-style identifiers),
+   and BOTH `createdAt` and `updatedAt` set explicitly to `Date.now()`
+   integer ms (raw SQL bypasses `@default(now())`/`@updatedAt`; storage is
+   integer ms). If the insert reports 0 rows (lost a creation race), re-read
+   the latest plan id and proceed — last write still wins.
 3. Pre-reads (outside the transaction): existing `completedAt` per clientId
    for timestamp preservation; the set of existing `Client.id`s — incoming
    assignments whose `clientId` no longer exists are **dropped silently**
    (client deleted between page load and save; failing the whole save on an
    FK violation would lose the analyst's edit).
 4. One array-form `$transaction([...])`: `update` plan scalars + layouts,
-   `deleteMany` assignments for the plan, `createMany` the new rows.
-   (**Never** the interactive `$transaction(async tx => ...)` form — CLAUDE.md
-   "Do not", 2026-06-10 incident.)
+   `deleteMany` assignments for the plan, `createMany` the new rows — the
+   `createMany` entry is included **only when ≥1 row survives sanitization**
+   (zero clients / all rows pruned must not produce an invalid empty
+   createMany). (**Never** the interactive `$transaction(async tx => ...)`
+   form — CLAUDE.md "Do not", 2026-06-10 incident.)
 5. Return the same shape as GET (echo of persisted state).
 
 Last-write-wins: no version/etag checks, by design.
@@ -230,11 +236,20 @@ monolith:
   localStorage string, handling **both** formats (current `clientState` +
   legacy `clients[]`/`snapshots`) with the exact migration semantics the
   page uses today; returns `null` for corrupt/empty input.
-- `buildPlanPayload(state)` — page/local state → `QuarterPlanPayload`
-  (flattens `schedule` into `(week, position)` pairs, `completed` Set into
-  booleans, includes pool clients).
-- `applyPlanResponse(resp)` — GET shape → the page's state pieces
-  (`clientState` record, `schedule`, `completed` set, scalars).
+- `buildPlanPayload(state, validClientIds)` — page/local state →
+  `QuarterPlanPayload` (flattens `schedule` into `(week, position)` pairs,
+  `completed` Set into booleans, includes pool clients). Takes the current
+  DB client-id set and **drops unknown ids** everywhere (schedule, completed,
+  clientState) — old localStorage payloads can reference deleted clients.
+- `applyPlanResponse(resp, validClientIds)` — GET shape → the page's state
+  pieces (`clientState` record, `schedule`, `completed` set, scalars), also
+  pruning ids not in the current client list so unknown ids never enter
+  page state.
+- `sanitizeSnapshotForApply(snapshot, currentClients)` — used by
+  `applyLayout`: applies a snapshot's per-client priority/status/note onto
+  the **current DB client list only** (no `setClients(s.clients)` wholesale —
+  a stale snapshot must not resurrect deleted clients or stale names), and
+  prunes schedule/completed ids not in the current set.
 - `sanitizePlanPayload(body: unknown)` — validation/clamping used by both
   routes; returns a normalized payload or a string error.
 
@@ -278,6 +293,10 @@ identical to the module's.
 4. Else → fresh empty state (as today with no localStorage).
 5. Merge DB client list with per-client state exactly as today (defaults
    priority 3 / not_started / empty note for clients without rows).
+6. **`loaded` flips to `true` only after the whole init sequence —
+   including the import decision — resolves.** If the persist effect could
+   fire earlier, a debounced empty save would create an empty plan and make
+   the real localStorage import 409.
 
 **Persist effect** (replaces `persist()`):
 
@@ -286,7 +305,10 @@ identical to the module's.
   (drag sequences and keyboard bursts collapse into one save).
 - A `pagehide` listener flushes a pending debounce via
   `fetch(..., { keepalive: true })` so closing the tab right after an edit
-  doesn't lose the last change.
+  doesn't lose the last change. **Best-effort only:** browsers cap keepalive
+  bodies at ~64 KB, so a payload with a large `layouts` blob may exceed it
+  and be dropped — the debounced save path is the real persistence
+  mechanism; the flush just narrows the close-the-tab-instantly window.
 - **No more `localStorage.setItem`.** The old key is never written or
   removed — it remains a frozen pre-migration backup in the analyst's
   browser.
@@ -304,9 +326,14 @@ Everything else in the page — drag/drop, chips, gantt, CSV import, layouts
 UI, add/remove client, reset — is untouched; those handlers keep mutating
 the same React state, and the persist effect picks the changes up.
 
-`saveLayout`/`applyLayout`/`deleteLayout` keep operating on the in-memory
-`layouts` object, which now persists through the same PUT (it's part of the
-payload) instead of localStorage.
+`saveLayout`/`deleteLayout` keep operating on the in-memory `layouts`
+object, which now persists through the same PUT (it's part of the payload)
+instead of localStorage. **`applyLayout` changes:** instead of
+`setClients(s.clients)` wholesale, it goes through
+`sanitizeSnapshotForApply` — snapshot priority/status/note apply only onto
+clients that still exist in the current DB list, and schedule/completed ids
+not in the current set are pruned. A stale snapshot must never resurrect a
+deleted client or overwrite a renamed one.
 
 ## Error handling
 
@@ -324,15 +351,19 @@ payload) instead of localStorage.
 - **`lib/quarter-grid/state.test.ts`** (pure, no DB): both localStorage
   formats parse; corrupt/empty input → null; round-trip
   `buildPlanPayload` ↔ `applyPlanResponse` preserves schedule order, pool
-  membership, completed set; `sanitizePlanPayload` clamping table (week
-  out-of-range, bad status, long note, dup clientIds keep-first, oversized
-  layouts reject, startDate regex).
+  membership, completed set; unknown-id pruning in both directions;
+  `sanitizeSnapshotForApply` (stale snapshot doesn't resurrect deleted
+  clients, doesn't clobber current names, prunes schedule/completed);
+  `sanitizePlanPayload` clamping table (week out-of-range, bad status, long
+  note, dup clientIds keep-first, oversized layouts reject, startDate
+  regex).
 - **`app/api/quarter-plan/route.test.ts` + `import/route.test.ts`**
   (DB-backed, repo conventions: unique name prefix per file, clean up own
   rows, `DATABASE_URL=file:./local-dev.db` quirk):
   - GET with no plan → `{ plan: null }`.
   - PUT with no plan creates exactly one (conditional insert); second PUT
     updates the same row (no second plan).
+  - PUT with zero surviving assignment rows succeeds (no empty createMany).
   - PUT replaces assignments (delete-and-recreate), preserves existing
     `completedAt`, stamps new completions, nulls un-completions.
   - PUT drops rows for deleted clients without failing the save.
