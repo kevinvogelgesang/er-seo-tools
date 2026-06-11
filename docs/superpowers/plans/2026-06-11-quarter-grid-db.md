@@ -281,6 +281,15 @@ describe('sanitizeSnapshotForApply', () => {
     expect(r.schedule).toEqual({ 1: [1] })
     expect(r.completed).toEqual([2])
   })
+
+  it('returns an empty result for malformed snapshots instead of crashing', () => {
+    for (const bad of ['garbage', null, 42, [1, 2], { clients: 'nope', schedule: 7, completed: 'x' }]) {
+      const r = sanitizeSnapshotForApply(bad, [1])
+      expect(r.clientPatches.size).toBe(0)
+      expect(r.schedule).toEqual({})
+      expect(r.completed).toEqual([])
+    }
+  })
 })
 
 describe('sanitizePlanPayload', () => {
@@ -590,20 +599,26 @@ export type SanitizedSnapshot = {
  * Used by applyLayout: a stale snapshot must never resurrect deleted clients
  * or clobber current names. Patches (priority/status/note) apply only onto
  * clients in currentClientIds; schedule/completed are pruned to that set.
+ * Accepts unknown — layouts blobs are opaque JSON and a malformed entry must
+ * degrade to an empty result, never crash the apply.
  */
-export function sanitizeSnapshotForApply(snapshot: Snapshot, currentClientIds: Iterable<number>): SanitizedSnapshot {
+export function sanitizeSnapshotForApply(snapshot: unknown, currentClientIds: Iterable<number>): SanitizedSnapshot {
+  const empty: SanitizedSnapshot = { clientPatches: new Map(), schedule: {}, completed: [] }
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return empty
+  const s = snapshot as Record<string, unknown>
   const valid = new Set(currentClientIds)
   const clientPatches = new Map<number, ClientPlanState>()
-  for (const c of snapshot.clients ?? []) {
-    if (!c || !isClientId(c.id) || !valid.has(c.id)) continue
+  const clientsArr = Array.isArray(s.clients) ? (s.clients as Array<Record<string, unknown> | null>) : []
+  for (const c of clientsArr) {
+    if (!c || typeof c !== 'object' || !isClientId(c.id) || !valid.has(c.id)) continue
     clientPatches.set(c.id, { priority: clampPriority(c.priority), status: coerceStatus(c.status), note: coerceNote(c.note) })
   }
   const schedule: ScheduleMap = {}
-  for (const [k, ids] of Object.entries(parseScheduleMap(snapshot.schedule))) {
+  for (const [k, ids] of Object.entries(parseScheduleMap(s.schedule))) {
     const clean = ids.filter((id) => valid.has(id))
     if (clean.length > 0) schedule[Number(k)] = clean
   }
-  const completed = (Array.isArray(snapshot.completed) ? snapshot.completed : []).filter((id) => isClientId(id) && valid.has(id))
+  const completed = (Array.isArray(s.completed) ? s.completed : []).filter((id): id is number => isClientId(id) && valid.has(id))
   return { clientPatches, schedule, completed }
 }
 
@@ -1104,6 +1119,11 @@ Inside `QuarterGridV3()`, next to the other `useState` declarations, add:
 
 ```ts
 const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+// Persistence is enabled ONLY once we positively know the DB state: plan
+// loaded, import settled, or confirmed-empty DB. A failed /api/clients or
+// /api/quarter-plan fetch leaves this false so a debounced PUT can never
+// clobber (or pre-empt the import of) a plan we couldn't see.
+const [canPersist, setCanPersist] = useState(false)
 ```
 
 and next to the other refs:
@@ -1125,9 +1145,10 @@ Replace the entire `useEffect(() => { const init = async () => { ... }; init() }
     const init = async () => {
       // Canonical client list from DB
       let dbClients: { id: number; name: string }[] = []
+      let clientsOk = false
       try {
         const res = await fetch('/api/clients')
-        if (res.ok) dbClients = await res.json()
+        if (res.ok) { dbClients = await res.json(); clientsOk = true }
       } catch { /* ignore — show empty list */ }
       const validIds = dbClients.map((c) => c.id)
 
@@ -1152,47 +1173,68 @@ Replace the entire `useEffect(() => { const init = async () => { ... }; init() }
         else getFailed = true
       } catch { getFailed = true }
 
+      // Persistence stays disabled unless we positively know the DB state.
+      // A failed clients fetch also disables it: with an empty validIds set,
+      // a save/import would write (and 409-arm) an EMPTY plan.
+      let persistAllowed = clientsOk && !getFailed
+
       if (resp && resp.plan) {
         hydrate(resp)
-      } else {
-        // No DB plan: try the one-time localStorage import.
+      } else if (!getFailed) {
+        // Confirmed no DB plan: try the one-time localStorage import.
         const stored = parseStoredQuarterState(
           typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
         )
-        if (stored) {
+        if (stored && clientsOk) {
           const payload = buildPlanPayload(stored, validIds)
           const localResp: QuarterPlanGetResponse = {
             plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '' },
             assignments: payload.assignments,
           }
-          if (getFailed) {
-            // Can't tell whether a plan exists — never import blind. Show the
-            // local data read-only-ish; saves will surface the error state.
-            hydrate(localResp)
-            setSaveState('error')
-          } else {
-            try {
-              const res = await fetch('/api/quarter-plan/import', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-              })
-              if (res.ok) {
-                hydrate(await res.json())
-                flash('⬆ Imported quarter plan from this browser')
-              } else if (res.status === 409) {
-                // Someone imported first — the DB wins.
-                const again = await fetch('/api/quarter-plan')
-                if (again.ok && !hydrate(await again.json())) hydrate(localResp)
+          try {
+            const res = await fetch('/api/quarter-plan/import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+            if (res.ok) {
+              hydrate(await res.json())
+              flash('⬆ Imported quarter plan from this browser')
+            } else if (res.status === 409) {
+              // Someone imported first — the DB wins.
+              const again = await fetch('/api/quarter-plan')
+              if (again.ok) {
+                if (!hydrate(await again.json())) hydrate(localResp)
               } else {
                 hydrate(localResp)
-                setSaveState('error')
+                persistAllowed = false
               }
-            } catch {
+            } else {
+              // Import failed with the DB confirmed empty — show local data
+              // but do NOT enable saves: a later PUT would create the plan
+              // and permanently 409-block re-running this import.
               hydrate(localResp)
-              setSaveState('error')
+              persistAllowed = false
             }
+          } catch {
+            hydrate(localResp)
+            persistAllowed = false
           }
+        }
+        // No stored payload: fresh empty grid; saves allowed (first PUT
+        // creates the singleton plan).
+      } else {
+        // GET failed — can't tell whether a plan exists. Show localStorage
+        // data read-only if present; never import or save blind.
+        const stored = parseStoredQuarterState(
+          typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
+        )
+        if (stored) {
+          const payload = buildPlanPayload(stored, validIds)
+          hydrate({
+            plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '' },
+            assignments: payload.assignments,
+          })
         }
       }
 
@@ -1205,6 +1247,8 @@ Replace the entire `useEffect(() => { const init = async () => { ... }; init() }
         note: clientState[c.id]?.note ?? '',
       }))
       setClients(merged)
+      setCanPersist(persistAllowed)
+      if (!persistAllowed) setSaveState('error')
       // Only now may the persist effect fire — flipping earlier would let a
       // debounced empty save create a plan and 409-block the real import.
       setLoaded(true)
@@ -1229,8 +1273,13 @@ Delete the `const persist = (overrides = {}) => { ... }` function and the `useEf
 
   // Debounced full-state save — last write wins. localStorage is no longer
   // written; the old seo-quarter-v3 key stays frozen as a pre-DB backup.
+  // The generation (saveSeqRef) increments at SCHEDULING time, not when the
+  // timer fires: if save A is in flight when edit B schedules, A's response
+  // sees a newer generation and can't mark the indicator "saved" while B's
+  // changes are still pending.
   useEffect(() => {
-    if (!loaded) return
+    if (!loaded || !canPersist) return
+    const seq = ++saveSeqRef.current
     const payload = buildCurrentPayload()
     pendingPayloadRef.current = payload
     setSaveState('saving')
@@ -1238,14 +1287,13 @@ Delete the `const persist = (overrides = {}) => { ... }` function and the `useEf
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null
       pendingPayloadRef.current = null
-      const seq = ++saveSeqRef.current
       fetch('/api/quarter-plan', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
         .then((res) => {
-          if (seq !== saveSeqRef.current) return // a newer save settled the indicator
+          if (seq !== saveSeqRef.current) return // newer changes pending — leave the indicator to them
           if (res.ok) setSaveState('saved')
           else { setSaveState('error'); flash('⚠ Save failed — will retry on next change') }
         })
@@ -1255,7 +1303,7 @@ Delete the `const persist = (overrides = {}) => { ... }` function and the `useEf
           flash('⚠ Save failed — will retry on next change')
         })
     }, 800)
-  }, [clients, schedule, completed, slotsPerWeek, layouts, startDate, loaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clients, schedule, completed, slotsPerWeek, layouts, startDate, loaded, canPersist]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Best-effort flush when the tab closes mid-debounce. keepalive bodies are
   // capped (~64 KB) so a large layouts blob may not make it — the debounced
@@ -1309,9 +1357,15 @@ In the title row, immediately after the `<span style={{ fontSize: 11, color: "#6
 
 ```tsx
               <span style={{ fontSize: 10, color: saveState === 'error' ? '#f87171' : '#475569' }}>
-                {saveState === 'saving' ? '● saving…' : saveState === 'saved' ? '✓ saved' : saveState === 'error' ? '⚠ not saved — retrying on next change' : ''}
+                {loaded && !canPersist ? '⚠ not saved — reload to reconnect'
+                  : saveState === 'saving' ? '● saving…'
+                  : saveState === 'saved' ? '✓ saved'
+                  : saveState === 'error' ? '⚠ not saved — retrying on next change' : ''}
               </span>
 ```
+
+(When `canPersist` is false no save will ever fire this session, so the
+message says "reload", not "retrying on next change".)
 
 - [ ] **Step 6: Verify nothing else references the old persistence**
 
@@ -1363,6 +1417,8 @@ DATABASE_URL="file:./local-dev.db" npm run dev
 ```
 
 In a browser: open `/quarter-grid` → fresh empty grid; drag a client into Wk 1 → indicator shows `● saving…` then `✓ saved`; reload → assignment persists; open a second browser/incognito → same grid. Then `curl -s localhost:3000/api/quarter-plan | head -c 400` shows the plan JSON.
+
+Failure-path check (Codex plan-review fix #1): with the dev server STOPPED mid-session is awkward to simulate, so instead use devtools → Network → block `/api/quarter-plan` requests, reload: the page must show `⚠ not saved — reload to reconnect`, and NO PUT/import may fire while blocked (Network tab stays empty of quarter-plan writes when dragging).
 
 - [ ] **Step 4: Commit any fixes; do NOT merge yet**
 
