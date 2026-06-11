@@ -15,6 +15,7 @@ const { finalizeSiteAudit } = await import('./site-audit-finalizer')
 const { processNext } = await import('@/lib/ada-audit/queue-manager')
 
 async function clearTestState() {
+  await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: 'finalize-test-' } } })
   await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://finalize-test-' } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'finalize-test-' } } })
 }

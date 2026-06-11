@@ -17,6 +17,8 @@
 import { prisma } from '@/lib/db'
 import { buildSiteAuditSummary } from './site-audit-helpers'
 import { closeBatchIfDrained } from './audit-batch-helpers'
+import { mapAdaChildren } from '@/lib/findings/ada-mapper'
+import { writeFindingsRun } from '@/lib/findings/writer'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   // Scalar-first: page settles call finalize once per page; loading every
@@ -26,6 +28,7 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     where: { id },
     select: {
       status: true, batchId: true, discoveredUrls: true,
+      domain: true, clientId: true, wcagLevel: true, startedAt: true,
       pagesTotal: true, pagesComplete: true, pagesError: true, pagesRedirected: true,
       pdfsTotal: true, pdfsComplete: true, pdfsError: true, pdfsSkipped: true,
       lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
@@ -63,17 +66,22 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
   }
 
   // All drained — NOW load the children for the summary build.
+  // Deterministic order (A2): the findings mapper's keep-first URL dedupe
+  // must keep the same child here as in writeAdaSiteFindings/compareAdaParity.
+  // Harmless to the summary build (it re-sorts pages itself).
   const pageAudits = await prisma.adaAudit.findMany({
     where: { siteAuditId: id },
     include: { pdfAudits: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   })
   const summary = buildSiteAuditSummary(pageAudits)
+  const completedAt = new Date()
   await prisma.siteAudit.update({
     where: { id },
     data: {
       status: 'complete',
       summary: JSON.stringify(summary),
-      completedAt: new Date(),
+      completedAt,
     },
   })
 
@@ -87,5 +95,28 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     void processNext()
   } catch (e) {
     console.warn('[site-audit-finalizer] processNext kick failed:', (e as Error).message)
+  }
+
+  // Dual-write the normalized findings run (A2 Phase 2). Fire-and-forget and
+  // best-effort: must never delay or fail the legacy completion side effects
+  // above. The bundle maps from the already-loaded children — no second load.
+  try {
+    const bundle = mapAdaChildren(
+      {
+        id,
+        domain: audit.domain,
+        clientId: audit.clientId,
+        wcagLevel: audit.wcagLevel,
+        pagesError: audit.pagesError,
+        startedAt: audit.startedAt,
+        completedAt,
+      },
+      pageAudits,
+    )
+    void writeFindingsRun(bundle).catch((e) => {
+      console.error('[findings] ADA dual-write failed for site audit', id, e)
+    })
+  } catch (e) {
+    console.error('[findings] ADA bundle mapping failed for site audit', id, e)
   }
 }

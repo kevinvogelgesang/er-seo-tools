@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '@/lib/db'
 import type { AggregatedResult } from '@/lib/types'
 import { writeSeoFindings } from './seo-write'
-import { compareSeoParity } from './parity'
+import { writeAdaSiteFindings, writeAdaSingleFindings } from './ada-write'
+import { compareSeoParity, compareAdaParity, compareAdaSingleParity } from './parity'
 
 const SESSION_ID = 'test-findings-parity'
 
@@ -78,6 +79,160 @@ describe('compareSeoParity', () => {
 
   it('reports a diff when no run exists at all', async () => {
     const report = await compareSeoParity(SESSION_ID)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/no CrawlRun/i)
+  })
+})
+
+// ── ADA parity ──────────────────────────────────────────────────────────────
+
+const ADA_DOMAIN = 'par-ada.test'
+
+const ADA_AXE_BLOB = JSON.stringify({
+  violations: [
+    {
+      id: 'color-contrast', impact: 'serious', help: 'contrast', description: 'c',
+      helpUrl: 'https://example.org/cc', tags: ['wcag2aa'],
+      nodes: [{ html: '<a>x</a>', target: ['a'] }, { html: '<p>y</p>', target: ['p'] }],
+    },
+    {
+      id: 'image-alt', impact: 'critical', help: 'alt', description: 'a',
+      helpUrl: 'https://example.org/ia', tags: ['wcag2a'],
+      nodes: [{ html: '<img>', target: ['img'] }],
+    },
+  ],
+  passes: [], incomplete: [], inapplicable: [],
+  timestamp: '2026-06-10T00:00:00Z', url: `https://${ADA_DOMAIN}/`,
+  testEngine: { name: 'axe-core', version: '4.10' },
+  testRunner: { name: 'er-seo-tools' },
+})
+
+// summary.aggregate matching the blob above: 1 critical + 1 serious.
+const ADA_SUMMARY = JSON.stringify({
+  aggregate: { critical: 1, serious: 1, moderate: 0, minor: 0, total: 2, passed: 0, incomplete: 0 },
+  pdfsAggregate: { total: 0, complete: 0, errored: 0, skipped: 0, withIssues: 0 },
+  pages: [],
+})
+
+async function clearAdaTestState() {
+  await prisma.crawlRun.deleteMany({ where: { domain: ADA_DOMAIN } })
+  await prisma.adaAudit.deleteMany({ where: { url: { contains: ADA_DOMAIN } } })
+  await prisma.siteAudit.deleteMany({ where: { domain: ADA_DOMAIN } })
+}
+
+describe('compareAdaParity', () => {
+  let siteId: string
+
+  beforeEach(async () => {
+    await clearAdaTestState()
+    const site = await prisma.siteAudit.create({
+      data: {
+        domain: ADA_DOMAIN, status: 'complete', wcagLevel: 'wcag21aa',
+        pagesTotal: 2, pagesComplete: 1, pagesRedirected: 1,
+        summary: ADA_SUMMARY, startedAt: new Date(), completedAt: new Date(),
+      },
+    })
+    siteId = site.id
+    await prisma.adaAudit.createMany({
+      data: [
+        { url: `https://${ADA_DOMAIN}/a`, status: 'complete', result: ADA_AXE_BLOB, siteAuditId: siteId, wcagLevel: 'wcag21aa' },
+        { url: `https://${ADA_DOMAIN}/old`, status: 'redirected', finalUrl: `https://${ADA_DOMAIN}/new`, siteAuditId: siteId, wcagLevel: 'wcag21aa' },
+      ],
+    })
+  })
+  afterEach(clearAdaTestState)
+
+  it('reports ok when tables match the child blobs and summary aggregate', async () => {
+    await writeAdaSiteFindings(siteId)
+    const report = await compareAdaParity(siteId)
+    expect(report.diffs).toEqual([])
+    expect(report.ok).toBe(true)
+  })
+
+  it('reports a diff when a violation row is missing', async () => {
+    await writeAdaSiteFindings(siteId)
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId: siteId } })
+    await prisma.finding.deleteMany({ where: { runId: run.id, type: 'image-alt' } })
+    const report = await compareAdaParity(siteId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/image-alt/)
+  })
+
+  it('reports a diff when a stored nodeCount diverges from the blob', async () => {
+    await writeAdaSiteFindings(siteId)
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId: siteId } })
+    await prisma.violation.updateMany({
+      where: { runId: run.id, ruleId: 'color-contrast' },
+      data: { nodeCount: 99 },
+    })
+    const report = await compareAdaParity(siteId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/nodeCount/)
+  })
+
+  it('reports ONLY an aggregate diff when summary.aggregate disagrees with the Violation rows', async () => {
+    await writeAdaSiteFindings(siteId)
+    // Corrupt the summary blob, NOT the rows: the stored rows still match the
+    // child blobs (no missing-Finding noise), so any diff comes solely from
+    // the independent Violation-rows-vs-summary.aggregate cross-check.
+    const corrupted = JSON.parse(ADA_SUMMARY)
+    corrupted.aggregate.critical = 5
+    await prisma.siteAudit.update({
+      where: { id: siteId },
+      data: { summary: JSON.stringify(corrupted) },
+    })
+    const report = await compareAdaParity(siteId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs).toEqual(['aggregate critical: violation rows=1 summary.aggregate=5'])
+  })
+
+  it('reports a diff when a complete site audit has no summary blob', async () => {
+    await writeAdaSiteFindings(siteId)
+    await prisma.siteAudit.update({ where: { id: siteId }, data: { summary: null } })
+    const report = await compareAdaParity(siteId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/summary blob missing/)
+  })
+
+  it('reports a diff when no run exists at all', async () => {
+    const report = await compareAdaParity(siteId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/no CrawlRun/i)
+  })
+})
+
+describe('compareAdaSingleParity', () => {
+  let auditId: string
+
+  beforeEach(async () => {
+    await clearAdaTestState()
+    const audit = await prisma.adaAudit.create({
+      data: {
+        url: `https://${ADA_DOMAIN}/solo`, status: 'complete', result: ADA_AXE_BLOB,
+        wcagLevel: 'wcag21aa', startedAt: new Date(), completedAt: new Date(),
+      },
+    })
+    auditId = audit.id
+  })
+  afterEach(clearAdaTestState)
+
+  it('reports ok when tables match the blob', async () => {
+    await writeAdaSingleFindings(auditId)
+    const report = await compareAdaSingleParity(auditId)
+    expect(report.diffs).toEqual([])
+    expect(report.ok).toBe(true)
+  })
+
+  it('reports a diff when the stored run score diverges', async () => {
+    await writeAdaSingleFindings(auditId)
+    await prisma.crawlRun.update({ where: { adaAuditId: auditId }, data: { score: 1 } })
+    const report = await compareAdaSingleParity(auditId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/score/)
+  })
+
+  it('reports a diff when no run exists at all', async () => {
+    const report = await compareAdaSingleParity(auditId)
     expect(report.ok).toBe(false)
     expect(report.diffs.join('\n')).toMatch(/no CrawlRun/i)
   })
