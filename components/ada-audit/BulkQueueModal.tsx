@@ -93,7 +93,7 @@ export default function BulkQueueModal({ open, eligibleCount, clientsById, onClo
               <ul className="space-y-1">
                 {phase.clients.map((c) => (
                   <li key={c.id} className="text-[13px] font-body text-navy dark:text-white">
-                    <Link href={`/clients`} className="text-orange hover:underline">{c.name}</Link>
+                    <Link href="/clients/manage" className="text-orange hover:underline">{c.name}</Link>
                   </li>
                 ))}
               </ul>

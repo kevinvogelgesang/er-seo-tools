@@ -268,7 +268,7 @@ export default function ClientsAuditSummary() {
       error={error}
       onRetry={() => void fetchClients(false)}
       empty={data && data.length === 0
-        ? <>No clients yet — add some at <Link href="/clients" className="text-orange hover:underline">/clients</Link>.</>
+        ? <>No clients yet — add some at <Link href="/clients/manage" className="text-orange hover:underline">/clients/manage</Link>.</>
         : filtered ? `No clients match "${searchInput}".` : 'No clients.'}
     >
       {toast && (
@@ -303,7 +303,7 @@ export default function ClientsAuditSummary() {
                   {la ? (
                     <Link href={`/ada-audit/site/${la.id}`} className="hover:text-orange">{c.clientName}</Link>
                   ) : (
-                    <Link href="/clients" className="hover:text-orange">{c.clientName}</Link>
+                    <Link href={`/clients/${c.clientId}`} className="hover:text-orange">{c.clientName}</Link>
                   )}
                 </td>
                 <td className="px-6 py-3 font-body text-[12px] text-navy/60 dark:text-white/60">
