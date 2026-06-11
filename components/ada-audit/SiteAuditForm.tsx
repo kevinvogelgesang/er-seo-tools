@@ -356,7 +356,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
         {selectedClient && selectedClient.domains.length === 0 && (
           <p className="mt-1.5 text-[12px] font-body text-amber-700 dark:text-amber-400">
             This client has no domain configured.{' '}
-            <Link href="/clients" className="text-orange hover:underline">Add one →</Link>
+            <Link href="/clients/manage" className="text-orange hover:underline">Add one →</Link>
           </p>
         )}
         <p className="text-[11px] font-body text-navy/40 dark:text-white/40 mt-1.5">

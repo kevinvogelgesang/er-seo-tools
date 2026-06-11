@@ -259,7 +259,13 @@ export default function ClientsPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-display font-bold text-[#1c2d4a] dark:text-white mb-1">Clients</h1>
+          <a
+            href="/clients"
+            className="text-xs text-gray-400 dark:text-white/40 hover:text-[#f5a623] transition-colors"
+          >
+            ← Fleet
+          </a>
+          <h1 className="text-3xl font-display font-bold text-[#1c2d4a] dark:text-white mb-1 mt-1">Manage Clients</h1>
           <p className="text-sm text-gray-500 dark:text-white/60">
             Shared across the Quarter Grid and SEO Parser. Add domains to enable automatic client matching when uploading crawl files.
           </p>

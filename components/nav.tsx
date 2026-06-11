@@ -39,7 +39,14 @@ const tools: NavTool[] = [
     ],
   },
   { name: 'Oxygen Stack Guide', href: '/oxygen-tailwind-guide' },
-  { name: 'Clients', href: '/clients' },
+  {
+    name: 'Clients',
+    href: '/clients',
+    dropdown: [
+      { name: 'Fleet', href: '/clients', description: 'Scores and activity' },
+      { name: 'Manage clients', href: '/clients/manage' },
+    ],
+  },
 ]
 
 function ChevronIcon({ className }: { className?: string }) {
