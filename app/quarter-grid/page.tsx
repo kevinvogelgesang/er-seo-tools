@@ -133,6 +133,7 @@ export default function QuarterGridV3() {
         saveLayout={plan.saveLayout}
         applyLayout={plan.applyLayout}
         deleteLayout={plan.deleteLayout}
+        pushMeta={plan.pushMeta}
       />
 
       {view === 'grid' && (

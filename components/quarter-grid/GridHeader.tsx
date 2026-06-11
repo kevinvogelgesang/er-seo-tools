@@ -3,10 +3,11 @@
 
 import { useRef } from 'react'
 import Papa from 'papaparse'
-import { ALL_STATUSES, type Snapshots } from '@/lib/quarter-grid/state'
+import { ALL_STATUSES, type PushSummary, type Snapshots } from '@/lib/quarter-grid/state'
 import type { SaveState } from './useQuarterPlan'
 import { PCOLORS, STATUS_COLORS, STATUS_LABELS } from './theme'
 import { LayoutManager } from './LayoutManager'
+import { PushToTeamworkButton } from './PushToTeamworkButton'
 
 interface GridHeaderProps {
   totalClients: number
@@ -29,12 +30,14 @@ interface GridHeaderProps {
   saveLayout: (name: string) => void
   applyLayout: (name: string) => void
   deleteLayout: (name: string) => void
+  pushMeta: { pushedAt: string; summary: PushSummary | null } | null
 }
 
 export function GridHeader({
   totalClients, doneCount, unassignedCount, pct, loaded, canPersist, saveState,
   view, setView, slotsPerWeek, setSlotsPerWeek, startDate, setStartDate,
   onAutoDistribute, onReset, onCsvRows, layouts, saveLayout, applyLayout, deleteLayout,
+  pushMeta,
 }: GridHeaderProps) {
   const csvInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -145,6 +148,8 @@ export function GridHeader({
             cursor: "pointer", fontFamily: "inherit", fontWeight: 500,
           }}>⬆ Import CSV</button>
 
+          <PushToTeamworkButton />
+
           {/* ── Layouts ──────────────────────────────────────────────── */}
           <LayoutManager layouts={layouts} saveLayout={saveLayout} applyLayout={applyLayout} deleteLayout={deleteLayout} />
         </div>
@@ -167,6 +172,12 @@ export function GridHeader({
             {STATUS_LABELS[s]}
           </span>
         ))}
+        {pushMeta && (
+          <span style={{ fontSize: 10, color: "#475569", marginLeft: "auto" }}>
+            Last pushed {new Date(pushMeta.pushedAt).toLocaleDateString()}
+            {pushMeta.summary ? ` · ${pushMeta.summary.created} task${pushMeta.summary.created !== 1 ? 's' : ''}` : ''}
+          </span>
+        )}
       </div>
     </div>
   )
