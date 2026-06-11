@@ -8,6 +8,7 @@ import { POST as MINT } from './push/mint-token/route'
 import { GET as EXPORT } from './push/[planId]/route'
 import { POST as RECEIPT } from './push/[planId]/receipt/route'
 import { mintQuarterPushToken } from '@/lib/quarter-push-token'
+import { getClientQuarterContext } from '@/lib/services/client-quarter'
 import { SignJWT } from 'jose'
 import type { AssignmentPayload } from '@/lib/quarter-grid/state'
 
@@ -336,6 +337,42 @@ describe('quarter push routes (B5)', () => {
     // A newer plan supersedes — the old token's receipt must 404.
     await prisma.quarterPlan.create({ data: { name: 'newer' } })
     expect((await RECEIPT(bearerReq(url, token, { method: 'POST', body: JSON.stringify({ created: 1 }) }), routeParams)).status).toBe(404)
+  })
+})
+
+describe('getClientQuarterContext (B5 — lives here: touches the singleton plan table)', () => {
+  const QC_DOMAIN = 'cq-b5.example'
+  afterAll(async () => { await prisma.crawlRun.deleteMany({ where: { domain: QC_DOMAIN } }) })
+
+  it('returns null when no plan exists or client has no assignment', async () => {
+    const c = await makeClient('qc-none')
+    expect(await getClientQuarterContext(c)).toBeNull()
+    await prisma.quarterPlan.create({ data: { name: 'Q3 plan', startDate: '2026-07-06' } })
+    expect(await getClientQuarterContext(c)).toBeNull()
+  })
+
+  it('returns pool context (week null) without a weekRange', async () => {
+    const c = await makeClient('qc-pool')
+    const plan = await prisma.quarterPlan.create({ data: { name: 'Q3 plan', startDate: '2026-07-06' } })
+    await prisma.quarterAssignment.create({ data: { planId: plan.id, clientId: c, priority: 2, status: 'on_hold', note: 'parked' } })
+    const ctx = (await getClientQuarterContext(c))!
+    expect(ctx).toMatchObject({ week: null, weekRange: null, priority: 2, status: 'on_hold', note: 'parked', completed: false, latestActivity: null })
+  })
+
+  it('returns scheduled context with weekRange, completion, and latest activity', async () => {
+    const c = await makeClient('qc-sched')
+    const plan = await prisma.quarterPlan.create({ data: { name: 'Q3 plan', startDate: '2026-07-06' } })
+    const doneAt = new Date('2026-07-20T10:00:00Z')
+    await prisma.quarterAssignment.create({ data: { planId: plan.id, clientId: c, week: 3, position: 0, priority: 1, completedAt: doneAt } })
+    await prisma.crawlRun.create({
+      data: { tool: 'ada-audit', source: 'site-audit', domain: QC_DOMAIN, clientId: c, status: 'complete', pagesTotal: 5, completedAt: new Date('2026-07-21T10:00:00Z') },
+    })
+    const ctx = (await getClientQuarterContext(c))!
+    expect(ctx.week).toBe(3)
+    expect(ctx.weekRange).toBe('7/20–7/24')
+    expect(ctx.completed).toBe(true)
+    expect(ctx.completedAt).toBe(doneAt.toISOString())
+    expect(ctx.latestActivity).toMatchObject({ kind: 'ada-audit' })
   })
 })
 

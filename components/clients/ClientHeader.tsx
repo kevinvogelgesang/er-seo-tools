@@ -10,16 +10,24 @@ export interface ClientHeaderProps {
   seedUrls: string[]
   teamworkTasklistId: string | null
   schedules: { jobType: string; cadence: string; nextRunAt: string }[]
+  archivedAt?: string | null
 }
 
-export function ClientHeader({ name, domains, seedUrls, teamworkTasklistId, schedules }: ClientHeaderProps) {
+export function ClientHeader({ name, domains, seedUrls, teamworkTasklistId, schedules, archivedAt }: ClientHeaderProps) {
   return (
     <div className="mb-8">
       <a href="/clients" className="text-xs text-gray-400 dark:text-white/40 hover:text-[#f5a623] transition-colors">
         ← Clients
       </a>
       <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
-        <h1 className="text-3xl font-display font-bold text-[#1c2d4a] dark:text-white">{name}</h1>
+        <h1 className="text-3xl font-display font-bold text-[#1c2d4a] dark:text-white flex items-center gap-3">
+          {name}
+          {archivedAt && (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wide bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-white/50">
+              Archived
+            </span>
+          )}
+        </h1>
         <a
           href="/clients/manage"
           className="text-sm font-semibold text-[#f5a623] hover:text-[#e09415] transition-colors"
