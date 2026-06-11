@@ -35,8 +35,8 @@ Verified against `prisma/schema.prisma` and the routes:
 |---|---|---|
 | SEO health | `CrawlRun.score` where `tool='seo-parser'` (sessions joined via `CrawlRun.sessionId`) | Post-A2 only (≥ 2026-06-10) |
 | SEO issue counts | `Session.criticalCount/warningCount/noticeCount/totalUrls` (`workflow='technical'`, `status='complete'`) | Full history |
-| ADA site score | `CrawlRun.score` where `tool='ada-audit' AND source='site-audit'` | Post-A2 only (`SiteAudit.score` is **never persisted** — pre-A2 site scores live only in the `summary` blob, which we will not read) |
-| ADA page score (fallback) | `AdaAudit.score` where `siteAuditId IS NULL AND status='complete'` — a real persisted scalar | Full history |
+| ADA site score | `CrawlRun.score` where `tool='ada-audit' AND source='site-audit'` | Post-A2 only (the current queue/finalizer does not reliably persist `SiteAudit.score` — existing site pages/API derive it from the `summary` blob, which we will not read) |
+| ADA page score (fallback) | `CrawlRun.score` where `tool='ada-audit' AND source='page-audit'` (primary), plus legacy `AdaAudit.score` points only where non-null (`siteAuditId IS NULL AND status='complete'`) — the standalone completion path does not set `score`, so most legacy rows are null | Post-A2, plus whatever legacy rows happen to have a score |
 | Pillar score | `PillarAnalysis.score` (1–10, `status='complete'`), client via `session.clientId` | Full history |
 
 Consequences, accepted: ADA and SEO *score* sparklines start shallow (history
@@ -47,9 +47,11 @@ in the activity timeline and the SEO issue-count trend. We do **not** reuse
 route stays as-is for the `/ada-audit` page and is untouched by B1).
 
 ADA series selection rule: if the client has ≥1 site-audit `CrawlRun`, the ADA
-scorecard/series is site-audit runs only; otherwise it falls back to standalone
-page-audit scores (labeled "page audit" on the card). Site scores and
-single-page scores are never mixed in one series.
+scorecard/series is site-audit runs only; otherwise it falls back to the
+standalone page-audit series — page-audit `CrawlRun` scores merged with
+non-null legacy `AdaAudit.score` points, deduped by origin id (labeled "page
+audit" on the card). Site scores and single-page scores are never mixed in
+one series.
 
 ## Architecture
 
@@ -65,6 +67,11 @@ lib/services/scorecard-shared.ts    series/delta/alert helpers shared by both (p
 app/clients/page.tsx                fleet table (server component)
 app/clients/[id]/page.tsx           dashboard (server component, rebuilt)
 app/clients/manage/page.tsx         the existing 561-LOC CRUD page, moved verbatim
+                                    (then audit existing links/copy that point at
+                                    /clients meaning "manage" — at minimum
+                                    SiteAuditForm, ClientsAuditSummary,
+                                    BulkQueueModal, nav copy — and retarget them
+                                    to /clients/manage)
 
 components/clients/FleetTable.tsx       client component (client-side sort)
 components/clients/Scorecard.tsx        score + delta arrow + sparkline + "as of" link
@@ -97,7 +104,10 @@ this is well inside SQLite/single-process comfort.
   points).
 - `computeAlerts(client aggregates)` → `Alert[]` with three kinds:
   - `score-drop` — SEO or ADA `delta <= -10`
-  - `error` — the most recent run of any tool has `status='error'`
+  - `error` — the most recent run of any tool has `status='error'`.
+    **Source: origin rows only** (`Session.status`, `SiteAudit.status`,
+    standalone `AdaAudit.status`, `PillarAnalysis.status`) — `CrawlRun.status`
+    is only `complete | partial` and never represents failed runs.
   - `stale` — no completed run/memo of any kind in the last 30 days
   Thresholds are named constants (`SCORE_DROP_THRESHOLD = 10`,
   `STALE_DAYS = 30`) in this file.
@@ -187,7 +197,9 @@ DB-backed vitest (repo conventions: unique domain/id prefix per file, clean up
 - `scorecard-shared.test.ts` (pure): series ordering + 12-cap, delta null with
   <2 points, each alert kind fires/doesn't at its threshold boundary.
 - `client-fleet.test.ts`: two clients with interleaved runs group correctly;
-  ADA site-vs-standalone fallback rule; missing scores → null (not 0);
+  ADA site-vs-standalone fallback rule (incl. page-audit `CrawlRun` +
+  legacy non-null `AdaAudit.score` merge deduped by origin id); missing
+  scores → null (not 0);
   keyword-research sessions excluded from the SEO series; `error`-status runs
   excluded from series but driving the `error` alert; stale alert.
 - `client-dashboard.test.ts`: timeline union ordering + cap, all six item
@@ -198,6 +210,12 @@ DB-backed vitest (repo conventions: unique domain/id prefix per file, clean up
   `ActivityTimeline` renders badges + links.
 
 `tsc --noEmit`, full vitest suite, `next build` before PR.
+
+Production sanity checks at deploy time (Codex): count non-null
+`AdaAudit.score` on standalone complete audits (calibrates how much the legacy
+fallback contributes); confirm recent standalone audits have page-audit
+`CrawlRun` rows; grep the new services for `result`/`summary` selects (must be
+none).
 
 ## Alternatives considered
 
