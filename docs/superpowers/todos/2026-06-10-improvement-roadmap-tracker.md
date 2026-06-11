@@ -42,10 +42,11 @@ Spine items — everything else depends on these two:
   representative clients before any reader flips.
   Spec: `../specs/2026-06-10-findings-layer-design.md` (Codex ×10 fixes) ·
   Plan (Phase 1): `../plans/2026-06-10-findings-layer-phase1.md` (Codex ×8
-  fixes) — **Phase 1 built, PR #55 open** (schema + SEO parser dual-write +
-  parity/rebuild CLIs). DB-growth projection run 2026-06-10 (gated-decisions
-  item: done for A2's purposes; C2 must add cadence-aware retention before
-  nightly fleet scans).
+  fixes) — **Phase 1 merged (PRs #55 + #56), deployed, production-verified
+  2026-06-10** (PARITY OK on 2 real sessions; cross-run SQL queries working).
+  DB-growth projection run 2026-06-10 (gated-decisions item: done for A2's
+  purposes; C2 must add cadence-aware retention before nightly fleet scans).
+  Next: Phase 2 (ADA dual-write).
 
 Interleave as needed (not blockers):
 
@@ -95,6 +96,7 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-06-10 — **A2 Phase 1 merged (PR #55) + fix PR #56, deployed, and VERIFIED in production.** Migration `20260611014502_findings_layer` applied cleanly; boot error-free. Production parity surfaced one real bug — the nuvani.edu session's `page_index` carries one URL under two refs, violating `@@unique([runId, url])` — fixed with keep-first dedupe by normalized URL in the mapper (PR #56, +1 test, 1,753 green). Verification: `findings-rebuild` + `findings-parity` → **PARITY OK on both current-format sessions** (nuvani.edu: 146 pages / 433 findings / score 81; proway.erstaging.site: 4 pages / 56 findings / score 86); cross-run SQL works ("domains with broken_pages" answers from `Finding`+`CrawlRun`). The live dual-write hook (same `writeSeoFindings` path) fires on the next real parse — re-check parity then. Next: Phase 2 (ADA dual-write).
 - 2026-06-10 — **A2 meaningfully advanced (Phase 1 of 4 built); PR #55 open** on `feat/findings-layer-phase1`. DB-growth projection run against production during the spec (DB 309 MB, ~249 MB blobs; 27 clients; 153 pages/site-audit avg; 0.78 violations/page): 90-d archive + findings-forever validated for current volume, nightly-fleet gate recorded for C2. Spec (Codex accept-with-fixes ×10) + Phase 1 plan (Codex ×8) written, fixed, committed. Phase 1 ships: 4-table schema (origin FKs SetNull, subtree cascades from CrawlRun), `lib/findings/` (hashed dedup keys, SEO mapper with groups[*].urls + computeHealthScore fallback, exactly-one-origin delete-and-recreate writer in one array-form txn chunked at 50, field-level parity comparator), parser dual-write hook (best-effort, post-commit), rebuild + parity tsx CLIs. 26 new tests; suite 1,752 green (169 files); tsc + build clean. Next: merge/deploy PR #55 + production parity (fresh parse → `npx tsx scripts/findings-parity.ts <sessionId>`), then Phase 2 (ADA dual-write).
 - 2026-06-10 — **A1 COMPLETE. PR #54 merged + deployed + verified in production.** Migration `20260610230000_schedule_name` applied cleanly; boot log error-free. All three `system-*` Schedule rows seeded and enabled (cleanup `daily@09:00` → next run 2026-06-11 09:00 UTC; screenshot-sweep `every:30m` + stale-audit-reset `every:10m`, both fired their immediate first-seed slot and completed within ~2 min of boot). Residual next-day check: confirm a `cleanup` job completes at the 09:00 UTC slot and terminal Job rows >7 d are pruned. A1 `[~]` → `[x]` — the durable job queue (Phases 0–4) is fully shipped. Next: A2 (normalized findings layer).
 - 2026-06-10 — Tracker created. All items not started. Roadmap docs written + Codex-reviewed (accept-with-fixes, fixes applied).

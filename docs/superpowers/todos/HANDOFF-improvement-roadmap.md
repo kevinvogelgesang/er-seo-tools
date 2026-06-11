@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-10 · **Updated by:** A2 Phase 1 build session (PR #55 opened)
+**Last updated:** 2026-06-10 · **Updated by:** A2 Phase 1 close-out (PRs #55+#56 merged, deployed, production-verified)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -24,16 +24,28 @@ Continue the er-seo-tools improvement roadmap.
 ## Current state
 
 - **A1 is DONE** (durable job queue, PRs #50–#54, production-verified).
-- **A2 is IN PROGRESS — Phase 1 of 4 built, PR #55 open** on
-  `feat/findings-layer-phase1` (schema + SEO parser dual-write).
+- **A2 is IN PROGRESS — Phase 1 of 4 SHIPPED** (PRs #55 + #56 merged,
+  deployed, production-verified 2026-06-10).
   - Spec: `../specs/2026-06-10-findings-layer-design.md` (Codex-reviewed,
     ×10 fixes applied). Phase 1 plan:
     `../plans/2026-06-10-findings-layer-phase1.md` (Codex ×8, applied).
-  - Shipped in PR #55: `CrawlRun`/`CrawlPage`/`Finding`/`Violation` tables
-    (full schema; ADA writes come in Phase 2), `lib/findings/` (keys,
-    seo-mapper, writer, seo-write, parity), parser dual-write hook,
+  - Shipped: `CrawlRun`/`CrawlPage`/`Finding`/`Violation` tables (full
+    schema; ADA writes come in Phase 2), `lib/findings/` (keys, seo-mapper,
+    writer, seo-write, parity), parser dual-write hook,
     `scripts/findings-rebuild.ts` + `scripts/findings-parity.ts`.
-    26 new tests; suite 1,752 green; tsc + build clean.
+    27 new tests; suite 1,753 green; tsc + build clean.
+  - **Production verification:** migration applied cleanly, boot error-free.
+    Parity surfaced one real bug (duplicate `page_index` URL under two refs
+    on nuvani.edu → `@@unique([runId, url])` violation), fixed in PR #56
+    (keep-first dedupe by normalized URL). After the fix: **PARITY OK on
+    both current-format sessions** (nuvani.edu 146 pages / 433 findings /
+    score 81; proway.erstaging.site 4 pages / 56 findings / score 86), and
+    cross-run SQL queries work (severity/scope rollups; "domains with
+    broken_pages" via `Finding`+`CrawlRun` join).
+  - The live hook (`writeSeoFindings` in the parse route) is the exact code
+    path the rebuild script exercised; still, **re-run
+    `scripts/findings-parity.ts` after the next real human-triggered parse**
+    as a belt-and-braces check.
 - **DB-growth projection: DONE** (2026-06-10, prod): DB 309 MB (~249 MB is
   blobs); 27 clients; site audits avg 153 pages; 0.78 violations/page.
   Verdict: 90-d archive window + findings-kept-forever are safe for
@@ -50,12 +62,7 @@ Continue the er-seo-tools improvement roadmap.
 
 **A2 continuation.** In order:
 
-1. **Merge + deploy PR #55** (`feat/findings-layer-phase1`), then verify in
-   production: run a fresh parse on a real client crawl, then on the server
-   `cd /home/seo/webapps/seo-tools && npx tsx scripts/findings-parity.ts
-   <sessionId>` → expect `PARITY OK`. Parse UX must be unchanged (the
-   dual-write is post-commit + try/caught).
-2. **Phase 2 — ADA dual-write** (needs its own plan via writing-plans →
+1. **Phase 2 — ADA dual-write** (needs its own plan via writing-plans →
    Codex review, then implement): ADA mappers (`mapAdaChildren` from the
    finalizer's already-loaded children, `mapAdaSingle` for standalone
    audits), hooks in `lib/ada-audit/site-audit-finalizer.ts` (AFTER terminal
@@ -66,11 +73,11 @@ Continue the er-seo-tools improvement roadmap.
    severity mapping critical/serious→critical, moderate→warning,
    minor→notice; scores computed by the mapper (`computeScore`), never read
    from scalar columns. See the spec's "Row mapping" + "Hook points".
-3. **Phase 3** — production parity on 3–5 representative clients (fresh
+2. **Phase 3** — production parity on 3–5 representative clients (fresh
    parse + fresh site audit each), then flip the SessionPage reader
    (`app/api/seo-parser/[sessionId]/pages/route.ts`, with SessionPage
    fallback for pre-A2 sessions) and stop writing SessionPage.
-4. **Phase 4** — `pruneArchivedBlobs()` retention machinery, shipped inert
+3. **Phase 4** — `pruneArchivedBlobs()` retention machinery, shipped inert
    (per-tool activation constants flip only with each tool's last blob
    reader). Then A2 → `[x]`.
 
@@ -141,3 +148,4 @@ Continue the er-seo-tools improvement roadmap.
 - 2026-06-10 — A1 Phase 3 (page loop) PR #53 merged + production-verified (restart mid-`running` resumes).
 - 2026-06-10 — A1 Phase 4 (cleanup ticks) PR #54 merged + verified; **A1 COMPLETE.**
 - 2026-06-10 — **A2 started.** DB-growth projection run on prod; spec written + Codex-reviewed (×10 fixes); Phase 1 plan written + Codex-reviewed (×8 fixes); **Phase 1 built — PR #55 open** (4-table schema, lib/findings/, parser dual-write, parity/rebuild CLIs; 1,752 tests green). Next: merge/deploy + production parity, then Phase 2 (ADA dual-write).
+- 2026-06-10 — **A2 Phase 1 SHIPPED.** PR #55 merged + deployed; production parity surfaced a duplicate-page_index-URL bug → fix PR #56 (keep-first dedupe by normalized URL) merged + deployed. PARITY OK on both current-format sessions (nuvani.edu 146/433, proway 4/56); cross-run SQL queries verified. 1,753 tests green. Next: Phase 2 (ADA dual-write).
