@@ -94,12 +94,15 @@ if ('archived' in body) {
   }
   const fresh = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, teamworkTasklistId: true, archivedAt: true, createdAt: true } });
   if (!fresh) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
-  return NextResponse.json({ ...fresh, domains: safeParse(fresh.domains, []), seedUrls: fresh.seedUrls ? safeParse(fresh.seedUrls, null) : null });
+  let domains: string[] = []; try { domains = JSON.parse(fresh.domains); } catch { domains = []; }
+  let seedUrls: string[] | null = null;
+  if (fresh.seedUrls) { try { seedUrls = JSON.parse(fresh.seedUrls); } catch { seedUrls = null; } }
+  return NextResponse.json({ ...fresh, domains, seedUrls });
 }
 ```
-(P2025 from the update → 404, matching the existing handler. `archived` is exclusive of other fields in one request — return 400 `archived cannot be combined with other updates` if `Object.keys(body).length > 1`.)
+(No `safeParse` helper exists in this route — use the file's inline try/catch JSON.parse pattern shown above (Codex plan-fix #1). P2025 from the update → 404, matching the existing handler. `archived` is exclusive of other fields in one request — return 400 `archived cannot be combined with other updates` if `Object.keys(body).length > 1`.)
 - [ ] **Step 6: DELETE gate** — before `prisma.client.delete`, load `archivedAt`; if null → `409 { error: 'archive_first' }`.
-- [ ] **Step 7: Sweep** — run the grep from Files above; add `archivedAt: null` to: client-fleet client query, parse-route match scan, ada-route match scan, site-audit match path, BulkQueueModal's client source (it consumes `/api/clients` GET — verify it gets the default filter for free), any client-selector fetches. `getClientDashboard`/`getClientQuarterContext` keep loading archived clients. List each touched site in the commit body.
+- [ ] **Step 7: Sweep** — run the grep from Files above; add `archivedAt: null` to: client-fleet client query, parse-route match scan, ada-route match scan, site-audit match path, BulkQueueModal's client source (it consumes `/api/clients` GET — verify it gets the default filter for free), any client-selector fetches. **`findUnique` sites cannot take an extra filter (Codex plan-fix #2):** where a path validates a client by id and must reject archived (e.g. `lib/ada-audit/queue-request.ts`, `app/api/site-audit/route.ts`), convert to `findFirst({ where: { id: clientId, archivedAt: null } })` — or fetch by id and explicitly reject `archivedAt != null`. `getClientDashboard`/`getClientQuarterContext` keep loading archived clients. List each touched site in the commit body.
 - [ ] **Step 8: Tests** — clients-route test file: archive PATCH disables enabled schedules + sets archivedAt; restore nulls archivedAt and leaves schedules disabled; DELETE active → 409; DELETE archived → cascades as before; GET excludes archived by default, includes with `?includeArchived=1`. Fleet test: archived client absent. Run targeted files → PASS.
 - [ ] **Step 9: Commit** `feat(b5): client soft-archive — archivedAt, schedule disable, DELETE gate, active-surface sweep`.
 
@@ -204,7 +207,7 @@ export type QuarterPlanGetResponse =
   | { plan: null }
   | { plan: QuarterPlanScalars & { updatedAt: string; teamworkPushedAt: string | null; teamworkPushSummary: PushSummary | null }; assignments: AssignmentPayload[] }
 ```
-`loadPlanResponse` maps the two columns (`teamworkPushSummary` JSON.parse in try-catch → null). `sanitizePlanPayload` and `persistPlan` remain untouched by these fields.
+`loadPlanResponse` maps the two columns (`teamworkPushSummary` JSON.parse in try-catch → null). `sanitizePlanPayload` and `persistPlan` remain untouched by these fields. **Compile sweep (Codex plan-fix #4):** every existing `QuarterPlanGetResponse` literal gains `teamworkPushedAt: null, teamworkPushSummary: null` — the hook's TWO local literals (`useQuarterPlan.ts:120` import-hydrate and `:163` GET-failed fallback) and all test fixtures in `useQuarterPlan.test.tsx` / `route.test.ts`; run `npx tsc --noEmit` to find the full set.
 - [ ] **Step 2: Failing regression test** (route.test.ts): set `teamworkPushedAt`/`teamworkPushSummary` directly via prisma on the plan; issue a normal PUT; reload → fields unchanged. Run (fails until Step 1's loadPlanResponse change lands; then passes — this test pins the invariant).
 - [ ] **Step 3: Hook.** Add state `const [activity, setActivity] = useState<Record<number, string>>({})` and `const [pushMeta, setPushMeta] = useState<{ pushedAt: string; summary: PushSummary | null } | null>(null)`. In `hydrate()` capture pushMeta from `resp.plan` (`teamworkPushedAt` non-null → set). New init-decoupled effect (does NOT touch canPersist/saveState/persist deps):
 ```ts
@@ -232,8 +235,13 @@ with `ACTIVITY_LABELS` defined and exported from `lib/quarter-grid/state.ts` (cl
 )}
 ```
 Thread `activity={activity[id]}` through WeekGrid/PoolSection/AssignedSection (each already receives chip props from page.tsx — pass the `activity` record down and index per chip; keep `memo(Chip)` happy: the prop is a primitive string/undefined).
-- [ ] **Step 5: Tests.** Hook test: activity endpoint mocked OK → `activity` populated, and a mocked failure leaves `{}` with `canPersist`/`saveState` unaffected and NO PUT issued (use the file's existing fetch-mock + advance-loop patterns). Chip test: glyph renders with prop, absent without. Run targeted → PASS.
-- [ ] **Step 6:** `npx tsc --noEmit` clean. **Step 7: Commit** `feat(b5): activity in grid UI + read-only push metadata exposure`.
+- [ ] **Step 5: `removeClient` must archive, not DELETE (Codex plan-fix #3).** The hook's `removeClient` (`useQuarterPlan.ts:358-365`) optimistically removes the client then fires `DELETE /api/clients/{id}` — post-B5 that 409s (`archive_first`) and the client silently survives in the DB while vanishing from the UI. Change the background call to:
+```ts
+fetch(`/api/clients/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true }) }).catch(() => { /* ignore */ })
+```
+The optimistic local removal stays (archived clients leave `/api/clients` anyway). Relabel the pool UI affordance from "delete"-flavored wording to "Archive" (check `PoolSection.tsx` for the button/confirm copy). Hook test: removeClient issues a PATCH with `{archived: true}` and NO DELETE.
+- [ ] **Step 6: Tests.** Hook test: activity endpoint mocked OK → `activity` populated, and a mocked failure leaves `{}` with `canPersist`/`saveState` unaffected and NO PUT issued (use the file's existing fetch-mock + advance-loop patterns). Chip test: glyph renders with prop, absent without. Run targeted → PASS.
+- [ ] **Step 7:** `npx tsc --noEmit` clean. **Step 8: Commit** `feat(b5): activity in grid UI + read-only push metadata exposure + removeClient archives`.
 
 ### Task 7: qct_ token lib
 
@@ -256,7 +264,7 @@ All three `force-dynamic`. "Pushable" assignment = `week != null` AND `completed
 - [ ] **Step 1: Failing tests** (quarter-plan test file, its prefix/helpers):
   - mint: no plan → 409 `no_plan`; plan whose only planned row is completed / archived-client / null-tasklist → 409 `nothing_planned`; one pushable row → 200 `{ token: /^qct_/, planId }`.
   - export: no/garbage Bearer → 401; token for plan A on plan B's id → 401; valid → 200 with ONLY week!=null + active-client rows (archived excluded — Codex fix #2), completed rows present with `completed: true` (fix #3), `weekStart/weekEnd` ISO when startDate set / null when not, `teamwork.markerFormat === 'quarter-cycle:{planId}:{clientId}:{week}'`; plan deleted after mint → 404.
-  - receipt: scope enforced (mint a read-only token by hand via jose in-test if cheap, else skip), valid → 200 and plan row has `teamworkPushedAt` set + parsed summary matching the clamped body; negative/garbage counts → clamped to 0; malformed JSON → 400.
+  - receipt: **scope-negative test is REQUIRED (Codex plan-fix #6)** — hand-mint a `qct_` token carrying only `scope: ['read']` via `jose` in-test (same issuer/audience/secret as the lib's dev fallback) and assert the receipt route 401s with `token_missing_scope`; valid token → 200 and plan row has `teamworkPushedAt` set + parsed summary matching the clamped body; **receipt against a non-latest plan → 404 (Codex plan-fix #5)** — create a second plan row directly via prisma, then POST the old plan's receipt; negative/garbage counts → clamped to 0; malformed JSON → 400.
 - [ ] **Step 2: Run → FAIL.** **Step 3: Implement mint** (auth: same cookie-check helper the seo-roadmap mint route uses — read `app/api/seo-roadmap/by-session/[sessionId]/mint-token/route.ts` and mirror):
 ```ts
 const plan = await prisma.quarterPlan.findFirst({ orderBy: { id: 'desc' } })
@@ -266,6 +274,9 @@ const pushable = await prisma.quarterAssignment.findFirst({
     client: { archivedAt: null, teamworkTasklistId: { not: null } } },
   select: { id: true },
 })
+// If the generated types reject the bare to-one relation filter, the correct
+// fallback is `client: { is: { archivedAt: null, teamworkTasklistId: { not: null } } }`
+// — NOT an unsafe two-query filter (Codex plan-fix #7).
 if (!pushable) return NextResponse.json({ error: 'nothing_planned' }, { status: 409 })
 const { token, expiresAt } = await mintQuarterPushToken(String(plan.id))
 return NextResponse.json({ token, expiresAt, planId: plan.id })
@@ -276,7 +287,7 @@ const dates = plan.startDate ? getWeekDates(plan.startDate, a.week!) : null
 return { clientId: a.clientId, clientName: a.client.name, week: a.week, weekStart: dates?.weekStart ?? null, weekEnd: dates?.weekEnd ?? null, priority: a.priority, status: a.status, note: a.note, completed: a.completedAt != null, tasklistId: a.client.teamworkTasklistId }
 ```
 plus envelope `{ planId: plan.id, planName: plan.name, startDate: plan.startDate, generatedAt: new Date().toISOString(), assignments, teamwork: { taskType: 'task', rules: { addTimeEstimates: false, usePriorityFlags: false }, titleFormat: plan.startDate ? '[SEO] Quarter Cycle — Week {week} ({range})' : '[SEO] Quarter Cycle — Week {week}', markerFormat: 'quarter-cycle:{planId}:{clientId}:{week}' } }`.
-- [ ] **Step 5: Implement receipt** — same Bearer/verify with `receipt-write` scope; body JSON try-catch → 400; `const clamp = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0`; update ONLY the two metadata columns; 404 on P2025/stale plan. Return `{ ok: true }`.
+- [ ] **Step 5: Implement receipt** — same Bearer/verify with `receipt-write` scope; **latest-plan check identical to export (Codex plan-fix #5):** load `quarterPlan.findFirst({ orderBy: { id: 'desc' } })`, 404 unless `String(plan.id) === planIdParam` — a valid old token must never write push metadata onto a superseded plan; body JSON try-catch → 400; `const clamp = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0`; update ONLY the two metadata columns. Return `{ ok: true }`.
 - [ ] **Step 6: Tests pass.** **Step 7: Commit** `feat(b5): qct_ push mint/export/receipt routes`.
 
 ### Task 9: Push button + GridHeader wiring
@@ -297,7 +308,7 @@ export function composeQuarterPushPayload({ webappUrl, planId, token }: { webapp
 }
 ```
 - [ ] **Step 2: Button** — copy `GenerateRoadmapButton.tsx` structurally: states `idle|minting|copied|mint-failed|nothing-planned|service-error`; POST `/api/quarter-plan/push/mint-token`; 409 → `nothing-planned` ("Nothing to push", 3 s reset); 500 → `service-error`; success → compose + clipboard with `window.prompt` fallback (no MemoPollerTrigger — there is no poller for this flow). Styling: match GridHeader's inline-style buttons (e.g. the Import CSV outline-button look, color `#38bdf8`), label `⇪ Push to Teamwork`.
-- [ ] **Step 3: GridHeader** — new props `pushMeta: { pushedAt: string; summary: PushSummary | null } | null`; render the button in the controls row after Import CSV, and when `pushMeta` is set a 10px muted line under the legend: `Last pushed {new Date(pushedAt).toLocaleDateString()}{summary ? \` · ${summary.created} tasks\` : ''}`. Page passes `pushMeta={plan.pushMeta}`.
+- [ ] **Step 3: GridHeader** — new props `pushMeta: { pushedAt: string; summary: PushSummary | null } | null`; render the button in the controls row after Import CSV, and when `pushMeta` is set a 10px muted line under the legend: `Last pushed {new Date(pushedAt).toLocaleDateString()}{summary ? \` · ${summary.created} tasks\` : ''}`. Page passes `pushMeta={plan.pushMeta}`. **Deliberate limitation (Codex plan-fix #8): the indicator updates on page reload only** — the receipt is posted by the external skill while the grid tab sits idle; no poller is added. The button's `title` attribute states "Updates after reload".
 - [ ] **Step 4: Component tests** — mint OK → clipboard called with payload containing `Access token: qct_`; 409 → "Nothing to push"; failure → retry label. Run → PASS.
 - [ ] **Step 5:** tsc clean; **Commit** `feat(b5): Push-to-Teamwork button + last-pushed indicator`.
 
@@ -342,7 +353,7 @@ export async function getClientQuarterContext(clientId: number): Promise<Quarter
 }
 ```
 - [ ] **Step 3: Card component** — server-component-friendly presentational card (props = `QuarterContext | null`), styled like the existing Scorecard cards (read `components/clients/Scorecard.tsx` for the container classes incl. `dark:` variants). Content: title "Quarter plan"; if null → "Not in the current quarter plan"; week null → "In pool — not scheduled"; else `Week {n}{weekRange ? \` (${weekRange})\` : ''}` + P-badge (PCOLORS from `components/quarter-grid/theme.ts`), status dot+label (STATUS_COLORS/STATUS_LABELS), note when non-empty, "✓ Done {date}" when completed, latest-activity line via `ACTIVITY_LABELS`, footer link `View grid →` to `/quarter-grid`.
-- [ ] **Step 4: Page wiring** — `/clients/[id]/page.tsx`: call `getClientQuarterContext(clientId)` alongside the dashboard load (Promise.all), render the card as the 4th item in the scorecards grid (read the page first; adjust the grid cols class, e.g. `lg:grid-cols-3` → `lg:grid-cols-4`, or place in an adjacent row if the layout fights). ClientHeader: accept `archivedAt` and render an "Archived" pill when set (the dashboard service must select archivedAt — extend its client select).
+- [ ] **Step 4: Page wiring** — `/clients/[id]/page.tsx`: call `getClientQuarterContext(clientId)` alongside the dashboard load (Promise.all), render the card as the 4th item in the scorecards grid (read the page first; adjust the grid cols class, e.g. `lg:grid-cols-3` → `lg:grid-cols-4`, or place in an adjacent row if the layout fights). ClientHeader: accept `archivedAt` and render an "Archived" pill when set. **Explicit service change (Codex plan-fix #9):** `getClientDashboard` in `lib/services/client-dashboard.ts` does not currently select `archivedAt` — add it to the client select AND to the service's returned client type, then thread it through the page into ClientHeader.
 - [ ] **Step 5: Component tests** — null/pool/scheduled/completed variants render the right strings. Run → PASS.
 - [ ] **Step 6:** tsc clean; **Commit** `feat(b5): quarter-context card on client dashboard + archived badge`.
 

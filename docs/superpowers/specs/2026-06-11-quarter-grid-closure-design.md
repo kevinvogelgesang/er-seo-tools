@@ -259,6 +259,10 @@ Mirrors the srt_ 3-file pattern (`lib/seo-roadmap-token.ts` /
 - **Manage page (`/clients/manage`)**: active rows get **Archive** (with the
   existing confirm pattern) instead of Delete; a "Show archived" toggle reveals
   archived rows with **Restore** and **Delete** (confirm) actions.
+- **Quarter grid `removeClient`** (the pool's remove affordance) switches from
+  `DELETE /api/clients/{id}` to `PATCH { archived: true }` — post-B5 the
+  DELETE would 409 (`archive_first`) and silently leave the client in the DB
+  while the UI removed it (Codex plan review).
 
 ### 5. Dashboard quarter-context card
 
