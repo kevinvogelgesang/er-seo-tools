@@ -36,26 +36,31 @@ Spine items — everything else depends on these two:
   merged PR #54, deployed + verified 2026-06-10). Spec:
   `../archive/specs/2026-06-10-durable-job-queue-phase4-design.md`.
   **DONE** — all four phases shipped and production-verified.
-- [~] **A2. Normalized findings layer** (2–3 wks)
+- [x] **A2. Normalized findings layer** (2–3 wks)
   `CrawlRun` / `CrawlPage` / `Finding` / `Violation`; dual-write from parse +
   ADA runners; blobs demoted to archive columns; validate parity on 3–5
   representative clients before any reader flips.
-  Spec: `../specs/2026-06-10-findings-layer-design.md` (Codex ×10 fixes) ·
-  Plan (Phase 1): `../plans/2026-06-10-findings-layer-phase1.md` (Codex ×8
+  Spec: `../archive/specs/2026-06-10-findings-layer-design.md` (Codex ×10 fixes) ·
+  Plan (Phase 1): `../archive/plans/2026-06-10-findings-layer-phase1.md` (Codex ×8
   fixes) — **Phase 1 merged (PRs #55 + #56), deployed, production-verified
   2026-06-10** (PARITY OK on 2 real sessions; cross-run SQL queries working).
-  Plan (Phase 2): `../plans/2026-06-10-findings-layer-phase2.md` (Codex ×5
+  Plan (Phase 2): `../archive/plans/2026-06-10-findings-layer-phase2.md` (Codex ×5
   fixes) — **Phase 2 merged (PR #57), deployed, production-verified
   2026-06-10** (PARITY OK on 2 site audits + 1 standalone).
   DB-growth projection run 2026-06-10 (gated-decisions item: done for A2's
   purposes; C2 must add cadence-aware retention before nightly fleet scans).
-  Plan (Phase 3): `../plans/2026-06-11-findings-layer-phase3.md` (Codex ×4
+  Plan (Phase 3): `../archive/plans/2026-06-11-findings-layer-phase3.md` (Codex ×4
   fixes) — **Phase 3 merged (PR #58), deployed, production-verified
   2026-06-11** (fresh-run parity gate passed on 4 live parses + fresh site
   audits + 1 standalone; SessionPage reader flipped with legacy fallback;
   SessionPage writes stopped).
-  Next: Phase 4 (`pruneArchivedBlobs()` retention machinery, shipped inert;
-  CLAUDE.md + roadmap updates) — then A2 → `[x]`.
+  Plan (Phase 4): `../archive/plans/2026-06-11-findings-layer-phase4.md`
+  (Codex clean accept) — **Phase 4 shipped 2026-06-11**:
+  `pruneArchivedBlobs()` 90-d blob retention registered in `runCleanup()`,
+  INERT (`PRUNE_ACTIVATED` both `false`; each flag flips in the same PR as
+  that tool's last blob reader); CLAUDE.md findings-layer docs; A2 docs
+  archived. **A2 COMPLETE.** (`SessionPage` model drop stays a post-A2
+  follow-up, ≥180 d after the 2026-06-11 flip.)
 
 Interleave as needed (not blockers):
 
@@ -105,6 +110,7 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-06-11 — **A2 Phase 4 SHIPPED — A2 COMPLETE.** Plan (Codex review: clean accept, zero fixes — a first). Ships: `lib/findings/retention.ts` — `pruneArchivedBlobs(now?, activated?)` finds `CrawlRun`s per activated tool with `completedAt < now − 90 d`, `archivePrunedAt IS NULL`, origin FK non-null (SetNull ⇒ non-null FK proves the origin row exists), then per chunk of 100 in ONE array-form `$transaction` nulls the origin blob (`Session.result` / `SiteAudit.summary` / `AdaAudit.result`), keeps all scalars, stamps `archivePrunedAt`. SHIPPED INERT: `PRUNE_ACTIVATED = { 'seo-parser': false, 'ada-audit': false }` — each flag flips only in the same PR as that tool's last blob reader (A1 pattern). Scope: origin blob ONLY — site-audit child `AdaAudit.result` blobs are NOT pruned (the results view still reads them; extending to children is the future ada-audit activation PR's decision). Registered in `runCleanup()`'s `Promise.allSettled` list. 10 new DB-backed tests (gated-off no-op, >90 d prune with scalars kept, recent/null-completedAt/already-pruned/SetNull-orphan exclusions, both ada origin shapes, per-tool isolation, 120-row chunking); suite 1,800 green; tsc + build clean. Close-out: findings layer documented in CLAUDE.md (Key files + Architecture patterns); spec + 4 phase plans archived to `docs/superpowers/archive/`. A2 `[~]` → `[x]`. Next: B1 (client dashboard MVP, doc 04 Phase 1a).
 - 2026-06-11 — **A2 Phase 3 SHIPPED (PR #58), deployed, and VERIFIED in production; A1 residual check PASSED.** Step 1 (the gate): fresh-run production parity on 5 representative clients, all through the LIVE hooks — 4 fresh parses via the real upload+parse API (glowcollegecanada.ca 311 pages, nuvani.edu, manhattanschool.edu, proway.erstaging.site; SF exports re-uploaded from `~/enrollment-resources/sf-crawls/`), 4 fresh site audits (glow 290p, nuvani 122p, manhattanschool 67p, innovatesalonacademy 102p — all 0 errors), and 1 fresh standalone ADA audit (innovate — closes the last untested live hook): **PARITY OK on all 9 runs**, 0 `[findings] dual-write failed` log lines. Step 2+3 (the flips, plan Codex-reviewed ×4): pages reader → `CrawlPage` + page-level `Finding` join (issueTypes/issueCount from the join, filter via `findings.some`, sort via relation `_count`) with verbatim `SessionPage` fallback for pre-A2 sessions; parse route stopped writing `SessionPage` rows (deleteMany kept); `normalizeFindingUrl` extracted client-safe; `PageDetailModal` normalized-URL matching incl. `groups[*].urls`. 15 new tests (4 DB-backed proving the relation-`_count` orderBy on real SQLite); suite 1,790 green. Production verification: pre/post glow comparison (0 scalar diffs, issueTypes superset on all 149 overlapping URLs, 105 richer, total 312→311 = 1 dup deduped); `?issueType=duplicate_h1` → exactly 38 rows (non-derivable filters now work, was 0); legacy no-CrawlRun session serves via fallback; modal fix proven on prod data (root URLs: old 0 matches → new 2–4; non-root 5=5); deploy restart mid-run resumed the in-flight audit (122 durable jobs). A1 residual: `cleanup` completed at the 2026-06-11 09:00 UTC slot (attempts 1), 0 terminal Job rows >7 d. Next: Phase 4 (retention machinery, shipped inert) → A2 `[x]`.
 - 2026-06-11 — **A2 Phase 2 live-hook verification PASSED.** Fresh human-triggered site audit on www.nyinstituteofmassage.com (23 pages incl. 1 redirected, 11/11 PDFs, 22/22 LH, 0 errors): the finalizer hook wrote the CrawlRun 9 ms after the terminal update (score 88, 4 findings / 4 violations); `findings-parity.ts` → PARITY OK incl. the summary.aggregate cross-check. Remaining live-hook check (standalone route) folds into Phase 3 step 1.
 - 2026-06-10 — **A2 Phase 2 (ADA dual-write) merged (PR #57), deployed, and VERIFIED in production.** Plan written via writing-plans + Codex review (accept-with-fixes ×5: deterministic child ordering at all three load sites, vi.hoisted mock state, summary-corruption aggregate test, null-summary parity failure; all applied). Ships: `lib/findings/ada-mapper.ts` (mapAdaChildren + mapAdaSingle — severity critical/serious→critical, moderate→warning, minor→notice; exact axe impact on Violation with 'unknown' sentinel for null; nodes capped 5×300 chars; keep-first URL dedupe; mapper-computed scores — site runs via computeScoreFromCounts, pages/standalone via computeScore), `lib/findings/ada-write.ts`, finalizer hook (fire-and-forget AFTER terminal update + batch close + promoter kick, hoisted completedAt, widened select, deterministic child orderBy), standalone route hook (complete + redirected), compareAdaParity/compareAdaSingleParity (incl. independent Violation-rows-vs-summary.aggregate cross-check), CLI auto-detect of id type. 34 new tests; suite 1,787 green (172 files); tsc + build clean. Production verification: boot error-free; rebuild + parity → **PARITY OK on proway.erstaging.site (24 pages / 2 violations), nyinstituteofmassage.com (23 pages incl. 1 redirected child / 4 violations), and 1 standalone audit**. Live hooks fire on the next real audits — re-check parity then. Next: Phase 3 (production parity on 3–5 representative clients with fresh runs, then SessionPage reader flip).
