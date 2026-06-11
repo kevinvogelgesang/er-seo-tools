@@ -25,6 +25,7 @@ model Client {
   adaAudits             AdaAudit[]
   siteAudits            SiteAudit[]
   schedules             Schedule[]
+  crawlRuns             CrawlRun[]
 }
 
 model Session {
@@ -49,6 +50,7 @@ model Session {
   warningCount    Int?
   noticeCount     Int?
   pages           SessionPage[]
+  crawlRun        CrawlRun?
 
   @@index([createdAt])
   @@index([status])
@@ -96,6 +98,7 @@ model AdaAudit {
   finalUrl         String?
   redirected       Boolean    @default(false)
   checks           AdaAuditCheck[]
+  crawlRun         CrawlRun?
 
   @@unique([siteAuditId, url])
   @@index([createdAt])
@@ -139,6 +142,7 @@ model SiteAudit {
   completedAt      DateTime?
   pagesRedirected  Int       @default(0)
   checks           SiteAuditCheck[]
+  crawlRun         CrawlRun?
 
   @@index([createdAt])
   @@index([status])
@@ -318,6 +322,105 @@ model Job {
   @@index([type, status])
   @@index([groupKey, status])
   @@index([createdAt])
+}
+
+model CrawlRun {
+  id              String     @id @default(cuid())
+  createdAt       DateTime   @default(now())
+  tool            String     // 'seo-parser' | 'ada-audit'
+  source          String     // 'sf-upload' | 'site-audit' | 'page-audit' (reserved: 'live-scan')
+  domain          String?    // normalized host
+  clientId        Int?
+  client          Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  sessionId       String?    @unique
+  session         Session?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  siteAuditId     String?    @unique
+  siteAudit       SiteAudit? @relation(fields: [siteAuditId], references: [id], onDelete: SetNull)
+  adaAuditId      String?    @unique // standalone page audits only
+  adaAudit        AdaAudit?  @relation(fields: [adaAuditId], references: [id], onDelete: SetNull)
+  status          String     // 'complete' | 'partial'
+  score           Int?       // healthScore (seo-parser) | site/page score (ada-audit)
+  wcagLevel       String?    // ada runs only
+  pagesTotal      Int        @default(0)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  archivePrunedAt DateTime?  // set when the origin row's blob was pruned
+  pages           CrawlPage[]
+  findings        Finding[]
+  violations      Violation[]
+
+  @@index([clientId, tool, createdAt])
+  @@index([domain, createdAt])
+  @@index([createdAt])
+}
+
+model CrawlPage {
+  id              String   @id @default(cuid())
+  runId           String
+  run             CrawlRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  url             String   // normalized via normalizeFindingUrl
+  status          String?  // ada: 'complete' | 'error' | 'redirected'; seo: null
+  error           String?
+  finalUrl        String?
+  statusCode      Int?
+  title           String?
+  h1              String?
+  metaDescription String?
+  wordCount       Int?
+  crawlDepth      Int?
+  indexable       Boolean?
+  score           Int?     // ada page score (mapper-computed)
+  adaAuditId      String?  // drill-through to the child AdaAudit (no FK)
+  findings        Finding[]
+  violations      Violation[]
+
+  @@unique([runId, url])
+  @@index([runId])
+}
+
+model Finding {
+  id               String     @id @default(cuid())
+  runId            String
+  run              CrawlRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  pageId           String?
+  page             CrawlPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  scope            String     // 'run' | 'page' — never inferred from pageId
+  type             String     // seo issue-type id | axe ruleId
+  severity         String     // 'critical' | 'warning' | 'notice'
+  url              String?    // normalized URL for page-scope findings (kept when pageId null)
+  count            Int        @default(1)
+  affectedComplete Boolean?   // run-scope SEO: issue.affectedUrlRefsComplete
+  affectedSource   String?    // run-scope SEO: issue.affectedUrlSource
+  detail           String?    // capped JSON
+  dedupKey         String     // sha256 of canonical JSON
+  violation        Violation?
+
+  @@unique([runId, dedupKey])
+  @@index([runId, severity])
+  @@index([runId, scope])
+  @@index([type])
+  @@index([pageId])
+}
+
+model Violation {
+  id        String    @id @default(cuid())
+  findingId String    @unique
+  finding   Finding   @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  runId     String
+  run       CrawlRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  pageId    String
+  page      CrawlPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  ruleId    String
+  impact    String    // exact axe impact
+  wcagTags  String    // JSON string[]
+  help      String?
+  helpUrl   String?
+  nodeCount Int       @default(0)
+  nodes     String?   // capped node JSON
+
+  @@index([runId, impact])
+  @@index([ruleId])
+  @@index([pageId])
 }
 
 model Schedule {
