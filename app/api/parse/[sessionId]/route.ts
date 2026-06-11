@@ -9,6 +9,7 @@ import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 import { buildSessionPages } from '@/lib/services/session-page-builder';
 import { normalizeHost } from '@/lib/services/normalize-host';
 import { missingCoreExports } from '@/lib/parsers/expected-exports';
+import { writeSeoFindings } from '@/lib/findings/seo-write';
 
 export const dynamic = 'force-dynamic';
 
@@ -247,6 +248,15 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         },
       }),
     ]);
+
+    // Dual-write the normalized findings run (A2). Best-effort: the blob
+    // committed above is the source of truth; a findings failure must never
+    // fail the parse.
+    try {
+      await writeSeoFindings(sessionId, result, clientId);
+    } catch (err) {
+      console.error('[findings] dual-write failed for session', sessionId, err);
+    }
 
     // Fire-and-forget trigger; never throws.
     // Cleanup of uploadDir is the pillar route's responsibility now (it needs
