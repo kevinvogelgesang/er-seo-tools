@@ -174,3 +174,16 @@ export function getWeekRange(startDate: string, weekNum: number): string | null 
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`
   return `${fmt(mon)}–${fmt(fri)}`
 }
+
+/** ISO yyyy-mm-dd Monday/Friday bounds for a plan week; null when startDate is unset/invalid. */
+export function getWeekDates(startDate: string, weekNum: number): { weekStart: string; weekEnd: string } | null {
+  if (!startDate) return null
+  const base = new Date(startDate + 'T00:00:00')
+  if (isNaN(base.getTime())) return null
+  const mon = new Date(base)
+  mon.setDate(base.getDate() + (weekNum - 1) * 7)
+  const fri = new Date(mon)
+  fri.setDate(mon.getDate() + 4)
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { weekStart: iso(mon), weekEnd: iso(fri) }
+}

@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   removeFromSchedule, dropChipOnSlot, frontierWeek, placeInWeek,
-  nextPoolChipId, sortPool, autoDistributeSchedule, applyCsvRows, getWeekRange,
+  nextPoolChipId, sortPool, autoDistributeSchedule, applyCsvRows, getWeekRange, getWeekDates,
   type GridClient,
 } from './grid-ops'
 
@@ -148,5 +148,19 @@ describe('getWeekRange', () => {
   it('returns null for empty or garbage startDate', () => {
     expect(getWeekRange('', 1)).toBeNull()
     expect(getWeekRange('not-a-date', 1)).toBeNull()
+  })
+})
+
+describe('getWeekDates', () => {
+  it('returns ISO Monday/Friday bounds for the requested week', () => {
+    expect(getWeekDates('2026-06-15', 1)).toEqual({ weekStart: '2026-06-15', weekEnd: '2026-06-19' })
+    expect(getWeekDates('2026-06-15', 3)).toEqual({ weekStart: '2026-06-29', weekEnd: '2026-07-03' })
+  })
+  it('crosses year boundaries', () => {
+    expect(getWeekDates('2026-12-28', 2)).toEqual({ weekStart: '2027-01-04', weekEnd: '2027-01-08' })
+  })
+  it('returns null for empty or garbage startDate', () => {
+    expect(getWeekDates('', 1)).toBeNull()
+    expect(getWeekDates('not-a-date', 1)).toBeNull()
   })
 })
