@@ -20,20 +20,22 @@ up by reading the handoff doc alone.
 
 Spine items — everything else depends on these two:
 
-- [~] **A1. Durable job queue + Schedule table** (2–2.5 wks)
+- [x] **A1. Durable job queue + Schedule table** (2–2.5 wks)
   Job table (claim via conditional update, heartbeat, retries, dedupKey,
   type-keyed concurrency) + worker loop + cron-ish Schedule tick.
   Migrate in order: PSI jobs → PDF scans → site-audit page loop → cleanup.
   Old path stays behind a flag until parity proven.
-  Specs: `../specs/2026-06-10-durable-job-queue-design.md` ·
-  `../specs/2026-06-10-durable-job-queue-phase3-design.md` ·
-  Plans: `../plans/2026-06-10-durable-job-queue.md` (Phases 0–1, done) ·
-  `../plans/2026-06-10-durable-job-queue-phase2.md` (close-out + Phase 2,
-  done) · `../plans/2026-06-10-durable-job-queue-phase3.md` (page loop,
+  Specs: `../archive/specs/2026-06-10-durable-job-queue-design.md` ·
+  `../archive/specs/2026-06-10-durable-job-queue-phase3-design.md` ·
+  Plans: `../archive/plans/2026-06-10-durable-job-queue.md` (Phases 0–1,
+  done) · `../archive/plans/2026-06-10-durable-job-queue-phase2.md`
+  (close-out + Phase 2, done) ·
+  `../archive/plans/2026-06-10-durable-job-queue-phase3.md` (page loop,
   merged PR #53, deployed + production-verified 2026-06-10) ·
-  `../plans/2026-06-10-durable-job-queue-phase4.md` (cleanup ticks, PR #54
-  open). Spec: `../specs/2026-06-10-durable-job-queue-phase4-design.md`.
-  Remaining: merge/deploy PR #54 + post-deploy verification, then A1 is done.
+  `../archive/plans/2026-06-10-durable-job-queue-phase4.md` (cleanup ticks,
+  merged PR #54, deployed + verified 2026-06-10). Spec:
+  `../archive/specs/2026-06-10-durable-job-queue-phase4-design.md`.
+  **DONE** — all four phases shipped and production-verified.
 - [ ] **A2. Normalized findings layer** (2–3 wks)
   `CrawlRun` / `CrawlPage` / `Finding` / `Violation`; dual-write from parse +
   ADA runners; blobs demoted to archive columns; validate parity on 3–5
@@ -87,6 +89,7 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-06-10 — **A1 COMPLETE. PR #54 merged + deployed + verified in production.** Migration `20260610230000_schedule_name` applied cleanly; boot log error-free. All three `system-*` Schedule rows seeded and enabled (cleanup `daily@09:00` → next run 2026-06-11 09:00 UTC; screenshot-sweep `every:30m` + stale-audit-reset `every:10m`, both fired their immediate first-seed slot and completed within ~2 min of boot). Residual next-day check: confirm a `cleanup` job completes at the 09:00 UTC slot and terminal Job rows >7 d are pruned. A1 `[~]` → `[x]` — the durable job queue (Phases 0–4) is fully shipped. Next: A2 (normalized findings layer).
 - 2026-06-10 — Tracker created. All items not started. Roadmap docs written + Codex-reviewed (accept-with-fixes, fixes applied).
 - 2026-06-10 — **A1 meaningfully advanced** (Phases 0–1 of 4): Job + Schedule schema, worker loop (fenced claim/heartbeat/settle, timeout, type-keyed concurrency, backoff, onExhausted), startup/stale recovery, scheduler tick (exactly-once-per-slot), introspection, and PSI migrated behind `JOB_QUEUE_PSI` flag (default off) with flag-aware `recoverQueue`/`resetStaleAudits` survival logic. Spec + plan each Codex-reviewed (accept-with-fixes ×2, all fixes applied). 38 new tests; full suite 1,659 green; build green. Branch `feat/durable-job-queue` → PR. Remaining: Phase 2 (PDF scans), Phase 3 (page loop), Phase 4 (cleanup ticks), parity verification + flag flip + legacy-pool deletion.
 - 2026-06-10 — **A1 PSI parity PASSED in production.** PR #50 merged + deployed; `JOB_QUEUE_PSI=1` enabled in `ecosystem.config.js`. Run 1 (proway.erstaging.site, 20 pages): complete, 19/19 lighthouse, 0 errors — exact match with legacy runs. Run 2: PM2 restarted mid-`lighthouse-running` with 10 PSI jobs in flight — startup recovery re-queued all 10 (`attempts=2`, lastError "interrupted by restart"), `recoverQueue` resumed the parent instead of failing it, audit completed 19/19 with no errors. Remaining for Phase 1 close-out: delete the legacy in-memory pool + flag branching in `lighthouse-queue.ts`.

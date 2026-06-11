@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-10 · **Updated by:** A1 Phase 4 build session (PR #54)
+**Last updated:** 2026-06-10 · **Updated by:** A1 close-out session (PR #54 merged + verified)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,42 +23,44 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **Done & deployed:** A1 Phases 0–3 — job queue core, PSI, PDF scans, and
-  the site-audit page loop (PRs #50–#53), all production-verified
-  2026-06-10. The entire site-audit pipeline is durable.
-- **Built, awaiting merge:** A1 Phase 4 (PR #54,
-  `feat/job-queue-phase4-cleanup-ticks`) — the three recurring timers
-  (daily `runCleanup`, 10-min `resetStaleAudits`, 30-min screenshot sweep)
-  are now seeded `system-*` Schedule rows + thin job handlers;
-  `instrumentation.ts` owns no `setInterval`s; terminal Job-row retention
-  added to `runCleanup()` (`lib/jobs/retention.ts`). Spec + plan
-  Codex-reviewed, all fixes applied. 1,726 tests green; tsc + build green.
+- **A1 is DONE.** All four phases of the durable job queue (PRs #50–#54) are
+  merged, deployed, and production-verified 2026-06-10. PSI, PDF scans, the
+  site-audit page loop, and all recurring maintenance (daily `runCleanup`,
+  10-min `resetStaleAudits`, 30-min screenshot sweep) run through the
+  `Job`/`Schedule` tables; `instrumentation.ts` owns no `setInterval`s;
+  terminal Job rows are pruned by `lib/jobs/retention.ts`.
+- **Residual next-day check (non-blocking):** confirm a `cleanup` job
+  completes at the 2026-06-11 09:00 UTC slot and terminal Job rows older
+  than 7 d are pruned. (Immediate first-seed slots for screenshot-sweep and
+  stale-audit-reset already verified complete in production.)
 - **Blocked / gated:** Anthropic API billing decision (gates 03 Phase 3);
-  DB-growth projection and sitemap miss-rate measurement not yet run.
+  **DB-growth projection not yet run — A2's roadmap section says to validate
+  growth assumptions early, so do it during the A2 spec**; sitemap miss-rate
+  measurement not yet run.
 
 ## Next item
 
-**Merge + deploy PR #54, verify in production, then mark A1 `[x]` in the
-tracker** (it's the last Phase of A1). After that, the next tracker item is
-**A2 (normalized findings layer)** — or interleave A3/A4 if preferred.
+**A2. Normalized findings layer** (2–3 wks) — tracker Track A. Read
+`../nyi/improvement-roadmaps/06-platform.md` § "2. Normalized findings
+layer", plus the schema discussions it references in `01-seo-parser.md` and
+`02-ada-audit.md` (the findings schema is shared across both tools).
 
-Post-deploy verification checklist (also at the bottom of
-`../plans/2026-06-10-durable-job-queue-phase4.md`):
+Key shape (decisions already made — see Gotchas):
 
-1. Boot log clean — no errors from `seedSystemSchedules`; deploy migration
-   `20260610230000_schedule_name` applies.
-2. `sqlite3 /home/seo/data/seo-tools/db.sqlite "SELECT name, jobType,
-   cadence, enabled, datetime(nextRunAt/1000,'unixepoch') FROM Schedule
-   WHERE name LIKE 'system-%'"` → three enabled rows.
-3. Within ~2 min: `SELECT type, status, COUNT(*) FROM Job WHERE type IN
-   ('screenshot-sweep','stale-audit-reset') GROUP BY 1,2` → completed runs
-   (`cleanup` waits for its 09:00 UTC slot — the inline startup
-   `runCleanup()` covers boot).
-4. Next day: a `cleanup` job completed at the 09:00 slot; terminal Job rows
-   older than 7 d are gone.
+- New tables `CrawlRun` / `CrawlPage` / `Finding` / `Violation`, keyed to
+  client + run + dedupKey. (`CrawlPage`, not `Page` — avoids colliding with
+  the derived `SessionPage` model; `SessionPage` gets absorbed or retired.)
+- Raw blobs demoted to archive columns; retention: archive pruned at 90 d,
+  findings kept.
+- **Dual-write first** from the parser + ADA runners; migrate readers tool
+  by tool; never backfill old blobs. Validate parity on 3–5 representative
+  clients before flipping any reader.
+- Run the DB-growth projection (nightly ADA + Live SEO across the fleet)
+  during the spec, before committing retention windows.
 
-When verified: tracker A1 `[ ~ ]` → `[x]` + status-log line + rewrite this
-doc for A2.
+This is a big item — start with brainstorming → spec → Codex review → plan →
+Codex review → implement, phased like A1 was. After A2, Track A interleaves
+(A3 route kit, A4 observability) and B2/C3/C5 unlock.
 
 ## Gotchas / decisions already made (don't relitigate)
 
@@ -76,19 +78,20 @@ doc for A2.
   `NOT EXISTS` guard**; `discoveredUrls`+`pagesTotal` written together;
   PDFs dispatch BEFORE the page settle; domain errors settle / DB errors
   throw; `failSiteAudit` never clobbers terminal parents.
-- Phase 4 invariants (new): `system-` is a **reserved, code-owned Schedule
+- Phase 4 invariants: `system-` is a **reserved, code-owned Schedule
   namespace** — the seed re-enables manual disables at every boot (operator
-  kill switch = env flag, not DB mutation); retired `system-*` rows are
-  disabled and their queued jobs cancelled; Job retention must never delete
-  a job referenced by `Schedule.lastJobId` or holding its schedule's
-  current `(scheduleId, nextRunAt)` slot (the durable exactly-once-per-slot
-  record); maintenance handlers are maxAttempts 1 — the next slot is the
-  retry; boot order is register handlers → recoverJobsOnStartup →
-  recoverQueue → **seedSystemSchedules** → startJobWorker.
+  kill switch = env flag, not DB mutation); Job retention never deletes a
+  job referenced by `Schedule.lastJobId` or holding its schedule's current
+  `(scheduleId, nextRunAt)` slot; maintenance handlers are maxAttempts 1 —
+  the next slot is the retry; boot order is register handlers →
+  recoverJobsOnStartup → recoverQueue → seedSystemSchedules → startJobWorker.
 - groupKey `site-audit:<id>` is shared by all four site-audit job types;
   scheduled jobs get groupKey `schedule:<id>`.
 - Standalone single-page audits are untouched: own POST-driven runner,
   `ada-audit:<id>` PDF groups, NULL `siteAuditId`.
+- A2 schema names are settled: `CrawlRun` / `CrawlPage` / `Finding` /
+  `Violation`; dual-write + parity on 3–5 clients before readers flip;
+  never backfill old blobs.
 - Test gotchas: the one-active guard and promoter are GLOBAL over the
   shared dev DB — test files touching promotion neutralize stray audits in
   `clearTestState`. **`system-schedules.test.ts` creates real `system-*`
@@ -100,11 +103,10 @@ doc for A2.
   `DATABASE_URL="file:./local-dev.db"` prefixed. `prisma migrate dev` is
   interactive-only — generate SQL via `prisma migrate diff`, write the
   migration folder by hand, apply with `prisma migrate deploy`.
-- Findings tables (A2) are named `CrawlRun` / `CrawlPage` / `Finding` /
-  `Violation`; dual-write + parity on 3–5 clients before readers flip.
+- **Server has no `sqlite3` CLI** — verify production DB state via node +
+  Prisma from `/home/seo/webapps/seo-tools` (`bash -lc` for the node PATH).
 - Codex reviews: route new specs/plans through Codex per Kevin's standing
-  instruction (Phase 4 session: 2 consults, accept-with-fixes ×5 spec /
-  ×4 plan, all applied).
+  instruction.
 
 ## History
 
@@ -116,3 +118,4 @@ doc for A2.
 - 2026-06-10 — **A1 Phase 3 built** on `feat/job-queue-phase3-page-loop`; PR #53 opened. Page loop fully durable (`site-audit-discover` + `site-audit-page`), mutex deleted, `running` parents restart-survivable, browser recycling pool-level, AdaAudit unique index + dedupe migration. 1,704 tests green. Next: merge/deploy + restart-test mid-`running`, then Phase 4 (cleanup ticks).
 - 2026-06-10 — **PR #53 merged + deployed + production-verified** (clean PDF run with exact counters, queue-order hold/auto-promote, restart-resume mid-`running` 24/24). A1 Phases 0–3 all shipped. Next: Phase 4 (cleanup ticks) closes out A1.
 - 2026-06-10 — **A1 Phase 4 built** on `feat/job-queue-phase4-cleanup-ticks`; PR #54 opened. `Schedule.name` + `seedSystemSchedules()` (three `system-*` rows, retired-row sweep), three maintenance handlers, zero `setInterval`s in `instrumentation.ts`, terminal Job-row retention with slot-record guard. Spec + plan Codex-reviewed (×5/×4 fixes applied). 1,726 tests green. Next: merge/deploy + verify, then A1 → `[x]`.
+- 2026-06-10 — **PR #54 merged + deployed + verified; A1 COMPLETE.** Migration applied, boot clean, three `system-*` schedules seeded/enabled, immediate first-seed slots for screenshot-sweep + stale-audit-reset completed in production. Residual next-day check: cleanup at the 2026-06-11 09:00 UTC slot + retention prune. Next: A2 (normalized findings layer).
