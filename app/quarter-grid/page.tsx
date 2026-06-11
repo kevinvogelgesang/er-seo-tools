@@ -2,6 +2,15 @@
 
 import { useState, useEffect, useRef, memo, useCallback } from 'react'
 import Papa from 'papaparse'
+import {
+  parseStoredQuarterState,
+  buildPlanPayload,
+  applyPlanResponse,
+  sanitizeSnapshotForApply,
+  type QuarterPlanGetResponse,
+  type QuarterPlanPayload,
+  type ClientStateMap,
+} from '@/lib/quarter-grid/state'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -166,7 +175,21 @@ export default function QuarterGridV3() {
   const [hoveredPoolChipId, setHoveredPoolChipId] = useState<number | null>(null)
   const [newClientName, setNewClientName]         = useState("")
   const [addClientOpen, setAddClientOpen]         = useState(false)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // Persistence is enabled ONLY once we positively know the DB state: plan
+  // loaded, import settled, or confirmed-empty DB. A failed /api/clients or
+  // /api/quarter-plan fetch leaves this false so a debounced PUT can never
+  // clobber (or pre-empt the import of) a plan we couldn't see.
+  const [canPersist, setCanPersist] = useState(false)
   const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveSeqRef = useRef(0)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingPayloadRef = useRef<QuarterPlanPayload | null>(null)
+  // The persist effect fires once right after init (its deps change during
+  // hydration). Skip that run: merely OPENING the page must never write —
+  // an on-open save against an empty DB would create an empty plan and
+  // 409-block the real localStorage import from the analyst's browser.
+  const skipFirstPersistRef = useRef(false)
   const csvInputRef = useRef<HTMLInputElement | null>(null)
   const scheduleRef     = useRef(schedule)
   const clientsRef      = useRef(clients)
@@ -175,9 +198,12 @@ export default function QuarterGridV3() {
   useEffect(() => { clientsRef.current = clients }, [clients])
   useEffect(() => { slotsPerWeekRef.current = slotsPerWeek }, [slotsPerWeek])
 
-  // Clear pending toast timer on unmount
+  // Clear pending timers on unmount
   useEffect(() => {
-    return () => { if (toastTimer.current) clearTimeout(toastTimer.current) }
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current)
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
   }, [])
 
   // ─── Keyboard shortcuts when hovering a pool chip ────────────────────────
@@ -240,76 +266,189 @@ export default function QuarterGridV3() {
     toastTimer.current = setTimeout(() => setToast(null), 2800)
   }
 
-  // ─── Init: fetch clients from DB + restore localStorage ─────────────────
+  // ─── Init: fetch clients + plan from DB; one-time localStorage import ────
 
   useEffect(() => {
     const init = async () => {
-      // Fetch canonical client list from DB
+      // Canonical client list from DB
       let dbClients: { id: number; name: string }[] = []
+      let clientsOk = false
       try {
         const res = await fetch('/api/clients')
-        if (res.ok) dbClients = await res.json()
+        if (res.ok) { dbClients = await res.json(); clientsOk = true }
       } catch { /* ignore — show empty list */ }
+      const validIds = dbClients.map((c) => c.id)
 
-      // Load per-client scheduling state from localStorage
-      type ClientState = Record<number, { priority: number; status: ClientStatus; note: string }>
-      let clientState: ClientState = {}
+      let clientState: ClientStateMap = {}
+      const hydrate = (resp: QuarterPlanGetResponse): boolean => {
+        const applied = applyPlanResponse(resp, validIds)
+        if (!applied) return false
+        clientState = applied.clientState
+        setSchedule(applied.schedule)
+        setCompleted(new Set(applied.completed))
+        setSlots(applied.slotsPerWeek)
+        setLayouts(applied.layouts)
+        setStartDate(applied.startDate)
+        return true
+      }
+
+      let resp: QuarterPlanGetResponse | null = null
+      let getFailed = false
       try {
-        const raw = localStorage.getItem(STORAGE_KEY)
-        if (raw) {
-          const d = JSON.parse(raw)
-          // New format: clientState is a Record keyed by id
-          if (d.clientState) {
-            clientState = d.clientState
-          } else if (Array.isArray(d.clients)) {
-            // Old format: migrate clients array → clientState
-            for (const c of d.clients as Partial<Client>[]) {
-              if (c.id != null) {
-                clientState[c.id] = {
-                  priority: c.priority ?? 3,
-                  status: c.status ?? 'not_started',
-                  note: c.note ?? '',
-                }
-              }
-            }
-          }
-          if (d.schedule)               setSchedule(d.schedule)
-          if (d.completed)              setCompleted(new Set(d.completed))
-          if (d.slotsPerWeek)           setSlots(d.slotsPerWeek)
-          if (d.layouts ?? d.snapshots) setLayouts(d.layouts ?? d.snapshots)
-          if (d.startDate)              setStartDate(d.startDate)
-        }
-      } catch { /* ignore corrupt localStorage */ }
+        const res = await fetch('/api/quarter-plan')
+        if (res.ok) resp = await res.json()
+        else getFailed = true
+      } catch { getFailed = true }
 
-      // Merge DB clients with stored per-client state
+      // Persistence stays disabled unless we positively know the DB state.
+      // A failed clients fetch also disables it: with an empty validIds set,
+      // a save/import would write (and 409-arm) an EMPTY plan.
+      let persistAllowed = clientsOk && !getFailed
+
+      if (resp && resp.plan) {
+        hydrate(resp)
+      } else if (!getFailed) {
+        // Confirmed no DB plan: try the one-time localStorage import.
+        const stored = parseStoredQuarterState(
+          typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
+        )
+        if (stored && clientsOk) {
+          const payload = buildPlanPayload(stored, validIds)
+          const localResp: QuarterPlanGetResponse = {
+            plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '' },
+            assignments: payload.assignments,
+          }
+          try {
+            const res = await fetch('/api/quarter-plan/import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+            if (res.ok) {
+              hydrate(await res.json())
+              flash('⬆ Imported quarter plan from this browser')
+            } else if (res.status === 409) {
+              // Someone imported first — the DB wins.
+              const again = await fetch('/api/quarter-plan')
+              if (again.ok) {
+                if (!hydrate(await again.json())) hydrate(localResp)
+              } else {
+                hydrate(localResp)
+                persistAllowed = false
+              }
+            } else {
+              // Import failed with the DB confirmed empty — show local data
+              // but do NOT enable saves: a later PUT would create the plan
+              // and permanently 409-block re-running this import.
+              hydrate(localResp)
+              persistAllowed = false
+            }
+          } catch {
+            hydrate(localResp)
+            persistAllowed = false
+          }
+        }
+        // No stored payload: fresh empty grid; saves allowed (first PUT
+        // creates the singleton plan).
+      } else {
+        // GET failed — can't tell whether a plan exists. Show localStorage
+        // data read-only if present; never import or save blind.
+        const stored = parseStoredQuarterState(
+          typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
+        )
+        if (stored) {
+          const payload = buildPlanPayload(stored, validIds)
+          hydrate({
+            plan: { name: payload.name, startDate: payload.startDate, slotsPerWeek: payload.slotsPerWeek, layouts: payload.layouts, updatedAt: '' },
+            assignments: payload.assignments,
+          })
+        }
+      }
+
+      // Merge DB clients with per-client plan state
       const merged: Client[] = dbClients.map((c) => ({
         id: c.id,
         name: c.name,
         priority: clientState[c.id]?.priority ?? 3,
-        status:   clientState[c.id]?.status   ?? 'not_started',
-        note:     clientState[c.id]?.note      ?? '',
+        status: (clientState[c.id]?.status ?? 'not_started') as ClientStatus,
+        note: clientState[c.id]?.note ?? '',
       }))
       setClients(merged)
+      setCanPersist(persistAllowed)
+      if (!persistAllowed) setSaveState('error')
+      // Only now may the persist effect fire — flipping earlier would let a
+      // debounced empty save create a plan and 409-block the real import.
+      skipFirstPersistRef.current = true
       setLoaded(true)
     }
     init()
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const persist = (overrides = {}) => {
-    // Save per-client state (priority/status/note) keyed by id.
-    // The client list itself lives in the DB — no need to duplicate it here.
-    const clientState: Record<number, { priority: number; status: ClientStatus; note: string }> = {}
-    for (const c of clients) {
-      clientState[c.id] = { priority: c.priority, status: c.status, note: c.note }
-    }
-    const state = {
-      clientState, schedule, completed: Array.from(completed),
-      slotsPerWeek, layouts, startDate, ...overrides
-    }
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
+  const buildCurrentPayload = (): QuarterPlanPayload => {
+    const clientState: ClientStateMap = {}
+    for (const c of clients) clientState[c.id] = { priority: c.priority, status: c.status, note: c.note }
+    return buildPlanPayload(
+      { clientState, schedule, completed, slotsPerWeek, layouts, startDate },
+      clients.map((c) => c.id)
+    )
   }
 
-  useEffect(() => { if (loaded) persist() }, [clients, schedule, completed, slotsPerWeek, layouts, startDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Debounced full-state save — last write wins. localStorage is no longer
+  // written; the old seo-quarter-v3 key stays frozen as a pre-DB backup.
+  // The generation (saveSeqRef) increments at SCHEDULING time, not when the
+  // timer fires: if save A is in flight when edit B schedules, A's response
+  // sees a newer generation and can't mark the indicator "saved" while B's
+  // changes are still pending.
+  useEffect(() => {
+    if (!loaded || !canPersist) return
+    if (skipFirstPersistRef.current) { skipFirstPersistRef.current = false; return } // post-init echo, not a user edit
+    const seq = ++saveSeqRef.current
+    const payload = buildCurrentPayload()
+    pendingPayloadRef.current = payload
+    setSaveState('saving')
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      pendingPayloadRef.current = null
+      fetch('/api/quarter-plan', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then((res) => {
+          if (seq !== saveSeqRef.current) return // newer changes pending — leave the indicator to them
+          if (res.ok) setSaveState('saved')
+          else { setSaveState('error'); flash('⚠ Save failed — will retry on next change') }
+        })
+        .catch(() => {
+          if (seq !== saveSeqRef.current) return
+          setSaveState('error')
+          flash('⚠ Save failed — will retry on next change')
+        })
+    }, 800)
+  }, [clients, schedule, completed, slotsPerWeek, layouts, startDate, loaded, canPersist]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Best-effort flush when the tab closes mid-debounce. keepalive bodies are
+  // capped (~64 KB) so a large layouts blob may not make it — the debounced
+  // save above is the real persistence path.
+  useEffect(() => {
+    const onPageHide = () => {
+      if (saveTimerRef.current && pendingPayloadRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+        try {
+          fetch('/api/quarter-plan', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(pendingPayloadRef.current),
+            keepalive: true,
+          })
+        } catch { /* best-effort */ }
+      }
+    }
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [])
 
   // ─── Derived values ──────────────────────────────────────────────────────
 
@@ -392,10 +531,15 @@ export default function QuarterGridV3() {
 
   const applyLayout = (name: string) => {
     if (!name || !layouts[name]) return
-    const s = layouts[name]
-    setSchedule(s.schedule)
-    setCompleted(new Set(s.completed))
-    setClients(s.clients)
+    // A stale snapshot must not resurrect deleted clients or clobber current
+    // names — patch state onto the current DB client list only.
+    const sanitized = sanitizeSnapshotForApply(layouts[name], clients.map((c) => c.id))
+    setSchedule(sanitized.schedule)
+    setCompleted(new Set(sanitized.completed))
+    setClients((prev) => prev.map((c) => {
+      const patch = sanitized.clientPatches.get(c.id)
+      return patch ? { ...c, priority: patch.priority, status: patch.status as ClientStatus, note: patch.note } : c
+    }))
     setActiveLayout(name)
     flash(`📂 Loaded "${name}"`)
   }
@@ -644,6 +788,12 @@ export default function QuarterGridV3() {
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 15, fontWeight: 500, color: "#f1f5f9", letterSpacing: "-0.3px" }}>SEO Quarter Grid <span style={{ fontSize: 10, color: "#6366f1", background: "#1e1b4b", padding: "1px 6px", borderRadius: 4, marginLeft: 4 }}>V3</span></span>
               <span style={{ fontSize: 11, color: "#64748b" }}>{totalClients} clients · 13 wks · {pct}%</span>
+              <span style={{ fontSize: 10, color: saveState === 'error' ? '#f87171' : '#475569' }}>
+                {loaded && !canPersist ? '⚠ not saved — reload to reconnect'
+                  : saveState === 'saving' ? '● saving…'
+                  : saveState === 'saved' ? '✓ saved'
+                  : saveState === 'error' ? '⚠ not saved — retrying on next change' : ''}
+              </span>
             </div>
             <div style={{ height: 5, background: "#0f172a", borderRadius: 99, width: 240, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg,#22c55e,#4ade80)", borderRadius: 99, transition: "width 0.3s" }} />
