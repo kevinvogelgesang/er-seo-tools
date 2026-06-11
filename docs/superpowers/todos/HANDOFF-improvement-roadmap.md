@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-11 · **Updated by:** A2 Phase 4 close-out (retention shipped inert — A2 COMPLETE)
+**Last updated:** 2026-06-11 · **Updated by:** B1 close-out (client dashboard MVP shipped)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,62 +23,56 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **A1 is DONE** (durable job queue, PRs #50–#54, production-verified;
-  residual next-day check passed 2026-06-11).
-- **A2 is DONE** (normalized findings layer, PRs #55–#58 + Phase 4,
-  2026-06-10/11). All four phases shipped and production-verified:
-  - **Phase 1** (PRs #55+#56): 4-table schema (`CrawlRun`/`CrawlPage`/
-    `Finding`/`Violation`), `lib/findings/`, parser dual-write, rebuild +
-    parity CLIs.
-  - **Phase 2** (PR #57): ADA dual-write (mappers, finalizer + standalone
-    hooks, ADA parity).
-  - **Phase 3** (PR #58): fresh-run production parity gate PASSED (9/9 live
-    runs PARITY OK), SessionPage reader flipped to `CrawlPage` + `Finding`
-    join with `SessionPage` fallback, SessionPage writes stopped.
-  - **Phase 4** (2026-06-11): `pruneArchivedBlobs()` 90-d blob retention in
-    `lib/findings/retention.ts`, registered in `runCleanup()`, **INERT** —
-    `PRUNE_ACTIVATED = { 'seo-parser': false, 'ada-audit': false }`.
-    Spec + all four plans archived to `docs/superpowers/archive/`.
-  - Docs: spec `../archive/specs/2026-06-10-findings-layer-design.md`;
-    CLAUDE.md now documents the layer (Key files + Architecture patterns).
-- **DB-growth projection: DONE** (2026-06-10, prod). 90-d archive +
-  findings-forever safe for human-triggered volume; nightly fleet scans
-  gated on C2 cadence-aware retention.
+- **A1 is DONE** (durable job queue, PRs #50–#54, production-verified).
+- **A2 is DONE** (normalized findings layer, PRs #55–#58 + Phase 4 retention
+  shipped inert; spec `../archive/specs/2026-06-10-findings-layer-design.md`).
+- **B1 is DONE** (client dashboard MVP, PR #60, production-verified
+  2026-06-11). `/clients` is now the fleet table (scores × deltas × alerts),
+  `/clients/[id]` the client dashboard (header, 3 scorecards with sparklines,
+  issue trend, activity timeline), `/clients/manage` the old CRUD page.
+  New surface area the next items build on:
+  - `lib/services/scorecard-shared.ts` — pure series/delta/alert helpers
+    (`buildSeries`, `buildSeoSeries`, `buildAdaSeries`, `computeAlerts`;
+    `SCORE_DROP_THRESHOLD=10`, `STALE_DAYS=30`).
+  - `lib/services/client-fleet.ts` / `client-dashboard.ts` — scalar-only read
+    services (batched findMany + JS aggregation; NO blob reads — keep it that
+    way or the A2 `PRUNE_ACTIVATED` flips get pushed out).
+  - `components/clients/` — `Scorecard`, `Sparkline`, `FleetTable`,
+    `ActivityTimeline`, `ClientHeader`, `IssueTrendCard`.
+  - Spec/plan: `../archive/specs/2026-06-11-client-dashboard-mvp-design.md` ·
+    `../archive/plans/2026-06-11-client-dashboard-mvp.md`.
 - **Blocked / gated:** Anthropic API billing (gates 03 Phase 3); sitemap
   miss-rate measurement not yet run.
 - **Parked follow-ups (not next items):**
-  - `SessionPage` model drop — ≥180 d after the 2026-06-11 flip (≈ 2026-12),
-    only once no non-expired session lacks a `CrawlRun`.
-  - `PRUNE_ACTIVATED` flips — each tool's flag flips **in the same PR as that
-    tool's last blob reader**. Before flipping `'seo-parser'`: confirm every
-    SEO/keyword-research blob reader is gone (report page, exports, shares,
-    memo payload builders, rebuild/parity scripts' assumptions). Before
-    `'ada-audit'`: same for standalone ADA + site-audit summary readers; note
-    site-audit child `AdaAudit.result` blobs are NOT covered by the A2
-    machinery — extending to children is that PR's decision (post-C3/C4).
+  - `SessionPage` model drop — ≥180 d after 2026-06-11 (≈ 2026-12).
+  - `PRUNE_ACTIVATED` flips — each tool's flag flips in the same PR as that
+    tool's last blob reader (see A2 notes in the tracker). B1 added ZERO blob
+    readers (verified).
+  - Keyword-orphan score ambiguity — once a keyword-research session expires,
+    its orphaned `CrawlRun` joins the SEO series (CrawlRun has no workflow
+    column). Documented in the B1 spec; proper fix = stamp workflow on
+    `CrawlRun` at write time (fold into a future findings PR).
+  - Legacy standalone `AdaAudit.score` is 0/119 non-null in prod — the legacy
+    fallback path in `buildAdaSeries` is effectively dormant; all ADA scores
+    come from `CrawlRun`.
 
 ## Next item
 
-**B1 — Client dashboard MVP from existing scalar data** (tracker Track B;
+**B2 — Findings/action center on the client dashboard** (tracker Track B;
 roadmap doc `docs/superpowers/nyi/improvement-roadmaps/04-clients-and-quarter-grid.md`
-§ "Phase 1a — read-only dashboard from existing data"). The roadmap spine is
-job queue → findings layer → **client command center**; B1 has no Track-A
-dependency and 1a needs no new data collection:
+§ "Phase 1b — findings/action center", 1–1.5 wks). Now unblocked: A2 shipped
+the normalized `Finding`/`Violation` tables and B1 shipped the dashboard to
+host it. Per doc 04: open-findings panel across tools, issue drill-downs,
+regression alerts from scheduled scans surfacing on the fleet table — but note
+scheduled scans don't exist yet (C2), so scope the regression-alert slice to
+what run-over-run data already supports (`CrawlRun` history per client) and
+leave scan-triggered alerting to C2. Read doc 04 Phase 1b AND the A2 spec's
+data model before speccing; the dashboard services and `scorecard-shared`
+helpers are the integration points. Full flow: brainstorm/spec → Codex →
+plan → Codex → implement.
 
-- Rebuild `/clients/[id]` as the platform's de-facto home: header (domains,
-  seed URLs, Teamwork link), scorecards (latest SEO health / ADA / pillar
-  scores with sparkline + delta — all from scalar columns already on
-  `Session`/`SiteAudit`/`AdaAudit`), reverse-chron activity timeline linking
-  into tool detail views.
-- `/clients` index becomes a fleet table (~30 clients × latest scores ×
-  alerts — the "Monday morning" screen).
-- Findings/action center is **B2** (Phase 1b), a separate later item — now
-  unblocked since A2 shipped, but don't fold it into B1.
-
-Unlike Phase 4, this is a real feature: full brainstorming → spec → Codex
-review → plan → Codex review → implement flow. Read doc 04's Phase 1
-section in full before speccing (it carries UI intent the tracker line
-doesn't).
+Alternative if Kevin prefers: B3 (Quarter Grid localStorage → DB) is
+independent and also unblocked; tracker order says B2 first.
 
 ## Gotchas / decisions already made (don't relitigate)
 
@@ -87,55 +81,44 @@ doesn't).
   form only, conditional logic via SQL `EXISTS`, manual `updatedAt =
   Date.now()` in raw statements (2026-06-10 production incident; CLAUDE.md
   "Do not").
-- **Findings-layer invariants:** dual-write is best-effort and non-fatal —
-  the legacy blob path must never be affected by a findings failure; origin
-  FKs are `SetNull`; subtrees cascade from `CrawlRun` only; writer is
+- **Findings-layer invariants:** dual-write is best-effort and non-fatal;
+  origin FKs are `SetNull`; subtrees cascade from `CrawlRun` only; writer is
   delete-and-recreate in ONE array-form transaction, `createMany` chunked at
-  **50**; exactly-one-origin validated; dedup keys are sha256 of canonical
-  JSON (`lib/findings/keys.ts`); `Finding.scope` is explicit; **never
-  backfill historical blobs**. Retention is INERT — see parked follow-ups.
-- **Post-flip failure mode:** `SessionPage` is no longer written, so a
-  session whose findings dual-write fails has NO per-page data until
-  `npx tsx scripts/findings-rebuild.ts <sessionId>` is run — watch
-  `[findings] dual-write failed` in the logs (0 occurrences so far).
-  `normalizeFindingUrl` lives in `lib/findings/normalize-url.ts`
-  (client-safe — `PageDetailModal` imports it into the client bundle).
+  50; never backfill historical blobs. Retention is INERT.
+- **B1 dashboard invariants:** read services are scalar-only — adding a blob
+  reader to `client-fleet`/`client-dashboard` is a regression against the A2
+  retention plan. Timeline renders from ORIGIN rows; scores render from
+  `CrawlRun` (orphaned runs = score points without timeline rows). Keyword
+  `CrawlRun`s are excluded from the SEO series via the session-workflow join.
+  Error alerts come from origin-row statuses (CrawlRun is only
+  `complete|partial`). ADA series: scored site-audit points win; else
+  page-audit + legacy merge deduped by origin id. Client components define
+  LOCAL prop interfaces (don't import server-only service modules).
 - Job-queue invariants are load-bearing (see A1 history): attempt-fenced
   heartbeat/settle, finalize-before-fail, `failSiteAudit` never clobbers
-  terminal parents, `system-` is a reserved code-owned Schedule namespace,
-  boot order register → recover → seed → start worker.
-- `finalizeSiteAudit` is the single decision point; the findings hook lives
-  at its very end, AFTER the terminal update + batch close + promoter kick,
-  as `void writeFindingsRun(bundle).catch(log)` — keep it last if the
-  finalizer changes.
-- Test gotchas: the one-active guard and promoter are GLOBAL over the shared
-  dev DB — test files touching promotion neutralize stray audits in
-  `clearTestState`; findings tests delete `CrawlRun`s by BOTH origin id AND
-  test domain (SetNull orphans); each DB-backed test file uses its own
-  unique domain/id prefix.
+  terminal parents, `system-` is a reserved Schedule namespace.
+- `finalizeSiteAudit` is the single decision point; the findings hook stays
+  LAST in it.
+- Test gotchas: DB-backed test files use their own unique domain/id prefix;
+  clean `CrawlRun` by domain BEFORE origin rows (SetNull orphans); the
+  one-active guard and promoter are GLOBAL over the shared dev DB.
 - **Local dev quirk:** `.env` points at `file:/var/lib/er-seo-tools/db.sqlite`
   (doesn't exist on the Mac). Prefix prisma CLI and vitest with
   `DATABASE_URL="file:./local-dev.db"`. `prisma migrate dev` is
   interactive-only — generate SQL via `prisma migrate diff`, write the
   folder by hand, apply with `prisma migrate deploy`.
 - **Server has no `sqlite3` CLI** — verify production DB state via node +
-  Prisma from `/home/seo/webapps/seo-tools` (`bash -lc` for the node PATH);
-  ad-hoc scripts must be COPIED INTO the app dir (`scp` + run from there)
-  or `require("@prisma/client")` won't resolve. `npx tsx` works there for
-  the findings scripts (id type auto-detected). Authenticated API calls:
-  log in with `curl -c jar -X POST $BASE/api/auth/login -F password=…`
-  (password in the server `.env`); uploads >10 MB must be split into
-  multiple `/api/upload` POSTs sharing a `sessionId` (Next middleware body
-  cap), and `all_inlinks`/`all_outlinks` SF exports are unparsed — skip them.
+  Prisma from `/home/seo/webapps/seo-tools`; ad-hoc scripts must be COPIED
+  INTO the app dir (`scp` + run from there). Authenticated page checks:
+  `curl -c jar -X POST localhost:3000/api/auth/login -F password=…`
+  (password in the server `.env`).
 - Codex reviews: route new specs/plans through Codex per Kevin's standing
-  instruction.
+  instruction (registry session for this workspace exists; resume it).
 
 ## History
 
 - 2026-06-10 — Roadmap docs (00–06), tracker, and this handoff doc created.
 - 2026-06-10 — A1 Phases 0–4 built, merged (PRs #50–#54), production-verified. **A1 COMPLETE.**
-- 2026-06-10 — **A2 started.** DB-growth projection; spec (Codex ×10); Phase 1 (PRs #55+#56) shipped + parity OK on 2 sessions.
-- 2026-06-10 — **A2 Phase 2 SHIPPED** (PR #57): ADA dual-write; parity OK on 2 site audits + 1 standalone (rebuild path).
-- 2026-06-11 — Phase 2 live-hook parity passed (fresh nyinstituteofmassage site audit, finalizer hook 9 ms after terminal update).
-- 2026-06-11 — **A2 Phase 3 SHIPPED** (PR #58): fresh-run parity gate passed (9/9 live runs PARITY OK), SessionPage reader flipped, SessionPage writes stopped. Production-verified same day.
-- 2026-06-11 — **A2 Phase 4 SHIPPED — A2 COMPLETE.** `pruneArchivedBlobs()` retention registered in `runCleanup()`, inert (Codex clean accept); CLAUDE.md findings docs; A2 docs archived. Next: B1 (client dashboard MVP).
+- 2026-06-10/11 — A2 Phases 1–4 (PRs #55–#58 + inert retention), production-verified. **A2 COMPLETE.**
+- 2026-06-11 — **B1 SHIPPED (PR #60), production-verified. Client command
+  center is live.** Next: B2 (findings/action center).
