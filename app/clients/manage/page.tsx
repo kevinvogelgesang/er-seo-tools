@@ -9,6 +9,7 @@ interface Client {
   seedUrls: string[] | null;
   seedUrlsUpdatedAt: string | null;
   teamworkTasklistId: string | null;
+  archivedAt: string | null;
   createdAt: string;
 }
 
@@ -49,6 +50,8 @@ export default function ClientsPage() {
   const [addForm, setAddForm] = useState({ open: false, name: '', error: '', loading: false });
   const [editForm, setEditForm] = useState<{ id: number | null; name: string; error: string; loading: boolean }>({ id: null, name: '', error: '', loading: false });
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: number | null; loading: boolean }>({ id: null, loading: false });
+  const [archiveConfirm, setArchiveConfirm] = useState<{ id: number | null; loading: boolean }>({ id: null, loading: false });
+  const [showArchived, setShowArchived] = useState(false);
 
   // Domain management
   const [domainInput, setDomainInput] = useState<Record<number, string>>({});
@@ -70,7 +73,7 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/clients')
+    fetch('/api/clients?includeArchived=1')
       .then((r) => r.json())
       .then((data) => {
         setClients(Array.isArray(data) ? data : []);
@@ -240,8 +243,26 @@ export default function ClientsPage() {
     }
   };
 
-  // ── Delete client ──────────────────────────────────────────────────────────
+  // ── Archive / restore / delete ─────────────────────────────────────────────
 
+  const setArchived = async (id: number, archived: boolean) => {
+    const res = await fetch(`/api/clients/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setClients((prev) => prev.map((c) => (c.id === id ? { ...c, archivedAt: data.archivedAt } : c)));
+    }
+  };
+
+  const handleArchive = async (id: number) => {
+    setArchiveConfirm({ id, loading: true });
+    try { await setArchived(id, true); } finally { setArchiveConfirm({ id: null, loading: false }); }
+  };
+
+  // Hard delete — only offered on already-archived rows (the API 409s otherwise).
   const handleDelete = async (id: number) => {
     setDeleteConfirm({ id, loading: true });
     try {
@@ -251,6 +272,9 @@ export default function ClientsPage() {
       setDeleteConfirm({ id: null, loading: false });
     }
   };
+
+  const visibleClients = clients.filter((c) => (showArchived ? true : !c.archivedAt));
+  const archivedCount = clients.filter((c) => c.archivedAt).length;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -338,7 +362,7 @@ export default function ClientsPage() {
       {/* Client list */}
       {!isLoading && !error && clients.length > 0 && (
         <div className="space-y-3">
-          {clients.map((client) => (
+          {visibleClients.map((client) => (
             <div
               key={client.id}
               className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl px-5 py-4 shadow-sm"
@@ -382,6 +406,11 @@ export default function ClientsPage() {
                       >
                         {client.name}
                       </a>
+                      {client.archivedAt && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-white/50 font-semibold uppercase tracking-wide">
+                          Archived {formatDate(client.archivedAt)}
+                        </span>
+                      )}
                       <button
                         onClick={() => startEdit(client)}
                         aria-label="Rename client"
@@ -520,37 +549,75 @@ export default function ClientsPage() {
                   </details>
                 </div>
 
-                {/* Delete */}
+                {/* Archive (active) / Restore + Delete (archived) */}
                 <div className="flex-shrink-0">
-                  {deleteConfirm.id === client.id && !deleteConfirm.loading ? (
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="text-gray-600 dark:text-white/60">Delete?</span>
+                  {!client.archivedAt ? (
+                    archiveConfirm.id === client.id && !archiveConfirm.loading ? (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-gray-600 dark:text-white/60">Archive?</span>
+                        <button
+                          onClick={() => handleArchive(client.id)}
+                          className="text-amber-600 dark:text-amber-400 font-semibold hover:text-amber-800 dark:hover:text-amber-300"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setArchiveConfirm({ id: null, loading: false })}
+                          className="text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => handleDelete(client.id)}
-                        className="text-red-600 dark:text-red-400 font-semibold hover:text-red-800 dark:hover:text-red-300"
+                        onClick={() => setArchiveConfirm({ id: client.id, loading: false })}
+                        disabled={archiveConfirm.loading && archiveConfirm.id === client.id}
+                        aria-label="Archive client"
+                        title="Archive — hides the client everywhere; data is preserved and restorable"
+                        className="p-1.5 text-gray-400 dark:text-white/40 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-colors"
                       >
-                        Yes
+                        {archiveConfirm.loading && archiveConfirm.id === client.id ? (
+                          <Spinner className="w-4 h-4" />
+                        ) : (
+                          <TrashIcon />
+                        )}
                       </button>
-                      <button
-                        onClick={() => setDeleteConfirm({ id: null, loading: false })}
-                        className="text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white"
-                      >
-                        No
-                      </button>
-                    </div>
+                    )
                   ) : (
-                    <button
-                      onClick={() => setDeleteConfirm({ id: client.id, loading: false })}
-                      disabled={deleteConfirm.loading && deleteConfirm.id === client.id}
-                      aria-label="Delete client"
-                      className="p-1.5 text-gray-400 dark:text-white/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-                    >
-                      {deleteConfirm.loading && deleteConfirm.id === client.id ? (
-                        <Spinner className="w-4 h-4" />
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        onClick={() => setArchived(client.id, false)}
+                        aria-label="Restore client"
+                        className="text-[#f5a623] font-semibold hover:text-[#e09415]"
+                      >
+                        Restore
+                      </button>
+                      {deleteConfirm.id === client.id && !deleteConfirm.loading ? (
+                        <>
+                          <span className="text-gray-600 dark:text-white/60">Delete forever?</span>
+                          <button
+                            onClick={() => handleDelete(client.id)}
+                            className="text-red-600 dark:text-red-400 font-semibold hover:text-red-800 dark:hover:text-red-300"
+                          >
+                            Yes
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm({ id: null, loading: false })}
+                            className="text-gray-500 dark:text-white/50 hover:text-gray-700 dark:hover:text-white"
+                          >
+                            No
+                          </button>
+                        </>
                       ) : (
-                        <TrashIcon />
+                        <button
+                          onClick={() => setDeleteConfirm({ id: client.id, loading: false })}
+                          aria-label="Delete client"
+                          className="text-gray-400 dark:text-white/40 hover:text-red-500"
+                        >
+                          {deleteConfirm.loading && deleteConfirm.id === client.id ? <Spinner className="w-4 h-4" /> : 'Delete'}
+                        </button>
                       )}
-                    </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -560,7 +627,18 @@ export default function ClientsPage() {
       )}
 
       <p className="text-xs text-gray-400 dark:text-white/40 mt-6 text-center">
-        {clients.length} client{clients.length !== 1 ? 's' : ''}
+        {clients.length - archivedCount} client{clients.length - archivedCount !== 1 ? 's' : ''}
+        {archivedCount > 0 && (
+          <>
+            {' · '}
+            <button
+              onClick={() => setShowArchived((v) => !v)}
+              className="underline hover:text-[#f5a623] transition-colors"
+            >
+              {showArchived ? 'Hide' : 'Show'} {archivedCount} archived
+            </button>
+          </>
+        )}
       </p>
     </div>
   );
