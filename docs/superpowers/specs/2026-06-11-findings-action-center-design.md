@@ -1,6 +1,6 @@
 # Findings / Action Center (B2) — Design
 
-**Date:** 2026-06-11 · **Status:** draft (pre-Codex)
+**Date:** 2026-06-11 · **Status:** Codex-reviewed (accept-with-fixes ×5, all applied)
 **Roadmap:** Track B item B2 (`docs/superpowers/nyi/improvement-roadmaps/04-clients-and-quarter-grid.md` § Phase 1b)
 **Builds on:** A2 findings layer (`../archive/specs/2026-06-10-findings-layer-design.md`) + B1 client dashboard (`../archive/specs/2026-06-11-client-dashboard-mvp-design.md`)
 
@@ -57,6 +57,16 @@ read-time interpretation, not a status column.
   excluding runs whose `sessionId` belongs to a `workflow='keyword-research'`
   session (same exclusion as the B1 score series, same accepted
   keyword-orphan gap). Current = max by `completedAt ?? createdAt`.
+- **Tie-breaker (Codex fix #5):** all "latest"/"most recent earlier"
+  selections order by `(completedAt ?? createdAt)` desc, then `id` desc —
+  deterministic under same-timestamp runs and in tests.
+- **Multi-domain limitation (Codex fix #1, documented v1 gap):** current
+  selection is *latest run per tool/class across the whole client*. A client
+  with two active domains shows only the most recently run domain's findings
+  in the panel (the other domain's findings are reachable via its own report
+  from the timeline). Per-`(tool, domain)` grouped sources are deferred until
+  multi-domain clients need single-dashboard review; the source-meta lines
+  display the current run's `domain` so the scope is always visible.
 - **ADA:** if the client has any `source='site-audit'` run, the ADA class is
   **site** and current = the latest site-audit run; otherwise class is
   **page** and current = the latest page-audit run. (B1's series rule keys
@@ -162,7 +172,9 @@ Queries (all batched, scalar/normalized only):
      drill-downs for both tools,
    - for diffing the previous ADA run: `finding.groupBy({ by: ['type'],
      where: { runId: prevAdaRunId }, _count })` (type presence + counts;
-     no URLs loaded for previous runs),
+     no URLs loaded for previous runs). **Severity is intentionally absent
+     from the previous-run shape (Codex fix #4)** — diffs compare type
+     presence and counts only; severity always comes from the current run,
    - `violation.findMany({ where: { runId: currentAdaRunId }, select:
      { ruleId, help, helpUrl }, distinct: ['ruleId'] })` — ADA row
      descriptions (axe `help` text; `detail` is null on ADA findings).
@@ -181,7 +193,7 @@ export interface OpenFindingRow {
   helpUrl: string | null        // ADA only
   urls: string[]                // affected URLs, capped at URLS_PER_FINDING
   totalUrls: number             // uncapped page-scope row count
-  isSample: boolean             // SEO run-scope affectedComplete === false
+  isSample: boolean             // SEO: affectedComplete !== true (see completeness rule)
   href: string | null           // deep link to the source report (null if origin expired)
 }
 
@@ -208,6 +220,14 @@ Notes:
   `totalUrls` = page-scope row count, which for sampled types is less than
   `count` — the UI shows `count` as the number and marks the URL list
   "(sample)" when `isSample`.
+- **Completeness is three-state (Codex fix #2):** `affectedComplete` is
+  nullable in the schema and the mapper writes `affectedUrlRefsComplete ??
+  null`. The rule is `isSample = affectedComplete !== true` — `false` AND
+  `null`/unknown both mark the URL list "sample/partial"; only an explicit
+  `true` may present the list as complete. (Display nuance: when
+  `affectedComplete !== true` but `totalUrls === count`, the list happens to
+  be full — the label still says "sample/partial" because completeness was
+  never asserted.)
 - ADA rows come from grouping page-scope rows; `count === totalUrls`.
 - `href` per row = the tool report (`/seo-parser/results/[sessionId]`,
   `/ada-audit/site/[siteAuditId]`, `/ada-audit/[adaAuditId]`) — null when
@@ -226,6 +246,12 @@ Notes:
     select: { runId, type, severity, count } })`
   - `finding.groupBy({ by: ['runId', 'type', 'severity'], where: { runId:
     { in: adaRunIds } }, _count })`
+- **ADA collapse rule (Codex fix #3):** the groupBy result is then collapsed
+  in JS to ONE aggregate per `(runId, type)` taking the **max severity**
+  before any type counting — a rule whose violations map to mixed severities
+  must not be double-counted in `openCriticalTypes`/`openWarningTypes` or
+  produce duplicate entries in `newCriticalTypes`. (Same collapse the
+  dashboard's `aggregateAdaTypes` performs.)
 - Per client, derive:
   - `openCriticalTypes` / `openWarningTypes` — distinct issue-type counts
     across both tools' current runs (new `FleetRow` fields, rendered as an
@@ -284,9 +310,11 @@ force-dynamic data flow (`/clients/[id]/page.tsx` adds a third parallel
 
 - **findings-shared (pure, no DB):** run selection — keyword exclusion,
   domain-matched previous, cross-domain non-match, ADA site-class
-  precedence, page-class no-previous; aggregation — ADA max-severity
-  grouping, count semantics; diffing — new types, resolved count, count
-  deltas, null previous.
+  precedence, page-class no-previous, same-timestamp tie-breaker (`id`
+  desc); aggregation — ADA max-severity grouping (incl. mixed-severity
+  collapse to one aggregate per type), count semantics; diffing — new
+  types, resolved count, count deltas, null previous; `isSample` three-state
+  (`true`→complete, `false`→sample, `null`→sample).
 - **client-findings (DB-backed, unique domain prefix, clean `CrawlRun` by
   domain BEFORE origin rows):** end-to-end shape on seeded runs — SEO
   run-scope + URL attachment + sample flag, ADA grouping + Violation help
