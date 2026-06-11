@@ -28,11 +28,19 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
   const reg = result.url_registry
   const pageIndex = result.page_index ?? []
 
-  const pages: CrawlPageInput[] = reg
-    ? pageIndex.map((p) => ({
+  // Keep-first dedupe by normalized URL: production blobs can carry literal
+  // duplicate page_index entries (same URL under two refs), and the writer's
+  // @@unique([runId, url]) would reject the bundle.
+  const pages: CrawlPageInput[] = []
+  const pageByUrl = new Map<string, CrawlPageInput>()
+  if (reg) {
+    for (const p of pageIndex) {
+      const url = normalizeFindingUrl(rehydrate(reg, p.ref))
+      if (pageByUrl.has(url)) continue
+      const page: CrawlPageInput = {
         id: randomUUID(),
         runId,
-        url: normalizeFindingUrl(rehydrate(reg, p.ref)),
+        url,
         status: null,
         error: null,
         finalUrl: null,
@@ -45,9 +53,11 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
         indexable: p.indexable,
         score: null,
         adaAuditId: null,
-      }))
-    : []
-  const pageByUrl = new Map(pages.map((p) => [p.url, p]))
+      }
+      pages.push(page)
+      pageByUrl.set(url, page)
+    }
+  }
 
   const findings: FindingInput[] = []
   const seenKeys = new Set<string>()

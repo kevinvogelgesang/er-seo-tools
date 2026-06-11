@@ -169,6 +169,23 @@ describe('mapSeoResult', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
+  it('dedupes page_index entries that normalize to the same URL (keep first)', () => {
+    // Real production blobs can contain literal duplicate page_index entries
+    // (seen on nuvani.edu: same URL under two refs) — without dedupe the
+    // writer violates @@unique([runId, url]).
+    const fx = fixture()
+    fx.url_registry!.urls.push({ id: 2, kind: 'page', hostId: 0, scheme: 'https', path: '/a' })
+    fx.page_index!.push({
+      ref: 2, title: 'A-dup', h1: null, metaDescription: null,
+      wordCount: 1, crawlDepth: 9, indexable: false, issueTypes: [],
+    })
+    const b = mapSeoResult(fx, CTX)
+    expect(b.pages).toHaveLength(2)
+    expect(b.run.pagesTotal).toBe(2)
+    const a = b.pages.find((p) => p.url === 'https://example.com/a')!
+    expect(a.title).toBe('A') // first entry wins
+  })
+
   it('legacy blob without page_index/url_registry → run-scope rows only', () => {
     const fx = fixture()
     delete (fx as Record<string, unknown>).url_registry
