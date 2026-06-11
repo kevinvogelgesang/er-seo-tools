@@ -9,10 +9,16 @@ import { registerPsiHandler } from './psi'
 import { registerPdfScanHandler } from './pdf-scan'
 import { registerSiteAuditPageHandler } from './site-audit-page'
 import { registerSiteAuditDiscoverHandler } from './site-audit-discover'
+import { registerCleanupHandler } from './cleanup'
+import { registerScreenshotSweepHandler } from './screenshot-sweep'
+import { registerStaleAuditResetHandler } from './stale-audit-reset'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
   registerPdfScanHandler()
   registerSiteAuditPageHandler()
   registerSiteAuditDiscoverHandler()
+  registerCleanupHandler()
+  registerScreenshotSweepHandler()
+  registerStaleAuditResetHandler()
 }
