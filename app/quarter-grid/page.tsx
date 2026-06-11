@@ -185,6 +185,11 @@ export default function QuarterGridV3() {
   const saveSeqRef = useRef(0)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingPayloadRef = useRef<QuarterPlanPayload | null>(null)
+  // The persist effect fires once right after init (its deps change during
+  // hydration). Skip that run: merely OPENING the page must never write —
+  // an on-open save against an empty DB would create an empty plan and
+  // 409-block the real localStorage import from the analyst's browser.
+  const skipFirstPersistRef = useRef(false)
   const csvInputRef = useRef<HTMLInputElement | null>(null)
   const scheduleRef     = useRef(schedule)
   const clientsRef      = useRef(clients)
@@ -373,6 +378,7 @@ export default function QuarterGridV3() {
       if (!persistAllowed) setSaveState('error')
       // Only now may the persist effect fire — flipping earlier would let a
       // debounced empty save create a plan and 409-block the real import.
+      skipFirstPersistRef.current = true
       setLoaded(true)
     }
     init()
@@ -395,6 +401,7 @@ export default function QuarterGridV3() {
   // changes are still pending.
   useEffect(() => {
     if (!loaded || !canPersist) return
+    if (skipFirstPersistRef.current) { skipFirstPersistRef.current = false; return } // post-init echo, not a user edit
     const seq = ++saveSeqRef.current
     const payload = buildCurrentPayload()
     pendingPayloadRef.current = payload
