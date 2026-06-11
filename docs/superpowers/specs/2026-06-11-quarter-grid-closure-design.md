@@ -1,6 +1,6 @@
 # B5 — Quarter Grid Closure: Tool Activity, Teamwork Push, Client Archive, Dashboard Quarter Card
 
-**Date:** 2026-06-11 · **Status:** Spec (pre-Codex)
+**Date:** 2026-06-11 · **Status:** Codex-reviewed (accept-with-fixes ×9, all applied)
 **Roadmap:** `docs/superpowers/nyi/improvement-roadmaps/04-clients-and-quarter-grid.md` § Phase 4 (tracker B5)
 **Depends on:** B1 (client dashboard), B3 (grid state in DB), B4 (grid split)
 
@@ -101,8 +101,12 @@ Batched scalar `findMany`s (dashboard read-service invariant: no blob readers):
 
 - `CrawlRun`: `clientId in ids, completedAt >= since, status in ('complete','partial')`
   → kind `seo-parse` (tool `seo-parser`) or `ada-audit` (tool `ada-audit`, any source).
-  Keyword-research parses produce a `seo-parse` CrawlRun; that is fine — the
-  parse *is* activity (the memo is tracked separately below).
+  **Keyword-research uploads are excluded from `seo-parse`** (Codex fix #6):
+  runs whose `session.workflow === 'keyword-research'` are dropped from the
+  CrawlRun pass — labeling a SEMrush keyword upload as a technical SEO parse
+  would misrepresent the work; the `keyword-memo` kind below covers that work
+  product (a keyword upload without a completed memo counts as no activity —
+  deliberate).
 - `SeoRoadmap`: `status 'complete', roadmapUpdatedAt >= since`, client via
   `session.clientId in ids` → `seo-roadmap`.
 - `KeywordResearchSession`: `status 'complete', memoUpdatedAt >= since,
@@ -140,12 +144,19 @@ Mirrors the srt_ 3-file pattern (`lib/seo-roadmap-token.ts` /
   / `verifyQuarterPushToken(token, expectedPlanId)`.
 - **`POST /api/quarter-plan/push/mint-token`** (cookie-auth like other mint
   routes): loads the latest plan; 409 `no_plan` when none, 409
-  `nothing_planned` when no assignment has `week != null`; returns
-  `{ token, expiresAt, planId }`.
-- **`GET /api/quarter-plan/push/[planId]`** (Bearer `qct_`, scope `read`):
-  verifies token subject === route planId; 404 if the plan no longer exists or
-  is no longer the latest (singleton facade — only the current plan is
-  exportable). Response:
+  `nothing_planned` when no **pushable** assignment exists (Codex fix #4) —
+  pushable = `week != null`, `completed: false`, client active
+  (`archivedAt: null`) and `teamworkTasklistId` non-null. A token is never
+  minted for a no-op payload. Returns `{ token, expiresAt, planId }`.
+- **`GET /api/quarter-plan/push/[planId]`** (Bearer `qct_`): requires scope
+  `read` **and** verifies token subject === route planId (Codex fix #7 — both
+  routes check `sub`, each checks its own scope); 404 if the plan no longer
+  exists or is no longer the latest (singleton facade — only the current plan
+  is exportable). Assignments are filtered to `week != null` AND client
+  active (`archivedAt: null`) — a stale archived assignment must never
+  generate a Teamwork task (Codex fix #2). `completed: true` assignments ARE
+  exported (with the flag) so the skill can skip them transparently and the
+  receipt can honestly count them (Codex fix #3). Response:
 
   ```jsonc
   {
@@ -167,10 +178,14 @@ Mirrors the srt_ 3-file pattern (`lib/seo-roadmap-token.ts` /
 
   `weekStart`/`weekEnd` = Monday/Friday of the assigned week, computed from
   `startDate` with the same date math as `grid-ops.getWeekRange` (new exported
-  ISO-date helper beside it so the two can't drift).
-- **`POST /api/quarter-plan/push/[planId]/receipt`** (Bearer `qct_`, scope
-  `receipt-write`): body `{ created, skippedExisting, skippedNoTasklist,
-  skippedCompleted }` (non-negative ints, clamped); sets `teamworkPushedAt = now`,
+  ISO-date helper beside it so the two can't drift). **No-start-date fallback
+  (Codex fix #5):** when `startDate` is null, `weekStart`/`weekEnd` are null,
+  the skill sets no start/due dates, and the task title drops the range —
+  `[SEO] Quarter Cycle — Week {week}` (the export's `titleFormat` field
+  reflects whichever variant applies).
+- **`POST /api/quarter-plan/push/[planId]/receipt`** (Bearer `qct_`): requires
+  scope `receipt-write` and `sub === planId`; body `{ created, skippedExisting,
+  skippedNoTasklist, skippedCompleted }` (non-negative ints, clamped); sets `teamworkPushedAt = now`,
   `teamworkPushSummary = JSON`. 200 `{ ok: true }`.
 - **`lib/quarter-push-prompt.ts`** — `composeQuarterPushPayload({ webappUrl, planId, token })`:
 
@@ -189,9 +204,12 @@ Mirrors the srt_ 3-file pattern (`lib/seo-roadmap-token.ts` /
 - **UI:** `components/quarter-grid/PushToTeamworkButton.tsx` (states
   idle/minting/copied/mint-failed, clipboard + `window.prompt` fallback —
   GenerateRoadmapButton's pattern) rendered in `GridHeader`'s controls row.
-  `loadPlanResponse` additionally returns `teamworkPushedAt`/`teamworkPushSummary`
-  (server-generated scalars, not part of the PUT payload); GridHeader shows
-  `Last pushed {date} · {created} tasks` under the button when present.
+  `loadPlanResponse` additionally returns `teamworkPushedAt`/`teamworkPushSummary`.
+  **Push metadata is strictly read-only on the grid path (Codex fix #8):** the
+  fields are NOT added to `QuarterPlanPayload`, `sanitizePlanPayload` ignores
+  them, and `persistPlan`'s plan update never writes them — with a regression
+  test proving a normal grid save preserves existing push metadata. GridHeader
+  shows `Last pushed {date} · {created} tasks` under the button when present.
 - **Skill update** (`~/.claude/skills/er-handoff-memo`, versioned outside this
   repo): add the `qct_` prefix flow — fetch export; for each assignment with a
   `tasklistId`, paginate the tasklist's tasks, skip when any description
@@ -216,13 +234,28 @@ Mirrors the srt_ 3-file pattern (`lib/seo-roadmap-token.ts` /
 - **`GET /api/clients`**: excludes archived by default; `?includeArchived=1`
   returns all with `archivedAt`. The quarter grid's validIds fetch uses the
   default → archived clients prune from the grid (documented above).
-- **Sweep of active-client surfaces** (add `archivedAt: null`):
-  `lib/services/client-fleet.ts` (fleet table), domain auto-match scans in
-  `app/api/parse/[sessionId]/route.ts`, `app/api/ada-audit/route.ts`, and the
-  site-audit enqueue path (`lib/ada-audit/queue-manager.ts` /
-  `app/api/site-audit/route.ts` — exact sites enumerated at plan time via a
-  `client.findMany` grep). `/clients/[id]` dashboard still loads archived
-  clients and shows an "Archived" badge in `ClientHeader`.
+- **`persistPlan()` validates against active clients (Codex fix #1):** the
+  `validIds` pre-read in `lib/quarter-grid/persist.ts` gains
+  `where: { archivedAt: null }` — hiding archived clients from `/api/clients`
+  is not enough, because an already-open browser keeps re-saving its stale
+  state until reload; the server is the enforcement point. Regression test: a
+  PUT payload containing an archived client's assignment drops that row.
+- **Sweep of active-client surfaces** (add `archivedAt: null`; Codex fix #9 —
+  the full list is enumerated at plan time via a `client.findMany`/
+  `client.findUnique` grep, and includes at minimum):
+  `lib/quarter-grid/persist.ts` (above), `lib/services/client-fleet.ts`
+  (fleet table), domain auto-match scans in
+  `app/api/parse/[sessionId]/route.ts` and `app/api/ada-audit/route.ts`, the
+  site-audit enqueue/match path (`app/api/site-audit/route.ts` /
+  `lib/ada-audit/queue-manager.ts`), bulk-audit entry points
+  (`BulkQueueModal` client list), and any client-selector dropdowns/forms.
+  `/clients/[id]` dashboard still loads archived clients and shows an
+  "Archived" badge in `ClientHeader`. Archive PATCH semantics (set
+  `archivedAt` + disable schedules) execute in ONE array-form transaction.
+- **Known limitation (accepted):** `Client.name` stays `@unique`, so
+  archiving a client and creating a new one with the same name fails with the
+  existing duplicate-name error; rename the archived row first. Revisit only
+  if it bites.
 - **Manage page (`/clients/manage`)**: active rows get **Archive** (with the
   existing confirm pattern) instead of Delete; a "Show archived" toggle reveals
   archived rows with **Restore** and **Delete** (confirm) actions.
@@ -270,6 +303,9 @@ Mirrors the srt_ 3-file pattern (`lib/seo-roadmap-token.ts` /
   instead of `waitFor` with fake timers (B4 gotchas).
 - Hook: activity fetch failure tolerated; activity exposure doesn't break the
   persist-effect dep list (deps unchanged — activity is separate state).
+- Skill-side manual verification (post-implementation, real Teamwork via MCP):
+  no-start-date plan, completed assignment skipped, null-tasklist client
+  reported, token minted for plan A rejected against plan B (Codex verify list).
 
 ## Out of scope (explicit)
 
