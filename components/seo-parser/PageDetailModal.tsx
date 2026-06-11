@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { AggregatedResult, Issue } from '@/lib/types';
 import { SEVERITY_BADGE_COLORS } from '@/lib/constants/severity';
 import { rehydrate } from '@/lib/services/url-registry';
+import { normalizeFindingUrl } from '@/lib/findings/normalize-url';
 
 interface PageDetailModalProps {
   url: string;
@@ -28,18 +29,26 @@ function findIssuesForUrl(url: string, result: AggregatedResult): MatchedIssue[]
   const matched: MatchedIssue[] = [];
 
   const registry = result.url_registry;
+  const target = normalizeFindingUrl(url);
 
   const checkIssue = (issue: Issue, severity: 'critical' | 'warning' | 'notice') => {
     // issue.urls is a CAPPED sample. Pages recovered via affectedUrlRefs would
     // wrongly show "no issues" unless we also rehydrate the refs through the
     // url_registry. Old sessions without a registry fall back to urls only.
-    const affected = new Set<string>(issue.urls ?? []);
+    // groups[*].urls carry the membership for duplicate-* issues. Everything
+    // is compared in normalizeFindingUrl form because the Crawled Pages table
+    // serves normalized CrawlPage.url values post-flip (legacy SessionPage
+    // URLs are unnormalized, and normalizing both sides matches them too).
+    const affected = new Set<string>((issue.urls ?? []).map(normalizeFindingUrl));
     if (registry) {
       for (const ref of issue.affectedUrlRefs ?? []) {
-        affected.add(rehydrate(registry, ref));
+        affected.add(normalizeFindingUrl(rehydrate(registry, ref)));
       }
     }
-    if (affected.has(url)) {
+    for (const group of issue.groups ?? []) {
+      for (const u of group.urls ?? []) affected.add(normalizeFindingUrl(u));
+    }
+    if (affected.has(target)) {
       matched.push({ issue, severity });
     }
   };
