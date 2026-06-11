@@ -160,4 +160,65 @@ describe('getClientFleet', () => {
     const row = (await getClientFleet(NOW)).find((r) => r.id === c.id)!
     expect(row.alerts.some((a) => a.kind === 'score-drop')).toBe(true)
   })
+
+  it('Issues counts: distinct types by severity across both tools; null without runs', async () => {
+    const c = await makeClient('issues')
+    const s = await makeSession(c.id, { createdAt: daysAgo(1) })
+    const seoRun = await makeSeoRun(c.id, s.id, 80, daysAgo(1))
+    await prisma.finding.create({
+      data: { runId: seoRun.id, scope: 'run', type: 'broken_pages', severity: 'critical', count: 9, dedupKey: randomUUID() },
+    })
+    await prisma.finding.create({
+      data: { runId: seoRun.id, scope: 'run', type: 'thin_content', severity: 'warning', count: 30, dedupKey: randomUUID() },
+    })
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: c.id, completedAt: daysAgo(1) } })
+    const adaRun = await prisma.crawlRun.create({
+      data: { tool: 'ada-audit', source: 'site-audit', domain: DOMAIN, clientId: c.id, siteAuditId: sa.id, status: 'complete', score: 85, pagesTotal: 2, completedAt: daysAgo(1) },
+    })
+    // mixed severities on ONE rule — must collapse to a single critical type (Codex fix #3)
+    await prisma.finding.create({
+      data: { runId: adaRun.id, scope: 'page', type: 'color-contrast', severity: 'warning', url: `https://${DOMAIN}/a`, dedupKey: randomUUID() },
+    })
+    await prisma.finding.create({
+      data: { runId: adaRun.id, scope: 'page', type: 'color-contrast', severity: 'critical', url: `https://${DOMAIN}/b`, dedupKey: randomUUID() },
+    })
+    // Hypothetical run-scope ADA row must be ignored by the scope guard (Codex plan-fix #4)
+    await prisma.finding.create({
+      data: { runId: adaRun.id, scope: 'run', type: 'phantom-rule', severity: 'critical', count: 1, dedupKey: randomUUID() },
+    })
+
+    const row = (await getClientFleet(NOW)).find((r) => r.id === c.id)!
+    expect(row.openCritical).toBe(2)  // broken_pages + color-contrast (collapsed); phantom-rule ignored
+    expect(row.openWarning).toBe(1)   // thin_content
+
+    const empty = await makeClient('noissues')
+    const emptyRow = (await getClientFleet(NOW)).find((r) => r.id === empty.id)!
+    expect(emptyRow.openCritical).toBeNull()
+    expect(emptyRow.openWarning).toBeNull()
+  })
+
+  it('regression alert: new critical type vs previous run fires; no previous → never fires', async () => {
+    const reg = await makeClient('reg')
+    const s1 = await makeSession(reg.id, { createdAt: daysAgo(10) })
+    const r1 = await makeSeoRun(reg.id, s1.id, 85, daysAgo(10))
+    await prisma.finding.create({
+      data: { runId: r1.id, scope: 'run', type: 'thin_content', severity: 'warning', count: 5, dedupKey: randomUUID() },
+    })
+    const s2 = await makeSession(reg.id, { createdAt: daysAgo(1) })
+    const r2 = await makeSeoRun(reg.id, s2.id, 84, daysAgo(1))
+    await prisma.finding.create({
+      data: { runId: r2.id, scope: 'run', type: 'broken_pages', severity: 'critical', count: 3, dedupKey: randomUUID() },
+    })
+    const regRow = (await getClientFleet(NOW)).find((r) => r.id === reg.id)!
+    expect(regRow.alerts.some((a) => a.kind === 'regression')).toBe(true)
+
+    const first = await makeClient('first')
+    const fs = await makeSession(first.id, { createdAt: daysAgo(1) })
+    const fr = await makeSeoRun(first.id, fs.id, 84, daysAgo(1))
+    await prisma.finding.create({
+      data: { runId: fr.id, scope: 'run', type: 'broken_pages', severity: 'critical', count: 3, dedupKey: randomUUID() },
+    })
+    const firstRow = (await getClientFleet(NOW)).find((r) => r.id === first.id)!
+    expect(firstRow.alerts.some((a) => a.kind === 'regression')).toBe(false)
+  })
 })

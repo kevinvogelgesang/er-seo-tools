@@ -28,15 +28,18 @@ export interface FleetTableRow {
   pillarScore: number | null
   pillarAt: string | null
   lastActivityAt: string | null
-  alerts: { kind: 'score-drop' | 'error' | 'stale'; detail: string }[]
+  alerts: { kind: 'score-drop' | 'error' | 'stale' | 'regression'; detail: string }[]
+  openCritical: number | null
+  openWarning: number | null
 }
 
-type SortKey = 'default' | 'name' | 'seo' | 'ada' | 'pillar' | 'activity'
+type SortKey = 'default' | 'name' | 'seo' | 'ada' | 'pillar' | 'issues' | 'activity'
 
 const ALERT_CLASSES: Record<FleetTableRow['alerts'][number]['kind'], string> = {
   error: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
   'score-drop': 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
   stale: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60',
+  regression: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
 }
 
 function DeltaChip({ delta }: { delta: number | null }) {
@@ -89,6 +92,9 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
         break
       case 'pillar':
         copy.sort((a, b) => num(b.pillarScore) - num(a.pillarScore))
+        break
+      case 'issues':
+        copy.sort((a, b) => num(b.openCritical) - num(a.openCritical) || num(b.openWarning) - num(a.openWarning))
         break
       case 'activity':
         copy.sort((a, b) => str(b.lastActivityAt).localeCompare(str(a.lastActivityAt)))
@@ -143,6 +149,7 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
               {header('SEO', 'seo', 'right')}
               {header('ADA', 'ada', 'right')}
               {header('Pillar', 'pillar', 'right')}
+              {header('Issues', 'issues', 'right')}
               {header('Last activity', 'activity')}
               <th className="px-5 py-3 font-semibold text-left text-xs uppercase tracking-wide text-gray-400 dark:text-white/40">Alerts</th>
             </tr>
@@ -162,6 +169,20 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
                   {r.pillarScore === null
                     ? <span className="text-gray-300 dark:text-white/20">—</span>
                     : <span className="font-semibold text-[#1c2d4a] dark:text-white">{r.pillarScore}<span className="text-gray-400 dark:text-white/40 font-normal">/10</span></span>}
+                </td>
+                <td className="px-5 py-3 text-right">
+                  {r.openCritical === null ? (
+                    <span className="text-gray-300 dark:text-white/20">—</span>
+                  ) : (
+                    <span className="inline-flex gap-1 tabular-nums">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${r.openCritical > 0 ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50'}`} title="open critical issue types">
+                        {r.openCritical}C
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(r.openWarning ?? 0) > 0 ? 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50'}`} title="open warning issue types">
+                        {r.openWarning ?? 0}W
+                      </span>
+                    </span>
+                  )}
                 </td>
                 <td className="px-5 py-3 text-gray-500 dark:text-white/60">
                   {r.lastActivityAt ? <RelativeTime value={r.lastActivityAt} /> : <span className="text-gray-300 dark:text-white/20">—</span>}

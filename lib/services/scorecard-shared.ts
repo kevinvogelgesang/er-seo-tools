@@ -126,7 +126,7 @@ export function maxIso(dates: (string | null)[]): string | null {
   return max
 }
 
-export type AlertKind = 'score-drop' | 'error' | 'stale'
+export type AlertKind = 'score-drop' | 'error' | 'stale' | 'regression'
 export interface ClientAlert { kind: AlertKind; detail: string }
 
 export function computeAlerts(args: {
@@ -134,12 +134,19 @@ export function computeAlerts(args: {
   ada: ScoreSeries
   /** Tools whose most recent run (any status, from ORIGIN rows — never CrawlRun) errored. */
   erroredTools: string[]
+  /** Critical issue types present in a current run but absent from that
+   *  tool's previous comparable run (B2). Empty when no previous run. */
+  newCriticalTypes: string[]
   /** ISO date of the most recent completed run / pillar analysis. */
   lastActivityAt: string | null
   now: Date
 }): ClientAlert[] {
   const alerts: ClientAlert[] = []
   for (const tool of args.erroredTools) alerts.push({ kind: 'error', detail: `${tool}: latest run failed` })
+  if (args.newCriticalTypes.length > 0) {
+    const n = args.newCriticalTypes.length
+    alerts.push({ kind: 'regression', detail: `${n} new critical issue type${n === 1 ? '' : 's'}` })
+  }
   if (args.seo.delta !== null && args.seo.delta <= -SCORE_DROP_THRESHOLD) {
     alerts.push({ kind: 'score-drop', detail: `SEO score dropped ${Math.abs(args.seo.delta)}` })
   }
