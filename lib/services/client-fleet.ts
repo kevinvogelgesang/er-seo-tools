@@ -9,6 +9,7 @@ import {
   buildAdaSeries, buildSeoSeries, computeAlerts, latestRunStatus, maxIso,
   type AdaSeriesSource, type ClientAlert, type ScoreSeries,
 } from './scorecard-shared'
+import { collapseTypeGroups, newCriticalTypes, selectRuns, type TypeAggregate } from './findings-shared'
 
 export interface FleetRow {
   id: number
@@ -21,6 +22,10 @@ export interface FleetRow {
   pillarAt: string | null
   lastActivityAt: string | null
   alerts: ClientAlert[]
+  /** Distinct open critical/warning issue types across both tools' current
+   *  runs; null when the client has no current findings-bearing runs. */
+  openCritical: number | null
+  openWarning: number | null
 }
 
 function parseFirstDomain(domains: string): string | null {
@@ -42,8 +47,8 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
     prisma.crawlRun.findMany({
       where: { clientId: { not: null } },
       select: {
-        clientId: true, tool: true, source: true, score: true, completedAt: true,
-        createdAt: true, sessionId: true, siteAuditId: true, adaAuditId: true,
+        id: true, clientId: true, tool: true, source: true, domain: true, score: true,
+        completedAt: true, createdAt: true, sessionId: true, siteAuditId: true, adaAuditId: true,
       },
     }),
     prisma.adaAudit.findMany({
@@ -66,6 +71,50 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
   // is indistinguishable from an orphaned technical run and joins the series;
   // CrawlRun has no workflow column and orphan technical points matter more.
   const keywordSessionIds = new Set(sessions.filter((s) => s.workflow === 'keyword-research').map((s) => s.id))
+
+  // B2: current+previous run selection per client, then type-level aggregates
+  // for Issues counts and regression alerts. Type-level only — no URLs.
+  const selByClient = new Map(
+    clients.map((c) => [
+      c.id,
+      selectRuns(crawlRuns.filter((r) => r.clientId === c.id), keywordSessionIds),
+    ]),
+  )
+  const seoRunIds: string[] = []
+  const adaRunIds: string[] = []
+  for (const sel of selByClient.values()) {
+    for (const r of [sel.seo.current, sel.seo.previous]) if (r) seoRunIds.push(r.id)
+    for (const r of [sel.ada.current, sel.ada.previous]) if (r) adaRunIds.push(r.id)
+  }
+  const [seoTypeRows, adaTypeGroups] = await Promise.all([
+    seoRunIds.length
+      ? prisma.finding.findMany({
+          where: { runId: { in: seoRunIds }, scope: 'run' },
+          select: { runId: true, type: true, severity: true, count: true },
+        })
+      : Promise.resolve([]),
+    adaRunIds.length
+      ? prisma.finding.groupBy({
+          by: ['runId', 'type', 'severity'],
+          // scope guard (Codex plan-fix #1): see client-findings.ts.
+          where: { runId: { in: adaRunIds }, scope: 'page' },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+  ])
+  // Collapse ADA to ONE aggregate per (runId, type), max severity (Codex fix #3).
+  const aggByRun = new Map<string, TypeAggregate[]>()
+  for (const id of seoRunIds) {
+    aggByRun.set(id, collapseTypeGroups(seoTypeRows.filter((f) => f.runId === id)))
+  }
+  for (const id of adaRunIds) {
+    aggByRun.set(
+      id,
+      collapseTypeGroups(
+        adaTypeGroups.filter((g) => g.runId === id).map((g) => ({ type: g.type, severity: g.severity, count: g._count._all })),
+      ),
+    )
+  }
 
   return clients.map((c) => {
     const mySessions = sessions.filter((s) => s.clientId === c.id)
@@ -103,6 +152,25 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
     if (latestRunStatus(myAda) === 'error') erroredTools.push('ADA audit')
     if (latestRunStatus(myPillars) === 'error') erroredTools.push('pillar analysis')
 
+    const sel = selByClient.get(c.id)!
+    const currentAggs = [
+      ...(sel.seo.current ? aggByRun.get(sel.seo.current.id) ?? [] : []),
+      ...(sel.ada.current ? aggByRun.get(sel.ada.current.id) ?? [] : []),
+    ]
+    const hasFindingsRuns = sel.seo.current !== null || sel.ada.current !== null
+    const openCritical = hasFindingsRuns ? currentAggs.filter((a) => a.severity === 'critical').length : null
+    const openWarning = hasFindingsRuns ? currentAggs.filter((a) => a.severity === 'warning').length : null
+    const regressionTypes = [
+      ...newCriticalTypes(
+        sel.seo.current ? aggByRun.get(sel.seo.current.id) ?? [] : [],
+        sel.seo.previous ? new Set((aggByRun.get(sel.seo.previous.id) ?? []).map((a) => a.type)) : null,
+      ),
+      ...newCriticalTypes(
+        sel.ada.current ? aggByRun.get(sel.ada.current.id) ?? [] : [],
+        sel.ada.previous ? new Set((aggByRun.get(sel.ada.previous.id) ?? []).map((a) => a.type)) : null,
+      ),
+    ]
+
     return {
       id: c.id,
       name: c.name,
@@ -113,7 +181,9 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
       pillarScore: latestPillar ? latestPillar.score : null,
       pillarAt: latestPillar ? latestPillar.createdAt.toISOString() : null,
       lastActivityAt,
-      alerts: computeAlerts({ seo, ada, erroredTools, newCriticalTypes: [], lastActivityAt, now }),
+      alerts: computeAlerts({ seo, ada, erroredTools, newCriticalTypes: regressionTypes, lastActivityAt, now }),
+      openCritical,
+      openWarning,
     }
   })
 }
