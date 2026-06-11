@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { getUploadDir, isValidSessionId, UPLOADS_DIR } from '@/lib/upload-helpers';
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers';
+import { cleanOldTerminalJobs } from '@/lib/jobs/retention';
 
 /** Parsed sessions and their data are kept for 180 days. */
 const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -11,7 +12,8 @@ const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 const ORPHAN_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Run all cleanup tasks. Called at startup and once per day from instrumentation.ts.
+ * Run all cleanup tasks. Called inline at startup (instrumentation.ts) and
+ * daily via the 'cleanup' scheduled job (lib/jobs/handlers/cleanup.ts).
  * Each task is independent — a failure in one does not abort the others.
  */
 export async function runCleanup(): Promise<void> {
@@ -23,6 +25,7 @@ export async function runCleanup(): Promise<void> {
     cleanExpiredShareLinks(),
     cleanExpiredAdaShareTokens(),
     cleanExpiredScreenshots(),
+    cleanOldTerminalJobs(),
   ]);
   logSettledFailures('[cleanup] Cleanup task failed', results);
 }
