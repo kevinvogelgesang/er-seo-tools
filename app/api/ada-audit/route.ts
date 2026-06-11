@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
 import type { AuditListItem, AuditScorecard } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
+import { writeAdaSingleFindings } from '@/lib/findings/ada-write'
 import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
@@ -47,6 +48,12 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string) 
           completedAt: new Date(),
         },
       })
+      // Dual-write the normalized findings run (A2): a redirected standalone
+      // still gets a CrawlRun + one redirected CrawlPage, no findings.
+      // Best-effort — never affects the legacy path.
+      void writeAdaSingleFindings(id).catch((e) => {
+        console.error('[findings] dual-write failed for ada audit', id, e)
+      })
       return
     }
 
@@ -74,6 +81,13 @@ async function runAuditInBackground(id: string, url: string, wcagLevel: string) 
       urls: harvestedPdfUrls,
       adaAuditId: id,
       sourcePageUrl: url,
+    })
+
+    // Dual-write the normalized findings run (A2). Best-effort: the blob
+    // committed above is the source of truth; a findings failure must never
+    // fail the audit.
+    void writeAdaSingleFindings(id).catch((e) => {
+      console.error('[findings] dual-write failed for ada audit', id, e)
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
