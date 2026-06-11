@@ -2,10 +2,12 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { getClientDashboard } from '@/lib/services/client-dashboard'
 import { getClientSeoHistory } from '@/lib/services/client-seo-history'
+import { getClientFindings } from '@/lib/services/client-findings'
 import { ClientHeader } from '@/components/clients/ClientHeader'
 import { Scorecard } from '@/components/clients/Scorecard'
 import { ActivityTimeline } from '@/components/clients/ActivityTimeline'
 import { IssueTrendCard } from '@/components/clients/IssueTrendCard'
+import { FindingsPanel } from '@/components/clients/FindingsPanel'
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -22,9 +24,10 @@ export default async function ClientDashboardPage({ params }: Props) {
   const clientId = Number(id)
   if (!Number.isInteger(clientId) || clientId <= 0) notFound()
 
-  const [dash, history] = await Promise.all([
+  const [dash, history, findings] = await Promise.all([
     getClientDashboard(clientId),
     getClientSeoHistory(clientId),
+    getClientFindings(clientId),
   ])
   if (!dash.client) notFound()
 
@@ -85,6 +88,7 @@ export default async function ClientDashboardPage({ params }: Props) {
         </div>
 
         <div className="space-y-6">
+          <FindingsPanel rows={findings.rows} seo={findings.seo} ada={findings.ada} />
           <IssueTrendCard sessions={history.sessions} latestTwo={history.latestTwo} />
           <div>
             <h2 className="text-sm font-semibold text-[#1c2d4a] dark:text-white uppercase tracking-wide mb-3">
