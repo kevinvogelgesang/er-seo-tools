@@ -2,9 +2,9 @@ import { promises as fs } from 'fs'
 import { prisma } from '@/lib/db'
 import { SCREENSHOTS_DIR, SCREENSHOT_RETENTION_MS, deleteScreenshots } from './screenshot-helpers'
 
-const SWEEP_INTERVAL_MS = 30 * 60 * 1000
-let intervalHandle: NodeJS.Timeout | null = null
-
+// Runs every 30 min via the 'screenshot-sweep' scheduled job
+// (lib/jobs/handlers/screenshot-sweep.ts) — Phase 4 replaced this module's
+// own setInterval.
 export async function sweepExpiredScreenshots(): Promise<{ checked: number; deleted: number }> {
   let dirents: import('fs').Dirent[]
   try {
@@ -35,17 +35,4 @@ export async function sweepExpiredScreenshots(): Promise<{ checked: number; dele
     }
   }
   return { checked: subdirs.length, deleted }
-}
-
-export function startScreenshotSweeper(): void {
-  if (intervalHandle) return
-  void sweepExpiredScreenshots().catch((err) => console.warn('[screenshot-sweeper] startup sweep failed:', err))
-  intervalHandle = setInterval(() => {
-    void sweepExpiredScreenshots().catch((err) => console.warn('[screenshot-sweeper] interval sweep failed:', err))
-  }, SWEEP_INTERVAL_MS)
-  intervalHandle.unref?.()
-}
-
-export function stopScreenshotSweeper(): void {
-  if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null }
 }
