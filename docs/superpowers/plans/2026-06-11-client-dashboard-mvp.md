@@ -161,6 +161,12 @@ describe('buildAdaSeries', () => {
     expect(series.delta).toBe(15)
     expect(latestHref).toBe('/ada-audit/ada-1')
   })
+  it('falls back to page audits when site-audit runs exist but none are scored', () => {
+    const nullSiteRun = { ...siteRun, score: null }
+    const { series, source } = buildAdaSeries([nullSiteRun, pageRun], [])
+    expect(source).toBe('page')
+    expect(series.latest).toBe(75)
+  })
   it('ignores legacy rows with null score or non-complete status', () => {
     const { series, source } = buildAdaSeries([], [
       legacy('ada-3', null, '2026-06-01T00:00:00.000Z'),
@@ -312,9 +318,10 @@ export interface LegacyAdaRow {
 export type AdaSeriesSource = 'site' | 'page' | null
 
 /**
- * ADA series rule (spec): site-audit CrawlRuns when any exist; otherwise
- * page-audit CrawlRuns merged with non-null legacy AdaAudit.score points,
- * deduped by origin id (CrawlRun point wins). Never mixed.
+ * ADA series rule (spec): site-audit CrawlRuns when any SCORED site point
+ * exists; otherwise page-audit CrawlRuns merged with non-null legacy
+ * AdaAudit.score points, deduped by origin id (CrawlRun point wins).
+ * Never mixed.
  */
 export function buildAdaSeries(
   runs: AdaRunRow[],
@@ -634,7 +641,10 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
   ])
 
   // Keyword-research sessions get CrawlRuns too (the dual-write runs for all
-  // workflows) — they must not pollute the SEO health series.
+  // workflows) — they must not pollute the SEO health series. Accepted gap
+  // (spec): once a keyword session EXPIRES, its orphaned run (sessionId null)
+  // is indistinguishable from an orphaned technical run and joins the series;
+  // CrawlRun has no workflow column and orphan technical points matter more.
   const keywordSessionIds = new Set(sessions.filter((s) => s.workflow === 'keyword-research').map((s) => s.id))
 
   return clients.map((c) => {
@@ -657,6 +667,8 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     const latestPillar = completePillars.length ? completePillars[completePillars.length - 1] : null
 
+    // Staleness = completed runs + pillar analyses (spec: memo/roadmap
+    // generation is session-attached; sessions are the activity proxy).
     const lastActivityAt = maxIso([
       ...mySessions.filter((s) => s.status === 'complete').map((s) => s.createdAt.toISOString()),
       ...mySiteAudits.filter((a) => a.status === 'complete').map((a) => (a.completedAt ?? a.createdAt).toISOString()),
@@ -666,6 +678,7 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
 
     const erroredTools: string[] = []
     if (latestRunStatus(mySessions.filter((s) => s.workflow === 'technical')) === 'error') erroredTools.push('SEO parse')
+    if (latestRunStatus(mySessions.filter((s) => s.workflow === 'keyword-research')) === 'error') erroredTools.push('keyword research')
     if (latestRunStatus(mySiteAudits) === 'error') erroredTools.push('site audit')
     if (latestRunStatus(myAda) === 'error') erroredTools.push('ADA audit')
     if (latestRunStatus(myPillars) === 'error') erroredTools.push('pillar analysis')
@@ -823,6 +836,18 @@ describe('getClientDashboard', () => {
     expect(d.seo.series.latest).toBe(85)
     expect(d.seo.latestHref).toBeNull()
     expect(d.timeline.filter((t) => t.type === 'seo-parse')).toHaveLength(0)
+  })
+
+  it('standalone ADA timeline stat prefers the CrawlRun score over the (usually null) legacy column', async () => {
+    const c = await makeClient()
+    const ada = await prisma.adaAudit.create({
+      data: { url: `https://${DOMAIN}/scored`, status: 'complete', clientId: c.id, score: null, createdAt: daysAgo(1), completedAt: daysAgo(1) },
+    })
+    await prisma.crawlRun.create({
+      data: { tool: 'ada-audit', source: 'page-audit', domain: DOMAIN, clientId: c.id, adaAuditId: ada.id, status: 'complete', score: 77, pagesTotal: 1, completedAt: daysAgo(1) },
+    })
+    const d = await getClientDashboard(c.id, NOW)
+    expect(d.timeline.find((t) => t.type === 'ada-audit')!.stat).toBe('Score 77')
   })
 
   it('seoCounts from the latest complete technical session with counts; schedules listed', async () => {
@@ -1027,11 +1052,19 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
       stat: a.pagesTotal > 0 ? `${a.pagesTotal} pages` : null,
     })
   }
+  // Standalone AdaAudit.score is rarely persisted (the completion path doesn't
+  // set it) — prefer the A2 CrawlRun score, fall back to the legacy column.
+  const pageRunScores = new Map(
+    crawlRuns
+      .filter((r) => r.tool === 'ada-audit' && r.source === 'page-audit' && r.adaAuditId && r.score !== null)
+      .map((r) => [r.adaAuditId as string, r.score as number]),
+  )
   for (const a of standaloneAda) {
+    const score = pageRunScores.get(a.id) ?? a.score
     timeline.push({
       type: 'ada-audit', id: a.id, title: a.url, status: a.status,
       date: a.createdAt.toISOString(), href: `/ada-audit/${a.id}`,
-      stat: a.score !== null ? `Score ${a.score}` : null,
+      stat: score !== null ? `Score ${score}` : null,
     })
   }
   timeline.sort((a, b) => b.date.localeCompare(a.date))

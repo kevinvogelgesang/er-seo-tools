@@ -46,8 +46,9 @@ in the activity timeline and the SEO issue-count trend. We do **not** reuse
 `SiteAudit.summary` — exactly the reader class we're trying to retire; that
 route stays as-is for the `/ada-audit` page and is untouched by B1).
 
-ADA series selection rule: if the client has ≥1 site-audit `CrawlRun`, the ADA
-scorecard/series is site-audit runs only; otherwise it falls back to the
+ADA series selection rule: if the client has ≥1 **scored** site-audit
+`CrawlRun` point, the ADA scorecard/series is site-audit runs only; otherwise
+(no site audits, or all site scores null) it falls back to the
 standalone page-audit series — page-audit `CrawlRun` scores merged with
 non-null legacy `AdaAudit.score` points, deduped by origin id (labeled "page
 audit" on the card). Site scores and single-page scores are never mixed in
@@ -105,10 +106,14 @@ this is well inside SQLite/single-process comfort.
 - `computeAlerts(client aggregates)` → `Alert[]` with three kinds:
   - `score-drop` — SEO or ADA `delta <= -10`
   - `error` — the most recent run of any tool has `status='error'`.
-    **Source: origin rows only** (`Session.status`, `SiteAudit.status`,
-    standalone `AdaAudit.status`, `PillarAnalysis.status`) — `CrawlRun.status`
-    is only `complete | partial` and never represents failed runs.
-  - `stale` — no completed run/memo of any kind in the last 30 days
+    **Source: origin rows only** (`Session.status` per workflow — technical
+    AND keyword-research, `SiteAudit.status`, standalone `AdaAudit.status`,
+    `PillarAnalysis.status`) — `CrawlRun.status` is only `complete | partial`
+    and never represents failed runs.
+  - `stale` — no completed **run or pillar analysis** in the last 30 days
+    (memo/roadmap generation is session-attached and follows its session
+    within days, so sessions are the activity proxy; memo timestamps are
+    deliberately not consulted)
   Thresholds are named constants (`SCORE_DROP_THRESHOLD = 10`,
   `STALE_DAYS = 30`) in this file.
 
@@ -187,7 +192,11 @@ remains the chart/diff-link data source (still called from the rebuilt page).
   audit gone; rule: **timeline renders from origin rows, scores render from
   `CrawlRun`**, so an orphaned `CrawlRun` still contributes its score point
   but no timeline row. Deep links always target origin rows, so no dead
-  links.)
+  links.) Known, accepted ambiguity: once a keyword-research session expires
+  and its `CrawlRun` orphans, that run is indistinguishable from an orphaned
+  technical run and its score joins the SEO series — keyword runs are a
+  small minority and `CrawlRun` has no workflow column; fixing this properly
+  means stamping workflow on `CrawlRun` at write time (out of B1 scope).
 
 ## Testing
 
