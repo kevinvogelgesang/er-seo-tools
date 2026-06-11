@@ -43,11 +43,14 @@ Continue the er-seo-tools improvement roadmap.
     nyinstituteofmassage.com site audit (23 pages incl. 1 redirected child /
     4 violations), and 1 standalone audit. The independent
     Violation-rows-vs-summary.aggregate cross-check passed on both.
-  - **The live hooks have not yet fired on a real human-triggered audit**
-    (verification used the rebuild script, which exercises the same
-    mapper+writer). Re-run `scripts/findings-parity.ts <id>` after the next
-    real site audit + standalone audit as a belt-and-braces check — this is
-    also Phase 3's first step.
+  - **Live-hook verification (2026-06-11): DONE for site audits.** Kevin ran
+    a fresh www.nyinstituteofmassage.com site audit (23 pages incl. 1
+    redirected, 11/11 PDFs, 22/22 LH, 0 errors); the finalizer hook wrote
+    the CrawlRun 9 ms after the terminal update (score 88, 4 findings /
+    4 violations) and `findings-parity.ts` → **PARITY OK** incl. the
+    summary.aggregate cross-check. Still untested live: the standalone
+    route hook (same `writeAdaSingleFindings` path that passed via rebuild;
+    check one fresh standalone audit during Phase 3 step 1).
 - **DB-growth projection: DONE** (2026-06-10, prod). 90-d archive +
   findings-forever safe for human-triggered + weekly volume; nightly fleet
   scans gated on a C2 cadence-aware retention class.
