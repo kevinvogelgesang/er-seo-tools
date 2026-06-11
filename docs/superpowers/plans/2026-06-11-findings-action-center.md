@@ -678,6 +678,7 @@ describe('getClientFindings', () => {
     const row = (await getClientFindings(c.id)).rows[0]
     expect(row.urls).toHaveLength(URLS_PER_FINDING)
     expect(row.totalUrls).toBe(30)
+    expect(row.urls).toEqual([...row.urls].sort()) // deterministic sample (sorted)
   })
 
   it('expired origin (null sessionId) renders rows with null href', async () => {
@@ -728,7 +729,7 @@ Expected: FAIL — module `./client-findings` not found.
 
 import { prisma } from '@/lib/db'
 import {
-  aggregateAdaTypes, aggregateSeoTypes, diffTypes, selectRuns, toSeverity,
+  aggregateAdaTypes, aggregateSeoTypes, diffTypes, selectRuns,
   SEVERITY_RANK, URLS_PER_FINDING,
   type RunRef, type Severity, type TypeAggregate, type TypeDiff,
 } from './findings-shared'
@@ -801,7 +802,8 @@ function buildRows(args: {
   href: string | null
 }): OpenFindingRow[] {
   return args.aggregates.map((a) => {
-    const urls = args.urlsByType.get(a.type) ?? []
+    // Deterministic visible sample (Codex plan-fix #3): dedupe + sort before the cap.
+    const urls = [...new Set(args.urlsByType.get(a.type) ?? [])].sort()
     const d = args.descriptions.get(a.type)
     return {
       tool: args.tool,
@@ -855,7 +857,9 @@ export async function getClientFindings(clientId: number): Promise<ClientFinding
     sel.ada.previous
       ? prisma.finding.groupBy({
           by: ['type'],
-          where: { runId: sel.ada.previous.id },
+          // scope guard (Codex plan-fix #1): ADA findings are page-scope today,
+          // but future run-scope rows must never pollute the diff baseline.
+          where: { runId: sel.ada.previous.id, scope: 'page' },
           _count: { _all: true },
         })
       : Promise.resolve(null),
@@ -971,9 +975,13 @@ git commit -m "feat(clients): client-findings read service (open findings + type
     await prisma.finding.create({
       data: { runId: adaRun.id, scope: 'page', type: 'color-contrast', severity: 'critical', url: `https://${DOMAIN}/b`, dedupKey: randomUUID() },
     })
+    // Hypothetical run-scope ADA row must be ignored by the scope guard (Codex plan-fix #4)
+    await prisma.finding.create({
+      data: { runId: adaRun.id, scope: 'run', type: 'phantom-rule', severity: 'critical', count: 1, dedupKey: randomUUID() },
+    })
 
     const row = (await getClientFleet(NOW)).find((r) => r.id === c.id)!
-    expect(row.openCritical).toBe(2)  // broken_pages + color-contrast (collapsed)
+    expect(row.openCritical).toBe(2)  // broken_pages + color-contrast (collapsed); phantom-rule ignored
     expect(row.openWarning).toBe(1)   // thin_content
 
     const empty = await makeClient('noissues')
@@ -1061,7 +1069,8 @@ import { collapseTypeGroups, newCriticalTypes, selectRuns, type TypeAggregate } 
     adaRunIds.length
       ? prisma.finding.groupBy({
           by: ['runId', 'type', 'severity'],
-          where: { runId: { in: adaRunIds } },
+          // scope guard (Codex plan-fix #1): see client-findings.ts.
+          where: { runId: { in: adaRunIds }, scope: 'page' },
           _count: { _all: true },
         })
       : Promise.resolve([]),
@@ -1180,7 +1189,12 @@ describe('FindingsPanel', () => {
     expect(screen.queryByText('https://acme.example/a')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /Broken pages/ }))
     expect(screen.getByText('https://acme.example/a')).toBeTruthy()
-    expect(screen.getByText(/sample/i)).toBeTruthy()
+    expect(screen.getAllByText(/sample/i).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('sampled row with ZERO urls still shows the sample badge (Codex plan-fix #2)', () => {
+    render(<FindingsPanel rows={[row({ isSample: true, urls: [], totalUrls: 0 })]} seo={meta()} ada={null} />)
+    expect(screen.getByText('sample')).toBeTruthy()
   })
 
   it('shows capped-list footer link when totalUrls exceeds shown urls', () => {
@@ -1333,6 +1347,16 @@ function FindingRow({ row }: { row: FindingRowProp }) {
         </span>
         {row.isNew && (
           <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">NEW</span>
+        )}
+        {/* Codex plan-fix #2: sample badge on the COLLAPSED row — a sampled,
+            zero-URL finding is not expandable and must not look complete. */}
+        {row.isSample && (
+          <span
+            className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50"
+            title="URL list is a sample/partial — the count is authoritative"
+          >
+            sample
+          </span>
         )}
         <DeltaBadge delta={row.countDelta} />
         <span className="shrink-0 text-xs text-gray-400 dark:text-white/40 tabular-nums">
