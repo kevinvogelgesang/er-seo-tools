@@ -113,7 +113,7 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
       pillarScore: latestPillar ? latestPillar.score : null,
       pillarAt: latestPillar ? latestPillar.createdAt.toISOString() : null,
       lastActivityAt,
-      alerts: computeAlerts({ seo, ada, erroredTools, lastActivityAt, now }),
+      alerts: computeAlerts({ seo, ada, erroredTools, newCriticalTypes: [], lastActivityAt, now }),
     }
   })
 }

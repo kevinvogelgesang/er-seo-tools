@@ -122,7 +122,7 @@ describe('maxIso', () => {
 
 describe('computeAlerts', () => {
   const recent = '2026-06-10T00:00:00.000Z' // 1 day before NOW
-  const base = { seo: EMPTY_SERIES, ada: EMPTY_SERIES, erroredTools: [], lastActivityAt: recent, now: NOW }
+  const base = { seo: EMPTY_SERIES, ada: EMPTY_SERIES, erroredTools: [], newCriticalTypes: [], lastActivityAt: recent, now: NOW }
 
   it('no alerts for a healthy recent client', () => {
     expect(computeAlerts(base)).toEqual([])
@@ -143,5 +143,12 @@ describe('computeAlerts', () => {
     expect(computeAlerts({ ...base, lastActivityAt: old }).some((a) => a.kind === 'stale')).toBe(true)
     expect(computeAlerts({ ...base, lastActivityAt: null }).some((a) => a.kind === 'stale')).toBe(true)
     expect(computeAlerts({ ...base, lastActivityAt: recent })).toEqual([])
+  })
+  it('regression alert fires when newCriticalTypes is non-empty, with count grammar', () => {
+    expect(computeAlerts({ ...base, newCriticalTypes: ['broken_pages', 'missing_title'] }))
+      .toContainEqual({ kind: 'regression', detail: '2 new critical issue types' })
+    expect(computeAlerts({ ...base, newCriticalTypes: ['x'] }))
+      .toContainEqual({ kind: 'regression', detail: '1 new critical issue type' })
+    expect(computeAlerts({ ...base, newCriticalTypes: [] }).some((a) => a.kind === 'regression')).toBe(false)
   })
 })

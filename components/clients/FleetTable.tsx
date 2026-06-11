@@ -28,7 +28,7 @@ export interface FleetTableRow {
   pillarScore: number | null
   pillarAt: string | null
   lastActivityAt: string | null
-  alerts: { kind: 'score-drop' | 'error' | 'stale'; detail: string }[]
+  alerts: { kind: 'score-drop' | 'error' | 'stale' | 'regression'; detail: string }[]
 }
 
 type SortKey = 'default' | 'name' | 'seo' | 'ada' | 'pillar' | 'activity'
@@ -37,6 +37,7 @@ const ALERT_CLASSES: Record<FleetTableRow['alerts'][number]['kind'], string> = {
   error: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
   'score-drop': 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
   stale: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60',
+  regression: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
 }
 
 function DeltaChip({ delta }: { delta: number | null }) {
