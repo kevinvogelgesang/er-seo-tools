@@ -297,6 +297,11 @@ identical to the module's.
    including the import decision — resolves.** If the persist effect could
    fire earlier, a debounced empty save would create an empty plan and make
    the real localStorage import 409.
+7. **The first post-init persist-effect run is skipped** (ref flag): the
+   effect's deps change during hydration, so it fires once on open. Merely
+   opening the page must never write — an on-open save against an empty DB
+   would create an empty plan and 409-block the real import from the
+   analyst's browser. Saves happen only on real edits.
 
 **Persist effect** (replaces `persist()`):
 
