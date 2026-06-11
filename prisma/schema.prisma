@@ -26,6 +26,7 @@ model Client {
   siteAudits            SiteAudit[]
   schedules             Schedule[]
   crawlRuns             CrawlRun[]
+  quarterAssignments    QuarterAssignment[]
 }
 
 model Session {
@@ -439,5 +440,35 @@ model Schedule {
   updatedAt DateTime  @updatedAt
 
   @@index([enabled, nextRunAt])
+  @@index([clientId])
+}
+
+model QuarterPlan {
+  id           Int       @id @default(autoincrement())
+  name         String    @default("Quarter plan") // freeform label, e.g. "2026-Q3"
+  startDate    String?   // "yyyy-mm-dd" date-only text — matches the <input type=date>, no TZ drift
+  slotsPerWeek Int       @default(2)              // 2 | 3
+  layouts      String    @default("{}")           // opaque JSON Snapshots blob (≤256 KB enforced in API)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  assignments  QuarterAssignment[]
+}
+
+model QuarterAssignment {
+  id          Int          @id @default(autoincrement())
+  planId      Int
+  plan        QuarterPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  clientId    Int
+  client      Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  week        Int?         // 1–13; null = unassigned pool
+  position    Int?         // slot index within the week; null when week is null
+  priority    Int          @default(3)             // 1–5
+  status      String       @default("not_started") // ClientStatus
+  note        String       @default("")            // ≤120 chars
+  completedAt DateTime?                            // non-null = "done"
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([planId, clientId])
   @@index([clientId])
 }
