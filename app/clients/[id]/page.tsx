@@ -3,11 +3,13 @@ import type { Metadata } from 'next'
 import { getClientDashboard } from '@/lib/services/client-dashboard'
 import { getClientSeoHistory } from '@/lib/services/client-seo-history'
 import { getClientFindings } from '@/lib/services/client-findings'
+import { getClientQuarterContext } from '@/lib/services/client-quarter'
 import { ClientHeader } from '@/components/clients/ClientHeader'
 import { Scorecard } from '@/components/clients/Scorecard'
 import { ActivityTimeline } from '@/components/clients/ActivityTimeline'
 import { IssueTrendCard } from '@/components/clients/IssueTrendCard'
 import { FindingsPanel } from '@/components/clients/FindingsPanel'
+import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -24,10 +26,11 @@ export default async function ClientDashboardPage({ params }: Props) {
   const clientId = Number(id)
   if (!Number.isInteger(clientId) || clientId <= 0) notFound()
 
-  const [dash, history, findings] = await Promise.all([
+  const [dash, history, findings, quarter] = await Promise.all([
     getClientDashboard(clientId),
     getClientSeoHistory(clientId),
     getClientFindings(clientId),
+    getClientQuarterContext(clientId),
   ])
   if (!dash.client) notFound()
 
@@ -40,9 +43,10 @@ export default async function ClientDashboardPage({ params }: Props) {
           seedUrls={dash.client.seedUrls}
           teamworkTasklistId={dash.client.teamworkTasklistId}
           schedules={dash.schedules}
+          archivedAt={dash.client.archivedAt}
         />
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <Scorecard
             label="SEO Health"
             score={dash.seo.series.latest}
@@ -85,6 +89,7 @@ export default async function ClientDashboardPage({ params }: Props) {
             href={dash.pillar.latestHref}
             points={dash.pillar.series.points}
           />
+          <QuarterContextCard context={quarter} />
         </div>
 
         <div className="space-y-6">

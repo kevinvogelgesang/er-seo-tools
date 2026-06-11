@@ -5,12 +5,14 @@ description: |
   Pillar Analysis, the SEO Parser results page ("Generate Roadmap"), or Keyword
   Research. The payload always has a "Webapp:" line, an "<X> ID:" line, and an
   "Access token: <prefix>_..." line where the prefix is pat_ (pillar strategic
-  memo), srt_ (technical-SEO roadmap, with optional Teamwork push), or krt_
-  (keyword strategy memo). Fetches the structured export, writes the right
-  document, and posts it back to the dashboard. Internal use only at Enrollment
-  Resources. Replaces the separate pillar-analysis-narrative, seo-audit-roadmap,
-  and keyword-strategy-memo skills.
-version: 2.0.0
+  memo), srt_ (technical-SEO roadmap, with optional Teamwork push), krt_
+  (keyword strategy memo), or qct_ (quarter-cycle Teamwork push). Fetches the
+  structured export, writes the right document (or, for qct_, creates the
+  planned-week Teamwork tasks), and posts the result back to the dashboard.
+  Internal use only at Enrollment Resources. Replaces the separate
+  pillar-analysis-narrative, seo-audit-roadmap, and keyword-strategy-memo
+  skills.
+version: 2.1.0
 ---
 
 # ER Handoff Memo (unified)
@@ -23,8 +25,8 @@ you write is workflow-specific.
 
 Activate only when the message contains ALL of:
 - a `Webapp:` line with a URL,
-- an `<X> ID:` line (`Analysis ID:` / `Roadmap ID:` / `Memo ID:`),
-- an `Access token:` line whose value starts with `pat_`, `srt_`, or `krt_`.
+- an `<X> ID:` line (`Analysis ID:` / `Roadmap ID:` / `Memo ID:` / `Plan ID:`),
+- an `Access token:` line whose value starts with `pat_`, `srt_`, `krt_`, or `qct_`.
 
 If any field is missing, ask the user to re-copy a fresh prompt from the
 dashboard. Do not run the flow with partial fields.
@@ -37,6 +39,7 @@ workflow this is:
 | `pat_` | Pillar Analysis | `Analysis ID:` | strategic memo | `templates/memo_structure.md` | no |
 | `srt_` | SEO Audit Roadmap | `Roadmap ID:` | technical-SEO roadmap | `templates/roadmap_structure.md` | yes (opt-in) |
 | `krt_` | Keyword Research | `Memo ID:` | keyword strategy memo | `templates/keyword_memo_structure.md` | no |
+| `qct_` | Quarter Grid cycle | `Plan ID:` | none — Teamwork tasks | `references/quarter-push.md` | yes (the push IS the task) |
 
 The ID-label wording is a hint only — if the prefix and label ever disagree,
 **trust the prefix** and let the server's `sub` binding reject a true mismatch.
@@ -150,6 +153,25 @@ rehydration, and the "no estimates / no priority / match parent assignee" rules
 — is in `references/teamwork-push.md`. Follow it exactly. Execute via the
 `mcp__claude_ai_Teamwork__*` tools; no code runs from that reference.
 
+## 8. (qct_ only) Quarter cycle push — the push IS the task
+
+A `qct_` payload means the user clicked "Push to Teamwork" on the Quarter
+Grid — the pasted prompt is the consent; do not ask again. There is no
+document to write. Follow `references/quarter-push.md` exactly: fetch the
+cycle export (§2 CLI), create one top-level Teamwork task per pushable
+assignment in that client's `tasklistId` (marker-based dedupe, skip completed
+and tasklist-less rows, week dates as start/due, no estimates/priority flags),
+then post the receipt via the CLI:
+
+```bash
+python3 scripts/handoff.py receipt --webapp "<Webapp>" --token "<token>" --id "<planId>" \
+  --counts '{"created": N, "skippedExisting": N, "skippedNoTasklist": N, "skippedCompleted": N}'
+```
+
+Reply with a one-screen summary table: per-client result (created W{n} task /
+skipped + reason) and the four totals. Execute via the
+`mcp__claude_ai_Teamwork__*` tools.
+
 ## Workflow notes
 
 - **pat_ (pillar):** the fetched body is `{ …, analysis }`; write the strategic
@@ -157,6 +179,9 @@ rehydration, and the "no estimates / no priority / match parent assignee" rules
 - **krt_ (keyword):** the body carries keyword research export data; write per
   `templates/keyword_memo_structure.md`. The keyword results page is not
   workflow-gated, so a memo can be produced for any session with keyword data.
+- **qct_ (quarter push):** no document; §8 + `references/quarter-push.md` are
+  the whole flow. `handoff.py post` intentionally errors for qct_ tokens —
+  the write-back is the `receipt` subcommand.
 - **Screaming Frog export guidance** for analysts is in
   `templates/screaming-frog-setup.md` — point users there when an audit is thin
   (§3) because the internal crawl was missing.

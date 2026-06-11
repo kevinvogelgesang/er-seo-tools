@@ -19,12 +19,13 @@ interface ChipProps {
   onReturn: (id: number) => void
   onSetStatus: (id: number, status: ClientStatus) => void
   onOpenNote: (id: number, currentNote: string) => void
+  activity?: string // preformatted "kind · date" tooltip line; renders the ⚡ glyph when set
 }
 
 export const Chip = memo(function Chip({
   id, fromWeek, client: c, done, isDragging,
   onDragStart, onDragEnd, onToggleDone, onSetPriority, onReturn,
-  onSetStatus, onOpenNote,
+  onSetStatus, onOpenNote, activity,
 }: ChipProps) {
   const colors = done ? DONE_COLORS : PCOLORS[c.priority]
   const statusColor = STATUS_COLORS[c.status]
@@ -67,6 +68,10 @@ export const Chip = memo(function Chip({
         style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           fontWeight: done ? 400 : 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.7 : 1 }}
       >{c.name}</span>
+      {/* Derived tool activity this cycle (B5) — display-only */}
+      {activity && (
+        <span title={`This cycle: ${activity}`} style={{ flexShrink: 0, fontSize: 9, lineHeight: 1, opacity: 0.8 }}>⚡</span>
+      )}
       {/* Note pencil icon */}
       <span
         className="chip-note-btn"

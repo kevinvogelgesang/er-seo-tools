@@ -39,7 +39,7 @@ function parseFirstDomain(domains: string): string | null {
 
 export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]> {
   const [clients, sessions, crawlRuns, standaloneAda, siteAudits, pillars] = await Promise.all([
-    prisma.client.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, domains: true } }),
+    prisma.client.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, domains: true } }),
     prisma.session.findMany({
       where: { clientId: { not: null } },
       select: { id: true, clientId: true, status: true, workflow: true, createdAt: true },

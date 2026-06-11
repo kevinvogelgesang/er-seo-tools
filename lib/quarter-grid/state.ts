@@ -45,9 +45,25 @@ export type QuarterPlanScalars = {
 
 export type QuarterPlanPayload = QuarterPlanScalars & { assignments: AssignmentPayload[] }
 
+// Teamwork push metadata — present on GET responses ONLY. Never part of
+// QuarterPlanPayload: the grid PUT must not be able to write these columns.
+export type PushSummary = { created: number; skippedExisting: number; skippedNoTasklist: number; skippedCompleted: number }
+
 export type QuarterPlanGetResponse =
   | { plan: null }
-  | { plan: QuarterPlanScalars & { updatedAt: string }; assignments: AssignmentPayload[] }
+  | {
+      plan: QuarterPlanScalars & { updatedAt: string; teamworkPushedAt: string | null; teamworkPushSummary: PushSummary | null }
+      assignments: AssignmentPayload[]
+    }
+
+/** Display labels for derived quarter activity (client-safe; shared by grid chips and the dashboard card). */
+export const ACTIVITY_LABELS: Record<string, string> = {
+  'seo-parse': 'SEO parse',
+  'ada-audit': 'ADA audit',
+  'seo-roadmap': 'Roadmap',
+  'keyword-memo': 'Keyword memo',
+  'pillar-analysis': 'Pillar analysis',
+}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 

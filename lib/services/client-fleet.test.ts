@@ -52,6 +52,16 @@ function makeSeoRun(clientId: number, sessionId: string, score: number, complete
 }
 
 describe('getClientFleet', () => {
+  it('excludes archived clients', async () => {
+    const live = await makeClient('live')
+    const archived = await prisma.client.create({
+      data: { name: `${PREFIX}archived-${randomUUID().slice(0, 8)}`, domains: JSON.stringify([DOMAIN]), archivedAt: new Date() },
+    })
+    const rows = await getClientFleet(NOW)
+    expect(rows.some((r) => r.id === live.id)).toBe(true)
+    expect(rows.some((r) => r.id === archived.id)).toBe(false)
+  })
+
   it('groups interleaved runs by client and computes deltas', async () => {
     const a = await makeClient('a')
     const b = await makeClient('b')

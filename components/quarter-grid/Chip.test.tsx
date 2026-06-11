@@ -16,6 +16,14 @@ const handlers = () => ({
 })
 
 describe('Chip', () => {
+  it('renders the activity glyph with tooltip when activity is set, hides it otherwise', () => {
+    const h = handlers()
+    const { rerender } = render(<Chip id={7} fromWeek={null} client={client()} done={false} isDragging={false} {...h} activity="ADA audit · Jun 9" />)
+    expect(screen.getByTitle('This cycle: ADA audit · Jun 9').textContent).toBe('⚡')
+    rerender(<Chip id={7} fromWeek={null} client={client()} done={false} isDragging={false} {...h} />)
+    expect(screen.queryByTitle(/This cycle/)).toBeNull()
+  })
+
   it('cycles status in ALL_STATUSES order when the status dot is clicked', () => {
     const h = handlers()
     render(<Chip id={7} fromWeek={null} client={client()} done={false} isDragging={false} {...h} />)

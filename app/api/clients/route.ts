@@ -3,12 +3,14 @@ import { prisma } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-/** GET /api/clients — list all clients */
-export async function GET() {
+/** GET /api/clients — list active clients (?includeArchived=1 for all) */
+export async function GET(request: NextRequest) {
   try {
+    const includeArchived = request.nextUrl.searchParams.get('includeArchived') === '1';
     const clients = await prisma.client.findMany({
+      where: includeArchived ? undefined : { archivedAt: null },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, teamworkTasklistId: true, createdAt: true },
+      select: { id: true, name: true, domains: true, seedUrls: true, seedUrlsUpdatedAt: true, teamworkTasklistId: true, archivedAt: true, createdAt: true },
     });
 
     const formatted = clients.map((c) => {

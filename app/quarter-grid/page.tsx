@@ -78,6 +78,7 @@ export default function QuarterGridV3() {
   }, [])
 
   const chipHandlers = {
+    activity: plan.activity,
     onDragStart, onDragEnd,
     onToggleDone: plan.toggleDone,
     onSetPriority: plan.setPriority,
@@ -132,6 +133,7 @@ export default function QuarterGridV3() {
         saveLayout={plan.saveLayout}
         applyLayout={plan.applyLayout}
         deleteLayout={plan.deleteLayout}
+        pushMeta={plan.pushMeta}
       />
 
       {view === 'grid' && (
