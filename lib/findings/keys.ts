@@ -5,27 +5,15 @@
 // canonical JSON, never delimiter-joined raw strings.
 import { createHash } from 'crypto'
 import { canonicalJson } from '@/lib/ada-audit/checks-keys'
+import { normalizeFindingUrl } from './normalize-url'
+
+// Re-export so existing imports keep working; the implementation lives in the
+// client-safe module (this file pulls in node crypto, which client components
+// cannot import).
+export { normalizeFindingUrl }
 
 function sha256Hex(input: string): string {
   return createHash('sha256').update(input).digest('hex')
-}
-
-/**
- * Normalization shared by CrawlPage.url, Finding.url, and the page dedup
- * key: lowercase host, drop fragment, strip the trailing slash on a bare
- * root path. Non-URLs pass through unchanged.
- */
-export function normalizeFindingUrl(url: string): string {
-  let u: URL
-  try {
-    u = new URL(url)
-  } catch {
-    return url
-  }
-  u.hash = ''
-  let out = u.toString()
-  if (u.pathname === '/' && !u.search) out = out.replace(/\/$/, '')
-  return out
 }
 
 export function runFindingKey(type: string): string {
