@@ -4,6 +4,11 @@ import { prisma } from '@/lib/db'
 import { GET, PUT } from './route'
 import { POST as IMPORT } from './import/route'
 import { GET as ACTIVITY } from './activity/route'
+import { POST as MINT } from './push/mint-token/route'
+import { GET as EXPORT } from './push/[planId]/route'
+import { POST as RECEIPT } from './push/[planId]/receipt/route'
+import { mintQuarterPushToken } from '@/lib/quarter-push-token'
+import { SignJWT } from 'jose'
 import type { AssignmentPayload } from '@/lib/quarter-grid/state'
 
 // NOTE: QuarterPlan is a singleton over the shared dev DB — these tests
@@ -200,6 +205,137 @@ describe('GET /api/quarter-plan/activity', () => {
     } finally {
       await prisma.crawlRun.deleteMany({ where: { domain: 'qp-activity.example' } })
     }
+  })
+})
+
+describe('quarter push routes (B5)', () => {
+  const bearerReq = (url: string, token: string | null, init: { method?: string; body?: string } = {}) =>
+    new NextRequest(url, {
+      method: init.method ?? 'GET',
+      headers: token ? { authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {},
+      body: init.body,
+    })
+
+  const pushableRow = (clientId: number): Partial<AssignmentPayload> =>
+    ({ clientId, week: 3, position: 0, priority: 2, status: 'in_progress', note: 'cycle note', completed: false })
+
+  async function makePushablePlan() {
+    const clientId = await makeClient('push')
+    await prisma.client.update({ where: { id: clientId }, data: { teamworkTasklistId: '12345' } })
+    await PUT(jsonReq('PUT', payload([pushableRow(clientId)])))
+    const plan = (await prisma.quarterPlan.findFirst())!
+    return { clientId, planId: plan.id }
+  }
+
+  it('mint: 409 no_plan when none, 409 nothing_planned when nothing pushable', async () => {
+    expect((await MINT(bearerReq('http://localhost/api/quarter-plan/push/mint-token', null, { method: 'POST' }))).status).toBe(409)
+
+    // Plan exists but: pool row, completed row, archived client, and no-tasklist client → nothing pushable.
+    const noTasklist = await makeClient('no-tl')
+    const completedId = await makeClient('done-tl')
+    const archivedId = await makeClient('arch-tl')
+    await prisma.client.update({ where: { id: completedId }, data: { teamworkTasklistId: '111' } })
+    await prisma.client.update({ where: { id: archivedId }, data: { teamworkTasklistId: '222', archivedAt: new Date() } })
+    await PUT(jsonReq('PUT', payload([
+      { clientId: noTasklist, week: 1, position: 0, priority: 3, status: 'not_started', note: '', completed: false },
+      { clientId: completedId, week: 2, position: 0, priority: 3, status: 'complete', note: '', completed: true },
+    ])))
+    // The archived client's row can't come through PUT (it drops archived) — create it directly.
+    const plan = (await prisma.quarterPlan.findFirst())!
+    await prisma.quarterAssignment.create({ data: { planId: plan.id, clientId: archivedId, week: 4, position: 0 } })
+    const res = await MINT(bearerReq('http://localhost/api/quarter-plan/push/mint-token', null, { method: 'POST' }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('nothing_planned')
+  })
+
+  it('mint: 200 with qct_ token and planId when a pushable row exists', async () => {
+    const { planId } = await makePushablePlan()
+    const res = await MINT(bearerReq('http://localhost/api/quarter-plan/push/mint-token', null, { method: 'POST' }))
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.token).toMatch(/^qct_/)
+    expect(json.planId).toBe(planId)
+  })
+
+  it('export: 401 without/with-wrong bearer; 200 with the contract shape', async () => {
+    const { clientId, planId } = await makePushablePlan()
+    const url = `http://localhost/api/quarter-plan/push/${planId}`
+    expect((await EXPORT(bearerReq(url, null), { params: Promise.resolve({ planId: String(planId) }) })).status).toBe(401)
+
+    const { token } = await mintQuarterPushToken(String(planId + 1)) // wrong plan
+    expect((await EXPORT(bearerReq(url, token), { params: Promise.resolve({ planId: String(planId) }) })).status).toBe(401)
+
+    const good = await mintQuarterPushToken(String(planId))
+    const res = await EXPORT(bearerReq(url, good.token), { params: Promise.resolve({ planId: String(planId) }) })
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.planId).toBe(planId)
+    expect(json.teamwork.markerFormat).toBe('quarter-cycle:{planId}:{clientId}:{week}')
+    expect(json.teamwork.taskType).toBe('task')
+    expect(json.assignments).toHaveLength(1)
+    expect(json.assignments[0]).toMatchObject({
+      clientId, week: 3, priority: 2, status: 'in_progress', note: 'cycle note',
+      completed: false, tasklistId: '12345',
+      weekStart: '2026-07-20', weekEnd: '2026-07-24', // payload() startDate 2026-07-06 + week 3
+    })
+  })
+
+  it('export: excludes archived-client rows, includes completed rows; null dates without startDate', async () => {
+    const { clientId, planId } = await makePushablePlan()
+    // Flip: no startDate, row completed; add an archived client's planned row directly.
+    await PUT(jsonReq('PUT', payload([{ ...pushableRow(clientId), completed: true }], { startDate: null })))
+    const archivedId = await makeClient('exp-arch')
+    await prisma.client.update({ where: { id: archivedId }, data: { archivedAt: new Date(), teamworkTasklistId: '999' } })
+    await prisma.quarterAssignment.create({ data: { planId, clientId: archivedId, week: 5, position: 0 } })
+
+    const { token } = await mintQuarterPushToken(String(planId))
+    const json = await (await EXPORT(bearerReq(`http://localhost/api/quarter-plan/push/${planId}`, token), { params: Promise.resolve({ planId: String(planId) }) })).json()
+    expect(json.assignments).toHaveLength(1) // archived row excluded
+    expect(json.assignments[0]).toMatchObject({ clientId, completed: true, weekStart: null, weekEnd: null })
+    expect(json.teamwork.titleFormat).toBe('[SEO] Quarter Cycle — Week {week}')
+  })
+
+  it('export: 404 when the plan no longer exists', async () => {
+    const { planId } = await makePushablePlan()
+    const { token } = await mintQuarterPushToken(String(planId))
+    await prisma.quarterPlan.deleteMany({})
+    const res = await EXPORT(bearerReq(`http://localhost/api/quarter-plan/push/${planId}`, token), { params: Promise.resolve({ planId: String(planId) }) })
+    expect(res.status).toBe(404)
+  })
+
+  it('receipt: 401 for a read-only token (scope enforcement)', async () => {
+    const { planId } = await makePushablePlan()
+    // Hand-mint a qct_ token WITHOUT receipt-write, using the lib's dev fallback secret.
+    const secret = new TextEncoder().encode('dev-quarter-push-secret-do-not-use-in-prod')
+    const jwt = await new SignJWT({ scope: ['read'] })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuer('er-seo-tools').setAudience('quarter-cycle-push').setSubject(String(planId))
+      .setIssuedAt().setExpirationTime('1h').sign(secret)
+    const res = await RECEIPT(
+      bearerReq(`http://localhost/api/quarter-plan/push/${planId}/receipt`, `qct_${jwt}`, { method: 'POST', body: JSON.stringify({ created: 1 }) }),
+      { params: Promise.resolve({ planId: String(planId) }) },
+    )
+    expect(res.status).toBe(401)
+    expect((await res.json()).error).toBe('token_missing_scope')
+  })
+
+  it('receipt: 200 stamps metadata with clamped counts; 400 malformed JSON; 404 non-latest plan', async () => {
+    const { planId } = await makePushablePlan()
+    const { token } = await mintQuarterPushToken(String(planId))
+    const url = `http://localhost/api/quarter-plan/push/${planId}/receipt`
+    const routeParams = { params: Promise.resolve({ planId: String(planId) }) }
+
+    const ok = await RECEIPT(bearerReq(url, token, { method: 'POST', body: JSON.stringify({ created: 3.7, skippedExisting: -2, skippedNoTasklist: 'x', skippedCompleted: 1 }) }), routeParams)
+    expect(ok.status).toBe(200)
+    const plan = (await prisma.quarterPlan.findFirst())!
+    expect(plan.teamworkPushedAt).not.toBeNull()
+    expect(JSON.parse(plan.teamworkPushSummary!)).toEqual({ created: 3, skippedExisting: 0, skippedNoTasklist: 0, skippedCompleted: 1 })
+
+    expect((await RECEIPT(bearerReq(url, token, { method: 'POST', body: 'nope{' }), routeParams)).status).toBe(400)
+
+    // A newer plan supersedes — the old token's receipt must 404.
+    await prisma.quarterPlan.create({ data: { name: 'newer' } })
+    expect((await RECEIPT(bearerReq(url, token, { method: 'POST', body: JSON.stringify({ created: 1 }) }), routeParams)).status).toBe(404)
   })
 })
 
