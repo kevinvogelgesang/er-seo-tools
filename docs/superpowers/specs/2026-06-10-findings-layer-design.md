@@ -1,6 +1,6 @@
 # Normalized Findings Layer (A2) — Design
 
-**Date:** 2026-06-10 · **Status:** Draft for Codex review
+**Date:** 2026-06-10 · **Status:** Codex-reviewed (accept-with-fixes ×10, all applied)
 **Roadmap:** Track A item A2 (`docs/superpowers/nyi/improvement-roadmaps/06-platform.md` § 2; schema shared with `01-seo-parser.md` Phase 1 and `02-ada-audit.md` Phase 3)
 
 ## Problem
@@ -116,6 +116,9 @@ model CrawlPage {
   runId           String
   run             CrawlRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   url             String   // normalized (see Dedup keys)
+  status          String?  // ada: 'complete' | 'error' | 'redirected'; seo: null
+  error           String?  // ada errored pages
+  finalUrl        String?  // ada redirected pages
   statusCode      Int?
   title           String?
   h1              String?
@@ -123,7 +126,7 @@ model CrawlPage {
   wordCount       Int?
   crawlDepth      Int?
   indexable       Boolean?
-  score           Int?     // ada page score
+  score           Int?     // ada page score (computed by the mapper — see Row mapping)
   adaAuditId      String?  // drill-through to the child AdaAudit (no FK — row may outlive it)
   findings        Finding[]
   violations      Violation[]
@@ -133,20 +136,26 @@ model CrawlPage {
 }
 
 model Finding {
-  id        String     @id @default(cuid())
-  runId     String
-  run       CrawlRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
-  pageId    String?
-  page      CrawlPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  type      String     // seo issue-type id (e.g. 'missing_title') | axe ruleId (e.g. 'color-contrast')
-  severity  String     // 'critical' | 'warning' | 'notice' (canonical, cross-tool)
-  count     Int        @default(1) // run-level rows: affected page count
-  detail    String?    // capped JSON (description, source, completeness, sample urls)
-  dedupKey  String     // stable identity across runs — see Dedup keys
-  violation Violation?
+  id               String     @id @default(cuid())
+  runId            String
+  run              CrawlRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  pageId           String?
+  page             CrawlPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  scope            String     // 'run' | 'page' — explicit; consumers must NOT infer it from pageId
+                              // (a page-scope finding on an external/uncrawled URL has pageId null)
+  type             String     // seo issue-type id (e.g. 'missing_title') | axe ruleId (e.g. 'color-contrast')
+  severity         String     // 'critical' | 'warning' | 'notice' (canonical, cross-tool)
+  url              String?    // normalized URL for page-scope findings (kept even when pageId is null)
+  count            Int        @default(1) // run-scope rows: affected page count
+  affectedComplete Boolean?   // run-scope SEO rows: issue.affectedUrlRefsComplete
+  affectedSource   String?    // run-scope SEO rows: issue.affectedUrlSource
+  detail           String?    // capped JSON (description, source, sample urls)
+  dedupKey         String     // sha256 of canonical JSON — see Dedup keys
+  violation        Violation?
 
   @@unique([runId, dedupKey])
   @@index([runId, severity])
+  @@index([runId, scope])
   @@index([type])
   @@index([pageId])
 }
@@ -190,45 +199,67 @@ Design points:
   tracking stays on the legacy rows. Failed runs get no `CrawlRun` (the blob
   remains for forensics); a completed site audit with some errored pages
   writes `status: 'partial'` when `pagesError > 0`, else `'complete'`.
+- **Reverse relations are explicit:** `Session.crawlRun CrawlRun?`,
+  `SiteAudit.crawlRun CrawlRun?`, `AdaAudit.crawlRun CrawlRun?`,
+  `Client.crawlRuns CrawlRun[]` — required for the origin relations to
+  compile.
+- **Exactly-one-origin is writer-enforced:** Prisma cannot express "exactly
+  one of `sessionId`/`siteAuditId`/`adaAuditId` is set"; `writeFindingsRun`
+  validates it and throws before assembling the transaction. Covered by unit
+  tests.
 
 ### Dedup keys
 
-`lib/findings/keys.ts` exports the canonical helpers (mirrors the
-`checks-keys.ts` pattern):
+`lib/findings/keys.ts` exports the canonical helpers, following the
+`checks-keys.ts` pattern exactly: **sha256 of canonical JSON**, not raw
+string concatenation (raw `type:url` keys are delimiter-sensitive and bloat
+the unique index):
 
 - `normalizeFindingUrl(url)` — lowercase host, strip fragment, strip
   trailing slash on root-path only; same normalization used for
-  `CrawlPage.url`.
-- Run-level SEO finding: `dedupKey = type`.
-- Page-level finding (both tools): `dedupKey = `${type}:${normalizeFindingUrl(url)}``.
+  `CrawlPage.url` and `Finding.url`.
+- Run-scope finding: `dedupKey = sha256({ scope: 'run', type })`.
+- Page-scope finding (both tools):
+  `dedupKey = sha256({ scope: 'page', type, url: normalizeFindingUrl(url) })`.
 
-These keys are what make run-over-run diffs (`new` = key in run B not in
-run A) and cross-run triage carry (C2) line up.
+The human-readable `type` and `url` live in their own columns; the hash is
+identity only. These keys are what make run-over-run diffs (`new` = key in
+run B not in run A) and cross-run triage carry (C2) line up.
 
 ### Row mapping
 
 **SEO parser (per completed parse):** one `CrawlRun`
 (source `sf-upload`, `score` = health score); one `CrawlPage` per
 `page_index` entry (same field mapping `buildSessionPages` uses today); one
-**run-level** `Finding` per issue type (count = `issue.count`, detail =
-description + `affectedUrlSource` + `affectedUrlRefsComplete`); one
-**page-level** `Finding` per `(issue type, affected URL)` pair resolved
+**run-scope** `Finding` per issue type (count = `issue.count`,
+`affectedComplete`/`affectedSource` from the issue, detail = description);
+one **page-scope** `Finding` per `(issue type, affected URL)` pair resolved
 through `url_registry`. A finding URL with no `CrawlPage` row (e.g. broken
-external target) gets `pageId = null` with the URL kept in the dedupKey and
-detail. Legacy-format blobs without `page_index`/`url_registry` produce
-run-level rows only — and only for new runs; historical sessions are never
-read.
+external target) keeps `scope: 'page'` with `pageId = null` and the URL in
+`Finding.url`. Issue types whose URL set is an incomplete sample
+(`affectedUrlSource: 'parser-sample'`) still get page-scope rows for the
+sampled URLs, but diff consumers must treat the run-scope row (with
+`affectedComplete: false`) as the authoritative count. Legacy-format blobs
+without `page_index`/`url_registry` produce run-scope rows only — and only
+for new runs; historical sessions are never read.
 
 **ADA site audit (per finalized audit):** one `CrawlRun` (source
-`site-audit`); one `CrawlPage` per child `AdaAudit` (url, final status code
-n/a → null, `score`, `adaAuditId`); per child violation: one page-level
-`Finding` (type = ruleId, mapped severity) + its `Violation` row (exact
-impact, wcagTags, help, nodeCount, capped nodes). Redirected/errored children
-still get a `CrawlPage` row (no findings).
+`site-audit`); one `CrawlPage` per child `AdaAudit` (url, `status`
+complete/error/redirected, `error`, `finalUrl`, `adaAuditId`); per child
+violation: one page-scope `Finding` (type = ruleId, mapped severity) + its
+`Violation` row (exact impact, wcagTags, help, nodeCount, capped nodes).
+Redirected/errored children still get a `CrawlPage` row (no findings).
+**Scores are computed by the mapper, not read from scalar columns** —
+`AdaAudit.score`/`SiteAudit.score` are not reliably persisted (list/detail
+routes compute them dynamically from blobs today). `CrawlPage.score` =
+`computeScore(child violations, wcagLevel).score`; `CrawlRun.score` = the
+same site-level derivation the summary uses.
 
 **ADA standalone page audit (per completed audit):** one `CrawlRun` (source
 `page-audit`, `pagesTotal` 1) + one `CrawlPage` + findings/violations as
-above.
+above. A standalone audit that ends `redirected` (the runner returns early
+without an axe blob) still writes the run + one `CrawlPage` with
+`status: 'redirected'` and no findings.
 
 ## Writer module: `lib/findings/`
 
@@ -260,11 +291,16 @@ write path must be completely unaffected by a findings failure.
    completion `$transaction` commits (separate transaction; a findings
    failure must not fail the session, and the blob commit must not wait on
    findings).
-2. **ADA site audit** — `lib/ada-audit/site-audit-finalizer.ts`, after the
-   `status: 'complete'` update; the children are already loaded for
-   `buildSiteAuditSummary`, so the mapper reuses them (no second load).
-   Finalize is the single decision point and is naturally idempotent here:
-   a recovered/re-finalized audit just rewrites the run.
+2. **ADA site audit** — `lib/ada-audit/site-audit-finalizer.ts`. Ordering:
+   compute the bundle from the already-loaded children (no second load),
+   perform the terminal `complete` update, run `closeBatchIfDrained` and the
+   promoter kick exactly as today, and only then
+   `void writeFindingsRun(bundle).catch(log)` — the findings write never
+   delays or blocks the legacy completion side effects. The finalizer's
+   parent select gains the fields the mapper needs (`domain`, `clientId`,
+   `wcagLevel`, `createdAt`, `startedAt`, `completedAt`). Finalize is the
+   single decision point and is naturally idempotent here: a
+   recovered/re-finalized audit just rewrites the run.
 3. **ADA standalone** — `app/api/ada-audit/route.ts` background runner, after
    the final `complete` update.
 
@@ -314,10 +350,11 @@ Phase-final, after parity passes in production:
    issueCount become a join/group instead of denormalized columns), keeping
    the response shape identical.
 2. Stop writing `SessionPage` in the parse route.
-3. Drop the `SessionPage` model in a follow-up migration once the flip has
-   soaked. (Sessions older than the flip keep working: their pages route
-   reads find no CrawlPage rows only for pre-A2 sessions — the route falls
-   back to `SessionPage` when the session has no `CrawlRun`.)
+3. The route falls back to `SessionPage` when the session has no `CrawlRun`,
+   so pre-A2 sessions keep working. Drop the `SessionPage` model **only once
+   no non-expired session lacks a `CrawlRun`** — pre-A2 sessions age out via
+   the 180-day TTL, so the drop lands no earlier than 180 days after the
+   flip (a trivial follow-up migration, explicitly out of A2's four phases).
 
 ## Phasing (each phase = branch + PR + deploy + verify, like A1)
 
@@ -329,8 +366,10 @@ Phase-final, after parity passes in production:
 3. **Phase 3 — production parity + cheap flips.** Run parity on 3–5
    representative clients (fresh parse + fresh site audit each); fix
    divergences; flip the SessionPage reader; stop writing SessionPage.
-4. **Phase 4 — retention + retirement.** `pruneArchivedBlobs()` (inert
-   activation constants), drop `SessionPage`, CLAUDE.md + roadmap updates.
+4. **Phase 4 — retention.** `pruneArchivedBlobs()` (inert activation
+   constants), CLAUDE.md + roadmap updates. (`SessionPage` table drop is a
+   post-A2 follow-up gated on pre-A2 sessions expiring — see SessionPage
+   absorption.)
 
 ## Testing
 
