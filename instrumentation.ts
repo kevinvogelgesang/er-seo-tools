@@ -70,11 +70,12 @@ export async function register() {
     // fuser -k in the deploy command sends SIGTERM before starting the new process.
     const { closeBrowser } = await import('@/lib/ada-audit/browser-pool')
 
-    // Run full cleanup (orphan uploads, expired sessions, share links, screenshots).
-    // Runs at startup + once per day.
+    // Inline startup cleanup ("run at boot" isn't a cadence). The daily
+    // recurrence runs via the 'cleanup' scheduled job — see
+    // lib/jobs/system-schedules.ts. Same for the 10-min stale-audit reset
+    // and 30-min screenshot sweep; instrumentation owns no setIntervals.
     const { runCleanup } = await import('@/lib/cleanup')
     void runCleanup()
-    const cleanupInterval = setInterval(() => void runCleanup(), 24 * 60 * 60 * 1000)
 
     // Job queue boot order (each step depends on the previous):
     // 1. Register handlers — startup recovery may run onExhausted hooks,
@@ -84,33 +85,28 @@ export async function register() {
     // 3. recoverQueue (awaited) — resumes transient parents with outstanding
     //    durable jobs (incl. 'running' since Phase 3), finalizes drained
     //    ones, fails the rest. Deterministic before any claims.
-    // 4. startJobWorker — only now may jobs start draining.
+    // 4. seedSystemSchedules — upsert the code-owned system-* Schedule rows
+    //    so the worker's first tick sees them.
+    // 5. startJobWorker — only now may jobs start draining.
     const { registerBuiltInJobHandlers } = await import('@/lib/jobs/handlers/register')
     registerBuiltInJobHandlers()
     const { recoverJobsOnStartup } = await import('@/lib/jobs/recovery')
     await recoverJobsOnStartup()
 
     // Recover queued/stale audits from crashes and kick the queue processor
-    const { recoverQueue, resetStaleAudits } = await import('@/lib/ada-audit/queue-manager')
+    const { recoverQueue } = await import('@/lib/ada-audit/queue-manager')
     await recoverQueue()
+
+    const { seedSystemSchedules } = await import('@/lib/jobs/system-schedules')
+    await seedSystemSchedules()
 
     const { startJobWorker, stopJobWorker } = await import('@/lib/jobs/worker')
     await startJobWorker()
-
-    // Periodic stale audit check (every 10 minutes)
-    const staleCheckInterval = setInterval(() => void resetStaleAudits(), 10 * 60 * 1000)
-
-    // Delete screenshot dirs older than 24h after their audit completed.
-    const { startScreenshotSweeper, stopScreenshotSweeper } = await import('@/lib/ada-audit/screenshot-sweeper')
-    startScreenshotSweeper()
 
     let shuttingDown = false
     const shutdown = async () => {
       if (shuttingDown) return
       shuttingDown = true
-      clearInterval(cleanupInterval)
-      clearInterval(staleCheckInterval)
-      stopScreenshotSweeper()
       try {
         await stopJobWorker()
       } catch (err) {

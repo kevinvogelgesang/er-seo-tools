@@ -322,6 +322,7 @@ model Job {
 
 model Schedule {
   id        String    @id @default(cuid())
+  name      String?   @unique // stable identity for code-owned system schedules; NULL for ad-hoc/client schedules
   jobType   String
   payload   String    @default("{}")
   cadence   String    // 'every:<n>m|h|d' | 'daily@HH:MM' | 'weekly:<0-6>@HH:MM' (server-local)
