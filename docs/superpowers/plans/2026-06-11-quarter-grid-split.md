@@ -72,9 +72,9 @@ describe('dropChipOnSlot', () => {
     expect(dropChipOnSlot({}, { id: 5, fromWeek: null }, 3, 0)).toEqual({ 3: [5] })
   })
 
-  it('moves between weeks: removes from source week', () => {
+  it('moves between weeks: removes from source week (emptied key survives as [])', () => {
     const out = dropChipOnSlot({ 1: [5], 2: [9] }, { id: 5, fromWeek: 1 }, 2, 1)
-    expect(out).toEqual({ 2: [9, 5] })
+    expect(out).toEqual({ 1: [], 2: [9, 5] })
   })
 
   it('swap: dropping onto an occupied slot returns the displaced chip to the source week', () => {
@@ -595,7 +595,7 @@ Create `components/quarter-grid/useQuarterPlan.test.tsx`:
 ```tsx
 // @vitest-environment jsdom
 // components/quarter-grid/useQuarterPlan.test.tsx
-import { renderHook, act, cleanup } from '@testing-library/react'
+import { renderHook, act, cleanup, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { useQuarterPlan } from './useQuarterPlan'
 import type { QuarterPlanGetResponse } from '@/lib/quarter-grid/state'
@@ -659,10 +659,20 @@ function stubFetch(routes: Routes) {
   }
 }
 
-async function renderPlan() {
+async function renderPlan(expectLoaded = true) {
   const onToast = vi.fn()
   const hook = renderHook(() => useQuarterPlan({ onToast }))
-  await act(async () => { await vi.advanceTimersByTimeAsync(0) }) // settle init promises
+  // The init chain is sequential fetches + state updates + a follow-up effect
+  // pass — one timer tick is not guaranteed to settle it. Wait for `loaded`
+  // so a test's first edit can never accidentally consume the
+  // skip-first-persist guard mid-init. (waitFor works under fake timers in
+  // @testing-library/react ≥14.1; it advances timers internally.)
+  if (expectLoaded) {
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) }) // flush the post-load effect pass
+  } else {
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  }
   return { ...hook, onToast }
 }
 
@@ -809,6 +819,24 @@ describe('useQuarterPlan persistence', () => {
     expect(result.current.saveState).toBe('error')
     expect(onToast).toHaveBeenCalledWith('⚠ Save failed — will retry on next change')
     expect(f.puts()).toHaveLength(1)
+  })
+
+  it('pagehide flushes a pending debounced save with keepalive, and the timer does not double-PUT', async () => {
+    const f = stubFetch({ clients: { ok: true, json: DB_CLIENTS }, planGet: { ok: true, json: DB_PLAN }, put: { ok: true } })
+    const keepaliveFlags: (boolean | undefined)[] = []
+    const orig = global.fetch
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') keepaliveFlags.push(init.keepalive)
+      return (orig as typeof fetch)(url, init)
+    }))
+    const { result } = await renderPlan()
+    act(() => result.current.toggleDone(1))      // debounce pending, no PUT yet
+    expect(f.puts()).toHaveLength(0)
+    act(() => { window.dispatchEvent(new Event('pagehide')) })
+    expect(f.puts()).toHaveLength(1)
+    expect(keepaliveFlags).toEqual([true])
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(f.puts()).toHaveLength(1)             // timer was cleared — no second PUT
   })
 
   it('generation guard: in-flight save A cannot mark "saved" while edit B is pending', async () => {
@@ -1202,12 +1230,67 @@ export function usePoolKeyboard(opts: {
 
 (The `→ Wk N` toast now fires inside `assignHoveredToFrontier`; same message, same tick. `P{n}` fires here because the old handler flashed it inline.)
 
-- [ ] **Step 2: Typecheck and commit**
+- [ ] **Step 2: Write `components/quarter-grid/usePoolKeyboard.test.tsx`** (stale-closure guard)
+
+```tsx
+// @vitest-environment jsdom
+// components/quarter-grid/usePoolKeyboard.test.tsx
+import { renderHook, cleanup } from '@testing-library/react'
+import { fireEvent } from '@testing-library/dom'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { usePoolKeyboard } from './usePoolKeyboard'
+
+afterEach(cleanup)
+
+const opts = (hoveredPoolChipId: number | null) => ({
+  hoveredPoolChipId,
+  setHoveredPoolChipId: vi.fn(),
+  setPriority: vi.fn(),
+  assignHoveredToFrontier: vi.fn(() => 42),
+  onToast: vi.fn(),
+})
+
+describe('usePoolKeyboard', () => {
+  it('1–5 sets priority on the hovered chip and toasts', () => {
+    const o = opts(7)
+    renderHook(() => usePoolKeyboard(o))
+    fireEvent.keyDown(window, { key: '3' })
+    expect(o.setPriority).toHaveBeenCalledWith(7, 3)
+    expect(o.onToast).toHaveBeenCalledWith('P3')
+  })
+
+  it('Space assigns to frontier and hands the next id to setHoveredPoolChipId', () => {
+    const o = opts(7)
+    renderHook(() => usePoolKeyboard(o))
+    fireEvent.keyDown(window, { key: ' ' })
+    expect(o.assignHoveredToFrontier).toHaveBeenCalledWith(7)
+    expect(o.setHoveredPoolChipId).toHaveBeenCalledWith(42)
+  })
+
+  it('does nothing when no chip is hovered or focus is in a form field', () => {
+    const o = opts(null)
+    renderHook(() => usePoolKeyboard(o))
+    fireEvent.keyDown(window, { key: '3' })
+    expect(o.setPriority).not.toHaveBeenCalled()
+
+    const o2 = opts(7)
+    renderHook(() => usePoolKeyboard(o2))
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    fireEvent.keyDown(input, { key: '3' })
+    expect(o2.setPriority).not.toHaveBeenCalled()
+    input.remove()
+  })
+})
+```
+
+- [ ] **Step 3: Run, typecheck, commit**
 
 ```bash
+DATABASE_URL="file:./local-dev.db" npx vitest run components/quarter-grid/usePoolKeyboard.test.tsx
 npx tsc --noEmit
-git add components/quarter-grid/usePoolKeyboard.ts
-git commit -m "feat(quarter-grid): usePoolKeyboard hook (B4)"
+git add components/quarter-grid/usePoolKeyboard.ts components/quarter-grid/usePoolKeyboard.test.tsx
+git commit -m "feat(quarter-grid): usePoolKeyboard hook + tests (B4)"
 ```
 
 ---
@@ -1736,7 +1819,14 @@ export default function QuarterGridV3() {
 
 (`isoDate` and the page's local `Client`/`Schedule`/`Snapshots` type aliases die here — nothing imports them.)
 
-- [ ] **Step 2: Verify everything**
+- [ ] **Step 2: Confirm no placeholder comments remain in compiled files**
+
+```bash
+grep -rn "page.tsx:.*here…\|VERBATIM —\|JSX verbatim" components/quarter-grid lib/quarter-grid app/quarter-grid --include="*.ts" --include="*.tsx" | grep -v test
+```
+Expected: only descriptive comments that reference completed moves — no `/* …page.tsx:N-M here… */` placeholder blocks left unexpanded. If any remain, the transplant is incomplete.
+
+- [ ] **Step 3: Verify everything**
 
 ```bash
 npx tsc --noEmit
@@ -1746,7 +1836,7 @@ git diff --color-moved=dimmed-zebra HEAD~6 -- app/quarter-grid/page.tsx componen
 ```
 Expected: tsc clean, full suite green (1,909 + the new files' tests), build clean.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add app/quarter-grid/page.tsx
@@ -1823,8 +1913,16 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 ```bash
 # Boot clean
 ssh seo@144.126.213.242 "pm2 logs seo-tools --lines 50 --nostream"
-# Authed page + API checks (password env var is APP_AUTH_PASSWORD on the server)
-ssh seo@144.126.213.242 'cd /home/seo/webapps/seo-tools && curl -s -c /tmp/jar -X POST localhost:3000/api/auth/login -F password="$(grep APP_AUTH_PASSWORD .env | cut -d= -f2)" && curl -s -b /tmp/jar -o /dev/null -w "%{http_code}\n" localhost:3000/quarter-grid && curl -s -b /tmp/jar localhost:3000/api/quarter-plan | head -c 300'
+# Authed page + API checks. Do NOT extract APP_AUTH_PASSWORD into a shell
+# argument (process-args/history leak). Run the login server-side via a
+# script that reads the env itself:
+ssh seo@144.126.213.242 'cd /home/seo/webapps/seo-tools && bash -s' <<'EOF'
+set -a; source .env >/dev/null 2>&1; set +a
+curl -s -c /tmp/b4jar -o /dev/null -X POST localhost:3000/api/auth/login -F password="$APP_AUTH_PASSWORD"
+curl -s -b /tmp/b4jar -o /dev/null -w "quarter-grid %{http_code}\n" localhost:3000/quarter-grid
+curl -s -b /tmp/b4jar localhost:3000/api/quarter-plan | head -c 300; echo
+rm -f /tmp/b4jar
+EOF
 ```
 Record the `GET /api/quarter-plan` body BEFORE deploy and compare after a no-op page open: **identical** (mere opens still never write; if the import hasn't fired yet it must still be `{"plan":null}`).
 
