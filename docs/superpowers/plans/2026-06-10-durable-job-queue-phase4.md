@@ -92,6 +92,7 @@ Create `lib/jobs/retention.test.ts`. Note: `updatedAt` can't be backdated throug
 ```ts
 // lib/jobs/retention.test.ts
 import { describe, it, expect, beforeEach } from 'vitest'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { cleanOldTerminalJobs } from './retention'
 
@@ -103,7 +104,11 @@ async function clearTestState() {
   await prisma.schedule.deleteMany({ where: { jobType: { startsWith: 'test-' } } })
 }
 
-async function makeJob(status: string, ageDays: number, extra: Record<string, unknown> = {}): Promise<string> {
+async function makeJob(
+  status: string,
+  ageDays: number,
+  extra: Partial<Prisma.JobUncheckedCreateInput> = {},
+): Promise<string> {
   const job = await prisma.job.create({ data: { type: TYPE, status, ...extra } })
   await prisma.$executeRaw`UPDATE "Job" SET "updatedAt" = ${Date.now() - ageDays * DAY} WHERE "id" = ${job.id}`
   return job.id
@@ -291,6 +296,11 @@ git commit -m "feat(jobs): terminal Job-row retention with slot-record guard"
 
 Create `lib/jobs/handlers/cleanup.test.ts`:
 
+All three follow the local mock pattern (`screenshot-sweeper.test.ts`):
+declare the `vi.fn()`, give `vi.mock` a delegating factory, then load the
+module under test with top-level `await import()` — a static import would be
+hoisted above the `const` and hit the temporal dead zone.
+
 ```ts
 // lib/jobs/handlers/cleanup.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -298,8 +308,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const runCleanup = vi.fn()
 vi.mock('@/lib/cleanup', () => ({ runCleanup: (...a: unknown[]) => runCleanup(...a) }))
 
-import { registerCleanupHandler, CLEANUP_JOB_TYPE } from './cleanup'
-import { getJobHandler, clearJobRegistryForTests } from '../registry'
+const { registerCleanupHandler, CLEANUP_JOB_TYPE } = await import('./cleanup')
+const { getJobHandler, clearJobRegistryForTests } = await import('../registry')
 
 const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal }
 
@@ -345,8 +355,8 @@ vi.mock('@/lib/ada-audit/screenshot-sweeper', () => ({
   sweepExpiredScreenshots: (...a: unknown[]) => sweep(...a),
 }))
 
-import { registerScreenshotSweepHandler, SCREENSHOT_SWEEP_JOB_TYPE } from './screenshot-sweep'
-import { getJobHandler, clearJobRegistryForTests } from '../registry'
+const { registerScreenshotSweepHandler, SCREENSHOT_SWEEP_JOB_TYPE } = await import('./screenshot-sweep')
+const { getJobHandler, clearJobRegistryForTests } = await import('../registry')
 
 const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal }
 
@@ -391,8 +401,8 @@ vi.mock('@/lib/ada-audit/queue-manager', () => ({
   resetStaleAudits: (...a: unknown[]) => reset(...a),
 }))
 
-import { registerStaleAuditResetHandler, STALE_AUDIT_RESET_JOB_TYPE } from './stale-audit-reset'
-import { getJobHandler, clearJobRegistryForTests } from '../registry'
+const { registerStaleAuditResetHandler, STALE_AUDIT_RESET_JOB_TYPE } = await import('./stale-audit-reset')
+const { getJobHandler, clearJobRegistryForTests } = await import('../registry')
 
 const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal }
 
@@ -680,6 +690,13 @@ describe('seedSystemSchedules', () => {
     expect((await prisma.job.findUnique({ where: { id: running.id } }))!.status).toBe('running')
   })
 
+  it('concurrent seeding still yields exactly one row per schedule', async () => {
+    const now = new Date()
+    await Promise.all([seedSystemSchedules(now), seedSystemSchedules(now)])
+    const rows = await prisma.schedule.findMany({ where: { name: { startsWith: 'system-' } } })
+    expect(rows).toHaveLength(SYSTEM_SCHEDULES.length)
+  })
+
   it('leaves NULL-name schedules alone', async () => {
     const adHoc = await prisma.schedule.create({
       data: { jobType: 'test-adhoc', cadence: 'every:10m', nextRunAt: new Date() },
@@ -732,6 +749,7 @@ Expected: FAIL — `Cannot find module './system-schedules'`.
 // DB mutation. C2/D5 client schedules will use name = NULL (exempt from the
 // unique index and from the retired-row sweep).
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { CLEANUP_JOB_TYPE } from './handlers/cleanup'
 import { SCREENSHOT_SWEEP_JOB_TYPE } from './handlers/screenshot-sweep'
@@ -758,19 +776,27 @@ export const SYSTEM_SCHEDULES: SystemScheduleDef[] = [
 
 export async function seedSystemSchedules(now: Date = new Date()): Promise<void> {
   for (const def of SYSTEM_SCHEDULES) {
-    const existing = await prisma.schedule.findUnique({ where: { name: def.name } })
+    let existing = await prisma.schedule.findUnique({ where: { name: def.name } })
     if (!existing) {
-      await prisma.schedule.create({
-        data: {
-          name: def.name,
-          jobType: def.jobType,
-          cadence: def.cadence,
-          payload: '{}',
-          enabled: true,
-          nextRunAt: def.immediate ? now : nextRun(def.cadence, now),
-        },
-      })
-      continue
+      try {
+        await prisma.schedule.create({
+          data: {
+            name: def.name,
+            jobType: def.jobType,
+            cadence: def.cadence,
+            payload: '{}',
+            enabled: true,
+            nextRunAt: def.immediate ? now : nextRun(def.cadence, now),
+          },
+        })
+        continue
+      } catch (err) {
+        // Lost a concurrent-create race on the name unique index — fall
+        // through to the update path against the winner's row. Race-safety
+        // matters here: this is the reusable C2/D5 seeding primitive.
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err
+        existing = await prisma.schedule.findUniqueOrThrow({ where: { name: def.name } })
+      }
     }
     await prisma.schedule.update({
       where: { id: existing.id },
@@ -811,7 +837,7 @@ export async function seedSystemSchedules(now: Date = new Date()): Promise<void>
 DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/system-schedules.test.ts
 ```
 
-Expected: 7 passed.
+Expected: 8 passed.
 
 - [ ] **Step 5: Commit**
 
