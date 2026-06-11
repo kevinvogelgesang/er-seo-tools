@@ -8,7 +8,7 @@
 
 **Tech Stack:** Prisma 5.22 + SQLite, Next.js 15 App Router, vitest (colocated `*.test.ts`, shared dev DB), tsx for CLI scripts.
 
-**Spec:** `docs/superpowers/specs/2026-06-10-findings-layer-design.md` (Codex-reviewed). Read it before starting.
+**Spec:** `docs/superpowers/specs/2026-06-10-findings-layer-design.md` (Codex-reviewed). Read it before starting. This plan itself is Codex-reviewed (accept-with-fixes ×8, all applied).
 
 **Branch:** `feat/findings-layer-phase1` off `main`.
 
@@ -420,6 +420,7 @@ git commit -m "feat(findings): bundle input types"
 // lib/findings/seo-mapper.test.ts
 import { describe, it, expect } from 'vitest'
 import type { AggregatedResult } from '@/lib/types'
+import { computeHealthScore } from '@/lib/services/scoring.service'
 import { mapSeoResult } from './seo-mapper'
 import { runFindingKey, pageFindingKey } from './keys'
 
@@ -518,6 +519,44 @@ describe('mapSeoResult', () => {
     expect(meta.affectedSource).toBe('parser-sample')
   })
 
+  it('computes the score when the blob lacks metadata.health_score', () => {
+    // Fresh aggregator output does NOT set metadata.health_score — only
+    // legacy blobs have it. The mapper must fall back to computeHealthScore.
+    const fx = fixture()
+    delete (fx.metadata as Record<string, unknown>).health_score
+    const b = mapSeoResult(fx, CTX)
+    expect(b.run.score).toBe(computeHealthScore(fx))
+    expect(typeof b.run.score).toBe('number')
+  })
+
+  it('page-scope rows carry the completeness flags of their issue', () => {
+    const fx = fixture()
+    // current-format sampled issue: refs present but explicitly incomplete
+    fx.issues.warnings[0].affectedUrlRefs = [0]
+    fx.issues.warnings[0].affectedUrlRefsComplete = false
+    const b = mapSeoResult(fx, CTX)
+    const metaPage = b.findings.find(
+      (f) => f.scope === 'page' && f.type === 'missing_meta_description',
+    )!
+    expect(metaPage.affectedComplete).toBe(false)
+    expect(metaPage.affectedSource).toBe('parser-sample')
+  })
+
+  it('extracts page-scope URLs from groups[*].urls (duplicate-content shape)', () => {
+    // duplicate title/meta/H1 issues carry URLs in groups, NOT in
+    // issue.urls/affectedUrlRefs (same gap recommendation-builder fixed).
+    const fx = fixture()
+    fx.issues.warnings.push({
+      type: 'duplicate_titles', severity: 'warning', count: 2,
+      description: 'Duplicate titles',
+      groups: [{ title: 'A', count: 2, urls: ['https://example.com/a', 'https://example.com/'] }],
+    } as never)
+    const b = mapSeoResult(fx, CTX)
+    const dup = b.findings.filter((f) => f.scope === 'page' && f.type === 'duplicate_titles')
+    expect(dup).toHaveLength(2)
+    expect(dup.map((f) => f.url).sort()).toEqual(['https://example.com', 'https://example.com/a'])
+  })
+
   it('builds page-scope findings from refs, sample urls, and external urls', () => {
     const b = mapSeoResult(fixture(), CTX)
     const pageScope = b.findings.filter((f) => f.scope === 'page')
@@ -583,6 +622,7 @@ import { randomUUID } from 'crypto'
 import type { AggregatedResult, Issue } from '@/lib/types'
 import { rehydrate } from '@/lib/services/url-registry'
 import { normalizeHost } from '@/lib/services/normalize-host'
+import { computeHealthScore } from '@/lib/services/scoring.service'
 import { normalizeFindingUrl, runFindingKey, pageFindingKey } from './keys'
 import type { CrawlPageInput, FindingInput, FindingsBundle } from './types'
 
@@ -651,7 +691,9 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
         dedupKey: runFindingKey(issue.type),
       })
 
-      // Page-scope rows: best-available URL attribution.
+      // Page-scope rows: best-available URL attribution. Each row carries
+      // its issue's completeness flags so diff consumers can tell complete
+      // sets from sampled ones (Codex spec-review fix).
       for (const url of affectedUrls(issue, reg)) {
         const normalized = normalizeFindingUrl(url)
         push({
@@ -663,8 +705,8 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
           severity,
           url: normalized,
           count: 1,
-          affectedComplete: null,
-          affectedSource: null,
+          affectedComplete: issue.affectedUrlRefsComplete ?? null,
+          affectedSource: issue.affectedUrlSource ?? null,
           detail: null,
           dedupKey: pageFindingKey(issue.type, url),
         })
@@ -683,7 +725,9 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
       siteAuditId: null,
       adaAuditId: null,
       status: 'complete',
-      score: result.metadata?.health_score ?? null,
+      // Fresh aggregator output does not persist metadata.health_score —
+      // compute it the same way the report does (computeHealthScore is pure).
+      score: result.metadata?.health_score ?? computeHealthScore(result),
       wcagLevel: null,
       pagesTotal: pages.length,
       startedAt: ctx.startedAt,
@@ -696,20 +740,22 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
 }
 
 /** Page-scope rows need page_index context to be meaningful; a legacy blob
- *  (no registry) gets run-scope rows only. Refs win over sampled urls. */
+ *  (no registry) gets run-scope rows only. Extraction order mirrors
+ *  recommendation-builder: refs first, then groups[*].urls (duplicate
+ *  title/meta/H1 issues carry URLs ONLY there), then sampled issue.urls. */
 function affectedUrls(issue: Issue, reg: AggregatedResult['url_registry']): string[] {
   if (!reg) return []
-  if (issue.affectedUrlRefs?.length) {
-    return issue.affectedUrlRefs.map((ref) => rehydrate(reg, ref)).filter(Boolean)
-  }
-  return issue.urls ?? []
+  const fromRefs = (issue.affectedUrlRefs ?? []).map((ref) => rehydrate(reg, ref)).filter(Boolean)
+  const fromGroups = (issue.groups ?? []).flatMap((g) => g.urls ?? [])
+  const fromSamples = fromRefs.length ? [] : (issue.urls ?? [])
+  return Array.from(new Set([...fromRefs, ...fromGroups, ...fromSamples]))
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/seo-mapper.test.ts`
-Expected: PASS (6 tests).
+Expected: PASS (9 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -766,7 +812,11 @@ function bundle(nPages: number, nFindings: number): FindingsBundle {
 }
 
 async function clearTestState() {
-  await prisma.crawlRun.deleteMany({ where: { sessionId: SESSION_ID } })
+  // Delete by BOTH origin and domain: SetNull origins mean a run whose
+  // Session was deleted is unreachable via sessionId.
+  await prisma.crawlRun.deleteMany({
+    where: { OR: [{ sessionId: SESSION_ID }, { domain: 'w.test' }] },
+  })
   await prisma.session.deleteMany({ where: { id: SESSION_ID } })
 }
 
@@ -802,7 +852,22 @@ describe('writeFindingsRun', () => {
     expect(await prisma.crawlPage.count({ where: { run: { sessionId: SESSION_ID } } })).toBe(2)
   })
 
-  it('handles bundles larger than one chunk (75 rows)', async () => {
+  it('rolls back atomically on a bad bundle, preserving the existing run', async () => {
+    await writeFindingsRun(bundle(2, 3))
+    const bad = bundle(1, 2)
+    bad.findings[1].dedupKey = bad.findings[0].dedupKey // violates @@unique([runId, dedupKey])
+    await expect(writeFindingsRun(bad)).rejects.toThrow()
+    // the transaction rolled back: the ORIGINAL run + subtree are intact
+    const run = await prisma.crawlRun.findUnique({
+      where: { sessionId: SESSION_ID },
+      include: { pages: true, findings: true },
+    })
+    expect(run).not.toBeNull()
+    expect(run!.pages).toHaveLength(2)
+    expect(run!.findings).toHaveLength(3)
+  })
+
+  it('handles bundles larger than one chunk (50 rows)', async () => {
     await writeFindingsRun(bundle(80, 160))
     const run = await prisma.crawlRun.findUnique({
       where: { sessionId: SESSION_ID }, include: { pages: true, findings: true },
@@ -826,9 +891,7 @@ describe('writeFindingsRun', () => {
     await prisma.session.delete({ where: { id: SESSION_ID } })
     const runs = await prisma.crawlRun.findMany({ where: { domain: 'w.test' } })
     expect(runs).toHaveLength(1)
-    expect(runs[0].sessionId).toBeNull()
-    // cleanup for this test (afterEach can't reach it via sessionId anymore)
-    await prisma.crawlRun.deleteMany({ where: { domain: 'w.test' } })
+    expect(runs[0].sessionId).toBeNull() // clearTestState reaches it by domain
   })
 })
 ```
@@ -850,7 +913,10 @@ Expected: FAIL — cannot resolve `./writer`.
 import { prisma } from '@/lib/db'
 import type { FindingsBundle } from './types'
 
-const CHUNK = 75
+// 50, not 75: CrawlPage has ~15 columns and SQLite's classic bound-variable
+// limit is 999 — 75 × 15 would exceed it. 50 × 15 = 750 keeps headroom for
+// every table in the bundle.
+const CHUNK = 50
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []
@@ -886,7 +952,7 @@ export async function writeFindingsRun(bundle: FindingsBundle): Promise<void> {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/writer.test.ts`
-Expected: PASS (5 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -934,7 +1000,9 @@ const RESULT = {
 } as unknown as AggregatedResult
 
 async function clearTestState() {
-  await prisma.crawlRun.deleteMany({ where: { sessionId: SESSION_ID } })
+  await prisma.crawlRun.deleteMany({
+    where: { OR: [{ sessionId: SESSION_ID }, { domain: 'sw.test' }] },
+  })
   await prisma.session.deleteMany({ where: { id: SESSION_ID } })
 }
 
@@ -1085,7 +1153,9 @@ const RESULT = {
 } as unknown as AggregatedResult
 
 async function clearTestState() {
-  await prisma.crawlRun.deleteMany({ where: { sessionId: SESSION_ID } })
+  await prisma.crawlRun.deleteMany({
+    where: { OR: [{ sessionId: SESSION_ID }, { domain: 'par.test' }] },
+  })
   await prisma.session.deleteMany({ where: { id: SESSION_ID } })
 }
 
@@ -1187,13 +1257,25 @@ export async function compareSeoParity(sessionId: string): Promise<ParityReport>
     if (!storedUrls.has(p.url)) diffs.push(`missing CrawlPage: ${p.url}`)
   }
 
-  const storedKeys = new Set(run.findings.map((f) => f.dedupKey))
-  const expectedKeys = new Map(expected.findings.map((f) => [f.dedupKey, f]))
-  for (const [key, f] of expectedKeys) {
-    if (!storedKeys.has(key)) diffs.push(`missing Finding: ${f.scope}/${f.type}${f.url ? ` @ ${f.url}` : ''}`)
+  // Field-level finding comparison keyed by dedupKey — a stored row with
+  // the right key but wrong count/severity/flags must NOT pass.
+  const storedByKey = new Map(run.findings.map((f) => [f.dedupKey, f]))
+  const expectedByKey = new Map(expected.findings.map((f) => [f.dedupKey, f]))
+  const FIELDS = ['scope', 'type', 'severity', 'url', 'count', 'affectedComplete', 'affectedSource'] as const
+  for (const [key, exp] of expectedByKey) {
+    const stored = storedByKey.get(key)
+    if (!stored) {
+      diffs.push(`missing Finding: ${exp.scope}/${exp.type}${exp.url ? ` @ ${exp.url}` : ''}`)
+      continue
+    }
+    for (const field of FIELDS) {
+      if (stored[field] !== exp[field]) {
+        diffs.push(`Finding ${exp.scope}/${exp.type}${exp.url ? ` @ ${exp.url}` : ''} ${field}: tables=${stored[field]} blob=${exp[field]}`)
+      }
+    }
   }
   for (const f of run.findings) {
-    if (!expectedKeys.has(f.dedupKey)) diffs.push(`extra Finding: ${f.scope}/${f.type}${f.url ? ` @ ${f.url}` : ''}`)
+    if (!expectedByKey.has(f.dedupKey)) diffs.push(`extra Finding: ${f.scope}/${f.type}${f.url ? ` @ ${f.url}` : ''}`)
   }
 
   // severity counts (run-scope rows mirror the blob's issue buckets)
@@ -1201,6 +1283,18 @@ export async function compareSeoParity(sessionId: string): Promise<ParityReport>
     const stored = run.findings.filter((f) => f.scope === 'run' && f.severity === severity).length
     const exp = expected.findings.filter((f) => f.scope === 'run' && f.severity === severity).length
     if (stored !== exp) diffs.push(`run-scope ${severity} count: tables=${stored} blob=${exp}`)
+  }
+
+  // sampled page scalars: every expected page, compared by url
+  const storedPageByUrl = new Map(run.pages.map((p) => [p.url, p]))
+  for (const p of expected.pages) {
+    const stored = storedPageByUrl.get(p.url)
+    if (!stored) continue // already reported as missing above
+    for (const field of ['title', 'h1', 'metaDescription', 'wordCount', 'crawlDepth', 'indexable'] as const) {
+      if (stored[field] !== p[field]) {
+        diffs.push(`CrawlPage ${p.url} ${field}: tables=${stored[field]} blob=${p[field]}`)
+      }
+    }
   }
 
   return { ok: diffs.length === 0, diffs }
