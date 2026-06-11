@@ -41,6 +41,10 @@ ROUTES = {
     "krt_": {"workflow": "keyword-memo",
              "get": "/api/keyword-memo/{id}",
              "patch": "/api/keyword-memo/{id}/memo", "field": "memo"},
+    # qct_ has no markdown post-back; its write-back is the `receipt` subcommand.
+    "qct_": {"workflow": "quarter-push",
+             "get": "/api/quarter-plan/push/{id}",
+             "receipt": "/api/quarter-plan/push/{id}/receipt"},
 }
 
 
@@ -141,6 +145,9 @@ def cmd_post(args):
     cfg = route_for(args.token)
     if not cfg:
         return _unknown_prefix()
+    if "patch" not in cfg:
+        return {"ok": False, "error_kind": "wrong_command", "status": 0,
+                "detail": "qct_ tokens have no document post-back — use the `receipt` subcommand."}
     payload = {cfg["field"]: sys.stdin.read()}
     if args.structured:
         try:
@@ -152,18 +159,34 @@ def cmd_post(args):
     return _request(url, "PATCH", args.token, data=json.dumps(payload).encode())
 
 
+def cmd_receipt(args):
+    cfg = route_for(args.token)
+    if not cfg or "receipt" not in cfg:
+        return {"ok": False, "error_kind": "wrong_command", "status": 0,
+                "detail": "`receipt` is only valid for qct_ (quarter push) tokens."}
+    try:
+        counts = json.loads(args.counts)
+    except ValueError:
+        return {"ok": False, "error_kind": "bad_counts_arg", "status": 0,
+                "detail": "--counts was not valid JSON."}
+    url = args.webapp.rstrip("/") + cfg["receipt"].format(id=args.id)
+    return _request(url, "POST", args.token, data=json.dumps(counts).encode())
+
+
 def main():
     p = argparse.ArgumentParser(description="er-seo-tools unified handoff transport")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("fetch", "post"):
+    for name in ("fetch", "post", "receipt"):
         sp = sub.add_parser(name)
         sp.add_argument("--webapp", required=True)
         sp.add_argument("--token", required=True)
         sp.add_argument("--id", required=True)
         if name == "post":
             sp.add_argument("--structured", default=None)
+        if name == "receipt":
+            sp.add_argument("--counts", required=True)
     args = p.parse_args()
-    result = cmd_fetch(args) if args.cmd == "fetch" else cmd_post(args)
+    result = {"fetch": cmd_fetch, "post": cmd_post, "receipt": cmd_receipt}[args.cmd](args)
     print(json.dumps(result, indent=2))
 
 
