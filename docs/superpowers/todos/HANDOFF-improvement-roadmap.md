@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-10 · **Updated by:** A1 close-out session (PR #54 merged + verified)
+**Last updated:** 2026-06-10 · **Updated by:** A2 Phase 1 build session (PR #55 opened)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,44 +23,56 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **A1 is DONE.** All four phases of the durable job queue (PRs #50–#54) are
-  merged, deployed, and production-verified 2026-06-10. PSI, PDF scans, the
-  site-audit page loop, and all recurring maintenance (daily `runCleanup`,
-  10-min `resetStaleAudits`, 30-min screenshot sweep) run through the
-  `Job`/`Schedule` tables; `instrumentation.ts` owns no `setInterval`s;
-  terminal Job rows are pruned by `lib/jobs/retention.ts`.
-- **Residual next-day check (non-blocking):** confirm a `cleanup` job
-  completes at the 2026-06-11 09:00 UTC slot and terminal Job rows older
-  than 7 d are pruned. (Immediate first-seed slots for screenshot-sweep and
-  stale-audit-reset already verified complete in production.)
-- **Blocked / gated:** Anthropic API billing decision (gates 03 Phase 3);
-  **DB-growth projection not yet run — A2's roadmap section says to validate
-  growth assumptions early, so do it during the A2 spec**; sitemap miss-rate
-  measurement not yet run.
+- **A1 is DONE** (durable job queue, PRs #50–#54, production-verified).
+- **A2 is IN PROGRESS — Phase 1 of 4 built, PR #55 open** on
+  `feat/findings-layer-phase1` (schema + SEO parser dual-write).
+  - Spec: `../specs/2026-06-10-findings-layer-design.md` (Codex-reviewed,
+    ×10 fixes applied). Phase 1 plan:
+    `../plans/2026-06-10-findings-layer-phase1.md` (Codex ×8, applied).
+  - Shipped in PR #55: `CrawlRun`/`CrawlPage`/`Finding`/`Violation` tables
+    (full schema; ADA writes come in Phase 2), `lib/findings/` (keys,
+    seo-mapper, writer, seo-write, parity), parser dual-write hook,
+    `scripts/findings-rebuild.ts` + `scripts/findings-parity.ts`.
+    26 new tests; suite 1,752 green; tsc + build clean.
+- **DB-growth projection: DONE** (2026-06-10, prod): DB 309 MB (~249 MB is
+  blobs); 27 clients; site audits avg 153 pages; 0.78 violations/page.
+  Verdict: 90-d archive window + findings-kept-forever are safe for
+  human-triggered + weekly scheduled volume. **Nightly fleet scans are NOT
+  safe with these defaults — C2 must add a cadence-aware retention class
+  first** (recorded in the tracker's gated decisions).
+- **Residual checks (non-blocking):** confirm a `cleanup` job completes at
+  the 2026-06-11 09:00 UTC slot and terminal Job rows >7 d are pruned (A1
+  leftover).
+- **Blocked / gated:** Anthropic API billing (gates 03 Phase 3); sitemap
+  miss-rate measurement not yet run.
 
 ## Next item
 
-**A2. Normalized findings layer** (2–3 wks) — tracker Track A. Read
-`../nyi/improvement-roadmaps/06-platform.md` § "2. Normalized findings
-layer", plus the schema discussions it references in `01-seo-parser.md` and
-`02-ada-audit.md` (the findings schema is shared across both tools).
+**A2 continuation.** In order:
 
-Key shape (decisions already made — see Gotchas):
-
-- New tables `CrawlRun` / `CrawlPage` / `Finding` / `Violation`, keyed to
-  client + run + dedupKey. (`CrawlPage`, not `Page` — avoids colliding with
-  the derived `SessionPage` model; `SessionPage` gets absorbed or retired.)
-- Raw blobs demoted to archive columns; retention: archive pruned at 90 d,
-  findings kept.
-- **Dual-write first** from the parser + ADA runners; migrate readers tool
-  by tool; never backfill old blobs. Validate parity on 3–5 representative
-  clients before flipping any reader.
-- Run the DB-growth projection (nightly ADA + Live SEO across the fleet)
-  during the spec, before committing retention windows.
-
-This is a big item — start with brainstorming → spec → Codex review → plan →
-Codex review → implement, phased like A1 was. After A2, Track A interleaves
-(A3 route kit, A4 observability) and B2/C3/C5 unlock.
+1. **Merge + deploy PR #55** (`feat/findings-layer-phase1`), then verify in
+   production: run a fresh parse on a real client crawl, then on the server
+   `cd /home/seo/webapps/seo-tools && npx tsx scripts/findings-parity.ts
+   <sessionId>` → expect `PARITY OK`. Parse UX must be unchanged (the
+   dual-write is post-commit + try/caught).
+2. **Phase 2 — ADA dual-write** (needs its own plan via writing-plans →
+   Codex review, then implement): ADA mappers (`mapAdaChildren` from the
+   finalizer's already-loaded children, `mapAdaSingle` for standalone
+   audits), hooks in `lib/ada-audit/site-audit-finalizer.ts` (AFTER terminal
+   update + closeBatchIfDrained + promoter kick, as `void
+   write...().catch(log)`; widen the parent select for mapper fields) and
+   `app/api/ada-audit/route.ts` (incl. redirected-standalone → run + one
+   redirected CrawlPage, no findings), ADA parity (`compareAdaParity`),
+   severity mapping critical/serious→critical, moderate→warning,
+   minor→notice; scores computed by the mapper (`computeScore`), never read
+   from scalar columns. See the spec's "Row mapping" + "Hook points".
+3. **Phase 3** — production parity on 3–5 representative clients (fresh
+   parse + fresh site audit each), then flip the SessionPage reader
+   (`app/api/seo-parser/[sessionId]/pages/route.ts`, with SessionPage
+   fallback for pre-A2 sessions) and stop writing SessionPage.
+4. **Phase 4** — `pruneArchivedBlobs()` retention machinery, shipped inert
+   (per-tool activation constants flip only with each tool's last blob
+   reader). Then A2 → `[x]`.
 
 ## Gotchas / decisions already made (don't relitigate)
 
@@ -69,53 +81,63 @@ Codex review → implement, phased like A1 was. After A2, Track A interleaves
   form only, conditional logic via SQL `EXISTS`, manual `updatedAt =
   Date.now()` in raw statements (2026-06-10 production incident; CLAUDE.md
   "Do not").
-- Job-queue invariants are load-bearing: attempt-fenced heartbeat/settle,
-  handler timeout race, active-slot release AFTER settle, never hold a DB
-  transaction across network/browser work, `onExhausted` fires from every
-  error-flip path, `countActiveJobsByGroup` ignores `runAfter`, failed
-  group-count = skip-don't-fail, finalize-before-fail on drained transients.
-- Phase 3 invariants: one-active is enforced by the **discover claim's
-  `NOT EXISTS` guard**; `discoveredUrls`+`pagesTotal` written together;
-  PDFs dispatch BEFORE the page settle; domain errors settle / DB errors
-  throw; `failSiteAudit` never clobbers terminal parents.
-- Phase 4 invariants: `system-` is a **reserved, code-owned Schedule
-  namespace** — the seed re-enables manual disables at every boot (operator
-  kill switch = env flag, not DB mutation); Job retention never deletes a
-  job referenced by `Schedule.lastJobId` or holding its schedule's current
-  `(scheduleId, nextRunAt)` slot; maintenance handlers are maxAttempts 1 —
-  the next slot is the retry; boot order is register handlers →
-  recoverJobsOnStartup → recoverQueue → seedSystemSchedules → startJobWorker.
-- groupKey `site-audit:<id>` is shared by all four site-audit job types;
-  scheduled jobs get groupKey `schedule:<id>`.
-- Standalone single-page audits are untouched: own POST-driven runner,
-  `ada-audit:<id>` PDF groups, NULL `siteAuditId`.
-- A2 schema names are settled: `CrawlRun` / `CrawlPage` / `Finding` /
-  `Violation`; dual-write + parity on 3–5 clients before readers flip;
-  never backfill old blobs.
-- Test gotchas: the one-active guard and promoter are GLOBAL over the
-  shared dev DB — test files touching promotion neutralize stray audits in
-  `clearTestState`. **`system-schedules.test.ts` creates real `system-*`
-  rows — it deletes them (and real-typed jobs) in beforeEach AND afterEach**;
-  new tests that seed system schedules must do the same or other files'
-  `tickSchedules()` calls will enqueue real job types.
+- **Findings-layer invariants (new, from the A2 spec):** dual-write is
+  best-effort and non-fatal — the legacy blob path must never be affected by
+  a findings failure; origin FKs are `SetNull` (findings must survive
+  Session TTL deletion at 180 d), subtrees cascade from `CrawlRun` only;
+  writer is delete-and-recreate in ONE array-form transaction, `createMany`
+  chunked at **50** (bound-variable headroom), exactly-one-origin validated;
+  dedup keys are sha256 of canonical JSON (`lib/findings/keys.ts`), never
+  raw `type:url` strings; `Finding.scope` is explicit ('run' | 'page') —
+  never inferred from `pageId` (page-scope external URLs have `pageId`
+  null); page-scope rows carry their issue's
+  `affectedComplete`/`affectedSource` flags; URL extraction order is
+  affectedUrlRefs → groups[*].urls → sampled issue.urls (deduped);
+  `CrawlRun.score` for SEO = `metadata.health_score ??
+  computeHealthScore(result)` (fresh blobs do NOT carry health_score);
+  **never backfill historical blobs** — the rebuild script is recovery for
+  failed dual-writes of new runs only; **no reader flips until production
+  parity passes on 3–5 clients**.
+- **Test cleanup for findings tests:** delete `CrawlRun`s by BOTH origin id
+  AND test domain — SetNull origins orphan runs from origin-id lookups once
+  the origin row is deleted.
+- Job-queue invariants are load-bearing (see A1 history): attempt-fenced
+  heartbeat/settle, finalize-before-fail, `failSiteAudit` never clobbers
+  terminal parents, `system-` is a reserved code-owned Schedule namespace,
+  Job retention slot-record guard, boot order register → recover → seed →
+  start worker.
+- Phase 3 (A1) invariants: one-active enforced by the discover claim's
+  `NOT EXISTS`; `discoveredUrls`+`pagesTotal` written together; PDFs
+  dispatch BEFORE the page settle; `finalizeSiteAudit` is the single
+  decision point — the Phase-2 ADA findings hook goes AFTER its terminal
+  update + batch close + promoter kick, as fire-and-forget.
+- Standalone single-page audits: own POST-driven runner, `ada-audit:<id>`
+  PDF groups, NULL `siteAuditId`. Standalone `redirected` runs return early
+  without an axe blob — they still get a CrawlRun + one redirected
+  CrawlPage, no findings.
+- Test gotchas: the one-active guard and promoter are GLOBAL over the shared
+  dev DB — test files touching promotion neutralize stray audits in
+  `clearTestState`; `system-schedules.test.ts` deletes real `system-*` rows
+  in beforeEach AND afterEach.
 - **Local dev quirk:** `.env` points at `file:/var/lib/er-seo-tools/db.sqlite`
-  (doesn't exist on the Mac). Run prisma CLI and vitest with
-  `DATABASE_URL="file:./local-dev.db"` prefixed. `prisma migrate dev` is
-  interactive-only — generate SQL via `prisma migrate diff`, write the
-  migration folder by hand, apply with `prisma migrate deploy`.
+  (doesn't exist on the Mac). Prefix prisma CLI and vitest with
+  `DATABASE_URL="file:./local-dev.db"`. `prisma migrate dev` is
+  interactive-only — generate SQL via `prisma migrate diff
+  --from-migrations prisma/migrations --to-schema-datamodel
+  prisma/schema.prisma --shadow-database-url "file:./shadow-migrate.db"
+  --script`, write the folder by hand, apply with `prisma migrate deploy`
+  (this exact flow worked for `20260611014502_findings_layer`).
 - **Server has no `sqlite3` CLI** — verify production DB state via node +
   Prisma from `/home/seo/webapps/seo-tools` (`bash -lc` for the node PATH).
+  `npx tsx` works there for the findings scripts.
 - Codex reviews: route new specs/plans through Codex per Kevin's standing
   instruction.
 
 ## History
 
 - 2026-06-10 — Roadmap docs (00–06), tracker, and this handoff doc created. No implementation started.
-- 2026-06-10 — A1 Phases 0–1 built (job queue core + PSI migration behind flag) on `feat/durable-job-queue`; PR opened. Next: merge/deploy/parity (Kevin), then Phase 2 (PDF scans).
-- 2026-06-10 — PR #50 merged + deployed. `JOB_QUEUE_PSI=1` enabled. Parity PASSED in production incl. restart-resume mid-`lighthouse-running`. Next: legacy-pool deletion + Phase 2 (PDF scans).
-- 2026-06-10 — Phase 1 close-out (legacy pool + flag deleted) + Phase 2 (PDF scans durable, `pdfs-running` survives restarts, finalize-before-fail) built on `feat/job-queue-phase2-pdf-scans`; PR opened. Next: merge/deploy + restart-test, then Phase 3 (page loop).
-- 2026-06-10 — PRs #51 + #52 merged + deployed. Incident: first PDF-bearing audit wedged SQLite (interactive-transaction write-lock starvation under pdfjs load); fixed by converting all itxs to array form. Production verified: clean 23-page/11-PDF audit, restart-resume mid-`pdfs-running`, drained-parent finalize. Next: Phase 3 (page loop).
-- 2026-06-10 — **A1 Phase 3 built** on `feat/job-queue-phase3-page-loop`; PR #53 opened. Page loop fully durable (`site-audit-discover` + `site-audit-page`), mutex deleted, `running` parents restart-survivable, browser recycling pool-level, AdaAudit unique index + dedupe migration. 1,704 tests green. Next: merge/deploy + restart-test mid-`running`, then Phase 4 (cleanup ticks).
-- 2026-06-10 — **PR #53 merged + deployed + production-verified** (clean PDF run with exact counters, queue-order hold/auto-promote, restart-resume mid-`running` 24/24). A1 Phases 0–3 all shipped. Next: Phase 4 (cleanup ticks) closes out A1.
-- 2026-06-10 — **A1 Phase 4 built** on `feat/job-queue-phase4-cleanup-ticks`; PR #54 opened. `Schedule.name` + `seedSystemSchedules()` (three `system-*` rows, retired-row sweep), three maintenance handlers, zero `setInterval`s in `instrumentation.ts`, terminal Job-row retention with slot-record guard. Spec + plan Codex-reviewed (×5/×4 fixes applied). 1,726 tests green. Next: merge/deploy + verify, then A1 → `[x]`.
-- 2026-06-10 — **PR #54 merged + deployed + verified; A1 COMPLETE.** Migration applied, boot clean, three `system-*` schedules seeded/enabled, immediate first-seed slots for screenshot-sweep + stale-audit-reset completed in production. Residual next-day check: cleanup at the 2026-06-11 09:00 UTC slot + retention prune. Next: A2 (normalized findings layer).
+- 2026-06-10 — A1 Phases 0–1 built (job queue core + PSI migration behind flag); PR #50 merged + parity passed; legacy pool deleted.
+- 2026-06-10 — A1 Phase 2 (PDF scans) PRs #51/#52 merged + verified after the interactive-transaction SQLite incident (rule now in CLAUDE.md).
+- 2026-06-10 — A1 Phase 3 (page loop) PR #53 merged + production-verified (restart mid-`running` resumes).
+- 2026-06-10 — A1 Phase 4 (cleanup ticks) PR #54 merged + verified; **A1 COMPLETE.**
+- 2026-06-10 — **A2 started.** DB-growth projection run on prod; spec written + Codex-reviewed (×10 fixes); Phase 1 plan written + Codex-reviewed (×8 fixes); **Phase 1 built — PR #55 open** (4-table schema, lib/findings/, parser dual-write, parity/rebuild CLIs; 1,752 tests green). Next: merge/deploy + production parity, then Phase 2 (ADA dual-write).

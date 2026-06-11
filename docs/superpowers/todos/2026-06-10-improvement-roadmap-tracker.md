@@ -36,10 +36,16 @@ Spine items — everything else depends on these two:
   merged PR #54, deployed + verified 2026-06-10). Spec:
   `../archive/specs/2026-06-10-durable-job-queue-phase4-design.md`.
   **DONE** — all four phases shipped and production-verified.
-- [ ] **A2. Normalized findings layer** (2–3 wks)
+- [~] **A2. Normalized findings layer** (2–3 wks)
   `CrawlRun` / `CrawlPage` / `Finding` / `Violation`; dual-write from parse +
   ADA runners; blobs demoted to archive columns; validate parity on 3–5
   representative clients before any reader flips.
+  Spec: `../specs/2026-06-10-findings-layer-design.md` (Codex ×10 fixes) ·
+  Plan (Phase 1): `../plans/2026-06-10-findings-layer-phase1.md` (Codex ×8
+  fixes) — **Phase 1 built, PR #55 open** (schema + SEO parser dual-write +
+  parity/rebuild CLIs). DB-growth projection run 2026-06-10 (gated-decisions
+  item: done for A2's purposes; C2 must add cadence-aware retention before
+  nightly fleet scans).
 
 Interleave as needed (not blockers):
 
@@ -84,11 +90,12 @@ Interleave as needed (not blockers):
 ## Gated decisions (block specific items; decide, then unblock)
 
 - [ ] **Anthropic API billing** — gates direct memo generation (03 Phase 3). Until decided, all AI stays skill-handoff.
-- [ ] **DB growth projection** — project SQLite size for nightly ADA + Live SEO before committing retention windows (feeds A2/C2).
+- [x] **DB growth projection** — run 2026-06-10 against production (numbers in the A2 spec). Verdict: 90-d archive window + findings-forever safe for human-triggered and weekly scheduled volume; **nightly fleet scans are NOT safe with these defaults — C2 must add a cadence-aware retention class first.**
 - [ ] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier.
 
 ## Status log
 
+- 2026-06-10 — **A2 meaningfully advanced (Phase 1 of 4 built); PR #55 open** on `feat/findings-layer-phase1`. DB-growth projection run against production during the spec (DB 309 MB, ~249 MB blobs; 27 clients; 153 pages/site-audit avg; 0.78 violations/page): 90-d archive + findings-forever validated for current volume, nightly-fleet gate recorded for C2. Spec (Codex accept-with-fixes ×10) + Phase 1 plan (Codex ×8) written, fixed, committed. Phase 1 ships: 4-table schema (origin FKs SetNull, subtree cascades from CrawlRun), `lib/findings/` (hashed dedup keys, SEO mapper with groups[*].urls + computeHealthScore fallback, exactly-one-origin delete-and-recreate writer in one array-form txn chunked at 50, field-level parity comparator), parser dual-write hook (best-effort, post-commit), rebuild + parity tsx CLIs. 26 new tests; suite 1,752 green (169 files); tsc + build clean. Next: merge/deploy PR #55 + production parity (fresh parse → `npx tsx scripts/findings-parity.ts <sessionId>`), then Phase 2 (ADA dual-write).
 - 2026-06-10 — **A1 COMPLETE. PR #54 merged + deployed + verified in production.** Migration `20260610230000_schedule_name` applied cleanly; boot log error-free. All three `system-*` Schedule rows seeded and enabled (cleanup `daily@09:00` → next run 2026-06-11 09:00 UTC; screenshot-sweep `every:30m` + stale-audit-reset `every:10m`, both fired their immediate first-seed slot and completed within ~2 min of boot). Residual next-day check: confirm a `cleanup` job completes at the 09:00 UTC slot and terminal Job rows >7 d are pruned. A1 `[~]` → `[x]` — the durable job queue (Phases 0–4) is fully shipped. Next: A2 (normalized findings layer).
 - 2026-06-10 — Tracker created. All items not started. Roadmap docs written + Codex-reviewed (accept-with-fixes, fixes applied).
 - 2026-06-10 — **A1 meaningfully advanced** (Phases 0–1 of 4): Job + Schedule schema, worker loop (fenced claim/heartbeat/settle, timeout, type-keyed concurrency, backoff, onExhausted), startup/stale recovery, scheduler tick (exactly-once-per-slot), introspection, and PSI migrated behind `JOB_QUEUE_PSI` flag (default off) with flag-aware `recoverQueue`/`resetStaleAudits` survival logic. Spec + plan each Codex-reviewed (accept-with-fixes ×2, all fixes applied). 38 new tests; full suite 1,659 green; build green. Branch `feat/durable-job-queue` → PR. Remaining: Phase 2 (PDF scans), Phase 3 (page loop), Phase 4 (cleanup ticks), parity verification + flag flip + legacy-pool deletion.
