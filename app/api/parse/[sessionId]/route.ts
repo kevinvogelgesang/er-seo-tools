@@ -220,19 +220,16 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const { pages, scalars } = buildSessionPages(sessionId, result);
-
-    // Chunk createMany — a 1000-row insert can hit SQLite's bound-variable limit.
-    const chunk = <T,>(arr: T[], size: number): T[][] => {
-      const out: T[][] = [];
-      for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-      return out;
-    };
-    const pageChunks = chunk(pages, 75);
+    // A2 Phase 3: SessionPage rows are no longer written — the pages reader
+    // joins CrawlPage + Finding for sessions with a CrawlRun. The deleteMany
+    // stays so a retried parse can't leave stale legacy rows behind. The
+    // scalar columns on Session are still denormalized here. If the findings
+    // dual-write below fails, this session has no per-page data until
+    // `npx tsx scripts/findings-rebuild.ts <sessionId>` is run.
+    const { scalars } = buildSessionPages(sessionId, result);
 
     await prisma.$transaction([
       prisma.sessionPage.deleteMany({ where: { sessionId } }),
-      ...pageChunks.map((data) => prisma.sessionPage.createMany({ data })),
       prisma.session.update({
         where: { id: sessionId },
         data: {
