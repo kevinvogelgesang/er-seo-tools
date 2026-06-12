@@ -22,6 +22,8 @@ export async function GET() {
         clientId: true,
         client: { select: { id: true, name: true } },
         result: true,
+        totalUrls: true,
+        crawlRun: { select: { score: true } },
       },
     });
 
@@ -34,21 +36,26 @@ export async function GET() {
         files = [];
       }
 
-      // Extract health score and URL count from stored result JSON
-      let healthScore: number | undefined;
-      let urlCount: number | undefined;
-      try {
-        if (s.result) {
-          const r = JSON.parse(s.result);
-          healthScore = typeof r?.healthScore === 'number' ? r.healthScore :
-                        typeof r?.metadata?.health_score === 'number' ? r.metadata.health_score : undefined;
-          urlCount = typeof r?.summary?.totalUrls === 'number' ? r.summary.totalUrls :
-                     typeof r?.metadata?.total_urls === 'number' ? r.metadata.total_urls : undefined;
-        }
-      } catch { /* ignore */ }
+      // C5 flip: CrawlRun.score + Session.totalUrls scalars first;
+      // the blob parse survives only for pre-A2 sessions (no CrawlRun).
+      let healthScore: number | undefined = s.crawlRun?.score ?? undefined;
+      let urlCount: number | undefined = s.totalUrls ?? undefined;
+      if (!s.crawlRun) {
+        try {
+          if (s.result) {
+            const r = JSON.parse(s.result);
+            healthScore = typeof r?.healthScore === 'number' ? r.healthScore :
+                          typeof r?.metadata?.health_score === 'number' ? r.metadata.health_score : undefined;
+            urlCount = urlCount ??
+                       (typeof r?.crawl_summary?.total_urls === 'number' ? r.crawl_summary.total_urls :
+                        typeof r?.summary?.totalUrls === 'number' ? r.summary.totalUrls :
+                        typeof r?.metadata?.total_urls === 'number' ? r.metadata.total_urls : undefined);
+          }
+        } catch { /* ignore */ }
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { result: _result, client: _client, ...rest } = s;
+      const { result: _result, client: _client, crawlRun: _crawlRun, ...rest } = s;
       return {
         ...rest,
         files,
