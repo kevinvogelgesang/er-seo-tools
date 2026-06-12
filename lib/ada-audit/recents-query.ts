@@ -57,6 +57,7 @@ export async function fetchAllRecents(limit = 100, operator?: string): Promise<R
         id: true, createdAt: true, url: true, status: true, wcagLevel: true,
         result: true, startedAt: true, completedAt: true, requestedBy: true,
         client: { select: { name: true } },
+        crawlRun: { select: { score: true } },
       },
     }),
     prisma.siteAudit.findMany({
@@ -65,6 +66,7 @@ export async function fetchAllRecents(limit = 100, operator?: string): Promise<R
         id: true, createdAt: true, domain: true, status: true, wcagLevel: true,
         summary: true, startedAt: true, completedAt: true, requestedBy: true,
         client: { select: { name: true } },
+        crawlRun: { select: { score: true } },
       },
     }),
   ])
@@ -72,14 +74,14 @@ export async function fetchAllRecents(limit = 100, operator?: string): Promise<R
   const items: RecentItem[] = [
     ...pages.map((p): RecentItem => ({
       type: 'page', id: p.id, createdAt: p.createdAt.toISOString(), url: p.url,
-      status: p.status, score: pageScore(p.status, p.result, p.wcagLevel),
+      status: p.status, score: p.crawlRun?.score ?? pageScore(p.status, p.result, p.wcagLevel),
       startedAt: p.startedAt?.toISOString() ?? null,
       completedAt: p.completedAt?.toISOString() ?? null,
       clientName: p.client?.name ?? null, requestedBy: p.requestedBy,
     })),
     ...sites.map((s): RecentItem => ({
       type: 'site', id: s.id, createdAt: s.createdAt.toISOString(), domain: s.domain,
-      status: s.status, score: siteScore(s.status, s.summary, s.wcagLevel),
+      status: s.status, score: s.crawlRun?.score ?? siteScore(s.status, s.summary, s.wcagLevel),
       startedAt: s.startedAt?.toISOString() ?? null,
       completedAt: s.completedAt?.toISOString() ?? null,
       clientName: s.client?.name ?? null, requestedBy: s.requestedBy,

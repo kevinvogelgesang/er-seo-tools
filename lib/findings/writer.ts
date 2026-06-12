@@ -7,8 +7,8 @@
 import { prisma } from '@/lib/db'
 import type { FindingsBundle } from './types'
 
-// 50, not 75: CrawlPage has ~15 columns and SQLite's classic bound-variable
-// limit is 999 — 75 × 15 would exceed it. 50 × 15 = 750 keeps headroom for
+// 50, not 75: CrawlPage has ~17 columns and SQLite's classic bound-variable
+// limit is 999 — 75 × 17 would exceed it. 50 × 17 = 850 keeps headroom for
 // every table in the bundle.
 const CHUNK = 50
 

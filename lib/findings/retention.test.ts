@@ -1,8 +1,15 @@
 // lib/findings/retention.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/db'
+import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 import { pruneArchivedBlobs, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
+
+// Artifact deletion is mocked — retention tests must never touch the
+// uploads/screenshots filesystem.
+vi.mock('@/lib/ada-audit/screenshot-helpers', () => ({
+  deleteAuditArtifacts: vi.fn().mockResolvedValue([]),
+}))
 
 const DOMAIN = 'retention-test.example'
 const ID_PREFIX = 'test-findings-retention-'
@@ -49,10 +56,22 @@ async function makeSeoRun(opts: {
   return { session, run }
 }
 
-async function makeSiteAuditRun(opts: { completedAt?: Date | null } = {}) {
+async function makeSiteAuditRun(opts: { completedAt?: Date | null; children?: number } = {}) {
   const siteAudit = await prisma.siteAudit.create({
     data: { domain: DOMAIN, status: 'complete', summary: '{"blob":true}', score: 90 },
   })
+  const children = []
+  for (let i = 0; i < (opts.children ?? 0); i++) {
+    children.push(await prisma.adaAudit.create({
+      data: {
+        url: `https://${DOMAIN}/page-${randomUUID()}`,
+        status: 'complete',
+        result: '{"blob":true}',
+        lighthouseSummary: '{"lh":true}',
+        siteAuditId: siteAudit.id,
+      },
+    }))
+  }
   const run = await prisma.crawlRun.create({
     data: {
       tool: 'ada-audit', source: 'site-audit', domain: DOMAIN,
@@ -60,7 +79,7 @@ async function makeSiteAuditRun(opts: { completedAt?: Date | null } = {}) {
       completedAt: opts.completedAt !== undefined ? opts.completedAt : OLD,
     },
   })
-  return { siteAudit, run }
+  return { siteAudit, run, children }
 }
 
 async function makeStandaloneAdaRun(opts: { completedAt?: Date | null } = {}) {
@@ -78,14 +97,21 @@ async function makeStandaloneAdaRun(opts: { completedAt?: Date | null } = {}) {
 }
 
 describe('pruneArchivedBlobs', () => {
-  beforeEach(clearTestState)
+  beforeEach(async () => {
+    vi.mocked(deleteAuditArtifacts).mockClear()
+    vi.mocked(deleteAuditArtifacts).mockResolvedValue([])
+    await clearTestState()
+  })
   afterEach(clearTestState)
 
-  it('ships inert: every PRUNE_ACTIVATED flag is false', () => {
-    expect(Object.values(PRUNE_ACTIVATED).every((v) => v === false)).toBe(true)
+  // C3: ada-audit flipped (all readers fall back to findings tables);
+  // seo-parser stays inert until C5 flips its last blob reader.
+  it('default activation: seo-parser false, ada-audit true', () => {
+    expect(PRUNE_ACTIVATED['seo-parser']).toBe(false)
+    expect(PRUNE_ACTIVATED['ada-audit']).toBe(true)
   })
 
-  it('default (gated-off) prunes nothing, even eligible runs', async () => {
+  it('default (seo-parser gated-off) prunes no seo-parser runs, even eligible ones', async () => {
     const { session, run } = await makeSeoRun()
     await pruneArchivedBlobs(NOW)
     const s = await prisma.session.findUniqueOrThrow({ where: { id: session.id } })
@@ -153,6 +179,63 @@ describe('pruneArchivedBlobs', () => {
     for (const id of [site.run.id, standalone.run.id]) {
       expect((await prisma.crawlRun.findUniqueOrThrow({ where: { id } })).archivePrunedAt?.getTime()).toBe(NOW.getTime())
     }
+  })
+
+  it('activated ada-audit prunes child AdaAudit.result blobs but KEEPS lighthouseSummary', async () => {
+    const site = await makeSiteAuditRun({ children: 3 })
+    const standalone = await makeStandaloneAdaRun()
+    await pruneArchivedBlobs(NOW, ADA_ON)
+    const sa = await prisma.siteAudit.findUniqueOrThrow({ where: { id: site.siteAudit.id } })
+    expect(sa.summary).toBeNull()
+    for (const child of site.children) {
+      const c = await prisma.adaAudit.findUniqueOrThrow({ where: { id: child.id } })
+      expect(c.result).toBeNull()
+      expect(c.lighthouseSummary).toBe('{"lh":true}') // diff baselines survive pruning
+      expect(c.status).toBe('complete')
+    }
+    const aa = await prisma.adaAudit.findUniqueOrThrow({ where: { id: standalone.adaAudit.id } })
+    expect(aa.result).toBeNull()
+    for (const id of [site.run.id, standalone.run.id]) {
+      expect((await prisma.crawlRun.findUniqueOrThrow({ where: { id } })).archivePrunedAt?.getTime()).toBe(NOW.getTime())
+    }
+  })
+
+  it('deletes screenshot artifacts once per pruned child + standalone origin, never for recent audits', async () => {
+    const oldSite = await makeSiteAuditRun({ children: 3 })
+    const standalone = await makeStandaloneAdaRun()
+    const recentSite = await makeSiteAuditRun({ completedAt: RECENT, children: 2 })
+    await pruneArchivedBlobs(NOW, ADA_ON)
+    const calledIds = vi.mocked(deleteAuditArtifacts).mock.calls.map(([id]) => id)
+    const expectedIds = [standalone.adaAudit.id, ...oldSite.children.map((c) => c.id)]
+    expect(calledIds.sort()).toEqual(expectedIds.sort())
+    for (const recentChild of recentSite.children) {
+      expect(calledIds).not.toContain(recentChild.id)
+    }
+  })
+
+  it('an artifact-deletion rejection does not throw (warn-and-continue)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      vi.mocked(deleteAuditArtifacts).mockRejectedValue(new Error('disk gone'))
+      const site = await makeSiteAuditRun({ children: 2 })
+      await expect(pruneArchivedBlobs(NOW, ADA_ON)).resolves.toBeUndefined()
+      // DB pruning still committed despite artifact failures.
+      const sa = await prisma.siteAudit.findUniqueOrThrow({ where: { id: site.siteAudit.id } })
+      expect(sa.summary).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('failed to delete screenshot artifacts'))
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('activated ada-audit leaves recent (<90d) site audits and their children untouched', async () => {
+    const site = await makeSiteAuditRun({ completedAt: RECENT, children: 2 })
+    await pruneArchivedBlobs(NOW, ADA_ON)
+    expect((await prisma.siteAudit.findUniqueOrThrow({ where: { id: site.siteAudit.id } })).summary).toBe('{"blob":true}')
+    for (const child of site.children) {
+      expect((await prisma.adaAudit.findUniqueOrThrow({ where: { id: child.id } })).result).toBe('{"blob":true}')
+    }
+    expect((await prisma.crawlRun.findUniqueOrThrow({ where: { id: site.run.id } })).archivePrunedAt).toBeNull()
   })
 
   it('activation is per-tool: seo-parser on leaves ada runs untouched (and vice versa)', async () => {

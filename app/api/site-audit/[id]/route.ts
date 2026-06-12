@@ -4,6 +4,7 @@ import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 import type { AuditPdfRow, SiteAuditDetail } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-children-helpers'
+import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +31,10 @@ export async function GET(
   let summary = null
   if (audit.status === 'complete' && audit.summary) {
     try { summary = JSON.parse(audit.summary) } catch { /* ignore */ }
+  }
+  if (audit.status === 'complete' && summary === null) {
+    // Pruned blob (C3): degraded summary from findings tables.
+    summary = await buildSummaryFromFindings(audit.id) // null when no CrawlRun (pre-A2)
   }
 
   const pdfs: AuditPdfRow[] = audit.pdfAudits.map((p) => {

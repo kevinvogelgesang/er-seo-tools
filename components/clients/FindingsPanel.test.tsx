@@ -9,7 +9,8 @@ afterEach(cleanup)
 
 const meta = (over: Partial<SourceMetaProp> = {}): SourceMetaProp => ({
   runAt: '2026-06-10T00:00:00.000Z', href: '/seo-parser/results/s1', domain: 'acme.example',
-  hasPrevious: true, newTypeCount: 0, resolvedTypeCount: 0, ...over,
+  hasPrevious: true, newTypeCount: 0, resolvedTypeCount: 0,
+  newInstanceCount: null, resolvedInstanceCount: null, ...over,
 })
 
 const row = (over: Partial<FindingRowProp> = {}): FindingRowProp => ({
@@ -82,5 +83,29 @@ describe('FindingsPanel', () => {
     render(<FindingsPanel rows={[row()]} seo={meta({ newTypeCount: 2, resolvedTypeCount: 1 })} ada={null} />)
     expect(screen.getByText(/\+2 new/)).toBeTruthy()
     expect(screen.getByText(/1 resolved/)).toBeTruthy()
+  })
+
+  it('renders the instance violations clause when both counts are non-null', () => {
+    render(
+      <FindingsPanel
+        rows={[]}
+        seo={null}
+        ada={meta({ sourceClass: 'site', newInstanceCount: 3, resolvedInstanceCount: 2 })}
+      />,
+    )
+    expect(screen.getByText(/violations/)).toBeTruthy()
+    expect(screen.getByText('+3')).toBeTruthy()
+    expect(screen.getByText('−2')).toBeTruthy()
+  })
+
+  it('omits the violations clause when either instance count is null', () => {
+    const { rerender } = render(
+      <FindingsPanel rows={[]} seo={null} ada={meta({ sourceClass: 'site' })} />,
+    )
+    expect(screen.queryByText(/violations/)).toBeNull()
+    rerender(
+      <FindingsPanel rows={[]} seo={null} ada={meta({ sourceClass: 'site', newInstanceCount: 3 })} />,
+    )
+    expect(screen.queryByText(/violations/)).toBeNull()
   })
 })

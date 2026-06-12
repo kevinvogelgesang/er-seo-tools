@@ -7,19 +7,22 @@
 // AdaAudit.result), all scalar columns kept, and archivePrunedAt stamped.
 // Runs as a task inside runCleanup().
 //
-// SHIPPED INERT: pruning activates per tool via PRUNE_ACTIVATED below; each
-// flag flips in the same PR as that tool's last blob reader (the A1 pattern
-// of deleting the legacy path only after parity). Both are false in A2.
+// Pruning activates per tool via PRUNE_ACTIVATED below; each flag flips in
+// the same PR as that tool's last blob reader (the A1 pattern of deleting
+// the legacy path only after parity). 'ada-audit' flipped in C3 (all readers
+// fall back to the findings tables); 'seo-parser' stays inert until C5.
 //
-// Scope: origin row's blob ONLY. For a site-audit run that is
-// SiteAudit.summary — child AdaAudit.result blobs are NOT pruned here; the
-// site-audit results view still reads them. Extending pruning to children
-// is a decision for the PR that flips 'ada-audit' (post-C3/C4).
+// Scope (since C3): the origin row's blob AND, for ada-audit site runs, the
+// child AdaAudit.result blobs — the real DB weight. Child lighthouseSummary
+// is KEPT (diff baselines + Lighthouse history live there, tiny). Screenshot
+// artifacts for pruned audits are deleted best-effort over an exact snapshot
+// of affected ids — never a directory sweep.
 //
 // Rows with no CrawlRun (pre-A2) are untouched: sessions expire via the
 // 180-day TTL; audits have no TTL (out of scope).
 
 import { prisma } from '@/lib/db'
+import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 /** Origin blobs are kept 90 days after the run completes. */
@@ -29,8 +32,8 @@ type PrunableTool = 'seo-parser' | 'ada-audit'
 
 /** Per-tool activation. Flip ONLY in the same PR as the tool's last blob reader. */
 export const PRUNE_ACTIVATED: Readonly<Record<PrunableTool, boolean>> = {
-  'seo-parser': false,
-  'ada-audit': false,
+  'seo-parser': false, // flips with C5 (that tool's last blob reader)
+  'ada-audit': true,   // C3: all readers fall back to findings tables (spec § 5.4)
 }
 
 /** Origin updates per array-form transaction (matches writer chunking style). */
@@ -66,17 +69,46 @@ export async function pruneArchivedBlobs(
       const siteAuditIds = chunk.map((r) => r.siteAuditId).filter((x): x is string => x !== null)
       const adaAuditIds = chunk.map((r) => r.adaAuditId).filter((x): x is string => x !== null)
 
+      // Snapshot the affected child audits BEFORE the transaction (Codex
+      // spec-fix #6) — artifact deletion below uses exactly this snapshot,
+      // never a directory sweep.
+      const childAudits = tool === 'ada-audit' && siteAuditIds.length > 0
+        ? await prisma.adaAudit.findMany({
+            where: { siteAuditId: { in: siteAuditIds }, result: { not: null } },
+            select: { id: true },
+          })
+        : []
+
       // Array-form transaction only (house rule). Empty `in: []` lists are
       // no-ops; Session/SiteAudit @updatedAt is maintained by updateMany.
       await prisma.$transaction([
         prisma.session.updateMany({ where: { id: { in: sessionIds } }, data: { result: null } }),
         prisma.siteAudit.updateMany({ where: { id: { in: siteAuditIds } }, data: { summary: null } }),
         prisma.adaAudit.updateMany({ where: { id: { in: adaAuditIds } }, data: { result: null } }),
+        // C3: child blobs of pruned site audits — the real DB weight (spec § D3).
+        // Bounded in-list: siteAuditIds ≤ CHUNK_SIZE (never the child-id list).
+        ...(childAudits.length > 0
+          ? [prisma.adaAudit.updateMany({
+              where: { siteAuditId: { in: siteAuditIds } },
+              data: { result: null },
+            })]
+          : []),
         prisma.crawlRun.updateMany({
           where: { id: { in: chunk.map((r) => r.id) } },
           data: { archivePrunedAt: now },
         }),
       ])
+
+      // Best-effort screenshot cleanup over the snapshot — blobs held the only
+      // screenshotPath references; keeping the files would orphan disk forever.
+      if (tool === 'ada-audit') {
+        const artifactIds = [...adaAuditIds, ...childAudits.map((c) => c.id)]
+        const settled = await Promise.allSettled(artifactIds.map((aid) => deleteAuditArtifacts(aid)))
+        const failed = settled.filter((s) => s.status === 'rejected').length
+        if (failed > 0) {
+          console.warn(`[findings] failed to delete screenshot artifacts for ${failed} pruned audit(s)`)
+        }
+      }
     }
 
     if (runs.length > 0) {

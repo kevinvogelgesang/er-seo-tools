@@ -259,7 +259,6 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
   const N = completeRows.length
   if (N < COMMON_ISSUE_MIN_PAGES) return []
 
-  const minHits = Math.ceil(N * COMMON_ISSUE_THRESHOLD)
   const accumulator = new Map<string, RuleAccumulator>()
 
   for (const row of completeRows) {
@@ -306,6 +305,14 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
     }
   }
 
+  return finalizeCommonIssues(accumulator, N)
+}
+
+/** Shared tail of both detectors: threshold/tier the accumulated rules,
+ *  attach ancestor + canonical-selector hints, sort. Computes minHits from N. */
+function finalizeCommonIssues(accumulator: Map<string, RuleAccumulator>, N: number): CommonIssue[] {
+  const minHits = Math.ceil(N * COMMON_ISSUE_THRESHOLD)
+
   const out: CommonIssue[] = []
   for (const [ruleId, entry] of accumulator.entries()) {
     const affectedPagesCount = entry.pageIds.size
@@ -351,4 +358,62 @@ export function detectCommonIssues(rows: CommonIssueInputRow[]): CommonIssue[] {
   })
 
   return out
+}
+
+/** C3 archived-summary fallback input: one row per (page × rule), straight
+ *  from Violation columns. Counts/tiers are EXACT (groupBy semantics);
+ *  ancestor/selector hints are best-effort from the capped nodes JSON. */
+export interface ViolationRowInput {
+  pageId: string
+  url: string
+  ruleId: string
+  impact: string
+  help: string | null
+  helpUrl: string | null
+  nodes: string | null // capped [{html, target}] JSON from Violation.nodes
+}
+
+export function detectCommonIssuesFromViolationRows(
+  rows: ViolationRowInput[],
+  completePagesCount: number,
+): CommonIssue[] {
+  const N = completePagesCount
+  if (N < COMMON_ISSUE_MIN_PAGES) return []
+
+  const accumulator = new Map<string, RuleAccumulator>()
+  for (const row of rows) {
+    if (!(VALID_IMPACTS as readonly string[]).includes(row.impact)) continue // 'unknown' sentinel
+    let nodes: RawNode[] = []
+    if (row.nodes) {
+      try {
+        const parsed = JSON.parse(row.nodes)
+        if (Array.isArray(parsed)) nodes = parsed as RawNode[]
+      } catch { /* hints stay best-effort */ }
+    }
+    let entry = accumulator.get(row.ruleId)
+    if (!entry) {
+      entry = {
+        metadata: {
+          impact: row.impact as ImpactLevel,
+          help: row.help ?? '',
+          description: row.help ?? '', // Violation has no description column — degraded by contract
+          helpUrl: row.helpUrl ?? '',
+        },
+        pageIds: new Set(),
+        landmarkByPage: new Map(),
+        pagesForSelector: [],
+      }
+      accumulator.set(row.ruleId, entry)
+    }
+    entry.pageIds.add(row.pageId)
+    const pageLandmark = computeModalLandmarkForPage(nodes)
+    if (pageLandmark) entry.landmarkByPage.set(row.pageId, pageLandmark)
+    entry.pagesForSelector.push({
+      url: row.url,
+      nodes: nodes
+        .filter((n): n is { target: string[] } => Array.isArray(n?.target))
+        .map((n) => ({ target: n.target })),
+    })
+  }
+  return finalizeCommonIssues(accumulator, N)
 }

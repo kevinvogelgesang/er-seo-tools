@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { GET, PATCH } from './route'
 import { NextRequest } from 'next/server'
@@ -51,6 +51,69 @@ describe('GET /api/audit-batches/[id]', () => {
     const res = await GET(req(`http://localhost/api/audit-batches/${b.id}`), params(b.id))
     const json = await res.json() as { closedAt: string | null }
     expect(json.closedAt).toBeNull()
+  })
+})
+
+describe('GET /api/audit-batches/[id] — C3 member score source', () => {
+  const PREFIX = 'c3bat-'
+  // Aggregate of zeros → computeScoreFromCounts = 100.
+  const SITE_BLOB = JSON.stringify({
+    aggregate: { critical: 0, serious: 0, moderate: 0, minor: 0, total: 0, passed: 0, incomplete: 0 },
+  })
+  let batchId: string
+  let ids: Record<string, string>
+
+  async function clearState() {
+    // CrawlRun first (subtree cascades from it), THEN origin rows.
+    await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: PREFIX } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
+    await prisma.auditBatch.deleteMany({ where: { label: { startsWith: '__c3bat__' } } })
+  }
+
+  beforeAll(async () => {
+    await clearState()
+    const batch = await prisma.auditBatch.create({ data: { label: '__c3bat__scores', closedAt: new Date() } })
+    batchId = batch.id
+    const withRun = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}a.example`, status: 'complete', summary: SITE_BLOB, wcagLevel: 'wcag21aa', batchId, completedAt: new Date() },
+    })
+    await prisma.crawlRun.create({
+      data: { tool: 'ada-audit', source: 'site-audit', domain: `${PREFIX}a.example`, siteAuditId: withRun.id, status: 'complete', score: 42, wcagLevel: 'wcag21aa' },
+    })
+    const legacy = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}b.example`, status: 'complete', summary: SITE_BLOB, wcagLevel: 'wcag21aa', batchId, completedAt: new Date() },
+    })
+    const pruned = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}c.example`, status: 'complete', summary: null, wcagLevel: 'wcag21aa', batchId, completedAt: new Date() },
+    })
+    await prisma.crawlRun.create({
+      data: { tool: 'ada-audit', source: 'site-audit', domain: `${PREFIX}c.example`, siteAuditId: pruned.id, status: 'complete', score: 37, wcagLevel: 'wcag21aa' },
+    })
+    ids = { withRun: withRun.id, legacy: legacy.id, pruned: pruned.id }
+  })
+
+  afterAll(clearState)
+
+  async function fetchMembers(): Promise<{ id: string; score: number | null }[]> {
+    const res = await GET(req(`http://localhost/api/audit-batches/${batchId}`), params(batchId))
+    expect(res.status).toBe(200)
+    const json = await res.json() as { members: { id: string; score: number | null }[] }
+    return json.members
+  }
+
+  it('prefers CrawlRun.score over a different-scoring summary blob', async () => {
+    const members = await fetchMembers()
+    expect(members.find((m) => m.id === ids.withRun)?.score).toBe(42) // blob would score 100
+  })
+
+  it('falls back to the summary aggregate for pre-A2 members (no CrawlRun)', async () => {
+    const members = await fetchMembers()
+    expect(members.find((m) => m.id === ids.legacy)?.score).toBe(100)
+  })
+
+  it('scores pruned members (summary null) from CrawlRun without crashing', async () => {
+    const members = await fetchMembers()
+    expect(members.find((m) => m.id === ids.pruned)?.score).toBe(37)
   })
 })
 

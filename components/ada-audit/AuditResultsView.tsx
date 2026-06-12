@@ -50,6 +50,8 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
 
 export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, shareToken, lighthouseSummary = null, lighthouseError = null, pdfs = [] }: Props) {
   const scorecard = buildScorecard(results)
+  // Archived results synthesize passes/incomplete as [] — archivedCounts is
+  // the truth there; empty arrays must never render as a literal 0 (Codex #3).
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
   const auditHref = safeExternalHref(url)
 
@@ -75,9 +77,12 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
       ? `/api/ada-audit/${auditId}/checks`
       : ''
 
+  // Triage is disabled on archived results (Codex plan-fix #2): check keys
+  // are content hashes of full node HTML — capped reconstructed nodes can't
+  // reproduce them, so triage writes against archived data would be unreliable.
   const checks = useChecks({
     endpoint: checksEndpoint,
-    enabled: !!checksEndpoint && (triageMode || readOnly),
+    enabled: !!checksEndpoint && (triageMode || readOnly) && !results.archived,
     readOnly,
   })
 
@@ -88,6 +93,15 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
     <div className="space-y-6">
       {fromAuditId && (
         <RescanBanner previousScore={previousScore ?? null} currentScore={score ?? null} />
+      )}
+      {results.archived && (
+        <div className="flex gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl text-[12px] font-body text-amber-800 dark:text-amber-400 leading-relaxed">
+          <span>
+            <strong>Archived audit:</strong> full detail (screenshots, complete code snippets,
+            pass/incomplete lists) was pruned after 90 days. Violations shown are exact;
+            node samples are capped at 5 per rule.
+          </span>
+        </div>
       )}
       <ComplianceBanner />
 
@@ -127,7 +141,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
               </span>
             </div>
           </div>
-          {auditId && !readOnly && (
+          {auditId && !readOnly && !results.archived && (
             <div className="flex-shrink-0 flex items-center gap-2">
               <button
                 type="button"
@@ -142,11 +156,17 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
           )}
         </div>
         <div className="p-6">
-          <AuditScorecardComponent scorecard={scorecard} score={score} compliant={compliant} wcagLevel={wcagLevel} />
+          <AuditScorecardComponent
+            scorecard={scorecard}
+            score={score}
+            compliant={compliant}
+            wcagLevel={wcagLevel}
+            archivedCounts={results.archived ? results.archivedCounts ?? { passed: null, incomplete: null } : undefined}
+          />
         </div>
       </div>
 
-      {(results.domElementCount !== undefined && results.domElementCount < 50) && (
+      {!results.archived && (results.domElementCount !== undefined && results.domElementCount < 50) && (
         <div className="flex gap-3 px-4 py-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-xl text-[12px] font-body text-red-800 dark:text-red-400 leading-relaxed">
           <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
@@ -181,7 +201,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
             violations={results.violations}
             incomplete={results.incomplete ?? []}
             auditId={readOnly ? undefined : auditId}
-            checksContext={displayChecks ? { triageMode: displayChecks, readOnly, checks } : undefined}
+            checksContext={displayChecks && !results.archived ? { triageMode: displayChecks, readOnly, checks } : undefined}
           />
         </div>
       </div>

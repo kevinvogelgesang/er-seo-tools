@@ -15,6 +15,13 @@ export interface AuditPdfRow {
 
 export type ImpactLevel = 'critical' | 'serious' | 'moderate' | 'minor'
 
+/** Pass/incomplete counts preserved from the pruned blob; null = unknown
+ *  (pre-C3 run). Drives "—" rendering — never coerce null to 0 (Codex #3/#4). */
+export interface ArchivedCounts {
+  passed: number | null
+  incomplete: number | null
+}
+
 export interface AxeNode {
   html: string
   failureSummary?: string
@@ -49,6 +56,10 @@ export interface StoredAxeResults {
   domElementCount?: number
   /** Whether screenshot capture was enabled for this audit */
   captureScreenshots?: boolean
+  /** True when synthesized from findings rows after the origin blob was pruned (C3). */
+  archived?: boolean
+  /** Pass/incomplete counts preserved from the pruned blob; only set when archived. */
+  archivedCounts?: ArchivedCounts
 }
 
 /** Violation counts by impact level */
@@ -133,6 +144,9 @@ export interface SitePageResult {
   pdfs: SitePagePdfState                  // zero-valued when no PDFs harvested
   finalUrl?: string | null                // populated when status === 'redirected'
   violationIds?: string[]                 // rule IDs present on this page, for triage-mode rollup
+  /** Pass/incomplete counts from the pruned blob; only present on archived
+   *  fallback rows (C3). Null members = unknown (pre-C3 run) — render "—". */
+  archivedCounts?: ArchivedCounts
 }
 
 export interface SiteAuditPdfAggregate {
@@ -194,6 +208,11 @@ export interface SiteAuditSummary {
    *  Older audits (rows where summary JSON predates this feature) lack the
    *  field; consumers should default to []. */
   commonIssues?: CommonIssue[]
+  /** True when synthesized from findings rows after the origin blobs were pruned (C3). */
+  archived?: boolean
+  /** Aggregate pass/incomplete counts preserved from the pruned blobs; only
+   *  set when archived. Null members = unknown (pre-C3 run) — render "—". */
+  archivedCounts?: ArchivedCounts
 }
 
 /** Shape returned by GET /api/site-audit (list) and GET /api/site-audit/[id] */

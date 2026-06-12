@@ -137,3 +137,115 @@ export function newCriticalTypes(current: TypeAggregate[], previousTypes: Set<st
   if (previousTypes === null) return []
   return current.filter((c) => c.severity === 'critical' && !previousTypes.has(c.type)).map((c) => c.type)
 }
+
+// ── C3: instance-level (URL×rule) diffing ───────────────────────────────────
+// Keyed on Finding.dedupKey (sha256 of scope+type+normalized url — stable
+// across runs). Page-set awareness keeps the diff honest vs sitemap churn:
+// a violation only counts as regressed/resolved when the page was actually
+// scanned on the other side. Pure — no prisma.
+
+export interface InstanceRef {
+  dedupKey: string
+  type: string
+  severity: string
+  url: string
+}
+
+export interface RuleInstanceDiff {
+  type: string
+  /** Current run's severity; previous run's for resolved-only rules. */
+  severity: Severity
+  /** Capped at URLS_PER_FINDING, deduped + sorted, regressed before new-page. */
+  newUrls: string[]
+  newTotal: number
+  regressedTotal: number
+  resolvedUrls: string[]
+  resolvedTotal: number
+  unchangedTotal: number
+}
+
+export interface InstanceDiff {
+  newCount: number
+  regressedCount: number
+  newPageCount: number
+  resolvedCount: number
+  notRescannedCount: number
+  unchangedCount: number
+  /** Only rules with newTotal > 0 or resolvedTotal > 0, severity rank then newTotal desc. */
+  rules: RuleInstanceDiff[]
+}
+
+interface RuleAcc {
+  severity: Severity
+  fromCurrent: boolean
+  regressedUrls: string[]
+  newPageUrls: string[]
+  resolvedUrls: string[]
+  unchangedTotal: number
+}
+
+const capSample = (urls: string[]) => [...new Set(urls)].sort().slice(0, URLS_PER_FINDING)
+
+export function diffInstances(
+  current: InstanceRef[],
+  previous: InstanceRef[],
+  currentPages: Set<string>,
+  previousPages: Set<string>,
+): InstanceDiff {
+  const prevKeys = new Set(previous.map((p) => p.dedupKey))
+  const curKeys = new Set(current.map((c) => c.dedupKey))
+
+  const byType = new Map<string, RuleAcc>()
+  const acc = (type: string, severity: string, fromCurrent: boolean): RuleAcc => {
+    let a = byType.get(type)
+    if (!a) {
+      a = { severity: toSeverity(severity), fromCurrent, regressedUrls: [], newPageUrls: [], resolvedUrls: [], unchangedTotal: 0 }
+      byType.set(type, a)
+    } else if (fromCurrent && !a.fromCurrent) {
+      a.severity = toSeverity(severity) // current run's severity wins
+      a.fromCurrent = true
+    }
+    return a
+  }
+
+  let newCount = 0, regressedCount = 0, newPageCount = 0
+  let resolvedCount = 0, notRescannedCount = 0, unchangedCount = 0
+
+  for (const c of current) {
+    const a = acc(c.type, c.severity, true)
+    if (prevKeys.has(c.dedupKey)) { unchangedCount++; a.unchangedTotal++; continue }
+    newCount++
+    if (previousPages.has(c.url)) { regressedCount++; a.regressedUrls.push(c.url) }
+    else { newPageCount++; a.newPageUrls.push(c.url) }
+  }
+  for (const p of previous) {
+    if (curKeys.has(p.dedupKey)) continue
+    if (currentPages.has(p.url)) {
+      resolvedCount++
+      acc(p.type, p.severity, false).resolvedUrls.push(p.url)
+    } else {
+      notRescannedCount++
+    }
+  }
+
+  const rules: RuleInstanceDiff[] = []
+  for (const [type, a] of byType) {
+    const newTotal = a.regressedUrls.length + a.newPageUrls.length
+    const resolvedTotal = a.resolvedUrls.length
+    if (newTotal === 0 && resolvedTotal === 0) continue
+    rules.push({
+      type,
+      severity: a.severity,
+      newUrls: [...capSample(a.regressedUrls), ...capSample(a.newPageUrls)].slice(0, URLS_PER_FINDING),
+      newTotal,
+      regressedTotal: a.regressedUrls.length,
+      resolvedUrls: capSample(a.resolvedUrls),
+      resolvedTotal,
+      unchangedTotal: a.unchangedTotal,
+    })
+  }
+  rules.sort((x, y) =>
+    SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] || y.newTotal - x.newTotal || x.type.localeCompare(y.type))
+
+  return { newCount, regressedCount, newPageCount, resolvedCount, notRescannedCount, unchangedCount, rules }
+}

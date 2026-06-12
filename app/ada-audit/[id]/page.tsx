@@ -8,6 +8,7 @@ import type { StoredAxeResults, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScore } from '@/lib/ada-audit/scoring'
+import { buildArchivedAxeResults } from '@/lib/ada-audit/findings-fallback'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,9 +40,10 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
   if (fromId) {
     const prev = await prisma.adaAudit.findUnique({
       where: { id: fromId },
-      select: { result: true, wcagLevel: true },
+      select: { result: true, wcagLevel: true, crawlRun: { select: { score: true } } },
     })
-    if (prev?.result) {
+    previousScore = prev?.crawlRun?.score ?? null
+    if (previousScore === null && prev?.result) {
       try {
         const prevResults = JSON.parse(prev.result) as StoredAxeResults
         previousScore = computeScore(prevResults.violations, prev.wcagLevel ?? 'wcag21aa').score
@@ -147,6 +149,17 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
     }
   }
 
+  // Pruned blob (C3): degraded view from Violation rows. Null when the audit
+  // predates A2 — the legacy "No results available" card keeps rendering.
+  let archivedScore: number | null = null
+  if (!results && audit.status === 'complete') {
+    results = await buildArchivedAxeResults(id)
+    if (results) {
+      const run = await prisma.crawlRun.findUnique({ where: { adaAuditId: id }, select: { score: true } })
+      archivedScore = run?.score ?? null
+    }
+  }
+
   if (!results) {
     return (
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
@@ -158,7 +171,11 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
     )
   }
 
-  const { score, compliant } = computeScore(results.violations, audit.wcagLevel)
+  // Archived results carry capped node samples — node-based scoring would lie.
+  // CrawlRun.score is the mapper-computed original; compliant = zero rows.
+  const computed = computeScore(results.violations, audit.wcagLevel)
+  const score = results.archived ? archivedScore ?? computed.score : computed.score
+  const compliant = results.archived ? results.violations.length === 0 : computed.compliant
 
   // Parse Lighthouse summary (tolerant of malformed JSON)
   let lighthouseSummary: LighthouseSummary | null = null
