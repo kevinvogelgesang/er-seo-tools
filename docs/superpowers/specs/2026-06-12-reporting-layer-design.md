@@ -78,8 +78,13 @@ score prefers `CrawlRun.score`, compliance from counts. Renders
   the anonymous visitor can't call. No "View full audit ↗" links (child
   pages are auth-gated). External page-open links (to the client's own site)
   stay.
-- No triage UI, no diff panel (the previous audit isn't shared), no
-  re-scan/share/export controls.
+- **`shareMode` suppresses every auth-gated or internal affordance** (Codex
+  fix): the by-violation/grouped view and its `useGroupedViolations()`
+  fetches to `/api/ada-audit/[id]`, triage mode + its localStorage state,
+  common-issue drilldown CTAs (the aggregate common-issues summary itself
+  may render — it's server-loaded), "View audit" links inside grouped
+  cards, and re-scan/share/export controls. Anything that would issue a
+  cookie-gated fetch or link to a cookie-gated page is off.
 - PDF accessibility section renders read-only (data is server-loaded).
 - Archived (pruned-blob) audits render with the existing archived banner and
   `archivedCounts` "—" contract.
@@ -91,7 +96,10 @@ score prefers `CrawlRun.score`, compliance from counts. Renders
 **Lifecycle:** links die naturally when the audit row is deleted (manual
 delete or scheduled retention) — acceptable; the share UI copy already warns
 about scheduled-audit retention windows elsewhere, and the mint UI shows the
-expiry date.
+expiry date. **Expired-token cleanup** (Codex fix): mirror
+`cleanExpiredAdaShareTokens()` (`lib/cleanup.ts`) with a SiteAudit
+equivalent registered in the same `runCleanup()` list, so expired site
+tokens are nulled rather than accumulating.
 
 **UI:** Share button on the site results page (mirrors `ShareAuditButton`),
 inside the new export bar (below).
@@ -100,14 +108,18 @@ inside the new export bar (below).
 
 **`lib/report/csv.ts`** — tiny pure RFC-4180 builder: escape fields
 containing `" , \n` by quoting + doubling quotes; rows joined with `\r\n`;
-UTF-8 BOM prefix so Excel opens it correctly. Unit-tested.
+UTF-8 BOM prefix so Excel opens it correctly. **Formula-injection
+neutralization** (Codex fix): fields starting with `=`, `+`, `-`, `@`, tab,
+or CR get a leading `'` so Excel/Sheets never execute them — page URLs and
+help text are externally controlled. Unit-tested incl. injection cases.
 
 **Violations CSV:** `GET /api/site-audit/[id]/csv` (cookie-gated).
 Relational-only: `Violation` joined to `CrawlPage` by the audit's
 `CrawlRun`. Columns:
 `page_url, rule_id, impact, severity, wcag_tags, help, help_url, node_count`
-(wcag_tags joined with `|`). Sort: impact rank (critical→minor), then
-`ruleId`, then `page_url`. Filename
+(wcag_tags joined with `|`). Sort: impact rank (critical→minor, with the
+`'unknown'` sentinel ranked last and rendered verbatim — never assume only
+the four axe impacts), then `ruleId`, then `page_url`. Filename
 `ada-violations-<domain>-<YYYY-MM-DD>.csv` via Content-Disposition.
 Pre-A2 audit (no CrawlRun) → 409 `{error: 'no_findings_run'}`. Works
 unchanged on archived audits.
@@ -115,10 +127,13 @@ unchanged on archived audits.
 **Changes CSV:** `GET /api/site-audit/[id]/csv?sheet=changes` — reuses the
 **same previous-audit selection** as C3 (`getSiteAuditInstanceDiff`'s
 domain+wcagLevel-matched previous, anchored at the audit's own run) but with
-an **uncapped** classifier: `diffInstances()` already accumulates full URL
-lists internally and caps only at the boundary — expose a detailed variant
+an **uncapped** classifier: expose a detailed variant
 (`diffInstancesDetailed()` returning full per-rule URL lists; the existing
-capped `InstanceDiff` derives from it, so UI shapes are unchanged). Columns:
+capped `InstanceDiff` derives from it, so UI shapes are unchanged). Note
+(Codex fix): the current `diffInstances()` only **counts** not-rescanned
+instances — it does not keep their URLs — so the detailed variant must
+explicitly accumulate `notRescannedUrls` (and regressed/new-page/resolved
+lists) rather than just lifting the existing caps. Columns:
 `change, rule_id, severity, page_url` where `change ∈
 new | new-page | resolved | not-rescanned` (the C3 vocabulary; `new` =
 regressed — page scanned in both runs). Unchanged instances are excluded
@@ -162,16 +177,26 @@ Alternatives considered:
   summary (counts only), footer disclaimer ("automated scan, not a legal
   conformance statement") + page numbers via puppeteer footer template.
   All inline CSS; brand colors hard-coded to the Tailwind palette values.
+  **Every dynamic string is HTML-escaped** (Codex fix): URLs, client names,
+  rule help text, node HTML samples, error text, PDF issue text — via pure
+  `escapeHtml()`/`escapeAttr()` helpers, tested with `<script>` and quote
+  payloads in node HTML. Impact labels render the `'unknown'` sentinel
+  verbatim with a neutral color (never coerced into the four axe impacts).
 - `report-data.ts` (this one reads prisma) — `loadSiteReportData(siteAuditId)`:
   goes through the **same read paths as the views** — summary blob or
   `buildSummaryFromFindings()`, score from `CrawlRun.score` else
   `computeScoreFromCounts`, `getSiteAuditInstanceDiff()`, trend series from
   `CrawlRun` rows (`tool='ada-audit'`, `source='site-audit'`, same domain,
   **same wcagLevel**, scored, completed) via `buildSeries()`. Screenshots:
-  best-effort — resolve violation `screenshotPath`s against `SCREENSHOTS_DIR`,
+  best-effort, **sourced from child `AdaAudit.result` blobs** (Codex fix —
+  `Violation.nodes` stores capped `{html,target}` only and never carries
+  `screenshotPath`): for unpruned audits, read `screenshotPath`s from the
+  child blobs of the top-issue pages, resolve against `SCREENSHOTS_DIR`,
   read+base64-embed up to 6 total, capped at 300 KB each; missing files
-  (24-h sweep / 90-d prune) are silently skipped. Returns `null` when
-  neither blob nor CrawlRun exists (pre-A2) — job settles as a domain error.
+  (24-h sweep) are silently skipped. Archived/pruned audits get **no
+  screenshots by contract** (child blobs are nulled and artifacts deleted).
+  Returns `null` when neither blob nor CrawlRun exists (pre-A2) — job
+  settles as a domain error.
 
 **Durable `report-render` job** (`lib/jobs/handlers/report-render.ts`):
 type `report-render`, concurrency 1, maxAttempts 2, timeout 120 s, payload
@@ -189,9 +214,12 @@ audit liveness) — use `report:<siteAuditId>` as groupKey too. Handler:
 5. Update `SiteAudit.reportGeneratedAt` (new column). If the row vanished
    mid-render (P2025), delete the file and settle cleanly.
 
-Audit-status guard: only `complete` audits render; anything else settles as
-a domain error without retry. `onExhausted` is log-only — a failed report
-never touches the audit row.
+**Deleted-audit no-ops are explicit** (Codex fix): audit missing at step 1
+→ settle complete immediately (no retry burn); audit gone between PDF write
+and stamp → delete the file, settle complete. Audit-status guard: only
+`complete` audits render; anything else settles as a domain error without
+retry. `onExhausted` is log-only — a failed report never touches the audit
+row.
 
 **Storage:** `REPORTS_DIR` env, default `./data/reports` locally,
 `${DATA_HOME}/reports` added to `ecosystem.config.js`. One file per audit —
@@ -206,18 +234,26 @@ regeneration overwrites.
   `ada-report-<domain>-<YYYY-MM-DD>.pdf`) when the file exists; 404
   otherwise.
 - `GET /api/site-audit/[id]/report/status` —
-  `{state: 'none'|'rendering'|'ready', generatedAt}` from
-  `reportGeneratedAt` + active-job count in group `report:<id>`.
+  `{state: 'none'|'rendering'|'ready', generatedAt}`: `rendering` when the
+  `report:<id>` group has active jobs; `ready` only when
+  `reportGeneratedAt` is set **and the file actually exists on disk**
+  (Codex fix — never report ready from the column alone); else `none`.
 
 **Why on-demand, not on-completion:** most audits never need a report;
 rendering costs a Chrome page and disk. The button regenerates freely
 (stale reports after a re-scan are impossible — reports key on the audit id,
 and a new scan is a new audit).
 
-**Lifecycle:** report file deleted wherever site-audit artifacts already
-die: the manual DELETE route (alongside its `deleteAuditArtifacts` loop) and
-`pruneScheduledSiteAudits()` (its id snapshot already drives screenshot
-deletion — add the report file to the same snapshot-based sweep). Archived
+**Lifecycle:** report file deleted whenever its SiteAudit row dies (Codex
+fix — `pruneScheduledSiteAudits()` currently has NO artifact sweep of its
+own; screenshots age out via the 24-h sweep, but report PDFs have no sweep,
+so both paths must delete explicitly): the manual DELETE route (alongside
+its `deleteAuditArtifacts` loop, plus `cancelJobsByGroup('report:<id>')` so
+an in-flight render can't resurrect the file) and
+`pruneScheduledSiteAudits()` (snapshot the doomed ids before `deleteMany`,
+best-effort unlink after the transaction). Manual-audit reports otherwise
+live until their audit is deleted — accepted (one small file per audit,
+overwritten on regenerate). Archived
 (pruned-blob) audits can still render reports — the data path is the
 findings fallback; the report shows the same degraded-contract data (no
 screenshots, archivedCounts as "—").
@@ -241,7 +277,8 @@ criterion | conformance | remarks. Honest two-state model (automation can't
 prove a pass):
 
 - ≥1 violation tagged with the criterion → **Does Not Support** + remarks
-  listing rule ids, affected-page counts, helpUrls.
+  listing rule ids, affected-page counts, helpUrls (impacts listed verbatim
+  incl. the `'unknown'` sentinel).
 - otherwise → **Not Evaluated** + "no automated failures detected; manual
   review required."
 
@@ -294,13 +331,19 @@ existing toolbar idiom (orange accents, dark-mode variants).
 ## Testing
 
 - `csv.ts`, `vpat.ts`, `wcag-criteria.ts`, `report-html.ts`: pure unit tests
-  (escaping edge cases, tag→criterion mapping incl. 2.2 gating, section
-  presence/omission, sparkline SVG with 0/1/12 points, disclaimer text).
+  (RFC-4180 escaping + formula-injection neutralization, HTML escaping with
+  `<script>`/quote payloads in node samples, unknown-impact rendering,
+  tag→criterion mapping incl. 2.2 gating, section presence/omission,
+  sparkline SVG with 0/1/12 points, disclaimer text).
 - `diffInstancesDetailed()`: existing `diffInstances` tests keep passing
-  (derivation unchanged); new tests for uncapped lists.
+  (derivation unchanged); new tests for uncapped lists incl. the
+  newly-accumulated `notRescannedUrls`.
 - Share mint route: mirror of the single-page route tests (rotate, TTL,
   non-complete 409). Share page: DB-backed render tests — fresh blob,
-  archived fallback, expired token 404, sharemode link suppression.
+  archived fallback, expired token 404, shareMode suppression (no grouped
+  fetch, no triage, no internal links, no drilldown CTAs). Expired
+  site-token cleanup covered next to the existing
+  `cleanExpiredAdaShareTokens` tests.
 - Middleware: `/ada-audit/site/share/x` public + the existing "not public"
   cases still green.
 - CSV/changes-CSV/VPAT routes: DB-backed tests (unique domain prefixes,
