@@ -24,6 +24,7 @@
 
 import { prisma } from '@/lib/db'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
+import { recoverStandaloneAudits } from '@/lib/ada-audit/standalone-recovery'
 import { cancelJobsByGroup, countActiveJobsByGroup, enqueueJob } from '@/lib/jobs/queue'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 import type { QueueStatusWithBatch } from './types'
@@ -362,6 +363,12 @@ export async function resetStaleAudits() {
     await recoverOrFailTransient(s, 'Stale check', 'Audit timed out (server may have restarted)')
   }
   if (stale.length > 0) void processNext()
+
+  // Standalone (siteAuditId = null) audits + their PDF rows — C1 remainder.
+  // Caught: a standalone-recovery failure must never block site-audit recovery.
+  await recoverStandaloneAudits().catch((err) => {
+    console.warn('[queue] standalone recovery failed:', (err as Error).message)
+  })
 }
 
 /**
@@ -383,6 +390,12 @@ export async function recoverQueue() {
   await prisma.siteAudit.updateMany({
     where: { status: 'pending' },
     data: { status: 'queued' },
+  })
+
+  // Standalone (siteAuditId = null) audits + their PDF rows — C1 remainder.
+  // Caught: a standalone-recovery failure must never block site-audit recovery.
+  await recoverStandaloneAudits().catch((err) => {
+    console.warn('[queue] standalone recovery failed:', (err as Error).message)
   })
 
   void processNext()

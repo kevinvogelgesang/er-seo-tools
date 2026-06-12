@@ -9,8 +9,15 @@ vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({
   finalizeSiteAudit: vi.fn(async () => undefined),
 }))
 
+// Mocked so the standalone sweep can't flip other test files' stray
+// standalone rows in the shared dev DB; the wiring tests assert call-through.
+vi.mock('@/lib/ada-audit/standalone-recovery', () => ({
+  recoverStandaloneAudits: vi.fn(async () => undefined),
+}))
+
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
+const { recoverStandaloneAudits } = await import('./standalone-recovery')
 const { processNext, recoverQueue, resetStaleAudits, failSiteAudit } = await import('./queue-manager')
 
 const PREFIX = 'qm3-test-'
@@ -205,5 +212,22 @@ describe('failSiteAudit', () => {
     expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.status).toBe('complete')
     expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('complete')
     expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('queued')
+  })
+})
+
+describe('standalone recovery wiring (C1)', () => {
+  it('resetStaleAudits and recoverQueue both run standalone recovery', async () => {
+    vi.mocked(recoverStandaloneAudits).mockClear()
+    await resetStaleAudits()
+    expect(recoverStandaloneAudits).toHaveBeenCalledTimes(1)
+    await recoverQueue()
+    expect(recoverStandaloneAudits).toHaveBeenCalledTimes(2)
+  })
+
+  it('a standalone-recovery failure never blocks site-audit recovery (both call sites)', async () => {
+    vi.mocked(recoverStandaloneAudits).mockRejectedValueOnce(new Error('boom'))
+    await expect(resetStaleAudits()).resolves.toBeUndefined()
+    vi.mocked(recoverStandaloneAudits).mockRejectedValueOnce(new Error('boom'))
+    await expect(recoverQueue()).resolves.toBeUndefined()
   })
 })
