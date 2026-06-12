@@ -143,6 +143,8 @@ model SiteAudit {
   startedAt        DateTime?
   completedAt      DateTime?
   pagesRedirected  Int       @default(0)
+  scheduleId    String?    // C2: non-null = created by a Schedule row (attribution + retention marker)
+  schedule      Schedule?  @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   checks           SiteAuditCheck[]
   crawlRun         CrawlRun?
 
@@ -151,6 +153,7 @@ model SiteAudit {
   @@index([clientId])
   @@index([batchId])
   @@index([requestedBy, createdAt])
+  @@index([scheduleId])
 }
 
 model PillarAnalysis {
@@ -430,7 +433,7 @@ model Schedule {
   name      String?   @unique // stable identity for code-owned system schedules; NULL for ad-hoc/client schedules
   jobType   String
   payload   String    @default("{}")
-  cadence   String    // 'every:<n>m|h|d' | 'daily@HH:MM' | 'weekly:<0-6>@HH:MM' (server-local)
+  cadence   String    // 'every:<n>m|h|d' | 'daily@HH:MM' | 'weekly:<0-6>@HH:MM' | 'monthly:<1-28>@HH:MM' (server-local)
   nextRunAt DateTime
   enabled   Boolean   @default(true)
   clientId  Int?
@@ -439,6 +442,7 @@ model Schedule {
   lastJobId String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  siteAudits SiteAudit[] // C2: audits this schedule created (SetNull on delete)
 
   @@index([enabled, nextRunAt])
   @@index([clientId])
