@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-12 · **Updated by:** C4 close-out (reporting layer)
+**Last updated:** 2026-06-12 · **Updated by:** C5 close-out (source-agnostic ingestion)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,27 +23,26 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **A1, A2, B1–B5, C1–C4 are DONE** (durable job queue #50–#54; findings
+- **A1, A2, B1–B5, C1–C5 are DONE** (durable job queue #50–#54; findings
   layer #55–#58; client dashboard #60; findings/action center #61; Quarter
   Grid → DB #62; grid split #63; grid closure #64; standalone ADA durable #65;
   scheduled scans #66; ADA run diffing + blob-archive activation #67;
-  **reporting layer #68, deployed + production-verified 2026-06-12**).
-- **C4 shipped:** (1) site-audit share links (`SiteAudit.shareToken`, public
-  `/ada-audit/site/share/[token]`, `shareMode` on `SiteAuditResultsView` with
-  fetch-spy-pinned zero cookie-gated calls, middleware prefix, expired-token
-  cleanup); (2) violations + changes CSV (`/api/site-audit/[id]/csv[?sheet=changes]`,
-  `diffInstancesDetailed()` uncapped classifier — capped `diffInstances`
-  derives from it byte-for-byte); (3) branded PDF report — pure escaped
-  template-string HTML → `page.setContent()`+`page.pdf()` on the browser pool
-  inside a durable `report-render` job (group/dedup `report:<id>`), files at
-  `REPORTS_DIR/<id>.pdf`, deleted on audit DELETE + scheduled-retention
-  snapshot sweep, status `ready` = stamp AND file; (4) VPAT 2.4 scaffold
-  (two-state: Does Not Support / Not Evaluated). All relational-first —
-  every export works on archived (pruned-blob) audits. `lib/report/` +
-  `SiteAuditExportBar` are the surfaces. Suite 2,351 green (235 files).
+  reporting layer #68; **source-agnostic ingestion #69, deployed +
+  production-verified 2026-06-12**).
+- **C5 shipped:** (1) `lib/findings/types.ts` is THE documented
+  source-agnostic ingestion contract (`FindingsBundle`; `source` includes
+  `'live-scan'`; adapter rules in the module header); (2)
+  `lib/findings/seo-findings-fallback.ts` rebuilds a degraded
+  `AggregatedResult` from findings rows (`archived: true`, safe shape,
+  unknowns omitted never 0) — served by results page, share page/API,
+  parse GET, format exports; (3) diff + claude/srt_/krt_ memo exports 409
+  `session_archived` (ONLY when `CrawlRun.archivePrunedAt` is stamped);
+  (4) history reads `CrawlRun.score` + `Session.totalUrls` (blob only
+  pre-A2); (5) **`PRUNE_ACTIVATED['seo-parser']` is ACTIVE** — both flags
+  are now true; first eligible prunes ~2026-09-08 (watch the cleanup tick
+  log for `[findings] pruned …`). Suite 2,370 green (243 files).
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
-  → proway.erstaging.site, `weekly:1@06:00`. Its latest audit now also has a
-  share token + a generated report PDF (the C4 prod-verify artifacts).
+  → proway.erstaging.site, `weekly:1@06:00`.
 - **⚠ PENDING HUMAN STEPS (Kevin) — unchanged from B5:**
   1. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
      (2026-06-11 19:51 UTC) 409-blocking the one-time analyst-browser
@@ -56,39 +55,52 @@ Continue the er-seo-tools improvement roadmap.
   supersede-trimming (decided in C3).
 - **Parked follow-ups (not next items):** standalone single-page audit
   CSV/VPAT/report; public share-page export buttons; expandable rows on the
-  public share view (needs a token-scoped violations API); logo image asset
-  for the PDF (text wordmark until provided); `SessionPage` model drop
-  (≥180 d after 2026-06-11); same-URL standalone-audit diffing; fleet
-  instance-level diffing; B2 v1 multi-domain limitation.
-- **First real ada-audit blob prune still ~2026-09-08** (C3) — watch the
-  cleanup tick log for `[findings] pruned … ada-audit` around then.
+  public ADA share view; logo image asset for the PDF; `SessionPage` model
+  drop (≥180 d after 2026-06-11); same-URL standalone-audit diffing; fleet
+  instance-level diffing; B2 v1 multi-domain limitation; findings-shared
+  run-selection source-awareness (matters once live-scan runs coexist with
+  sf-upload on the same domain — C6 presentation decision).
 
 ## Next item
 
-**C5 — SEO parser source-agnostic ingestion** (tracker Track C; roadmap doc
-`docs/superpowers/nyi/improvement-roadmaps/01-seo-parser.md` Phase 2,
-1.5–2 wks; needs A2 ✓). Key context for the brainstorm:
+**C6 — Live SEO phases** (tracker Track C; roadmap doc
+`docs/superpowers/nyi/2026-06-04-screaming-frog-retirement-roadmap.md` —
+**Phase 1 broken-link verifier first**, its decision gates apply; needs C5 ✓).
+Key context for the brainstorm:
 
-- Core idea: define ONE internal interface ("what a crawl knows about a
-  page") and make SF-CSV parsing one adapter producing it; the Live SEO scan
-  (`docs/superpowers/plans/2026-06-02-live-seo-on-ada.md` — still in active
-  plans/) becomes the second adapter. Aggregator, scorer, prioritizer,
-  brief/roadmap services consume the interface, never CSVs.
-- This is the keystone for Screaming Frog demotion (the SF-retirement
-  roadmap `docs/superpowers/nyi/2026-06-04-screaming-frog-retirement-roadmap.md`
-  rides on it) — the SF-vs-Live parallel-run comparison becomes a
-  first-class view.
-- **Scope-reconcile first as always:** A2 already shipped much of the
-  "findings model" the 01-doc's Phase 1 describes (the doc predates A2) —
-  check what `lib/findings/seo-mapper.ts` + the `CrawlRun` subtree already
-  give you. The real question is the INGESTION interface, not the storage.
-- **`PRUNE_ACTIVATED['seo-parser']` flips in C5** — the rule from A2: the
-  flag flips in the same PR as that tool's LAST blob reader. Find the
-  remaining `Session.result` blob readers (`grep -rn "session.result"` /
-  `JSON.parse(session.result)`) and flip them to findings-table reads in
-  this item, then activate the prune.
-- C6 (live SEO phases, broken-link verifier first) needs C5 to land in the
-  findings model — design the interface with that consumer in view.
+- **Scope-reconcile first as always.** The pre-A2 live-seo MVP plan was moved
+  to `docs/superpowers/nyi/plans/2026-06-02-live-seo-on-ada.md` (spec in
+  `nyi/specs/`): it predates the findings layer and proposes its own
+  `PageSeoSnapshot`/`SiteSeoResult` models + forked scorer. C6 must land in
+  the **findings model instead** — a live run is a `CrawlRun` with
+  `source: 'live-scan'`, pages are `CrawlPage` rows (they carry `statusCode`,
+  which the C5 fallback already turns into status buckets), issues are
+  `Finding` rows. The old plan's extraction code (`extractPageSeo`,
+  `parseSeoFromDocument`) is still the right harvest layer — keep it; replace
+  its persistence layer.
+- **The named C6 migration (decided in C5, ships in the C6 PR that
+  introduces the second run, BEFORE any live-scan dual-write):** remove
+  `@unique` from `CrawlRun.siteAuditId`, add `@@unique([siteAuditId, tool])`,
+  re-key `writer.ts` delete-and-recreate + every
+  `findUnique({ where: { siteAuditId } })` reader to `{ siteAuditId, tool }`.
+  The adapter-readiness test (`lib/findings/adapter-readiness.test.ts`) pins
+  the current clobber limitation — it flips when the migration lands.
+- **Phase 1 = out-of-band broken-link verifier** (SF-retirement doc §2):
+  deduped queue over harvested internal links + resources, run AFTER the
+  crawl, same-domain first, throttled, HEAD-with-GET-fallback, capped,
+  confidence-labeled. It unlocks the TOP roadmap weights
+  (`broken_pages:100/broken_internal_links:90/broken_images:85` in
+  `priority.service.ts`). Risks named in the doc: WAF/CDN bans from the VPS
+  IP, third-party false positives, SQLite growth — mitigation strategies are
+  listed there; honor them in the spec.
+- The verifier needs harvested links — decide in the brainstorm whether C6
+  starts with the live-extraction phase (rendered-DOM harvest inside the ADA
+  scan, findings-native) or whether Phase 1 can ride sitemap-discovered URLs
+  alone first. The A1 durable job queue is the natural home for verifier jobs
+  (new job type, per-type concurrency/backoff).
+- **Daily cadence gate (from C3):** C6's supersede-trimming design space —
+  if C6 adds retention that trims superseded within-window scheduled audits,
+  the `daily@` cadence can unlock in `/api/clients/[id]/schedules`.
 
 Full flow: brainstorm/spec → Codex → plan → Codex → implement.
 
@@ -99,21 +111,26 @@ Full flow: brainstorm/spec → Codex → plan → Codex → implement.
   form only, conditional logic via SQL `EXISTS`, manual `updatedAt =
   Date.now()` in raw statements (2026-06-10 production incident; CLAUDE.md
   "Do not").
-- **C4 invariants:** report-render jobs use group/dedup `report:<id>` —
-  NEVER `site-audit:<id>` (recovery treats that group as audit liveness).
-  Report data loads BEFORE `acquirePage()`; only `setContent`+`pdf` while
-  holding a page. Reports/CSV/VPAT are findings-run-only (pre-A2 → 409
-  `no_findings_run`). Every dynamic string in report HTML is escaped; CSV
-  fields are formula-injection-neutralized; Content-Disposition filenames go
-  through `safeFilenamePart`. Report `ready` requires stamp AND file.
-  `shareMode` must never issue a cookie-gated fetch (fetch-spy test pins it).
-  Report files are deleted by BOTH the DELETE route (cancel jobs first) and
-  scheduled retention's snapshot sweep — there is no report-file sweep.
+- **C5 invariants:** the `FindingsBundle` is the ingestion contract — adapters
+  follow the rules in the `lib/findings/types.ts` header (normalized URLs,
+  keys.ts dedup keys, 3-severity vocabulary, adapter-computed score, exactly
+  one origin FK). Degraded fallback objects are safe-shape (`archived: true`,
+  UI-assumed arrays present, unknowns OMITTED never 0); completeness is never
+  recomputed on archived data; status buckets only from `CrawlPage.statusCode`;
+  `session_archived` 409s require the `archivePrunedAt` stamp; degraded diffs
+  are refused (diff.service coalesces `?? 0` → false deltas); parity/rebuild
+  require the blob and say so explicitly.
+- **C4 invariants:** report-render jobs use group/dedup `report:<id>` — NEVER
+  `site-audit:<id>` (recovery treats that group as audit liveness). Report
+  data loads BEFORE `acquirePage()`. Reports/CSV/VPAT are findings-run-only
+  (pre-A2 → 409 `no_findings_run`). Every dynamic report string escaped; CSV
+  formula-injection-neutralized; `safeFilenamePart` on Content-Disposition.
+  Report `ready` requires stamp AND file. `shareMode` never issues a
+  cookie-gated fetch (fetch-spy-pinned).
 - **C3 invariants:** instance diffs never render across a wcagLevel mismatch;
   `AuditScorecard` strictly numeric — archived unknowns travel in
   `archivedCounts` and render "—", never 0; triage off on archived data;
-  blob-first, findings-fallback; retention child-blob updates use bounded
-  `siteAuditId IN` lists; artifact deletion is snapshot-based.
+  blob-first, findings-fallback; artifact deletion snapshot-based.
 - **C2 invariants:** scheduled path is ordinary downstream; handler resolves
   its Schedule via the Job row; config rot disables, DB errors retry; card
   scores read `CrawlRun.score`; scheduled retention only deletes
@@ -128,32 +145,33 @@ Full flow: brainstorm/spec → Codex → plan → Codex → implement.
   findings — **the findings hook stays LAST**.
 - **Findings-layer invariants:** dual-write best-effort/non-fatal; origin FKs
   `SetNull`; subtrees cascade from `CrawlRun` only; never backfill blobs;
-  read services scalar/normalized-table only; ada-audit pruning ACTIVE;
-  **seo-parser flip belongs to THIS item (C5)** — same PR as its last blob
-  reader.
+  read services scalar/normalized-table only; BOTH prune flags ACTIVE.
 - **Quarter-grid invariants (B3/B4/B5):** singleton plan facade; mere
   page-opens never write; push metadata written ONLY by the receipt route.
-- **Handoff-token / public route gotcha (bit us THREE times, verified again
-  in C4):** any new token-authed or public route MUST be added to
-  `middleware.ts` `isPublicPath` + a `middleware.test.ts` case.
+- **Handoff-token / public route gotcha (bit us THREE times):** any new
+  token-authed or public route MUST be added to `middleware.ts` `isPublicPath`
+  + a `middleware.test.ts` case.
 - Test gotchas: DB-backed test files use their own unique domain/id/name
   prefix AND scope cleanup to tracked ids — never broad `deleteMany` on
   shared tables; pre-clean prefixes in `beforeAll`; clean `CrawlRun` by
-  domain BEFORE origin rows; vitest jsdom has NO working localStorage;
-  `waitFor` can't see fake timers under `globals:false`; if an existing route
-  test file is mock-based, extend in its style or add a DB-backed sibling.
-- **Parallel-agent execution note (C4):** when dispatching parallel
-  implementation agents, a session usage limit can cut a whole wave mid-task;
-  finisher agents resumed cleanly from the partial tree + plan. Stagger waves
-  if budget looks tight; commit each agent's verified files as soon as it
-  reports.
+  domain BEFORE origin rows; vitest jsdom has NO working localStorage; the
+  default vitest env is node — component tests need
+  `// @vitest-environment jsdom` AND explicit `afterEach(cleanup)`
+  (globals:false ⇒ no auto-cleanup); `waitFor` can't see fake timers under
+  `globals:false`; if an existing route test file is mock-based, extend in
+  its style or add a DB-backed sibling.
+- **Parallel-agent execution note (C4):** a session usage limit can cut a
+  whole agent wave mid-task; stagger waves if budget looks tight; commit each
+  agent's verified files as soon as it reports. (C5 ran inline — fine for
+  sweep-shaped work over shared modules.)
 - **Local dev quirk:** prefix prisma CLI and vitest with
   `DATABASE_URL="file:./local-dev.db"`. `prisma migrate dev` is
   interactive-only — write migration SQL by hand, apply with
   `prisma migrate deploy`. Local dev runs auth-free (`npx next dev`;
   `next start` refuses to boot without prod secrets).
 - **Server has no `sqlite3` CLI** — node + Prisma from
-  `/home/seo/webapps/seo-tools`. Authenticated prod checks: source the
+  `/home/seo/webapps/seo-tools` (run .mjs scripts from INSIDE the app dir —
+  module resolution fails from /tmp). Authenticated prod checks: source the
   server `.env` in the SSH session, then **form-POST**
   `--data-urlencode "password=$APP_AUTH_PASSWORD"` to `/api/auth/login`
   (it reads formData, NOT JSON; 303 + cookie jar), and reuse the jar.
@@ -173,9 +191,11 @@ Full flow: brainstorm/spec → Codex → plan → Codex → implement.
 - 2026-06-12 — **C2 SHIPPED (PR #66), deployed, production-verified** — two
   live scheduled runs end-to-end; weekly canary schedule live on client 31.
 - 2026-06-12 — **C3 SHIPPED (PR #67), deployed, production-verified** — live
-  diff panel on the canary pair; `PRUNE_ACTIVATED['ada-audit']` ACTIVE (first
-  eligible prune ~2026-09-08). Daily cadence stays gated until C6.
+  diff panel on the canary pair; `PRUNE_ACTIVATED['ada-audit']` ACTIVE.
 - 2026-06-12 — **C4 SHIPPED (PR #68), deployed, production-verified** — share
-  links + CSV + branded PDF report (real 377 KB PDF rendered live) + VPAT
-  scaffold; all relational-first. Next: C5 (SEO parser source-agnostic
-  ingestion + seo-parser prune flip).
+  links + CSV + branded PDF report + VPAT scaffold; all relational-first.
+- 2026-06-12 — **C5 SHIPPED (PR #69), deployed, production-verified** —
+  ingestion contract formalized (`'live-scan'` reserved), findings fallback on
+  every SEO read surface, `PRUNE_ACTIVATED['seo-parser']` ACTIVE (both flags
+  now true; first prunes ~2026-09-08). Next: C6 (live SEO phases —
+  broken-link verifier first).
