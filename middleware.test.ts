@@ -44,6 +44,9 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/seo-parser/sess1/pages',
     '/api/clients',
     '/api/diff',
+    // C2 schedule CRUD is dashboard-triggered → not public (gated by omission)
+    '/api/clients/7/schedules',
+    '/api/clients/7/schedules/abc123',
   ])('keeps non-handoff route %s gated', (p) => {
     expect(isPublicPath(p)).toBe(false);
   });
