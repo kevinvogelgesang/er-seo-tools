@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   detectCommonIssues,
+  detectCommonIssuesFromViolationRows,
   extractTagsFromSelector,
   extractLandmarkFromTarget,
   tierForRatio,
@@ -11,6 +12,7 @@ import {
   COMMON_ISSUE_TIER_RECURRING,
   COMMON_ISSUE_MIN_PAGES,
   type CommonIssueInputRow,
+  type ViolationRowInput,
 } from './common-issues'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -557,5 +559,93 @@ describe('detectCommonIssues — canonical selector', () => {
     expect(out[0].tier).toBe('template')
     expect(out[0].canonicalSelector).toBeNull()
     expect(out[0].examplePageUrl).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// detectCommonIssuesFromViolationRows — C3 archived-summary fallback input
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('detectCommonIssuesFromViolationRows', () => {
+  function violationRow(pageIdx: number, overrides?: Partial<ViolationRowInput>): ViolationRowInput {
+    return {
+      pageId: `p-${pageIdx}`,
+      url: `https://c3fb.example/page-${pageIdx}`,
+      ruleId: 'color-contrast',
+      impact: 'serious',
+      help: 'Elements must have sufficient color contrast',
+      helpUrl: 'https://dequeuniversity.com/rules/axe/4.11/color-contrast',
+      nodes: JSON.stringify([{ html: '<a>x</a>', target: ['footer .x'] }]),
+      ...overrides,
+    }
+  }
+
+  it('detects a template-tier rule hitting 5 of 6 pages with exact counts', () => {
+    const rows = Array.from({ length: 5 }, (_, i) => violationRow(i))
+    const out = detectCommonIssuesFromViolationRows(rows, 6)
+    expect(out).toHaveLength(1)
+    expect(out[0].ruleId).toBe('color-contrast')
+    expect(out[0].affectedPagesCount).toBe(5)
+    expect(out[0].totalPagesScanned).toBe(6)
+    expect(out[0].tier).toBe('template')
+    expect(out[0].impact).toBe('serious')
+    expect(out[0].help).toBe('Elements must have sufficient color contrast')
+    // Violation has no description column — degraded to help by contract.
+    expect(out[0].description).toBe('Elements must have sufficient color contrast')
+    expect(out[0].helpUrl).toBe('https://dequeuniversity.com/rules/axe/4.11/color-contrast')
+  })
+
+  it('derives sharedAncestor from the capped nodes JSON when all pages agree', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => violationRow(i))
+    const out = detectCommonIssuesFromViolationRows(rows, 6)
+    expect(out).toHaveLength(1)
+    expect(out[0].sharedAncestor).toBe('footer')
+    expect(out[0].ancestorConfidence).toBe('all')
+    expect(out[0].canonicalSelector).toBe('footer .x')
+    expect(out[0].examplePageUrl).toBe('https://c3fb.example/page-0')
+  })
+
+  it('still counts rows with nodes: null — hints stay null', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => violationRow(i, { nodes: null }))
+    const out = detectCommonIssuesFromViolationRows(rows, 6)
+    expect(out).toHaveLength(1)
+    expect(out[0].affectedPagesCount).toBe(6)
+    expect(out[0].tier).toBe('template')
+    expect(out[0].sharedAncestor).toBeNull()
+    expect(out[0].ancestorConfidence).toBeNull()
+    expect(out[0].canonicalSelector).toBeNull()
+    expect(out[0].examplePageUrl).toBeNull()
+  })
+
+  it('still counts rows with malformed nodes JSON — hints stay best-effort null', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => violationRow(i, { nodes: '{not-json' }))
+    const out = detectCommonIssuesFromViolationRows(rows, 6)
+    expect(out).toHaveLength(1)
+    expect(out[0].affectedPagesCount).toBe(6)
+    expect(out[0].sharedAncestor).toBeNull()
+    expect(out[0].canonicalSelector).toBeNull()
+  })
+
+  it("skips rows with the 'unknown' impact sentinel", () => {
+    const rows = [
+      ...Array.from({ length: 6 }, (_, i) => violationRow(i, { ruleId: 'aria-unknown', impact: 'unknown' })),
+      ...Array.from({ length: 5 }, (_, i) => violationRow(i)),
+    ]
+    const out = detectCommonIssuesFromViolationRows(rows, 6)
+    expect(out.map((o) => o.ruleId)).toEqual(['color-contrast'])
+  })
+
+  it('returns [] when completePagesCount is below the floor', () => {
+    const rows = Array.from({ length: 4 }, (_, i) => violationRow(i))
+    expect(detectCommonIssuesFromViolationRows(rows, COMMON_ISSUE_MIN_PAGES - 1)).toEqual([])
+  })
+
+  it('counts a page once per rule even with multiple rows (defensive dedupe by pageId)', () => {
+    // 6 complete pages, the rule fires on 4 distinct pages: 4/6 ≈ 0.67 → common.
+    const rows = Array.from({ length: 4 }, (_, i) => violationRow(i))
+    const out = detectCommonIssuesFromViolationRows([...rows, ...rows], 6)
+    expect(out).toHaveLength(1)
+    expect(out[0].affectedPagesCount).toBe(4)
+    expect(out[0].tier).toBe('common')
   })
 })
