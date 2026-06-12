@@ -38,7 +38,7 @@ Create `lib/jobs/handlers/ada-audit.test.ts`. DB-backed (mirrors `site-audit-pag
 
 ```ts
 // lib/jobs/handlers/ada-audit.test.ts
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
 
 vi.mock('@/lib/ada-audit/runner', () => ({ runAxeAudit: vi.fn() }))
 vi.mock('@/lib/ada-audit/pdf-orchestrator', () => ({ dispatchPdfScans: vi.fn(async () => undefined) }))
@@ -54,6 +54,7 @@ const PREFIX = 'ada-handler-test-'
 
 async function clearTestState() {
   await prisma.adaAudit.deleteMany({ where: { url: { contains: PREFIX } } })
+  await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
 }
 
 async function seed(name: string, status = 'pending') {
@@ -80,6 +81,8 @@ describe('jobs/handlers/ada-audit', () => {
     vi.mocked(writeAdaSingleFindings).mockResolvedValue(undefined as never)
     await clearTestState()
   })
+
+  afterAll(clearTestState)
 
   it('rejects an invalid payload', async () => {
     await expect(runAdaAuditJob({ adaAuditId: 'x' })).rejects.toThrow('Invalid ada-audit job payload')
@@ -216,8 +219,19 @@ describe('jobs/handlers/ada-audit', () => {
     await failStandaloneAudit(child.id, 'nope')
     const row = await prisma.adaAudit.findUnique({ where: { id: child.id } })
     expect(row?.status).toBe('running')
-    await prisma.adaAudit.delete({ where: { id: child.id } })
-    await prisma.siteAudit.delete({ where: { id: site.id } })
+  })
+
+  it('the claim no-ops on a site-audit child (malformed/manual job)', async () => {
+    const site = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}claimsite`, status: 'running', wcagLevel: 'wcag21aa' },
+    })
+    const child = await prisma.adaAudit.create({
+      data: { url: `https://${PREFIX}claimchild.example/p`, status: 'pending', siteAuditId: site.id, wcagLevel: 'wcag21aa' },
+    })
+    await runAdaAuditJob({ adaAuditId: child.id, url: child.url, wcagLevel: 'wcag21aa' })
+    expect(runAxeAudit).not.toHaveBeenCalled()
+    const row = await prisma.adaAudit.findUnique({ where: { id: child.id } })
+    expect(row?.status).toBe('pending')
   })
 })
 ```
@@ -294,8 +308,10 @@ export async function runAdaAuditJob(payload: unknown): Promise<void> {
   const job = assertAdaAuditPayload(payload)
 
   // Claim: pending (normal) or running (crash re-run). Count 0 → settled.
+  // siteAuditId: null — a malformed/manual ada-audit job pointing at a
+  // site-audit child must never bypass the parent counters/finalizer.
   const claimed = await prisma.adaAudit.updateMany({
-    where: { id: job.adaAuditId, status: { in: ['pending', 'running'] } },
+    where: { id: job.adaAuditId, siteAuditId: null, status: { in: ['pending', 'running'] } },
     data: { status: 'running', startedAt: new Date(), progress: 0, progressMessage: 'Starting…' },
   })
   if (claimed.count !== 1) return
@@ -399,7 +415,7 @@ export function registerAdaAuditHandler(): void {
 - [ ] **Step 1.4: Run to verify pass**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/ada-audit.test.ts`
-Expected: PASS (11 tests).
+Expected: PASS (12 tests).
 
 - [ ] **Step 1.5: Commit**
 
@@ -507,10 +523,15 @@ vi.mock('@/lib/jobs/queue', () => ({
 }))
 
 const failStandaloneAuditMock = vi.fn()
-vi.mock('@/lib/jobs/handlers/ada-audit', () => ({
-  ADA_AUDIT_JOB_TYPE: 'ada-audit',
-  failStandaloneAudit: (...a: unknown[]) => failStandaloneAuditMock(...a),
-}))
+// Partial mock: keep the real ADA_AUDIT_JOB_TYPE export so the test can't
+// drift from the actual job-type constant (Codex plan fix #4).
+vi.mock('@/lib/jobs/handlers/ada-audit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/jobs/handlers/ada-audit')>()
+  return {
+    ...actual,
+    failStandaloneAudit: (...a: unknown[]) => failStandaloneAuditMock(...a),
+  }
+})
 
 import { POST } from './route'
 import { NextRequest } from 'next/server'
@@ -652,6 +673,14 @@ import { ADA_AUDIT_JOB_TYPE, failStandaloneAudit } from '@/lib/jobs/handlers/ada
 
 The creation block above the enqueue (URL normalization/validation, archived-excluded client match, `wcagLevel` whitelist, `requestedBy` cookie) stays byte-for-byte as it is today.
 
+4. **Dead-import check (Codex plan fix #5):** after the rewire, verify the old fire-and-forget path is unreachable:
+
+```bash
+grep -n "runAxeAudit\|writeAdaSingleFindings\|runAuditInBackground" app/api/ada-audit/route.ts
+```
+
+Expected: no matches.
+
 - [ ] **Step 3.4: Run to verify pass**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/ada-audit/route.test.ts`
@@ -678,7 +707,7 @@ Create `lib/ada-audit/standalone-recovery.test.ts`. DB-backed with REAL Job rows
 
 ```ts
 // lib/ada-audit/standalone-recovery.test.ts
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
 
 const countMock = vi.fn()
 vi.mock('@/lib/jobs/queue', async (importOriginal) => {
@@ -719,6 +748,8 @@ describe('ada-audit/standalone-recovery', () => {
     countMock.mockImplementation(realQueue.countActiveJobsByGroup)
     await clearTestState()
   })
+
+  afterAll(clearTestState)
 
   it('flips an old pending standalone audit with no jobs in its group', async () => {
     const a = await seedAudit('dead', 'pending', OLD)
@@ -979,9 +1010,11 @@ and add a test at the end of the describe block:
     expect(recoverStandaloneAudits).toHaveBeenCalledTimes(2)
   })
 
-  it('a standalone-recovery failure never blocks site-audit recovery', async () => {
+  it('a standalone-recovery failure never blocks site-audit recovery (both call sites)', async () => {
     vi.mocked(recoverStandaloneAudits).mockRejectedValueOnce(new Error('boom'))
     await expect(resetStaleAudits()).resolves.toBeUndefined()
+    vi.mocked(recoverStandaloneAudits).mockRejectedValueOnce(new Error('boom'))
+    await expect(recoverQueue()).resolves.toBeUndefined()
   })
 ```
 
@@ -994,10 +1027,13 @@ Expected: the two new tests FAIL (`recoverStandaloneAudits` not called); existin
 
 - [ ] **Step 5.3: Wire it in**
 
-In `lib/ada-audit/queue-manager.ts` add the import:
+In `lib/ada-audit/queue-manager.ts` add the import — **alias form, so it
+matches the test's `vi.mock('@/lib/ada-audit/standalone-recovery', …)`
+specifier** (Codex plan fix #1, same style as the `site-audit-finalizer`
+mock):
 
 ```ts
-import { recoverStandaloneAudits } from './standalone-recovery'
+import { recoverStandaloneAudits } from '@/lib/ada-audit/standalone-recovery'
 ```
 
 At the end of `resetStaleAudits()` (after the `if (stale.length > 0) void processNext()` line) and at the end of `recoverQueue()` (before the final `void processNext()`), add the same guarded call:
