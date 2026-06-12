@@ -124,18 +124,24 @@ In `mapAdaChildren`: `const axe = child.status === 'complete' ? parseAxe(child.r
 In `lib/findings/seo-mapper.ts`, every `CrawlPageInput` literal gains `passCount: null, incompleteCount: null` (grep `adaAuditId: null` to find them all).
 
 - [ ] **Step 1.5:** Run mapper + seo-mapper + writer tests — Expected: PASS.
-- [ ] **Step 1.6: Parity null-skip.** In `lib/findings/parity.ts`, in **both** ADA per-page field-comparison loops (site + single), after the existing field checks add:
+- [ ] **Step 1.6: Parity compares counts unconditionally** (Codex plan-fix #3 — a
+null-skip would mask fresh writer regressions). Parity can only run when the
+origin blob exists, and a rebuild always populates the counts — so a stored
+null is a legitimate stale-row signal, never noise. In `lib/findings/parity.ts`,
+add `passCount`/`incompleteCount` to **both** ADA per-page field-comparison
+loops (site + single) exactly like the existing fields:
 
 ```ts
-// passCount/incompleteCount: stored null = pre-C3 row — skip (Codex spec-fix #5)
 for (const field of ['passCount', 'incompleteCount'] as const) {
-  if (stored[field] !== null && stored[field] !== p[field]) {
-    diffs.push(`CrawlPage ${p.url} ${field}: tables=${stored[field]} blob=${p[field]}`)
+  if (stored[field] !== p[field]) {
+    diffs.push(`CrawlPage ${p.url} ${field}: tables=${stored[field]} blob=${p[field]} (null = pre-C3 row; rebuild to populate)`)
   }
 }
 ```
 
-Add a parity test: rebuild a seeded audit (counts present both sides → OK), then `updateMany` the stored pages to `passCount: null` and assert parity still OK (null-skip), then set a stored `passCount: 999` and assert a diff is reported.
+Add a parity test: rebuild a seeded audit (counts present both sides → PARITY
+OK), then `updateMany` the stored pages to `passCount: null` and assert a diff
+IS reported (stale pre-C3 shape), then `passCount: 999` → diff reported.
 
 - [ ] **Step 1.7:** Run `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/` — Expected: all PASS. Commit: `feat(c3): CrawlPage.passCount/incompleteCount — schema, mappers, parity null-skip`
 
@@ -346,6 +352,8 @@ export function diffInstances(
 // 2. wcagLevel mismatch on getSiteAuditInstanceDiff → previous skipped entirely
 //    (level filter is in the candidate WHERE) → null when no same-level earlier run
 // 3. getRunPairInstanceDiff with mismatched levels → null (Codex spec-fix #1)
+// 3b. getRunPairInstanceDiff with a tool='seo-parser' run on either side → null
+//     (Codex plan-fix #6)
 // 4. no CrawlRun for the siteAuditId (pre-A2) → null
 // 5. id-desc tie-break: two candidates with identical completedAt → higher id wins
 // 6. classification round-trip: a finding present in prev only, url present in
@@ -405,12 +413,15 @@ export async function getRunPairInstanceDiff(
   currentRunId: string,
   previousRunId: string,
 ): Promise<InstanceDiff | null> {
-  const select = { id: true, wcagLevel: true } as const
+  const select = { id: true, tool: true, wcagLevel: true } as const
   const [cur, prev] = await Promise.all([
     prisma.crawlRun.findUnique({ where: { id: currentRunId }, select }),
     prisma.crawlRun.findUnique({ where: { id: previousRunId }, select }),
   ])
-  if (!cur || !prev || cur.wcagLevel !== prev.wcagLevel) return null
+  // Defensive tool check (Codex plan-fix #6): a future caller must not be
+  // able to diff an SEO run against an ADA run with compatible-looking ids.
+  if (!cur || !prev || cur.tool !== 'ada-audit' || prev.tool !== 'ada-audit') return null
+  if (cur.wcagLevel !== prev.wcagLevel) return null
   return loadAndDiff(cur.id, prev.id)
 }
 
@@ -881,7 +892,17 @@ Update the file's header comment: child blobs ARE now pruned for ada-audit (this
 
 **Files:**
 - Modify: `lib/ada-audit/recents-query.ts`, `app/api/site-audit/route.ts`, `app/api/ada-audit/route.ts`, `app/api/audit-batches/[id]/route.ts`, `app/api/clients/audit-summary/route.ts`, `app/ada-audit/[id]/page.tsx` (`?from=` block)
-- Test: extend each surface's existing test file (route tests exist for all five; the `?from=` flip is covered by a DB-backed test on the prisma query shape via the page's extracted helper if one exists, else by the route test pattern used in `app/api/ada-audit` tests)
+- Test: extend each surface's existing test file where it is already DB-backed.
+  **Exception (Codex plan-fix #5):** the existing `/api/ada-audit` route tests
+  are POST-focused with mocked prisma shapes that don't cover
+  `findMany`/`groupBy`/`crawlPage` — do NOT bolt the GET fallback tests onto
+  that mock file. Create a new DB-backed `app/api/ada-audit/route.list.test.ts`
+  (house rules: unique domain prefix `c3list-*.example`, tracked-id cleanup,
+  CrawlRun cleaned by domain before origin rows) that seeds real rows and
+  calls the route handler directly. Same judgment per surface: if the
+  existing file mocks prisma, add a DB-backed sibling file instead of
+  expanding the mock. The `?from=` flip is covered by a DB-backed test on the
+  page's prisma query path following the same pattern.
 
 Pattern everywhere: **prefer `crawlRun.score` (identical formula, mapper-computed), blob parse only as pre-A2 fallback.** The list `summary` field passes through unchanged (`null` when pruned — every list UI already tolerates null summaries on non-complete rows).
 
@@ -1086,6 +1107,18 @@ and the score derivation becomes:
 {archivedCounts ? (archivedCounts.incomplete ?? '—') : scorecard.incomplete}
 ```
 
+**Visibility conditions too (Codex plan-fix #1):** the component currently
+renders the incomplete row only when `scorecard.incomplete > 0` — with
+archived counts that condition must become:
+
+```tsx
+{(archivedCounts ? archivedCounts.incomplete === null || archivedCounts.incomplete > 0 : scorecard.incomplete > 0) && ( ... )}
+```
+
+(unknown → row renders with "—"; apply the same treatment to any
+`scorecard.passed > 0` visibility gate if present). Pin with a component test:
+archived + `incomplete: null` → the row is visible showing "—".
+
 `components/ada-audit/AuditResultsView.tsx`:
 
 ```tsx
@@ -1094,7 +1127,23 @@ and the score derivation becomes:
   // the truth there; empty arrays must never render as a literal 0 (Codex #3).
 ```
 
-pass `archivedCounts={results.archived ? results.archivedCounts ?? { passed: null, incomplete: null } : undefined}` to `AuditScorecardComponent`; gate the domElementCount warning with `!results.archived &&`; and render above `<ComplianceBanner />`:
+pass `archivedCounts={results.archived ? results.archivedCounts ?? { passed: null, incomplete: null } : undefined}` to `AuditScorecardComponent`; gate the domElementCount warning with `!results.archived &&`.
+
+**Disable triage on archived results (Codex plan-fix #2):** check keys are
+content hashes of full node HTML — capped 5×300 reconstructed nodes can't
+reproduce them, so triage writes against archived data would be unreliable.
+Hide the triage toggle and never pass a checks context when archived:
+
+```tsx
+{auditId && !readOnly && !results.archived && ( ...triage button + ReScan + Share block... )}
+...
+checksContext={displayChecks && !results.archived ? { triageMode: displayChecks, readOnly, checks } : undefined}
+```
+
+(also gate the `useChecks` `enabled` flag with `&& !results.archived`). Pin
+with a component test: archived results → no triage toggle rendered.
+
+Render above `<ComplianceBanner />`:
 
 ```tsx
       {results.archived && (
@@ -1256,15 +1305,25 @@ render between the breadcrumb's `<SiteAuditResultsView …/>` and above it:
 - [ ] **Step 10.2: Implement service.** `ClientScheduleRow['lastRun']` gains `newCount: number | null; resolvedCount: number | null`. In `getClientSchedules`, the audits select adds `crawlRun: { select: { id: true, score: true } }`. After `prevScore` is computed:
 
 ```ts
-    const prevAudit = mine.slice(1).find((a) => a.status === 'complete' && a.crawlRun !== null) ?? null
+    // ONE previous audit drives BOTH the score Δ and the diff chips (Codex
+    // plan-fix #4) — the pairs must never diverge.
+    const prevAudit = mine.slice(1).find(
+      (a) => a.status === 'complete' && typeof a.crawlRun?.score === 'number',
+    ) ?? null
+    const prevScore = prevAudit?.crawlRun?.score ?? null
     let newCount: number | null = null
     let resolvedCount: number | null = null
     if (last?.status === 'complete' && last.crawlRun && prevAudit?.crawlRun) {
-      // Same pair the score Δ uses; null on wcagLevel mismatch (spec § 4.2).
+      // Same pair as the score Δ; null on wcagLevel mismatch (spec § 4.2).
       const diff = await getRunPairInstanceDiff(last.crawlRun.id, prevAudit.crawlRun.id)
       if (diff) { newCount = diff.newCount; resolvedCount = diff.resolvedCount }
     }
 ```
+
+(this REPLACES the existing `prevScore` derivation — delete the old
+`mine.slice(1).find(...)` for `prevScore`; add a test asserting the score Δ
+and the chips come from the same previous audit when an intermediate
+completed audit lacks a score.)
 
 (The `schedules.map` callback becomes async — switch to `await Promise.all(schedules.map(async (s) => { … }))`.) `lastRun` gains `newCount, resolvedCount`.
 
@@ -1279,7 +1338,7 @@ render between the breadcrumb's `<SiteAuditResultsView …/>` and above it:
                   )}
 ```
 
-(and a `title="new / resolved violations vs the previous scheduled run"` on a wrapping span). Update the card's local `ScheduleRow` type to match the service shape.
+(and a `title="new / resolved violations vs the previous scheduled run"` on a wrapping span). Update the card's local `ScheduleRow` type to match the service shape, **and update every existing card test fixture** to carry the widened `lastRun` (`newCount`/`resolvedCount`, null is fine) so the suite doesn't fail on a structural type mismatch (Codex plan-fix #7).
 
 - [ ] **Step 10.4:** Run both test files — PASS. Commit: `feat(c3): scheduled-scans card — instance new/resolved chips`
 
