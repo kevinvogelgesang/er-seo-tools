@@ -135,6 +135,12 @@ describe('buildCsv', () => {
 // Pure RFC-4180 CSV builder with Excel formula-injection neutralization
 // (page URLs and axe help text are externally controlled — Codex spec fix #2).
 
+/** Header-safe filename fragment: DB strings (domain) must never carry
+ *  quotes/CRLF/path chars into Content-Disposition (Codex plan fix #1). */
+export function safeFilenamePart(s: string): string {
+  return s.replace(/[^A-Za-z0-9._-]/g, '_')
+}
+
 export function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'number') return String(value)
@@ -255,7 +261,12 @@ export function diffInstances(
 }
 ```
 
-Write the accumulation loop out in full (move the body of the old `diffInstances` into `diffInstancesDetailed`, adding `notRescannedUrls` to `RuleAcc` and the push above). **Every existing `diffInstances` test must still pass unchanged** — the derivation preserves the capped output exactly (a not-rescanned-only rule has newTotal 0 and resolvedTotal 0 → filtered; sort keys identical).
+Write the accumulation loop out in full (move the body of the old `diffInstances` into `diffInstancesDetailed`, adding `notRescannedUrls` to `RuleAcc` and the push above). **The capped `diffInstances` output must be byte-for-byte equivalent for every existing test (Codex plan fix #5)** — verify each invariant explicitly:
+  - not-rescanned-only rules are EXCLUDED from capped `rules` (newTotal 0, resolvedTotal 0 → filtered);
+  - current-run severity still wins when the rule exists in the current run (`fromCurrent` upgrade in `acc()` unchanged);
+  - previous-run severity is used for resolved-only rules;
+  - capped sort order unchanged: SEVERITY_RANK, then newTotal desc, then type — and because the not-rescanned push calls `acc()` with `fromCurrent=false`, it must NOT overwrite an existing rule's severity;
+  - `unchangedTotal` accumulation unchanged.
 
 - [ ] **Step 4: Run the whole findings-shared test file** → PASS (old + new).
 
@@ -310,7 +321,7 @@ export async function getSiteAuditInstanceDiffDetailed(
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { buildCsv } from '@/lib/report/csv'
+import { buildCsv, safeFilenamePart } from '@/lib/report/csv'
 import { getSiteAuditInstanceDiffDetailed } from '@/lib/services/site-audit-diff'
 
 export const dynamic = 'force-dynamic'
@@ -355,7 +366,7 @@ export async function GET(
     }
     return csvResponse(
       buildCsv(['change', 'rule_id', 'severity', 'page_url'], rows),
-      `ada-changes-${audit.domain}-${stamp}.csv`,
+      `ada-changes-${safeFilenamePart(audit.domain)}-${stamp}.csv`,
     )
   }
 
@@ -375,12 +386,12 @@ export async function GET(
       rank(a.impact) - rank(b.impact) || a.ruleId.localeCompare(b.ruleId) || a.page.url.localeCompare(b.page.url))
     .map((v) => {
       let tags: string[] = []
-      try { const parsed = JSON.parse(v.wcagTags); if (Array.isArray(parsed)) tags = parsed } catch { /* ignore */ }
+      try { const parsed = JSON.parse(v.wcagTags); if (Array.isArray(parsed)) tags = parsed.filter((x): x is string => typeof x === 'string') } catch { /* ignore */ }
       return [v.page.url, v.ruleId, v.impact, v.finding.severity, tags.join('|'), v.help, v.helpUrl, v.nodeCount]
     })
   return csvResponse(
     buildCsv(['page_url', 'rule_id', 'impact', 'severity', 'wcag_tags', 'help', 'help_url', 'node_count'], rows),
-    `ada-violations-${audit.domain}-${stamp}.csv`,
+    `ada-violations-${safeFilenamePart(audit.domain)}-${stamp}.csv`,
   )
 }
 ```
@@ -601,6 +612,7 @@ ${table('AA')}
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { buildVpatScaffold, type VpatViolationRow } from '@/lib/report/vpat'
+import { safeFilenamePart } from '@/lib/report/csv'
 
 export const dynamic = 'force-dynamic'
 
@@ -624,7 +636,7 @@ export async function GET(
   })
   const rows: VpatViolationRow[] = violations.map((v) => {
     let tags: string[] = []
-    try { const parsed = JSON.parse(v.wcagTags); if (Array.isArray(parsed)) tags = parsed } catch { /* ignore */ }
+    try { const parsed = JSON.parse(v.wcagTags); if (Array.isArray(parsed)) tags = parsed.filter((x): x is string => typeof x === 'string') } catch { /* ignore */ }
     return { ruleId: v.ruleId, impact: v.impact, wcagTags: tags, helpUrl: v.helpUrl, pageUrl: v.page.url }
   })
   const stamp = (audit.completedAt ?? audit.createdAt).toISOString()
@@ -634,7 +646,7 @@ export async function GET(
   return new Response(md, {
     headers: {
       'Content-Type': 'text/markdown; charset=utf-8',
-      'Content-Disposition': `attachment; filename="vpat-scaffold-${audit.domain}-${stamp.slice(0, 10)}.md"`,
+      'Content-Disposition': `attachment; filename="vpat-scaffold-${safeFilenamePart(audit.domain)}-${stamp.slice(0, 10)}.md"`,
     },
   })
 }
@@ -824,11 +836,11 @@ const WORST_PAGES = 50
 
 Loader steps (write them out in the implementation, in this order — all awaits happen here, never in the job's page-held section):
 
-1. `siteAudit.findUnique` incl. `client { name }`, `pdfAudits { status, issues }`. Null or `status !== 'complete'` → return null is WRONG for non-complete — the handler distinguishes; loader returns null ONLY for missing audit or missing data (pre-A2 + no blob). Keep loader contract: null = "cannot build report data"; the handler checks status itself before calling.
-2. Summary: parse `audit.summary` (try-catch) else `await buildSummaryFromFindings(id)`; both null → return null.
-3. `crawlRun.findUnique({ where: { siteAuditId } })` select `id, score, archivePrunedAt`. Score = `crawlRun?.score ?? computeScoreFromCounts(summary.aggregate, audit.wcagLevel).score`; `compliant` from `computeScoreFromCounts(...).compliant`. `archived = summary.archived === true`.
-4. Top issues (relational, requires crawlRun; when crawlRun is null — blob-only pre-A2 — return null per spec: report requires the findings run): `violation.findMany({ where: { runId }, select: { ruleId, impact, help, helpUrl, nodes, page: { select: { url: true, adaAuditId: true } } } })`, aggregate in JS per ruleId: pageCount = distinct urls, impact = first row's, sampleUrls = first 5 distinct sorted, nodeSamples = first 2 parsed `nodes` html strings (try-catch JSON, shape `[{ html: string, ... }]`). Order rules by `IMPACT_RANK[impact] ?? 4` then pageCount desc; take 10.
-5. Screenshots (skip entirely when `archived`): iterate topIssues in order; for each, take its first violation row's `page.adaAuditId`; load that child `adaAudit.findUnique` select `result` (cache parsed blobs per adaAuditId in a Map); parse `StoredAxeResults` (try-catch), find `violations` entry with matching rule id, first node with `screenshotPath`; `path.join(SCREENSHOTS_DIR, screenshotPath)` — **only if the resolved path stays inside SCREENSHOTS_DIR** (defensive: `path.normalize` + `startsWith`); `fs.stat` ≤ MAX_SCREENSHOT_BYTES, read, `data:image/png;base64,...`. Stop after 6 successes; every failure (missing file, parse error) silently skips.
+1. **Contract (Codex plan fix #3): reports are findings-run-only.** `loadSiteReportData` returns null iff the audit is missing, the CrawlRun is missing (pre-A2), or no summary can be built — and the POST route 409s `no_findings_run` up front (Task 10), so a queued job that no-ops here is a crash-window backstop, not the user-visible path. The handler checks `status === 'complete'` itself before calling.
+2. `siteAudit.findUnique` incl. `client { name }`, `pdfAudits { status, issues }`; null → return null.
+3. `crawlRun.findUnique({ where: { siteAuditId } })` select `id, score`; **null → return null**. Summary: parse `audit.summary` (try-catch) else `await buildSummaryFromFindings(id)`; both null → return null. Score = `crawlRun.score ?? computeScoreFromCounts(summary.aggregate, audit.wcagLevel).score`; `compliant` from `computeScoreFromCounts(...).compliant`. `archived = summary.archived === true`.
+4. Top issues (relational): `violation.findMany({ where: { runId }, select: { ruleId, impact, help, helpUrl, nodes, page: { select: { url: true, adaAuditId: true } } } })`, aggregate in JS per ruleId: pageCount = distinct urls, impact = first row's, sampleUrls = first 5 distinct sorted, nodeSamples = first 2 parsed `nodes` html strings (try-catch JSON, shape `[{ html: string, ... }]`). Order rules by `IMPACT_RANK[impact] ?? 4` then pageCount desc; take 10.
+5. Screenshots (skip entirely when `archived`): iterate topIssues in order; for each, take its first violation row's `page.adaAuditId`; load that child `adaAudit.findUnique` select `result` (cache parsed blobs per adaAuditId in a Map); parse `StoredAxeResults` (try-catch), find `violations` entry with matching rule id, first node with `screenshotPath`. **`screenshotPath` is a bare filename** (`screenshot-helpers.ts` sets `node.screenshotPath = filename`; files live at `SCREENSHOTS_DIR/<adaAuditId>/<filename>` — Codex plan fix #2): resolve `path.resolve(SCREENSHOTS_DIR, adaAuditId, screenshotPath)` and use it **only if it starts with `path.resolve(SCREENSHOTS_DIR, adaAuditId) + path.sep`** (traversal guard); `fs.stat` ≤ MAX_SCREENSHOT_BYTES, read, `data:image/png;base64,...`. Stop after 6 successes; every failure (missing file, parse error) silently skips.
 6. Trend: `crawlRun.findMany({ where: { tool: 'ada-audit', source: 'site-audit', domain: audit.domain, wcagLevel: audit.wcagLevel, score: { not: null }, completedAt: { not: null } }, select: { score, completedAt, createdAt } })` → points `{ date: (completedAt ?? createdAt).toISOString(), score }` → `buildSeries(points).points`.
 7. Diff: `await getSiteAuditInstanceDiff(siteAuditId)` → `diff`/`previousCompletedAt`.
 8. Worst pages from `summary.pages` (already sorted by total desc): filter `scorecard.total > 0`, map to `ReportWorstPage`, cap 50; `issuePagesTotal` = unfiltered count of pages with total > 0.
@@ -978,6 +990,7 @@ import { prisma } from '@/lib/db'
 import { enqueueJob } from '@/lib/jobs/queue'
 import { REPORT_RENDER_JOB_TYPE } from '@/lib/jobs/handlers/report-render'
 import { reportPath } from '@/lib/report/report-file'
+import { safeFilenamePart } from '@/lib/report/csv'
 
 export const dynamic = 'force-dynamic'
 
@@ -989,6 +1002,10 @@ export async function POST(
   const audit = await prisma.siteAudit.findUnique({ where: { id }, select: { status: true } })
   if (!audit) return NextResponse.json({ error: 'Site audit not found' }, { status: 404 })
   if (audit.status !== 'complete') return NextResponse.json({ error: 'not_complete' }, { status: 409 })
+  // Reports are findings-run-only (loader contract) — reject pre-A2 audits
+  // here instead of queueing a job that would no-op (Codex plan fix #3).
+  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId: id }, select: { id: true } })
+  if (!run) return NextResponse.json({ error: 'no_findings_run' }, { status: 409 })
   try {
     await enqueueJob({
       type: REPORT_RENDER_JOB_TYPE,
@@ -1023,7 +1040,7 @@ export async function GET(
   return new Response(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="ada-report-${audit.domain}-${stamp}.pdf"`,
+      'Content-Disposition': `attachment; filename="ada-report-${safeFilenamePart(audit.domain)}-${stamp}.pdf"`,
     },
   })
 }
@@ -1170,7 +1187,7 @@ export default async function SharedSiteAuditPage({ params }: { params: Promise<
 
 Check the single-page share page (`app/ada-audit/share/[token]/page.tsx`) for `metadata`/robots handling and layout chrome and mirror it exactly (e.g. if it exports `metadata = { robots: { index: false } }`, do the same).
 
-- [ ] **Step 6: Share-page tests.** DB-backed render tests are awkward for server components — follow the C3 pattern: test the data-visible behavior via a component test for `SiteAuditResultsView` with `shareMode` (no triage button, no view toggle, rows not clickable — assert no `cursor-pointer` on rows, no fetch fired on row click) in `SiteAuditResultsView.test.tsx`, plus middleware tests (Step 3), plus mint-route tests (Step 1). 
+- [ ] **Step 6: Share-page tests.** DB-backed render tests are awkward for server components — follow the C3 pattern: test the data-visible behavior via a component test for `SiteAuditResultsView` with `shareMode` (no triage button, no view toggle, rows not clickable) in `SiteAuditResultsView.test.tsx`, plus middleware tests (Step 3), plus mint-route tests (Step 1). **Zero-fetch assertion (Codex plan fix #6):** stub `global.fetch` with `vi.fn()`, render in `shareMode`, click a page row and every toolbar control, and assert fetch was NEVER called with `/api/ada-audit/` or `/checks` URLs (strongest proof the public page issues no cookie-gated calls). 
 
 - [ ] **Step 7: `ShareAuditButton` endpoint prop:**
 
@@ -1195,11 +1212,10 @@ Keep the default exactly as today so existing call sites don't change.
 - Modify: `app/api/site-audit/[id]/route.ts` (DELETE) + its test
 - Modify: `lib/ada-audit/scheduled-retention.ts` + its test
 
-- [ ] **Step 1: DELETE route.** In the existing DELETE handler, after the `prisma.siteAudit.delete` and alongside the artifact cleanup, add (imports: `cancelJobsByGroup` from `@/lib/jobs/queue`, `deleteReportFile` from `@/lib/report/report-file`):
+- [ ] **Step 1: DELETE route.** In the existing DELETE handler (imports: `cancelJobsByGroup` from `@/lib/jobs/queue`, `deleteReportFile` from `@/lib/report/report-file`): call `cancelJobsByGroup(\`report:${id}\`)` **BEFORE** `prisma.siteAudit.delete` (Codex plan fix #7 — cancel queued renders first; a RUNNING render is handled by the handler's `stamped.count === 0` cleanup), then after the delete add:
 
 ```ts
   const reportCleanup = await Promise.allSettled([
-    cancelJobsByGroup(`report:${id}`), // in-flight render must not resurrect the file
     deleteReportFile(id),
   ])
   for (const result of reportCleanup) {
@@ -1265,8 +1281,19 @@ Behavior:
       <SiteAuditExportBar
         siteAuditId={audit.id}
         hasPrevious={instanceDiff !== null}
-        initialReportGeneratedAt={audit.reportGeneratedAt?.toISOString() ?? null}
+        initialReportGeneratedAt={initialReportGeneratedAt}
       />
+```
+
+where the page computes (Codex plan fix #4 — never show "ready" from the stamp alone):
+
+```ts
+import { reportFileExists } from '@/lib/report/report-file'
+// in the complete branch:
+const initialReportGeneratedAt =
+  audit.reportGeneratedAt && (await reportFileExists(audit.id))
+    ? audit.reportGeneratedAt.toISOString()
+    : null
 ```
 
 - [ ] **Step 3: Run component tests** → PASS. **Commit** — `feat(c4): SiteAuditExportBar (share, CSVs, PDF report, VPAT) on the site results page`

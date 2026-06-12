@@ -195,8 +195,11 @@ Alternatives considered:
   read+base64-embed up to 6 total, capped at 300 KB each; missing files
   (24-h sweep) are silently skipped. Archived/pruned audits get **no
   screenshots by contract** (child blobs are nulled and artifacts deleted).
-  Returns `null` when neither blob nor CrawlRun exists (pre-A2) — job
-  settles as a domain error.
+  **Reports are findings-run-only** (Codex plan fix): the loader returns
+  `null` when the CrawlRun is missing (pre-A2) or no summary can be built,
+  and the POST route rejects pre-A2 audits with 409 `no_findings_run` up
+  front — the job's null-handling is a crash-window backstop, not the
+  user-visible path.
 
 **Durable `report-render` job** (`lib/jobs/handlers/report-render.ts`):
 type `report-render`, concurrency 1, maxAttempts 2, timeout 120 s, payload
@@ -227,8 +230,9 @@ regeneration overwrites.
 
 **Routes (cookie-gated):**
 
-- `POST /api/site-audit/[id]/report` — complete-only (409), enqueues
-  (deduped); returns `{queued: true}`. Enqueue failure → 500.
+- `POST /api/site-audit/[id]/report` — complete-only (409), pre-A2 → 409
+  `no_findings_run`, enqueues (deduped); returns `{queued: true}`. Enqueue
+  failure → 500.
 - `GET /api/site-audit/[id]/report` — streams the PDF
   (`application/pdf`, Content-Disposition
   `ada-report-<domain>-<YYYY-MM-DD>.pdf`) when the file exists; 404
@@ -248,8 +252,9 @@ and a new scan is a new audit).
 fix — `pruneScheduledSiteAudits()` currently has NO artifact sweep of its
 own; screenshots age out via the 24-h sweep, but report PDFs have no sweep,
 so both paths must delete explicitly): the manual DELETE route (alongside
-its `deleteAuditArtifacts` loop, plus `cancelJobsByGroup('report:<id>')` so
-an in-flight render can't resurrect the file) and
+its `deleteAuditArtifacts` loop, plus `cancelJobsByGroup('report:<id>')`
+**before** the row delete so queued renders can't resurrect the file —
+running renders are covered by the handler's deleted-mid-render cleanup) and
 `pruneScheduledSiteAudits()` (snapshot the doomed ids before `deleteMany`,
 best-effort unlink after the transaction). Manual-audit reports otherwise
 live until their audit is deleted — accepted (one small file per audit,
