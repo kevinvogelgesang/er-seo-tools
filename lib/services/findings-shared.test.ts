@@ -2,8 +2,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   selectRuns, aggregateSeoTypes, aggregateAdaTypes, collapseTypeGroups,
-  diffTypes, newCriticalTypes, toSeverity, SEVERITY_RANK, URLS_PER_FINDING,
-  type RunRef, type TypeAggregate,
+  diffTypes, newCriticalTypes, diffInstances, toSeverity, SEVERITY_RANK, URLS_PER_FINDING,
+  type RunRef, type TypeAggregate, type InstanceRef,
 } from './findings-shared'
 
 const d = (iso: string) => new Date(iso)
@@ -163,6 +163,62 @@ describe('newCriticalTypes', () => {
   it('returns critical types absent from previous; warnings never alert', () => {
     expect(newCriticalTypes(cur, new Set())).toEqual(['a'])
     expect(newCriticalTypes(cur, new Set(['a']))).toEqual([])
+  })
+})
+
+describe('diffInstances', () => {
+  const ref = (type: string, url: string, severity = 'critical'): InstanceRef =>
+    ({ dedupKey: `${type}|${url}`, type, severity, url })
+  const pages = (...urls: string[]) => new Set(urls)
+
+  it('classifies regressed vs new-page vs unchanged vs resolved vs not-rescanned', () => {
+    const current = [ref('color-contrast', '/a'), ref('color-contrast', '/new'), ref('label', '/a')]
+    const previous = [ref('label', '/a'), ref('image-alt', '/a'), ref('image-alt', '/gone')]
+    const d = diffInstances(current, previous, pages('/a', '/new'), pages('/a', '/gone'))
+    expect(d.unchangedCount).toBe(1)          // label /a
+    expect(d.regressedCount).toBe(1)          // color-contrast /a (page scanned before)
+    expect(d.newPageCount).toBe(1)            // color-contrast /new
+    expect(d.newCount).toBe(2)
+    expect(d.resolvedCount).toBe(1)           // image-alt /a (page rescanned)
+    expect(d.notRescannedCount).toBe(1)       // image-alt /gone (page absent now)
+  })
+
+  it('only changed rules appear in rules[], sorted severity then newTotal desc', () => {
+    const current = [ref('b-rule', '/a', 'notice'), ref('a-rule', '/a'), ref('same', '/a')]
+    const previous = [ref('same', '/a'), ref('resolved-rule', '/a', 'warning')]
+    const d = diffInstances(current, previous, pages('/a'), pages('/a'))
+    expect(d.rules.map((r) => r.type)).toEqual(['a-rule', 'resolved-rule', 'b-rule'])
+    expect(d.rules.find((r) => r.type === 'same')).toBeUndefined()
+  })
+
+  it('resolved-only rules carry the previous severity; current severity wins when both', () => {
+    const d = diffInstances(
+      [ref('x', '/a', 'warning'), ref('x', '/b', 'warning')],
+      [ref('x', '/c', 'critical'), ref('y', '/a', 'notice')],
+      new Set(['/a', '/b', '/c']), new Set(['/a', '/c']),
+    )
+    expect(d.rules.find((r) => r.type === 'x')!.severity).toBe('warning')
+    expect(d.rules.find((r) => r.type === 'y')!.severity).toBe('notice')
+  })
+
+  it('caps, dedupes and sorts URL samples, regressed before new-page', () => {
+    const current = [
+      ...Array.from({ length: 30 }, (_, i) => ref('big', `/n${String(i).padStart(2, '0')}`)),
+      ref('big', '/z-regressed'),
+    ]
+    const d = diffInstances(current, [], new Set(), new Set(['/z-regressed']))
+    const rule = d.rules[0]
+    expect(rule.newUrls).toHaveLength(25)
+    expect(rule.newUrls[0]).toBe('/z-regressed')
+    expect(rule.newTotal).toBe(31)
+  })
+
+  it('clean previous run → everything new; identical runs → all unchanged', () => {
+    const cur = [ref('x', '/a')]
+    expect(diffInstances(cur, [], new Set(['/a']), new Set(['/a'])).regressedCount).toBe(1)
+    const same = diffInstances(cur, cur, new Set(['/a']), new Set(['/a']))
+    expect(same.unchangedCount).toBe(1)
+    expect(same.newCount + same.resolvedCount + same.notRescannedCount).toBe(0)
   })
 })
 
