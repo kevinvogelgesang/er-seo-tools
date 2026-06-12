@@ -143,4 +143,20 @@ describe('getClientDashboard', () => {
     expect(d.schedules).toHaveLength(1)
     expect(d.schedules[0].cadence).toBe('weekly:1@09:00')
   })
+
+  it('tags schedule-originated site audits in the timeline title; manual audits stay bare (C2)', async () => {
+    const c = await makeClient()
+    const sched = await prisma.schedule.create({
+      data: { jobType: 'scheduled-site-audit', cadence: 'weekly:1@06:00', payload: '{}', nextRunAt: daysAgo(-7), clientId: c.id },
+    })
+    await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', wcagLevel: 'wcag21aa', clientId: c.id, scheduleId: sched.id, createdAt: daysAgo(2), completedAt: daysAgo(2) },
+    })
+    await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', wcagLevel: 'wcag21aa', clientId: c.id, createdAt: daysAgo(1), completedAt: daysAgo(1) },
+    })
+    const d = await getClientDashboard(c.id, NOW)
+    const titles = d.timeline.filter((t) => t.type === 'site-audit').map((t) => t.title)
+    expect(titles).toEqual([DOMAIN, `${DOMAIN} · scheduled`]) // newest (manual) first
+  })
 })
