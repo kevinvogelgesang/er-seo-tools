@@ -26,6 +26,8 @@ export interface QueueRequestInput {
   wcagLevel: string
   preDiscoveredUrls?: string[]
   requestedBy?: string | null
+  /** C2: set when a Schedule row created this audit — attribution + retention marker. */
+  scheduleId?: string | null
 }
 
 export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<QueueRequestResult> {
@@ -72,6 +74,7 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
   const { id } = await enqueueAudit(domain, input.clientId, wcagLevel, {
     preDiscoveredUrls: normalisedUrls,
     requestedBy: input.requestedBy ?? null,
+    scheduleId: input.scheduleId ?? null,
   })
   return { kind: 'queued', id }
 }
