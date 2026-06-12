@@ -1,107 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { runAxeAudit } from '@/lib/ada-audit/runner'
 import type { AuditListItem, AuditScorecard } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
-import { writeAdaSingleFindings } from '@/lib/findings/ada-write'
+import { enqueueJob } from '@/lib/jobs/queue'
+import { ADA_AUDIT_JOB_TYPE, failStandaloneAudit } from '@/lib/jobs/handlers/ada-audit'
 import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-// ─── Background audit runner ──────────────────────────────────────────────────
-// Runs after the route handler has already responded with { id }.
-// Updates the DB record directly; errors set status = 'error'.
-
-async function runAuditInBackground(id: string, url: string, wcagLevel: string) {
-  const onProgress = async (progress: number, progressMessage: string) => {
-    await prisma.adaAudit.update({ where: { id }, data: { progress, progressMessage } }).catch(() => {})
-  }
-
-  try {
-    await prisma.adaAudit.update({
-      where: { id },
-      data: {
-        status: 'running',
-        progress: 0,
-        progressMessage: 'Starting…',
-        startedAt: new Date(),
-      },
-    })
-    const result = await runAxeAudit(
-      url,
-      wcagLevel,
-      onProgress,
-      {
-        auditId: id,
-      },
-    )
-
-    if (result.kind === 'redirected') {
-      await prisma.adaAudit.update({
-        where: { id },
-        data: {
-          status: 'redirected',
-          finalUrl: result.finalUrl,
-          redirected: true,
-          progress: 100,
-          progressMessage: 'Redirected',
-          completedAt: new Date(),
-        },
-      })
-      // Dual-write the normalized findings run (A2): a redirected standalone
-      // still gets a CrawlRun + one redirected CrawlPage, no findings.
-      // Best-effort — never affects the legacy path.
-      void writeAdaSingleFindings(id).catch((e) => {
-        console.error('[findings] dual-write failed for ada audit', id, e)
-      })
-      return
-    }
-
-    // result.kind === 'audited'
-    const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = result
-    await prisma.adaAudit.update({
-      where: { id },
-      data: {
-        status: 'complete',
-        result: JSON.stringify(axe),
-        lighthouseSummary: lighthouseSummary ? JSON.stringify(lighthouseSummary) : null,
-        lighthouseError,
-        progress: 100,
-        progressMessage: 'Complete',
-        runnerType: 'browser',
-        completedAt: new Date(),
-      },
-    })
-
-    // Dispatch harvested PDFs against this single AdaAudit's id only.
-    // Standalone audits don't have a parent SiteAudit, so completion is not
-    // gated on PDF scans — they update PdfAudit rows in the background.
-    const { dispatchPdfScans } = await import('@/lib/ada-audit/pdf-orchestrator')
-    void dispatchPdfScans({
-      urls: harvestedPdfUrls,
-      adaAuditId: id,
-      sourcePageUrl: url,
-    })
-
-    // Dual-write the normalized findings run (A2). Best-effort: the blob
-    // committed above is the source of truth; a findings failure must never
-    // fail the audit.
-    void writeAdaSingleFindings(id).catch((e) => {
-      console.error('[findings] dual-write failed for ada audit', id, e)
-    })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error(`[ada-audit] id=${id} url=${url} error:`, err)
-    await prisma.adaAudit.update({
-      where: { id },
-      data: { status: 'error', error: message, completedAt: new Date() },
-    }).catch(() => {})
-  }
-}
-
 // ─── POST /api/ada-audit ──────────────────────────────────────────────────────
-// Creates the audit record and returns { id, status: 'pending' } immediately.
-// The actual audit runs in the background and the client polls for completion.
+// Creates the audit record, enqueues a durable ada-audit job (C1 — the audit
+// survives restarts; lib/jobs/handlers/ada-audit.ts owns the run), and
+// returns { id, status: 'pending' }. The client polls for completion.
 
 export async function POST(request: NextRequest) {
   let body: unknown
@@ -149,9 +59,26 @@ export async function POST(request: NextRequest) {
     data: { url: parsed.toString(), status: 'pending', clientId, wcagLevel, requestedBy },
   })
 
-  // Fire-and-forget: audit runs in background, route returns immediately.
-  // Node.js will keep the event loop alive while the promise is pending.
-  void runAuditInBackground(audit.id, audit.url, wcagLevel)
+  // Durable enqueue (C1): the worker claims the job and runs the audit; a
+  // deploy mid-audit pauses it instead of destroying it. dedup/group key
+  // ada-audit:<id> is shared with the standalone PDF dispatch group, so
+  // countActiveJobsByGroup measures whole-audit liveness for recovery.
+  try {
+    await enqueueJob({
+      type: ADA_AUDIT_JOB_TYPE,
+      payload: { adaAuditId: audit.id, url: audit.url, wcagLevel },
+      dedupKey: `ada-audit:${audit.id}`,
+      groupKey: `ada-audit:${audit.id}`,
+    })
+  } catch (err) {
+    console.error('[ada-audit] durable enqueue failed for', audit.id, ':', (err as Error).message)
+    try {
+      await failStandaloneAudit(audit.id, 'Failed to enqueue audit job')
+    } catch (settleErr) {
+      console.error('[ada-audit] enqueue-failure settle also failed for', audit.id, ':', (settleErr as Error).message)
+    }
+    return NextResponse.json({ error: 'Failed to queue audit' }, { status: 500 })
+  }
 
   return NextResponse.json({ id: audit.id, status: 'pending' }, { status: 202 })
 }
