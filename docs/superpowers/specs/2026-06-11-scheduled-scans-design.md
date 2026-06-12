@@ -78,6 +78,11 @@ model SiteAudit {
   schedule    Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   @@index([scheduleId])
 }
+
+model Schedule {
+  // … existing …
+  siteAudits  SiteAudit[]   // reverse relation (required by Prisma validation)
+}
 ```
 
 - `scheduleId` is the attribution + retention marker: non-null ⇒ this audit was
@@ -109,8 +114,12 @@ backoff — a transient enqueue failure must not wait a week for the next slot),
 Handler, payload `{ clientId, domain, wcagLevel }` (re-validated, never
 trusted stale):
 
-1. Load the Schedule row (`ctx` exposes the job's `scheduleId`; fallback:
-   payload echo) — if missing/disabled, no-op complete.
+1. Resolve the schedule: read the `Job` row by `ctx.jobId` and select its
+   `scheduleId` (Codex fix — `JobHandlerContext` exposes only
+   `jobId`/`attempt`/`signal`, and the scheduler does not inject `scheduleId`
+   into payloads; reading the Job row keeps the scheduler generic). Load that
+   Schedule row — if the job has no `scheduleId` or the schedule is
+   missing/disabled, no-op complete.
 2. Load the client. If missing, archived, or `domain` no longer in
    `client.domains` → **disable the schedule** (`enabled: false`), log
    `[schedule] disabled <id>: <reason>`, complete. Self-healing, never
@@ -126,31 +135,43 @@ trusted stale):
 4. DB errors throw (worker retries with backoff). `onExhausted`: log only —
    there is no domain row to fail; the next slot is the durable retry.
 
-**6a. Stamping `scheduleId`:** `queueSiteAuditRequest`/`enqueueAudit` gain an
-optional `scheduleId` passed through to the `SiteAudit.create` — one optional
-field on the existing options object, so the row is born attributed (no
-post-create UPDATE race with the promoter).
+**6a. Stamping `scheduleId`:** both `QueueRequestInput` and
+`EnqueueAuditOptions` gain an optional `scheduleId` passed through to the
+`SiteAudit.create`, so the row is born attributed — no post-create UPDATE race
+with the promoter. A test asserts the created row carries `scheduleId` from
+birth (not via a follow-up update).
 
 ## 7. Schedule CRUD API (internal, behind existing auth)
 
 `app/api/clients/[id]/schedules/route.ts` + `[scheduleId]/route.ts`.
 These are UI-facing internal routes — **not** added to `middleware.ts`
 `isPublicPath` (the token-route gotcha does not apply; a middleware test
-asserting they stay protected documents the intent).
+asserts the routes are **not public** — protection is by omission from the
+public-path list, which is exactly what the test pins down).
 
 - `GET` — list the client's schedules (any `enabled` state) joined with
   last-run info: latest `SiteAudit` where `scheduleId` matches
-  (`id`, `status`, `score`, `completedAt`) + previous completed scheduled
-  score → `lastDelta`. Service: `lib/services/client-schedules.ts` (keeps the
-  route thin, testable pure selection).
+  (`id`, `status`, `completedAt`), with scores read from **`CrawlRun.score`
+  joined by `siteAuditId`** — the finalizer does not persist `SiteAudit.score`;
+  B1 deliberately made `CrawlRun.score` the ADA score source of truth (Codex
+  fix #3). Latest + previous completed scheduled scores → `lastDelta`.
+  Service: `lib/services/client-schedules.ts` (keeps the route thin, testable
+  pure selection).
 - `POST` — body `{ domain, cadence, wcagLevel }`. Validation:
   - client exists and is active (archived → 409 `client_archived`);
   - `domain` ∈ `client.domains` (400 `domain_not_listed`);
   - `cadence` parses AND is weekly/monthly class (400 `cadence_invalid` /
     `cadence_not_allowed`);
   - `wcagLevel` ∈ {`wcag21aa`,`wcag22aa`} (defaults `wcag21aa`);
-  - at most one schedule per (client, domain): 409 `schedule_exists`
-    (app-level check; no unique index — `Schedule` is shared infra);
+  - at most one schedule per (client, domain): 409 `schedule_exists`.
+    **Best-effort v1, by design** (Codex fix #4 — named, not silently weak):
+    the check is app-level because `Schedule` is shared infra and the domain
+    lives inside the JSON payload, so no clean unique index exists. Two
+    racing POSTs could create duplicates; consequence is bounded (the
+    in-flight duplicate check in `queueSiteAuditRequest` means at most one
+    audit runs per slot window) and the card UI makes duplicates visible and
+    deletable. A DB-level guarantee is deferred until a real domain table
+    exists for schedules (post-v1, if ever needed);
   - `name` is never accepted from the body (stays `null`; `system-`
     namespace untouchable by construction).
   - Creates with `nextRunAt = nextRun(cadence, now)` (never immediate — an
@@ -160,6 +181,9 @@ asserting they stay protected documents the intent).
   instantly on a stale slot.
 - `DELETE` — deletes the row (SiteAudit.scheduleId → SetNull). Queued jobs for
   the schedule: cancel via existing `cancelJobsByGroup('schedule:<id>')`.
+  Consequence (intentional, surfaced in the UI confirm copy): the schedule's
+  historical audits become manual-class and are **retained as manual history**
+  — deleting a schedule never schedules data destruction (see §10).
 
 ## 8. UI
 
@@ -193,6 +217,10 @@ Mechanism: `lib/ada-audit/carry-forward-checks.ts` →
 2. Find the previous **completed** `SiteAudit` with the same `domain`
    (latest `completedAt` before this one) — applies to ALL site audits, not
    just scheduled ones (the pain is re-running, however triggered).
+   Intentionally domain-keyed, not client-keyed: if the same domain was
+   audited under a different (or no) client, the checks still carry — keys
+   are content-derived, so a dismissal is about the finding, not the client
+   record.
 3. Copy its `SiteAuditCheck` rows (`scope`, `key`, `checkedBy` preserved) to
    the new audit, skipping keys already present. SQLite Prisma `createMany`
    has no `skipDuplicates` → read existing keys first, insert the difference
@@ -203,9 +231,14 @@ Mechanism: `lib/ada-audit/carry-forward-checks.ts` →
    with the audit row — bounded garbage.
 
 Invocation: in `finalizeSiteAudit`'s completion path, fire-and-forget
-(`void …().catch(log)`) **before** the A2 findings hook — the findings hook
-stays LAST (load-bearing invariant). A failure logs
-`[checks] carry-forward failed` and never affects the audit.
+(`void …().catch(log)`) **invoked before** the A2 findings hook — "before" is
+**invocation order only**; both are unawaited and their writes may overlap in
+time, which is fine because they touch disjoint tables (`SiteAuditCheck` vs
+the `CrawlRun` subtree). The findings hook stays the LAST invocation
+(load-bearing invariant). Carried checks are therefore eventually-visible —
+they are NOT guaranteed present on the first post-complete render, and nothing
+depends on that. A failure logs `[checks] carry-forward failed` and never
+affects the audit.
 
 Standalone `AdaAuditCheck` carry-forward: out of scope (standalone audits
 aren't scheduled; revisit if requested).
@@ -241,11 +274,10 @@ Policy, per enabled-or-disabled Schedule row with scheduled audits:
 - Orphaned scheduled audits (schedule deleted → `scheduleId` null) are
   manual-class: never pruned by this policy. Deliberate: deleting a schedule
   must not schedule data destruction.
-- Screenshot files: page-audit screenshots live on disk keyed by audit; the
-  existing 30-min `screenshot-sweep` removes files whose DB rows are gone —
-  **plan-time verification required** that the sweep covers this case; if it
-  only sweeps temp orphans, the prune deletes the audit's screenshot
-  directory explicitly in the same pass.
+- Screenshot files: covered by existing machinery (verified — Codex fix #8):
+  `sweepExpiredScreenshots()` deletes on-disk screenshot directories whose
+  `AdaAudit` row no longer exists, so pruning cascaded child `AdaAudit` rows
+  leaves no leaked files; the 30-min sweep collects them.
 
 Logging: one `[retention] pruned N scheduled audit(s) (schedule <id>)` line
 per schedule with deletions; silence otherwise. No silent caps.
@@ -257,8 +289,9 @@ per schedule with deletions; silence otherwise. No silent caps.
   `newCriticalTypes` regression chips, `IssueTrendCard` — **zero new code**.
 - New: per-schedule "last run score + Δ vs previous scheduled run" on
   `ScheduledScansCard` (from `client-schedules.ts`, comparing the two most
-  recent completed scheduled audits' scores — `SiteAudit.score` scalar, no
-  blob reads).
+  recent completed scheduled audits' **`CrawlRun.score`** values joined by
+  `siteAuditId` — scalar reads only, no blobs, and no second score source of
+  truth).
 - Explicitly NOT claimed: violation-level new/resolved/unchanged — C3.
 
 ## 12. Error handling & edge cases
