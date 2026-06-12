@@ -4,6 +4,8 @@ import { prisma } from '@/lib/db'
 import SiteAuditPoller from '@/components/ada-audit/SiteAuditPoller'
 import SiteAuditResultsView from '@/components/ada-audit/SiteAuditResultsView'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
+import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
+import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
@@ -140,6 +142,10 @@ export default async function SiteAuditResultPage({ params }: Props) {
   const score = crawlRun?.score ?? fromCounts.score
   const compliant = fromCounts.compliant
 
+  // Changes-since-previous panel — null hides it (no earlier same-domain
+  // same-level run, or this audit predates the findings layer).
+  const instanceDiff = await getSiteAuditInstanceDiff(audit.id)
+
   const pdfs: AuditPdfRow[] = audit.pdfAudits.map((p) => {
     let issues: PdfIssue[] = []
     if (p.issues) {
@@ -162,6 +168,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
       {breadcrumb}
+      {instanceDiff && <SiteAuditDiffPanel diff={instanceDiff.diff} previous={instanceDiff.previous} />}
       <SiteAuditResultsView
         domain={audit.domain}
         clientName={audit.client?.name ?? null}
