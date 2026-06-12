@@ -81,13 +81,24 @@ function capNodes(nodes: AxeNode[]): string | null {
   )
 }
 
+interface ParsedAxe {
+  violations: AxeViolation[]
+  passCount: number
+  incompleteCount: number
+}
+
 /** null = blob missing/malformed (≠ a valid empty violations array): the
  *  page must NOT be scored — score 100 from an unreadable blob would lie. */
-function parseViolations(result: string | null): AxeViolation[] | null {
+function parseAxe(result: string | null): ParsedAxe | null {
   if (!result) return null
   try {
     const r = JSON.parse(result) as StoredAxeResults
-    return Array.isArray(r?.violations) ? r.violations : null
+    if (!Array.isArray(r?.violations)) return null
+    return {
+      violations: r.violations,
+      passCount: Array.isArray(r.passes) ? r.passes.length : 0,
+      incompleteCount: Array.isArray(r.incomplete) ? r.incomplete.length : 0,
+    }
   } catch {
     return null
   }
@@ -169,7 +180,7 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
     if (seenUrls.has(url)) continue
     seenUrls.add(url)
 
-    const axeViolations = child.status === 'complete' ? parseViolations(child.result) : null
+    const axe = child.status === 'complete' ? parseAxe(child.result) : null
     const page: CrawlPageInput = {
       id: randomUUID(),
       runId,
@@ -184,13 +195,15 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
       wordCount: null,
       crawlDepth: null,
       indexable: null,
-      score: axeViolations ? computeScore(axeViolations, parent.wcagLevel).score : null,
+      score: axe ? computeScore(axe.violations, parent.wcagLevel).score : null,
+      passCount: axe?.passCount ?? null,
+      incompleteCount: axe?.incompleteCount ?? null,
       adaAuditId: child.id,
     }
     pages.push(page)
 
-    if (axeViolations) {
-      emitPageViolations(runId, page, axeViolations, seenKeys, findings, violations, counts)
+    if (axe) {
+      emitPageViolations(runId, page, axe.violations, seenKeys, findings, violations, counts)
     }
   }
 
@@ -228,8 +241,8 @@ export function mapAdaSingle(audit: AdaSingleInput): FindingsBundle {
   const violations: ViolationInput[] = []
   const counts: ViolationCounts = { critical: 0, serious: 0, moderate: 0, minor: 0 }
 
-  const axeViolations = audit.status === 'complete' ? parseViolations(audit.result) : null
-  const score = axeViolations ? computeScore(axeViolations, audit.wcagLevel).score : null
+  const axe = audit.status === 'complete' ? parseAxe(audit.result) : null
+  const score = axe ? computeScore(axe.violations, audit.wcagLevel).score : null
 
   const page: CrawlPageInput = {
     id: randomUUID(),
@@ -246,10 +259,12 @@ export function mapAdaSingle(audit: AdaSingleInput): FindingsBundle {
     crawlDepth: null,
     indexable: null,
     score,
+    passCount: axe?.passCount ?? null,
+    incompleteCount: axe?.incompleteCount ?? null,
     adaAuditId: audit.id,
   }
-  if (axeViolations) {
-    emitPageViolations(runId, page, axeViolations, new Set<string>(), findings, violations, counts)
+  if (axe) {
+    emitPageViolations(runId, page, axe.violations, new Set<string>(), findings, violations, counts)
   }
 
   return {

@@ -375,6 +375,8 @@ model CrawlPage {
   crawlDepth      Int?
   indexable       Boolean?
   score           Int?     // ada page score (mapper-computed)
+  passCount       Int?     // axe passes.length at write time; null = unknown (pre-C3 run)
+  incompleteCount Int?     // axe incomplete.length at write time; null = unknown (pre-C3 run)
   adaAuditId      String?  // drill-through to the child AdaAudit (no FK)
   findings        Finding[]
   violations      Violation[]

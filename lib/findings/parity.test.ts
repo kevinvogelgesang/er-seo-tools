@@ -186,6 +186,21 @@ describe('compareAdaParity', () => {
     expect(report.diffs).toEqual(['aggregate critical: violation rows=1 summary.aggregate=5'])
   })
 
+  it('reports a diff when stored passCount is null (stale pre-C3 row) or wrong', async () => {
+    await writeAdaSiteFindings(siteId)
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId: siteId } })
+    // Fresh rebuild matches (covered by the ok test above). Null = stale row:
+    await prisma.crawlPage.updateMany({ where: { runId: run.id, status: 'complete' }, data: { passCount: null } })
+    let report = await compareAdaParity(siteId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/passCount: tables=null/)
+    // Wrong value also reported:
+    await prisma.crawlPage.updateMany({ where: { runId: run.id, status: 'complete' }, data: { passCount: 999 } })
+    report = await compareAdaParity(siteId)
+    expect(report.ok).toBe(false)
+    expect(report.diffs.join('\n')).toMatch(/passCount: tables=999/)
+  })
+
   it('reports a diff when a complete site audit has no summary blob', async () => {
     await writeAdaSiteFindings(siteId)
     await prisma.siteAudit.update({ where: { id: siteId }, data: { summary: null } })

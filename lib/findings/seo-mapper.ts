@@ -52,6 +52,8 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
         crawlDepth: p.crawlDepth,
         indexable: p.indexable,
         score: null,
+        passCount: null,
+        incompleteCount: null,
         adaAuditId: null,
       }
       pages.push(page)

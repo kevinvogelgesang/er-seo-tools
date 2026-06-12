@@ -36,6 +36,8 @@ export interface CrawlPageInput {
   crawlDepth: number | null
   indexable: boolean | null
   score: number | null
+  passCount: number | null
+  incompleteCount: number | null
   adaAuditId: string | null
 }
 

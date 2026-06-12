@@ -133,7 +133,10 @@ function diffAdaRun(run: StoredRun, expected: FindingsBundle, diffs: string[]): 
       diffs.push(`missing CrawlPage: ${p.url}`)
       continue
     }
-    for (const field of ['status', 'error', 'finalUrl', 'score', 'adaAuditId'] as const) {
+    // passCount/incompleteCount compare unconditionally (Codex plan-fix #3):
+    // parity needs the blob, so a rebuild always populates them — stored null
+    // is a stale pre-C3 row, never noise.
+    for (const field of ['status', 'error', 'finalUrl', 'score', 'passCount', 'incompleteCount', 'adaAuditId'] as const) {
       if (stored[field] !== p[field]) {
         diffs.push(`CrawlPage ${p.url} ${field}: tables=${stored[field]} blob=${p[field]}`)
       }

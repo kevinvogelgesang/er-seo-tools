@@ -250,3 +250,56 @@ describe('mapAdaSingle', () => {
     expect(b.violations).toHaveLength(0)
   })
 })
+
+describe('passCount/incompleteCount (C3)', () => {
+  function blobWithCounts(passes: number, incomplete: number): string {
+    return JSON.stringify({
+      violations: [],
+      passes: Array.from({ length: passes }, (_, i) => ({ id: `p${i}`, help: '', nodes: [] })),
+      incomplete: Array.from({ length: incomplete }, (_, i) => ({ id: `i${i}`, help: '', impact: null, nodes: [] })),
+      inapplicable: [],
+      timestamp: '2026-06-10T00:00:00Z', url: 'https://x.test/',
+      testEngine: { name: 'axe-core', version: '4.10' },
+      testRunner: { name: 'er-seo-tools' },
+    })
+  }
+
+  it('stamps passCount/incompleteCount from the blob on complete pages', () => {
+    const b = mapAdaChildren(PARENT, [
+      child({ id: 'c1', url: 'https://mapper.test/counts', result: blobWithCounts(2, 1) }),
+    ])
+    expect(b.pages[0].passCount).toBe(2)
+    expect(b.pages[0].incompleteCount).toBe(1)
+  })
+
+  it('leaves counts null on error/redirected/malformed pages', () => {
+    const b = mapAdaChildren(PARENT, [
+      child({ id: 'c1', url: 'https://mapper.test/err', status: 'error', error: 'boom', result: null }),
+      child({ id: 'c2', url: 'https://mapper.test/bad', status: 'complete', result: '{not json' }),
+      child({ id: 'c3', url: 'https://mapper.test/redir', status: 'redirected', finalUrl: 'https://mapper.test/', result: null }),
+    ])
+    expect(b.pages[0].passCount).toBeNull()
+    expect(b.pages[0].incompleteCount).toBeNull()
+    expect(b.pages[1].passCount).toBeNull()
+    expect(b.pages[1].incompleteCount).toBeNull()
+    expect(b.pages[2].passCount).toBeNull()
+  })
+
+  it('missing passes/incomplete arrays in the blob default to 0, not null', () => {
+    const b = mapAdaChildren(PARENT, [
+      child({ id: 'c1', url: 'https://mapper.test/sparse', result: JSON.stringify({ violations: [] }) }),
+    ])
+    expect(b.pages[0].passCount).toBe(0)
+    expect(b.pages[0].incompleteCount).toBe(0)
+  })
+
+  it('mapAdaSingle stamps counts', () => {
+    const b = mapAdaSingle({
+      id: 'ada-c3', url: 'https://single.test/counts', status: 'complete',
+      result: blobWithCounts(1, 0), finalUrl: null, wcagLevel: 'wcag21aa',
+      clientId: null, startedAt: null, completedAt: null,
+    })
+    expect(b.pages[0].passCount).toBe(1)
+    expect(b.pages[0].incompleteCount).toBe(0)
+  })
+})
