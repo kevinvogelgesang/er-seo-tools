@@ -7,7 +7,9 @@
 // subtree survives (origin FK SetNull) — scores/findings/trends are
 // permanent, only the blob-backed results view ages out. On-disk
 // screenshots are collected by the existing screenshot sweep (it removes
-// directories whose AdaAudit row is gone).
+// directories whose AdaAudit row is gone). Report PDFs have NO sweep of
+// their own, so they're deleted here explicitly (best-effort, from the
+// pre-delete id snapshot) right after each chunk's deleteMany.
 //
 // Active immediately (no inert flag): scheduleId is new in this PR, so no
 // pre-existing rows can match. Orphaned scheduled audits (schedule deleted
@@ -16,6 +18,7 @@
 import { prisma } from '@/lib/db'
 import { cadenceClass, type CadenceClass } from '@/lib/jobs/scheduler'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
+import { deleteReportFile } from '@/lib/report/report-file'
 
 /** ≈ a dozen retained runs per schedule at any cadence. 'daily' is
  * unreachable in v1 (CRUD rejects daily-class cadences) but priced in. */
@@ -69,6 +72,12 @@ export async function pruneScheduledSiteAudits(now: Date = new Date()): Promise<
       // Children cascade at the DB level (AdaAudit/PdfAudit/checks);
       // CrawlRun.siteAuditId is SetNull — findings survive.
       await prisma.siteAudit.deleteMany({ where: { id: { in: ids } } })
+      // Report PDFs have no sweep of their own (screenshots age out via the
+      // 24-h sweep; reports don't) — delete from the pre-delete snapshot.
+      const fileCleanup = await Promise.allSettled(ids.map((rid) => deleteReportFile(rid)))
+      for (const r of fileCleanup) {
+        if (r.status === 'rejected') console.warn('[retention] report file cleanup failed:', r.reason)
+      }
     }
     console.log(`[retention] pruned ${candidates.length} scheduled audit(s) (schedule ${sched.id}, ${cls} window)`)
   }

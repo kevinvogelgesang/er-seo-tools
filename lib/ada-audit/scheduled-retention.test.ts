@@ -1,5 +1,8 @@
 // lib/ada-audit/scheduled-retention.test.ts
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { promises as fs } from 'fs'
+import os from 'os'
+import path from 'path'
 import { prisma } from '@/lib/db'
 import { pruneScheduledSiteAudits, RETENTION_DAYS } from './scheduled-retention'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
@@ -59,12 +62,26 @@ async function cleanPrefixRows() {
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
 }
 
-beforeAll(cleanPrefixRows) // survive a failed prior run
+// deleteReportFile reads REPORTS_DIR at call time — point it at a tmpdir
+// so the report-PDF lifecycle test never touches the real reports dir.
+let tmpReportsDir: string
+
+beforeAll(async () => {
+  await cleanPrefixRows() // survive a failed prior run
+  tmpReportsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'c2sched-r-reports-'))
+  vi.stubEnv('REPORTS_DIR', tmpReportsDir)
+})
 
 afterAll(async () => {
   await cleanPrefixRows()
   await prisma.schedule.deleteMany({ where: { id: { in: createdScheduleIds } } })
+  vi.unstubAllEnvs()
+  await fs.rm(tmpReportsDir, { recursive: true, force: true })
 })
+
+async function fileExists(p: string): Promise<boolean> {
+  return fs.access(p).then(() => true, () => false)
+}
 
 describe('pruneScheduledSiteAudits', () => {
   it('prunes past-window terminal scheduled audits; children cascade, CrawlRun survives via SetNull', async () => {
@@ -127,6 +144,26 @@ describe('pruneScheduledSiteAudits', () => {
     await pruneScheduledSiteAudits(NOW)
     expect(await prisma.siteAudit.findUnique({ where: { id: errored.audit.id } })).toBeNull()
     expect(await prisma.siteAudit.findUnique({ where: { id: cancelled.audit.id } })).toBeNull()
+  })
+
+  it('deletes report PDFs for pruned audits but keeps them for retained audits', async () => {
+    const sched = await makeSchedule('weekly:1@06:00')
+    const pruned = await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(RETENTION_DAYS.weekly + 10), domain: `${PREFIX}rep.example.edu` })
+    // two newer completed audits so the keep-latest guard doesn't save it
+    const kept = await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(2), domain: `${PREFIX}rep.example.edu` })
+    await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(1), domain: `${PREFIX}rep.example.edu` })
+
+    const prunedPdf = path.join(tmpReportsDir, `${pruned.audit.id}.pdf`)
+    const keptPdf = path.join(tmpReportsDir, `${kept.audit.id}.pdf`)
+    await fs.writeFile(prunedPdf, 'fake-pdf')
+    await fs.writeFile(keptPdf, 'fake-pdf')
+
+    await pruneScheduledSiteAudits(NOW)
+
+    expect(await prisma.siteAudit.findUnique({ where: { id: pruned.audit.id } })).toBeNull()
+    expect(await fileExists(prunedPdf)).toBe(false) // report PDF dies with the row
+    expect(await prisma.siteAudit.findUnique({ where: { id: kept.audit.id } })).not.toBeNull()
+    expect(await fileExists(keptPdf)).toBe(true) // retained audit keeps its report
   })
 
   it('unparseable cadence falls back to the most conservative (monthly) window', async () => {
