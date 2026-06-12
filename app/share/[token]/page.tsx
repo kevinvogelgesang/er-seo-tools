@@ -3,6 +3,8 @@ import { AggregatedResult } from '@/lib/types';
 import { MetricsBar } from '@/components/seo-parser/MetricsBar';
 import { IssueTabs } from '@/components/seo-parser/IssueTabs';
 import { RecommendationList } from '@/components/seo-parser/RecommendationList';
+import { ArchivedSessionBanner } from '@/components/seo-parser/ArchivedSessionBanner';
+import { loadArchivedSeoResult } from '@/lib/findings/seo-findings-fallback';
 import type { Metadata } from 'next';
 
 type Props = { params: Promise<{ token: string }> };
@@ -56,15 +58,22 @@ export default async function SharedReportPage({ params }: Props) {
 
   const { session } = shareLink;
 
-  if (session.status !== 'complete' || !session.result) {
+  if (session.status !== 'complete') {
     return <ErrorState message="The session result for this link is not yet available." />;
   }
 
-  let result: AggregatedResult;
-  try {
-    result = JSON.parse(session.result) as AggregatedResult;
-  } catch {
-    return <ErrorState message="Could not parse the session result. Please contact the report owner." />;
+  let result: AggregatedResult | null = null;
+  if (session.result) {
+    try {
+      result = JSON.parse(session.result) as AggregatedResult;
+    } catch {
+      return <ErrorState message="Could not parse the session result. Please contact the report owner." />;
+    }
+  } else {
+    result = await loadArchivedSeoResult(session.id); // C5: blob pruned
+  }
+  if (!result) {
+    return <ErrorState message="The session result for this link is not yet available." />;
   }
 
   // Increment access count (non-critical, fire-and-forget)
@@ -87,11 +96,15 @@ export default async function SharedReportPage({ params }: Props) {
             <h1 className="font-display font-extrabold text-2xl text-[#1c2d4a] dark:text-white">
               {siteName} — SEO Audit
             </h1>
-            <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
-              {result.metadata.files_processed.length} file
-              {result.metadata.files_processed.length !== 1 ? 's' : ''} processed
-            </p>
+            {!result.archived && (
+              <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
+                {result.metadata.files_processed.length} file
+                {result.metadata.files_processed.length !== 1 ? 's' : ''} processed
+              </p>
+            )}
           </div>
+
+          {result.archived && <ArchivedSessionBanner />}
 
           {/* Metrics bar */}
           <MetricsBar
@@ -108,9 +121,11 @@ export default async function SharedReportPage({ params }: Props) {
           <RecommendationList recommendations={result.recommendations} />
 
           {/* Metadata footer */}
-          <div className="text-xs text-gray-400 dark:text-white/40 pb-4">
-            Parsers used: {result.metadata.parsers_used.join(', ')}
-          </div>
+          {result.metadata.parsers_used.length > 0 && (
+            <div className="text-xs text-gray-400 dark:text-white/40 pb-4">
+              Parsers used: {result.metadata.parsers_used.join(', ')}
+            </div>
+          )}
         </div>
       </div>
     </div>

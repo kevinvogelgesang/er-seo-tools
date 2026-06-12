@@ -36,6 +36,9 @@ async function main() {
   ])
 
   if (session) {
+    if (session.status === 'complete' && !session.result) {
+      throw new Error(`session ${id}: result blob was pruned (90-d archive) — cannot rebuild. Findings rows are the canonical record now.`)
+    }
     if (session.status !== 'complete' || !session.result) {
       throw new Error(`session ${id} is not a completed run with a result blob`)
     }

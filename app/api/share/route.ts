@@ -23,13 +23,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid or missing sessionId' }, { status: 400 });
   }
 
-  const session = await prisma.session.findUnique({ where: { id: sessionId } });
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    include: { crawlRun: { select: { id: true } } },
+  });
 
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  if (session.status !== 'complete' || !session.result) {
+  // C5: an archived session (blob pruned, findings run present) is still shareable.
+  if (session.status !== 'complete' || (!session.result && !session.crawlRun)) {
     return NextResponse.json({ error: 'Session is not complete' }, { status: 400 });
   }
 

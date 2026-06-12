@@ -23,7 +23,7 @@ export async function compareSeoParity(sessionId: string): Promise<ParityReport>
     where: { id: sessionId },
     select: { result: true, clientId: true, createdAt: true },
   })
-  if (!session?.result) return { ok: false, diffs: ['session missing or has no result blob'] }
+  if (!session?.result) return { ok: false, diffs: ['session missing or result blob pruned (archived) — parity requires the blob'] }
 
   let blob: AggregatedResult
   try {

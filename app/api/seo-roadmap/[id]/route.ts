@@ -30,9 +30,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const scopes = Array.isArray(payload.scope) ? (payload.scope as string[]) : [];
   if (!scopes.includes('read')) return NextResponse.json({ error: 'token_missing_scope' }, { status: 401 });
 
-  const roadmap = await prisma.seoRoadmap.findUnique({ where: { id }, include: { session: { include: { client: true } } } });
+  const roadmap = await prisma.seoRoadmap.findUnique({ where: { id }, include: { session: { include: { client: true, crawlRun: { select: { archivePrunedAt: true } } } } } });
   if (!roadmap) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (!roadmap.session.result) return NextResponse.json({ error: 'session_result_missing' }, { status: 409 });
+  if (!roadmap.session.result) {
+    // C5: retention-pruned blob → explicit archived refusal (degraded data would mislead the memo)
+    const code = roadmap.session.crawlRun?.archivePrunedAt ? 'session_archived' : 'session_result_missing';
+    return NextResponse.json({ error: code }, { status: 409 });
+  }
 
   let result: AggregatedResult;
   try {

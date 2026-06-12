@@ -30,9 +30,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const scopes = Array.isArray(payload.scope) ? (payload.scope as string[]) : [];
   if (!scopes.includes('read')) return NextResponse.json({ error: 'token_missing_scope' }, { status: 401 });
 
-  const row = await prisma.keywordResearchSession.findUnique({ where: { id }, include: { session: true } });
+  const row = await prisma.keywordResearchSession.findUnique({ where: { id }, include: { session: { include: { crawlRun: { select: { archivePrunedAt: true } } } } } });
   if (!row) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (!row.session.result) return NextResponse.json({ error: 'session_result_missing' }, { status: 409 });
+  if (!row.session.result) {
+    // C5: keyword signals are blob-only — archived sessions refuse explicitly
+    const code = row.session.crawlRun?.archivePrunedAt ? 'session_archived' : 'session_result_missing';
+    return NextResponse.json({ error: code }, { status: 409 });
+  }
 
   let result: AggregatedResult;
   try {

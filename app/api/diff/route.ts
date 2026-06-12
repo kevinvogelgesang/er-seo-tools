@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const [sessionA, sessionB] = await Promise.all([
-      prisma.session.findUnique({ where: { id: sessionAId } }),
-      prisma.session.findUnique({ where: { id: sessionBId } }),
+      prisma.session.findUnique({ where: { id: sessionAId }, include: { crawlRun: { select: { archivePrunedAt: true } } } }),
+      prisma.session.findUnique({ where: { id: sessionBId }, include: { crawlRun: { select: { archivePrunedAt: true } } } }),
     ]);
 
     if (!sessionA) {
@@ -51,6 +51,14 @@ export async function POST(request: NextRequest) {
         { error: `Session B is not complete (status: ${sessionB.status})` },
         { status: 400 }
       );
+    }
+
+    // C5: degraded diffs are refused — diffCrawls coalesces missing numerics
+    // with ?? 0, so a full-vs-degraded diff would fabricate false deltas.
+    const aPruned = !sessionA.result && !!sessionA.crawlRun?.archivePrunedAt;
+    const bPruned = !sessionB.result && !!sessionB.crawlRun?.archivePrunedAt;
+    if (aPruned || bPruned) {
+      return NextResponse.json({ error: 'session_archived' }, { status: 409 });
     }
 
     let resultA: AggregatedResult;

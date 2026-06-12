@@ -1,13 +1,38 @@
 // lib/findings/types.ts
 //
-// The in-memory row bundle every mapper produces and the writer persists.
+// THE source-agnostic crawl-ingestion contract (C5). An "adapter" is any
+// producer of crawl data — the SF-CSV pipeline (parsers + aggregator +
+// seo-mapper) is adapter #1; the C6 live scan becomes adapter #2. Every
+// adapter produces one FindingsBundle per run and persists it via
+// writeFindingsRun() — fire-and-forget AFTER its legacy commit (or as its
+// only write for blob-less sources).
+//
+// Adapter rules (all enforced by convention + parity, not the compiler):
+// - URLs: every CrawlPageInput.url and page-scope FindingInput.url goes
+//   through normalizeFindingUrl(); pages dedupe keep-first by normalized URL.
+// - Dedup keys: runFindingKey(type) / pageFindingKey(type, url) from
+//   keys.ts — never hand-rolled.
+// - Severity vocabulary: exactly critical | warning | notice.
+// - Issue shape: one run-scope finding per type (count + detail JSON
+//   {description}) plus page-scope findings per affected URL carrying
+//   affectedComplete/affectedSource.
+// - Score: the adapter computes it; CrawlRun.score is the canonical
+//   cross-source score (readers never depend on origin-row scores).
+// - Origin: exactly ONE origin FK (writer-enforced). Origin FKs are each
+//   @unique — one CrawlRun per origin row. C6 NOTE: a live-SEO run sharing
+//   a SiteAudit origin with the ADA run requires removing @unique from
+//   siteAuditId, adding @@unique([siteAuditId, tool]), and re-keying
+//   writer.ts + every findUnique({ where: { siteAuditId } }) reader to
+//   { siteAuditId, tool } — that migration ships IN the C6 PR that
+//   introduces the second run, before any live-scan dual-write.
+//
 // Ids are pre-generated (crypto.randomUUID) so rows can cross-reference
 // before insert — createMany cannot return ids.
 
 export interface CrawlRunInput {
   id: string
   tool: 'seo-parser' | 'ada-audit'
-  source: 'sf-upload' | 'site-audit' | 'page-audit'
+  source: 'sf-upload' | 'site-audit' | 'page-audit' | 'live-scan'
   domain: string | null
   clientId: number | null
   sessionId: string | null

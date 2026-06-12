@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { isValidSessionId } from '@/lib/upload-helpers';
 import { AggregatedResult, Issue } from '@/lib/types';
 import { formatPriorityMarkdown } from '@/lib/services/priority.service';
+import { loadArchivedSeoResult } from '@/lib/findings/seo-findings-fallback';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,9 @@ function generateMarkdownSections(result: AggregatedResult): string[] {
     '',
     `- **Total URLs:** ${cs.total_urls}`,
   ];
+  if (result.archived) {
+    summaryLines.splice(2, 0, '> **Archived session** — full report data was pruned after 90 days; this export is rebuilt from the findings database (reduced data).', '');
+  }
   if (cs.indexable_urls !== undefined) {
     summaryLines.push(`- **Indexable:** ${cs.indexable_urls}`);
     summaryLines.push(`- **Non-Indexable:** ${cs.non_indexable_urls}`);
@@ -162,11 +166,19 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    if (session.status !== 'complete' || !session.result) {
+    if (session.status !== 'complete') {
       return NextResponse.json({ error: 'Parsing not complete' }, { status: 400 });
     }
 
-    const result = JSON.parse(session.result) as AggregatedResult;
+    let result: AggregatedResult | null = null;
+    if (session.result) {
+      result = JSON.parse(session.result) as AggregatedResult;
+    } else {
+      result = await loadArchivedSeoResult(sessionId); // C5: degraded export
+    }
+    if (!result) {
+      return NextResponse.json({ error: 'Parsing not complete' }, { status: 400 });
+    }
 
     if (format === 'json') {
       const stream = makeJsonStream(filterResultForExport(result));
@@ -198,6 +210,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         })),
         recommendations: result.recommendations.slice(0, 5),
         metadata: result.metadata,
+        archived: result.archived ?? false,
       };
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
