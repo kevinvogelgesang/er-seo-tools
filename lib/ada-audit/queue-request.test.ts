@@ -41,7 +41,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-fresh.example',
       42,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null },
     )
   })
 
@@ -83,7 +83,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-norm.example',
       null,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null },
     )
   })
 
@@ -110,6 +110,18 @@ describe('queueSiteAuditRequest', () => {
     expect(opts.preDiscoveredUrls).toContain('https://qr-test-seed.example/')
     expect(opts.preDiscoveredUrls).toContain('https://qr-test-seed.example/about/')
     await prisma.client.delete({ where: { id: client.id } })
+  })
+
+  it('passes scheduleId through to enqueueAudit (C2)', async () => {
+    const r = await queueSiteAuditRequest({
+      domain: 'qr-test-sched.example',
+      clientId: null,
+      wcagLevel: 'wcag21aa',
+      scheduleId: 'sched-abc',
+    })
+    expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
+    const [, , , opts] = vi.mocked(queueManager.enqueueAudit).mock.calls[0]
+    expect(opts.scheduleId).toBe('sched-abc')
   })
 
   it('does NOT use seedUrls when preDiscoveredUrls is explicitly provided', async () => {

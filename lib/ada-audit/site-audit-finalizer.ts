@@ -17,6 +17,7 @@
 import { prisma } from '@/lib/db'
 import { buildSiteAuditSummary } from './site-audit-helpers'
 import { closeBatchIfDrained } from './audit-batch-helpers'
+import { carryForwardSiteAuditChecks } from './carry-forward-checks'
 import { mapAdaChildren } from '@/lib/findings/ada-mapper'
 import { writeFindingsRun } from '@/lib/findings/writer'
 
@@ -96,6 +97,13 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
   } catch (e) {
     console.warn('[site-audit-finalizer] processNext kick failed:', (e as Error).message)
   }
+
+  // Carry triage checks forward from the previous completed same-domain
+  // audit (C2). Fire-and-forget; invoked before the findings hook so the
+  // findings hook stays LAST. Disjoint tables — overlap is harmless.
+  void carryForwardSiteAuditChecks(id).catch((e) => {
+    console.error('[checks] carry-forward failed for site audit', id, e)
+  })
 
   // Dual-write the normalized findings run (A2 Phase 2). Fire-and-forget and
   // best-effort: must never delay or fail the legacy completion side effects

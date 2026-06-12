@@ -9,6 +9,11 @@ vi.mock('@/lib/ada-audit/audit-batch-helpers', () => ({
 vi.mock('@/lib/ada-audit/queue-manager', () => ({
   processNext: vi.fn(async () => undefined),
 }))
+// C2: neutralize the carry-forward completion hook so these tests don't hit
+// the real module (ordering/isolation is covered in the .findings test file).
+vi.mock('@/lib/ada-audit/carry-forward-checks', () => ({
+  carryForwardSiteAuditChecks: vi.fn(async () => undefined),
+}))
 
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('./site-audit-finalizer')

@@ -90,7 +90,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     }),
     prisma.siteAudit.findMany({
       where: { clientId },
-      select: { id: true, domain: true, status: true, pagesTotal: true, createdAt: true, completedAt: true },
+      select: { id: true, domain: true, status: true, pagesTotal: true, createdAt: true, completedAt: true, scheduleId: true },
     }),
     prisma.adaAudit.findMany({
       where: { clientId, siteAuditId: null },
@@ -169,7 +169,8 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
   }
   for (const a of siteAudits) {
     timeline.push({
-      type: 'site-audit', id: a.id, title: a.domain, status: a.status,
+      // C2: schedule-originated audits are tagged in the timeline title.
+      type: 'site-audit', id: a.id, title: a.scheduleId ? `${a.domain} · scheduled` : a.domain, status: a.status,
       date: a.createdAt.toISOString(), href: `/ada-audit/site/${a.id}`,
       stat: a.pagesTotal > 0 ? `${a.pagesTotal} pages` : null,
     })

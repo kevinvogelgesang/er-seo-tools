@@ -72,6 +72,8 @@ export async function processNext() {
 export interface EnqueueAuditOptions {
   preDiscoveredUrls?: string[]
   requestedBy?: string | null
+  /** C2: set when a Schedule row created this audit — attribution + retention marker. */
+  scheduleId?: string | null
 }
 
 /**
@@ -88,7 +90,7 @@ export async function enqueueAudit(
   wcagLevel: string,
   opts: EnqueueAuditOptions = {},
 ): Promise<{ id: string; status: string }> {
-  const { requestedBy } = opts
+  const { requestedBy, scheduleId } = opts
   // Dedupe up front: pagesTotal must equal the number of UNIQUE children the
   // discover handler will fan out (the (siteAuditId,url) index collapses
   // duplicates). Written together with discoveredUrls so the finalizer's
@@ -111,6 +113,7 @@ export async function enqueueAudit(
       pagesTotal: preDiscoveredUrls ? preDiscoveredUrls.length : 0,
       batchId,
       requestedBy: requestedBy ?? null,
+      scheduleId: scheduleId ?? null,
     },
   })
 

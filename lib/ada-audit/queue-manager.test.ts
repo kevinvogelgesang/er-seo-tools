@@ -231,3 +231,24 @@ describe('standalone recovery wiring (C1)', () => {
     await expect(recoverQueue()).resolves.toBeUndefined()
   })
 })
+
+describe('enqueueAudit scheduleId attribution (C2)', () => {
+  it('creates the SiteAudit with scheduleId set at birth (not a follow-up update)', async () => {
+    const { enqueueAudit } = await import('./queue-manager')
+    const sched = await prisma.schedule.create({
+      data: {
+        jobType: 'scheduled-site-audit',
+        cadence: 'weekly:1@06:00',
+        payload: '{}',
+        nextRunAt: new Date('2099-01-01T00:00:00Z'),
+      },
+    })
+    const { id } = await enqueueAudit(`${PREFIX}born.example.edu`, null, 'wcag21aa', {
+      scheduleId: sched.id,
+    })
+    const audit = await prisma.siteAudit.findUnique({ where: { id }, select: { scheduleId: true } })
+    expect(audit?.scheduleId).toBe(sched.id)
+    await prisma.siteAudit.delete({ where: { id } })
+    await prisma.schedule.delete({ where: { id: sched.id } })
+  })
+})

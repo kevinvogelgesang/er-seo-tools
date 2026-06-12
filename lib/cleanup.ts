@@ -5,6 +5,7 @@ import { getUploadDir, isValidSessionId, UPLOADS_DIR } from '@/lib/upload-helper
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers';
 import { cleanOldTerminalJobs } from '@/lib/jobs/retention';
 import { pruneArchivedBlobs } from '@/lib/findings/retention';
+import { pruneScheduledSiteAudits } from '@/lib/ada-audit/scheduled-retention';
 
 /** Parsed sessions and their data are kept for 180 days. */
 const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -28,6 +29,7 @@ export async function runCleanup(): Promise<void> {
     cleanExpiredScreenshots(),
     cleanOldTerminalJobs(),
     pruneArchivedBlobs(),
+    pruneScheduledSiteAudits(),
   ]);
   logSettledFailures('[cleanup] Cleanup task failed', results);
 }

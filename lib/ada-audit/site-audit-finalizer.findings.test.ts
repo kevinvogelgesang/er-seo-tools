@@ -15,7 +15,7 @@ vi.mock('@/lib/ada-audit/queue-manager', () => ({
 // vi.mock factories are hoisted above module scope — a plain `let` would be
 // in the temporal dead zone when the factory runs. vi.hoisted is the
 // sanctioned escape hatch for mutable mock state.
-const state = vi.hoisted(() => ({ failWrites: false }))
+const state = vi.hoisted(() => ({ failWrites: false, failCarryForward: false }))
 vi.mock('@/lib/findings/writer', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/lib/findings/writer')>()
   return {
@@ -25,10 +25,19 @@ vi.mock('@/lib/findings/writer', async (importOriginal) => {
     }),
   }
 })
+// C2: carry-forward is the other fire-and-forget completion hook — mocked
+// failure-injectable here so ordering + isolation can be asserted.
+vi.mock('@/lib/ada-audit/carry-forward-checks', () => ({
+  carryForwardSiteAuditChecks: vi.fn(async () => {
+    if (state.failCarryForward) throw new Error('injected carry-forward failure')
+  }),
+}))
 
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('./site-audit-finalizer')
 const { processNext } = await import('@/lib/ada-audit/queue-manager')
+const { carryForwardSiteAuditChecks } = await import('./carry-forward-checks')
+const { writeFindingsRun } = await import('@/lib/findings/writer')
 
 const DOMAIN_PREFIX = 'finalize-findings-'
 
@@ -71,7 +80,10 @@ async function makeDrainedAudit() {
 describe('finalizeSiteAudit — findings dual-write hook', () => {
   beforeEach(async () => {
     state.failWrites = false
+    state.failCarryForward = false
     vi.mocked(processNext).mockClear()
+    vi.mocked(carryForwardSiteAuditChecks).mockClear()
+    vi.mocked(writeFindingsRun).mockClear()
     await clearTestState()
   })
 
@@ -106,6 +118,27 @@ describe('finalizeSiteAudit — findings dual-write hook', () => {
     // give the rejected write a tick to surface if it were going to throw
     await new Promise((r) => setTimeout(r, 50))
     expect(await prisma.crawlRun.count({ where: { siteAuditId: site.id } })).toBe(0)
+  })
+
+  it('invokes carry-forward on completion, before the findings hook (C2)', async () => {
+    const site = await makeDrainedAudit()
+    await finalizeSiteAudit(site.id)
+    expect(carryForwardSiteAuditChecks).toHaveBeenCalledWith(site.id)
+    const cfOrder = vi.mocked(carryForwardSiteAuditChecks).mock.invocationCallOrder[0]
+    const findingsOrder = vi.mocked(writeFindingsRun).mock.invocationCallOrder[0]
+    expect(cfOrder).toBeLessThan(findingsOrder)
+  })
+
+  it('a carry-forward rejection never affects completion or the findings write (C2)', async () => {
+    state.failCarryForward = true
+    const site = await makeDrainedAudit()
+    await finalizeSiteAudit(site.id)
+    const after = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(after?.status).toBe('complete')
+    // findings write still lands
+    await vi.waitFor(async () => {
+      expect(await prisma.crawlRun.count({ where: { siteAuditId: site.id } })).toBe(1)
+    })
   })
 
   it('does not write a run for a non-drained audit', async () => {

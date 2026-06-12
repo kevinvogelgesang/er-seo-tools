@@ -4,6 +4,8 @@
 // scheduled-scan line, Edit link. Read-only (Phase 1a) — editing lives at
 // /clients/manage.
 
+const JOB_TYPE_LABELS: Record<string, string> = { 'scheduled-site-audit': 'site audit' }
+
 export interface ClientHeaderProps {
   name: string
   domains: string[]
@@ -60,7 +62,7 @@ export function ClientHeader({ name, domains, seedUrls, teamworkTasklistId, sche
       <p className="mt-1.5 text-xs text-gray-400 dark:text-white/40">
         {schedules.length === 0
           ? 'No scheduled scans'
-          : `Scheduled: ${schedules.map((s) => `${s.jobType} (${s.cadence})`).join(' · ')}`}
+          : `Scheduled: ${schedules.map((s) => `${JOB_TYPE_LABELS[s.jobType] ?? s.jobType} (${s.cadence})`).join(' · ')}`}
       </p>
     </div>
   )

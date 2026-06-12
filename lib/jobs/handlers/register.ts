@@ -13,6 +13,7 @@ import { registerAdaAuditHandler } from './ada-audit'
 import { registerCleanupHandler } from './cleanup'
 import { registerScreenshotSweepHandler } from './screenshot-sweep'
 import { registerStaleAuditResetHandler } from './stale-audit-reset'
+import { registerScheduledSiteAuditHandler } from './scheduled-site-audit'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
@@ -23,4 +24,5 @@ export function registerBuiltInJobHandlers(): void {
   registerCleanupHandler()
   registerScreenshotSweepHandler()
   registerStaleAuditResetHandler()
+  registerScheduledSiteAuditHandler()
 }
