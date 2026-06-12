@@ -1,6 +1,6 @@
 # C3 — ADA run-over-run diffing + regression surfacing + blob-archive activation
 
-**Date:** 2026-06-12 · **Status:** spec (pre-Codex)
+**Date:** 2026-06-12 · **Status:** Codex-reviewed (accept-with-named-fixes ×6, all applied)
 **Roadmap:** Track C item C3 (`docs/superpowers/nyi/improvement-roadmaps/02-ada-audit.md` Phase 3) · needs A2 ✓
 **Tracker:** `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md`
 
@@ -183,13 +183,17 @@ severity pill; current-run severity always wins when both exist.
 
 The same service exposes `getRunPairInstanceDiff(currentRunId, previousRunId)`
 (steps 3–4 only) for callers that already selected the pair:
+- **wcagLevel comparability is enforced here, for every caller** (Codex fix
+  #1): if the two runs' `wcagLevel` differ, the function returns `null`
+  (not comparable) — instance counts are simply omitted on that surface.
+  B2's type-level chips stay level-agnostic as shipped; instance-level
+  counts never render across a level mismatch.
 - `client-findings.ts` (dashboard): B2's `selectRuns()` already picked
-  current+previous ADA site runs — reuse that pair as-is (B2's selection
-  ignores wcagLevel; the dashboard line inherits that existing semantics
-  rather than silently disagreeing with the type-level chips next to it).
+  current+previous ADA site runs — reuse that pair; the clause is omitted
+  when the pair's levels differ or either run lacks findings.
 - `client-schedules.ts` (card): the last two completed scheduled audits per
   schedule (the same pair the score Δ uses), via their CrawlRuns; either run
-  missing findings → chips omitted.
+  missing findings or levels differing → chips omitted.
 
 ## 5. Blob-archive activation (reader flips)
 
@@ -201,15 +205,23 @@ and standalone audits. Null = unknown (all pre-C3 runs); UI renders "—".
 `scripts/findings-rebuild.ts` picks the new fields up automatically (it goes
 through the same mapper) for any run whose origin blob still exists.
 
+Full mapping surface (Codex fix #5): `prisma/schema.prisma`, the findings
+bundle types (`lib/findings/types.ts`), **both** ADA mapper paths
+(`mapAdaChildren` + `mapAdaSingle`), `lib/findings/writer.ts` (page create
+data), and `lib/findings/parity.ts` (compare passCount/incompleteCount
+against the blob when both sides are present; skip when null).
+
 ### 5.2 `buildSummaryFromFindings(siteAuditId)` — degraded `SiteAuditSummary`
 New module `lib/ada-audit/findings-fallback.ts` (houses both § 5.2 and § 5.3
 builders). Input: a complete
 `SiteAudit` whose `summary` is null but whose `CrawlRun` exists. Builds:
 - `pages[]`: one `SitePageResult` per `CrawlPage` (url, status mapped back,
   `adaAuditId` drill-through, scorecard from that page's `Violation` impact
-  counts; in the archived path `scorecard.passed`/`scorecard.incomplete` are
-  widened to `number | null` (null = unknown pre-C3 run, rendered "—" —
-  never coerced to 0), `violationIds` from its Violations' ruleIds, lighthouse parsed
+  counts — the numeric `AuditScorecard` shape is untouched; unknown
+  passed/incomplete are carried in a separate per-page (and aggregate)
+  `archivedCounts: { passed: number | null; incomplete: number | null }`
+  that drives "—" rendering, never coerced to a literal 0 (see § 5.3 render
+  contract, Codex fix #4), `violationIds` from its Violations' ruleIds, lighthouse parsed
   from the child `AdaAudit.lighthouseSummary` (separate column, never
   pruned), pdf state recomputed from the child's `PdfAudit` rows — same
   logic as `buildSiteAuditSummary`, extracted/shared where cheap).
@@ -240,10 +252,19 @@ it), load its `Violation` rows, synthesize:
   passes: [], incomplete: [], archived: true,
   archivedCounts: { passed: passCount ?? null, incomplete: incompleteCount ?? null } }
 ```
-Consumers (`AuditResultsView`, the SiteAuditResultsView page-expansion)
-branch on `archived`: banner, no screenshots (degraded nodes carry no
-`screenshotPath`), passes/incomplete chips show counts or "—", no
-domElementCount reliability warning. Triage-check rendering degrades
+**Render contract (Codex fixes #3/#4):** the shared `AuditScorecard` type
+(`lib/ada-audit/types.ts`) and `addScorecards()` stay strictly numeric —
+no half-widening. Archived builders emit the numeric scorecard with known
+values (or 0) **plus** a separate nullable
+`archivedCounts: { passed: number | null; incomplete: number | null }`
+(on the synthesized result in § 5.3; per-page and aggregate on the § 5.2
+summary). `StoredAxeResults` gains optional `archived` /`archivedCounts`
+fields; `AuditResultsView.buildScorecard()` is bypassed (or short-circuited)
+when `archived` is set so `archivedCounts` drives the display — `passes: []`
+must never render as a literal `0`. Consumers branch on `archived`: banner,
+no screenshots (degraded nodes carry no `screenshotPath`), passed/incomplete
+render the archived count or "—" when null, no domElementCount reliability
+warning. Triage-check rendering degrades
 gracefully: check keys are content hashes of full node HTML, which capped
 nodes won't reproduce — checks simply don't attach on archived audits
 (documented; checks are an analyst workflow for fresh audits).
@@ -261,6 +282,9 @@ nodes won't reproduce — checks simply don't attach on archived audits
 | `GET /api/ada-audit` (list counts/score) | parses each `result` | prefer `crawlRun.score`; blob fallback pre-A2 |
 | `GET /api/ada-audit/[id]` | returns parsed `result` | null result + complete + page row exists → `buildArchivedAxeResults` |
 | `/ada-audit/[id]` page + `/ada-audit/share/[token]` | parse `result` directly | same fallback + archived banner |
+| `/ada-audit/[id]` `?from=` previous-score lookup (page.tsx selects the baseline audit's `result` + `wcagLevel`) | parses previous blob for the comparison score | prefer the baseline's `crawlRun.score`; blob parse fallback pre-A2 (Codex fix #2) |
+| Recents **consumers** — `/ada-audit` page, `/ada-audit/recents`, `GET /api/ada-audit/recents` | render `recents-query.ts` output | no code change beyond the query flip above; pinned by tests so a future consumer doesn't re-add a blob parse (Codex fix #2) |
+| `SiteAuditResultsView` page-row expansion → `GET /api/ada-audit/[id]` | the main child-blob reader | covered by that route's fallback; pinned by an explicit pruned-child expansion test (Codex fix #2) |
 | In-flight live-children, finalize-time `buildSiteAuditSummary`/`detectCommonIssues`, PDF dispatch | fresh blobs | **unchanged** — blobs are always present within 90 days; pruning never touches non-terminal or recent rows |
 | `lib/findings/parity.ts` / rebuild script | read blobs | unchanged; pruned runs are no longer parity-checkable/rebuildable (inherent to archiving, accepted in A2 Phase 4) |
 
@@ -270,10 +294,14 @@ In `pruneArchivedBlobs()`'s ada-audit pass, per chunk:
   `archivePrunedAt` (one array-form `$transaction`).
 - **added to the same transaction:** `adaAudit.updateMany({ where:
   { siteAuditId: { in: siteAuditIds } }, data: { result: null } })`.
-- **after the transaction commits (best-effort, allSettled, logged):**
-  `deleteAuditArtifacts()` for each affected child + standalone audit id
-  (screenshots are referenced only by `screenshotPath` strings inside the
-  blobs being nulled; keeping them would orphan disk forever).
+- **snapshot-based artifact deletion (Codex fix #6):** the affected child +
+  standalone audit IDs are collected with a query **before** the
+  transaction; after the transaction commits, `deleteAuditArtifacts()` runs
+  best-effort (`Promise.allSettled`, failures logged, never thrown) over
+  that snapshot only — never a directory sweep, so screenshots of recent /
+  non-pruned / in-flight audits can't be touched (pinned by test).
+  Screenshots are referenced only by `screenshotPath` strings inside the
+  blobs being nulled; keeping them would orphan disk forever.
 - flip `PRUNE_ACTIVATED['ada-audit'] = true` — same PR as all reader flips
   above, honoring the A1/A2 pattern. (`'seo-parser'` stays false; its last
   blob readers are C5's business.)
@@ -312,7 +340,8 @@ findings rows only exist since 2026-06-10; runs become eligible from
 - **Service (DB-backed, house test rules: unique domain prefixes, tracked-id
   cleanup, CrawlRun cleaned by domain before origin rows):**
   previous-run selection (domain match, wcagLevel match, id-desc tie-break,
-  no-previous, pre-A2 no-run), pair diff for schedules/dashboard reuse.
+  no-previous, pre-A2 no-run), pair diff for schedules/dashboard reuse,
+  **level-mismatched pair → null on every caller** (Codex fix #1).
 - **Fallback builders:** summary-from-findings vs a real
   `buildSiteAuditSummary` output on the same seeded audit (scorecard counts,
   violationIds, pdf/lighthouse passthrough, commonIssues counts exact +
@@ -322,7 +351,11 @@ findings rows only exist since 2026-06-10; runs become eligible from
   summaries kept, screenshots artifact call made per child (mocked fs),
   flip-on behavior, seo-parser still inert, recent rows untouched.
 - **Routes:** each flipped surface — blob present (unchanged behavior), blob
-  pruned (fallback served), pre-A2 (no run: legacy/unavailable copy),
+  pruned (fallback served), pre-A2 (no run: legacy/unavailable copy);
+  explicit cases for the `?from=` previous-score lookup, the recents
+  consumers (pinning no-blob-parse), the pruned-child page-row expansion,
+  and the archivedCounts render contract (empty `passes` never renders as
+  literal 0),
   middleware untouched (no new public routes — all new data flows through
   existing cookie-gated surfaces and server components; pin with the
   existing middleware test conventions if any new route is added).
@@ -352,10 +385,11 @@ findings rows only exist since 2026-06-10; runs become eligible from
 - **Sitemap churn noise:** pages entering/leaving the crawl shift counts
   between new-page/not-rescanned buckets rather than polluting
   regressed/resolved — that is the point of D1's page-set awareness.
-- **wcagLevel divergence between the results-page diff (level-matched) and
-  B2's dashboard type chips (level-agnostic):** documented; dashboard
-  instance clause deliberately follows B2's pair to stay internally
-  consistent (§ 4.2).
+- **wcagLevel divergence:** B2's *type-level* chips stay level-agnostic as
+  shipped, but *instance-level* counts never render across a level mismatch
+  on any surface — `getRunPairInstanceDiff` returns `null` for mismatched
+  pairs (§ 4.2, Codex fix #1). A client who switches audit level simply sees
+  no instance clause until two same-level runs exist.
 - **Degraded archived views:** capped nodes (5), no screenshots, no triage
   checks, "—" pass counts for pre-C3 runs. Accepted: these are >90-day-old
   audits whose full-fidelity window has passed; violations data is exact.
