@@ -333,8 +333,10 @@ export function buildSeoResultFromRun(
       health_score: run.score ?? undefined,
     },
     archived: true,
-    // completeness intentionally ABSENT (Codex fix #4): callers must not
-    // recompute it on degraded data — the archived banner replaces it.
+    // completeness intentionally ABSENT — the resolved contract (plan-review
+    // fix #1): the builder NEVER sets a completeness verdict; ResultsView
+    // suppresses its computeCompleteness() recompute when result.archived
+    // (Task 3). The archived banner replaces the completeness banner.
   }
 }
 
@@ -827,15 +829,15 @@ beforeAll(async () => {
   await prisma.session.create({ data: { id: A2_ID, files: '[]', status: 'complete', result: null, siteName: DOMAIN, totalUrls: 7, workflow: 'technical' } })
   await prisma.crawlRun.create({ data: { id: 'c5hi-run-1', tool: 'seo-parser', source: 'sf-upload', domain: DOMAIN, sessionId: A2_ID, status: 'complete', score: 91, pagesTotal: 7, completedAt: new Date() } })
   // pre-A2-shaped session: no CrawlRun, blob carries the score
-  await prisma.session.create({ data: { id: PRE_A2_ID, files: '[]', status: 'complete', siteName: DOMAIN, workflow: 'technical', result: JSON.stringify({ metadata: { health_score: 55, total_urls: 3 } }) } })
+  await prisma.session.create({ data: { id: PRE_A2_ID, files: '[]', status: 'complete', siteName: DOMAIN, workflow: 'technical', result: JSON.stringify({ crawl_summary: { total_urls: 3 }, metadata: { health_score: 55 } }) } })
 })
 afterAll(cleanup)
 
 describe('GET /api/parse/history', () => {
   it('serves healthScore from CrawlRun.score and urlCount from Session.totalUrls', async () => {
     const res = await GET()
-    const body = await res.json()
-    const a2 = body.sessions.find((s: { id: string }) => s.id === A2_ID)
+    const body = await res.json() // the route returns a BARE ARRAY (plan-review fix #2)
+    const a2 = body.find((s: { id: string }) => s.id === A2_ID)
     expect(a2.healthScore).toBe(91)
     expect(a2.urlCount).toBe(7)
   })
@@ -843,7 +845,7 @@ describe('GET /api/parse/history', () => {
   it('keeps the blob fallback for pre-A2 sessions', async () => {
     const res = await GET()
     const body = await res.json()
-    const legacy = body.sessions.find((s: { id: string }) => s.id === PRE_A2_ID)
+    const legacy = body.find((s: { id: string }) => s.id === PRE_A2_ID)
     expect(legacy.healthScore).toBe(55)
     expect(legacy.urlCount).toBe(3)
   })
@@ -872,8 +874,11 @@ In `app/api/parse/history/route.ts`, add to the `select`: `totalUrls: true, craw
             const r = JSON.parse(s.result);
             healthScore = typeof r?.healthScore === 'number' ? r.healthScore :
                           typeof r?.metadata?.health_score === 'number' ? r.metadata.health_score : undefined;
-            urlCount = urlCount ?? (typeof r?.summary?.totalUrls === 'number' ? r.summary.totalUrls :
-                       typeof r?.metadata?.total_urls === 'number' ? r.metadata.total_urls : undefined);
+            // crawl_summary.total_urls is the REAL AggregatedResult shape (plan-review fix #3)
+            urlCount = urlCount ??
+                       (typeof r?.crawl_summary?.total_urls === 'number' ? r.crawl_summary.total_urls :
+                        typeof r?.summary?.totalUrls === 'number' ? r.summary.totalUrls :
+                        typeof r?.metadata?.total_urls === 'number' ? r.metadata.total_urls : undefined);
           }
         } catch { /* ignore */ }
       }
@@ -911,9 +916,11 @@ import { NextRequest } from 'next/server'
 
 const FRESH_ID = '44444444-4444-4444-8444-c5a000000005'
 const ARCHIVED_ID = '44444444-4444-4444-8444-c5a000000006'
+const DOMAIN = 'c5df-diff.example.com'
 const BLOB = JSON.stringify({ crawl_summary: { total_urls: 1 }, issues: { critical: [], warnings: [], notices: [] }, metadata: {} })
 
 async function cleanup() {
+  await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
   await prisma.session.deleteMany({ where: { id: { in: [FRESH_ID, ARCHIVED_ID] } } })
 }
 
@@ -921,6 +928,8 @@ beforeAll(async () => {
   await cleanup()
   await prisma.session.create({ data: { id: FRESH_ID, files: '[]', status: 'complete', result: BLOB, workflow: 'technical' } })
   await prisma.session.create({ data: { id: ARCHIVED_ID, files: '[]', status: 'complete', result: null, workflow: 'technical' } })
+  // session_archived requires the prune stamp (plan-review fix #4)
+  await prisma.crawlRun.create({ data: { id: 'c5df-run-1', tool: 'seo-parser', source: 'sf-upload', domain: DOMAIN, sessionId: ARCHIVED_ID, status: 'complete', pagesTotal: 0, archivePrunedAt: new Date() } })
 })
 afterAll(cleanup)
 
@@ -951,12 +960,18 @@ Expected: archived case FAIL (today: JSON.parse('') throws → 500).
 
 - [ ] **Step 3: Implement**
 
-In `app/api/diff/route.ts`, after the two status-complete checks and BEFORE the parse blocks:
+In `app/api/diff/route.ts`, widen both session loads to include
+`crawlRun: { select: { archivePrunedAt: true } }`, then after the two
+status-complete checks and BEFORE the parse blocks (plan-review fix #4 —
+`session_archived` requires the prune stamp; a null blob WITHOUT the stamp is
+a corrupt/odd row and keeps the existing parse-failure path):
 
 ```ts
     // C5: degraded diffs are refused — diffCrawls coalesces missing numerics
     // with ?? 0, so a full-vs-degraded diff would fabricate false deltas.
-    if (!sessionA.result || !sessionB.result) {
+    const aPruned = !sessionA.result && !!sessionA.crawlRun?.archivePrunedAt;
+    const bPruned = !sessionB.result && !!sessionB.crawlRun?.archivePrunedAt;
+    if (aPruned || bPruned) {
       return NextResponse.json({ error: 'session_archived' }, { status: 409 });
     }
 ```
@@ -1063,17 +1078,25 @@ Expected: FAIL — all three return 400 today.
     }
 ```
 
-For markdown + summary, prepend/flag the archived state. Markdown: wherever the markdown document header is assembled (the first `sections.push(...)`/template-literal header in `generateMarkdownSections`-equivalent code in this file), insert directly after obtaining `result`:
+For markdown + summary, flag the archived state **inside the generator, not
+the GET handler** (plan-review fix #5): in this route file's markdown
+generation function (`generateMarkdownSections` or equivalent — find the
+array of lines that opens with the document title), insert right after the
+title/header lines:
 
 ```ts
-    const archivedNote = result.archived
-      ? '\n> **Archived session** — full report data was pruned after 90 days; this export is rebuilt from the findings database (reduced data).\n'
-      : '';
+  if (result.archived) {
+    lines.splice(2, 0, '> **Archived session** — full report data was pruned after 90 days; this export is rebuilt from the findings database (reduced data).', '');
+  }
 ```
 
-and include `${archivedNote}` right after the title line of the markdown output. Summary: add `archived: result.archived ?? false,` to the summary object.
+(adapt `lines`/index to the function's real local variable; the note must
+land within the first few lines of the document). Summary: add
+`archived: result.archived ?? false,` to the summary object.
 
-`claude/route.ts` — replace the guard:
+`claude/route.ts` — replace the guard (plan-review fix #4: `session_archived`
+only with the prune stamp; widen the select to
+`{ status: true, result: true, crawlRun: { select: { archivePrunedAt: true } } }`):
 
 ```ts
     if (session.status !== 'complete') {
@@ -1081,23 +1104,43 @@ and include `${archivedNote}` right after the title line of the markdown output.
     }
     if (!session.result) {
       // C5: a degraded export would mislead the srt_ memo — refuse explicitly.
-      return NextResponse.json({ error: 'session_archived' }, { status: 409 });
+      const code = session.crawlRun?.archivePrunedAt ? 'session_archived' : 'Parsing not complete';
+      return NextResponse.json({ error: code }, { status: session.crawlRun?.archivePrunedAt ? 409 : 400 });
     }
 ```
 
-(no `crawlRun` lookup needed: complete + null blob ⇒ pruned, because the prune is the only writer that nulls `result` on a complete session).
-
-`app/api/seo-roadmap/[id]/route.ts` (~line 36) and `app/api/keyword-memo/[id]/route.ts` (~line 36) — same one-line semantic upgrade:
+`app/api/seo-roadmap/[id]/route.ts` (~line 36) and
+`app/api/keyword-memo/[id]/route.ts` (~line 36) — add
+`crawlRun: { select: { archivePrunedAt: true } }` to the session include,
+then:
 
 ```ts
-  if (!roadmap.session.result) return NextResponse.json({ error: 'session_archived' }, { status: 409 });
+  if (!roadmap.session.result) {
+    const code = roadmap.session.crawlRun?.archivePrunedAt ? 'session_archived' : 'session_result_missing';
+    return NextResponse.json({ error: code }, { status: 409 });
+  }
 ```
 
 ```ts
-  if (!row.session.result) return NextResponse.json({ error: 'session_archived' }, { status: 409 });
+  if (!row.session.result) {
+    const code = row.session.crawlRun?.archivePrunedAt ? 'session_archived' : 'session_result_missing';
+    return NextResponse.json({ error: code }, { status: 409 });
+  }
 ```
 
-Then update any existing tests asserting `session_result_missing` for these two routes (grep: `grep -rn "session_result_missing" app/ lib/ --include="*.test.*"`) to `session_archived`.
+Existing tests asserting `session_result_missing` for these routes
+(grep: `grep -rn "session_result_missing" app/ lib/ --include="*.test.*"`)
+stay VALID and unchanged (plan-review fix #6) — their fixtures have no pruned
+CrawlRun. Only newly-seeded archived fixtures (with `archivePrunedAt` set)
+assert `session_archived`. In this task's test file, stamp the run after
+writing the bundle:
+
+```ts
+  await prisma.crawlRun.update({ where: { id: 'c5ex-run-1' }, data: { archivePrunedAt: new Date() } })
+```
+
+(add this line at the end of `beforeAll`; `archivePrunedAt` is not part of
+`CrawlRunInput`, so the bundle cannot set it).
 
 - [ ] **Step 4: Run tests + typecheck**
 
@@ -1182,11 +1225,12 @@ git commit -m "feat(c5): archived empty-state on keyword-research page"
 
 ```ts
   if (!session.result) {
-    return { ok: false, errors: ['session result blob is pruned (archived) — parity requires the blob'] }
+    return { ok: false, diffs: ['session result blob is pruned (archived) — parity requires the blob'] }
   }
 ```
 
-(adjust the return shape to the file's actual `ParityReport` type — keep behavior: fail with a clear message instead of a JSON.parse crash).
+(`compareSeoParity()` returns `{ ok, diffs }` — plan-review fix #7; verify
+against the file's actual `ParityReport` type before editing).
 
 - [ ] **Step 2: Typecheck + run the parity test file**
 
@@ -1299,19 +1343,30 @@ git commit -m "test(c5): adapter-readiness pin — live-scan bundle end-to-end +
 
 Run: `grep -n "seo-parser" lib/findings/retention.test.ts`
 
-- [ ] **Step 2: Write/adjust the failing test**
+- [ ] **Step 2: Adjust the existing tests — exact edits (plan-review fix #8)**
 
-Add (or convert the inert-flag test into) an active-flag test in `lib/findings/retention.test.ts`, following that file's existing seeding style (unique prefix, tracked ids):
+`lib/findings/retention.test.ts` already contains BOTH behaviors, gated by
+explicit `activated` overrides (the file tests `pruneArchivedBlobs(now,
+activated)` with `{ 'seo-parser': true/false, ... }` arguments). The flag
+flip changes only the DEFAULT. Make exactly these edits:
+
+1. Find every test that calls `pruneArchivedBlobs(now)` with NO `activated`
+   argument (default-flags tests). Any such test that seeds a >90-d
+   seo-parser run and asserts its `Session.result` SURVIVES must now assert
+   it is PRUNED (`result === null`, scalars kept, `archivePrunedAt` stamped).
+2. Any test named like "gated-off no-op" that relies on the default flags for
+   seo-parser must pass an explicit `{ 'seo-parser': false, 'ada-audit': false }`
+   override instead (the gated-off behavior itself remains covered).
+3. Add ONE new default-flags test if none exists after edit 1:
 
 ```ts
-  it('prunes seo-parser Session.result blobs >90d, keeps scalars, stamps archivePrunedAt', async () => {
-    // seed: Session with result blob + CrawlRun completedAt 91 days ago (file's existing helpers/style)
-    // run: await pruneArchivedBlobs(now)  — default PRUNE_ACTIVATED (now active for seo-parser)
-    // assert: session.result === null, session.totalUrls unchanged, crawlRun.archivePrunedAt !== null
+  it('default flags: prunes seo-parser blobs >90d (C5 activation)', async () => {
+    // copy the file's existing explicit seo-parser-activated test verbatim,
+    // remove its `activated` override argument so it exercises PRUNE_ACTIVATED,
+    // and rename — same seeds, same assertions (result null, totalUrls kept,
+    // archivePrunedAt stamped).
   })
 ```
-
-(Write the real seed code in the file's established pattern — the ada-audit activation tests from C3 in the same file are the template; copy one and swap the tool/origin to a Session.)
 
 - [ ] **Step 3: Flip the flag**
 
