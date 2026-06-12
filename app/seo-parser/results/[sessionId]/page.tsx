@@ -4,6 +4,7 @@ import { ResultsView } from '@/components/seo-parser/ResultsView';
 import { SeoRoadmapCard } from '@/components/seo-parser/SeoRoadmapCard';
 import PillarAnalysisButton from './components/PillarAnalysisButton';
 import { parseStoredResult } from './result-json';
+import { loadArchivedSeoResult } from '@/lib/findings/seo-findings-fallback';
 import type { Metadata } from 'next';
 
 type Props = { params: Promise<{ sessionId: string }> };
@@ -49,7 +50,7 @@ export default async function ResultsPage({ params }: Props) {
   }
 
   // Parsing not yet complete — show a waiting screen
-  if (session.status !== 'complete' || !session.result) {
+  if (session.status !== 'complete') {
     return (
       <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep flex items-center justify-center px-6">
         <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-10 text-center max-w-md">
@@ -89,26 +90,31 @@ export default async function ResultsPage({ params }: Props) {
     );
   }
 
-  const result = parseStoredResult(session.result);
+  // C5: blob-first, findings-fallback (degraded, archived banner) once pruned.
+  const result = (session.result ? parseStoredResult(session.result) : null)
+    ?? await loadArchivedSeoResult(sessionId);
   if (!result) {
     return <ResultErrorState />;
   }
 
-  const rm = await prisma.seoRoadmap.findUnique({ where: { sessionId } });
+  // Archived sessions don't compose memo flows (mint would dead-end on a 409).
+  const rm = result.archived ? null : await prisma.seoRoadmap.findUnique({ where: { sessionId } });
 
   return (
     <ResultsView
       result={result}
       sessionId={sessionId}
-      pillarButton={<PillarAnalysisButton sessionId={sessionId} />}
+      pillarButton={result.archived ? undefined : <PillarAnalysisButton sessionId={sessionId} />}
       roadmap={
-        <SeoRoadmapCard
-          sessionId={sessionId}
-          initialStatus={rm?.status ?? 'none'}
-          initialRoadmapMarkdown={rm?.roadmapMarkdown ?? null}
-          initialRoadmapUpdatedAt={rm?.roadmapUpdatedAt ? rm.roadmapUpdatedAt.toISOString() : null}
-          initialTokenMintedAt={rm?.tokenMintedAt ? rm.tokenMintedAt.toISOString() : null}
-        />
+        result.archived ? undefined : (
+          <SeoRoadmapCard
+            sessionId={sessionId}
+            initialStatus={rm?.status ?? 'none'}
+            initialRoadmapMarkdown={rm?.roadmapMarkdown ?? null}
+            initialRoadmapUpdatedAt={rm?.roadmapUpdatedAt ? rm.roadmapUpdatedAt.toISOString() : null}
+            initialTokenMintedAt={rm?.tokenMintedAt ? rm.tokenMintedAt.toISOString() : null}
+          />
+        )
       }
     />
   );

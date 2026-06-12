@@ -10,6 +10,7 @@ import { buildSessionPages } from '@/lib/services/session-page-builder';
 import { normalizeHost } from '@/lib/services/normalize-host';
 import { missingCoreExports } from '@/lib/parsers/expected-exports';
 import { writeSeoFindings } from '@/lib/findings/seo-write';
+import { loadArchivedSeoResult } from '@/lib/findings/seo-findings-fallback';
 
 export const dynamic = 'force-dynamic';
 
@@ -364,6 +365,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     let result = null;
     try { result = session.result ? JSON.parse(session.result) : null; } catch { result = null; }
+    if (!result) {
+      // C5: blob pruned (90-d archive) — serve the degraded findings-backed result.
+      result = await loadArchivedSeoResult(sessionId);
+    }
     return NextResponse.json({ status: 'complete', result });
   } catch (error) {
     console.error('Get parse result error:', error);
