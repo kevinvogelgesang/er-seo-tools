@@ -7,6 +7,7 @@
 
 import { prisma } from '@/lib/db'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
+import { getRunPairInstanceDiff } from './site-audit-diff'
 
 export interface ClientScheduleRow {
   id: string
@@ -15,7 +16,16 @@ export interface ClientScheduleRow {
   cadence: string
   enabled: boolean
   nextRunAt: string
-  lastRun: { id: string; status: string; completedAt: string | null; score: number | null } | null
+  lastRun: {
+    id: string
+    status: string
+    completedAt: string | null
+    score: number | null
+    /** Instance-diff counts vs the SAME previous audit as lastDelta (C3);
+     *  null when no diffable pair exists (e.g. <2 scored runs, level mismatch). */
+    newCount: number | null
+    resolvedCount: number | null
+  } | null
   /** lastRun score minus the previous completed scheduled run's score; null when <2 scored runs. */
   lastDelta: number | null
 }
@@ -35,11 +45,11 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
       scheduleId: true,
       status: true,
       completedAt: true,
-      crawlRun: { select: { score: true } },
+      crawlRun: { select: { id: true, score: true } },
     },
   })
 
-  return schedules.map((s) => {
+  return Promise.all(schedules.map(async (s) => {
     let domain = ''
     let wcagLevel = 'wcag21aa'
     try {
@@ -51,9 +61,19 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
     const mine = audits.filter((a) => a.scheduleId === s.id)
     const last = mine[0] ?? null
     const lastScore = last?.crawlRun?.score ?? null
-    const prevScore =
-      mine.slice(1).find((a) => a.status === 'complete' && typeof a.crawlRun?.score === 'number')
-        ?.crawlRun?.score ?? null
+    // ONE previous audit drives BOTH the score Δ and the diff chips (Codex
+    // plan-fix #4) — the pairs must never diverge.
+    const prevAudit = mine.slice(1).find(
+      (a) => a.status === 'complete' && typeof a.crawlRun?.score === 'number',
+    ) ?? null
+    const prevScore = prevAudit?.crawlRun?.score ?? null
+    let newCount: number | null = null
+    let resolvedCount: number | null = null
+    if (last?.status === 'complete' && last.crawlRun && prevAudit?.crawlRun) {
+      // Same pair as the score Δ; null on wcagLevel mismatch (spec § 4.2).
+      const diff = await getRunPairInstanceDiff(last.crawlRun.id, prevAudit.crawlRun.id)
+      if (diff) { newCount = diff.newCount; resolvedCount = diff.resolvedCount }
+    }
 
     return {
       id: s.id,
@@ -68,6 +88,8 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
             status: last.status,
             completedAt: last.completedAt?.toISOString() ?? null,
             score: lastScore,
+            newCount,
+            resolvedCount,
           }
         : null,
       lastDelta:
@@ -75,5 +97,5 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
           ? lastScore - prevScore
           : null,
     }
-  })
+  }))
 }

@@ -190,6 +190,16 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
                       {s.lastDelta > 0 ? `▲ ${s.lastDelta}` : `▼ ${Math.abs(s.lastDelta)}`}
                     </span>
                   )}
+                  {((s.lastRun.newCount ?? 0) > 0 || (s.lastRun.resolvedCount ?? 0) > 0) && (
+                    <span title="new / resolved violations vs the previous scheduled run">
+                      {s.lastRun.newCount !== null && s.lastRun.newCount > 0 && (
+                        <span className="ml-1 font-semibold text-red-600 dark:text-red-400">+{s.lastRun.newCount}</span>
+                      )}
+                      {s.lastRun.resolvedCount !== null && s.lastRun.resolvedCount > 0 && (
+                        <span className="ml-1 font-semibold text-green-600 dark:text-green-400">−{s.lastRun.resolvedCount}</span>
+                      )}
+                    </span>
+                  )}
                 </span>
               )}
               <span className="ml-auto flex gap-2">

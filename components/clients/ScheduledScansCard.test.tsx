@@ -8,9 +8,14 @@ import type { ClientScheduleRow } from '@/lib/services/client-schedules'
 const row: ClientScheduleRow = {
   id: 'sched1', domain: 'a.example.edu', wcagLevel: 'wcag21aa',
   cadence: 'weekly:1@06:00', enabled: true, nextRunAt: '2026-06-15T06:00:00.000Z',
-  lastRun: { id: 'audit1', status: 'complete', completedAt: '2026-06-08T06:10:00.000Z', score: 82 },
+  lastRun: {
+    id: 'audit1', status: 'complete', completedAt: '2026-06-08T06:10:00.000Z', score: 82,
+    newCount: null, resolvedCount: null,
+  },
   lastDelta: 12,
 }
+
+const CHIP_TITLE = 'new / resolved violations vs the previous scheduled run'
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ schedules: [] }) }))
@@ -40,6 +45,50 @@ describe('ScheduledScansCard', () => {
     expect(screen.getByText(/complete · 82/)).toBeTruthy()
     expect(screen.getByText('▲ 12')).toBeTruthy()
     expect((screen.getByText(/complete · 82/) as HTMLAnchorElement).getAttribute('href')).toBe('/ada-audit/site/audit1')
+  })
+
+  it('renders +N/−M instance chips with a title when counts are positive', () => {
+    render(
+      <ScheduledScansCard
+        clientId={1}
+        domains={['a.example.edu']}
+        archived={false}
+        initial={[{ ...row, lastRun: { ...row.lastRun!, newCount: 3, resolvedCount: 2 } }]}
+      />,
+    )
+    expect(screen.getByText('+3')).toBeTruthy()
+    expect(screen.getByText('−2')).toBeTruthy()
+    expect(screen.getByTitle(CHIP_TITLE)).toBeTruthy()
+  })
+
+  it('renders only the non-zero chip when the other count is 0', () => {
+    render(
+      <ScheduledScansCard
+        clientId={1}
+        domains={['a.example.edu']}
+        archived={false}
+        initial={[{ ...row, lastRun: { ...row.lastRun!, newCount: 0, resolvedCount: 4 } }]}
+      />,
+    )
+    expect(screen.queryByText('+0')).toBeNull()
+    expect(screen.getByText('−4')).toBeTruthy()
+  })
+
+  it('omits the chips entirely when counts are null or both zero', () => {
+    render(
+      <ScheduledScansCard clientId={1} domains={['a.example.edu']} archived={false} initial={[row]} />,
+    )
+    expect(screen.queryByTitle(CHIP_TITLE)).toBeNull()
+    cleanup()
+    render(
+      <ScheduledScansCard
+        clientId={1}
+        domains={['a.example.edu']}
+        archived={false}
+        initial={[{ ...row, lastRun: { ...row.lastRun!, newCount: 0, resolvedCount: 0 } }]}
+      />,
+    )
+    expect(screen.queryByTitle(CHIP_TITLE)).toBeNull()
   })
 
   it('shows Paused instead of next-run for disabled schedules', () => {
