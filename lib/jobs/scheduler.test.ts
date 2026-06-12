@@ -1,7 +1,7 @@
 // lib/jobs/scheduler.test.ts
 import { describe, it, expect, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
-import { parseCadence, nextRun, tickSchedules } from './scheduler'
+import { parseCadence, nextRun, tickSchedules, cadenceClass } from './scheduler'
 
 async function clearTestState() {
   await prisma.job.deleteMany({ where: { type: { startsWith: 'test-' } } })
@@ -48,6 +48,75 @@ describe('jobs/scheduler', () => {
       expect(nextMon.getTime()).toBeGreaterThan(wed.getTime())
       const sameDayLater = nextRun('weekly:3@23:00', wed)
       expect(sameDayLater.toISOString()).toBe(new Date('2026-06-10T23:00:00').toISOString())
+    })
+  })
+
+  describe('parseCadence — monthly (C2)', () => {
+    it('parses monthly:1@06:00', () => {
+      expect(parseCadence('monthly:1@06:00')).toEqual({ kind: 'monthly', dom: 1, hour: 6, minute: 0 })
+    })
+    it('parses monthly:28@23:59', () => {
+      expect(parseCadence('monthly:28@23:59')).toEqual({ kind: 'monthly', dom: 28, hour: 23, minute: 59 })
+    })
+    it.each(['monthly:0@06:00', 'monthly:29@06:00', 'monthly:31@06:00'])('rejects out-of-range DOM %s', (c) => {
+      expect(() => parseCadence(c)).toThrow()
+    })
+    it('rejects malformed monthly strings', () => {
+      expect(() => parseCadence('monthly:1@6:00')).toThrow()
+      expect(() => parseCadence('monthly@06:00')).toThrow()
+      expect(() => parseCadence('monthly:1@25:00')).toThrow()
+    })
+  })
+
+  describe('nextRun — monthly (C2)', () => {
+    it('advances to the DOM later this month when still ahead', () => {
+      const from = new Date(2026, 5, 5, 10, 0, 0, 0) // June 5 10:00 local
+      const next = nextRun('monthly:15@06:00', from)
+      expect([next.getMonth(), next.getDate(), next.getHours(), next.getMinutes()]).toEqual([5, 15, 6, 0])
+    })
+    it('rolls to next month when the slot already passed', () => {
+      const from = new Date(2026, 5, 20, 10, 0, 0, 0) // June 20
+      const next = nextRun('monthly:15@06:00', from)
+      expect([next.getMonth(), next.getDate()]).toEqual([6, 15]) // July 15
+    })
+    it('same-day later time stays today; same-day earlier time rolls a month', () => {
+      const at5 = new Date(2026, 5, 15, 5, 0, 0, 0)
+      expect(nextRun('monthly:15@06:00', at5).getDate()).toBe(15)
+      expect(nextRun('monthly:15@06:00', at5).getMonth()).toBe(5)
+      const at7 = new Date(2026, 5, 15, 7, 0, 0, 0)
+      expect(nextRun('monthly:15@06:00', at7).getMonth()).toBe(6)
+    })
+    it('rolls across the year boundary', () => {
+      const from = new Date(2026, 11, 20, 10, 0, 0, 0) // Dec 20
+      const next = nextRun('monthly:15@06:00', from)
+      expect([next.getFullYear(), next.getMonth(), next.getDate()]).toEqual([2027, 0, 15])
+    })
+    it('collapses missed slots into one (computed from `from`)', () => {
+      const from = new Date(2026, 5, 20, 10, 0, 0, 0)
+      const next = nextRun('monthly:1@06:00', from)
+      expect([next.getMonth(), next.getDate()]).toEqual([6, 1]) // one run, July 1
+    })
+    it('handles a 31st-of-month `from` without DOM drift', () => {
+      const from = new Date(2026, 6, 31, 10, 0, 0, 0) // July 31
+      const next = nextRun('monthly:15@06:00', from)
+      expect([next.getMonth(), next.getDate()]).toEqual([7, 15]) // Aug 15
+    })
+  })
+
+  describe('cadenceClass (C2)', () => {
+    it.each([
+      ['weekly:1@06:00', 'weekly'],
+      ['monthly:1@06:00', 'monthly'],
+      ['every:7d', 'weekly'],
+      ['every:14d', 'weekly'],
+    ] as const)('%s → %s', (cadence, cls) => {
+      expect(cadenceClass(cadence)).toBe(cls)
+    })
+    it.each(['daily@09:00', 'every:30m', 'every:6d', 'every:1d'])('%s → daily class', (cadence) => {
+      expect(cadenceClass(cadence)).toBe('daily')
+    })
+    it('throws on unparseable cadence', () => {
+      expect(() => cadenceClass('nonsense')).toThrow()
     })
   })
 

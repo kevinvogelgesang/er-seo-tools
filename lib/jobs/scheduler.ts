@@ -17,6 +17,7 @@ export type Cadence =
   | { kind: 'every'; ms: number }
   | { kind: 'daily'; hour: number; minute: number }
   | { kind: 'weekly'; dow: number; hour: number; minute: number }
+  | { kind: 'monthly'; dom: number; hour: number; minute: number }
 
 const UNIT_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 }
 
@@ -40,6 +41,17 @@ export function parseCadence(cadence: string): Cadence {
       minute: parseClock(weekly[3], 59, cadence),
     }
   }
+  const monthly = /^monthly:(\d{1,2})@(\d{2}):(\d{2})$/.exec(cadence)
+  if (monthly) {
+    const dom = Number.parseInt(monthly[1], 10)
+    if (dom < 1 || dom > 28) throw new Error(`Monthly day-of-month must be 1-28: ${cadence}`)
+    return {
+      kind: 'monthly',
+      dom,
+      hour: parseClock(monthly[2], 23, cadence),
+      minute: parseClock(monthly[3], 59, cadence),
+    }
+  }
   throw new Error(`Unrecognized cadence: ${cadence}`)
 }
 
@@ -59,12 +71,39 @@ export function nextRun(cadence: string, from: Date): Date {
     if (next <= from) next.setDate(next.getDate() + 1)
     return next
   }
+  if (c.kind === 'monthly') {
+    // setDate(dom) before the loop can land in this month or — when `from`
+    // is e.g. the 31st — overflow into next month; the loop then settles on
+    // the first slot strictly after `from`. DOM ≤ 28 keeps setMonth(m+1, dom)
+    // overflow-free.
+    next.setDate(c.dom)
+    next.setHours(c.hour, c.minute, 0, 0)
+    while (next <= from) {
+      next.setMonth(next.getMonth() + 1, c.dom)
+      next.setHours(c.hour, c.minute, 0, 0)
+    }
+    return next
+  }
   // weekly
   while (next.getDay() !== c.dow || next <= from) {
     next.setDate(next.getDate() + 1)
     next.setHours(c.hour, c.minute, 0, 0)
   }
   return next
+}
+
+/**
+ * Coarse cadence class for C2 gating + retention windows.
+ * 'daily' = anything that can fire more than ~weekly (every:<7d, daily@…).
+ */
+export type CadenceClass = 'daily' | 'weekly' | 'monthly'
+
+export function cadenceClass(cadence: string): CadenceClass {
+  const c = parseCadence(cadence)
+  if (c.kind === 'monthly') return 'monthly'
+  if (c.kind === 'weekly') return 'weekly'
+  if (c.kind === 'every' && c.ms >= 7 * 86_400_000) return 'weekly'
+  return 'daily'
 }
 
 let tickRunning = false
