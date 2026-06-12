@@ -36,6 +36,9 @@ export default async function KeywordResearchResultsPage({ params }: Props) {
 
   const result = parseStoredResult(session.result);
   const keywordSignals = result?.keyword_signals ?? null;
+  // C5: blob pruned ⇒ keyword signals are gone (blob-only data) — say so explicitly.
+  const archived = !session.result
+    && !!(await prisma.crawlRun.findUnique({ where: { sessionId }, select: { archivePrunedAt: true } }))?.archivePrunedAt;
 
   const row = await prisma.keywordResearchSession.findUnique({ where: { sessionId } });
 
@@ -55,6 +58,13 @@ export default async function KeywordResearchResultsPage({ params }: Props) {
         {/* Keyword signals */}
         {keywordSignals ? (
           <KeywordSignalsPanel data={keywordSignals} />
+        ) : archived ? (
+          <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl px-6 py-4">
+            <p className="text-sm text-amber-700 dark:text-amber-200/80">
+              This session&rsquo;s keyword signals were archived after 90 days and are no longer
+              available. Re-upload the SEMRush exports to run a fresh analysis.
+            </p>
+          </div>
         ) : (
           <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border px-6 py-4">
             <p className="text-sm text-gray-500 dark:text-white/50">
