@@ -267,6 +267,8 @@ export interface AggregatedResult {
   page_index?: PageIndexEntry[];
   supplemental_data?: SupplementalData;
   completeness?: Completeness;
+  /** C5: set ONLY by the findings-fallback builder (blob pruned). Blob results never carry it. */
+  archived?: boolean;
 }
 
 /**
