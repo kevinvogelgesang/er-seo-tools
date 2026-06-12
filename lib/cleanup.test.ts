@@ -2,6 +2,10 @@ import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// Static imports bind to the REAL modules before the doMock dance in the
+// mock-based suite below — used by the DB-backed C4 suite at the bottom.
+import { prisma as realPrisma } from '@/lib/db';
+import { cleanExpiredSiteAuditShareTokens } from '@/lib/cleanup';
 
 const ORIG_ENV = { ...process.env };
 
@@ -160,5 +164,54 @@ describe('cleanup sweeps', () => {
       },
       select: { id: true },
     });
+  });
+});
+
+// ─── C4: SiteAudit share-token cleanup (DB-backed) ───────────────────────────
+// Seeds real SiteAudit rows against local-dev.db (domain prefix c4shr-cln-*)
+// and runs the real cleanup function — verifies expired tokens are nulled
+// while live tokens survive.
+describe('cleanExpiredSiteAuditShareTokens (DB-backed)', () => {
+  const PREFIX = 'c4shr-cln-';
+
+  async function clearState() {
+    await realPrisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } });
+  }
+
+  beforeEach(clearState);
+  afterEach(clearState);
+
+  it('nulls expired share tokens but keeps live ones', async () => {
+    const expired = await realPrisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}expired.example`,
+        status: 'complete',
+        shareToken: crypto.randomUUID(),
+        shareExpiresAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
+    });
+    const liveToken = crypto.randomUUID();
+    const live = await realPrisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}live.example`,
+        status: 'complete',
+        shareToken: liveToken,
+        shareExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    await cleanExpiredSiteAuditShareTokens();
+
+    const expiredRow = await realPrisma.siteAudit.findUnique({
+      where: { id: expired.id },
+      select: { shareToken: true, shareExpiresAt: true },
+    });
+    expect(expiredRow).toEqual({ shareToken: null, shareExpiresAt: null });
+
+    const liveRow = await realPrisma.siteAudit.findUnique({
+      where: { id: live.id },
+      select: { shareToken: true },
+    });
+    expect(liveRow?.shareToken).toBe(liveToken);
   });
 });

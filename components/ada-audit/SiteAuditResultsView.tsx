@@ -32,6 +32,9 @@ interface Props {
   compliant?: boolean
   pdfs?: AuditPdfRow[]
   siteAuditId: string
+  /** Public share view: suppresses every cookie-gated or internal affordance
+   *  (triage, checks, by-violation view, row expansion, common-issue CTA). */
+  shareMode?: boolean
 }
 
 function ImpactCount({ n, color }: { n: number; color: string }) {
@@ -44,9 +47,10 @@ interface PageRowProps {
   triageMode: boolean
   readOnly: boolean
   checks: UseChecksReturn
+  shareMode: boolean
 }
 
-function PageRow({ page, triageMode, readOnly, checks }: PageRowProps) {
+function PageRow({ page, triageMode, readOnly, checks, shareMode }: PageRowProps) {
   const [expanded, setExpanded] = useState(false)
   const [violations, setViolations] = useState<StoredAxeResults['violations'] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -56,6 +60,7 @@ function PageRow({ page, triageMode, readOnly, checks }: PageRowProps) {
   const [violationKeyMap, setViolationKeyMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
+    if (shareMode) return // triage keys are an internal-only affordance
     let cancelled = false
     ;(async () => {
       const pk = await keyForPage({ pageUrl: page.url })
@@ -69,7 +74,7 @@ function PageRow({ page, triageMode, readOnly, checks }: PageRowProps) {
       }
     })()
     return () => { cancelled = true }
-  }, [page.url, page.violationIds])
+  }, [page.url, page.violationIds, shareMode])
 
   const violationKeys = Object.values(violationKeyMap)
   const allViolationsChecked =
@@ -79,6 +84,7 @@ function PageRow({ page, triageMode, readOnly, checks }: PageRowProps) {
   const pageStruck = pageChecked || allViolationsChecked
 
   async function handleExpand() {
+    if (shareMode) return // public view: expansion fetches a cookie-gated API
     if (expanded) { setExpanded(false); return }
     setExpanded(true)
     if (violations !== null) return
@@ -103,8 +109,8 @@ function PageRow({ page, triageMode, readOnly, checks }: PageRowProps) {
   return (
     <>
       <tr
-        className={`border-b border-gray-100 dark:border-navy-border hover:bg-gray-50 dark:hover:bg-navy-light cursor-pointer transition-colors ${expanded ? 'bg-gray-50 dark:bg-navy-light' : ''}`}
-        onClick={handleExpand}
+        className={`border-b border-gray-100 dark:border-navy-border transition-colors ${shareMode ? '' : 'hover:bg-gray-50 dark:hover:bg-navy-light cursor-pointer'} ${expanded ? 'bg-gray-50 dark:bg-navy-light' : ''}`}
+        onClick={shareMode ? undefined : handleExpand}
       >
         {triageMode && (
           <td className="py-2.5 pl-4 pr-2 w-8" onClick={(e) => e.stopPropagation()}>
@@ -120,12 +126,14 @@ function PageRow({ page, triageMode, readOnly, checks }: PageRowProps) {
         )}
         <td className={`py-2.5 pr-3 ${triageMode ? 'pl-2' : 'pl-4'}`}>
           <div className="flex items-center gap-2">
-            <svg
-              className={`w-3 h-3 flex-shrink-0 text-navy/30 dark:text-white/30 transition-transform ${expanded ? 'rotate-90' : ''}`}
-              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+            {!shareMode && (
+              <svg
+                className={`w-3 h-3 flex-shrink-0 text-navy/30 dark:text-white/30 transition-transform ${expanded ? 'rotate-90' : ''}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            )}
             <div className="flex items-center gap-1.5 min-w-0">
               <span
                 className={`text-[12px] font-body truncate max-w-xs ${pageStruck ? 'line-through text-navy/40 dark:text-white/30' : 'text-navy/80 dark:text-white/80'}`}
@@ -223,6 +231,7 @@ function paginationRange(current: number, total: number): (number | '...')[] {
 
 export default function SiteAuditResultsView({
   domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant, pdfs = [], siteAuditId,
+  shareMode = false,
 }: Props) {
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
 
@@ -234,9 +243,10 @@ export default function SiteAuditResultsView({
   const [triageMode, setTriageMode] = useState(false)
 
   useEffect(() => {
+    if (shareMode) return // public view: triage is internal-only; never touch localStorage
     const stored = localStorage.getItem(`er-triage-mode:${siteAuditId}`)
     if (stored === '1') setTriageMode(true)
-  }, [siteAuditId])
+  }, [siteAuditId, shareMode])
 
   const onToggleTriage = () => {
     setTriageMode((prev) => {
@@ -248,7 +258,7 @@ export default function SiteAuditResultsView({
 
   const checks = useChecks({
     endpoint: `/api/site-audit/${siteAuditId}/checks`,
-    enabled: triageMode,
+    enabled: triageMode && !shareMode,
   })
   /** Rule id to auto-expand/scroll-to inside the by-violation view.
    *  Set by the CommonIssueCallout's "View affected pages" CTA. */
@@ -269,7 +279,7 @@ export default function SiteAuditResultsView({
 
   const { groupedViolations, loading: groupedLoading, loaded: groupedLoaded, error: groupedError } = useGroupedViolations(
     summary.pages,
-    viewMode === 'by-violation'
+    viewMode === 'by-violation' && !shareMode
   )
 
   // Reset pagination when sort/filter changes
@@ -337,15 +347,17 @@ export default function SiteAuditResultsView({
               </span>
             </div>
           </div>
-          <div className="flex-shrink-0">
-            <button
-              type="button"
-              onClick={onToggleTriage}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
-            >
-              {triageMode ? 'Triage on' : 'Triage off'}
-            </button>
-          </div>
+          {!shareMode && (
+            <div className="flex-shrink-0">
+              <button
+                type="button"
+                onClick={onToggleTriage}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
+              >
+                {triageMode ? 'Triage on' : 'Triage off'}
+              </button>
+            </div>
+          )}
         </div>
         <div className="p-6">
           <AuditScorecardComponent
@@ -379,7 +391,10 @@ export default function SiteAuditResultsView({
 
         {/* Site-wide common issues — renders only when at least one rule hits the threshold */}
         {commonIssues.length > 0 && (
-          <CommonIssueCallout issues={commonIssues} onViewAffectedPages={handleViewAffectedPages} />
+          <CommonIssueCallout
+            issues={commonIssues}
+            onViewAffectedPages={shareMode ? undefined : handleViewAffectedPages}
+          />
         )}
 
         {/* Toolbar */}
@@ -389,9 +404,10 @@ export default function SiteAuditResultsView({
           filterImpact={filterImpact}
           onFilterImpactChange={setFilterImpact}
           viewMode={viewMode}
-          onViewModeChange={setViewMode}
+          onViewModeChange={(mode) => { if (!shareMode) setViewMode(mode) }}
           counts={counts}
           violationsCount={groupedLoaded ? groupedViolations.length : undefined}
+          hideViewToggle={shareMode}
         />
 
         {/* Table view */}
@@ -427,6 +443,7 @@ export default function SiteAuditResultsView({
                         triageMode={triageMode}
                         readOnly={false}
                         checks={checks}
+                        shareMode={shareMode}
                       />
                     ))
                   )}

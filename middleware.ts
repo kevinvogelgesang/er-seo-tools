@@ -5,6 +5,7 @@ const PUBLIC_PATH_PREFIXES = [
   '/login',
   '/share/',
   '/ada-audit/share/',
+  '/ada-audit/site/share/',
   '/api/auth/',
   '/api/share/',
   '/_next/',

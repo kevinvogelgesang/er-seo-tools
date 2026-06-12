@@ -5,11 +5,13 @@ import { Spinner } from '@/components/Spinner'
 
 interface Props {
   auditId: string
+  /** API base — defaults to the single-page audit endpoint. */
+  endpoint?: string
 }
 
 type State = 'idle' | 'loading' | 'copied' | 'error'
 
-export default function ShareAuditButton({ auditId }: Props) {
+export default function ShareAuditButton({ auditId, endpoint }: Props) {
   const [state, setState] = useState<State>('idle')
 
   async function handleClick() {
@@ -17,7 +19,7 @@ export default function ShareAuditButton({ auditId }: Props) {
     setState('loading')
 
     try {
-      const res = await fetch(`/api/ada-audit/${auditId}/share`, { method: 'POST' })
+      const res = await fetch(`${endpoint ?? `/api/ada-audit/${auditId}`}/share`, { method: 'POST' })
       const data = await res.json()
 
       if (!res.ok) {

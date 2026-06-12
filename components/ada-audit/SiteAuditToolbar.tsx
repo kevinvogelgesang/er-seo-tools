@@ -15,6 +15,9 @@ interface Props {
   /** Count of unique violations for the Violations tab badge. `undefined`
    *  while the grouped fetch hasn't completed yet — renders as "—". */
   violationsCount?: number
+  /** Hide the table/by-violation segmented control (public share view —
+   *  the grouped view fetches cookie-gated APIs). */
+  hideViewToggle?: boolean
 }
 
 const IMPACT_FILTERS: { id: ImpactFilter; label: string; countKey: keyof FilterCounts }[] = [
@@ -27,6 +30,7 @@ const IMPACT_FILTERS: { id: ImpactFilter; label: string; countKey: keyof FilterC
 
 export default function SiteAuditToolbar({
   sortKey, onSortChange, filterImpact, onFilterImpactChange, viewMode, onViewModeChange, counts, violationsCount,
+  hideViewToggle = false,
 }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-gray-100 dark:border-navy-border">
@@ -94,6 +98,7 @@ export default function SiteAuditToolbar({
       </select>
 
       {/* View toggle: Pages vs Violations */}
+      {!hideViewToggle && (
       <div className="flex items-center bg-gray-100 dark:bg-navy-light rounded-lg p-0.5 gap-0.5">
         <button
           type="button"
@@ -132,6 +137,7 @@ export default function SiteAuditToolbar({
           </span>
         </button>
       </div>
+      )}
     </div>
   )
 }
