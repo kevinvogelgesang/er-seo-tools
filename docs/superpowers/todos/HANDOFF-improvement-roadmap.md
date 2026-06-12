@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-12 · **Updated by:** C3 close-out (ADA run diffing + blob-archive activation)
+**Last updated:** 2026-06-12 · **Updated by:** C4 close-out (reporting layer)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,35 +23,27 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **A1, A2, B1–B5, C1, C2, C3 are DONE** (durable job queue #50–#54; findings
+- **A1, A2, B1–B5, C1–C4 are DONE** (durable job queue #50–#54; findings
   layer #55–#58; client dashboard #60; findings/action center #61; Quarter
   Grid → DB #62; grid split #63; grid closure #64; standalone ADA durable #65;
-  scheduled scans #66; **ADA run diffing + blob-archive activation #67,
-  deployed + production-verified 2026-06-12**).
-- **C3 shipped:** instance-level (URL×rule) run-over-run diffing keyed on
-  `Finding.dedupKey` with page-set awareness (regressed vs new-page, resolved
-  vs not-rescanned) — pure `diffInstances()` in `findings-shared.ts` + a
-  selection service `lib/services/site-audit-diff.ts` (domain+wcagLevel-matched
-  previous; `getRunPairInstanceDiff` → null on level mismatch/non-ada).
-  Surfaced as `SiteAuditDiffPanel` on `/ada-audit/site/[id]`, `+N/−M` chips on
-  `ScheduledScansCard`, and a `· +N / −M violations` clause on the dashboard
-  ADA source line (fleet stays type-level by design).
-  **`PRUNE_ACTIVATED['ada-audit'] = true`** — at 90 d, origin
-  `SiteAudit.summary`/standalone `AdaAudit.result` AND site-audit child
-  `AdaAudit.result` blobs are nulled (child `lighthouseSummary` kept) with
-  snapshot-based screenshot deletion; every reader flipped: scores prefer
-  `CrawlRun.score`, detail/share views degrade via
-  `lib/ada-audit/findings-fallback.ts` (`buildSummaryFromFindings`,
-  `buildArchivedAxeResults`, archived banner, `archivedCounts` → "—" never 0,
-  triage off on archived). `CrawlPage.passCount`/`incompleteCount` added
-  (migration `20260612100000_c3_pass_counts`). Suite 2,233 green (221 files).
-  **First real prune is a designed no-op until ~2026-09-08** (oldest findings
-  rows 2026-06-10) — watch the cleanup tick log for `[findings] pruned … ada-audit`
-  around then.
+  scheduled scans #66; ADA run diffing + blob-archive activation #67;
+  **reporting layer #68, deployed + production-verified 2026-06-12**).
+- **C4 shipped:** (1) site-audit share links (`SiteAudit.shareToken`, public
+  `/ada-audit/site/share/[token]`, `shareMode` on `SiteAuditResultsView` with
+  fetch-spy-pinned zero cookie-gated calls, middleware prefix, expired-token
+  cleanup); (2) violations + changes CSV (`/api/site-audit/[id]/csv[?sheet=changes]`,
+  `diffInstancesDetailed()` uncapped classifier — capped `diffInstances`
+  derives from it byte-for-byte); (3) branded PDF report — pure escaped
+  template-string HTML → `page.setContent()`+`page.pdf()` on the browser pool
+  inside a durable `report-render` job (group/dedup `report:<id>`), files at
+  `REPORTS_DIR/<id>.pdf`, deleted on audit DELETE + scheduled-retention
+  snapshot sweep, status `ready` = stamp AND file; (4) VPAT 2.4 scaffold
+  (two-state: Does Not Support / Not Evaluated). All relational-first —
+  every export works on archived (pruned-blob) audits. `lib/report/` +
+  `SiteAuditExportBar` are the surfaces. Suite 2,351 green (235 files).
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
-  → proway.erstaging.site, `weekly:1@06:00`. Its audit pair now renders the
-  live diff panel ("No accessibility changes…") and card chips (0/0) — it is
-  the standing proof for both the C2 tick and the C3 diff path.
+  → proway.erstaging.site, `weekly:1@06:00`. Its latest audit now also has a
+  share token + a generated report PDF (the C4 prod-verify artifacts).
 - **⚠ PENDING HUMAN STEPS (Kevin) — unchanged from B5:**
   1. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
      (2026-06-11 19:51 UTC) 409-blocking the one-time analyst-browser
@@ -60,51 +52,43 @@ Continue the er-seo-tools improvement roadmap.
   2. **First real qct_ push not yet exercised** (prod plan is all-pool). After
      (1): assign a client to a week, set its Teamwork tasklist ID, push, paste.
 - **Blocked / gated:** Anthropic API billing (gates 03 Phase 3); sitemap
-  miss-rate measurement not yet run; **daily/nightly cadences stay gated —
-  DECIDED in C3:** 90-d pruning doesn't reduce within-14-d-window volume
-  (14 daily full-blob audits/client); supersede-based blob trimming (keep
-  blobs only on latest N per schedule) is C6's design space.
-- **Parked follow-ups (not next items):** `SessionPage` model drop (≥180 d
-  after 2026-06-11); seo-parser `PRUNE_ACTIVATED` flip → C5 (same PR as its
-  last blob reader); same-URL standalone-audit diffing; fleet instance-level
-  diffing; B2 v1 multi-domain limitation; archived-client name uniqueness;
-  schedule (client,domain) uniqueness best-effort app-level.
+  miss-rate measurement not yet run; daily/nightly cadences gated until C6
+  supersede-trimming (decided in C3).
+- **Parked follow-ups (not next items):** standalone single-page audit
+  CSV/VPAT/report; public share-page export buttons; expandable rows on the
+  public share view (needs a token-scoped violations API); logo image asset
+  for the PDF (text wordmark until provided); `SessionPage` model drop
+  (≥180 d after 2026-06-11); same-URL standalone-audit diffing; fleet
+  instance-level diffing; B2 v1 multi-domain limitation.
+- **First real ada-audit blob prune still ~2026-09-08** (C3) — watch the
+  cleanup tick log for `[findings] pruned … ada-audit` around then.
 
 ## Next item
 
-**C4 — Reporting layer: branded PDF export, site-audit share links, CSV
-export, VPAT scaffold** (tracker Track C; roadmap doc
-`docs/superpowers/nyi/improvement-roadmaps/02-ada-audit.md` Phase 4,
-1.5–2 wks; "best after C3" ✓). Key context for the brainstorm:
+**C5 — SEO parser source-agnostic ingestion** (tracker Track C; roadmap doc
+`docs/superpowers/nyi/improvement-roadmaps/01-seo-parser.md` Phase 2,
+1.5–2 wks; needs A2 ✓). Key context for the brainstorm:
 
-- **Branded PDF report** for site audits (executive summary, score trend,
-  top issues with screenshots, remediation priorities): Chrome is already on
-  the server — render an HTML report route to PDF through the existing
-  browser pool (`acquirePage`/`releasePage`; NEVER hold a page across awaits
-  you don't control; pool size 4, recycling gates live in `browser-pool.ts`).
-  Consider a durable `pdf-render` job rather than rendering inside the
-  request (deploy-restart safety; A1 patterns).
-- **Site-audit share links:** single-page audits already have
-  `shareToken`/`shareExpiresAt` + `/ada-audit/share/[token]` — mirror that on
-  `SiteAudit`. **Middleware gotcha (bit us THREE times):** the new public
-  share route MUST be added to `middleware.ts` `isPublicPath` + a
-  `middleware.test.ts` case.
-- **CSV export of violations** is now trivially relational (C3): `Violation`
-  rows by runId; reuse `selectRuns`/diff shapes for a "changes" sheet.
-- **Score trend data** exists (`CrawlRun.score` series, B1 sparkline
-  helpers in `scorecard-shared.ts`); **instance-diff shapes**
-  (`InstanceDiff`/`RuleInstanceDiff`) were built as C4 inputs — trend +
-  changes sections should consume them, not reinvent.
-- **Archived audits:** report rendering must tolerate pruned blobs — go
-  through the same read paths the views use (summary-or-fallback,
-  `archivedCounts`), never raw blob parses.
-- VPAT/ACR scaffold is "optional / big differentiator" per the 02-doc —
-  scope it honestly in the brainstorm (likely a markdown/HTML scaffold from
-  `Violation` wcagTags, not a legal document).
-- Scope-reconcile first as always: check what share/PDF machinery already
-  exists (`ShareAuditButton`, `lib/ada-audit/screenshot-helpers.ts`, the PDF
-  scan subsystem is for SCANNING client PDFs, not report rendering — don't
-  conflate).
+- Core idea: define ONE internal interface ("what a crawl knows about a
+  page") and make SF-CSV parsing one adapter producing it; the Live SEO scan
+  (`docs/superpowers/plans/2026-06-02-live-seo-on-ada.md` — still in active
+  plans/) becomes the second adapter. Aggregator, scorer, prioritizer,
+  brief/roadmap services consume the interface, never CSVs.
+- This is the keystone for Screaming Frog demotion (the SF-retirement
+  roadmap `docs/superpowers/nyi/2026-06-04-screaming-frog-retirement-roadmap.md`
+  rides on it) — the SF-vs-Live parallel-run comparison becomes a
+  first-class view.
+- **Scope-reconcile first as always:** A2 already shipped much of the
+  "findings model" the 01-doc's Phase 1 describes (the doc predates A2) —
+  check what `lib/findings/seo-mapper.ts` + the `CrawlRun` subtree already
+  give you. The real question is the INGESTION interface, not the storage.
+- **`PRUNE_ACTIVATED['seo-parser']` flips in C5** — the rule from A2: the
+  flag flips in the same PR as that tool's LAST blob reader. Find the
+  remaining `Session.result` blob readers (`grep -rn "session.result"` /
+  `JSON.parse(session.result)`) and flip them to findings-table reads in
+  this item, then activate the prune.
+- C6 (live SEO phases, broken-link verifier first) needs C5 to land in the
+  findings model — design the interface with that consumer in view.
 
 Full flow: brainstorm/spec → Codex → plan → Codex → implement.
 
@@ -115,22 +99,25 @@ Full flow: brainstorm/spec → Codex → plan → Codex → implement.
   form only, conditional logic via SQL `EXISTS`, manual `updatedAt =
   Date.now()` in raw statements (2026-06-10 production incident; CLAUDE.md
   "Do not").
-- **C3 invariants:** instance diffs NEVER render across a wcagLevel mismatch
-  (`getRunPairInstanceDiff` returns null; results-page previous selection is
-  level-matched). `AuditScorecard` stays strictly numeric — archived unknowns
-  travel in `archivedCounts` and render "—", never 0. Triage stays disabled
-  on archived data (check keys hash full node HTML; capped nodes can't match).
-  Retention's child-blob updateMany uses the bounded `siteAuditId IN` list,
-  never child-id lists; artifact deletion is snapshot-based, never a directory
-  sweep. Parity compares passCount/incompleteCount unconditionally (stored
-  null = stale row; rebuild populates). Blob-first, findings-fallback: views
-  read the blob when present, fallback only when null + CrawlRun exists.
-- **C2 invariants:** scheduled path is ordinary downstream (wrapper job →
-  `queueSiteAuditRequest()`); handler resolves its Schedule via the Job row;
-  config rot disables, DB errors retry, duplicate slots consumed; card scores
-  read `CrawlRun.score` (the finalizer never persists `SiteAudit.score`);
-  scheduled retention only deletes `scheduleId IS NOT NULL` terminal rows;
-  the card score Δ and diff chips use the SAME previous audit.
+- **C4 invariants:** report-render jobs use group/dedup `report:<id>` —
+  NEVER `site-audit:<id>` (recovery treats that group as audit liveness).
+  Report data loads BEFORE `acquirePage()`; only `setContent`+`pdf` while
+  holding a page. Reports/CSV/VPAT are findings-run-only (pre-A2 → 409
+  `no_findings_run`). Every dynamic string in report HTML is escaped; CSV
+  fields are formula-injection-neutralized; Content-Disposition filenames go
+  through `safeFilenamePart`. Report `ready` requires stamp AND file.
+  `shareMode` must never issue a cookie-gated fetch (fetch-spy test pins it).
+  Report files are deleted by BOTH the DELETE route (cancel jobs first) and
+  scheduled retention's snapshot sweep — there is no report-file sweep.
+- **C3 invariants:** instance diffs never render across a wcagLevel mismatch;
+  `AuditScorecard` strictly numeric — archived unknowns travel in
+  `archivedCounts` and render "—", never 0; triage off on archived data;
+  blob-first, findings-fallback; retention child-blob updates use bounded
+  `siteAuditId IN` lists; artifact deletion is snapshot-based.
+- **C2 invariants:** scheduled path is ordinary downstream; handler resolves
+  its Schedule via the Job row; config rot disables, DB errors retry; card
+  scores read `CrawlRun.score`; scheduled retention only deletes
+  `scheduleId IS NOT NULL` terminal rows.
 - **Standalone-ADA invariants (C1):** status-fenced writes, first terminal
   writer wins, `dispatchPdfScans` BEFORE the complete settle, group-liveness
   death signal.
@@ -141,25 +128,30 @@ Full flow: brainstorm/spec → Codex → plan → Codex → implement.
   findings — **the findings hook stays LAST**.
 - **Findings-layer invariants:** dual-write best-effort/non-fatal; origin FKs
   `SetNull`; subtrees cascade from `CrawlRun` only; never backfill blobs;
-  read services scalar/normalized-table only; ada-audit pruning ACTIVE,
-  seo-parser flip belongs to C5.
+  read services scalar/normalized-table only; ada-audit pruning ACTIVE;
+  **seo-parser flip belongs to THIS item (C5)** — same PR as its last blob
+  reader.
 - **Quarter-grid invariants (B3/B4/B5):** singleton plan facade; mere
   page-opens never write; push metadata written ONLY by the receipt route.
-- **Handoff-token / public route gotcha (bit us THREE times):** any new
-  token-authed or public route MUST be added to `middleware.ts`
-  `isPublicPath` + a `middleware.test.ts` case. C4's site-audit share link is
-  EXACTLY this shape.
+- **Handoff-token / public route gotcha (bit us THREE times, verified again
+  in C4):** any new token-authed or public route MUST be added to
+  `middleware.ts` `isPublicPath` + a `middleware.test.ts` case.
 - Test gotchas: DB-backed test files use their own unique domain/id/name
   prefix AND scope cleanup to tracked ids — never broad `deleteMany` on
   shared tables; pre-clean prefixes in `beforeAll`; clean `CrawlRun` by
   domain BEFORE origin rows; vitest jsdom has NO working localStorage;
   `waitFor` can't see fake timers under `globals:false`; if an existing route
-  test file is mock-based, add a DB-backed sibling file instead of expanding
-  the mock (C3 pattern: `route.list.test.ts` / `route.fallback.test.ts`).
+  test file is mock-based, extend in its style or add a DB-backed sibling.
+- **Parallel-agent execution note (C4):** when dispatching parallel
+  implementation agents, a session usage limit can cut a whole wave mid-task;
+  finisher agents resumed cleanly from the partial tree + plan. Stagger waves
+  if budget looks tight; commit each agent's verified files as soon as it
+  reports.
 - **Local dev quirk:** prefix prisma CLI and vitest with
   `DATABASE_URL="file:./local-dev.db"`. `prisma migrate dev` is
   interactive-only — write migration SQL by hand, apply with
-  `prisma migrate deploy`. Local dev runs auth-free.
+  `prisma migrate deploy`. Local dev runs auth-free (`npx next dev`;
+  `next start` refuses to boot without prod secrets).
 - **Server has no `sqlite3` CLI** — node + Prisma from
   `/home/seo/webapps/seo-tools`. Authenticated prod checks: source the
   server `.env` in the SSH session, then **form-POST**
@@ -181,7 +173,9 @@ Full flow: brainstorm/spec → Codex → plan → Codex → implement.
 - 2026-06-12 — **C2 SHIPPED (PR #66), deployed, production-verified** — two
   live scheduled runs end-to-end; weekly canary schedule live on client 31.
 - 2026-06-12 — **C3 SHIPPED (PR #67), deployed, production-verified** — live
-  diff panel on the canary pair, card chips via API, scores from
-  `CrawlRun.score`; `PRUNE_ACTIVATED['ada-audit']` ACTIVE (first eligible
-  prune ~2026-09-08). Daily cadence decision: stays gated until C6. Next: C4
-  (reporting layer).
+  diff panel on the canary pair; `PRUNE_ACTIVATED['ada-audit']` ACTIVE (first
+  eligible prune ~2026-09-08). Daily cadence stays gated until C6.
+- 2026-06-12 — **C4 SHIPPED (PR #68), deployed, production-verified** — share
+  links + CSV + branded PDF report (real 377 KB PDF rendered live) + VPAT
+  scaffold; all relational-first. Next: C5 (SEO parser source-agnostic
+  ingestion + seo-parser prune flip).
