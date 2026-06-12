@@ -9,8 +9,9 @@
 //
 // Pruning activates per tool via PRUNE_ACTIVATED below; each flag flips in
 // the same PR as that tool's last blob reader (the A1 pattern of deleting
-// the legacy path only after parity). 'ada-audit' flipped in C3 (all readers
-// fall back to the findings tables); 'seo-parser' stays inert until C5.
+// the legacy path only after parity). 'ada-audit' flipped in C3; 'seo-parser'
+// flipped in C5 (every Session.result reader serves a findings fallback or
+// an explicit session_archived 409).
 //
 // Scope (since C3): the origin row's blob AND, for ada-audit site runs, the
 // child AdaAudit.result blobs — the real DB weight. Child lighthouseSummary
@@ -32,8 +33,8 @@ type PrunableTool = 'seo-parser' | 'ada-audit'
 
 /** Per-tool activation. Flip ONLY in the same PR as the tool's last blob reader. */
 export const PRUNE_ACTIVATED: Readonly<Record<PrunableTool, boolean>> = {
-  'seo-parser': false, // flips with C5 (that tool's last blob reader)
-  'ada-audit': true,   // C3: all readers fall back to findings tables (spec § 5.4)
+  'seo-parser': true, // C5: every Session.result reader is findings-capable (fallback or 409)
+  'ada-audit': true,  // C3: all readers fall back to findings tables (spec § 5.4)
 }
 
 /** Origin updates per array-form transaction (matches writer chunking style). */

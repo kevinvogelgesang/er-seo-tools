@@ -20,6 +20,7 @@ const RECENT = new Date(NOW.getTime() - DAY_MS) // 1 d before NOW
 
 const SEO_ON = { 'seo-parser': true, 'ada-audit': false } as const
 const ADA_ON = { 'seo-parser': false, 'ada-audit': true } as const
+const ALL_OFF = { 'seo-parser': false, 'ada-audit': false } as const
 
 async function clearTestState() {
   // Delete runs by domain FIRST (SetNull origins make some unreachable via FK),
@@ -104,20 +105,30 @@ describe('pruneArchivedBlobs', () => {
   })
   afterEach(clearTestState)
 
-  // C3: ada-audit flipped (all readers fall back to findings tables);
-  // seo-parser stays inert until C5 flips its last blob reader.
-  it('default activation: seo-parser false, ada-audit true', () => {
-    expect(PRUNE_ACTIVATED['seo-parser']).toBe(false)
+  // C3 flipped ada-audit; C5 flipped seo-parser (every Session.result reader
+  // is findings-capable — fallback or explicit 409).
+  it('default activation: seo-parser true, ada-audit true', () => {
+    expect(PRUNE_ACTIVATED['seo-parser']).toBe(true)
     expect(PRUNE_ACTIVATED['ada-audit']).toBe(true)
   })
 
-  it('default (seo-parser gated-off) prunes no seo-parser runs, even eligible ones', async () => {
+  it('gated-off seo-parser prunes no seo-parser runs, even eligible ones', async () => {
     const { session, run } = await makeSeoRun()
-    await pruneArchivedBlobs(NOW)
+    await pruneArchivedBlobs(NOW, ALL_OFF)
     const s = await prisma.session.findUniqueOrThrow({ where: { id: session.id } })
     const r = await prisma.crawlRun.findUniqueOrThrow({ where: { id: run.id } })
     expect(s.result).toBe('{"blob":true}')
     expect(r.archivePrunedAt).toBeNull()
+  })
+
+  it('default flags: prunes seo-parser blobs >90d (C5 activation)', async () => {
+    const { session, run } = await makeSeoRun()
+    await pruneArchivedBlobs(NOW)
+    const s = await prisma.session.findUniqueOrThrow({ where: { id: session.id } })
+    const r = await prisma.crawlRun.findUniqueOrThrow({ where: { id: run.id } })
+    expect(s.result).toBeNull()
+    expect(s.totalUrls).toBe(42) // scalars untouched
+    expect(r.archivePrunedAt?.getTime()).toBe(NOW.getTime())
   })
 
   it('activated seo-parser prunes a >90d run: blob nulled, scalars kept, archivePrunedAt = now', async () => {
