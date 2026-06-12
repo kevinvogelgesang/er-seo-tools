@@ -145,6 +145,9 @@ model SiteAudit {
   pagesRedirected  Int       @default(0)
   scheduleId    String?    // C2: non-null = created by a Schedule row (attribution + retention marker)
   schedule      Schedule?  @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  shareToken        String?   @unique // C4: public read-only share link (mirror of AdaAudit)
+  shareExpiresAt    DateTime?
+  reportGeneratedAt DateTime? // C4: last successful report-render stamp (file under REPORTS_DIR)
   checks           SiteAuditCheck[]
   crawlRun         CrawlRun?
 
