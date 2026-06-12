@@ -63,11 +63,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'cadence_invalid' }, { status: 400 })
   }
   if (parsed.kind !== 'weekly' && parsed.kind !== 'monthly') {
-    // v1 accepts literal weekly:/monthly: only. daily@/every:* are rejected
-    // wholesale (DB-growth gate: daily-class scans stay off until blobs are
-    // prunable-on-arrival, C3; every:* has no UI surface and stays out
-    // entirely — cadenceClass still prices every:* in for retention
-    // robustness should one ever exist).
+    // Literal weekly:/monthly: only. daily@/every:* stay rejected even after
+    // C3 made blobs prunable: pruning at 90 d does not reduce WITHIN-window
+    // volume — 14 daily audits per client hold full child blobs until the
+    // 14-d scheduled-retention delete. Enabling daily safely needs
+    // supersede-based blob trimming (keep blobs only on the latest N audits
+    // per schedule) — C6's design space. every:* additionally has no UI
+    // surface — cadenceClass still prices it in for retention robustness.
     return NextResponse.json({ error: 'cadence_not_allowed' }, { status: 400 })
   }
 
