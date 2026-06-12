@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { AggregatedResult } from '@/lib/types';
+import { loadArchivedSeoResult } from '@/lib/findings/seo-findings-fallback';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,15 +35,22 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
   const { session } = shareLink;
 
-  if (session.status !== 'complete' || !session.result) {
+  if (session.status !== 'complete') {
     return NextResponse.json({ error: 'Session result not available' }, { status: 400 });
   }
 
-  let result: AggregatedResult;
-  try {
-    result = JSON.parse(session.result) as AggregatedResult;
-  } catch {
-    return NextResponse.json({ error: 'Failed to parse session result' }, { status: 500 });
+  let result: AggregatedResult | null = null;
+  if (session.result) {
+    try {
+      result = JSON.parse(session.result) as AggregatedResult;
+    } catch {
+      return NextResponse.json({ error: 'Failed to parse session result' }, { status: 500 });
+    }
+  } else {
+    result = await loadArchivedSeoResult(session.id); // C5: blob pruned
+  }
+  if (!result) {
+    return NextResponse.json({ error: 'Session result not available' }, { status: 400 });
   }
 
   return NextResponse.json({
