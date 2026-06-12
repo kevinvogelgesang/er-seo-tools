@@ -397,7 +397,14 @@ async function disableSchedule(scheduleId: string, reason: string): Promise<void
     await prisma.schedule.update({ where: { id: scheduleId }, data: { enabled: false } })
     console.warn(`[schedule] disabled ${scheduleId}: ${reason}`)
   } catch (err) {
-    console.warn(`[schedule] failed to disable ${scheduleId} (${reason}):`, (err as Error).message)
+    // Schedule already deleted → nothing to disable, fine. Any other DB
+    // error must THROW so the worker retries (spec: config rot disables,
+    // DB errors retry).
+    if ((err as { code?: string }).code === 'P2025') {
+      console.warn(`[schedule] ${scheduleId} already gone while disabling (${reason})`)
+      return
+    }
+    throw err
   }
 }
 
@@ -407,6 +414,10 @@ export function registerScheduledSiteAuditHandler(): void {
     concurrency: 1,
     maxAttempts: 3,
     timeoutMs: 30_000, // it only enqueues
+    onExhausted: async (_payload, ctx) => {
+      // No domain row to fail — the next cadence slot is the durable retry.
+      console.warn(`[schedule] scheduled-site-audit job ${ctx.jobId} exhausted after ${ctx.attempts} attempts: ${ctx.lastError}`)
+    },
     handler: async (payload, ctx) => {
       const job = await prisma.job.findUnique({
         where: { id: ctx.jobId },
@@ -497,8 +508,14 @@ function ctxFor(jobId: string) {
   return { jobId, attempt: 1, signal: new AbortController().signal }
 }
 
+// Cleanup is scoped to rows THIS file created (tracked ids / prefix) — never
+// broad deleteMany on shared tables like Job/Schedule (other test files and
+// local dev rows share them).
+const createdScheduleIds: string[] = []
+const createdJobIds: string[] = []
+
 async function makeSchedule(overrides: Record<string, unknown> = {}) {
-  return prisma.schedule.create({
+  const sched = await prisma.schedule.create({
     data: {
       jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE,
       cadence: 'weekly:1@06:00',
@@ -507,10 +524,12 @@ async function makeSchedule(overrides: Record<string, unknown> = {}) {
       ...overrides,
     },
   })
+  createdScheduleIds.push(sched.id)
+  return sched
 }
 
 async function makeJob(scheduleId: string | null) {
-  return prisma.job.create({
+  const job = await prisma.job.create({
     data: {
       type: SCHEDULED_SITE_AUDIT_JOB_TYPE,
       status: 'running',
@@ -519,6 +538,8 @@ async function makeJob(scheduleId: string | null) {
       scheduledFor: scheduleId ? new Date() : null,
     },
   })
+  createdJobIds.push(job.id)
+  return job
 }
 
 describe('scheduled-site-audit handler', () => {
@@ -528,6 +549,9 @@ describe('scheduled-site-audit handler', () => {
   beforeAll(async () => {
     registerScheduledSiteAuditHandler()
     handler = getJobHandler(SCHEDULED_SITE_AUDIT_JOB_TYPE)!.handler
+    // Pre-clean leftovers from a failed prior run (Client delete cascades
+    // its Schedule rows).
+    await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
     client = await prisma.client.create({
       data: { name: `${PREFIX}client`, domains: JSON.stringify([`${PREFIX}ok.example.edu`]) },
     })
@@ -539,8 +563,8 @@ describe('scheduled-site-audit handler', () => {
   })
 
   afterAll(async () => {
-    await prisma.job.deleteMany({ where: { type: SCHEDULED_SITE_AUDIT_JOB_TYPE } })
-    await prisma.schedule.deleteMany({ where: { jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, name: null } })
+    await prisma.job.deleteMany({ where: { id: { in: createdJobIds } } })
+    await prisma.schedule.deleteMany({ where: { id: { in: createdScheduleIds } } })
     await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
   })
 
@@ -742,7 +766,7 @@ export async function carryForwardSiteAuditChecks(siteAuditId: string): Promise<
 `lib/ada-audit/carry-forward-checks.test.ts` — DB-backed, prefix `c2sched-cf-`. Helper to create completed audits:
 
 ```ts
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { carryForwardSiteAuditChecks } from './carry-forward-checks'
 
@@ -760,14 +784,17 @@ function key(n: number): string {
   return n.toString(16).padStart(64, '0') // 64-char lowercase hex, like real keys
 }
 
-afterAll(async () => {
+async function cleanPrefixRows() {
   const audits = await prisma.siteAudit.findMany({
     where: { domain: { startsWith: PREFIX } },
     select: { id: true },
   })
   await prisma.siteAuditCheck.deleteMany({ where: { siteAuditId: { in: audits.map((a) => a.id) } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
-})
+}
+
+beforeAll(cleanPrefixRows) // survive a failed prior run
+afterAll(cleanPrefixRows)
 
 describe('carryForwardSiteAuditChecks', () => {
   it('copies checks by content key from the latest previous completed same-domain audit', async () => {
@@ -871,7 +898,7 @@ and insert AFTER the `processNext` kick block and BEFORE the findings dual-write
 
 - [ ] **Step 5: Extend finalizer tests**
 
-In `lib/ada-audit/site-audit-finalizer.test.ts`, mock the new module alongside the file's existing mocks (`vi.mock('./carry-forward-checks', () => ({ carryForwardSiteAuditChecks: vi.fn().mockResolvedValue(undefined) }))` — match the file's established mock style, e.g. `vi.hoisted` if that's what neighbors use) and add two tests following the existing completion-path tests:
+The ordering test lives in `lib/ada-audit/site-audit-finalizer.findings.test.ts` — that file already mocks `writeFindingsRun` (the base `site-audit-finalizer.test.ts` does not, so a cross-module order assertion is not implementable there). Add a `carryForwardSiteAuditChecks` mock alongside the file's existing `writeFindingsRun` mock (match its established mock style — `vi.hoisted` if that's what it uses), then add two tests driven by the file's existing completion-path helper:
 
 ```ts
 it('invokes carry-forward on completion, before the findings hook', async () => {
@@ -891,7 +918,7 @@ it('carry-forward rejection does not fail finalization', async () => {
 })
 ```
 
-(Adapt identifiers to the test file's actual helpers — it already has completion-path and findings-hook tests to copy from; `site-audit-finalizer.findings.test.ts` shows the findings-mock pattern. Non-finalizer test files that complete audits may also need the new mock if they assert on console output — run the suite and fix fallout.)
+In the base `lib/ada-audit/site-audit-finalizer.test.ts`, add only the neutralizing mock (`vi.mock('./carry-forward-checks', () => ({ carryForwardSiteAuditChecks: vi.fn().mockResolvedValue(undefined) }))`) so its completion-path tests don't hit the real module. (Other test files that complete audits against the real DB succeed silently — run the suite and fix fallout if any assert on console output.)
 
 - [ ] **Step 6: Run tests**
 
@@ -901,7 +928,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib/ada-audit/carry-forward-checks.ts lib/ada-audit/carry-forward-checks.test.ts lib/ada-audit/site-audit-finalizer.ts lib/ada-audit/site-audit-finalizer.test.ts
+git add lib/ada-audit/carry-forward-checks.ts lib/ada-audit/carry-forward-checks.test.ts lib/ada-audit/site-audit-finalizer.ts lib/ada-audit/site-audit-finalizer.test.ts lib/ada-audit/site-audit-finalizer.findings.test.ts
 git commit -m "feat(c2): carry triage checks forward across same-domain site audits"
 ```
 
@@ -1014,10 +1041,14 @@ function daysAgo(n: number): Date {
   return new Date(NOW.getTime() - n * DAY_MS)
 }
 
+const createdScheduleIds: string[] = []
+
 async function makeSchedule(cadence: string) {
-  return prisma.schedule.create({
+  const sched = await prisma.schedule.create({
     data: { jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, cadence, payload: '{}', nextRunAt: new Date('2099-01-01T00:00:00Z') },
   })
+  createdScheduleIds.push(sched.id)
+  return sched
 }
 
 async function makeAudit(opts: {
@@ -1060,7 +1091,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: PREFIX } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
-  await prisma.schedule.deleteMany({ where: { jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, name: null } })
+  await prisma.schedule.deleteMany({ where: { id: { in: createdScheduleIds } } })
 })
 
 describe('pruneScheduledSiteAudits', () => {
@@ -1077,6 +1108,7 @@ describe('pruneScheduledSiteAudits', () => {
 
     expect(await prisma.siteAudit.findUnique({ where: { id: audit.id } })).toBeNull()
     expect(await prisma.adaAudit.findUnique({ where: { id: childId! } })).toBeNull() // cascaded
+    expect(await prisma.siteAuditCheck.count({ where: { siteAuditId: audit.id } })).toBe(0) // checks cascaded too
     const run = await prisma.crawlRun.findFirst({ where: { domain: `${PREFIX}site.example.edu` } })
     expect(run).not.toBeNull()
     expect(run!.siteAuditId).toBeNull() // SetNull — findings/trends survive
@@ -1266,6 +1298,7 @@ let clientId: number
 beforeAll(async () => {
   await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: PREFIX } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
+  await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } }) // cascades stale schedules
   const client = await prisma.client.create({
     data: { name: `${PREFIX}client`, domains: JSON.stringify([`${PREFIX}a.example.edu`]) },
   })
@@ -1384,7 +1417,7 @@ git commit -m "feat(c2): client-schedules service (last-run join, CrawlRun.score
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { parseCadence, cadenceClass, nextRun } from '@/lib/jobs/scheduler'
+import { parseCadence, nextRun } from '@/lib/jobs/scheduler'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
 import { getClientSchedules } from '@/lib/services/client-schedules'
 
@@ -1432,14 +1465,18 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const cadence = typeof body.cadence === 'string' ? body.cadence : ''
+  let parsed: ReturnType<typeof parseCadence>
   try {
-    parseCadence(cadence)
+    parsed = parseCadence(cadence)
   } catch {
     return NextResponse.json({ error: 'cadence_invalid' }, { status: 400 })
   }
-  if (cadenceClass(cadence) === 'daily') {
-    // DB-growth gate: daily-class scans stay off until blobs are
-    // prunable-on-arrival (C3). Retention is already cadence-aware.
+  if (parsed.kind !== 'weekly' && parsed.kind !== 'monthly') {
+    // v1 accepts literal weekly:/monthly: only. daily@/every:* are rejected
+    // wholesale (DB-growth gate: daily-class scans stay off until blobs are
+    // prunable-on-arrival, C3; every:* has no UI surface and stays out
+    // entirely — cadenceClass still prices every:* in for retention
+    // robustness should one ever exist).
     return NextResponse.json({ error: 'cadence_not_allowed' }, { status: 400 })
   }
 
@@ -1515,6 +1552,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const sched = await findOwnedSchedule(id, scheduleId)
   if (!sched) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
+  if (body.enabled) {
+    // Archive disables schedules; resume must not sneak past that.
+    const client = await prisma.client.findUnique({
+      where: { id: sched.clientId as number },
+      select: { archivedAt: true },
+    })
+    if (!client || client.archivedAt) {
+      return NextResponse.json({ error: 'client_archived' }, { status: 409 })
+    }
+  }
+
   await prisma.schedule.update({
     where: { id: sched.id },
     data: body.enabled
@@ -1566,7 +1614,12 @@ function p(id: number | string, scheduleId?: string) {
     : { params: Promise.resolve({ id: String(id) }) }
 }
 
+const createdJobIds: string[] = []
+
 beforeAll(async () => {
+  // Pre-clean leftovers from a failed prior run (Client delete cascades
+  // its Schedule rows).
+  await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
   const client = await prisma.client.create({
     data: { name: `${PREFIX}client`, domains: JSON.stringify([`${PREFIX}a.example.edu`, `${PREFIX}b.example.edu`]) },
   })
@@ -1574,9 +1627,9 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await prisma.job.deleteMany({ where: { type: SCHEDULED_SITE_AUDIT_JOB_TYPE } })
-  await prisma.schedule.deleteMany({ where: { clientId } })
-  await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
+  // Scoped cleanup only — never broad deleteMany on shared Job/Schedule tables.
+  await prisma.job.deleteMany({ where: { id: { in: createdJobIds } } })
+  await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } }) // cascades schedules
 })
 
 describe('POST /api/clients/[id]/schedules', () => {
@@ -1610,7 +1663,7 @@ describe('POST /api/clients/[id]/schedules', () => {
     expect((await res.json()).error).toBe('cadence_invalid')
   })
 
-  it.each(['daily@06:00', 'every:30m', 'every:1d'])('400 cadence_not_allowed for daily-class %s', async (cadence) => {
+  it.each(['daily@06:00', 'every:30m', 'every:1d', 'every:7d', 'every:14d'])('400 cadence_not_allowed for non-weekly/monthly %s', async (cadence) => {
     const res = await POST(jsonReq('POST', { domain: `${PREFIX}b.example.edu`, cadence }), p(clientId))
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe('cadence_not_allowed')
@@ -1673,6 +1726,7 @@ describe('PATCH/DELETE /api/clients/[id]/schedules/[scheduleId]', () => {
     const job = await prisma.job.create({
       data: { type: SCHEDULED_SITE_AUDIT_JOB_TYPE, status: 'queued', payload: '{}', groupKey: `schedule:${sched.id}`, scheduleId: sched.id, scheduledFor: new Date() },
     })
+    createdJobIds.push(job.id)
     const audit = await prisma.siteAudit.create({
       data: { domain: `${PREFIX}b.example.edu`, status: 'complete', wcagLevel: 'wcag21aa', scheduleId: sched.id, completedAt: new Date() },
     })
@@ -1683,6 +1737,25 @@ describe('PATCH/DELETE /api/clients/[id]/schedules/[scheduleId]', () => {
     expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('cancelled')
     expect((await prisma.siteAudit.findUnique({ where: { id: audit.id } }))?.scheduleId).toBeNull()
     await prisma.siteAudit.delete({ where: { id: audit.id } })
+  })
+
+  it('409 client_archived when resuming a schedule on an archived client', async () => {
+    const archived = await prisma.client.create({
+      data: { name: `${PREFIX}arch-resume`, domains: JSON.stringify([`${PREFIX}d.example.edu`]), archivedAt: new Date() },
+    })
+    const sched = await prisma.schedule.create({
+      data: {
+        jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, clientId: archived.id, cadence: 'weekly:1@06:00',
+        payload: JSON.stringify({ clientId: archived.id, domain: `${PREFIX}d.example.edu`, wcagLevel: 'wcag21aa' }),
+        nextRunAt: new Date('2099-01-01T00:00:00Z'), enabled: false,
+      },
+    })
+    const res = await PATCH(jsonReq('PATCH', { enabled: true }), p(archived.id, sched.id))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('client_archived')
+    expect((await prisma.schedule.findUnique({ where: { id: sched.id } }))?.enabled).toBe(false)
+    // pausing (enabled:false) stays allowed for archived clients
+    expect((await PATCH(jsonReq('PATCH', { enabled: false }), p(archived.id, sched.id))).status).toBe(200)
   })
 
   it('404 when the schedule belongs to another client or another jobType', async () => {

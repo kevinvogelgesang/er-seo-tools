@@ -160,8 +160,10 @@ public-path list, which is exactly what the test pins down).
 - `POST` — body `{ domain, cadence, wcagLevel }`. Validation:
   - client exists and is active (archived → 409 `client_archived`);
   - `domain` ∈ `client.domains` (400 `domain_not_listed`);
-  - `cadence` parses AND is weekly/monthly class (400 `cadence_invalid` /
-    `cadence_not_allowed`);
+  - `cadence` parses AND is a literal `weekly:`/`monthly:` kind — `daily@`
+    and ALL `every:*` are rejected (400 `cadence_invalid` /
+    `cadence_not_allowed`); `cadenceClass` still prices `every:*` in for
+    retention robustness should such a row ever exist;
   - `wcagLevel` ∈ {`wcag21aa`,`wcag22aa`} (defaults `wcag21aa`);
   - at most one schedule per (client, domain): 409 `schedule_exists`.
     **Best-effort v1, by design** (Codex fix #4 — named, not silently weak):
