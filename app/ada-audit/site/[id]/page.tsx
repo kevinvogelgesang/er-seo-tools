@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { prisma } from '@/lib/db'
 import SiteAuditPoller from '@/components/ada-audit/SiteAuditPoller'
 import SiteAuditResultsView from '@/components/ada-audit/SiteAuditResultsView'
+import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
@@ -117,6 +118,9 @@ export default async function SiteAuditResultPage({ params }: Props) {
   if (audit.summary) {
     try { summary = JSON.parse(audit.summary) as SiteAuditSummary } catch { /* corrupted */ }
   }
+  // Pruned blob (C3): degraded summary from findings tables. Null when no
+  // CrawlRun exists (pre-A2) — the legacy "unavailable" card keeps rendering.
+  if (!summary) summary = await buildSummaryFromFindings(audit.id)
 
   if (!summary) {
     return (
@@ -129,7 +133,12 @@ export default async function SiteAuditResultPage({ params }: Props) {
     )
   }
 
-  const { score, compliant } = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
+  // Prefer the run score (identical formula, mapper-computed) so archived
+  // (capped-pass) aggregates can't shift it; counts still drive compliance.
+  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId: audit.id }, select: { score: true } })
+  const fromCounts = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
+  const score = crawlRun?.score ?? fromCounts.score
+  const compliant = fromCounts.compliant
 
   const pdfs: AuditPdfRow[] = audit.pdfAudits.map((p) => {
     let issues: PdfIssue[] = []

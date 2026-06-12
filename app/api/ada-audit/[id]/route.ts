@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
+import { buildArchivedAxeResults } from '@/lib/ada-audit/findings-fallback'
 import type { AuditDetail, AuditPdfRow, StoredAxeResults } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
@@ -84,6 +85,10 @@ export async function GET(
         redirected: audit.redirected,
       } satisfies AuditDetail)
     }
+  } else if (audit.status === 'complete' && !audit.result) {
+    // Pruned blob (C3): degraded view from Violation rows. Null when the
+    // audit predates A2 — the UI keeps its legacy "no results" copy.
+    results = await buildArchivedAxeResults(audit.id)
   }
 
   return NextResponse.json({

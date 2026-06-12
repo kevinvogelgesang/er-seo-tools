@@ -1,4 +1,4 @@
-import type { AuditScorecard } from '@/lib/ada-audit/types'
+import type { AuditScorecard, ArchivedCounts } from '@/lib/ada-audit/types'
 import type { ImpactFilter } from './useSiteAuditPages'
 
 type ImpactKey = 'critical' | 'serious' | 'moderate' | 'minor'
@@ -8,6 +8,10 @@ interface Props {
   score?: number
   compliant?: boolean
   wcagLevel?: string
+  /** Set only for archived (blob-pruned) results: pass/incomplete come from
+   *  the preserved counts, never the synthesized empty arrays. Null members
+   *  = unknown (pre-C3 run) — render "—", never a literal 0 (Codex #3/#4). */
+  archivedCounts?: ArchivedCounts
   /** Optional. When provided, impact tiles with count > 0 render as
    *  interactive buttons. Clicking a tile invokes this callback. Single-page
    *  audits omit this prop and the tiles render as plain divs. */
@@ -32,7 +36,7 @@ function scoreColor(score: number): string {
   return 'text-red-600 dark:text-red-400'
 }
 
-export default function AuditScorecard({ scorecard, score, compliant, wcagLevel, onImpactClick, activeImpact }: Props) {
+export default function AuditScorecard({ scorecard, score, compliant, wcagLevel, archivedCounts, onImpactClick, activeImpact }: Props) {
   const boxes: StatBox[] = [
     { label: 'Critical',  count: scorecard.critical,  impact: 'critical', bg: 'bg-red-50 dark:bg-red-500/10',      text: 'text-red-700 dark:text-red-400',      border: 'border-red-200 dark:border-red-500/30' },
     { label: 'Serious',   count: scorecard.serious,   impact: 'serious',  bg: 'bg-orange-50 dark:bg-orange-500/10', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-500/30' },
@@ -97,9 +101,14 @@ export default function AuditScorecard({ scorecard, score, compliant, wcagLevel,
       </div>
 
       <div className="flex flex-wrap gap-3 text-[12px] font-body text-navy/60 dark:text-white/60">
-        <span><strong className="text-navy/80 dark:text-white/80">{scorecard.passed}</strong> rules passed</span>
-        {scorecard.incomplete > 0 && (
-          <span><strong className="text-navy/80 dark:text-white/80">{scorecard.incomplete}</strong> need review</span>
+        <span>
+          <strong className="text-navy/80 dark:text-white/80">{archivedCounts ? (archivedCounts.passed ?? '—') : scorecard.passed}</strong> rules passed
+        </span>
+        {/* Archived + unknown (null) → the row stays visible with "—" (Codex plan-fix #1). */}
+        {(archivedCounts ? archivedCounts.incomplete === null || archivedCounts.incomplete > 0 : scorecard.incomplete > 0) && (
+          <span>
+            <strong className="text-navy/80 dark:text-white/80">{archivedCounts ? (archivedCounts.incomplete ?? '—') : scorecard.incomplete}</strong> need review
+          </span>
         )}
         <span><strong className="text-navy/80 dark:text-white/80">{scorecard.total}</strong> total violations</span>
       </div>

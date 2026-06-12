@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import AuditResultsView from '@/components/ada-audit/AuditResultsView'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
+import { buildArchivedAxeResults } from '@/lib/ada-audit/findings-fallback'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,6 +56,17 @@ export default async function SharedAuditPage({ params }: Props) {
     }
   }
 
+  // Pruned blob (C3): degraded view from Violation rows. Null when the audit
+  // predates A2 — the legacy "No results available" card keeps rendering.
+  let archivedScore: number | null = null
+  if (!results) {
+    results = await buildArchivedAxeResults(audit.id)
+    if (results) {
+      const run = await prisma.crawlRun.findUnique({ where: { adaAuditId: audit.id }, select: { score: true } })
+      archivedScore = run?.score ?? null
+    }
+  }
+
   if (!results) {
     return (
       <main className="max-w-5xl mx-auto px-6 py-10">
@@ -65,7 +77,11 @@ export default async function SharedAuditPage({ params }: Props) {
     )
   }
 
-  const { score, compliant } = computeScore(results.violations, audit.wcagLevel)
+  // Archived results carry capped node samples — node-based scoring would lie.
+  // CrawlRun.score is the mapper-computed original; compliant = zero rows.
+  const computed = computeScore(results.violations, audit.wcagLevel)
+  const score = results.archived ? archivedScore ?? computed.score : computed.score
+  const compliant = results.archived ? results.violations.length === 0 : computed.compliant
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
