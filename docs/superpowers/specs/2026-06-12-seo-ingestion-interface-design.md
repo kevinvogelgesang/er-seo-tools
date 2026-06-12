@@ -1,6 +1,6 @@
 # C5 — SEO Parser Source-Agnostic Ingestion (design)
 
-**Date:** 2026-06-12 · **Status:** spec (Codex-review pending)
+**Date:** 2026-06-12 · **Status:** spec (Codex-reviewed: accept-with-fixes ×9, applied)
 **Tracker:** C5 (`docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md`)
 **Roadmap source:** `docs/superpowers/nyi/improvement-roadmaps/01-seo-parser.md` Phase 2
 **Companions:** `nyi/2026-06-04-screaming-frog-retirement-roadmap.md` (C6 consumer),
@@ -102,9 +102,15 @@ with no consumer; the bundle already is the page-level truth. Rejected
 
 A C6 live-SEO run riding the ADA site audit would be a *second* run on the
 same `SiteAudit` origin, which today's `@unique siteAuditId` forbids.
-Recommendation recorded for C6: relax to `@@unique([siteAuditId, tool])` (and
-update `writer.ts` keying + `findUnique({ where: { siteAuditId } })` readers)
-*in the C6 PR that introduces the second run* — not speculatively here.
+Recommendation recorded for C6 (Codex fix #2 — the migration must be
+complete, not additive): **remove** the field-level `@unique` from
+`CrawlRun.siteAuditId`, **add** `@@unique([siteAuditId, tool])`, and update
+`writer.ts` delete-and-recreate keying plus every
+`findUnique({ where: { siteAuditId } })` reader to address runs by
+`{ siteAuditId, tool }`. All of that lands *in the C6 PR that introduces the
+second run* — not speculatively here. If C6 confirms one `SiteAudit` owns
+both an ADA and an SEO run, that migration must ship before any live-scan
+dual-write.
 Related: run-selection helpers in `lib/services/findings-shared.ts` pick
 "previous" by (domain, tool) — once two sources coexist, trend/diff consumers
 must decide whether to filter by `source` (C6 presentation decision; the
@@ -113,10 +119,15 @@ column already discriminates).
 ### 2.3 Adapter-readiness proof (test, this PR)
 
 A DB-backed test writes a synthetic bundle with `tool: 'seo-parser'`,
-`source: 'live-scan'` (origin: a seeded `SiteAudit` with no other run)
-through `writeFindingsRun()`, then renders it through the findings-based
-report builder (§ 3) and asserts a complete, renderable report model — issues
-bucketed, URLs listed, score present. This pins the contract a C6 adapter
+`source: 'live-scan'` through `writeFindingsRun()`, then renders it through
+the findings-based report builder (§ 3) and asserts a complete, renderable
+report model — issues bucketed, URLs listed, score present. **Origin: a
+seeded `Session`** (Codex fix #1) — under today's schema a `SiteAudit` origin
+would collide with that audit's ADA run (`@unique siteAuditId` + the writer's
+origin-keyed delete-and-recreate would clobber it); true
+`siteAuditId + tool` coexistence is C6's migration (§ 2.2). A companion
+assertion documents the current limitation explicitly (second run on a
+SiteAudit origin replaces the first). This pins the contract a C6 adapter
 codes against.
 
 ## 3. Findings-based report builder (deliverable 2, the keystone)
@@ -130,7 +141,21 @@ buildSeoResultFromRun(run, pages, runFindings, pageFindings, opts?)
 ```
 
 Run-centric, not session-centric — the same builder serves a pruned SF
-session *and* a future blob-less live run.
+session *and* a future blob-less live run. Origin context is loaded **per run
+type** (Codex fix #8): session-origin runs may enrich from `Session` scalars
+(`siteName`, `files`); siteAudit-origin runs enrich from `SiteAudit`; the
+builder never assumes a `Session` exists.
+
+**Safe-shape contract (Codex fix #3):** the degraded object always populates
+the arrays/objects the UI and export code assume exist —
+`metadata.files_processed: []`, `metadata.parsers_used: []`,
+`recommendations: []`, all three issue buckets (possibly empty) — plus an
+explicit `archived: true` marker. **Completeness is never recomputed on a
+degraded result** (Codex fix #4): `ResultsView` falls back to
+`computeCompleteness(result)` when `result.completeness` is absent, which
+would misclassify a findings-only result as missing inputs; the builder sets
+an explicit archived completeness verdict (or the UI suppresses the recompute
+when `archived`).
 
 **Reconstructed (exact or near-exact):**
 
@@ -145,9 +170,14 @@ session *and* a future blob-less live run.
 | `metadata.health_score` | `run.score` |
 | `metadata.site_name` | `Session.siteName ?? run.domain` |
 
-**Degraded by contract (omitted, never fabricated):** status-code counts
-(`ok_responses`/`redirects`/`client_errors`/`server_errors` — SEO `CrawlPage`
-rows carry no `statusCode`), `resources`, `technical_seo`, `performance`,
+**Status-code counts — opportunistic, never inferred (Codex fix #6):** the
+contract has `CrawlPage.statusCode`; the builder computes
+`ok_responses`/`redirects`/`client_errors`/`server_errors` buckets **when
+page status codes are present** (a future live-scan run has them) and marks
+them unavailable otherwise (today's SF-derived rows are null). Never inferred
+from issue types like `broken_pages`.
+
+**Degraded by contract (omitted, never fabricated):** `resources`, `technical_seo`, `performance`,
 `duplicate_content`, `keyword_signals`, `recommendations` /
 `structured_recommendations`, `url_registry`, `page_index`, `completeness`,
 `supplemental_data`, issue `groups`. The C3 rule applies verbatim: **unknowns
@@ -155,8 +185,10 @@ render "—"/hidden, never a literal 0.**
 
 UI handling (results page + share page): an archived banner (C3 pattern);
 sections backed by omitted fields hide (most are already conditional —
-`duplicate_content?`, `keyword_signals?`; `StatusCodeBarChart` and
-`RecommendationsPanel` gain absent-data guards). The pages table keeps
+`duplicate_content?`, `keyword_signals?`; `RecommendationsPanel` gains an
+absent-data guard). The status-code section is guarded **at the container
+level** (Codex fix #7) — the whole chart card hides when status data is
+unavailable, so archived reports never render misleading zero bars. The pages table keeps
 working untouched — it reads the relational pages route. `PageDetailModal`
 already has the registry-less fallback path ("urls only").
 
@@ -174,7 +206,7 @@ fidelity, pruned sessions degrade per § 3.
 | 4 | `app/api/share/route.ts:32` (mint) | existence check widens to `result ‖ crawlRun` |
 | 5 | `app/api/parse/[sessionId]/route.ts:366` (GET) | blob null + run → serve § 3 fallback with `archived: true` |
 | 6 | `app/api/parse/history/route.ts:42` | **full flip, blob-free for A2 sessions**: `healthScore` from `crawlRun.score` (one-to-one relation include), `urlCount` from `Session.totalUrls` scalar; existing blob parse kept only as pre-A2 fallback (no `crawlRun`) |
-| 7 | `app/api/diff/route.ts:60,66` | per-side: blob ‖ § 3 fallback. `diff.service.ts` tolerates missing numerics (absent fields produce no delta, never NaN) |
+| 7 | `app/api/diff/route.ts:60,66` | **degraded diffs are refused** (Codex fix #5): if either side's blob is null → 409 `session_archived`. `diff.service.ts` coalesces missing numerics with `?? 0`, so a full-vs-degraded diff would fabricate false deltas; a confidently wrong diff is worse than a clear archived-data limitation. Findings-based type-level trends on the client dashboard (B2) remain the archived-era diff surface |
 | 8 | `app/api/export/[sessionId]/[format]/route.ts:169` | blob ‖ § 3 fallback; degraded exports carry an "archived — reduced data" note in markdown/summary; JSON exports the degraded object as-is |
 | 9 | `app/api/export/[sessionId]/claude/route.ts:32` | already refuses null blob; make it an explicit **409 `session_archived`** when `crawlRun.archivePrunedAt` is set (degraded data would mislead the srt_ memo) |
 | 10 | `app/api/seo-roadmap/[id]/route.ts:35` | already 409s on null blob; error body distinguishes `session_archived` |
@@ -199,7 +231,11 @@ re-pull is the rare case being refused.
   scalars, the `CrawlRun` subtree, and uploaded CSVs (180-d TTL owns those)
   are untouched. No child blobs, no artifacts (unlike ada-audit).
 - Keyword-research sessions also have CrawlRuns (same dual-write), so their
-  blobs prune too — rows 11–12 are their read contract.
+  blobs prune too — rows 11–12 are their read contract. This is **intentional
+  UX, stated in user-facing copy** (Codex fix #9): keyword signals are
+  blob-only, so archived keyword memos/exports are *unavailable* (explicit
+  409 / archived empty-state with "signals were archived after 90 days"
+  copy), never silently degraded.
 - Lifecycle after C5: blob pruned at 90 d → degraded-but-viewable until the
   180-d session TTL deletes the Session row entirely → findings rows live on
   (SetNull) feeding dashboards/trends forever. First real seo-parser prune is
@@ -210,12 +246,13 @@ re-pull is the rare case being refused.
 - **Builder unit tests** — fixture run/pages/findings → assert each § 3
   reconstruction row + each omission (no fabricated zeros).
 - **Seeded-prune tests per surface** (C3 pattern): write a real fixture blob
-  + findings via the live hook path, null `result`, hit rows 1–8 + 12 —
-  assert degraded render/JSON, archived markers, no 500s. Rows 9–11: assert
-  the 409 bodies.
+  + findings via the live hook path, null `result`, hit rows 1–6, 8 and 12 —
+  assert degraded render/JSON, archived markers, safe-shape arrays present,
+  no 500s. Rows 7 and 9–11: assert the 409 bodies (`session_archived`).
 - **History flip test** — A2 session served scalar/relational (and a
   pre-A2-shaped session still served via blob fallback).
-- **Diff degraded-side test** — one archived side; no NaN deltas.
+- **Diff refusal test** — one archived side → 409; both fresh → unchanged
+  diff output.
 - **Adapter-readiness test** (§ 2.3) — `'live-scan'` bundle end-to-end.
 - **Retention test update** — seo-parser activation asserted; existing
   inert-flag assertions updated.
