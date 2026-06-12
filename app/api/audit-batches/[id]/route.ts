@@ -20,7 +20,10 @@ export async function GET(
     include: {
       siteAudits: {
         orderBy: { createdAt: 'asc' },
-        include: { client: { select: { name: true } } },
+        include: {
+          client: { select: { name: true } },
+          crawlRun: { select: { score: true } },
+        },
       },
     },
   })
@@ -30,8 +33,10 @@ export async function GET(
   }
 
   const members: AuditBatchMember[] = batch.siteAudits.map((m) => {
-    let score: number | null = null
-    if (m.status === 'complete' && m.summary) {
+    // C3: CrawlRun.score is the canonical score (same formula, mapper-computed);
+    // the summary blob is only the pre-A2 fallback and may be pruned (null).
+    let score: number | null = m.status === 'complete' ? m.crawlRun?.score ?? null : null
+    if (score === null && m.status === 'complete' && m.summary) {
       try {
         const summary = JSON.parse(m.summary) as { aggregate?: unknown } | null
         const agg = summary?.aggregate

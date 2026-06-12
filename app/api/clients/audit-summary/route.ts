@@ -3,9 +3,11 @@
 // Fetches every client and joins their most recent complete SiteAudit.
 // Used by the Clients section on /ada-audit to show one row per client.
 //
-// Score is derived from summary.aggregate via computeScoreFromCounts (same
-// as /api/site-audit). SiteAudit.score is not persisted by the queue, so
-// reading `a.score` directly would always be null on freshly-completed audits.
+// Score prefers CrawlRun.score (mapper-computed, survives blob pruning) and
+// falls back to summary.aggregate via computeScoreFromCounts for pre-A2
+// audits (same as /api/site-audit). SiteAudit.score is not persisted by the
+// queue, so reading `a.score` directly would always be null on
+// freshly-completed audits.
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -35,19 +37,23 @@ export async function GET() {
           pagesError: true,
           wcagLevel: true,
           summary: true,
+          crawlRun: { select: { score: true } },
         },
       })
 
       let domains: string[] = []
       try { domains = JSON.parse(c.domains) } catch { /* keep [] */ }
 
+      // C3: CrawlRun.score is the canonical score (same formula, mapper-
+      // computed); the summary blob is only the pre-A2 fallback and may be
+      // pruned (null) — consumers must tolerate a null summary.
       let parsedSummary: SiteAuditSummary | null = null
-      let score: number | null = null
+      let score: number | null = latest?.crawlRun?.score ?? null
       if (latest?.summary) {
         try {
           parsedSummary = JSON.parse(latest.summary) as SiteAuditSummary
           const agg = parsedSummary?.aggregate
-          if (agg) score = computeScoreFromCounts(agg, latest.wcagLevel).score
+          if (score === null && agg) score = computeScoreFromCounts(agg, latest.wcagLevel).score
         } catch { parsedSummary = null }
       }
 

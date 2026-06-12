@@ -102,14 +102,55 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { client: { select: { name: true } } },
+      include: {
+        client: { select: { name: true } },
+        crawlRun: { select: { id: true, score: true } },
+      },
     }),
     prisma.adaAudit.count({ where }),
   ])
 
+  // Pruned rows (result null, findings present): rebuild the scorecard from
+  // Violation rows in two batched queries — list chips show violation counts;
+  // passed/incomplete use stored passCount sums (0 when unknown — list only).
+  const prunedRunIds = audits
+    .filter((a) => a.status === 'complete' && !a.result && a.crawlRun)
+    .map((a) => a.crawlRun!.id)
+  const prunedCounts = new Map<string, AuditScorecard>()
+  if (prunedRunIds.length > 0) {
+    const [groups, pages] = await Promise.all([
+      prisma.violation.groupBy({
+        by: ['runId', 'impact'],
+        where: { runId: { in: prunedRunIds } },
+        _count: { _all: true },
+      }),
+      prisma.crawlPage.findMany({
+        where: { runId: { in: prunedRunIds } },
+        select: { runId: true, passCount: true, incompleteCount: true },
+      }),
+    ])
+    for (const runId of prunedRunIds) {
+      const sc: AuditScorecard = { critical: 0, serious: 0, moderate: 0, minor: 0, total: 0, passed: 0, incomplete: 0 }
+      for (const g of groups.filter((g) => g.runId === runId)) {
+        const n = g._count._all
+        sc.total += n
+        if (g.impact === 'critical' || g.impact === 'serious' || g.impact === 'moderate' || g.impact === 'minor') {
+          sc[g.impact] += n
+        }
+      }
+      for (const p of pages.filter((p) => p.runId === runId)) {
+        sc.passed += p.passCount ?? 0
+        sc.incomplete += p.incompleteCount ?? 0
+      }
+      prunedCounts.set(runId, sc)
+    }
+  }
+
   const items = audits.map((a) => {
     let scorecard: AuditScorecard | null = null
-    let score: number | null = null
+    // C3: CrawlRun.score is the canonical score (same formula, mapper-computed);
+    // the result blob is only the pre-A2 fallback and may be pruned (null).
+    let score: number | null = a.status === 'complete' ? a.crawlRun?.score ?? null : null
     const wcagLevel = a.wcagLevel ?? 'wcag21aa'
 
     if (a.status === 'complete' && a.result) {
@@ -125,8 +166,11 @@ export async function GET(request: NextRequest) {
           passed:   Array.isArray(r?.passes) ? r.passes.length : 0,
           incomplete: Array.isArray(r?.incomplete) ? r.incomplete.length : 0,
         }
-        score = computeScore(violations, wcagLevel).score
+        if (score === null) score = computeScore(violations, wcagLevel).score
       } catch { /* malformed result — leave scorecard null */ }
+    } else if (a.status === 'complete' && a.crawlRun) {
+      // Pruned blob — degraded scorecard rebuilt from findings rows above.
+      scorecard = prunedCounts.get(a.crawlRun.id) ?? null
     }
 
     return {

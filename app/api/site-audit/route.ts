@@ -78,23 +78,26 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { client: { select: { name: true } } },
+      include: {
+        client: { select: { name: true } },
+        crawlRun: { select: { score: true } },
+      },
     }),
     prisma.siteAudit.count({ where }),
   ])
 
   const items = audits.map((a) => {
     let summary = null
-    let score: number | null = null
+    // C3: CrawlRun.score is the canonical score (same formula, mapper-computed);
+    // the summary blob is only the pre-A2 fallback and may be pruned (null).
+    let score: number | null = a.status === 'complete' ? a.crawlRun?.score ?? null : null
     const wcagLevel = a.wcagLevel ?? 'wcag21aa'
 
     if (a.status === 'complete' && a.summary) {
       try {
         summary = JSON.parse(a.summary)
         const agg = summary?.aggregate
-        if (agg) {
-          score = computeScoreFromCounts(agg, wcagLevel).score
-        }
+        if (score === null && agg) score = computeScoreFromCounts(agg, wcagLevel).score
       } catch { /* ignore */ }
     }
 
