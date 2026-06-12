@@ -18,14 +18,22 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
-      select: { status: true, result: true },
+      select: { status: true, result: true, crawlRun: { select: { archivePrunedAt: true } } },
     });
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    if (session.status !== 'complete' || !session.result) {
+    if (session.status !== 'complete') {
+      return NextResponse.json({ error: 'Parsing not complete' }, { status: 400 });
+    }
+    if (!session.result) {
+      // C5: a degraded export would mislead the srt_ memo — refuse explicitly
+      // when the blob was retention-pruned; otherwise keep the legacy 400.
+      if (session.crawlRun?.archivePrunedAt) {
+        return NextResponse.json({ error: 'session_archived' }, { status: 409 });
+      }
       return NextResponse.json({ error: 'Parsing not complete' }, { status: 400 });
     }
 
