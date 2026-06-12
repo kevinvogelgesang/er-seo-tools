@@ -17,6 +17,7 @@ import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
 import { SuggestedPriorities } from './SuggestedPriorities';
 import { AuditCompletenessBanner } from './AuditCompletenessBanner';
+import { ArchivedSessionBanner } from './ArchivedSessionBanner';
 import { computeCompleteness } from '@/lib/services/completeness';
 import { PagesTable } from './PagesTable';
 
@@ -46,6 +47,13 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
 
+  const hasStatusData = [
+    result.crawl_summary.ok_responses,
+    result.crawl_summary.redirects,
+    result.crawl_summary.client_errors,
+    result.crawl_summary.server_errors,
+  ].some((v) => typeof v === 'number');
+
   const issueTypeOptions = Array.from(
     new Set(
       [
@@ -64,10 +72,14 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="font-bold text-2xl text-[#1c2d4a] dark:text-white">{siteName} — SEO Audit</h1>
-            <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
-              {result.metadata.files_processed.length} files · {result.metadata.parsers_used.length}
-              {result.metadata.total_parsers_available ? `/${result.metadata.total_parsers_available}` : ''} parsers matched
-            </p>
+            {result.archived ? (
+              <p className="text-gray-500 dark:text-white/50 text-sm mt-1">Archived — rebuilt from findings data</p>
+            ) : (
+              <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
+                {result.metadata.files_processed.length} files · {result.metadata.parsers_used.length}
+                {result.metadata.total_parsers_available ? `/${result.metadata.total_parsers_available}` : ''} parsers matched
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <CopyToClipboard result={result} />
@@ -88,8 +100,14 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
           </div>
         </div>
 
-        {/* Completeness guard — recompute if absent so pre-feature sessions are covered too */}
-        <AuditCompletenessBanner completeness={result.completeness ?? computeCompleteness(result)} />
+        {/* Completeness guard — recompute if absent so pre-feature sessions are covered too.
+            NEVER recompute on an archived fallback (findings-only data would misclassify as
+            missing inputs); the archived banner replaces it. */}
+        {result.archived ? (
+          <ArchivedSessionBanner />
+        ) : (
+          <AuditCompletenessBanner completeness={result.completeness ?? computeCompleteness(result)} />
+        )}
 
         {/* Metrics bar */}
         <MetricsBar
@@ -118,9 +136,11 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
 
         {/* Charts row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <ChartCard title="Response Code Distribution">
-            <StatusCodeBarChart summary={result.crawl_summary} />
-          </ChartCard>
+          {hasStatusData && (
+            <ChartCard title="Response Code Distribution">
+              <StatusCodeBarChart summary={result.crawl_summary} />
+            </ChartCard>
+          )}
           {result.site_structure?.crawl_depth_distribution && (
             <ChartCard title="Crawl Depth Distribution">
               <CrawlDepthChart distribution={result.site_structure.crawl_depth_distribution} />
@@ -158,10 +178,12 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
         </details>
 
         {/* Debug footer */}
-        <details className="text-xs text-gray-400 dark:text-white/40 pb-4">
-          <summary className="cursor-pointer hover:text-gray-600 dark:hover:text-white/60 select-none">Debug info</summary>
-          <p className="mt-1">Parsers used: {result.metadata.parsers_used.join(', ')}</p>
-        </details>
+        {result.metadata.parsers_used.length > 0 && (
+          <details className="text-xs text-gray-400 dark:text-white/40 pb-4">
+            <summary className="cursor-pointer hover:text-gray-600 dark:hover:text-white/60 select-none">Debug info</summary>
+            <p className="mt-1">Parsers used: {result.metadata.parsers_used.join(', ')}</p>
+          </details>
+        )}
 
       </div>
 
