@@ -9,8 +9,9 @@ interface Props {
   issues: CommonIssue[]
   /** Invoked with the ruleId when "View affected pages" is clicked. Wires up
    *  to setViewMode('by-violation') + setSelectedViolationId(ruleId) in the
-   *  parent so the by-violation tab opens with that rule expanded + scrolled. */
-  onViewAffectedPages: (ruleId: string) => void
+   *  parent so the by-violation tab opens with that rule expanded + scrolled.
+   *  Omit (public share view) to hide the CTA entirely. */
+  onViewAffectedPages?: (ruleId: string) => void
 }
 
 const IMPACT_ACCENT: Record<ImpactLevel, { border: string; bg: string; chip: string; dot: string }> = {
@@ -80,7 +81,7 @@ function ancestorSentence(issue: CommonIssue): string {
   return `Appears on ${hits} of ${n} scanned pages — may point to a recurring element or page-type pattern.`
 }
 
-function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; onViewAffectedPages: (ruleId: string) => void }) {
+function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; onViewAffectedPages?: (ruleId: string) => void }) {
   const accent = IMPACT_ACCENT[issue.impact]
   const helpHref = safeExternalHref(issue.helpUrl)
   const tier: CommonIssueTier = issue.tier ?? 'template'
@@ -127,13 +128,15 @@ function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; o
             )
           })()}
           <div className="flex items-center gap-3 mt-2">
-            <button
-              type="button"
-              onClick={() => onViewAffectedPages(issue.ruleId)}
-              className="text-[11px] font-body font-semibold text-orange hover:text-orange-light transition-colors"
-            >
-              View affected pages →
-            </button>
+            {onViewAffectedPages && (
+              <button
+                type="button"
+                onClick={() => onViewAffectedPages(issue.ruleId)}
+                className="text-[11px] font-body font-semibold text-orange hover:text-orange-light transition-colors"
+              >
+                View affected pages →
+              </button>
+            )}
             {helpHref && (
               <a
                 href={helpHref}

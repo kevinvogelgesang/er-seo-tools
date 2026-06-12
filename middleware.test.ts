@@ -23,6 +23,7 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/login',
     '/share/tok',
     '/ada-audit/share/tok',
+    '/ada-audit/site/share/tok',
     '/api/auth/login',
     '/api/share/tok',
     '/favicon.ico',
@@ -47,6 +48,8 @@ describe('isPublicPath — auth-gate allowlist', () => {
     // C2 schedule CRUD is dashboard-triggered → not public (gated by omission)
     '/api/clients/7/schedules',
     '/api/clients/7/schedules/abc123',
+    // C4 share-mint route is dashboard-triggered → stays cookie-gated
+    '/api/site-audit/abc/share',
   ])('keeps non-handoff route %s gated', (p) => {
     expect(isPublicPath(p)).toBe(false);
   });

@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   selectRuns, aggregateSeoTypes, aggregateAdaTypes, collapseTypeGroups,
-  diffTypes, newCriticalTypes, diffInstances, toSeverity, SEVERITY_RANK, URLS_PER_FINDING,
+  diffTypes, newCriticalTypes, diffInstances, diffInstancesDetailed, toSeverity, SEVERITY_RANK, URLS_PER_FINDING,
   type RunRef, type TypeAggregate, type InstanceRef,
 } from './findings-shared'
 
@@ -219,6 +219,37 @@ describe('diffInstances', () => {
     const same = diffInstances(cur, cur, new Set(['/a']), new Set(['/a']))
     expect(same.unchangedCount).toBe(1)
     expect(same.newCount + same.resolvedCount + same.notRescannedCount).toBe(0)
+  })
+})
+
+describe('diffInstancesDetailed', () => {
+  const ref = (dedupKey: string, type: string, severity: string, url: string) => ({ dedupKey, type, severity, url })
+  it('accumulates notRescannedUrls (counted-only in the capped diff)', () => {
+    const prev = [ref('k1', 'image-alt', 'critical', '/gone')]
+    const d = diffInstancesDetailed([], prev, new Set<string>([]), new Set(['/gone']))
+    expect(d.notRescannedCount).toBe(1)
+    expect(d.rules).toHaveLength(1)
+    expect(d.rules[0].notRescannedUrls).toEqual(['/gone'])
+    // capped derivation still excludes a not-rescanned-only rule:
+    expect(diffInstances([], prev, new Set<string>([]), new Set(['/gone'])).rules).toHaveLength(0)
+  })
+  it('returns uncapped url lists', () => {
+    const urls = Array.from({ length: 40 }, (_, i) => `/p${i}`)
+    const cur = urls.map((u, i) => ref(`k${i}`, 'image-alt', 'critical', u))
+    const d = diffInstancesDetailed(cur, [], new Set(urls), new Set(urls))
+    expect(d.rules[0].regressedUrls).toHaveLength(40)
+  })
+  it('a not-rescanned row never establishes severity over a later resolved row (capped equivalence)', () => {
+    // Previous order puts the not-rescanned row FIRST; pre-C4 the resolved
+    // row's severity ('warning') created the rule entry — must still win.
+    const prev = [ref('k1', 'x', 'notice', '/gone'), ref('k2', 'x', 'warning', '/kept')]
+    const capped = diffInstances([], prev, new Set(['/kept']), new Set(['/kept', '/gone']))
+    expect(capped.rules).toHaveLength(1)
+    expect(capped.rules[0].severity).toBe('warning')
+    const d = diffInstancesDetailed([], prev, new Set(['/kept']), new Set(['/kept', '/gone']))
+    expect(d.rules[0].severity).toBe('warning')
+    expect(d.rules[0].resolvedUrls).toEqual(['/kept'])
+    expect(d.rules[0].notRescannedUrls).toEqual(['/gone'])
   })
 })
 

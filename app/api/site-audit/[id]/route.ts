@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
+import { cancelJobsByGroup } from '@/lib/jobs/queue'
+import { deleteReportFile } from '@/lib/report/report-file'
 import type { AuditPdfRow, SiteAuditDetail } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-children-helpers'
@@ -142,6 +144,10 @@ export async function DELETE(
     select: { id: true },
   })
 
+  // Cancel any queued report renders BEFORE the row dies — a RUNNING render
+  // is covered by the report handler's stamped.count === 0 cleanup.
+  await cancelJobsByGroup(`report:${id}`)
+
   // Cascade deletes all child AdaAudit rows (defined in schema)
   await prisma.siteAudit.delete({ where: { id } })
 
@@ -151,6 +157,15 @@ export async function DELETE(
   for (const result of artifactCleanup) {
     if (result.status === 'rejected') {
       console.warn(`[site-audit] Failed to clean artifacts for deleted site audit ${id}:`, result.reason)
+    }
+  }
+
+  const reportCleanup = await Promise.allSettled([
+    deleteReportFile(id),
+  ])
+  for (const result of reportCleanup) {
+    if (result.status === 'rejected') {
+      console.warn(`[site-audit] Failed report cleanup for deleted site audit ${id}:`, result.reason)
     }
   }
 

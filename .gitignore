@@ -53,3 +53,6 @@ prisma/prisma/
 
 # Built skill ZIPs
 dist/
+
+# C4 report PDFs (local dev default REPORTS_DIR)
+/data/

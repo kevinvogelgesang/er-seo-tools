@@ -175,23 +175,48 @@ export interface InstanceDiff {
   rules: RuleInstanceDiff[]
 }
 
+export interface RuleInstanceDiffDetailed {
+  type: string
+  severity: Severity
+  regressedUrls: string[]
+  newPageUrls: string[]
+  resolvedUrls: string[]
+  notRescannedUrls: string[]
+  unchangedTotal: number
+}
+
+export interface InstanceDiffDetailed {
+  newCount: number
+  regressedCount: number
+  newPageCount: number
+  resolvedCount: number
+  notRescannedCount: number
+  unchangedCount: number
+  /** Any rule touched by the diff (incl. not-rescanned-only), severity rank then newTotal desc then type. */
+  rules: RuleInstanceDiffDetailed[]
+}
+
 interface RuleAcc {
   severity: Severity
   fromCurrent: boolean
   regressedUrls: string[]
   newPageUrls: string[]
   resolvedUrls: string[]
+  notRescannedUrls: string[]
   unchangedTotal: number
 }
 
 const capSample = (urls: string[]) => [...new Set(urls)].sort().slice(0, URLS_PER_FINDING)
 
-export function diffInstances(
+/** Uncapped C4 classifier (changes CSV / report). `diffInstances` derives its
+ *  capped output from this — the capped result is byte-for-byte what the
+ *  pre-C4 single-pass implementation produced. */
+export function diffInstancesDetailed(
   current: InstanceRef[],
   previous: InstanceRef[],
   currentPages: Set<string>,
   previousPages: Set<string>,
-): InstanceDiff {
+): InstanceDiffDetailed {
   const prevKeys = new Set(previous.map((p) => p.dedupKey))
   const curKeys = new Set(current.map((c) => c.dedupKey))
 
@@ -199,7 +224,7 @@ export function diffInstances(
   const acc = (type: string, severity: string, fromCurrent: boolean): RuleAcc => {
     let a = byType.get(type)
     if (!a) {
-      a = { severity: toSeverity(severity), fromCurrent, regressedUrls: [], newPageUrls: [], resolvedUrls: [], unchangedTotal: 0 }
+      a = { severity: toSeverity(severity), fromCurrent, regressedUrls: [], newPageUrls: [], resolvedUrls: [], notRescannedUrls: [], unchangedTotal: 0 }
       byType.set(type, a)
     } else if (fromCurrent && !a.fromCurrent) {
       a.severity = toSeverity(severity) // current run's severity wins
@@ -218,34 +243,65 @@ export function diffInstances(
     if (previousPages.has(c.url)) { regressedCount++; a.regressedUrls.push(c.url) }
     else { newPageCount++; a.newPageUrls.push(c.url) }
   }
+  // Two passes over previous: resolved rows first, so a resolved row's severity
+  // establishes the rule entry exactly as the pre-C4 single-pass code did
+  // (capped byte-for-byte equivalence); not-rescanned rows accumulate after and
+  // never influence an existing rule's severity.
   for (const p of previous) {
     if (curKeys.has(p.dedupKey)) continue
-    if (currentPages.has(p.url)) {
-      resolvedCount++
-      acc(p.type, p.severity, false).resolvedUrls.push(p.url)
-    } else {
-      notRescannedCount++
-    }
+    if (!currentPages.has(p.url)) continue
+    resolvedCount++
+    acc(p.type, p.severity, false).resolvedUrls.push(p.url)
+  }
+  for (const p of previous) {
+    if (curKeys.has(p.dedupKey)) continue
+    if (currentPages.has(p.url)) continue
+    notRescannedCount++
+    acc(p.type, p.severity, false).notRescannedUrls.push(p.url)
   }
 
-  const rules: RuleInstanceDiff[] = []
+  const rules: RuleInstanceDiffDetailed[] = []
   for (const [type, a] of byType) {
-    const newTotal = a.regressedUrls.length + a.newPageUrls.length
-    const resolvedTotal = a.resolvedUrls.length
-    if (newTotal === 0 && resolvedTotal === 0) continue
+    if (a.regressedUrls.length + a.newPageUrls.length + a.resolvedUrls.length + a.notRescannedUrls.length === 0) continue
     rules.push({
       type,
       severity: a.severity,
-      newUrls: [...capSample(a.regressedUrls), ...capSample(a.newPageUrls)].slice(0, URLS_PER_FINDING),
-      newTotal,
-      regressedTotal: a.regressedUrls.length,
-      resolvedUrls: capSample(a.resolvedUrls),
-      resolvedTotal,
+      regressedUrls: a.regressedUrls,
+      newPageUrls: a.newPageUrls,
+      resolvedUrls: a.resolvedUrls,
+      notRescannedUrls: a.notRescannedUrls,
       unchangedTotal: a.unchangedTotal,
     })
   }
   rules.sort((x, y) =>
-    SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] || y.newTotal - x.newTotal || x.type.localeCompare(y.type))
+    SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
+    (y.regressedUrls.length + y.newPageUrls.length) - (x.regressedUrls.length + x.newPageUrls.length) ||
+    x.type.localeCompare(y.type))
 
   return { newCount, regressedCount, newPageCount, resolvedCount, notRescannedCount, unchangedCount, rules }
+}
+
+export function diffInstances(
+  current: InstanceRef[],
+  previous: InstanceRef[],
+  currentPages: Set<string>,
+  previousPages: Set<string>,
+): InstanceDiff {
+  const d = diffInstancesDetailed(current, previous, currentPages, previousPages)
+  return {
+    newCount: d.newCount, regressedCount: d.regressedCount, newPageCount: d.newPageCount,
+    resolvedCount: d.resolvedCount, notRescannedCount: d.notRescannedCount, unchangedCount: d.unchangedCount,
+    rules: d.rules
+      .filter((r) => r.regressedUrls.length + r.newPageUrls.length > 0 || r.resolvedUrls.length > 0)
+      .map((r) => ({
+        type: r.type,
+        severity: r.severity,
+        newUrls: [...capSample(r.regressedUrls), ...capSample(r.newPageUrls)].slice(0, URLS_PER_FINDING),
+        newTotal: r.regressedUrls.length + r.newPageUrls.length,
+        regressedTotal: r.regressedUrls.length,
+        resolvedUrls: capSample(r.resolvedUrls),
+        resolvedTotal: r.resolvedUrls.length,
+        unchangedTotal: r.unchangedTotal,
+      })),
+  }
 }

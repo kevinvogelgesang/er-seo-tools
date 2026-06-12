@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { pageFindingKey, normalizeFindingUrl } from '@/lib/findings/keys'
-import { getSiteAuditInstanceDiff, getRunPairInstanceDiff } from './site-audit-diff'
+import { getSiteAuditInstanceDiff, getRunPairInstanceDiff, getSiteAuditInstanceDiffDetailed } from './site-audit-diff'
 
 const PREFIX = 'c3diff-'
 const siteAuditIds: string[] = []
@@ -203,6 +203,33 @@ describe('getRunPairInstanceDiff', () => {
     })
     expect(await getRunPairInstanceDiff(ada.runId, 'no-such-run')).toBeNull()
     expect(await getRunPairInstanceDiff('no-such-run', ada.runId)).toBeNull()
+  })
+
+  it('detailed entry picks the SAME previous as the capped entry and returns uncapped lists', async () => {
+    const domain = `${PREFIX}t8.example`
+    const base = `https://${domain}`
+    const urls = Array.from({ length: 30 }, (_, i) => `${base}/p${String(i).padStart(2, '0')}`)
+    // Previous run scans every page clean; current run regresses image-alt on all 30.
+    await seedSiteRun({
+      domain, completedAt: new Date('2026-05-01T00:00:00Z'),
+      pages: urls.map((url) => ({ url })),
+    })
+    const current = await seedSiteRun({
+      domain, completedAt: new Date('2026-06-01T00:00:00Z'),
+      pages: urls.map((url) => ({ url, findings: [{ type: 'image-alt' }] })),
+    })
+
+    const capped = await getSiteAuditInstanceDiff(current.siteAuditId)
+    const detailed = await getSiteAuditInstanceDiffDetailed(current.siteAuditId)
+    expect(detailed).not.toBeNull()
+    // Same previous-run selection (shared helper — cannot drift).
+    expect(detailed!.previous).toEqual(capped!.previous)
+    // Uncapped: all 30 regressed URLs; capped entry stays at URLS_PER_FINDING.
+    expect(detailed!.detailed.regressedCount).toBe(30)
+    expect(detailed!.detailed.rules).toHaveLength(1)
+    expect(detailed!.detailed.rules[0].regressedUrls).toHaveLength(30)
+    expect(capped!.diff.rules[0].newUrls).toHaveLength(25)
+    expect(capped!.diff.rules[0].newTotal).toBe(30)
   })
 
   it('computes the diff for a level-matched pair', async () => {

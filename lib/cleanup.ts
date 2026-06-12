@@ -26,6 +26,7 @@ export async function runCleanup(): Promise<void> {
     cleanExpiredSessions(),
     cleanExpiredShareLinks(),
     cleanExpiredAdaShareTokens(),
+    cleanExpiredSiteAuditShareTokens(),
     cleanExpiredScreenshots(),
     cleanOldTerminalJobs(),
     pruneArchivedBlobs(),
@@ -145,6 +146,14 @@ export async function cleanExpiredShareLinks(): Promise<void> {
  */
 export async function cleanExpiredAdaShareTokens(): Promise<void> {
   await prisma.adaAudit.updateMany({
+    where: { shareExpiresAt: { lt: new Date() } },
+    data: { shareToken: null, shareExpiresAt: null },
+  });
+}
+
+/** Clear expired SiteAudit share tokens (mirror of the AdaAudit cleanup). */
+export async function cleanExpiredSiteAuditShareTokens(): Promise<void> {
+  await prisma.siteAudit.updateMany({
     where: { shareExpiresAt: { lt: new Date() } },
     data: { shareToken: null, shareExpiresAt: null },
   });
