@@ -66,17 +66,23 @@ site-audit-page error semantics):
    Count 0 → settled row (idempotent re-run / recovery beat us) → plain return.
    `'running'` is claimable because a crashed attempt leaves the row there;
    the re-run re-audits from scratch (same as site-audit pages).
-2. **Progress:** `onProgress` callback writes `progress`/`progressMessage`,
-   catch-swallowed — preserved verbatim so `AuditPoller`'s live bar is unchanged.
+2. **Progress:** `onProgress` callback writes `progress`/`progressMessage` via
+   conditional `updateMany({ id, status: 'running' })`, catch-swallowed — the
+   poller's live bar is unchanged, but a zombie attempt (a timed-out handler
+   still running after the Job row was requeued or exhausted — `runAxeAudit`
+   does not consume the job's abort signal) can never write progress onto a
+   row that recovery or exhaustion already flipped terminal. (Codex fix #1.)
 3. **`runAxeAudit(url, wcagLevel, onProgress, { auditId })` throwing is a
    DOMAIN result:** settle to `error` via conditional
    `updateMany({ status IN ('running') })`, job completes — no per-audit retry,
    parity with today's one-shot catch. DB failures THROW → the queue retries
    (transient SQLITE_BUSY coverage).
 4. **Redirected:** settle (`redirected`, `finalUrl`, `redirected: true`,
-   `progress: 100`, `'Redirected'`, `completedAt`) — field set kept verbatim
-   from the current route code — then fire-and-forget
-   `writeAdaSingleFindings` (A2 hook, unchanged).
+   `progress: 100`, `'Redirected'`, `completedAt`, **plus
+   `runnerType: 'browser'`** — the one deliberate field addition vs the
+   current route code, matching what `site-audit-page` already does on
+   redirects; Codex fix #8) — then fire-and-forget `writeAdaSingleFindings`
+   (A2 hook, unchanged).
 5. **Audited:** `await dispatchPdfScans({ urls: harvestedPdfUrls, adaAuditId,
    sourcePageUrl: url })` **BEFORE** the complete settle. Today the route
    settles first and `void`s the dispatch — a crash between the two loses the
@@ -87,9 +93,18 @@ site-audit-page error semantics):
    `lighthouseSummary`, `lighthouseError`, `progress: 100`, `'Complete'`,
    `runnerType: 'browser'`, `completedAt`), then fire-and-forget
    `writeAdaSingleFindings` (stays LAST, A2 invariant).
-6. All settles are conditional `updateMany` with status guards (never clobber
-   a row recovery already flipped). Plain Prisma throughout — no parent
-   counters, so no raw SQL and no multi-statement transactions needed.
+6. All settles are conditional `updateMany` with status guards — **fenced only
+   by `AdaAudit.status = 'running'`, first terminal writer wins** (Codex fix
+   #2). Because `runAxeAudit` ignores the job's abort signal, a timed-out
+   attempt can outlive its Job row; if recovery (or a retry attempt) flips the
+   audit first, the late settle's `updateMany` matches zero rows and no-ops.
+   Plain Prisma throughout — no parent counters, so no raw SQL and no
+   multi-statement transactions needed.
+7. **Registration is part of the deliverable, not an afterthought** (Codex fix
+   #3): `registerBuiltInJobHandlers()` in `lib/jobs/handlers/register.ts` adds
+   `registerAdaAuditHandler()`, and a test proves an enqueued `ada-audit` job
+   actually drains through the registry (a handler without registration
+   enqueues forever).
 
 **`failStandaloneAudit(adaAuditId, message)`** (exported): conditional flip of
 `pending|running` → `error` + `completedAt`. Used by:
@@ -105,9 +120,15 @@ site-audit-page error semantics):
   `202 { id, status: 'pending' }`. The groupKey deliberately matches the one
   `dispatchPdfScans` already uses for standalone PDFs, so
   `countActiveJobsByGroup('ada-audit:<id>')` measures whole-audit liveness.
-- Enqueue throws → best-effort `failStandaloneAudit(id, 'Failed to enqueue
-  audit job')` → `500 { error: 'Failed to queue audit' }`. (New observable
-  transition; previously the fire-and-forget could only fail silently.)
+- Enqueue throws → **await** `failStandaloneAudit(id, 'Failed to enqueue
+  audit job')` before responding; if that fallback also throws, log and still
+  return `500 { error: 'Failed to queue audit' }` — recovery flips the row on
+  a later sweep (Codex fix #6). (New observable transition; previously the
+  fire-and-forget could only fail silently.)
+- The creation block is transplanted intact: URL normalization/validation,
+  archived-client-excluded auto-match (`archivedAt: null`), `wcagLevel`
+  whitelisting, and `requestedBy` from the operator cookie all stay exactly as
+  they are (Codex fix #7).
 
 ### 3. Recovery (`lib/ada-audit/standalone-recovery.ts`)
 
@@ -158,17 +179,31 @@ already renders that state.
 
 - **Handler** (`lib/jobs/handlers/ada-audit.test.ts`, mirroring
   `site-audit-page.test.ts`): payload assert; claim no-op on settled rows;
-  domain-error settle (job completes, no throw); redirect settle; complete
-  settle with **dispatch-before-settle order asserted**; dual-write hook fired
-  after settle (and never throwing into the handler); `onExhausted` flips only
-  non-terminal rows; conditional settle never clobbers a recovery-flipped row.
+  domain-error settle (job completes, no throw); redirect settle (incl.
+  `runnerType: 'browser'`); complete settle with **dispatch-before-settle
+  order asserted**; dual-write hook fired after settle (and never throwing
+  into the handler); `onExhausted` flips only non-terminal rows;
+  **late-settle no-op: recovery flips the row terminal first, then the
+  handler's settle/progress writes match zero rows** (Codex fix #2);
+  progress writes are status-guarded (Codex fix #1).
+- **Registration**: an enqueued `ada-audit` job drains through
+  `registerBuiltInJobHandlers()` — proves the handler is actually registered
+  (Codex fix #3).
 - **Route**: POST enqueues with the right type/dedupKey/groupKey and still
-  returns `202 { id, status: 'pending' }`; enqueue failure → row flipped to
-  `error` + 500.
+  returns `202 { id, status: 'pending' }`; the created row preserves
+  `requestedBy`, `wcagLevel`, normalized URL, and matched `clientId` with
+  archived clients excluded (Codex fix #7); enqueue failure → fallback awaited,
+  row flipped to `error`, 500; fallback failure → still 500 (Codex fix #6).
 - **Recovery** (`standalone-recovery.test.ts`): young rows untouched;
-  active-jobs → resume; zero-jobs → flip; count-read error → skip; PDF sweep
-  flips only when the group is drained; site-audit children
-  (`siteAuditId != null`) never touched.
+  active-jobs → resume; zero-jobs → flip; **Job row terminal
+  (`error`/`cancelled`) while the audit row is still `pending`/`running` →
+  flips after the threshold** (covers a failed `onExhausted` or interrupted
+  enqueue-failure fallback; Codex fix #4); count-read error → skip;
+  site-audit children (`siteAuditId != null`) never touched.
+- **PDF sweep mixed-group cases** (Codex fix #5): stale pending PDF + no
+  active group jobs → flips; stale PDF + active `ada-audit` job → no flip;
+  stale PDF + active sibling `pdf-scan` job → no flip; parent audit terminal
+  + group drained → flips.
 - DB-backed test files use their own unique domain/id prefixes (existing
   suite gotcha).
 
