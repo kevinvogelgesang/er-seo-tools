@@ -8,8 +8,9 @@ import { prisma } from '@/lib/db'
 import {
   aggregateAdaTypes, aggregateSeoTypes, diffTypes, selectRuns,
   SEVERITY_RANK, URLS_PER_FINDING,
-  type RunRef, type Severity, type TypeAggregate, type TypeDiff,
+  type InstanceDiff, type RunRef, type Severity, type TypeAggregate, type TypeDiff,
 } from './findings-shared'
+import { getRunPairInstanceDiff } from './site-audit-diff'
 
 export interface OpenFindingRow {
   tool: 'seo' | 'ada'
@@ -33,6 +34,10 @@ export interface SourceRunMeta {
   hasPrevious: boolean
   newTypeCount: number
   resolvedTypeCount: number
+  /** C3 instance-level (URL×rule) counts — ADA-only v1; null when no
+   *  comparable previous run (missing, or wcagLevel mismatch). */
+  newInstanceCount: number | null
+  resolvedInstanceCount: number | null
 }
 
 export interface ClientFindings {
@@ -65,6 +70,8 @@ function meta(run: RunRef, diff: TypeDiff, hasPrevious: boolean): SourceRunMeta 
     hasPrevious,
     newTypeCount: diff.newTypes.size,
     resolvedTypeCount: diff.resolvedCount,
+    newInstanceCount: null,
+    resolvedInstanceCount: null,
   }
 }
 
@@ -196,7 +203,17 @@ export async function getClientFindings(clientId: number): Promise<ClientFinding
       tool: 'ada', aggregates, diff, hasPrevious: sel.ada.previous !== null,
       urlsByType, descriptions, sampleByType, href: runHref(cur),
     }))
-    adaMeta = { ...meta(cur, diff, sel.ada.previous !== null), sourceClass: sel.ada.sourceClass }
+    let instanceDiff: InstanceDiff | null = null
+    if (sel.ada.previous) {
+      // B2's pair as-is; getRunPairInstanceDiff nulls on wcagLevel mismatch.
+      instanceDiff = await getRunPairInstanceDiff(cur.id, sel.ada.previous.id)
+    }
+    adaMeta = {
+      ...meta(cur, diff, sel.ada.previous !== null),
+      newInstanceCount: instanceDiff?.newCount ?? null,
+      resolvedInstanceCount: instanceDiff?.resolvedCount ?? null,
+      sourceClass: sel.ada.sourceClass,
+    }
   }
 
   rows.sort((a, b) =>

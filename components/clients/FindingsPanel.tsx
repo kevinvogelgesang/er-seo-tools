@@ -32,6 +32,9 @@ export interface SourceMetaProp {
   hasPrevious: boolean
   newTypeCount: number
   resolvedTypeCount: number
+  /** C3 instance-level counts — ADA-only; null = no comparable previous run. */
+  newInstanceCount: number | null
+  resolvedInstanceCount: number | null
   sourceClass?: 'site' | 'page'
 }
 
@@ -59,6 +62,14 @@ function SourceLine({ label, m }: { label: string; m: SourceMetaProp }) {
           · <span className={m.newTypeCount > 0 ? 'text-red-600 dark:text-red-400' : ''}>+{m.newTypeCount} new</span>
           {' / '}
           <span className={m.resolvedTypeCount > 0 ? 'text-green-600 dark:text-green-400' : ''}>{m.resolvedTypeCount} resolved</span>
+        </span>
+      )}
+      {m.newInstanceCount !== null && m.resolvedInstanceCount !== null && (
+        <span>
+          · <span className={m.newInstanceCount > 0 ? 'text-red-600 dark:text-red-400' : ''}>+{m.newInstanceCount}</span>
+          {' / '}
+          <span className={m.resolvedInstanceCount > 0 ? 'text-green-600 dark:text-green-400' : ''}>−{m.resolvedInstanceCount}</span>
+          {' violations'}
         </span>
       )}
       {m.href && (

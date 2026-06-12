@@ -67,7 +67,10 @@ async function makeSeoRun(clientId: number, opts: {
 
 async function makeAdaSiteRun(clientId: number, opts: {
   completedAt: Date
-  violations?: { type: string; severity: string; url: string; impact?: string; help?: string }[]
+  wcagLevel?: string
+  violations?: { type: string; severity: string; url: string; impact?: string; help?: string; dedupKey?: string }[]
+  /** Extra complete pages (exact URLs) — page-set awareness for instance diffs. */
+  extraPages?: string[]
 }) {
   const sa = await prisma.siteAudit.create({
     data: { domain: DOMAIN, status: 'complete', clientId, completedAt: opts.completedAt },
@@ -76,14 +79,18 @@ async function makeAdaSiteRun(clientId: number, opts: {
     data: {
       tool: 'ada-audit', source: 'site-audit', domain: DOMAIN, clientId, siteAuditId: sa.id,
       status: 'complete', score: 85, pagesTotal: 3, completedAt: opts.completedAt, createdAt: opts.completedAt,
+      wcagLevel: opts.wcagLevel ?? 'wcag21aa',
     },
   })
+  for (const u of opts.extraPages ?? []) {
+    await prisma.crawlPage.create({ data: { runId: run.id, url: u, status: 'complete' } })
+  }
   for (const v of opts.violations ?? []) {
     const page = await prisma.crawlPage.create({
       data: { runId: run.id, url: v.url + '#' + randomUUID().slice(0, 6), status: 'complete' },
     })
     const f = await prisma.finding.create({
-      data: { runId: run.id, pageId: page.id, scope: 'page', type: v.type, severity: v.severity, url: v.url, dedupKey: randomUUID() },
+      data: { runId: run.id, pageId: page.id, scope: 'page', type: v.type, severity: v.severity, url: v.url, dedupKey: v.dedupKey ?? randomUUID() },
     })
     await prisma.violation.create({
       data: {
@@ -186,6 +193,61 @@ describe('getClientFindings', () => {
     expect(out.seo?.hasPrevious).toBe(true)
     expect(out.seo?.newTypeCount).toBe(1)
     expect(out.seo?.resolvedTypeCount).toBe(1)
+    // Instance diffing is ADA-only v1 — SEO meta carries nulls.
+    expect(out.seo?.newInstanceCount).toBeNull()
+    expect(out.seo?.resolvedInstanceCount).toBeNull()
+  })
+
+  it('ada meta carries instance counts when a same-level previous run exists', async () => {
+    const c = await makeClient('inst')
+    await makeAdaSiteRun(c.id, {
+      completedAt: daysAgo(10),
+      violations: [
+        { type: 'color-contrast', severity: 'critical', url: `https://${DOMAIN}/a`, dedupKey: 'cfind-k-a' },
+        { type: 'image-alt', severity: 'critical', url: `https://${DOMAIN}/b`, dedupKey: 'cfind-k-b' },
+      ],
+    })
+    await makeAdaSiteRun(c.id, {
+      completedAt: daysAgo(1),
+      violations: [
+        { type: 'color-contrast', severity: 'critical', url: `https://${DOMAIN}/a`, dedupKey: 'cfind-k-a' },
+        { type: 'link-name', severity: 'critical', url: `https://${DOMAIN}/c`, dedupKey: 'cfind-k-c' },
+      ],
+      extraPages: [`https://${DOMAIN}/b`], // /b rescanned clean → k-b resolved
+    })
+    const out = await getClientFindings(c.id)
+    expect(out.ada?.hasPrevious).toBe(true)
+    expect(out.ada?.newInstanceCount).toBe(1)      // cfind-k-c only (k-a unchanged)
+    expect(out.ada?.resolvedInstanceCount).toBe(1) // cfind-k-b, page rescanned
+  })
+
+  it('ada instance counts are null when there is no previous run', async () => {
+    const c = await makeClient('inst-noprev')
+    await makeAdaSiteRun(c.id, {
+      completedAt: daysAgo(1),
+      violations: [{ type: 'color-contrast', severity: 'critical', url: `https://${DOMAIN}/a` }],
+    })
+    const out = await getClientFindings(c.id)
+    expect(out.ada?.hasPrevious).toBe(false)
+    expect(out.ada?.newInstanceCount).toBeNull()
+    expect(out.ada?.resolvedInstanceCount).toBeNull()
+  })
+
+  it('ada instance counts are null when wcagLevels differ (type diff still renders)', async () => {
+    const c = await makeClient('inst-level')
+    await makeAdaSiteRun(c.id, {
+      completedAt: daysAgo(10), wcagLevel: 'wcag22aa',
+      violations: [{ type: 'image-alt', severity: 'critical', url: `https://${DOMAIN}/b` }],
+    })
+    await makeAdaSiteRun(c.id, {
+      completedAt: daysAgo(1), wcagLevel: 'wcag21aa',
+      violations: [{ type: 'color-contrast', severity: 'critical', url: `https://${DOMAIN}/a` }],
+    })
+    const out = await getClientFindings(c.id)
+    expect(out.ada?.hasPrevious).toBe(true)
+    expect(out.ada?.newTypeCount).toBe(1) // type-level diff unaffected by level gate
+    expect(out.ada?.newInstanceCount).toBeNull()
+    expect(out.ada?.resolvedInstanceCount).toBeNull()
   })
 
   it('no previous run → no badges, hasPrevious false', async () => {
