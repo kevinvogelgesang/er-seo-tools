@@ -151,6 +151,7 @@ model SiteAudit {
   checks           SiteAuditCheck[]
   crawlRuns        CrawlRun[]
   harvestedLinks   HarvestedLink[]
+  harvestedPageSeo HarvestedPageSeo[]
 
   @@index([createdAt])
   @@index([status])
@@ -380,6 +381,41 @@ model HarvestedLink {
 
   @@index([siteAuditId])
   @@index([siteAuditId, targetUrl])
+}
+
+// C6 Phase 2: transient per-page on-page SEO signals captured during the ADA
+// site audit. Deleted by the broken-link-verify builder after it writes the
+// live-scan findings; a 7-day sweep backstops audits whose build never ran.
+// Scaffolding, not a durable store — the live-scan CrawlRun is the record.
+model HarvestedPageSeo {
+  id            String    @id @default(cuid())
+  siteAuditId   String
+  siteAudit     SiteAudit @relation(fields: [siteAuditId], references: [id], onDelete: Cascade)
+  url           String    // normalized audited page URL (NEVER page.url())
+  statusCode    Int?
+  isHtml        Boolean   @default(true)
+  title         String?
+  titleLength   Int?
+  metaDescription String?
+  metaDescriptionLength Int?
+  h1            String?
+  h1Count       Int?
+  h2Count       Int?
+  wordCount     Int?
+  canonicalUrl  String?
+  robotsNoindex   Boolean @default(false)
+  xRobotsNoindex  Boolean @default(false)
+  loginLike     Boolean   @default(false)
+  schemaCount   Int?
+  imageCount    Int?
+  imagesMissingAlt        Int?
+  imagesMissingDimensions Int?
+  harvestTruncated Boolean @default(false)
+  detailsJson   String?   // bounded JSON: { schemaTypes: string[], hreflang: string[] }
+  createdAt     DateTime  @default(now())
+
+  @@index([siteAuditId])
+  @@index([siteAuditId, url])
 }
 
 model CrawlPage {
