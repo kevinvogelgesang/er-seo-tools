@@ -120,7 +120,12 @@ export async function getClientFindings(clientId: number): Promise<ClientFinding
   const keywordSessionIds = new Set(sessions.filter((s) => s.workflow === 'keyword-research').map((s) => s.id))
   const sel = selectRuns(crawlRuns, keywordSessionIds)
 
-  const currentIds = [sel.seo.current?.id, sel.ada.current?.id].filter((x): x is string => !!x)
+  // C6: include the live-scan run so its broken-link findings surface additively
+  // in the panel. It NEVER contributes to the SEO score/trend (that reads
+  // sel.seo.current only, below).
+  const currentIds = [sel.seo.current?.id, sel.seo.liveScan?.id, sel.ada.current?.id].filter(
+    (x): x is string => !!x,
+  )
   if (currentIds.length === 0) return { rows: [], seo: null, ada: null }
 
   const [currentFindings, prevSeoRows, prevAdaGroups, adaHelp] = await Promise.all([
@@ -182,6 +187,27 @@ export async function getClientFindings(clientId: number): Promise<ClientFinding
       urlsByType, descriptions, sampleByType, href: runHref(cur),
     }))
     seoMeta = meta(cur, diff, sel.seo.previous !== null)
+  }
+
+  // C6: live-scan broken-link findings — additive rows, no score/trend, no diff.
+  if (sel.seo.liveScan) {
+    const lr = sel.seo.liveScan
+    const mine = currentFindings.filter((f) => f.runId === lr.id)
+    const runScope = mine.filter((f) => f.scope === 'run')
+    const pageScope = mine.filter((f) => f.scope === 'page' && f.url !== null)
+    const aggregates = aggregateSeoTypes(runScope)
+    const urlsByType = new Map<string, string[]>()
+    for (const p of pageScope) {
+      const list = urlsByType.get(p.type) ?? []
+      list.push(p.url as string)
+      urlsByType.set(p.type, list)
+    }
+    const descriptions = new Map(runScope.map((f) => [f.type, { description: parseDescription(f.detail), helpUrl: null }]))
+    const sampleByType = new Map(runScope.map((f) => [f.type, f.affectedComplete !== true]))
+    rows.push(...buildRows({
+      tool: 'seo', aggregates, diff: diffTypes(aggregates, null), hasPrevious: false,
+      urlsByType, descriptions, sampleByType, href: runHref(lr),
+    }))
   }
 
   if (sel.ada.current && sel.ada.sourceClass) {
