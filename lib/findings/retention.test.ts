@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
-import { pruneArchivedBlobs, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
+import { pruneArchivedBlobs, pruneHarvestedLinks, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
 
 // Artifact deletion is mocked — retention tests must never touch the
 // uploads/screenshots filesystem.
@@ -270,5 +270,49 @@ describe('pruneArchivedBlobs', () => {
     })
     expect(blobsLeft).toBe(0)
     expect(made).toHaveLength(120)
+  })
+
+  // C6 (fix #9): a seo-parser live-scan run carries siteAuditId but has NO blob
+  // of its own — the SiteAudit.summary belongs to the ADA run. Pruning the
+  // seo-parser tool must leave that summary (and the live-scan run) untouched.
+  it('leaves a seo-parser live-scan run and the shared SiteAudit summary untouched', async () => {
+    const siteAudit = await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', summary: '{"blob":true}', score: 90 },
+    })
+    // ADA run (NOT aged) + aged seo-parser live-scan run, same SiteAudit origin.
+    await prisma.crawlRun.create({
+      data: { tool: 'ada-audit', source: 'site-audit', domain: DOMAIN, siteAuditId: siteAudit.id, status: 'complete', pagesTotal: 1, completedAt: NOW },
+    })
+    const liveRun = await prisma.crawlRun.create({
+      data: { tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, siteAuditId: siteAudit.id, status: 'complete', pagesTotal: 0, completedAt: OLD },
+    })
+    await pruneArchivedBlobs(NOW, SEO_ON)
+    // ADA summary survives; the live-scan run is NOT selected/stamped.
+    expect((await prisma.siteAudit.findUniqueOrThrow({ where: { id: siteAudit.id } })).summary).toBe('{"blob":true}')
+    expect((await prisma.crawlRun.findUniqueOrThrow({ where: { id: liveRun.id } })).archivePrunedAt).toBeNull()
+  })
+})
+
+describe('pruneHarvestedLinks', () => {
+  beforeEach(clearTestState)
+  afterEach(clearTestState)
+
+  it('deletes rows older than 7 days, keeps recent', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    const old = await prisma.harvestedLink.create({
+      data: { siteAuditId: sa.id, targetUrl: `https://${DOMAIN}/old`, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    })
+    const fresh = await prisma.harvestedLink.create({
+      data: { siteAuditId: sa.id, targetUrl: `https://${DOMAIN}/new`, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    })
+    // Age the first row 8 days (createdAt has @default(now), so set it explicitly).
+    await prisma.harvestedLink.update({
+      where: { id: old.id },
+      data: { createdAt: new Date(NOW.getTime() - 8 * DAY_MS) },
+    })
+    await prisma.harvestedLink.update({ where: { id: fresh.id }, data: { createdAt: NOW } })
+    await pruneHarvestedLinks(NOW)
+    const remaining = await prisma.harvestedLink.findMany({ where: { siteAuditId: sa.id }, select: { id: true } })
+    expect(remaining.map((r) => r.id)).toEqual([fresh.id])
   })
 })
