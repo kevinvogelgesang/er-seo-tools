@@ -62,7 +62,7 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
   for (const s of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
     try {
       const collect = (o: unknown): void => {
-        if (!o || typeof o !== 'object') return
+        if (!o) return
         if (Array.isArray(o)) { o.forEach(collect); return }
         const rec = o as Record<string, unknown>
         if (rec['@type']) ([] as unknown[]).concat(rec['@type']).forEach((t) => schemaTypes.push(String(t)))
