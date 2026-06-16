@@ -310,6 +310,10 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
   const hreflang = Array.from(doc.querySelectorAll('link[rel="alternate"][hreflang]'))
     .map((l) => l.getAttribute('hreflang') || '')
     .filter(Boolean)
+  // Bound the "bounded JSON" arrays: dedupe + cap at 50 each (Codex fix #7).
+  const CAP = 50
+  const boundedSchema = Array.from(new Set(schemaTypes)).slice(0, CAP)
+  const boundedHreflang = Array.from(new Set(hreflang)).slice(0, CAP)
   const imgs = Array.from(doc.querySelectorAll('img'))
   const imagesMissingAlt = imgs.filter((i) => !i.getAttribute('alt')).length
   const imagesMissingDimensions = imgs.filter((i) => !i.getAttribute('width') || !i.getAttribute('height')).length
@@ -323,7 +327,7 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
 
   return {
     title, metaDescription, robotsNoindex, canonicalUrl, h1, h1Count, h2Count,
-    wordCount: words, schemaTypes, hreflang,
+    wordCount: words, schemaTypes: boundedSchema, hreflang: boundedHreflang,
     imageCount: imgs.length, imagesMissingAlt, imagesMissingDimensions, loginLike,
   }
 }
@@ -415,10 +419,27 @@ export async function harvestLinks(
 Run: `npx tsc --noEmit`
 Expected: PASS.
 
-- [ ] **Step 4: Run the existing harvest test (update shape if needed)**
+- [ ] **Step 4: Add a `harvestLinks()` test** (Codex fix #6 — the file currently only covers `classifyTargets`/`normalizeLinkTarget`). Since the evaluate changed from function-form to string-injection, prove the new return shape survives with a fake `Page`:
+
+```ts
+import { harvestLinks } from './link-harvest'
+
+it('harvestLinks returns targets + truncated + pageSeo from one evaluate', async () => {
+  const seo = { title: 'T', h1Count: 1, h2Count: 0, wordCount: 500, schemaTypes: [], hreflang: [],
+    imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, robotsNoindex: false, loginLike: false }
+  const fakePage = {
+    url: () => 'https://x.com/p',
+    evaluate: async () => ({ links: ['/a', 'https://other.com/z'], images: ['/i.png'], seo }),
+  } as unknown as import('puppeteer-core').Page
+  const r = await harvestLinks(fakePage, 'x.com')
+  expect(r.pageSeo).toEqual(seo)
+  expect(r.targets.some((t) => t.kind === 'internal-link')).toBe(true)
+  expect(r.targets.some((t) => t.kind === 'external-link')).toBe(true)
+})
+```
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/link-harvest.test.ts`
-Expected: PASS. If a test stubs `page.evaluate` to return `{ links, images }`, update the stub to also return `seo: { ...RawPageSeo... }` and assert `result.pageSeo` is passed through. `classifyTargets`/`normalizeLinkTarget` tests are unaffected (pure, unchanged).
+Expected: PASS. (`classifyTargets`/`normalizeLinkTarget` tests are unaffected — pure, unchanged.)
 
 - [ ] **Step 5: Commit**
 
@@ -434,22 +455,28 @@ git commit -m "feat(c6): harvest on-page SEO in the same DOM evaluate"
 **Files:**
 - Modify: `lib/ada-audit/runner.ts`
 
-- [ ] **Step 1: Extend the `audited` variant** of `RunAxeResult` (`runner.ts:45-58`). Add after `harvestedLinksTruncated: boolean`:
+- [ ] **Step 1: Add the type import** at the top of `runner.ts` (next to the existing `harvestLinks` import, `runner.ts:9` — use a normal `import type`, not inline `import()`, matching the file's convention — Codex fix #5):
+
+```ts
+import type { RawPageSeo } from './seo/parse-seo-dom'
+```
+
+- [ ] **Step 2: Extend the `audited` variant** of `RunAxeResult` (`runner.ts:45-58`). Add after `harvestedLinksTruncated: boolean`:
 
 ```ts
       // C6 Phase 2: on-page SEO captured in the same harvest evaluate (null if
       // the in-page extraction threw — non-fatal).
-      harvestedPageSeo: import('./seo/parse-seo-dom').RawPageSeo | null
+      harvestedPageSeo: RawPageSeo | null
 ```
 
-- [ ] **Step 2: Capture it at the harvest call site** (`runner.ts:375-385`). Replace the harvest block with:
+- [ ] **Step 3: Capture it at the harvest call site** (`runner.ts:375-385`). Replace the harvest block with:
 
 ```ts
     // C6: harvest <a href> + <img src> targets + on-page SEO for the live-scan
     // builder. Non-fatal (best-effort), same contract as the PDF harvest above.
     let harvestedLinks: HarvestedTarget[] = []
     let harvestedLinksTruncated = false
-    let harvestedPageSeo: import('./seo/parse-seo-dom').RawPageSeo | null = null
+    let harvestedPageSeo: RawPageSeo | null = null
     try {
       const h = await harvestLinks(page, parsed.hostname.toLowerCase())
       harvestedLinks = h.targets
@@ -462,12 +489,12 @@ git commit -m "feat(c6): harvest on-page SEO in the same DOM evaluate"
     return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
 ```
 
-- [ ] **Step 3: Typecheck**
+- [ ] **Step 4: Typecheck**
 
 Run: `npx tsc --noEmit`
 Expected: PASS (the page handler destructure in Task 6 will consume the new field; until then it's just present).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/ada-audit/runner.ts
@@ -501,7 +528,6 @@ async function persistPageSeo(
   siteAuditId: string,
   pageUrl: string,
   seo: RawPageSeo | null,
-  truncated: boolean,
 ): Promise<void> {
   if (!seo) return
   try {
@@ -509,6 +535,12 @@ async function persistPageSeo(
       data: {
         siteAuditId,
         url: normalizeFindingUrl(pageUrl),
+        // The row only exists on the successful-settle (2xx HTML) path — the
+        // runner throws before this on non-2xx — so statusCode is 200 and the
+        // page is HTML (Codex fix #1: a null statusCode made indexableOf() false
+        // and emitted zero findings). xRobotsNoindex stays default false
+        // (header threading deferred to the scorer phase, per spec).
+        statusCode: 200,
         isHtml: true,
         title: seo.title ?? null,
         titleLength: seo.title?.length ?? null,
@@ -525,7 +557,10 @@ async function persistPageSeo(
         imageCount: seo.imageCount,
         imagesMissingAlt: seo.imagesMissingAlt,
         imagesMissingDimensions: seo.imagesMissingDimensions,
-        harvestTruncated: truncated,
+        // On-page extraction has no per-page cap in MVP (one row, all fields
+        // present), so this is ALWAYS false — never the LINK truncation flag,
+        // which would falsely mark on-page findings incomplete (Codex fix #2).
+        harvestTruncated: false,
         detailsJson: JSON.stringify({ schemaTypes: seo.schemaTypes, hreflang: seo.hreflang }),
       },
     })
@@ -534,8 +569,6 @@ async function persistPageSeo(
   }
 }
 ```
-
-> Note: `statusCode`/`xRobotsNoindex` are not available on the audited path (the runner throws before this on non-2xx; response headers aren't threaded through). They stay at their column defaults — the builder treats a present HarvestedPageSeo row as a 2xx HTML page (it only exists on the successful-settle path). This matches the spec's "successful-settle only" scope.
 
 - [ ] **Step 2: Destructure the new field + call the helper.** At `site-audit-page.ts:208`, add `harvestedPageSeo` to the destructure:
 
@@ -546,7 +579,7 @@ async function persistPageSeo(
 At the post-settle fence (`site-audit-page.ts:249`, right after `await persistHarvest(...)`), add:
 
 ```ts
-  await persistPageSeo(job.siteAuditId, job.url, harvestedPageSeo, harvestedLinksTruncated)
+  await persistPageSeo(job.siteAuditId, job.url, harvestedPageSeo)
 ```
 
 - [ ] **Step 3: Typecheck**
@@ -603,14 +636,14 @@ const row = (o: Partial<OnPageSeoRow> & { url: string }): OnPageSeoRow => ({
 })
 
 describe('mapOnPageSeoFindings', () => {
-  it('detects duplicate titles (run-scope count = affected pages) + per-page findings', () => {
+  it('detects duplicate titles (run-scope count = GROUP count, SF semantics) + per-page findings', () => {
     const { pages, ensurePage } = harness()
     const findings = mapOnPageSeoFindings(
       [row({ url: 'https://x.com/a', title: 'Same' }), row({ url: 'https://x.com/b', title: 'Same' })],
       { runId: 'R', ensurePage, harvestTruncated: false },
     )
     const dupRun = findings.find((f) => f.scope === 'run' && f.type === 'duplicate_title')!
-    expect(dupRun.count).toBe(2)
+    expect(dupRun.count).toBe(1) // one duplicate GROUP (matches SF pageTitles.parser)
     expect(dupRun.severity).toBe('warning')
     expect(findings.filter((f) => f.scope === 'page' && f.type === 'duplicate_title').length).toBe(2)
     expect(pages.length).toBe(2)
@@ -734,14 +767,19 @@ export function mapOnPageSeoFindings(rows: OnPageSeoRow[], deps: OnPageMapDeps):
     .filter((r) => !r.loginLike && indexableOf(r))
     .map((r) => ({ ...r, url: normalizeFindingUrl(r.url) }))
 
-  // type -> affected normalized URLs (insertion order, deduped)
+  // type -> affected normalized URLs (insertion order, deduped). Page-scope rows
+  // come from here for ALL types.
   const byType = new Map<string, string[]>()
+  // type -> run-scope count. For missing_*/thin_content this is affected pages;
+  // for duplicate_* it is the number of duplicate GROUPS (SF pageTitles.parser
+  // semantics — Codex fix #3), set explicitly in dup() below.
+  const runCount = new Map<string, number>()
   const add = (type: string, url: string) => {
     const arr = byType.get(type) ?? byType.set(type, []).get(type)!
     if (!arr.includes(url)) arr.push(url)
   }
 
-  // missing_* + thin_content via the shared SF predicate.
+  // missing_* + thin_content via the shared SF predicate. Run count = affected pages.
   for (const r of eligible) {
     const rec: PerUrlRecord = {
       url: r.url, title: r.title ?? null, h1: r.h1 ?? null, metaDescription: r.metaDescription ?? null,
@@ -750,7 +788,8 @@ export function mapOnPageSeoFindings(rows: OnPageSeoRow[], deps: OnPageMapDeps):
     for (const t of deriveIssueTypesForPage(rec)) add(t, r.url)
   }
 
-  // duplicates: trimmed-exact non-empty value shared by >= 2 pages.
+  // duplicates: trimmed-exact non-empty value shared by >= 2 pages. Run count =
+  // number of duplicate groups; page rows = every page in any group.
   const dup = (key: 'title' | 'metaDescription' | 'h1', type: string) => {
     const groups = new Map<string, string[]>()
     for (const r of eligible) {
@@ -759,7 +798,13 @@ export function mapOnPageSeoFindings(rows: OnPageSeoRow[], deps: OnPageMapDeps):
       const arr = groups.get(v) ?? groups.set(v, []).get(v)!
       arr.push(r.url)
     }
-    for (const urls of groups.values()) if (urls.length > 1) for (const u of urls) add(type, u)
+    let groupCount = 0
+    for (const urls of groups.values()) {
+      if (urls.length < 2) continue
+      groupCount++
+      for (const u of urls) add(type, u)
+    }
+    if (groupCount > 0) runCount.set(type, groupCount)
   }
   dup('title', 'duplicate_title')
   dup('metaDescription', 'duplicate_meta_description')
@@ -769,7 +814,7 @@ export function mapOnPageSeoFindings(rows: OnPageSeoRow[], deps: OnPageMapDeps):
   for (const [type, urls] of byType) {
     findings.push({
       id: randomUUID(), runId, pageId: null, scope: 'run', type,
-      severity: SEVERITY[type] ?? 'warning', url: null, count: urls.length,
+      severity: SEVERITY[type] ?? 'warning', url: null, count: runCount.get(type) ?? urls.length,
       affectedComplete, affectedSource: 'live-scan-onpage',
       detail: JSON.stringify({ description: DESC[type] ?? type }),
       dedupKey: runFindingKey(type),
@@ -986,7 +1031,9 @@ it('writes ONE live-scan run carrying on-page + broken-link findings, deletes bo
   expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
 })
 it('is idempotent (second run replaces, one row)', async () => {
-  // re-seed harvest rows, run twice -> exactly one live-scan run
+  // re-seed BOTH HarvestedLink AND HarvestedPageSeo rows (Codex fix #8 — the
+  // builder consumes both, so both must be present to prove unified idempotency),
+  // run runBrokenLinkVerify twice -> exactly one live-scan run, findings from both sources
 })
 ```
 
@@ -1044,7 +1091,9 @@ After the link verification loop produces `broken`, `checked`, `unconfirmed`, `c
     })
   }
 
-  const onPageFindings = mapOnPageSeoFindings(seoRows as OnPageSeoRow[], { runId, ensurePage, harvestTruncated })
+  // On-page has no per-page cap in MVP, so its completeness is independent of the
+  // LINK truncation flag (Codex fix #2) — always pass false here.
+  const onPageFindings = mapOnPageSeoFindings(seoRows as OnPageSeoRow[], { runId, ensurePage, harvestTruncated: false })
   const brokenFindings = mapBrokenLinkFindings(broken, {
     runId, ensurePage, affectedComplete: !capped && !harvestTruncated,
     confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
@@ -1250,12 +1299,25 @@ function Card({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function OnPageSeoSection({ run }: { run: BrokenLinksRun | null }) {
+// `analyzed` distinguishes a Phase-2 run (on-page extraction ran — at least one
+// CrawlPage has a populated statusCode) from a pre-Phase-2 live-scan run that
+// only carries broken-link findings. Without it, an old run would render a
+// misleading "clean" (Codex fix #4). The page computes it from the run's pages.
+export function OnPageSeoSection({ run, analyzed }: { run: BrokenLinksRun | null; analyzed: boolean }) {
   if (!run) {
     return (
       <Card>
         <p className="text-[13px] font-body text-navy/50 dark:text-white/50">
           On-page SEO not yet analyzed — the live scan runs shortly after the audit completes.
+        </p>
+      </Card>
+    )
+  }
+  if (!analyzed) {
+    return (
+      <Card>
+        <p className="text-[13px] font-body text-navy/50 dark:text-white/50">
+          This audit predates on-page SEO analysis — re-run the audit to populate it.
         </p>
       </Card>
     )
@@ -1309,19 +1371,35 @@ export function OnPageSeoSection({ run }: { run: BrokenLinksRun | null }) {
 }
 ```
 
-- [ ] **Step 3: Render it** in `app/ada-audit/site/[id]/page.tsx`. Add the import next to `BrokenLinksSection` (`page.tsx:9`):
+- [ ] **Step 3: Add an analyzed probe to the query + render the section** in `app/ada-audit/site/[id]/page.tsx`. Add the import next to `BrokenLinksSection` (`page.tsx:9`):
 
 ```ts
 import { OnPageSeoSection } from '@/components/site-audit/OnPageSeoSection'
 ```
 
+Extend the `liveScanRun` query (`page.tsx:154-160`) to probe for a Phase-2 page (one with a populated `statusCode` — Codex fix #4). Add a `pages` sub-select:
+
+```ts
+  const liveScanRun = await prisma.crawlRun.findUnique({
+    where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'seo-parser' } },
+    select: {
+      status: true,
+      findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
+      // Phase-2 marker: on-page extraction populates statusCode on every page it
+      // writes; pre-Phase-2 runs have only broken-link source pages (statusCode null).
+      pages: { where: { statusCode: { not: null } }, select: { id: true }, take: 1 },
+    },
+  })
+  const onPageAnalyzed = !!liveScanRun && liveScanRun.pages.length > 0
+```
+
 Add the component right after `<BrokenLinksSection run={liveScanRun} />` (`page.tsx:197`):
 
 ```tsx
-      <OnPageSeoSection run={liveScanRun} />
+      <OnPageSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
 ```
 
-(The `liveScanRun` query at `page.tsx:154` already selects `findings { scope, type, count, url, detail }` — no query change.)
+> Note: `BrokenLinksSection` still receives `liveScanRun` (typed `BrokenLinksRun`). The extra `pages` field on the object is fine — excess-property checks only apply to inline object literals, not a passed variable. `BrokenLinksSection` ignores it.
 
 - [ ] **Step 4: Typecheck + build**
 
@@ -1376,3 +1454,4 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - **Codex fixes:** #1 `thin_content` (T7 SEVERITY/DESC + reuse of `deriveIssueTypesForPage`); #2 page identity = `job.url` normalized (T6); #3 partial-bundle mappers + builder-owned run/page map (T8/T9); #4 widen union (T3) + filter both sections (T12); #5 clean-scope copy (T12 OnPageSeoSection); #6 trimmed-exact duplicates (T7 + test).
 - **Type consistency:** `RawPageSeo` (T2) → `harvestLinks.pageSeo` (T4) → `RunAxeResult.harvestedPageSeo` (T5) → `persistPageSeo` (T6) → `HarvestedPageSeo` rows → `OnPageSeoRow` (T7) read by the builder (T9). `ensurePage(url, scalars?)` signature identical across T7/T8/T9. `mapOnPageSeoFindings`/`mapBrokenLinkFindings` both return `FindingInput[]`.
 - **No placeholders:** every code step shows complete code; T13 is verification/deploy (commands explicit). The two seed-heavy DB tests (T9 Step 1, T10/T11) reference the sibling test files' existing seed/cleanup patterns by name rather than re-deriving them — intentional, to match this repo's per-file DB-test hygiene.
+- **Codex plan-review fixes (8):** #1 `statusCode:200` on persist (else `indexableOf` false → zero findings) — T6; #2 on-page `harvestTruncated:false`, decoupled from link cap — T6/T9; #3 duplicate run-scope count = group count (SF semantics) — T7; #4 `analyzed` probe so pre-Phase-2 runs don't show false "clean" — T12; #5 `import type RawPageSeo` not inline `import()` — T5; #6 real `harvestLinks()` test — T4; #7 dedupe+cap `schemaTypes`/`hreflang` at 50 — T2; #8 idempotency test re-seeds both transient tables — T9.
