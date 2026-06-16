@@ -17,7 +17,10 @@
 import { prisma } from '@/lib/db'
 import { writeFindingsRun } from '@/lib/findings/writer'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
-import { mapBrokenLinks, type BrokenTarget } from '@/lib/findings/broken-link-mapper'
+import { mapBrokenLinkFindings, type BrokenTarget } from '@/lib/findings/broken-link-mapper'
+import { mapOnPageSeoFindings, type OnPageSeoRow } from '@/lib/findings/onpage-seo-mapper'
+import type { CrawlPageInput, FindingInput, FindingsBundle } from '@/lib/findings/types'
+import { randomUUID } from 'crypto'
 import { checkUrl, HostThrottle, realDeps, type CheckResult } from '@/lib/ada-audit/broken-link-check'
 import { parsePositiveInt } from '../config'
 import { registerJobHandler } from '../registry'
@@ -118,18 +121,66 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), toCheck.length || 1) }, () => worker()))
 
-  const bundle = mapBrokenLinks(broken, {
-    siteAuditId: site.id,
-    domain: site.domain ?? job.domain,
-    clientId: site.clientId,
-    startedAt,
-    completedAt: new Date(deps.now()),
+  // Load on-page SEO rows for the same audit.
+  const seoRows = await prisma.harvestedPageSeo.findMany({
+    where: { siteAuditId: job.siteAuditId },
+    select: {
+      url: true, statusCode: true, isHtml: true, robotsNoindex: true, xRobotsNoindex: true,
+      loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true,
+    },
+  })
+
+  // Builder owns the single runId + the shared normalized-URL -> CrawlPage map.
+  const runId = randomUUID()
+  const pages: CrawlPageInput[] = []
+  const pageByUrl = new Map<string, CrawlPageInput>()
+  const ensurePage = (url: string, scalars?: Partial<CrawlPageInput>): CrawlPageInput => {
+    const u = normalizeFindingUrl(url)
+    let p = pageByUrl.get(u)
+    if (!p) {
+      p = { id: randomUUID(), runId, url: u, status: null, error: null, finalUrl: null,
+        statusCode: null, title: null, h1: null, metaDescription: null, wordCount: null,
+        crawlDepth: null, indexable: null, score: null, passCount: null, incompleteCount: null, adaAuditId: null }
+      pages.push(p); pageByUrl.set(u, p)
+    }
+    if (scalars) for (const [k, v] of Object.entries(scalars)) if (v != null) (p as unknown as Record<string, unknown>)[k] = v
+    return p
+  }
+
+  // Materialize a CrawlPage for EVERY harvested on-page row, scalars populated.
+  const indexableOf = (r: typeof seoRows[number]) =>
+    r.statusCode != null && r.statusCode >= 200 && r.statusCode < 300 &&
+    r.isHtml && !r.robotsNoindex && !r.xRobotsNoindex
+  for (const r of seoRows) {
+    ensurePage(r.url, {
+      statusCode: r.statusCode, title: r.title, h1: r.h1, metaDescription: r.metaDescription,
+      wordCount: r.wordCount, indexable: indexableOf(r) && !r.loginLike,
+    })
+  }
+
+  // On-page has no per-page cap in MVP, so its completeness is independent of the
+  // LINK truncation flag (Codex fix #2) — always pass false here.
+  const onPageFindings = mapOnPageSeoFindings(seoRows as OnPageSeoRow[], { runId, ensurePage, harvestTruncated: false })
+  const brokenFindings = mapBrokenLinkFindings(broken, {
+    runId, ensurePage, affectedComplete: !capped && !harvestTruncated,
     confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
   })
+  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings]
+
+  const bundle: FindingsBundle = {
+    run: {
+      id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
+      clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
+      status: capped || harvestTruncated ? 'partial' : 'complete', score: null, wcagLevel: null,
+      pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
+    },
+    pages, findings, violations: [],
+  }
   await writeFindingsRun(bundle)
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
+  await prisma.harvestedPageSeo.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   console.log(
-    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}`,
+    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, on-page rows ${seoRows.length}`,
   )
 }
 
