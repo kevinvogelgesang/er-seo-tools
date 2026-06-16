@@ -66,7 +66,7 @@ export async function fetchAllRecents(limit = 100, operator?: string): Promise<R
         id: true, createdAt: true, domain: true, status: true, wcagLevel: true,
         summary: true, startedAt: true, completedAt: true, requestedBy: true,
         client: { select: { name: true } },
-        crawlRun: { select: { score: true } },
+        crawlRuns: { where: { tool: 'ada-audit' }, select: { score: true } },
       },
     }),
   ])
@@ -81,7 +81,7 @@ export async function fetchAllRecents(limit = 100, operator?: string): Promise<R
     })),
     ...sites.map((s): RecentItem => ({
       type: 'site', id: s.id, createdAt: s.createdAt.toISOString(), domain: s.domain,
-      status: s.status, score: s.crawlRun?.score ?? siteScore(s.status, s.summary, s.wcagLevel),
+      status: s.status, score: s.crawlRuns[0]?.score ?? siteScore(s.status, s.summary, s.wcagLevel),
       startedAt: s.startedAt?.toISOString() ?? null,
       completedAt: s.completedAt?.toISOString() ?? null,
       clientName: s.client?.name ?? null, requestedBy: s.requestedBy,

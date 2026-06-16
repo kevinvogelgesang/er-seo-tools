@@ -37,7 +37,7 @@ interface SelectedPair {
 // audit's own run, domain + wcagLevel matched, B2 ordering.
 async function selectAuditPair(siteAuditId: string): Promise<SelectedPair | null> {
   const run = await prisma.crawlRun.findUnique({
-    where: { siteAuditId },
+    where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } },
     select: { id: true, domain: true, wcagLevel: true, completedAt: true, createdAt: true },
   })
   if (!run || run.domain === null) return null

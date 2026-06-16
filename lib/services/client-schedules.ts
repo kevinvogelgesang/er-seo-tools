@@ -45,7 +45,7 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
       scheduleId: true,
       status: true,
       completedAt: true,
-      crawlRun: { select: { id: true, score: true } },
+      crawlRuns: { where: { tool: 'ada-audit' }, select: { id: true, score: true } },
     },
   })
 
@@ -60,18 +60,18 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
 
     const mine = audits.filter((a) => a.scheduleId === s.id)
     const last = mine[0] ?? null
-    const lastScore = last?.crawlRun?.score ?? null
+    const lastScore = last?.crawlRuns[0]?.score ?? null
     // ONE previous audit drives BOTH the score Δ and the diff chips (Codex
     // plan-fix #4) — the pairs must never diverge.
     const prevAudit = mine.slice(1).find(
-      (a) => a.status === 'complete' && typeof a.crawlRun?.score === 'number',
+      (a) => a.status === 'complete' && typeof a.crawlRuns[0]?.score === 'number',
     ) ?? null
-    const prevScore = prevAudit?.crawlRun?.score ?? null
+    const prevScore = prevAudit?.crawlRuns[0]?.score ?? null
     let newCount: number | null = null
     let resolvedCount: number | null = null
-    if (last?.status === 'complete' && last.crawlRun && prevAudit?.crawlRun) {
+    if (last?.status === 'complete' && last.crawlRuns[0] && prevAudit?.crawlRuns[0]) {
       // Same pair as the score Δ; null on wcagLevel mismatch (spec § 4.2).
-      const diff = await getRunPairInstanceDiff(last.crawlRun.id, prevAudit.crawlRun.id)
+      const diff = await getRunPairInstanceDiff(last.crawlRuns[0].id, prevAudit.crawlRuns[0].id)
       if (diff) { newCount = diff.newCount; resolvedCount = diff.resolvedCount }
     }
 

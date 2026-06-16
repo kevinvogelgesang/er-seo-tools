@@ -139,7 +139,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
 
   // Prefer the run score (identical formula, mapper-computed) so archived
   // (capped-pass) aggregates can't shift it; counts still drive compliance.
-  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId: audit.id }, select: { score: true } })
+  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'ada-audit' } }, select: { score: true } })
   const fromCounts = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
   const score = crawlRun?.score ?? fromCounts.score
   const compliant = fromCounts.compliant

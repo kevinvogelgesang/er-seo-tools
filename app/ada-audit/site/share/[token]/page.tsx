@@ -27,7 +27,7 @@ export default async function SharedSiteAuditPage({ params }: { params: Promise<
   if (!summary) summary = await buildSummaryFromFindings(audit.id)
   if (!summary) notFound() // pre-A2 complete with no blob — nothing renderable publicly
 
-  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId: audit.id }, select: { score: true } })
+  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'ada-audit' } }, select: { score: true } })
   const fromCounts = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
   const score = crawlRun?.score ?? fromCounts.score
 

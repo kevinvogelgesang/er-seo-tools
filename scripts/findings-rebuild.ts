@@ -12,7 +12,12 @@ import { writeSeoFindings } from '../lib/findings/seo-write'
 import { writeAdaSiteFindings, writeAdaSingleFindings } from '../lib/findings/ada-write'
 import type { AggregatedResult } from '../lib/types'
 
-async function printRun(where: { sessionId: string } | { siteAuditId: string } | { adaAuditId: string }) {
+async function printRun(
+  where:
+    | { sessionId: string }
+    | { siteAuditId_tool: { siteAuditId: string; tool: 'ada-audit' | 'seo-parser' } }
+    | { adaAuditId: string },
+) {
   const run = await prisma.crawlRun.findUnique({
     where,
     include: { _count: { select: { pages: true, findings: true, violations: true } } },
@@ -46,8 +51,11 @@ async function main() {
     await writeSeoFindings(id, result, session.clientId)
     await printRun({ sessionId: id })
   } else if (siteAudit) {
+    // C6: a SiteAudit origin can now carry two runs (ada-audit + seo-parser
+    // live-scan). This rebuild path is for the ADA run; rebuilding the
+    // live-scan run is a rare manual op (the verifier owns it).
     await writeAdaSiteFindings(id)
-    await printRun({ siteAuditId: id })
+    await printRun({ siteAuditId_tool: { siteAuditId: id, tool: 'ada-audit' } })
   } else if (adaAudit) {
     await writeAdaSingleFindings(id) // throws its own message for child rows
     await printRun({ adaAuditId: id })

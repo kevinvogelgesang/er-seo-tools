@@ -151,7 +151,7 @@ describe('compareAdaParity', () => {
 
   it('reports a diff when a violation row is missing', async () => {
     await writeAdaSiteFindings(siteId)
-    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId: siteId } })
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId_tool: { siteAuditId: siteId, tool: 'ada-audit' } } })
     await prisma.finding.deleteMany({ where: { runId: run.id, type: 'image-alt' } })
     const report = await compareAdaParity(siteId)
     expect(report.ok).toBe(false)
@@ -160,7 +160,7 @@ describe('compareAdaParity', () => {
 
   it('reports a diff when a stored nodeCount diverges from the blob', async () => {
     await writeAdaSiteFindings(siteId)
-    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId: siteId } })
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId_tool: { siteAuditId: siteId, tool: 'ada-audit' } } })
     await prisma.violation.updateMany({
       where: { runId: run.id, ruleId: 'color-contrast' },
       data: { nodeCount: 99 },
@@ -188,7 +188,7 @@ describe('compareAdaParity', () => {
 
   it('reports a diff when stored passCount is null (stale pre-C3 row) or wrong', async () => {
     await writeAdaSiteFindings(siteId)
-    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId: siteId } })
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId_tool: { siteAuditId: siteId, tool: 'ada-audit' } } })
     // Fresh rebuild matches (covered by the ok test above). Null = stale row:
     await prisma.crawlPage.updateMany({ where: { runId: run.id, status: 'complete' }, data: { passCount: null } })
     let report = await compareAdaParity(siteId)
