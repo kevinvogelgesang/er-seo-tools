@@ -6,6 +6,7 @@ import { assertSafeHttpUrl } from '../security/safe-url'
 import { runLighthouse, resetCdpAfterLighthouse } from './lighthouse-runner'
 import { getLighthouseProvider } from './lighthouse-provider'
 import { harvestPdfLinks } from './pdf-discovery'
+import { harvestLinks, type HarvestedTarget } from './link-harvest'
 import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
 import { isTransientRunnerError } from './runner-retry'
@@ -50,6 +51,10 @@ export type RunAxeResult =
       // Normalized + same-domain PDFs harvested from the loaded DOM. The caller
       // dispatches these through pdf-orchestrator.
       harvestedPdfUrls: string[]
+      // C6: link/image targets harvested from the loaded DOM for the broken-link
+      // verifier. Same-domain links/images + cross-domain external links.
+      harvestedLinks: HarvestedTarget[]
+      harvestedLinksTruncated: boolean
     }
   | {
       kind: 'redirected'
@@ -365,7 +370,19 @@ export async function runAxeAudit(
       harvestedPdfUrls = []
     }
 
-    return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls }
+    // C6: harvest <a href> + <img src> targets for the out-of-band broken-link
+    // verifier. Non-fatal (best-effort), same contract as the PDF harvest above.
+    let harvestedLinks: HarvestedTarget[] = []
+    let harvestedLinksTruncated = false
+    try {
+      const h = await harvestLinks(page, parsed.hostname.toLowerCase())
+      harvestedLinks = h.targets
+      harvestedLinksTruncated = h.truncated
+    } catch (e) {
+      console.warn('[ada-audit] link harvest failed:', (e as Error).message)
+    }
+
+    return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated }
   } finally {
     await releasePage(page)
   }
