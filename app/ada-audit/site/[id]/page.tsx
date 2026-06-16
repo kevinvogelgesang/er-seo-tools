@@ -6,6 +6,7 @@ import SiteAuditResultsView from '@/components/ada-audit/SiteAuditResultsView'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
+import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
 import SiteAuditExportBar from '@/components/ada-audit/SiteAuditExportBar'
 import { reportFileExists } from '@/lib/report/report-file'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
@@ -148,6 +149,16 @@ export default async function SiteAuditResultPage({ params }: Props) {
   // same-level run, or this audit predates the findings layer).
   const instanceDiff = await getSiteAuditInstanceDiff(audit.id)
 
+  // C6: the out-of-band broken-link verifier writes a live-scan seo-parser run.
+  // null = not yet verified (the section renders that state).
+  const liveScanRun = await prisma.crawlRun.findUnique({
+    where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'seo-parser' } },
+    select: {
+      status: true,
+      findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
+    },
+  })
+
   // Report button starts 'ready' only when the stamp AND the file agree
   // (Codex fix: never trust the column alone — retention may have deleted the PDF).
   const initialReportGeneratedAt =
@@ -183,6 +194,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
         initialReportGeneratedAt={initialReportGeneratedAt}
       />
       {instanceDiff && <SiteAuditDiffPanel diff={instanceDiff.diff} previous={instanceDiff.previous} />}
+      <BrokenLinksSection run={liveScanRun} />
       <SiteAuditResultsView
         domain={audit.domain}
         clientName={audit.client?.name ?? null}
