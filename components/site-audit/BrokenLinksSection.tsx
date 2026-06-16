@@ -19,6 +19,8 @@ export interface BrokenLinksRun {
   findings: FindingLite[]
 }
 
+const BROKEN_TYPES = new Set(['broken_internal_links', 'broken_images'])
+
 const TYPE_LABEL: Record<string, string> = {
   broken_internal_links: 'Broken internal links',
   broken_images: 'Broken images',
@@ -55,7 +57,7 @@ export function BrokenLinksSection({ run }: { run: BrokenLinksRun | null }) {
     )
   }
 
-  const runScope = run.findings.filter((f) => f.scope === 'run' && f.count > 0)
+  const runScope = run.findings.filter((f) => f.scope === 'run' && f.count > 0 && BROKEN_TYPES.has(f.type))
   if (runScope.length === 0) {
     return (
       <Card>
@@ -75,7 +77,7 @@ export function BrokenLinksSection({ run }: { run: BrokenLinksRun | null }) {
   // Group page-scope findings by type -> [{ sourceUrl, brokenTargets }].
   const pageByType = new Map<string, { url: string; targets: string[] }[]>()
   for (const f of run.findings) {
-    if (f.scope !== 'page' || !f.url) continue
+    if (f.scope !== 'page' || !f.url || !BROKEN_TYPES.has(f.type)) continue
     const targets = (parseDetail(f.detail).brokenTargetUrls as string[]) ?? []
     const list = pageByType.get(f.type) ?? []
     list.push({ url: f.url, targets })
