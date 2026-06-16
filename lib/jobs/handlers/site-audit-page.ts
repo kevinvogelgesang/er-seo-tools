@@ -38,6 +38,7 @@ import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 import type { HarvestedTarget } from '@/lib/ada-audit/link-harvest'
+import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
 
 // C6: chunk size for HarvestedLink inserts. 300 targets/page x 5 cols > SQLite's
 // 999-variable limit, so chunk at 50 (matches the findings writer).
@@ -74,6 +75,56 @@ async function persistHarvest(
     for (const data of chunk(rows, HARVEST_CHUNK)) await prisma.harvestedLink.createMany({ data })
   } catch (e) {
     console.warn('[c6] harvest persist failed for', siteAuditId, ':', (e as Error).message)
+  }
+}
+
+/**
+ * Persist one on-page SEO row for THIS audited page — best-effort, fenced to a
+ * SUCCESSFUL settle (caller invokes only after settlePage() returned true).
+ * url is the audited job URL (normalized), NEVER page.url().
+ */
+async function persistPageSeo(
+  siteAuditId: string,
+  pageUrl: string,
+  seo: RawPageSeo | null,
+): Promise<void> {
+  if (!seo) return
+  try {
+    await prisma.harvestedPageSeo.create({
+      data: {
+        siteAuditId,
+        url: normalizeFindingUrl(pageUrl),
+        // The row only exists on the successful-settle (2xx HTML) path — the
+        // runner throws before this on non-2xx — so statusCode is 200 and the
+        // page is HTML (Codex fix #1: a null statusCode made indexableOf() false
+        // and emitted zero findings). xRobotsNoindex stays default false
+        // (header threading deferred to the scorer phase, per spec).
+        statusCode: 200,
+        isHtml: true,
+        title: seo.title ?? null,
+        titleLength: seo.title?.length ?? null,
+        metaDescription: seo.metaDescription ?? null,
+        metaDescriptionLength: seo.metaDescription?.length ?? null,
+        h1: seo.h1 ?? null,
+        h1Count: seo.h1Count,
+        h2Count: seo.h2Count,
+        wordCount: seo.wordCount,
+        canonicalUrl: seo.canonicalUrl ?? null,
+        robotsNoindex: seo.robotsNoindex,
+        loginLike: seo.loginLike,
+        schemaCount: seo.schemaTypes.length,
+        imageCount: seo.imageCount,
+        imagesMissingAlt: seo.imagesMissingAlt,
+        imagesMissingDimensions: seo.imagesMissingDimensions,
+        // On-page extraction has no per-page cap in MVP (one row, all fields
+        // present), so this is ALWAYS false — never the LINK truncation flag,
+        // which would falsely mark on-page findings incomplete (Codex fix #2).
+        harvestTruncated: false,
+        detailsJson: JSON.stringify({ schemaTypes: seo.schemaTypes, hreflang: seo.hreflang }),
+      },
+    })
+  } catch (e) {
+    console.warn('[c6] page-seo persist failed for', siteAuditId, ':', (e as Error).message)
   }
 }
 
@@ -205,7 +256,7 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
     return
   }
 
-  const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated } = runResult
+  const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo } = runResult
 
   // PDFs FIRST: dispatchPdfScans commits PdfAudit rows + pdfsTotal++ and
   // enqueues durable pdf-scan jobs before returning. This must land before
@@ -247,6 +298,7 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
   // Reached only when this attempt won the settle (both branches return on
   // !settled) — fence the harvest persistence to that (fix #3).
   await persistHarvest(job.siteAuditId, job.url, harvestedLinks, harvestedLinksTruncated)
+  await persistPageSeo(job.siteAuditId, job.url, harvestedPageSeo)
 
   await finalizeWarn(job.siteAuditId, 'page settle')
 }
