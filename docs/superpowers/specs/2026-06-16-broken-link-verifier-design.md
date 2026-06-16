@@ -42,23 +42,47 @@ audited set at all. Phase 1 must harvest.
 
 C5 documented this in `lib/findings/types.ts` and the adapter-readiness test: the writer's
 delete-and-recreate keys on the origin FK, and `CrawlRun.siteAuditId` is `@unique`, so a second
-run (live-scan) on the same `SiteAudit` would **clobber** the ada-audit run. The migration:
+run (live-scan) on the same `SiteAudit` would **clobber** the ada-audit run.
+
+**Relation shape — already a list.** `SiteAudit.crawlRuns CrawlRun[]` is *already* a list relation
+(`prisma/schema.prisma:29`) even though `CrawlRun.siteAuditId` is currently `@unique` (a `@unique`
+FK whose list back-relation happens to hold ≤1 row). So this migration needs **no relation-shape
+change** and no rewrite of relation `include`s — every existing `include: { crawlRuns: … }`
+already returns an array. (Codex's review assumed a `crawlRun?` one-to-one back-relation needing
+rewrite; verified false against the schema.) `Session`/`AdaAudit` keep their `crawlRun CrawlRun?`
+one-to-one relations and `@unique` FKs — only `siteAuditId` ever carries two tools.
+
+The migration:
 
 - **Schema:** remove `@unique` from `CrawlRun.siteAuditId`; add `@@unique([siteAuditId, tool])`.
-  (`sessionId` and `adaAuditId` stay `@unique` — only `siteAuditId` ever carries two tools.)
   Hand-written migration SQL (drop the old unique index, create the compound one) applied with
-  `prisma migrate deploy` (CLAUDE.md: `migrate dev` is interactive-only locally).
+  `prisma migrate deploy` (CLAUDE.md: `migrate dev` is interactive-only locally). SQLite allows
+  multiple rows with `siteAuditId IS NULL` under a compound unique index, so session-origin and
+  standalone-origin runs (`siteAuditId = NULL`) stay unconstrained — confirmed sound by Codex.
 - **Writer** (`lib/findings/writer.ts`): the `siteAuditId` branch of the delete `where` becomes
   `{ siteAuditId_tool: { siteAuditId: run.siteAuditId, tool: run.tool } }`. The single-origin
   guard is unchanged. (The `sessionId` / `adaAuditId` branches are untouched.)
-- **Readers** — re-key all six `findUnique({ where: { siteAuditId } })` call sites to the
-  compound key with the tool they mean. All six want the **ada-audit** run:
-  `lib/ada-audit/findings-fallback.ts:114`, `app/api/site-audit/[id]/vpat/route.ts:19`,
-  `…/report/route.ts:27`, `…/csv/route.ts:58`, `app/ada-audit/site/share/[token]/page.tsx:30`,
-  `app/ada-audit/site/[id]/page.tsx:142`. Each becomes
-  `findUnique({ where: { siteAuditId_tool: { siteAuditId: id, tool: 'ada-audit' } } })`.
-  (Grep-gate before the PR closes: zero remaining `where: { siteAuditId:` `findUnique` calls on
-  `crawlRun`.)
+- **Readers — re-key the COMPLETE `findUnique({ where: { siteAuditId } })` set (10 sites, not the
+  6 first drafted; Codex caught four).** Each wants the **ada-audit** run; rewrite to
+  `findUnique({ where: { siteAuditId_tool: { siteAuditId: id, tool: 'ada-audit' } } })`:
+  1. `lib/ada-audit/findings-fallback.ts:114`
+  2. `app/api/site-audit/[id]/vpat/route.ts:19`
+  3. `app/api/site-audit/[id]/report/route.ts:27`
+  4. `app/api/site-audit/[id]/csv/route.ts:58`
+  5. `app/ada-audit/site/share/[token]/page.tsx:30`
+  6. `app/ada-audit/site/[id]/page.tsx:142`
+  7. `lib/findings/parity.ts:218` (the `compareAdaParity` site-audit path)
+  8. `lib/report/report-data.ts:146`
+  9. `lib/services/site-audit-diff.ts:39` (`getSiteAuditInstanceDiff` — reads `wcagLevel`, ADA run)
+  10. `scripts/findings-rebuild.ts:16` — its auto-detected `where` for a `siteAuditId` arg becomes
+      the compound key; tool is now ambiguous for a SiteAudit origin, so default `tool: 'ada-audit'`
+      and accept an optional tool arg (rebuilding the live-scan run is a rare manual op).
+  Unaffected: `{ sessionId }` / `{ adaAuditId }` `findUnique`s keep their `@unique` keys; relation
+  `include: { crawlRun: ... }` sites all hang off `Session`/`AdaAudit` (singular) or already use
+  `crawlRuns` (list).
+- **Close gate:** a grep for `crawlRun.findUnique` keyed on a bare `siteAuditId` returns zero hits,
+  and the build compiles (removing the single-field unique makes the old call shape a type error,
+  so the compiler enforces completeness).
 - **Adapter-readiness test** (`lib/findings/adapter-readiness.test.ts`): the "DOCUMENTED
   LIMITATION" case flips from "second run clobbers the first → 1 row" to **"ada-audit and
   seo-parser runs coexist on the same SiteAudit → 2 rows, correct tools"**. The comment is
@@ -116,18 +140,30 @@ The verifier produces a `FindingsBundle` and persists it through the existing `w
   fetch-error rate tripped — §5.4), `score: null` (Phase 1 emits no SEO score — that's the
   deferred MVP), `wcagLevel: null`, `pagesTotal` = count of source pages that had ≥1 harvested
   target, `startedAt`/`completedAt` = verifier window.
-- `CrawlPage`: one row per **source page** that referenced ≥1 broken target (URL only; SEO
-  scalars stay null — this run is broken-links-only). Needed so page-scope findings can FK a page.
+- `CrawlPage`: one row per **source page** that referenced >=1 broken target (URL only; SEO
+  scalars stay null — this run is broken-links-only). Needed so page-scope findings FK a real page.
 - `Finding` (run scope): one per broken type with a non-zero count —
-  `broken_internal_links`, `broken_images` — `severity: 'critical'`, `detail` = JSON
-  `{ description }`, `dedupKey = runFindingKey(type)`, `affectedComplete` per §5.4,
-  `affectedSource: 'live-scan-verify'`.
-- `Finding` (page scope): one per (broken target, source page) pair —
-  `type` = the broken category, `url` = the **broken target URL**, `pageId` = the source page,
-  `dedupKey = pageFindingKey(type, targetUrl)`, `count: 1`. (A broken target referenced by N
-  pages yields N page-scope findings, all sharing the target URL but distinct source pages — the
-  same shape SEO findings already use for "affected URLs".)
+  `broken_internal_links`, `broken_images` — `severity: 'critical'`, `dedupKey = runFindingKey(type)`,
+  `count` = **number of distinct broken target URLs** of that type (the headline metric — Codex
+  "things to verify" #5 resolved: count = distinct broken targets, NOT source-page occurrences),
+  `affectedComplete` per §5.4. `detail` = JSON carrying the description **and the confidence block**
+  (fix #11): `{ description, checked, broken, unconfirmed, capped, harvestTruncated }` so the UI can
+  explain why `affectedComplete` is false / results may be incomplete without re-deriving anything.
+- `Finding` (page scope) — **keyed by SOURCE PAGE, not by target** (fix #3, a real bug in the first
+  draft): `Finding` has `@@unique([runId, dedupKey])`, so keying N source pages on the same
+  `pageFindingKey(type, targetUrl)` would COLLIDE and the bundle would be rejected. Instead emit
+  **one page-scope finding per (type, source page)**: `url` = the **source page URL**, `pageId` =
+  that source page's `CrawlPage`, `dedupKey = pageFindingKey(type, sourcePageUrl)` (collision-free —
+  each source page appears once per type), `count` = number of broken targets of that type on the
+  page, `detail` = JSON `{ brokenTargetUrls: [<= 25 sample] }`. This matches the existing
+  affected-URL UX exactly (the "affected pages" of a broken-link issue ARE the source pages), and
+  the broken-target URLs ride in `detail`.
 - `Violation`: none (axe-only concept).
+
+`affectedSource` (fix #4): the DB column is a free string, but `AggregatedResult.Issue.affectedUrlSource`
+is a closed union (`'derived-page-index' | 'parser-complete' | 'parser-sample'`). Since the
+live-scan run flows through `seo-findings-fallback` -> `AggregatedResult`, add `'live-scan-verify'`
+to that union (small type change) rather than emit an unchecked cast outside the declared contract.
 
 A run is **always written**, even with zero broken targets (empty findings) — so the migration's
 two-runs-coexist path is exercised on every audit and the results UI can distinguish "verified,
@@ -186,8 +222,10 @@ settles the page (next to the counter bump). Map each `HarvestedTarget` to a row
 createMany (don't emit a no-op statement). This keeps harvest atomic with the page settle — a page
 that settles has its links recorded or neither.
 
-The per-page cap (300) keeps each createMany well under SQLite's bound-variable limit (300 × 4
-cols = 1200 — chunk at 50 like the findings writer if needed; 300/50 = 6 statements).
+**Chunking is mandatory, not conditional (fix #8):** 300 rows × 4 cols = 1200 bindings exceeds
+SQLite's classic 999-variable limit, so the `createMany` MUST be chunked at 50 (reuse the findings
+writer's `chunk()` discipline — 300/50 = 6 statements, each spliced into the page-settle
+`$transaction` array). A single un-chunked 300-row insert would fail at runtime.
 
 ---
 
@@ -200,8 +238,16 @@ New durable job type `broken-link-verify` (`lib/jobs/handlers/broken-link-verify
   work; per-host throttling lives inside the handler).
 - `maxAttempts: 2`, `backoffBaseMs: 60_000`.
 - `timeoutMs: 600_000` (10 min — a large audit's deduped target set, throttled, can take minutes).
-- `groupKey: site-audit:<siteAuditId>` — recovery already treats this group as audit liveness;
-  the verifier is part of the audit's job family. `dedupKey: broken-link-verify:<siteAuditId>`.
+- `groupKey: site-audit:<siteAuditId>` with `dedupKey: broken-link-verify:<siteAuditId>`.
+  **Group-key safety invariant (fix #12, state it explicitly):** recovery treats the
+  `site-audit:<id>` group as *audit liveness* — a transient (non-terminal) parent with outstanding
+  jobs in that group is resumed, and a parent with zero is finalized/failed. Reusing this group for
+  the verifier is safe **only because the verifier is enqueued strictly AFTER the parent reaches
+  terminal `complete`** (§5.2), and `finalizeSiteAudit` early-returns on `complete` — so a pending
+  verifier job can never cause recovery to re-finalize or fail an already-complete audit. (This is
+  the opposite choice from `report-render`, which deliberately uses `report:<id>` precisely to stay
+  out of the liveness group; the verifier *wants* the audit family for cancel-on-delete semantics
+  and is only allowed in because it runs post-terminal.)
 - `payload: { siteAuditId, domain }`.
 - `onExhausted`: **log only.** No partial run is written on exhaustion — the handler is restart-
   safe and idempotent (a retry re-reads `HarvestedLink` and redoes the work), so the queue's own
@@ -218,9 +264,20 @@ must not block or fail the ADA terminal status. A thin `enqueueBrokenLinkVerify(
 domain)` facade mirrors `enqueuePsiJob` (dynamic import of `enqueueJob`, `.catch` logs — a failed
 enqueue just means no live-scan run, same as a pre-A2 audit).
 
-Guard: only enqueue when `LIGHTHOUSE_PROVIDER`-independent — verification is unconditional. Skip
-the enqueue when `pagesError === pagesTotal` (nothing was scanned, no harvest exists) is a nice-to-
-have, not required (an empty `HarvestedLink` set just yields an empty run).
+Guard: verification is unconditional (independent of `LIGHTHOUSE_PROVIDER`). Skipping the enqueue
+when `pagesError === pagesTotal` is a nice-to-have, not required (an empty `HarvestedLink` set just
+yields an empty run).
+
+**Enqueue-recovery path (fix #7 — required, "durable verifier" is otherwise overstated).**
+Fire-and-forget enqueue after a terminal transition has a crash window: the audit is `complete`,
+`HarvestedLink` rows exist, but the box died between the terminal write and the `enqueueJob`. Because
+`finalizeSiteAudit` early-returns on `complete`, this never self-heals. Add a reconciliation sweep
+(in `recoverQueue()` at boot and in the 10-min `resetStaleAudits` pass): find `complete` `SiteAudit`s
+that have `HarvestedLink` rows, **no** active `broken-link-verify` job in their group, **and** no
+existing live-scan `CrawlRun` (`{ siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } }`), and
+re-enqueue the verifier for each. The `dedupKey` makes re-enqueue idempotent if a job is already
+queued. Bounded query (indexed on `HarvestedLink.siteAuditId`); skip on read error like the existing
+recovery passes.
 
 ### 5.3 Handler algorithm
 
@@ -233,20 +290,25 @@ have, not required (an empty `HarvestedLink` set just yields an empty run).
 3. **Cap** the unique target set at `BROKEN_LINK_MAX_CHECKS` (default 2000). If exceeded, verify
    the first 2000 (stable order) and mark the run `status: 'partial'` + `affectedComplete: false`;
    log the dropped count (no silent truncation — SF-doc / handoff rule).
-4. **Check each target** with `safeFetch` (SSRF guard built in), HEAD first, GET fallback on 405 /
-   501 / network-level HEAD rejection:
+4. **Check each target** with `safeFetch` (SSRF guard built in), HEAD first:
    - per-host throttle: a minimum delay (`BROKEN_LINK_HOST_DELAY_MS`, default 250 ms) between
      requests to the same host, enforced via a per-host last-request timestamp map; overall
      in-flight concurrency capped low (e.g. 4) and same-domain-first (the audited host dominates
      anyway since externals aren't checked).
    - timeout per request (`AbortSignal.timeout`, ~10 s).
-   - **Classification:** final status `>= 400` → **broken** (the only thing counted as broken in
-     v1). `safeFetch` throwing `SafeUrlError` (blocked/SSRF/too-many-redirects), network error, or
-     timeout → **unconfirmed** — recorded/logged but **excluded from the broken counts** (§5.4
-     trades recall for precision). 2xx/3xx-resolved → ok.
+   - **HEAD→GET to avoid HEAD false positives (fix #10):** many servers mishandle HEAD. So do NOT
+     declare broken on a HEAD `>= 400` alone — **confirm EVERY HEAD `>= 400` (and any network-level
+     HEAD rejection / 405 / 501) with a follow-up GET**, and classify on the GET result. This is the
+     v1 precision posture (recall is a later concern).
+   - **Always drain/cancel response bodies** (`response.body?.cancel()` or read-and-discard) so the
+     verifier doesn't leak sockets over thousands of checks — reuse `safeFetch`'s body handling.
+   - **Classification:** final (post-GET) status `>= 400` → **broken** (the only thing counted as
+     broken in v1). `safeFetch` throwing `SafeUrlError` (blocked/SSRF/too-many-redirects), network
+     error, or timeout → **unconfirmed** — counted in the confidence block but **excluded from the
+     broken counts** (§5.4 trades recall for precision). 2xx/3xx-resolved → ok.
 5. **Build the bundle:** broken `internal-link` targets → `broken_internal_links`; broken `image`
-   targets → `broken_images`. Run-scope counts + page-scope findings per (broken target, sampled
-   source page). Write via `writeFindingsRun`.
+   targets → `broken_images`. Run-scope counts (distinct broken targets) + confidence block in
+   `detail`; page-scope findings keyed by source page (§3.2). Write via `writeFindingsRun`.
 6. **Delete** `HarvestedLink` rows for the audit (`deleteMany({ where: { siteAuditId } })`).
 
 Idempotency: a retry re-reads `HarvestedLink` (step 6 only runs on success), re-verifies, and
@@ -260,11 +322,14 @@ The live-scan run records confidence signals so the UI never overclaims:
 - `affectedComplete: false` (run-scope findings) when the per-run target set was **capped** or any
   source page's harvest was **truncated** (300/page); `true` otherwise.
 - `status: 'partial'` when capped; `'complete'` otherwise.
-- Network-error/timeout targets are surfaced **separately** from confirmed 4xx/5xx — v1 keeps it
-  simple by **excluding timeout/network-error targets from the broken counts** (only confirmed
-  `>= 400` statuses count as broken), logging the unconfirmed set. This trades recall for
-  precision, matching the SF doc's "false positives erode trust" priority. (Revisit in a later
-  phase with a confidence-labeled "possibly broken" tier.)
+- **Confidence is PERSISTED, not just logged (fix #11):** each run-scope finding's `detail` carries
+  `{ description, checked, broken, unconfirmed, capped, harvestTruncated }` (see §3.2). The UI reads
+  these to explain *why* `affectedComplete` is false or results may be incomplete — without this the
+  banner can't justify itself.
+- Network-error/timeout/`SafeUrlError` targets are **excluded from the broken counts** (only
+  confirmed post-GET `>= 400` count as broken) but tallied in `unconfirmed`. This trades recall for
+  precision, matching the SF doc's "false positives erode trust" priority. (A confidence-labeled
+  "possibly broken" tier is a later phase.)
 
 ### 5.5 Config (env, all with defaults — no required new env)
 
@@ -281,16 +346,26 @@ The live-scan run records confidence signals so the UI never overclaims:
    by type, with affected source-page samples and the confidence/partial banner. Renders a
    "not yet verified" state when no live-scan run exists, and a "verified — none broken" state when
    the run exists with zero findings.
-2. **Dashboard / fleet (B2) — free.** The B2 findings panel and fleet "Issues" column read
-   `Finding` rows by `CrawlRun` and are **source-agnostic** (C5 design). Broken-link findings from
-   the live-scan run appear there automatically. **One verification needed:** confirm
-   `findings-shared.ts` run-selection picks up `source: 'live-scan'` runs (the handoff names
-   "findings-shared run-selection source-awareness" as a parked concern — for v1 the live-scan
-   `seo-parser` run and the SF-upload `seo-parser` run won't coexist on the same domain via the
-   same origin, so existing per-tool selection is correct; document the assumption).
-3. **Priority / roadmap:** the new findings carry existing weighted types — no `priority.service`
-   change. The srt_ roadmap memo export will include them once they're `Finding` rows (no export
-   change needed).
+2. **Dashboard / fleet (B2) — source-aware selection REQUIRED, NOT "free" (fix #5, a real
+   regression risk).** B1/B2 run-selection in `findings-shared.ts` currently picks the latest
+   `seo-parser` run *by tool, ignoring source*. A live-scan broken-link run has `score: null` and
+   carries only broken-link findings — if it becomes the "current SEO run" for a client/domain it
+   would **hide the latest SF-upload findings and health score**. So before shipping:
+   - Keep the latest **`sf-upload`** `seo-parser` run as the canonical SEO **health/score** run
+     (the dashboard score + the full SEO findings set continue to come from it).
+   - Surface the latest **`live-scan`** run's broken-link findings **additively** (either merge the
+     two runs' findings deliberately for the panel, or render broken-links as a distinct auxiliary
+     block). Never let a `live-scan` run displace an `sf-upload` run in score/selection.
+   - This makes `findings-shared.ts` run-selection **source-aware** — the "parked concern" the
+     handoff named is now in-scope and must land in this PR with tests covering an `sf-upload` run
+     and a newer `live-scan` run coexisting for the same client.
+3. **Priority:** the new findings carry existing weighted types (`broken_internal_links: 90`,
+   `broken_images: 85`) — no `priority.service` change.
+   **Roadmap (fix #6 — claim corrected):** the srt_/seo-roadmap memo export is **session-bound**
+   (built from `Session.result` / the technical-audit export), NOT from site-audit-origin live-scan
+   findings, so it does **not** automatically include these. Roadmap integration is explicitly
+   **later work**; this PR surfaces broken links via the results page (§6.1) and the B2/client
+   findings panel (§6.2) only.
 
 ---
 
@@ -298,34 +373,58 @@ The live-scan run records confidence signals so the UI never overclaims:
 
 - `pruneHarvestedLinks(now)` in `lib/findings/retention.ts` (or a sibling) deletes `HarvestedLink`
   rows with `createdAt < now − 7 d`; registered in `runCleanup()`'s `Promise.allSettled` list.
-- The live-scan `CrawlRun` is covered by the **existing** 90-d findings retention
-  (`pruneArchivedBlobs` — `PRUNE_ACTIVATED['seo-parser']` already active). It has no origin blob to
-  null (the SiteAudit's `summary` blob belongs to the ada-audit run), so the live-scan run simply
-  ages out with the audit; no new prune branch needed. Confirm the prune logic keys on the origin
-  blob and doesn't trip on a blob-less seo-parser run sharing a SiteAudit (it filters on non-null
-  origin FK + `tool`-specific blob — verify during implementation).
+- **`pruneArchivedBlobs` MUST be made tool-origin-aware (fix #9 — a latent bug C6 introduces, not
+  a "verify later").** Today it selects runs for a tool where *any* origin FK is non-null, then nulls
+  `Session.result` + `SiteAudit.summary` + `AdaAudit.result` in one txn — correct only under the
+  pre-C6 invariant that a `seo-parser` run *only ever* has `sessionId`. C6 breaks that: a `seo-parser`
+  **live-scan run carries `siteAuditId`**, so the seo-parser prune would feed that id into the
+  `SiteAudit.updateMany({ data: { summary: null } })` statement and **wipe the ADA run's `summary`
+  blob** (`lib/findings/retention.ts:70,87`). Required change: for `tool: 'seo-parser'`, restrict
+  selection to **session-origin runs** (`sessionId: { not: null }`) and never put `siteAuditId`s into
+  the `summary`-null statement. The live-scan run has **no origin blob of its own** (its data lives
+  entirely in findings tables, which are never pruned), so it is simply **not pruned** — no
+  `archivePrunedAt` stamp, no blob touched; its broken-link findings persist like all findings.
+  `SiteAudit.summary` is nulled **only** under the `ada-audit` branch (unchanged). Regression test:
+  an aged seo-parser live-scan run sharing a SiteAudit with an un-aged ada-audit run is left
+  untouched and the ADA `summary` survives.
+- `pruneHarvestedLinks` (§3.1) covers the transient scaffolding; no other new retention is needed.
 
 ---
 
 ## 8. Testing
 
-- **Migration / writer / readers:** adapter-readiness test flips to coexistence (2 runs). A new
-  writer test: ada-audit run + seo-parser live-scan run on the same `siteAuditId` coexist; a second
-  seo-parser write replaces only the seo-parser run. Reader smoke: the six re-keyed readers still
-  fetch the ada-audit run.
+- **Migration / writer / readers:** adapter-readiness test flips to **coexistence** — ada-audit
+  run + seo-parser live-scan run on the same `siteAuditId` yield **2 rows with correct tools**
+  (was: 1 row, clobbered). New writer test: a second seo-parser write replaces only the seo-parser
+  run, leaving the ada-audit run intact. Reader smoke: the re-keyed readers (all 10) still fetch the
+  ada-audit run via the compound key. SQLite check: two `siteAuditId IS NULL` seo-parser runs
+  (distinct sessions) still coexist under the compound index.
+- **Finding dedup (fix #3):** a broken target referenced by N source pages produces N page-scope
+  findings keyed by **source page** (no `@@unique([runId, dedupKey])` collision); run-scope count =
+  distinct broken targets. Assert the bundle writes without a unique-constraint error.
+- **Source-aware selection (fix #5):** with an `sf-upload` seo-parser run AND a newer `live-scan`
+  seo-parser run for the same client/domain, B1/B2 selection keeps the `sf-upload` run as the
+  score/health source and surfaces live-scan broken-link findings additively — the live-scan run
+  never displaces the sf-upload score.
 - **`link-harvest.ts` (pure, jsdom):** internal vs external classification, image vs link, query
   preserved, fragment/mailto/js dropped, per-page dedup, cap + truncated flag.
 - **Verifier handler (DB-backed, transport-injected):** `safeFetch` transport stubbed to return
   scripted statuses. Asserts: broken internal link → `broken_internal_links` count + page-scope
-  finding with the target URL; broken image → `broken_images`; 2xx → no finding; SafeUrlError →
-  skipped (not broken); cap → `partial` + `affectedComplete: false` + dropped-count log;
-  `HarvestedLink` rows deleted on success; idempotent re-run replaces the run; empty harvest →
-  empty run written. Use a unique domain prefix + tracked-id cleanup (test gotchas in the handoff).
-- **Page-settle integration:** harvested links land in the same transaction as the counter bump;
-  redirected/error pages persist no links.
+  finding on the **source page**; broken image → `broken_images`; **HEAD 4xx confirmed by GET 4xx →
+  broken, but HEAD 4xx with GET 2xx → NOT broken (fix #10)**; 2xx → no finding; SafeUrlError /
+  timeout → unconfirmed (not broken) and tallied in the `detail` confidence block (fix #11); cap →
+  `partial` + `affectedComplete: false` + dropped-count log; `HarvestedLink` rows deleted on
+  success; idempotent re-run replaces the run; empty harvest → empty run written. Unique domain
+  prefix + tracked-id cleanup (test gotchas in the handoff).
+- **Enqueue-recovery (fix #7):** a `complete` SiteAudit with `HarvestedLink` rows, no active verify
+  job, and no live-scan run gets the verifier re-enqueued by the reconciliation sweep; idempotent
+  if already queued.
+- **Page-settle integration:** harvested links land in the same transaction as the counter bump
+  (chunked at 50, fix #8); redirected/error pages persist no links.
 - **Throttle:** per-host delay enforced (inject a clock or assert spacing via the transport mock's
   call timestamps — avoid real sleeps; pass an injectable `now`/delay).
-- **Retention:** `pruneHarvestedLinks` deletes >7 d, keeps recent.
+- **Retention:** `pruneHarvestedLinks` deletes >7 d, keeps recent; **`pruneArchivedBlobs` leaves an
+  aged seo-parser live-scan run (and the shared SiteAudit's ADA `summary`) untouched (fix #9).**
 - Full suite + `tsc --noEmit` + `npm run build` green before PR.
 
 ## 9. Production verification (post-deploy)
@@ -334,8 +433,11 @@ On the weekly canary (`proway.erstaging.site`, client 31): trigger a site audit,
 ada-audit CrawlRun and a live-scan seo-parser CrawlRun **coexist** on the SiteAudit; (b) the
 verifier job ran (`broken-link-verify` complete, attempts 1); (c) `HarvestedLink` rows for the
 audit are gone post-verify; (d) the results page renders the broken-links section; (e) if the
-canary has a known broken link, it's reported. Restart drill: `pm2 restart` mid-verify → the job
-resumes (group liveness) and completes idempotently.
+canary has a known broken link, it's reported. Restart drill: `pm2 restart` mid-verify → the
+interrupted `broken-link-verify` job is re-queued by standard job-interruption recovery (attempt 2,
+"interrupted by restart") and completes idempotently (re-reads `HarvestedLink`, re-writes the run).
+Also verify the enqueue-recovery sweep (fix #7): leave `HarvestedLink` rows with no verify job and
+confirm boot/`resetStaleAudits` re-enqueues one.
 
 ---
 
