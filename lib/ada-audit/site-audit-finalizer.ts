@@ -20,6 +20,7 @@ import { closeBatchIfDrained } from './audit-batch-helpers'
 import { carryForwardSiteAuditChecks } from './carry-forward-checks'
 import { mapAdaChildren } from '@/lib/findings/ada-mapper'
 import { writeFindingsRun } from '@/lib/findings/writer'
+import { enqueueBrokenLinkVerify } from '@/lib/jobs/handlers/broken-link-verify'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   // Scalar-first: page settles call finalize once per page; loading every
@@ -127,4 +128,10 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
   } catch (e) {
     console.error('[findings] ADA bundle mapping failed for site audit', id, e)
   }
+
+  // C6: verify harvested links out-of-band. Fire-and-forget, and the LAST step
+  // here — the audit is now terminal 'complete', which is what makes reusing the
+  // site-audit:<id> job group liveness-safe (finalize early-returns on complete,
+  // so a pending verifier can never trip recovery). Does no DB writes itself.
+  void enqueueBrokenLinkVerify(id, audit.domain)
 }

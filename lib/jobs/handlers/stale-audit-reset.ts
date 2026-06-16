@@ -19,6 +19,10 @@ export function registerStaleAuditResetHandler(): void {
       // edge (same reasoning as site-audit-discover).
       const { resetStaleAudits } = await import('@/lib/ada-audit/queue-manager')
       await resetStaleAudits()
+      // C6: also recover stranded broken-link verifiers (guarded).
+      await import('@/lib/ada-audit/broken-link-recovery')
+        .then((m) => m.recoverBrokenLinkVerifies())
+        .catch((err) => console.warn('[stale-audit-reset] broken-link verify recovery failed:', (err as Error).message))
     },
   })
 }

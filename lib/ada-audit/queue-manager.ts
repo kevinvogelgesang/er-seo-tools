@@ -401,5 +401,11 @@ export async function recoverQueue() {
     console.warn('[queue] standalone recovery failed:', (err as Error).message)
   })
 
+  // C6: re-enqueue broken-link verifiers stranded by a crash between the audit's
+  // terminal write and the fire-and-forget enqueue. Guarded — never blocks recovery.
+  await import('./broken-link-recovery')
+    .then((m) => m.recoverBrokenLinkVerifies())
+    .catch((err) => console.warn('[queue] broken-link verify recovery failed:', (err as Error).message))
+
   void processNext()
 }
