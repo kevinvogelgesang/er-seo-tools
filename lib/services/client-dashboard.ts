@@ -111,7 +111,8 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
 
   const keywordSessionIds = new Set(sessions.filter((s) => s.workflow === 'keyword-research').map((s) => s.id))
   const seo = buildSeoSeries(
-    crawlRuns.filter((r) => r.tool === 'seo-parser' && !(r.sessionId && keywordSessionIds.has(r.sessionId))),
+    // C6: exclude live-scan (score null) from the SEO score series.
+    crawlRuns.filter((r) => r.tool === 'seo-parser' && r.source !== 'live-scan' && !(r.sessionId && keywordSessionIds.has(r.sessionId))),
   )
   const adaResult = buildAdaSeries(crawlRuns.filter((r) => r.tool === 'ada-audit'), standaloneAda)
 

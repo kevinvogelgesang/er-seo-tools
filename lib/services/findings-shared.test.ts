@@ -27,6 +27,16 @@ describe('selectRuns', () => {
     expect(sel.seo.previous?.id).toBe('old')
   })
 
+  it('a newer live-scan run does NOT displace the sf-upload run for score; exposes liveScan', () => {
+    const runs = [
+      run({ id: 'up', source: 'sf-upload', sessionId: 's-up', siteAuditId: null, completedAt: d('2026-05-01T00:00:00Z') }),
+      run({ id: 'live', source: 'live-scan', sessionId: null, siteAuditId: 'sa-live', completedAt: d('2026-06-01T00:00:00Z') }),
+    ]
+    const sel = selectRuns(runs, new Set())
+    expect(sel.seo.current?.id).toBe('up') // sf-upload, not the newer live-scan
+    expect(sel.seo.liveScan?.id).toBe('live') // surfaced additively
+  })
+
   it('excludes keyword-research runs from SEO candidates', () => {
     const runs = [
       run({ id: 'tech', sessionId: 'tech-s', completedAt: d('2026-05-01T00:00:00Z') }),

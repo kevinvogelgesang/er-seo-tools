@@ -26,7 +26,10 @@ export interface RunRef {
 }
 
 export interface SelectedRuns {
-  seo: { current: RunRef | null; previous: RunRef | null }
+  // current/previous are the canonical SEO HEALTH runs (sf-upload, scored).
+  // liveScan is the latest C6 broken-link run (source 'live-scan', score null) —
+  // surfaced additively; it must NEVER displace current for score/trend.
+  seo: { current: RunRef | null; previous: RunRef | null; liveScan: RunRef | null }
   ada: { current: RunRef | null; previous: RunRef | null; sourceClass: 'site' | 'page' | null }
 }
 
@@ -52,10 +55,14 @@ function domainMatchedPrevious(sorted: RunRef[], current: RunRef): RunRef | null
 }
 
 export function selectRuns(runs: RunRef[], keywordSessionIds: Set<string>): SelectedRuns {
-  const seoCandidates = sortRunsDesc(
-    runs.filter((r) => r.tool === 'seo-parser' && !(r.sessionId && keywordSessionIds.has(r.sessionId))),
+  const seoAll = runs.filter(
+    (r) => r.tool === 'seo-parser' && !(r.sessionId && keywordSessionIds.has(r.sessionId)),
   )
-  const seoCurrent = seoCandidates[0] ?? null
+  // Score/health selection EXCLUDES live-scan (score null) — a newer live-scan
+  // run must not displace the sf-upload health run (C6 fix #5).
+  const seoScoreCandidates = sortRunsDesc(seoAll.filter((r) => r.source !== 'live-scan'))
+  const liveScanCandidates = sortRunsDesc(seoAll.filter((r) => r.source === 'live-scan'))
+  const seoCurrent = seoScoreCandidates[0] ?? null
 
   const adaRuns = runs.filter((r) => r.tool === 'ada-audit')
   const siteRuns = sortRunsDesc(adaRuns.filter((r) => r.source === 'site-audit'))
@@ -67,7 +74,8 @@ export function selectRuns(runs: RunRef[], keywordSessionIds: Set<string>): Sele
   return {
     seo: {
       current: seoCurrent,
-      previous: seoCurrent ? domainMatchedPrevious(seoCandidates, seoCurrent) : null,
+      previous: seoCurrent ? domainMatchedPrevious(seoScoreCandidates, seoCurrent) : null,
+      liveScan: liveScanCandidates[0] ?? null,
     },
     ada: {
       current: adaCurrent,
