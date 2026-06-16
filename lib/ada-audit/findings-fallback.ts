@@ -111,7 +111,7 @@ export async function buildArchivedAxeResults(adaAuditId: string): Promise<Store
 /** Degraded SiteAuditSummary from CrawlPage/Violation rows + unpruned child
  *  scalars (lighthouseSummary, PdfAudit). Null when no CrawlRun exists. */
 export async function buildSummaryFromFindings(siteAuditId: string): Promise<SiteAuditSummary | null> {
-  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId }, select: { id: true } })
+  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } }, select: { id: true } })
   if (!run) return null
 
   const [pages, violations] = await Promise.all([

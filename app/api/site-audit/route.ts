@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
       take: pageSize,
       include: {
         client: { select: { name: true } },
-        crawlRun: { select: { score: true } },
+        crawlRuns: { where: { tool: 'ada-audit' }, select: { score: true } },
       },
     }),
     prisma.siteAudit.count({ where }),
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     let summary = null
     // C3: CrawlRun.score is the canonical score (same formula, mapper-computed);
     // the summary blob is only the pre-A2 fallback and may be pruned (null).
-    let score: number | null = a.status === 'complete' ? a.crawlRun?.score ?? null : null
+    let score: number | null = a.status === 'complete' ? a.crawlRuns[0]?.score ?? null : null
     const wcagLevel = a.wcagLevel ?? 'wcag21aa'
 
     if (a.status === 'complete' && a.summary) {

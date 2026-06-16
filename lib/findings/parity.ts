@@ -216,7 +216,7 @@ export async function compareAdaParity(siteAuditId: string): Promise<ParityRepor
   const expected = mapAdaChildren(parent, children)
 
   const run = await prisma.crawlRun.findUnique({
-    where: { siteAuditId },
+    where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } },
     include: { pages: true, findings: true, violations: true },
   })
   if (!run) return { ok: false, diffs: ['no CrawlRun for site audit'] }

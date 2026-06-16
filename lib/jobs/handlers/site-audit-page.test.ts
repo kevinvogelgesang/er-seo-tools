@@ -41,6 +41,11 @@ const AXE_OK = {
   lighthouseSummary: null,
   lighthouseError: null,
   harvestedPdfUrls: [] as string[],
+  harvestedLinks: [
+    { targetUrl: 'https://dead.example/x', kind: 'internal-link' as const },
+    { targetUrl: 'https://img.example/y.png', kind: 'image' as const },
+  ],
+  harvestedLinksTruncated: false,
 }
 
 describe('jobs/handlers/site-audit-page', () => {
@@ -68,6 +73,8 @@ describe('jobs/handlers/site-audit-page', () => {
     // PDF dispatch happened BEFORE the PSI enqueue (settle order invariant).
     expect(vi.mocked(dispatchPdfScans).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(enqueuePsiJob).mock.invocationCallOrder[0])
+    // C6: harvested links persisted after the successful settle.
+    expect(await prisma.harvestedLink.count({ where: { siteAuditId: site.id } })).toBe(2)
   })
 
   it('local provider: complete + inline LH fields, no lighthouseTotal, no PSI job', async () => {
@@ -102,6 +109,8 @@ describe('jobs/handlers/site-audit-page', () => {
     expect(dispatchPdfScans).not.toHaveBeenCalled()
     expect(enqueuePsiJob).not.toHaveBeenCalled()
     expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
+    // C6: a redirected page has no audited DOM — no harvest.
+    expect(await prisma.harvestedLink.count({ where: { siteAuditId: site.id } })).toBe(0)
   })
 
   it('axe throw is a DOMAIN error: child error + pagesError bumped, job completes (no throw)', async () => {
@@ -136,6 +145,8 @@ describe('jobs/handlers/site-audit-page', () => {
     expect(runAxeAudit).not.toHaveBeenCalled()
     expect(enqueuePsiJob).not.toHaveBeenCalled()
     expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
+    // C6 (fix #3): an attempt that never freshly audited/settled persists no harvest.
+    expect(await prisma.harvestedLink.count({ where: { siteAuditId: site.id } })).toBe(0)
   })
 
   it('onExhausted settles the child as error + pagesError + finalize; no-ops on terminal', async () => {

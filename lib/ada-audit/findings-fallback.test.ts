@@ -237,7 +237,7 @@ describe('buildSummaryFromFindings', () => {
   })
 
   it('renders 0 in the scorecard but null archivedCounts when passCount is unknown (pre-C3 rows)', async () => {
-    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId: seeded.siteAuditId } })
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { siteAuditId_tool: { siteAuditId: seeded.siteAuditId, tool: 'ada-audit' } } })
     await prisma.crawlPage.updateMany({ where: { runId: run.id }, data: { passCount: null } })
 
     const fallback = await buildSummaryFromFindings(seeded.siteAuditId)

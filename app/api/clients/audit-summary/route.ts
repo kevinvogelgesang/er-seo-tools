@@ -37,7 +37,7 @@ export async function GET() {
           pagesError: true,
           wcagLevel: true,
           summary: true,
-          crawlRun: { select: { score: true } },
+          crawlRuns: { where: { tool: 'ada-audit' }, select: { score: true } },
         },
       })
 
@@ -48,7 +48,7 @@ export async function GET() {
       // computed); the summary blob is only the pre-A2 fallback and may be
       // pruned (null) — consumers must tolerate a null summary.
       let parsedSummary: SiteAuditSummary | null = null
-      let score: number | null = latest?.crawlRun?.score ?? null
+      let score: number | null = latest?.crawlRuns[0]?.score ?? null
       if (latest?.summary) {
         try {
           parsedSummary = JSON.parse(latest.summary) as SiteAuditSummary

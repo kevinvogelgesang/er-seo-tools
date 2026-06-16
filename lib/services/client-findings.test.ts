@@ -102,7 +102,49 @@ async function makeAdaSiteRun(clientId: number, opts: {
   return { run, siteAuditId: sa.id }
 }
 
+async function makeLiveScanRun(clientId: number, opts: { completedAt: Date; brokenInternal: number }) {
+  const sa = await prisma.siteAudit.create({
+    data: { domain: DOMAIN, status: 'complete', clientId, completedAt: opts.completedAt },
+  })
+  const run = await prisma.crawlRun.create({
+    data: {
+      tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, clientId, siteAuditId: sa.id,
+      status: 'complete', score: null, pagesTotal: 1, completedAt: opts.completedAt, createdAt: opts.completedAt,
+    },
+  })
+  await prisma.finding.create({
+    data: {
+      runId: run.id, scope: 'run', type: 'broken_internal_links', severity: 'critical',
+      count: opts.brokenInternal, affectedComplete: true,
+      detail: JSON.stringify({ description: 'Internal links that resolve to a 4xx/5xx response.' }),
+      dedupKey: randomUUID(),
+    },
+  })
+  await prisma.finding.create({
+    data: { runId: run.id, scope: 'page', type: 'broken_internal_links', severity: 'critical', url: `https://${DOMAIN}/src`, dedupKey: randomUUID() },
+  })
+  return run
+}
+
 describe('getClientFindings', () => {
+  it('surfaces live-scan broken-link findings additively; sf-upload keeps the SEO score', async () => {
+    const c = await makeClient('livescan')
+    // sf-upload run (scored) is OLDER; live-scan run is NEWER.
+    await makeSeoRun(c.id, {
+      completedAt: daysAgo(2),
+      findings: { runScope: [{ type: 'missing_title', severity: 'critical', count: 3, affectedComplete: true }] },
+    })
+    await makeLiveScanRun(c.id, { completedAt: daysAgo(1), brokenInternal: 5 })
+    const out = await getClientFindings(c.id)
+    // broken-link row present (additive)
+    const bl = out.rows.find((r) => r.type === 'broken_internal_links')!
+    expect(bl).toBeTruthy()
+    expect(bl.count).toBe(5)
+    // sf-upload run remains the SEO meta source (score 80), NOT the live-scan run
+    expect(out.seo).not.toBeNull()
+    expect(out.rows.some((r) => r.type === 'missing_title')).toBe(true)
+  })
+
   it('returns both empty-state shapes', async () => {
     const noRuns = await makeClient('none')
     const a = await getClientFindings(noRuns.id)

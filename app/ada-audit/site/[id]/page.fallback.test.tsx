@@ -96,7 +96,7 @@ describe('SiteAuditResultPage — archived fallback + diff panel wiring', () => 
 
   it('renders the archived summary fallback with the CrawlRun score; no diff panel without a previous run', async () => {
     const site = await seedCompleteSite(new Date('2026-06-01T00:10:00Z'))
-    await prisma.crawlRun.update({ where: { siteAuditId: site.id }, data: { score: 42 } })
+    await prisma.crawlRun.update({ where: { siteAuditId_tool: { siteAuditId: site.id, tool: 'ada-audit' } }, data: { score: 42 } })
 
     const tree = await renderPage(site.id)
     const view = findByType(tree, SiteAuditResultsView)

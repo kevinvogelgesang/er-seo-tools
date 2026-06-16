@@ -1,7 +1,8 @@
 // Adapter-readiness pin (C5 § 2.3): a non-SF bundle (source 'live-scan') is a
 // first-class citizen of the ingestion contract — it writes through
 // writeFindingsRun() and renders through the findings-based report path.
-// Also pins the DOCUMENTED LIMITATION the C6 migration must lift.
+// The origin-uniqueness limitation is now LIFTED (C6 migration:
+// @@unique([siteAuditId, tool])) — this file pins the coexistence guarantee.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { writeFindingsRun } from './writer'
@@ -56,12 +57,19 @@ describe('adapter readiness: a live-scan bundle is a first-class citizen', () =>
     expect(report!.crawl_summary.ok_responses).toBe(1)
   })
 
-  it('DOCUMENTED LIMITATION: a second run on the same SiteAudit origin replaces the first (C6 must migrate to @@unique([siteAuditId, tool]) before live-scan dual-write)', async () => {
+  it('a live-scan seo-parser run and an ada-audit run COEXIST on one SiteAudit (C6 migration lifted the limitation)', async () => {
     const sa = await prisma.siteAudit.create({ data: { domain: SITE_AUDIT_DOMAIN, status: 'complete' } })
     await writeFindingsRun(liveScanBundle('c5ar-run-2', { siteAuditId: sa.id }, 'ada-audit'))
     await writeFindingsRun(liveScanBundle('c5ar-run-3', { siteAuditId: sa.id }, 'seo-parser'))
-    const runs = await prisma.crawlRun.findMany({ where: { siteAuditId: sa.id } })
-    expect(runs).toHaveLength(1)
-    expect(runs[0].id).toBe('c5ar-run-3') // delete-and-recreate by origin clobbered the ada run
+    const runs = await prisma.crawlRun.findMany({ where: { siteAuditId: sa.id }, orderBy: { tool: 'asc' } })
+    expect(runs).toHaveLength(2)
+    expect(runs.map((r) => r.tool)).toEqual(['ada-audit', 'seo-parser'])
+
+    // A second seo-parser write replaces ONLY the seo-parser run, leaving ada-audit intact.
+    await writeFindingsRun(liveScanBundle('c5ar-run-4', { siteAuditId: sa.id }, 'seo-parser'))
+    const after = await prisma.crawlRun.findMany({ where: { siteAuditId: sa.id }, orderBy: { tool: 'asc' } })
+    expect(after).toHaveLength(2)
+    expect(after.find((r) => r.tool === 'ada-audit')!.id).toBe('c5ar-run-2')
+    expect(after.find((r) => r.tool === 'seo-parser')!.id).toBe('c5ar-run-4')
   })
 })

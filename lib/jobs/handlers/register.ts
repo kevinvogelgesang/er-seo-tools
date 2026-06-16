@@ -15,6 +15,7 @@ import { registerScreenshotSweepHandler } from './screenshot-sweep'
 import { registerStaleAuditResetHandler } from './stale-audit-reset'
 import { registerScheduledSiteAuditHandler } from './scheduled-site-audit'
 import { registerReportRenderHandler } from './report-render'
+import { registerBrokenLinkVerifyHandler } from './broken-link-verify'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
@@ -27,4 +28,5 @@ export function registerBuiltInJobHandlers(): void {
   registerStaleAuditResetHandler()
   registerScheduledSiteAuditHandler()
   registerReportRenderHandler()
+  registerBrokenLinkVerifyHandler()
 }

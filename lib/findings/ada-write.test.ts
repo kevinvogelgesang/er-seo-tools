@@ -50,7 +50,7 @@ describe('writeAdaSiteFindings', () => {
     const site = await makeCompleteSiteAudit()
     await writeAdaSiteFindings(site.id)
     const run = await prisma.crawlRun.findUnique({
-      where: { siteAuditId: site.id },
+      where: { siteAuditId_tool: { siteAuditId: site.id, tool: 'ada-audit' } },
       include: { pages: true, findings: true, violations: true },
     })
     expect(run).not.toBeNull()

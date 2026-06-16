@@ -36,6 +36,46 @@ import { getLighthouseProvider } from '@/lib/ada-audit/lighthouse-provider'
 import { parsePositiveInt } from '../config'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
+import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
+import type { HarvestedTarget } from '@/lib/ada-audit/link-harvest'
+
+// C6: chunk size for HarvestedLink inserts. 300 targets/page x 5 cols > SQLite's
+// 999-variable limit, so chunk at 50 (matches the findings writer).
+const HARVEST_CHUNK = 50
+function chunk<T>(a: T[], n: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n))
+  return out
+}
+
+/**
+ * Persist harvested link/image targets — best-effort, fenced to a SUCCESSFUL
+ * page settle (callers invoke this only after settlePage() returned true, i.e.
+ * this attempt won the flip). Not in the settle txn: harvest is scaffolding for
+ * the verifier; a lost row just means that link isn't checked. harvestTruncated
+ * is denormalized onto every row so the verifier can recover the run-level flag.
+ */
+async function persistHarvest(
+  siteAuditId: string,
+  sourcePageUrl: string,
+  targets: HarvestedTarget[],
+  truncated: boolean,
+): Promise<void> {
+  if (!targets || targets.length === 0) return
+  const src = normalizeFindingUrl(sourcePageUrl)
+  const rows = targets.map((t) => ({
+    siteAuditId,
+    sourcePageUrl: src,
+    targetUrl: t.targetUrl,
+    kind: t.kind,
+    harvestTruncated: truncated,
+  }))
+  try {
+    for (const data of chunk(rows, HARVEST_CHUNK)) await prisma.harvestedLink.createMany({ data })
+  } catch (e) {
+    console.warn('[c6] harvest persist failed for', siteAuditId, ':', (e as Error).message)
+  }
+}
 
 export const SITE_AUDIT_PAGE_JOB_TYPE = 'site-audit-page'
 
@@ -165,7 +205,7 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
     return
   }
 
-  const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = runResult
+  const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated } = runResult
 
   // PDFs FIRST: dispatchPdfScans commits PdfAudit rows + pdfsTotal++ and
   // enqueues durable pdf-scan jobs before returning. This must land before
@@ -203,6 +243,10 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
     )
     if (!settled) return
   }
+
+  // Reached only when this attempt won the settle (both branches return on
+  // !settled) — fence the harvest persistence to that (fix #3).
+  await persistHarvest(job.siteAuditId, job.url, harvestedLinks, harvestedLinksTruncated)
 
   await finalizeWarn(job.siteAuditId, 'page settle')
 }

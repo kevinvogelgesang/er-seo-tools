@@ -95,7 +95,7 @@ describe('finalizeSiteAudit — findings dual-write hook', () => {
     // The write is fire-and-forget — poll for it.
     await vi.waitFor(async () => {
       const run = await prisma.crawlRun.findUnique({
-        where: { siteAuditId: site.id },
+        where: { siteAuditId_tool: { siteAuditId: site.id, tool: 'ada-audit' } },
         include: { pages: true, findings: true, violations: true },
       })
       expect(run).not.toBeNull()

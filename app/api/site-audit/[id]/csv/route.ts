@@ -55,7 +55,7 @@ export async function GET(
     )
   }
 
-  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId: id }, select: { id: true } })
+  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: id, tool: 'ada-audit' } }, select: { id: true } })
   if (!run) return NextResponse.json({ error: 'no_findings_run' }, { status: 409 })
 
   const violations = await prisma.violation.findMany({

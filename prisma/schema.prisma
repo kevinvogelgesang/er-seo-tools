@@ -149,7 +149,8 @@ model SiteAudit {
   shareExpiresAt    DateTime?
   reportGeneratedAt DateTime? // C4: last successful report-render stamp (file under REPORTS_DIR)
   checks           SiteAuditCheck[]
-  crawlRun         CrawlRun?
+  crawlRuns        CrawlRun[]
+  harvestedLinks   HarvestedLink[]
 
   @@index([createdAt])
   @@index([status])
@@ -342,7 +343,7 @@ model CrawlRun {
   client          Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   sessionId       String?    @unique
   session         Session?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  siteAuditId     String?    @unique
+  siteAuditId     String?
   siteAudit       SiteAudit? @relation(fields: [siteAuditId], references: [id], onDelete: SetNull)
   adaAuditId      String?    @unique // standalone page audits only
   adaAudit        AdaAudit?  @relation(fields: [adaAuditId], references: [id], onDelete: SetNull)
@@ -357,9 +358,28 @@ model CrawlRun {
   findings        Finding[]
   violations      Violation[]
 
+  @@unique([siteAuditId, tool])
   @@index([clientId, tool, createdAt])
   @@index([domain, createdAt])
   @@index([createdAt])
+}
+
+// C6: transient harvested link/image targets captured during the ADA site
+// audit. Deleted by the broken-link verifier after it writes findings; a
+// 7-day retention sweep backstops audits whose verify never ran. Scaffolding,
+// not a durable store — the live-scan CrawlRun is the durable record.
+model HarvestedLink {
+  id               String    @id @default(cuid())
+  siteAuditId      String
+  siteAudit        SiteAudit @relation(fields: [siteAuditId], references: [id], onDelete: Cascade)
+  sourcePageUrl    String
+  targetUrl        String
+  kind             String    // 'internal-link' | 'image' | 'external-link'
+  harvestTruncated Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+
+  @@index([siteAuditId])
+  @@index([siteAuditId, targetUrl])
 }
 
 model CrawlPage {

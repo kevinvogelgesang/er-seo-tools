@@ -124,7 +124,8 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
     const myPillars = pillars.filter((p) => p.session?.clientId === c.id)
 
     const { series: seo } = buildSeoSeries(
-      myRuns.filter((r) => r.tool === 'seo-parser' && !(r.sessionId && keywordSessionIds.has(r.sessionId))),
+      // C6: exclude live-scan (score null) from the SEO score series.
+      myRuns.filter((r) => r.tool === 'seo-parser' && r.source !== 'live-scan' && !(r.sessionId && keywordSessionIds.has(r.sessionId))),
     )
     const { series: ada, source: adaSource } = buildAdaSeries(
       myRuns.filter((r) => r.tool === 'ada-audit'),

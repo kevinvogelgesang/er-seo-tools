@@ -50,16 +50,18 @@ export async function pruneArchivedBlobs(
   for (const tool of tools) {
     // Origin FKs are SetNull, so a non-null FK guarantees the origin row
     // exists — "origin row present" is just the OR below.
+    // Tool-origin-aware selection (C6): a seo-parser run can now be a live-scan
+    // run carrying siteAuditId (no blob of its own — the SiteAudit.summary blob
+    // belongs to the ADA run). Pruning it must NEVER null that summary. So
+    // seo-parser prunes ONLY session-origin runs; ada-audit prunes site/standalone.
     const runs = await prisma.crawlRun.findMany({
       where: {
         tool,
         completedAt: { lt: cutoff }, // lt excludes null completedAt
         archivePrunedAt: null,
-        OR: [
-          { sessionId: { not: null } },
-          { siteAuditId: { not: null } },
-          { adaAuditId: { not: null } },
-        ],
+        ...(tool === 'seo-parser'
+          ? { sessionId: { not: null } }
+          : { OR: [{ siteAuditId: { not: null } }, { adaAuditId: { not: null } }] }),
       },
       select: { id: true, sessionId: true, siteAuditId: true, adaAuditId: true },
     })
@@ -116,4 +118,18 @@ export async function pruneArchivedBlobs(
       console.log(`[findings] pruned ${runs.length} archived ${tool} blob(s)`)
     }
   }
+}
+
+/** Days a HarvestedLink row survives if its verifier never ran (crash/exhaustion). */
+const HARVEST_RETENTION_MS = 7 * DAY_MS
+
+/**
+ * C6: delete stale HarvestedLink scaffolding. The broken-link verifier deletes
+ * its own rows on success; this backstops audits whose verify never completed,
+ * keeping steady-state HarvestedLink volume near zero. Runs in runCleanup().
+ */
+export async function pruneHarvestedLinks(now: Date = new Date()): Promise<void> {
+  const cutoff = new Date(now.getTime() - HARVEST_RETENTION_MS)
+  const { count } = await prisma.harvestedLink.deleteMany({ where: { createdAt: { lt: cutoff } } })
+  if (count > 0) console.log(`[findings] pruned ${count} stale HarvestedLink row(s)`)
 }

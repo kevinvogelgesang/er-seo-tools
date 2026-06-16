@@ -27,10 +27,12 @@ export async function writeFindingsRun(bundle: FindingsBundle): Promise<void> {
     )
   }
 
+  // deleteMany takes a filter (WhereInput) — plain { siteAuditId, tool }, NOT
+  // the compound-unique siteAuditId_tool input (that's findUnique/delete only).
   const where = run.sessionId
     ? { sessionId: run.sessionId }
     : run.siteAuditId
-      ? { siteAuditId: run.siteAuditId }
+      ? { siteAuditId: run.siteAuditId, tool: run.tool }
       : { adaAuditId: run.adaAuditId! }
 
   await prisma.$transaction([
