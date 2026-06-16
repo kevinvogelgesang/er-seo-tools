@@ -44,13 +44,15 @@ C5 documented this in `lib/findings/types.ts` and the adapter-readiness test: th
 delete-and-recreate keys on the origin FK, and `CrawlRun.siteAuditId` is `@unique`, so a second
 run (live-scan) on the same `SiteAudit` would **clobber** the ada-audit run.
 
-**Relation shape — already a list.** `SiteAudit.crawlRuns CrawlRun[]` is *already* a list relation
-(`prisma/schema.prisma:29`) even though `CrawlRun.siteAuditId` is currently `@unique` (a `@unique`
-FK whose list back-relation happens to hold ≤1 row). So this migration needs **no relation-shape
-change** and no rewrite of relation `include`s — every existing `include: { crawlRuns: … }`
-already returns an array. (Codex's review assumed a `crawlRun?` one-to-one back-relation needing
-rewrite; verified false against the schema.) `Session`/`AdaAudit` keep their `crawlRun CrawlRun?`
-one-to-one relations and `@unique` FKs — only `siteAuditId` ever carries two tools.
+**Relation shape — `SiteAudit.crawlRun?` must become `crawlRuns[]` (Codex review, corrected).**
+`SiteAudit.crawlRun CrawlRun?` (`prisma/schema.prisma:152`) is a **one-to-one** relation, which
+*requires* the `@unique` on `CrawlRun.siteAuditId`. Removing `@unique` therefore forces the back-
+relation to a list — `crawlRuns CrawlRun[]` — or `prisma validate` fails. (`Client.crawlRuns
+CrawlRun[]` at line 29 is a *different* model; do not confuse them. `Session`/`AdaAudit` keep their
+`crawlRun CrawlRun?` one-to-one relations and `@unique` FKs — only `siteAuditId` ever carries two
+tools.) Consequently every `prisma.siteAudit` query that `include`s `crawlRun` (singular) must be
+re-keyed to `crawlRuns: { where: { tool: 'ada-audit' }, select: … }` and read `[0]` — see the
+reader list below.
 
 The migration:
 
@@ -80,9 +82,19 @@ The migration:
   Unaffected: `{ sessionId }` / `{ adaAuditId }` `findUnique`s keep their `@unique` keys; relation
   `include: { crawlRun: ... }` sites all hang off `Session`/`AdaAudit` (singular) or already use
   `crawlRuns` (list).
-- **Close gate:** a grep for `crawlRun.findUnique` keyed on a bare `siteAuditId` returns zero hits,
-  and the build compiles (removing the single-field unique makes the old call shape a type error,
-  so the compiler enforces completeness).
+- **Relation-include readers (Codex fix #2 — also break when `crawlRun?`→`crawlRuns[]`):** five
+  `prisma.siteAudit` queries `include`/`select` `crawlRun` singular and read `.crawlRun?.score`.
+  Re-key each to `crawlRuns: { where: { tool: 'ada-audit' }, select: { …, score: true } }` and read
+  `crawlRuns[0]?.score`:
+  `app/api/site-audit/route.ts:83`, `app/api/clients/audit-summary/route.ts:40`,
+  `app/api/audit-batches/[id]/route.ts` (nested under `siteAudits`),
+  `lib/ada-audit/recents-query.ts` (the `prisma.siteAudit.findMany` branch),
+  `lib/services/client-schedules.ts:48`. (The `prisma.adaAudit`/`prisma.session` `crawlRun` includes
+  — e.g. `ada-audit/[id]/page.tsx:43`, `parse/history` — stay singular, unaffected.)
+- **Close gate:** a grep for `crawlRun` on `prisma.siteAudit` queries (both `findUnique({where:{
+  siteAuditId}})` and relation `include: { crawlRun }`) returns zero hits, and `tsc` compiles —
+  removing the single-field unique makes both old shapes type errors, so the compiler enforces
+  completeness.
 - **Adapter-readiness test** (`lib/findings/adapter-readiness.test.ts`): the "DOCUMENTED
   LIMITATION" case flips from "second run clobbers the first → 1 row" to **"ada-audit and
   seo-parser runs coexist on the same SiteAudit → 2 rows, correct tools"**. The comment is
@@ -110,6 +122,7 @@ model HarvestedLink {
   sourcePageUrl String    // normalized URL of the page the target was found on
   targetUrl     String    // normalized absolute URL of the link/image target
   kind          String    // 'internal-link' | 'image' | 'external-link'
+  harvestTruncated Boolean @default(false) // this page hit the 300-target cap (fix #4)
   createdAt     DateTime  @default(now())
 
   @@index([siteAuditId])
@@ -120,10 +133,16 @@ model HarvestedLink {
 Add `harvestedLinks HarvestedLink[]` back-relation to `SiteAudit`. `onDelete: Cascade` so a
 deleted audit drops its harvest rows (matches `AdaAudit` children).
 
-**Write path:** plain `createMany` inside the page-settle transaction (no upsert → no write
-contention under `SITE_AUDIT_CONCURRENCY`). Per-page cap of 300 targets (links + images combined)
-matches the old plan's `INTERNAL_OUTLINK_CAP`; truncation is recorded only as a per-run confidence
-signal (see §5.4), not per row.
+**Write path (fix #3 — fenced to the settle outcome, not blindly in the txn):** the page-settle
+`$transaction` flips the child via a conditional `updateMany` (claimable status); a **zombie attempt
+that loses that flip must not still insert harvest rows**. So persist harvest **only when the settle
+flip succeeded** — either via raw `INSERT … SELECT … WHERE EXISTS(child claimable)` chunks inside
+the array txn, or (acceptable, simpler) as a `createMany` issued **after** `settlePage()` returns
+`true`, explicitly accepting a small crash window (harvest is best-effort scaffolding — a missing
+row just means that link isn't checked). v1 takes the post-settle path; the "atomic with the page
+settle" framing is dropped. Plain `createMany` (no upsert → no contention). Per-page cap 300
+combined; the `harvestTruncated` flag is written onto that page's rows (§3.1) so the verifier can
+recover the per-run confidence signal.
 
 **Growth control (SF-doc named risk):** rows are deleted in bulk by the verifier after it writes
 findings (`deleteMany({ where: { siteAuditId } })`), and a `pruneHarvestedLinks()` sweep in
@@ -191,9 +210,11 @@ export async function harvestLinks(page: Page, auditedHost: string): Promise<Har
   strips fragment, lowercases host, drops `mailto:` / `javascript:` / `tel:` / `data:` / bare-`#`.
   **Keep the query string** (unlike `normalizePdfUrl`) — `/p?id=7` and `/p?id=8` are different
   pages. Dedup within a page by `(kind, targetUrl)`.
-- Same-domain classification compares the registrable host with `www.` stripped (reuse the
-  pdf-discovery approach). Cross-domain → `external-link` (harvested, recorded, **not verified** in
-  v1).
+- Same-domain classification is **exact host match, `www.`-insensitive** in v1 (e.g.
+  `example.com` == `www.example.com`; `cdn.example.com` is treated as cross-domain → `external-link`).
+  This is the documented v1 semantic (fix #15); a registrable-domain/subdomain match
+  (`host === root || host.endsWith('.' + root)`, with an anti-`evil-example.com` guard) is a later
+  refinement. Cross-domain → `external-link` (harvested, recorded, **not verified** in v1).
 - Combined cap of 300 targets/page; returns a `truncated` flag alongside the list
   (`{ targets, truncated }`) so the caller can record it.
 
@@ -237,7 +258,10 @@ New durable job type `broken-link-verify` (`lib/jobs/handlers/broken-link-verify
 - `concurrency: 1` (one verifier at a time across the box — this is throttle-sensitive network
   work; per-host throttling lives inside the handler).
 - `maxAttempts: 2`, `backoffBaseMs: 60_000`.
-- `timeoutMs: 600_000` (10 min — a large audit's deduped target set, throttled, can take minutes).
+- `timeoutMs: 900_000` (15 min). At `BROKEN_LINK_MAX_CHECKS=2000` with a 250 ms per-host delay,
+  pure-sequential checking would approach/exceed 10 min, so the handler runs **bounded concurrency**
+  (`BROKEN_LINK_CONCURRENCY` workers) that share one per-host throttle (fix #8 — the spec's
+  concurrency claim is now actually implemented, not aspirational); 15 min is the safety ceiling.
 - `groupKey: site-audit:<siteAuditId>` with `dedupKey: broken-link-verify:<siteAuditId>`.
   **Group-key safety invariant (fix #12, state it explicitly):** recovery treats the
   `site-audit:<id>` group as *audit liveness* — a transient (non-terminal) parent with outstanding
@@ -287,9 +311,11 @@ recovery passes.
    `image` only — `external-link` rows are loaded for completeness but **not checked** in v1),
    keeping a **sample of up to 25 source pages** per target (matches the C5 `URLS_PER_FINDING`
    convention for affected-URL lists).
-3. **Cap** the unique target set at `BROKEN_LINK_MAX_CHECKS` (default 2000). If exceeded, verify
-   the first 2000 (stable order) and mark the run `status: 'partial'` + `affectedComplete: false`;
-   log the dropped count (no silent truncation — SF-doc / handoff rule).
+3. **Cap** the unique target set at `BROKEN_LINK_MAX_CHECKS` (default 2000) in a **deterministic
+   order** (fix #7 — the `HarvestedLink.findMany` carries an explicit `orderBy` on
+   `[targetUrl, kind, sourcePageUrl]` so the capped subset is stable across retries). If exceeded,
+   verify the first 2000 and mark the run `status: 'partial'` + `affectedComplete: false`; log the
+   dropped count (no silent truncation — SF-doc / handoff rule).
 4. **Check each target** with `safeFetch` (SSRF guard built in), HEAD first:
    - per-host throttle: a minimum delay (`BROKEN_LINK_HOST_DELAY_MS`, default 250 ms) between
      requests to the same host, enforced via a per-host last-request timestamp map; overall

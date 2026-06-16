@@ -32,9 +32,11 @@
 - `components/site-audit/BrokenLinksSection.tsx` — results-page UI block.
 
 **Modify:**
-- `prisma/schema.prisma` — `CrawlRun.siteAuditId` unique→compound; `HarvestedLink` model + `SiteAudit.harvestedLinks` back-relation.
+- `prisma/schema.prisma` — `CrawlRun.siteAuditId` unique→compound; **`SiteAudit.crawlRun?`→`crawlRuns[]`** (one-to-one→list, forced by dropping the unique); `HarvestedLink` model (+`harvestTruncated`) + `SiteAudit.harvestedLinks` back-relation.
 - `lib/findings/writer.ts` — re-key the `siteAuditId` delete branch to the compound key.
 - `lib/findings/parity.ts`, `lib/report/report-data.ts`, `lib/services/site-audit-diff.ts`, `lib/ada-audit/findings-fallback.ts`, `scripts/findings-rebuild.ts`, `app/api/site-audit/[id]/{vpat,report,csv}/route.ts`, `app/ada-audit/site/[id]/page.tsx`, `app/ada-audit/site/share/[token]/page.tsx` — re-key the 10 `findUnique({where:{siteAuditId}})` readers.
+- `app/api/site-audit/route.ts`, `app/api/clients/audit-summary/route.ts`, `app/api/audit-batches/[id]/route.ts`, `lib/ada-audit/recents-query.ts`, `lib/services/client-schedules.ts` — re-key the 5 `crawlRun` (singular) relation-includes to `crawlRuns: { where: { tool: 'ada-audit' } }` + `[0]`.
+- `lib/services/client-dashboard.ts`, `lib/services/client-fleet.ts` — exclude `source:'live-scan'` from the B1 SEO score series.
 - `lib/findings/adapter-readiness.test.ts` — flip the limitation case to coexistence.
 - `lib/ada-audit/runner.ts` — capture `harvestedLinks` on the `audited` result.
 - `lib/jobs/handlers/site-audit-page.ts` — persist `HarvestedLink` rows in the settle txn (chunked).
@@ -72,7 +74,15 @@ In `model CrawlRun`, remove `@unique` from the `siteAuditId` line and add a bloc
   @@index([createdAt])
 ```
 
-(Leave `sessionId @unique` and `adaAuditId @unique` exactly as they are. `SiteAudit.crawlRuns CrawlRun[]` is already a list — no relation edit.)
+(Leave `sessionId @unique` and `adaAuditId @unique` exactly as they are.)
+
+**Also change `model SiteAudit`'s back-relation from one-to-one to a list** (REQUIRED — Codex review). `SiteAudit.crawlRun CrawlRun?` (`prisma/schema.prisma:152`) is one-to-one and *requires* the `@unique` we are removing, so `prisma validate` fails unless it becomes a list:
+
+```prisma
+  crawlRuns        CrawlRun[]
+```
+
+(Do NOT confuse this with `Client.crawlRuns CrawlRun[]` at line 29 — different model. `Session`/`AdaAudit` keep their singular `crawlRun CrawlRun?`.)
 
 - [ ] **Step 2: Add the `HarvestedLink` model** (end of file, near other findings models)
 
@@ -84,6 +94,7 @@ model HarvestedLink {
   sourcePageUrl String
   targetUrl     String
   kind          String    // 'internal-link' | 'image' | 'external-link'
+  harvestTruncated Boolean @default(false)
   createdAt     DateTime  @default(now())
 
   @@index([siteAuditId])
@@ -135,6 +146,7 @@ CREATE TABLE "HarvestedLink" (
     "sourcePageUrl" TEXT NOT NULL,
     "targetUrl" TEXT NOT NULL,
     "kind" TEXT NOT NULL,
+    "harvestTruncated" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "HarvestedLink_siteAuditId_fkey" FOREIGN KEY ("siteAuditId") REFERENCES "SiteAudit" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -211,15 +223,26 @@ where = { siteAuditId_tool: { siteAuditId: id, tool } }
 ```
 (Leave the `sessionId` / `adaAuditId` branches unchanged.)
 
+- [ ] **Step 3b: Re-key the 5 relation-include readers (Codex fix #2)**
+
+`SiteAudit.crawlRun?`→`crawlRuns[]` breaks every `prisma.siteAudit` query that includes `crawlRun` singular. Re-key each to filter the ADA run and read `[0]`:
+
+```ts
+// before:  crawlRun: { select: { score: true } }   → row.crawlRun?.score
+// after:   crawlRuns: { where: { tool: 'ada-audit' }, select: { score: true } }
+//          → row.crawlRuns[0]?.score ?? null
+```
+Apply at: `app/api/site-audit/route.ts:83`, `app/api/clients/audit-summary/route.ts:40`, `app/api/audit-batches/[id]/route.ts` (nested under `siteAudits`), `lib/ada-audit/recents-query.ts` (the `prisma.siteAudit.findMany` branch — NOT the `prisma.adaAudit` branch above it), `lib/services/client-schedules.ts:48` (also selects `id` — keep it: `crawlRuns: { where: { tool: 'ada-audit' }, select: { id: true, score: true } }`). Update each consumer's read site to index `[0]`. (Leave `prisma.adaAudit`/`prisma.session` `crawlRun` includes singular.)
+
 - [ ] **Step 4: Typecheck — now clean**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx tsc --noEmit`
-Expected: PASS (zero errors).
+Expected: PASS (zero errors — both the `findUnique` re-key and the relation-include re-key resolve the type errors the migration introduced).
 
-- [ ] **Step 5: Close-gate grep**
+- [ ] **Step 5: Close-gate grep (both shapes)**
 
-Run: `rg -n "crawlRun\.findUnique\(\{\s*where:\s*\{\s*siteAuditId\b" lib app scripts`
-Expected: no matches.
+Run: `rg -n "crawlRun\b" app lib scripts | rg "siteAudit"` then manually confirm no `prisma.siteAudit` query still includes `crawlRun` singular or `findUnique({where:{siteAuditId}})`.
+Expected: no stray singular `crawlRun` on a SiteAudit query.
 
 - [ ] **Step 6: Commit**
 
@@ -374,7 +397,7 @@ export function classifyTargets(
     try { host = new URL(url).hostname.toLowerCase() } catch { return }
     const kind: HarvestedTargetKind = sameRegistrable(host, auditedHost.toLowerCase())
       ? internalKind : 'external-link'
-    const key = `${kind} ${url}`
+    const key = `${kind} ${url}`
     if (seen.has(key)) return
     seen.add(key)
     all.push({ targetUrl: url, kind })
@@ -474,15 +497,17 @@ git commit -m "feat(c6): capture harvested links in runAxeAudit"
 
 - [ ] **Step 1: Add a chunk helper + row builder near the top**
 
+`harvestTruncated` (fix #4) is denormalized onto every row for that page, so the verifier can recover the per-run confidence signal.
+
 ```ts
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 import type { HarvestedTarget } from '@/lib/ada-audit/link-harvest'
 
 const HARVEST_CHUNK = 50
 
-function harvestRows(siteAuditId: string, sourceUrl: string, targets: HarvestedTarget[]) {
+function harvestRows(siteAuditId: string, sourceUrl: string, targets: HarvestedTarget[], truncated: boolean) {
   const src = normalizeFindingUrl(sourceUrl)
-  return targets.map((t) => ({ siteAuditId, sourcePageUrl: src, targetUrl: t.targetUrl, kind: t.kind }))
+  return targets.map((t) => ({ siteAuditId, sourcePageUrl: src, targetUrl: t.targetUrl, kind: t.kind, harvestTruncated: truncated }))
 }
 function chunk<T>(a: T[], n: number): T[][] {
   const out: T[][] = []
@@ -491,47 +516,32 @@ function chunk<T>(a: T[], n: number): T[][] {
 }
 ```
 
-- [ ] **Step 2: Splice the chunked `createMany` into the audited-page settle txn**
+- [ ] **Step 2: Persist harvest AFTER a successful settle (fenced, fix #3)**
 
-The audited-page settle currently calls `settlePage(...)` (a helper running a 2-statement `$transaction`). Add the harvest inserts to that same transaction. Modify `settlePage` to accept optional extra statements:
-
-```ts
-async function settlePage(
-  job: SiteAuditPageJob,
-  counters: PageCounter[],
-  childData: Prisma.AdaAuditUpdateManyMutationInput,
-  claimable: string[],
-  extraOps: Prisma.PrismaPromise<unknown>[] = [],
-): Promise<boolean> {
-  const bumps = counters.map((c) => `"${c}" = "${c}" + 1`).join(', ')
-  const [, flipped] = await prisma.$transaction([
-    prisma.$executeRaw`UPDATE "SiteAudit" SET ${Prisma.raw(bumps)}, "updatedAt" = ${Date.now()}
-      WHERE "id" = ${job.siteAuditId}
-        AND EXISTS (SELECT 1 FROM "AdaAudit" WHERE "id" = ${job.adaAuditId} AND "status" IN (${Prisma.join(claimable)}))`,
-    prisma.adaAudit.updateMany({ where: { id: job.adaAuditId, status: { in: claimable } }, data: childData }),
-    ...extraOps,
-  ])
-  return flipped.count === 1
-}
-```
-
-In the audited branches (`detachPsi` and the non-detach `complete` branch), build the harvest ops and pass them:
+Do NOT splice the harvest `createMany` blindly into the settle `$transaction` — a zombie attempt that loses the conditional child flip would still insert harvest rows for a page it didn't settle. Instead persist **only when `settlePage()` returned `true`** (this attempt won the flip). In BOTH audited branches (`detachPsi` axe-complete and the non-detach `complete`), after the existing `const settled = await settlePage(...); if (!settled) return` guard, add:
 
 ```ts
-  const rows = harvestRows(job.siteAuditId, job.url, runResult.harvestedLinks)
-  const harvestOps = chunk(rows, HARVEST_CHUNK).map((data) => prisma.harvestedLink.createMany({ data }))
+  // Best-effort harvest persistence, fenced to a successful settle (this attempt
+  // owned the flip). Not in the settle txn: harvest is scaffolding, a lost row
+  // just means that link isn't checked. createMany chunked at 50 (fix #8).
+  const rows = harvestRows(job.siteAuditId, job.url, runResult.harvestedLinks, runResult.harvestedLinksTruncated)
+  try {
+    for (const data of chunk(rows, HARVEST_CHUNK)) await prisma.harvestedLink.createMany({ data })
+  } catch (e) {
+    console.warn('[c6] harvest persist failed for', job.adaAuditId, ':', (e as Error).message)
+  }
 ```
 
-Pass `harvestOps` as the new `extraOps` arg in BOTH audited `settlePage(...)` calls (axe-complete and complete). Do NOT add harvest ops to the redirected or error settles (no DOM was audited).
+Place this BEFORE `enqueuePsiJob(job)` in the detach branch and before the final `finalizeWarn(...)`. Redirected/error settles persist no harvest (no audited DOM). (The `detachPsi` branch settles to `axe-complete` then returns early after `enqueuePsiJob` — keep the harvest insert before that return.)
 
 - [ ] **Step 3: Typecheck**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx tsc --noEmit`
 Expected: PASS.
 
-- [ ] **Step 4: DB-backed test — harvest lands atomically; redirect/error persist none**
+- [ ] **Step 4: DB-backed test — harvest lands on audited settle; redirect/error persist none; zombie inserts none**
 
-Add to `lib/jobs/handlers/site-audit-page.test.ts` (mock `runAxeAudit` to return `harvestedLinks`), asserting after an audited settle `prisma.harvestedLink.count({where:{siteAuditId}})` matches, and after a redirected/error settle it's 0. Follow the file's existing mock style + tracked-id cleanup.
+Add to `lib/jobs/handlers/site-audit-page.test.ts` (mock `runAxeAudit` to return `harvestedLinks`): after an audited settle assert `prisma.harvestedLink.count({where:{siteAuditId}})` matches the harvested count; after a redirected/error settle assert 0; **and a zombie case** — pre-settle the child to a terminal status so `settlePage` returns false, run the job, assert 0 harvest rows (fix #3). Follow the file's existing mock style + tracked-id cleanup.
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/site-audit-page.test.ts`
 Expected: PASS.
@@ -657,8 +667,9 @@ export class HostThrottle {
   private last = new Map<string, number>()
   constructor(private delayMs: number, private deps: Pick<CheckDeps, 'now' | 'sleep'>) {}
   async wait(host: string): Promise<void> {
-    const prev = this.last.get(host) ?? 0
-    const wait = prev + this.delayMs - this.deps.now()
+    // First request to a host never waits (fix #9 — don't sleep at t0).
+    if (!this.last.has(host)) { this.last.set(host, this.deps.now()); return }
+    const wait = this.last.get(host)! + this.delayMs - this.deps.now()
     if (wait > 0) await this.deps.sleep(wait)
     this.last.set(host, this.deps.now())
   }
@@ -826,7 +837,7 @@ export function mapBrokenLinks(broken: BrokenTarget[], ctx: BrokenLinkMapContext
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: ctx.domain, clientId: ctx.clientId,
       sessionId: null, siteAuditId: ctx.siteAuditId, adaAuditId: null,
-      status: ctx.confidence.capped ? 'partial' : 'complete',
+      status: ctx.confidence.capped || ctx.confidence.harvestTruncated ? 'partial' : 'complete',
       score: null, wcagLevel: null, pagesTotal: pages.length,
       startedAt: ctx.startedAt, completedAt: ctx.completedAt,
     },
@@ -852,15 +863,15 @@ git commit -m "feat(c6): broken-link results -> FindingsBundle mapper"
 ### Task 10: Add `'live-scan-verify'` to the `affectedUrlSource` union
 
 **Files:**
-- Modify: `lib/types.ts`
+- Modify: `lib/types/index.ts` (the `Issue` interface — TWO occurrences at ~L61 and ~L242; update BOTH)
 
 - [ ] **Step 1: Find + extend the union**
 
-Run: `rg -n "affectedUrlSource" lib/types.ts`
-Then change the union to include the new label, e.g.:
+Run: `rg -n "affectedUrlSource" lib/types/index.ts`
+Both occurrences read `'derived-page-index' | 'parser-complete' | 'parser-sample'`. Add the new label to **both**:
 
 ```ts
-  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample' | 'live-scan-verify'
+  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample' | 'live-scan-verify';
 ```
 
 - [ ] **Step 2: Typecheck**
@@ -871,7 +882,7 @@ Expected: PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add lib/types.ts
+git add lib/types/index.ts
 git commit -m "feat(c6): allow 'live-scan-verify' affectedUrlSource"
 ```
 
@@ -972,6 +983,7 @@ import type { JobExhaustedContext } from '../types'
 export const BROKEN_LINK_VERIFY_JOB_TYPE = 'broken-link-verify'
 const MAX_CHECKS = () => parsePositiveInt(process.env.BROKEN_LINK_MAX_CHECKS, 2000)
 const HOST_DELAY = () => parsePositiveInt(process.env.BROKEN_LINK_HOST_DELAY_MS, 250)
+const CONCURRENCY = () => parsePositiveInt(process.env.BROKEN_LINK_CONCURRENCY, 4)
 const URLS_PER_FINDING = 25
 
 export interface BrokenLinkVerifyJob { siteAuditId: string; domain: string | null }
@@ -1002,42 +1014,52 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
 
   const rows = await prisma.harvestedLink.findMany({
     where: { siteAuditId: job.siteAuditId, kind: { in: ['internal-link', 'image'] } },
-    select: { targetUrl: true, kind: true, sourcePageUrl: true },
+    // Deterministic order so the cap (below) selects a STABLE subset across retries (fix #7).
+    orderBy: [{ targetUrl: 'asc' }, { kind: 'asc' }, { sourcePageUrl: 'asc' }],
+    select: { targetUrl: true, kind: true, sourcePageUrl: true, harvestTruncated: true },
   })
+  const harvestTruncated = rows.some((r) => r.harvestTruncated) // fix #4
 
   // Dedupe to unique (targetUrl, kind); collect a source-page sample per target.
   const startedAt = new Date(deps.now())
   const byTarget = new Map<string, { kind: 'internal-link' | 'image'; sources: Set<string> }>()
   for (const r of rows) {
-    const key = `${r.kind} ${r.targetUrl}`
+    const key = `${r.kind} ${r.targetUrl}`
     let e = byTarget.get(key)
     if (!e) { e = { kind: r.kind as 'internal-link' | 'image', sources: new Set() }; byTarget.set(key, e) }
     if (e.sources.size < URLS_PER_FINDING) e.sources.add(normalizeFindingUrl(r.sourcePageUrl))
   }
-  const unique = [...byTarget.entries()].map(([key, v]) => ({ targetUrl: key.split(' ')[1], ...v }))
+  const unique = [...byTarget.entries()].map(([key, v]) => ({ targetUrl: key.slice(key.indexOf(' ') + 1), ...v }))
 
   const cap = MAX_CHECKS()
   const capped = unique.length > cap
   if (capped) console.warn(`[broken-link-verify] ${job.siteAuditId}: capping ${unique.length} -> ${cap} checks`)
   const toCheck = capped ? unique.slice(0, cap) : unique
 
+  // Bounded concurrency (fix #8): CONCURRENCY workers pull from a shared cursor,
+  // each respecting the shared per-host throttle. Single-threaded JS makes the
+  // shared cursor/counter mutations safe between awaits.
   const throttle = new HostThrottle(HOST_DELAY(), deps)
-  let checked = 0, unconfirmed = 0
+  let checked = 0, unconfirmed = 0, cursor = 0
   const broken: BrokenTarget[] = []
-  for (const t of toCheck) {
-    let host = ''
-    try { host = new URL(t.targetUrl).hostname } catch { unconfirmed++; continue }
-    await throttle.wait(host)
-    const res = await deps.checkUrl(t.targetUrl)
-    checked++
-    if (res === 'broken') broken.push({ targetUrl: t.targetUrl, kind: t.kind, sourcePageUrls: [...t.sources] })
-    else if (res === 'unconfirmed') unconfirmed++
+  const worker = async (): Promise<void> => {
+    while (cursor < toCheck.length) {
+      const t = toCheck[cursor++]
+      let host = ''
+      try { host = new URL(t.targetUrl).hostname } catch { unconfirmed++; continue }
+      await throttle.wait(host)
+      const res = await deps.checkUrl(t.targetUrl)
+      checked++
+      if (res === 'broken') broken.push({ targetUrl: t.targetUrl, kind: t.kind, sourcePageUrls: [...t.sources] })
+      else if (res === 'unconfirmed') unconfirmed++
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), toCheck.length || 1) }, () => worker()))
 
   const bundle = mapBrokenLinks(broken, {
     siteAuditId: site.id, domain: site.domain ?? job.domain, clientId: site.clientId,
     startedAt, completedAt: new Date(deps.now()),
-    confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated: false },
+    confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
   })
   await writeFindingsRun(bundle)
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
@@ -1063,10 +1085,10 @@ export async function onBrokenLinkVerifyExhausted(_p: unknown, ctx: JobExhausted
 export function registerBrokenLinkVerifyHandler(): void {
   registerJobHandler({
     type: BROKEN_LINK_VERIFY_JOB_TYPE,
-    concurrency: 1,
+    concurrency: 1, // one verifier across the box; per-URL parallelism is internal (CONCURRENCY workers)
     maxAttempts: 2,
     backoffBaseMs: 60_000,
-    timeoutMs: 600_000,
+    timeoutMs: 900_000, // 15 min ceiling (fix #8 — bounded concurrency keeps real runs well under this)
     handler: (payload) => runBrokenLinkVerify(payload),
     onExhausted: onBrokenLinkVerifyExhausted,
   })
@@ -1141,9 +1163,13 @@ import { recoverBrokenLinkVerifies } from './broken-link-recovery'
 
 const DOMAIN = 'c6blr.example.com'
 async function clean() {
+  // Scope job cleanup to THIS test's site audits (fix #11 — never blanket-delete
+  // every broken-link-verify job; a parallel file's jobs would be collateral).
+  const sas = await prisma.siteAudit.findMany({ where: { domain: DOMAIN }, select: { id: true } })
+  const groups = sas.map((s) => `site-audit:${s.id}`)
+  if (groups.length) await prisma.job.deleteMany({ where: { type: 'broken-link-verify', groupKey: { in: groups } } })
   await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
   await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
-  await prisma.job.deleteMany({ where: { groupKey: { startsWith: 'site-audit:' }, type: 'broken-link-verify' } })
   await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
 }
 beforeEach(clean); afterAll(clean)
@@ -1182,7 +1208,8 @@ Expected: FAIL — module not found.
 // 'complete' SiteAudit with HarvestedLink rows but no verify job and no
 // live-scan run never self-heals (finalizeSiteAudit early-returns on complete).
 import { prisma } from '@/lib/db'
-import { enqueueBrokenLinkVerify, BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
+import { BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
+import { enqueueJob } from '@/lib/jobs/queue'
 import { JOB_ACTIVE_STATUSES } from '@/lib/jobs/types'
 
 export async function recoverBrokenLinkVerifies(): Promise<number> {
@@ -1199,7 +1226,15 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
       select: { id: true },
     })
     if (activeJob) continue
-    enqueueBrokenLinkVerify(siteAuditId, site.domain)
+    // AWAIT the enqueue (fix #10) — this sweep closes the fire-and-forget window,
+    // so it must confirm the job is durably queued before counting it. dedupKey
+    // makes it idempotent against a racing enqueue.
+    await enqueueJob({
+      type: BROKEN_LINK_VERIFY_JOB_TYPE,
+      payload: { siteAuditId, domain: site.domain },
+      dedupKey: `${BROKEN_LINK_VERIFY_JOB_TYPE}:${siteAuditId}`,
+      groupKey: `site-audit:${siteAuditId}`,
+    })
     enqueued++
   }
   if (enqueued > 0) console.log(`[broken-link-verify] recovery re-enqueued ${enqueued} verifier(s)`)
@@ -1288,8 +1323,7 @@ and guard the `siteAudit`/`adaAudit` updateMany statements behind `tool === 'ada
 
 - [ ] **Step 4: Register `pruneHarvestedLinks` in `runCleanup()`**
 
-Run: `rg -n "pruneArchivedBlobs|Promise.allSettled" lib/ada-audit/*.ts lib/jobs/handlers/cleanup.ts`
-Add `pruneHarvestedLinks()` to the same `Promise.allSettled([...])` list that calls `pruneArchivedBlobs()`.
+`runCleanup()` lives in **`lib/cleanup.ts`** (fix #12 — NOT `lib/jobs/handlers/cleanup.ts`, which only invokes it). Add `pruneHarvestedLinks()` to the `Promise.allSettled([...])` list there that already calls `pruneArchivedBlobs()` (import it from `@/lib/findings/retention`).
 
 - [ ] **Step 5: Run tests**
 
@@ -1299,7 +1333,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/findings/retention.ts lib/findings/retention.test.ts lib/jobs/handlers/cleanup.ts
+git add lib/findings/retention.ts lib/findings/retention.test.ts lib/cleanup.ts
 git commit -m "feat(c6): HarvestedLink retention + tool-origin-aware blob prune"
 ```
 
@@ -1358,16 +1392,24 @@ Add `liveScan: RunRef | null` to `SelectedRuns['seo']`.
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/services/findings-shared.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Typecheck (catches consumers of `SelectedRuns`)**
+- [ ] **Step 5: Also exclude live-scan from the B1 score SERIES (fix #13)**
+
+`selectRuns` only governs the B2 panel. The B1 dashboard/fleet score series build directly from filtered `crawlRuns` and would still let a `score:null` live-scan run into SEO score history. Add `&& r.source !== 'live-scan'` to both `buildSeoSeries(...)` filters:
+- `lib/services/client-dashboard.ts:114` — `crawlRuns.filter((r) => r.tool === 'seo-parser' && r.source !== 'live-scan' && !(r.sessionId && keywordSessionIds.has(r.sessionId)))`
+- `lib/services/client-fleet.ts:127` — `myRuns.filter((r) => r.tool === 'seo-parser' && r.source !== 'live-scan' && !(r.sessionId && keywordSessionIds.has(r.sessionId)))`
+
+(Both `select` the `source` column already — client-dashboard.ts:102, client-fleet.ts:50.)
+
+- [ ] **Step 6: Typecheck (catches consumers of `SelectedRuns`)**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx tsc --noEmit`
 Expected: PASS (the new field is optional-additive; existing consumers compile).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/services/findings-shared.ts lib/services/findings-shared.test.ts
-git commit -m "feat(c6): source-aware SEO selection (live-scan never displaces sf-upload)"
+git add lib/services/findings-shared.ts lib/services/findings-shared.test.ts lib/services/client-dashboard.ts lib/services/client-fleet.ts
+git commit -m "feat(c6): source-aware SEO selection (live-scan never displaces sf-upload score)"
 ```
 
 ---
@@ -1389,7 +1431,15 @@ Expected: FAIL — broken-link rows absent.
 
 - [ ] **Step 3: Implement additive pull**
 
-In `client-findings.ts`, after `selectRuns`, if `sel.seo.liveScan` exists, include its run id in the set of run ids whose `Finding` rows are queried for the panel (alongside `sel.seo.current`). Merge the live-scan findings into the open-findings list (they already carry `broken_internal_links` / `broken_images` types and severities). Do NOT let the live-scan run contribute to the SEO score/trend (those read `sel.seo.current` only).
+In `client-findings.ts:123`, the panel currently builds:
+```ts
+const currentIds = [sel.seo.current?.id, sel.ada.current?.id].filter((x): x is string => !!x)
+```
+Change it to also include the live-scan run (fix #14):
+```ts
+const currentIds = [sel.seo.current?.id, sel.seo.liveScan?.id, sel.ada.current?.id].filter((x): x is string => !!x)
+```
+The findings `where: { runId: { in: currentIds } }` query then pulls the live-scan `broken_internal_links`/`broken_images` rows into the open-findings list additively (they already carry types + severities). Do NOT touch the SEO meta/score/diff block (`if (sel.seo.current)` at L164) — it reads `sel.seo.current` only, so the score/trend stays SF-upload-sourced. (The previous-run diff at L134 also stays keyed on `sel.seo.previous`.)
 
 - [ ] **Step 4: Run test + commit**
 
@@ -1487,7 +1537,8 @@ Update the tracker (C6 checkbox + status-log line), rewrite the handoff doc, com
 
 ## Self-Review notes (done)
 
-- **Spec coverage:** migration §2 → T1–T4; HarvestedLink §3.1 → T1/T7/T14; live-scan run §3.2 → T9; harvest §4 → T5–T7; verifier §5 → T8/T11/T12; recovery §5.2/§7 → T13; surfacing §6 → T15–T17; retention §7 → T14; dashboard source-awareness §6.2 → T15/T16; testing §8 → embedded per task + T18; prod-verify §9 → T19. All 12 Codex fixes mapped: #1/#2 (T1/T3), #3 (T9), #4 (T10), #5 (T15/T16), #6 (T17 copy — roadmap excluded), #7 (T13), #8 (T7), #9 (T14), #10 (T8), #11 (T9), #12 (T11 doc-comment).
+- **Spec coverage:** migration §2 → T1–T4; HarvestedLink §3.1 → T1/T7/T14; live-scan run §3.2 → T9; harvest §4 → T5–T7; verifier §5 → T8/T11/T12; recovery §5.2/§7 → T13; surfacing §6 → T15–T17; retention §7 → T14; dashboard source-awareness §6.2 → T15/T16; testing §8 → embedded per task + T18; prod-verify §9 → T19.
+- **Plan-review Codex fixes (×15) all applied:** #1 relation `crawlRun?`→`crawlRuns[]` (T1 — I'd had this wrong; corrected) · #2 +5 relation-include readers (T3 Step 3b) · #3 fenced post-settle harvest insert (T7) · #4 `harvestTruncated` persisted (T1/T2/T7/T9/T11) · #5 mapper `partial` on truncation (T9) · #6 `lib/types/index.ts` path ×2 (T10) · #7 stable cap `orderBy` (T11) · #8 bounded concurrency + 15-min timeout (T11) · #9 HostThrottle first-request guard (T8) · #10 recovery awaits real enqueue (T13) · #11 scoped job cleanup (T13) · #12 `lib/cleanup.ts` wiring (T14) · #13 B1 score-series live-scan filter (T15) · #14 explicit `currentIds` (T16) · #15 same-domain exact-host+www documented (T5/spec §4.1).
 - **Type consistency:** `HarvestedTarget` (T5) → `RunAxeResult.harvestedLinks` (T6) → `harvestRows` (T7) → read by the verifier (T11) → `BrokenTarget` (T9 mapper) → `FindingsBundle` via `writeFindingsRun`. `CheckResult`/`CheckDeps` (T8) consumed by `VerifyDeps` (T11). `SelectedRuns.seo.liveScan` (T15) consumed by client-findings (T16).
 - **No placeholders:** pure units (T5/T8/T9) + the handler (T11) + recovery (T13) carry complete code; UI (T17) and a few DB-test bodies (T7/T14/T16) describe exact data + assertions in prose because they extend existing mock/seed-heavy files in their established style (handoff test-gotchas).
 - **Open (decide in-task):** `BROKEN_LINK_CONCURRENCY` parallelism is left serial-with-throttle in T11 for v1 simplicity (the env knob exists in the spec for a later pass); the results-page section styling follows the existing results view.
