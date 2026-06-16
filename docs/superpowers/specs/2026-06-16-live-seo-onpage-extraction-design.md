@@ -66,7 +66,7 @@ chunked block.
 - Populate the existing `CrawlPage` scalars (`title`, `h1`, `metaDescription`,
   `wordCount`, `indexable`, `statusCode`) on the live-scan run's pages.
 - Emit run-scope + page-scope `Finding`s for: duplicate title / meta / H1,
-  missing title / meta / H1, thin content — **reusing the SF parser's exact
+  missing title / meta / H1, thin content — **reusing the report path's exact
   `type` strings and severities** (§5) so the B2 action center and any downstream
   treat live + SF findings consistently.
 - Merge with the broken-link findings into **one** `FindingsBundle` → **one**
@@ -185,6 +185,13 @@ model HarvestedPageSeo {
 ```
 Add the `harvestedPageSeo HarvestedPageSeo[]` back-relation on `SiteAudit`. One
 row per successfully-settled page. Missing content fields stay `null` (never 0).
+
+**Page identity (Codex fix #2):** `HarvestedPageSeo.url` is the **original audited
+job URL**, normalized the same way `HarvestedLink.sourcePageUrl` is persisted in
+`site-audit-page.ts` — **never `page.url()`**. A client-side URL rewrite or
+redirect-after-load would otherwise split one audited page into two `CrawlPage`
+rows and break the merge-by-URL. (`finalUrl` is not modeled here; that's a
+scorer-phase concern.)
 Migration is hand-written SQL applied via `prisma migrate deploy` (local-dev
 quirk; production runs `migrate deploy` in the deploy command).
 
@@ -222,8 +229,16 @@ Aggregate over **indexable HTML, non-login-like** pages. For each issue, emit:
 - one **page-scope** `Finding` per affected URL (`scope:'page'`,
   `dedupKey = pageFindingKey(type, url)`, `pageId` → the merged `CrawlPage`).
 
-### Finding `type` strings + severity (verified against the SF parser)
-Reuse the exact current SF vocabulary so live + SF findings coexist in B2:
+**`affectedSource` union (Codex fix #4):** `Finding.affectedSource` is a free
+string, but the legacy `Issue.affectedUrlSource` is a **closed union**
+(`lib/types/index.ts:61` and `:242`) currently `'derived-page-index' |
+'parser-complete' | 'parser-sample' | 'live-scan-verify'`. Widen it to add
+`'live-scan-onpage'` (both occurrences) so the seo-findings-fallback / legacy
+`Issue` read path stays type-clean. (Phase 1's broken-link source is
+`'live-scan-verify'`; on-page is the parallel `'live-scan-onpage'`.)
+
+### Finding `type` strings + severity (verified against the report path)
+Reuse the exact `AggregatedResult` vocabulary so live + SF findings coexist in B2:
 
 | Issue | `type` | severity |
 |---|---|---|
@@ -233,17 +248,21 @@ Reuse the exact current SF vocabulary so live + SF findings coexist in B2:
 | Duplicate meta description | `duplicate_meta_description` | notice |
 | Missing H1 | `missing_h1` | warning |
 | Duplicate H1 | `duplicate_h1` | notice |
-| Thin content (`< 300` visible words, `> 0`) | `low_content_pages` | warning |
+| Thin content (`0 < wordCount < 300`) | `thin_content` | warning |
 
-(Severity strings map to the findings vocab via `critical|warning|notice`. The
-thin-content threshold of 300 matches `internal.parser.ts:265`; it is a documented
-constant in the builder. **Plan-time verification:** re-confirm `low_content_pages`
-is the live type string emitted by the current content parser before wiring — it
-must match what B2 already renders.)
+(Thin content is **`thin_content`**, not `low_content_pages` — Codex fix #1.
+`thin_content` is the canonical type the report path emits/consumes:
+`aggregator.service.ts:356` builds it, `priority.service.ts:25` weights it,
+`issue-membership.ts:23` assigns it for `wordCount != null && > 0 && < 300` —
+which is **exactly** the live thin rule, so reuse that membership predicate.
+`low_content_pages` is a separate readability-parser issue and is NOT this. The
+300-word threshold is a documented constant in the builder.)
 
-"Duplicate" = same normalized non-empty value across ≥2 pages in the aggregation
-set. "Missing" = absent/empty on an indexable page. Thin = `0 < wordCount < 300`
-(null/0 word counts are extraction gaps, **not** thin — never counted).
+"Duplicate" = same trimmed-exact non-empty value across ≥2 pages in the
+aggregation set — **trimmed exact text, NOT case-folded or whitespace-collapsed**
+(parity with the SF duplicate parsers, which compare trimmed CSV strings; Codex
+fix #6). "Missing" = absent/empty on an indexable page. Thin = `0 < wordCount <
+300` (null/0 word counts are extraction gaps, **not** thin — never counted).
 
 ---
 
@@ -265,13 +284,16 @@ set. "Missing" = absent/empty on an indexable page. Thin = `0 < wordCount < 300`
 6. Delete **both** `HarvestedLink` and `HarvestedPageSeo` for the audit, after the
    write.
 
-Refactor note: `mapBrokenLinks` currently builds the whole bundle (run + pages +
-findings). To merge, extract a shared "assemble bundle" step or have the on-page
-mapper and broken-link mapper each return `{ pages, findings }` partials that the
-builder unions into one run. Keep both mappers **pure** (no DB) and unit-tested;
-the builder owns the single `run` object and the merge. The empty-harvest case
-(no links, no on-page rows) still writes an empty live-scan run (verified-clean /
-no-findings state), unchanged from Phase 1.
+**Required merge refactor (Codex fix #3):** do **not** concatenate the existing
+`mapBrokenLinks()` bundle with an on-page bundle — `mapBrokenLinks` mints its own
+`runId` and page IDs, so two whole bundles cannot be glued. Refactor `mapBrokenLinks`
+and the new on-page mapper to each return a **partial `{ pages, findings }`** keyed
+to a `runId` + page-id map passed in by the builder (or returning their pages/findings
+relative to URL, with the builder assigning IDs). The **builder** owns: the single
+`runId`, one normalized-URL→`CrawlPage` map (shared across both mappers), the merge,
+and the one `run` object. Keep both mappers **pure** (no DB) and unit-tested. The
+empty-harvest case (no links, no on-page rows) still writes an empty live-scan run
+(verified-clean / no-findings state), unchanged from Phase 1.
 
 ---
 
@@ -297,8 +319,12 @@ no-findings state), unchanged from Phase 1.
   **On-page SEO section** (sibling component to `BrokenLinksSection`) that reads
   the same `liveScanRun`, filtering findings to the on-page `type`s and rendering
   per-type totals + affected-URL lists. No new query — one fetch feeds both
-  sections. States: not-verified (no run) / clean (run, no on-page findings) /
-  findings.
+  sections; **the on-page section filters to the on-page `type`s only and the
+  broken-link section to `broken_*`, so neither renders the other's findings**
+  (Codex fix #4 / verify-3). States: not-verified (no run) / clean / findings —
+  where **"clean" means "no on-page findings among the successfully-audited HTML
+  pages," NOT whole-site SEO clean** (error/redirect/non-HTML pages are not
+  evaluated this phase; the section copy must say so — Codex fix #5).
 - **B2 action center / dashboard**: on-page findings flow through `selectRuns`'
   `seo.liveScan` slot **additively** — they appear in the findings panel without
   touching `seo.current` (the sf-upload health-score run). No score, no series
@@ -363,15 +389,23 @@ no-findings state), unchanged from Phase 1.
 - **Snapshots for error/redirect pages** → out (no consumer without the score;
   avoids runner-path surgery). Revisit with the scorer.
 - **Graph / crawl depth** → out (roadmap Phase 3a).
-- **Finding vocabulary** → reuse the SF parser's exact `type`/severity strings.
+- **Finding vocabulary** → reuse the report path's exact `type`/severity strings;
+  thin content is **`thin_content`** (Codex fix #1, verified against
+  `aggregator.service.ts:356` / `priority.service.ts:25` / `issue-membership.ts:23`).
+- **Duplicate comparison** → trimmed exact text, not case-folded (parity with the
+  SF duplicate parsers; Codex fix #6).
+- **Page identity** → audited job URL, normalized like `HarvestedLink.sourcePageUrl`,
+  never `page.url()` (Codex fix #2).
+- **Merge** → partial-bundle mappers, builder owns the single runId + page map
+  (Codex fix #3).
+- **`affectedSource`** → widen `Issue.affectedUrlSource` to add `'live-scan-onpage'`
+  (Codex fix #4).
 - **Job naming** → keep `broken-link-verify`; broaden its responsibility.
 
 ## 12. Open (decide in the plan, low-risk)
 
-- Confirm the **current** SF thin-content type string (`low_content_pages` vs
-  legacy `thin_content`) against what B2 renders today; pin it before wiring.
 - Whether to fold on-page reads into the existing `link-harvest.ts` evaluate vs a
   second adjacent `page.evaluate` (one combined pass preferred; confirm no payload
   shape clash).
-- Exact shared "assemble bundle" refactor shape so `mapBrokenLinks` and the new
-  on-page mapper stay pure and individually tested.
+- Confirm `issue-membership.ts:23`'s thin predicate is import-safe to reuse in the
+  builder (or copy the constant) so the live thin rule never drifts from SF's.
