@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
-import { pruneArchivedBlobs, pruneHarvestedLinks, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
+import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
 
 // Artifact deletion is mocked — retention tests must never touch the
 // uploads/screenshots filesystem.
@@ -314,5 +314,38 @@ describe('pruneHarvestedLinks', () => {
     await pruneHarvestedLinks(NOW)
     const remaining = await prisma.harvestedLink.findMany({ where: { siteAuditId: sa.id }, select: { id: true } })
     expect(remaining.map((r) => r.id)).toEqual([fresh.id])
+  })
+})
+
+describe('pruneHarvestedPageSeo', () => {
+  beforeEach(clearTestState)
+  afterEach(async () => {
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
+    await clearTestState()
+  })
+
+  it('pruneHarvestedPageSeo deletes rows older than 7 days only', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    // Create both rows first (createdAt defaults to now()).
+    const oldRow = await prisma.harvestedPageSeo.create({
+      data: { siteAuditId: sa.id, url: `https://${DOMAIN}/old` },
+    })
+    const freshRow = await prisma.harvestedPageSeo.create({
+      data: { siteAuditId: sa.id, url: `https://${DOMAIN}/new` },
+    })
+    // Age the old row to 8 days before NOW (createdAt has @default(now), must set explicitly).
+    await prisma.harvestedPageSeo.update({
+      where: { id: oldRow.id },
+      data: { createdAt: new Date(NOW.getTime() - 8 * DAY_MS) },
+    })
+    await prisma.harvestedPageSeo.update({ where: { id: freshRow.id }, data: { createdAt: NOW } })
+
+    await pruneHarvestedPageSeo(NOW)
+
+    const remaining = await prisma.harvestedPageSeo.findMany({
+      where: { siteAuditId: sa.id },
+      select: { id: true },
+    })
+    expect(remaining.map((r) => r.id)).toEqual([freshRow.id])
   })
 })
