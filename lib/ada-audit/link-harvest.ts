@@ -5,6 +5,7 @@
 // (pure, unit-testable) resolves/normalizes/classifies them. Same-domain is
 // exact-host + www-insensitive in v1 (subdomains are external — documented).
 import type { Page } from 'puppeteer-core'
+import { parseSeoFromDocument, type RawPageSeo } from './seo/parse-seo-dom'
 
 export type HarvestedTargetKind = 'internal-link' | 'image' | 'external-link'
 export interface HarvestedTarget {
@@ -73,18 +74,18 @@ export function classifyTargets(
 
 const HARVEST_CAP = 300
 
-/** Read every <a href> and <img src> from the loaded page, then classify. */
+/** Read every <a href> + <img src> AND on-page SEO from the loaded page in one
+ *  evaluate, then classify links. pageSeo is null only if the in-page eval throws. */
 export async function harvestLinks(
   page: Page,
   auditedHost: string,
-): Promise<{ targets: HarvestedTarget[]; truncated: boolean }> {
-  const { links, images } = await page.evaluate(() => ({
-    links: Array.from(document.querySelectorAll('a[href]')).map(
-      (a) => (a as HTMLAnchorElement).getAttribute('href') || '',
-    ),
-    images: Array.from(document.querySelectorAll('img[src]')).map(
-      (i) => (i as HTMLImageElement).getAttribute('src') || '',
-    ),
-  }))
-  return classifyTargets(links, images, auditedHost, page.url(), HARVEST_CAP)
+): Promise<{ targets: HarvestedTarget[]; truncated: boolean; pageSeo: RawPageSeo | null }> {
+  const { links, images, seo } = await page.evaluate(`(() => {
+    const links = Array.from(document.querySelectorAll('a[href]')).map(a => a.getAttribute('href') || '');
+    const images = Array.from(document.querySelectorAll('img[src]')).map(i => i.getAttribute('src') || '');
+    const seo = (${parseSeoFromDocument.toString()})(document, window);
+    return { links, images, seo };
+  })()`) as { links: string[]; images: string[]; seo: RawPageSeo }
+  const { targets, truncated } = classifyTargets(links, images, auditedHost, page.url(), HARVEST_CAP)
+  return { targets, truncated, pageSeo: seo ?? null }
 }
