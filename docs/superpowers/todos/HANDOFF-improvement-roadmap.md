@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-17 · **Updated by:** C6 Phase 2 ship close-out (on-page SEO extraction — deployed + production-verified)
+**Last updated:** 2026-06-17 · **Updated by:** C6 Phase 3 ship close-out (live SEO score — deployed + production-verified)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,31 +23,31 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phase 1 (broken-link verifier)** DONE
-  (PR #70, 2026-06-16). **C6 Phase 2 (on-page SEO extraction MVP, findings-native)
-  DONE** (PR #71, deployed + production-verified 2026-06-17). C6 stays `[~]`
+- **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phases 1–3 DONE:** broken-link verifier
+  (PR #70), on-page SEO extraction (PR #71), live SEO score (PR #73) — all
+  deployed + production-verified (Phase 3 on 2026-06-17). C6 stays `[~]`
   (multi-phase track — see Next item for remaining phases).
-- **C6 Phase 2 — what shipped:** per-page on-page SEO (title/meta/H1/canonical/
-  schema/word-count/images) is harvested inside the EXISTING rendered-DOM harvest
-  `page.evaluate` (zero extra round-trips) → one transient `HarvestedPageSeo` row
-  per successfully-settled page → the post-terminal `broken-link-verify` job
-  (now the **single live-scan run builder**) reads both transient tables,
-  populates `CrawlPage` scalars, and emits duplicate/missing/thin `Finding`s into
-  the SAME live-scan `CrawlRun` as the broken-link findings (`tool:'seo-parser'`,
-  `source:'live-scan'`, **`score:null`** — live SEO score deferred to Phase 3).
-  Results page has an `OnPageSeoSection`; `BrokenLinksSection` scoped to
-  `broken_*` (disjoint type sets, no cross-leak). Spec/plan archived. 2,413
-  tests; subagent-driven (13 tasks). **Prod-verified:** canary
-  (proway.erstaging.site) is site-wide noindex so it correctly emits zero on-page
-  findings (every page excluded by the indexability rule — scalars still
-  populated); the on-page path was demonstrated on an INDEXABLE site
-  (manhattanschool.edu, 67/67 indexable → duplicate_title/missing_h1/
-  missing_meta_description/thin_content + broken_internal_links, both sources in
-  one live-scan run coexisting with ada-audit, transient tables cleared).
+- **C6 Phase 3 — what shipped:** the live-scan `CrawlRun` now carries a real SEO
+  health `score` (was `null`). Pure `scoreLiveSeo` (`lib/findings/live-seo-score.ts`)
+  — forked `computeHealthScore` with explicit factor availability (indexability,
+  error rate, missing title/meta/H1, thin, schema; crawl-depth + broken-links
+  excluded), computed in the `broken-link-verify` builder, written to
+  `CrawlRun.score`. **null** when no indexable content (noindex/login-walled) or
+  <50% observed coverage; a partially-noindex site scores (indexability factor
+  drags it). Surfaced on `OnPageSeoSection` (score + coverage line, read-time
+  recompute). NO migration, `selectRuns` unchanged (live score never displaces the
+  sf-upload canonical score). **Prod-verified:** manhattanschool.edu (67/67
+  indexable) → score 99; proway.erstaging.site (noindex canary) → score null.
+- **C6 Phase 2 recap:** on-page SEO (title/meta/H1/canonical/schema/word-count)
+  harvested in the existing harvest `page.evaluate` → transient `HarvestedPageSeo`
+  → the post-terminal `broken-link-verify` job is the **single live-scan run
+  builder** (on-page + broken findings in ONE live-scan `CrawlRun`). `OnPageSeoSection`
+  + `BrokenLinksSection` (scoped to `broken_*`).
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
   → proway.erstaging.site, `weekly:1@06:00`. NOTE: the canary is **noindex**, so
-  its weekly live-scan run shows broken-link findings but NO on-page findings (by
-  design) — use an indexable client domain to exercise the on-page path.
+  its weekly live-scan run shows broken-link findings, **no on-page findings, and a
+  null score** (all by design) — use an indexable client domain to exercise the
+  on-page + score paths.
 - **⚠ PENDING HUMAN STEPS (Kevin) — unchanged from B5:**
   1. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
      (2026-06-11 19:51 UTC) 409-blocking the one-time analyst-browser
@@ -58,9 +58,10 @@ Continue the er-seo-tools improvement roadmap.
 - **Blocked / gated:** Anthropic API billing (gates 03 Phase 3 + SF-retirement
   analytics integrations); sitemap miss-rate measurement not yet run;
   daily/nightly cadences still gated (C6 supersede-trimming NOT built).
-- **Parked follow-ups (not next items):** C6 — live SEO score (forked scorer),
-  on-page snapshots for error/redirect/non-HTML pages (needs the score's coverage
-  denominators), inlink/authority graph + crawl depth (roadmap Phase 3a),
+- **Parked follow-ups (not next items):** C6 — per-page on-page snapshots for
+  error/redirect/non-HTML pages (runner-path capture — would give precise per-page
+  coverage; the Phase-3 score derives coverage from SiteAudit counters instead),
+  inlink/authority graph + crawl depth (roadmap Phase 3a),
   external-link verification, CSS/JS/PDF broken-resource checks, redirect-chain/
   canonical/hreflang validation, content similarity, daily-cadence
   supersede-trimming, the analyst SF-vs-Live parallel-run gate; standalone
@@ -71,21 +72,23 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Next item
 
-**Decision point — pick one (both valid). C6 Phase 2 is shipped; choose the next
-chunk:**
+**Decision point — pick one (all valid). C6 Phases 1–3 are shipped; choose the
+next chunk:**
 
-- **C6 Phase 3 — live SEO score (forked scorer).** `nyi` plan
-  `docs/superpowers/nyi/plans/2026-06-02-live-seo-on-ada.md` §6 has the forked
-  `computeHealthScore` design (explicit factor-availability map, null-below-coverage).
-  This is the deferred piece: it needs the coverage denominators, which in turn
-  need on-page rows for error/redirect/non-HTML pages (runner-path capture) — so
-  it's a real next chunk, not a tweak. Store on the live-scan `CrawlRun.score`
-  (still segregated by `selectRuns` from the sf-upload score).
 - **C7 — parser consolidation + streaming parse + per-file failure isolation**
-  (~1 wk; infra cleanup of `lib/parsers/`, no roadmap-doc section). Independent
-  of C6.
+  (~1 wk; infra cleanup of `lib/parsers/`, no roadmap-doc section). Independent of
+  C6 — a clean step off the SF-retirement track.
+- **C6 Phase 3a — audited-set link graph / "ER authority" inlinks** (SF-retirement
+  roadmap §2 Phase 3a). No discovery dependency: persist normalized edges from the
+  already-harvested outlinks, compute relative inlink counts over the audited set.
+  Continues the SF-retirement track; the harvested links already exist.
+- **C8 — configurable scoring/priority weights + score-explanation panel** — would
+  also give the new live score a factor breakdown (the Phase-3 spec deliberately
+  persisted no reason-codes; this is where they'd land).
+- **Gated:** C6 analytics integrations (GSC/GA4/SEMRush) + 03 Phase 3 memo
+  generation both need the Anthropic/API-billing decision first.
 
-Full flow either way: brainstorm/spec → Codex → plan → Codex → implement.
+Full flow whichever: brainstorm/spec → Codex → plan → Codex → implement.
 
 ## Gotchas / decisions already made (don't relitigate)
 
@@ -93,6 +96,23 @@ Full flow either way: brainstorm/spec → Codex → plan → Codex → implement
 - **NEVER use interactive `prisma.$transaction(async tx => ...)`** — array form
   only, conditional logic via SQL `EXISTS`, manual `updatedAt = Date.now()` in
   raw statements (2026-06-10 production incident; CLAUDE.md "Do not").
+- **C6 Phase 3 invariants (NEW — live SEO score):**
+  - The live score is computed in the builder by the pure `scoreLiveSeo`
+    (`lib/findings/live-seo-score.ts`) and written to `CrawlRun.score`. It is
+    SEGREGATED — `selectRuns` keeps the sf-upload run canonical; the live score
+    NEVER feeds B1/dashboard/fleet. Don't change that.
+  - **`observed = HarvestedPageSeo row count`, NOT `pagesComplete`** (the counter
+    bumps in the settle txn; `persistPageSeo` is best-effort after → a harvest
+    failure leaves a completed page with no row).
+  - **null when `indexableScored === 0`** (noindex/login-walled → unscoreable) OR
+    `observed/attempted < 0.5` OR `attempted === 0`. A partially-noindex site
+    still scores (indexability factor drags it). Don't "fix" noindex→null into a
+    low number — it's intentional.
+  - Factors exclude crawl-depth (no graph) and broken-links (keep live-vs-SF
+    comparable). Schema coverage is computed in the builder BEFORE the transient
+    `HarvestedPageSeo` rows are deleted (CrawlPage has no schema scalar).
+  - No persisted coverage/reason-codes (read-time recompute). If factor
+    breakdowns are wanted later, that's C8 (add a detail column then).
 - **C6 Phase 2 invariants (NEW):**
   - **One live-scan run, one writer.** On-page + broken-link findings share ONE
     `CrawlRun` (writer delete-and-recreates on `{siteAuditId, tool:'seo-parser'}`;
@@ -167,7 +187,7 @@ Full flow either way: brainstorm/spec → Codex → plan → Codex → implement
   `/api/auth/login` (formData not JSON; 303 + cookie jar), reuse the jar. A site
   audit is triggered by `POST /api/site-audit {domain,wcagLevel}` (202 + queued id).
 - Codex reviews: route new specs/plans through Codex per Kevin's standing
-  instruction (registry session for this workspace exists; resume it — at turn 67).
+  instruction (registry session for this workspace exists; resume it — at turn 71).
 
 ## History
 
@@ -190,4 +210,10 @@ Full flow either way: brainstorm/spec → Codex → plan → Codex → implement
   thin) ride the existing harvest into the unified live-scan run. Spec Codex ×6,
   plan Codex ×8, 13 tasks subagent-driven, 2,413 tests. Prod-verified on an
   indexable site (manhattanschool.edu); canary is noindex so it correctly emits
-  no on-page findings. C6 stays `[~]`. Next: C6 Phase 3 (live SEO score) or C7.
+  no on-page findings. C6 stays `[~]`.
+- 2026-06-17 — **C6 Phase 3 SHIPPED (PR #73), deployed, production-verified** —
+  live SEO score (forked coverage-aware `scoreLiveSeo` → `CrawlRun.score`; null
+  for noindex/low-coverage; crawl-depth + broken-links excluded). Spec Codex ×3,
+  plan Codex accept, 4 tasks subagent-driven, 2,426 tests. Prod: manhattanschool.edu
+  → 99, noindex canary → null. C6 stays `[~]`. Next: C7, C6 Phase 3a (link graph),
+  or C8 (score-explanation) — analytics gated on API billing.
