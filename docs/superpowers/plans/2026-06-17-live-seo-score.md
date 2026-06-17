@@ -56,7 +56,7 @@ describe('scoreLiveSeo', () => {
     expect(scoreLiveSeo(perfect({ attempted: 0 }))).toBeNull()
   })
   it('returns null below 50% extraction coverage (observed/attempted)', () => {
-    expect(scoreLiveSeo(perfect({ attempted: 100, observed: 40 }))).toBeNull()
+    expect(scoreLiveSeo(perfect({ attempted: 100, observed: 40, indexableScored: 40 }))).toBeNull()
   })
   it('returns null when no indexable pages (noindex / login-wall site)', () => {
     expect(scoreLiveSeo(perfect({ indexableScored: 0 }))).toBeNull()
