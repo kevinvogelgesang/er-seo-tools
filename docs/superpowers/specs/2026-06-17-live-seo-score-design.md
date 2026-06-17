@@ -125,7 +125,7 @@ interface LiveScoreInputs {
   missingMeta: number
   missingH1: number
   thin: number               // 0 < wordCount < 300 over the eligible set
-  pagesWithSchema: number    // eligible rows with schemaCount > 0
+  pagesWithSchema: number    // observed HarvestedPageSeo rows with schemaCount > 0 (denominator is observed, not eligible)
 }
 function scoreLiveSeo(inp: LiveScoreInputs): number | null
 ```
