@@ -27,11 +27,39 @@ function Card({ children }: { children: React.ReactNode }) {
   )
 }
 
+function ScoreLine({ score, observed, indexable, attempted }:
+  { score: number | null; observed: number; indexable: number; attempted: number }) {
+  return (
+    <div className="mb-3">
+      <p className="text-[13px] font-body text-navy dark:text-white">
+        Live SEO score:{' '}
+        {score === null ? (
+          <span className="text-navy/50 dark:text-white/50">not enough coverage to score</span>
+        ) : (
+          <span className="font-heading font-semibold">{score}/100</span>
+        )}
+      </p>
+      <p className="text-[12px] font-body text-navy/45 dark:text-white/45">
+        {observed} of {attempted} page{attempted === 1 ? '' : 's'} analyzed · {indexable} indexable · rendered, sitemap-bounded (not Screaming Frog parity)
+      </p>
+    </div>
+  )
+}
+
 // `analyzed` distinguishes a Phase-2 run (on-page extraction ran — at least one
 // CrawlPage has a populated statusCode) from a pre-Phase-2 live-scan run that
 // only carries broken-link findings. Without it, an old run would render a
 // misleading "clean" (Codex fix #4). The page computes it from the run's pages.
-export function OnPageSeoSection({ run, analyzed }: { run: BrokenLinksRun | null; analyzed: boolean }) {
+export function OnPageSeoSection({
+  run, analyzed, score, observed, indexable, attempted,
+}: {
+  run: BrokenLinksRun | null
+  analyzed: boolean
+  score: number | null
+  observed: number
+  indexable: number
+  attempted: number
+}) {
   if (!run) {
     return (
       <Card>
@@ -54,6 +82,7 @@ export function OnPageSeoSection({ run, analyzed }: { run: BrokenLinksRun | null
   if (runScope.length === 0) {
     return (
       <Card>
+        <ScoreLine score={score} observed={observed} indexable={indexable} attempted={attempted} />
         <p className="text-[13px] font-body text-green-700 dark:text-green-400">
           No on-page issues found among the successfully audited HTML pages.
         </p>
@@ -69,9 +98,7 @@ export function OnPageSeoSection({ run, analyzed }: { run: BrokenLinksRun | null
   }
   return (
     <Card>
-      <p className="text-[12px] font-body text-navy/45 dark:text-white/45 mb-3">
-        Rendered-DOM, sitemap-bounded — among successfully audited HTML pages only. Not Screaming Frog crawl parity.
-      </p>
+      <ScoreLine score={score} observed={observed} indexable={indexable} attempted={attempted} />
       <div className="space-y-4">
         {runScope.map((f) => {
           const pages = pageByType.get(f.type) ?? []

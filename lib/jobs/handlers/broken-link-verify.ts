@@ -23,6 +23,7 @@ import type { CrawlPageInput, FindingInput, FindingsBundle } from '@/lib/finding
 import { randomUUID } from 'crypto'
 import { checkUrl, HostThrottle, realDeps, type CheckResult } from '@/lib/ada-audit/broken-link-check'
 import { parsePositiveInt } from '../config'
+import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import type { JobExhaustedContext } from '../types'
@@ -60,7 +61,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   const job = assertPayload(payload)
   const site = await prisma.siteAudit.findUnique({
     where: { id: job.siteAuditId },
-    select: { id: true, domain: true, clientId: true },
+    select: { id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true },
   })
   if (!site) return // deleted audit -> no-op
 
@@ -126,7 +127,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     where: { siteAuditId: job.siteAuditId },
     select: {
       url: true, statusCode: true, isHtml: true, robotsNoindex: true, xRobotsNoindex: true,
-      loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true,
+      loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true, schemaCount: true,
     },
   })
 
@@ -167,11 +168,27 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   })
   const findings: FindingInput[] = [...onPageFindings, ...brokenFindings]
 
+  // C6 Phase 3: live SEO score from the on-page signals (pure scorer).
+  const runCounts = new Map(
+    onPageFindings.filter((f) => f.scope === 'run').map((f) => [f.type, f.count] as const),
+  )
+  const score = scoreLiveSeo({
+    attempted: site.pagesTotal,
+    observed: seoRows.length,
+    indexableScored: seoRows.filter((r) => indexableOf(r) && !r.loginLike).length,
+    pagesError: site.pagesError,
+    missingTitle: runCounts.get('missing_title') ?? 0,
+    missingMeta: runCounts.get('missing_meta_description') ?? 0,
+    missingH1: runCounts.get('missing_h1') ?? 0,
+    thin: runCounts.get('thin_content') ?? 0,
+    pagesWithSchema: seoRows.filter((r) => (r.schemaCount ?? 0) > 0).length,
+  })
+
   const bundle: FindingsBundle = {
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
-      status: capped || harvestTruncated ? 'partial' : 'complete', score: null, wcagLevel: null,
+      status: capped || harvestTruncated ? 'partial' : 'complete', score, wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
     },
     pages, findings, violations: [],
