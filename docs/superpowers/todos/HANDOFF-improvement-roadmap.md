@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-16 · **Updated by:** C6 Phase 2 implementation close-out (on-page SEO extraction)
+**Last updated:** 2026-06-17 · **Updated by:** C6 Phase 2 ship close-out (on-page SEO extraction — deployed + production-verified)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,29 +23,31 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phase 1 (broken-link verifier) is
-  DONE** (PR #70, deployed + production-verified 2026-06-16). C6 stays `[~]`
-  (multi-phase track).
-- **C6 Phase 2 (on-page SEO extraction MVP, findings-native) is IMPLEMENTED +
-  FULLY REVIEWED on branch `feat/c6-onpage-seo` — NOT yet deployed/merged.**
-  13 tasks, subagent-driven with per-task spec+quality review + a final
-  whole-branch review (READY TO MERGE; all 8 acceptance criteria ✅). Suite
-  **2,413 green** (250 files, +14), tsc + build clean. Spec/plan:
-  `docs/superpowers/specs/2026-06-16-live-seo-onpage-extraction-design.md`
-  (Codex ×6) + `docs/superpowers/plans/2026-06-16-live-seo-onpage-extraction.md`
-  (Codex ×8). **What it does:** per-page on-page SEO (title/meta/H1/canonical/
+- **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phase 1 (broken-link verifier)** DONE
+  (PR #70, 2026-06-16). **C6 Phase 2 (on-page SEO extraction MVP, findings-native)
+  DONE** (PR #71, deployed + production-verified 2026-06-17). C6 stays `[~]`
+  (multi-phase track — see Next item for remaining phases).
+- **C6 Phase 2 — what shipped:** per-page on-page SEO (title/meta/H1/canonical/
   schema/word-count/images) is harvested inside the EXISTING rendered-DOM harvest
   `page.evaluate` (zero extra round-trips) → one transient `HarvestedPageSeo` row
   per successfully-settled page → the post-terminal `broken-link-verify` job
   (now the **single live-scan run builder**) reads both transient tables,
   populates `CrawlPage` scalars, and emits duplicate/missing/thin `Finding`s into
   the SAME live-scan `CrawlRun` as the broken-link findings (`tool:'seo-parser'`,
-  `source:'live-scan'`, **`score:null`** — live SEO score deferred to a
-  fast-follow). Results page gets an `OnPageSeoSection`; `BrokenLinksSection` now
-  scoped to `broken_*` (disjoint type sets, no cross-leak).
+  `source:'live-scan'`, **`score:null`** — live SEO score deferred to Phase 3).
+  Results page has an `OnPageSeoSection`; `BrokenLinksSection` scoped to
+  `broken_*` (disjoint type sets, no cross-leak). Spec/plan archived. 2,413
+  tests; subagent-driven (13 tasks). **Prod-verified:** canary
+  (proway.erstaging.site) is site-wide noindex so it correctly emits zero on-page
+  findings (every page excluded by the indexability rule — scalars still
+  populated); the on-page path was demonstrated on an INDEXABLE site
+  (manhattanschool.edu, 67/67 indexable → duplicate_title/missing_h1/
+  missing_meta_description/thin_content + broken_internal_links, both sources in
+  one live-scan run coexisting with ada-audit, transient tables cleared).
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
-  → proway.erstaging.site, `weekly:1@06:00` (also produces a broken-link
-  live-scan run; after Phase 2 deploys it will also carry on-page findings).
+  → proway.erstaging.site, `weekly:1@06:00`. NOTE: the canary is **noindex**, so
+  its weekly live-scan run shows broken-link findings but NO on-page findings (by
+  design) — use an indexable client domain to exercise the on-page path.
 - **⚠ PENDING HUMAN STEPS (Kevin) — unchanged from B5:**
   1. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
      (2026-06-11 19:51 UTC) 409-blocking the one-time analyst-browser
@@ -69,27 +71,9 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Next item
 
-**IMMEDIATE: ship C6 Phase 2 (deploy + canary verify the branch above).** The
-code is done and reviewed; the remaining work is the outward-facing ship:
+**Decision point — pick one (both valid). C6 Phase 2 is shipped; choose the next
+chunk:**
 
-1. Merge/PR `feat/c6-onpage-seo` (prior phases all shipped as PRs — #65–#70).
-2. Deploy (`git push` then `ssh seo@144.126.213.242 "~/deploy.sh"` — prod runs
-   `prisma migrate deploy`, picks up migration `20260616100000_add_harvested_page_seo`).
-3. **Live canary verification** (authed prod, per the gotchas below): trigger a
-   site audit on proway.erstaging.site, wait for `complete` + the
-   `broken-link-verify` job, then from inside `/home/seo/webapps/seo-tools`
-   (node + Prisma — server has no `sqlite3` CLI) confirm:
-   - `HarvestedPageSeo` rows ≈ successfully-settled HTML page count during the
-     run, and **0** after the build (deleted).
-   - the live-scan `CrawlRun` (`siteAuditId_tool` seo-parser) carries on-page
-     findings (duplicate/missing/thin) AND broken-link findings, `score: null`.
-   - the results page shows the On-page SEO section; Broken-links shows no
-     on-page types; a zero-broken-link audit still produces a live-scan run with
-     on-page findings.
-4. On ship: flip the tracker note to SHIPPED + status-log line, **archive the
-   spec + plan** to `docs/superpowers/archive/specs|plans/`, C6 stays `[~]`.
-
-**THEN pick the next C6 phase or step off the track:**
 - **C6 Phase 3 — live SEO score (forked scorer).** `nyi` plan
   `docs/superpowers/nyi/plans/2026-06-02-live-seo-on-ada.md` §6 has the forked
   `computeHealthScore` design (explicit factor-availability map, null-below-coverage).
@@ -201,8 +185,9 @@ Full flow either way: brainstorm/spec → Codex → plan → Codex → implement
 - 2026-06-16 — **C6 Phase 1 SHIPPED (PR #70), deployed, production-verified** —
   out-of-band broken-link verifier; named C6 migration
   (`@@unique([siteAuditId, tool])`); live-scan run coexists with ada-audit.
-- 2026-06-16 — **C6 Phase 2 (on-page SEO extraction MVP) IMPLEMENTED + reviewed
-  on branch `feat/c6-onpage-seo`** (spec Codex ×6, plan Codex ×8, 13 tasks
-  subagent-driven, 2,413 tests green, final review READY TO MERGE). PENDING
-  deploy + canary verification. C6 stays `[~]`. Next: ship it, then C6 Phase 3
-  (live SEO score) or C7 (parser consolidation).
+- 2026-06-17 — **C6 Phase 2 SHIPPED (PR #71), deployed, production-verified** —
+  on-page SEO extraction (findings-native): on-page findings (duplicate/missing/
+  thin) ride the existing harvest into the unified live-scan run. Spec Codex ×6,
+  plan Codex ×8, 13 tasks subagent-driven, 2,413 tests. Prod-verified on an
+  indexable site (manhattanschool.edu); canary is noindex so it correctly emits
+  no on-page findings. C6 stays `[~]`. Next: C6 Phase 3 (live SEO score) or C7.
