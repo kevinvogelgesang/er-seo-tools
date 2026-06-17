@@ -11,6 +11,7 @@ async function clean() {
   if (groups.length) await prisma.job.deleteMany({ where: { type: 'broken-link-verify', groupKey: { in: groups } } })
   await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
   await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
+  await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
   await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
 }
 beforeEach(clean)
@@ -48,5 +49,17 @@ describe('recoverBrokenLinkVerifies', () => {
     })
     await recoverBrokenLinkVerifies()
     expect(await prisma.job.count({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })).toBe(0)
+  })
+
+  it('re-enqueues a stranded audit that has only HarvestedPageSeo rows', async () => {
+    // seed complete SiteAudit + 1 harvestedPageSeo row, no harvestedLink, no live-scan run, no job
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    await prisma.harvestedPageSeo.create({
+      data: { siteAuditId: sa.id, url: 'https://c6blr.example.com/a', statusCode: 200, isHtml: true },
+    })
+    const n = await recoverBrokenLinkVerifies()
+    expect(n).toBeGreaterThanOrEqual(1)
+    const job = await prisma.job.findFirst({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })
+    expect(job).not.toBeNull()
   })
 })

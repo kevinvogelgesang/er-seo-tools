@@ -99,4 +99,81 @@ describe('runBrokenLinkVerify', () => {
     // nothing to assert beyond not throwing
     expect(true).toBe(true)
   })
+
+  it('writes ONE live-scan run carrying on-page + broken-link findings, deletes both tables', async () => {
+    // Seed: 2 HarvestedPageSeo rows sharing a title (duplicate_title finding expected),
+    // 1 HarvestedLink internal-link whose target checkUrl returns 'broken'.
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    const siteAuditId = sa.id
+    const TARGET = `https://${DOMAIN}/dead`
+    await prisma.harvestedLink.create({
+      data: { siteAuditId, targetUrl: TARGET, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    })
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${DOMAIN}/a`, statusCode: 200, isHtml: true, title: 'Same Title',
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId, url: `https://${DOMAIN}/b`, statusCode: 200, isHtml: true, title: 'Same Title',
+          h1: 'H2', metaDescription: 'M2', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, depsFor(new Set([TARGET])))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      include: { findings: true, pages: true },
+    })
+    expect(run).not.toBeNull()
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('duplicate_title')).toBe(true)
+    expect(types.has('broken_internal_links')).toBe(true)
+    // CrawlPage scalars populated from on-page rows
+    const pageWithScalars = run!.pages.find((p) => p.statusCode !== null)
+    expect(pageWithScalars).not.toBeUndefined()
+    // Both transient tables cleaned up
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBe(0)
+    expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
+  })
+
+  it('is idempotent — second run replaces, exactly one live-scan run, findings from both sources', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    const siteAuditId = sa.id
+    const TARGET = `https://${DOMAIN}/dead2`
+    const deps = depsFor(new Set([TARGET]))
+
+    // Seed both tables, run once
+    await prisma.harvestedLink.create({
+      data: { siteAuditId, targetUrl: TARGET, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    })
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${DOMAIN}/a`, statusCode: 200, isHtml: true, title: 'Dup', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId, url: `https://${DOMAIN}/b`, statusCode: 200, isHtml: true, title: 'Dup', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, deps)
+
+    // Re-seed BOTH tables (Codex fix #8 — the builder consumes both)
+    await prisma.harvestedLink.create({
+      data: { siteAuditId, targetUrl: TARGET, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    })
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${DOMAIN}/a`, statusCode: 200, isHtml: true, title: 'Dup', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId, url: `https://${DOMAIN}/b`, statusCode: 200, isHtml: true, title: 'Dup', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, deps)
+
+    // Exactly one live-scan run
+    const runs = await prisma.crawlRun.findMany({ where: { siteAuditId, tool: 'seo-parser' } })
+    expect(runs).toHaveLength(1)
+    // Has findings from both sources
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      include: { findings: true },
+    })
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('duplicate_title')).toBe(true)
+    expect(types.has('broken_internal_links')).toBe(true)
+  })
 })

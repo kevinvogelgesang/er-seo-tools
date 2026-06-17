@@ -133,3 +133,14 @@ export async function pruneHarvestedLinks(now: Date = new Date()): Promise<void>
   const { count } = await prisma.harvestedLink.deleteMany({ where: { createdAt: { lt: cutoff } } })
   if (count > 0) console.log(`[findings] pruned ${count} stale HarvestedLink row(s)`)
 }
+
+/**
+ * C6 Phase 2: delete stale HarvestedPageSeo scaffolding. The live-scan builder
+ * deletes its own rows on success; this backstops audits whose build never ran.
+ * Reuses the 7-day HARVEST_RETENTION_MS window. Runs in runCleanup().
+ */
+export async function pruneHarvestedPageSeo(now: Date = new Date()): Promise<void> {
+  const cutoff = new Date(now.getTime() - HARVEST_RETENTION_MS)
+  const { count } = await prisma.harvestedPageSeo.deleteMany({ where: { createdAt: { lt: cutoff } } })
+  if (count > 0) console.log(`[findings] pruned ${count} stale HarvestedPageSeo row(s)`)
+}

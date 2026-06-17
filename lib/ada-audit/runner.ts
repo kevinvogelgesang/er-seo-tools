@@ -7,6 +7,7 @@ import { runLighthouse, resetCdpAfterLighthouse } from './lighthouse-runner'
 import { getLighthouseProvider } from './lighthouse-provider'
 import { harvestPdfLinks } from './pdf-discovery'
 import { harvestLinks, type HarvestedTarget } from './link-harvest'
+import type { RawPageSeo } from './seo/parse-seo-dom'
 import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
 import { isTransientRunnerError } from './runner-retry'
@@ -55,6 +56,9 @@ export type RunAxeResult =
       // verifier. Same-domain links/images + cross-domain external links.
       harvestedLinks: HarvestedTarget[]
       harvestedLinksTruncated: boolean
+      // C6 Phase 2: on-page SEO captured in the same harvest evaluate (null if
+      // the in-page extraction threw — non-fatal).
+      harvestedPageSeo: RawPageSeo | null
     }
   | {
       kind: 'redirected'
@@ -370,19 +374,21 @@ export async function runAxeAudit(
       harvestedPdfUrls = []
     }
 
-    // C6: harvest <a href> + <img src> targets for the out-of-band broken-link
-    // verifier. Non-fatal (best-effort), same contract as the PDF harvest above.
+    // C6: harvest <a href> + <img src> targets + on-page SEO for the live-scan
+    // builder. Non-fatal (best-effort), same contract as the PDF harvest above.
     let harvestedLinks: HarvestedTarget[] = []
     let harvestedLinksTruncated = false
+    let harvestedPageSeo: RawPageSeo | null = null
     try {
       const h = await harvestLinks(page, parsed.hostname.toLowerCase())
       harvestedLinks = h.targets
       harvestedLinksTruncated = h.truncated
+      harvestedPageSeo = h.pageSeo
     } catch (e) {
-      console.warn('[ada-audit] link harvest failed:', (e as Error).message)
+      console.warn('[ada-audit] link/seo harvest failed:', (e as Error).message)
     }
 
-    return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated }
+    return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
   } finally {
     await releasePage(page)
   }

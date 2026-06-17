@@ -7,6 +7,7 @@ import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
 import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
+import { OnPageSeoSection } from '@/components/site-audit/OnPageSeoSection'
 import SiteAuditExportBar from '@/components/ada-audit/SiteAuditExportBar'
 import { reportFileExists } from '@/lib/report/report-file'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
@@ -156,8 +157,12 @@ export default async function SiteAuditResultPage({ params }: Props) {
     select: {
       status: true,
       findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
+      // Phase-2 marker: on-page extraction populates statusCode on every page it
+      // writes; pre-Phase-2 runs have only broken-link source pages (statusCode null).
+      pages: { where: { statusCode: { not: null } }, select: { id: true }, take: 1 },
     },
   })
+  const onPageAnalyzed = !!liveScanRun && liveScanRun.pages.length > 0
 
   // Report button starts 'ready' only when the stamp AND the file agree
   // (Codex fix: never trust the column alone — retention may have deleted the PDF).
@@ -195,6 +200,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
       />
       {instanceDiff && <SiteAuditDiffPanel diff={instanceDiff.diff} previous={instanceDiff.previous} />}
       <BrokenLinksSection run={liveScanRun} />
+      <OnPageSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
       <SiteAuditResultsView
         domain={audit.domain}
         clientName={audit.client?.name ?? null}

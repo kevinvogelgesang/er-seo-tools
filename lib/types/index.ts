@@ -58,7 +58,7 @@ export interface Issue {
   urls?: string[];         // display/sample/back-compat only — not the full affected set
   affectedUrlRefs?: UrlRef[];      // best-available set (see flags below)
   affectedUrlRefsComplete?: boolean;  // true only when the full affected set is known
-  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample' | 'live-scan-verify';
+  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample' | 'live-scan-verify' | 'live-scan-onpage';
   groups?: Array<{ title?: string; h1?: string; meta_description?: string; count: number; urls?: string[] }>;
   source?: string;
   threshold?: string;
@@ -239,7 +239,7 @@ export interface Recommendation {
   affectedUrlRefs: UrlRef[];
   affectedUrlCount: number;
   affectedUrlComplete: boolean;
-  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample' | 'live-scan-verify';
+  affectedUrlSource?: 'derived-page-index' | 'parser-complete' | 'parser-sample' | 'live-scan-verify' | 'live-scan-onpage';
   affectedSetHash: string;
   groups?: Issue['groups'];
   sampleUrls?: string[];

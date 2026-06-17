@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyTargets, normalizeLinkTarget } from './link-harvest'
+import { classifyTargets, normalizeLinkTarget, harvestLinks } from './link-harvest'
 
 const base = 'https://www.example.com/dir/page'
 
@@ -37,4 +37,17 @@ describe('classifyTargets', () => {
     expect(targets).toHaveLength(300)
     expect(truncated).toBe(true)
   })
+})
+
+it('harvestLinks returns targets + truncated + pageSeo from one evaluate', async () => {
+  const seo = { title: 'T', h1Count: 1, h2Count: 0, wordCount: 500, schemaTypes: [], hreflang: [],
+    imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, robotsNoindex: false, loginLike: false }
+  const fakePage = {
+    url: () => 'https://x.com/p',
+    evaluate: async () => ({ links: ['/a', 'https://other.com/z'], images: ['/i.png'], seo }),
+  } as unknown as import('puppeteer-core').Page
+  const r = await harvestLinks(fakePage, 'x.com')
+  expect(r.pageSeo).toEqual(seo)
+  expect(r.targets.some((t) => t.kind === 'internal-link')).toBe(true)
+  expect(r.targets.some((t) => t.kind === 'external-link')).toBe(true)
 })

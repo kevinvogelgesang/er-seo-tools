@@ -10,11 +10,13 @@ import { enqueueJob } from '@/lib/jobs/queue'
 import { JOB_ACTIVE_STATUSES } from '@/lib/jobs/types'
 
 export async function recoverBrokenLinkVerifies(): Promise<number> {
-  // Distinct siteAuditIds that still have harvest rows (verifier never deleted them).
-  const pending = await prisma.harvestedLink.findMany({
-    distinct: ['siteAuditId'],
-    select: { siteAuditId: true },
-  })
+  // Distinct siteAuditIds that still have EITHER transient table populated
+  // (the verifier/builder deletes both only on success).
+  const [links, seo] = await Promise.all([
+    prisma.harvestedLink.findMany({ distinct: ['siteAuditId'], select: { siteAuditId: true } }),
+    prisma.harvestedPageSeo.findMany({ distinct: ['siteAuditId'], select: { siteAuditId: true } }),
+  ])
+  const pending = [...new Set([...links, ...seo].map((r) => r.siteAuditId))].map((siteAuditId) => ({ siteAuditId }))
   let enqueued = 0
   for (const { siteAuditId } of pending) {
     const site = await prisma.siteAudit.findUnique({
