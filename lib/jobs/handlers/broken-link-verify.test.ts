@@ -177,3 +177,132 @@ describe('runBrokenLinkVerify', () => {
     expect(types.has('broken_internal_links')).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// C6 Phase 3: live SEO score persistence tests
+// ---------------------------------------------------------------------------
+
+const SCORE_DOMAIN = 'c6score.example.com'
+
+async function cleanScore() {
+  await prisma.crawlRun.deleteMany({ where: { domain: SCORE_DOMAIN } })
+  await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: SCORE_DOMAIN } } })
+  await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: SCORE_DOMAIN } } })
+  await prisma.siteAudit.deleteMany({ where: { domain: SCORE_DOMAIN } })
+}
+
+const stubDeps: VerifyDeps = {
+  checkUrl: async (_url: string) => 'ok',
+  now: () => 0,
+  sleep: async () => {},
+}
+
+describe('runBrokenLinkVerify — live SEO score', () => {
+  beforeEach(cleanScore)
+  afterAll(cleanScore)
+
+  it('persists a non-null score for an indexable run', async () => {
+    const sa = await prisma.siteAudit.create({
+      data: { domain: SCORE_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 },
+    })
+    const siteAuditId = sa.id
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/a`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't1', h1: 'h1', metaDescription: 'm1', wordCount: 800, schemaCount: 1 },
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/b`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't2', h1: 'h2', metaDescription: 'm2', wordCount: 800, schemaCount: 1 },
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/c`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't3', h1: 'h3', metaDescription: 'm3', wordCount: 800, schemaCount: 1 },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: SCORE_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { score: true },
+    })
+    expect(run!.score).not.toBeNull()
+    expect(run!.score).toBeGreaterThan(0)
+  })
+
+  it('score is null for a fully-noindex run', async () => {
+    const sa = await prisma.siteAudit.create({
+      data: { domain: SCORE_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 },
+    })
+    const siteAuditId = sa.id
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/a`, statusCode: 200, isHtml: true, robotsNoindex: true, xRobotsNoindex: false, loginLike: false, title: 't1', h1: 'h1', metaDescription: 'm1', wordCount: 800, schemaCount: 0 },
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/b`, statusCode: 200, isHtml: true, robotsNoindex: true, xRobotsNoindex: false, loginLike: false, title: 't2', h1: 'h2', metaDescription: 'm2', wordCount: 800, schemaCount: 0 },
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/c`, statusCode: 200, isHtml: true, robotsNoindex: true, xRobotsNoindex: false, loginLike: false, title: 't3', h1: 'h3', metaDescription: 'm3', wordCount: 800, schemaCount: 0 },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: SCORE_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { score: true },
+    })
+    expect(run!.score).toBeNull()
+  })
+
+  it('coverage uses the HarvestedPageSeo row count, not pagesComplete', async () => {
+    // pagesTotal=10, pagesComplete=10, but only 3 rows → observed=3, 3/10=0.3 < 0.5 → null
+    const sa = await prisma.siteAudit.create({
+      data: { domain: SCORE_DOMAIN, status: 'complete', pagesTotal: 10, pagesComplete: 10, pagesError: 0 },
+    })
+    const siteAuditId = sa.id
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/a`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't1', h1: 'h1', metaDescription: 'm1', wordCount: 800, schemaCount: 1 },
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/b`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't2', h1: 'h2', metaDescription: 'm2', wordCount: 800, schemaCount: 1 },
+        { siteAuditId, url: `https://${SCORE_DOMAIN}/c`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't3', h1: 'h3', metaDescription: 'm3', wordCount: 800, schemaCount: 1 },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: SCORE_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { score: true },
+    })
+    // observed=3 rows, attempted=10 → 3/10=0.3 < 0.5 threshold → null
+    expect(run!.score).toBeNull()
+  })
+
+  it('schema coverage moves the score (computed before transient deletion)', async () => {
+    // Run A: 4 indexable rows with schemaCount=1 each (schema present)
+    const saA = await prisma.siteAudit.create({
+      data: { domain: SCORE_DOMAIN, status: 'complete', pagesTotal: 4, pagesComplete: 4, pagesError: 0 },
+    })
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId: saA.id, url: `https://${SCORE_DOMAIN}/a`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't1', h1: 'h1', metaDescription: 'm1', wordCount: 800, schemaCount: 1 },
+        { siteAuditId: saA.id, url: `https://${SCORE_DOMAIN}/b`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't2', h1: 'h2', metaDescription: 'm2', wordCount: 800, schemaCount: 1 },
+        { siteAuditId: saA.id, url: `https://${SCORE_DOMAIN}/c`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't3', h1: 'h3', metaDescription: 'm3', wordCount: 800, schemaCount: 1 },
+        { siteAuditId: saA.id, url: `https://${SCORE_DOMAIN}/d`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't4', h1: 'h4', metaDescription: 'm4', wordCount: 800, schemaCount: 1 },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId: saA.id, domain: SCORE_DOMAIN }, stubDeps)
+
+    // Read run A's score before run B overwrites it (writeFindingsRun is replace-by-siteAuditId_tool,
+    // so A's run lives under saA.id — safe to read here and compare after run B).
+    const runA = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: saA.id, tool: 'seo-parser' } },
+      select: { score: true },
+    })
+
+    // Run B: same shape but schemaCount=0 (no schema)
+    const saB = await prisma.siteAudit.create({
+      data: { domain: SCORE_DOMAIN, status: 'complete', pagesTotal: 4, pagesComplete: 4, pagesError: 0 },
+    })
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId: saB.id, url: `https://${SCORE_DOMAIN}/a`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't1', h1: 'h1', metaDescription: 'm1', wordCount: 800, schemaCount: 0 },
+        { siteAuditId: saB.id, url: `https://${SCORE_DOMAIN}/b`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't2', h1: 'h2', metaDescription: 'm2', wordCount: 800, schemaCount: 0 },
+        { siteAuditId: saB.id, url: `https://${SCORE_DOMAIN}/c`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't3', h1: 'h3', metaDescription: 'm3', wordCount: 800, schemaCount: 0 },
+        { siteAuditId: saB.id, url: `https://${SCORE_DOMAIN}/d`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't4', h1: 'h4', metaDescription: 'm4', wordCount: 800, schemaCount: 0 },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId: saB.id, domain: SCORE_DOMAIN }, stubDeps)
+
+    const runB = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: saB.id, tool: 'seo-parser' } }, select: { score: true } })
+    expect(runA!.score).not.toBeNull()
+    expect(runB!.score).not.toBeNull()
+    expect(runA!.score!).toBeGreaterThan(runB!.score!)
+  })
+})
