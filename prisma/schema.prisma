@@ -21,6 +21,9 @@ model Client {
   seedUrlsUpdatedAt     DateTime?
   teamworkTasklistId    String?      // Teamwork tasklist holding this client's "Audit Optimizations" task
   archivedAt            DateTime?    // null = active; non-null = archived (hidden from lists/matching; data preserved)
+  ga4PropertyId         String?      // GA4 property id for this client (e.g. "properties/123456789")
+  gscSiteUrl            String?      // GSC site URL verbatim (e.g. "sc-domain:example.com" or "https://example.com/")
+  crmClientRef          String?      // CRM client identifier for Prospects lookup
   createdAt             DateTime     @default(now())
   sessions              Session[]
   adaAudits             AdaAudit[]
@@ -28,6 +31,8 @@ model Client {
   schedules             Schedule[]
   crawlRuns             CrawlRun[]
   quarterAssignments    QuarterAssignment[]
+  seoReports            SeoReport[]
+  prospectsEntries      ProspectsEntry[]
 }
 
 model Session {
@@ -503,7 +508,8 @@ model Schedule {
   lastJobId String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  siteAudits SiteAudit[] // C2: audits this schedule created (SetNull on delete)
+  siteAudits       SiteAudit[]       // C2: audits this schedule created (SetNull on delete)
+  seoReportBatches SeoReportBatch[]  // C10: SEO report batches this schedule created (SetNull on delete)
 
   @@index([enabled, nextRunAt])
   @@index([clientId])
@@ -539,4 +545,72 @@ model QuarterAssignment {
 
   @@unique([planId, clientId])
   @@index([clientId])
+}
+
+// C10: SEO Performance Reports — batch + per-client report + manual prospects
+// (No GoogleConnection model — auth is a service-account key file in env, §1.)
+
+model SeoReportBatch {
+  id              String    @id @default(cuid())
+  trigger         String    // 'manual' | 'scheduled'
+  scheduleId      String?   // FK → Schedule (set when trigger='scheduled')
+  schedule        Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  scheduledFor    DateTime? // the schedule slot this run fills (null for ad-hoc) — idempotency key
+  periodStart     DateTime  // all date fields are canonical UTC date-only (midnight UTC)
+  periodEnd       DateTime
+  comparisonMode  String    // 'prev_period' | 'prev_year'
+  comparisonStart DateTime
+  comparisonEnd   DateTime
+  status          String    @default("running") // running|complete|error (rollup)
+  totalReports    Int       @default(0)
+  createdBy       String?   // operator name
+  createdAt       DateTime  @default(now())
+  reports         SeoReport[]
+
+  @@unique([scheduleId, scheduledFor]) // exactly one scheduled batch per slot
+  @@index([createdAt])
+}
+
+model SeoReport {
+  id              String         @id @default(cuid())
+  batchId         String
+  batch           SeoReportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  clientId        Int
+  client          Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  periodStart     DateTime
+  periodEnd       DateTime
+  comparisonStart DateTime
+  comparisonEnd   DateTime
+  status          String         @default("queued") // queued|fetching|rendering|ready|error
+  // per-source status so a partial fetch is recorded, not silently blank
+  ga4Status       String         @default("pending") // pending|ok|skipped|error
+  gscStatus       String         @default("pending")
+  prospectsStatus String         @default("pending") // pending|ok|manual|missing
+  error           String?
+  metricsJson     String?        // fetched snapshot — re-render never re-hits APIs
+  // NO pdfPath: the PDF path is DERIVED from the id via lib/report/seo/seo-report-file.ts
+  generatedAt     DateTime?
+  retainUntil     DateTime?      // explicit retention; see §8
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([batchId, clientId]) // one report per client per batch — idempotent re-create
+  @@index([clientId])
+  @@index([batchId])
+  @@index([status])
+  @@index([retainUntil])
+}
+
+model ProspectsEntry {
+  id          String   @id @default(cuid())
+  clientId    Int
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  total       Int
+  organic     Int?
+  enteredBy   String?
+  enteredAt   DateTime @default(now())
+
+  @@unique([clientId, periodStart, periodEnd])
 }
