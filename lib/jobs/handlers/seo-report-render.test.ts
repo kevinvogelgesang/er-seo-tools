@@ -394,4 +394,24 @@ describe('jobs/handlers/seo-report-render', () => {
     registerBuiltInJobHandlers()
     expect(getJobHandler(SEO_REPORT_RENDER_JOB_TYPE)).toBeDefined()
   })
+
+  it('enqueueSeoReportRender guards group/dedup key to seo-report:<id>', async () => {
+    const { enqueueSeoReportRender } = await import('./seo-report-render')
+    const testId = 'seo-rj-enqueue-key-test'
+
+    const result = await enqueueSeoReportRender(testId)
+    expect(result.id).toBeDefined()
+
+    // Read the Job row from DB to verify both keys
+    const job = await prisma.job.findFirst({
+      where: { dedupKey: `seo-report:${testId}` },
+    })
+    expect(job).toBeDefined()
+    expect(job!.type).toBe(SEO_REPORT_RENDER_JOB_TYPE)
+    expect(job!.dedupKey).toBe(`seo-report:${testId}`)
+    expect(job!.groupKey).toBe(`seo-report:${testId}`)
+
+    // Clean up
+    await prisma.job.delete({ where: { id: job!.id } })
+  })
 })

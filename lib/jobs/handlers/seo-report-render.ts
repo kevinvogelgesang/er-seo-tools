@@ -117,6 +117,9 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
   }
   const { seoReportId } = p
 
+  // Capture timestamp once for both meta and DB stamp
+  const now = new Date()
+
   // ── Step 1: Load the row ─────────────────────────────────────────────────
 
   const report = await prisma.seoReport.findUnique({
@@ -227,7 +230,7 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
     domain: domains[0] ?? '',
     periodLabel,
     comparisonLabel,
-    generatedAt: new Date().toISOString(),
+    generatedAt: now.toISOString(),
     operator: batch.createdBy ?? null,
   }
 
@@ -260,13 +263,13 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
     ? parseInt(process.env.SEO_REPORT_RETENTION_SCHEDULED_DAYS ?? '730', 10)
     : parseInt(process.env.SEO_REPORT_RETENTION_ADHOC_DAYS ?? '90', 10)
 
-  const retainUntil = new Date(Date.now() + retentionDays * 86400_000)
+  const retainUntil = new Date(now.getTime() + retentionDays * 86400_000)
 
   const stamped = await prisma.seoReport.updateMany({
     where: { id: seoReportId },
     data: {
       status: 'ready',
-      generatedAt: new Date(),
+      generatedAt: now,
       retainUntil,
     },
   })
@@ -295,7 +298,6 @@ async function rollupBatchStatus(batchId: string): Promise<void> {
   if (children.length === 0) return
 
   const statuses = children.map((c) => c.status)
-  const TERMINAL = ['ready', 'error'] as const
   const TRANSIENT = ['queued', 'fetching', 'rendering']
 
   const hasTransient = statuses.some((s) => TRANSIENT.includes(s))
@@ -316,8 +318,6 @@ async function rollupBatchStatus(batchId: string): Promise<void> {
       data: { status: batchStatus },
     }),
   ])
-
-  void TERMINAL // silence unused-var lint
 }
 
 // ---------------------------------------------------------------------------
