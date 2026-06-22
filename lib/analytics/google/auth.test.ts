@@ -131,14 +131,26 @@ describe('getAuthClient', () => {
   });
 
   it('does not expose private_key in the returned message on failure', async () => {
-    await fs.writeFile(keyFilePath, validKeyJson);
+    // Write a key file with private_key present but client_email missing.
+    // This exercises the path where the key is actually parsed before the guard fails.
+    const keyWithoutEmail = JSON.stringify({
+      type: 'service_account',
+      project_id: 'my-project',
+      private_key_id: 'abc123',
+      private_key: FIXTURE_PRIVATE_KEY,
+      client_id: '123456789',
+      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      // Note: client_email is intentionally omitted
+    });
+    await fs.writeFile(keyFilePath, keyWithoutEmail);
     process.env.GOOGLE_SA_KEY_FILE = keyFilePath;
-    // Force a failure by removing the file after writing (simulated via malformed)
-    await fs.writeFile(keyFilePath, JSON.stringify({ type: 'service_account' }));
 
     const result = await getAuthClient();
     expect(result.ok).toBe(false);
-    if (!result.ok && result.message) {
+    if (!result.ok) {
+      expect(result.reason).toBe('auth');
+      // The key was parsed into memory but should not leak into the message
       expect(result.message).not.toContain(FIXTURE_PRIVATE_KEY);
     }
   });
@@ -190,5 +202,26 @@ describe('getServiceAccountEmail', () => {
     const email = await getServiceAccountEmail();
     expect(email).not.toBe(FIXTURE_PRIVATE_KEY);
     expect(email).not.toContain('PRIVATE KEY');
+  });
+
+  it('returns null and never exposes private_key when client_email is missing', async () => {
+    // Verify that even when private_key is present in the file,
+    // getServiceAccountEmail() safely returns null without exposing the key.
+    const keyWithoutEmail = JSON.stringify({
+      type: 'service_account',
+      project_id: 'my-project',
+      private_key_id: 'abc123',
+      private_key: FIXTURE_PRIVATE_KEY,
+      client_id: '123456789',
+      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      // Note: client_email is intentionally omitted
+    });
+    await fs.writeFile(keyFilePath, keyWithoutEmail);
+    process.env.GOOGLE_SA_KEY_FILE = keyFilePath;
+
+    const email = await getServiceAccountEmail();
+    expect(email).toBeNull();
+    expect(email).not.toBe(FIXTURE_PRIVATE_KEY);
   });
 });
