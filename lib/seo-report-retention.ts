@@ -48,9 +48,7 @@ export async function pruneSeoReports(now: Date = new Date()): Promise<{ deleted
   // it never touches batches that still hold live SeoReport rows.
   await prisma.seoReportBatch.deleteMany({ where: { reports: { none: {} } } })
 
-  if (doomedIds.length > 0) {
-    console.log(`[seo-retention] pruned ${doomedIds.length} SEO report(s)`)
-  }
+  console.log(`[seo-retention] pruned ${doomedIds.length} SEO report(s)`)
 
   return { deleted: doomedIds.length }
 }

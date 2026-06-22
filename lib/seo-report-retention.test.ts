@@ -177,19 +177,42 @@ describe('pruneSeoReports', () => {
     const batchId = await makeBatch()
     const { id } = await makeReport({ batchId, retainUntil: daysAgo(1) })
 
-    // Track call order
+    // Track call order to verify cancel is called BEFORE delete
     const callOrder: string[] = []
     vi.mocked(cancelJobsByGroup).mockImplementation(async (groupKey) => {
       callOrder.push(`cancel:${groupKey}`)
       return 0
     })
 
-    // Verify the report row is still there before the prune completes
-    // (we can't easily interleave, so we just assert cancel was called with the right key)
+    // Store the original $transaction implementation before spying
+    const originalTransaction = (prisma.$transaction as any).bind(prisma)
+
+    // Spy on $transaction to record when the delete happens
+    const txSpy = vi.spyOn(prisma, '$transaction' as any)
+    txSpy.mockImplementation(async (arg: any) => {
+      callOrder.push('delete')
+      // Delegate to the real implementation
+      return originalTransaction(arg)
+    })
+
     await pruneSeoReports(NOW)
 
+    // Verify cancel was called with the correct key
     expect(vi.mocked(cancelJobsByGroup)).toHaveBeenCalledWith(`seo-report:${id}`)
     expect(callOrder).toContain(`cancel:seo-report:${id}`)
+
+    // Verify ordering: cancel MUST come before delete
+    const cancelIndex = callOrder.indexOf(`cancel:seo-report:${id}`)
+    const deleteIndex = callOrder.indexOf('delete')
+    expect(cancelIndex).toBeLessThan(deleteIndex)
+    expect(cancelIndex).toBeGreaterThanOrEqual(0)
+    expect(deleteIndex).toBeGreaterThanOrEqual(0)
+
+    // Verify the row was actually deleted
+    expect(await prisma.seoReport.findUnique({ where: { id } })).toBeNull()
+
+    // Clean up the spy
+    txSpy.mockRestore()
   })
 
   it('removes empty batches after all children are pruned', async () => {
