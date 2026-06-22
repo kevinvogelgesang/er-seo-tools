@@ -28,6 +28,7 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/share/tok',
     '/favicon.ico',
     '/privacy', // public privacy policy for Google OAuth verification
+    '/about', // public about/home page for Google OAuth consent screen
   ])('exempts known public path %s', (p) => {
     expect(isPublicPath(p)).toBe(true);
   });

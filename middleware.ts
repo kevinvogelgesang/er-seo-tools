@@ -18,6 +18,9 @@ const PUBLIC_EXACT_PATHS = new Set([
   // Public privacy policy — required to be reachable without auth for Google
   // OAuth consent-screen branding/verification (the app is otherwise login-gated).
   '/privacy',
+  // Public "about" page — the app's home-page URL for the Google OAuth consent
+  // screen; must be reachable without auth and describe the app's purpose.
+  '/about',
 ])
 
 // Skill-handoff API routes are authenticated by a short-lived JWT verified
