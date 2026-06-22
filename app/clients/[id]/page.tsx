@@ -12,6 +12,7 @@ import { IssueTrendCard } from '@/components/clients/IssueTrendCard'
 import { FindingsPanel } from '@/components/clients/FindingsPanel'
 import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
 import { ScheduledScansCard } from '@/components/clients/ScheduledScansCard'
+import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -101,6 +102,8 @@ export default async function ClientDashboardPage({ params }: Props) {
           archived={dash.client.archivedAt !== null}
           initial={scanSchedules}
         />
+
+        <AnalyticsIdsPanel clientId={clientId} />
 
         <div className="space-y-6">
           <FindingsPanel rows={findings.rows} seo={findings.seo} ada={findings.ada} />

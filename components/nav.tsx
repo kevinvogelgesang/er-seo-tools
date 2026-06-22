@@ -39,6 +39,8 @@ const tools: NavTool[] = [
     ],
   },
   { name: 'Oxygen Stack Guide', href: '/oxygen-tailwind-guide' },
+  { name: 'SEO Reports', href: '/reports' },
+  { name: 'Settings', href: '/settings' },
   {
     name: 'Clients',
     href: '/clients',
