@@ -100,7 +100,7 @@ describe('createBatchWithReports — manual trigger', () => {
     expect(batch!.trigger).toBe('manual')
     expect(batch!.totalReports).toBe(2)
     expect(batch!.comparisonMode).toBe('prev_period')
-    // prev_period of May 2026 (31 days) → Apr 1–30 2026
+    // prev_period of May 2026 (31 days) → Mar 31 – Apr 30 2026
     expect(batch!.comparisonStart.toISOString()).toBe('2026-03-31T00:00:00.000Z')
     expect(batch!.comparisonEnd.toISOString()).toBe('2026-04-30T00:00:00.000Z')
 

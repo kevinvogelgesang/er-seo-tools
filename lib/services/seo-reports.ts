@@ -79,15 +79,12 @@ export async function createBatchWithReports(
     })
     batchId = batch.id
   } catch (e) {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === 'P2002' &&
-      scheduleId != null &&
-      scheduledFor != null
-    ) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
       // The @@unique([scheduleId, scheduledFor]) slot already exists — reuse it.
+      // A P2002 on a scheduled batch means both scheduleId and scheduledFor are set
+      // (manual batches have both null; SQLite treats nulls as distinct, so no collision).
       const existing = await prisma.seoReportBatch.findUnique({
-        where: { scheduleId_scheduledFor: { scheduleId, scheduledFor } },
+        where: { scheduleId_scheduledFor: { scheduleId, scheduledFor } as never },
         select: { id: true },
       })
       if (!existing) throw e // unexpected — rethrow
