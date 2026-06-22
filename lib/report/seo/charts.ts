@@ -3,6 +3,8 @@
 // No external dependencies — deterministic string output, no Date, no randomness.
 // Matches the C4 sparkline idiom in lib/report/report-html.ts.
 
+import { escapeAttr } from '@/lib/report/escape'
+
 // ---------------------------------------------------------------------------
 // lineChartSvg
 // ---------------------------------------------------------------------------
@@ -179,7 +181,7 @@ export function donutSvg(slices: DonutSlice[], opts: DonutOpts): string {
     const fraction = slice.value / total
     const d = arcPath(angleCursor, fraction)
     angleCursor += fraction * 2 * Math.PI
-    return `<path d="${d}" fill="none" stroke="${slice.color}" stroke-width="${strokeWidth}" stroke-linecap="butt" data-label="${slice.label}"/>`
+    return `<path d="${d}" fill="none" stroke="${slice.color}" stroke-width="${strokeWidth}" stroke-linecap="butt" data-label="${escapeAttr(slice.label)}"/>`
   })
 
   return (

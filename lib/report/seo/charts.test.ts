@@ -150,4 +150,17 @@ describe('donutSvg', () => {
     expect(svg).toMatch(/^<svg/)
     expect(svg).toContain('</svg>')
   })
+
+  it('hostile label — escapes attribute-breaking characters in data-label', () => {
+    // A label with a double-quote + inline event handler that would break
+    // out of the data-label attribute if not escaped.
+    const hostileLabel = 'x" onload="alert(1)'
+    const svg = donutSvg([{ label: hostileLabel, value: 100, color: '#e97316' }], opts)
+    // The raw attribute-break sequence must NOT appear in the output.
+    expect(svg).not.toContain('" onload="alert(1)')
+    // The double-quote MUST be escaped to &quot;
+    expect(svg).toContain('&quot;')
+    // The data-label attribute must still be present (just safely encoded).
+    expect(svg).toContain('data-label=')
+  })
 })

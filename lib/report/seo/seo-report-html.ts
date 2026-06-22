@@ -382,7 +382,7 @@ export function buildSeoReportHtml(data: SeoReportData): string {
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>${escapeHtml(`SEO Performance Report — ${data.clientName} — ${data.periodLabel}`)}</title>
+<title>SEO Performance Report — ${escapeHtml(data.clientName)} — ${escapeHtml(data.periodLabel)}</title>
 <style>${STYLE}</style>
 </head>
 <body>
