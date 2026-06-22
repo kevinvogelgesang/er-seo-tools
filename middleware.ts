@@ -15,6 +15,9 @@ const PUBLIC_EXACT_PATHS = new Set([
   '/favicon.ico',
   '/robots.txt',
   '/sitemap.xml',
+  // Public privacy policy — required to be reachable without auth for Google
+  // OAuth consent-screen branding/verification (the app is otherwise login-gated).
+  '/privacy',
 ])
 
 // Skill-handoff API routes are authenticated by a short-lived JWT verified
