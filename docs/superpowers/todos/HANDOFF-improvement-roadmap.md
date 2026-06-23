@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-22 · **Updated by:** C10 (SEO Performance Reports) kickoff — spec + plan written + Codex-reviewed; subagent-driven build starting
+**Last updated:** 2026-06-22 · **Updated by:** C10 (SEO Performance Reports) SHIPPED — merged (PR #75) + deployed to prod; awaiting Kevin's prod-verification
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,16 +23,20 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
-- **ACTIVE: C10 — SEO Performance Reports (NET-NEW, greenlit 2026-06-22).** Spec +
-  plan written and Codex-reviewed (3 passes: design, spec ×9 fixes, plan ×14 fixes).
-  Automated branded per-client PDF (GA4 + Search Console + CRM "Prospects"),
-  period-over-period, on-demand + monthly schedule — replaces the manual Looker
-  export. Spec: `specs/2026-06-22-seo-performance-reports-design.md`; Plan (26
-  tasks, 2 phases): `plans/2026-06-22-seo-performance-reports.md`. **Build is
-  subagent-driven, starting now.** Doubles as SF-retirement Phase 6's GA4/GSC
-  analytics-ingestion foundation (`lib/analytics/` provider layer). **Blocked only
-  on Kevin's one-time Google Cloud OAuth setup + 4 env vars** (runbook delivered
-  2026-06-22); all TDD-with-mocks work proceeds without him.
+- **SHIPPED: C10 — SEO Performance Reports (NET-NEW).** Merged (PR #75) + deployed
+  to prod 2026-06-22; migration `20260622000000_seo_reports` applied; app healthy
+  (homepage/settings 307, `/api/google/status` 401, new tables queryable). Built
+  subagent-driven, 25 tasks/2 phases (fresh implementer+reviewer per task), gate
+  green (2703 tests / tsc / build); whole-branch (opus) + Codex merge reviews
+  passed. Auth = Google **service account** (Tasks 3 & 6 dropped). Spec/plan
+  archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` ·
+  `archive/plans/2026-06-22-seo-performance-reports.md`. Architecture summarized in
+  CLAUDE.md ("SEO Performance Reports (C10)" bullet) + the C10 invariants in
+  Gotchas below. **Prod deploy first OOM'd** (`next build` type-check worker hit the
+  server's ~2 GB Node heap; fixed by baking `--max-old-space-size=3072` into the
+  `build` script, PR #76 — every future deploy benefits). **⚠ PROD-VERIFICATION
+  PENDING (Kevin)** — see Next item. Doubles as SF-retirement Phase 6's GA4/GSC
+  analytics foundation (`lib/analytics/`).
 - **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phases 1–3 DONE:** broken-link verifier
   (PR #70), on-page SEO extraction (PR #71), live SEO score (PR #73) — all
   deployed + production-verified (Phase 3 on 2026-06-17). C6 stays `[~]`
@@ -82,19 +86,34 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Next item
 
-**C10 — SEO Performance Reports. Execute the plan (`plans/2026-06-22-seo-performance-reports.md`),
-subagent-driven, Phase 1 (Tasks 0–20) then Phase 2 (Tasks 21–25).** Spec + plan
-are done and Codex-reviewed — no more brainstorm/spec/plan step; go straight to
-implementation per `superpowers:subagent-driven-development`.
+**C10 prod-verification (Kevin's manual pass — the single next action).** Code is
+shipped + deployed; this is the live smoke that was deferred from the build:
 
-- **Human-in-the-loop gates (do not block coding — queue them):** (1) Kevin's
-  Google Cloud OAuth setup + the 4 env vars must exist before the Task 19 live
-  smoke and Task 20 metric-parity check; (2) the one-time "Connect Google" consent
-  click (only the company-account holder can do it); (3) per-client GA4/GSC
-  mapping; (4) metric-parity eyeball vs the live Looker report. Everything else is
-  TDD with mocked Google clients.
-- **After C10 ships:** resume the C-track menu — C7 (parser consolidation), C6
-  Phase 3a (audited-set link graph), or C8 (score-explanation). C10 also clears the
+1. **Confirm the SA key on prod:** `GOOGLE_SA_KEY_FILE` set, key at
+   `/home/seo/data/seo-tools/google-sa.json` (mode 0600, PM2-user-owned). Open
+   `/settings` → "Test connection": it should show the SA email
+   (`er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`) and GA4/GSC counts.
+2. **Grant + map one low-risk client first** (Nuvani was the build's reference):
+   grant the SA email on its GA4 property (Property Access Management) + GSC site
+   (Users & permissions), then map it in `/clients/[id]` → Analytics IDs.
+3. **Generate one report** for last month at `/reports` → download the PDF.
+4. **Metric-parity eyeball** vs `SEO_Report_1st_Draft.pdf` (repo root): scorecards,
+   charts, tables. **Resolve the open question:** scorecard #12 renders "Key Events"
+   where spec §5's list has a duplicate "Avg Position" (a Looker artifact) — confirm
+   which the real report should show. If GA4/GSC metric names are off, the fix is in
+   the providers (`lib/analytics/google/ga4-provider.ts` / `gsc-provider.ts`) +
+   `lib/report/seo/report-data.ts`.
+5. Only after parity holds for one client: grant/map the rest + (optionally) set the
+   monthly schedule in `/settings`.
+
+- **C10 non-blocking follow-ups (do when convenient):** GA4 comparison window
+  fetches 4 metric groups it discards (quota trim — `ga4-provider.ts`);
+  `rollupBatchStatus` duplicated between the render job and
+  `lib/services/seo-reports.ts` (consolidate); `pruneSeoReports` should chunk
+  `doomedIds` for SQLite param limits at scale; stricter date/client validation on
+  `POST /api/reports`.
+- **After C10 verification:** resume the C-track menu — C7 (parser consolidation),
+  C6 Phase 3a (audited-set link graph), or C8 (score-explanation). C10 cleared the
   analytics half of SF-retirement Phase 6 (SEMRush/DataForSEO + memo consumption
   remain, the latter gated on Anthropic/API billing).
 
@@ -262,3 +281,12 @@ implementation per `superpowers:subagent-driven-development`.
   tasks, 2 phases) `plans/2026-06-22-seo-performance-reports.md`. Subagent-driven
   build starting; blocked only on Kevin's one-time Google Cloud OAuth setup +
   env vars (runbook delivered). Delivers SF-retirement Phase 6's GA4/GSC half.
+- 2026-06-22 — **C10 SHIPPED (PR #75) + build-heap fix (PR #76), deployed,
+  migration applied.** Service-account pivot held (Tasks 3 & 6 dropped); 25 tasks
+  subagent-driven, 2703 tests. Whole-branch (opus) + Codex merge reviews passed;
+  Codex caught one must-fix (full Gaxios error objects logged in Google routes →
+  sanitized, 3b3ab8d). Prod deploy first OOM'd on `next build` (server ~2 GB Node
+  heap; C10's ~40 new files the tipping point) → baked `--max-old-space-size=3072`
+  into the `build` script. Spec/plan archived. **Prod-verification (map a client →
+  generate → metric-parity eyeball, + scorecard-#12 question) is Kevin's pending
+  manual pass** — see Next item. C10 stays the analytics foundation for SF-Phase 6.
