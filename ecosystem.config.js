@@ -29,6 +29,8 @@ module.exports = {
       LIGHTHOUSE_PROVIDER: 'pagespeed',
       PAGESPEED_TIMEOUT_MS: '150000',
       PSI_CONCURRENCY: '15',
+      SEO_REPORT_RETENTION_SCHEDULED_DAYS: '730',
+      SEO_REPORT_RETENTION_ADHOC_DAYS: '90',
     },
 
     // Graceful shutdown — 10s for Chrome cleanup before SIGKILL
