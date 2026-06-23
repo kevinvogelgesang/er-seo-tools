@@ -407,5 +407,12 @@ export async function recoverQueue() {
     .then((m) => m.recoverBrokenLinkVerifies())
     .catch((err) => console.warn('[queue] broken-link verify recovery failed:', (err as Error).message))
 
+  // C10: global stranded SEO-report recovery — re-enqueue seo-report-render jobs
+  // for any non-terminal SeoReport whose heartbeat has gone cold. Guarded — never
+  // blocks site-audit recovery.
+  await import('@/lib/seo-report-recovery')
+    .then((m) => m.recoverSeoReports())
+    .catch((err) => console.warn('[queue] seo-report recovery failed:', (err as Error).message))
+
   void processNext()
 }
