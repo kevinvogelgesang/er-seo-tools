@@ -15,9 +15,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { nextRun } from '@/lib/jobs/scheduler'
-import { SEO_REPORT_MONTHLY_RUN_JOB_TYPE } from '@/lib/jobs/handlers/seo-report-monthly-run'
-
-export const SEO_REPORT_MONTHLY_SCHEDULE_NAME = 'seo-report-monthly'
+import {
+  SEO_REPORT_MONTHLY_RUN_JOB_TYPE,
+  SEO_REPORT_MONTHLY_SCHEDULE_NAME,
+} from '@/lib/jobs/handlers/seo-report-monthly-run'
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 

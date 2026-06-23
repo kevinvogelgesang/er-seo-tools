@@ -10,9 +10,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
-import { GET, PUT, SEO_REPORT_MONTHLY_SCHEDULE_NAME } from './route'
+import { GET, PUT } from './route'
 import { SYSTEM_SCHEDULES } from '@/lib/jobs/system-schedules'
-import { SEO_REPORT_MONTHLY_RUN_JOB_TYPE } from '@/lib/jobs/handlers/seo-report-monthly-run'
+import { SEO_REPORT_MONTHLY_RUN_JOB_TYPE, SEO_REPORT_MONTHLY_SCHEDULE_NAME } from '@/lib/jobs/handlers/seo-report-monthly-run'
 
 function jsonReq(method: string, body?: unknown): NextRequest {
   return new NextRequest('http://localhost/api/reports/schedule', {

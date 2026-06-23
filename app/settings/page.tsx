@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { ServiceAccountCard } from '@/components/settings/ServiceAccountCard'
+import { ScheduleControls } from '@/components/settings/ScheduleControls'
 
 export const metadata: Metadata = {
   title: 'Settings — ER SEO Tools',
@@ -16,6 +17,7 @@ export default function SettingsPage() {
           </p>
         </div>
         <ServiceAccountCard />
+        <ScheduleControls />
       </div>
     </div>
   )

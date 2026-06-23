@@ -23,6 +23,9 @@ import { enqueueSeoReportRender } from './seo-report-render'
 
 export const SEO_REPORT_MONTHLY_RUN_JOB_TYPE = 'seo-report-monthly-run'
 
+/** The name of the operator-configurable monthly schedule row. */
+export const SEO_REPORT_MONTHLY_SCHEDULE_NAME = 'seo-report-monthly'
+
 type ComparisonMode = 'prev_period' | 'prev_year'
 
 function parseComparisonMode(v: unknown): ComparisonMode {

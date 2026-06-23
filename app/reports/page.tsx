@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { GenerateReportForm } from '@/components/reports/GenerateReportForm'
+import { ReportLibrary } from '@/components/reports/ReportLibrary'
 
 export const metadata: Metadata = {
   title: 'SEO Reports — ER SEO Tools',
@@ -16,6 +17,9 @@ export default function ReportsPage() {
           </p>
         </div>
         <GenerateReportForm />
+        <div className="mt-8">
+          <ReportLibrary />
+        </div>
       </div>
     </div>
   )
