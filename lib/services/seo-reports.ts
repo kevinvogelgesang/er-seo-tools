@@ -129,3 +129,47 @@ export async function createBatchWithReports(
 
   return { batchId, reportIds }
 }
+
+// ── recomputeSeoReportBatchStatus ─────────────────────────────────────────────
+
+/**
+ * Recompute and persist the rollup status for a SeoReportBatch.
+ *
+ * Rollup rules (same as batch GET route §7.2):
+ *   running  → any child in queued | fetching | rendering (transient)
+ *   error    → all children are 'error' (and at least one exists)
+ *   complete → no transient children AND at least one non-error child
+ *
+ * Called by POST /api/reports after the enqueue loop so that if ALL enqueues
+ * fail (all children flipped to 'error'), the batch is immediately set to
+ * 'error' rather than staying stuck at the default 'running'.
+ *
+ * On the normal path (all children still 'queued') this recomputes to
+ * 'running' — matching the batch's default value, no observable change.
+ */
+export async function recomputeSeoReportBatchStatus(batchId: string): Promise<void> {
+  const children = await prisma.seoReport.findMany({
+    where: { batchId },
+    select: { status: true },
+  })
+
+  const statuses = children.map((c) => c.status)
+
+  const TRANSIENT = ['queued', 'fetching', 'rendering']
+  const hasTransient = statuses.some((s) => TRANSIENT.includes(s))
+  const allError = statuses.length > 0 && statuses.every((s) => s === 'error')
+
+  let rollup: string
+  if (hasTransient) {
+    rollup = 'running'
+  } else if (allError) {
+    rollup = 'error'
+  } else {
+    rollup = 'complete'
+  }
+
+  await prisma.seoReportBatch.updateMany({
+    where: { id: batchId },
+    data: { status: rollup },
+  })
+}

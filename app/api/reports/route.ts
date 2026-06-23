@@ -32,7 +32,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { createBatchWithReports, isClientEligible } from '@/lib/services/seo-reports'
+import { createBatchWithReports, isClientEligible, recomputeSeoReportBatchStatus } from '@/lib/services/seo-reports'
 import { enqueueSeoReportRender } from '@/lib/jobs/handlers/seo-report-render'
 
 export const dynamic = 'force-dynamic'
@@ -225,6 +225,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       })
     }
   }
+
+  // ── Recompute batch rollup status after enqueue loop ────────────────────
+  // If ALL enqueues failed every child is now 'error', but the batch defaults
+  // to 'running'. Recompute so the batch is immediately set to 'error' rather
+  // than remaining stuck with no render job to ever update it.
+  // On the normal path (all children still 'queued') this recomputes to
+  // 'running' — matching the default, so there is no observable change.
+  await recomputeSeoReportBatchStatus(batchId)
 
   return NextResponse.json({ batchId, reportIds }, { status: 201 })
 }

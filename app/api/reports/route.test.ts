@@ -253,24 +253,73 @@ describe('POST /api/reports (Task 21 — multi-client + all)', () => {
   })
 
   it('clientIds:"all" with zero eligible clients → 422', async () => {
-    // Don't seed any eligible clients for this test — use unique name to avoid
-    // picking up other test clients. Actually, 'all' queries all clients, so
-    // other test data might be there. We test by ensuring we get either 201 or 422.
-    // However, if there are eligible clients from other tests, the result will be 201.
-    // To force 422, we need to ensure no eligible clients. Skip this edge case
-    // since the test DB will have other eligible clients. Instead test the error path
-    // by verifying the code handles it gracefully.
-    // This test is intentionally simple: verify 'all' with eligible clients works.
-    const eligibleId = await seedClient('all-zero-elig', { eligible: true })
-    const res = await POST(makePostRequest({
-      clientIds: 'all',
-      periodStart: '2026-05-01',
-      periodEnd: '2026-05-31',
-      comparisonMode: 'prev_period',
-    }))
-    // Should succeed because we seeded at least one eligible client
-    expect([201, 422]).toContain(res.status)
-    void eligibleId
+    // Approach: precondition-gated real assertion.
+    //
+    // We seed only INELIGIBLE clients under our unique prefix so this suite
+    // contributes zero eligible rows. Because vitest runs test files serially
+    // (fileParallelism:false) and every other describe block in this file cleans
+    // up its rows in afterEach before this point, we can query the global
+    // eligible-active count and only assert if it is 0 (no leftover rows from
+    // elsewhere). If the count is >0 — from a concurrent external process or a
+    // leaked row — we skip with a console.warn rather than a vacuous soft pass.
+    //
+    // Seed only ineligible/archived clients under a dedicated prefix so this
+    // block cannot be the source of any eligible rows.
+    const ZERO_PREFIX = 't21-zero422-'
+    const zeroIds: number[] = []
+
+    const archived = await prisma.client.create({
+      data: {
+        name: `${ZERO_PREFIX}archived`,
+        domains: JSON.stringify([`${ZERO_PREFIX}archived.example.com`]),
+        ga4PropertyId: 'properties/999',
+        gscSiteUrl: null,
+        archivedAt: new Date(),
+      },
+    })
+    zeroIds.push(archived.id)
+
+    const noAnalytics = await prisma.client.create({
+      data: {
+        name: `${ZERO_PREFIX}no-analytics`,
+        domains: JSON.stringify([`${ZERO_PREFIX}no-analytics.example.com`]),
+        ga4PropertyId: null,
+        gscSiteUrl: null,
+        archivedAt: null,
+      },
+    })
+    zeroIds.push(noAnalytics.id)
+
+    try {
+      // Check global eligible-active count — must be 0 for the assertion to be meaningful.
+      const eligibleCount = await prisma.client.count({
+        where: {
+          archivedAt: null,
+          OR: [{ ga4PropertyId: { not: null } }, { gscSiteUrl: { not: null } }],
+        },
+      })
+
+      if (eligibleCount > 0) {
+        console.warn(
+          `[skip] clientIds:'all' 422 test: ${eligibleCount} eligible client(s) exist globally ` +
+          `(leaked rows or parallel process). Skipping assertion to avoid false pass.`,
+        )
+        return
+      }
+
+      // Precondition met: zero eligible clients exist → POST 'all' MUST return 422.
+      const res = await POST(makePostRequest({
+        clientIds: 'all',
+        periodStart: '2026-05-01',
+        periodEnd: '2026-05-31',
+        comparisonMode: 'prev_period',
+      }))
+      expect(res.status).toBe(422)
+      const body = await res.json() as { error: string }
+      expect(body.error).toBe('no_eligible_clients')
+    } finally {
+      await prisma.client.deleteMany({ where: { id: { in: zeroIds } } })
+    }
   })
 
   it('mixed/invalid clientIds array → 400', async () => {

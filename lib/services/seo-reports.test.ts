@@ -5,7 +5,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest'
 import { prisma } from '@/lib/db'
-import { isClientEligible, createBatchWithReports } from './seo-reports'
+import { isClientEligible, createBatchWithReports, recomputeSeoReportBatchStatus } from './seo-reports'
 import type { DateWindow } from '@/lib/analytics/dates'
 
 const PREFIX = 't14-seo-rep-'
@@ -177,5 +177,78 @@ describe('createBatchWithReports — scheduled idempotency', () => {
 
     const reportCount = await prisma.seoReport.count({ where: { batchId: first.batchId } })
     expect(reportCount).toBe(2)
+  })
+})
+
+// ── recomputeSeoReportBatchStatus ────────────────────────────────────────────
+
+describe('recomputeSeoReportBatchStatus', () => {
+  it('sets status to "error" when all children are error', async () => {
+    const c = await makeClient('recompute-all-err')
+
+    const { batchId, reportIds } = await createBatchWithReports({
+      trigger: 'manual',
+      clientIds: [c.id],
+      period: PERIOD,
+      comparisonMode: 'prev_period',
+    })
+    createdBatchIds.push(batchId)
+
+    // Flip the child to error
+    await prisma.seoReport.updateMany({
+      where: { id: { in: reportIds } },
+      data: { status: 'error' },
+    })
+
+    await recomputeSeoReportBatchStatus(batchId)
+
+    const batch = await prisma.seoReportBatch.findUnique({ where: { id: batchId } })
+    expect(batch!.status).toBe('error')
+  })
+
+  it('sets status to "running" when any child is queued', async () => {
+    const c1 = await makeClient('recompute-queued-a')
+    const c2 = await makeClient('recompute-queued-b')
+
+    const { batchId, reportIds } = await createBatchWithReports({
+      trigger: 'manual',
+      clientIds: [c1.id, c2.id],
+      period: PERIOD,
+      comparisonMode: 'prev_period',
+    })
+    createdBatchIds.push(batchId)
+
+    // Flip one to error, leave one queued
+    await prisma.seoReport.updateMany({
+      where: { id: reportIds[0] },
+      data: { status: 'error' },
+    })
+
+    await recomputeSeoReportBatchStatus(batchId)
+
+    const batch = await prisma.seoReportBatch.findUnique({ where: { id: batchId } })
+    expect(batch!.status).toBe('running')
+  })
+
+  it('sets status to "complete" when all children are ready (no transient, not all error)', async () => {
+    const c = await makeClient('recompute-complete')
+
+    const { batchId, reportIds } = await createBatchWithReports({
+      trigger: 'manual',
+      clientIds: [c.id],
+      period: PERIOD,
+      comparisonMode: 'prev_period',
+    })
+    createdBatchIds.push(batchId)
+
+    await prisma.seoReport.updateMany({
+      where: { id: { in: reportIds } },
+      data: { status: 'ready' },
+    })
+
+    await recomputeSeoReportBatchStatus(batchId)
+
+    const batch = await prisma.seoReportBatch.findUnique({ where: { id: batchId } })
+    expect(batch!.status).toBe('complete')
   })
 })
