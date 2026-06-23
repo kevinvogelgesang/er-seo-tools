@@ -16,6 +16,8 @@ import { registerStaleAuditResetHandler } from './stale-audit-reset'
 import { registerScheduledSiteAuditHandler } from './scheduled-site-audit'
 import { registerReportRenderHandler } from './report-render'
 import { registerBrokenLinkVerifyHandler } from './broken-link-verify'
+import { registerSeoReportRenderHandler } from './seo-report-render'
+import { registerSeoReportMonthlyRunHandler } from './seo-report-monthly-run'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
@@ -29,4 +31,6 @@ export function registerBuiltInJobHandlers(): void {
   registerScheduledSiteAuditHandler()
   registerReportRenderHandler()
   registerBrokenLinkVerifyHandler()
+  registerSeoReportRenderHandler()
+  registerSeoReportMonthlyRunHandler()
 }

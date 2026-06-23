@@ -1,0 +1,300 @@
+'use client'
+
+// ReportLibrary — polls GET /api/reports every 5s while any report is in a
+// non-terminal state. Shows a table of reports with status chips, per-source
+// badges, download links, and inline manual-prospects entry.
+
+import { useState, useEffect, useCallback } from 'react'
+
+interface ReportRow {
+  id: string
+  batchId: string | null
+  clientId: number
+  status: string
+  ga4Status: string
+  gscStatus: string
+  prospectsStatus: string
+  periodStart: string
+  periodEnd: string
+  generatedAt: string | null
+  createdAt: string
+}
+
+interface ClientItem {
+  id: number
+  name: string
+}
+
+// Non-terminal statuses that trigger continued polling
+const TRANSIENT_STATUSES = new Set(['queued', 'fetching', 'rendering'])
+
+// ── Style helpers ─────────────────────────────────────────────────────────────
+
+function statusChipCls(status: string): string {
+  if (status === 'ready') return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+  if (status === 'error') return 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+  return 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
+}
+
+function sourceBadgeCls(s: string): string {
+  if (s === 'ok') return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+  if (s === 'skipped') return 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/40'
+  if (s === 'error') return 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+  if (s === 'missing') return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+  if (s === 'manual') return 'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-400'
+  // pending / unknown
+  return 'bg-gray-100 text-gray-400 dark:bg-white/10 dark:text-white/30'
+}
+
+// Format ISO date string as YYYY-MM-DD
+function fmtDate(iso: string): string {
+  return iso.slice(0, 10)
+}
+
+// ── Inline prospects form (per-row) ──────────────────────────────────────────
+
+function ProspectsForm({
+  reportId,
+  onSaved,
+}: {
+  reportId: string
+  onSaved: () => void
+}) {
+  const [total, setTotal] = useState('')
+  const [organic, setOrganic] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function save() {
+    const totalNum = parseInt(total, 10)
+    if (!Number.isInteger(totalNum) || totalNum < 0) {
+      setErr('Total must be a non-negative integer')
+      return
+    }
+    const body: Record<string, unknown> = { total: totalNum }
+    if (organic.trim() !== '') {
+      const orgNum = parseInt(organic, 10)
+      if (!Number.isInteger(orgNum) || orgNum < 0) {
+        setErr('Organic must be a non-negative integer or blank')
+        return
+      }
+      body.organic = orgNum
+    }
+    setSaving(true)
+    setErr(null)
+    try {
+      const res = await fetch(`/api/reports/${reportId}/prospects`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string }
+        setErr(d.error ?? `Save failed (${res.status})`)
+        return
+      }
+      onSaved()
+    } catch {
+      setErr('Network error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls =
+    'border border-gray-300 dark:border-navy-border rounded px-2 py-1 bg-white dark:bg-navy-deep text-gray-800 dark:text-white/90 text-xs w-20'
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min={0}
+          placeholder="Total"
+          value={total}
+          onChange={(e) => setTotal(e.target.value)}
+          className={inputCls}
+        />
+        <input
+          type="number"
+          min={0}
+          placeholder="Organic"
+          value={organic}
+          onChange={(e) => setOrganic(e.target.value)}
+          className={inputCls}
+        />
+        <button
+          onClick={() => void save()}
+          disabled={saving || !total}
+          className="px-2 py-1 rounded bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold disabled:opacity-50 transition-colors"
+        >
+          {saving ? '…' : 'Save'}
+        </button>
+      </div>
+      {err && <p className="text-xs text-red-600 dark:text-red-400">{err}</p>}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function ReportLibrary() {
+  const [reports, setReports] = useState<ReportRow[]>([])
+  const [clients, setClients] = useState<ClientItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const clientMap = new Map(clients.map((c) => [c.id, c.name]))
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const [rRes, cRes] = await Promise.all([
+        fetch('/api/reports'),
+        fetch('/api/clients'),
+      ])
+      if (rRes.ok) {
+        const d = await rRes.json() as { reports: ReportRow[] }
+        setReports(d.reports)
+      } else {
+        setError('Failed to load reports')
+      }
+      if (cRes.ok) {
+        const d = await cRes.json() as ClientItem[]
+        if (Array.isArray(d)) setClients(d)
+      }
+    } catch {
+      setError('Network error')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Initial fetch
+  useEffect(() => {
+    void fetchAll()
+  }, [fetchAll])
+
+  // Poll every 5s while any report is transient
+  useEffect(() => {
+    const hasTransient = reports.some((r) => TRANSIENT_STATUSES.has(r.status))
+    if (!hasTransient) return
+    const interval = setInterval(() => void fetchAll(), 5000)
+    return () => clearInterval(interval)
+  }, [reports, fetchAll])
+
+  if (loading) {
+    return (
+      <p className="text-xs text-gray-400 dark:text-white/40 py-4">Loading reports…</p>
+    )
+  }
+
+  if (error) {
+    return (
+      <p className="text-xs text-red-600 dark:text-red-400 py-4">{error}</p>
+    )
+  }
+
+  if (reports.length === 0) {
+    return (
+      <div className="bg-white dark:bg-navy-card rounded-xl border border-gray-200 dark:border-navy-border p-6">
+        <p className="text-xs text-gray-400 dark:text-white/40">No reports generated yet.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white dark:bg-navy-card rounded-xl border border-gray-200 dark:border-navy-border overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 dark:border-navy-border">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">Report Library</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-100 dark:border-navy-border">
+              <th className="text-left px-4 py-2.5 text-gray-500 dark:text-white/40 font-medium">Client</th>
+              <th className="text-left px-4 py-2.5 text-gray-500 dark:text-white/40 font-medium">Period</th>
+              <th className="text-left px-4 py-2.5 text-gray-500 dark:text-white/40 font-medium">Status</th>
+              <th className="text-left px-4 py-2.5 text-gray-500 dark:text-white/40 font-medium">Sources</th>
+              <th className="text-left px-4 py-2.5 text-gray-500 dark:text-white/40 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map((r) => (
+              <tr
+                key={r.id}
+                className="border-b border-gray-50 dark:border-navy-border/50 last:border-0 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+              >
+                {/* Client */}
+                <td className="px-4 py-3 text-gray-800 dark:text-white/90 font-medium">
+                  {clientMap.get(r.clientId) ?? String(r.clientId)}
+                </td>
+
+                {/* Period */}
+                <td className="px-4 py-3 text-gray-600 dark:text-white/60 whitespace-nowrap font-mono">
+                  {fmtDate(r.periodStart)} — {fmtDate(r.periodEnd)}
+                </td>
+
+                {/* Status chip */}
+                <td className="px-4 py-3">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${statusChipCls(r.status)}`}
+                  >
+                    {r.status}
+                  </span>
+                </td>
+
+                {/* Per-source badges */}
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${sourceBadgeCls(r.ga4Status)}`}
+                      title={`GA4: ${r.ga4Status}`}
+                    >
+                      GA4
+                    </span>
+                    <span
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${sourceBadgeCls(r.gscStatus)}`}
+                      title={`GSC: ${r.gscStatus}`}
+                    >
+                      GSC
+                    </span>
+                    <span
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${sourceBadgeCls(r.prospectsStatus)}`}
+                      title={`Prospects: ${r.prospectsStatus}`}
+                    >
+                      Pros
+                    </span>
+                  </div>
+                </td>
+
+                {/* Actions */}
+                <td className="px-4 py-3">
+                  <div className="flex flex-col gap-2">
+                    {/* Download link — only when ready */}
+                    {r.status === 'ready' && (
+                      <a
+                        href={`/api/reports/${r.id}?file=1`}
+                        download
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                      >
+                        Download PDF
+                      </a>
+                    )}
+
+                    {/* Inline prospects entry — only when missing */}
+                    {r.prospectsStatus === 'missing' && (
+                      <ProspectsForm
+                        reportId={r.id}
+                        onSaved={() => void fetchAll()}
+                      />
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}

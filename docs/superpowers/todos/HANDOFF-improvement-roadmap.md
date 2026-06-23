@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-17 · **Updated by:** C6 Phase 3 ship close-out (live SEO score — deployed + production-verified)
+**Last updated:** 2026-06-22 · **Updated by:** C10 (SEO Performance Reports) kickoff — spec + plan written + Codex-reviewed; subagent-driven build starting
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -23,10 +23,20 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Current state
 
+- **ACTIVE: C10 — SEO Performance Reports (NET-NEW, greenlit 2026-06-22).** Spec +
+  plan written and Codex-reviewed (3 passes: design, spec ×9 fixes, plan ×14 fixes).
+  Automated branded per-client PDF (GA4 + Search Console + CRM "Prospects"),
+  period-over-period, on-demand + monthly schedule — replaces the manual Looker
+  export. Spec: `specs/2026-06-22-seo-performance-reports-design.md`; Plan (26
+  tasks, 2 phases): `plans/2026-06-22-seo-performance-reports.md`. **Build is
+  subagent-driven, starting now.** Doubles as SF-retirement Phase 6's GA4/GSC
+  analytics-ingestion foundation (`lib/analytics/` provider layer). **Blocked only
+  on Kevin's one-time Google Cloud OAuth setup + 4 env vars** (runbook delivered
+  2026-06-22); all TDD-with-mocks work proceeds without him.
 - **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phases 1–3 DONE:** broken-link verifier
   (PR #70), on-page SEO extraction (PR #71), live SEO score (PR #73) — all
   deployed + production-verified (Phase 3 on 2026-06-17). C6 stays `[~]`
-  (multi-phase track — see Next item for remaining phases).
+  (multi-phase track).
 - **C6 Phase 3 — what shipped:** the live-scan `CrawlRun` now carries a real SEO
   health `score` (was `null`). Pure `scoreLiveSeo` (`lib/findings/live-seo-score.ts`)
   — forked `computeHealthScore` with explicit factor availability (indexability,
@@ -72,23 +82,21 @@ Continue the er-seo-tools improvement roadmap.
 
 ## Next item
 
-**Decision point — pick one (all valid). C6 Phases 1–3 are shipped; choose the
-next chunk:**
+**C10 — SEO Performance Reports. Execute the plan (`plans/2026-06-22-seo-performance-reports.md`),
+subagent-driven, Phase 1 (Tasks 0–20) then Phase 2 (Tasks 21–25).** Spec + plan
+are done and Codex-reviewed — no more brainstorm/spec/plan step; go straight to
+implementation per `superpowers:subagent-driven-development`.
 
-- **C7 — parser consolidation + streaming parse + per-file failure isolation**
-  (~1 wk; infra cleanup of `lib/parsers/`, no roadmap-doc section). Independent of
-  C6 — a clean step off the SF-retirement track.
-- **C6 Phase 3a — audited-set link graph / "ER authority" inlinks** (SF-retirement
-  roadmap §2 Phase 3a). No discovery dependency: persist normalized edges from the
-  already-harvested outlinks, compute relative inlink counts over the audited set.
-  Continues the SF-retirement track; the harvested links already exist.
-- **C8 — configurable scoring/priority weights + score-explanation panel** — would
-  also give the new live score a factor breakdown (the Phase-3 spec deliberately
-  persisted no reason-codes; this is where they'd land).
-- **Gated:** C6 analytics integrations (GSC/GA4/SEMRush) + 03 Phase 3 memo
-  generation both need the Anthropic/API-billing decision first.
-
-Full flow whichever: brainstorm/spec → Codex → plan → Codex → implement.
+- **Human-in-the-loop gates (do not block coding — queue them):** (1) Kevin's
+  Google Cloud OAuth setup + the 4 env vars must exist before the Task 19 live
+  smoke and Task 20 metric-parity check; (2) the one-time "Connect Google" consent
+  click (only the company-account holder can do it); (3) per-client GA4/GSC
+  mapping; (4) metric-parity eyeball vs the live Looker report. Everything else is
+  TDD with mocked Google clients.
+- **After C10 ships:** resume the C-track menu — C7 (parser consolidation), C6
+  Phase 3a (audited-set link graph), or C8 (score-explanation). C10 also clears the
+  analytics half of SF-retirement Phase 6 (SEMRush/DataForSEO + memo consumption
+  remain, the latter gated on Anthropic/API billing).
 
 ## Gotchas / decisions already made (don't relitigate)
 
@@ -96,6 +104,37 @@ Full flow whichever: brainstorm/spec → Codex → plan → Codex → implement.
 - **NEVER use interactive `prisma.$transaction(async tx => ...)`** — array form
   only, conditional logic via SQL `EXISTS`, manual `updatedAt = Date.now()` in
   raw statements (2026-06-10 production incident; CLAUDE.md "Do not").
+- **C10 invariants (NEW — SEO Performance Reports, from the Codex spec+plan passes):**
+  - **Auth = Google SERVICE ACCOUNT (decided 2026-06-22), not user-OAuth.** Sensitive
+    scopes force OAuth verification (Production) or a 7-day token (Testing) — both bad.
+    Service account: no consent screen, no verification, no token expiry. Key JSON in a
+    gitignored file, path in `GOOGLE_SA_KEY_FILE`; never committed/logged. `lib/analytics/google/auth.ts`
+    = `google.auth.GoogleAuth({ keyFile, scopes })`. NO `GoogleConnection` model, NO
+    `/api/google/connect|callback`, NO `GOOGLE_TOKEN_ENC_KEY`. Plan Tasks 3 & 6 are REMOVED.
+    Per-client cost: grant the SA email Viewer on each client's GA4 property + GSC site.
+  - GA4 Data API via **`googleapis` `google.analyticsdata('v1beta')`** — NOT
+    `@google-analytics/data`. GSC via `google.searchconsole('v1')`. Both take the GoogleAuth client.
+  - **Provider error taxonomy (Codex auth-review):** a per-property **`403`/PERMISSION_DENIED**
+    (SA not granted on THAT GA4 property / GSC site) → `reason:'unmapped'` (a per-client gap),
+    NOT a global `'auth'` failure. `'auth'` is only for a missing/invalid key or a `401`.
+    `429`/RESOURCE_EXHAUSTED (even on a 403) → `'quota'`. A valid SA with no access to one
+    client must render that client's gap, not fail the whole batch. **Manual GA4-id/GSC-url
+    entry is a HARD fallback** (Admin listing can be narrow), not just convenience.
+  - **`gscSiteUrl` stored + sent VERBATIM** (`sc-domain:` vs URL-prefix are
+    different GSC properties — never normalize).
+  - Job group/dedup = **`seo-report:<id>`**, NEVER `site-audit:<id>`. Render job:
+    concurrency 1, timeout 600_000, ALL fetch/build before `acquirePage()`.
+  - **Manual prospects entry MUST null `metricsJson`** (+ reset status→queued) before
+    re-enqueue, or the re-render keeps the stale snapshot.
+  - **No SQLite `createMany`/`skipDuplicates`** — individual creates guarded by
+    P2002 (see `site-audit-discover.ts`). Idempotency: `@@unique([scheduleId,
+    scheduledFor])` (batch) + `@@unique([batchId, clientId])` (report).
+  - The monthly schedule is a **non-system** operator-configurable `Schedule` row
+    (`name:'seo-report-monthly'`) — NOT in `SYSTEM_SCHEDULES` (no boot re-enable).
+  - No new public middleware paths (no OAuth callback in the SA model). `/privacy`,
+    `/about`, and the Google site-verification file already shipped to main + deployed.
+  - Metrics are a per-report `metricsJson` blob (NOT findings); reports get their
+    OWN retention sweep (`pruneSeoReports`) — the 90-d findings prune does not cover them.
 - **C6 Phase 3 invariants (NEW — live SEO score):**
   - The live score is computed in the builder by the pure `scoreLiveSeo`
     (`lib/findings/live-seo-score.ts`) and written to `CrawlRun.score`. It is
@@ -217,3 +256,9 @@ Full flow whichever: brainstorm/spec → Codex → plan → Codex → implement.
   plan Codex accept, 4 tasks subagent-driven, 2,426 tests. Prod: manhattanschool.edu
   → 99, noindex canary → null. C6 stays `[~]`. Next: C7, C6 Phase 3a (link graph),
   or C8 (score-explanation) — analytics gated on API billing.
+- 2026-06-22 — **C10 (SEO Performance Reports) STARTED** — net-new initiative,
+  greenlit to build now. Brainstorm → spec (Codex ×9) → plan (Codex ×14), all
+  reviewed. Spec `specs/2026-06-22-seo-performance-reports-design.md`; plan (26
+  tasks, 2 phases) `plans/2026-06-22-seo-performance-reports.md`. Subagent-driven
+  build starting; blocked only on Kevin's one-time Google Cloud OAuth setup +
+  env vars (runbook delivered). Delivers SF-retirement Phase 6's GA4/GSC half.

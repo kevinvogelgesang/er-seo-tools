@@ -60,6 +60,28 @@ const tools = [
     accentClass: 'from-orange/20 to-transparent',
   },
   {
+    id: 'seo-reports',
+    href: '/reports',
+    name: 'SEO Reports',
+    tagline: 'Generate. Review. Download.',
+    description:
+      'Generate branded GA4 + Search Console performance reports for any client. Schedule monthly runs, pick date ranges, and download polished PDFs.',
+    features: ['GA4 + Search Console data', 'Period-over-period deltas', 'Schedule monthly runs'],
+    icon: SeoReportsIcon,
+    accentClass: 'from-orange/20 to-transparent',
+  },
+  {
+    id: 'settings',
+    href: '/settings',
+    name: 'Settings',
+    tagline: 'Connect. Configure. Control.',
+    description:
+      'Connect the Google service account, verify access to GA4 properties and Search Console sites, and configure monthly report scheduling.',
+    features: ['Service account status', 'GA4 & GSC connection check', 'Monthly schedule controls'],
+    icon: SettingsIcon,
+    accentClass: 'from-orange/20 to-transparent',
+  },
+  {
     id: 'oxygen-tailwind-guide',
     href: '/oxygen-tailwind-guide',
     name: 'Oxygen + Tailwind + DaisyUI',
@@ -131,6 +153,24 @@ function OxygenTailwindIcon({ className }: { className?: string }) {
       {/* tailwind double wave inside */}
       <path d="M7.5 11c1.4-1.6 2.8-1.6 4.2 0 1.4 1.6 2.8 1.6 4.2 0" opacity={0.85} />
       <path d="M7.5 14.5c1.4-1.6 2.8-1.6 4.2 0 1.4 1.6 2.8 1.6 4.2 0" opacity={0.5} />
+    </svg>
+  )
+}
+
+function SeoReportsIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 4h9l5 5v12a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" />
+      <path d="M9 12h6M9 15h4M9 9h2" />
+    </svg>
+  )
+}
+
+function SettingsIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
     </svg>
   )
 }
@@ -317,7 +357,7 @@ function ToolCard({
 // ─── Stats strip ─────────────────────────────────────────────────────────────
 
 const stats = [
-  { value: '6', label: 'SEO Tools' },
+  { value: '8', label: 'SEO Tools' },
   { value: 'Next.js 15', label: 'App Router' },
   { value: 'Git', label: 'Connected Deploy' },
   { value: 'RunCloud', label: 'Hosted' },
