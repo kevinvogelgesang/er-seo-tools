@@ -21,7 +21,7 @@ model Client {
   seedUrlsUpdatedAt     DateTime?
   teamworkTasklistId    String?      // Teamwork tasklist holding this client's "Audit Optimizations" task
   archivedAt            DateTime?    // null = active; non-null = archived (hidden from lists/matching; data preserved)
-  ga4PropertyId         String?      // GA4 property id for this client (e.g. "properties/123456789")
+  ga4PropertyId         String?      // GA4 property bare numeric id for this client (e.g. "123456789")
   gscSiteUrl            String?      // GSC site URL verbatim (e.g. "sc-domain:example.com" or "https://example.com/")
   crmClientRef          String?      // CRM client identifier for Prospects lookup
   createdAt             DateTime     @default(now())

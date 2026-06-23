@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       ga4Count += (account.propertySummaries ?? []).length
     }
   } catch (err: unknown) {
-    console.error('[google/status] GA4 Admin list error:', err)
+    console.error('[google/status] GA4 Admin list error:', (err as Error).message)
     errors.push('ga4')
   }
 
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const res = await sc.sites.list({})
     gscCount = (res.data.siteEntry ?? []).length
   } catch (err: unknown) {
-    console.error('[google/status] GSC sites list error:', err)
+    console.error('[google/status] GSC sites list error:', (err as Error).message)
     errors.push('gsc')
   }
 

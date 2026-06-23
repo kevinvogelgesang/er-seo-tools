@@ -43,7 +43,7 @@ export async function GET(_request: NextRequest) {
 
     return NextResponse.json(properties);
   } catch (err: unknown) {
-    console.error('GET /api/google/properties error:', err);
+    console.error('[google/properties] fetch error:', (err as Error).message);
     return NextResponse.json({ error: 'Failed to fetch GA4 properties' }, { status: 500 });
   }
 }

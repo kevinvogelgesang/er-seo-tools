@@ -35,7 +35,7 @@ export async function GET(_request: NextRequest) {
 
     return NextResponse.json(sites);
   } catch (err: unknown) {
-    console.error('GET /api/google/gsc-sites error:', err);
+    console.error('[google/gsc-sites] fetch error:', (err as Error).message);
     return NextResponse.json({ error: 'Failed to fetch GSC sites' }, { status: 500 });
   }
 }
