@@ -118,39 +118,25 @@ export async function PUT(request: NextRequest) {
   const payload = JSON.stringify({ comparisonMode: body.comparisonMode })
   const now = new Date()
 
-  const existing = await prisma.schedule.findUnique({
+  const upserted = await prisma.schedule.upsert({
     where: { name: SEO_REPORT_MONTHLY_SCHEDULE_NAME },
+    create: {
+      name: SEO_REPORT_MONTHLY_SCHEDULE_NAME,
+      jobType: SEO_REPORT_MONTHLY_RUN_JOB_TYPE,
+      cadence,
+      payload,
+      enabled: body.enabled,
+      nextRunAt: nextRun(cadence, now),
+    },
+    update: {
+      jobType: SEO_REPORT_MONTHLY_RUN_JOB_TYPE,
+      cadence,
+      payload,
+      enabled: body.enabled,
+      nextRunAt: nextRun(cadence, now),
+    },
     select: { id: true },
   })
 
-  let resultId: string
-  if (!existing) {
-    const created = await prisma.schedule.create({
-      data: {
-        name: SEO_REPORT_MONTHLY_SCHEDULE_NAME,
-        jobType: SEO_REPORT_MONTHLY_RUN_JOB_TYPE,
-        cadence,
-        payload,
-        enabled: body.enabled,
-        nextRunAt: nextRun(cadence, now),
-      },
-      select: { id: true },
-    })
-    resultId = created.id
-  } else {
-    const updated = await prisma.schedule.update({
-      where: { id: existing.id },
-      data: {
-        jobType: SEO_REPORT_MONTHLY_RUN_JOB_TYPE,
-        cadence,
-        payload,
-        enabled: body.enabled,
-        nextRunAt: nextRun(cadence, now),
-      },
-      select: { id: true },
-    })
-    resultId = updated.id
-  }
-
-  return NextResponse.json({ id: resultId })
+  return NextResponse.json({ id: upserted.id })
 }

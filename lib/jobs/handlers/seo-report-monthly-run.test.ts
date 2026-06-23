@@ -132,17 +132,18 @@ describe('seo-report-monthly-run handler', () => {
     const h = getJobHandler(SEO_REPORT_MONTHLY_RUN_JOB_TYPE)
     expect(h).toBeDefined()
     expect(h!.concurrency).toBe(1)
-    expect(h!.timeoutMs).toBeLessThanOrEqual(60_000)
+    expect(h!.timeoutMs).toBe(60_000)
     expect(h!.maxAttempts).toBe(3)
   })
 
   it('creates ONE batch + one report per eligible client and enqueues renders', async () => {
     // Seed: 2 eligible (GA4 mapped, active), 1 archived, 1 unmapped.
-    // We track only the IDs from OUR seeded eligible clients.
+    // Capture IDs directly from seedClient return values — never use positional
+    // indexing into the shared clientIds array (seed order is not stable).
     const clientA = await seedClient({ name: 'eligible-a', ga4: 'properties/11' })
     const clientB = await seedClient({ name: 'eligible-b', ga4: 'properties/22' })
-    await seedClient({ name: 'archived-c', ga4: 'properties/33', archived: true })
-    await seedClient({ name: 'unmapped-d', ga4: null, gscUrl: null })
+    const archivedC = await seedClient({ name: 'archived-c', ga4: 'properties/33', archived: true })
+    const unmappedD = await seedClient({ name: 'unmapped-d', ga4: null, gscUrl: null })
 
     const schedule = await seedSchedule()
     const slotDate = new Date('2026-07-01T06:00:00Z')
@@ -169,10 +170,8 @@ describe('seo-report-monthly-run handler', () => {
     expect(reportClientIds).toContain(clientB.id)
 
     // The archived and unmapped clients from this seed are NOT included
-    const archivedId = clientIds[clientIds.length - 2] // archived-c (3rd seeded)
-    const unmappedId = clientIds[clientIds.length - 1] // unmapped-d (4th seeded)
-    expect(reportClientIds).not.toContain(archivedId)
-    expect(reportClientIds).not.toContain(unmappedId)
+    expect(reportClientIds).not.toContain(archivedC.id)
+    expect(reportClientIds).not.toContain(unmappedD.id)
 
     // Period = last full month before July 2026-07-01 = June 2026
     // 2026-07-01 → lastFullMonth → 2026-06-01 to 2026-06-30
