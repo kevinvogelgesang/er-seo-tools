@@ -111,6 +111,54 @@ describe('PATCH /api/clients/:id/analytics', () => {
     expect(dbRow!.gscSiteUrl).toBe('sc-domain:example.com');
   });
 
+  it('normalizes ga4PropertyId: strips properties/ prefix', async () => {
+    const c = await makeClient('patch_ga4_norm1');
+
+    const res = await PATCH(jsonReq('PATCH', {
+      ga4PropertyId: 'properties/123456',
+    }), routeParams(c.id));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ga4PropertyId).toBe('123456');
+
+    // Verify persisted to DB
+    const dbRow = await prisma.client.findUnique({ where: { id: c.id } });
+    expect(dbRow!.ga4PropertyId).toBe('123456');
+  });
+
+  it('normalizes ga4PropertyId: trims whitespace and strips prefix', async () => {
+    const c = await makeClient('patch_ga4_norm2');
+
+    const res = await PATCH(jsonReq('PATCH', {
+      ga4PropertyId: '  properties/789  ',
+    }), routeParams(c.id));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ga4PropertyId).toBe('789');
+
+    // Verify persisted to DB
+    const dbRow = await prisma.client.findUnique({ where: { id: c.id } });
+    expect(dbRow!.ga4PropertyId).toBe('789');
+  });
+
+  it('normalizes ga4PropertyId: accepts bare id unchanged', async () => {
+    const c = await makeClient('patch_ga4_norm3');
+
+    const res = await PATCH(jsonReq('PATCH', {
+      ga4PropertyId: '123456',
+    }), routeParams(c.id));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ga4PropertyId).toBe('123456');
+
+    // Verify persisted to DB
+    const dbRow = await prisma.client.findUnique({ where: { id: c.id } });
+    expect(dbRow!.ga4PropertyId).toBe('123456');
+  });
+
   it('clears fields when patched with null', async () => {
     const c = await makeClient('patch3', {
       ga4PropertyId: '111',

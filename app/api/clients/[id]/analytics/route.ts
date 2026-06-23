@@ -81,7 +81,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (val === null) {
       data[field] = null;
     } else if (typeof val === 'string') {
-      data[field] = val;
+      // Normalize ga4PropertyId: strip leading 'properties/' prefix and trim whitespace
+      if (field === 'ga4PropertyId') {
+        let normalized = val.trim();
+        if (normalized.startsWith('properties/')) {
+          normalized = normalized.substring('properties/'.length);
+        }
+        data[field] = normalized;
+      } else {
+        // gscSiteUrl and crmClientRef stored verbatim
+        data[field] = val;
+      }
     } else {
       return NextResponse.json(
         { error: `${field} must be a string or null` },
