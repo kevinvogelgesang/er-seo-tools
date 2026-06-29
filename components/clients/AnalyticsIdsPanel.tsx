@@ -10,7 +10,7 @@
 // "123456") — NOT "properties/123456".
 // gscSiteUrl is sent VERBATIM (sc-domain: prefix preserved).
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface Ga4Property { propertyId: number; displayName: string }
 interface GscSite { siteUrl: string }
@@ -28,6 +28,115 @@ const inputCls =
   'w-full border border-gray-300 dark:border-navy-border rounded px-2 py-1.5 bg-white dark:bg-navy-deep text-gray-800 dark:text-white/90 text-xs'
 
 const labelCls = 'block text-xs text-gray-500 dark:text-white/50 mb-1'
+
+interface SelectOption {
+  value: string
+  label: string
+}
+
+/**
+ * Type-to-filter combobox: a trigger showing the current selection, and a
+ * popover with a search box + filtered option list. Replaces a native
+ * <select> so long GA4/GSC lists are searchable. Closes on outside click.
+ */
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  searchPlaceholder,
+  emptyLabel,
+}: {
+  value: string
+  onChange: (v: string) => void
+  options: SelectOption[]
+  searchPlaceholder: string
+  emptyLabel: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  const selected = options.find((o) => o.value === value)
+  const q = query.trim().toLowerCase()
+  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options
+
+  // Close + reset the query on outside click.
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  function choose(v: string) {
+    onChange(v)
+    setOpen(false)
+    setQuery('')
+  }
+
+  const optionBtnCls =
+    'w-full text-left px-2 py-1.5 text-xs text-gray-800 dark:text-white/90 hover:bg-gray-100 dark:hover:bg-white/5'
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`${inputCls} flex items-center justify-between text-left`}
+      >
+        <span className={selected ? 'truncate' : 'truncate text-gray-400 dark:text-white/30'}>
+          {selected ? selected.label : emptyLabel}
+        </span>
+        <span className="ml-2 text-gray-400 dark:text-white/40 shrink-0">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full rounded border border-gray-300 dark:border-navy-border bg-white dark:bg-navy-deep shadow-lg">
+          <div className="sticky top-0 border-b border-gray-100 dark:border-navy-border bg-white dark:bg-navy-deep p-1.5">
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder}
+              className={inputCls}
+            />
+          </div>
+          <ul className="max-h-56 overflow-auto py-1">
+            <li>
+              <button
+                type="button"
+                onClick={() => choose('')}
+                className={`${optionBtnCls} ${value === '' ? 'font-semibold text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-white/40'}`}
+              >
+                {emptyLabel}
+              </button>
+            </li>
+            {filtered.map((o) => (
+              <li key={o.value}>
+                <button
+                  type="button"
+                  onClick={() => choose(o.value)}
+                  className={`${optionBtnCls} ${o.value === value ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-blue-700 dark:text-blue-400' : ''}`}
+                >
+                  {o.label}
+                </button>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="px-2 py-1.5 text-xs text-gray-400 dark:text-white/30">No matches</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function AnalyticsIdsPanel({ clientId }: Props) {
   const [current, setCurrent] = useState<AnalyticsData | null>(null)
@@ -167,14 +276,16 @@ export function AnalyticsIdsPanel({ clientId }: Props) {
             </button>
           </div>
           {ga4Mode === 'pick' ? (
-            <select value={ga4Pick} onChange={(e) => setGa4Pick(e.target.value)} className={inputCls}>
-              <option value="">— not mapped —</option>
-              {ga4Props.map((p) => (
-                <option key={p.propertyId} value={String(p.propertyId)}>
-                  {p.displayName} ({p.propertyId})
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={ga4Pick}
+              onChange={setGa4Pick}
+              options={ga4Props.map((p) => ({
+                value: String(p.propertyId),
+                label: `${p.displayName} (${p.propertyId})`,
+              }))}
+              searchPlaceholder="Search by name or property id…"
+              emptyLabel="— not mapped —"
+            />
           ) : (
             <div>
               <input
@@ -204,14 +315,13 @@ export function AnalyticsIdsPanel({ clientId }: Props) {
             </button>
           </div>
           {gscMode === 'pick' ? (
-            <select value={gscPick} onChange={(e) => setGscPick(e.target.value)} className={inputCls}>
-              <option value="">— not mapped —</option>
-              {gscSites.map((s) => (
-                <option key={s.siteUrl} value={s.siteUrl}>
-                  {s.siteUrl}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={gscPick}
+              onChange={setGscPick}
+              options={gscSites.map((s) => ({ value: s.siteUrl, label: s.siteUrl }))}
+              searchPlaceholder="Search sites…"
+              emptyLabel="— not mapped —"
+            />
           ) : (
             <div>
               <input
