@@ -87,6 +87,41 @@ describe('lineChartSvg', () => {
     assertNoNanInfinity(svg, 'single current, empty previous')
     expect(svg).toMatch(/^<svg/)
   })
+
+  it('renders y-axis tick labels, gridlines, and a rotated y-axis title', () => {
+    const svg = lineChartSvg([10, 20, 30, 40], [5, 15, 25, 35], {
+      ...opts,
+      yLabel: 'Sessions',
+    })
+    // Tick text + axis title appear as <text> elements
+    expect(svg).toContain('<text')
+    expect(svg).toContain('Sessions')
+    expect(svg).toContain('rotate(-90')
+    // Gridlines + axis lines present
+    expect(svg).toContain('<line')
+    assertNoNanInfinity(svg, 'axis-labeled chart')
+  })
+
+  it('renders x-axis category (date) labels shortened to MM-DD', () => {
+    const svg = lineChartSvg([10, 20, 30], [5, 15, 25], {
+      ...opts,
+      xLabels: ['2026-05-01', '2026-05-15', '2026-05-31'],
+    })
+    expect(svg).toContain('05-01')
+    expect(svg).toContain('05-31')
+    // Full ISO date should NOT be rendered verbatim (shortened)
+    expect(svg).not.toContain('2026-05-01')
+    assertNoNanInfinity(svg, 'x-labeled chart')
+  })
+
+  it('formatY controls y-axis tick label formatting', () => {
+    const svg = lineChartSvg([1000, 2000, 3000], [500, 1500, 2500], {
+      ...opts,
+      formatY: (v) => `${v}px`,
+    })
+    expect(svg).toContain('px')
+    assertNoNanInfinity(svg, 'formatY chart')
+  })
 })
 
 // ---------------------------------------------------------------------------

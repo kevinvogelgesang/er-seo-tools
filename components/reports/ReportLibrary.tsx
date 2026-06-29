@@ -143,6 +143,7 @@ export function ReportLibrary() {
   const [clients, setClients] = useState<ClientItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const clientMap = new Map(clients.map((c) => [c.id, c.name]))
 
@@ -168,6 +169,29 @@ export function ReportLibrary() {
       setLoading(false)
     }
   }, [])
+
+  const deleteReport = useCallback(
+    async (id: string) => {
+      if (typeof window !== 'undefined' && !window.confirm('Delete this report? This removes the PDF and cannot be undone.')) {
+        return
+      }
+      setDeletingId(id)
+      try {
+        const res = await fetch(`/api/reports/${id}`, { method: 'DELETE' })
+        if (res.ok || res.status === 404) {
+          // Optimistically drop the row; 404 means it's already gone.
+          setReports((prev) => prev.filter((r) => r.id !== id))
+        } else {
+          setError(`Delete failed (${res.status})`)
+        }
+      } catch {
+        setError('Network error')
+      } finally {
+        setDeletingId(null)
+      }
+    },
+    [],
+  )
 
   // Initial fetch
   useEffect(() => {
@@ -288,6 +312,15 @@ export function ReportLibrary() {
                         onSaved={() => void fetchAll()}
                       />
                     )}
+
+                    {/* Delete */}
+                    <button
+                      onClick={() => void deleteReport(r.id)}
+                      disabled={deletingId === r.id}
+                      className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline font-semibold disabled:opacity-50 self-start"
+                    >
+                      {deletingId === r.id ? 'Deleting…' : 'Delete'}
+                    </button>
                   </div>
                 </td>
               </tr>

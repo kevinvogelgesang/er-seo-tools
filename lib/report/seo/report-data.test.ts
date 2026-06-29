@@ -380,14 +380,38 @@ describe('buildSeoReportData — top-N slicing', () => {
     expect(result.landingPages[9].path).toBe('/page-10')
   })
 
-  it('slices queries to top 10 (from 25 provided)', () => {
+  it('returns all queries when fewer than the top-100 cap (25 provided)', () => {
     const result = buildSeoReportData(makeBundleWith({}), makeMeta())
-    expect(result.queries).toHaveLength(10)
+    expect(result.queries).toHaveLength(25)
   })
 
-  it('returns all cities provided (no top-N cap on cities)', () => {
-    const result = buildSeoReportData(makeBundleWith({}), makeMeta())
-    expect(result.cities).toHaveLength(2)
+  it('caps queries at top 100 when more are provided', () => {
+    const manyQueries = Array.from({ length: 150 }, (_, i) => ({
+      query: `kw ${i + 1}`,
+      position: i + 1,
+      positionPrev: null,
+    }))
+    const result = buildSeoReportData(
+      makeBundle(undefined, makeGscBundle({ queries: manyQueries })),
+      makeMeta(),
+    )
+    expect(result.queries).toHaveLength(100)
+  })
+
+  it('caps cities to top 10 by sessions, sorted descending', () => {
+    const manyCities = Array.from({ length: 14 }, (_, i) => ({
+      city: `City ${i + 1}`,
+      sessions: i + 1, // ascending so sort must reorder
+      keyEvents: 0,
+    }))
+    const result = buildSeoReportData(
+      makeBundle(makeGa4Bundle({ cities: manyCities })),
+      makeMeta(),
+    )
+    expect(result.cities).toHaveLength(10)
+    // Highest-sessions city first (descending order).
+    expect(result.cities[0].sessions).toBe(14)
+    expect(result.cities[9].sessions).toBe(5)
   })
 })
 
