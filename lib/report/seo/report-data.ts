@@ -15,8 +15,8 @@
 //
 // 2. Top-N values:
 //    - Landing pages: top 10 (spec §5 says "top 10")
-//    - Queries: top 10 (GSC bundle carries up to 25; we slice to 10 for display)
-//    - Cities: no cap (spec §5 doesn't name a number; pass through all)
+//    - Queries: top 100 (GSC bundle carries up to 100; we display all of them)
+//    - Cities: top 10 by sessions (sorted desc, then sliced)
 //
 // 3. Value formatting:
 //    - Duration: integer seconds → "m:ss" (e.g. 125 → "2:05", 45 → "0:45")
@@ -82,9 +82,9 @@ export interface SeoReportData {
   // Tables
   /** Top 10 landing pages by sessions (as provided by GA4Bundle in order) */
   landingPages: { path: string; sessions: number; keyEvents: number }[]
-  /** Top 10 queries (as provided by GscBundle in order) */
+  /** Top 100 queries (as provided by GscBundle in order) */
   queries: { query: string; position: number; positionPrev: number | null }[]
-  /** All cities (no cap) */
+  /** Top 10 cities by sessions (sorted desc) */
   cities: { city: string; sessions: number; keyEvents: number }[]
 
   // Donuts
@@ -100,7 +100,8 @@ export interface SeoReportData {
 // ---------------------------------------------------------------------------
 
 const TOP_LANDING_PAGES = 10
-const TOP_QUERIES = 10
+const TOP_QUERIES = 100
+const TOP_CITIES = 10
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -355,7 +356,9 @@ export function buildSeoReportData(
 
   const landingPages = ga4 ? ga4.landingPages.slice(0, TOP_LANDING_PAGES) : []
   const queries = gsc ? gsc.queries.slice(0, TOP_QUERIES) : []
-  const cities = ga4 ? ga4.cities : []
+  const cities = ga4
+    ? [...ga4.cities].sort((a, b) => b.sessions - a.sessions).slice(0, TOP_CITIES)
+    : []
 
   // ─── Donuts ───────────────────────────────────────────────────────────────
 

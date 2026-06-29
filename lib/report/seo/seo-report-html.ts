@@ -21,70 +21,93 @@ import type { SeoReportData, SeoScorecardRow } from './report-data'
 // Brand
 // ---------------------------------------------------------------------------
 
+// Palette extracted from the VirtualAdviser analytics dashboard (Mantine-based).
 const BRAND = {
-  navy: '#1c2d4a',
-  navyDeep: '#0f1d30',
-  orange: '#f5a623',
-  light: '#f7f8fa',
+  navy: '#15457d', // sidebar / cover chrome
+  navyDeep: '#0f3057', // darker navy
+  blue: '#0b6dc7', // primary accent — KPI numbers, links
+  blueMid: '#1e60a4', // chart blue
+  teal: '#67c7c5',
+  green: '#40c057',
+  pink: '#fd5881',
+  orange: '#f59f00', // accent only (not primary)
+  deltaUp: '#12b886', // favorable change
+  deltaDown: '#fa5252', // unfavorable change
+  page: '#f8f9fa', // app background behind cards
+  card: '#ffffff',
+  border: '#dee2e6',
+  grid: '#e0e0e0',
+  text: '#212529',
+  heading: '#343a40',
+  muted: '#868e96',
+  axisLabel: '#6b7280',
 }
 
 // ---------------------------------------------------------------------------
 // Inline CSS
 // ---------------------------------------------------------------------------
 
+const FONT_STACK = `-apple-system, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`
+
 const STYLE = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
   @page { size: Letter; margin: 0.4in; }
-  body { font-family: Helvetica, Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.45; }
-  h2 { color: ${BRAND.navy}; font-size: 15px; margin: 0 0 10px; }
-  h3 { color: ${BRAND.navyDeep}; font-size: 12px; margin: 0 0 6px; }
-  a { color: ${BRAND.navy}; word-break: break-all; }
+  body { font-family: ${FONT_STACK}; color: ${BRAND.text}; font-size: 12px; line-height: 1.45; background: ${BRAND.page}; }
+  /* Section headings — uppercase, tracked, muted-dark (dashboard card titles) */
+  h2 { color: ${BRAND.heading}; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px; }
+  h3 { color: ${BRAND.heading}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin: 0 0 6px; }
+  a { color: ${BRAND.blue}; word-break: break-all; }
 
-  /* Cover */
-  .cover { background: ${BRAND.navy}; color: #ffffff; padding: 36px 32px 28px; border-bottom: 6px solid ${BRAND.orange}; }
-  .wordmark { font-size: 14px; font-weight: 700; letter-spacing: 0.35em; color: #ffffff; }
-  .wordmark-rule { width: 64px; height: 3px; background: ${BRAND.orange}; margin: 8px 0 20px; }
-  .cover h1 { font-size: 22px; margin: 0 0 10px; color: #ffffff; }
-  .cover-domain { font-size: 16px; color: ${BRAND.orange}; margin-bottom: 4px; }
-  .cover-client { font-size: 14px; margin-bottom: 4px; color: #ffffff; }
-  .cover-meta { font-size: 11px; color: #d1d5db; margin-top: 2px; }
+  /* Cover — navy chrome + blue accent rule (mirrors the dashboard's navy sidebar) */
+  .cover { background: ${BRAND.navy}; color: #ffffff; padding: 16px 28px 14px; border-bottom: 4px solid ${BRAND.blue}; }
+  .cover-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+  .wordmark { font-size: 11px; font-weight: 700; letter-spacing: 0.3em; color: #9ec5ec; }
+  .cover h1 { font-size: 17px; margin: 4px 0 6px; color: #ffffff; font-weight: 600; }
+  .cover-ident { font-size: 14px; color: #ffffff; font-weight: 600; }
+  .cover-ident .cover-domain { color: #9ec5ec; font-weight: 400; }
+  .cover-meta { font-size: 10.5px; color: #c2cfde; margin-top: 3px; }
 
-  /* Section chrome */
+  /* Section chrome — white cards, hairline border, 4px radius, no shadow */
   .section { margin: 16px 24px; }
-  .card { page-break-inside: avoid; background: ${BRAND.light}; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px 16px; margin: 16px 24px; }
+  .card { page-break-inside: avoid; background: ${BRAND.card}; border: 1px solid ${BRAND.border}; border-radius: 4px; padding: 14px 16px; margin: 16px 24px; }
 
-  /* Scorecard grid */
-  .sc-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-  .sc-tile { flex: 1 1 130px; min-width: 120px; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; }
-  .sc-label { font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
-  .sc-value { font-size: 20px; font-weight: 700; color: ${BRAND.navyDeep}; }
-  .sc-delta { font-size: 10px; margin-top: 3px; }
-  .delta-up { color: #16a34a; }
-  .delta-down { color: #dc2626; }
-  .delta-neutral { color: #6b7280; }
+  /* Scorecard grid — uppercase muted label, bold blue value, colored delta */
+  .sc-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .sc-tile { flex: 1 1 130px; min-width: 120px; background: ${BRAND.card}; border: 1px solid ${BRAND.border}; border-radius: 4px; padding: 12px; }
+  .sc-label { font-size: 9px; color: ${BRAND.muted}; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; font-weight: 600; }
+  .sc-value { font-size: 26px; font-weight: 700; color: ${BRAND.blue}; line-height: 1.05; }
+  .sc-delta { font-size: 11px; font-weight: 500; margin-top: 5px; }
+  .delta-up { color: ${BRAND.deltaUp}; }
+  .delta-down { color: ${BRAND.deltaDown}; }
+  .delta-neutral { color: ${BRAND.muted}; }
 
   /* Charts */
-  .chart-wrap { margin-top: 8px; }
+  .chart-wrap { margin-top: 6px; }
+  .chart-legend { display: flex; gap: 16px; font-size: 10px; color: ${BRAND.axisLabel}; margin: 2px 0 4px; flex-wrap: wrap; }
+  .chart-legend .ln { display: inline-flex; align-items: center; gap: 5px; }
+  .chart-legend .swatch { width: 14px; border-top: 3px solid #000; display: inline-block; }
 
   /* Tables */
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
-  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e5e7eb; }
-  th { color: ${BRAND.navy}; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e9ecef; }
+  th { color: ${BRAND.muted}; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; border-bottom: 1px solid ${BRAND.border}; }
   td.num, th.num { text-align: right; }
   td.url { word-break: break-all; }
+  tbody tr:nth-child(even) { background: ${BRAND.page}; }
 
   /* Donuts */
   .donut-row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
   .donut-block { flex: 0 0 auto; }
-  .donut-legend { margin-top: 8px; font-size: 10px; }
-  .donut-legend li { list-style: none; margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
-  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .donut-legend { margin-top: 8px; font-size: 10px; min-width: 180px; }
+  .donut-legend li { list-style: none; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .donut-legend .legend-value { margin-left: auto; color: ${BRAND.axisLabel}; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
   /* Gap blocks */
-  .gap-block { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 10px 14px; color: #92400e; font-size: 11px; margin: 16px 24px; }
+  .gap-block { background: #fff3bf; border: 1px solid #f59f00; border-radius: 4px; padding: 10px 14px; color: #846100; font-size: 11px; margin: 16px 24px; }
 
   /* Footer */
-  .footer-note { margin: 24px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 9px; color: #6b7280; }
+  .footer-note { margin: 24px; padding-top: 10px; border-top: 1px solid ${BRAND.border}; font-size: 9px; color: ${BRAND.muted}; }
 
   /* Print */
   @media print {
@@ -97,16 +120,36 @@ const STYLE = `
 // Donut palette — enough colors for each slice
 // ---------------------------------------------------------------------------
 
+// Channel-category series palette read from the dashboard's stacked-area chart.
 const DONUT_COLORS = [
-  BRAND.orange,
-  BRAND.navy,
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#8b5cf6',
-  '#ef4444',
-  '#14b8a6',
+  BRAND.blueMid, // #1e60a4
+  BRAND.teal, // #67c7c5
+  BRAND.green, // #40c057
+  BRAND.pink, // #fd5881
+  BRAND.orange, // #f59f00
+  BRAND.blue, // #0b6dc7
+  '#7048e8', // violet
+  '#15aabf', // cyan
 ]
+
+// Stroke color for the previous-period (comparison) line series (Mantine gray.5).
+const PREV_COLOR = '#adb5bd'
+
+// ---------------------------------------------------------------------------
+// Shared chart legend (current vs previous period)
+// ---------------------------------------------------------------------------
+
+function seriesLegend(
+  currentColor: string,
+  currentLabel: string,
+  prevLabel: string,
+): string {
+  return `
+  <div class="chart-legend">
+    <span class="ln"><span class="swatch" style="border-top-color:${escapeAttr(currentColor)}"></span>${escapeHtml(currentLabel)}</span>
+    <span class="ln"><span class="swatch" style="border-top-color:${PREV_COLOR}"></span>${escapeHtml(prevLabel)}</span>
+  </div>`
+}
 
 // ---------------------------------------------------------------------------
 // Delta rendering helpers
@@ -133,19 +176,18 @@ function deltaHtml(sc: SeoScorecardRow): string {
 // ---------------------------------------------------------------------------
 
 function coverSection(data: SeoReportData): string {
-  const operatorLine = data.operator
-    ? `<div class="cover-meta">Prepared by ${escapeHtml(data.operator)}</div>`
+  const prepared = data.operator
+    ? ` &nbsp;·&nbsp; Prepared by ${escapeHtml(data.operator)}`
     : ''
   return `
 <header class="cover">
-  <div class="wordmark">ENROLLMENT RESOURCES</div>
-  <div class="wordmark-rule"></div>
+  <div class="cover-top">
+    <div class="wordmark">ENROLLMENT RESOURCES</div>
+    <div class="cover-meta">Generated ${escapeHtml(data.generatedAt)}${prepared}</div>
+  </div>
   <h1>SEO Performance Report</h1>
-  <div class="cover-domain">${escapeHtml(data.domain)}</div>
-  <div class="cover-client">${escapeHtml(data.clientName)}</div>
-  <div class="cover-meta">Period: ${escapeHtml(data.periodLabel)} &nbsp;·&nbsp; Comparison: ${escapeHtml(data.comparisonLabel)}</div>
-  <div class="cover-meta">Generated: ${escapeHtml(data.generatedAt)}</div>
-  ${operatorLine}
+  <div class="cover-ident">${escapeHtml(data.clientName)} <span class="cover-domain">· ${escapeHtml(data.domain)}</span></div>
+  <div class="cover-meta">${escapeHtml(data.periodLabel)} &nbsp;vs&nbsp; ${escapeHtml(data.comparisonLabel)}</div>
 </header>`
 }
 
@@ -175,11 +217,19 @@ function sessionsChartSection(data: SeoReportData): string {
   const svg = lineChartSvg(
     data.sessionsSeries.map((p) => p.value),
     data.sessionsSeriesPrev.map((p) => p.value),
-    { width: 600, height: 160, color: BRAND.orange },
+    {
+      width: 600,
+      height: 170,
+      color: BRAND.blue,
+      prevColor: PREV_COLOR,
+      xLabels: data.sessionsSeries.map((p) => p.date),
+      yLabel: 'Sessions',
+    },
   )
   return `
 <div class="card">
   <h2>Sessions over Time</h2>
+  ${seriesLegend(BRAND.blue, data.periodLabel, data.comparisonLabel)}
   <div class="chart-wrap">${svg}</div>
 </div>`
 }
@@ -236,48 +286,44 @@ function citiesSection(data: SeoReportData): string {
 </div>`
 }
 
-function newVsReturningDonut(data: SeoReportData): string {
-  if (data.gaps.ga4) return ''
-  const slices = data.newVsReturning.map((s, i) => ({
+/**
+ * Build a labeled donut block. Each legend row shows the slice label, its
+ * session count, and its share of the total as a percentage.
+ */
+function donutBlock(
+  title: string,
+  items: { label: string; sessions: number }[],
+): string {
+  const slices = items.map((s, i) => ({
     label: s.label,
     value: s.sessions,
     color: DONUT_COLORS[i % DONUT_COLORS.length],
   }))
+  const total = slices.reduce((sum, s) => sum + s.value, 0)
   const svg = donutSvg(slices, { size: 120, strokeWidth: 28 })
   const legend = slices
-    .map(
-      (s) =>
-        `<li><span class="legend-dot" style="background:${escapeAttr(s.color)}"></span>${escapeHtml(s.label)}</li>`,
-    )
+    .map((s) => {
+      const count = s.value.toLocaleString('en-US')
+      const pct = total > 0 ? ` (${((s.value / total) * 100).toFixed(1)}%)` : ''
+      return `<li><span class="legend-dot" style="background:${escapeAttr(s.color)}"></span><span class="legend-label">${escapeHtml(s.label)}</span><span class="legend-value">${escapeHtml(count)}${escapeHtml(pct)}</span></li>`
+    })
     .join('')
   return `
 <div class="donut-block">
-  <h3>New vs Returning</h3>
+  <h3>${escapeHtml(title)}</h3>
   ${svg}
   <ul class="donut-legend">${legend}</ul>
 </div>`
 }
 
+function newVsReturningDonut(data: SeoReportData): string {
+  if (data.gaps.ga4) return ''
+  return donutBlock('New vs Returning', data.newVsReturning)
+}
+
 function devicesDonut(data: SeoReportData): string {
   if (data.gaps.ga4) return ''
-  const slices = data.devices.map((s, i) => ({
-    label: s.label,
-    value: s.sessions,
-    color: DONUT_COLORS[i % DONUT_COLORS.length],
-  }))
-  const svg = donutSvg(slices, { size: 120, strokeWidth: 28 })
-  const legend = slices
-    .map(
-      (s) =>
-        `<li><span class="legend-dot" style="background:${escapeAttr(s.color)}"></span>${escapeHtml(s.label)}</li>`,
-    )
-    .join('')
-  return `
-<div class="donut-block">
-  <h3>Device Category</h3>
-  ${svg}
-  <ul class="donut-legend">${legend}</ul>
-</div>`
+  return donutBlock('Device Category', data.devices)
 }
 
 function donutsSection(data: SeoReportData): string {
@@ -302,26 +348,48 @@ function gscChartSection(data: SeoReportData): string {
   const clicksSvg = lineChartSvg(
     data.clicksSeries.map((p) => p.value),
     data.clicksSeriesPrev.map((p) => p.value),
-    { width: 600, height: 120, color: BRAND.orange },
+    {
+      width: 600,
+      height: 140,
+      color: BRAND.blue,
+      prevColor: PREV_COLOR,
+      xLabels: data.clicksSeries.map((p) => p.date),
+      yLabel: 'Clicks',
+    },
   )
   const impSvg = lineChartSvg(
     data.impressionsSeries.map((p) => p.value),
     data.impressionsSeriesPrev.map((p) => p.value),
-    { width: 600, height: 120, color: BRAND.navy },
+    {
+      width: 600,
+      height: 140,
+      color: BRAND.blueMid,
+      prevColor: PREV_COLOR,
+      xLabels: data.impressionsSeries.map((p) => p.date),
+      yLabel: 'Impressions',
+    },
   )
   const posSvg = lineChartSvg(
     data.positionSeries.map((p) => p.value),
     data.positionSeriesPrev.map((p) => p.value),
-    { width: 600, height: 120, color: '#6b7280' },
+    {
+      width: 600,
+      height: 140,
+      color: '#2f9e9b',
+      prevColor: PREV_COLOR,
+      xLabels: data.positionSeries.map((p) => p.date),
+      yLabel: 'Avg Position',
+    },
   )
   return `
 <div class="card">
   <h2>Clicks / Impressions / Position over Time</h2>
+  ${seriesLegend(BRAND.blue, data.periodLabel, data.comparisonLabel)}
   <h3>Clicks</h3>
   <div class="chart-wrap">${clicksSvg}</div>
   <h3 style="margin-top:12px">Impressions</h3>
   <div class="chart-wrap">${impSvg}</div>
-  <h3 style="margin-top:12px">Avg Position</h3>
+  <h3 style="margin-top:12px">Avg Position (lower is better)</h3>
   <div class="chart-wrap">${posSvg}</div>
 </div>`
 }

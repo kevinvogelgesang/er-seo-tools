@@ -398,16 +398,16 @@ describe('document structure', () => {
     expect(html).toContain('Letter')
   })
 
-  it('includes brand navy color in inline CSS', () => {
+  it('includes dashboard navy chrome color in inline CSS', () => {
     const html = buildSeoReportHtml(FULL_DATA)
-    // Navy color: #1c2d4a (from C4 BRAND constant)
-    expect(html).toContain('#1c2d4a')
+    // Navy (sidebar/cover): #15457d (VirtualAdviser palette)
+    expect(html).toContain('#15457d')
   })
 
-  it('includes brand orange color in inline CSS', () => {
+  it('includes dashboard primary blue accent in inline CSS', () => {
     const html = buildSeoReportHtml(FULL_DATA)
-    // Orange: #f5a623
-    expect(html).toContain('#f5a623')
+    // Primary blue (KPI numbers, links): #0b6dc7
+    expect(html).toContain('#0b6dc7')
   })
 
   it('has no external asset references (self-contained)', () => {

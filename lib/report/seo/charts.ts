@@ -14,10 +14,39 @@ export interface LineChartOpts {
   height: number
   /** Primary/current series stroke color (hex or CSS color string) */
   color: string
+  /** Stroke color for the previous-period (comparison) series. Default: '#9ca3af' */
+  prevColor?: string
+  /** Axis / gridline color. Default: '#d1d5db' */
+  axisColor?: string
+  /** Tick-label text color. Default: '#6b7280' */
+  labelColor?: string
+  /** X-axis category labels (e.g. dates), aligned to the CURRENT series indices. */
+  xLabels?: string[]
+  /** Y-axis title rendered rotated at the far left. */
+  yLabel?: string
+  /** Formats a y-axis tick value into a label string. Default: compact number. */
+  formatY?: (v: number) => string
+}
+
+// Compact, deterministic numeric label (no locale, no Date).
+// 1234 → "1.2k", 2_500_000 → "2.5M", 8.27 → "8.3", 42 → "42".
+function compactNum(v: number): string {
+  const a = Math.abs(v)
+  if (a >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+  if (a >= 1_000) return `${(v / 1_000).toFixed(1).replace(/\.0$/, '')}k`
+  if (Number.isInteger(v)) return String(v)
+  return v.toFixed(1)
+}
+
+// Shorten a YYYY-MM-DD date label to MM-DD; pass anything else through verbatim.
+function shortDate(label: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(label) ? label.slice(5) : label
 }
 
 /**
- * Render two overlaid line series (current + previous period) as inline SVG.
+ * Render two overlaid line series (current + previous period) as inline SVG,
+ * with a labeled value axis (left), a labeled category axis (bottom), and
+ * horizontal gridlines.
  *
  * Edge-case guarantees:
  * - 0 points → empty chart frame, NO NaN in output.
@@ -31,10 +60,25 @@ export function lineChartSvg(
   opts: LineChartOpts,
 ): string {
   const { width: W, height: H, color } = opts
-  const PAD_X = 14
-  const PAD_Y = 10
-  const plotW = W - PAD_X * 2
-  const plotH = H - PAD_Y * 2
+  const prevColor = opts.prevColor ?? '#9ca3af'
+  const axisColor = opts.axisColor ?? '#e0e0e0'
+  const labelColor = opts.labelColor ?? '#6b7280'
+  const formatY = opts.formatY ?? compactNum
+  const xLabels = opts.xLabels ?? []
+  const yLabel = opts.yLabel
+
+  // Padding reserves room for axis labels.
+  const PAD_LEFT = yLabel ? 52 : 40
+  const PAD_RIGHT = 14
+  const PAD_TOP = 10
+  const PAD_BOTTOM = 26
+
+  const plotLeft = PAD_LEFT
+  const plotRight = W - PAD_RIGHT
+  const plotTop = PAD_TOP
+  const plotBottom = H - PAD_BOTTOM
+  const plotW = plotRight - plotLeft
+  const plotH = plotBottom - plotTop
 
   // Collect all values to compute a shared scale across both series.
   const allValues = [...current, ...previous]
@@ -50,15 +94,60 @@ export function lineChartSvg(
 
   // Map a value → y coordinate. Guard divide-by-zero when range === 0.
   const toY = (v: number): number => {
-    if (range === 0) return PAD_Y + plotH / 2 // flat mid-line
-    return PAD_Y + (1 - (v - dataMin) / range) * plotH
+    if (range === 0) return plotTop + plotH / 2 // flat mid-line
+    return plotTop + (1 - (v - dataMin) / range) * plotH
   }
 
   // Map an index within an array of length n → x coordinate.
   const toX = (i: number, n: number): number => {
-    if (n === 1) return W / 2 // center single point
-    return PAD_X + (i / (n - 1)) * plotW
+    if (n === 1) return plotLeft + plotW / 2 // center single point
+    return plotLeft + (i / (n - 1)) * plotW
   }
+
+  // ── Y-axis gridlines + tick labels ───────────────────────────────────────
+  const NUM_Y_TICKS = 4
+  let gridlines = ''
+  let yTickLabels = ''
+  const tickValues =
+    range === 0
+      ? [dataMin]
+      : Array.from(
+          { length: NUM_Y_TICKS },
+          (_, t) => dataMin + (range * t) / (NUM_Y_TICKS - 1),
+        )
+  for (const tv of tickValues) {
+    const y = toY(tv).toFixed(1)
+    gridlines += `<line x1="${plotLeft}" y1="${y}" x2="${plotRight}" y2="${y}" stroke="${axisColor}" stroke-width="0.5" opacity="0.6"/>`
+    yTickLabels += `<text x="${plotLeft - 5}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="8" fill="${labelColor}">${escapeAttr(formatY(tv))}</text>`
+  }
+
+  // ── Axis lines ────────────────────────────────────────────────────────────
+  const axisLines =
+    `<line x1="${plotLeft}" y1="${plotTop}" x2="${plotLeft}" y2="${plotBottom}" stroke="${axisColor}" stroke-width="1"/>` +
+    `<line x1="${plotLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" stroke="${axisColor}" stroke-width="1"/>`
+
+  // ── X-axis category labels (up to ~6 evenly spaced) ───────────────────────
+  let xTickLabels = ''
+  const n = current.length
+  if (n > 0 && xLabels.length > 0) {
+    const maxLabels = Math.min(6, n)
+    const step = maxLabels <= 1 ? 1 : (n - 1) / (maxLabels - 1)
+    const seen = new Set<number>()
+    for (let k = 0; k < maxLabels; k++) {
+      const i = Math.round(k * step)
+      if (i < 0 || i >= n || seen.has(i) || i >= xLabels.length) continue
+      seen.add(i)
+      const x = toX(i, n)
+      // Anchor edges inward so they don't clip the SVG bounds.
+      const anchor = i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'
+      xTickLabels += `<text x="${x.toFixed(1)}" y="${plotBottom + 12}" text-anchor="${anchor}" font-size="8" fill="${labelColor}">${escapeAttr(shortDate(xLabels[i]))}</text>`
+    }
+  }
+
+  // ── Y-axis title (rotated) ────────────────────────────────────────────────
+  const yAxisTitle = yLabel
+    ? `<text x="12" y="${(plotTop + plotBottom) / 2}" text-anchor="middle" font-size="8" fill="${labelColor}" transform="rotate(-90 12 ${((plotTop + plotBottom) / 2).toFixed(1)})">${escapeAttr(yLabel)}</text>`
+    : ''
 
   // Build a polyline element for a series.
   const buildSeries = (
@@ -89,11 +178,11 @@ export function lineChartSvg(
   }
 
   // Previous series: dimmed, thinner stroke.
-  const prevSeries = buildSeries(previous, '#9ca3af', 1.5, 0.6)
+  const prevSeries = buildSeries(previous, prevColor, 1.5, 0.6)
   // Current series: full color, thicker stroke, rendered on top.
   const currSeries = buildSeries(current, color, 2, 1)
 
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img">${prevSeries}${currSeries}</svg>`
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img">${gridlines}${axisLines}${yTickLabels}${xTickLabels}${yAxisTitle}${prevSeries}${currSeries}</svg>`
 }
 
 // ---------------------------------------------------------------------------

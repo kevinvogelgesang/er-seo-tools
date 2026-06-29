@@ -132,7 +132,7 @@ function mapTotals(response: { data?: { rows?: GscRow[] | null } | null }): GscT
  * comparison window:
  *   1. Totals (no dimensions)
  *   2. Date series (dimensions: ['date'])
- *   3. Top queries (dimensions: ['query'], rowLimit: 25)
+ *   3. Top queries (dimensions: ['query'], rowLimit: 100)
  *
  * The siteUrl is passed VERBATIM — never normalized.
  * 'sc-domain:example.com' and 'https://example.com/' are different GSC properties.
@@ -191,14 +191,14 @@ export async function fetchGsc(
     const [pTotalsRes, pDateRes, pQueryRes] = await Promise.all([
       runQuery(period),
       runQuery(period, ['date']),
-      runQuery(period, ['query'], 25),
+      runQuery(period, ['query'], 100),
     ]);
 
     // ── Comparison window ──────────────────────────────────────────────────
     const [cTotalsRes, cDateRes, cQueryRes] = await Promise.all([
       runQuery(comparison),
       runQuery(comparison, ['date']),
-      runQuery(comparison, ['query'], 25),
+      runQuery(comparison, ['query'], 100),
     ]);
 
     // ── 5. Map into GscBundle ──────────────────────────────────────────────
