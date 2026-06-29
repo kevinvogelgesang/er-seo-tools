@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { normalizeClientDomains, InvalidDomainError } from '@/lib/security/domain-validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,10 +63,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     if (Array.isArray(body?.domains)) {
-      const domains: string[] = body.domains
-        .map((d: unknown) => (typeof d === 'string' ? d.trim().toLowerCase() : ''))
-        .filter(Boolean);
-      data.domains = JSON.stringify(domains);
+      // Server-side validation: hostname-only, normalized, deduped. Rejects
+      // schemes/paths/ports/IPs/internal names so malformed values never persist.
+      try {
+        data.domains = JSON.stringify(normalizeClientDomains(body.domains));
+      } catch (err) {
+        if (err instanceof InvalidDomainError) {
+          return NextResponse.json({ error: 'invalid_domain' }, { status: 400 });
+        }
+        throw err;
+      }
     }
 
     if ('teamworkTasklistId' in body) {

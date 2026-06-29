@@ -11,6 +11,7 @@ import { prisma } from '@/lib/db'
 import { parseCadence, nextRun } from '@/lib/jobs/scheduler'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
 import { getClientSchedules } from '@/lib/services/client-schedules'
+import { normalizeClientDomain, InvalidDomainError } from '@/lib/security/domain-validation'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -50,8 +51,19 @@ export async function POST(request: NextRequest, { params }: Params) {
     const parsed = JSON.parse(client.domains)
     if (Array.isArray(parsed)) domains = parsed.filter((d): d is string => typeof d === 'string')
   } catch { /* no domains */ }
-  const domain = typeof body.domain === 'string' ? body.domain.trim() : ''
-  if (!domain || !domains.includes(domain)) {
+  // Re-validate the submitted domain server-side: membership in the stored array
+  // is not enough, because legacy/unmigrated clients may hold malformed domains
+  // that must never become a schedule payload.
+  let domain: string
+  try {
+    domain = normalizeClientDomain(body.domain)
+  } catch (err) {
+    if (err instanceof InvalidDomainError) {
+      return NextResponse.json({ error: 'invalid_domain' }, { status: 400 })
+    }
+    throw err
+  }
+  if (!domains.includes(domain)) {
     return NextResponse.json({ error: 'domain_not_listed' }, { status: 400 })
   }
 

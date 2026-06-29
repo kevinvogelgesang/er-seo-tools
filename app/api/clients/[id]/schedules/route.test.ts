@@ -99,6 +99,23 @@ describe('POST /api/clients/[id]/schedules', () => {
     const badJson = new NextRequest('http://localhost/api/x', { method: 'POST', body: '{nope' })
     expect((await POST(badJson, p(clientId))).status).toBe(400)
   })
+
+  it('400 invalid_domain when scheduling a malformed domain, even if it is in the stored array (legacy data)', async () => {
+    // Pentest regression: a malformed domain persisted before validation existed
+    // must NOT be schedulable just because it is in the client's domains list.
+    const legacy = await prisma.client.create({
+      data: {
+        name: `${PREFIX}legacy-bad`,
+        domains: JSON.stringify(['example.com', 'javascript:alert(1)']),
+      },
+    })
+    const res = await POST(
+      jsonReq('POST', { domain: 'javascript:alert(1)', cadence: 'weekly:1@06:00' }),
+      p(legacy.id),
+    )
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('invalid_domain')
+  })
 })
 
 describe('GET /api/clients/[id]/schedules', () => {

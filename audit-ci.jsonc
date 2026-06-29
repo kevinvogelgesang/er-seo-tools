@@ -1,0 +1,33 @@
+// audit-ci gate — fails CI on NEW high/critical PRODUCTION advisories.
+//
+// Scope: `--omit=dev` equivalent (prod deps only); dev tooling advisories do not
+// gate. Threshold: high + critical (moderate is reported, not blocking).
+//
+// The allowlist holds ONLY the documented, reachability-reviewed exceptions from
+// the 2026-06-29 pentest remediation (see SECURITY.md). Each entry is an exact
+// advisory ID — a NEW advisory (different ID), including any new one against these
+// same packages, will NOT match and WILL fail the gate, forcing a fresh review.
+//
+// All allowlisted IDs are protobufjs advisories reached only through
+// @xenova/transformers -> onnxruntime-web -> onnx-proto -> protobufjs, which parses
+// a trusted fixed upstream ONNX model (Xenova/all-MiniLM-L6-v2), never
+// untrusted protobuf input. Removing the entry is the goal once @xenova/onnxruntime
+// ships a protobufjs@>=7 chain. See SECURITY.md for the full rationale.
+{
+  "high": true,
+  "critical": true,
+  "skip-dev": true,
+  "allowlist": [
+    "GHSA-2pr8-phx7-x9h3",
+    "GHSA-66ff-xgx4-vchm",
+    "GHSA-685m-2w69-288q",
+    "GHSA-75px-5xx7-5xc7",
+    "GHSA-f38q-mgvj-vph7",
+    "GHSA-fx83-v9x8-x52w",
+    "GHSA-jggg-4jg4-v7c6",
+    "GHSA-jvwf-75h9-cwgg",
+    "GHSA-q6x5-8v7m-xcrf",
+    "GHSA-wcpc-wj8m-hjx6",
+    "GHSA-xq3m-2v4x-88gg"
+  ]
+}
