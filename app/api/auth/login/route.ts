@@ -20,6 +20,15 @@ export async function POST(request: NextRequest) {
 
   const base = getAuthRedirectBase(request)
 
+  // Break-glass gate: once Google OAuth is the primary login, the shared
+  // password can be turned off (ALLOW_PASSWORD_LOGIN=false) without redeploying.
+  if (process.env.ALLOW_PASSWORD_LOGIN === 'false') {
+    const loginUrl = new URL('/login', base)
+    loginUrl.searchParams.set('error', 'password_login_disabled')
+    loginUrl.searchParams.set('next', nextPath)
+    return NextResponse.redirect(loginUrl, { status: 303 })
+  }
+
   if (typeof password !== 'string' || !verifyPassword(password)) {
     const loginUrl = new URL('/login', base)
     loginUrl.searchParams.set('error', 'invalid')

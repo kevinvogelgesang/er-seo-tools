@@ -123,6 +123,26 @@ describe('auth helpers', () => {
     expect(() => requireAuthConfig()).not.toThrow()
   })
 
+  it('succeeds in production with Google OAuth configured and no password', () => {
+    process.env.NODE_ENV = 'production'
+    delete process.env.APP_AUTH_PASSWORD
+    process.env.APP_AUTH_SECRET = 'prod-signing-secret'
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'cid'
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'csecret'
+    process.env.GOOGLE_ALLOWED_HD = 'enrollmentresources.com'
+
+    expect(() => requireAuthConfig()).not.toThrow()
+  })
+
+  it('throws in production when neither Google OAuth nor a password is configured', () => {
+    process.env.NODE_ENV = 'production'
+    delete process.env.APP_AUTH_PASSWORD
+    process.env.APP_AUTH_SECRET = 'prod-signing-secret'
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID
+
+    expect(() => requireAuthConfig()).toThrow()
+  })
+
   describe('createSignedToken / readSignedToken — generic signed transient', () => {
     it('round-trips an arbitrary payload', async () => {
       const token = await createSignedToken({ state: 'abc', nonce: 'xyz', next: '/clients' }, 600)

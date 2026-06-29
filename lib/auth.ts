@@ -41,13 +41,25 @@ export function isAuthBypassedInDev(): boolean {
 }
 
 export function requireAuthConfig(): void {
-  if (process.env.NODE_ENV === 'production') {
-    if (!isAuthConfigured()) {
-      throw new Error('APP_AUTH_PASSWORD is required in production')
-    }
-    if (!process.env.APP_AUTH_SECRET) {
-      throw new Error('APP_AUTH_SECRET is required in production')
-    }
+  if (process.env.NODE_ENV !== 'production') return
+
+  // The HMAC secret always signs the session + OAuth-handshake cookies.
+  if (!process.env.APP_AUTH_SECRET) {
+    throw new Error('APP_AUTH_SECRET is required in production')
+  }
+
+  // Production needs at least one working login path: Google OAuth or the
+  // shared password (break-glass). Env-only checks so this stays importable in
+  // the edge middleware without pulling in google-auth-library.
+  const hasGoogle = Boolean(
+    process.env.GOOGLE_OAUTH_CLIENT_ID &&
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
+      process.env.GOOGLE_ALLOWED_HD,
+  )
+  if (!hasGoogle && !isAuthConfigured()) {
+    throw new Error(
+      'Either Google OAuth (GOOGLE_OAUTH_CLIENT_ID/SECRET + GOOGLE_ALLOWED_HD) or APP_AUTH_PASSWORD is required in production',
+    )
   }
 }
 
