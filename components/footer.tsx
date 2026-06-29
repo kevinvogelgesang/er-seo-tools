@@ -8,6 +8,7 @@ const toolLinks = [
   { name: 'ADA Audit', href: '/ada-audit' },
   { name: 'Robots Validator', href: '/robots-validator' },
   { name: 'Quarter Grid', href: '/quarter-grid' },
+  { name: 'E-E-A-T Checklist', href: '/eat-checklist' },
   { name: 'RankMath Redirects', href: '/rankmath-redirects' },
   { name: 'Clients', href: '/clients' },
 ]
