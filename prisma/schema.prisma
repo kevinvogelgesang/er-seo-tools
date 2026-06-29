@@ -618,3 +618,17 @@ model ProspectsEntry {
 
   @@unique([clientId, periodStart, periodEnd])
 }
+
+// Operator identity for Google OAuth login. One row per Google account that has
+// signed in. Keyed by the Google `sub` (stable id; email is display/audit only).
+// `active` gates access — deactivating revokes a person without deleting history.
+model User {
+  id         String    @id @default(cuid())
+  googleSub  String    @unique
+  email      String
+  name       String?
+  hd         String?
+  active     Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt  DateTime  @default(now())
+}
