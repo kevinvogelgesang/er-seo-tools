@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAuthCookieValue,
+  createSignedToken,
   getAuthSession,
   isAuthBypassedInDev,
   isValidAuthCookie,
+  readSignedToken,
   requireAuthConfig,
   verifyPassword,
   normalizeAuthReturnPath,
@@ -119,6 +121,28 @@ describe('auth helpers', () => {
     process.env.APP_AUTH_SECRET = 'prod-signing-secret'
 
     expect(() => requireAuthConfig()).not.toThrow()
+  })
+
+  describe('createSignedToken / readSignedToken — generic signed transient', () => {
+    it('round-trips an arbitrary payload', async () => {
+      const token = await createSignedToken({ state: 'abc', nonce: 'xyz', next: '/clients' }, 600)
+      const read = await readSignedToken(token)
+      expect(read).toMatchObject({ state: 'abc', nonce: 'xyz', next: '/clients' })
+    })
+
+    it('returns null for a tampered or garbage token', async () => {
+      const token = await createSignedToken({ a: 1 }, 600)
+      expect(await readSignedToken(token.replace(/.$/, 'X'))).toBeNull()
+      expect(await readSignedToken('nope')).toBeNull()
+      expect(await readSignedToken(null)).toBeNull()
+    })
+
+    it('returns null once expired', async () => {
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000_000)
+      const token = await createSignedToken({ a: 1 }, 600)
+      nowSpy.mockReturnValue(1_000_000_000_000 + 601_000)
+      expect(await readSignedToken(token)).toBeNull()
+    })
   })
 
   it('normalizes login return paths to same-origin paths only', () => {

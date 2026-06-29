@@ -172,6 +172,47 @@ export async function isValidAuthCookie(
 }
 
 /**
+ * Generic short-lived signed token for transient server state (e.g. the OAuth
+ * handshake cookie binding state/nonce/code_verifier). Signs
+ * base64url(JSON{...payload, __exp}) with the app HMAC secret.
+ */
+export async function createSignedToken(
+  payload: Record<string, unknown>,
+  ttlSeconds: number,
+): Promise<string> {
+  const __exp = Math.floor(Date.now() / 1000) + ttlSeconds
+  const body = stringToBase64Url(JSON.stringify({ ...payload, __exp }))
+  return `${body}${SIGNATURE_SEPARATOR}${await sign(body)}`
+}
+
+/** Verify a createSignedToken value (signature + expiry) and return its payload. */
+export async function readSignedToken(
+  value: string | null | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!value) return null
+
+  const [body, signature, ...extra] = value.split(SIGNATURE_SEPARATOR)
+  if (extra.length > 0 || !body || !signature) return null
+  if (!constantTimeEqual(signature, await sign(body))) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(base64UrlToString(body))
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const p = parsed as Record<string, unknown>
+  const exp = typeof p.__exp === 'number' ? p.__exp : Number.NaN
+  if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null
+
+  const { __exp: _drop, ...rest } = p
+  void _drop
+  return rest
+}
+
+/**
  * Returns the canonical base URL for building auth redirects. Behind a reverse
  * proxy (RunCloud → Apache → Node on localhost:3000), `request.url` reflects
  * the internal upstream URL, not the public origin — so naive
