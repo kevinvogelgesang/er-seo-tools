@@ -25,6 +25,8 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/ada-audit/share/tok',
     '/ada-audit/site/share/tok',
     '/api/auth/login',
+    '/api/auth/google/start', // OAuth handshake start — pre-session, must be public
+    '/api/auth/google/callback', // OAuth handshake callback — pre-session, must be public
     '/api/share/tok',
     '/favicon.ico',
     '/privacy', // public privacy policy for Google OAuth verification

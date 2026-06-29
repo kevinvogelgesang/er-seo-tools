@@ -177,7 +177,7 @@ export async function isValidAuthCookie(
  * base64url(JSON{...payload, __exp}) with the app HMAC secret.
  */
 export async function createSignedToken(
-  payload: Record<string, unknown>,
+  payload: object,
   ttlSeconds: number,
 ): Promise<string> {
   const __exp = Math.floor(Date.now() / 1000) + ttlSeconds
