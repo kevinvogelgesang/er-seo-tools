@@ -14,6 +14,8 @@ interface ReportRow {
   ga4Status: string
   gscStatus: string
   prospectsStatus: string
+  prospectsTotal: number | null
+  prospectsOrganic: number | null
   periodStart: string
   periodEnd: string
   generatedAt: string | null
@@ -55,13 +57,17 @@ function fmtDate(iso: string): string {
 
 function ProspectsForm({
   reportId,
+  initialTotal,
+  initialOrganic,
   onSaved,
 }: {
   reportId: string
+  initialTotal: number | null
+  initialOrganic: number | null
   onSaved: () => void
 }) {
-  const [total, setTotal] = useState('')
-  const [organic, setOrganic] = useState('')
+  const [total, setTotal] = useState(initialTotal != null ? String(initialTotal) : '')
+  const [organic, setOrganic] = useState(initialOrganic != null ? String(initialOrganic) : '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -305,12 +311,21 @@ export function ReportLibrary() {
                       </a>
                     )}
 
-                    {/* Inline prospects entry — only when missing */}
-                    {r.prospectsStatus === 'missing' && (
-                      <ProspectsForm
-                        reportId={r.id}
-                        onSaved={() => void fetchAll()}
-                      />
+                    {/* Per-report prospects entry — settable when missing or
+                        already manually set (so each report can be edited
+                        independently). */}
+                    {(r.prospectsStatus === 'missing' || r.prospectsStatus === 'manual') && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-white/40 font-medium">
+                          {r.prospectsStatus === 'manual' ? 'Prospects (edit)' : 'Set prospects'}
+                        </span>
+                        <ProspectsForm
+                          reportId={r.id}
+                          initialTotal={r.prospectsTotal}
+                          initialOrganic={r.prospectsOrganic}
+                          onSaved={() => void fetchAll()}
+                        />
+                      </div>
                     )}
 
                     {/* Delete */}

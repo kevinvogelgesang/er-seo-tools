@@ -1,6 +1,6 @@
 // app/api/reports/[id]/prospects/route.test.ts
 //
-// DB-backed tests for PUT /api/reports/[id]/prospects (manual ProspectsEntry).
+// DB-backed tests for PUT /api/reports/[id]/prospects (per-report manual prospects).
 // Real Client/SeoReportBatch/SeoReport rows (client name prefix t24pros-).
 // enqueueSeoReportRender is mocked.
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest'
@@ -103,12 +103,12 @@ afterAll(async () => {
 })
 
 // ---------------------------------------------------------------------------
-// PUT — upsert ProspectsEntry + critical invariants
+// PUT — per-report prospects + critical invariants
 // ---------------------------------------------------------------------------
 
 describe('PUT /api/reports/[id]/prospects', () => {
-  it('upserts ProspectsEntry and resets metricsJson/status/prospectsStatus', async () => {
-    const clientId = await seedClient('upsert-ok')
+  it('writes prospectsTotal/Organic onto the report and resets metricsJson/status/prospectsStatus', async () => {
+    const clientId = await seedClient('perreport-ok')
     const { report } = await seedReport(clientId)
 
     const res = await put(report.id, { total: 250, organic: 100 })
@@ -116,87 +116,86 @@ describe('PUT /api/reports/[id]/prospects', () => {
     const body = await res.json() as { ok: boolean }
     expect(body.ok).toBe(true)
 
-    // Verify ProspectsEntry was created
-    const entry = await prisma.prospectsEntry.findUnique({
-      where: {
-        clientId_periodStart_periodEnd: {
-          clientId,
-          periodStart: new Date('2026-05-01T00:00:00.000Z'),
-          periodEnd: new Date('2026-05-31T00:00:00.000Z'),
-        },
-      },
-    })
-    expect(entry).not.toBeNull()
-    expect(entry?.total).toBe(250)
-    expect(entry?.organic).toBe(100)
-
-    // CRITICAL: metricsJson must be null after update
     const updatedReport = await prisma.seoReport.findUnique({
       where: { id: report.id },
-      select: { metricsJson: true, status: true, prospectsStatus: true },
+      select: {
+        prospectsTotal: true,
+        prospectsOrganic: true,
+        metricsJson: true,
+        status: true,
+        prospectsStatus: true,
+      },
     })
+    // Values stored ON THE REPORT (per-report)
+    expect(updatedReport?.prospectsTotal).toBe(250)
+    expect(updatedReport?.prospectsOrganic).toBe(100)
+    // CRITICAL: metricsJson must be null after update so the next render rebuilds
     expect(updatedReport?.metricsJson).toBeNull()
     expect(updatedReport?.status).toBe('queued')
     expect(updatedReport?.prospectsStatus).toBe('pending')
+
+    // No shared ProspectsEntry is written by the per-report path
+    const entryCount = await prisma.prospectsEntry.count({ where: { clientId } })
+    expect(entryCount).toBe(0)
 
     // enqueueSeoReportRender must have been called with the report id
     expect(enqueueSeoReportRender).toHaveBeenCalledWith(report.id)
   })
 
-  it('second PUT updates the same entry (upsert — no duplicate)', async () => {
-    const clientId = await seedClient('upsert-second')
+  it('is per-report: editing one report does NOT affect a sibling report for the same client+period', async () => {
+    const clientId = await seedClient('perreport-isolation')
+    const { report: reportA } = await seedReport(clientId)
+    const { report: reportB } = await seedReport(clientId)
+
+    await put(reportA.id, { total: 111, organic: 11 })
+    await put(reportB.id, { total: 222, organic: 22 })
+
+    const a = await prisma.seoReport.findUnique({
+      where: { id: reportA.id },
+      select: { prospectsTotal: true, prospectsOrganic: true },
+    })
+    const b = await prisma.seoReport.findUnique({
+      where: { id: reportB.id },
+      select: { prospectsTotal: true, prospectsOrganic: true },
+    })
+
+    // Each report keeps its own value — no cross-contamination
+    expect(a?.prospectsTotal).toBe(111)
+    expect(a?.prospectsOrganic).toBe(11)
+    expect(b?.prospectsTotal).toBe(222)
+    expect(b?.prospectsOrganic).toBe(22)
+  })
+
+  it('second PUT overwrites the report values', async () => {
+    const clientId = await seedClient('perreport-second')
     const { report } = await seedReport(clientId)
 
-    // First PUT
     const res1 = await put(report.id, { total: 100, organic: 50 })
     expect(res1.status).toBe(200)
-
-    // Second PUT — updates the same window
     const res2 = await put(report.id, { total: 200, organic: 80 })
     expect(res2.status).toBe(200)
 
-    // Should still be exactly 1 ProspectsEntry for this window
-    const count = await prisma.prospectsEntry.count({
-      where: {
-        clientId,
-        periodStart: new Date('2026-05-01T00:00:00.000Z'),
-        periodEnd: new Date('2026-05-31T00:00:00.000Z'),
-      },
+    const updated = await prisma.seoReport.findUnique({
+      where: { id: report.id },
+      select: { prospectsTotal: true, prospectsOrganic: true },
     })
-    expect(count).toBe(1)
-
-    // And values should reflect the second PUT
-    const entry = await prisma.prospectsEntry.findUnique({
-      where: {
-        clientId_periodStart_periodEnd: {
-          clientId,
-          periodStart: new Date('2026-05-01T00:00:00.000Z'),
-          periodEnd: new Date('2026-05-31T00:00:00.000Z'),
-        },
-      },
-    })
-    expect(entry?.total).toBe(200)
-    expect(entry?.organic).toBe(80)
+    expect(updated?.prospectsTotal).toBe(200)
+    expect(updated?.prospectsOrganic).toBe(80)
   })
 
   it('accepts total with organic omitted (organic defaults to null)', async () => {
-    const clientId = await seedClient('upsert-no-organic')
+    const clientId = await seedClient('perreport-no-organic')
     const { report } = await seedReport(clientId)
 
     const res = await put(report.id, { total: 500 })
     expect(res.status).toBe(200)
 
-    const entry = await prisma.prospectsEntry.findUnique({
-      where: {
-        clientId_periodStart_periodEnd: {
-          clientId,
-          periodStart: new Date('2026-05-01T00:00:00.000Z'),
-          periodEnd: new Date('2026-05-31T00:00:00.000Z'),
-        },
-      },
+    const updated = await prisma.seoReport.findUnique({
+      where: { id: report.id },
+      select: { prospectsTotal: true, prospectsOrganic: true },
     })
-    expect(entry?.total).toBe(500)
-    expect(entry?.organic).toBeNull()
+    expect(updated?.prospectsTotal).toBe(500)
+    expect(updated?.prospectsOrganic).toBeNull()
   })
 
   // ---------------------------------------------------------------------------

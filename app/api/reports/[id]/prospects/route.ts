@@ -10,8 +10,9 @@
 //
 // Flow:
 //   1. Validate body
-//   2. Load SeoReport (404 if missing) to get clientId, periodStart, periodEnd
-//   3. Upsert ProspectsEntry for that window
+//   2. Load SeoReport (404 if missing)
+//   3. Write prospectsTotal/prospectsOrganic onto THIS report row (per-report —
+//      NOT the shared ProspectsEntry, which leaked across same-client+period reports)
 //   4. Critical invariant (Codex fix #8): null metricsJson, reset status='queued'
 //      and prospectsStatus='pending', then enqueue render
 //
@@ -61,32 +62,24 @@ export async function PUT(
   const total = body.total as number
   const organic = organicRaw != null ? (organicRaw as number) : null
 
-  // Load SeoReport to get clientId + period window
+  // Confirm the report exists (404 if missing)
   const report = await prisma.seoReport.findUnique({
     where: { id },
-    select: { clientId: true, periodStart: true, periodEnd: true },
+    select: { id: true },
   })
 
   if (!report) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 })
   }
 
-  const { clientId, periodStart, periodEnd } = report
-
-  // Upsert ProspectsEntry for this window
-  await prisma.prospectsEntry.upsert({
-    where: {
-      clientId_periodStart_periodEnd: { clientId, periodStart, periodEnd },
-    },
-    create: { clientId, periodStart, periodEnd, total, organic: organic ?? null },
-    update: { total, organic: organic ?? null },
-  })
-
-  // Critical invariant (Codex fix #8): null metricsJson so the next render
-  // refetches fresh data. Reset status + prospectsStatus then re-enqueue.
+  // Store the manual prospects ON THIS REPORT (per-report). Critical invariant
+  // (Codex fix #8): null metricsJson so the next render rebuilds with the new
+  // values. Reset status + prospectsStatus, then re-enqueue.
   await prisma.seoReport.update({
     where: { id },
     data: {
+      prospectsTotal: total,
+      prospectsOrganic: organic ?? null,
       metricsJson: null,
       status: 'queued',
       prospectsStatus: 'pending',

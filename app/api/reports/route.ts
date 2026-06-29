@@ -83,6 +83,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ga4Status: true,
       gscStatus: true,
       prospectsStatus: true,
+      prospectsTotal: true,
+      prospectsOrganic: true,
       periodStart: true,
       periodEnd: true,
       generatedAt: true,
