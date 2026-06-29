@@ -13,7 +13,9 @@ interface DropdownItem {
 
 interface NavTool {
   name: string
-  href: string
+  // Optional: pure grouping menus (Planning, Guides) have no landing page of
+  // their own — the top-level label just opens the dropdown.
+  href?: string
   dropdown?: DropdownItem[]
 }
 
@@ -26,9 +28,6 @@ const tools: NavTool[] = [
       { name: 'Compare Crawls', href: '/seo-parser/diff' },
     ],
   },
-  { name: 'Quarter Grid', href: '/quarter-grid' },
-  { name: 'RankMath Redirects', href: '/rankmath-redirects' },
-  { name: 'Robots Validator', href: '/robots-validator' },
   {
     name: 'ADA Audit',
     href: '/ada-audit',
@@ -38,9 +37,23 @@ const tools: NavTool[] = [
       { name: 'Recents', href: '/ada-audit/recents' },
     ],
   },
-  { name: 'Oxygen Stack Guide', href: '/oxygen-tailwind-guide' },
+  {
+    name: 'Planning',
+    dropdown: [
+      { name: 'Quarter Grid', href: '/quarter-grid', description: 'Plan ~30 clients' },
+      { name: 'E-E-A-T Checklist', href: '/eat-checklist' },
+      { name: 'E-E-A-T Audit Checklist', href: '/eat-checklist/audit' },
+    ],
+  },
+  {
+    name: 'Guides',
+    dropdown: [
+      { name: 'Robots Validator', href: '/robots-validator', description: 'robots.txt + sitemap' },
+      { name: 'RankMath Redirects', href: '/rankmath-redirects' },
+      { name: 'Oxygen Stack Guide', href: '/oxygen-tailwind-guide' },
+    ],
+  },
   { name: 'SEO Reports', href: '/reports' },
-  { name: 'Settings', href: '/settings' },
   {
     name: 'Clients',
     href: '/clients',
@@ -49,6 +62,7 @@ const tools: NavTool[] = [
       { name: 'Manage clients', href: '/clients/manage' },
     ],
   },
+  { name: 'Settings', href: '/settings' },
 ]
 
 function ChevronIcon({ className }: { className?: string }) {
@@ -135,6 +149,13 @@ export default function Nav() {
     return href === '/' ? pathname === '/' : pathname.startsWith(href)
   }
 
+  // A tool is active if its own page or any of its dropdown items is active.
+  // Pure grouping menus (no href) rely entirely on their children.
+  function toolActive(tool: NavTool) {
+    if (tool.href && isActive(tool.href)) return true
+    return tool.dropdown?.some((item) => isActive(item.href)) ?? false
+  }
+
   return (
     <nav className="bg-navy text-white sticky top-0 z-50 shadow-md border-b border-navy-light/30">
       <div className="max-w-7xl mx-auto px-6">
@@ -161,32 +182,51 @@ export default function Nav() {
           {/* Desktop nav */}
           <div ref={dropdownRef} className="hidden md:flex items-center gap-0.5">
             {tools.map((tool) => {
-              const active = isActive(tool.href)
+              const active = toolActive(tool)
 
               if (tool.dropdown) {
+                const triggerClass = `flex items-center gap-1.5 px-4 py-2 text-[14px] font-body rounded-md transition-colors duration-150 whitespace-nowrap ${
+                  active ? 'text-orange' : 'text-white/70 hover:text-white hover:bg-white/5'
+                }`
+                const chevron = (
+                  <ChevronIcon
+                    className={`w-3 h-3 transition-transform duration-150 ${
+                      openDropdown === tool.name ? 'rotate-180' : ''
+                    }`}
+                  />
+                )
                 return (
-                  <div key={tool.href} className="relative">
-                    <Link
-                      href={tool.href}
-                      aria-haspopup="true"
-                      aria-expanded={openDropdown === tool.name}
-                      onMouseEnter={() => { cancelClose(); setOpenDropdown(tool.name) }}
-                      onMouseLeave={scheduleClose}
-                      onFocus={() => { cancelClose(); setOpenDropdown(tool.name) }}
-                      onBlur={scheduleClose}
-                      className={`flex items-center gap-1.5 px-4 py-2 text-[14px] font-body rounded-md transition-colors duration-150 ${
-                        active
-                          ? 'text-orange'
-                          : 'text-white/70 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      {tool.name}
-                      <ChevronIcon
-                        className={`w-3 h-3 transition-transform duration-150 ${
-                          openDropdown === tool.name ? 'rotate-180' : ''
-                        }`}
-                      />
-                    </Link>
+                  <div key={tool.name} className="relative">
+                    {tool.href ? (
+                      <Link
+                        href={tool.href}
+                        aria-haspopup="true"
+                        aria-expanded={openDropdown === tool.name}
+                        onMouseEnter={() => { cancelClose(); setOpenDropdown(tool.name) }}
+                        onMouseLeave={scheduleClose}
+                        onFocus={() => { cancelClose(); setOpenDropdown(tool.name) }}
+                        onBlur={scheduleClose}
+                        className={triggerClass}
+                      >
+                        {tool.name}
+                        {chevron}
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-haspopup="true"
+                        aria-expanded={openDropdown === tool.name}
+                        onMouseEnter={() => { cancelClose(); setOpenDropdown(tool.name) }}
+                        onMouseLeave={scheduleClose}
+                        onFocus={() => { cancelClose(); setOpenDropdown(tool.name) }}
+                        onBlur={scheduleClose}
+                        onClick={() => setOpenDropdown(openDropdown === tool.name ? null : tool.name)}
+                        className={triggerClass}
+                      >
+                        {tool.name}
+                        {chevron}
+                      </button>
+                    )}
 
                     {/* Dropdown */}
                     {openDropdown === tool.name && (
@@ -224,9 +264,9 @@ export default function Nav() {
 
               return (
                 <Link
-                  key={tool.href}
-                  href={tool.href}
-                  className={`px-4 py-2 text-[14px] font-body rounded-md transition-colors duration-150 ${
+                  key={tool.name}
+                  href={tool.href ?? '/'}
+                  className={`px-4 py-2 text-[14px] font-body rounded-md transition-colors duration-150 whitespace-nowrap ${
                     active
                       ? 'text-orange'
                       : 'text-white/70 hover:text-white hover:bg-white/5'
@@ -267,37 +307,50 @@ export default function Nav() {
       {mobileOpen && (
         <div className="md:hidden border-t border-navy-light/30 bg-navy-deep">
           <div className="max-w-7xl mx-auto px-6 py-3 flex flex-col gap-1">
-            {tools.map((tool) => (
-              <div key={tool.href}>
-                <Link
-                  href={tool.href}
-                  className={`block px-3 py-2.5 text-[14px] font-body rounded-md transition-colors ${
-                    isActive(tool.href)
-                      ? 'text-orange bg-orange-subtle'
-                      : 'text-white/70 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  {tool.name}
-                </Link>
-                {tool.dropdown && (
-                  <div className="ml-4 mt-0.5 flex flex-col gap-0.5">
-                    {tool.dropdown.slice(1).map((item, i) => (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={`block px-3 py-2 text-[13px] font-body rounded-md transition-colors ${
-                          pathname === item.href
-                            ? 'text-orange'
-                            : 'text-white/65 hover:text-white'
-                        }`}
-                      >
-                        {item.name}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+            {tools.map((tool) => {
+              // Pure grouping menus (no href) show a non-link header + every
+              // child. Tools with their own page show the page link + the
+              // child sub-pages (skipping the first, which duplicates the page).
+              const isGroup = !tool.href
+              const childItems = isGroup ? tool.dropdown ?? [] : tool.dropdown?.slice(1) ?? []
+              return (
+                <div key={tool.name}>
+                  {tool.href ? (
+                    <Link
+                      href={tool.href}
+                      className={`block px-3 py-2.5 text-[14px] font-body rounded-md transition-colors ${
+                        toolActive(tool)
+                          ? 'text-orange bg-orange-subtle'
+                          : 'text-white/70 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {tool.name}
+                    </Link>
+                  ) : (
+                    <div className="px-3 pt-2.5 pb-1 text-[11px] font-body font-semibold uppercase tracking-wider text-white/40">
+                      {tool.name}
+                    </div>
+                  )}
+                  {childItems.length > 0 && (
+                    <div className={`${isGroup ? 'ml-2' : 'ml-4'} mt-0.5 flex flex-col gap-0.5`}>
+                      {childItems.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={`block px-3 py-2 text-[13px] font-body rounded-md transition-colors ${
+                            pathname === item.href
+                              ? 'text-orange'
+                              : 'text-white/65 hover:text-white'
+                          }`}
+                        >
+                          {item.name}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             <form action="/api/auth/logout" method="post">
               <button
                 type="submit"
