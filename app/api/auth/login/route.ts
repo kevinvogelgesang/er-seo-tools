@@ -27,10 +27,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(loginUrl, { status: 303 })
   }
 
+  // Operator-name cookie (optional, non-credential): set when provided,
+  // delete when empty/whitespace so a stale value doesn't survive.
+  const operatorName = sanitizeOperatorName(formData.get('operatorName'))
+
   const response = NextResponse.redirect(new URL(nextPath, base), { status: 303 })
   response.cookies.set({
     name: AUTH_COOKIE_NAME,
-    value: await createAuthCookieValue(),
+    // Break-glass / shared-password session: synthetic identity (no verified
+    // email or hosted domain). Google logins carry the verified identity instead.
+    value: await createAuthCookieValue({
+      sub: 'password:break-glass',
+      email: null,
+      hd: null,
+      name: operatorName ?? 'Operator',
+    }),
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
@@ -38,9 +49,6 @@ export async function POST(request: NextRequest) {
     maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
   })
 
-  // Operator-name cookie (optional, non-credential): set when provided,
-  // delete when empty/whitespace so a stale value doesn't survive.
-  const operatorName = sanitizeOperatorName(formData.get('operatorName'))
   if (operatorName) {
     response.cookies.set({
       name: OPERATOR_NAME_COOKIE_NAME,

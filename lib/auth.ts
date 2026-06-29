@@ -1,8 +1,21 @@
 export const AUTH_COOKIE_NAME = 'er_auth'
-const AUTH_COOKIE_VALUE = 'authenticated'
 const SIGNATURE_SEPARATOR = '.'
-const PAYLOAD_SEPARATOR = ':'
+const SESSION_VERSION = 2
 export const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12
+
+// Verified session identity carried in the signed auth cookie. For Google
+// logins these come from the verified ID token; for break-glass password login
+// they're synthetic (sub: 'password:break-glass', email/hd null).
+export interface AuthIdentity {
+  sub: string
+  email: string | null
+  hd: string | null
+  name: string | null
+}
+
+export interface AuthSession extends AuthIdentity {
+  exp: number // unix seconds
+}
 
 // Operator-name cookie: captured on login, used to attribute requested audits.
 // Not a credential — no signing, JS-readable. 1-year max-age so operators
@@ -57,6 +70,17 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
+function stringToBase64Url(value: string): string {
+  return bytesToBase64Url(new TextEncoder().encode(value))
+}
+
+function base64UrlToString(value: string): string {
+  const b64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const binary = atob(b64)
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+  return new TextDecoder().decode(bytes)
+}
+
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false
 
@@ -86,10 +110,56 @@ export function verifyPassword(password: string): boolean {
   return constantTimeEqual(password, expected)
 }
 
-export async function createAuthCookieValue(): Promise<string> {
-  const expiresAt = Math.floor(Date.now() / 1000) + AUTH_COOKIE_MAX_AGE_SECONDS
-  const payload = `${AUTH_COOKIE_VALUE}${PAYLOAD_SEPARATOR}${expiresAt}`
+export async function createAuthCookieValue(identity: AuthIdentity): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + AUTH_COOKIE_MAX_AGE_SECONDS
+  const payload = stringToBase64Url(
+    JSON.stringify({
+      v: SESSION_VERSION,
+      sub: identity.sub,
+      email: identity.email ?? null,
+      hd: identity.hd ?? null,
+      name: identity.name ?? null,
+      exp,
+    }),
+  )
   return `${payload}${SIGNATURE_SEPARATOR}${await sign(payload)}`
+}
+
+/**
+ * Verify the signed auth cookie and return the carried identity, or null if the
+ * cookie is missing, tampered, expired, or not a current-version session.
+ */
+export async function getAuthSession(
+  value: string | undefined | null,
+): Promise<AuthSession | null> {
+  if (!value) return null
+
+  const [payload, signature, ...extra] = value.split(SIGNATURE_SEPARATOR)
+  if (extra.length > 0 || !payload || !signature) return null
+
+  if (!constantTimeEqual(signature, await sign(payload))) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(base64UrlToString(payload))
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const p = parsed as Record<string, unknown>
+  if (p.v !== SESSION_VERSION || typeof p.sub !== 'string') return null
+
+  const exp = typeof p.exp === 'number' ? p.exp : Number.NaN
+  if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null
+
+  return {
+    sub: p.sub,
+    email: typeof p.email === 'string' ? p.email : null,
+    hd: typeof p.hd === 'string' ? p.hd : null,
+    name: typeof p.name === 'string' ? p.name : null,
+    exp,
+  }
 }
 
 export async function isValidAuthCookie(
@@ -98,18 +168,7 @@ export async function isValidAuthCookie(
 ): Promise<boolean> {
   const allowDevBypass = options.allowDevBypass ?? true
   if (allowDevBypass && isAuthBypassedInDev()) return true
-  if (!value) return false
-
-  const [payload, signature, ...extra] = value.split(SIGNATURE_SEPARATOR)
-  if (extra.length > 0 || !signature) return false
-
-  const [kind, expiresAtRaw, ...payloadExtra] = payload.split(PAYLOAD_SEPARATOR)
-  if (payloadExtra.length > 0 || kind !== AUTH_COOKIE_VALUE) return false
-
-  const expiresAt = Number(expiresAtRaw)
-  if (!Number.isFinite(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return false
-
-  return constantTimeEqual(signature, await sign(payload))
+  return (await getAuthSession(value)) !== null
 }
 
 /**

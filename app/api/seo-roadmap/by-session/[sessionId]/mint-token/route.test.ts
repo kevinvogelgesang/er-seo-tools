@@ -40,7 +40,7 @@ const ORIG_ENV = { ...process.env };
 async function makeRequest(authenticated = true) {
   const headers = new Headers();
   if (authenticated) {
-    headers.set('cookie', `${AUTH_COOKIE_NAME}=${await createAuthCookieValue()}`);
+    headers.set('cookie', `${AUTH_COOKIE_NAME}=${await createAuthCookieValue({ sub: 'test:operator', email: null, hd: null, name: null })}`);
   }
   return new NextRequest('http://localhost:3000/api/seo-roadmap/by-session/sess_123/mint-token', {
     method: 'POST',
