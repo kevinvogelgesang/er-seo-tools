@@ -1,10 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
 import packageJson from '@/package.json'
-
-const DEPLOY_CMD = 'ssh seo@144.126.213.242 "~/deploy.sh"'
 
 const toolLinks = [
   { name: 'SEO Parser', href: '/seo-parser' },
@@ -17,7 +14,6 @@ const toolLinks = [
 
 export default function Footer() {
   const year = new Date().getFullYear()
-  const [showCmd, setShowCmd] = useState(false)
 
   return (
     <footer className="bg-navy-deep text-white border-t border-navy-border/40">
@@ -30,16 +26,8 @@ export default function Footer() {
               <div className="w-7 h-7 bg-orange rounded flex items-center justify-center flex-shrink-0">
                 <span className="font-display font-extrabold text-navy text-[11px] leading-none">ER</span>
               </div>
-              <span
-                className="font-bold text-[15px] cursor-default select-all transition-all duration-150"
-                onMouseEnter={() => setShowCmd(true)}
-                onMouseLeave={() => setShowCmd(false)}
-                title="Hover to reveal deploy command"
-              >
-                {showCmd
-                  ? <span className="font-mono text-[11px] text-orange/80 tracking-tight">{DEPLOY_CMD}</span>
-                  : <span className="font-display">SEO Tools</span>
-                }
+              <span className="font-bold text-[15px]">
+                <span className="font-display">SEO Tools</span>
               </span>
             </div>
             <p className="text-white/50 text-sm font-body leading-relaxed max-w-[220px]">
@@ -66,17 +54,15 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Deployment */}
+          {/* About */}
           <div>
             <h3 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest mb-4">
-              Deployment
+              About
             </h3>
-            <ul className="space-y-2.5">
-              <li className="text-[14px] font-body text-white/60">RunCloud — Node.js App</li>
-              <li className="text-[14px] font-body text-white/60">Next.js 15 + App Router</li>
-              <li className="text-[14px] font-body text-white/60">Prisma + SQLite</li>
-              <li className="text-[14px] font-body text-white/60">Git-connected Deploy</li>
-            </ul>
+            <p className="text-[14px] font-body text-white/60 leading-relaxed max-w-[240px]">
+              An internal toolkit for the Enrollment Resources SEO and web teams —
+              accessibility audits, technical SEO, and client reporting in one place.
+            </p>
           </div>
 
         </div>
