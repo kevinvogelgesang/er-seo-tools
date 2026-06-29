@@ -84,7 +84,7 @@ describe('GET /api/google/status', () => {
   })
 
   describe('key loaded, no test param', () => {
-    it('returns loaded=true, email, no counts when ?test not set', async () => {
+    it('returns loaded=true but withholds email + counts when ?test not set', async () => {
       vi.mocked(getServiceAccountEmail).mockResolvedValue('sa@project.iam.gserviceaccount.com')
       vi.mocked(getAuthClient).mockResolvedValue({
         ok: true,
@@ -96,7 +96,10 @@ describe('GET /api/google/status', () => {
 
       expect(res.status).toBe(200)
       expect(body.loaded).toBe(true)
-      expect(body.email).toBe('sa@project.iam.gserviceaccount.com')
+      // Email is gated behind the explicit connection test — the passive poll
+      // must not leak the service-account address.
+      expect(body.email).toBeNull()
+      expect(getServiceAccountEmail).not.toHaveBeenCalled()
       expect(body.ga4Count).toBeUndefined()
       expect(body.gscCount).toBeUndefined()
     })
@@ -129,6 +132,8 @@ describe('GET /api/google/status', () => {
 
       expect(res.status).toBe(200)
       expect(body.loaded).toBe(true)
+      // The explicit connection test is allowed to surface the SA email.
+      expect(body.email).toBe('sa@project.iam.gserviceaccount.com')
       expect(body.ga4Count).toBe(3)
       expect(body.gscCount).toBe(2)
       expect(body.errors).toBeUndefined()

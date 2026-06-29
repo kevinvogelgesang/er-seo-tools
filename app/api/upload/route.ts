@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/db';
-import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
+import { isValidSessionId, getUploadDir, getClientIp } from '@/lib/upload-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,10 +60,6 @@ function releaseUploadSize(ip: string, bytes: number) {
   const tracker = uploadSizeByIP.get(ip);
   if (!tracker) return;
   tracker.totalBytes = Math.max(0, tracker.totalBytes - bytes);
-}
-
-function getClientIp(request: NextRequest): string {
-  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 }
 
 function parseContentLength(request: NextRequest): number | null {

@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "audit:ci": "audit-ci --config ./audit-ci.jsonc",
     "postinstall": "tsx scripts/prewarm-embedding-model.ts || true"
   },
   "dependencies": {
@@ -34,7 +35,7 @@
     "jose": "^5.10.0",
     "jsdom": "^25.0.1",
     "lighthouse": "^13.3.0",
-    "next": "^15.3.0",
+    "next": "^15.5.19",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^5.7.284",
     "puppeteer-core": "^24.40.0",
@@ -55,6 +56,7 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^2.1.9",
+    "audit-ci": "^7.1.0",
     "autoprefixer": "^10.4.20",
     "pdf-lib": "^1.17.1",
     "postcss": "^8.5.1",
@@ -63,5 +65,13 @@
     "tsx": "^4.21.0",
     "typescript": "^5.3.3",
     "vitest": "^2.1.9"
+  },
+  "overrides": {
+    "lighthouse": {
+      "ws": "^7.5.11",
+      "puppeteer-core": {
+        "ws": "^8.21.0"
+      }
+    }
   }
 }

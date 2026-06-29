@@ -25,6 +25,7 @@ vi.mock('fs/promises', () => ({
 }))
 
 import { POST } from './route'
+import { getClientIp } from '@/lib/upload-helpers'
 
 const ORIG_ENV = { ...process.env }
 
@@ -94,5 +95,22 @@ describe('POST /api/upload', () => {
     expect(body.error).toMatch(/invalid file content/i)
     expect(sessionCreateMock).not.toHaveBeenCalled()
     expect(writeFileMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('getClientIp — quota keying source', () => {
+  const ipReq = (headers: Record<string, string>) =>
+    new NextRequest('http://localhost/api/upload', { method: 'POST', headers })
+
+  it('prefers CF-Connecting-IP over X-Forwarded-For (XFF is client-spoofable)', () => {
+    expect(
+      getClientIp(ipReq({ 'cf-connecting-ip': '198.51.100.7', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' })),
+    ).toBe('198.51.100.7')
+  })
+
+  it('falls back to x-real-ip, then the first X-Forwarded-For value, then "unknown"', () => {
+    expect(getClientIp(ipReq({ 'x-real-ip': '203.0.113.9' }))).toBe('203.0.113.9')
+    expect(getClientIp(ipReq({ 'x-forwarded-for': '203.0.113.10, 9.9.9.9' }))).toBe('203.0.113.10')
+    expect(getClientIp(ipReq({}))).toBe('unknown')
   })
 })

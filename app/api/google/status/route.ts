@@ -1,7 +1,10 @@
 // app/api/google/status/route.ts
 // GET /api/google/status — service-account status check.
 // Returns: { loaded: boolean, email: string|null, ga4Count?: number, gscCount?: number }
-// When ?test=1: also calls GA4 Admin + GSC list endpoints for live counts.
+// The service-account email is only returned on the explicit ?test=1 connection
+// test (an operator action), not on the passive status poll — it is unnecessary
+// recon for an ordinary page load. When ?test=1: also calls GA4 Admin + GSC list
+// endpoints for live counts.
 // Cookie-gated by global middleware. Key material NEVER returned to the browser.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -11,11 +14,14 @@ import { getAuthClient, getServiceAccountEmail } from '@/lib/analytics/google/au
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const email = await getServiceAccountEmail()
   const authResult = await getAuthClient()
   const loaded = authResult.ok
 
   const doTest = new URL(request.url).searchParams.get('test') === '1'
+
+  // Email is gated behind the explicit connection test — the passive poll only
+  // reveals whether a key is loaded.
+  const email = doTest ? await getServiceAccountEmail() : null
 
   if (!doTest || !authResult.ok) {
     return NextResponse.json({ loaded, email })

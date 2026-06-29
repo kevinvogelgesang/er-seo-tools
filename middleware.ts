@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { AUTH_COOKIE_NAME, getAuthRedirectBase, isAuthBypassedInDev, isValidAuthCookie } from '@/lib/auth'
+import { isMutatingMethod, isSameSiteRequest } from '@/lib/security/same-site-request'
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -58,6 +59,15 @@ export async function middleware(request: NextRequest) {
 
   if (isPublicPath(pathname) || isAuthBypassedInDev()) {
     return NextResponse.next()
+  }
+
+  // CSRF defense-in-depth: reject cross-site mutating requests to cookie-gated
+  // routes. Public/token routes (login, logout, skill-handoff) already returned
+  // above, so this never touches the token-authed handoff flow. SameSite=Lax +
+  // CORS preflight already mitigate this; the explicit check hardens it further,
+  // and matters more once user OAuth lands.
+  if (isMutatingMethod(request.method) && !isSameSiteRequest(request)) {
+    return NextResponse.json({ error: 'cross_site_request_blocked' }, { status: 403 })
   }
 
   if (await isValidAuthCookie(request.cookies.get(AUTH_COOKIE_NAME)?.value)) {

@@ -99,3 +99,27 @@ describe('GET /api/clients archived filter', () => {
     expect(row.archivedAt).not.toBeNull()
   })
 })
+
+describe('PATCH /api/clients/:id domain validation', () => {
+  it('normalizes, lowercases, and dedupes valid domains', async () => {
+    const c = await makeClient('dvalid')
+    const res = await PATCH(
+      jsonReq('PATCH', { domains: ['Example.com', 'example.com', 'WWW.School.EDU'] }),
+      routeParams(c.id),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.domains).toEqual(['example.com', 'www.school.edu'])
+  })
+
+  it('rejects malformed domains with 400 invalid_domain and persists nothing', async () => {
+    const c = await makeClient('dbad')
+    for (const bad of ['javascript:alert(1)', '../../etc/passwd', 'http://example.com', 'localhost', '127.0.0.1', 'example.com:443']) {
+      const res = await PATCH(jsonReq('PATCH', { domains: ['example.com', bad] }), routeParams(c.id))
+      expect(res.status, bad).toBe(400)
+      expect((await res.json()).error).toBe('invalid_domain')
+    }
+    const fresh = await prisma.client.findUnique({ where: { id: c.id }, select: { domains: true } })
+    expect(fresh?.domains).toBe('[]') // unchanged from default
+  })
+})
