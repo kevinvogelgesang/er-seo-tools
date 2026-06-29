@@ -33,7 +33,7 @@ import { fetchGsc } from '@/lib/analytics/google/gsc-provider'
 import { fetchProspects } from '@/lib/analytics/prospects/prospects-provider'
 import { formatYmd } from '@/lib/analytics/dates'
 import type { DateWindow } from '@/lib/analytics/dates'
-import type { PerformanceAnalyticsBundle } from '@/lib/analytics/types'
+import type { PerformanceAnalyticsBundle, SourceResult, ProspectsBundle } from '@/lib/analytics/types'
 import { buildSeoReportData } from '@/lib/report/seo/report-data'
 import { buildSeoReportHtml } from '@/lib/report/seo/seo-report-html'
 import { writeSeoReportFile, deleteSeoReportFile } from '@/lib/report/seo/seo-report-file'
@@ -159,11 +159,22 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
     const period: DateWindow = { start: report.periodStart, end: report.periodEnd }
     const comparison: DateWindow = { start: report.comparisonStart, end: report.comparisonEnd }
 
+    // Prospects: a per-report manual value (set via the prospects PUT route)
+    // overrides the shared CRM/legacy ProspectsEntry source. Only fall back to
+    // fetchProspects when this report has no manual value of its own.
+    const prospectsPromise: Promise<SourceResult<ProspectsBundle>> =
+      report.prospectsTotal !== null
+        ? Promise.resolve({
+            ok: true,
+            data: { total: report.prospectsTotal, organic: report.prospectsOrganic },
+          })
+        : fetchProspects({ id: client.id, crmClientRef: client.crmClientRef }, period)
+
     // Fetch all three sources in parallel
     const [ga4Result, gscResult, prospectsResult] = await Promise.all([
       fetchGa4(client.ga4PropertyId, period, comparison),
       fetchGsc(client.gscSiteUrl, period, comparison),
-      fetchProspects({ id: client.id, crmClientRef: client.crmClientRef }, period),
+      prospectsPromise,
     ])
 
     // Map per-source statuses

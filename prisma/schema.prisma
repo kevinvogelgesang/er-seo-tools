@@ -586,6 +586,10 @@ model SeoReport {
   ga4Status       String         @default("pending") // pending|ok|skipped|error
   gscStatus       String         @default("pending")
   prospectsStatus String         @default("pending") // pending|ok|manual|missing
+  // Per-report manual prospects (overrides the shared CRM/ProspectsEntry source).
+  // null = not manually set for this report; falls back to CRM/legacy entry at render.
+  prospectsTotal   Int?
+  prospectsOrganic Int?
   error           String?
   metricsJson     String?        // fetched snapshot — re-render never re-hits APIs
   // NO pdfPath: the PDF path is DERIVED from the id via lib/report/seo/seo-report-file.ts
