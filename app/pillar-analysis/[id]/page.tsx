@@ -46,7 +46,7 @@ export default async function PillarAnalysisPage({
   const topics = JSON.parse(pa.pillarTopics!) as PillarTopic[];
   const verdicts = JSON.parse(pa.urlVerdicts!) as UrlRecord[];
 
-  const siteName = pa.session?.siteName || 'Site';
+  const siteName = pa.session?.siteName || pa.domain || 'Site';
   const numPillars = topics.length;
   const totalUrls = verdicts.length;
   const completenessPct = Math.round((pa.dataCompleteness ?? 0) * 100);
@@ -102,6 +102,7 @@ export default async function PillarAnalysisPage({
         </div>
 
         <StrategicMemoCard
+          analysisId={pa.id}
           aiNarrative={pa.aiNarrative}
           narrativeUpdatedAt={pa.narrativeUpdatedAt}
           sessionId={pa.session?.id ?? null}

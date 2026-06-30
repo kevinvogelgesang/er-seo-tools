@@ -19,13 +19,23 @@ const POLL_INTERVAL_MS = 3000;
 const LIFETIME_MS = 15 * 60 * 1000;
 
 interface Props {
-  sessionId: string;
+  /**
+   * Analysis ID (always available from the /pillar-analysis/[id] route).
+   * Used as the poll key when sessionId is null (live-scan analyses).
+   */
+  analysisId: string;
+  /**
+   * Session ID — present for SF-upload analyses, null for live-scan ones.
+   * When non-null the poller uses the by-session endpoint; otherwise it
+   * falls back to the by-analysis endpoint keyed by analysisId.
+   */
+  sessionId: string | null;
   initialNarrativeUpdatedAt: string | null;
   /** True if there's no memo yet — the poller auto-starts a cycle on mount. */
   autoStartOnMount: boolean;
 }
 
-export function MemoPoller({ sessionId, initialNarrativeUpdatedAt, autoStartOnMount }: Props) {
+export function MemoPoller({ analysisId, sessionId, initialNarrativeUpdatedAt, autoStartOnMount }: Props) {
   const router = useRouter();
   const [expired, setExpired] = useState(false);
 
@@ -89,10 +99,14 @@ export function MemoPoller({ sessionId, initialNarrativeUpdatedAt, autoStartOnMo
 
   // Polling loop
   useEffect(() => {
+    // Use by-analysis when sessionId is absent (live-scan analyses), else by-session.
+    const pollUrl = sessionId
+      ? `/api/pillar-analysis/by-session/${sessionId}`
+      : `/api/pillar-analysis/by-analysis/${analysisId}`;
     const interval = setInterval(async () => {
       if (machine.status() !== 'polling') return;
       try {
-        const res = await fetch(`/api/pillar-analysis/by-session/${sessionId}`);
+        const res = await fetch(pollUrl);
         if (!res.ok) return;
         const body = await res.json();
         const latest: string | null = body?.pillarAnalysis?.narrativeUpdatedAt ?? null;
@@ -104,7 +118,7 @@ export function MemoPoller({ sessionId, initialNarrativeUpdatedAt, autoStartOnMo
       }
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [sessionId, machine]);
+  }, [analysisId, sessionId, machine]);
 
   if (!expired) return null;
 
