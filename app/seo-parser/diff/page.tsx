@@ -7,6 +7,7 @@ import { Issue } from '@/lib/types';
 
 interface SessionRecord {
   id: string;
+  kind?: 'session' | 'run';
   createdAt: string;
   status: string;
   files: string[];
@@ -144,8 +145,8 @@ export default function DiffPage() {
         const res = await fetch('/api/parse/history');
         if (!res.ok) throw new Error('Failed to load history');
         const data = (await res.json()) as SessionRecord[];
-        // Only show completed sessions
-        setSessions(data.filter((s) => s.status === 'complete'));
+        // Diff is SF-upload only (v1) — exclude live-scan CrawlRun entries
+        setSessions(data.filter((s) => s.status === 'complete' && s.kind !== 'run'));
       } catch (err) {
         setHistoryError(err instanceof Error ? err.message : 'Failed to load history');
       } finally {

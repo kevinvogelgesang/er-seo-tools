@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 
 interface HistoryItem {
   id: string;
+  kind?: 'session' | 'run';
+  source?: 'sf-upload' | 'live-scan';
   createdAt: string;
   status: string;
   files: string[];
@@ -224,10 +226,15 @@ export function HistoryList() {
         <p className="text-sm text-gray-400 dark:text-white/40 text-center py-4">No results match your filters.</p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {filtered.map((item) => (
+          {filtered.map((item) => {
+            const isRun = item.kind === 'run';
+            const resultsPath = isRun
+              ? `/seo-parser/results/run/${item.id}`
+              : `/seo-parser/results/${item.id}`;
+            return (
             <div key={item.id} className="relative group">
               <button
-                onClick={() => router.push(`/seo-parser/results/${item.id}`)}
+                onClick={() => router.push(resultsPath)}
                 className="text-left w-full p-4 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl shadow-sm hover:shadow-md transition-shadow"
               >
                 <div className="flex justify-between items-start mb-1 pr-6">
@@ -251,19 +258,33 @@ export function HistoryList() {
                     </span>
                   </div>
                 </div>
-                {item.clientName && (
-                  <div className="mb-1">
+                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                  {/* Source badge */}
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      isRun
+                        ? 'bg-purple-100 dark:bg-purple-500/15 text-purple-700 dark:text-purple-400'
+                        : 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-white/60'
+                    }`}
+                  >
+                    {isRun ? 'Live scan' : 'SF upload'}
+                  </span>
+                  {item.clientName && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-[#1c2d4a]/8 dark:bg-white/10 text-[#1c2d4a] dark:text-white font-medium">
                       {item.clientName}
                     </span>
-                  </div>
-                )}
+                  )}
+                </div>
                 <div className="text-xs text-gray-400 dark:text-white/40 mb-2 flex items-center gap-2">
                   <span>{relativeTime(item.createdAt)}</span>
-                  <span>&middot;</span>
-                  <span>
-                    {item.files.length} file{item.files.length !== 1 ? 's' : ''}
-                  </span>
+                  {!isRun && (
+                    <>
+                      <span>&middot;</span>
+                      <span>
+                        {item.files.length} file{item.files.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  )}
                   {item.urlCount !== undefined && (
                     <>
                       <span>&middot;</span>
@@ -276,8 +297,8 @@ export function HistoryList() {
                 </div>
               </button>
 
-              {/* Delete button — visible on hover */}
-              {confirmDelete === item.id ? (
+              {/* Delete button — only for SF session entries (run entries: hide in v1) */}
+              {!isRun && (confirmDelete === item.id ? (
                 <div role="alert" className="absolute top-2 right-2 flex items-center gap-1 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-lg shadow-sm px-2 py-1 z-10">
                   <span className="text-xs text-gray-600 dark:text-white/60 mr-1">Delete?</span>
                   <button
@@ -311,9 +332,10 @@ export function HistoryList() {
                     </svg>
                   )}
                 </button>
-              )}
+              ))}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
