@@ -129,18 +129,15 @@ describe('selectRuns', () => {
   })
 
   it('a run with null completedAt is treated as zero-age by pickCanonicalSeo; a completed run wins', () => {
-    // pickCanonicalSeo uses completedAt only; createdAt is not a fallback for canonical.
-    // The done run (completedAt set, 30-day window) wins over the null-completedAt run.
+    // pickCanonicalSeo's newest() sorts by completedAt?.getTime() ?? 0 descending.
+    // 'undated' has completedAt null → epoch 0 (very stale); 'done' has a real
+    // completedAt (2026-05-01) → sorts first and is selected as canonical.
     const runs = [
       run({ id: 'done', completedAt: d('2026-05-01T00:00:00Z') }),
       run({ id: 'undated', completedAt: null, createdAt: d('2026-06-01T00:00:00Z') }),
     ]
     const sel = selectRuns(runs, new Set())
-    // Both are sf-upload; 'done' has a real completedAt so it can be the canonical.
-    // The test asserts one is chosen — either is valid under pickCanonicalSeo since
-    // null-completedAt is treated as epoch (age ≈ Infinity, stale), but both fall
-    // back. The main invariant: current is not null.
-    expect(sel.seo.current).not.toBeNull()
+    expect(sel.seo.current?.id).toBe('done')
   })
 
   it('ADA: any site-audit run forces site class; page runs ignored', () => {
