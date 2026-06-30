@@ -53,7 +53,7 @@ interface SchemaAnalysis {
   pagesNeedingFaq: string[];
 }
 
-interface BriefResult {
+export interface BriefResult {
   brief: string;
   stats: {
     pages: number;
