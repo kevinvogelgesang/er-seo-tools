@@ -15,7 +15,10 @@ interface PageRow {
 }
 
 interface PagesTableProps {
-  sessionId: string;
+  /** Session-keyed source (SF-upload path). */
+  sessionId?: string;
+  /** Run-keyed source (live-scan path). Provide one of sessionId or runId. */
+  runId?: string;
   issueTypeOptions: string[];
   onUrlClick: (url: string) => void;
 }
@@ -56,7 +59,7 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function PagesTable({ sessionId, issueTypeOptions, onUrlClick }: PagesTableProps) {
+export function PagesTable({ sessionId, runId, issueTypeOptions, onUrlClick }: PagesTableProps) {
   const [offset, setOffset] = useState(0);
   const [issueType, setIssueType] = useState('');
   const [sort, setSort] = useState<SortOption>('issues');
@@ -71,7 +74,11 @@ export function PagesTable({ sessionId, issueTypeOptions, onUrlClick }: PagesTab
       `limit=${PAGE_SIZE}&offset=${offset}` +
       (issueType ? `&issueType=${encodeURIComponent(issueType)}` : '') +
       `&sort=${sort}`;
-    fetch(`/api/seo-parser/${sessionId}/pages?${qs}`)
+    // Use the run-keyed endpoint when a runId is provided (live-scan path).
+    const baseUrl = runId
+      ? `/api/seo-parser/run/${runId}/pages`
+      : `/api/seo-parser/${sessionId}/pages`;
+    fetch(`${baseUrl}?${qs}`)
       .then((res) => res.json())
       .then((data: { pages: PageRow[]; total: number }) => {
         if (cancelled) return;

@@ -26,7 +26,10 @@ const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m 
 
 interface ResultsViewProps {
   result: AggregatedResult;
-  sessionId: string;
+  /** Session-keyed source (SF-upload path). */
+  sessionId?: string;
+  /** Run-keyed source (live-scan path). Provide one of sessionId or runId. */
+  runId?: string;
   pillarButton?: React.ReactNode;
   roadmap?: React.ReactNode;
 }
@@ -40,7 +43,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-export function ResultsView({ result, sessionId, pillarButton, roadmap }: ResultsViewProps) {
+export function ResultsView({ result, sessionId, runId, pillarButton, roadmap }: ResultsViewProps) {
   const router = useRouter();
   const siteName = result.metadata?.site_name || 'Site';
 
@@ -83,13 +86,21 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <CopyToClipboard result={result} />
-            <ExportButtons sessionId={sessionId} />
-            <button
-              onClick={() => setShareOpen(true)}
-              className="px-4 py-2 border border-[#1c2d4a] dark:border-navy-border rounded-lg text-sm text-[#1c2d4a] dark:text-white font-medium hover:bg-[#1c2d4a] hover:text-white transition-colors"
-            >
-              Share Report
-            </button>
+            {sessionId ? (
+              <>
+                <ExportButtons sessionId={sessionId} />
+                <button
+                  onClick={() => setShareOpen(true)}
+                  className="px-4 py-2 border border-[#1c2d4a] dark:border-navy-border rounded-lg text-sm text-[#1c2d4a] dark:text-white font-medium hover:bg-[#1c2d4a] hover:text-white transition-colors"
+                >
+                  Share Report
+                </button>
+              </>
+            ) : (
+              <span className="text-xs text-gray-400 dark:text-white/40 italic">
+                Export &amp; sharing require Screaming Frog data
+              </span>
+            )}
             {pillarButton}
             <button
               onClick={() => router.push('/seo-parser')}
@@ -171,6 +182,7 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
           <div className="px-6 pb-6 border-t border-gray-100 dark:border-navy-border pt-4">
             <PagesTable
               sessionId={sessionId}
+              runId={runId}
               issueTypeOptions={issueTypeOptions}
               onUrlClick={(url) => setSelectedUrl(url)}
             />
@@ -196,8 +208,8 @@ export function ResultsView({ result, sessionId, pillarButton, roadmap }: Result
         />
       )}
 
-      {/* Share report modal */}
-      {shareOpen && (
+      {/* Share report modal — only available for session-keyed (SF-upload) results */}
+      {shareOpen && sessionId && (
         <ShareModal
           sessionId={sessionId}
           onClose={() => setShareOpen(false)}

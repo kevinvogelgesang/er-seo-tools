@@ -106,6 +106,29 @@ export function buildSeoResultFromRun(
   }
 }
 
+/** Run-native loader for live-scan (and future blob-less) CrawlRuns.
+ *  Returns null when the run is not found or is not a seo-parser run.
+ *  The returned result is always `archived:true` — ResultsView renders the
+ *  archived-fallback path (no completeness banner, no memo/diff/export). */
+export async function loadRunSeoResult(runId: string): Promise<AggregatedResult | null> {
+  const run = await prisma.crawlRun.findUnique({
+    where: { id: runId },
+    select: {
+      tool: true, pagesTotal: true, score: true, domain: true,
+      pages: { select: { url: true, statusCode: true, wordCount: true, crawlDepth: true, indexable: true } },
+      findings: { select: { scope: true, type: true, severity: true, url: true, count: true, affectedComplete: true, affectedSource: true, detail: true } },
+    },
+  })
+  if (!run) return null
+  if (run.tool !== 'seo-parser') return null
+  return buildSeoResultFromRun(
+    { pagesTotal: run.pagesTotal, score: run.score, domain: run.domain },
+    run.pages,
+    run.findings,
+    { siteName: null, files: [] },
+  )
+}
+
 /** Session-origin loader. Returns null when no CrawlRun exists (pre-A2). */
 export async function loadArchivedSeoResult(sessionId: string): Promise<AggregatedResult | null> {
   const run = await prisma.crawlRun.findUnique({
