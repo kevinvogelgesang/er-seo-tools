@@ -783,3 +783,69 @@ git commit -m "docs(seo): breadcrumbs + tracker for autonomous live SEO source"
 - Task 9's surface list is codebase-discovered — if a surface is missed, the live score silently won't appear there; the grep step + per-surface tests are the safety net.
 - `schemaTypes` is not a `CrawlPage` scalar — pillar's live branch omits it; confirm pillar tolerates missing `schemaTypes` (it already handles missing enrichment).
 - `pickHomepage` heuristic (Task 3) — verify against a real audited set during execution; depth is labeled approximate regardless.
+
+---
+
+## Codex plan review (2026-06-30) — fixes to fold in on the next revision pass
+
+Codex reviewed this plan: **accept with named fixes.** The decision-independent
+fixes below are confirmed and must be applied; the **OPEN DECISIONS** section
+after them is blocked on Kevin and was the requested pause point.
+
+**Mechanical / decision-independent (apply verbatim):**
+1. **Durable intent on `CrawlRun` (Tasks 1/3/5/7/13).** `CrawlRun.siteAuditId` is
+   `SetNull`; retention deletes the `SiteAudit` while the run survives. Add
+   `CrawlRun.seoIntent Boolean @default(false)` (migration + `CrawlRunInput` +
+   `writeFindingsRun`), set it from `SiteAudit.seoIntent` in the builder, and have
+   canonical selection + history filter the **run's own** `seoIntent`, NEVER
+   `siteAudit:{ seoIntent: true }`.
+2. **Task 3 builder accuracy.** The variable is `site`, not `audit`
+   (`site.domain ?? job.domain` for homepage). `rows`/`seoRows`/`ensurePage`/
+   `indexableOf` are real. Reword "before the `toCheck` cap" → "independent of
+   `toCheck`, before transient-row deletion." Restrict BOTH source and target to
+   audited URLs. Initialize `inlinks`/`outlinks` in the default `CrawlPageInput`.
+3. **Task 6 signature.** It's `buildSeoResultFromRun(run, pages, findings, origin)`
+   — NOT `(run)`. Add a real `loadRunSeoResult(runId)` helper that loads the run +
+   its `CrawlPage`/`Finding` rows and calls it. The route alone is insufficient:
+   `ResultsView`, `PagesTable`, and the pages API (`/api/seo-parser/[sessionId]/
+   pages`) assume `sessionId` and need run-keyed variants.
+4. **Task 7 consumers.** `HistoryList.tsx` routes every item to
+   `/seo-parser/results/${id}`, deletes via `/api/parse/${id}`, expects
+   `files/status`. Run items must route to `/results/run/${id}` and handle
+   delete/labels for `kind:'run'`. The diff page consumes the same endpoint —
+   filter it to SF/session entries.
+5. **Task 5/9 no N+1.** Keep the pure `pickCanonicalSeo`; add a **bulk/pure**
+   selector over already-loaded `crawlRuns` for fleet/dashboard loops — do not call
+   a DB-hitting `selectCanonicalSeoRun` per client. There is no `normalizeDomain`;
+   use `normaliseSiteAuditDomain` / `normalizeClientDomain`.
+6. **Task 9 fixed surface list** (replace the grep-only approach; grep stays as a
+   safety net): `client-dashboard`, `client-fleet`, `client-findings`,
+   `scorecard-shared`, `findings-shared`, `HistoryList`, diff/history consumers.
+   `buildSeoSeries` currently carries only `sessionId` → needs a shape change to
+   emit live-run hrefs.
+7. **Task 14 gate.** `@ts-expect-error` is valid (`LiveScoreInputs` has no depth),
+   but Vitest won't prove it — the task must run `tsc --noEmit` (or rely on the
+   final gate).
+
+**OPEN DECISIONS (Kevin) — blocking the final plan revision:**
+- **D1 — Schedule coexistence (Task 4/10).** The schedules route enforces one
+  schedule per `(client,domain)` regardless of intent. Can an ADA schedule and an
+  SEO schedule coexist for the same client+domain (→ intent enters the uniqueness
+  key + UI), or is it one unified schedule serving both?
+- **D2 — SF page-facts durability (Task 10).** SF `inlinks/outlinks` are NOT
+  recoverable from normalized storage (`CrawlPage`/`PageIndexEntry` lack them;
+  `Session.result` can't supply them; only the raw uploaded CSV via
+  `parsePerUrlForPillar`). Persist SF `inlinks/outlinks` at parse time (durable,
+  more work), or have the SF branch re-parse the CSV only while the upload dir
+  still exists (best-effort, simpler)?
+- **D3 — Live pillar/brief persistence (Task 11/12).** `PillarAnalysis.sessionId`
+  is `@unique` and brief is `POST /api/brief/[sessionId]` reading the Session
+  upload dir. Do live-run pillar/brief outputs need **persisted** records in v1
+  (→ schema/route work to key them by client/domain/run), or is **stateless**
+  generation acceptable for v1?
+- **D4 — Live-entry UX (Task 7/8).** Behavior for live entries in: history delete,
+  the diff picker, and export/share/roadmap controls — hide, disable, or show the
+  "needs Screaming Frog data" state?
+
+Once D1–D4 are decided, do ONE clean revision pass: apply fixes 1–7, reshape
+Tasks 4/10/11/12/13 per the decisions, re-run the self-review, re-commit.
