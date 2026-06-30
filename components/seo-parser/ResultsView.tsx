@@ -13,6 +13,7 @@ import { ExportButtons } from './ExportButtons';
 import { CopyToClipboard } from './CopyToClipboard';
 import { PageDetailModal } from './PageDetailModal';
 import { ShareModal } from './ShareModal';
+import { NeedsScreamingFrog } from '@/components/seo/SeoSourceBadge';
 import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
 import { SuggestedPriorities } from './SuggestedPriorities';
@@ -97,9 +98,7 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap }:
                 </button>
               </>
             ) : (
-              <span className="text-xs text-gray-400 dark:text-white/40 italic">
-                Export &amp; sharing require Screaming Frog data
-              </span>
+              <NeedsScreamingFrog feature="Export & sharing" />
             )}
             {pillarButton}
             <button
