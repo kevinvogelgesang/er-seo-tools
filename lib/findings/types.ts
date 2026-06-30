@@ -44,6 +44,8 @@ export interface CrawlRunInput {
   pagesTotal: number
   startedAt: Date | null
   completedAt: Date | null
+  /** true = this run was produced by the autonomous SEO pipeline */
+  seoIntent?: boolean
 }
 
 export interface CrawlPageInput {
@@ -59,6 +61,8 @@ export interface CrawlPageInput {
   metaDescription: string | null
   wordCount: number | null
   crawlDepth: number | null
+  inlinks?: number | null
+  outlinks?: number | null
   indexable: boolean | null
   score: number | null
   passCount: number | null

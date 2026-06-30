@@ -63,12 +63,14 @@ export default async function PillarAnalysisPage({
 
         <header className="flex items-start justify-between gap-4 flex-wrap">
           <div>
+            {pa.session && (
             <Link
               href={`/seo-parser/results/${pa.session.id}`}
               className="text-sm text-gray-500 dark:text-white/50 hover:text-[#1c2d4a] dark:hover:text-white inline-flex items-center mb-3"
             >
               ← Back to SEO Audit
             </Link>
+          )}
             <h1 className="font-display font-bold text-2xl text-[#1c2d4a] dark:text-white">
               {siteName} — Pillar Analysis
             </h1>
@@ -102,7 +104,7 @@ export default async function PillarAnalysisPage({
         <StrategicMemoCard
           aiNarrative={pa.aiNarrative}
           narrativeUpdatedAt={pa.narrativeUpdatedAt}
-          sessionId={pa.session.id}
+          sessionId={pa.session?.id ?? null}
         />
 
         <div id="hub" className="scroll-mt-28">

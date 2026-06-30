@@ -10,7 +10,7 @@ import { MemoPoller } from './MemoPoller';
 interface Props {
   aiNarrative: string | null;
   narrativeUpdatedAt: Date | null;
-  sessionId: string;
+  sessionId: string | null;
 }
 
 export function StrategicMemoCard({ aiNarrative, narrativeUpdatedAt, sessionId }: Props) {
@@ -44,11 +44,13 @@ export function StrategicMemoCard({ aiNarrative, narrativeUpdatedAt, sessionId }
         </p>
       )}
 
-      <MemoPoller
-        sessionId={sessionId}
-        initialNarrativeUpdatedAt={initialUpdatedAt}
-        autoStartOnMount={!hasMemo}
-      />
+      {sessionId && (
+        <MemoPoller
+          sessionId={sessionId}
+          initialNarrativeUpdatedAt={initialUpdatedAt}
+          autoStartOnMount={!hasMemo}
+        />
+      )}
     </section>
   );
 }

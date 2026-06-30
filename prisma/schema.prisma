@@ -145,6 +145,7 @@ model SiteAudit {
   batchId       String?
   batch         AuditBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
   requestedBy   String?    // operator name from er-operator-name cookie at creation time
+  seoIntent     Boolean    @default(false) // true = this audit was enqueued by the autonomous SEO pipeline
   startedAt        DateTime?
   completedAt      DateTime?
   pagesRedirected  Int       @default(0)
@@ -170,8 +171,12 @@ model PillarAnalysis {
   id                  String   @id @default(cuid())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
-  sessionId           String   @unique // FK to Session (the seo-parser crawl) — one analysis per session
-  session             Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId           String?  @unique // FK to Session (nullable; unique enforced on non-null values — multiple NULLs allowed in SQLite)
+  session             Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  crawlRunId          String?  @unique // FK to CrawlRun (live-scan pillar analysis keyed by run)
+  crawlRun            CrawlRun? @relation(fields: [crawlRunId], references: [id], onDelete: SetNull)
+  clientId            Int?     // direct client FK for run-keyed analyses
+  domain              String?  // normalized host for run-keyed analyses
   status              String   @default("pending") // pending | running | complete | error
   error               String?
   runnerVersion       String   @default("1.0.0")
@@ -344,6 +349,7 @@ model CrawlRun {
   createdAt       DateTime   @default(now())
   tool            String     // 'seo-parser' | 'ada-audit'
   source          String     // 'sf-upload' | 'site-audit' | 'page-audit' (reserved: 'live-scan')
+  seoIntent       Boolean    @default(false) // true = this run was produced by the autonomous SEO pipeline
   domain          String?    // normalized host
   clientId        Int?
   client          Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -363,6 +369,7 @@ model CrawlRun {
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]
+  pillarAnalyses  PillarAnalysis[]
 
   @@unique([siteAuditId, tool])
   @@index([clientId, tool, createdAt])
@@ -437,6 +444,8 @@ model CrawlPage {
   metaDescription String?
   wordCount       Int?
   crawlDepth      Int?
+  inlinks         Int?     // graph scalars: count of internal links pointing TO this page
+  outlinks        Int?     // graph scalars: count of internal links FROM this page
   indexable       Boolean?
   score           Int?     // ada page score (mapper-computed)
   passCount       Int?     // axe passes.length at write time; null = unknown (pre-C3 run)

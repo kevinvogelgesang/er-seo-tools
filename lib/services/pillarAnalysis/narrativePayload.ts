@@ -72,7 +72,7 @@ export type VerdictSummary = Record<Verdict, number>;
 
 export interface NarrativePayload {
   id: string;
-  sessionId: string;
+  sessionId: string | null;
   /**
    * The site under analysis (e.g. "www.prowayhairschool.com"). Pulled from
    * Session.siteName, which is extracted from the crawled URLs. The skill
@@ -103,7 +103,7 @@ export interface NarrativePayload {
 
 interface PillarAnalysisRow {
   id: string;
-  sessionId: string;
+  sessionId: string | null;
   status: string;
   error: string | null;
   score: number | null;
