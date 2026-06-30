@@ -2,102 +2,83 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the SEO Parser near-autonomous — a scheduled/on-demand native crawl produces a canonical, source-labeled SEO report (on-page + broken links + score + native inlink/authority/approx-depth graph) and feeds pillar/brief natively, with Screaming Frog (SF) canonical only while a fresh upload exists.
+**Goal:** Make the SEO Parser near-autonomous — a scheduled/on-demand native crawl produces a canonical, source-labeled SEO report (on-page + broken links + score + native inlink/authority/approx-depth graph) and feeds pillar/brief natively (with persisted live records), with Screaming Frog (SF) canonical only while a fresh upload exists.
 
-**Architecture:** Reuse the existing ADA site-audit pipeline + the post-terminal `broken-link-verify` builder (the single live-scan run builder). Compute the link graph inside that builder from the raw `HarvestedLink` rows before they are deleted, persisting per-page scalars on `CrawlPage` (no edge table). A new domain-scoped `selectCanonicalSeoRun` resolves SF-vs-live per `clientId+domain` under a 30-day SF freshness window; every SEO read surface adopts it. `/seo-parser` becomes `CrawlRun`-native.
+**Architecture:** Reuse the ADA site-audit pipeline + the post-terminal `broken-link-verify` builder (the single live-scan run builder). Compute the link graph inside that builder from the raw `HarvestedLink` rows before deletion, persisting per-page scalars on `CrawlPage` (no edge table). A durable `CrawlRun.seoIntent` marks SEO-purposed runs (survives `SiteAudit` retention `SetNull`). A pure, bulk-friendly canonical selector resolves SF-vs-live per `clientId+domain` under a 30-day SF window; every SEO read surface adopts it. `/seo-parser` becomes `CrawlRun`-native. pillar/brief read a canonical page-facts provider and persist live outputs.
 
 **Tech Stack:** Next.js 15 App Router, TypeScript, Prisma + SQLite, the findings layer (`lib/findings/`), Vitest.
 
-## Global Constraints
+## Resolved decisions (Kevin, 2026-06-30)
+- **D1 — ADA + SEO schedules coexist** per client+domain; intent enters the schedules uniqueness key + UI (Task 4).
+- **D2 — Persist SF `inlinks/outlinks` at parse time** onto `CrawlPage` so the provider always reads normalized tables (Tasks 1, 10).
+- **D3 — Persist live pillar/brief records** in v1 → decouple `PillarAnalysis` from `sessionId @unique`; brief route keyed by run/client/domain (Tasks 1, 11, 12). This also makes the SEO roadmap/keyword **memo handoffs work for live runs**.
+- **D4 — "Needs Screaming Frog data" state** on the genuinely SF-only surfaces (report exports CSV/VPAT/PDF, SEO session diff, share pages); excluded from the diff picker; deletable normally (Tasks 6, 8). pillar/brief/memo are NOT SF-only (per D3).
 
+## Global Constraints
 - **Node 22; SQLite only; no serverless** (RunCloud + PM2). Do not change the core stack.
-- **NEVER interactive `prisma.$transaction(async tx => …)`** — array-form `$transaction([...])` only; conditional logic via SQL `EXISTS`; manual `updatedAt = Date.now()` (integer ms) in raw SQL.
+- **NEVER interactive `prisma.$transaction(async tx => …)`** — array-form only; conditional logic via SQL `EXISTS`; manual `updatedAt = Date.now()` (integer ms) in raw SQL.
 - **No SQLite `createMany`/`skipDuplicates`** — individual creates guarded by P2002.
 - **Migrations:** local `prisma migrate dev` is interactive-only — author migration SQL by hand, apply with `prisma migrate deploy`. Prefix prisma CLI + vitest with `DATABASE_URL="file:./local-dev.db"`.
 - **Findings-layer invariants:** dual-write best-effort/non-fatal; origin FKs `SetNull`; subtrees cascade from `CrawlRun`; never backfill historical blobs; read services use scalar/normalized tables only; degraded shapes OMIT unknowns (never 0/fake).
-- **Tests (DB-backed):** unique domain/id/name prefixes; scope cleanup to tracked ids (never broad `deleteMany` on shared tables); clean `CrawlRun` by domain BEFORE origin rows; a run queried by `siteAuditId` as unique needs the compound `siteAuditId_tool`. vitest jsdom has NO localStorage; node is default env.
+- **Tests (DB-backed):** unique domain/id/name prefixes; scope cleanup to tracked ids; clean `CrawlRun` by domain BEFORE origin rows; a run queried by `siteAuditId` as unique needs the compound `siteAuditId_tool`. vitest jsdom has NO localStorage; node is default env.
 - **`pruneArchivedBlobs` stays tool-origin-aware:** seo-parser prunes only session-origin `Session.result`; NEVER null an ADA `SiteAudit.summary` for a live-scan run.
-- **Source enum values:** `'sf-upload'`, `'site-audit'`, `'page-audit'`, `'live-scan'`. SEO score canonical today = `sf-upload`.
+- **Source enum values:** `'sf-upload'`, `'site-audit'`, `'page-audit'`, `'live-scan'`. SEO score canonical default = `sf-upload` while fresh.
+- **Durable intent (Codex #1):** SEO-purpose lives on `CrawlRun.seoIntent`. Canonical selection + history filter the **run's own** field, NEVER `siteAudit:{ seoIntent }` (the SiteAudit is SetNull'd by retention).
 
 ---
 
 ## File Structure
 
-**Schema / types**
-- `prisma/schema.prisma` — add `CrawlPage.inlinks`, `CrawlPage.outlinks`, `SiteAudit.seoIntent`.
-- `prisma/migrations/<ts>_live_seo_source/migration.sql` — hand-authored.
-- `lib/findings/types.ts` — add `inlinks`/`outlinks` to `CrawlPageInput`.
-
-**Graph (new, pure + builder wiring)**
-- `lib/ada-audit/seo/link-graph.ts` (new) — pure `computeLinkGraph(rows, opts)`.
-- `lib/ada-audit/seo/link-graph.test.ts` (new).
-- `lib/jobs/handlers/broken-link-verify.ts` — compute graph from raw rows; pass scalars to `ensurePage`.
-
-**Intent marker**
-- `lib/ada-audit/queue-request.ts`, `lib/ada-audit/queue-manager.ts` — thread `seoIntent`.
-- `app/api/site-audit/route.ts` — accept `seoIntent` (on-demand "Run SEO scan").
-- `lib/jobs/handlers/scheduled-site-audit.ts` — pass `seoIntent` from payload.
-- `app/api/clients/[id]/schedules/route.ts` — accept/persist `seoIntent` in schedule payload.
-
-**Canonical selection (new)**
-- `lib/services/seo-canonical.ts` (new) — `selectCanonicalSeoRun`, `SEO_SF_CANONICAL_WINDOW_DAYS`.
-- `lib/services/seo-canonical.test.ts` (new).
-- Adopt in: B1 series, client dashboard, fleet, client-findings (exact files located in Task 9).
-
-**Surfacing**
-- `app/seo-parser/results/run/[runId]/page.tsx` (new) — CrawlRun-native results.
-- `app/api/parse/history/route.ts` — merge live-scan runs.
-- `components/seo/SeoSourceBadge.tsx` (new) — source badge + caveat.
-
-**Page-facts provider + pillar/brief**
-- `lib/services/canonical-page-facts.ts` (new) — `getCanonicalPageFacts`.
-- `lib/services/canonical-page-facts.test.ts` (new).
-- `lib/services/pillarAnalysis/joinRecords.ts` — consume provider.
-- `lib/services/brief.service.ts` — build `Page[]` from provider when canonical = live.
-
-**Retention / guards / breadcrumbs**
-- `lib/ada-audit/scheduled-retention.ts` — keep-latest-≥2 `seo-live` carve-out.
-- `lib/findings/live-seo-score.test.ts` — depth-guard test.
-- Breadcrumb comments + tracker line.
+**Schema / types** — `prisma/schema.prisma` (+`CrawlPage.inlinks/outlinks`, `SiteAudit.seoIntent`, `CrawlRun.seoIntent`, `PillarAnalysis` decouple), hand-authored migration, `lib/findings/types.ts` (`CrawlPageInput`, `CrawlRunInput`), `lib/findings/writer.ts`.
+**Graph** — `lib/ada-audit/seo/link-graph.ts` (+test), `lib/jobs/handlers/broken-link-verify.ts`.
+**SF page-facts persistence** — `lib/findings/seo-mapper.ts` (map `parsePerUrlForPillar` inlinks/outlinks → `CrawlPage`).
+**Intent** — `lib/ada-audit/queue-request.ts`, `queue-manager.ts`, `app/api/site-audit/route.ts`, `lib/jobs/handlers/scheduled-site-audit.ts`, `app/api/clients/[id]/schedules/route.ts`.
+**Canonical selection** — `lib/services/seo-canonical.ts` (+test).
+**Surfacing** — `app/seo-parser/results/run/[runId]/page.tsx`, `lib/findings/seo-findings-fallback.ts` (`loadRunSeoResult`), `app/api/parse/history/route.ts`, `components/seo-parser/HistoryList.tsx`, the diff page, `components/seo/SeoSourceBadge.tsx`.
+**Provider + pillar/brief** — `lib/services/canonical-page-facts.ts` (+test), `lib/services/pillarAnalysis/runFromSession.ts` (+ new `runForCanonical`), `lib/services/brief.service.ts` + brief route.
+**Score surfaces** — `client-dashboard`, `client-fleet`, `client-findings`, `scorecard-shared`, `findings-shared`, `buildSeoSeries`.
+**Retention / guards / breadcrumbs** — `lib/ada-audit/scheduled-retention.ts`, `lib/findings/live-seo-score.test.ts`, tracker.
 
 ---
 
-## Task 1: Schema — `CrawlPage.inlinks/outlinks`, `SiteAudit.seoIntent`, `CrawlPageInput`
+## Task 1: Schema — graph scalars, durable intent, SF facts, PillarAnalysis decouple
 
 **Files:**
-- Modify: `prisma/schema.prisma` (`CrawlPage` model lines ~426–450; `SiteAudit` model lines ~119–167)
+- Modify: `prisma/schema.prisma` (`CrawlPage` ~426; `SiteAudit` ~119; `CrawlRun` ~342; `PillarAnalysis`)
 - Create: `prisma/migrations/<timestamp>_live_seo_source/migration.sql`
-- Modify: `lib/findings/types.ts` (`CrawlPageInput`)
+- Modify: `lib/findings/types.ts` (`CrawlPageInput`, `CrawlRunInput`), `lib/findings/writer.ts`
 
 **Interfaces:**
-- Produces: `CrawlPage.inlinks Int?`, `CrawlPage.outlinks Int?`, `SiteAudit.seoIntent Boolean @default(false)`; `CrawlPageInput.inlinks?: number | null`, `CrawlPageInput.outlinks?: number | null`.
+- Produces: `CrawlPage.inlinks Int?`, `CrawlPage.outlinks Int?`; `SiteAudit.seoIntent Boolean @default(false)`; `CrawlRun.seoIntent Boolean @default(false)`; `PillarAnalysis` keyable by run/client/domain (relax `sessionId` to nullable, add `crawlRunId String?` + `clientId`/`domain`); `CrawlPageInput.inlinks?/outlinks?: number | null`; `CrawlRunInput.seoIntent?: boolean`.
 
-- [ ] **Step 1: Edit `prisma/schema.prisma`.** In `CrawlPage`, after `crawlDepth Int?` add:
-```prisma
-  inlinks         Int?
-  outlinks        Int?
-```
-In `SiteAudit`, after `requestedBy String?` add:
-```prisma
-  seoIntent     Boolean    @default(false)
-```
+- [ ] **Step 1: Edit `prisma/schema.prisma`.**
+  - `CrawlPage`: after `crawlDepth Int?` add `inlinks Int?` and `outlinks Int?`.
+  - `SiteAudit`: after `requestedBy String?` add `seoIntent Boolean @default(false)`.
+  - `CrawlRun`: after `source String` add `seoIntent Boolean @default(false)`.
+  - `PillarAnalysis`: change `sessionId String @unique` → `sessionId String?` (drop `@unique`); add `crawlRunId String?`, `clientId Int?`, `domain String?`; add `@@unique([crawlRunId])` and keep a partial-uniqueness expectation enforced in app code (SQLite has no partial unique index via Prisma — enforce "one pillar analysis per session OR per crawlRun" with a guarded create). Confirm the existing `Session.pillarAnalyses` relation still compiles (it is a list relation, so nullable `sessionId` is fine).
 
-- [ ] **Step 2: Author migration SQL.** Create `prisma/migrations/<timestamp>_live_seo_source/migration.sql` (`<timestamp>` = `YYYYMMDDHHMMSS`):
+- [ ] **Step 2: Author migration SQL** `prisma/migrations/<timestamp>_live_seo_source/migration.sql` (`<timestamp>`=`YYYYMMDDHHMMSS`). Use table-rebuild form for the `PillarAnalysis` `@unique` drop if needed (SQLite can't drop a UNIQUE via ALTER) — follow the pattern of a prior column-drop migration in `prisma/migrations/`:
 ```sql
 ALTER TABLE "CrawlPage" ADD COLUMN "inlinks" INTEGER;
 ALTER TABLE "CrawlPage" ADD COLUMN "outlinks" INTEGER;
 ALTER TABLE "SiteAudit" ADD COLUMN "seoIntent" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "CrawlRun" ADD COLUMN "seoIntent" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "PillarAnalysis" ADD COLUMN "crawlRunId" TEXT;
+ALTER TABLE "PillarAnalysis" ADD COLUMN "clientId" INTEGER;
+ALTER TABLE "PillarAnalysis" ADD COLUMN "domain" TEXT;
+-- Drop the UNIQUE on sessionId via table rebuild (copy the existing prior-migration rebuild pattern):
+-- 1) create PillarAnalysis_new with sessionId TEXT NULL (no UNIQUE) + new cols + UNIQUE(crawlRunId)
+-- 2) INSERT INTO PillarAnalysis_new SELECT ... FROM PillarAnalysis
+-- 3) DROP TABLE PillarAnalysis; ALTER TABLE PillarAnalysis_new RENAME TO PillarAnalysis;
+-- 4) recreate indexes
+CREATE UNIQUE INDEX "PillarAnalysis_crawlRunId_key" ON "PillarAnalysis"("crawlRunId");
 ```
 
-- [ ] **Step 3: Apply migration + regenerate client.**
+- [ ] **Step 3: Apply + regenerate.**
 Run: `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && DATABASE_URL="file:./local-dev.db" npx prisma generate`
-Expected: migration applied; client regenerated, no errors.
+Expected: applied; client regenerated.
 
-- [ ] **Step 4: Extend `CrawlPageInput`** in `lib/findings/types.ts` — add to the interface (mirroring `crawlDepth`):
-```ts
-  inlinks?: number | null
-  outlinks?: number | null
-```
+- [ ] **Step 4: Extend types.** `lib/findings/types.ts`: `CrawlPageInput` += `inlinks?: number | null`, `outlinks?: number | null`; `CrawlRunInput` += `seoIntent?: boolean`. `lib/findings/writer.ts`: `writeFindingsRun` writes `seoIntent: input.seoIntent ?? false` on the `CrawlRun` create.
 
 - [ ] **Step 5: Typecheck.**
 Run: `npx tsc --noEmit`
@@ -105,58 +86,48 @@ Expected: PASS.
 
 - [ ] **Step 6: Commit.**
 ```bash
-git add prisma/schema.prisma prisma/migrations lib/findings/types.ts
-git commit -m "feat(schema): CrawlPage inlinks/outlinks + SiteAudit.seoIntent"
+git add prisma lib/findings/types.ts lib/findings/writer.ts
+git commit -m "feat(schema): graph scalars, durable CrawlRun.seoIntent, PillarAnalysis decouple"
 ```
 
 ---
 
 ## Task 2: Pure link-graph computation
 
-**Files:**
-- Create: `lib/ada-audit/seo/link-graph.ts`
-- Test: `lib/ada-audit/seo/link-graph.test.ts`
+**Files:** Create `lib/ada-audit/seo/link-graph.ts`; Test `lib/ada-audit/seo/link-graph.test.ts`
 
 **Interfaces:**
-- Consumes: raw `HarvestedLink`-shaped rows `{ sourcePageUrl: string; targetUrl: string; kind: string }` and the set of audited page URLs.
-- Produces:
 ```ts
 export interface LinkGraphRow { inlinks: number; outlinks: number; crawlDepth: number | null }
-export interface LinkGraphResult {
-  byUrl: Map<string, LinkGraphRow>   // keyed by normalizeFindingUrl(url)
-  depthAvailable: boolean            // false when homepage couldn't be resolved
-}
+export interface LinkGraphResult { byUrl: Map<string, LinkGraphRow>; depthAvailable: boolean }
 export function computeLinkGraph(
   rows: { sourcePageUrl: string; targetUrl: string; kind: string }[],
   auditedUrls: string[],
   homepageUrl: string | null,
 ): LinkGraphResult
 ```
-- Rules: consider only `kind === 'internal-link'`; normalize every URL via `normalizeFindingUrl` (`lib/findings/normalize-url.ts`); count `inlinks` = distinct normalized `sourcePageUrl` per `targetUrl` (restricted to targets in `auditedUrls`); `outlinks` = distinct normalized `targetUrl` per `sourcePageUrl` (targets restricted to `auditedUrls`); `crawlDepth` = BFS hops from `homepageUrl` over the normalized edge set (visited-guarded); unreachable → `null`; if `homepageUrl` is null or not in `auditedUrls`, set `depthAvailable=false` and all `crawlDepth=null`.
+Rules: only `kind === 'internal-link'`; normalize every URL via `normalizeFindingUrl`; **both source and target must be in `auditedUrls`** to count (Codex #2); `inlinks` = distinct normalized sources per target; `outlinks` = distinct normalized targets per source; `crawlDepth` = visited-guarded BFS hops from `homepageUrl`; unreachable → `null`; homepage null/not-audited → `depthAvailable=false`, all depths `null`.
 
-- [ ] **Step 1: Write the failing test** `lib/ada-audit/seo/link-graph.test.ts`:
+- [ ] **Step 1: Write the failing test** (`lib/ada-audit/seo/link-graph.test.ts`):
 ```ts
 import { describe, it, expect } from 'vitest'
 import { computeLinkGraph } from './link-graph'
-
-const A = 'https://x.test/', B = 'https://x.test/b', C = 'https://x.test/c', D = 'https://x.test/d'
-
+const A='https://x.test/', B='https://x.test/b', C='https://x.test/c', D='https://x.test/d'
 describe('computeLinkGraph', () => {
   it('counts distinct inlinks/outlinks over audited internal links only', () => {
     const rows = [
       { sourcePageUrl: A, targetUrl: B, kind: 'internal-link' },
-      { sourcePageUrl: A, targetUrl: B, kind: 'internal-link' }, // dup source→target
+      { sourcePageUrl: A, targetUrl: B, kind: 'internal-link' },
       { sourcePageUrl: C, targetUrl: B, kind: 'internal-link' },
-      { sourcePageUrl: A, targetUrl: 'https://ext.test/', kind: 'external-link' }, // ignored
-      { sourcePageUrl: A, targetUrl: C, kind: 'image' }, // ignored (not internal-link)
+      { sourcePageUrl: A, targetUrl: 'https://ext.test/', kind: 'external-link' },
+      { sourcePageUrl: A, targetUrl: C, kind: 'image' },
     ]
     const g = computeLinkGraph(rows, [A, B, C], A)
-    expect(g.byUrl.get(B)!.inlinks).toBe(2) // A and C, dedup A
-    expect(g.byUrl.get(A)!.outlinks).toBe(1) // only B (C link is image, ext ignored)
+    expect(g.byUrl.get(B)!.inlinks).toBe(2)
+    expect(g.byUrl.get(A)!.outlinks).toBe(1)
     expect(g.byUrl.get(B)!.outlinks).toBe(0)
   })
-
-  it('computes BFS depth from homepage, null for unreachable', () => {
+  it('BFS depth from homepage; null unreachable', () => {
     const rows = [
       { sourcePageUrl: A, targetUrl: B, kind: 'internal-link' },
       { sourcePageUrl: B, targetUrl: C, kind: 'internal-link' },
@@ -164,12 +135,10 @@ describe('computeLinkGraph', () => {
     const g = computeLinkGraph(rows, [A, B, C, D], A)
     expect(g.depthAvailable).toBe(true)
     expect(g.byUrl.get(A)!.crawlDepth).toBe(0)
-    expect(g.byUrl.get(B)!.crawlDepth).toBe(1)
     expect(g.byUrl.get(C)!.crawlDepth).toBe(2)
-    expect(g.byUrl.get(D)!.crawlDepth).toBeNull() // unreachable
+    expect(g.byUrl.get(D)!.crawlDepth).toBeNull()
   })
-
-  it('handles cycles without hanging and marks depthUnavailable when homepage missing', () => {
+  it('cycles terminate; homepage missing → depthUnavailable', () => {
     const rows = [
       { sourcePageUrl: B, targetUrl: C, kind: 'internal-link' },
       { sourcePageUrl: C, targetUrl: B, kind: 'internal-link' },
@@ -181,671 +150,310 @@ describe('computeLinkGraph', () => {
 })
 ```
 
-- [ ] **Step 2: Run it; verify it fails.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/seo/link-graph.test.ts`
-Expected: FAIL ("computeLinkGraph is not a function" / module not found).
+- [ ] **Step 2: Run; verify FAIL.** `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/seo/link-graph.test.ts`
 
 - [ ] **Step 3: Implement** `lib/ada-audit/seo/link-graph.ts`:
 ```ts
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
-
 export interface LinkGraphRow { inlinks: number; outlinks: number; crawlDepth: number | null }
 export interface LinkGraphResult { byUrl: Map<string, LinkGraphRow>; depthAvailable: boolean }
-
 export function computeLinkGraph(
   rows: { sourcePageUrl: string; targetUrl: string; kind: string }[],
-  auditedUrls: string[],
-  homepageUrl: string | null,
+  auditedUrls: string[], homepageUrl: string | null,
 ): LinkGraphResult {
   const audited = new Set(auditedUrls.map(normalizeFindingUrl))
-  const inSets = new Map<string, Set<string>>()   // target -> distinct sources
-  const outSets = new Map<string, Set<string>>()  // source -> distinct targets
-  const adj = new Map<string, Set<string>>()       // source -> targets (for BFS)
-
+  const inSets = new Map<string, Set<string>>(), outSets = new Map<string, Set<string>>()
+  const adj = new Map<string, Set<string>>()
   for (const r of rows) {
     if (r.kind !== 'internal-link') continue
-    const s = normalizeFindingUrl(r.sourcePageUrl)
-    const t = normalizeFindingUrl(r.targetUrl)
-    if (!audited.has(t)) continue
-    if (!inSets.has(t)) inSets.set(t, new Set())
-    inSets.get(t)!.add(s)
-    if (!outSets.has(s)) outSets.set(s, new Set())
-    outSets.get(s)!.add(t)
-    if (!adj.has(s)) adj.set(s, new Set())
-    adj.get(s)!.add(t)
+    const s = normalizeFindingUrl(r.sourcePageUrl), t = normalizeFindingUrl(r.targetUrl)
+    if (!audited.has(s) || !audited.has(t)) continue
+    ;(inSets.get(t) ?? inSets.set(t, new Set()).get(t)!).add(s)
+    ;(outSets.get(s) ?? outSets.set(s, new Set()).get(s)!).add(t)
+    ;(adj.get(s) ?? adj.set(s, new Set()).get(s)!).add(t)
   }
-
   const home = homepageUrl ? normalizeFindingUrl(homepageUrl) : null
   const depthAvailable = !!home && audited.has(home)
   const depth = new Map<string, number>()
   if (depthAvailable) {
-    const queue: string[] = [home!]
-    depth.set(home!, 0)
-    while (queue.length) {
-      const cur = queue.shift()!
-      const d = depth.get(cur)!
-      for (const nxt of adj.get(cur) ?? []) {
-        if (!depth.has(nxt)) { depth.set(nxt, d + 1); queue.push(nxt) }
-      }
+    const q = [home!]; depth.set(home!, 0)
+    while (q.length) {
+      const cur = q.shift()!, d = depth.get(cur)!
+      for (const nxt of adj.get(cur) ?? []) if (!depth.has(nxt)) { depth.set(nxt, d + 1); q.push(nxt) }
     }
   }
-
   const byUrl = new Map<string, LinkGraphRow>()
-  for (const url of audited) {
-    byUrl.set(url, {
-      inlinks: inSets.get(url)?.size ?? 0,
-      outlinks: outSets.get(url)?.size ?? 0,
-      crawlDepth: depthAvailable ? (depth.has(url) ? depth.get(url)! : null) : null,
-    })
-  }
+  for (const url of audited) byUrl.set(url, {
+    inlinks: inSets.get(url)?.size ?? 0, outlinks: outSets.get(url)?.size ?? 0,
+    crawlDepth: depthAvailable ? (depth.get(url) ?? null) : null,
+  })
   return { byUrl, depthAvailable }
 }
 ```
 
-- [ ] **Step 4: Run tests; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/seo/link-graph.test.ts`
-Expected: PASS (3 tests).
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/ada-audit/seo/link-graph.ts lib/ada-audit/seo/link-graph.test.ts
-git commit -m "feat(seo): pure link-graph computation (inlinks/outlinks/BFS depth)"
-```
+- [ ] **Step 4: Run; verify PASS.** (3 tests)
+- [ ] **Step 5: Commit.** `git add lib/ada-audit/seo/link-graph.ts lib/ada-audit/seo/link-graph.test.ts && git commit -m "feat(seo): pure link-graph computation"`
 
 ---
 
 ## Task 3: Wire the graph into the live-scan builder
 
-**Files:**
-- Modify: `lib/jobs/handlers/broken-link-verify.ts` (HarvestedLink query ~68–73; `ensurePage` scalar writes ~155–159)
-- Test: `lib/jobs/handlers/broken-link-verify.test.ts` (extend; or a focused new test file `broken-link-verify.graph.test.ts`)
+**Files:** Modify `lib/jobs/handlers/broken-link-verify.ts` (~64 onward); Test `lib/jobs/handlers/broken-link-verify.graph.test.ts`
 
-**Interfaces:**
-- Consumes: `computeLinkGraph` (Task 2); raw `HarvestedLink` rows (already loaded at line 68 — note current `select` omits nothing needed: `targetUrl`, `kind`, `sourcePageUrl` present).
-- Produces: live-scan `CrawlPage` rows now carry `inlinks`/`outlinks`/`crawlDepth`.
+**Interfaces:** Consumes `computeLinkGraph`. The real builder variables are `site` (the SiteAudit; use `site.domain ?? job.domain`), `rows` (raw HarvestedLink), `seoRows` (HarvestedPageSeo), `ensurePage(url, scalars?)`, `indexableOf(r)` (all confirmed present). Produces live-scan `CrawlPage` rows carrying `inlinks/outlinks/crawlDepth`, and `CrawlRun.seoIntent = site.seoIntent`.
 
-- [ ] **Step 1: Write the failing test.** In a builder test, seed a `SiteAudit` (complete) + `HarvestedPageSeo` rows for `A`,`B` + `HarvestedLink` rows (`A→B internal-link`), run the builder, assert the live-scan run's `CrawlPage` for `B` has `inlinks=1` and for `A` `outlinks=1`, and `crawlDepth` set when homepage (`A`) audited. (Follow the existing builder test's setup/cleanup patterns; unique domain prefix; clean `CrawlRun` by domain before origin rows.)
+- [ ] **Step 1: Write the failing test** — seed a complete `SiteAudit` (`seoIntent: true`) + `HarvestedPageSeo` for `A`,`B` + `HarvestedLink` (`A→B internal-link`); run the builder; assert the live-scan `CrawlPage` for `B` has `inlinks=1`, `A` has `outlinks=1`, depth set (homepage `A` audited), and the `CrawlRun.seoIntent === true`. Follow the existing builder test setup/cleanup (unique domain; clean `CrawlRun` by domain before origin rows).
 
-- [ ] **Step 2: Run it; verify it fails** (inlinks null today).
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/broken-link-verify.graph.test.ts`
-Expected: FAIL (inlinks/outlinks/crawlDepth null).
+- [ ] **Step 2: Run; verify FAIL.** `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/broken-link-verify.graph.test.ts`
 
-- [ ] **Step 3: Implement.** In `broken-link-verify.ts`, after the `rows` query (the raw `HarvestedLink` rows are in `rows`) and after the `HarvestedPageSeo` rows are loaded (call that `seoRows`), compute the graph BEFORE the `toCheck` cap is applied:
+- [ ] **Step 3: Implement.** Independent of the `toCheck` verification map, before the transient rows are deleted (Codex #2 wording): compute the graph from raw `rows`, restricting audited URLs to `seoRows`. Add a local `pickHomepage(urls, domain)` = normalized `https://<domain>/` if in the normalized audited set, else the shallowest-path audited URL, else `null`.
 ```ts
-// Graph metrics use the RAW rows (the toCheck map caps sources at 25 — wrong for counts).
 const auditedUrls = seoRows.map((r) => r.url)
-const homepageUrl = pickHomepage(auditedUrls, audit.domain) // see helper below
-const graph = computeLinkGraph(
-  rows.map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl, kind: r.kind })),
-  auditedUrls,
-  homepageUrl,
-)
+const homepageUrl = pickHomepage(auditedUrls, site.domain ?? job.domain)
+let graph: ReturnType<typeof computeLinkGraph> | null = null
+try {
+  graph = computeLinkGraph(
+    rows.map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl, kind: r.kind })),
+    auditedUrls, homepageUrl,
+  )
+} catch (e) { console.error('[live-seo] graph compute failed', e) } // best-effort
 ```
-Add a small local `pickHomepage(urls, domain)`: return the normalized `https://<domain>/` if present in the normalized audited set, else the audited URL with the shallowest path (fewest `/` segments), else `null`. Then in the on-page `ensurePage(r.url, {...})` scalar call, merge graph fields:
-```ts
-const gx = graph.byUrl.get(normalizeFindingUrl(r.url))
-ensurePage(r.url, {
-  statusCode: r.statusCode, title: r.title, h1: r.h1,
-  metaDescription: r.metaDescription, wordCount: r.wordCount,
-  indexable: indexableOf(r) && !r.loginLike,
-  inlinks: gx?.inlinks ?? null,
-  outlinks: gx?.outlinks ?? null,
-  crawlDepth: gx?.crawlDepth ?? null,
-})
-```
-Wrap graph computation in try/catch logging `[live-seo] graph compute failed` and falling back to null aggregates — a graph failure must NOT fail the run write (findings-layer best-effort rule).
+In the on-page `ensurePage(r.url, {...})` call, merge: `inlinks: graph?.byUrl.get(normalizeFindingUrl(r.url))?.inlinks ?? null`, same for `outlinks`, `crawlDepth`. Pass `seoIntent: site.seoIntent` into the `writeFindingsRun` input for this run.
 
-- [ ] **Step 4: Run tests; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/broken-link-verify.graph.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/jobs/handlers/broken-link-verify.ts lib/jobs/handlers/broken-link-verify.graph.test.ts
-git commit -m "feat(seo): populate CrawlPage link-graph scalars in the live-scan builder"
-```
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add lib/jobs/handlers/broken-link-verify.ts lib/jobs/handlers/broken-link-verify.graph.test.ts && git commit -m "feat(seo): populate link-graph scalars + run seoIntent in the builder"`
 
 ---
 
-## Task 4: Thread `seoIntent` (schedule + on-demand)
+## Task 4: Thread `seoIntent`; coexisting ADA+SEO schedules (D1)
 
-**Files:**
-- Modify: `lib/ada-audit/queue-request.ts` (`QueueRequestInput`), `lib/ada-audit/queue-manager.ts` (`enqueueAudit` + row create ~115–116)
-- Modify: `app/api/site-audit/route.ts` (accept `seoIntent`)
-- Modify: `lib/jobs/handlers/scheduled-site-audit.ts` (`ScheduledSiteAuditPayload` + pass-through)
-- Modify: `app/api/clients/[id]/schedules/route.ts` (accept/persist `seoIntent` in payload)
-- Test: `lib/ada-audit/queue-request.test.ts` (or the existing queue test)
+**Files:** Modify `lib/ada-audit/queue-request.ts`, `queue-manager.ts`, `app/api/site-audit/route.ts`, `lib/jobs/handlers/scheduled-site-audit.ts`, `app/api/clients/[id]/schedules/route.ts`; Test `lib/ada-audit/queue-request.test.ts` + a schedules-route test.
 
-**Interfaces:**
-- Produces: `QueueRequestInput.seoIntent?: boolean`; written to `SiteAudit.seoIntent`. `ScheduledSiteAuditPayload.seoIntent?: boolean`.
+**Interfaces:** `QueueRequestInput.seoIntent?: boolean` → `SiteAudit.seoIntent`. `ScheduledSiteAuditPayload.seoIntent?: boolean`. Schedules uniqueness key becomes `(clientId, domain, seoIntent)`.
 
-- [ ] **Step 1: Write the failing test** — `queueSiteAuditRequest({ ..., seoIntent: true })` creates a `SiteAudit` with `seoIntent === true`; default omitted → `false`.
+- [ ] **Step 1: Write failing tests** — (a) `queueSiteAuditRequest({..., seoIntent:true})` sets `SiteAudit.seoIntent=true` (default false); (b) creating an SEO schedule (`seoIntent:true`) for a `(client,domain)` that already has an ADA schedule succeeds (coexist), while a duplicate same-intent schedule is rejected.
 
-- [ ] **Step 2: Run; verify fail.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/queue-request.test.ts`
-Expected: FAIL (unknown field / false).
+- [ ] **Step 2: Run; verify FAIL.**
 
 - [ ] **Step 3: Implement.**
-  - `QueueRequestInput`: add `seoIntent?: boolean`. Pass to `enqueueAudit(domain, clientId, wcagLevel, { preDiscoveredUrls, requestedBy, scheduleId, seoIntent })`.
-  - `enqueueAudit` opts: add `seoIntent?: boolean`; in the `SiteAudit` create data add `seoIntent: opts.seoIntent ?? false`.
-  - `app/api/site-audit/route.ts`: read `body.seoIntent === true` and pass `seoIntent` to `queueSiteAuditRequest` (this is the on-demand "Run SEO scan" trigger — same endpoint, flagged).
-  - `scheduled-site-audit.ts`: add `seoIntent?: boolean` to `ScheduledSiteAuditPayload`; pass `seoIntent: p.seoIntent ?? false` into `queueSiteAuditRequest`.
-  - `app/api/clients/[id]/schedules/route.ts`: accept an optional `seoIntent` boolean on schedule create/update and store it in the `Schedule.payload` JSON alongside `{clientId, domain, wcagLevel}`.
+  - `QueueRequestInput` += `seoIntent?: boolean`; pass through `enqueueAudit(..., { ..., seoIntent })`; in the `SiteAudit` create add `seoIntent: opts.seoIntent ?? false`.
+  - `app/api/site-audit/route.ts`: read `body.seoIntent === true`, pass to `queueSiteAuditRequest` (this is the on-demand "Run SEO scan" trigger).
+  - `scheduled-site-audit.ts`: `ScheduledSiteAuditPayload` += `seoIntent?: boolean`; pass `seoIntent: p.seoIntent ?? false`.
+  - `app/api/clients/[id]/schedules/route.ts`: accept `seoIntent`, store in payload; change the "one schedule per (client,domain)" guard to key on `(client, domain, seoIntent)`; surface intent in the GET response for the UI.
 
-- [ ] **Step 4: Run; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/queue-request.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/ada-audit/queue-request.ts lib/ada-audit/queue-manager.ts app/api/site-audit/route.ts lib/jobs/handlers/scheduled-site-audit.ts app/api/clients/[id]/schedules/route.ts lib/ada-audit/queue-request.test.ts
-git commit -m "feat(seo): thread seoIntent through schedule + on-demand site-audit enqueue"
-```
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add -A && git commit -m "feat(seo): seoIntent threading + coexisting ADA/SEO schedules"`
 
 ---
 
-## Task 5: Domain-scoped canonical selector
+## Task 5: Canonical selector (pure + bulk; no N+1) (Codex #5/#6)
 
-**Files:**
-- Create: `lib/services/seo-canonical.ts`
-- Test: `lib/services/seo-canonical.test.ts`
+**Files:** Create `lib/services/seo-canonical.ts`; Test `lib/services/seo-canonical.test.ts`
 
 **Interfaces:**
-- Produces:
 ```ts
-export const SEO_SF_CANONICAL_WINDOW_DAYS =
-  Number(process.env.SEO_SF_CANONICAL_WINDOW_DAYS ?? 30)
-
+export const SEO_SF_CANONICAL_WINDOW_DAYS = Number(process.env.SEO_SF_CANONICAL_WINDOW_DAYS ?? 30)
 export interface SeoRunRef {
-  id: string; source: string; domain: string | null
-  completedAt: Date | null; createdAt: Date
-  sessionId: string | null; siteAuditId: string | null
-}
-export type CanonicalSeo =
-  | { run: SeoRunRef; source: 'sf-upload' | 'live-scan' }
-  | null
-// Pure selector over already-fetched candidate runs for ONE clientId+domain.
-export function pickCanonicalSeo(
-  runs: SeoRunRef[],
-  nowMs: number,
-  windowDays?: number,
-): CanonicalSeo
-```
-Rule (mirrors spec §4.3): among `runs` (already domain-filtered), let `sf` = newest `source==='sf-upload'`, `live` = newest `source==='live-scan'`. If `sf` and `ageDays(sf) <= window` → sf. Else if `live` and (`!sf || live.completedAt > sf.completedAt`) → live. Else → sf (or live if no sf). `ageDays` from `completedAt` (missing → treat as Infinity/stale).
-
-- [ ] **Step 1: Write the failing test** `lib/services/seo-canonical.test.ts`:
-```ts
-import { describe, it, expect } from 'vitest'
-import { pickCanonicalSeo } from './seo-canonical'
-
-const day = 86_400_000
-const now = 1_000 * day
-const ref = (o: Partial<any>) => ({ id: o.id!, source: o.source!, domain: 'x.test',
-  completedAt: o.completedAt ?? null, createdAt: new Date(now), sessionId: null, siteAuditId: null })
-
-describe('pickCanonicalSeo (30d window)', () => {
-  it('fresh SF wins', () => {
-    const r = pickCanonicalSeo([
-      ref({ id: 'sf', source: 'sf-upload', completedAt: new Date(now - 5 * day) }),
-      ref({ id: 'lv', source: 'live-scan', completedAt: new Date(now - 1 * day) }),
-    ], now, 30)
-    expect(r?.run.id).toBe('sf'); expect(r?.source).toBe('sf-upload')
-  })
-  it('stale SF + newer live → live wins', () => {
-    const r = pickCanonicalSeo([
-      ref({ id: 'sf', source: 'sf-upload', completedAt: new Date(now - 40 * day) }),
-      ref({ id: 'lv', source: 'live-scan', completedAt: new Date(now - 1 * day) }),
-    ], now, 30)
-    expect(r?.run.id).toBe('lv'); expect(r?.source).toBe('live-scan')
-  })
-  it('no SF → live canonical', () => {
-    const r = pickCanonicalSeo([ref({ id: 'lv', source: 'live-scan', completedAt: new Date(now) })], now, 30)
-    expect(r?.run.id).toBe('lv')
-  })
-  it('stale SF + no live → SF still canonical', () => {
-    const r = pickCanonicalSeo([ref({ id: 'sf', source: 'sf-upload', completedAt: new Date(now - 99 * day) })], now, 30)
-    expect(r?.run.id).toBe('sf')
-  })
-  it('empty → null', () => { expect(pickCanonicalSeo([], now, 30)).toBeNull() })
-})
-```
-
-- [ ] **Step 2: Run; verify fail.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/services/seo-canonical.test.ts`
-Expected: FAIL (module not found).
-
-- [ ] **Step 3: Implement** `lib/services/seo-canonical.ts`:
-```ts
-export const SEO_SF_CANONICAL_WINDOW_DAYS =
-  Number(process.env.SEO_SF_CANONICAL_WINDOW_DAYS ?? 30)
-
-export interface SeoRunRef {
-  id: string; source: string; domain: string | null
-  completedAt: Date | null; createdAt: Date
-  sessionId: string | null; siteAuditId: string | null
+  id: string; source: string; seoIntent: boolean; domain: string | null
+  completedAt: Date | null; createdAt: Date; sessionId: string | null; siteAuditId: string | null
 }
 export type CanonicalSeo = { run: SeoRunRef; source: 'sf-upload' | 'live-scan' } | null
+// PURE — operate over already-loaded runs (use in fleet/dashboard loops without per-row DB hits):
+export function pickCanonicalSeo(runs: SeoRunRef[], nowMs: number, windowDays?: number): CanonicalSeo
+// Convenience DB wrapper for single-context callers ONLY (not loops):
+export async function selectCanonicalSeoRun(args: { clientId: number; domain: string }): Promise<CanonicalSeo>
+```
+Rule (spec §4.3): consider only `source==='sf-upload'` OR (`source==='live-scan'` AND `seoIntent===true`). `sf`=newest sf-upload, `live`=newest qualifying live. Fresh SF (`ageDays(sf) ≤ window`) wins; else newer live supersedes; else SF; else live. Domain compared via `normaliseSiteAuditDomain` (there is NO `normalizeDomain`).
 
-const ageDays = (r: SeoRunRef, nowMs: number) =>
-  r.completedAt ? (nowMs - r.completedAt.getTime()) / 86_400_000 : Infinity
-const newest = (runs: SeoRunRef[], src: string) =>
-  runs.filter((r) => r.source === src)
-      .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0))[0] ?? null
+- [ ] **Step 1: Write failing test** (`lib/services/seo-canonical.test.ts`) covering: fresh-SF-wins, stale-SF+newer-live→live, no-SF→live, stale-SF+no-live→SF, **per-domain isolation on a multi-domain client**, a live run with `seoIntent=false` is IGNORED, empty→null. (Use the pure `pickCanonicalSeo`.)
 
-export function pickCanonicalSeo(
-  runs: SeoRunRef[], nowMs: number, windowDays = SEO_SF_CANONICAL_WINDOW_DAYS,
-): CanonicalSeo {
-  const sf = newest(runs, 'sf-upload')
-  const live = newest(runs, 'live-scan')
+- [ ] **Step 2: Run; verify FAIL.**
+
+- [ ] **Step 3: Implement** `pickCanonicalSeo` (pure, as in the prior draft but gated on `seoIntent` for live) + `selectCanonicalSeoRun` that `prisma.crawlRun.findMany({ where: { clientId, tool:'seo-parser', domain: normaliseSiteAuditDomain(domain), OR: [{ source:'sf-upload' }, { source:'live-scan', seoIntent:true }] }, select: { id,source,seoIntent,domain,completedAt,createdAt,sessionId,siteAuditId } })` then `pickCanonicalSeo(rows, Date.now())`.
+```ts
+const ageDays = (r: SeoRunRef, n: number) => r.completedAt ? (n - r.completedAt.getTime())/86_400_000 : Infinity
+const newest = (rs: SeoRunRef[], pred: (r: SeoRunRef)=>boolean) =>
+  rs.filter(pred).sort((a,b)=>(b.completedAt?.getTime()??0)-(a.completedAt?.getTime()??0))[0] ?? null
+export function pickCanonicalSeo(runs: SeoRunRef[], nowMs: number, windowDays = SEO_SF_CANONICAL_WINDOW_DAYS): CanonicalSeo {
+  const sf = newest(runs, r => r.source==='sf-upload')
+  const live = newest(runs, r => r.source==='live-scan' && r.seoIntent)
   if (sf && ageDays(sf, nowMs) <= windowDays) return { run: sf, source: 'sf-upload' }
-  if (live && (!sf || (live.completedAt?.getTime() ?? 0) > (sf.completedAt?.getTime() ?? 0)))
-    return { run: live, source: 'live-scan' }
+  if (live && (!sf || (live.completedAt?.getTime()??0) > (sf.completedAt?.getTime()??0))) return { run: live, source: 'live-scan' }
   if (sf) return { run: sf, source: 'sf-upload' }
   if (live) return { run: live, source: 'live-scan' }
   return null
 }
 ```
-Also add `selectCanonicalSeoRun({ clientId, domain })` that queries `prisma.crawlRun.findMany` for `{ clientId, tool: 'seo-parser', source: { in: ['sf-upload','live-scan'] }, domain: normalizeDomain(domain) }` selecting the `SeoRunRef` fields and delegates to `pickCanonicalSeo(rows, Date.now())`. (For live-scan, also constrain to runs whose `siteAudit.seoIntent === true` via a relation filter, so ADA-only live runs don't surface as canonical SEO.)
 
-- [ ] **Step 4: Run; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/services/seo-canonical.test.ts`
-Expected: PASS (5 tests).
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/services/seo-canonical.ts lib/services/seo-canonical.test.ts
-git commit -m "feat(seo): domain-scoped SF-vs-live canonical selector (30d window)"
-```
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add lib/services/seo-canonical.ts lib/services/seo-canonical.test.ts && git commit -m "feat(seo): pure+bulk canonical SF-vs-live selector (30d, seoIntent-gated)"`
 
 ---
 
-## Task 6: CrawlRun-native results route (live-scan)
+## Task 6: CrawlRun-native results route + `loadRunSeoResult` (Codex #3)
 
-**Files:**
-- Create: `app/seo-parser/results/run/[runId]/page.tsx`
-- Reuse: `lib/findings/seo-findings-fallback.ts` (`buildSeoResultFromRun`)
-- Test: a route/unit test asserting a live-scan run renders an `AggregatedResult` (archived/degraded shape) without a `Session`.
+**Files:** Create `app/seo-parser/results/run/[runId]/page.tsx`; Modify `lib/findings/seo-findings-fallback.ts` (add `loadRunSeoResult`); Modify `components/.../ResultsView` + `PagesTable` to accept a run-keyed source; add a run-keyed pages API or branch in `/api/seo-parser/[sessionId]/pages`. Test: a loader test.
 
-**Interfaces:**
-- Consumes: `buildSeoResultFromRun(run)` / `loadArchivedSeoResult` (already turn a `CrawlRun` + findings into an `AggregatedResult` with `archived: true`).
-- Produces: a `/seo-parser/results/run/<crawlRunId>` page rendering the existing results view in a source-labeled, "live-scan" mode.
+**Interfaces:** `buildSeoResultFromRun(run, pages, findings, origin)` already exists (4 args). Add `export async function loadRunSeoResult(runId: string): Promise<AggregatedResult | null>` that loads the run + its `CrawlPage`/`Finding` rows and calls `buildSeoResultFromRun`.
 
-- [ ] **Step 1: Write the failing test** — given a seeded live-scan `CrawlRun` (+ `CrawlPage`/`Finding` rows), the loader for the run route returns a non-null `AggregatedResult` with the SEO score from `CrawlRun.score`. (Assert at the data-loader level, not full React render, to avoid jsdom overhead.)
-
-- [ ] **Step 2: Run; verify fail.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/seo-parser/results/run`
-Expected: FAIL (route/loader missing).
-
-- [ ] **Step 3: Implement.** Add the loader (extract a `loadRunSeoResult(runId)` helper next to `loadArchivedSeoResult` in `lib/findings/seo-findings-fallback.ts` if not already callable by runId): fetch the `CrawlRun` by id (must be `tool:'seo-parser'`), build the result via `buildSeoResultFromRun`, and render the same results component the `[sessionId]` page uses, passing a `source: 'live-scan'` prop + the `SeoSourceBadge` (Task 8). For SF-only surfaces (export/diff/share/roadmap), render the "needs Screaming Frog data" state (Task 8 component) instead of those controls.
-
-- [ ] **Step 4: Run; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/seo-parser/results/run`
-Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add app/seo-parser/results/run lib/findings/seo-findings-fallback.ts
-git commit -m "feat(seo): CrawlRun-native /seo-parser results route for live-scan runs"
-```
+- [ ] **Step 1: Write failing test** — seed a live-scan run (+CrawlPage/Finding); `loadRunSeoResult(run.id)` returns a non-null `AggregatedResult` with score from `CrawlRun.score`.
+- [ ] **Step 2: Run; verify FAIL.** `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/seo-findings-fallback`
+- [ ] **Step 3: Implement** `loadRunSeoResult` (mirror `loadArchivedSeoResult`'s data loading, keyed by `runId`, `tool:'seo-parser'`). Add `app/seo-parser/results/run/[runId]/page.tsx` rendering the existing `ResultsView` with `source:'live-scan'` + `SeoSourceBadge` (Task 8). For the SF-only surfaces (export/share/diff per D4) render the `NeedsScreamingFrog` state (Task 8). Provide a run-keyed pages path for `PagesTable`.
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add app/seo-parser/results/run lib/findings/seo-findings-fallback.ts components && git commit -m "feat(seo): CrawlRun-native results route + loadRunSeoResult"`
 
 ---
 
-## Task 7: Merged, source-labeled `/seo-parser` history
+## Task 7: Merged source-labeled history + consumers (Codex #4)
 
-**Files:**
-- Modify: `app/api/parse/history/route.ts`
-- Test: `app/api/parse/history/route.test.ts` (new or extend)
+**Files:** Modify `app/api/parse/history/route.ts`, `components/seo-parser/HistoryList.tsx`, the diff page; Test `app/api/parse/history/route.test.ts`.
 
-**Interfaces:**
-- Consumes: the existing `Session` query; adds a live-scan `CrawlRun` query.
-- Produces: a merged, date-ordered array where each entry has `{ id, kind: 'session' | 'run', createdAt, siteName, clientId, clientName, healthScore, urlCount, source: 'sf-upload' | 'live-scan' }`. Run entries link to `/seo-parser/results/run/<id>`; session entries to `/seo-parser/results/<id>`.
+**Interfaces:** Entries gain `{ kind: 'session' | 'run', source: 'sf-upload' | 'live-scan' }`. Run entries link to `/seo-parser/results/run/<id>`. Filter live runs on the run's own `seoIntent` (durable), NOT `siteAudit:{}`.
 
-- [ ] **Step 1: Write the failing test** — seed one SF `Session` (+ `crawlRun.score`) and one `intent:'seo-live'` live-scan `CrawlRun`; assert the history response includes both, source-labeled, newest-first, and that an ADA-only live-scan run (seoIntent=false) is EXCLUDED.
-
-- [ ] **Step 2: Run; verify fail.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/parse/history`
-Expected: FAIL (only sessions returned).
-
-- [ ] **Step 3: Implement.** Keep the existing `Session.findMany` (label `source:'sf-upload'`, `kind:'session'`). Add:
-```ts
-const liveRuns = await prisma.crawlRun.findMany({
-  where: { tool: 'seo-parser', source: 'live-scan', siteAudit: { seoIntent: true } },
-  orderBy: { createdAt: 'desc' }, take: 50,
-  select: { id: true, createdAt: true, score: true, domain: true, pagesTotal: true,
-            clientId: true, client: { select: { id: true, name: true } } },
-})
-```
-Map runs to the unified entry shape (`kind:'run'`, `source:'live-scan'`, `healthScore: score`, `urlCount: pagesTotal`, `siteName: domain`), concat with session entries, sort by `createdAt` desc, slice 50.
-
-- [ ] **Step 4: Run; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/parse/history`
-Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add app/api/parse/history/route.ts app/api/parse/history/route.test.ts
-git commit -m "feat(seo): merge live-scan runs into /seo-parser history (source-labeled)"
-```
+- [ ] **Step 1: Write failing test** — seed one SF `Session` (+crawlRun.score) and one `seoIntent` live-scan run; assert both appear, source-labeled, newest-first; an `seoIntent=false` live run is EXCLUDED.
+- [ ] **Step 2: Run; verify FAIL.**
+- [ ] **Step 3: Implement.** Keep the `Session.findMany` (label `kind:'session'`, `source:'sf-upload'`). Add `prisma.crawlRun.findMany({ where: { tool:'seo-parser', source:'live-scan', seoIntent:true }, take:50, orderBy:{createdAt:'desc'}, select:{ id,createdAt,score,domain,pagesTotal,clientId, client:{select:{id,name}} } })`; map to unified entries; concat; sort desc; slice 50. Update `HistoryList.tsx`: route `kind:'run'` items to `/seo-parser/results/run/${id}`, render the source badge, and handle delete for runs (delete the SiteAudit/run, not `/api/parse/${id}`) or hide delete for runs in v1. Filter the diff page to SF/session entries only (D4).
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add app/api/parse/history components/seo-parser/HistoryList.tsx && git commit -m "feat(seo): merge live runs into history + update consumers"`
 
 ---
 
-## Task 8: Source badge + "needs SF" state component
+## Task 8: Source badge + "needs Screaming Frog" state
 
-**Files:**
-- Create: `components/seo/SeoSourceBadge.tsx`
-- Test: `components/seo/SeoSourceBadge.test.tsx` (node-env pure render via the component's returned props is fine; or snapshot the label strings from a pure helper)
+**Files:** Create `components/seo/SeoSourceBadge.tsx` (+ pure `seoSourceLabel`, + `NeedsScreamingFrog`); Test `components/seo/SeoSourceBadge.test.tsx`.
 
-**Interfaces:**
-- Produces: `<SeoSourceBadge source="sf-upload" | "live-scan" />` (badge + caveat text for live-scan: "Live scan — on-page + audited-set graph; depth approximate"); `<NeedsScreamingFrog feature="export" />` (renders the SF-only message used by Task 6).
-
-- [ ] **Step 1: Write a failing test** asserting a pure label helper `seoSourceLabel('live-scan')` returns the caveat string and `seoSourceLabel('sf-upload')` returns "Screaming Frog". (Keep logic in a pure function to avoid jsdom.)
-
-- [ ] **Step 2: Run; verify fail.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/seo/SeoSourceBadge`
-Expected: FAIL.
-
-- [ ] **Step 3: Implement** the pure `seoSourceLabel` + the two small components (Tailwind, dark-mode variants per the codebase's `dark:` conventions).
-
-- [ ] **Step 4: Run; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/seo/SeoSourceBadge`
-Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add components/seo/SeoSourceBadge.tsx components/seo/SeoSourceBadge.test.tsx
-git commit -m "feat(seo): source badge + needs-Screaming-Frog state component"
-```
+- [ ] **Step 1: Write failing test** — `seoSourceLabel('live-scan')` returns the caveat string; `seoSourceLabel('sf-upload')` returns "Screaming Frog".
+- [ ] **Step 2: Run; verify FAIL.**
+- [ ] **Step 3: Implement** the pure helper + the two components (Tailwind + `dark:` variants). `NeedsScreamingFrog({feature})` renders the D4 message for export/share/diff/report controls.
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add components/seo/SeoSourceBadge.tsx components/seo/SeoSourceBadge.test.tsx && git commit -m "feat(seo): source badge + needs-Screaming-Frog state"`
 
 ---
 
-## Task 9: Adopt the canonical selector across SEO score surfaces
+## Task 9: Adopt the canonical selector across SEO score surfaces (Codex #6)
 
-**Files (locate exact lines at task start with grep):**
-- Modify: B1 trend series + filters, client dashboard SEO score, fleet views, client-findings aggregation — every reader that currently consumes `selectRuns(...).seo.current` for the SEO score, or that filters out `live-scan`.
-- Test: extend the relevant service tests.
+**Files (named, not grep-only):** `client-dashboard`, `client-fleet`, `client-findings`, `scorecard-shared`, `findings-shared`, `buildSeoSeries`, plus `HistoryList`/diff (done in Task 7). Tests: extend each surface's test.
 
-**Interfaces:**
-- Consumes: `selectCanonicalSeoRun({ clientId, domain })` (Task 5).
-- Produces: each surface resolves the canonical SEO run per `clientId+domain` under the window rule; live-scan can now be canonical; the ADA-origin live-scan stays the additive B2 panel (no double-count).
+**Interfaces:** Consume `pickCanonicalSeo` over already-loaded `crawlRuns` (these services already bulk-load runs — feed them in, no per-row DB call). `buildSeoSeries` currently carries only `sessionId` → extend its point shape to also carry `crawlRunId`/`source` so live points get `/results/run/<id>` hrefs. Keep `selectRuns().seo.liveScan` ONLY for the additive B2 broken-links/on-page panel (no double-count).
 
-- [ ] **Step 1: Locate call sites.**
-Run: `grep -rn "selectRuns\|\.seo\.current\|source !== 'live-scan'\|live-scan" lib app components | grep -v test`
-Record each SEO-score reader.
-
-- [ ] **Step 2: Write/adjust failing tests** — for each surface, a test where a client/domain has only a fresh `seoIntent` live-scan run (no SF) now reports the live score (previously null/excluded), and where a fresh SF upload exists SF still wins.
-
-- [ ] **Step 3: Run; verify fail.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run <the touched test files>`
-Expected: FAIL.
-
-- [ ] **Step 4: Implement** — replace the SEO-score selection in each reader with `selectCanonicalSeoRun`. Keep `selectRuns().seo.liveScan` ONLY for the additive B2 broken-links/on-page panel. Preserve `pruneArchivedBlobs` tool-origin-awareness (no change). Carry the `source` through for labeling.
-
-- [ ] **Step 5: Run; verify pass + full gate.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run <touched files> && npx tsc --noEmit`
-Expected: PASS.
-
-- [ ] **Step 6: Commit.**
-```bash
-git add -A
-git commit -m "feat(seo): adopt domain-scoped canonical selector across SEO score surfaces"
-```
+- [ ] **Step 1: Confirm the surface set.** Run `grep -rn "selectRuns\|\.seo\.current\|source !== 'live-scan'\|buildSeoSeries" lib app components | grep -v test` and reconcile against the named list above; add any extra hit found.
+- [ ] **Step 2: Write/adjust failing tests** — a client/domain with only a fresh `seoIntent` live run now reports the live score on each surface; a fresh SF upload still wins; multi-domain stays per-domain.
+- [ ] **Step 3: Run; verify FAIL.**
+- [ ] **Step 4: Implement** — replace SEO-score selection with `pickCanonicalSeo` over the loaded runs; thread `source` for labels; extend `buildSeoSeries` point shape. Leave `pruneArchivedBlobs` tool-origin-awareness untouched.
+- [ ] **Step 5: Run; verify PASS + `npx tsc --noEmit`.**
+- [ ] **Step 6: Commit.** `git add -A && git commit -m "feat(seo): adopt canonical selector across score surfaces"`
 
 ---
 
-## Task 10: Canonical page-facts provider
+## Task 10: Canonical page-facts provider + SF facts persistence (D2, Codex #7)
 
-**Files:**
-- Create: `lib/services/canonical-page-facts.ts`
-- Test: `lib/services/canonical-page-facts.test.ts`
+**Files:** Create `lib/services/canonical-page-facts.ts` (+test); Modify `lib/findings/seo-mapper.ts` (persist SF `inlinks/outlinks` → `CrawlPage`).
 
 **Interfaces:**
-- Consumes: `selectCanonicalSeoRun` (Task 5); for SF → the parsed `Session` result / `parsePerUrlForPillar` shape; for live → `CrawlPage` rows of the canonical run.
-- Produces:
 ```ts
 export interface CanonicalPageFact {
-  url: string; title?: string | null; h1?: string | null
-  metaDescription?: string | null; wordCount?: number | null
-  crawlDepth?: number | null; inlinks?: number | null; outlinks?: number | null
-  indexable?: boolean | null; schemaTypes?: string[]
-  // brief-specific:
-  statusCode?: number | null; indexability?: string | null
+  url: string; title?: string | null; h1?: string | null; metaDescription?: string | null
+  wordCount?: number | null; crawlDepth?: number | null; inlinks?: number | null; outlinks?: number | null
+  indexable?: boolean | null; schemaTypes?: string[]; statusCode?: number | null; indexability?: string | null
 }
 export interface CanonicalPageFacts { source: 'sf-upload' | 'live-scan'; pages: CanonicalPageFact[] }
 export async function getCanonicalPageFacts(args: { clientId: number; domain: string }): Promise<CanonicalPageFacts | null>
 ```
-- Rule: SF branch returns the existing per-URL records (today's `parsePerUrlForPillar` output mapped into `CanonicalPageFact`). Live branch reads `prisma.crawlPage.findMany({ where: { runId: <canonical live run id> } })` and maps scalars (`title`,`h1`,`metaDescription`,`wordCount`,`crawlDepth`,`inlinks`,`outlinks`,`indexable`,`statusCode`); fields the live scan can't supply (e.g. `schemaTypes` if not persisted as a scalar) are OMITTED, never faked.
 
-- [ ] **Step 1: Write the failing test** — seed a `seoIntent` live-scan run with two `CrawlPage` rows (with inlinks/crawlDepth); assert `getCanonicalPageFacts` returns `source:'live-scan'` and the per-URL facts; seed a fresh SF session for the same client/domain and assert it flips to `source:'sf-upload'`.
-
-- [ ] **Step 2: Run; verify fail.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/services/canonical-page-facts.test.ts`
-Expected: FAIL.
-
-- [ ] **Step 3: Implement** per the interface above.
-
-- [ ] **Step 4: Run; verify pass.**
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/services/canonical-page-facts.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/services/canonical-page-facts.ts lib/services/canonical-page-facts.test.ts
-git commit -m "feat(seo): canonical page-facts provider (SF + live branches)"
-```
+- [ ] **Step 1: SF persistence first.** In `lib/findings/seo-mapper.ts`, where SF `Session` data maps to `CrawlPage`, populate `inlinks`/`outlinks` from `parsePerUrlForPillar()` output (D2 — durable; provider then always reads normalized tables). Write a test asserting an SF parse persists `CrawlPage.inlinks/outlinks`.
+- [ ] **Step 2: Write the provider failing test** — seed a `seoIntent` live run (CrawlPage with inlinks/crawlDepth) → `getCanonicalPageFacts` returns `source:'live-scan'` + facts; add a fresh SF run for the same client/domain → flips to `source:'sf-upload'`.
+- [ ] **Step 3: Run; verify FAIL.**
+- [ ] **Step 4: Implement** — resolve canonical via `selectCanonicalSeoRun`; load `CrawlPage` rows for that run id and map scalars; OMIT fields the source can't supply (never fake). `schemaTypes` is not a CrawlPage scalar → omit on the live branch.
+- [ ] **Step 5: Run; verify PASS.**
+- [ ] **Step 6: Commit.** `git add lib/services/canonical-page-facts.ts lib/findings/seo-mapper.ts && git commit -m "feat(seo): canonical page-facts provider + persist SF inlinks/outlinks"`
 
 ---
 
-## Task 11: Rewire pillar analysis to the provider
+## Task 11: Pillar analysis from canonical facts + persist live records (D3, Codex #8)
 
-**Files:**
-- Modify: `lib/services/pillarAnalysis/joinRecords.ts` (consumes per-URL records)
-- Test: `lib/services/pillarAnalysis/joinRecords.test.ts` (extend)
+**Files:** Modify `lib/services/pillarAnalysis/runFromSession.ts` (the source-loading seam) + add `runForCanonical({ clientId, domain })`; persist a `PillarAnalysis` keyed by `crawlRunId`. `joinRecords.ts` stays a PURE join over `RawUrlData[]` (do NOT put provider access there). Test: `runForCanonical` + persistence.
 
-**Interfaces:**
-- Consumes: `getCanonicalPageFacts` → maps each `CanonicalPageFact` into the `RawUrlData` shape `joinRecords` expects (`url,title,h1,metaDescription,firstParagraph,wordCount,crawlDepth,inlinks,outlinks,indexable,schemaTypes`). `firstParagraph`/`schemaTypes` OMITTED on the live branch (downstream already tolerates missing enrichment).
-- Produces: pillar analysis runs on live-source data when canonical = live, carrying `source`.
-
-- [ ] **Step 1: Write the failing test** — pillar join produces records (with inlinks/crawlDepth) for a live-only client/domain via the provider.
-
-- [ ] **Step 2: Run; verify fail.** Run the test file; Expected: FAIL.
-
-- [ ] **Step 3: Implement** — where `joinRecords` currently sources per-URL SF data, call the provider and adapt. Keep the SF path identical when canonical = SF.
-
-- [ ] **Step 4: Run; verify pass.** Run the test file; Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/services/pillarAnalysis/joinRecords.ts lib/services/pillarAnalysis/joinRecords.test.ts
-git commit -m "feat(seo): pillar analysis reads canonical page-facts (live or SF)"
-```
+- [ ] **Step 1: Write failing test** — `runForCanonical` for a live-only client/domain produces pillar records (inlinks/crawlDepth present) and persists a `PillarAnalysis` row with `crawlRunId` set, `sessionId` null.
+- [ ] **Step 2: Run; verify FAIL.**
+- [ ] **Step 3: Implement** — `runForCanonical` calls `getCanonicalPageFacts`, maps each `CanonicalPageFact` → the `RawUrlData` shape `joinRecords` expects (`url,title,h1,metaDescription,firstParagraph?,wordCount,crawlDepth,inlinks,outlinks,indexable,schemaTypes?`), runs the existing pure pipeline, and persists via a guarded create keyed by `crawlRunId` (P2002-guarded). The SF/session path (`runFromSession`) stays unchanged.
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add lib/services/pillarAnalysis && git commit -m "feat(seo): pillar analysis from canonical facts, persisted for live runs"`
 
 ---
 
-## Task 12: Rewire brief generation to the provider
+## Task 12: Brief from canonical facts + run-keyed route (D3, Codex #9)
 
-**Files:**
-- Modify: `lib/services/brief.service.ts` (the `Page[]` builder + orphan/program logic)
-- Test: `lib/services/brief.service.test.ts` (extend)
+**Files:** Modify `lib/services/brief.service.ts` (provider-fed `Page[]` path); add a run/client/domain-keyed brief route (alongside `POST /api/brief/[sessionId]`). Test: brief from provider facts.
 
-**Interfaces:**
-- Consumes: `getCanonicalPageFacts` → maps to brief's internal `Page` shape `{ url, title, statusCode, indexability, wordCount, inlinks, h1, metaDesc }`. On the live branch, `indexability` derives from `CrawlPage.indexable` (`indexable===true ? 'Indexable' : 'Non-Indexable'`), `metaDesc` from `metaDescription`.
-- Produces: brief generation works on a live-only client (program ranking by `inlinks`, orphan = `inlinks===0`), source-labeled.
+**Interfaces:** Map `CanonicalPageFact` → brief's internal `Page` `{ url, title, statusCode, indexability, wordCount, inlinks, h1, metaDesc }`. Live nullable fields mapped deliberately: `indexability = indexable===true ? 'Indexable' : 'Non-Indexable'`; `metaDesc = metaDescription ?? ''`; `title = title ?? ''`; numeric nulls → 0 with a note (brief ranking tolerates 0 inlinks = orphan).
 
-- [ ] **Step 1: Write the failing test** — brief builds programs + orphan list from provider-sourced live pages.
-
-- [ ] **Step 2: Run; verify fail.** Run the test file; Expected: FAIL.
-
-- [ ] **Step 3: Implement** — add a provider-fed entry path producing `Page[]` (the existing CSV path stays for direct CSV uploads). Map fields per the interface.
-
-- [ ] **Step 4: Run; verify pass.** Run the test file; Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/services/brief.service.ts lib/services/brief.service.test.ts
-git commit -m "feat(seo): brief generation reads canonical page-facts (live or SF)"
-```
+- [ ] **Step 1: Write failing test** — brief builds programs + orphan list from provider-sourced live pages (program sort by inlinks; orphan = inlinks===0).
+- [ ] **Step 2: Run; verify FAIL.**
+- [ ] **Step 3: Implement** — add a `buildBriefFromCanonical({ clientId, domain })` entry that pulls `getCanonicalPageFacts`, maps to `Page[]`, and runs the existing program/orphan logic. Add a route keyed by run/client/domain that does not depend on a Session upload dir. Keep the CSV path for direct uploads.
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add lib/services/brief.service.ts app/api/brief && git commit -m "feat(seo): brief from canonical facts + run-keyed route"`
 
 ---
 
-## Task 13: Retention carve-out for live-SEO runs
+## Task 13: Retention — keep durable intent, reassess carve-out (Codex #11)
 
-**Files:**
-- Modify: `lib/ada-audit/scheduled-retention.ts` (`pruneScheduledSiteAudits`)
-- Test: `lib/ada-audit/scheduled-retention.test.ts` (extend)
+**Files:** Modify `lib/ada-audit/scheduled-retention.ts`; Test extend.
 
-**Interfaces:**
-- Produces: schedule-originated `seoIntent` SiteAudits keep the latest ≥2 completed per `(client, domain)` even when the ADA cadence window would delete them; findings survive origin deletion via `SetNull`.
+**Interfaces:** The real fix was durability (Task 1's `CrawlRun.seoIntent` survives `SiteAudit` SetNull) — so canonical/history already survive retention. This task ensures SEO history isn't needlessly thinned: keep the latest ≥2 completed `seoIntent` audits per `(scheduleId, domain)`.
 
-- [ ] **Step 1: Write the failing test** — a schedule with 4 completed `seoIntent` audits past the cadence cutoff retains the latest 2; their live-scan `CrawlRun`s survive (origin SetNull).
-
-- [ ] **Step 2: Run; verify fail.** Run the test file; Expected: FAIL (current logic keeps latest 2 per *schedule* without the seo-domain carve-out, OR deletes seo runs the SEO history needs).
-
-- [ ] **Step 3: Implement** — extend the "keep" set so that for `seoIntent` schedules the keep query groups by domain (keep latest 2 completed per `scheduleId+domain`). Leave non-SEO behavior unchanged.
-
-- [ ] **Step 4: Run; verify pass.** Run the test file; Expected: PASS.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add lib/ada-audit/scheduled-retention.ts lib/ada-audit/scheduled-retention.test.ts
-git commit -m "feat(seo): retention keeps latest 2 live-SEO audits per client+domain"
-```
+- [ ] **Step 1: Write failing test** — a schedule with 4 completed `seoIntent` audits past the cutoff retains the latest 2 per domain; their live-scan `CrawlRun`s survive (SetNull) and remain `seoIntent=true` (durable, queryable post-deletion).
+- [ ] **Step 2: Run; verify FAIL.**
+- [ ] **Step 3: Implement** — extend the "keep" query so SEO schedules group keep-latest-2 by `(scheduleId, domain)`. Non-SEO behavior unchanged. (No reliance on `SiteAudit.seoIntent` after deletion — selectors use `CrawlRun.seoIntent`.)
+- [ ] **Step 4: Run; verify PASS.**
+- [ ] **Step 5: Commit.** `git add lib/ada-audit/scheduled-retention.ts && git commit -m "feat(seo): retention keeps latest 2 live-SEO audits per client+domain"`
 
 ---
 
-## Task 14: Depth-guard test for `scoreLiveSeo`
+## Task 14: Depth-guard test (Codex #12 — include tsc)
 
-**Files:**
-- Test: `lib/findings/live-seo-score.test.ts` (extend)
+**Files:** Test `lib/findings/live-seo-score.test.ts`.
 
-**Interfaces:**
-- Consumes: `scoreLiveSeo(LiveScoreInputs)` — note `LiveScoreInputs` has NO depth field today; the guard locks that in.
-
-- [ ] **Step 1: Write the test** asserting depth plays no role: the `LiveScoreInputs` interface has no `crawlDepth`/depth key, and two input sets identical except for any added depth-like field score identically. Concretely, assert a representative input scores the same value across runs and document that adding depth to the score is a deliberate, test-breaking change:
+- [ ] **Step 1: Write the test:**
 ```ts
 it('live score excludes crawl depth (v1 guard)', () => {
-  const base = { attempted: 10, observed: 10, indexableScored: 10, pagesError: 0,
-    missingTitle: 0, missingMeta: 0, missingH1: 0, thin: 0, pagesWithSchema: 10 }
+  const base = { attempted:10, observed:10, indexableScored:10, pagesError:0,
+    missingTitle:0, missingMeta:0, missingH1:0, thin:0, pagesWithSchema:10 }
   expect(scoreLiveSeo(base)).toBe(scoreLiveSeo({ ...base }))
   // @ts-expect-error — depth is intentionally NOT part of LiveScoreInputs
   expect(scoreLiveSeo({ ...base, crawlDepth: 3 })).toBe(scoreLiveSeo(base))
 })
 ```
-
-- [ ] **Step 2: Run; verify pass** (the `@ts-expect-error` confirms the field is absent; runtime ignores the extra key).
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/live-seo-score.test.ts`
-Expected: PASS.
-
-- [ ] **Step 3: Commit.**
-```bash
-git add lib/findings/live-seo-score.test.ts
-git commit -m "test(seo): guard that live score excludes crawl depth (v1)"
-```
+- [ ] **Step 2: Run vitest + tsc.** `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/live-seo-score.test.ts && npx tsc --noEmit`
+Expected: PASS; the `@ts-expect-error` is satisfied (no depth field).
+- [ ] **Step 3: Commit.** `git add lib/findings/live-seo-score.test.ts && git commit -m "test(seo): guard live score excludes crawl depth"`
 
 ---
 
 ## Task 15: Breadcrumbs + tracker + final gate
 
-**Files:**
-- Modify: `lib/jobs/handlers/scheduled-site-audit.ts` + `app/api/site-audit/route.ts` (comment), `lib/jobs/handlers/broken-link-verify.ts` (comment)
-- Modify: `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md` (C-track line) + `docs/superpowers/todos/HANDOFF-improvement-roadmap.md`
+**Files:** comments at the SEO-intent enqueue sites + `broken-link-verify.ts`; tracker + handoff docs.
 
-**Interfaces:** none (docs/comments + gate).
-
-- [ ] **Step 1: Add breadcrumb comments** at the SEO-intent enqueue site(s):
+- [ ] **Step 1: Breadcrumb comment** at the enqueue site(s):
 ```ts
 // FUTURE (efficiency): scheduled/on-demand SEO scans currently run the FULL ADA
-// site-audit pipeline (axe + screenshots + PSI) and reuse its live-scan run as
-// the SEO report. A dedicated SEO-only scan mode (skip axe/screenshots/PSI) is
-// the planned optimization — see docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md §9.
+// site-audit pipeline (axe + screenshots + PSI) and reuse its live-scan run.
+// A dedicated SEO-only scan mode (skip axe/screenshots/PSI) is the planned
+// optimization — see docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md §9.
 ```
-
-- [ ] **Step 2: Add a C-track tracker line** documenting this phase (new C6 phase: autonomous live SEO source + native link graph), referencing the spec/plan paths, and noting the future SEO-only-mode breadcrumb.
-
-- [ ] **Step 3: Run the full gate.**
-Run: `npx tsc --noEmit && DATABASE_URL="file:./local-dev.db" npx vitest run && npm run build`
+- [ ] **Step 2: Tracker line** — add the new C6 phase (autonomous live SEO source + native link graph) to `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md`, referencing spec/plan paths + the SEO-only-mode breadcrumb; rewrite `HANDOFF-improvement-roadmap.md` per the handoff protocol.
+- [ ] **Step 3: Full gate.** `npx tsc --noEmit && DATABASE_URL="file:./local-dev.db" npx vitest run && npm run build`
 Expected: tsc clean; all tests pass; build succeeds.
-
-- [ ] **Step 4: Commit.**
-```bash
-git add -A
-git commit -m "docs(seo): breadcrumbs + tracker for autonomous live SEO source"
-```
+- [ ] **Step 4: Commit.** `git add -A && git commit -m "docs(seo): breadcrumbs + tracker for autonomous live SEO source"`
 
 ---
 
 ## Self-Review (completed)
-
-- **Spec coverage:** §3 scan-model → Task 4/15 (+breadcrumb); §3 canonical/30d → Task 5/9; §3 surfacing → Task 6/7/8; §3 crawl-depth approx → Task 2/3; §4.2 graph-from-raw-rows → Task 2/3; §4.3 domain-scoped selector → Task 5; §4.4 CrawlRun-native → Task 6/7; §4.5 page-facts provider + pillar/brief → Task 10/11/12; §6 depth-guard → Task 14; §7 surface list → Task 9; §7a retention → Task 13; §8 schema → Task 1. All covered.
-- **Placeholders:** none — every code step has concrete code; Task 9's call-site list is resolved by an explicit grep step (the codebase locations vary and must be found at task start — acceptable, with the exact command given).
-- **Type consistency:** `pickCanonicalSeo`/`selectCanonicalSeoRun`, `computeLinkGraph`/`LinkGraphResult`, `CanonicalPageFact(s)`/`getCanonicalPageFacts`, `seoIntent`, `CrawlPageInput.inlinks/outlinks` consistent across tasks.
+- **Spec coverage:** §3 scan-model → Task 4/15; canonical/30d → Task 5/9; surfacing → Task 6/7/8; crawl-depth approx → Task 2/3; §4.2 graph-from-raw → Task 2/3; §4.3 domain-scoped selector → Task 5; §4.4 CrawlRun-native → Task 6/7; §4.5 provider+pillar/brief → Task 10/11/12; §6 depth-guard → Task 14; §7 surfaces → Task 9; §7a retention → Task 13; §8 schema → Task 1. Decisions D1→Task 4, D2→Task 10, D3→Task 1/11/12, D4→Task 6/8. All covered.
+- **Placeholders:** none. Task 9 has a named surface list + grep as a safety net.
+- **Type consistency:** `pickCanonicalSeo`/`selectCanonicalSeoRun`/`SeoRunRef` (with `seoIntent`), `computeLinkGraph`/`LinkGraphResult`, `CanonicalPageFact(s)`/`getCanonicalPageFacts`, `loadRunSeoResult`, `CrawlRun.seoIntent`, `CrawlPageInput.inlinks/outlinks` consistent.
 
 ## Risks / open verification (for executor)
-- Task 9's surface list is codebase-discovered — if a surface is missed, the live score silently won't appear there; the grep step + per-surface tests are the safety net.
-- `schemaTypes` is not a `CrawlPage` scalar — pillar's live branch omits it; confirm pillar tolerates missing `schemaTypes` (it already handles missing enrichment).
-- `pickHomepage` heuristic (Task 3) — verify against a real audited set during execution; depth is labeled approximate regardless.
-
----
-
-## Codex plan review (2026-06-30) — fixes to fold in on the next revision pass
-
-Codex reviewed this plan: **accept with named fixes.** The decision-independent
-fixes below are confirmed and must be applied; the **OPEN DECISIONS** section
-after them is blocked on Kevin and was the requested pause point.
-
-**Mechanical / decision-independent (apply verbatim):**
-1. **Durable intent on `CrawlRun` (Tasks 1/3/5/7/13).** `CrawlRun.siteAuditId` is
-   `SetNull`; retention deletes the `SiteAudit` while the run survives. Add
-   `CrawlRun.seoIntent Boolean @default(false)` (migration + `CrawlRunInput` +
-   `writeFindingsRun`), set it from `SiteAudit.seoIntent` in the builder, and have
-   canonical selection + history filter the **run's own** `seoIntent`, NEVER
-   `siteAudit:{ seoIntent: true }`.
-2. **Task 3 builder accuracy.** The variable is `site`, not `audit`
-   (`site.domain ?? job.domain` for homepage). `rows`/`seoRows`/`ensurePage`/
-   `indexableOf` are real. Reword "before the `toCheck` cap" → "independent of
-   `toCheck`, before transient-row deletion." Restrict BOTH source and target to
-   audited URLs. Initialize `inlinks`/`outlinks` in the default `CrawlPageInput`.
-3. **Task 6 signature.** It's `buildSeoResultFromRun(run, pages, findings, origin)`
-   — NOT `(run)`. Add a real `loadRunSeoResult(runId)` helper that loads the run +
-   its `CrawlPage`/`Finding` rows and calls it. The route alone is insufficient:
-   `ResultsView`, `PagesTable`, and the pages API (`/api/seo-parser/[sessionId]/
-   pages`) assume `sessionId` and need run-keyed variants.
-4. **Task 7 consumers.** `HistoryList.tsx` routes every item to
-   `/seo-parser/results/${id}`, deletes via `/api/parse/${id}`, expects
-   `files/status`. Run items must route to `/results/run/${id}` and handle
-   delete/labels for `kind:'run'`. The diff page consumes the same endpoint —
-   filter it to SF/session entries.
-5. **Task 5/9 no N+1.** Keep the pure `pickCanonicalSeo`; add a **bulk/pure**
-   selector over already-loaded `crawlRuns` for fleet/dashboard loops — do not call
-   a DB-hitting `selectCanonicalSeoRun` per client. There is no `normalizeDomain`;
-   use `normaliseSiteAuditDomain` / `normalizeClientDomain`.
-6. **Task 9 fixed surface list** (replace the grep-only approach; grep stays as a
-   safety net): `client-dashboard`, `client-fleet`, `client-findings`,
-   `scorecard-shared`, `findings-shared`, `HistoryList`, diff/history consumers.
-   `buildSeoSeries` currently carries only `sessionId` → needs a shape change to
-   emit live-run hrefs.
-7. **Task 14 gate.** `@ts-expect-error` is valid (`LiveScoreInputs` has no depth),
-   but Vitest won't prove it — the task must run `tsc --noEmit` (or rely on the
-   final gate).
-
-**OPEN DECISIONS (Kevin) — blocking the final plan revision:**
-- **D1 — Schedule coexistence (Task 4/10).** The schedules route enforces one
-  schedule per `(client,domain)` regardless of intent. Can an ADA schedule and an
-  SEO schedule coexist for the same client+domain (→ intent enters the uniqueness
-  key + UI), or is it one unified schedule serving both?
-- **D2 — SF page-facts durability (Task 10).** SF `inlinks/outlinks` are NOT
-  recoverable from normalized storage (`CrawlPage`/`PageIndexEntry` lack them;
-  `Session.result` can't supply them; only the raw uploaded CSV via
-  `parsePerUrlForPillar`). Persist SF `inlinks/outlinks` at parse time (durable,
-  more work), or have the SF branch re-parse the CSV only while the upload dir
-  still exists (best-effort, simpler)?
-- **D3 — Live pillar/brief persistence (Task 11/12).** `PillarAnalysis.sessionId`
-  is `@unique` and brief is `POST /api/brief/[sessionId]` reading the Session
-  upload dir. Do live-run pillar/brief outputs need **persisted** records in v1
-  (→ schema/route work to key them by client/domain/run), or is **stateless**
-  generation acceptable for v1?
-- **D4 — Live-entry UX (Task 7/8).** Behavior for live entries in: history delete,
-  the diff picker, and export/share/roadmap controls — hide, disable, or show the
-  "needs Screaming Frog data" state?
-
-Once D1–D4 are decided, do ONE clean revision pass: apply fixes 1–7, reshape
-Tasks 4/10/11/12/13 per the decisions, re-run the self-review, re-commit.
+- `PillarAnalysis` UNIQUE-drop requires a SQLite table-rebuild migration — copy a prior rebuild-pattern migration; verify the `Session.pillarAnalyses` + `SeoRoadmap`/`KeywordResearchSession` relations still compile.
+- Task 9 surface list is named but `grep` confirms completeness; a missed surface silently drops the live score there.
+- `pickHomepage` heuristic — verify against a real audited set; depth stays labeled approximate.
+- Memo handoffs (srt_/krt_/pat_) over live runs depend on Task 11/12 persistence — smoke-test one live memo end-to-end before closing the phase.
