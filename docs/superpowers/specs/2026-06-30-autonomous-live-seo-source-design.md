@@ -62,7 +62,9 @@ canonical higher-fidelity source; the native scan is the always-on floor.
 | Canonical policy | **SF wins within a freshness window.** `sf-upload` is canonical while `age ≤ WINDOW`; past that the freshest of {SF, live} wins; live is canonical when no SF run exists. **WINDOW default = 30 days**, env-configurable (`SEO_SF_CANONICAL_WINDOW_DAYS`). |
 | Surfacing | **CrawlRun-native.** A unified, source-labeled `/seo-parser` history merging `sf-upload` `Session`s + live-scan runs; results render from the canonical `CrawlRun`. |
 | Crawl depth | **Approximate (audited-set).** BFS from the homepage over harvested edges → approximate clicks-from-home depth, labeled "approximate (audited-set)". Closes pillar/brief's `crawlDepth` consumption on live runs. |
-| Depth in score | **Excluded from the live score for v1** (Codex-aligned conservatism — see §6). Approximate depth feeds the graph + pillar/brief but does not enter `scoreLiveSeo`. Flagged for Codex review and as a future parallel-run-gated change. |
+| Depth in score | **Excluded from the live score for v1** (Codex-aligned conservatism — see §6). Approximate depth feeds the graph + pillar/brief but does not enter `scoreLiveSeo`. Future parallel-run-gated change. |
+| v1 surface support (live-scan) | **Supported:** `/seo-parser` history + results + score, client dashboard / B1 / fleet / client-findings, pillar analysis, brief generation. **SF-only in v1 (live-scan shows a "needs Screaming Frog data" state, not an error):** report exports (CSV/VPAT/PDF), session diff, public share pages, and the srt_/claude roadmap-memo handoff. Bounds the routing migration (Codex spec-fix #4). |
+| Schedule intent | Explicit payload marker **`intent:'seo-live'`** on the SEO schedule's payload + the on-demand trigger (Codex spec-fix #3) — NOT inferred from `requestedBy`/`scheduleId`. ADA-purposed audits still produce a live-scan run, but only `intent:'seo-live'` origins appear in `/seo-parser` SEO history. |
 
 ## 4. Architecture — units
 
@@ -72,27 +74,48 @@ Each unit has one purpose, a defined interface, and is independently testable.
 - An SEO-source `Schedule` (reusing C2 infra) enqueues a site audit on the shared
   lane. No new job type for the crawl itself; the existing finalizer's
   fire-and-forget `broken-link-verify` enqueue still builds the live-scan run.
-- The only new scheduling concern is **intent labeling**: the resulting
-  `SiteAudit` / live-scan run must be identifiable as "SEO-purposed" for history
-  and surfacing. Reuse existing `requestedBy` / `scheduleId` provenance; do not
-  add a parallel scheduler.
+- **Explicit intent marker (Codex spec-fix #3):** the SEO schedule's payload and
+  the on-demand trigger carry **`intent:'seo-live'`**, persisted on the
+  `SiteAudit` (a small new scalar, e.g. `seoIntent Boolean @default(false)`, or a
+  reuse of an existing provenance field if one fits). Do NOT infer SEO-purpose
+  from `requestedBy:'scheduled'` / `scheduleId` — those already mean "ADA
+  scheduled audit" and the scheduled handler hard-codes normal site-audit
+  provenance. A plain ADA audit still yields a live-scan run (unchanged), but
+  **only `intent:'seo-live'` audits appear in `/seo-parser` SEO history**; ADA
+  audits keep their live-scan run as the additive broken-links/on-page panel they
+  are today.
+- **On-demand trigger:** a "Run SEO scan" action (new, small) = `POST` the
+  existing site-audit enqueue with `intent:'seo-live'`. No separate pipeline.
 - **Breadcrumb (required):** a comment at the enqueue site + a `// FUTURE:` marker
-  noting that scheduled SEO currently runs the full axe pass and a dedicated
-  SEO-only scan mode (skip axe/screenshots/PSI) is the planned efficiency
-  follow-up. Mirrored in §9 and a tracker line.
+  noting that scheduled/on-demand SEO currently runs the full axe pass and a
+  dedicated SEO-only scan mode (skip axe/screenshots/PSI) is the planned
+  efficiency follow-up. Mirrored in §9 and a tracker line.
 
 ### 4.2 Native link graph (computed in the builder; no edge table)
-- **Key design:** `broken-link-verify.ts` already holds all `HarvestedLink`
-  edges in memory *before* it deletes them. Compute graph aggregates there and
-  persist them as `CrawlPage` scalars. **No raw-edge table is retained** — this
-  sidesteps the Option-B DB-growth concern entirely.
+- **Key design:** `broken-link-verify.ts` already loads all `HarvestedLink`
+  rows *before* it deletes them. Compute graph aggregates there and persist them
+  as `CrawlPage` scalars. **No raw-edge table is retained** — this sidesteps the
+  Option-B DB-growth concern entirely.
+- **Use the RAW rows, not the verify map (Codex spec-fix #1):** the existing
+  `toCheck` dedupe in `broken-link-verify.ts` collapses multiple source pages per
+  target for verification purposes — that is **wrong for graph metrics**. Graph
+  computation must read the original `HarvestedLink` rows directly, filter to
+  `kind === 'internal-link'`, and normalize both source and target URLs with the
+  shared normalizer (`lib/findings/normalize-url.ts`) before counting.
 - Computed per audited page (same-domain edges only, over the audited/sitemap
   set):
   - `inlinks` — count of distinct source pages linking to this URL.
   - `outlinks` — count of distinct same-domain targets from this URL.
   - `crawlDepth` — approximate clicks-from-home via BFS from the homepage over
-    the harvested edge set. Unreachable-within-audited-set pages → a sentinel
-    (e.g. `null`, treated as "unknown depth", never 0).
+    the harvested edge set. Unreachable-within-audited-set pages → `null`
+    ("unknown depth", never 0). **Approximate because** `link-harvest.ts` caps
+    harvested links per page (300) — some real edges are unobserved; label
+    accordingly everywhere it surfaces.
+  - **Homepage seed for BFS:** the normalized domain root (scheme+host, `/`),
+    matched to its audited `CrawlPage` after normalization (www-insensitive, the
+    final post-redirect URL). If the root was not audited, fall back to the
+    shallowest audited URL by path depth; if still ambiguous, depth is left
+    `null` for all pages and labeled "depth unavailable" (never fabricated).
   - orphan = `inlinks === 0` among indexable, non-login audited pages.
 - **Authority signal (v1):** the relative `inlinks` count IS the audited-set
   authority proxy. Labeled **"ER audited-set authority,"** never "SF Link Score."
@@ -101,40 +124,72 @@ Each unit has one purpose, a defined interface, and is independently testable.
 - Persisted via the builder's existing `ensurePage` scalar path. Schema adds
   `inlinks Int?` + `outlinks Int?` to `CrawlPage`; `crawlDepth` already exists.
 
-### 4.3 Canonical source selection (`selectRuns`)
-- Extend `selectRuns` (and the source-aware selection helpers) to apply the
-  freshness-window rule per client/domain:
+### 4.3 Canonical source selection (new domain-scoped selector)
+- **Do not overload the list-based `selectRuns` (Codex spec-fix #2).** The
+  current `findings-shared.selectRuns(runs)` is list-based, hard-excludes
+  `live-scan`, and callers frequently pass client-wide run sets. Add a NEW
+  **domain-scoped** selector — `selectCanonicalSeoRun({ clientId, domain })` —
+  that resolves the canonical SEO run for one `clientId + normalized domain`
+  pair, so two domains on the same client never cross-select.
+- Inputs joined per `clientId + normalize(domain)`: the most recent `sf-upload`
+  run (Session origin) and the most recent `intent:'seo-live'` live-scan run
+  (SiteAudit origin). Rule:
   ```
   if (sfUpload && ageDays(sfUpload) <= WINDOW) -> sfUpload canonical
   else if (liveScan && (!sfUpload || liveScan.completedAt > sfUpload.completedAt))
        -> liveScan canonical
-  else -> sfUpload canonical
+  else -> sfUpload canonical          // (or live, if no SF exists at all)
   ```
-- `WINDOW` from `SEO_SF_CANONICAL_WINDOW_DAYS` (default 30).
-- This is the single source of truth consumed by every score/report surface
-  (§7). The current "exclude live-scan" filters are replaced by source-aware
-  canonical selection.
+- `WINDOW` from `SEO_SF_CANONICAL_WINDOW_DAYS` (default 30). Age uses
+  `completedAt`; a missing timestamp is treated as stale (live may supersede).
+- **No double-counting:** when the live run is canonical it is the "current SEO"
+  run; it must NOT also be re-counted as the additive broken-links/on-page
+  `liveScan` panel for the same surface. The additive panel is for the
+  *ADA-origin* live-scan run, distinct from a *canonical SEO* live run.
+- This selector is the single source of truth for every score/report surface
+  (§7). The old "exclude live-scan" filters are replaced by it.
 
 ### 4.4 `/seo-parser` CrawlRun-native surfacing
+**Chosen model (Codex spec-fix #4): migrate the SEO-Parser read surfaces to be
+`CrawlRun`-native; do NOT mint synthetic `Session` rows.** Synthetic Sessions
+would carry upload-only fields and blur source semantics (and the findings-layer
+thesis is "read normalized tables"). Bound the migration with the §3 v1
+surface-support split.
 - **History:** a merged, date-ordered, source-labeled list of `sf-upload`
-  `Session`s + live-scan runs for the client/domain. New/refactored history query
-  (no longer `Session`-only).
-- **Results:** render from the canonical `CrawlRun` (via the findings tables),
-  not from `Session.result`. A `results/[runId]` (CrawlRun-native) route; the
-  legacy `results/[sessionId]` continues to work for SF/`Session` entries (or
-  resolves a Session→its CrawlRun).
+  `Session`s + `intent:'seo-live'` live-scan runs for the client/domain. New
+  history query (no longer `Session`-only).
+- **Results:** render from the canonical `CrawlRun` (findings tables), not
+  `Session.result`. Add a `CrawlRun`-native results route keyed by `crawlRunId`;
+  the legacy `results/[sessionId]` route keeps working for SF/`Session` entries
+  by resolving the Session → its `CrawlRun`.
+- **v1 scope guard:** the SF-only surfaces from §3 (exports, diff, share,
+  roadmap-memo) are NOT migrated in v1 — for a canonical live-scan run they render
+  an explicit "needs Screaming Frog data" state, not a 500. This is the line that
+  keeps the routing migration bounded.
 - **Labeling:** a source badge (SF vs Live-scan) + a live caveat — "on-page +
   audited-set graph; depth approximate" — wherever the score/graph is shown.
 
 ### 4.5 pillar/brief rewiring
-- Introduce a single **graph-source accessor** that, given a client/domain,
-  returns per-URL `{ inlinks, outlinks, crawlDepth, source }` from the **canonical
-  run** (§4.3): SF-parsed `InternalRecord` when canonical = SF; `CrawlPage`
-  scalars when canonical = live.
-- `pillarAnalysis` (`joinRecords`/`score`/`verdict`) and `brief.service.ts`
-  consume the accessor instead of reaching into SF-parsed data directly. Output
-  carries the `source` for labeling. Same freshness policy as the score — no
-  separate rule.
+- **The accessor must return full "internal page facts," not graph fields alone
+  (Codex spec-fix #5).** `{inlinks, outlinks, crawlDepth, source}` is too narrow:
+  - `pillarAnalysis` (`joinRecords`/`score`/`verdict`) consumes the
+    `internal.parser.ts` `InternalRecord` shape: URL, title, h1, meta
+    description, word count, crawl depth, inlinks, outlinks, indexability, schema
+    types.
+  - `brief.service.ts` consumes: title, status/indexability, word count, h1, meta
+    description, and inlinks (authority/orphan).
+- Introduce a single **page-facts provider** `getCanonicalPageFacts({ clientId,
+  domain })` → per-URL records in (a normalization of) the `InternalRecord`
+  shape **plus** the graph overlay (`inlinks`/`outlinks`/`crawlDepth`) and a
+  `source` tag, sourced from the §4.3 canonical run:
+  - canonical = SF → the parsed `InternalRecord`s (today's path).
+  - canonical = live → assemble from `CrawlPage` scalars (title/h1/meta/word
+    count/indexability/schema from on-page extraction; `inlinks`/`outlinks`/
+    `crawlDepth` from §4.2). Fields the live scan cannot supply are OMITTED, never
+    faked (findings-layer degraded-shape rule).
+- `pillarAnalysis` and `brief.service.ts` consume the provider instead of
+  reaching into SF-parsed data directly; same freshness policy as the score (no
+  separate rule); output carries `source` for labeling.
 
 ### 4.6 Labeling / trust (cross-cutting)
 - A reusable "SEO source" badge + caveat component used by `/seo-parser`,
@@ -184,24 +239,51 @@ score for closer parity with `computeHealthScore` (which weights depth 15/100).
   consumers).
 
 Folding approximate depth into the live score is recorded as a future option,
-gated on observed agreement during real use. **This is an explicit Codex review
-point.**
+gated on observed agreement during real use. Codex confirmed this v1 call.
+**Required guard test:** an explicit test asserting `scoreLiveSeo` ignores
+`crawlDepth` (a run with populated depth scores identically to one without),
+so a later "add depth" change is a deliberate, test-breaking decision.
 
 ## 7. Surfaces that must adopt source-aware canonical selection
 
 This change deliberately reverses the C6 Phase 3 invariant ("live score never
 canonical"). Every surface that currently either reads the `sf-upload` score or
-*excludes* `live-scan` must switch to the §4.3 canonical selection:
+*excludes* `live-scan` must switch to the §4.3 `selectCanonicalSeoRun` selector:
 - B1 trend series + filters
+- B2 panel (keep the ADA-origin live-scan as the additive broken-links/on-page
+  panel — distinct from a canonical SEO live run; see §4.3 "no double-counting")
 - Client dashboard SEO score/health
 - Fleet views
 - Client-findings aggregation
 - `/seo-parser` history + results (§4.4)
 - pillar/brief (§4.5)
 
+Multi-domain clients: every one of these resolves canonical **per (client,
+domain)**, never "latest client-wide SEO run."
+
 Each must show the source label. A live-scan run still has **no origin blob**;
 `pruneArchivedBlobs` tool-origin-awareness is unchanged (seo-parser prunes only
 session-origin `Session.result`; it must never null an ADA `SiteAudit.summary`).
+
+## 7a. Retention (Codex spec-fix #7)
+
+Live-scan SEO runs originate from a `SiteAudit`, not a `Session`, so two existing
+retention paths interact:
+- **`pruneScheduledSiteAudits()`** hard-deletes schedule-originated terminal
+  SiteAudits past per-cadence windows. A canonical `intent:'seo-live'` SEO run
+  must NOT be silently destroyed while it is the client's only SEO source. v1
+  rule: **keep the latest N (≥2) completed `intent:'seo-live'` audits per
+  (client,domain)** regardless of the ADA cadence window — mirroring the existing
+  "keep latest 2 completed per schedule" carve-out — and let the CrawlRun findings
+  survive origin deletion via `SetNull` (findings-layer invariant) so SEO history
+  degrades rather than vanishes.
+- **`pruneArchivedBlobs()`** stays tool-origin-aware: seo-parser prunes only
+  session-origin `Session.result`; it must NEVER null an ADA `SiteAudit.summary`
+  for a live-scan run. Unchanged, but re-stated because live-scan runs now matter
+  as canonical SEO sources.
+
+`/seo-parser` SEO history reads the surviving `CrawlRun` (`score` + scalars), so a
+pruned origin still shows a degraded, source-labeled entry rather than a gap.
 
 ## 8. Schema change
 
@@ -210,9 +292,14 @@ session-origin `Session.result`; it must never null an ADA `SiteAudit.summary`).
 - add `outlinks Int?`
 - (`crawlDepth Int?` already exists; live runs begin populating it)
 
+`SiteAudit`:
+- add `seoIntent Boolean @default(false)` (the §4.1 `intent:'seo-live'` marker) —
+  unless an existing provenance field is confirmed to fit during planning.
+
 Migration authored by hand (local `prisma migrate dev` is interactive-only) and
 applied via `prisma migrate deploy` (CLAUDE.md). No new tables. No backfill of
-historical runs (findings-layer invariant).
+historical runs (findings-layer invariant). `@default(false)` keeps existing
+audits out of SEO history.
 
 ## 9. Out of scope / future work (breadcrumbed)
 
@@ -238,14 +325,21 @@ historical runs (findings-layer invariant).
 
 ## 11. Testing
 
-- **Unit:** graph math (inlinks/outlinks/orphan over a fixture edge set; BFS
-  depth incl. cycles + unreachable); `selectRuns` window logic (SF-fresh,
-  SF-stale-live-newer, no-SF, missing timestamps); history-merge ordering +
-  source labels; graph-source accessor (SF vs live branch).
-- **Integration:** an SEO-scheduled run → live-scan `CrawlRun` with populated
-  graph scalars → canonical selection → `/seo-parser` shows it source-labeled;
-  pillar/brief render from live-source graph; SF-within-window vs live-supersede
-  transition flips canonical correctly.
+- **Unit:** graph math from RAW `HarvestedLink` rows (inlinks/outlinks/orphan
+  over a fixture edge set; BFS depth incl. cycles, unreachable→null,
+  homepage-not-audited fallback; `internal-link`-only filter; URL normalization);
+  `selectCanonicalSeoRun` window logic (SF-fresh, SF-stale-live-newer, no-SF,
+  missing timestamps, **per-domain isolation on a multi-domain client**, no
+  double-count of a canonical live run as the additive panel); history-merge
+  ordering + source labels; `getCanonicalPageFacts` (SF vs live branch,
+  omitted-fields-not-faked); **the §6 depth-guard test** (`scoreLiveSeo` ignores
+  `crawlDepth`).
+- **Integration:** an `intent:'seo-live'` run → live-scan `CrawlRun` with
+  populated graph scalars → canonical selection → `/seo-parser` shows it
+  source-labeled; pillar/brief render from live-source page-facts; SF-within-30d
+  vs live-supersede transition flips canonical correctly; a plain ADA audit does
+  NOT appear in SEO history; `pruneScheduledSiteAudits` keeps the latest ≥2
+  `seo-live` audits per (client,domain).
 - Test-DB hygiene per CLAUDE.md (unique prefixes; clean `CrawlRun` by domain
   before origin rows; compound `siteAuditId_tool` where querying a run as unique).
 
