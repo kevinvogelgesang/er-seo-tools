@@ -10,6 +10,7 @@ import {
   type AdaSeriesSource, type ClientAlert, type ScoreSeries,
 } from './scorecard-shared'
 import { collapseTypeGroups, newCriticalTypes, selectRuns, type TypeAggregate } from './findings-shared'
+import { pickCanonicalSeo, type SeoRunRef } from './seo-canonical'
 
 export interface FleetRow {
   id: number
@@ -47,7 +48,7 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
     prisma.crawlRun.findMany({
       where: { clientId: { not: null } },
       select: {
-        id: true, clientId: true, tool: true, source: true, domain: true, score: true,
+        id: true, clientId: true, tool: true, source: true, seoIntent: true, domain: true, score: true,
         completedAt: true, createdAt: true, sessionId: true, siteAuditId: true, adaAuditId: true,
       },
     }),
@@ -123,9 +124,27 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
     const mySiteAudits = siteAudits.filter((a) => a.clientId === c.id)
     const myPillars = pillars.filter((p) => p.session?.clientId === c.id)
 
+    // Task 9: Use the canonical selector to include seoIntent live-scan runs when
+    // SF is absent/stale; exclude keyword-research sessions.
+    const mySeoParserRuns = myRuns.filter(
+      (r) => r.tool === 'seo-parser' && !(r.sessionId && keywordSessionIds.has(r.sessionId)),
+    )
+    const clientCanonical = pickCanonicalSeo(mySeoParserRuns as unknown as SeoRunRef[], now.getTime())
+    const seoSeriesRuns = clientCanonical
+      ? mySeoParserRuns.filter((r) => {
+          if (r.id === clientCanonical.run.id) return true
+          return r.source === 'sf-upload'
+        })
+      : mySeoParserRuns.filter((r) => r.source === 'sf-upload')
     const { series: seo } = buildSeoSeries(
-      // C6: exclude live-scan (score null) from the SEO score series.
-      myRuns.filter((r) => r.tool === 'seo-parser' && r.source !== 'live-scan' && !(r.sessionId && keywordSessionIds.has(r.sessionId))),
+      seoSeriesRuns.map((r) => ({
+        score: r.score,
+        completedAt: r.completedAt,
+        createdAt: r.createdAt,
+        sessionId: r.sessionId,
+        crawlRunId: r.id,
+        source: r.source,
+      })),
     )
     const { series: ada, source: adaSource } = buildAdaSeries(
       myRuns.filter((r) => r.tool === 'ada-audit'),

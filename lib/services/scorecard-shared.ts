@@ -49,12 +49,24 @@ export interface SeoRunRow {
   completedAt: Date | null
   createdAt: Date
   sessionId: string | null
+  /** Present for runs that come from a CrawlRun (as opposed to a legacy Session row). */
+  crawlRunId?: string | null
+  /** 'sf-upload' | 'live-scan' | undefined — used to build the correct href. */
+  source?: string | null
+}
+
+/** Resolve the deep-link href for a SEO sparkline / scorecard point.
+ *  Live-scan runs link to /seo-parser/results/run/<crawlRunId>;
+ *  sf-upload runs link to /seo-parser/results/<sessionId> (or null if orphaned). */
+function seoHref(r: SeoRunRow): string | null {
+  if (r.source === 'live-scan' && r.crawlRunId) return `/seo-parser/results/run/${r.crawlRunId}`
+  return r.sessionId ? `/seo-parser/results/${r.sessionId}` : null
 }
 
 export function buildSeoSeries(runs: SeoRunRow[]): { series: ScoreSeries; latestHref: string | null } {
   const scored = runs
     .filter((r): r is SeoRunRow & { score: number } => r.score !== null)
-    .map((r) => ({ date: pointDate(r.completedAt, r.createdAt), score: r.score, href: r.sessionId ? `/seo-parser/results/${r.sessionId}` : null }))
+    .map((r) => ({ date: pointDate(r.completedAt, r.createdAt), score: r.score, href: seoHref(r) }))
     .sort((a, b) => a.date.localeCompare(b.date))
   return {
     series: buildSeries(scored),

@@ -144,6 +144,59 @@ describe('getClientDashboard', () => {
     expect(d.schedules[0].cadence).toBe('weekly:1@09:00')
   })
 
+  // ── Task 9: canonical SEO selector tests ─────────────────────────────────
+
+  it('Task 9: seoIntent live-scan is the canonical score when no sf-upload exists', async () => {
+    const c = await makeClient()
+    // No sf-upload run; only a fresh seoIntent live-scan (backed by a site audit).
+    const sa = await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', clientId: c.id, completedAt: daysAgo(1) },
+    })
+    await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'live-scan', seoIntent: true, domain: DOMAIN,
+        clientId: c.id, siteAuditId: sa.id,
+        status: 'complete', score: 72, pagesTotal: 10, completedAt: daysAgo(1),
+      },
+    })
+    const result = await getClientDashboard(c.id, NOW)
+    // Live-scan is now the canonical run → score surfaced in the SEO series.
+    expect(result.seo.series.latest).toBe(72)
+    // Deep link routes to the run-results page (no sessionId).
+    expect(result.seo.latestHref).toMatch(/^\/seo-parser\/results\/run\//)
+  })
+
+  it('Task 9: fresh sf-upload still wins over a fresh seoIntent live-scan', async () => {
+    const c = await makeClient()
+    const s = await prisma.session.create({
+      data: { id: PREFIX + randomUUID(), status: 'complete', workflow: 'technical', files: '[]', siteName: DOMAIN, clientId: c.id, createdAt: daysAgo(2) },
+    })
+    // sf-upload 2 days old (fresh, within 30-day window)
+    await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'sf-upload', seoIntent: false, domain: DOMAIN,
+        clientId: c.id, sessionId: s.id,
+        status: 'complete', score: 88, pagesTotal: 5, completedAt: daysAgo(2),
+      },
+    })
+    // seoIntent live-scan 1 day old (newer, but SF is fresh)
+    const sa = await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', clientId: c.id, completedAt: daysAgo(1) },
+    })
+    await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'live-scan', seoIntent: true, domain: DOMAIN,
+        clientId: c.id, siteAuditId: sa.id,
+        status: 'complete', score: 60, pagesTotal: 10, completedAt: daysAgo(1),
+      },
+    })
+    const result = await getClientDashboard(c.id, NOW)
+    // Fresh SF wins: score = 88 not 60
+    expect(result.seo.series.latest).toBe(88)
+    expect(result.seo.latestHref).toMatch(/^\/seo-parser\/results\//)
+    expect(result.seo.latestHref).not.toMatch(/\/run\//)
+  })
+
   it('tags schedule-originated site audits in the timeline title; manual audits stay bare (C2)', async () => {
     const c = await makeClient()
     const sched = await prisma.schedule.create({
