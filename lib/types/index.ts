@@ -29,6 +29,8 @@ export interface PageIndexEntry {
   metaDescription: string | null;
   wordCount: number | null;
   crawlDepth: number | null;
+  inlinks?: number | null;
+  outlinks?: number | null;
   indexable: boolean;
   issueTypes: string[];
 }
@@ -45,6 +47,8 @@ export interface PerUrlRecord {
   metaDescription: string | null;
   wordCount: number | null;
   crawlDepth: number | null;
+  inlinks?: number | null;
+  outlinks?: number | null;
   indexable: boolean;
 }
 
