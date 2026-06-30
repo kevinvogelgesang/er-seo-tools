@@ -39,4 +39,11 @@ describe('scoreLiveSeo', () => {
     const s = scoreLiveSeo(perfect({ attempted: 100, observed: 50, indexableScored: 50, pagesWithSchema: 15 }))
     expect(s).toBe(100)
   })
+  it('live score excludes crawl depth (v1 guard)', () => {
+    const base = { attempted:10, observed:10, indexableScored:10, pagesError:0,
+      missingTitle:0, missingMeta:0, missingH1:0, thin:0, pagesWithSchema:10 }
+    expect(scoreLiveSeo(base)).toBe(scoreLiveSeo({ ...base }))
+    // @ts-expect-error — depth is intentionally NOT part of LiveScoreInputs
+    expect(scoreLiveSeo({ ...base, crawlDepth: 3 })).toBe(scoreLiveSeo(base))
+  })
 })
