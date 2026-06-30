@@ -11,7 +11,7 @@
 ## Resolved decisions (Kevin, 2026-06-30)
 - **D1 — ADA + SEO schedules coexist** per client+domain; intent enters the schedules uniqueness key + UI (Task 4).
 - **D2 — Persist SF `inlinks/outlinks` at parse time** onto `CrawlPage` so the provider always reads normalized tables (Tasks 1, 10).
-- **D3 — Persist live pillar/brief records** in v1 → decouple `PillarAnalysis` from `sessionId @unique`; brief route keyed by run/client/domain (Tasks 1, 11, 12). This also makes the SEO roadmap/keyword **memo handoffs work for live runs**.
+- **D3 — Persist live pillar records; provider-fed brief** in v1. `PillarAnalysis` becomes keyable by `crawlRunId` (sessionId stays nullable+unique). Brief is generated on demand via the existing pure `generateBrief(...)` — NO persistence needed. The live **pillar (pat_) memo** works for live runs; the **`srt_` SEO-roadmap and `krt_` keyword memos remain session-bound / SF-only in v1** (separate `sessionId @unique` models — out of scope here; noted as future). Live brief degrades the SEMrush-keyword + schema-types sections (not available from live facts). (Tasks 1, 11, 12.)
 - **D4 — "Needs Screaming Frog data" state** on the genuinely SF-only surfaces (report exports CSV/VPAT/PDF, SEO session diff, share pages); excluded from the diff picker; deletable normally (Tasks 6, 8). pillar/brief/memo are NOT SF-only (per D3).
 
 ## Global Constraints
@@ -55,7 +55,7 @@
   - `CrawlPage`: after `crawlDepth Int?` add `inlinks Int?` and `outlinks Int?`.
   - `SiteAudit`: after `requestedBy String?` add `seoIntent Boolean @default(false)`.
   - `CrawlRun`: after `source String` add `seoIntent Boolean @default(false)`.
-  - `PillarAnalysis`: change `sessionId String @unique` → `sessionId String?` (drop `@unique`); add `crawlRunId String?`, `clientId Int?`, `domain String?`; add `@@unique([crawlRunId])` and keep a partial-uniqueness expectation enforced in app code (SQLite has no partial unique index via Prisma — enforce "one pillar analysis per session OR per crawlRun" with a guarded create). Confirm the existing `Session.pillarAnalyses` relation still compiles (it is a list relation, so nullable `sessionId` is fine).
+  - `PillarAnalysis` (Codex delta-fix #1/#2): keep `sessionId String? @unique` (NULLABLE but still `@unique` — SQLite permits multiple NULLs while enforcing uniqueness on non-null session IDs, preserving the existing `runFromSession.ts` P2002 backstop). Change the relation to `session Session?`. Add `crawlRunId String? @unique` with a REAL relation `crawlRun CrawlRun? @relation(fields: [crawlRunId], references: [id], onDelete: SetNull)` and a back-reference `pillarAnalyses PillarAnalysis[]` on `CrawlRun`. Add `clientId Int?`, `domain String?`. Confirm `Session.pillarAnalyses` (list relation) still compiles with nullable `sessionId`.
 
 - [ ] **Step 2: Author migration SQL** `prisma/migrations/<timestamp>_live_seo_source/migration.sql` (`<timestamp>`=`YYYYMMDDHHMMSS`). Use table-rebuild form for the `PillarAnalysis` `@unique` drop if needed (SQLite can't drop a UNIQUE via ALTER) — follow the pattern of a prior column-drop migration in `prisma/migrations/`:
 ```sql
@@ -63,16 +63,28 @@ ALTER TABLE "CrawlPage" ADD COLUMN "inlinks" INTEGER;
 ALTER TABLE "CrawlPage" ADD COLUMN "outlinks" INTEGER;
 ALTER TABLE "SiteAudit" ADD COLUMN "seoIntent" BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE "CrawlRun" ADD COLUMN "seoIntent" BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "PillarAnalysis" ADD COLUMN "crawlRunId" TEXT;
-ALTER TABLE "PillarAnalysis" ADD COLUMN "clientId" INTEGER;
-ALTER TABLE "PillarAnalysis" ADD COLUMN "domain" TEXT;
--- Drop the UNIQUE on sessionId via table rebuild (copy the existing prior-migration rebuild pattern):
--- 1) create PillarAnalysis_new with sessionId TEXT NULL (no UNIQUE) + new cols + UNIQUE(crawlRunId)
--- 2) INSERT INTO PillarAnalysis_new SELECT ... FROM PillarAnalysis
--- 3) DROP TABLE PillarAnalysis; ALTER TABLE PillarAnalysis_new RENAME TO PillarAnalysis;
--- 4) recreate indexes
+-- PillarAnalysis: sessionId NOT NULL -> NULL (keep UNIQUE) + new cols. Requires a TABLE REBUILD
+-- (SQLite cannot ALTER a column NOT NULL->NULL). Codex delta-fix #3: use the PRAGMA rebuild pattern,
+-- carry EVERY existing column (id, sessionId, subscorePresence, subscoreContext, aiNarrative,
+-- narrativeUpdatedAt, … — copy the live model's full column list), add new cols IN the rebuilt table:
+PRAGMA foreign_keys=OFF;
+CREATE TABLE "PillarAnalysis_new" (
+  -- ...ALL existing columns verbatim, but "sessionId" TEXT NULL...
+  "crawlRunId" TEXT,
+  "clientId" INTEGER,
+  "domain" TEXT
+  -- ...existing FKs (sessionId -> Session) ...
+  , FOREIGN KEY ("crawlRunId") REFERENCES "CrawlRun"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+INSERT INTO "PillarAnalysis_new" (/* existing cols */) SELECT /* existing cols */ FROM "PillarAnalysis";
+DROP TABLE "PillarAnalysis";
+ALTER TABLE "PillarAnalysis_new" RENAME TO "PillarAnalysis";
+CREATE UNIQUE INDEX "PillarAnalysis_sessionId_key" ON "PillarAnalysis"("sessionId");
 CREATE UNIQUE INDEX "PillarAnalysis_crawlRunId_key" ON "PillarAnalysis"("crawlRunId");
+-- ...recreate any other existing PillarAnalysis indexes...
+PRAGMA foreign_keys=ON;
 ```
+Copy the exact rebuild idiom from a prior rebuild migration in `prisma/migrations/`; do NOT `ALTER TABLE ADD COLUMN` on the old `PillarAnalysis` before the rebuild.
 
 - [ ] **Step 3: Apply + regenerate.**
 Run: `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && DATABASE_URL="file:./local-dev.db" npx prisma generate`
@@ -239,7 +251,7 @@ In the on-page `ensurePage(r.url, {...})` call, merge: `inlinks: graph?.byUrl.ge
   - `QueueRequestInput` += `seoIntent?: boolean`; pass through `enqueueAudit(..., { ..., seoIntent })`; in the `SiteAudit` create add `seoIntent: opts.seoIntent ?? false`.
   - `app/api/site-audit/route.ts`: read `body.seoIntent === true`, pass to `queueSiteAuditRequest` (this is the on-demand "Run SEO scan" trigger).
   - `scheduled-site-audit.ts`: `ScheduledSiteAuditPayload` += `seoIntent?: boolean`; pass `seoIntent: p.seoIntent ?? false`.
-  - `app/api/clients/[id]/schedules/route.ts`: accept `seoIntent`, store in payload; change the "one schedule per (client,domain)" guard to key on `(client, domain, seoIntent)`; surface intent in the GET response for the UI.
+  - `app/api/clients/[id]/schedules/route.ts`: accept `seoIntent`, store in payload; change the "one schedule per (client,domain)" guard to key on `(client, domain, seoIntent)` — the guard already loads candidate schedules and parses `payload` in JS, so a payload field (not a column) is sufficient. Also update `getClientSchedules()` to parse + return `seoIntent`, and the `ScheduledScansCard` UI to distinguish ADA vs SEO schedules (Codex delta-fix #7).
 
 - [ ] **Step 4: Run; verify PASS.**
 - [ ] **Step 5: Commit.** `git add -A && git commit -m "feat(seo): seoIntent threading + coexisting ADA/SEO schedules"`
@@ -347,7 +359,7 @@ export function pickCanonicalSeo(runs: SeoRunRef[], nowMs: number, windowDays = 
 
 ## Task 10: Canonical page-facts provider + SF facts persistence (D2, Codex #7)
 
-**Files:** Create `lib/services/canonical-page-facts.ts` (+test); Modify `lib/findings/seo-mapper.ts` (persist SF `inlinks/outlinks` → `CrawlPage`).
+**Files:** Create `lib/services/canonical-page-facts.ts` (+test); Modify the SF persistence seam (Codex delta-fix #6): `lib/types/index.ts` (`PageIndexEntry` += `inlinks/outlinks`), `lib/services/aggregator.service.ts` (carry `inlinks/outlinks` from `per_url_index` into `page_index`), `lib/findings/seo-mapper.ts` (persist them onto `CrawlPage`). NOTE: `seo-mapper` only sees `AggregatedResult.page_index`, so the fields must be widened upstream first — `seo-mapper` cannot read `parsePerUrlForPillar()` directly.
 
 **Interfaces:**
 ```ts
@@ -360,7 +372,7 @@ export interface CanonicalPageFacts { source: 'sf-upload' | 'live-scan'; pages: 
 export async function getCanonicalPageFacts(args: { clientId: number; domain: string }): Promise<CanonicalPageFacts | null>
 ```
 
-- [ ] **Step 1: SF persistence first.** In `lib/findings/seo-mapper.ts`, where SF `Session` data maps to `CrawlPage`, populate `inlinks`/`outlinks` from `parsePerUrlForPillar()` output (D2 — durable; provider then always reads normalized tables). Write a test asserting an SF parse persists `CrawlPage.inlinks/outlinks`.
+- [ ] **Step 1: SF persistence first (upstream seam).** Widen `PageIndexEntry` (`lib/types/index.ts`) with `inlinks?: number | null` / `outlinks?: number | null`; in `aggregator.service.ts` copy those from `per_url_index` (which `InternalParser.parse()` already populates) into each `page_index` entry; in `seo-mapper.ts` map them onto the `CrawlPageInput`. Write a test asserting an SF parse persists `CrawlPage.inlinks/outlinks` (D2 — durable; provider then always reads normalized tables).
 - [ ] **Step 2: Write the provider failing test** — seed a `seoIntent` live run (CrawlPage with inlinks/crawlDepth) → `getCanonicalPageFacts` returns `source:'live-scan'` + facts; add a fresh SF run for the same client/domain → flips to `source:'sf-upload'`.
 - [ ] **Step 3: Run; verify FAIL.**
 - [ ] **Step 4: Implement** — resolve canonical via `selectCanonicalSeoRun`; load `CrawlPage` rows for that run id and map scalars; OMIT fields the source can't supply (never fake). `schemaTypes` is not a CrawlPage scalar → omit on the live branch.
@@ -369,37 +381,39 @@ export async function getCanonicalPageFacts(args: { clientId: number; domain: st
 
 ---
 
-## Task 11: Pillar analysis from canonical facts + persist live records (D3, Codex #8)
+## Task 11: Pillar analysis from canonical facts + live read/memo surfaces (D3, Codex delta-fix #4/#5)
 
-**Files:** Modify `lib/services/pillarAnalysis/runFromSession.ts` (the source-loading seam) + add `runForCanonical({ clientId, domain })`; persist a `PillarAnalysis` keyed by `crawlRunId`. `joinRecords.ts` stays a PURE join over `RawUrlData[]` (do NOT put provider access there). Test: `runForCanonical` + persistence.
+**Files:** Modify `lib/services/pillarAnalysis/runFromSession.ts` (source-loading seam) + add `runForCanonical({ clientId, domain })`; persist a `PillarAnalysis` keyed by `crawlRunId`; **add the live READ/memo surfaces** so a persisted live pillar is actually usable: make `buildNarrativePayload` accept an analysis (not require `sessionId`/`session.siteName` — fall back to `domain`); ensure `/api/pillar-analysis/[id]` works without a `session`; add an analysis-id (or run) keyed poll path alongside `MemoPoller`'s `/api/pillar-analysis/by-session/:sessionId`; update dashboard/fleet/quarter pillar lookups that currently find pillars via `session`. `joinRecords.ts` stays a PURE join over `RawUrlData[]`. Test: `runForCanonical` + persistence + the analysis-keyed read path.
 
-- [ ] **Step 1: Write failing test** — `runForCanonical` for a live-only client/domain produces pillar records (inlinks/crawlDepth present) and persists a `PillarAnalysis` row with `crawlRunId` set, `sessionId` null.
+**Scope note (Codex delta-fix #5):** this delivers the **pillar (pat_) memo** for live runs. The **`srt_` SEO-roadmap and `krt_` keyword memos are NOT in scope** (still `sessionId @unique` models) — leave them session-bound/SF-only in v1; do not claim otherwise.
+
+- [ ] **Step 1: Write failing tests** — (a) `runForCanonical` for a live-only client/domain produces pillar records (inlinks/crawlDepth present) and persists a `PillarAnalysis` with `crawlRunId` set, `sessionId` null; (b) the analysis-keyed read/payload path returns the narrative payload for that record without a `Session`.
 - [ ] **Step 2: Run; verify FAIL.**
-- [ ] **Step 3: Implement** — `runForCanonical` calls `getCanonicalPageFacts`, maps each `CanonicalPageFact` → the `RawUrlData` shape `joinRecords` expects (`url,title,h1,metaDescription,firstParagraph?,wordCount,crawlDepth,inlinks,outlinks,indexable,schemaTypes?`), runs the existing pure pipeline, and persists via a guarded create keyed by `crawlRunId` (P2002-guarded). The SF/session path (`runFromSession`) stays unchanged.
+- [ ] **Step 3: Implement** — `runForCanonical` calls `getCanonicalPageFacts`, maps each `CanonicalPageFact` → the `RawUrlData` shape `joinRecords` expects (`url,title,h1,metaDescription,firstParagraph?,wordCount,crawlDepth,inlinks,outlinks,indexable,schemaTypes?`), runs the existing pure pipeline, persists via a P2002-guarded create keyed by `crawlRunId`. Refactor `buildNarrativePayload` + the pillar read route + poller + dashboard/fleet/quarter lookups to be analysis-id based (with a `domain` fallback where `session.siteName` was used). The SF/session path (`runFromSession`) stays unchanged.
 - [ ] **Step 4: Run; verify PASS.**
-- [ ] **Step 5: Commit.** `git add lib/services/pillarAnalysis && git commit -m "feat(seo): pillar analysis from canonical facts, persisted for live runs"`
+- [ ] **Step 5: Commit.** `git add lib/services/pillarAnalysis app/api/pillar-analysis components && git commit -m "feat(seo): live pillar analysis (persisted) + analysis-keyed read/memo surfaces"`
 
 ---
 
-## Task 12: Brief from canonical facts + run-keyed route (D3, Codex #9)
+## Task 12: Brief from canonical facts (provider-fed, no persistence) (D3, Codex delta-fix #8)
 
-**Files:** Modify `lib/services/brief.service.ts` (provider-fed `Page[]` path); add a run/client/domain-keyed brief route (alongside `POST /api/brief/[sessionId]`). Test: brief from provider facts.
+**Files:** Modify `lib/services/brief.service.ts` (add a provider-fed entry); add a run/client/domain-keyed brief route alongside `POST /api/brief/[sessionId]`. Test: brief from provider facts.
 
-**Interfaces:** Map `CanonicalPageFact` → brief's internal `Page` `{ url, title, statusCode, indexability, wordCount, inlinks, h1, metaDesc }`. Live nullable fields mapped deliberately: `indexability = indexable===true ? 'Indexable' : 'Non-Indexable'`; `metaDesc = metaDescription ?? ''`; `title = title ?? ''`; numeric nulls → 0 with a note (brief ranking tolerates 0 inlinks = orphan).
+**Interfaces:** `brief.service.ts` already exposes a PURE `generateBrief(clientName, pages, schemaData, keywords)` — so the live path needs **no persistence**, just a provider-fed `pages` builder. Map `CanonicalPageFact` → brief's `Page` `{ url, title, statusCode, indexability, wordCount, inlinks, h1, metaDesc }`: `indexability = indexable===true ? 'Indexable' : 'Non-Indexable'`; `metaDesc = metaDescription ?? ''`; `title = title ?? ''`; numeric nulls → 0 (0 inlinks = orphan). **Degrade explicitly** (Codex delta-fix #8): live facts carry NO SEMrush `keywords` and NO persisted `schemaData` → pass empty/degraded for those sections and label them unavailable.
 
-- [ ] **Step 1: Write failing test** — brief builds programs + orphan list from provider-sourced live pages (program sort by inlinks; orphan = inlinks===0).
+- [ ] **Step 1: Write failing test** — `buildBriefFromCanonical({ clientId, domain })` builds programs + orphan list from provider-sourced live pages (program sort by inlinks; orphan = inlinks===0); keyword/schema sections degrade cleanly.
 - [ ] **Step 2: Run; verify FAIL.**
-- [ ] **Step 3: Implement** — add a `buildBriefFromCanonical({ clientId, domain })` entry that pulls `getCanonicalPageFacts`, maps to `Page[]`, and runs the existing program/orphan logic. Add a route keyed by run/client/domain that does not depend on a Session upload dir. Keep the CSV path for direct uploads.
+- [ ] **Step 3: Implement** — `buildBriefFromCanonical` pulls `getCanonicalPageFacts`, maps to `Page[]`, calls the pure `generateBrief(clientName, pages, [], [])` (degraded schema/keywords). Add a route keyed by run/client/domain that does NOT read a Session upload dir. Keep the CSV/session path unchanged.
 - [ ] **Step 4: Run; verify PASS.**
-- [ ] **Step 5: Commit.** `git add lib/services/brief.service.ts app/api/brief && git commit -m "feat(seo): brief from canonical facts + run-keyed route"`
+- [ ] **Step 5: Commit.** `git add lib/services/brief.service.ts app/api/brief && git commit -m "feat(seo): provider-fed brief (live, degraded keywords/schema)"`
 
 ---
 
-## Task 13: Retention — keep durable intent, reassess carve-out (Codex #11)
+## Task 13 (OPTIONAL): Retention — preserve the SiteAudit results-view for live SEO (Codex delta-fix #10)
 
 **Files:** Modify `lib/ada-audit/scheduled-retention.ts`; Test extend.
 
-**Interfaces:** The real fix was durability (Task 1's `CrawlRun.seoIntent` survives `SiteAudit` SetNull) — so canonical/history already survive retention. This task ensures SEO history isn't needlessly thinned: keep the latest ≥2 completed `seoIntent` audits per `(scheduleId, domain)`.
+**Interfaces:** Durable `CrawlRun.seoIntent` (Task 1) already makes canonical/history/score SURVIVE `SiteAudit` retention `SetNull` — so this task is NOT needed for canonical/history correctness. Keep it ONLY to preserve the SiteAudit ORIGIN (the ADA results view + screenshots) for the latest live SEO scans: keep the latest ≥2 completed `seoIntent` audits per `(scheduleId, domain)`. If Kevin doesn't care about retaining the audit-origin view, SKIP this task.
 
 - [ ] **Step 1: Write failing test** — a schedule with 4 completed `seoIntent` audits past the cutoff retains the latest 2 per domain; their live-scan `CrawlRun`s survive (SetNull) and remain `seoIntent=true` (durable, queryable post-deletion).
 - [ ] **Step 2: Run; verify FAIL.**
