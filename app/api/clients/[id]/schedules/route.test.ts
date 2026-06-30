@@ -56,7 +56,7 @@ describe('POST /api/clients/[id]/schedules', () => {
     expect(sched?.jobType).toBe(SCHEDULED_SITE_AUDIT_JOB_TYPE)
     expect(sched?.clientId).toBe(clientId)
     expect(sched?.name).toBeNull()
-    expect(JSON.parse(sched!.payload)).toEqual({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag22aa' })
+    expect(JSON.parse(sched!.payload)).toEqual({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag22aa', seoIntent: false })
     expect(sched!.nextRunAt.getTime()).toBeGreaterThan(Date.now())
   })
 
@@ -217,5 +217,75 @@ describe('PATCH/DELETE /api/clients/[id]/schedules/[scheduleId]', () => {
     })
     expect((await PATCH(jsonReq('PATCH', { enabled: false }), p(clientId, sched.id))).status).toBe(404)
     expect((await DELETE(jsonReq('DELETE'), p(clientId, sched.id))).status).toBe(404)
+  })
+})
+
+describe('D1: seoIntent coexistence', () => {
+  let d1ClientId: number
+  const d1Domain = `${PREFIX}seoint.example.edu`
+
+  beforeAll(async () => {
+    const c = await prisma.client.create({
+      data: { name: `${PREFIX}d1-client`, domains: JSON.stringify([d1Domain]) },
+    })
+    d1ClientId = c.id
+  })
+
+  afterAll(async () => {
+    await prisma.client.deleteMany({ where: { name: `${PREFIX}d1-client` } })
+  })
+
+  it('creates an ADA schedule (seoIntent omitted/false) for a domain', async () => {
+    const res = await POST(
+      jsonReq('POST', { domain: d1Domain, cadence: 'weekly:1@06:00', wcagLevel: 'wcag21aa' }),
+      p(d1ClientId),
+    )
+    expect(res.status).toBe(201)
+    const { id } = await res.json()
+    const sched = await prisma.schedule.findUnique({ where: { id } })
+    const payload = JSON.parse(sched!.payload) as Record<string, unknown>
+    expect(payload.seoIntent).toBeFalsy()
+  })
+
+  it('creates a separate SEO schedule (seoIntent:true) for the SAME domain — coexist', async () => {
+    const res = await POST(
+      jsonReq('POST', { domain: d1Domain, cadence: 'weekly:1@06:00', wcagLevel: 'wcag21aa', seoIntent: true }),
+      p(d1ClientId),
+    )
+    expect(res.status).toBe(201)
+    const { id } = await res.json()
+    const sched = await prisma.schedule.findUnique({ where: { id } })
+    const payload = JSON.parse(sched!.payload) as Record<string, unknown>
+    expect(payload.seoIntent).toBe(true)
+  })
+
+  it('409 schedule_exists when creating a duplicate SEO schedule for the same domain', async () => {
+    const res = await POST(
+      jsonReq('POST', { domain: d1Domain, cadence: 'monthly:1@06:00', wcagLevel: 'wcag21aa', seoIntent: true }),
+      p(d1ClientId),
+    )
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('schedule_exists')
+  })
+
+  it('409 schedule_exists when creating a duplicate ADA schedule for the same domain', async () => {
+    const res = await POST(
+      jsonReq('POST', { domain: d1Domain, cadence: 'monthly:1@06:00', wcagLevel: 'wcag21aa' }),
+      p(d1ClientId),
+    )
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('schedule_exists')
+  })
+
+  it('GET returns seoIntent on each schedule row', async () => {
+    const res = await GET(jsonReq('GET'), p(d1ClientId))
+    expect(res.status).toBe(200)
+    const { schedules } = (await res.json()) as { schedules: Array<{ domain: string; seoIntent: boolean }> }
+    const mine = schedules.filter((s) => s.domain === d1Domain)
+    expect(mine).toHaveLength(2)
+    const adaSched = mine.find((s) => !s.seoIntent)
+    const seoSched = mine.find((s) => s.seoIntent)
+    expect(adaSched).toBeDefined()
+    expect(seoSched).toBeDefined()
   })
 })

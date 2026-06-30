@@ -33,12 +33,15 @@ export async function POST(request: NextRequest) {
 
   const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
 
+  const seoIntent = raw?.seoIntent === true
+
   const result = await queueSiteAuditRequest({
     domain,
     clientId,
     wcagLevel,
     preDiscoveredUrls: rawPreDiscoveredUrls,
     requestedBy,
+    seoIntent,
   })
 
   if (result.kind === 'invalid') {

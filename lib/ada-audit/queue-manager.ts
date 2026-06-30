@@ -74,6 +74,8 @@ export interface EnqueueAuditOptions {
   requestedBy?: string | null
   /** C2: set when a Schedule row created this audit — attribution + retention marker. */
   scheduleId?: string | null
+  /** D1: true when this audit was enqueued by the autonomous SEO pipeline. */
+  seoIntent?: boolean
 }
 
 /**
@@ -90,7 +92,7 @@ export async function enqueueAudit(
   wcagLevel: string,
   opts: EnqueueAuditOptions = {},
 ): Promise<{ id: string; status: string }> {
-  const { requestedBy, scheduleId } = opts
+  const { requestedBy, scheduleId, seoIntent } = opts
   // Dedupe up front: pagesTotal must equal the number of UNIQUE children the
   // discover handler will fan out (the (siteAuditId,url) index collapses
   // duplicates). Written together with discoveredUrls so the finalizer's
@@ -114,6 +116,7 @@ export async function enqueueAudit(
       batchId,
       requestedBy: requestedBy ?? null,
       scheduleId: scheduleId ?? null,
+      seoIntent: seoIntent ?? false,
     },
   })
 

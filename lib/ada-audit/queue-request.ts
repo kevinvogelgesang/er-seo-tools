@@ -28,6 +28,8 @@ export interface QueueRequestInput {
   requestedBy?: string | null
   /** C2: set when a Schedule row created this audit — attribution + retention marker. */
   scheduleId?: string | null
+  /** D1: true when this audit was enqueued by the autonomous SEO pipeline. */
+  seoIntent?: boolean
 }
 
 export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<QueueRequestResult> {
@@ -75,6 +77,7 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
     preDiscoveredUrls: normalisedUrls,
     requestedBy: input.requestedBy ?? null,
     scheduleId: input.scheduleId ?? null,
+    seoIntent: input.seoIntent ?? false,
   })
   return { kind: 'queued', id }
 }
