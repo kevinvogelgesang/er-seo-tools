@@ -108,6 +108,7 @@ describe('scheduled-site-audit handler', () => {
       wcagLevel: 'wcag21aa',
       requestedBy: 'scheduled',
       scheduleId: sched.id,
+      seoIntent: false,
     })
   })
 
