@@ -68,6 +68,13 @@ export function PagesTable({ sessionId, runId, issueTypeOptions, onUrlClick }: P
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Guard: skip fetch if neither source key is available.
+    if (!runId && !sessionId) {
+      setPages([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     const qs =
@@ -96,7 +103,7 @@ export function PagesTable({ sessionId, runId, issueTypeOptions, onUrlClick }: P
     return () => {
       cancelled = true;
     };
-  }, [sessionId, offset, issueType, sort]);
+  }, [sessionId, runId, offset, issueType, sort]);
 
   const rangeStart = total === 0 ? 0 : offset + 1;
   const rangeEnd = Math.min(offset + PAGE_SIZE, total);
