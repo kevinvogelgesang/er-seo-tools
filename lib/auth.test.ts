@@ -3,6 +3,7 @@ import {
   createAuthCookieValue,
   createSignedToken,
   getAuthSession,
+  getOperatorLabel,
   isAuthBypassedInDev,
   isValidAuthCookie,
   readSignedToken,
@@ -162,6 +163,23 @@ describe('auth helpers', () => {
       const token = await createSignedToken({ a: 1 }, 600)
       nowSpy.mockReturnValue(1_000_000_000_000 + 601_000)
       expect(await readSignedToken(token)).toBeNull()
+    })
+  })
+
+  describe('getOperatorLabel — verified session preferred over cookie', () => {
+    it('prefers the verified session name over the operator cookie', async () => {
+      const cookie = await createAuthCookieValue({ sub: 'google:1', email: 'a@e.com', hd: 'e.com', name: 'Verified Name' })
+      expect(await getOperatorLabel(cookie, 'Cookie Name')).toBe('Verified Name')
+    })
+
+    it('falls back to the session email when the session name is null', async () => {
+      const cookie = await createAuthCookieValue({ sub: 'google:1', email: 'a@e.com', hd: 'e.com', name: null })
+      expect(await getOperatorLabel(cookie, null)).toBe('a@e.com')
+    })
+
+    it('falls back to the (sanitized) operator cookie when there is no valid session', async () => {
+      expect(await getOperatorLabel(undefined, '  Kevin  ')).toBe('Kevin')
+      expect(await getOperatorLabel('garbage', null)).toBeNull()
     })
   })
 

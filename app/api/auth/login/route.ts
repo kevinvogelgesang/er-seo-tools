@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       sub: 'password:break-glass',
       email: null,
       hd: null,
-      name: operatorName ?? 'Operator',
+      name: operatorName, // carries the typed name for audit attribution (null if none)
     }),
     httpOnly: true,
     sameSite: 'lax',

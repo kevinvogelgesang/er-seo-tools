@@ -36,6 +36,21 @@ export function isAuthConfigured(): boolean {
   return Boolean(process.env.APP_AUTH_PASSWORD)
 }
 
+/**
+ * Best operator label for audit attribution. Prefers the VERIFIED session
+ * identity (Google name, else email; break-glass logins carry the typed name),
+ * falling back to the legacy unverified operator-name cookie when there is no
+ * valid session (e.g. dev bypass). Pass both cookie values from the request.
+ */
+export async function getOperatorLabel(
+  authCookieValue: string | null | undefined,
+  operatorCookieValue?: FormDataEntryValue | string | null,
+): Promise<string | null> {
+  const session = await getAuthSession(authCookieValue)
+  if (session) return session.name ?? session.email ?? null
+  return sanitizeOperatorName(operatorCookieValue)
+}
+
 export function isAuthBypassedInDev(): boolean {
   return process.env.NODE_ENV !== 'production' && !isAuthConfigured()
 }

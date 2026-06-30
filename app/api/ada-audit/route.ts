@@ -4,7 +4,7 @@ import type { AuditListItem, AuditScorecard } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
 import { enqueueJob } from '@/lib/jobs/queue'
 import { ADA_AUDIT_JOB_TYPE, failStandaloneAudit } from '@/lib/jobs/handlers/ada-audit'
-import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
+import { AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME, getOperatorLabel } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,7 +53,10 @@ export async function POST(request: NextRequest) {
   })
   const clientId = matchedClient?.id ?? null
 
-  const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+  const requestedBy = await getOperatorLabel(
+    request.cookies.get(AUTH_COOKIE_NAME)?.value,
+    request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value,
+  )
 
   const audit = await prisma.adaAudit.create({
     data: { url: parsed.toString(), status: 'pending', clientId, wcagLevel, requestedBy },

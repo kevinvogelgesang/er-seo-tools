@@ -5,8 +5,10 @@ vi.mock('@/lib/ada-audit/recents-query', () => ({ fetchAllRecents: (...a: unknow
 const cookieGet = vi.fn()
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: cookieGet }) }))
 vi.mock('@/lib/auth', () => ({
+  AUTH_COOKIE_NAME: 'er_auth',
   OPERATOR_NAME_COOKIE_NAME: 'er-operator-name',
-  sanitizeOperatorName: (v?: string) => (v ? v.trim() : null),
+  // No valid session in this test → label falls back to the (sanitized) operator cookie.
+  getOperatorLabel: async (_auth: unknown, op?: string) => (op ? String(op).trim() || null : null),
 }))
 
 const { GET } = await import('./route')
