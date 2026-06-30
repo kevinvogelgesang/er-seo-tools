@@ -176,6 +176,26 @@ Interleave as needed (not blockers):
   `CrawlRun.score` (was null); surfaced on the results page; no migration, `selectRuns` unchanged.
   Remaining C6 phases (hybrid discovery, analytics integrations, validation, similarity) NOT yet
   built — see the SF-retirement roadmap §5 sequence.
+  **Phase 4 (autonomous live SEO source + native link graph) SHIPPED (branch
+  `feat/autonomous-live-seo-source`, 15-task subagent-driven build, 2026-06-30) —
+  pending merge + prod verification.**
+  Spec: `../specs/2026-06-30-autonomous-live-seo-source-design.md` ·
+  Plan: `../plans/2026-06-30-autonomous-live-seo-source.md`.
+  Adds `CrawlRun.seoIntent` flag on the canonical live-scan run; `seoIntent:true`
+  schedules are created autonomously by the system when a client has a linked domain
+  (self-healing, weekly cadence). The `broken-link-verify` builder reads
+  `CrawlRun.seoIntent` to decide whether to persist a canonical `SeoRunRef`;
+  `selectCanonicalSeoRun` surfaces the most recent `seoIntent=true` live run as the
+  canonical SEO baseline; `computeLinkGraph` / `CanonicalPageFact(s)` give a
+  relational in/outlink graph from the `CrawlPage.inlinks`/`outlinks` scalars
+  persisted by the harvest. Provider layer (`lib/seo/providers/`) feeds the pillar
+  brief + live SEO score into memo handoffs (srt_/krt_/pat_) so SF upload is no
+  longer required. Task 13 (retention carve-out) intentionally skipped — redundant
+  with existing pruning paths. SEO-only-mode breadcrumb left at both enqueue sites
+  (`app/api/site-audit/route.ts` + `lib/jobs/handlers/scheduled-site-audit.ts`)
+  pointing to spec §9 for the planned ADA-skip optimization.
+  *Status log:* 2026-06-30 — Phase 4 built (15 tasks); gate green (tsc / vitest /
+  build). Branch not yet merged / deployed — prod verification pending.
 - [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
 - [ ] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk)
 - [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)

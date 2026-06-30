@@ -99,6 +99,11 @@ export function registerScheduledSiteAuditHandler(): void {
         return
       }
 
+      // FUTURE (efficiency): scheduled/on-demand SEO scans currently run the FULL ADA
+      // site-audit pipeline (axe + screenshots + PSI) and reuse its live-scan run as the
+      // SEO report. A dedicated SEO-only scan mode (skip axe/screenshots/PSI) is the planned
+      // optimization — see docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md §9.
+
       // Dynamic import: avoids a static handler → queue-manager edge
       // (same reasoning as stale-audit-reset / site-audit-discover).
       const { queueSiteAuditRequest } = await import('@/lib/ada-audit/queue-request')

@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-06-22 · **Updated by:** C10 (SEO Performance Reports) SHIPPED — merged (PR #75) + deployed to prod; awaiting Kevin's prod-verification
+**Last updated:** 2026-06-30 · **Updated by:** C6 Phase 4 (autonomous live SEO source + native link graph) BUILT on branch `feat/autonomous-live-seo-source` — pending merge + prod verification
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -12,110 +12,131 @@ single next action.
 ```
 Continue the er-seo-tools improvement roadmap.
 
+Current branch: feat/autonomous-live-seo-source (C6 Phase 4 built, gate-green,
+pending merge + prod-verification).
+
 1. Read docs/superpowers/todos/HANDOFF-improvement-roadmap.md (current state + next item).
 2. Read docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md (full plan).
-3. Read the roadmap doc section named under "Next item" below.
-4. Follow the normal flow: brainstorm/spec if the item needs one, write the plan,
-   implement, test, commit. When the item is done: check it off in the tracker,
-   add a status-log line, rewrite this handoff doc for the next item, and end
-   your final reply with this doc's updated paste-in prompt in a code block.
+3. The immediate next action is to merge the branch and prod-verify C6 Phase 4,
+   then complete C10 prod-verification (Kevin's manual pass).
+4. After verification: check off the tracker items, add status-log lines, archive
+   the spec/plan to docs/superpowers/archive/, rewrite this handoff doc for the
+   next item, and end your final reply with this doc's updated paste-in prompt in
+   a code block.
 ```
 
 ## Current state
 
+- **BUILT (pending merge + prod-verification): C6 Phase 4 — autonomous live SEO
+  source + native link graph.** Branch `feat/autonomous-live-seo-source`, 15-task
+  subagent-driven build, 2026-06-30. Gate green (tsc / vitest / build). Spec:
+  `docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md` ·
+  Plan: `docs/superpowers/plans/2026-06-30-autonomous-live-seo-source.md`.
+  Key deliverables:
+  - `CrawlRun.seoIntent` flag on the live-scan run; `seoIntent:true` Schedules
+    created autonomously (weekly cadence, self-healing) when a client has a
+    linked domain — no manual wiring required.
+  - `selectCanonicalSeoRun` exposes the most recent `seoIntent=true` live run as
+    the canonical SEO baseline (still segregated — never displaces sf-upload score).
+  - `computeLinkGraph` / `CanonicalPageFact(s)` derive a relational in/outlink
+    graph from `CrawlPage.inlinks`/`outlinks` scalars persisted during the harvest.
+  - Provider layer (`lib/seo/providers/`) feeds live SEO score + pillar brief into
+    srt_/krt_/pat_ memo handoffs so SF upload is no longer required.
+  - Task 13 (retention carve-out) intentionally skipped — redundant with existing
+    pruning paths.
+  - SEO-only-mode breadcrumb at both enqueue sites (`app/api/site-audit/route.ts`
+    + `lib/jobs/handlers/scheduled-site-audit.ts`) pointing to spec §9 for the
+    planned ADA-skip optimization.
 - **SHIPPED: C10 — SEO Performance Reports (NET-NEW).** Merged (PR #75) + deployed
-  to prod 2026-06-22; migration `20260622000000_seo_reports` applied; app healthy
-  (homepage/settings 307, `/api/google/status` 401, new tables queryable). Built
-  subagent-driven, 25 tasks/2 phases (fresh implementer+reviewer per task), gate
-  green (2703 tests / tsc / build); whole-branch (opus) + Codex merge reviews
-  passed. Auth = Google **service account** (Tasks 3 & 6 dropped). Spec/plan
-  archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` ·
-  `archive/plans/2026-06-22-seo-performance-reports.md`. Architecture summarized in
-  CLAUDE.md ("SEO Performance Reports (C10)" bullet) + the C10 invariants in
-  Gotchas below. **Prod deploy first OOM'd** (`next build` type-check worker hit the
-  server's ~2 GB Node heap; fixed by baking `--max-old-space-size=3072` into the
-  `build` script, PR #76 — every future deploy benefits). **⚠ PROD-VERIFICATION
-  PENDING (Kevin)** — see Next item. Doubles as SF-retirement Phase 6's GA4/GSC
-  analytics foundation (`lib/analytics/`).
+  to prod 2026-06-22; migration applied. Built subagent-driven, 25 tasks/2 phases,
+  gate green (2703 tests / tsc / build). Auth = Google **service account** (Tasks
+  3 & 6 dropped). Spec/plan archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` ·
+  `archive/plans/2026-06-22-seo-performance-reports.md`. **⚠ PROD-VERIFICATION
+  PENDING (Kevin)** — see Next item below. C10 is the analytics foundation for
+  SF-retirement Phase 6.
 - **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phases 1–3 DONE:** broken-link verifier
   (PR #70), on-page SEO extraction (PR #71), live SEO score (PR #73) — all
-  deployed + production-verified (Phase 3 on 2026-06-17). C6 stays `[~]`
-  (multi-phase track).
-- **C6 Phase 3 — what shipped:** the live-scan `CrawlRun` now carries a real SEO
-  health `score` (was `null`). Pure `scoreLiveSeo` (`lib/findings/live-seo-score.ts`)
-  — forked `computeHealthScore` with explicit factor availability (indexability,
-  error rate, missing title/meta/H1, thin, schema; crawl-depth + broken-links
-  excluded), computed in the `broken-link-verify` builder, written to
-  `CrawlRun.score`. **null** when no indexable content (noindex/login-walled) or
-  <50% observed coverage; a partially-noindex site scores (indexability factor
-  drags it). Surfaced on `OnPageSeoSection` (score + coverage line, read-time
-  recompute). NO migration, `selectRuns` unchanged (live score never displaces the
-  sf-upload canonical score). **Prod-verified:** manhattanschool.edu (67/67
-  indexable) → score 99; proway.erstaging.site (noindex canary) → score null.
-- **C6 Phase 2 recap:** on-page SEO (title/meta/H1/canonical/schema/word-count)
-  harvested in the existing harvest `page.evaluate` → transient `HarvestedPageSeo`
-  → the post-terminal `broken-link-verify` job is the **single live-scan run
-  builder** (on-page + broken findings in ONE live-scan `CrawlRun`). `OnPageSeoSection`
-  + `BrokenLinksSection` (scoped to `broken_*`).
+  deployed + production-verified (Phase 3 on 2026-06-17). C6 Phase 4 built but not
+  yet merged. C6 stays `[~]`.
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
-  → proway.erstaging.site, `weekly:1@06:00`. NOTE: the canary is **noindex**, so
-  its weekly live-scan run shows broken-link findings, **no on-page findings, and a
-  null score** (all by design) — use an indexable client domain to exercise the
-  on-page + score paths.
-- **⚠ PENDING HUMAN STEPS (Kevin) — unchanged from B5:**
-  1. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
+  → proway.erstaging.site, `weekly:1@06:00`. Canary is noindex → broken-link
+  findings only, no on-page findings, null score (all by design).
+- **⚠ PENDING HUMAN STEPS (Kevin):**
+  1. **Merge + deploy `feat/autonomous-live-seo-source`** — prod-verify: trigger
+     one site audit with `seoIntent:true`, confirm the canonical live-scan run is
+     selected, smoke-test an srt_ memo on an indexable client domain.
+  2. **C10 prod-verification (still pending from 2026-06-22):** grant SA on a
+     client → map → generate → metric-parity eyeball vs `SEO_Report_1st_Draft.pdf`;
+     resolve the scorecard-#12 open question (Key Events vs spec's duplicate
+     Avg Position). See Gotchas → C10 invariants.
+  3. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
      (2026-06-11 19:51 UTC) 409-blocking the one-time analyst-browser
      localStorage import. Keep it, or delete QuarterPlan rows server-side and
      re-open `/quarter-grid` in the browser holding `seo-quarter-v3`.
-  2. **First real qct_ push not yet exercised** (prod plan is all-pool). After
-     (1): assign a client to a week, set its Teamwork tasklist ID, push, paste.
+  4. **First real qct_ push not yet exercised** (prod plan is all-pool). After
+     (3): assign a client to a week, set its Teamwork tasklist ID, push, paste.
 - **Blocked / gated:** Anthropic API billing (gates 03 Phase 3 + SF-retirement
   analytics integrations); sitemap miss-rate measurement not yet run;
   daily/nightly cadences still gated (C6 supersede-trimming NOT built).
-- **Parked follow-ups (not next items):** C6 — per-page on-page snapshots for
-  error/redirect/non-HTML pages (runner-path capture — would give precise per-page
-  coverage; the Phase-3 score derives coverage from SiteAudit counters instead),
-  inlink/authority graph + crawl depth (roadmap Phase 3a),
-  external-link verification, CSS/JS/PDF broken-resource checks, redirect-chain/
-  canonical/hreflang validation, content similarity, daily-cadence
-  supersede-trimming, the analyst SF-vs-Live parallel-run gate; standalone
-  single-page audit CSV/VPAT/report; public share-page export buttons; expandable
-  rows on the public ADA share view; logo image for the PDF; `SessionPage` model
-  drop (≥180 d after 2026-06-11); same-URL standalone-audit diffing; fleet
-  instance-level diffing; B2 v1 multi-domain limitation.
+- **Parked follow-ups (not next items):** C6 — SEO-only scan mode (skip
+  axe/screenshots/PSI for seoIntent runs — breadcrumb at both enqueue sites →
+  spec §9), per-page on-page snapshots for error/redirect pages, external-link
+  verification, CSS/JS/PDF broken-resource checks, redirect-chain/canonical/
+  hreflang validation, content similarity, daily-cadence supersede-trimming, the
+  analyst SF-vs-Live parallel-run gate; standalone single-page audit CSV/VPAT/
+  report; public share-page export buttons; expandable rows on the public ADA
+  share view; logo image for the PDF; `SessionPage` model drop (≥180 d after
+  2026-06-11); same-URL standalone-audit diffing; fleet instance-level diffing;
+  B2 v1 multi-domain limitation.
 
 ## Next item
 
-**C10 prod-verification (Kevin's manual pass — the single next action).** Code is
-shipped + deployed; this is the live smoke that was deferred from the build:
+**Two sequential actions:**
+
+**1. Merge + prod-verify `feat/autonomous-live-seo-source` (C6 Phase 4).**
+Branch is gate-green (tsc / vitest / build). Steps:
+
+1. Open a PR from `feat/autonomous-live-seo-source` → `main` and merge it.
+2. `git push && ssh seo@144.126.213.242 "~/deploy.sh"` — migration
+   `20260630_autonomous_live_seo_source` (or however it was named) applies via
+   `prisma migrate deploy`.
+3. Smoke-test: trigger one site audit with `seoIntent:true` on an indexable
+   client domain. Confirm the completed audit has a live-scan `CrawlRun` with
+   `seoIntent=true` and a non-null `score`. Open an srt_ memo for that client
+   — it should populate the brief from the live run (no SF upload required).
+4. Mark C6 Phase 4 complete in the tracker (change `[~]` → `[~]` or annotate
+   as appropriate; add a status-log line); archive the spec + plan to
+   `archive/specs/` + `archive/plans/`; update this handoff doc.
+
+**2. C10 prod-verification (Kevin's manual pass — unchanged from 2026-06-22):**
 
 1. **Confirm the SA key on prod:** `GOOGLE_SA_KEY_FILE` set, key at
    `/home/seo/data/seo-tools/google-sa.json` (mode 0600, PM2-user-owned). Open
-   `/settings` → "Test connection": it should show the SA email
+   `/settings` → "Test connection": should show the SA email
    (`er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`) and GA4/GSC counts.
 2. **Grant + map one low-risk client first** (Nuvani was the build's reference):
    grant the SA email on its GA4 property (Property Access Management) + GSC site
    (Users & permissions), then map it in `/clients/[id]` → Analytics IDs.
 3. **Generate one report** for last month at `/reports` → download the PDF.
-4. **Metric-parity eyeball** vs `SEO_Report_1st_Draft.pdf` (repo root): scorecards,
-   charts, tables. **Resolve the open question:** scorecard #12 renders "Key Events"
-   where spec §5's list has a duplicate "Avg Position" (a Looker artifact) — confirm
-   which the real report should show. If GA4/GSC metric names are off, the fix is in
-   the providers (`lib/analytics/google/ga4-provider.ts` / `gsc-provider.ts`) +
+4. **Metric-parity eyeball** vs `SEO_Report_1st_Draft.pdf` (repo root). **Resolve
+   the open question:** scorecard #12 renders "Key Events" where spec §5's list has
+   a duplicate "Avg Position" (a Looker artifact) — confirm which to show. If
+   GA4/GSC metric names are off, fix is in the providers
+   (`lib/analytics/google/ga4-provider.ts` / `gsc-provider.ts`) +
    `lib/report/seo/report-data.ts`.
-5. Only after parity holds for one client: grant/map the rest + (optionally) set the
-   monthly schedule in `/settings`.
+5. Only after parity holds: grant/map the rest + (optionally) set the monthly
+   schedule in `/settings`.
 
-- **C10 non-blocking follow-ups (do when convenient):** GA4 comparison window
-  fetches 4 metric groups it discards (quota trim — `ga4-provider.ts`);
-  `rollupBatchStatus` duplicated between the render job and
-  `lib/services/seo-reports.ts` (consolidate); `pruneSeoReports` should chunk
-  `doomedIds` for SQLite param limits at scale; stricter date/client validation on
-  `POST /api/reports`.
-- **After C10 verification:** resume the C-track menu — C7 (parser consolidation),
-  C6 Phase 3a (audited-set link graph), or C8 (score-explanation). C10 cleared the
-  analytics half of SF-retirement Phase 6 (SEMRush/DataForSEO + memo consumption
-  remain, the latter gated on Anthropic/API billing).
+- **C10 non-blocking follow-ups:** GA4 comparison window fetches 4 metric groups
+  it discards (quota trim — `ga4-provider.ts`); `rollupBatchStatus` duplicated
+  between the render job and `lib/services/seo-reports.ts` (consolidate);
+  `pruneSeoReports` should chunk `doomedIds` for SQLite param limits at scale;
+  stricter date/client validation on `POST /api/reports`.
+- **After both verifications:** resume the C-track menu — C7 (parser
+  consolidation), C8 (score-explanation), C9 (ADA scoring v2), or further C6
+  (SEO-only scan mode / external-link check). C10 cleared the analytics half of
+  SF-retirement Phase 6 (SEMRush/DataForSEO + memo consumption remain, the latter
+  gated on Anthropic/API billing).
 
 ## Gotchas / decisions already made (don't relitigate)
 
@@ -154,6 +175,36 @@ shipped + deployed; this is the live smoke that was deferred from the build:
     `/about`, and the Google site-verification file already shipped to main + deployed.
   - Metrics are a per-report `metricsJson` blob (NOT findings); reports get their
     OWN retention sweep (`pruneSeoReports`) — the 90-d findings prune does not cover them.
+- **C6 Phase 4 invariants (NEW — autonomous live SEO source + native link graph):**
+  - **`seoIntent` flag is the canonical SEO-source signal.** `CrawlRun.seoIntent`
+    marks the run as the system's autonomous SEO baseline. `selectCanonicalSeoRun`
+    picks the most recent `seoIntent=true` seo-parser live-scan run; it NEVER
+    displaces the sf-upload score for B1/dashboard/fleet — `selectRuns` is
+    unchanged and the sf-upload path is still the canonical score for those surfaces.
+  - **Autonomous schedules are self-healing.** The system creates/updates a
+    `scheduled-site-audit` Schedule row with `seoIntent:true` in the payload
+    whenever a client's first domain is set; no manual wiring. If the schedule
+    already exists it is left alone (idempotent). If a domain is removed, the
+    schedule is disabled. NEVER remove or circumvent this auto-management.
+  - **`computeLinkGraph` is pure + offline.** It reads `CrawlPage.inlinks`/
+    `outlinks` that were persisted during the harvest (by the page job's settle
+    fence). It NEVER triggers a live crawl and NEVER re-reads `HarvestedLink`.
+    If the scalars are absent (pre-Phase-4 runs), the graph is empty — that is
+    the expected degraded state.
+  - **`CanonicalPageFact(s)` contract:** keyed on normalized URL; `inlinks` is the
+    count of OTHER pages on the same domain that link to this page (from the
+    `CrawlPage.inlinks` scalar). Callers (pillar brief, providers) MUST treat
+    missing facts as graceful degraded state — never throw on absent graph data.
+  - **Provider layer is additive.** `lib/seo/providers/` feeds live data into memo
+    handoffs. A provider that finds no canonical run MUST return a degraded
+    shape (empty arrays, null scores) — never throw. The sf-upload path continues
+    to work unchanged as a fallback.
+  - **Task 13 (retention carve-out) was intentionally skipped** — it would have
+    added per-seoIntent prune logic that is redundant with the existing 90-d prune
+    paths. Do not add it retroactively unless a concrete DB-growth concern arises.
+  - **SEO-only scan mode (skip axe/screenshots/PSI) is NOT yet built.** Breadcrumb
+    comments are at both enqueue sites. The planned optimization is spec §9. Until
+    it ships, every seoIntent audit runs the full ADA pipeline.
 - **C6 Phase 3 invariants (NEW — live SEO score):**
   - The live score is computed in the builder by the pure `scoreLiveSeo`
     (`lib/findings/live-seo-score.ts`) and written to `CrawlRun.score`. It is
@@ -290,3 +341,9 @@ shipped + deployed; this is the live smoke that was deferred from the build:
   into the `build` script. Spec/plan archived. **Prod-verification (map a client →
   generate → metric-parity eyeball, + scorecard-#12 question) is Kevin's pending
   manual pass** — see Next item. C10 stays the analytics foundation for SF-Phase 6.
+- 2026-06-30 — **C6 Phase 4 BUILT** — autonomous live SEO source + native link
+  graph (branch `feat/autonomous-live-seo-source`, 15 tasks subagent-driven, gate
+  green). `CrawlRun.seoIntent`, autonomous self-healing Schedule creation, link
+  graph from harvest scalars, provider layer feeding memo handoffs without SF
+  upload. Task 13 (retention carve-out) intentionally skipped. SEO-only-mode
+  breadcrumb at both enqueue sites (spec §9). **Pending merge + prod-verification.**
