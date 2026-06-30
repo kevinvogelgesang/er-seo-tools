@@ -28,7 +28,7 @@ async function s256(verifier: string): Promise<string> {
 
 describe('buildGoogleAuthRequest', () => {
   it('builds an auth URL with PKCE, nonce, state, and basic scopes', async () => {
-    const { url, handshake } = await buildGoogleAuthRequest({ redirectUri: REDIRECT, next: '/clients', hd: 'enrollmentresources.com' })
+    const { url, handshake } = await buildGoogleAuthRequest({ redirectUri: REDIRECT, next: '/clients' })
     const u = new URL(url)
     const q = u.searchParams
 
@@ -42,7 +42,9 @@ describe('buildGoogleAuthRequest', () => {
     expect(q.get('code_challenge_method')).toBe('S256')
     expect(q.get('state')).toBe(handshake.state)
     expect(q.get('nonce')).toBe(handshake.nonce)
-    expect(q.get('hd')).toBe('enrollmentresources.com')
+    // No `hd` hint: users see the normal account chooser. The company-domain
+    // restriction is enforced server-side at the callback (verified hd claim).
+    expect(q.get('hd')).toBeNull()
     // PKCE: the challenge in the URL is S256(verifier) held in the handshake.
     expect(q.get('code_challenge')).toBe(await s256(handshake.codeVerifier))
     expect(handshake.next).toBe('/clients')

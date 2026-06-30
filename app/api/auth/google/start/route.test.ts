@@ -47,15 +47,16 @@ describe('GET /api/auth/google/start', () => {
     expect(setCookie).toMatch(/Secure/i)
   })
 
-  it('passes the configured allowed hosted-domain to the URL builder', async () => {
+  it('builds the request with the correct redirect URI and next, and no hd hint', async () => {
     await GET(req())
     expect(oauth.buildGoogleAuthRequest).toHaveBeenCalledWith(
       expect.objectContaining({
-        hd: 'enrollmentresources.com',
         redirectUri: 'https://seo.erstaging.site/api/auth/google/callback',
         next: '/clients',
       }),
     )
+    // No hd hint -> normal Google account chooser (domain enforced at callback).
+    expect(vi.mocked(oauth.buildGoogleAuthRequest).mock.calls[0][0]).not.toHaveProperty('hd')
   })
 
   it('redirects to /login with an error when OAuth is not configured', async () => {

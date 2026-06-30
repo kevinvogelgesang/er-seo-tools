@@ -54,7 +54,6 @@ export interface GoogleHandshake {
 export async function buildGoogleAuthRequest(args: {
   redirectUri: string
   next: string
-  hd?: string
 }): Promise<{ url: string; handshake: GoogleHandshake }> {
   const { clientId, clientSecret } = getConfig()
   const state = randomToken()
@@ -71,11 +70,10 @@ export async function buildGoogleAuthRequest(args: {
       code_challenge_method: CodeChallengeMethod.S256,
       code_challenge: codeChallenge,
       prompt: 'select_account',
-      ...(args.hd ? { hd: args.hd } : {}),
     }),
   )
-  // `hd` on the URL + `nonce` are UI/replay hints; the security gate is the
-  // verified ID-token `hd` claim + nonce check at the callback.
+  // `nonce` is a replay hint echoed back in the ID token; we verify it at the
+  // callback. No `hd` hint — domain restriction is enforced there too.
   url.searchParams.set('nonce', nonce)
 
   return { url: url.toString(), handshake: { state, nonce, codeVerifier, next: args.next } }

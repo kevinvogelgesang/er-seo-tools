@@ -24,11 +24,10 @@ export async function GET(request: NextRequest) {
   const next = normalizeAuthReturnPath(new URL(request.url).searchParams.get('next'))
   const redirectUri = new URL('/api/auth/google/callback', base).toString()
 
-  const { url, handshake } = await buildGoogleAuthRequest({
-    redirectUri,
-    next,
-    hd: process.env.GOOGLE_ALLOWED_HD || undefined,
-  })
+  // No `hd` hint on the auth URL — users get the normal Google account chooser
+  // (no auto-appended @domain). The company-domain restriction is still enforced
+  // at the callback via the verified ID-token `hd` claim + email domain.
+  const { url, handshake } = await buildGoogleAuthRequest({ redirectUri, next })
 
   const res = NextResponse.redirect(url, { status: 307 })
   res.cookies.set({
