@@ -1,8 +1,21 @@
 export const AUTH_COOKIE_NAME = 'er_auth'
-const AUTH_COOKIE_VALUE = 'authenticated'
 const SIGNATURE_SEPARATOR = '.'
-const PAYLOAD_SEPARATOR = ':'
+const SESSION_VERSION = 2
 export const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12
+
+// Verified session identity carried in the signed auth cookie. For Google
+// logins these come from the verified ID token; for break-glass password login
+// they're synthetic (sub: 'password:break-glass', email/hd null).
+export interface AuthIdentity {
+  sub: string
+  email: string | null
+  hd: string | null
+  name: string | null
+}
+
+export interface AuthSession extends AuthIdentity {
+  exp: number // unix seconds
+}
 
 // Operator-name cookie: captured on login, used to attribute requested audits.
 // Not a credential — no signing, JS-readable. 1-year max-age so operators
@@ -23,18 +36,45 @@ export function isAuthConfigured(): boolean {
   return Boolean(process.env.APP_AUTH_PASSWORD)
 }
 
+/**
+ * Best operator label for audit attribution. Prefers the VERIFIED session
+ * identity (Google name, else email; break-glass logins carry the typed name),
+ * falling back to the legacy unverified operator-name cookie when there is no
+ * valid session (e.g. dev bypass). Pass both cookie values from the request.
+ */
+export async function getOperatorLabel(
+  authCookieValue: string | null | undefined,
+  operatorCookieValue?: FormDataEntryValue | string | null,
+): Promise<string | null> {
+  const session = await getAuthSession(authCookieValue)
+  if (session) return session.name ?? session.email ?? null
+  return sanitizeOperatorName(operatorCookieValue)
+}
+
 export function isAuthBypassedInDev(): boolean {
   return process.env.NODE_ENV !== 'production' && !isAuthConfigured()
 }
 
 export function requireAuthConfig(): void {
-  if (process.env.NODE_ENV === 'production') {
-    if (!isAuthConfigured()) {
-      throw new Error('APP_AUTH_PASSWORD is required in production')
-    }
-    if (!process.env.APP_AUTH_SECRET) {
-      throw new Error('APP_AUTH_SECRET is required in production')
-    }
+  if (process.env.NODE_ENV !== 'production') return
+
+  // The HMAC secret always signs the session + OAuth-handshake cookies.
+  if (!process.env.APP_AUTH_SECRET) {
+    throw new Error('APP_AUTH_SECRET is required in production')
+  }
+
+  // Production needs at least one working login path: Google OAuth or the
+  // shared password (break-glass). Env-only checks so this stays importable in
+  // the edge middleware without pulling in google-auth-library.
+  const hasGoogle = Boolean(
+    process.env.GOOGLE_OAUTH_CLIENT_ID &&
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
+      process.env.GOOGLE_ALLOWED_HD,
+  )
+  if (!hasGoogle && !isAuthConfigured()) {
+    throw new Error(
+      'Either Google OAuth (GOOGLE_OAUTH_CLIENT_ID/SECRET + GOOGLE_ALLOWED_HD) or APP_AUTH_PASSWORD is required in production',
+    )
   }
 }
 
@@ -55,6 +95,17 @@ function bytesToBase64Url(bytes: Uint8Array): string {
     binary += String.fromCharCode(byte)
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function stringToBase64Url(value: string): string {
+  return bytesToBase64Url(new TextEncoder().encode(value))
+}
+
+function base64UrlToString(value: string): string {
+  const b64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const binary = atob(b64)
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+  return new TextDecoder().decode(bytes)
 }
 
 function constantTimeEqual(a: string, b: string): boolean {
@@ -86,10 +137,56 @@ export function verifyPassword(password: string): boolean {
   return constantTimeEqual(password, expected)
 }
 
-export async function createAuthCookieValue(): Promise<string> {
-  const expiresAt = Math.floor(Date.now() / 1000) + AUTH_COOKIE_MAX_AGE_SECONDS
-  const payload = `${AUTH_COOKIE_VALUE}${PAYLOAD_SEPARATOR}${expiresAt}`
+export async function createAuthCookieValue(identity: AuthIdentity): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + AUTH_COOKIE_MAX_AGE_SECONDS
+  const payload = stringToBase64Url(
+    JSON.stringify({
+      v: SESSION_VERSION,
+      sub: identity.sub,
+      email: identity.email ?? null,
+      hd: identity.hd ?? null,
+      name: identity.name ?? null,
+      exp,
+    }),
+  )
   return `${payload}${SIGNATURE_SEPARATOR}${await sign(payload)}`
+}
+
+/**
+ * Verify the signed auth cookie and return the carried identity, or null if the
+ * cookie is missing, tampered, expired, or not a current-version session.
+ */
+export async function getAuthSession(
+  value: string | undefined | null,
+): Promise<AuthSession | null> {
+  if (!value) return null
+
+  const [payload, signature, ...extra] = value.split(SIGNATURE_SEPARATOR)
+  if (extra.length > 0 || !payload || !signature) return null
+
+  if (!constantTimeEqual(signature, await sign(payload))) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(base64UrlToString(payload))
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const p = parsed as Record<string, unknown>
+  if (p.v !== SESSION_VERSION || typeof p.sub !== 'string') return null
+
+  const exp = typeof p.exp === 'number' ? p.exp : Number.NaN
+  if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null
+
+  return {
+    sub: p.sub,
+    email: typeof p.email === 'string' ? p.email : null,
+    hd: typeof p.hd === 'string' ? p.hd : null,
+    name: typeof p.name === 'string' ? p.name : null,
+    exp,
+  }
 }
 
 export async function isValidAuthCookie(
@@ -98,18 +195,48 @@ export async function isValidAuthCookie(
 ): Promise<boolean> {
   const allowDevBypass = options.allowDevBypass ?? true
   if (allowDevBypass && isAuthBypassedInDev()) return true
-  if (!value) return false
+  return (await getAuthSession(value)) !== null
+}
 
-  const [payload, signature, ...extra] = value.split(SIGNATURE_SEPARATOR)
-  if (extra.length > 0 || !signature) return false
+/**
+ * Generic short-lived signed token for transient server state (e.g. the OAuth
+ * handshake cookie binding state/nonce/code_verifier). Signs
+ * base64url(JSON{...payload, __exp}) with the app HMAC secret.
+ */
+export async function createSignedToken(
+  payload: object,
+  ttlSeconds: number,
+): Promise<string> {
+  const __exp = Math.floor(Date.now() / 1000) + ttlSeconds
+  const body = stringToBase64Url(JSON.stringify({ ...payload, __exp }))
+  return `${body}${SIGNATURE_SEPARATOR}${await sign(body)}`
+}
 
-  const [kind, expiresAtRaw, ...payloadExtra] = payload.split(PAYLOAD_SEPARATOR)
-  if (payloadExtra.length > 0 || kind !== AUTH_COOKIE_VALUE) return false
+/** Verify a createSignedToken value (signature + expiry) and return its payload. */
+export async function readSignedToken(
+  value: string | null | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!value) return null
 
-  const expiresAt = Number(expiresAtRaw)
-  if (!Number.isFinite(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return false
+  const [body, signature, ...extra] = value.split(SIGNATURE_SEPARATOR)
+  if (extra.length > 0 || !body || !signature) return null
+  if (!constantTimeEqual(signature, await sign(body))) return null
 
-  return constantTimeEqual(signature, await sign(payload))
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(base64UrlToString(body))
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const p = parsed as Record<string, unknown>
+  const exp = typeof p.__exp === 'number' ? p.__exp : Number.NaN
+  if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null
+
+  const { __exp: _drop, ...rest } = p
+  void _drop
+  return rest
 }
 
 /**

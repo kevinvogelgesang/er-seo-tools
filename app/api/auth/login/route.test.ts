@@ -66,5 +66,16 @@ describe('POST /api/auth/login — er-operator-name cookie', () => {
     // Cookie value is the trimmed + sliced result: 64 'a's
     expect(cookie).toMatch(new RegExp(`er-operator-name=${'a'.repeat(64)}(?!a)`))
   })
+
+  it('refuses password login (no session) when ALLOW_PASSWORD_LOGIN=false', async () => {
+    process.env.ALLOW_PASSWORD_LOGIN = 'false'
+    try {
+      const res = await POST(formRequest({ password: 'pw', operatorName: 'Kevin' }))
+      expect(setCookieHeader(res)).not.toMatch(/er_auth=[^;]/)
+      expect(res.headers.get('location') ?? '').toContain('/login')
+    } finally {
+      delete process.env.ALLOW_PASSWORD_LOGIN
+    }
+  })
 })
 

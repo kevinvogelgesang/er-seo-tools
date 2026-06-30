@@ -1,14 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAuthCookieValue,
+  createSignedToken,
+  getAuthSession,
+  getOperatorLabel,
   isAuthBypassedInDev,
   isValidAuthCookie,
+  readSignedToken,
   requireAuthConfig,
   verifyPassword,
   normalizeAuthReturnPath,
 } from './auth'
 
 const ORIG_ENV = { ...process.env }
+
+const TEST_IDENTITY = {
+  sub: 'google:108',
+  email: 'kevin@enrollmentresources.com',
+  hd: 'enrollmentresources.com',
+  name: 'Kevin V',
+}
 
 describe('auth helpers', () => {
   beforeEach(() => {
@@ -31,17 +42,53 @@ describe('auth helpers', () => {
   })
 
   it('signs and verifies auth cookie values', async () => {
-    const cookie = await createAuthCookieValue()
+    const cookie = await createAuthCookieValue(TEST_IDENTITY)
     await expect(isValidAuthCookie(cookie)).resolves.toBe(true)
     await expect(isValidAuthCookie(cookie.replace(/.$/, 'x'))).resolves.toBe(false)
   })
 
   it('rejects signed auth cookies with expired payloads', async () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000_000)
-    const cookie = await createAuthCookieValue()
+    const cookie = await createAuthCookieValue(TEST_IDENTITY)
 
     nowSpy.mockReturnValue(1_000_000_000_000 + (13 * 60 * 60 * 1000))
     await expect(isValidAuthCookie(cookie)).resolves.toBe(false)
+  })
+
+  describe('getAuthSession — verified identity', () => {
+    it('round-trips the signed identity', async () => {
+      const cookie = await createAuthCookieValue(TEST_IDENTITY)
+      const session = await getAuthSession(cookie)
+      expect(session).toMatchObject(TEST_IDENTITY)
+      expect(typeof session?.exp).toBe('number')
+    })
+
+    it('returns null for a tampered, garbage, or empty cookie', async () => {
+      const cookie = await createAuthCookieValue(TEST_IDENTITY)
+      expect(await getAuthSession(cookie.replace(/.$/, 'x'))).toBeNull()
+      expect(await getAuthSession('not-a-cookie')).toBeNull()
+      expect(await getAuthSession('')).toBeNull()
+      expect(await getAuthSession(null)).toBeNull()
+    })
+
+    it('returns null once the payload has expired', async () => {
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000_000)
+      const cookie = await createAuthCookieValue(TEST_IDENTITY)
+      nowSpy.mockReturnValue(1_000_000_000_000 + 13 * 60 * 60 * 1000)
+      expect(await getAuthSession(cookie)).toBeNull()
+    })
+
+    it('rejects a legacy (pre-v2) cookie shape', async () => {
+      // Old shape was `authenticated:<exp>.<sig>` — must not parse as a session.
+      expect(await getAuthSession('authenticated:9999999999.deadbeef')).toBeNull()
+    })
+
+    it('supports a break-glass identity with null email/hd', async () => {
+      const bg = { sub: 'password:break-glass', email: null, hd: null, name: 'Break-glass' }
+      const cookie = await createAuthCookieValue(bg)
+      expect(await getAuthSession(cookie)).toMatchObject(bg)
+      await expect(isValidAuthCookie(cookie)).resolves.toBe(true)
+    })
   })
 
   it('allows dev/test bypass only when no password is configured', async () => {
@@ -75,6 +122,65 @@ describe('auth helpers', () => {
     process.env.APP_AUTH_SECRET = 'prod-signing-secret'
 
     expect(() => requireAuthConfig()).not.toThrow()
+  })
+
+  it('succeeds in production with Google OAuth configured and no password', () => {
+    process.env.NODE_ENV = 'production'
+    delete process.env.APP_AUTH_PASSWORD
+    process.env.APP_AUTH_SECRET = 'prod-signing-secret'
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'cid'
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'csecret'
+    process.env.GOOGLE_ALLOWED_HD = 'enrollmentresources.com'
+
+    expect(() => requireAuthConfig()).not.toThrow()
+  })
+
+  it('throws in production when neither Google OAuth nor a password is configured', () => {
+    process.env.NODE_ENV = 'production'
+    delete process.env.APP_AUTH_PASSWORD
+    process.env.APP_AUTH_SECRET = 'prod-signing-secret'
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID
+
+    expect(() => requireAuthConfig()).toThrow()
+  })
+
+  describe('createSignedToken / readSignedToken — generic signed transient', () => {
+    it('round-trips an arbitrary payload', async () => {
+      const token = await createSignedToken({ state: 'abc', nonce: 'xyz', next: '/clients' }, 600)
+      const read = await readSignedToken(token)
+      expect(read).toMatchObject({ state: 'abc', nonce: 'xyz', next: '/clients' })
+    })
+
+    it('returns null for a tampered or garbage token', async () => {
+      const token = await createSignedToken({ a: 1 }, 600)
+      expect(await readSignedToken(token.replace(/.$/, 'X'))).toBeNull()
+      expect(await readSignedToken('nope')).toBeNull()
+      expect(await readSignedToken(null)).toBeNull()
+    })
+
+    it('returns null once expired', async () => {
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000_000)
+      const token = await createSignedToken({ a: 1 }, 600)
+      nowSpy.mockReturnValue(1_000_000_000_000 + 601_000)
+      expect(await readSignedToken(token)).toBeNull()
+    })
+  })
+
+  describe('getOperatorLabel — verified session preferred over cookie', () => {
+    it('prefers the verified session name over the operator cookie', async () => {
+      const cookie = await createAuthCookieValue({ sub: 'google:1', email: 'a@e.com', hd: 'e.com', name: 'Verified Name' })
+      expect(await getOperatorLabel(cookie, 'Cookie Name')).toBe('Verified Name')
+    })
+
+    it('falls back to the session email when the session name is null', async () => {
+      const cookie = await createAuthCookieValue({ sub: 'google:1', email: 'a@e.com', hd: 'e.com', name: null })
+      expect(await getOperatorLabel(cookie, null)).toBe('a@e.com')
+    })
+
+    it('falls back to the (sanitized) operator cookie when there is no valid session', async () => {
+      expect(await getOperatorLabel(undefined, '  Kevin  ')).toBe('Kevin')
+      expect(await getOperatorLabel('garbage', null)).toBeNull()
+    })
   })
 
   it('normalizes login return paths to same-origin paths only', () => {

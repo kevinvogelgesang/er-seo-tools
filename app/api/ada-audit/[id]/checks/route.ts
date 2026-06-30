@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
+import { AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME, getOperatorLabel } from '@/lib/auth'
 import { getAdaAuditChecks, setAdaAuditCheck } from '@/lib/ada-audit/checks-store'
 
 export const dynamic = 'force-dynamic'
@@ -34,7 +34,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: 'key must be a 64-char lowercase hex string' }, { status: 400 })
   }
 
-  const operator = sanitizeOperatorName(req.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+  const operator = await getOperatorLabel(
+    req.cookies.get(AUTH_COOKIE_NAME)?.value,
+    req.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value,
+  )
   const checks = await setAdaAuditCheck({ adaAuditId: id, scope: 'node', key, checked, operator })
   return NextResponse.json({ checks })
 }
