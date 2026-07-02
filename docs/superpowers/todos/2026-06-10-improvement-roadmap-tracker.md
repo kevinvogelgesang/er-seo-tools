@@ -177,11 +177,13 @@ Interleave as needed (not blockers):
   `CrawlRun.score` (was null); surfaced on the results page; no migration, `selectRuns` unchanged.
   Remaining C6 phases (hybrid discovery, analytics integrations, validation, similarity) NOT yet
   built — see the SF-retirement roadmap §5 sequence.
-  **Phase 4 (autonomous live SEO source + native link graph) SHIPPED (branch
-  `feat/autonomous-live-seo-source`, 15-task subagent-driven build, 2026-06-30) —
-  pending merge + prod verification.**
-  Spec: `../specs/2026-06-30-autonomous-live-seo-source-design.md` ·
-  Plan: `../plans/2026-06-30-autonomous-live-seo-source.md`.
+  **Phase 4 (autonomous live SEO source + native link graph) MERGED (PR #85) +
+  DEPLOYED 2026-07-02 (prod @ 9c07502, migration `20260630120000_live_seo_source`
+  applied clean) — PROD-VERIFICATION PENDING** (campaign Gate 0.3: seoIntent
+  audit on an indexable client domain → live-scan CrawlRun with non-null score +
+  source badge + pat_/brief smoke).
+  Spec: `../archive/specs/2026-06-30-autonomous-live-seo-source-design.md` ·
+  Plan: `../archive/plans/2026-06-30-autonomous-live-seo-source.md`.
   Adds `SiteAudit.seoIntent` + `CrawlRun.seoIntent` (migration
   `20260630120000_live_seo_source`); `seoIntent:true` schedules are
   **operator-created** via POST `/api/clients/[id]/schedules` with the seoIntent
@@ -229,6 +231,8 @@ Interleave as needed (not blockers):
 - [ ] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier.
 
 ## Status log
+
+- 2026-07-02 (later) — **C6 Phase 4 MERGED + DEPLOYED (PR #85, prod @ `9c07502`).** Pre-merge gates re-run same day: tsc clean, vitest 290 files / 2,871 tests green (54.5 s), build green. Merge-committed per house style; deploy applied migration `20260630120000_live_seo_source` ("All migrations have been successfully applied" — PillarAnalysis table rebuild included), PM2 online, Next.js ready in 820 ms, no startup errors. Confirmed prod ran main @ `6679993` (S1–S4 + OAuth) before this deploy — the earlier "is main deployed?" uncertainty is resolved. Spec + plan archived; also archived the stray shipped 2026-06-04 seo-roadmap spec/plan (PR #49-era drift flagged by the docs-and-writing skill; `specs/`+`plans/` are now clean). **PROD-VERIFICATION PENDING — next session runs campaign Gate 0.3** (seoIntent audit on an indexable client domain; expect live-scan CrawlRun `seoIntent=1` + non-null score + "Live scan" badge + pat_/brief smoke; srt_/krt_ excluded per D3). Then C10 verification (Kevin manual). C6 stays `[~]`.
 
 - 2026-07-02 — **Skill library shipped (commit `57ae636` on `feat/autonomous-live-seo-source`) + plan-doc corrections.** 16 ground-truth-verified operator skills under `.claude/skills/` (change control, debugging, failure archaeology, architecture contract, domain reference, config catalog, build/env, run/operate, diagnostics scripts, validation, docs style, extension recipes, SF-retirement campaign + parity script, proof toolkit, research frontier, research methodology), authored by 16 parallel agents from a 9-agent repo discovery, then reviewed by 16 factual + doctrine + usability passes; all blocking/important findings fixed (notably: a prod SQL recipe using a nonexistent column, a script hard-failing on the main schema, the findings-rebuild pruned-ADA data-loss trap → new item A2-f1). **Tracker/handoff Phase-4 descriptions corrected** — the originals claimed self-healing autonomous schedules, a `lib/seo/providers/` layer, and live srt_/krt_ memos; none exist in plan or code (owner-confirmed doc error; plan decisions D1/D3 + code are truth). Added **A2-f1** (findings-rebuild ADA guard, hours) and **D0** (minimal backup+alert pulled forward before SF-retirement Phase 2, Kevin-approved). The SF-retirement campaign skill's Phase 0 (Gate 0.1–0.4) is now the executable runbook for the next action: merge + prod-verify this branch. Next: campaign Phase 0, then C10 prod-verification (Kevin manual).
 

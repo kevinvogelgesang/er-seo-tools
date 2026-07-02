@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-02 · **Updated by:** skill-library ship (16 skills, commit `57ae636`) + Phase-4 doc corrections — C6 Phase 4 still pending merge + prod verification; the SF-retirement campaign skill's Phase 0 is now the executable runbook for it
+**Last updated:** 2026-07-02 (later) · **Updated by:** C6 Phase 4 MERGED (PR #85) + DEPLOYED (prod @ `9c07502`, migration applied clean) — **prod-verification is the single next action** (campaign skill Gate 0.3), then C10 verification (Kevin manual)
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -12,39 +12,44 @@ single next action.
 ```
 Continue the er-seo-tools improvement roadmap.
 
-Current branch: feat/autonomous-live-seo-source (C6 Phase 4 built, gate-green,
-pending merge + prod-verification; also carries the 16-skill operator library
-under .claude/skills/, commit 57ae636).
+State: C6 Phase 4 (autonomous live SEO source + native link graph) is MERGED
+(PR #85) + DEPLOYED (prod @ 9c07502, migration 20260630120000_live_seo_source
+applied clean, 2026-07-02). Work from main. A 16-skill operator library lives
+in .claude/skills/ — use it.
 
-1. Load the skill er-seo-tools-change-control first (hard gates: no merge/deploy/
-   server mutation without Kevin's explicit go; docs rituals mandatory; never
-   scan non-client sites).
+1. Load the skill er-seo-tools-change-control first (hard gates: no merge/
+   deploy/server mutation without Kevin's explicit go; docs rituals mandatory;
+   never scan non-client sites).
 2. Read docs/superpowers/todos/HANDOFF-improvement-roadmap.md (current state +
    next item) and docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md
    (full plan). Trust ranking when docs disagree: code > plan/spec >
-   tracker/handoff (the Phase-4 sections were corrected 2026-07-02).
-3. The immediate next action is the SF-retirement campaign skill's Phase 0
-   (load er-seo-tools-sf-retirement-campaign): re-run the gates on the branch
-   (tsc / vitest / build), open the PR, get Kevin's explicit go to merge +
-   deploy, then prod-verify per Gate 0.3 — trigger one seoIntent:true audit on
-   an indexable CLIENT domain; expect a live-scan CrawlRun with seoIntent=1 and
-   a non-null score, the "Live scan" source badge, and a live pillar/brief
-   smoke (pat_ + /api/brief/live — NOT srt_/krt_; those stay SF-only per plan
-   decision D3). Failure branches are in the skill.
+   tracker/handoff.
+3. The immediate next action is PROD-VERIFICATION of Phase 4 — load
+   er-seo-tools-sf-retirement-campaign and run Gate 0.3: trigger one
+   seoIntent:true site audit on an indexable CLIENT domain (Kevin picks the
+   client; the noindex canary proves plumbing only). Expected: a live-scan
+   CrawlRun with seoIntent=1 and a non-null score, the "Live scan" source badge
+   on the results page, and a live pillar/brief smoke (pat_ + /api/brief/live —
+   NOT srt_/krt_; those stay SF-only per plan decision D3). Note: the pillar
+   smoke via runForCanonical writes a PillarAnalysis row — on prod that is
+   Kevin-gated. Failure branches are in the skill.
 4. Then C10 prod-verification (Kevin's manual pass — see this handoff's Next
    item section 2).
-5. After each verification: tracker checkbox + dated status-log line, archive
-   the spec/plan to docs/superpowers/archive/, rewrite this handoff, and end
-   your final reply with this doc's updated paste-in prompt in a code block.
+5. After each verification: tracker checkbox + dated status-log line, rewrite
+   this handoff, and end your final reply with this doc's updated paste-in
+   prompt in a code block. (Phase-4 spec/plan are already archived.)
 ```
 
 ## Current state
 
-- **BUILT (pending merge + prod-verification): C6 Phase 4 — autonomous live SEO
-  source + native link graph.** Branch `feat/autonomous-live-seo-source`, 15-task
-  subagent-driven build, 2026-06-30. Gate green (tsc / vitest / build). Spec:
-  `docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md` ·
-  Plan: `docs/superpowers/plans/2026-06-30-autonomous-live-seo-source.md`.
+- **MERGED + DEPLOYED (prod-verification pending): C6 Phase 4 — autonomous live
+  SEO source + native link graph.** 15-task subagent-driven build 2026-06-30;
+  gates re-run 2026-07-02 (tsc / 2,871 vitest / build, all green); merged as
+  PR #85; deployed 2026-07-02 — prod @ `9c07502`, migration
+  `20260630120000_live_seo_source` applied clean (PillarAnalysis rebuild
+  included), PM2 online, no startup errors. Spec:
+  `docs/superpowers/archive/specs/2026-06-30-autonomous-live-seo-source-design.md` ·
+  Plan: `docs/superpowers/archive/plans/2026-06-30-autonomous-live-seo-source.md`.
   Key deliverables (**corrected 2026-07-02 against plan+code** — the original
   bullets here overstated the build; plan decisions D1/D3 + code are truth):
   - `SiteAudit.seoIntent` + `CrawlRun.seoIntent` (migration
@@ -91,18 +96,17 @@ under .claude/skills/, commit 57ae636).
   SF-retirement Phase 6.
 - **A1, A2, B1–B5, C1–C5 are DONE.** **C6 Phases 1–3 DONE:** broken-link verifier
   (PR #70), on-page SEO extraction (PR #71), live SEO score (PR #73) — all
-  deployed + production-verified (Phase 3 on 2026-06-17). C6 Phase 4 built but not
-  yet merged. C6 stays `[~]`.
+  deployed + production-verified (Phase 3 on 2026-06-17). C6 Phase 4 merged +
+  deployed 2026-07-02 (PR #85), prod-verification pending. C6 stays `[~]`.
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
   → proway.erstaging.site, `weekly:1@06:00`. Canary is noindex → broken-link
   findings only, no on-page findings, null score (all by design).
 - **⚠ PENDING HUMAN STEPS (Kevin):**
-  1. **Merge + deploy `feat/autonomous-live-seo-source`** — prod-verify: trigger
-     one site audit with `seoIntent:true` on an indexable client domain, confirm
-     the live-scan CrawlRun has `seoIntent=1` + non-null score and the canonical
-     selector picks it, smoke the **pat_ pillar memo / `/api/brief/live`**
-     (NOT srt_ — srt_/krt_ stay SF-only per D3). Full gated runbook:
-     `.claude/skills/er-seo-tools-sf-retirement-campaign` Phase 0.
+  1. **Prod-verify C6 Phase 4** (merge + deploy DONE 2026-07-02, PR #85):
+     pick the client for the seoIntent smoke (must be an indexable client
+     domain — the noindex canary proves plumbing only) and give the go for the
+     pillar smoke (`runForCanonical` writes a PillarAnalysis row on prod).
+     Runbook: `.claude/skills/er-seo-tools-sf-retirement-campaign` Gate 0.3.
   2. **C10 prod-verification (still pending from 2026-06-22):** grant SA on a
      client → map → generate → metric-parity eyeball vs `SEO_Report_1st_Draft.pdf`;
      resolve the scorecard-#12 open question (Key Events vs spec's duplicate
@@ -131,28 +135,25 @@ under .claude/skills/, commit 57ae636).
 
 **Two sequential actions:**
 
-**1. Merge + prod-verify `feat/autonomous-live-seo-source` (C6 Phase 4).**
-Branch is gate-green (tsc / vitest / build, 2026-06-30). **Executable, gated
-runbook with expected observations and failure branches:**
-`.claude/skills/er-seo-tools-sf-retirement-campaign` Phase 0 (Gates 0.1–0.4).
-Condensed:
+**1. Prod-verify C6 Phase 4 (merge + deploy DONE 2026-07-02).**
+Gates re-run pre-merge (tsc / 2,871 vitest / build, all green); merged as
+PR #85; deployed — prod @ `9c07502`, migration applied clean, PM2 online, no
+startup errors. **What remains is Gate 0.3 of
+`.claude/skills/er-seo-tools-sf-retirement-campaign`** (expected observations +
+failure branches live there). Condensed:
 
-1. Re-run the gates on the branch (`npm run lint` / `DATABASE_URL="file:./local-dev.db" npm test` / `npm run build`).
-2. Open a PR from `feat/autonomous-live-seo-source` → `main`; **Kevin merges**
-   (his explicit go — hard gate).
-3. **Kevin deploys:** `git push && ssh seo@144.126.213.242 "~/deploy.sh"` —
-   migration `20260630120000_live_seo_source` applies via `prisma migrate
-   deploy` (it includes a PillarAnalysis table rebuild — watch the deploy
-   output).
-4. Smoke-test (Gate 0.3): trigger one site audit with `seoIntent:true` on an
-   indexable client domain. Confirm the completed audit has a live-scan
-   `CrawlRun` with `seoIntent=1` and a non-null `score`, the results page shows
-   the "Live scan" source badge, and the **pat_ pillar memo / `/api/brief/live`**
-   populate from the live run (no SF upload). srt_/krt_ are NOT part of this
-   smoke — they stay SF-only (D3).
-5. Mark C6 Phase 4 merged/deployed/prod-verified in the tracker (+ status-log
-   line); archive the spec + plan to `archive/specs/` + `archive/plans/`;
-   update this handoff doc.
+1. Trigger one site audit with `seoIntent:true` on an **indexable client
+   domain** (Kevin picks the client; the noindex canary proves plumbing only).
+2. Confirm the completed audit has a live-scan `CrawlRun` with `seoIntent=1`
+   and a non-null `score`, and the results page shows the "Live scan" source
+   badge.
+3. Smoke the **pat_ pillar memo / `/api/brief/live`** from the live run (no SF
+   upload). srt_/krt_ are NOT part of this smoke — they stay SF-only (D3).
+   The pillar smoke (`runForCanonical`, no HTTP trigger) writes a
+   PillarAnalysis row — on prod that is a **Kevin-gated** `npx tsx -e`
+   invocation from `/home/seo/webapps/seo-tools`.
+4. Mark C6 Phase 4 prod-verified in the tracker (+ status-log line); update
+   this handoff doc. (Spec + plan already archived.)
 
 **2. C10 prod-verification (Kevin's manual pass — unchanged from 2026-06-22):**
 
@@ -411,3 +412,11 @@ Condensed:
   New tracker items: **A2-f1** (findings-rebuild pruned-ADA guard) and **D0**
   (minimal backup+alert pulled forward before SF-retirement Phase 2). Next:
   campaign skill Phase 0 (merge + prod-verify), then C10 verification.
+- 2026-07-02 (later) — **C6 Phase 4 MERGED + DEPLOYED (PR #85, prod @
+  `9c07502`).** Gates re-run pre-merge (tsc / 2,871 tests / build green);
+  migration `20260630120000_live_seo_source` applied clean (PillarAnalysis
+  rebuild included); PM2 online, ready in 820 ms, no startup errors. Confirmed
+  prod ran `6679993` (S1–S4 + OAuth) before this deploy. Spec/plan archived;
+  stray shipped 2026-06-04 seo-roadmap spec/plan also archived (`specs/` +
+  `plans/` now clean). **Next: prod-verification (campaign Gate 0.3), then C10
+  verification.**
