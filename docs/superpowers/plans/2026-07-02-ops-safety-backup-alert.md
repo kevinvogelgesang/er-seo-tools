@@ -87,11 +87,14 @@ describe('runDbBackup', () => {
     expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false)
     // The snapshot opens as a real DB.
     const c = new PrismaClient({ datasources: { db: { url: `file:${res.file}` } } })
-    const rows = await c.$queryRawUnsafe<Array<{ n: number }>>(
-      "SELECT count(*) as n FROM sqlite_master WHERE type='table'",
-    )
-    await c.$disconnect()
-    expect(Number(rows[0].n)).toBeGreaterThan(0)
+    try {
+      const rows = await c.$queryRawUnsafe<Array<{ n: number }>>(
+        "SELECT count(*) as n FROM sqlite_master WHERE type='table'",
+      )
+      expect(Number(rows[0].n)).toBeGreaterThan(0)
+    } finally {
+      await c.$disconnect()
+    }
   })
 
   it('prunes to the newest `retention` snapshots', async () => {
@@ -125,7 +128,10 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { prisma } from '@/lib/db'
 
-const DEFAULT_RETENTION = Number(process.env.BACKUP_RETENTION_COUNT) || 7
+// Read at call time (not module load) so env stubbing in tests takes effect.
+function defaultRetention(): number {
+  return Number(process.env.BACKUP_RETENTION_COUNT) || 7
+}
 
 export function backupDir(): string {
   return process.env.BACKUP_DIR || path.join(process.cwd(), 'data', 'backups')
@@ -168,7 +174,7 @@ export async function runDbBackup(
   opts: { now?: Date; retention?: number } = {},
 ): Promise<{ file: string; bytes: number; prunedCount: number }> {
   const now = opts.now ?? new Date()
-  const retention = opts.retention ?? DEFAULT_RETENTION
+  const retention = opts.retention ?? defaultRetention()
   const dir = backupDir()
   await fs.mkdir(dir, { recursive: true })
 
@@ -248,10 +254,11 @@ describe('db-backup handler', () => {
     registerDbBackupHandler()
     const cfg = getJobHandler(DB_BACKUP_JOB_TYPE)!
     runDbBackup.mockResolvedValueOnce({ file: '/x/db.sqlite', bytes: 10, prunedCount: 0 })
-    await expect(cfg.handler({}, { jobId: 'j', signal: new AbortController().signal } as never)).resolves.toBeUndefined()
+    const ctx = { jobId: 'j', attempt: 1, signal: new AbortController().signal }
+    await expect(cfg.handler({}, ctx)).resolves.toBeUndefined()
     expect(runDbBackup).toHaveBeenCalledOnce()
     runDbBackup.mockRejectedValueOnce(new Error('disk full'))
-    await expect(cfg.handler({}, { jobId: 'j', signal: new AbortController().signal } as never)).rejects.toThrow('disk full')
+    await expect(cfg.handler({}, ctx)).rejects.toThrow('disk full')
   })
 })
 ```
@@ -407,7 +414,8 @@ export async function readAlertState(): Promise<AlertState> {
 export async function writeAlertState(s: AlertState): Promise<void> {
   const dir = backupDir()
   await fs.mkdir(dir, { recursive: true })
-  const tmp = path.join(dir, `alert-state.json.${process.pid}.tmp`)
+  const rand = Math.floor(Math.random() * 1e9).toString(36)
+  const tmp = path.join(dir, `alert-state.json.${process.pid}.${rand}.tmp`)
   await fs.writeFile(tmp, JSON.stringify(s), 'utf8')
   await fs.rename(tmp, statePath())
 }
@@ -712,16 +720,19 @@ describe('collectHealthSignals', () => {
     await prisma.siteAudit.create({
       data: { domain: `${PFX}err`, wcagLevel: 'wcag21aa', status: 'error', requestedBy: 'manual' },
     })
-    // Stalled running audit: force updatedAt 90 min ago via raw SQL (bypasses @updatedAt).
+    // Stalled running audit. collectHealthSignals is GLOBAL (not prefix-scoped),
+    // and findFirst(orderBy updatedAt asc) returns the OLDEST transient audit in
+    // the shared local-dev.db — so force this row's updatedAt to epoch ms 1 to
+    // guarantee it is the global oldest, making the id assertion non-flaky
+    // (Codex fix #3). Raw integer-ms is how updatedAt is stored.
     const stalled = await prisma.siteAudit.create({
       data: { domain: `${PFX}stall`, wcagLevel: 'wcag21aa', status: 'running', requestedBy: 'manual' },
     })
-    await prisma.$executeRawUnsafe(
-      `UPDATE SiteAudit SET updatedAt = ${now.getTime() - 90 * 60_000} WHERE id = '${stalled.id}'`,
-    )
+    await prisma.$executeRawUnsafe(`UPDATE SiteAudit SET updatedAt = 1 WHERE id = '${stalled.id}'`)
     const sig = await collectHealthSignals(now, since)
     expect(sig.newErroredSiteAudits).toBeGreaterThanOrEqual(1)
     expect(sig.stalledAudit?.id).toBe(stalled.id)
+    expect(sig.stalledAudit!.minutesStuck).toBeGreaterThan(60)
     expect(sig.newestBackupAgeHours).toBeNull() // empty BACKUP_DIR
   })
 })
@@ -940,15 +951,24 @@ import { HEALTH_ALERT_JOB_TYPE } from './handlers/health-alert'
   { name: 'system-health-alert', jobType: HEALTH_ALERT_JOB_TYPE, cadence: 'every:15m', immediate: true },
 ```
 
+- [ ] **Step 3b: Extend `lib/jobs/system-schedules.test.ts`** (Codex nice-to-have — the existing test loop already validates jobType/cadence/enabled for all entries generically; add explicit immediate-behavior coverage for the two new rows). In the seed test's first `it`, alongside the existing `sweep`/`staleReset`/`cleanup` `nextRunAt` assertions, add:
+
+```typescript
+    const backup = rows.find((r) => r.name === 'system-db-backup')!
+    const alert = rows.find((r) => r.name === 'system-health-alert')!
+    expect(backup.nextRunAt.getTime()).toBeGreaterThan(now.getTime()) // non-immediate
+    expect(alert.nextRunAt.getTime()).toBeLessThanOrEqual(now.getTime()) // immediate
+```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/health-alert.test.ts`
-Expected: PASS (4 tests).
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/health-alert.test.ts lib/jobs/system-schedules.test.ts`
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/jobs/handlers/health-alert.ts lib/jobs/handlers/health-alert.test.ts lib/jobs/handlers/register.ts lib/jobs/system-schedules.ts
+git add lib/jobs/handlers/health-alert.ts lib/jobs/handlers/health-alert.test.ts lib/jobs/handlers/register.ts lib/jobs/system-schedules.ts lib/jobs/system-schedules.test.ts
 git commit -m "feat(ops): D0 health-alert job type + 15m system schedule"
 ```
 
@@ -969,20 +989,22 @@ git commit -m "feat(ops): D0 health-alert job type + 15m system schedule"
 // scripts/db-backup.ts
 // Manual on-demand DB backup / restore-prep tool.
 // Run from the app dir: npx tsx scripts/db-backup.ts
-import { runDbBackup, backupDir } from '@/lib/ops/backup'
+import { prisma } from '../lib/db'
+import { runDbBackup, backupDir } from '../lib/ops/backup'
 
 async function main() {
   const res = await runDbBackup()
   console.log(`Backup written to ${res.file} (${res.bytes} bytes) in ${backupDir()}; pruned ${res.prunedCount}.`)
-  process.exit(0)
 }
-main().catch((err) => {
-  console.error('Backup failed:', err)
-  process.exit(1)
-})
+main()
+  .catch((err) => {
+    console.error('Backup failed:', err)
+    process.exitCode = 1
+  })
+  .finally(() => prisma.$disconnect())
 ```
 
-**Note:** confirm the `@/` alias resolves under `npx tsx` the way other `scripts/*.ts` do (e.g. `scripts/findings-rebuild.ts`). If those use relative imports instead, match that style.
+**Note (Codex fix #1):** relative imports (`../lib/...`) + `prisma.$disconnect()` in `finally` matches the actual existing script pattern (`scripts/findings-rebuild.ts:10,69`). `initPragmas()` is intentionally NOT called — `findings-rebuild.ts` omits it and `VACUUM INTO` produces a correct snapshot regardless of the connection's journal-mode pragma (the persistent DB file is already WAL).
 
 - [ ] **Step 2: Wire prod env in `ecosystem.config.js`**
 
@@ -1046,3 +1068,12 @@ EOF
 - **Spec coverage:** §4 backup → Tasks 1,2,8. §5 alert (webhook/state/evaluator/collector/handler) → Tasks 3,4,5,6,7. §6 env → Tasks 6,7,8. §7 testing → per-task tests. §8 prod-verify → Task 8 note + Task 9 stop. All Codex fixes (§10): #1 temp+rename (T1), #2 no checkpoint (T1), #3 AdaAudit completedAt (T6), #4 delivery-aware state (T7), #5 atomic state (T3), #6 deliberate stall set (T6). Covered.
 - **Placeholder scan:** none — every code step is complete.
 - **Type consistency:** `AlertState`, `HealthSignals`, `EvalOpts`, `sendAlert`→`{sent,skipped}`, `runDbBackup`→`{file,bytes,prunedCount}`, `collectHealthSignals(now, since)`, `evaluateHealth(signals, state, now, opts)`, `runHealthAlert(now?)` consistent across tasks.
+
+## Codex review (2026-07-02)
+
+Routed through `consulting-codex` (session `019f14d4`). Verdict: **ship-with-fixes** — all applied in place:
+1. **Script style (T8)** — relative imports + `$disconnect()` in `finally`, matching `findings-rebuild.ts` (verified: it omits `initPragmas`; `VACUUM INTO` doesn't need it).
+2. **Handler ctx (T2)** — `JobHandlerContext = { jobId, attempt, signal }` (verified `types.ts`); test passes a real ctx, no `as never`.
+3. **Collector test robustness (T6)** — seeded stalled row forced to `updatedAt = 1` so the global `findFirst(orderBy asc)` id assertion is non-flaky.
+- Nice-to-haves applied: snapshot client `finally`-disconnect (T1 test), retention read at call-time (T1), random temp suffix (T3), explicit new-schedule immediate-behavior assertions (T7).
+- Verified by Codex against real files: VACUUM INTO syntax; Prisma singleton + pragma timing; `vi.stubEnv`/`unstubAllEnvs` + `node` vitest mode; `globalThis.fetch`/`new Response()` on Node 22; partial `vi.mock` pattern; `prisma.job`/`siteAudit`/`adaAudit` delegates; `wcagLevel`+`runnerType` schema defaults (so the collector test's `create` data is sufficient).
