@@ -16,6 +16,8 @@ import { prisma } from '@/lib/db'
 import { CLEANUP_JOB_TYPE } from './handlers/cleanup'
 import { SCREENSHOT_SWEEP_JOB_TYPE } from './handlers/screenshot-sweep'
 import { STALE_AUDIT_RESET_JOB_TYPE } from './handlers/stale-audit-reset'
+import { DB_BACKUP_JOB_TYPE } from './handlers/db-backup'
+import { HEALTH_ALERT_JOB_TYPE } from './handlers/health-alert'
 import { nextRun } from './scheduler'
 
 interface SystemScheduleDef {
@@ -34,6 +36,11 @@ export const SYSTEM_SCHEDULES: SystemScheduleDef[] = [
   { name: 'system-cleanup', jobType: CLEANUP_JOB_TYPE, cadence: 'daily@09:00', immediate: false },
   { name: 'system-screenshot-sweep', jobType: SCREENSHOT_SWEEP_JOB_TYPE, cadence: 'every:30m', immediate: true },
   { name: 'system-stale-audit-reset', jobType: STALE_AUDIT_RESET_JOB_TYPE, cadence: 'every:10m', immediate: true },
+  // D0 ops safety. Backup at 08:00 UTC — a fresh snapshot before system-cleanup
+  // (09:00) runs its retention deletes. Not immediate: the first daily slot is
+  // soon enough, and a post-deploy manual backup covers the initial window.
+  { name: 'system-db-backup', jobType: DB_BACKUP_JOB_TYPE, cadence: 'daily@08:00', immediate: false },
+  { name: 'system-health-alert', jobType: HEALTH_ALERT_JOB_TYPE, cadence: 'every:15m', immediate: true },
 ]
 
 export async function seedSystemSchedules(now: Date = new Date()): Promise<void> {
