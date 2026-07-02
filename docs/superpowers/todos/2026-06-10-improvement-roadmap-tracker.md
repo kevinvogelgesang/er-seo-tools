@@ -220,7 +220,8 @@ Interleave as needed (not blockers):
 
 ## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
 
-- [ ] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** a prod DB backup cron (verify whether one exists server-side first — none is recorded in the repo) + one failure alert (e.g. a daily job that emails/notifies when audits error or the queue stalls). Rationale: the agency-in-a-box goal requires the system to notice its own failures; currently there is no monitoring and the backup story is unverified. Scope deliberately minimal — full observability stays A4/D-track.
+- [~] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** a prod DB backup cron (verify whether one exists server-side first — none is recorded in the repo) + one failure alert (e.g. a daily job that emails/notifies when audits error or the queue stalls). Rationale: the agency-in-a-box goal requires the system to notice its own failures; currently there is no monitoring and the backup story is unverified. Scope deliberately minimal — full observability stays A4/D-track. **BUILT 2026-07-02 (PR #86, branch `feat/ops-safety-backup-alert`)** as two in-app durable jobs (no server cron, no schema migration): `db-backup` (daily@08:00, VACUUM INTO + atomic rename + prune-to-N) and `health-alert` (every:15m; errored audits / exhausted jobs / stalled queue / stale backup → optional `ALERT_WEBHOOK_URL`; atomic JSON-file dedup; delivery-aware state). Spec+plan both Codex-reviewed (accept/ship-with-fixes, applied); gates green (tsc / 2891 tests / build). **Awaiting Kevin merge → deploy → prod-verify** (spec §8). Deploy needs `pm2 delete && pm2 start` (ecosystem.config.js `BACKUP_DIR` added) + optional `ALERT_WEBHOOK_URL` in server .env + one manual `npx tsx scripts/db-backup.ts` post-deploy. *Server-side backup existence never verified (still open — the in-app job is additive regardless).*
+  *Status log:* 2026-07-02 — spec `docs/superpowers/specs/2026-07-02-ops-safety-backup-alert-design.md` + plan `docs/superpowers/plans/2026-07-02-ops-safety-backup-alert.md` written, both Codex-reviewed + fixes applied; 8 code tasks TDD-built (`lib/ops/{backup,alert-state,alert-webhook,health-check}.ts` + two `lib/jobs/handlers/` jobs + register + SYSTEM_SCHEDULES + `scripts/db-backup.ts`); gate-green; PR #86 opened. Next: Kevin merges + deploys + prod-verifies.
 - [ ] D1. Handoff engine consolidation: token factory, `HANDOFF_TYPES` registry,
   one `<MemoHandoffCard>`; retire legacy `pillar-analysis-narrative` skill (1 wk)
 - [ ] D2. Memo arrival via SSE notification (0.5 wk) — needs A5.
@@ -237,6 +238,24 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-02 (latest, D0) — **D0 BUILT + PR #86 opened (`feat/ops-safety-backup-alert`).**
+  Roadmap choice = D0 (Kevin: "Go for D0"). Full change-control pipeline run in one
+  session: spec → Codex (accept-with-fixes: atomic temp+rename backup, `AdaAudit`
+  has no `updatedAt`→`completedAt`, delivery-aware alert state, atomic JSON writes,
+  deliberate stall status-set) → plan → Codex (ship-with-fixes: relative-import
+  script style, real `JobHandlerContext`, non-flaky global-query test) → 8 TDD code
+  tasks → gates green (tsc / 2891 tests / build). Two in-app durable jobs, **no
+  schema migration, no server cron:** `db-backup` (daily@08:00, VACUUM INTO tmp +
+  atomic rename + prune-to-7) and `health-alert` (every:15m; errored audits /
+  exhausted jobs / stalled queue / stale backup → optional Slack-compatible
+  `ALERT_WEBHOOK_URL`; JSON-file dedup with a commit-rule that never loses an alert
+  on delivery failure; dark-by-default when the URL is unset so nothing bricks boot).
+  New files: `lib/ops/{backup,alert-state,alert-webhook,health-check}.ts` (+ tests),
+  `lib/jobs/handlers/{db-backup,health-alert}.ts` (+ tests), `scripts/db-backup.ts`;
+  wired into `register.ts` + `SYSTEM_SCHEDULES`; `BACKUP_DIR` added to
+  `ecosystem.config.js`. **Awaiting Kevin merge → deploy → prod-verify** (spec §8;
+  deploy = `pm2 delete && pm2 start`, optional `ALERT_WEBHOOK_URL` in server .env,
+  one post-deploy manual backup). Server-side pre-existing-backup check still not run.
 - 2026-07-02 (latest, C10) — **C10 (SEO Performance Reports) PROD-VERIFIED — Kevin's
   manual pass. C10 COMPLETE.** Kevin confirmed: prod SA key present
   (`/home/seo/data/seo-tools/google-sa.json`, mode 0600, SA email
