@@ -5,6 +5,8 @@
 // shared by client-findings (dashboard) and client-fleet. Everything reads
 // normalized A2 tables upstream; nothing here touches blobs.
 
+import { pickCanonicalSeo, type SeoRunRef } from './seo-canonical'
+
 export type Severity = 'critical' | 'warning' | 'notice'
 export const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warning: 1, notice: 2 }
 export const URLS_PER_FINDING = 25
@@ -17,6 +19,7 @@ export interface RunRef {
   id: string
   tool: string
   source: string
+  seoIntent: boolean
   domain: string | null
   completedAt: Date | null
   createdAt: Date
@@ -26,9 +29,10 @@ export interface RunRef {
 }
 
 export interface SelectedRuns {
-  // current/previous are the canonical SEO HEALTH runs (sf-upload, scored).
-  // liveScan is the latest C6 broken-link run (source 'live-scan', score null) —
-  // surfaced additively; it must NEVER displace current for score/trend.
+  // current/previous are the canonical SEO HEALTH runs (sf-upload when fresh;
+  // seoIntent live-scan when SF is absent/stale — determined by pickCanonicalSeo).
+  // liveScan is the latest C6 broken-link / on-page additive panel run — it is
+  // ONLY populated when it is NOT the canonical run (no double-count).
   seo: { current: RunRef | null; previous: RunRef | null; liveScan: RunRef | null }
   ada: { current: RunRef | null; previous: RunRef | null; sourceClass: 'site' | 'page' | null }
 }
@@ -54,15 +58,31 @@ function domainMatchedPrevious(sorted: RunRef[], current: RunRef): RunRef | null
   return null
 }
 
-export function selectRuns(runs: RunRef[], keywordSessionIds: Set<string>): SelectedRuns {
+export function selectRuns(runs: RunRef[], keywordSessionIds: Set<string>, nowMs: number = Date.now()): SelectedRuns {
   const seoAll = runs.filter(
     (r) => r.tool === 'seo-parser' && !(r.sessionId && keywordSessionIds.has(r.sessionId)),
   )
-  // Score/health selection EXCLUDES live-scan (score null) — a newer live-scan
-  // run must not displace the sf-upload health run (C6 fix #5).
-  const seoScoreCandidates = sortRunsDesc(seoAll.filter((r) => r.source !== 'live-scan'))
+
+  // ── Canonical SEO run (Task 9) ───────────────────────────────────────────
+  // pickCanonicalSeo decides between sf-upload (preferred when fresh) and a
+  // seoIntent=true live-scan (used when SF is absent/stale). A non-seoIntent
+  // live-scan run (broken-link verifier) can NEVER be the canonical run.
+  const canonical = pickCanonicalSeo(seoAll as unknown as SeoRunRef[], nowMs)
+  const seoCurrent: RunRef | null = canonical ? (seoAll.find((r) => r.id === canonical.run.id) ?? null) : null
+
+  // Previous = most recent earlier SF-or-seoIntent run with the SAME domain as
+  // current (cross-domain type-diffs are garbage — per-domain invariant).
+  const scoreCandidates = sortRunsDesc(
+    seoAll.filter((r) => r.source === 'sf-upload' || (r.source === 'live-scan' && r.seoIntent)),
+  )
+  const seoPrevious = seoCurrent ? domainMatchedPrevious(scoreCandidates, seoCurrent) : null
+
+  // liveScan = the latest live-scan run that is NOT the canonical run.
+  // When a seoIntent live-scan IS the canonical, it goes into current — only a
+  // non-canonical live-scan (broken-link/on-page additive panel) goes here.
   const liveScanCandidates = sortRunsDesc(seoAll.filter((r) => r.source === 'live-scan'))
-  const seoCurrent = seoScoreCandidates[0] ?? null
+  const latestLiveScan = liveScanCandidates[0] ?? null
+  const liveScan = latestLiveScan && latestLiveScan.id !== seoCurrent?.id ? latestLiveScan : null
 
   const adaRuns = runs.filter((r) => r.tool === 'ada-audit')
   const siteRuns = sortRunsDesc(adaRuns.filter((r) => r.source === 'site-audit'))
@@ -74,8 +94,8 @@ export function selectRuns(runs: RunRef[], keywordSessionIds: Set<string>): Sele
   return {
     seo: {
       current: seoCurrent,
-      previous: seoCurrent ? domainMatchedPrevious(seoScoreCandidates, seoCurrent) : null,
-      liveScan: liveScanCandidates[0] ?? null,
+      previous: seoPrevious,
+      liveScan,
     },
     ada: {
       current: adaCurrent,

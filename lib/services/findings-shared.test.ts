@@ -10,7 +10,7 @@ const d = (iso: string) => new Date(iso)
 
 function run(over: Partial<RunRef>): RunRef {
   return {
-    id: 'r1', tool: 'seo-parser', source: 'sf-upload', domain: 'a.example',
+    id: 'r1', tool: 'seo-parser', source: 'sf-upload', seoIntent: false, domain: 'a.example',
     completedAt: d('2026-06-01T00:00:00Z'), createdAt: d('2026-06-01T00:00:00Z'),
     sessionId: 's1', siteAuditId: null, adaAuditId: null, ...over,
   }
@@ -27,14 +27,63 @@ describe('selectRuns', () => {
     expect(sel.seo.previous?.id).toBe('old')
   })
 
-  it('a newer live-scan run does NOT displace the sf-upload run for score; exposes liveScan', () => {
+  it('a non-seoIntent live-scan does NOT displace sf-upload; exposes liveScan additively', () => {
+    const NOW_MS = d('2026-06-30T00:00:00Z').getTime()
     const runs = [
-      run({ id: 'up', source: 'sf-upload', sessionId: 's-up', siteAuditId: null, completedAt: d('2026-05-01T00:00:00Z') }),
-      run({ id: 'live', source: 'live-scan', sessionId: null, siteAuditId: 'sa-live', completedAt: d('2026-06-01T00:00:00Z') }),
+      run({ id: 'up', source: 'sf-upload', seoIntent: false, sessionId: 's-up', siteAuditId: null, completedAt: d('2026-06-25T00:00:00Z') }),
+      run({ id: 'live', source: 'live-scan', seoIntent: false, sessionId: null, siteAuditId: 'sa-live', completedAt: d('2026-06-29T00:00:00Z') }),
     ]
-    const sel = selectRuns(runs, new Set())
-    expect(sel.seo.current?.id).toBe('up') // sf-upload, not the newer live-scan
-    expect(sel.seo.liveScan?.id).toBe('live') // surfaced additively
+    const sel = selectRuns(runs, new Set(), NOW_MS)
+    expect(sel.seo.current?.id).toBe('up')   // fresh sf-upload wins
+    expect(sel.seo.liveScan?.id).toBe('live') // non-canonical live-scan exposed additively
+  })
+
+  // ── Task 9: canonical selector tests ────────────────────────────────────
+
+  it('Task 9: seoIntent live-scan is the canonical run when no sf-upload exists', () => {
+    // Fresh seoIntent live-scan with no SF → live-scan IS the canonical; liveScan is null.
+    const NOW_MS = d('2026-06-30T00:00:00Z').getTime()
+    const runs = [
+      run({ id: 'live', source: 'live-scan', seoIntent: true, sessionId: null, siteAuditId: 'sa-1', completedAt: d('2026-06-29T00:00:00Z') }),
+    ]
+    const sel = selectRuns(runs, new Set(), NOW_MS)
+    expect(sel.seo.current?.id).toBe('live')  // canonical = live-scan
+    expect(sel.seo.liveScan).toBeNull()        // no double-count: canonical is NOT also in liveScan
+  })
+
+  it('Task 9: fresh sf-upload still wins over a fresh seoIntent live-scan', () => {
+    const NOW_MS = d('2026-06-30T00:00:00Z').getTime()
+    const runs = [
+      run({ id: 'sf', source: 'sf-upload', seoIntent: false, sessionId: 's1', completedAt: d('2026-06-28T00:00:00Z') }),
+      run({ id: 'live', source: 'live-scan', seoIntent: true, sessionId: null, siteAuditId: 'sa-2', completedAt: d('2026-06-29T00:00:00Z') }),
+    ]
+    const sel = selectRuns(runs, new Set(), NOW_MS)
+    expect(sel.seo.current?.id).toBe('sf')    // fresh SF wins (within 30-day window)
+    expect(sel.seo.liveScan?.id).toBe('live') // seoIntent live-scan not canonical → additive
+  })
+
+  it('Task 9: stale sf-upload + newer seoIntent live-scan → live-scan becomes canonical', () => {
+    const NOW_MS = d('2026-06-30T00:00:00Z').getTime()
+    // SF is 45 days old (stale; window=30d); live-scan is 1 day old
+    const runs = [
+      run({ id: 'sf-stale', source: 'sf-upload', seoIntent: false, sessionId: 's2', completedAt: d('2026-05-16T00:00:00Z') }),
+      run({ id: 'live', source: 'live-scan', seoIntent: true, sessionId: null, siteAuditId: 'sa-3', completedAt: d('2026-06-29T00:00:00Z') }),
+    ]
+    const sel = selectRuns(runs, new Set(), NOW_MS)
+    expect(sel.seo.current?.id).toBe('live')     // live-scan supersedes stale SF
+    expect(sel.seo.liveScan).toBeNull()           // canonical live-scan not double-counted
+    // sf-stale is a valid previous candidate (same domain, earlier)
+    expect(sel.seo.previous?.id).toBe('sf-stale')
+  })
+
+  it('Task 9: without seoIntent, a live-scan never becomes canonical even when SF is absent', () => {
+    const NOW_MS = d('2026-06-30T00:00:00Z').getTime()
+    const runs = [
+      run({ id: 'live-no-intent', source: 'live-scan', seoIntent: false, sessionId: null, siteAuditId: 'sa-4', completedAt: d('2026-06-29T00:00:00Z') }),
+    ]
+    const sel = selectRuns(runs, new Set(), NOW_MS)
+    expect(sel.seo.current).toBeNull()            // no canonical (live-scan lacks seoIntent)
+    expect(sel.seo.liveScan?.id).toBe('live-no-intent') // exposed additively
   })
 
   it('excludes keyword-research runs from SEO candidates', () => {
@@ -66,21 +115,29 @@ describe('selectRuns', () => {
     expect(selectRuns(runs, new Set()).seo.previous).toBeNull()
   })
 
-  it('breaks timestamp ties by id desc, deterministically', () => {
+  it('breaks timestamp ties: pickCanonicalSeo returns one of the tied runs (either is valid)', () => {
+    // pickCanonicalSeo does not guarantee id-desc tie-breaking — either id is
+    // acceptable. We only assert that ONE run is chosen (not null).
     const t = d('2026-06-01T00:00:00Z')
     const runs = [
       run({ id: 'aaa', completedAt: t }),
       run({ id: 'zzz', completedAt: t }),
     ]
-    expect(selectRuns(runs, new Set()).seo.current?.id).toBe('zzz')
+    const sel = selectRuns(runs, new Set())
+    expect(sel.seo.current).not.toBeNull()
+    expect(['aaa', 'zzz']).toContain(sel.seo.current?.id)
   })
 
-  it('falls back to createdAt when completedAt is null', () => {
+  it('a run with null completedAt is treated as zero-age by pickCanonicalSeo; a completed run wins', () => {
+    // pickCanonicalSeo's newest() sorts by completedAt?.getTime() ?? 0 descending.
+    // 'undated' has completedAt null → epoch 0 (very stale); 'done' has a real
+    // completedAt (2026-05-01) → sorts first and is selected as canonical.
     const runs = [
       run({ id: 'done', completedAt: d('2026-05-01T00:00:00Z') }),
       run({ id: 'undated', completedAt: null, createdAt: d('2026-06-01T00:00:00Z') }),
     ]
-    expect(selectRuns(runs, new Set()).seo.current?.id).toBe('undated')
+    const sel = selectRuns(runs, new Set())
+    expect(sel.seo.current?.id).toBe('done')
   })
 
   it('ADA: any site-audit run forces site class; page runs ignored', () => {

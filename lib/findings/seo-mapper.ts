@@ -50,6 +50,8 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
         metaDescription: p.metaDescription,
         wordCount: p.wordCount,
         crawlDepth: p.crawlDepth,
+        inlinks: p.inlinks ?? null,
+        outlinks: p.outlinks ?? null,
         indexable: p.indexable,
         score: null,
         passCount: null,

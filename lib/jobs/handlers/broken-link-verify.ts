@@ -24,9 +24,42 @@ import { randomUUID } from 'crypto'
 import { checkUrl, HostThrottle, realDeps, type CheckResult } from '@/lib/ada-audit/broken-link-check'
 import { parsePositiveInt } from '../config'
 import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
+import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import type { JobExhaustedContext } from '../types'
+
+/**
+ * Pick the homepage URL from the audited URL set.
+ * Returns one of the ORIGINAL `urls` strings (so the byUrl lookup key matches).
+ * Strategy: prefer the normalized https://<domain>/ if it's in the audited set,
+ * else pick the shallowest-path URL, else null.
+ */
+function pickHomepage(urls: string[], domain: string | null): string | null {
+  if (!urls.length) return null
+  const normalizedHome = domain ? normalizeFindingUrl(`https://${domain}/`) : null
+  if (normalizedHome) {
+    for (const u of urls) {
+      if (normalizeFindingUrl(u) === normalizedHome) return u
+    }
+  }
+  // Fallback: pick the URL whose pathname has the fewest path segments (shallowest)
+  let best: string | null = null
+  let bestDepth = Infinity
+  for (const u of urls) {
+    try {
+      const parsed = new URL(u)
+      const segments = parsed.pathname.split('/').filter(Boolean).length
+      if (segments < bestDepth) {
+        bestDepth = segments
+        best = u
+      }
+    } catch {
+      // skip malformed
+    }
+  }
+  return best
+}
 
 export const BROKEN_LINK_VERIFY_JOB_TYPE = 'broken-link-verify'
 const MAX_CHECKS = () => parsePositiveInt(process.env.BROKEN_LINK_MAX_CHECKS, 2000)
@@ -61,7 +94,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   const job = assertPayload(payload)
   const site = await prisma.siteAudit.findUnique({
     where: { id: job.siteAuditId },
-    select: { id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true },
+    select: { id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true, seoIntent: true },
   })
   if (!site) return // deleted audit -> no-op
 
@@ -131,6 +164,23 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     },
   })
 
+  // Task 3: Compute link graph INDEPENDENTLY of the `toCheck` verification cap
+  // (which caps at 25 sources per target — wrong for page-level counts).
+  // Best-effort: a failure logs and falls back to null aggregates so it never
+  // blocks the live-scan run write.
+  const auditedUrls = [...new Set(seoRows.map((r) => r.url))]
+  const homepageUrl = pickHomepage(auditedUrls, site.domain ?? job.domain)
+  let graph: ReturnType<typeof computeLinkGraph> | null = null
+  try {
+    graph = computeLinkGraph(
+      rows.map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl, kind: r.kind })),
+      auditedUrls,
+      homepageUrl,
+    )
+  } catch (e) {
+    console.error('[live-seo] graph compute failed', e)
+  }
+
   // Builder owns the single runId + the shared normalized-URL -> CrawlPage map.
   const runId = randomUUID()
   const pages: CrawlPageInput[] = []
@@ -141,7 +191,8 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     if (!p) {
       p = { id: randomUUID(), runId, url: u, status: null, error: null, finalUrl: null,
         statusCode: null, title: null, h1: null, metaDescription: null, wordCount: null,
-        crawlDepth: null, indexable: null, score: null, passCount: null, incompleteCount: null, adaAuditId: null }
+        crawlDepth: null, inlinks: null, outlinks: null,
+        indexable: null, score: null, passCount: null, incompleteCount: null, adaAuditId: null }
       pages.push(p); pageByUrl.set(u, p)
     }
     if (scalars) for (const [k, v] of Object.entries(scalars)) if (v != null) (p as unknown as Record<string, unknown>)[k] = v
@@ -153,9 +204,15 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     r.statusCode != null && r.statusCode >= 200 && r.statusCode < 300 &&
     r.isHtml && !r.robotsNoindex && !r.xRobotsNoindex
   for (const r of seoRows) {
+    // Look up graph results with the RAW r.url string (byUrl is keyed by the
+    // original auditedUrls strings, which are the seoRow urls).
+    const g = graph?.byUrl.get(r.url)
     ensurePage(r.url, {
       statusCode: r.statusCode, title: r.title, h1: r.h1, metaDescription: r.metaDescription,
       wordCount: r.wordCount, indexable: indexableOf(r) && !r.loginLike,
+      inlinks: g?.inlinks ?? null,
+      outlinks: g?.outlinks ?? null,
+      crawlDepth: g?.crawlDepth ?? null,
     })
   }
 
@@ -190,6 +247,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
       status: capped || harvestTruncated ? 'partial' : 'complete', score, wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
+      seoIntent: site.seoIntent,
     },
     pages, findings, violations: [],
   }

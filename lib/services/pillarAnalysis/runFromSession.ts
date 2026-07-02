@@ -11,6 +11,9 @@ import {
   gscMapFromParser,
   semrushMapFromParser,
 } from '@/lib/services/pillarAnalysis/extractors';
+import type { RawUrlData } from '@/lib/services/pillarAnalysis/joinRecords';
+import { getCanonicalPageFacts } from '@/lib/services/canonical-page-facts';
+import { selectCanonicalSeoRun } from '@/lib/services/seo-canonical';
 
 export class PillarAnalysisRunError extends Error {
   constructor(
@@ -251,4 +254,124 @@ function parseRate(s: string | undefined): number {
   const n = Number(cleaned);
   if (Number.isNaN(n)) return 0;
   return cleaned.includes('%') || n > 1 ? n / 100 : n;
+}
+
+// =============================================================================
+// Live-scan (canonical) path
+// =============================================================================
+
+/**
+ * Run a pillar analysis from the canonical SEO run for a given client+domain
+ * (Task 11 / D3). Does NOT require an SF upload or Session. Persists a
+ * PillarAnalysis row keyed by `crawlRunId` (sessionId null). Idempotent.
+ */
+export async function runForCanonical({
+  clientId,
+  domain,
+}: {
+  clientId: number;
+  domain: string;
+}): Promise<{ id: string; status: 'complete' }> {
+  // 1. Load canonical page facts from the live-scan or SF run.
+  const facts = await getCanonicalPageFacts({ clientId, domain });
+  if (!facts || facts.pages.length === 0) {
+    throw new PillarAnalysisRunError(
+      'no_canonical_facts',
+      'No canonical page facts found for this client/domain',
+      422,
+    );
+  }
+
+  // 2. Map CanonicalPageFact[] → RawUrlData[] for the pure pipeline.
+  const internalRows: RawUrlData[] = facts.pages.map((p) => ({
+    url: p.url,
+    title: p.title ?? null,
+    h1: p.h1 ?? null,
+    metaDescription: p.metaDescription ?? null,
+    firstParagraph: null,         // not available from live-scan
+    wordCount: p.wordCount ?? null,
+    crawlDepth: p.crawlDepth ?? null,
+    inlinks: p.inlinks ?? null,
+    outlinks: p.outlinks ?? null,
+    indexable: p.indexable ?? true, // default true when unknown
+    schemaTypes: p.schemaTypes ?? [], // not available from live-scan
+  }));
+
+  // 3. Resolve the crawlRunId from the canonical run (may be null if facts
+  //    came from a session-only source path — getCanonicalPageFacts returns
+  //    CrawlPage rows which always have a runId).
+  const canonical = await selectCanonicalSeoRun({ clientId, domain });
+  const crawlRunId = canonical?.run.id ?? null;
+
+  // 4. Acquire or create a PillarAnalysis row keyed by crawlRunId.
+  const pa = await acquirePillarAnalysisRowForRun(crawlRunId, clientId, domain);
+  if (pa.alreadyComplete) {
+    return { id: pa.id, status: 'complete' };
+  }
+
+  try {
+    const result = await runPillarAnalysisFromInputs({
+      internalRows,
+      gsc: new Map(),
+      ga4: new Map(),
+      semrush: new Map(),
+    });
+
+    await prisma.pillarAnalysis.update({
+      where: { id: pa.id },
+      data: {
+        status: 'complete',
+        error: null,
+        score: result.score,
+        subscores: JSON.stringify(result.subscores),
+        subscorePresence: JSON.stringify(result.subscorePresence),
+        subscoreContext: JSON.stringify(result.subscoreContext),
+        dataCompleteness: result.dataCompleteness,
+        hubRecommendation: JSON.stringify(result.hubRecommendation),
+        pillarTopics: JSON.stringify(result.pillarTopics),
+        urlVerdicts: JSON.stringify(result.urlVerdicts),
+      },
+    });
+
+    return { id: pa.id, status: 'complete' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown';
+    await prisma.pillarAnalysis.update({
+      where: { id: pa.id },
+      data: { status: 'error', error: message.slice(0, 500) },
+    });
+    throw new PillarAnalysisRunError('analysis_failed', message, 500);
+  }
+}
+
+/**
+ * Get-or-create the single PillarAnalysis row for a live/canonical run,
+ * with status branching and a defensive P2002 race fallback.
+ */
+async function acquirePillarAnalysisRowForRun(
+  crawlRunId: string | null,
+  clientId: number,
+  domain: string,
+): Promise<{ id: string; alreadyComplete: boolean }> {
+  const existing = crawlRunId
+    ? await prisma.pillarAnalysis.findFirst({ where: { crawlRunId } })
+    : await prisma.pillarAnalysis.findFirst({ where: { clientId, domain, sessionId: null } });
+
+  if (existing) return reconcileExisting(existing);
+
+  try {
+    const created = await prisma.pillarAnalysis.create({
+      data: { crawlRunId, clientId, domain, sessionId: null, status: 'running' },
+    });
+    return { id: created.id, alreadyComplete: false };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      // Race: another caller inserted between findFirst and create.
+      const racedRow = crawlRunId
+        ? await prisma.pillarAnalysis.findFirst({ where: { crawlRunId } })
+        : await prisma.pillarAnalysis.findFirst({ where: { clientId, domain, sessionId: null } });
+      if (racedRow) return reconcileExisting(racedRow);
+    }
+    throw err;
+  }
 }

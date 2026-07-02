@@ -162,7 +162,9 @@ export class AggregatorService {
     const pageIndex: PageIndexEntry[] = rawPerUrl.map((p) => ({
       ref: builder.intern(p.url, 'page'),
       title: p.title, h1: p.h1, metaDescription: p.metaDescription,
-      wordCount: p.wordCount, crawlDepth: p.crawlDepth, indexable: p.indexable,
+      wordCount: p.wordCount, crawlDepth: p.crawlDepth,
+      inlinks: p.inlinks ?? null, outlinks: p.outlinks ?? null,
+      indexable: p.indexable,
       issueTypes: deriveIssueTypesForPage(p),
     }));
     for (const list of [result.issues.critical, result.issues.warnings, result.issues.notices]) {

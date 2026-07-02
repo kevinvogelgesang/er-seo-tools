@@ -10,6 +10,7 @@ import {
   buildAdaSeries, buildSeries, buildSeoSeries,
   type AdaSeriesSource, type ScoreSeries,
 } from './scorecard-shared'
+import { pickCanonicalSeo, type SeoRunRef } from './seo-canonical'
 
 export const TIMELINE_CAP = 50
 
@@ -99,8 +100,8 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     prisma.crawlRun.findMany({
       where: { clientId },
       select: {
-        tool: true, source: true, score: true, completedAt: true, createdAt: true,
-        sessionId: true, siteAuditId: true, adaAuditId: true,
+        id: true, tool: true, source: true, seoIntent: true, score: true,
+        completedAt: true, createdAt: true, sessionId: true, siteAuditId: true, adaAuditId: true,
       },
     }),
     prisma.schedule.findMany({
@@ -110,9 +111,31 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
   ])
 
   const keywordSessionIds = new Set(sessions.filter((s) => s.workflow === 'keyword-research').map((s) => s.id))
+  // Task 9: Use the canonical selector to include seoIntent live-scan runs when
+  // SF is absent/stale; exclude keyword-research sessions (their runs have scores
+  // but represent research, not health).
+  const seoParserRuns = crawlRuns.filter(
+    (r) => r.tool === 'seo-parser' && !(r.sessionId && keywordSessionIds.has(r.sessionId)),
+  )
+  const canonical = pickCanonicalSeo(seoParserRuns as unknown as SeoRunRef[], _now.getTime())
+  const seoSeriesRuns = canonical
+    ? seoParserRuns.filter((r) => {
+        // Include the canonical run + all sf-upload runs for the full sparkline.
+        // A seoIntent live-scan that IS the canonical gets included; non-canonical
+        // live-scans (broken-link/on-page) are excluded from the score series.
+        if (r.id === canonical.run.id) return true
+        return r.source === 'sf-upload'
+      })
+    : seoParserRuns.filter((r) => r.source === 'sf-upload')
   const seo = buildSeoSeries(
-    // C6: exclude live-scan (score null) from the SEO score series.
-    crawlRuns.filter((r) => r.tool === 'seo-parser' && r.source !== 'live-scan' && !(r.sessionId && keywordSessionIds.has(r.sessionId))),
+    seoSeriesRuns.map((r) => ({
+      score: r.score,
+      completedAt: r.completedAt,
+      createdAt: r.createdAt,
+      sessionId: r.sessionId,
+      crawlRunId: r.id,
+      source: r.source,
+    })),
   )
   const adaResult = buildAdaSeries(crawlRuns.filter((r) => r.tool === 'ada-audit'), standaloneAda)
 

@@ -37,7 +37,7 @@ export async function writeFindingsRun(bundle: FindingsBundle): Promise<void> {
 
   await prisma.$transaction([
     prisma.crawlRun.deleteMany({ where }), // cascade clears the old subtree
-    prisma.crawlRun.create({ data: run }),
+    prisma.crawlRun.create({ data: { ...run, seoIntent: run.seoIntent ?? false } }),
     ...chunk(pages, CHUNK).map((data) => prisma.crawlPage.createMany({ data })),
     ...chunk(findings, CHUNK).map((data) => prisma.finding.createMany({ data })),
     ...chunk(violations, CHUNK).map((data) => prisma.violation.createMany({ data })),

@@ -32,8 +32,19 @@ export async function getQuarterActivity(clientIds: number[], since: Date): Prom
       select: { clientId: true, memoUpdatedAt: true },
     }),
     prisma.pillarAnalysis.findMany({
-      where: { status: 'complete', session: { clientId: { in: clientIds } } },
-      select: { createdAt: true, narrativeUpdatedAt: true, session: { select: { clientId: true } } },
+      where: {
+        status: 'complete',
+        OR: [
+          { session: { clientId: { in: clientIds } } },
+          { clientId: { in: clientIds }, sessionId: null },
+        ],
+      },
+      select: {
+        clientId: true,
+        createdAt: true,
+        narrativeUpdatedAt: true,
+        session: { select: { clientId: true } },
+      },
     }),
   ])
 
@@ -46,7 +57,11 @@ export async function getQuarterActivity(clientIds: number[], since: Date): Prom
   }
   for (const r of roadmaps) record(r.session.clientId, 'seo-roadmap', r.roadmapUpdatedAt)
   for (const m of memos) record(m.clientId, 'keyword-memo', m.memoUpdatedAt)
-  for (const p of pillars) record(p.session.clientId, 'pillar-analysis', p.narrativeUpdatedAt ?? p.createdAt)
+  for (const p of pillars) {
+    // Direct clientId covers run-keyed (live-scan) analyses; session.clientId covers SF-upload.
+    const cid = p.session?.clientId ?? p.clientId ?? null
+    record(cid, 'pillar-analysis', p.narrativeUpdatedAt ?? p.createdAt)
+  }
 
   // Derive latest from kinds at the end — single source of truth.
   const map = new Map<number, ClientActivity>()

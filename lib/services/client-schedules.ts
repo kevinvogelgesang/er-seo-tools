@@ -16,6 +16,8 @@ export interface ClientScheduleRow {
   cadence: string
   enabled: boolean
   nextRunAt: string
+  /** D1: true when this schedule was created by the autonomous SEO pipeline. */
+  seoIntent: boolean
   lastRun: {
     id: string
     status: string
@@ -52,10 +54,12 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
   return Promise.all(schedules.map(async (s) => {
     let domain = ''
     let wcagLevel = 'wcag21aa'
+    let seoIntent = false
     try {
       const p = JSON.parse(s.payload) as Record<string, unknown>
       if (typeof p?.domain === 'string') domain = p.domain
       if (p?.wcagLevel === 'wcag22aa') wcagLevel = 'wcag22aa'
+      if (p?.seoIntent === true) seoIntent = true
     } catch { /* malformed payload — render the row anyway */ }
 
     const mine = audits.filter((a) => a.scheduleId === s.id)
@@ -82,6 +86,7 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
       cadence: s.cadence,
       enabled: s.enabled,
       nextRunAt: s.nextRunAt.toISOString(),
+      seoIntent,
       lastRun: last
         ? {
             id: last.id,

@@ -64,6 +64,7 @@ Spine items — everything else depends on these two:
 
 Interleave as needed (not blockers):
 
+- [ ] A2-f1 (follow-up, added 2026-07-02). **Guard `scripts/findings-rebuild.ts` against pruned ADA blobs** — the Session branch refuses a pruned blob (`findings-rebuild.ts:44-46`) but the SiteAudit/AdaAudit branches have no guard: on a 90-d-pruned ADA row, `parseAxe(null)` yields empty pages and the delete-and-recreate writer silently replaces the canonical findings tables with an empty run. ~5-line guard mirroring the Session check. Found by the 2026-07-02 skill-library factual review; warning documented in `.claude/skills/er-seo-tools-proof-and-analysis-toolkit` until fixed. (hours)
 - [ ] A3. API route kit (`withRoute()` wrapper) + tests for the 14 untested routes (1 wk)
 - [ ] A4. Observability floor: `/api/health`, pino logging, `/admin/ops` page (0.5–1 wk)
 - [ ] A5. Shared status hook → optional SSE notification layer (0.5 wk)
@@ -176,6 +177,35 @@ Interleave as needed (not blockers):
   `CrawlRun.score` (was null); surfaced on the results page; no migration, `selectRuns` unchanged.
   Remaining C6 phases (hybrid discovery, analytics integrations, validation, similarity) NOT yet
   built — see the SF-retirement roadmap §5 sequence.
+  **Phase 4 (autonomous live SEO source + native link graph) SHIPPED (branch
+  `feat/autonomous-live-seo-source`, 15-task subagent-driven build, 2026-06-30) —
+  pending merge + prod verification.**
+  Spec: `../specs/2026-06-30-autonomous-live-seo-source-design.md` ·
+  Plan: `../plans/2026-06-30-autonomous-live-seo-source.md`.
+  Adds `SiteAudit.seoIntent` + `CrawlRun.seoIntent` (migration
+  `20260630120000_live_seo_source`); `seoIntent:true` schedules are
+  **operator-created** via POST `/api/clients/[id]/schedules` with the seoIntent
+  flag and coexist with ADA schedules per plan decision D1 (uniqueness =
+  client+domain+seoIntent) — there is NO autonomous/self-healing schedule
+  creation (that stays a frontier item). The builder copies `site.seoIntent`
+  onto the live-scan run; `pickCanonicalSeo`/`selectCanonicalSeoRun`
+  (`lib/services/seo-canonical.ts`) make the newest `seoIntent=true` live run
+  canonical when the freshest sf-upload is stale (>30 d,
+  `SEO_SF_CANONICAL_WINDOW_DAYS`) or absent; `computeLinkGraph` /
+  `getCanonicalPageFacts` (`lib/services/canonical-page-facts.ts` — the provider;
+  `lib/seo/providers/` does not exist) give a relational in/outlink graph from
+  the `CrawlPage.inlinks`/`outlinks` scalars persisted by the harvest. Per plan
+  decision D3, only the **pat_ pillar memo + live brief** consume the live
+  source; **srt_/krt_ remain session-bound/SF-only in v1**. Task 13 (retention
+  carve-out) intentionally skipped — redundant with existing pruning paths.
+  SEO-only-mode breadcrumb left at both enqueue sites
+  (`app/api/site-audit/route.ts` + `lib/jobs/handlers/scheduled-site-audit.ts`)
+  pointing to spec §9 for the planned ADA-skip optimization.
+  *Status log:* 2026-06-30 — Phase 4 built (15 tasks); gate green (tsc / vitest /
+  build). Branch not yet merged / deployed — prod verification pending.
+  2026-07-02 — description above corrected against plan+code (the original
+  overstated Phase 4: no self-healing schedules, no `lib/seo/providers/`, no
+  live srt_/krt_ — doc error, owner-confirmed).
 - [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
 - [ ] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk)
 - [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)
@@ -183,6 +213,7 @@ Interleave as needed (not blockers):
 
 ## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
 
+- [ ] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** a prod DB backup cron (verify whether one exists server-side first — none is recorded in the repo) + one failure alert (e.g. a daily job that emails/notifies when audits error or the queue stalls). Rationale: the agency-in-a-box goal requires the system to notice its own failures; currently there is no monitoring and the backup story is unverified. Scope deliberately minimal — full observability stays A4/D-track.
 - [ ] D1. Handoff engine consolidation: token factory, `HANDOFF_TYPES` registry,
   one `<MemoHandoffCard>`; retire legacy `pillar-analysis-narrative` skill (1 wk)
 - [ ] D2. Memo arrival via SSE notification (0.5 wk) — needs A5.
@@ -198,6 +229,8 @@ Interleave as needed (not blockers):
 - [ ] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier.
 
 ## Status log
+
+- 2026-07-02 — **Skill library shipped (commit `57ae636` on `feat/autonomous-live-seo-source`) + plan-doc corrections.** 16 ground-truth-verified operator skills under `.claude/skills/` (change control, debugging, failure archaeology, architecture contract, domain reference, config catalog, build/env, run/operate, diagnostics scripts, validation, docs style, extension recipes, SF-retirement campaign + parity script, proof toolkit, research frontier, research methodology), authored by 16 parallel agents from a 9-agent repo discovery, then reviewed by 16 factual + doctrine + usability passes; all blocking/important findings fixed (notably: a prod SQL recipe using a nonexistent column, a script hard-failing on the main schema, the findings-rebuild pruned-ADA data-loss trap → new item A2-f1). **Tracker/handoff Phase-4 descriptions corrected** — the originals claimed self-healing autonomous schedules, a `lib/seo/providers/` layer, and live srt_/krt_ memos; none exist in plan or code (owner-confirmed doc error; plan decisions D1/D3 + code are truth). Added **A2-f1** (findings-rebuild ADA guard, hours) and **D0** (minimal backup+alert pulled forward before SF-retirement Phase 2, Kevin-approved). The SF-retirement campaign skill's Phase 0 (Gate 0.1–0.4) is now the executable runbook for the next action: merge + prod-verify this branch. Next: campaign Phase 0, then C10 prod-verification (Kevin manual).
 
 - 2026-06-22 — **C10 (SEO Performance Reports) SHIPPED — merged (PR #75) + deployed to prod; migration `20260622000000_seo_reports` applied.** Built subagent-driven, 25 tasks / 2 phases (Tasks 3 & 6 dropped with the service-account pivot): `lib/analytics/` provider layer (service-account auth + GA4 Data API via `google.analyticsdata('v1beta')` + Search Console + Prospects CRM-stub/manual-fallback), `lib/report/seo/` (pure view-model + inline-SVG charts + escaped HTML + derived file storage), durable `seo-report-render` job (group `seo-report:<id>`, all fetch/build before `acquirePage()`, `metricsJson` snapshot), `SeoReportBatch`→`SeoReport` orchestration with `@@unique([scheduleId,scheduledFor])`+`@@unique([batchId,clientId])` idempotency (individual P2002-guarded creates, no SQLite createMany), `pruneSeoReports()` retention + `recoverSeoReports()` stranded sweep, monthly non-system Schedule + idempotent wrapper, `/reports` library + `/settings` SA-status + schedule controls + client AnalyticsIdsPanel. Fresh implementer+reviewer subagent per task; final whole-branch review (opus) + Codex merge review both passed. Codex merge review caught one must-fix (full Gaxios error objects logged in the Google routes → sanitized to `(err as Error).message`, commit 3b3ab8d). **Prod deploy initially OOM'd** (`next build` type-check worker hit the server's ~2 GB Node heap cap; C10's ~40 new files were the tipping point) → fixed by baking `--max-old-space-size=3072` into the `build` script (PR #76); redeploy succeeded. Gate: tsc + **2703 tests (274 files)** + `npm run build` green. Deploy prereqs documented in `docs/google-service-account-setup.md` (SA key at `${DATA_HOME}/google-sa.json` mode 0600 + `GOOGLE_SA_KEY_FILE`; per-client GA4+GSC grant; key rotation). **PROD-VERIFICATION PENDING (Kevin):** grant the SA on a low-risk client → map (`/clients/[id]` Analytics IDs) → generate (`/reports`) → download → metric-parity eyeball vs `SEO_Report_1st_Draft.pdf`; resolve scorecard-#12 (Key Events vs the spec's duplicate Avg Position). Non-blocking follow-ups logged: GA4 comparison window fetches 4 metric groups it discards (quota trim); `rollupBatchStatus` duplicated between the render job and the service; `pruneSeoReports` should chunk `doomedIds` for SQLite param limits at scale.
 

@@ -41,7 +41,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-fresh.example',
       42,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false },
     )
   })
 
@@ -83,7 +83,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-norm.example',
       null,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false },
     )
   })
 
@@ -142,5 +142,28 @@ describe('queueSiteAuditRequest', () => {
     expect(opts.preDiscoveredUrls).toHaveLength(1)
     expect(opts.preDiscoveredUrls![0]).toBe('https://qr-test-noseed.example/explicit/')
     await prisma.client.delete({ where: { id: client.id } })
+  })
+
+  it('passes seoIntent:true through to enqueueAudit (D1)', async () => {
+    const r = await queueSiteAuditRequest({
+      domain: 'qr-test-seoint.example',
+      clientId: null,
+      wcagLevel: 'wcag21aa',
+      seoIntent: true,
+    })
+    expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
+    const [, , , opts] = vi.mocked(queueManager.enqueueAudit).mock.calls[0]
+    expect(opts.seoIntent).toBe(true)
+  })
+
+  it('defaults seoIntent to false when omitted (D1)', async () => {
+    const r = await queueSiteAuditRequest({
+      domain: 'qr-test-seoint-default.example',
+      clientId: null,
+      wcagLevel: 'wcag21aa',
+    })
+    expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
+    const [, , , opts] = vi.mocked(queueManager.enqueueAudit).mock.calls[0]
+    expect(opts.seoIntent).toBeFalsy()
   })
 })

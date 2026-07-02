@@ -33,12 +33,19 @@ export async function POST(request: NextRequest) {
 
   const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
 
+  const seoIntent = raw?.seoIntent === true
+
+  // FUTURE (efficiency): scheduled/on-demand SEO scans currently run the FULL ADA
+  // site-audit pipeline (axe + screenshots + PSI) and reuse its live-scan run as the
+  // SEO report. A dedicated SEO-only scan mode (skip axe/screenshots/PSI) is the planned
+  // optimization — see docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md §9.
   const result = await queueSiteAuditRequest({
     domain,
     clientId,
     wcagLevel,
     preDiscoveredUrls: rawPreDiscoveredUrls,
     requestedBy,
+    seoIntent,
   })
 
   if (result.kind === 'invalid') {

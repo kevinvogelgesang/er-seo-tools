@@ -127,6 +127,68 @@ async function makeLiveScanRun(clientId: number, opts: { completedAt: Date; brok
 }
 
 describe('getClientFindings', () => {
+  // ── Task 9: canonical SEO selector tests ─────────────────────────────────
+
+  it('Task 9: seoIntent live-scan becomes seo.current (canonical) when no sf-upload exists', async () => {
+    const c = await makeClient('t9-canon')
+    const sa = await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', clientId: c.id, completedAt: daysAgo(1) },
+    })
+    const liveRun = await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'live-scan', seoIntent: true, domain: DOMAIN,
+        clientId: c.id, siteAuditId: sa.id,
+        status: 'complete', score: 55, pagesTotal: 20, completedAt: daysAgo(1),
+      },
+    })
+    await prisma.finding.create({
+      data: {
+        runId: liveRun.id, scope: 'run', type: 'missing_title', severity: 'critical',
+        count: 4, affectedComplete: true, dedupKey: randomUUID(),
+      },
+    })
+    const out = await getClientFindings(c.id)
+    // Canonical live-scan → seo meta set; findings surfaced
+    expect(out.seo).not.toBeNull()
+    expect(out.rows.some((r) => r.type === 'missing_title')).toBe(true)
+    // seo.liveScan must be null (no double-count)
+    // The canonical run is seo.current; there is no separate additive liveScan
+    expect(out.seo?.href).toMatch(/^\/seo-parser\/results\/run\//)
+  })
+
+  it('Task 9: fresh sf-upload still keeps SEO canonical; seoIntent live-scan goes to liveScan additive', async () => {
+    const c = await makeClient('t9-sf-wins')
+    await makeSeoRun(c.id, {
+      completedAt: daysAgo(2),  // sf-upload within 30d → canonical
+      findings: { runScope: [{ type: 'missing_h1', severity: 'warning', count: 7, affectedComplete: true }] },
+    })
+    // seoIntent live-scan (newer, but SF is fresh → SF canonical; live-scan goes additive)
+    const sa = await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', clientId: c.id, completedAt: daysAgo(1) },
+    })
+    const liveRun = await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'live-scan', seoIntent: true, domain: DOMAIN,
+        clientId: c.id, siteAuditId: sa.id,
+        status: 'complete', score: 99, pagesTotal: 20, completedAt: daysAgo(1),
+      },
+    })
+    await prisma.finding.create({
+      data: {
+        runId: liveRun.id, scope: 'run', type: 'broken_internal_links', severity: 'critical',
+        count: 2, affectedComplete: true, dedupKey: randomUUID(),
+      },
+    })
+    const out = await getClientFindings(c.id)
+    // SF still canonical — sf-upload findings are in seo rows
+    expect(out.rows.some((r) => r.type === 'missing_h1')).toBe(true)
+    // Live-scan additive findings also surface
+    expect(out.rows.some((r) => r.type === 'broken_internal_links')).toBe(true)
+    // seo meta points at the sf-upload (session href, not run href)
+    expect(out.seo?.href).toMatch(/^\/seo-parser\/results\//)
+    expect(out.seo?.href).not.toMatch(/\/run\//)
+  })
+
   it('surfaces live-scan broken-link findings additively; sf-upload keeps the SEO score', async () => {
     const c = await makeClient('livescan')
     // sf-upload run (scored) is OLDER; live-scan run is NEWER.

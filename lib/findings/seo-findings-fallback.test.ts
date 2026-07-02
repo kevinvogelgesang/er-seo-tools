@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { writeFindingsRun } from './writer'
 import { runFindingKey, pageFindingKey } from './keys'
-import { loadArchivedSeoResult, buildSeoResultFromRun } from './seo-findings-fallback'
+import { loadArchivedSeoResult, buildSeoResultFromRun, loadRunSeoResult } from './seo-findings-fallback'
 import type { FindingsBundle } from './types'
 
 const DOMAIN = 'c5fb-fallback.example.com'
@@ -119,5 +119,87 @@ describe('buildSeoResultFromRun', () => {
     )
     expect(r.crawl_summary.indexable_urls).toBeUndefined()
     expect(r.crawl_summary.non_indexable_urls).toBeUndefined()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// loadRunSeoResult — Task 6 (live-scan / run-native results)
+// ────────────────────────────────────────────────────────────────────
+
+const LIVE_DOMAIN = 'c5fb-livescan.example.com'
+
+async function cleanupLiveScan() {
+  await prisma.crawlRun.deleteMany({ where: { domain: LIVE_DOMAIN } })
+}
+
+describe('loadRunSeoResult', () => {
+  beforeAll(async () => { await cleanupLiveScan() })
+  afterAll(async () => { await cleanupLiveScan() })
+
+  it('returns a non-null AggregatedResult with score from CrawlRun.score for a live-scan seo-parser run', async () => {
+    // Live-scan runs have no origin FK (sessionId/siteAuditId/adaAuditId all null),
+    // so we cannot use writeFindingsRun() — seed directly via Prisma.
+    const runId = 'c5fb-live-run-1'
+    const pageAId = 'c5fb-live-page-1'
+    const pageBId = 'c5fb-live-page-2'
+    const urlA = `https://${LIVE_DOMAIN}/a`
+    const urlB = `https://${LIVE_DOMAIN}/b`
+
+    await prisma.$transaction([
+      prisma.crawlRun.create({
+        data: {
+          id: runId, tool: 'seo-parser', source: 'live-scan', domain: LIVE_DOMAIN,
+          status: 'complete', score: 88, pagesTotal: 2,
+          startedAt: new Date(), completedAt: new Date(),
+        },
+      }),
+      prisma.crawlPage.createMany({
+        data: [
+          { id: pageAId, runId, url: urlA, wordCount: 100, crawlDepth: 1, indexable: true },
+          { id: pageBId, runId, url: urlB, wordCount: 300, crawlDepth: 3, indexable: false },
+        ],
+      }),
+      prisma.finding.createMany({
+        data: [
+          {
+            id: `${runId}-f1`, runId, pageId: null, scope: 'run', type: 'missing_title',
+            severity: 'critical', url: null, count: 2, affectedComplete: true,
+            affectedSource: 'derived-page-index', detail: JSON.stringify({ description: 'Pages missing titles' }),
+            dedupKey: runFindingKey('missing_title'),
+          },
+          {
+            id: `${runId}-f2`, runId, pageId: pageAId, scope: 'page', type: 'missing_title',
+            severity: 'critical', url: urlA, count: 1, affectedComplete: true,
+            affectedSource: 'derived-page-index', detail: null,
+            dedupKey: pageFindingKey('missing_title', urlA),
+          },
+        ],
+      }),
+    ])
+
+    const r = await loadRunSeoResult(runId)
+    expect(r).not.toBeNull()
+    expect(r!.archived).toBe(true)
+    expect(r!.metadata.health_score).toBe(88)
+    expect(r!.crawl_summary.total_urls).toBe(2)
+    expect(r!.issues.critical).toHaveLength(1)
+    expect(r!.issues.critical[0].type).toBe('missing_title')
+  })
+
+  it('returns null for a non-seo-parser run id', async () => {
+    const runId = 'c5fb-live-run-ada'
+    await prisma.crawlRun.create({
+      data: {
+        id: runId, tool: 'ada-audit', source: 'site-audit', domain: LIVE_DOMAIN,
+        status: 'complete', score: 75, pagesTotal: 0,
+      },
+    })
+    const r = await loadRunSeoResult(runId)
+    expect(r).toBeNull()
+  })
+
+  it('returns null for an unknown run id', async () => {
+    const r = await loadRunSeoResult('c5fb-does-not-exist')
+    expect(r).toBeNull()
   })
 })

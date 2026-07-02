@@ -207,6 +207,42 @@ describe('getClientFleet', () => {
     expect(emptyRow.openWarning).toBeNull()
   })
 
+  // ── Task 9: canonical SEO selector tests ─────────────────────────────────
+
+  it('Task 9: seoIntent live-scan is the canonical score in the fleet when no sf-upload exists', async () => {
+    const c = await makeClient('canon-live')
+    const sa = await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', clientId: c.id, completedAt: daysAgo(1) },
+    })
+    await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'live-scan', seoIntent: true, domain: DOMAIN,
+        clientId: c.id, siteAuditId: sa.id,
+        status: 'complete', score: 67, pagesTotal: 15, completedAt: daysAgo(1),
+      },
+    })
+    const row = (await getClientFleet(NOW)).find((r) => r.id === c.id)!
+    expect(row.seo.latest).toBe(67)
+  })
+
+  it('Task 9: fresh sf-upload wins over seoIntent live-scan in the fleet', async () => {
+    const c = await makeClient('canon-sf')
+    const s = await makeSession(c.id, { createdAt: daysAgo(2) })
+    await makeSeoRun(c.id, s.id, 92, daysAgo(2))  // sf-upload, 2 days old → fresh
+    const sa = await prisma.siteAudit.create({
+      data: { domain: DOMAIN, status: 'complete', clientId: c.id, completedAt: daysAgo(1) },
+    })
+    await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'live-scan', seoIntent: true, domain: DOMAIN,
+        clientId: c.id, siteAuditId: sa.id,
+        status: 'complete', score: 50, pagesTotal: 15, completedAt: daysAgo(1),
+      },
+    })
+    const row = (await getClientFleet(NOW)).find((r) => r.id === c.id)!
+    expect(row.seo.latest).toBe(92)   // SF wins; live-scan score (50) not surfaced in canonical
+  })
+
   it('regression alert: new critical type vs previous run fires; no previous → never fires', async () => {
     const reg = await makeClient('reg')
     const s1 = await makeSession(reg.id, { createdAt: daysAgo(10) })

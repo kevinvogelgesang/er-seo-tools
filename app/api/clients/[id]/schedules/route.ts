@@ -86,15 +86,19 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const wcagLevel = body.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
+  const seoIntent = body.seoIntent === true
 
-  // Best-effort uniqueness (spec §7): one schedule per (client, domain).
+  // Best-effort uniqueness (D1): one schedule per (client, domain, seoIntent).
+  // An ADA schedule (seoIntent falsy/absent) and an SEO schedule (seoIntent:true)
+  // can coexist for the same domain; a duplicate same-intent schedule is rejected.
   const existing = await prisma.schedule.findMany({
     where: { clientId, jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE },
     select: { payload: true },
   })
   const taken = existing.some((s) => {
     try {
-      return (JSON.parse(s.payload) as Record<string, unknown>)?.domain === domain
+      const p = JSON.parse(s.payload) as Record<string, unknown>
+      return p?.domain === domain && (p?.seoIntent === true) === seoIntent
     } catch {
       return false
     }
@@ -106,7 +110,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE,
       clientId,
       cadence,
-      payload: JSON.stringify({ clientId, domain, wcagLevel }),
+      payload: JSON.stringify({ clientId, domain, wcagLevel, seoIntent }),
       nextRunAt: nextRun(cadence, new Date()), // never immediate
     },
   })

@@ -72,12 +72,13 @@ export type VerdictSummary = Record<Verdict, number>;
 
 export interface NarrativePayload {
   id: string;
-  sessionId: string;
+  sessionId: string | null;
+  crawlRunId: string | null;
   /**
    * The site under analysis (e.g. "www.prowayhairschool.com"). Pulled from
-   * Session.siteName, which is extracted from the crawled URLs. The skill
-   * MUST use this in the memo and chat summary — NOT the webapp URL where
-   * the dashboard happens to be hosted.
+   * Session.siteName (SF path) or PillarAnalysis.domain (live-scan path).
+   * The skill MUST use this in the memo and chat summary — NOT the webapp
+   * URL where the dashboard happens to be hosted.
    */
   siteName: string | null;
   status: string;
@@ -103,7 +104,9 @@ export interface NarrativePayload {
 
 interface PillarAnalysisRow {
   id: string;
-  sessionId: string;
+  sessionId: string | null;
+  crawlRunId?: string | null;
+  domain?: string | null;
   status: string;
   error: string | null;
   score: number | null;
@@ -204,7 +207,8 @@ export function buildNarrativePayload(row: PillarAnalysisRow): NarrativePayload 
   return {
     id: row.id,
     sessionId: row.sessionId,
-    siteName: row.session?.siteName ?? null,
+    crawlRunId: row.crawlRunId ?? null,
+    siteName: row.session?.siteName ?? row.domain ?? null,
     status: row.status,
     error: row.error,
     score: row.score,

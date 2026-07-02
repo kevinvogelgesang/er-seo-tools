@@ -8,12 +8,15 @@ import { RelativeTime } from './RelativeTime';
 import { MemoPoller } from './MemoPoller';
 
 interface Props {
+  /** The PillarAnalysis id — always available; used as the poll key for live-scan analyses. */
+  analysisId: string;
   aiNarrative: string | null;
   narrativeUpdatedAt: Date | null;
-  sessionId: string;
+  /** Null for live-scan (run-keyed) analyses; non-null for SF-upload analyses. */
+  sessionId: string | null;
 }
 
-export function StrategicMemoCard({ aiNarrative, narrativeUpdatedAt, sessionId }: Props) {
+export function StrategicMemoCard({ analysisId, aiNarrative, narrativeUpdatedAt, sessionId }: Props) {
   const hasMemo = aiNarrative != null && aiNarrative.length > 0;
   const initialUpdatedAt = narrativeUpdatedAt ? narrativeUpdatedAt.toISOString() : null;
 
@@ -44,7 +47,9 @@ export function StrategicMemoCard({ aiNarrative, narrativeUpdatedAt, sessionId }
         </p>
       )}
 
+      {/* Always mount MemoPoller — it polls by analysisId when sessionId is null */}
       <MemoPoller
+        analysisId={analysisId}
         sessionId={sessionId}
         initialNarrativeUpdatedAt={initialUpdatedAt}
         autoStartOnMount={!hasMemo}

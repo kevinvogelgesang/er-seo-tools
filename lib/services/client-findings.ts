@@ -57,7 +57,11 @@ function parseDescription(detail: string | null): string | null {
 }
 
 function runHref(run: RunRef): string | null {
-  if (run.tool === 'seo-parser') return run.sessionId ? `/seo-parser/results/${run.sessionId}` : null
+  if (run.tool === 'seo-parser') {
+    // Live-scan canonical run: link to the run-results page.
+    if (run.source === 'live-scan') return `/seo-parser/results/run/${run.id}`
+    return run.sessionId ? `/seo-parser/results/${run.sessionId}` : null
+  }
   if (run.source === 'site-audit') return run.siteAuditId ? `/ada-audit/site/${run.siteAuditId}` : null
   return run.adaAuditId ? `/ada-audit/${run.adaAuditId}` : null
 }
@@ -112,7 +116,7 @@ export async function getClientFindings(clientId: number): Promise<ClientFinding
     prisma.crawlRun.findMany({
       where: { clientId },
       select: {
-        id: true, tool: true, source: true, domain: true, completedAt: true, createdAt: true,
+        id: true, tool: true, source: true, seoIntent: true, domain: true, completedAt: true, createdAt: true,
         sessionId: true, siteAuditId: true, adaAuditId: true,
       },
     }),
