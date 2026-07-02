@@ -179,9 +179,14 @@ Interleave as needed (not blockers):
   built — see the SF-retirement roadmap §5 sequence.
   **Phase 4 (autonomous live SEO source + native link graph) MERGED (PR #85) +
   DEPLOYED 2026-07-02 (prod @ 9c07502, migration `20260630120000_live_seo_source`
-  applied clean) — PROD-VERIFICATION PENDING** (campaign Gate 0.3: seoIntent
-  audit on an indexable client domain → live-scan CrawlRun with non-null score +
-  source badge + pat_/brief smoke).
+  applied clean) — PROD-VERIFIED 2026-07-02** (campaign Gate 0.3, client 12
+  manhattanschool.edu, audit `cmr434fsr00026st0i6upoeq1`): live-scan CrawlRun
+  `54680dd9` with `seoIntent=true`, `score=98`, both broken-link + on-page
+  findings; link graph populated (avg inlinks/outlinks 23.3, crawlDepth 1.38);
+  canonical selector correct in both branches (fresh 21-d SF wins at window 30;
+  live run supersedes at window 0); `getCanonicalPageFacts` + `/api/brief/live`
+  + session-independent `runForCanonical` (PillarAnalysis `cmr43gufj`,
+  `sessionId=null`, keyed by `crawlRunId`) all green.
   Spec: `../archive/specs/2026-06-30-autonomous-live-seo-source-design.md` ·
   Plan: `../archive/plans/2026-06-30-autonomous-live-seo-source.md`.
   Adds `SiteAudit.seoIntent` + `CrawlRun.seoIntent` (migration
@@ -231,6 +236,33 @@ Interleave as needed (not blockers):
 - [ ] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier.
 
 ## Status log
+
+- 2026-07-02 (latest) — **C6 Phase 4 PROD-VERIFIED (campaign Gate 0.3).** Drove the
+  full runbook against prod (Kevin piloted-by-proxy: explicit go to trigger + write).
+  Triggered a `seoIntent:true` site audit on client 12 (manhattanschool.edu, indexable —
+  the noindex canary would prove plumbing only) via `queueSiteAuditRequest` directly from
+  the app dir (`ALLOW_PASSWORD_LOGIN=false` on prod → no HTTP auth path from an SSH shell;
+  Google OAuth is primary). Audit `cmr434fsr00026st0i6upoeq1` crawled 66/67 pages (1 error,
+  normal), full ADA pipeline (axe + screenshots + PSI), then the post-terminal
+  `broken-link-verify` builder produced the live-scan `CrawlRun` `54680dd9`:
+  **`seoIntent=true`, `score=98`, status complete**. Findings on the run: broken_images 34,
+  broken_internal_links 31, duplicate_title 3, missing_h1 2, missing_meta_description 4,
+  thin_content 6 (unified broken-link + on-page run confirmed). Link graph populated —
+  66 pages, avg inlinks 23.26, avg outlinks 23.26, avg crawlDepth 1.38 (non-null).
+  Canonical selector proven in BOTH branches: a fresh SF upload exists (2026-06-11, 21 d,
+  score 78) so `selectCanonicalSeoRun`/`pickCanonicalSeo(window 30)` correctly return the
+  **sf-upload** (fresh SF wins unconditionally — a documented-correct branch, not a bug),
+  while `pickCanonicalSeo(window 0)` returns the **live-scan** run (seoIntent supersede path).
+  `getCanonicalPageFacts` (93 pages off the SF canonical) + `buildBriefFromCanonical`
+  (`/api/brief/live` path, 2759-char brief) + session-independent `runForCanonical`
+  (PillarAnalysis `cmr43gufj0001y200n9134fjp`, `sessionId=null`, keyed by `crawlRunId`,
+  status complete — the D3 deliverable) all green. UI badge/history-filter verified at the
+  DB level (run `source=live-scan` + `seoIntent=true` → "Live scan" label + appears in the
+  seoIntent-filtered history) — no browser check because prod is OAuth-only. srt_/krt_ NOT
+  smoked (SF-only per D3). Prod artifacts left in place: the audit + live-scan run are a
+  legitimate scan; the PillarAnalysis smoke row `cmr43gufj` can be deleted if unwanted.
+  C6 stays `[~]` (hybrid discovery / validation / similarity / analytics-remainder open).
+  Next: C10 prod-verification (Kevin manual pass).
 
 - 2026-07-02 (later) — **C6 Phase 4 MERGED + DEPLOYED (PR #85, prod @ `9c07502`).** Pre-merge gates re-run same day: tsc clean, vitest 290 files / 2,871 tests green (54.5 s), build green. Merge-committed per house style; deploy applied migration `20260630120000_live_seo_source` ("All migrations have been successfully applied" — PillarAnalysis table rebuild included), PM2 online, Next.js ready in 820 ms, no startup errors. Confirmed prod ran main @ `6679993` (S1–S4 + OAuth) before this deploy — the earlier "is main deployed?" uncertainty is resolved. Spec + plan archived; also archived the stray shipped 2026-06-04 seo-roadmap spec/plan (PR #49-era drift flagged by the docs-and-writing skill; `specs/`+`plans/` are now clean). **PROD-VERIFICATION PENDING — next session runs campaign Gate 0.3** (seoIntent audit on an indexable client domain; expect live-scan CrawlRun `seoIntent=1` + non-null score + "Live scan" badge + pat_/brief smoke; srt_/krt_ excluded per D3). Then C10 verification (Kevin manual). C6 stays `[~]`.
 
