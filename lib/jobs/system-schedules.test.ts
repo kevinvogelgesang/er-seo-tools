@@ -40,6 +40,11 @@ describe('seedSystemSchedules', () => {
     expect(sweep.nextRunAt.getTime()).toBeLessThanOrEqual(now.getTime())
     expect(staleReset.nextRunAt.getTime()).toBeLessThanOrEqual(now.getTime())
     expect(cleanup.nextRunAt.getTime()).toBeGreaterThan(now.getTime())
+    // D0: db-backup is non-immediate (next daily slot), health-alert is immediate.
+    const backup = rows.find((r) => r.name === 'system-db-backup')!
+    const alert = rows.find((r) => r.name === 'system-health-alert')!
+    expect(backup.nextRunAt.getTime()).toBeGreaterThan(now.getTime())
+    expect(alert.nextRunAt.getTime()).toBeLessThanOrEqual(now.getTime())
   })
 
   it('re-seed is idempotent: no duplicates, nextRunAt preserved when cadence unchanged', async () => {
