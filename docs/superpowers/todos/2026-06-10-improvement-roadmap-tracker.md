@@ -216,7 +216,7 @@ Interleave as needed (not blockers):
 - [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
 - [ ] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk)
 - [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)
-- [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **Prod-verification PENDING (Kevin): grant SA on a client → map → generate → metric-parity eyeball vs `SEO_Report_1st_Draft.pdf`; resolve the scorecard-#12 open question (Key Events vs the spec's duplicate Avg Position).**
+- [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test connection green, reports render correctly, SA granted + GA4/GSC mapped for every client Kevin currently has access to. Scorecard-#12 question RESOLVED — the code's "Key Events" (vs the spec's duplicate "Avg Position" Looker artifact) is accepted as-is (no change). **C10 COMPLETE** — delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6.
 
 ## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
 
@@ -236,6 +236,22 @@ Interleave as needed (not blockers):
 - [ ] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier.
 
 ## Status log
+
+- 2026-07-02 (latest, C10) — **C10 (SEO Performance Reports) PROD-VERIFIED — Kevin's
+  manual pass. C10 COMPLETE.** Kevin confirmed: prod SA key present
+  (`/home/seo/data/seo-tools/google-sa.json`, mode 0600, SA email
+  `er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`), `/settings` Test
+  connection working, reports render/look correct, and he has granted the SA +
+  mapped GA4/GSC for every client he currently has access to. Scorecard-#12 open
+  question resolved — the shipped "Key Events" tile (vs the spec's duplicate
+  "Avg Position", a Looker copy-paste artifact) is accepted; no code change. This
+  clears the GA4/GSC analytics-ingestion half of SF-retirement Phase 6; remaining
+  Phase-6 work = SEMrush/DataForSEO keyword-data ingestion + direct memo
+  consumption (the latter gated on the Anthropic API billing decision). Both
+  outstanding prod-verifications (C6 Phase 4 + C10) are now closed. Next: C-track
+  menu (C7/C8/C9 or further C6) and/or SF-retirement campaign Phase 1 (SF-vs-live
+  parity — now unblocked); D0 (backup+alert) and A2-f1 (findings-rebuild guard)
+  remain small pending hardening items.
 
 - 2026-07-02 (latest) — **C6 Phase 4 PROD-VERIFIED (campaign Gate 0.3).** Drove the
   full runbook against prod (Kevin piloted-by-proxy: explicit go to trigger + write).

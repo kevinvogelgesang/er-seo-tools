@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-02 (latest) · **Updated by:** C6 Phase 4 **PROD-VERIFIED** (campaign Gate 0.3, manhattanschool.edu) — the single next action is now **C10 prod-verification** (Kevin's manual pass)
+**Last updated:** 2026-07-02 (latest, C10) · **Updated by:** C10 **PROD-VERIFIED** (Kevin) — both outstanding prod-verifications (C6 Phase 4 + C10) are now closed. Next is a **roadmap choice**: recommended buildable = **D0 (minimal backup + alert)**; parallel measurement stream = **SF-retirement campaign Phase 1 (SF-vs-live parity)**
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -12,11 +12,14 @@ single next action.
 ```
 Continue the er-seo-tools improvement roadmap.
 
-State: C6 Phase 4 (autonomous live SEO source + native link graph) is MERGED
-(PR #85), DEPLOYED (prod @ 9c07502), and now PROD-VERIFIED (2026-07-02, campaign
-Gate 0.3 on client 12 manhattanschool.edu: live-scan CrawlRun seoIntent=true,
-score=98, link graph + findings + canonical both-branches + brief + pillar all
-green). Work from main. A 16-skill operator library lives in .claude/skills/.
+State: Both outstanding prod-verifications are CLOSED. C6 Phase 4 (autonomous
+live SEO source + native link graph) is PROD-VERIFIED (2026-07-02, campaign Gate
+0.3 on client 12 manhattanschool.edu: live-scan CrawlRun seoIntent=true, score=98,
+link graph + findings + canonical both-branches + brief + pillar all green). C10
+(SEO Performance Reports) is PROD-VERIFIED + COMPLETE (Kevin: /settings green,
+reports look good, SA granted + GA4/GSC mapped for all his accessible clients;
+scorecard-#12 resolved as "Key Events"). Work from main. A 16-skill operator
+library lives in .claude/skills/.
 
 1. Load the skill er-seo-tools-change-control first (hard gates: no merge/
    deploy/server mutation without Kevin's explicit go; docs rituals mandatory;
@@ -25,20 +28,27 @@ green). Work from main. A 16-skill operator library lives in .claude/skills/.
    next item) and docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md
    (full plan). Trust ranking when docs disagree: code > plan/spec >
    tracker/handoff.
-3. The immediate next action is C10 (SEO Performance Reports) PROD-VERIFICATION —
-   Kevin's manual pass (needs GA4/GSC service-account grants + a client mapping,
-   which are Kevin's to do). See this handoff's "Next item" section. Note client
-   12 (manhattanschool.edu) is ALREADY GA4/GSC-mapped (ga4=398445527,
-   gsc=sc-domain:manhattanschool.edu) — it is a ready C10 test client if the SA
-   is granted on its properties. Resolve the scorecard-#12 open question (Key
-   Events vs the spec's duplicate Avg Position).
-4. After C10 verification: resume the C-track menu (C7 parser consolidation, C8
-   score-explanation, C9 ADA scoring v2, or further C6 — SEO-only scan mode /
-   external-link check), and/or SF-retirement campaign Phase 1 (SF-vs-live
-   parity measurement — now unblocked; load er-seo-tools-sf-retirement-campaign).
-5. After any verification/advance: tracker checkbox + dated status-log line,
-   rewrite this handoff, and end your final reply with this doc's updated
-   paste-in prompt in a code block.
+3. There is no pending verification — the next move is a ROADMAP CHOICE. Confirm
+   direction with Kevin, then run the full change-control pipeline (spec → Codex
+   → plan → Codex → TDD → gates → PR → Kevin merges/deploys → prod-verify). The
+   menu, with the recommended buildable first:
+   - **D0 (recommended) — minimal ops safety before SF-retirement Phase 2:** a
+     prod DB backup cron (VERIFY whether one already exists server-side first —
+     none is recorded in the repo) + one failure alert (audits-errored / queue-
+     stalled). Kevin-approved, small, serves the agency-in-a-box goal. Feature-
+     class; needs a short spec.
+   - **A2-f1 — findings-rebuild pruned-ADA guard** (small hardening; data-loss
+     trap if a rebuild runs against a pruned ADA audit).
+   - **C7 parser consolidation / C8 score-explanation panel / C9 ADA scoring v2 /
+     further C6 (SEO-only scan mode, external-link check).**
+   - **SF-retirement campaign Phase 1 (SF-vs-live parity)** — now unblocked, but
+     it is a MEASUREMENT stream (analysts run SF + upload alongside seoIntent
+     live scans over 2–3 cycles), not a single build session. Load
+     er-seo-tools-sf-retirement-campaign; the parity script is
+     .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts.
+4. After any advance: tracker checkbox + dated status-log line, rewrite this
+   handoff, and end your final reply with this doc's updated paste-in prompt in a
+   code block.
 ```
 
 ## Current state
@@ -80,29 +90,30 @@ green). Work from main. A 16-skill operator library lives in .claude/skills/.
   (+ `sf-live-parity.ts`), proof recipes, research frontier, research
   methodology. New tracker items from its review: A2-f1 (findings-rebuild
   pruned-ADA guard), D0 (minimal backup+alert, pulled forward).
-- **SHIPPED: C10 — SEO Performance Reports (NET-NEW).** Merged (PR #75) + deployed
-  2026-06-22; migration applied. Auth = Google **service account**. Spec/plan
-  archived. **⚠ PROD-VERIFICATION STILL PENDING (Kevin)** — now the single next
-  action; see Next item. C10 is the analytics foundation for SF-retirement Phase 6.
+- **COMPLETE: C10 — SEO Performance Reports (NET-NEW).** Merged (PR #75) +
+  deployed 2026-06-22; migration applied. Auth = Google **service account**.
+  Spec/plan archived. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test
+  connection green, reports render correctly, SA granted + GA4/GSC mapped for
+  every client Kevin currently has access to; scorecard-#12 resolved as shipped
+  ("Key Events", no change). Delivers the GA4/GSC analytics half of SF-retirement
+  Phase 6 (SEMrush/DataForSEO + memo consumption remain — the latter gated on
+  Anthropic API billing).
 - **A1, A2, B1–B5, C1–C5 DONE. C6 Phases 1–4 DONE** (Phase 4 prod-verified
   2026-07-02). C6 stays `[~]` (later phases open).
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
   → proway.erstaging.site, `weekly:1@06:00`. Noindex → broken-link findings only,
   no on-page findings, null score (all by design).
-- **⚠ PENDING HUMAN STEPS (Kevin):**
-  1. **C10 prod-verification** (still pending from 2026-06-22): grant SA on a
-     client → map → generate → metric-parity eyeball vs `SEO_Report_1st_Draft.pdf`;
-     resolve scorecard-#12 (Key Events vs the spec's duplicate Avg Position). See
-     Next item. Client 12 (manhattanschool.edu) is already mapped and a ready
-     test target once the SA is granted on its GA4 property + GSC site.
-  2. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
+- **⚠ PENDING HUMAN STEPS (Kevin) — no verification pending; these are optional/open:**
+  1. **B4 quarter-plan decision still open:** prod has a near-empty QuarterPlan
      (2026-06-11 19:51 UTC) 409-blocking the one-time analyst-browser
      localStorage import. Keep it, or delete QuarterPlan rows server-side and
      re-open `/quarter-grid` holding `seo-quarter-v3`.
-  3. **First real qct_ push not yet exercised** (prod plan is all-pool). After
-     (2): assign a client to a week, set its Teamwork tasklist ID, push, paste.
-  4. **Optional cleanup:** delete PillarAnalysis `cmr43gufj0001y200n9134fjp` (the
+  2. **First real qct_ push not yet exercised** (prod plan is all-pool). After
+     (1): assign a client to a week, set its Teamwork tasklist ID, push, paste.
+  3. **Optional cleanup:** delete PillarAnalysis `cmr43gufj0001y200n9134fjp` (the
      Phase-4 pillar smoke artifact) if you don't want it in the client's history.
+  4. **C10 ongoing:** grant the SA + map GA4/GSC for any remaining clients as you
+     gain access (Kevin has done all currently-accessible clients).
 - **Blocked / gated:** Anthropic API billing (gates 03 Phase 3 + SF-retirement
   memo consumption); sitemap miss-rate measurement not yet run; daily/nightly
   cadences still gated (C6 supersede-trimming NOT built).
@@ -119,39 +130,43 @@ green). Work from main. A 16-skill operator library lives in .claude/skills/.
 
 ## Next item
 
-**C10 (SEO Performance Reports) prod-verification — Kevin's manual pass**
-(unchanged from 2026-06-22; this is now the single next action since Phase 4 is
-verified):
+**No verification pending — this is a roadmap CHOICE.** Confirm direction with
+Kevin, then run the full change-control pipeline for whatever is picked (spec →
+Codex → plan → Codex → TDD → gates → PR → Kevin merges/deploys → prod-verify).
+Menu, recommended buildable first:
 
-1. **Confirm the SA key on prod:** `GOOGLE_SA_KEY_FILE` set, key at
-   `/home/seo/data/seo-tools/google-sa.json` (mode 0600, PM2-user-owned). Open
-   `/settings` → "Test connection": should show the SA email
-   (`er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`) and GA4/GSC counts.
-2. **Grant + map one low-risk client first.** Client 12 (manhattanschool.edu) is
-   **already mapped** (ga4=398445527, gsc=sc-domain:manhattanschool.edu) — grant
-   the SA email Viewer on its GA4 property (Property Access Management) + GSC site
-   (Users & permissions) and it is ready. (Nuvani was the build's reference if
-   you'd rather start there.)
-3. **Generate one report** for last month at `/reports` → download the PDF.
-4. **Metric-parity eyeball** vs `SEO_Report_1st_Draft.pdf` (repo root). **Resolve
-   the open question:** scorecard #12 renders "Key Events" where spec §5's list has
-   a duplicate "Avg Position" (a Looker artifact) — confirm which to show. If
-   GA4/GSC metric names are off, fix is in the providers
-   (`lib/analytics/google/ga4-provider.ts` / `gsc-provider.ts`) +
-   `lib/report/seo/report-data.ts`.
-5. Only after parity holds: grant/map the rest + (optionally) set the monthly
-   schedule in `/settings`.
+1. **D0 (recommended buildable) — minimal ops safety before SF-retirement Phase 2.**
+   A prod DB backup cron + one failure alert (audits-errored / queue-stalled).
+   **First step is investigation, not code:** verify whether a server-side backup
+   already exists (none is recorded in the repo; check cron/RunCloud on prod with
+   Kevin) — the alert half is a scheduled job in the existing durable-queue
+   pattern (`lib/jobs/`, `system-schedules.ts`). Kevin-approved, small, directly
+   serves the agency-in-a-box "notice its own failures" goal. Feature-class →
+   short spec first.
+2. **A2-f1 — findings-rebuild pruned-ADA guard.** Small hardening:
+   `scripts/findings-rebuild.ts` against a pruned ADA audit is a data-loss trap;
+   add a guard. Bugfix/small-feature class.
+3. **C-track menu:** C7 (parser consolidation + streaming parse + per-file
+   failure isolation), C8 (configurable scoring weights + score-explanation
+   panel), C9 (ADA scoring v2 + poller/results-view consolidation), or further
+   C6 (SEO-only scan mode — spec §9 breadcrumb; external-link verification).
+4. **SF-retirement campaign Phase 1 (SF-vs-live parity)** — now unblocked by the
+   Phase-4 verification, but it is a MEASUREMENT stream, not a one-session build:
+   analysts run SF + upload at `/seo-parser` alongside a `seoIntent:true` live
+   scan on the same client+day, over 2–3 reporting cycles; the parity script
+   (`.claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts`)
+   reports score delta / page-set Jaccard / per-issue-type deltas. Gate to pass:
+   N ≥ 5 clients × 2–3 cycles, every deviation explained in a dated parity log
+   under `docs/superpowers/todos/`. This ALSO produces the sitemap miss-rate
+   evidence that gates SF-retirement Phase 2. Load
+   `er-seo-tools-sf-retirement-campaign`.
 
-- **C10 non-blocking follow-ups:** GA4 comparison window fetches 4 metric groups
-  it discards (quota trim — `ga4-provider.ts`); `rollupBatchStatus` duplicated
-  between the render job and `lib/services/seo-reports.ts` (consolidate);
-  `pruneSeoReports` should chunk `doomedIds` for SQLite param limits at scale;
-  stricter date/client validation on `POST /api/reports`.
-- **After C10 verification:** resume the C-track menu — C7 (parser
-  consolidation), C8 (score-explanation), C9 (ADA scoring v2), or further C6
-  (SEO-only scan mode / external-link check) — and/or start SF-retirement
-  campaign **Phase 1** (SF-vs-live parity measurement — now unblocked by Phase 0;
-  `.claude/skills/er-seo-tools-sf-retirement-campaign` + `scripts/sf-live-parity.ts`).
+- **C10 non-blocking follow-ups** (do alongside whatever's next, or defer): GA4
+  comparison window fetches 4 metric groups it discards (quota trim —
+  `ga4-provider.ts`); `rollupBatchStatus` duplicated between the render job and
+  `lib/services/seo-reports.ts` (consolidate); `pruneSeoReports` should chunk
+  `doomedIds` for SQLite param limits at scale; stricter date/client validation
+  on `POST /api/reports`.
 
 ## Gotchas / decisions already made (don't relitigate)
 
@@ -311,5 +326,13 @@ verified):
   23.26, crawlDepth 1.38). Canonical selector correct in both branches (fresh
   21-d SF wins at window 30; live supersedes at window 0). `getCanonicalPageFacts`
   + `/api/brief/live` + session-independent `runForCanonical` (PillarAnalysis
-  `cmr43gufj`, `sessionId=null`) all green. C6 stays `[~]`. **Next: C10
-  prod-verification (Kevin manual).**
+  `cmr43gufj`, `sessionId=null`) all green. C6 stays `[~]`.
+- 2026-07-02 (latest, C10) — **C10 (SEO Performance Reports) PROD-VERIFIED — Kevin's
+  manual pass. C10 COMPLETE.** Kevin confirmed `/settings` Test connection working,
+  reports render/look correct, and the SA is granted + GA4/GSC mapped for every
+  client he currently has access to. Scorecard-#12 resolved as shipped ("Key
+  Events", no change). Infra re-confirmed this session: SA key at
+  `/home/seo/data/seo-tools/google-sa.json` (0600), SA email
+  `er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`. Both outstanding
+  prod-verifications (C6 Phase 4 + C10) are now closed. **Next: roadmap choice —
+  recommended D0 (backup+alert); parallel measurement stream = campaign Phase 1.**
