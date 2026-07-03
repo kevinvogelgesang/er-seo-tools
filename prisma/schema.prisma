@@ -361,6 +361,7 @@ model CrawlRun {
   adaAudit        AdaAudit?  @relation(fields: [adaAuditId], references: [id], onDelete: SetNull)
   status          String     // 'complete' | 'partial'
   score           Int?       // healthScore (seo-parser) | site/page score (ada-audit)
+  scoreBreakdown  String?    // JSON { version, scorer, score, factors[] }; sf-upload + live-scan only
   wcagLevel       String?    // ada runs only
   pagesTotal      Int        @default(0)
   startedAt       DateTime?
@@ -522,6 +523,22 @@ model Schedule {
 
   @@index([enabled, nextRunAt])
   @@index([clientId])
+}
+
+// C8: configurable SEO scoring weights (singleton — all writes use
+// upsert({ where: { id: 1 } }); the app enforces the singleton, not a
+// raw CHECK constraint, to avoid schema drift risk).
+model ScoringWeights {
+  id           Int      @id @default(1)   // singleton — all writes use upsert({ where: { id: 1 } })
+  indexability Float    @default(20)
+  errorRate    Float    @default(20)
+  missingTitle Float    @default(10)
+  missingMeta  Float    @default(8)
+  missingH1    Float    @default(7)
+  crawlDepth   Float    @default(15)      // health-score only; live SEO ignores it
+  thinContent  Float    @default(10)
+  schema       Float    @default(10)
+  updatedAt    DateTime @updatedAt
 }
 
 model QuarterPlan {

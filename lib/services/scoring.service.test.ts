@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeHealthScore } from './scoring.service';
+import { DEFAULT_WEIGHTS, type ScoringWeights } from '../scoring/weights';
 import type { AggregatedResult } from '../types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -59,32 +60,67 @@ describe('computeHealthScore — zero total URLs', () => {
       },
       technical_seo: undefined,
     });
-    expect(computeHealthScore(result)).toBe(0);
+    expect(computeHealthScore(result, DEFAULT_WEIGHTS).score).toBe(0);
   });
 });
 
 // ── Perfect site ─────────────────────────────────────────────────────────────
 
+/**
+ * A result where every factor is maxed out, regardless of weight profile:
+ * - 100% indexable (≥95% → full pts)
+ * - 0 errors → full pts
+ * - 0 missing titles/meta/H1 → full pts
+ * - avg_crawl_depth ≤ 3 → full pts
+ * - 0 thin content → full pts
+ * - pages_with_schema / total_urls = 40/100 = 40% ≥ 30% → full pts
+ */
+function makePerfectResult(): AggregatedResult {
+  return makeResult({
+    issues: {
+      critical: [
+        { type: 'thin_content', severity: 'critical', count: 0, description: '' },
+      ],
+      warnings: [],
+      notices: [],
+    },
+  });
+}
+
 describe('computeHealthScore — perfect site', () => {
   it('returns 100 for a fully-optimised site', () => {
-    // All factors maxed:
-    // - 100% indexable (≥95% → 20 pts)
-    // - 0 errors → 20 pts
-    // - 0 missing titles → 10 pts, 0 missing meta → 8 pts, 0 missing H1 → 7 pts
-    // - avg_crawl_depth ≤ 3 → 15 pts
-    // - 0 thin content → 10 pts
-    // - pages_with_schema / total_urls = 40/100 = 40% ≥ 30% → 10 pts
-    const result = makeResult({
-      issues: {
-        critical: [
-          { type: 'thin_content', severity: 'critical', count: 0, description: '' },
-        ],
-        warnings: [],
-        notices: [],
-      },
-    });
-    const score = computeHealthScore(result);
+    const result = makePerfectResult();
+    const score = computeHealthScore(result, DEFAULT_WEIGHTS).score;
     expect(score).toBe(100);
+  });
+
+  it('returns 100 for a fully-optimised site under default AND doubled weights', () => {
+    const result = makePerfectResult();
+    expect(computeHealthScore(result, DEFAULT_WEIGHTS).score).toBe(100);
+
+    const doubled: ScoringWeights = Object.fromEntries(
+      Object.entries(DEFAULT_WEIGHTS).map(([k, v]) => [k, v * 2]),
+    ) as ScoringWeights;
+    expect(computeHealthScore(result, doubled).score).toBe(100);
+  });
+
+  it('breakdown factors have possible === weight and earned <= possible', () => {
+    const result = makePerfectResult();
+    const { factors } = computeHealthScore(result, DEFAULT_WEIGHTS);
+    expect(factors.length).toBeGreaterThan(0);
+    for (const f of factors) {
+      expect(f.possible).toBe(f.weight);
+      expect(f.earned).toBeLessThanOrEqual(f.possible);
+      expect(f.earned).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('a zeroed factor drops out of the breakdown (perfect site still scores 100)', () => {
+    const result = makePerfectResult();
+    const weights: ScoringWeights = { ...DEFAULT_WEIGHTS, schema: 0 };
+    const { score, factors } = computeHealthScore(result, weights);
+    expect(score).toBe(100);
+    expect(factors.find((f) => f.key === 'schema')).toBeUndefined();
   });
 });
 
@@ -98,7 +134,7 @@ describe('computeHealthScore — error rate', () => {
     const badResult = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 40, server_errors: 0, avg_crawl_depth: 2 },
     });
-    expect(computeHealthScore(badResult)).toBeLessThan(computeHealthScore(goodResult));
+    expect(computeHealthScore(badResult, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(goodResult, DEFAULT_WEIGHTS).score);
   });
 
   it('reduces score proportionally when many 5xx errors exist', () => {
@@ -108,7 +144,7 @@ describe('computeHealthScore — error rate', () => {
     const badResult = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 50, avg_crawl_depth: 2 },
     });
-    expect(computeHealthScore(badResult)).toBeLessThan(computeHealthScore(goodResult));
+    expect(computeHealthScore(badResult, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(goodResult, DEFAULT_WEIGHTS).score);
   });
 
   it('applies full error points when error rate is below 1%', () => {
@@ -117,7 +153,7 @@ describe('computeHealthScore — error rate', () => {
       crawl_summary: { total_urls: 200, indexable_urls: 190, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
     });
     // Just verify score is high (can't be 0 from error factor)
-    expect(computeHealthScore(result)).toBeGreaterThan(50);
+    expect(computeHealthScore(result, DEFAULT_WEIGHTS).score).toBeGreaterThan(50);
   });
 });
 
@@ -133,7 +169,7 @@ describe('computeHealthScore — missing SEO elements', () => {
         notices: [],
       },
     });
-    expect(computeHealthScore(bad)).toBeLessThan(computeHealthScore(good));
+    expect(computeHealthScore(bad, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(good, DEFAULT_WEIGHTS).score);
   });
 
   it('reduces score when all pages are missing meta descriptions', () => {
@@ -145,7 +181,7 @@ describe('computeHealthScore — missing SEO elements', () => {
         notices: [],
       },
     });
-    expect(computeHealthScore(bad)).toBeLessThan(computeHealthScore(good));
+    expect(computeHealthScore(bad, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(good, DEFAULT_WEIGHTS).score);
   });
 
   it('reduces score when all pages are missing H1s', () => {
@@ -157,7 +193,7 @@ describe('computeHealthScore — missing SEO elements', () => {
         notices: [],
       },
     });
-    expect(computeHealthScore(bad)).toBeLessThan(computeHealthScore(good));
+    expect(computeHealthScore(bad, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(good, DEFAULT_WEIGHTS).score);
   });
 
   it('reduces score further when multiple SEO elements are missing', () => {
@@ -178,7 +214,7 @@ describe('computeHealthScore — missing SEO elements', () => {
         notices: [],
       },
     });
-    expect(computeHealthScore(allMissing)).toBeLessThan(computeHealthScore(oneMissing));
+    expect(computeHealthScore(allMissing, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(oneMissing, DEFAULT_WEIGHTS).score);
   });
 });
 
@@ -192,7 +228,7 @@ describe('computeHealthScore — crawl depth', () => {
     const moderate = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 3 },
     });
-    expect(computeHealthScore(shallow)).toBe(computeHealthScore(moderate));
+    expect(computeHealthScore(shallow, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(moderate, DEFAULT_WEIGHTS).score);
   });
 
   it('reduces score linearly for depth between 3 and 6', () => {
@@ -202,7 +238,7 @@ describe('computeHealthScore — crawl depth', () => {
     const depth5 = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 5 },
     });
-    expect(computeHealthScore(depth4)).toBeGreaterThan(computeHealthScore(depth5));
+    expect(computeHealthScore(depth4, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(depth5, DEFAULT_WEIGHTS).score);
   });
 
   it('gives 0 crawl depth points for avg_crawl_depth ≥ 6', () => {
@@ -213,7 +249,7 @@ describe('computeHealthScore — crawl depth', () => {
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 10 },
     });
     // Both contribute 0 depth pts, so scores should be equal
-    expect(computeHealthScore(depth6)).toBe(computeHealthScore(depth10));
+    expect(computeHealthScore(depth6, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(depth10, DEFAULT_WEIGHTS).score);
   });
 
   it('skips crawl depth factor when avg_crawl_depth is undefined (adaptive weighting)', () => {
@@ -224,9 +260,9 @@ describe('computeHealthScore — crawl depth', () => {
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: undefined },
     });
     // Both should produce valid scores (no crash); they'll differ
-    expect(computeHealthScore(withDepth)).toBeGreaterThanOrEqual(0);
-    expect(computeHealthScore(withoutDepth)).toBeGreaterThanOrEqual(0);
-    expect(computeHealthScore(withoutDepth)).toBeLessThanOrEqual(100);
+    expect(computeHealthScore(withDepth, DEFAULT_WEIGHTS).score).toBeGreaterThanOrEqual(0);
+    expect(computeHealthScore(withoutDepth, DEFAULT_WEIGHTS).score).toBeGreaterThanOrEqual(0);
+    expect(computeHealthScore(withoutDepth, DEFAULT_WEIGHTS).score).toBeLessThanOrEqual(100);
   });
 });
 
@@ -248,7 +284,7 @@ describe('computeHealthScore — thin content', () => {
         notices: [],
       },
     });
-    expect(computeHealthScore(highThin)).toBeLessThan(computeHealthScore(noThin));
+    expect(computeHealthScore(highThin, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(noThin, DEFAULT_WEIGHTS).score);
   });
 
   it('skips thin content factor when thin_content issue is absent', () => {
@@ -256,7 +292,7 @@ describe('computeHealthScore — thin content', () => {
     const result = makeResult({
       issues: { critical: [], warnings: [], notices: [] },
     });
-    const score = computeHealthScore(result);
+    const score = computeHealthScore(result, DEFAULT_WEIGHTS).score;
     expect(score).toBeGreaterThanOrEqual(0);
     expect(score).toBeLessThanOrEqual(100);
   });
@@ -273,7 +309,7 @@ describe('computeHealthScore — schema coverage', () => {
       technical_seo: { structured_data: { pages_with_schema: 60, schema_types: {} } },
     });
     // Both ≥30% → same schema contribution, should score the same
-    expect(computeHealthScore(result)).toBe(computeHealthScore(withSchema));
+    expect(computeHealthScore(result, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(withSchema, DEFAULT_WEIGHTS).score);
   });
 
   it('gives less schema pts when < 30% of pages have schema', () => {
@@ -283,12 +319,12 @@ describe('computeHealthScore — schema coverage', () => {
     const high = makeResult({
       technical_seo: { structured_data: { pages_with_schema: 40, schema_types: {} } },
     });
-    expect(computeHealthScore(low)).toBeLessThan(computeHealthScore(high));
+    expect(computeHealthScore(low, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(high, DEFAULT_WEIGHTS).score);
   });
 
   it('skips schema factor when structured_data is undefined (adaptive weighting)', () => {
     const result = makeResult({ technical_seo: {} });
-    const score = computeHealthScore(result);
+    const score = computeHealthScore(result, DEFAULT_WEIGHTS).score;
     expect(score).toBeGreaterThanOrEqual(0);
     expect(score).toBeLessThanOrEqual(100);
   });
@@ -296,7 +332,7 @@ describe('computeHealthScore — schema coverage', () => {
   it('skips schema factor when technical_seo is undefined (adaptive weighting)', () => {
     // technical_seo itself being undefined should not crash
     const result = makeResult({ technical_seo: undefined as unknown as AggregatedResult['technical_seo'] });
-    const score = computeHealthScore(result);
+    const score = computeHealthScore(result, DEFAULT_WEIGHTS).score;
     expect(score).toBeGreaterThanOrEqual(0);
     expect(score).toBeLessThanOrEqual(100);
   });
@@ -313,7 +349,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const clearlyGood = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 1.0 },
     });
-    expect(computeHealthScore(atBoundary)).toBe(computeHealthScore(clearlyGood));
+    expect(computeHealthScore(atBoundary, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(clearlyGood, DEFAULT_WEIGHTS).score);
   });
 
   it('avg_crawl_depth of 4.5 (well into degraded zone) scores less than depth 3.0', () => {
@@ -324,7 +360,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const degraded = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 4.5 },
     });
-    expect(computeHealthScore(atBoundary)).toBeGreaterThan(computeHealthScore(degraded));
+    expect(computeHealthScore(atBoundary, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(degraded, DEFAULT_WEIGHTS).score);
   });
 
   it('avg_crawl_depth exactly 6.0 receives zero crawl depth points (same as depth 10)', () => {
@@ -334,7 +370,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const wayOver = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 10.0 },
     });
-    expect(computeHealthScore(atMax)).toBe(computeHealthScore(wayOver));
+    expect(computeHealthScore(atMax, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(wayOver, DEFAULT_WEIGHTS).score);
   });
 
   it('avg_crawl_depth of 4.5 scores more than depth 6.0 (still in degraded range vs zero range)', () => {
@@ -345,7 +381,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const atMax = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 6.0 },
     });
-    expect(computeHealthScore(partialDepth)).toBeGreaterThan(computeHealthScore(atMax));
+    expect(computeHealthScore(partialDepth, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(atMax, DEFAULT_WEIGHTS).score);
   });
 
   // ── Error rate boundary: < 1% → full 20 pts; >= 1% → reduced ─────────────
@@ -357,7 +393,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const tenPercent = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 10, server_errors: 0, avg_crawl_depth: 2 },
     });
-    expect(computeHealthScore(noErrors)).toBeGreaterThan(computeHealthScore(tenPercent));
+    expect(computeHealthScore(noErrors, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(tenPercent, DEFAULT_WEIGHTS).score);
   });
 
   it('error rate of 0.9% (just under 1%) earns full error points (same as 0%)', () => {
@@ -376,7 +412,7 @@ describe('computeHealthScore — threshold boundaries', () => {
       crawl_summary: { total_urls: 1000, indexable_urls: 950, client_errors: 9, server_errors: 0, avg_crawl_depth: 2 },
     });
     // 0/1000 = 0% and 9/1000 = 0.9% — both < 1% → both earn full error points → same score
-    expect(computeHealthScore(underOnePercent)).toBe(computeHealthScore(alsoUnder));
+    expect(computeHealthScore(underOnePercent, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(alsoUnder, DEFAULT_WEIGHTS).score);
   });
 
   it('error rate of 50% earns less than error rate of 10%', () => {
@@ -387,7 +423,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const fiftyPct = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 50, server_errors: 0, avg_crawl_depth: 2 },
     });
-    expect(computeHealthScore(tenPct)).toBeGreaterThan(computeHealthScore(fiftyPct));
+    expect(computeHealthScore(tenPct, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(fiftyPct, DEFAULT_WEIGHTS).score);
   });
 
   // ── Schema coverage boundary: >= 30% → full 10 pts ───────────────────────
@@ -400,7 +436,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const above = makeResult({
       technical_seo: { structured_data: { pages_with_schema: 40, schema_types: {} } },
     });
-    expect(computeHealthScore(atBoundary)).toBe(computeHealthScore(above));
+    expect(computeHealthScore(atBoundary, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(above, DEFAULT_WEIGHTS).score);
   });
 
   it('schema coverage of 0% (no schema) scores less than coverage of 30%', () => {
@@ -412,7 +448,7 @@ describe('computeHealthScore — threshold boundaries', () => {
     const atBoundary = makeResult({
       technical_seo: { structured_data: { pages_with_schema: 30, schema_types: {} } },
     });
-    expect(computeHealthScore(noSchema)).toBeLessThan(computeHealthScore(atBoundary));
+    expect(computeHealthScore(noSchema, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(atBoundary, DEFAULT_WEIGHTS).score);
   });
 });
 
@@ -425,7 +461,7 @@ describe('computeHealthScore — adaptive weighting', () => {
       crawl_summary: { total_urls: 50, indexable_urls: 48, client_errors: 1, server_errors: 0 },
       technical_seo: {},
     });
-    const score = computeHealthScore(result);
+    const score = computeHealthScore(result, DEFAULT_WEIGHTS).score;
     expect(score).toBeGreaterThanOrEqual(0);
     expect(score).toBeLessThanOrEqual(100);
   });
@@ -450,7 +486,7 @@ describe('computeHealthScore — adaptive weighting', () => {
       recommendations: [],
       metadata: { files_processed: [], parsers_used: [], total_parsers_available: 0 },
     };
-    expect(computeHealthScore(result)).toBe(0);
+    expect(computeHealthScore(result, DEFAULT_WEIGHTS).score).toBe(0);
   });
 });
 
@@ -459,7 +495,7 @@ describe('computeHealthScore — adaptive weighting', () => {
 describe('computeHealthScore — score boundaries', () => {
   it('never returns a score above 100', () => {
     const result = makeResult();
-    expect(computeHealthScore(result)).toBeLessThanOrEqual(100);
+    expect(computeHealthScore(result, DEFAULT_WEIGHTS).score).toBeLessThanOrEqual(100);
   });
 
   it('never returns a score below 0', () => {
@@ -479,12 +515,12 @@ describe('computeHealthScore — score boundaries', () => {
       },
       technical_seo: { structured_data: { pages_with_schema: 0, schema_types: {} } },
     });
-    expect(computeHealthScore(result)).toBeGreaterThanOrEqual(0);
+    expect(computeHealthScore(result, DEFAULT_WEIGHTS).score).toBeGreaterThanOrEqual(0);
   });
 
   it('returns an integer (rounded)', () => {
     const result = makeResult();
-    const score = computeHealthScore(result);
+    const score = computeHealthScore(result, DEFAULT_WEIGHTS).score;
     expect(score).toBe(Math.round(score));
   });
 });

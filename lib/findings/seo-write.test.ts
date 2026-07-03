@@ -2,6 +2,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '@/lib/db'
 import type { AggregatedResult } from '@/lib/types'
+import { computeHealthScore } from '@/lib/services/scoring.service'
+import { DEFAULT_WEIGHTS } from '@/lib/scoring/weights'
 import { writeSeoFindings } from './seo-write'
 
 const SESSION_ID = 'test-findings-seo-write'
@@ -29,6 +31,7 @@ async function clearTestState() {
     where: { OR: [{ sessionId: SESSION_ID }, { domain: 'sw.test' }] },
   })
   await prisma.session.deleteMany({ where: { id: SESSION_ID } })
+  await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
 }
 
 describe('writeSeoFindings', () => {
@@ -46,7 +49,9 @@ describe('writeSeoFindings', () => {
     })
     expect(run).not.toBeNull()
     expect(run!.tool).toBe('seo-parser')
-    expect(run!.score).toBe(91)
+    // C8 drops the metadata.health_score precedence — the run's score is
+    // now always the computed value (no ScoringWeights row → DEFAULT_WEIGHTS).
+    expect(run!.score).toBe(computeHealthScore(RESULT, DEFAULT_WEIGHTS).score)
     expect(run!.pages).toHaveLength(1)
     expect(run!.findings).toHaveLength(2) // 1 run-scope + 1 page-scope
     expect(run!.startedAt).not.toBeNull() // pulled from session.createdAt

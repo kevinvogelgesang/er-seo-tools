@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { runBrokenLinkVerify, type VerifyDeps } from './broken-link-verify'
 
@@ -10,6 +10,7 @@ async function clean() {
   await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
 }
 beforeEach(clean)
+afterEach(async () => { await prisma.scoringWeights.deleteMany({ where: { id: 1 } }) })
 afterAll(clean)
 
 async function seed(targets: { targetUrl: string; kind: string; sourcePageUrl: string }[]) {
@@ -199,6 +200,7 @@ const stubDeps: VerifyDeps = {
 
 describe('runBrokenLinkVerify — live SEO score', () => {
   beforeEach(cleanScore)
+  afterEach(async () => { await prisma.scoringWeights.deleteMany({ where: { id: 1 } }) })
   afterAll(cleanScore)
 
   it('persists a non-null score for an indexable run', async () => {
@@ -216,10 +218,12 @@ describe('runBrokenLinkVerify — live SEO score', () => {
     await runBrokenLinkVerify({ siteAuditId, domain: SCORE_DOMAIN }, stubDeps)
     const run = await prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
-      select: { score: true },
+      select: { score: true, scoreBreakdown: true },
     })
     expect(run!.score).not.toBeNull()
     expect(run!.score).toBeGreaterThan(0)
+    const parsed = JSON.parse(run!.scoreBreakdown!)
+    expect(parsed).toMatchObject({ scorer: 'live-seo', score: run!.score })
   })
 
   it('score is null for a fully-noindex run', async () => {
@@ -237,9 +241,10 @@ describe('runBrokenLinkVerify — live SEO score', () => {
     await runBrokenLinkVerify({ siteAuditId, domain: SCORE_DOMAIN }, stubDeps)
     const run = await prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
-      select: { score: true },
+      select: { score: true, scoreBreakdown: true },
     })
     expect(run!.score).toBeNull()
+    expect(JSON.parse(run!.scoreBreakdown!)).toMatchObject({ scorer: 'live-seo', score: null, factors: [] })
   })
 
   it('coverage uses the HarvestedPageSeo row count, not pagesComplete', async () => {

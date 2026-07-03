@@ -21,6 +21,7 @@ import { AuditCompletenessBanner } from './AuditCompletenessBanner';
 import { ArchivedSessionBanner } from './ArchivedSessionBanner';
 import { computeCompleteness } from '@/lib/services/completeness';
 import { PagesTable } from './PagesTable';
+import { ScoreExplanation } from '@/components/scoring/ScoreExplanation';
 
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
 const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
@@ -33,6 +34,9 @@ interface ResultsViewProps {
   runId?: string;
   pillarButton?: React.ReactNode;
   roadmap?: React.ReactNode;
+  /** C8: persisted health score + breakdown for the score explanation panel. */
+  healthScore?: number | null;
+  scoreBreakdown?: string | null;
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -44,7 +48,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-export function ResultsView({ result, sessionId, runId, pillarButton, roadmap }: ResultsViewProps) {
+export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, healthScore, scoreBreakdown }: ResultsViewProps) {
   const router = useRouter();
   const siteName = result.metadata?.site_name || 'Site';
 
@@ -117,6 +121,16 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap }:
           <ArchivedSessionBanner />
         ) : (
           <AuditCompletenessBanner completeness={result.completeness ?? computeCompleteness(result)} />
+        )}
+
+        {/* Score explanation (C8) — reads only the persisted breakdown, never recomputes */}
+        {healthScore != null && (
+          <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border p-4">
+            <p className="text-sm font-semibold text-[#1c2d4a] dark:text-white">
+              SEO health score: {healthScore}/100
+            </p>
+            <ScoreExplanation breakdown={scoreBreakdown ?? null} />
+          </div>
         )}
 
         {/* Metrics bar */}

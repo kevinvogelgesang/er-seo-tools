@@ -24,6 +24,8 @@ import { randomUUID } from 'crypto'
 import { checkUrl, HostThrottle, realDeps, type CheckResult } from '@/lib/ada-audit/broken-link-check'
 import { parsePositiveInt } from '../config'
 import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
+import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
+import { serializeBreakdown } from '@/lib/scoring/weights'
 import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
@@ -229,7 +231,8 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   const runCounts = new Map(
     onPageFindings.filter((f) => f.scope === 'run').map((f) => [f.type, f.count] as const),
   )
-  const score = scoreLiveSeo({
+  const weights = await resolveScoringWeights()
+  const scoreResult = scoreLiveSeo({
     attempted: site.pagesTotal,
     observed: seoRows.length,
     indexableScored: seoRows.filter((r) => indexableOf(r) && !r.loginLike).length,
@@ -239,13 +242,14 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     missingH1: runCounts.get('missing_h1') ?? 0,
     thin: runCounts.get('thin_content') ?? 0,
     pagesWithSchema: seoRows.filter((r) => (r.schemaCount ?? 0) > 0).length,
-  })
+  }, weights)
 
   const bundle: FindingsBundle = {
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
-      status: capped || harvestTruncated ? 'partial' : 'complete', score, wcagLevel: null,
+      status: capped || harvestTruncated ? 'partial' : 'complete',
+      score: scoreResult.score, scoreBreakdown: serializeBreakdown('live-seo', scoreResult), wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
     },

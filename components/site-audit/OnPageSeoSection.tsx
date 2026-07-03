@@ -6,6 +6,7 @@
 // audited HTML pages — NOT whole-site clean (error/redirect/non-HTML pages are
 // not evaluated this phase).
 import type { BrokenLinksRun } from './BrokenLinksSection'
+import { ScoreExplanation } from '@/components/scoring/ScoreExplanation'
 
 const ONPAGE_LABEL: Record<string, string> = {
   missing_title: 'Missing title',
@@ -51,7 +52,7 @@ function ScoreLine({ score, observed, indexable, attempted }:
 // only carries broken-link findings. Without it, an old run would render a
 // misleading "clean" (Codex fix #4). The page computes it from the run's pages.
 export function OnPageSeoSection({
-  run, analyzed, score, observed, indexable, attempted,
+  run, analyzed, score, observed, indexable, attempted, breakdown,
 }: {
   run: BrokenLinksRun | null
   analyzed: boolean
@@ -59,6 +60,7 @@ export function OnPageSeoSection({
   observed: number
   indexable: number
   attempted: number
+  breakdown: string | null
 }) {
   if (!run) {
     return (
@@ -83,6 +85,7 @@ export function OnPageSeoSection({
     return (
       <Card>
         <ScoreLine score={score} observed={observed} indexable={indexable} attempted={attempted} />
+        <ScoreExplanation breakdown={breakdown} />
         <p className="text-[13px] font-body text-green-700 dark:text-green-400">
           No on-page issues found among the successfully audited HTML pages.
         </p>
@@ -99,6 +102,7 @@ export function OnPageSeoSection({
   return (
     <Card>
       <ScoreLine score={score} observed={observed} indexable={indexable} attempted={attempted} />
+      <ScoreExplanation breakdown={breakdown} />
       <div className="space-y-4">
         {runScope.map((f) => {
           const pages = pageByType.get(f.type) ?? []

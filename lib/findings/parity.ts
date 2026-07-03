@@ -8,6 +8,7 @@ import type { CrawlPage, Finding, Violation } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import type { AggregatedResult } from '@/lib/types'
 import type { SiteAuditSummary } from '@/lib/ada-audit/types'
+import { DEFAULT_WEIGHTS } from '@/lib/scoring/weights'
 import { mapSeoResult } from './seo-mapper'
 import { mapAdaChildren, mapAdaSingle } from './ada-mapper'
 import type { FindingsBundle } from './types'
@@ -37,6 +38,10 @@ export async function compareSeoParity(sessionId: string): Promise<ParityReport>
     clientId: session.clientId,
     startedAt: session.createdAt,
     completedAt: null,
+    // Parity always recomputes at DEFAULT_WEIGHTS — it has no access to the
+    // profile in effect when the run was written. See the score diff note
+    // below.
+    weights: DEFAULT_WEIGHTS,
   })
 
   const run = await prisma.crawlRun.findUnique({
@@ -45,6 +50,11 @@ export async function compareSeoParity(sessionId: string): Promise<ParityReport>
   })
   if (!run) return { ok: false, diffs: ['no CrawlRun for session'] }
 
+  // Score diff is only meaningful when the site's active ScoringWeights
+  // profile is the default — a custom profile makes this a false positive.
+  // Structural parity (pages/findings/violations below) is authoritative
+  // regardless of weight profile. Weight-sensitivity is a documented
+  // follow-up (spec §9).
   if (run.score !== expected.run.score) diffs.push(`score: tables=${run.score} blob=${expected.run.score}`)
   if (run.pagesTotal !== expected.run.pagesTotal) diffs.push(`pagesTotal: tables=${run.pagesTotal} blob=${expected.run.pagesTotal}`)
   if (run.pages.length !== expected.pages.length) diffs.push(`pages: tables=${run.pages.length} blob=${expected.pages.length}`)

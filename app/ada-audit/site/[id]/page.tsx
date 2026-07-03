@@ -157,6 +157,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
     select: {
       status: true,
       score: true,
+      scoreBreakdown: true,
       findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
       // C6 Phase 3: page scalars drive the analyzed marker + the coverage line.
       pages: { select: { statusCode: true, indexable: true } },
@@ -210,6 +211,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
         observed={observedPages}
         indexable={indexablePages}
         attempted={audit.pagesTotal}
+        breakdown={liveScanRun?.scoreBreakdown ?? null}
       />
       <SiteAuditResultsView
         domain={audit.domain}

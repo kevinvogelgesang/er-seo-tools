@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterAll } from 'vitest'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/db'
 import { mapSeoResult } from '@/lib/findings/seo-mapper'
+import { DEFAULT_WEIGHTS } from '@/lib/scoring/weights'
 import { getCanonicalPageFacts } from './canonical-page-facts'
 import type { AggregatedResult } from '@/lib/types'
 
@@ -126,7 +127,7 @@ async function makeSfRun(
   })
   const bundle = mapSeoResult(
     sfFixture(DOMAIN, sessionId),
-    { sessionId, clientId, startedAt: completedAt, completedAt },
+    { sessionId, clientId, startedAt: completedAt, completedAt, weights: DEFAULT_WEIGHTS },
   )
   // Persist via low-level prisma (mirrors writeFindingsRun without the delete-first)
   const run = await prisma.crawlRun.create({
@@ -159,7 +160,7 @@ describe('Step 1: seo-mapper preserves inlinks/outlinks from page_index', () => 
   it('maps inlinks/outlinks from PageIndexEntry onto CrawlPageInput', () => {
     const result = mapSeoResult(
       sfFixture('maptest.example', 'sess-map-1'),
-      { sessionId: 'sess-map-1', clientId: 1, startedAt: new Date(), completedAt: new Date() },
+      { sessionId: 'sess-map-1', clientId: 1, startedAt: new Date(), completedAt: new Date(), weights: DEFAULT_WEIGHTS },
     )
 
     const home = result.pages.find((p) => p.url === 'https://maptest.example')
@@ -182,7 +183,7 @@ describe('Step 1: seo-mapper preserves inlinks/outlinks from page_index', () => 
 
     const bundle = mapSeoResult(
       sfFixture(DOMAIN, sessionId),
-      { sessionId, clientId: null, startedAt: new Date(), completedAt: new Date() },
+      { sessionId, clientId: null, startedAt: new Date(), completedAt: new Date(), weights: DEFAULT_WEIGHTS },
     )
 
     const run = await prisma.crawlRun.create({

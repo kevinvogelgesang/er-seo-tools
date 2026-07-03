@@ -7,6 +7,7 @@ import type { AggregatedResult, Issue } from '@/lib/types'
 import { rehydrate } from '@/lib/services/url-registry'
 import { normalizeHost } from '@/lib/services/normalize-host'
 import { computeHealthScore } from '@/lib/services/scoring.service'
+import { serializeBreakdown, type ScoringWeights } from '@/lib/scoring/weights'
 import { normalizeFindingUrl, runFindingKey, pageFindingKey } from './keys'
 import type { CrawlPageInput, FindingInput, FindingsBundle } from './types'
 
@@ -15,6 +16,7 @@ export interface SeoMapContext {
   clientId: number | null
   startedAt: Date | null
   completedAt: Date | null
+  weights: ScoringWeights
 }
 
 const SEVERITIES = [
@@ -112,6 +114,8 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
     }
   }
 
+  const healthResult = computeHealthScore(result, ctx.weights)
+
   return {
     run: {
       id: runId,
@@ -123,9 +127,8 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
       siteAuditId: null,
       adaAuditId: null,
       status: 'complete',
-      // Fresh aggregator output does not persist metadata.health_score —
-      // compute it the same way the report does (computeHealthScore is pure).
-      score: result.metadata?.health_score ?? computeHealthScore(result),
+      score: healthResult.score,
+      scoreBreakdown: serializeBreakdown('health', healthResult),
       wcagLevel: null,
       pagesTotal: pages.length,
       startedAt: ctx.startedAt,
