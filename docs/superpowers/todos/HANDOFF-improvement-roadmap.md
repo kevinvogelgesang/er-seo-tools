@@ -5,10 +5,9 @@
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
 
-> **Docs-PR overlap note:** PR #90 (C8) also carries the A2-f1-verified
-> tracker/handoff, so it **supersedes** the docs-only PR #89. Merge #90 and
-> close #89, or merge #89 first and rebase #90 (trivial conflict on these two
-> files only).
+> **Docs note:** the A2-f1-verified docs (PR #89) are already merged to main;
+> PR #90 has been reconciled with main via a merge commit, so the tracker/handoff
+> here are current and conflict-free.
 
 ---
 
@@ -42,8 +41,7 @@ A 16-skill operator library lives in .claude/skills/.
    would score identically to pre-C8. Also spot-check the SEO parser results page
    shows the health-score line + panel. Then reset weights to defaults if desired.
    Once verified: tracker [~]→[x] for C8 + status-log line + rewrite this handoff.
-   ALSO: PR #90 carries the A2-f1-verified docs (supersedes docs-only PR #89) —
-   merge #90 and close #89, or merge #89 first + rebase #90.
+   (PR #89 with the A2-f1 docs is already merged; PR #90 is reconciled with main.)
 4. THEN the next move is a ROADMAP CHOICE. Confirm direction with Kevin, then run
    the full change-control pipeline (spec → Codex → plan → Codex → TDD → gates →
    PR → Kevin merges/deploys → prod-verify). Menu:
@@ -110,8 +108,7 @@ A 16-skill operator library lives in .claude/skills/.
   → proway.erstaging.site, `weekly:1@06:00` (noindex → broken-link findings only,
   null score — by design).
 - **⚠ PENDING HUMAN STEPS (Kevin):**
-  1. **C8:** merge PR #90 → deploy → light prod-verify (see paste-in §3). Close PR
-     #89 (subsumed) or merge it first + rebase #90.
+  1. **C8:** merge PR #90 → deploy → light prod-verify (see paste-in §3).
   2. **D0:** set `ALERT_WEBHOOK_URL` once Slack admin approves; optional stray-backup rm.
   3. **B4 quarter-plan decision** still open (near-empty prod QuarterPlan
      409-blocking the localStorage import — keep or delete + re-open).
