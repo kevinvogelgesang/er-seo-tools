@@ -8,9 +8,10 @@ import { AggregatorService } from '@/lib/services/aggregator.service';
 import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 import { buildSessionPages } from '@/lib/services/session-page-builder';
 import { normalizeHost } from '@/lib/services/normalize-host';
-import { missingCoreExports } from '@/lib/parsers/expected-exports';
+import { missingCoreExports, isCoreExport } from '@/lib/parsers/expected-exports';
 import { writeSeoFindings } from '@/lib/findings/seo-write';
 import { loadArchivedSeoResult } from '@/lib/findings/seo-findings-fallback';
+import type { FileReport } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,85 +103,91 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     }
 
     const aggregator = new AggregatorService();
-    const parsersUsed: string[] = [];
-    const errors: string[] = [];
 
-    // Parse files sequentially to avoid full-file memory spikes on large crawl exports.
     type AnyParser = { parse(): Record<string, unknown>; getPrimaryDomain(): string | null };
     type ParseSuccess = { parserName: string; result: Record<string, unknown>; filename: string; primaryDomain: string | null };
-    const parseFile = async (filename: string): Promise<ParseSuccess | null> => {
+    type FileOutcome = { report: FileReport; success?: ParseSuccess };
+
+    const failed = (filename: string, error: string): FileOutcome => ({
+      report: {
+        filename,
+        status: 'failed',
+        error,
+        severity: isCoreExport(filename) ? 'core' : 'normal',
+      },
+    });
+
+    const parseOne = async (filename: string): Promise<FileOutcome> => {
       const filePath = path.join(uploadDir, filename);
 
-      if (filename.endsWith('.txt')) return null;
+      if (path.extname(filename).toLowerCase() !== '.csv') {
+        return { report: { filename, status: 'skipped', severity: 'info' } };
+      }
 
       try {
         await fs.access(filePath);
       } catch {
-        errors.push(`File not found: ${filename}`);
-        return null;
+        return failed(filename, 'File not found');
       }
 
       let rawContent: string;
       try {
         rawContent = await fs.readFile(filePath, 'utf-8');
       } catch (readError) {
-        const message = readError instanceof Error ? readError.message : 'Unknown error';
-        errors.push(`Error reading ${filename}: ${message}`);
-        return null;
+        return failed(filename, readError instanceof Error ? readError.message : 'Unknown error');
       }
 
       const ParserClass = findParserForFile(filename, rawContent);
-      if (!ParserClass) return null;
+      if (!ParserClass) {
+        return { report: { filename, status: 'unmatched', severity: 'info' } };
+      }
 
       try {
-        const content = rawContent;
         const ParserConstructor = ParserClass as unknown as new (content: string) => AnyParser;
-        const parser = new ParserConstructor(content);
+        const parser = new ParserConstructor(rawContent);
         const result = parser.parse();
         const primaryDomain = parser.getPrimaryDomain();
-        // Use the explicit static parserKey, NOT ParserClass.name — the prod
-        // build minifies class names, which broke the aggregator's hardcoded
-        // parsedData.<key> lookups (page_index/keyword data came out empty).
+        // Explicit static parserKey, NOT ParserClass.name — prod minifies class names.
         const parserName = (ParserClass as unknown as { parserKey?: string }).parserKey
           || ParserClass.name.replace('Parser', '').toLowerCase();
-        return { parserName, result, filename, primaryDomain };
+        return {
+          report: { filename, status: 'parsed', parser: parserName, severity: 'info' },
+          success: { parserName, result, filename, primaryDomain },
+        };
       } catch (parseError) {
-        const message = parseError instanceof Error ? parseError.message : 'Unknown error';
-        errors.push(`Error parsing ${filename}: ${message}`);
-        return null;
+        return failed(filename, parseError instanceof Error ? parseError.message : 'Unknown error');
       }
     };
 
-    const parseResults: Array<ParseSuccess | null> = [];
+    const reports: FileReport[] = [];
+    const successes: ParseSuccess[] = [];
     for (const filename of sessionFiles) {
-      parseResults.push(await parseFile(filename));
+      const outcome = await parseOne(filename);
+      reports.push(outcome.report);
+      if (outcome.success) successes.push(outcome.success);
     }
-    for (const res of parseResults) {
-      if (res) {
-        aggregator.addParserResult(res.parserName, res.result, res.filename);
-        parsersUsed.push(res.parserName);
-      }
+
+    const parsersUsed: string[] = [];
+    for (const s of successes) {
+      aggregator.addParserResult(s.parserName, s.result, s.filename);
+      parsersUsed.push(s.parserName);
     }
 
     const result = aggregator.aggregate();
     result.metadata.parsers_used = Array.from(new Set(parsersUsed));
-
-    if (errors.length > 0) {
-      (result as unknown as Record<string, unknown>).parsing_errors = errors;
-    }
+    result.metadata.file_reports = reports;
 
     // Detect primary domain: tally hostnames from all parsers' Address columns,
     // pick the most common one (much more reliable than first issue URL).
     if (!result.metadata.site_name) {
       const domainCounts = new Map<string, number>();
-      for (const res of parseResults) {
-        if (res?.primaryDomain) {
-          domainCounts.set(res.primaryDomain, (domainCounts.get(res.primaryDomain) ?? 0) + 1);
+      for (const s of successes) {
+        if (s.primaryDomain) {
+          domainCounts.set(s.primaryDomain, (domainCounts.get(s.primaryDomain) ?? 0) + 1);
         }
       }
       if (domainCounts.size > 0) {
-        result.metadata.site_name = [...domainCounts.entries()]
-          .sort((a, b) => b[1] - a[1])[0][0];
+        result.metadata.site_name = [...domainCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
       }
     }
 
