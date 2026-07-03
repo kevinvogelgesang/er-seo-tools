@@ -91,7 +91,7 @@ export function buildTechnicalAuditExport(result: AggregatedResult): TechnicalAu
     }
   }
 
-  const { health_score, ...metadataForClaude } = result.metadata;
+  const { health_score, file_reports, ...metadataForClaude } = result.metadata;
 
   return {
     crawl_summary: result.crawl_summary,

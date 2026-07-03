@@ -297,6 +297,22 @@ describe('buildTechnicalAuditExport', () => {
     expect(out.issues.critical[0].affectedUrlRefs).toBeDefined();
   });
 
+  it('omits file_reports (and health_score) from the Claude export metadata', () => {
+    const result = buildTechnicalAuditExport({
+      crawl_summary: {}, issues: { critical: [], warnings: [], notices: [] },
+      site_structure: {}, resources: {}, technical_seo: {}, performance: {},
+      recommendations: [],
+      metadata: {
+        files_processed: ['internal_all.csv'], parsers_used: ['internal'],
+        total_parsers_available: 40, health_score: 88,
+        file_reports: [{ filename: 'internal_all.csv', status: 'parsed', parser: 'internal', severity: 'info' }],
+      },
+    } as never);
+    expect((result.metadata as Record<string, unknown>).file_reports).toBeUndefined();
+    expect((result.metadata as Record<string, unknown>).health_score).toBeUndefined();
+    expect(result.metadata.files_processed).toEqual(['internal_all.csv']);
+  });
+
   it('passes through structured_recommendations', () => {
     const extendedResult = {
       ...mockResult,
