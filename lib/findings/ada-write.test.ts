@@ -83,6 +83,22 @@ describe('writeAdaSiteFindings', () => {
   it('rejects an unknown id', async () => {
     await expect(writeAdaSiteFindings('nope')).rejects.toThrow(/not found/i)
   })
+
+  it('refuses a pruned site audit (complete children, null blobs) without clobbering findings', async () => {
+    const site = await makeCompleteSiteAudit()
+    await writeAdaSiteFindings(site.id) // canonical run: 1 violation
+    // Simulate the 90-d blob prune: child result blobs nulled, status kept.
+    await prisma.adaAudit.updateMany({ where: { siteAuditId: site.id }, data: { result: null } })
+
+    await expect(writeAdaSiteFindings(site.id)).rejects.toThrow(/prune/i)
+
+    // The canonical findings must survive — the empty-run clobber never happens.
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: site.id, tool: 'ada-audit' } },
+      include: { violations: true },
+    })
+    expect(run!.violations).toHaveLength(1)
+  })
 })
 
 describe('writeAdaSingleFindings', () => {
@@ -144,5 +160,25 @@ describe('writeAdaSingleFindings', () => {
       data: { url: `https://${DOMAIN}/run`, status: 'running', wcagLevel: 'wcag21aa' },
     })
     await expect(writeAdaSingleFindings(audit.id)).rejects.toThrow(/complete|redirected/i)
+  })
+
+  it('refuses a pruned complete standalone audit (null blob) without clobbering findings', async () => {
+    const audit = await prisma.adaAudit.create({
+      data: {
+        url: `https://${DOMAIN}/pruned`, status: 'complete', result: AXE_BLOB,
+        wcagLevel: 'wcag21aa', completedAt: new Date(),
+      },
+    })
+    await writeAdaSingleFindings(audit.id) // canonical run: 1 violation
+    // Simulate the 90-d blob prune: result nulled, status stays 'complete'.
+    await prisma.adaAudit.update({ where: { id: audit.id }, data: { result: null } })
+
+    await expect(writeAdaSingleFindings(audit.id)).rejects.toThrow(/prune/i)
+
+    const run = await prisma.crawlRun.findUnique({
+      where: { adaAuditId: audit.id },
+      include: { violations: true },
+    })
+    expect(run!.violations).toHaveLength(1)
   })
 })
