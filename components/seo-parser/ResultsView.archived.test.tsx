@@ -52,4 +52,22 @@ describe('ResultsView archived mode', () => {
     render(<ResultsView result={fresh} sessionId="00000000-0000-4000-8000-000000000000" />)
     expect(screen.getByText('Response Code Distribution')).toBeTruthy()
   })
+
+  it('renders the file-processing panel (not the debug footer) for a fresh result with file_reports', () => {
+    const fresh: AggregatedResult = {
+      ...archivedResult,
+      archived: false,
+      metadata: {
+        files_processed: ['internal_all.csv'], parsers_used: ['internal'], total_parsers_available: 40,
+        site_name: 'x.test',
+        file_reports: [
+          { filename: 'internal_all.csv', status: 'failed', severity: 'core', error: 'boom' },
+        ],
+      },
+    };
+    render(<ResultsView result={fresh} sessionId="00000000-0000-4000-8000-000000000000" />);
+    expect(screen.getByText(/File processing:/)).toBeTruthy();
+    expect(screen.queryByText('Debug info')).toBeNull(); // footer removed
+    expect(screen.getByText(/unreliable/i)).toBeTruthy(); // core-failure banner
+  })
 })
