@@ -214,7 +214,7 @@ Interleave as needed (not blockers):
   overstated Phase 4: no self-healing schedules, no `lib/seo/providers/`, no
   live srt_/krt_ — doc error, owner-confirmed).
 - [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
-- [~] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk) — **BUILT + PR #90 (2026-07-03, `feat/c8-configurable-scoring-weights`).** Global `ScoringWeights` singleton (id=1) read by BOTH SEO scorers (`computeHealthScore` + `scoreLiveSeo`); `/settings` editor (cookie-gated `GET/PUT /api/settings/scoring-weights`); fixed-history `CrawlRun.scoreBreakdown` JSON snapshot; `ScoreExplanation` panel on SEO parser results (with a new health-score line) + `OnPageSeoSection` (archived-safe, degrades pre-C8). Pure/server module split keeps prisma out of the client bundle. ADA scorer + per-client weights + retroactive recompute OUT of scope. Spec + plan both Codex-reviewed; built subagent-driven (7 tasks, per-task + final opus review = READY TO MERGE). Additive migration (auto-applies on deploy); NO new env var; no `isPublicPath` change. Gate-green: tsc + 2919 tests + build. Awaiting Kevin merge/deploy/prod-verify.
+- [x] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk) — **COMPLETE: MERGED (PR #90, main `0f3225d`) + DEPLOYED + PROD-VERIFIED (2026-07-03).** Global `ScoringWeights` singleton (id=1) read by BOTH SEO scorers (`computeHealthScore` + `scoreLiveSeo`); `/settings` editor (cookie-gated `GET/PUT /api/settings/scoring-weights`); fixed-history `CrawlRun.scoreBreakdown` JSON snapshot; `ScoreExplanation` panel on SEO parser results (with a new health-score line) + `OnPageSeoSection` (archived-safe, degrades pre-C8). Pure/server module split keeps prisma out of the client bundle. ADA scorer + per-client weights + retroactive recompute OUT of scope. Spec + plan both Codex-reviewed; built subagent-driven (7 tasks, per-task + final opus review). Additive migration `20260703120000_configurable_scoring_weights` applied on deploy; NO new env var; no `isPublicPath` change. Prod-verified: migration applied, clean boot, `scoreBreakdown` column present, empty `ScoringWeights`→resolver returns defaults (identical to pre-C8), new route 401s unauth (correctly non-public); **behavioral eyeball confirmed in real data** — a scan run with `indexability` weight bumped to 21 persisted `score 82` with a weight-21 breakdown snapshot, and resetting weights to defaults (20) afterward did NOT change that historical run (fixed history proven). Gate-green: tsc + 2919 tests + build.
 - [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)
 - [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test connection green, reports render correctly, SA granted + GA4/GSC mapped for every client Kevin currently has access to. Scorecard-#12 question RESOLVED — the code's "Key Events" (vs the spec's duplicate "Avg Position" Looker artifact) is accepted as-is (no change). **C10 COMPLETE** — delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6.
 
@@ -238,7 +238,27 @@ Interleave as needed (not blockers):
 
 ## Status log
 
-- 2026-07-03 (latest, C8 built) — **C8 BUILT + PR #90 (`feat/c8-configurable-scoring-weights`).**
+- 2026-07-03 (latest, C8 verified + upload hotfix) — **C8 MERGED + DEPLOYED + PROD-VERIFIED = COMPLETE.**
+  PR #90 merged to main (`0f3225d`); PR #89 (A2-f1 docs) also merged. Deployed via plain
+  `~/deploy.sh` (Kevin go in-conversation); additive migration `20260703120000_configurable_scoring_weights`
+  applied automatically; PM2 online, 0 restarts. **Structural prod-verify** (read-only prisma `.mjs`):
+  `CrawlRun.scoreBreakdown` column present; `ScoringWeights` table empty → `resolveScoringWeights`
+  returns `DEFAULT_WEIGHTS` = identical scoring to pre-C8; 0 historical runs carry a breakdown
+  (no retroactive change); home 307→OAuth, `GET /api/settings/scoring-weights` → 401 `auth_required`
+  (deployed + correctly non-public). **Behavioral eyeball (real data):** eyeball scan (session
+  `00429145`, run `de498917`) persisted `score 82` with a breakdown snapshot whose `indexability`
+  weight = **21** (Kevin's non-default edit); the `ScoringWeights` row was then reset to the default
+  20 (updatedAt 2 min after the scan) and the historical run's 82 + weight-21 snapshot were UNCHANGED
+  → fixed-history + score/panel-reflects-weights both confirmed. 82 decomposition: title/meta/H1/depth
+  perfect, indexability 17.49/21 (~79% indexable), error rate 17.56/20 (~12% 4xx/5xx), schema 0/10
+  (none detected), thin-content factor absent. **Upload hotfix (PR #91, merged `94dee70` + deployed):**
+  during the eyeball, >10MB CSV uploads 500'd ("Failed to upload files"). Root cause = Next.js 15
+  caps middleware-matched (`/api/:path*` covers `/api/upload`) request bodies at 10MB by default and
+  TRUNCATES beyond it → severed multipart boundary → `formData()` throws. NOT a C8 regression (framework
+  default). Fix: `experimental.middlewareClientMaxBodySize: '100mb'` in `next.config.ts` (matches the
+  route's own 100MB ceiling) + guard test; config-only, plain deploy. Prod HEAD now `94dee70`, cap
+  deployed, clean boot. **Next: roadmap choice** (C7 / C9 / further C6, or SF-retirement Phase 1).
+- 2026-07-03 (C8 built) — **C8 BUILT + PR #90 (`feat/c8-configurable-scoring-weights`).**
   Roadmap choice = C8 (Kevin). Full feature pipeline: brainstorm (scope = the two
   factor-weighted SEO scorers; global DB weight profile + `/settings` UI; fixed history) →
   spec (`2026-07-03-configurable-scoring-weights-design.md`) → Codex accept-with-fixes
