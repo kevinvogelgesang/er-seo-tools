@@ -64,7 +64,7 @@ Spine items — everything else depends on these two:
 
 Interleave as needed (not blockers):
 
-- [ ] A2-f1 (follow-up, added 2026-07-02). **Guard `scripts/findings-rebuild.ts` against pruned ADA blobs** — the Session branch refuses a pruned blob (`findings-rebuild.ts:44-46`) but the SiteAudit/AdaAudit branches have no guard: on a 90-d-pruned ADA row, `parseAxe(null)` yields empty pages and the delete-and-recreate writer silently replaces the canonical findings tables with an empty run. ~5-line guard mirroring the Session check. Found by the 2026-07-02 skill-library factual review; warning documented in `.claude/skills/er-seo-tools-proof-and-analysis-toolkit` until fixed. (hours)
+- [~] A2-f1 (follow-up, added 2026-07-02). **Guard `scripts/findings-rebuild.ts` against pruned ADA blobs** — the Session branch refuses a pruned blob (`findings-rebuild.ts:44-46`) but the SiteAudit/AdaAudit branches have no guard: on a 90-d-pruned ADA row, `parseAxe(null)` yields empty pages and the delete-and-recreate writer silently replaces the canonical findings tables with an empty run. ~5-line guard mirroring the Session check. Found by the 2026-07-02 skill-library factual review; warning documented in `.claude/skills/er-seo-tools-proof-and-analysis-toolkit` until fixed. (hours) — **BUILT + PR #88 (2026-07-02).** Guard placed in `lib/findings/ada-write.ts` (both `writeAdaSiteFindings` + `writeAdaSingleFindings`), NOT the script — defends the rebuild script AND the live standalone dual-write hook. Pruned signature = `status='complete'` audit/child with null `result` (finalizer never persists a complete audit without its blob); errored/redirected audits stay ungated. 2 DB-backed tests (refuse + no-clobber, site + standalone). Gate-green. Awaiting Kevin merge/deploy/prod-verify.
 - [ ] A3. API route kit (`withRoute()` wrapper) + tests for the 14 untested routes (1 wk)
 - [ ] A4. Observability floor: `/api/health`, pino logging, `/admin/ops` page (0.5–1 wk)
 - [ ] A5. Shared status hook → optional SSE notification layer (0.5 wk)
@@ -238,6 +238,22 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-02 (latest, A2-f1 built) — **A2-f1 BUILT + PR #88 (`fix/a2-f1-rebuild-pruned-ada-guard`).**
+  Roadmap choice = A2-f1 (Kevin). Small-bugfix pipeline (TDD): two DB-backed failing
+  tests first (rebuild a pruned site audit / pruned standalone → must refuse AND leave
+  the canonical `Finding`/`Violation` rows intact) — both went RED on current code
+  (write silently succeeded, clobbering to an empty run), then GREEN with the guard.
+  Guard lives in `lib/findings/ada-write.ts` (not the script): a `status='complete'`
+  audit/child with a null `result` blob is the 90-d-prune signature (the finalizer
+  never persists a complete audit without its blob), so both `writeAdaSiteFindings`
+  and `writeAdaSingleFindings` throw before the delete-and-recreate writer runs.
+  Placing it at the write functions defends the rebuild script AND the live standalone
+  dual-write hook (`lib/jobs/handlers/ada-audit.ts`); no live-path regression (a
+  freshly-completed audit always has its blob). Errored/redirected audits are
+  legitimately blobless and stay ungated (the redirected-standalone rebuild test still
+  passes). No spec/plan (genuinely small fix). Gate-green: tsc clean, 2893 vitest
+  (297 files), build OK. **Next: Kevin merges/deploys/prod-verifies, then roadmap
+  choice resumes (C-track / SF-retirement campaign Phase 1).**
 - 2026-07-02 (latest, D0 verified) — **D0 SHIPPED + DEPLOYED + PROD-VERIFIED. D0 COMPLETE.**
   PR #86 merged; deployed with `pm2 delete seo-tools && pm2 start ecosystem.config.js`
   (required for the new `BACKUP_DIR` ecosystem var — `pm2 restart` won't reload it).

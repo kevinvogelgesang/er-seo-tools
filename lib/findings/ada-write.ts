@@ -29,6 +29,15 @@ export async function writeAdaSiteFindings(siteAuditId: string): Promise<void> {
     // SAME child here, in the finalizer, and in compareAdaParity.
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   })
+  // A2-f1 guard: a complete child with a null result blob can only mean the
+  // 90-d blob prune ran (the finalizer never persists a complete child without
+  // its blob). Rebuilding from null yields an empty run, and the writer's
+  // delete-and-recreate would then silently clobber the canonical findings
+  // tables — the record of record for pruned audits. Refuse. (Errored/redirected
+  // children are legitimately blobless and are NOT the pruned signature.)
+  if (children.some((c) => c.status === 'complete' && !c.result)) {
+    throw new Error(`site audit ${siteAuditId}: child result blobs were pruned (90-d archive) — cannot rebuild. Findings rows are the canonical record now.`)
+  }
   await writeFindingsRun(mapAdaChildren(parent, children))
 }
 
@@ -47,6 +56,15 @@ export async function writeAdaSingleFindings(adaAuditId: string): Promise<void> 
   }
   if (audit.status !== 'complete' && audit.status !== 'redirected') {
     throw new Error(`ada audit ${adaAuditId} is not complete/redirected (status: ${audit.status})`)
+  }
+  // A2-f1 guard: mirrors the Session branch in scripts/findings-rebuild.ts. A
+  // complete audit with a null result blob means the 90-d prune ran; rebuilding
+  // from null produces an empty run that the writer's delete-and-recreate would
+  // clobber the canonical findings with. Refuse. (A 'redirected' audit is
+  // legitimately blobless — the status check above already let it through, and
+  // it is not gated here.)
+  if (audit.status === 'complete' && !audit.result) {
+    throw new Error(`ada audit ${adaAuditId}: result blob was pruned (90-d archive) — cannot rebuild. Findings rows are the canonical record now.`)
   }
   await writeFindingsRun(mapAdaSingle(audit))
 }
