@@ -6,6 +6,13 @@
 // missing/zero depth, or (b) skip thin content when no thin issue object exists.
 // The live audit has no crawl graph, so crawl-depth and broken-link factors are
 // never part of the denominator. Pure: all inputs are passed in by the builder.
+//
+// C8: threads the operator-configurable ScoringWeights profile (see
+// lib/scoring/weights.ts) and returns a ScoreResult (score + per-factor
+// breakdown) instead of a bare number, mirroring computeHealthScore's shape.
+
+import type { ScoreBreakdownFactor, ScoreResult, ScoringWeights } from '@/lib/scoring/weights'
+import { WEIGHT_LABELS } from '@/lib/scoring/weights'
 
 export interface LiveScoreInputs {
   attempted: number        // SiteAudit.pagesTotal (discovered/attempted)
@@ -25,51 +32,63 @@ function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v))
 }
 
-export function scoreLiveSeo(inp: LiveScoreInputs): number | null {
+export function scoreLiveSeo(inp: LiveScoreInputs, weights: ScoringWeights): ScoreResult {
   // Null-guard: not enough to produce an honest number.
-  if (inp.attempted <= 0) return null
-  if (inp.observed / inp.attempted < MIN_OBSERVED_COVERAGE) return null
-  if (inp.indexableScored <= 0) return null // no indexable content → unscoreable
+  if (inp.attempted <= 0) return { score: null, factors: [] }
+  if (inp.observed / inp.attempted < MIN_OBSERVED_COVERAGE) return { score: null, factors: [] }
+  if (inp.indexableScored <= 0) return { score: null, factors: [] } // no indexable content → unscoreable
 
   const base = inp.indexableScored
   const observed = inp.observed
-  const factors: Array<[number, number]> = [] // [earned, possible]
 
-  // Indexability ratio (20) — observed HTML pages that are indexable.
-  {
+  let earned = 0
+  let possible = 0
+  const factors: ScoreBreakdownFactor[] = []
+
+  const addFactor = (key: keyof ScoringWeights, pts: number): void => {
+    const weight = weights[key]
+    const e = clamp(pts, 0, weight)
+    earned += e
+    possible += weight
+    factors.push({ key, label: WEIGHT_LABELS[key], weight, earned: e, possible: weight })
+  }
+
+  // Indexability ratio — observed HTML pages that are indexable.
+  if (weights.indexability > 0) {
     const ratio = inp.indexableScored / observed
-    const pts = ratio >= 0.95 ? 20 : (ratio / 0.95) * 20
-    factors.push([clamp(pts, 0, 20), 20])
+    const pts = ratio >= 0.95 ? weights.indexability : (ratio / 0.95) * weights.indexability
+    addFactor('indexability', pts)
   }
-  // Error rate (20) — full if < 1%, linear to 0 at 100%.
-  {
+  // Error rate — full if < 1%, linear to 0 at 100%.
+  if (weights.errorRate > 0) {
     const errorRate = inp.pagesError / inp.attempted
-    const pts = errorRate < 0.01 ? 20 : Math.max(0, 20 - errorRate * 20)
-    factors.push([clamp(pts, 0, 20), 20])
+    const pts = errorRate < 0.01 ? weights.errorRate : Math.max(0, weights.errorRate - errorRate * weights.errorRate)
+    addFactor('errorRate', pts)
   }
-  // Missing title (10) / meta (8) / H1 (7) — over the indexable base.
-  const missing = (count: number, weight: number) => {
+  // Missing title / meta / H1 — over the indexable base.
+  const missing = (key: keyof ScoringWeights, count: number): void => {
+    const weight = weights[key]
+    if (weight <= 0) return
     const pts = weight * (1 - Math.min(1, count / base))
-    factors.push([clamp(pts, 0, weight), weight])
+    addFactor(key, pts)
   }
-  missing(inp.missingTitle, 10)
-  missing(inp.missingMeta, 8)
-  missing(inp.missingH1, 7)
-  // Thin content (10) — full if < 5%, 0 if > 40%, linear between.
-  {
+  missing('missingTitle', inp.missingTitle)
+  missing('missingMeta', inp.missingMeta)
+  missing('missingH1', inp.missingH1)
+  // Thin content — full if < 5%, 0 if > 40%, linear between.
+  if (weights.thinContent > 0) {
     const ratio = inp.thin / base
-    const pts = ratio < 0.05 ? 10 : ratio > 0.4 ? 0 : 10 * (1 - (ratio - 0.05) / 0.35)
-    factors.push([clamp(pts, 0, 10), 10])
+    const pts = ratio < 0.05 ? weights.thinContent : ratio > 0.4 ? 0 : weights.thinContent * (1 - (ratio - 0.05) / 0.35)
+    addFactor('thinContent', pts)
   }
-  // Schema coverage (10) — full at >= 30% of observed.
-  {
+  // Schema coverage — full at >= 30% of observed.
+  if (weights.schema > 0) {
     const ratio = inp.pagesWithSchema / observed
-    const pts = ratio >= 0.3 ? 10 : (ratio / 0.3) * 10
-    factors.push([clamp(pts, 0, 10), 10])
+    const pts = ratio >= 0.3 ? weights.schema : (ratio / 0.3) * weights.schema
+    addFactor('schema', pts)
   }
+  // NOTE: crawlDepth is intentionally NEVER included — live SEO has no crawl graph.
 
-  const earned = factors.reduce((a, [e]) => a + e, 0)
-  const possible = factors.reduce((a, [, p]) => a + p, 0)
-  if (possible === 0) return null
-  return clamp(Math.round((earned / possible) * 100), 0, 100)
+  if (possible === 0) return { score: null, factors }
+  return { score: clamp(Math.round((earned / possible) * 100), 0, 100), factors }
 }
