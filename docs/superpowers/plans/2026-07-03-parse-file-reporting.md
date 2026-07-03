@@ -17,7 +17,7 @@
 - **UI class:** every new element carries dark-mode `dark:` variants (map `bg-white`→`dark:bg-navy-card`, `text-gray-*`→`dark:text-white/*`, `border-gray-*`→`dark:border-navy-border`, status colors→`dark:bg-{color}-500/{opacity}`). No hydration-mismatch patterns.
 - **`tsconfig.json` EXCLUDES `*.test.ts(x)` from `tsc`** — a test calling a changed signature passes `npm run lint` but fails at runtime. After any signature change, run the FULL suite.
 - **Test DB prefix:** run vitest as `DATABASE_URL="file:./local-dev.db" npm test`.
-- **vitest module mocks** must use `vi.hoisted(() => ({...}))` when the factory references outer vars. **No global RTL auto-cleanup** — React render tests need `afterEach(cleanup)` + the `// @vitest-environment jsdom` pragma.
+- **vitest module mocks:** this file (`route.test.ts`) uses the established `const mock = vi.fn()` + lambda-indirection pattern (`fn: (...a) => mock(...a)`). That pattern is safe WITHOUT `vi.hoisted` because the outer handle is only dereferenced when the lambda is *called* (test-run time), never at factory-eval (hoist) time — the existing passing gate tests prove this. Follow the SAME pattern for new handles; do NOT introduce `vi.hoisted` (it would force converting the existing working mocks). Self-contained factories (aggregator/session-page-builder/seo-write, which reference no outer vars) are fine as-is. **No global RTL auto-cleanup** — React render tests need `afterEach(cleanup)` + the `// @vitest-environment jsdom` pragma.
 - **`isCoreExport` severity rule:** core-severity iff filename matches ≥1 `tier:'core'` expected export AND matches 0 non-core expected exports (suppresses `response_codes` redirect-variant false positives).
 - Commit after every task. End commit messages with the repo's Co-Authored-By + Claude-Session trailers.
 
@@ -35,11 +35,9 @@
 
 - [ ] **Step 1: Write the failing test for `isCoreExport`**
 
-Append to `lib/parsers/expected-exports.test.ts`:
+In `lib/parsers/expected-exports.test.ts`, ADD `isCoreExport` to the existing named import (do NOT add a second import line) — it currently reads `import { EXPECTED_EXPORTS, matchExpectedExports, missingCoreExports } from './expected-exports';`, change to include `isCoreExport`. Then append the describe block:
 
 ```ts
-import { isCoreExport } from './expected-exports';
-
 describe('isCoreExport', () => {
   it('is true for the two score-critical core exports', () => {
     expect(isCoreExport('internal_all.csv')).toBe(true);
@@ -61,7 +59,7 @@ describe('isCoreExport', () => {
 });
 ```
 
-Note: `expected-exports.test.ts` already `import`s from `vitest`; if the top-level `import { describe, it, expect } from 'vitest'` is missing, add it. Reuse the existing import if present.
+Note: `expected-exports.test.ts` already imports `{ describe, it, expect }` from `vitest` — reuse it, do not re-import.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -157,15 +155,14 @@ Claude-Session: https://claude.ai/code/session_0164SKzWEYXkt5NnRXUNZKvY"
 
 - [ ] **Step 1: Write the failing route test**
 
-Append to `app/api/parse/[sessionId]/route.test.ts`. This test drives the real parse loop with a mocked parser resolver and real on-disk files. Add these mocks at the TOP of the file alongside the existing ones (extend, do not duplicate the existing `vi.mock('@/lib/db', ...)` — add the extra prisma methods to it):
+This test drives the real parse loop with a mocked parser resolver and real on-disk files. **Modify the file's EXISTING mocks in place — do NOT add duplicate `vi.mock` calls for `@/lib/db` or `@/lib/services/aggregator.service` (duplicates for the same module make the effective factory ambiguous and break on hoisting).**
+
+**(i) Replace** the existing `vi.mock('@/lib/db', ...)` (currently only `session.findUnique`/`updateMany`) with this fuller version, and add the new handle consts next to the existing `sessionFindUniqueMock`/`sessionUpdateManyMock` (same lambda-indirection pattern — no `vi.hoisted`):
 
 ```ts
-// --- extend the existing '@/lib/db' mock to cover the full parse path ---
-// The existing mock only stubs session.findUnique/updateMany. Add:
-//   session.update, client.findMany, $transaction, sessionPage.deleteMany
-// (Replace the existing vi.mock('@/lib/db', ...) with this fuller version.)
 const sessionUpdateMock = vi.fn().mockResolvedValue({});
 const clientFindManyMock = vi.fn().mockResolvedValue([]);
+const sessionPageDeleteManyMock = vi.fn().mockResolvedValue({});
 const txMock = vi.fn().mockResolvedValue([]);
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -175,12 +172,15 @@ vi.mock('@/lib/db', () => ({
       update: (...a: unknown[]) => sessionUpdateMock(...a),
     },
     client: { findMany: (...a: unknown[]) => clientFindManyMock(...a) },
-    sessionPage: { deleteMany: vi.fn().mockResolvedValue({}) },
+    sessionPage: { deleteMany: (...a: unknown[]) => sessionPageDeleteManyMock(...a) },
     $transaction: (...a: unknown[]) => txMock(...a),
   },
 }));
+```
 
-// Real aggregator is heavy; stub it to a minimal valid result skeleton.
+**(ii) Replace** the existing `vi.mock('@/lib/services/aggregator.service', () => ({ AggregatorService: class {} }))` with a fuller stub whose `aggregate()` returns a minimal valid result skeleton (the existing gate tests return before `aggregate()` is reached, so this stays compatible):
+
+```ts
 vi.mock('@/lib/services/aggregator.service', () => ({
   AggregatorService: class {
     addParserResult() {}
@@ -194,6 +194,17 @@ vi.mock('@/lib/services/aggregator.service', () => ({
     }
   },
 }));
+```
+
+**(iii) Change** the existing `vi.mock('../pillar-analysis-trigger', () => ({ triggerPillarAnalysis: vi.fn() }))` so the trigger returns a PROMISE — the success path calls `triggerPillarAnalysis(sessionId).catch(...)`, and a bare `vi.fn()` returns `undefined`, so `.catch` throws → the new success test would 500:
+
+```ts
+vi.mock('../pillar-analysis-trigger', () => ({ triggerPillarAnalysis: vi.fn().mockResolvedValue(undefined) }));
+```
+
+**(iv) Add** these new mocks (self-contained, no outer-var references):
+
+```ts
 vi.mock('@/lib/services/session-page-builder', () => ({
   buildSessionPages: () => ({
     scalars: { siteHost: null, totalUrls: 0, criticalCount: 0, warningCount: 0, noticeCount: 0 },
@@ -201,8 +212,7 @@ vi.mock('@/lib/services/session-page-builder', () => ({
 }));
 vi.mock('@/lib/findings/seo-write', () => ({ writeSeoFindings: vi.fn().mockResolvedValue(undefined) }));
 
-// Control parser resolution per-filename. A "throwing" parser => failed;
-// a "good" parser => parsed; null => unmatched.
+// Control parser resolution per-filename: throwing parser => failed; good => parsed; null => unmatched.
 const findParserForFileMock = vi.fn();
 vi.mock('@/lib/parsers', () => ({
   findParserForFile: (...a: unknown[]) => findParserForFileMock(...a),
@@ -297,14 +307,14 @@ Expected: FAIL — `file_reports` is `undefined` (route still uses the string `e
 
 - [ ] **Step 3: Refactor `parseFile` and the loop in the route**
 
-In `app/api/parse/[sessionId]/route.ts`, add the import (top of file):
+In `app/api/parse/[sessionId]/route.ts`, the route ALREADY imports `missingCoreExports` from `@/lib/parsers/expected-exports` — extend that existing import to add `isCoreExport` (do NOT add a duplicate import line). Also add the type import:
 
 ```ts
-import { isCoreExport } from '@/lib/parsers/expected-exports';
+import { missingCoreExports, isCoreExport } from '@/lib/parsers/expected-exports';
 import type { FileReport } from '@/lib/types';
 ```
 
-Replace the block from `const aggregator = new AggregatorService();` through the `result.metadata.parsers_used = ...` / `parsing_errors` attach (current lines ~104-170) with:
+Replace the block from `const aggregator = new AggregatorService();` through the **end of the primary-domain tally loop** (current lines ~104-186 — i.e. the `parseFile` closure, the `parseResults` loop, the aggregate call, the `parsing_errors` attach, AND the domain-tally loop that iterates `parseResults`). Everything AFTER that (the first-issue-URL `site_name` fallback, the client-domain match, `buildSessionPages`, the `$transaction`, `writeSeoFindings`, the pillar trigger, the `return`) stays UNCHANGED. The replacement:
 
 ```ts
     const aggregator = new AggregatorService();
@@ -383,7 +393,7 @@ Replace the block from `const aggregator = new AggregatorService();` through the
     result.metadata.file_reports = reports;
 ```
 
-Then update the primary-domain detection loop below it to iterate `successes` instead of the old `parseResults`:
+…immediately followed (same contiguous replacement region) by the rewritten primary-domain tally loop that iterates `successes` instead of the deleted `parseResults`:
 
 ```ts
     if (!result.metadata.site_name) {
@@ -399,7 +409,7 @@ Then update the primary-domain detection loop below it to iterate `successes` in
     }
 ```
 
-Delete the old `errors`, `parseFile`, `parseResults`, and the `if (errors.length > 0) { ...parsing_errors... }` block entirely. Leave the rest of the route (client match, `$transaction`, `writeSeoFindings`, pillar trigger) unchanged.
+The two code blocks above together replace lines ~104-186. This deletes the old `errors` array, the `parseFile` closure, the `parseResults` array, the `if (errors.length > 0) { ...parsing_errors... }` block, and the old `parseResults`-based domain loop. Everything below line ~186 (the first-issue-URL `site_name` fallback onward) is untouched.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -434,11 +444,11 @@ Claude-Session: https://claude.ai/code/session_0164SKzWEYXkt5NnRXUNZKvY"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `lib/parsers/claude-export-builder.test.ts` (inside the existing top-level `describe`, or a new one). Build a minimal result with `file_reports` on metadata and assert it is stripped. Reuse the file's existing fixture/builder if present; otherwise:
+Append to `lib/parsers/claude-export-builder.test.ts` (inside the existing top-level `describe`, or a new one). The exported function is **`buildTechnicalAuditExport`** (verified — NOT `buildClaudeExport`); import it exactly as the existing test does. Build a minimal result with `file_reports` on metadata and assert it is stripped:
 
 ```ts
 it('omits file_reports (and health_score) from the Claude export metadata', () => {
-  const result = buildClaudeExport({
+  const result = buildTechnicalAuditExport({
     crawl_summary: {}, issues: { critical: [], warnings: [], notices: [] },
     site_structure: {}, resources: {}, technical_seo: {}, performance: {},
     recommendations: [],
@@ -454,7 +464,7 @@ it('omits file_reports (and health_score) from the Claude export metadata', () =
 });
 ```
 
-Match the actual exported function name in `claude-export-builder.ts` (verify it is `buildClaudeExport`; if different, use the real name).
+(`buildTechnicalAuditExport` returns a `TechnicalAuditExport`; assert on `result.metadata` as shown.)
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -691,11 +701,41 @@ Claude-Session: https://claude.ai/code/session_0164SKzWEYXkt5NnRXUNZKvY"
 
 **Files:**
 - Modify: `components/seo-parser/ResultsView.tsx` (import + render the panel in the header area; remove the "Debug info" `<details>` footer)
+- Test: `components/seo-parser/ResultsView.archived.test.tsx` (extend — add one wiring case)
 
 **Interfaces:**
 - Consumes: `FileProcessingPanel` (Task 4).
 
-- [ ] **Step 1: Import the panel**
+- [ ] **Step 1: Write the failing wiring test**
+
+Append a case to the existing `describe('ResultsView archived mode', ...)` in `components/seo-parser/ResultsView.archived.test.tsx` (it already mocks `next/navigation` + `next/dynamic`, has `afterEach(cleanup)`, `render`, `screen`). Add a NON-archived result carrying `file_reports` and assert the panel renders and the old debug footer is gone:
+
+```tsx
+it('renders the file-processing panel (not the debug footer) for a fresh result with file_reports', () => {
+  const fresh: AggregatedResult = {
+    ...archivedResult,
+    archived: false,
+    metadata: {
+      files_processed: ['internal_all.csv'], parsers_used: ['internal'], total_parsers_available: 40,
+      site_name: 'x.test',
+      file_reports: [
+        { filename: 'internal_all.csv', status: 'failed', severity: 'core', error: 'boom' },
+      ],
+    },
+  };
+  render(<ResultsView result={fresh} sessionId="00000000-0000-4000-8000-000000000000" />);
+  expect(screen.getByText(/File processing:/)).toBeTruthy();
+  expect(screen.queryByText('Debug info')).toBeNull(); // footer removed
+  expect(screen.getByText(/unreliable/i)).toBeTruthy(); // core-failure banner
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/seo-parser/ResultsView.archived.test.tsx`
+Expected: FAIL — panel not wired yet; "Debug info" still present.
+
+- [ ] **Step 3: Import the panel**
 
 At the top of `components/seo-parser/ResultsView.tsx`, add:
 
@@ -703,7 +743,7 @@ At the top of `components/seo-parser/ResultsView.tsx`, add:
 import { FileProcessingPanel } from './FileProcessingPanel';
 ```
 
-- [ ] **Step 2: Replace the header summary `<p>` with the panel**
+- [ ] **Step 4: Replace the header summary `<p>` with the panel**
 
 In the header block, replace the existing summary paragraph:
 
@@ -736,7 +776,7 @@ with:
             )}
 ```
 
-- [ ] **Step 3: Remove the redundant "Debug info" footer**
+- [ ] **Step 5: Remove the redundant "Debug info" footer**
 
 Delete this block (the parsers-used debug `<details>`, ~lines 206-211):
 
@@ -752,15 +792,15 @@ Delete this block (the parsers-used debug `<details>`, ~lines 206-211):
 
 (The parsers-used info now lives in the panel's parsed rows.)
 
-- [ ] **Step 4: Verify lint + build**
+- [ ] **Step 6: Run the wiring test + lint**
 
-Run: `npm run lint`
-Expected: PASS.
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/seo-parser/ResultsView.archived.test.tsx && npm run lint`
+Expected: PASS (wiring test green, tsc clean).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add components/seo-parser/ResultsView.tsx
+git add components/seo-parser/ResultsView.tsx components/seo-parser/ResultsView.archived.test.tsx
 git commit -m "feat(c7): render FileProcessingPanel in results, drop debug footer
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
