@@ -249,6 +249,19 @@ export interface Recommendation {
   sampleUrls?: string[];
 }
 
+export type FileReportStatus = 'parsed' | 'failed' | 'unmatched' | 'skipped';
+export type FileReportSeverity = 'core' | 'normal' | 'info';
+
+export interface FileReport {
+  filename: string;
+  status: FileReportStatus;
+  /** parser key, present when status === 'parsed' */
+  parser?: string;
+  /** failure message, present when status === 'failed' */
+  error?: string;
+  severity: FileReportSeverity;
+}
+
 export interface AggregatedResult {
   crawl_summary: CrawlSummary;
   issues: IssuesResult;
@@ -266,6 +279,8 @@ export interface AggregatedResult {
     total_parsers_available: number;
     site_name?: string;
     health_score?: number;
+    /** Per-file parse outcomes (display-only). Absent on pre-2026-07 sessions and on archived (pruned-blob) fallbacks. */
+    file_reports?: FileReport[];
   };
   url_registry?: UrlRegistry;
   page_index?: PageIndexEntry[];

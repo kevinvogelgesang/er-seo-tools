@@ -151,3 +151,19 @@ export function missingCoreExports(filenames: string[]): ExpectedExport[] {
     .filter((c) => c.export.tier === 'core' && !c.present)
     .map((c) => c.export);
 }
+
+/**
+ * True when the filename maps to a tier:'core' expected export and does NOT also
+ * match a non-core (recommended/optional) export. The second clause suppresses
+ * false positives from the broad core `response_codes` pattern, which otherwise
+ * swallows the optional redirect exports (response_codes_internal_redirect_chain,
+ * response_codes_redirection_(3xx)). Used for parse-failure SEVERITY only — it is
+ * intentionally narrower than the presence-tolerant missingCoreExports gate.
+ */
+export function isCoreExport(filename: string): boolean {
+  const matches = matchExpectedExports([filename]).filter((c) => c.present);
+  if (matches.length === 0) return false;
+  const hasCore = matches.some((c) => c.export.tier === 'core');
+  const hasNonCore = matches.some((c) => c.export.tier !== 'core');
+  return hasCore && !hasNonCore;
+}

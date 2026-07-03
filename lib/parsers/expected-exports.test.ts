@@ -3,6 +3,7 @@ import {
   EXPECTED_EXPORTS,
   matchExpectedExports,
   missingCoreExports,
+  isCoreExport,
 } from './expected-exports';
 
 describe('expected-exports manifest', () => {
@@ -36,5 +37,25 @@ describe('expected-exports manifest', () => {
       if (e.notExpectedFromSf) continue;
       expect(e.sfInstructions.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('isCoreExport', () => {
+  it('is true for the two score-critical core exports', () => {
+    expect(isCoreExport('internal_all.csv')).toBe(true);
+    expect(isCoreExport('response_codes.csv')).toBe(true);
+    expect(isCoreExport('response_codes_internal_all.csv')).toBe(true);
+  });
+
+  it('is false for redirect variants that also substring-match the core response_codes pattern', () => {
+    // These match core `response_codes` AND an optional export → demoted to non-core.
+    expect(isCoreExport('response_codes_internal_redirect_chain.csv')).toBe(false);
+    expect(isCoreExport('response_codes_redirection_(3xx).csv')).toBe(false);
+  });
+
+  it('is false for recommended/optional and unrecognized exports', () => {
+    expect(isCoreExport('page_titles_all.csv')).toBe(false);
+    expect(isCoreExport('images_missing_alt_text.csv')).toBe(false);
+    expect(isCoreExport('totally_unknown_file.csv')).toBe(false);
   });
 });
