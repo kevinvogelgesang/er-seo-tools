@@ -49,6 +49,9 @@ export default async function ResultsPage({ params }: Props) {
     notFound();
   }
 
+  // C8: persisted score + breakdown for the score explanation panel.
+  const run = await prisma.crawlRun.findFirst({ where: { sessionId, tool: 'seo-parser' }, select: { score: true, scoreBreakdown: true } });
+
   // Parsing not yet complete — show a waiting screen
   if (session.status !== 'complete') {
     return (
@@ -104,6 +107,8 @@ export default async function ResultsPage({ params }: Props) {
     <ResultsView
       result={result}
       sessionId={sessionId}
+      healthScore={run?.score ?? null}
+      scoreBreakdown={run?.scoreBreakdown ?? null}
       pillarButton={result.archived ? undefined : <PillarAnalysisButton sessionId={sessionId} />}
       roadmap={
         result.archived ? undefined : (
