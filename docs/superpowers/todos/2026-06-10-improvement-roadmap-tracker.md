@@ -64,7 +64,7 @@ Spine items — everything else depends on these two:
 
 Interleave as needed (not blockers):
 
-- [~] A2-f1 (follow-up, added 2026-07-02). **Guard `scripts/findings-rebuild.ts` against pruned ADA blobs** — the Session branch refuses a pruned blob (`findings-rebuild.ts:44-46`) but the SiteAudit/AdaAudit branches have no guard: on a 90-d-pruned ADA row, `parseAxe(null)` yields empty pages and the delete-and-recreate writer silently replaces the canonical findings tables with an empty run. ~5-line guard mirroring the Session check. Found by the 2026-07-02 skill-library factual review; warning documented in `.claude/skills/er-seo-tools-proof-and-analysis-toolkit` until fixed. (hours) — **BUILT + PR #88 (2026-07-02).** Guard placed in `lib/findings/ada-write.ts` (both `writeAdaSiteFindings` + `writeAdaSingleFindings`), NOT the script — defends the rebuild script AND the live standalone dual-write hook. Pruned signature = `status='complete'` audit/child with null `result` (finalizer never persists a complete audit without its blob); errored/redirected audits stay ungated. 2 DB-backed tests (refuse + no-clobber, site + standalone). Gate-green. Awaiting Kevin merge/deploy/prod-verify.
+- [x] A2-f1 (follow-up, added 2026-07-02). **Guard `scripts/findings-rebuild.ts` against pruned ADA blobs** — the Session branch refuses a pruned blob (`findings-rebuild.ts:44-46`) but the SiteAudit/AdaAudit branches have no guard: on a 90-d-pruned ADA row, `parseAxe(null)` yields empty pages and the delete-and-recreate writer silently replaces the canonical findings tables with an empty run. ~5-line guard mirroring the Session check. Found by the 2026-07-02 skill-library factual review; warning documented in `.claude/skills/er-seo-tools-proof-and-analysis-toolkit` until fixed. (hours) — **BUILT + PR #88 (2026-07-02).** Guard placed in `lib/findings/ada-write.ts` (both `writeAdaSiteFindings` + `writeAdaSingleFindings`), NOT the script — defends the rebuild script AND the live standalone dual-write hook. Pruned signature = `status='complete'` audit/child with null `result` (finalizer never persists a complete audit without its blob); errored/redirected audits stay ungated. 2 DB-backed tests (refuse + no-clobber, site + standalone). Gate-green. **MERGED (PR #88, main `92d10e3`) + DEPLOYED (2026-07-02, code-only `~/deploy.sh`, no migration) + PROD-VERIFIED to the extent possible: deployed guard source present in `lib/findings/ada-write.ts` (both throw sites), clean boot, app online. Behavioral rebuild-refuses check DEFERRED — prod has zero pruned targets (0 `complete`+null-`result` AdaAudit, 0 `complete`+null-`summary` SiteAudit; oldest complete ADA audit is 41 d old, prune fires at 90 d), and forcing one would mutate prod; the guard is correctly inert until the first pruned-audit rebuild (~2026-08+). Behavioral correctness covered by the 2 gate-green DB tests. A2-f1 COMPLETE.**
 - [ ] A3. API route kit (`withRoute()` wrapper) + tests for the 14 untested routes (1 wk)
 - [ ] A4. Observability floor: `/api/health`, pino logging, `/admin/ops` page (0.5–1 wk)
 - [ ] A5. Shared status hook → optional SSE notification layer (0.5 wk)
@@ -238,7 +238,20 @@ Interleave as needed (not blockers):
 
 ## Status log
 
-- 2026-07-02 (latest, A2-f1 built) — **A2-f1 BUILT + PR #88 (`fix/a2-f1-rebuild-pruned-ada-guard`).**
+- 2026-07-02 (latest, A2-f1 verified) — **A2-f1 MERGED + DEPLOYED + PROD-VERIFIED. A2-f1 COMPLETE.**
+  PR #88 merged to main (`92d10e3`); deployed with plain `~/deploy.sh` (code-only, 2 files,
+  no schema/env/ecosystem change → no `pm2 delete/start`, "No pending migrations to apply").
+  Prod moved `6f1c45f`→`92d10e3`, app online (restart counter 0), clean boot (only the
+  informational `CHROMIUM_NETWORK_ISOLATED` startup advisory). Verified the deployed guard
+  source is present in `lib/findings/ada-write.ts` (both throw sites, lines 39 + 67).
+  **Behavioral rebuild-refuses check DEFERRED (authorized in the handoff):** a read-only prod
+  query shows 0 pruned targets (0 `complete`+null-`result` AdaAudit, 0 `complete`+null-`summary`
+  SiteAudit; oldest complete ADA audit 41 d old, prune at 90 d), and forcing one would mutate
+  prod — the guard is correctly INERT until the first pruned-audit rebuild (~2026-08+).
+  Behavioral correctness stands on the 2 gate-green DB tests. **Roadmap choice = C8 (Kevin):
+  configurable scoring/priority weights + score-explanation panel. Next: C8 feature pipeline
+  (brainstorm → spec → Codex → plan → Codex → TDD → gates → PR).**
+- 2026-07-02 (A2-f1 built) — **A2-f1 BUILT + PR #88 (`fix/a2-f1-rebuild-pruned-ada-guard`).**
   Roadmap choice = A2-f1 (Kevin). Small-bugfix pipeline (TDD): two DB-backed failing
   tests first (rebuild a pruned site audit / pruned standalone → must refuse AND leave
   the canonical `Finding`/`Violation` rows intact) — both went RED on current code
