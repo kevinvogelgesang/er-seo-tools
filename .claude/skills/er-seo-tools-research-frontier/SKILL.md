@@ -36,7 +36,7 @@ feature you can't find in the code.
 
 | Rule | Source |
 |---|---|
-| No deploy, no SSH mutation, no merge to main without Kevin's explicit go in-conversation | Owner ruling |
+| Merge + deploy autonomous when gate-green (verify + report after); destructive server ops Kevin-gated | Owner ruling 2026-07-03 — canonical in `er-seo-tools-change-control` rule 1 |
 | Spec/plan through Codex review before implementation; tracker + handoff updated in the same commit | Project CLAUDE.md handoff protocol |
 | Never scan third-party sites casually — client sites or domains you control only | Owner ruling |
 | No Anthropic API features until the billing gate opens | CLAUDE.md "Do not" list |
@@ -197,7 +197,7 @@ and estimates cost at single-digit dollars/month at current memo volume.
 **First three steps in this repo:**
 1. Force the decision, don't drift (the 03-doc's own warning): put the billing question to Kevin with the cost estimate; the outcome is either "gate opens" or "clipboard handoff is the committed permanent transport". Record it on the tracker's gated-decision line.
 2. If the gate opens: spec the memo job per the 03-doc sketch (queue job type, memo versions stored relationally, prompt templates versioned in-repo, handoff fallback preserved); Codex review.
-3. TDD entirely against a mocked Anthropic client; the only live-API step is a final smoke, and deploy stays Kevin-gated as always.
+3. TDD entirely against a mocked Anthropic client; the only live-API step is a final smoke, and the deploy follows the standard gate-green pipeline.
 
 **You have a result when:** an analyst clicks "Generate memo" on a run and
 gets an editable draft in the dashboard with no external Claude session — while

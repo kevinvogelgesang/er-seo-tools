@@ -51,12 +51,15 @@ Do NOT use it for:
 Each phase ≥1 is a full change-control cycle — no shortcuts:
 spec → Codex review → plan → Codex review → subagent TDD build → gates
 (`npm run lint` + `DATABASE_URL="file:./local-dev.db" npm test` + `npm run build`)
-→ PR → **Kevin merges/deploys** → prod verification → tracker checkbox +
-status-log line + handoff rewrite in the same commit + paste-in prompt in the
-final reply. See `er-seo-tools-change-control`. Three owner rules are absolute:
+→ PR → **merge once gate-green → deploy when needed** (autonomous per the
+2026-07-03 ruling — `er-seo-tools-change-control` rule 1) → prod verification →
+tracker checkbox + status-log line + handoff rewrite in the same commit +
+paste-in prompt in the final reply. The owner rules that remain absolute:
 
-1. **No merge to main, no `~/deploy.sh`, no SSH mutation without Kevin's
-   explicit go in the current conversation.** Push branches and open PRs; stop there.
+1. **Merge/deploy autonomy is conditional:** gates re-run green in this session,
+   post-deploy verification immediately after every deploy, outcome reported.
+   Destructive server ops (deleting prod data, server `.env` edits, DB restore)
+   stay Kevin-gated in the current conversation.
 2. **Never scan third-party sites.** Live scans, audits, and broken-link
    verification fetch real external websites. Only client sites already in the
    system (or domains you control). The canary (proway.erstaging.site) is the
@@ -117,13 +120,15 @@ npm run build                                       # heap flag baked into the s
 - Any other failure → STOP, branch to `er-seo-tools-debugging-playbook`; do not
   present a red branch to Kevin.
 
-### Gate 0.2 — Kevin gate (hard stop)
+### Gate 0.2 — merge + deploy (autonomous when Gate 0.1 is green)
 
-Open the PR (`feat/autonomous-live-seo-source` → `main`), summarize the gate
-output, and **wait for Kevin's explicit go** before merging. Deploy is Kevin
-(or Kevin-approved): `git push` first, then `ssh seo@144.126.213.242 "~/deploy.sh"`
-(server pulls from GitHub; `prisma migrate deploy` applies
-`20260630120000_live_seo_source` automatically).
+Open the PR (`feat/autonomous-live-seo-source` → `main`), record the gate
+output in the PR body, and merge (2026-07-03 ruling — a pasted roadmap
+continuation prompt is standing authorization; gates must be green in THIS
+session). Then deploy: `git push` first, then
+`ssh seo@144.126.213.242 "~/deploy.sh"` (server pulls from GitHub;
+`prisma migrate deploy` applies `20260630120000_live_seo_source`
+automatically). Gate 0.3 verification is mandatory immediately after.
 
 **Expected after deploy:** PM2 restart clean, no migration errors in
 `/home/seo/logs/`. If the migration fails → the `PillarAnalysis` table-rebuild
@@ -202,10 +207,11 @@ Pillar: `runForCanonical` (`lib/services/pillarAnalysis/runFromSession.ts`) has
 `npx tsx -e` calling `runForCanonical({ clientId, domain })` from the app dir,
 then open `/pillar-analysis/<analysisId>` (poll path
 `/api/pillar-analysis/by-analysis/<analysisId>` serves run-keyed analyses).
-**On prod this is Kevin-gated:** `runForCanonical` PERSISTS a PillarAnalysis
-row (commit `5d3454a`), so the tsx invocation is a prod-DB write — hand Kevin
-the exact command, or smoke it in dev against a DB copy instead. (Steps 1–4
-above are reads; this step is not.)
+**Prod note:** `runForCanonical` PERSISTS a PillarAnalysis row (commit
+`5d3454a`) — a prod-DB write. Under the 2026-07-03 ruling this benign
+single-row write is allowed autonomously as part of this documented
+verification runbook; report that you ran it. (Steps 1–4 above are reads;
+this step is not.)
 
 **Failure branches:**
 

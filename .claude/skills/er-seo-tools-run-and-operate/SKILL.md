@@ -7,18 +7,27 @@ description: Use when deploying er-seo-tools, touching the production server, or
 
 ## Overview
 
-One production system: a single PM2-managed Node 22 process on one RunCloud VPS, SQLite on disk, Chrome for audits, Cloudflare + NGINX in front. Deploys pull from GitHub — nothing deploys that isn't pushed. AI sessions **prepare** deploys and inspect prod read-only; **Kevin pulls the trigger**.
+One production system: a single PM2-managed Node 22 process on one RunCloud VPS, SQLite on disk, Chrome for audits, Cloudflare + NGINX in front. Deploys pull from GitHub — nothing deploys that isn't pushed. AI sessions deploy autonomously when gate-green and verify immediately after (2026-07-03 ruling); destructive server ops stay Kevin-gated.
 
-## HARD GATE (owner ruling, 2026-07-02)
+## GATE POLICY (owner ruling 2026-07-02, amended 2026-07-03)
 
-The following require Kevin's explicit go **in the current conversation** — no exceptions, no "it's a small fix":
+Canonical policy: `er-seo-tools-change-control` rule 1. Summary:
 
-- Running `~/deploy.sh` or any deploy variant
-- Merging to `main`
-- Any SSH command that **mutates** the server: `pm2 restart/stop/start/delete`, `sqlite3 ... UPDATE/DELETE`, editing `.env` or `ecosystem.config.js`, `git pull`/`checkout` on the server, installing packages, `pkill`
-- Manual `prisma migrate deploy` / `migrate resolve` on prod
+**Autonomous when gate-green** (lint/test/build re-run in this session):
+- Merging roadmap-pipeline PRs (a pasted "Continue the improvement roadmap"
+  prompt is standing authorization to merge pending ones at session start)
+- Running `~/deploy.sh` when the work needs it — ALWAYS followed immediately by
+  the post-deploy verification checklist below; report the outcome either way
+- Operational recovery: `pm2 restart`, failed-migration `migrate resolve`
+- Benign single-row prod writes that a documented verification runbook requires
+  (e.g. the pillar smoke via `runForCanonical`)
+- Read-only SSH inspection (log tails, `pm2 status`, `sqlite3 SELECT`,
+  `prisma migrate status`, `curl` against the app) — always allowed
 
-AI sessions MAY without the gate: push feature branches, open PRs, and run **read-only** SSH inspection (log tails, `pm2 status`, `sqlite3 SELECT`, `prisma migrate status`, `curl` against the app). See "Read-only prod inspection" below.
+**Still Kevin-gated, current conversation only:** destructive/irreversible ops —
+deleting prod data, `rm -rf`, editing the server `.env`/secrets or
+`ecosystem.config.js` values, DB restore from backup, `pkill`, installing
+packages, force-push — and anything not covered by a documented runbook.
 
 ## When to use / When NOT to use
 
@@ -54,13 +63,13 @@ Cloudflare implications: client IP comes from `CF-Connecting-IP` (used for uploa
 
 ## Deploy protocol
 
-### The two-step (step 2 is Kevin-gated)
+### The two-step (step 2: autonomous when gate-green — see Gate policy)
 
 ```bash
 # 1. AI session: push. The server pulls from GitHub — unpushed commits never deploy.
 git push
 
-# 2. KEVIN ONLY (or Kevin-approved in this conversation):
+# 2. Autonomous when gate-green (2026-07-03 ruling) — verify immediately after:
 ssh seo@144.126.213.242 "~/deploy.sh"
 ```
 
@@ -80,7 +89,7 @@ Observable effects to rely on: code is pulled, deps installed, Prisma client reg
 ### Deploy traps
 
 1. **Never `npm ci` on the server.** RunCloud environments have lockfile drift; `npm ci` fails. Always `npm install` (docs/SERVER_SETUP.md §5.2, CLAUDE.md Do-not).
-2. **Server package-lock drift.** The `npm install` during each deploy leaves small local modifications (~3-line additions) to the server's `package-lock.json`; the next deploy's `git pull` then refuses to overwrite it and the deploy fails at step 1. Documented workaround (server mutation — **Kevin-gated**): `cd /home/seo/webapps/seo-tools && git checkout -- package-lock.json`, then re-run the deploy. Source: `docs/pillar-analysis-handoff.md` ("worth investigating root cause when there's downtime; deploy works fine with the workaround" — that is the accepted state as of 2026-07-02).
+2. **Server package-lock drift.** The `npm install` during each deploy leaves small local modifications (~3-line additions) to the server's `package-lock.json`; the next deploy's `git pull` then refuses to overwrite it and the deploy fails at step 1. Documented workaround (deploy-recovery runbook — autonomous under the 2026-07-03 ruling; it only discards the drifted lockfile): `cd /home/seo/webapps/seo-tools && git checkout -- package-lock.json`, then re-run the deploy. Source: `docs/pillar-analysis-handoff.md` ("worth investigating root cause when there's downtime; deploy works fine with the workaround" — that is the accepted state as of 2026-07-02).
 3. **`pm2 restart` does NOT pick up `ecosystem.config.js` env changes.** Any deploy that changes values in ecosystem.config.js requires `pm2 delete seo-tools && pm2 start ecosystem.config.js` — a plain restart silently runs stale env/config (documented at `docs/superpowers/archive/plans/2026-05-15-lighthouse-pagespeed-provider.md:948` and `2026-05-14-audit-stability.md:722`, which notes even `max_memory_restart` is not re-read by a plain restart). Verify with `pm2 env 0 | grep <VAR>`.
 4. **Startup fail-fast can brick a deploy.** `instrumentation.ts` calls `process.exit(1)` in production if any of these is missing: `PILLAR_TOKEN_SECRET`, auth config (`APP_AUTH_SECRET` + at least one login path), or the Chromium egress guard (`CHROME_PROXY_SERVER` or `CHROMIUM_NETWORK_ISOLATED=true`). Shipping a new required-in-prod env var without first adding it to the server `.env` = PM2 crash-loop after an otherwise clean build. Always call out new required env vars in the PR body.
 5. **New/changed `.env` values must land BEFORE the deploy** — Next.js reads `.env` at process start.
@@ -127,8 +136,8 @@ Log line prefixes worth grepping: `[startup]` (fail-fast refusals), `[shutdown]`
 
 ## Migrations in prod
 
-- **Normal path: automatic.** `prisma migrate deploy` runs inside the deploy, with the app stopped. Local flow stays: edit `prisma/schema.prisma` → `npx prisma migrate dev --name <name>` (if it prompts/hangs in a non-interactive session, hand-author the migration SQL and apply with `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy` — see er-seo-tools-change-control) → commit the migration dir → push → Kevin deploys.
-- **Manual path (Kevin-gated, failed-migration recovery only):**
+- **Normal path: automatic.** `prisma migrate deploy` runs inside the deploy, with the app stopped. Local flow stays: edit `prisma/schema.prisma` → `npx prisma migrate dev --name <name>` (if it prompts/hangs in a non-interactive session, hand-author the migration SQL and apply with `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy` — see er-seo-tools-change-control) → commit the migration dir → push → merge → deploy (autonomous when gate-green).
+- **Manual path (failed-migration recovery only — autonomous under the 2026-07-03 ruling, but report it and check the D0 backup exists first):**
   ```bash
   cd /home/seo/webapps/seo-tools
   DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate status
@@ -151,7 +160,7 @@ Log line prefixes worth grepping: `[startup]` (fail-fast refusals), `[shutdown]`
 
 **What does not survive:** the in-memory upload quota map (resets, by design), in-flight HTTP requests, and any Chrome pages (recreated on demand).
 
-So the first-line fix for "stuck in running" is `pm2 restart seo-tools` (Kevin-gated) — startup recovery does the triage. The same recovery also runs every 10 min via `stale-audit-reset`, so often waiting 10 minutes is enough.
+So the first-line fix for "stuck in running" is `pm2 restart seo-tools` (autonomous under the 2026-07-03 ruling — report that you did it) — startup recovery does the triage. The same recovery also runs every 10 min via `stale-audit-reset`, so often waiting 10 minutes is enough.
 
 ## Scheduled jobs and what retention deletes
 
@@ -198,7 +207,7 @@ Never put ops/infra strings (IPs, SSH commands, paths) in client components — 
 
 ## Post-deploy verification checklist
 
-Run after Kevin deploys (all read-only). Get the app's base URL from `NEXT_PUBLIC_APP_URL` in the server `.env` first — the repo does not record the prod domain.
+Run after EVERY deploy — it is the mandatory second half of an autonomous deploy (all read-only). Get the app's base URL from `NEXT_PUBLIC_APP_URL` in the server `.env` first — the repo does not record the prod domain.
 
 ```bash
 # 1. Process up, restart counter not climbing
@@ -231,7 +240,8 @@ ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite \"SELECT nam
 ## Common mistakes
 
 - Deploying without `git push` first — the server pulls from GitHub; your local commits do nothing.
-- Running `~/deploy.sh`, `pm2 restart`, or a mutating `sqlite3` statement without Kevin's explicit go in the current conversation.
+- Deploying without re-running the gates, or skipping the post-deploy verification checklist afterwards — autonomous deploy (2026-07-03 ruling) is a package deal: gates → deploy → verify → report.
+- Running a mutating `sqlite3` statement, editing the server `.env`, or any destructive op without Kevin's explicit go in the current conversation (those stay gated).
 - `npm ci` on the server (fails on RunCloud lockfile drift).
 - Changing `ecosystem.config.js` env and only `pm2 restart`-ing — stale env; needs `pm2 delete` + `pm2 start`.
 - Shipping a new required-in-prod env var without pre-adding it to the server `.env` — startup fail-fast crash-loops PM2.

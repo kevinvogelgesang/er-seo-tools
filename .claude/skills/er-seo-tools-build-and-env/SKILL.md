@@ -244,10 +244,9 @@ npm run build   # = NODE_OPTIONS='--max-old-space-size=3072' next build
 ## What you CANNOT do locally
 
 - **Deploy or touch prod.** `~/deploy.sh` lives on the server only (its content
-  is not in the repo), and AI sessions never run it, never SSH-mutate the
-  server, and never merge to main without Kevin's explicit go in the current
-  conversation. Push branches and open PRs only. See
-  `er-seo-tools-run-and-operate` and `er-seo-tools-change-control`.
+  is not in the repo). Merge + deploy are autonomous when gate-green under the
+  2026-07-03 ruling, but they belong to `er-seo-tools-run-and-operate` /
+  `er-seo-tools-change-control` (rule 1) — this skill is local-env only.
 - **C10 SEO reports without credentials.** GA4/GSC fetches need a Google
   service-account key file (`GOOGLE_SA_KEY_FILE`) with access to the client's
   properties; without it the reports feature cannot fetch real data.

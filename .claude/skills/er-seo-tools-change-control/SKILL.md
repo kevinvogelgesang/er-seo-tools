@@ -10,9 +10,9 @@ description: "Use when deciding how to land ANY change in er-seo-tools — bugfi
 Every change here is classified into a class, and each class has non-skippable gates.
 The gates exist because this repo's worst bugs were **prod-only and invisible to dev
 and tests** (minification, PM2 memory kills, reverse proxy, build OOM) — so the
-pipeline ends with prod verification, not a green test run. Three things are never
-done without Kevin's explicit go in the current conversation: merging to main,
-deploying, and mutating the server.
+pipeline ends with prod verification, not a green test run. Merge and deploy are
+autonomous when gates are green (owner ruling 2026-07-03 — rule 1 below);
+destructive server operations remain Kevin-gated.
 
 **Jargon, defined once:**
 - **Codex review** — routing a spec/plan/decision through the `consulting-codex`
@@ -37,21 +37,23 @@ handling a "can we skip X just this once" impulse, or proposing an exception.
 - docs/superpowers taxonomy, handoff house style, spec/plan templates → `er-seo-tools-docs-and-writing`
 - Step-by-step checklists for adding a route/job/parser/migration → `er-seo-tools-extension-recipes`
 
-## The three hard gates (owner rulings, 2026-07-02)
+## The hard gates (owner rulings — 2026-07-02, amended 2026-07-03)
 
 These are absolute. No urgency, incident, or "it's obviously fine" overrides them.
 
 | # | Rule | What it means in practice |
 |---|------|---------------------------|
-| 1 | **No deploy/merge/server-mutation without Kevin** | You MAY push branches and open PRs. You may NEVER run `ssh seo@144.126.213.242 "~/deploy.sh"`, never SSH commands that mutate the server, never merge to main — unless Kevin explicitly says go **in the current conversation**. A past approval in a doc does not count. |
+| 1 | **Merge + deploy are autonomous when gate-green; destructive server ops stay Kevin-gated** (2026-07-03 ruling, supersedes the 2026-07-02 blanket Kevin gate) | **Merge:** a pasted "Continue the er-seo-tools improvement roadmap" prompt is standing authorization to merge, at session start, any pending PR produced by the roadmap pipeline — after re-running the gates (lint / test / build) on that branch in THIS session. PRs created mid-session by the full pipeline may likewise be merged once gate-green. **Deploy:** run `ssh seo@144.126.213.242 "~/deploy.sh"` autonomously whenever needed to advance the work (post-merge, migrations), ALWAYS followed immediately by post-deploy verification; report the outcome either way. Operational recovery (`pm2 restart`, failed-migration `migrate resolve`) and benign single-row prod writes required by a documented verification runbook (e.g. the pillar smoke via `runForCanonical`) are included. **Still Kevin-gated, current conversation only:** destructive/irreversible ops — deleting prod data, `rm -rf`, editing the server `.env`/secrets, DB restore, force-push — and anything not covered by a documented runbook. |
 | 2 | **Docs rituals are never skipped** | Completing or meaningfully advancing a tracker item requires, in the SAME commit: tracker checkbox + dated status-log line + rewritten handoff doc; and the final chat reply must end with the handoff's paste-in prompt in a code block. Specs/plans route through Codex review before implementation. Time pressure is not an exemption. |
 | 3 | **Never scan third-party sites casually** | ADA audits, site audits, live scans, and broken-link verification fetch real external websites. Only scan client sites or sites you have permission to scan. Dev test crawls use client sites already in the system or example domains you control. |
+| 4 | **Brainstorm → spec → plan runs ungated** (2026-07-03 ruling) | Once brainstorming concludes, proceed straight through spec authoring → Codex review → plan authoring → Codex review WITHOUT waiting for Kevin. Notify him with one line + file path as each artifact lands; he reviews after spec AND plan are complete and stops the flow himself if he wants to redirect. Exceptions that DO stop the flow: Codex verdicts of "send back for rewrite" (vs "accept with named fixes"), or Codex feedback contradicting an earlier Kevin decision. |
 
 ## Change classes and their gates
 
-All classes share one landing path: work on a feature branch → push → PR → **Kevin
-merges** → **Kevin deploys** → prod verification → tracker/handoff ritual (if the
-change touches a tracker item). Classes differ in what comes before the PR.
+All classes share one landing path: work on a feature branch → push → PR →
+**merge once gate-green** (rule 1) → **deploy when needed** → prod verification →
+tracker/handoff ritual (if the change touches a tracker item). Classes differ in
+what comes before the PR.
 
 | Class | Examples | Required before PR |
 |-------|----------|--------------------|
@@ -61,7 +63,7 @@ change touches a tracker item). Classes differ in what comes before the PR.
 | **UI change** | components, pages | Same as its size class above, PLUS dark-mode variants on every element (Tailwind `dark:` — the whole app maps `bg-white`→`dark:bg-navy-card` etc.) and no hydration-mismatch patterns (see `ThemeToggle.tsx`'s `mounted` guard). |
 | **Schema migration** | `prisma/schema.prisma` edits | Feature-class pipeline + the migration procedure below. Migrations apply to prod **automatically** during deploy (`prisma migrate deploy` runs inside the deploy script), so a bad migration IS a prod incident. |
 | **Security-sensitive** | middleware, auth, SSRF guards (`lib/security/`), upload handling, share tokens, anything fetching URLs | Feature-class pipeline + `middleware.test.ts` coverage for any route-gating change + never weaken `lib/security/safe-url.ts` / domain validation / the Chromium egress guard + the audit-ci CI gate (`.github/workflows/security-audit.yml` → `npm run audit:ci`) must stay green. Never commit `pentest-results/` (untracked, contains real weaknesses). |
-| **Deploy/config** | `ecosystem.config.js`, prod `.env`, `package.json` scripts | Kevin executes all server-side steps. Two traps: (a) `ecosystem.config.js` env changes are NOT picked up by `pm2 restart` — need `pm2 delete seo-tools && pm2 start ecosystem.config.js`; (b) a new required-in-prod env var bricks the boot (`instrumentation.ts` calls `process.exit(1)` on missing `PILLAR_TOKEN_SECRET`, auth config, or the Chromium egress guard) — the server `.env` must be updated BEFORE deploy. |
+| **Deploy/config** | `ecosystem.config.js`, prod `.env`, `package.json` scripts | Server `.env`/secrets edits are Kevin's (rule 1 destructive-ops carve-out); everything else follows the normal pipeline. Two traps: (a) `ecosystem.config.js` env changes are NOT picked up by `pm2 restart` — need `pm2 delete seo-tools && pm2 start ecosystem.config.js`; (b) a new required-in-prod env var bricks the boot (`instrumentation.ts` calls `process.exit(1)` on missing `PILLAR_TOKEN_SECRET`, auth config, or the Chromium egress guard) — the server `.env` must be updated (by Kevin) BEFORE deploy. |
 
 ### Gate commands (run all three, verbatim)
 
@@ -110,27 +112,33 @@ through a real failure. Full stories: `er-seo-tools-failure-archaeology`.
 | **Build heap flag stays in the build script.** `NODE_OPTIONS='--max-old-space-size=3072'` is baked into `npm run build`. | 2026-06-22: C10's (SEO performance reports) ~40 new files tipped `next build` past the server's ~2 GB default heap — deploy-time OOM. Runtime and build-time memory are two separate ceilings; each caused its own incident. | Fix: PR #76, commit `9208496` (`package.json`). |
 | **Core stack is frozen:** SQLite only (no Postgres/MySQL), no serverless (RunCloud + PM2), Node 22, Chrome at `/usr/bin/google-chrome`. | Not one incident — an architecture premise. The durable job queue, singleton browser pool, in-memory upload quota, and one-audit-at-a-time invariant all assume a single long-lived fork-mode process with a local SQLite file. Changing any leg silently breaks the others. | CLAUDE.md "Stack constraints" + "Do not change the core stack unless explicitly asked". |
 | **No ops/infra strings in client components.** No IPs, SSH commands, deploy commands, service-account emails in anything that ships in the JS bundle. | 2026-06-29 pentest finding #1 was self-inflicted: the footer revealed the deploy SSH command + origin IP on hover — a deliberate early feature (`0370fd2`) that shipped real recon to every visitor. | Removed in S1 (pentest quick wins), commit `0222187`. Sweep: `rg "144\.126|ssh seo|deploy\.sh" app components lib`. |
-| **Never scan third-party sites** (owner ruling 3, above). | Preventive, not reactive: the audit/live-scan machinery makes real HTTP requests and drives real Chrome against real sites. SSRF guards (`lib/security/safe-url.ts`) protect *us*; permission protects *them*. | Owner ruling 2026-07-02. |
+| **Never scan third-party sites** (owner ruling 3, above). | Preventive, not reactive: the audit/live-scan machinery makes real HTTP requests and drives real Chrome against real sites. SSRF guards (`lib/security/safe-url.ts`) protect *us*; permission protects *them*. | Owner ruling 2026-07-02 (unchanged by the 2026-07-03 merge/deploy amendment). |
 
 ## The standard pipeline, end to end
 
 For a feature-class change (scale down per the class table):
 
 1. **Spec** — `docs/superpowers/specs/YYYY-MM-DD-<name>-design.md`. Notify Kevin
-   (one line, file path), then immediately route to Codex review — do not wait
-   for Kevin unless Codex says "rewrite" or contradicts a prior Kevin decision.
+   (one line, file path), then immediately route to Codex review — Kevin is NOT
+   a gate here (rule 4); only a Codex "rewrite" verdict or a contradiction with
+   a prior Kevin decision pauses the flow.
 2. **Plan** — `docs/superpowers/plans/YYYY-MM-DD-<name>.md`, per-task TDD steps
-   with exact commands. Codex review again. Apply named fixes in place.
+   with exact commands. Codex review again. Apply named fixes in place. Kevin
+   reviews after spec + plan are both complete; he stops the flow himself if he
+   wants to — do not wait.
 3. **Build** — TDD per task on a feature branch. Plan checkboxes are historically
    NOT ticked during work; completion truth lives in `git log` + tracker status
    lines, not plan checkboxes.
 4. **Gates** — lint, test, build (commands above). All green.
-5. **PR** — push the branch, open the PR with `gh`. Stop here.
-6. **Kevin merges** (hard gate 1). Merged ≠ deployed.
-7. **Kevin deploys**: `git push` is already done; Kevin (or Kevin-approved) runs
-   `ssh seo@144.126.213.242 "~/deploy.sh"`. The server pulls from GitHub — local
-   unpushed commits never deploy. The script body is server-only; do not guess
-   its contents.
+5. **PR** — push the branch, open the PR with `gh`.
+6. **Merge** (rule 1): gate-green PRs from this pipeline merge without waiting —
+   re-run the gates in the merging session if the PR was built by a prior one.
+   Merged ≠ deployed.
+7. **Deploy** (rule 1): `git push` is already done; run
+   `ssh seo@144.126.213.242 "~/deploy.sh"` when the work needs it. The server
+   pulls from GitHub — local unpushed commits never deploy. The script body is
+   server-only; do not guess its contents. If the change adds a required-in-prod
+   env var, STOP — the server `.env` is Kevin's; he must set it before deploy.
 8. **Prod verification** — exercise the changed path on production and record the
    result. This step has caught an incident after every gate was green (the
    2026-06-10 write-lock bug surfaced during exactly this step).
@@ -157,8 +165,10 @@ Any deviation from a "Do not" rule, a hard gate, or a class requirement:
 - **Treating a green build as done.** The repo's dominant failure mode is
   dev/prod divergence: minification, PM2 memory limits, reverse proxy, WAF
   behavior, build heap. Prod verification is part of the change.
-- **Deploying or merging on stale approval.** "Kevin approved this last week" is
-  not approval. Current conversation only.
+- **Merging or deploying with gates unverified.** Autonomous merge/deploy (rule 1)
+  is conditional on gates re-run green in the merging session — "it was green
+  when the PR was opened" doesn't count. And destructive server ops still need
+  Kevin's go in the current conversation; a past approval in a doc never counts.
 - **Skipping the handoff rewrite** because the tracker line "says enough". Same
   commit, both files, plus the paste-in prompt — the next session bootstraps
   from the handoff, not from your memory.
@@ -182,8 +192,11 @@ Any deviation from a "Do not" rule, a hard gate, or a class requirement:
 
 ## Provenance and maintenance
 
-Authored 2026-07-02 against branch `feat/autonomous-live-seo-source` (23 commits
-ahead of main; main tip `6679993`, 2026-06-29). Facts below drift — re-verify:
+Authored 2026-07-02 against branch `feat/autonomous-live-seo-source` (since
+merged — PR #85). **Amended 2026-07-03 (Kevin):** merge + deploy made autonomous
+when gate-green (rule 1); brainstorm→spec→plan ungated (rule 4). This skill is
+the canonical home for the gate policy — other skills cross-reference it.
+Facts below drift — re-verify:
 
 | Volatile fact | Re-verify with |
 |---|---|
