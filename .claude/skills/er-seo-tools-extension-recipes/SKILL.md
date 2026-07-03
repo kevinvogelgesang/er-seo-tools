@@ -19,8 +19,9 @@ DATABASE_URL="file:./local-dev.db" npm test     # vitest run; DB tests fail with
 npm run build
 ```
 
-**Never deploy.** Push branches and open PRs only. `~/deploy.sh`, SSH mutations, and
-merges to main require Kevin's explicit go in the current conversation.
+**Landing path:** push the branch, open the PR, then merge/deploy per the
+gate-green pipeline in `er-seo-tools-change-control` rule 1 (2026-07-03 ruling:
+autonomous when gates are re-run green; destructive server ops stay Kevin-gated).
 
 ## When to use / when NOT to use
 

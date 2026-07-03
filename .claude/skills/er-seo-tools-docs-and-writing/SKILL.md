@@ -241,9 +241,10 @@ exist — follow the convention, don't imitate the strays):
 - **Archiving with `mv` instead of `git mv`**, losing file history.
 - **Writing "deployed" or "production-verified" in the tracker when it isn't.** Those
   words are the strongest claim in the system; merged-not-deployed is a distinct
-  state and must be labeled as such. Related owner ruling: AI sessions may push
-  branches and open PRs but never deploy, SSH-mutate the server, or merge to main
-  without Kevin's explicit go in the current conversation.
+  state and must be labeled as such. Under the 2026-07-03 ruling sessions merge
+  and deploy autonomously when gate-green (`er-seo-tools-change-control` rule 1),
+  which makes truthful state labels MORE important, not less — write exactly
+  what happened and what was verified.
 - **Skipping Codex review on a spec/plan** because it "looks small". The gate is
   unconditional; the tracker records the pass count as part of the item's record.
 - **New spec overturning an old invariant without a "deliberately reverses" callout.**
