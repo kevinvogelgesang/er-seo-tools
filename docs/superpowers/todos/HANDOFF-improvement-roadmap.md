@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-02 (A2-f1 built) · **Updated by:** A2-f1 **BUILT + PR #88** (`fix/a2-f1-rebuild-pruned-ada-guard`). **Pending human step: Kevin merges → deploys → prod-verifies.** After that, next is a **roadmap choice** again (C-track / SF-retirement campaign Phase 1).
+**Last updated:** 2026-07-02 (A2-f1 verified) · **Updated by:** A2-f1 **MERGED + DEPLOYED + PROD-VERIFIED — COMPLETE.** Next is **C8** (configurable scoring/priority weights + score-explanation panel), chosen by Kevin; the feature pipeline (brainstorm → spec → Codex → plan → Codex → TDD → gates → PR) is beginning.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -12,16 +12,16 @@ single next action.
 ```
 Continue the er-seo-tools improvement roadmap.
 
-State: A2-f1 (findings-rebuild pruned-ADA guard) is BUILT + PR #88 open
-(fix/a2-f1-rebuild-pruned-ada-guard), gate-green, NOT yet merged/deployed.
-It's a small bugfix: a status='complete' ADA audit/child with a null result
-blob (the 90-d prune signature) now makes writeAdaSiteFindings /
-writeAdaSingleFindings THROW before the delete-and-recreate writer can clobber
-the canonical Finding/Violation tables. Guard lives in lib/findings/ada-write.ts
-(defends both the rebuild script AND the live standalone dual-write hook);
-errored/redirected audits stay ungated. Two DB-backed tests (refuse + no-clobber).
-D0 (DB backup + failure alert) + C6 Phase 4 + C10 all COMPLETE + PROD-VERIFIED.
-Work from main. A 16-skill operator library lives in .claude/skills/.
+State: A2-f1 (findings-rebuild pruned-ADA guard) is COMPLETE — merged (PR #88,
+main 92d10e3), deployed 2026-07-02 (code-only ~/deploy.sh, no migration),
+prod-verified to the extent possible (deployed guard source present; clean boot;
+behavioral rebuild-refuses check deferred because prod has zero pruned targets
+until ~2026-08+, and behavioral correctness is covered by 2 gate-green DB tests).
+D0 + C6 Phase 4 + C10 all COMPLETE + PROD-VERIFIED. Work from main.
+A 16-skill operator library lives in .claude/skills/.
+
+The NEXT BUILD is C8 — configurable scoring/priority weights + score-explanation
+panel (Kevin's roadmap choice, 2026-07-02). Run the full feature pipeline.
 
 1. Load the skill er-seo-tools-change-control first (hard gates: no merge/
    deploy/server mutation without Kevin's explicit go IN THIS conversation; docs
@@ -30,96 +30,75 @@ Work from main. A 16-skill operator library lives in .claude/skills/.
    next item) and docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md
    (full plan). Trust ranking when docs disagree: code > plan/spec >
    tracker/handoff.
-3. PENDING VERIFICATION: PR #88 (A2-f1) awaits Kevin merge → deploy → prod-verify.
-   Prod-verify is light for this one (no schema/env change): after deploy, on
-   prod confirm that `npx tsx scripts/findings-rebuild.ts <a-pruned-ADA-id>`
-   now REFUSES with the "result blob was pruned" message instead of silently
-   writing an empty run. If no pruned ADA audit exists yet in prod (first prune
-   ~2026-09-08 for ada-audit), a synthetic check is fine, or defer verification
-   with a tracker note — the guard is inert until a pruned audit is rebuilt.
-   Once verified: tracker [~]→[x] + status-log line + rewrite this handoff.
-4. THEN the next move is a ROADMAP CHOICE. Confirm direction with Kevin, then run
-   the full change-control pipeline (spec → Codex → plan → Codex → TDD → gates →
-   PR → Kevin merges/deploys → prod-verify). Menu:
-   - C-track: C7 (parser consolidation + streaming parse + per-file failure
-     isolation), C8 (configurable scoring weights + score-explanation panel),
-     C9 (ADA scoring v2 + poller/results-view consolidation), or further C6
-     (SEO-only scan mode — spec §9 breadcrumb; external-link verification).
-   - SF-retirement campaign Phase 1 (SF-vs-live parity) — a MEASUREMENT stream
-     (analysts run SF + upload alongside seoIntent live scans over 2–3 cycles),
-     not a one-session build. Load er-seo-tools-sf-retirement-campaign; parity
-     script at .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/
-     sf-live-parity.ts.
-5. Small open D0 follow-ups (not blocking, do when convenient): set
+3. C8 is a FEATURE-class change → full pipeline: superpowers:brainstorming →
+   spec (docs/superpowers/specs/YYYY-MM-DD-configurable-scoring-weights-design.md)
+   → route to Codex (consulting-codex) → apply named fixes → plan
+   (docs/superpowers/plans/) → Codex → TDD build on a feature branch → gate-green
+   (lint/test/build) → PR → STOP (Kevin merges → deploys → prod-verify).
+   Load er-seo-tools-domain-reference for the scoring semantics before speccing:
+   `computeHealthScore` (SEO parser, lib/services/scoring.service.ts) and
+   `scoreLiveSeo` (lib/findings/live-seo-score.ts) are the two forked scorers;
+   C8 is about making their weights configurable + surfacing a per-score
+   explanation panel. Confirm scope with Kevin at the brainstorming stage
+   (which scores are in scope: SEO health, live SEO, ADA? persisted config vs
+   env vs per-run? who can edit weights?).
+4. Small open D0 follow-ups (not blocking, do when convenient): set
    ALERT_WEBHOOK_URL in the server .env once Slack admin approves; the manual
    scripts/db-backup.ts must be run as `BACKUP_DIR=/home/seo/data/seo-tools/
    backups npx tsx scripts/db-backup.ts` (a bare SSH shell lacks BACKUP_DIR →
    writes to the release dir) — consider adding a warning when BACKUP_DIR is
    unset; a stray 444 MB backup + alert-state.json may still sit in
    /home/seo/webapps/seo-tools/data/backups/ (safe to rm).
-6. After any advance: tracker checkbox + dated status-log line, rewrite this
+5. After any advance: tracker checkbox + dated status-log line, rewrite this
    handoff, and end your final reply with this doc's updated paste-in prompt in a
    code block.
 ```
 
 ## Current state
 
-- **BUILT (awaiting merge/deploy/prod-verify) 2026-07-02: A2-f1 — findings-rebuild
-  pruned-ADA guard.** PR #88 (`fix/a2-f1-rebuild-pruned-ada-guard`), gate-green
-  (tsc / 2893 vitest / build). Small bugfix, TDD:
-  - The trap: `scripts/findings-rebuild.ts` guarded only the Session branch
-    against a pruned blob; the ADA branches did not. On a 90-d-pruned ADA audit,
-    `parseAxe(null)` → violation-free pages → the writer's delete-and-recreate
-    silently replaced the canonical `Finding`/`Violation` tables with an empty run.
-  - The fix: guard in `lib/findings/ada-write.ts` (both `writeAdaSiteFindings`
-    and `writeAdaSingleFindings`), scoped to the prune signature — a
-    `status='complete'` audit/child with a null `result` blob. Both throw before
-    the writer runs. Placed at the write functions (not the script) so it defends
-    the rebuild script AND the live standalone dual-write hook
-    (`lib/jobs/handlers/ada-audit.ts`); no live-path regression (a
-    freshly-completed audit always has its blob). Errored/redirected audits are
-    legitimately blobless and stay ungated (the redirected-standalone rebuild test
-    still passes).
-  - Tests: 2 DB-backed cases in `lib/findings/ada-write.test.ts` (site +
-    standalone) that build a canonical run, simulate the prune, and assert the
-    rebuild REFUSES and the pre-existing findings survive.
-  - **Prod-verify is light:** no schema/env change. After deploy, confirm on prod
-    that rebuilding a pruned ADA audit id now refuses (message: "result blob was
-    pruned … Findings rows are the canonical record now.") rather than writing an
-    empty run. First real ada-audit prune is ~2026-09-08, so a pruned target may
-    not exist in prod yet — a synthetic/deferred check is acceptable (the guard is
-    inert until someone rebuilds a pruned audit).
+- **COMPLETE 2026-07-02: A2-f1 — findings-rebuild pruned-ADA guard.** PR #88 merged
+  (main `92d10e3`), DEPLOYED (plain `~/deploy.sh` — code-only, 2 files, no
+  schema/env/ecosystem change → no `pm2 delete/start`; "No pending migrations to
+  apply"; prod `6f1c45f`→`92d10e3`, app online, clean boot). PROD-VERIFIED to the
+  extent possible: deployed guard source present in `lib/findings/ada-write.ts`
+  (both throw sites). **Behavioral rebuild-refuses check DEFERRED** (handoff-authorized):
+  a read-only prod query shows 0 pruned targets (0 `complete`+null-`result` AdaAudit,
+  0 `complete`+null-`summary` SiteAudit; oldest complete ADA audit 41 d old, prune at
+  90 d) — the guard is correctly INERT until the first pruned-audit rebuild (~2026-08+),
+  and forcing a target would mutate prod. Behavioral correctness stands on the 2
+  gate-green DB tests. Recap of the fix: a `status='complete'` audit/child with a null
+  `result` blob (the 90-d prune signature) now makes `writeAdaSiteFindings` /
+  `writeAdaSingleFindings` THROW before the delete-and-recreate writer can clobber the
+  canonical `Finding`/`Violation` tables; guard defends the rebuild script AND the live
+  standalone dual-write hook; errored/redirected audits stay ungated.
 - **COMPLETE 2026-07-02: D0 — minimal ops safety (DB backup + failure alert).**
   SHIPPED (PR #86, merged `6f1c45f`) + deployed + PROD-VERIFIED. Two in-app
   durable jobs (db-backup daily@08:00 `VACUUM INTO`+prune; health-alert every:15m
   → optional `ALERT_WEBHOOK_URL`, dark by default) — no schema migration, no
   server cron. Deployed via `pm2 delete && pm2 start` (new `BACKUP_DIR` ecosystem
   var). Slack webhook still unset (alerts log-only until Slack admin approves).
-  Spec/plan archived. Docs PR #87 (D0 prod-verified tracker/handoff) merged to
-  main `7a487cf`.
 - **PROD-VERIFIED 2026-07-02: C6 Phase 4** (autonomous live SEO source + native
-  link graph, PR #85, prod @ `9c07502`, migration `20260630120000_live_seo_source`).
-  C6 stays `[~]` (hybrid discovery / validation / similarity / analytics-remainder
-  still open).
+  link graph, PR #85, prod @ `9c07502`→ now within `92d10e3`, migration
+  `20260630120000_live_seo_source`). C6 stays `[~]` (hybrid discovery / validation
+  / similarity / analytics-remainder still open).
 - **COMPLETE 2026-07-02: C10 — SEO Performance Reports** (PR #75, deployed
   2026-06-22, PROD-VERIFIED). Service-account auth; SA key at
   `/home/seo/data/seo-tools/google-sa.json` (0600), SA email
   `er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`.
 - **16-skill operator library** under `.claude/skills/` (commit `57ae636`, on main).
-- **A1, A2, B1–B5, C1–C5 DONE. C6 Phases 1–4 DONE. C10 DONE. D0 DONE. A2-f1 BUILT.**
+- **A1, A2, A2-f1, B1–B5, C1–C5 DONE. C6 Phases 1–4 DONE. C10 DONE. D0 DONE.**
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
   → proway.erstaging.site, `weekly:1@06:00` (noindex → broken-link findings only,
   null score — by design).
-- **⚠ PENDING HUMAN STEPS (Kevin) — none blocking new work except A2-f1's own verify:**
-  1. **A2-f1:** merge PR #88 → deploy → light prod-verify (see above).
-  2. **D0:** set `ALERT_WEBHOOK_URL` in server `.env` once Slack admin approves;
+- **⚠ PENDING HUMAN STEPS (Kevin) — none blocking C8:**
+  1. **D0:** set `ALERT_WEBHOOK_URL` in server `.env` once Slack admin approves;
      optional `rm -rf /home/seo/webapps/seo-tools/data/backups` (stray files).
-  3. **B4 quarter-plan decision** still open (near-empty prod QuarterPlan
+  2. **B4 quarter-plan decision** still open (near-empty prod QuarterPlan
      409-blocking the localStorage import — keep or delete + re-open).
-  4. **First real qct_ push** not yet exercised.
-  5. **Optional cleanup:** delete PillarAnalysis `cmr43gufj0001y200n9134fjp`
+  3. **First real qct_ push** not yet exercised.
+  4. **Optional cleanup:** delete PillarAnalysis `cmr43gufj0001y200n9134fjp`
      (C6 Phase-4 pillar smoke artifact) if unwanted.
-  6. **C10 ongoing:** grant SA + map GA4/GSC for remaining clients as access is
+  5. **C10 ongoing:** grant SA + map GA4/GSC for remaining clients as access is
      gained.
 - **Blocked / gated:** Anthropic API billing (03 Phase 3 + SF-retirement memo
   consumption); sitemap miss-rate measurement not yet run; daily/nightly cadences
@@ -131,31 +110,37 @@ Work from main. A 16-skill operator library lives in .claude/skills/.
   standalone single-page audit CSV/VPAT/report; public share-page export buttons;
   expandable rows on public ADA share view; logo for the PDF; `SessionPage` model
   drop (≥180 d after 2026-06-11); same-URL standalone-audit diffing; fleet
-  instance-level diffing; B2 v1 multi-domain limitation.
+  instance-level diffing; B2 v1 multi-domain limitation; SF-retirement campaign
+  Phase 1 (SF-vs-live parity — a MEASUREMENT stream, load
+  er-seo-tools-sf-retirement-campaign when ready).
 
 ## Next item
 
-**PENDING: PR #88 (A2-f1) → Kevin merge/deploy/prod-verify** (light verify — no
-schema/env change; confirm a pruned-ADA rebuild now refuses). Once verified, flip
-the tracker `[~]`→`[x]`, add a status-log line, rewrite this handoff.
+**C8 — Configurable scoring/priority weights + score-explanation panel** (0.5–1 wk,
+Kevin's roadmap choice 2026-07-02). Feature-class → full pipeline
+(brainstorm → spec → Codex → plan → Codex → TDD → gates → PR → Kevin
+merges/deploys → prod-verify).
 
-**THEN a roadmap CHOICE.** Confirm direction with Kevin, then the full pipeline
-(spec → Codex → plan → Codex → TDD → gates → PR → Kevin merges/deploys →
-prod-verify). Menu:
+Scope questions to settle at the brainstorming stage (with Kevin):
+1. **Which scores are in scope?** SEO health (`computeHealthScore`,
+   `lib/services/scoring.service.ts`), live SEO (`scoreLiveSeo`,
+   `lib/findings/live-seo-score.ts`), and/or ADA (`lib/ada-audit/scoring.ts`
+   `computeScore`)? These are separate scorers with separate weight sets.
+2. **Where do weights live?** Persisted DB config (schema migration) vs env vars
+   vs per-run override. Persisted config = a schema change = feature-class + the
+   migration procedure. Note the "explicit factor availability / renormalize over
+   included factors" design in `scoreLiveSeo` — any weight change must preserve
+   "perfect inputs → exactly 100".
+3. **Who edits weights?** A `/settings` surface (cookie-gated) vs code-only. If UI,
+   it's a UI-class change too (dark-mode variants + no hydration mismatch).
+4. **Score-explanation panel:** per-score breakdown of which factors contributed
+   how much (the renormalized weights make this natural to surface). Read-time on
+   results pages; must work on archived audits (relational-first, like the C4
+   report layer).
 
-1. **C-track menu:** C7 (parser consolidation + streaming parse + per-file
-   failure isolation), C8 (configurable scoring weights + score-explanation
-   panel), C9 (ADA scoring v2 + poller/results-view consolidation), or further C6
-   (SEO-only scan mode — spec §9 breadcrumb; external-link verification).
-2. **SF-retirement campaign Phase 1 (SF-vs-live parity)** — unblocked, but a
-   MEASUREMENT stream, not a one-session build: analysts run SF + upload at
-   `/seo-parser` alongside a `seoIntent:true` live scan on the same client+day
-   over 2–3 reporting cycles; the parity script
-   (`.claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts`)
-   reports score delta / page-set Jaccard / per-issue-type deltas. Gate: N ≥ 5
-   clients × 2–3 cycles, every deviation explained in a dated parity log under
-   `docs/superpowers/todos/`. Also produces the sitemap miss-rate evidence that
-   gates SF-retirement Phase 2. Load `er-seo-tools-sf-retirement-campaign`.
+Load **er-seo-tools-domain-reference** for the exact scoring semantics before
+writing the spec, and **er-seo-tools-extension-recipes** if a schema migration or
+`/settings` route is in scope.
 
 - **C10 non-blocking follow-ups** (defer): GA4 comparison window discards 4 metric
   groups (quota trim — `ga4-provider.ts`); `rollupBatchStatus` duplicated (render
@@ -164,18 +149,15 @@ prod-verify). Menu:
 
 ## Gotchas / decisions already made (don't relitigate)
 
-- **A2-f1 invariants (verified against code 2026-07-02):**
+- **A2-f1 invariants (verified against code + prod 2026-07-02):**
   - Pruned signature = `status='complete'` audit/child with null `result` (the
     finalizer NEVER persists a complete audit without its blob). Errored/redirected
-    audits are legitimately blobless — do NOT gate them (the redirected-standalone
-    rebuild path must keep working).
+    audits are legitimately blobless — NOT gated.
   - Guard lives in `lib/findings/ada-write.ts`, not the script — it also protects
     the live standalone dual-write hook. Safe there because a just-completed audit
     always has a fresh blob; the guard only fires on a pruned (old) audit.
-  - The SEO/Session branch already had its own guard in `findings-rebuild.ts:44-46`
-    (unchanged). `archivePrunedAt` on the CrawlRun is the authoritative prune stamp,
-    but the blob-null-at-complete heuristic is sufficient and mirrors the Session
-    check.
+  - Prod behavioral verify is DEFERRED (no pruned target exists yet, ~2026-08+);
+    do not re-attempt by mutating prod. The 2 DB tests are the behavioral evidence.
 - **D0 invariants (verified against code + prod 2026-07-02):**
   - **Two in-app durable jobs, NOT a server cron** — no schema migration (dedup =
     an atomic JSON file under `BACKUP_DIR`). Backup = `VACUUM INTO` a `.tmp` then
@@ -189,11 +171,16 @@ prod-verify). Menu:
     ecosystem.config.js`. The manual `scripts/db-backup.ts` in a bare SSH shell
     also lacks it → prefix `BACKUP_DIR=/home/seo/data/seo-tools/backups`.
   - Webhook URL is trusted operator config → plain timed `fetch`, never `safeFetch`.
-- **Prod is OAuth-only** (`ALLOW_PASSWORD_LOGIN=false`). Drive prod checks via
-  `npx tsx` from `/home/seo/webapps/seo-tools` (relative `./lib/...` + `@/` alias
-  only resolve from the app dir). Server has no `sqlite3` CLI. **pm2 process env
-  ≠ login-shell env ≠ .env.** Prod DB is at `/home/seo/data/seo-tools/db.sqlite`
-  (~456 MB); DATA_HOME=`/home/seo/data/seo-tools`.
+- **Deploy protocol (re-confirmed on the A2-f1 deploy):** code-only changes deploy
+  with plain `ssh seo@144.126.213.242 "~/deploy.sh"` (git pull → npm install →
+  prisma generate → build → stop → `migrate deploy` → start). Only ecosystem/env
+  changes need `pm2 delete && pm2 start`. Prod has NO `sqlite3` CLI — drive
+  read-only prod queries with a throwaway `.mjs` in the app dir using
+  `new PrismaClient()` + inline `DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite'`
+  (relative `./lib/...` + `@/` aliases only resolve from a script INSIDE the app dir).
+- **Prod is OAuth-only** (`ALLOW_PASSWORD_LOGIN=false`). Prod DB at
+  `/home/seo/data/seo-tools/db.sqlite` (~456 MB); DATA_HOME=`/home/seo/data/seo-tools`.
+  **pm2 process env ≠ login-shell env ≠ .env.**
 - Stack stays: SQLite + single PM2 process + Next.js. No Postgres/Redis/BullMQ.
 - **NEVER interactive `prisma.$transaction(async tx => ...)`** — array form only,
   conditionals via SQL `EXISTS`, manual `updatedAt = Date.now()` in raw SQL.
@@ -203,8 +190,8 @@ prod-verify). Menu:
   `migrate deploy`. **vitest module mocks must use `vi.hoisted(() => ({...}))`.**
 - **C10 invariants:** SERVICE-ACCOUNT auth (key in `GOOGLE_SA_KEY_FILE`, no
   GoogleConnection model / no OAuth routes); GA4 via `analyticsdata('v1beta')`,
-  GSC via `searchconsole('v1')`; per-property 403 → `unmapped`; `gscSiteUrl`
-  verbatim; job group `seo-report:<id>` NEVER `site-audit:<id>`; idempotency
+  GSC via `searchconsole('v1')`; per-property 403 → `unmapped`; job group
+  `seo-report:<id>` NEVER `site-audit:<id>`; idempotency
   `@@unique([scheduleId,scheduledFor])` + `@@unique([batchId,clientId])`; monthly
   schedule is a NON-system operator row; reports get their own `pruneSeoReports`.
 - **C6 Phase 4 invariants:** `seoIntent` is the freshness-gated canonical SEO
@@ -253,6 +240,8 @@ prod-verify). Menu:
 - 2026-07-02 — **C10 PROD-VERIFIED (Kevin). C10 COMPLETE.**
 - 2026-07-02 — **D0 SHIPPED (PR #86) + DEPLOYED + PROD-VERIFIED. D0 COMPLETE.** Docs
   PR #87 merged to main `7a487cf`.
-- 2026-07-02 — **A2-f1 BUILT + PR #88** — findings-rebuild pruned-ADA guard
-  (`lib/findings/ada-write.ts`; 2 DB-backed tests; gate-green). Awaiting Kevin
-  merge/deploy/prod-verify.
+- 2026-07-02 — **A2-f1 BUILT + PR #88** — findings-rebuild pruned-ADA guard.
+- 2026-07-02 — **A2-f1 MERGED (#88, `92d10e3`) + DEPLOYED + PROD-VERIFIED. A2-f1 COMPLETE.**
+  Behavioral rebuild-refuses check deferred (no pruned target until ~2026-08+; covered
+  by 2 DB tests). **Roadmap choice = C8** (configurable scoring weights +
+  score-explanation panel); feature pipeline beginning.
