@@ -18,6 +18,8 @@ import { registerReportRenderHandler } from './report-render'
 import { registerBrokenLinkVerifyHandler } from './broken-link-verify'
 import { registerSeoReportRenderHandler } from './seo-report-render'
 import { registerSeoReportMonthlyRunHandler } from './seo-report-monthly-run'
+import { registerDbBackupHandler } from './db-backup'
+import { registerHealthAlertHandler } from './health-alert'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
@@ -33,4 +35,6 @@ export function registerBuiltInJobHandlers(): void {
   registerBrokenLinkVerifyHandler()
   registerSeoReportRenderHandler()
   registerSeoReportMonthlyRunHandler()
+  registerDbBackupHandler()
+  registerHealthAlertHandler()
 }

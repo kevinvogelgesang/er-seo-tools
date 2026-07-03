@@ -179,9 +179,14 @@ Interleave as needed (not blockers):
   built — see the SF-retirement roadmap §5 sequence.
   **Phase 4 (autonomous live SEO source + native link graph) MERGED (PR #85) +
   DEPLOYED 2026-07-02 (prod @ 9c07502, migration `20260630120000_live_seo_source`
-  applied clean) — PROD-VERIFICATION PENDING** (campaign Gate 0.3: seoIntent
-  audit on an indexable client domain → live-scan CrawlRun with non-null score +
-  source badge + pat_/brief smoke).
+  applied clean) — PROD-VERIFIED 2026-07-02** (campaign Gate 0.3, client 12
+  manhattanschool.edu, audit `cmr434fsr00026st0i6upoeq1`): live-scan CrawlRun
+  `54680dd9` with `seoIntent=true`, `score=98`, both broken-link + on-page
+  findings; link graph populated (avg inlinks/outlinks 23.3, crawlDepth 1.38);
+  canonical selector correct in both branches (fresh 21-d SF wins at window 30;
+  live run supersedes at window 0); `getCanonicalPageFacts` + `/api/brief/live`
+  + session-independent `runForCanonical` (PillarAnalysis `cmr43gufj`,
+  `sessionId=null`, keyed by `crawlRunId`) all green.
   Spec: `../archive/specs/2026-06-30-autonomous-live-seo-source-design.md` ·
   Plan: `../archive/plans/2026-06-30-autonomous-live-seo-source.md`.
   Adds `SiteAudit.seoIntent` + `CrawlRun.seoIntent` (migration
@@ -211,11 +216,12 @@ Interleave as needed (not blockers):
 - [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
 - [ ] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk)
 - [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)
-- [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **Prod-verification PENDING (Kevin): grant SA on a client → map → generate → metric-parity eyeball vs `SEO_Report_1st_Draft.pdf`; resolve the scorecard-#12 open question (Key Events vs the spec's duplicate Avg Position).**
+- [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test connection green, reports render correctly, SA granted + GA4/GSC mapped for every client Kevin currently has access to. Scorecard-#12 question RESOLVED — the code's "Key Events" (vs the spec's duplicate "Avg Position" Looker artifact) is accepted as-is (no change). **C10 COMPLETE** — delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6.
 
 ## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
 
-- [ ] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** a prod DB backup cron (verify whether one exists server-side first — none is recorded in the repo) + one failure alert (e.g. a daily job that emails/notifies when audits error or the queue stalls). Rationale: the agency-in-a-box goal requires the system to notice its own failures; currently there is no monitoring and the backup story is unverified. Scope deliberately minimal — full observability stays A4/D-track.
+- [~] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** a prod DB backup cron (verify whether one exists server-side first — none is recorded in the repo) + one failure alert (e.g. a daily job that emails/notifies when audits error or the queue stalls). Rationale: the agency-in-a-box goal requires the system to notice its own failures; currently there is no monitoring and the backup story is unverified. Scope deliberately minimal — full observability stays A4/D-track. **BUILT 2026-07-02 (PR #86, branch `feat/ops-safety-backup-alert`)** as two in-app durable jobs (no server cron, no schema migration): `db-backup` (daily@08:00, VACUUM INTO + atomic rename + prune-to-N) and `health-alert` (every:15m; errored audits / exhausted jobs / stalled queue / stale backup → optional `ALERT_WEBHOOK_URL`; atomic JSON-file dedup; delivery-aware state). Spec+plan both Codex-reviewed (accept/ship-with-fixes, applied); gates green (tsc / 2891 tests / build). **Awaiting Kevin merge → deploy → prod-verify** (spec §8). Deploy needs `pm2 delete && pm2 start` (ecosystem.config.js `BACKUP_DIR` added) + optional `ALERT_WEBHOOK_URL` in server .env + one manual `npx tsx scripts/db-backup.ts` post-deploy. *Server-side backup existence never verified (still open — the in-app job is additive regardless).*
+  *Status log:* 2026-07-02 — spec `docs/superpowers/specs/2026-07-02-ops-safety-backup-alert-design.md` + plan `docs/superpowers/plans/2026-07-02-ops-safety-backup-alert.md` written, both Codex-reviewed + fixes applied; 8 code tasks TDD-built (`lib/ops/{backup,alert-state,alert-webhook,health-check}.ts` + two `lib/jobs/handlers/` jobs + register + SYSTEM_SCHEDULES + `scripts/db-backup.ts`); gate-green; PR #86 opened. Next: Kevin merges + deploys + prod-verifies.
 - [ ] D1. Handoff engine consolidation: token factory, `HANDOFF_TYPES` registry,
   one `<MemoHandoffCard>`; retire legacy `pillar-analysis-narrative` skill (1 wk)
 - [ ] D2. Memo arrival via SSE notification (0.5 wk) — needs A5.
@@ -231,6 +237,67 @@ Interleave as needed (not blockers):
 - [ ] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier.
 
 ## Status log
+
+- 2026-07-02 (latest, D0) — **D0 BUILT + PR #86 opened (`feat/ops-safety-backup-alert`).**
+  Roadmap choice = D0 (Kevin: "Go for D0"). Full change-control pipeline run in one
+  session: spec → Codex (accept-with-fixes: atomic temp+rename backup, `AdaAudit`
+  has no `updatedAt`→`completedAt`, delivery-aware alert state, atomic JSON writes,
+  deliberate stall status-set) → plan → Codex (ship-with-fixes: relative-import
+  script style, real `JobHandlerContext`, non-flaky global-query test) → 8 TDD code
+  tasks → gates green (tsc / 2891 tests / build). Two in-app durable jobs, **no
+  schema migration, no server cron:** `db-backup` (daily@08:00, VACUUM INTO tmp +
+  atomic rename + prune-to-7) and `health-alert` (every:15m; errored audits /
+  exhausted jobs / stalled queue / stale backup → optional Slack-compatible
+  `ALERT_WEBHOOK_URL`; JSON-file dedup with a commit-rule that never loses an alert
+  on delivery failure; dark-by-default when the URL is unset so nothing bricks boot).
+  New files: `lib/ops/{backup,alert-state,alert-webhook,health-check}.ts` (+ tests),
+  `lib/jobs/handlers/{db-backup,health-alert}.ts` (+ tests), `scripts/db-backup.ts`;
+  wired into `register.ts` + `SYSTEM_SCHEDULES`; `BACKUP_DIR` added to
+  `ecosystem.config.js`. **Awaiting Kevin merge → deploy → prod-verify** (spec §8;
+  deploy = `pm2 delete && pm2 start`, optional `ALERT_WEBHOOK_URL` in server .env,
+  one post-deploy manual backup). Server-side pre-existing-backup check still not run.
+- 2026-07-02 (latest, C10) — **C10 (SEO Performance Reports) PROD-VERIFIED — Kevin's
+  manual pass. C10 COMPLETE.** Kevin confirmed: prod SA key present
+  (`/home/seo/data/seo-tools/google-sa.json`, mode 0600, SA email
+  `er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`), `/settings` Test
+  connection working, reports render/look correct, and he has granted the SA +
+  mapped GA4/GSC for every client he currently has access to. Scorecard-#12 open
+  question resolved — the shipped "Key Events" tile (vs the spec's duplicate
+  "Avg Position", a Looker copy-paste artifact) is accepted; no code change. This
+  clears the GA4/GSC analytics-ingestion half of SF-retirement Phase 6; remaining
+  Phase-6 work = SEMrush/DataForSEO keyword-data ingestion + direct memo
+  consumption (the latter gated on the Anthropic API billing decision). Both
+  outstanding prod-verifications (C6 Phase 4 + C10) are now closed. Next: C-track
+  menu (C7/C8/C9 or further C6) and/or SF-retirement campaign Phase 1 (SF-vs-live
+  parity — now unblocked); D0 (backup+alert) and A2-f1 (findings-rebuild guard)
+  remain small pending hardening items.
+
+- 2026-07-02 (latest) — **C6 Phase 4 PROD-VERIFIED (campaign Gate 0.3).** Drove the
+  full runbook against prod (Kevin piloted-by-proxy: explicit go to trigger + write).
+  Triggered a `seoIntent:true` site audit on client 12 (manhattanschool.edu, indexable —
+  the noindex canary would prove plumbing only) via `queueSiteAuditRequest` directly from
+  the app dir (`ALLOW_PASSWORD_LOGIN=false` on prod → no HTTP auth path from an SSH shell;
+  Google OAuth is primary). Audit `cmr434fsr00026st0i6upoeq1` crawled 66/67 pages (1 error,
+  normal), full ADA pipeline (axe + screenshots + PSI), then the post-terminal
+  `broken-link-verify` builder produced the live-scan `CrawlRun` `54680dd9`:
+  **`seoIntent=true`, `score=98`, status complete**. Findings on the run: broken_images 34,
+  broken_internal_links 31, duplicate_title 3, missing_h1 2, missing_meta_description 4,
+  thin_content 6 (unified broken-link + on-page run confirmed). Link graph populated —
+  66 pages, avg inlinks 23.26, avg outlinks 23.26, avg crawlDepth 1.38 (non-null).
+  Canonical selector proven in BOTH branches: a fresh SF upload exists (2026-06-11, 21 d,
+  score 78) so `selectCanonicalSeoRun`/`pickCanonicalSeo(window 30)` correctly return the
+  **sf-upload** (fresh SF wins unconditionally — a documented-correct branch, not a bug),
+  while `pickCanonicalSeo(window 0)` returns the **live-scan** run (seoIntent supersede path).
+  `getCanonicalPageFacts` (93 pages off the SF canonical) + `buildBriefFromCanonical`
+  (`/api/brief/live` path, 2759-char brief) + session-independent `runForCanonical`
+  (PillarAnalysis `cmr43gufj0001y200n9134fjp`, `sessionId=null`, keyed by `crawlRunId`,
+  status complete — the D3 deliverable) all green. UI badge/history-filter verified at the
+  DB level (run `source=live-scan` + `seoIntent=true` → "Live scan" label + appears in the
+  seoIntent-filtered history) — no browser check because prod is OAuth-only. srt_/krt_ NOT
+  smoked (SF-only per D3). Prod artifacts left in place: the audit + live-scan run are a
+  legitimate scan; the PillarAnalysis smoke row `cmr43gufj` can be deleted if unwanted.
+  C6 stays `[~]` (hybrid discovery / validation / similarity / analytics-remainder open).
+  Next: C10 prod-verification (Kevin manual pass).
 
 - 2026-07-02 (later) — **C6 Phase 4 MERGED + DEPLOYED (PR #85, prod @ `9c07502`).** Pre-merge gates re-run same day: tsc clean, vitest 290 files / 2,871 tests green (54.5 s), build green. Merge-committed per house style; deploy applied migration `20260630120000_live_seo_source` ("All migrations have been successfully applied" — PillarAnalysis table rebuild included), PM2 online, Next.js ready in 820 ms, no startup errors. Confirmed prod ran main @ `6679993` (S1–S4 + OAuth) before this deploy — the earlier "is main deployed?" uncertainty is resolved. Spec + plan archived; also archived the stray shipped 2026-06-04 seo-roadmap spec/plan (PR #49-era drift flagged by the docs-and-writing skill; `specs/`+`plans/` are now clean). **PROD-VERIFICATION PENDING — next session runs campaign Gate 0.3** (seoIntent audit on an indexable client domain; expect live-scan CrawlRun `seoIntent=1` + non-null score + "Live scan" badge + pat_/brief smoke; srt_/krt_ excluded per D3). Then C10 verification (Kevin manual). C6 stays `[~]`.
 

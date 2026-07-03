@@ -20,6 +20,12 @@ module.exports = {
       UPLOADS_DIR: `${DATA_HOME}/uploads`,
       SCREENSHOTS_DIR: `${DATA_HOME}/screenshots`,
       REPORTS_DIR: `${DATA_HOME}/reports`,
+      // D0 ops safety. BACKUP_DIR holds daily DB snapshots + alert-state.json.
+      // Set ALERT_WEBHOOK_URL in the server .env (a Slack incoming webhook) to
+      // enable failure alerts; unset = alerts computed + logged, not sent.
+      // Optional tuning (defaults in code): QUEUE_STALL_MINUTES (60),
+      // BACKUP_STALE_HOURS (26), BACKUP_RETENTION_COUNT (7), ALERT_COOLDOWN_MINUTES (360).
+      BACKUP_DIR: `${DATA_HOME}/backups`,
       NODE_OPTIONS: '--max-old-space-size=2048',
       // Audit-safety knobs are explicit here so `pm2 env <id>` proves
       // what the worker is using. Do not move to .env without that tradeoff.
