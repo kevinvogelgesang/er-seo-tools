@@ -36,16 +36,22 @@ streaming.
 C8 + upload hotfix (#90/#91) + A2-f1 + D0 + C6 Phase 4 + C10 all COMPLETE +
 PROD-VERIFIED. A 16-skill operator library lives in .claude/skills/.
 
-1. Load the skill er-seo-tools-change-control first (hard gates: no merge/
-   deploy/server mutation without Kevin's explicit go IN THIS conversation; docs
-   rituals mandatory; never scan non-client sites).
+1. Load the skill er-seo-tools-change-control first. Gate policy (2026-07-03
+   ruling, rules 1 & 4): THIS PASTED PROMPT is standing authorization to merge
+   pending roadmap PRs at session start — re-run the gates (lint/test/build) on
+   the PR branch in this session first — and to deploy when needed, ALWAYS
+   followed immediately by post-deploy verification. Destructive server ops
+   (prod data deletion, server .env edits, DB restore) stay Kevin-gated; docs
+   rituals mandatory; never scan non-client sites. Brainstorm→spec→plan runs
+   ungated — Kevin reviews after both artifacts are complete.
 2. Read docs/superpowers/todos/HANDOFF-improvement-roadmap.md (current state +
    next item) and docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md
    (full plan). Trust ranking when docs disagree: code > plan/spec >
    tracker/handoff.
 3. THE IMMEDIATE NEXT STEP:
-   - PR #94 (pt2): Kevin merges → deploys (plain ~/deploy.sh, code-only, no
-     migration/env) → prod-verify (upload a real SF crawl for a CLIENT/STAGING site
+   - PR #94 (pt2): re-run gates on feat/c7-parser-consolidation → merge → deploy
+     (plain ~/deploy.sh, code-only, no migration/env — autonomous per the
+     2026-07-03 ruling) → prod-verify (upload a real SF crawl for a CLIENT/STAGING site
      incl. page-titles/meta/H1/H2/CSS/JS/PDF exports; confirm on-page + resource
      issues render identically to a pre-refactor run — same counts/severities/groups;
      a pre-C7 archived session still renders). Also finish pt1's prod-verify (upload
@@ -133,8 +139,9 @@ PROD-VERIFIED. A 16-skill operator library lives in .claude/skills/.
 
 ## Next item
 
-**Gated on PR #94 & #93.** Immediate: Kevin merges/deploys/prod-verifies C7 pt2 (parser
-consolidation) and finishes pt1's prod-verify. Once pt2 is verified, START **C7 part 3
+**Immediate:** merge PR #94 (re-run gates first) + deploy — autonomous per the
+2026-07-03 ruling — then prod-verify C7 pt2 (parser consolidation; the SF-crawl
+uploads need Kevin/an analyst) and finish pt1's prod-verify. Once pt2 is verified, START **C7 part 3
 (streaming parse)** via the full pipeline — the memory/OOM piece; roadmap warns do NOT
 parallelize before streaming; it will touch the now-consolidated bases (close the 2
 deferred golden-coverage Minors then). If Kevin redirects: C9, further C6, or
