@@ -64,7 +64,7 @@ Spine items — everything else depends on these two:
 
 Interleave as needed (not blockers):
 
-- [~] A2-f1 (follow-up, added 2026-07-02). **Guard `scripts/findings-rebuild.ts` against pruned ADA blobs** — the Session branch refuses a pruned blob (`findings-rebuild.ts:44-46`) but the SiteAudit/AdaAudit branches have no guard: on a 90-d-pruned ADA row, `parseAxe(null)` yields empty pages and the delete-and-recreate writer silently replaces the canonical findings tables with an empty run. ~5-line guard mirroring the Session check. Found by the 2026-07-02 skill-library factual review; warning documented in `.claude/skills/er-seo-tools-proof-and-analysis-toolkit` until fixed. (hours) — **BUILT + PR #88 (2026-07-02).** Guard placed in `lib/findings/ada-write.ts` (both `writeAdaSiteFindings` + `writeAdaSingleFindings`), NOT the script — defends the rebuild script AND the live standalone dual-write hook. Pruned signature = `status='complete'` audit/child with null `result` (finalizer never persists a complete audit without its blob); errored/redirected audits stay ungated. 2 DB-backed tests (refuse + no-clobber, site + standalone). Gate-green. Awaiting Kevin merge/deploy/prod-verify.
+- [x] A2-f1 (follow-up, added 2026-07-02). **Guard `scripts/findings-rebuild.ts` against pruned ADA blobs** — the Session branch refuses a pruned blob (`findings-rebuild.ts:44-46`) but the SiteAudit/AdaAudit branches have no guard: on a 90-d-pruned ADA row, `parseAxe(null)` yields empty pages and the delete-and-recreate writer silently replaces the canonical findings tables with an empty run. ~5-line guard mirroring the Session check. Found by the 2026-07-02 skill-library factual review; warning documented in `.claude/skills/er-seo-tools-proof-and-analysis-toolkit` until fixed. (hours) — **BUILT + PR #88 (2026-07-02).** Guard placed in `lib/findings/ada-write.ts` (both `writeAdaSiteFindings` + `writeAdaSingleFindings`), NOT the script — defends the rebuild script AND the live standalone dual-write hook. Pruned signature = `status='complete'` audit/child with null `result` (finalizer never persists a complete audit without its blob); errored/redirected audits stay ungated. 2 DB-backed tests (refuse + no-clobber, site + standalone). Gate-green. **MERGED (PR #88, main `92d10e3`) + DEPLOYED (2026-07-02, code-only `~/deploy.sh`, no migration) + PROD-VERIFIED to the extent possible: deployed guard source present in `lib/findings/ada-write.ts`, clean boot, app online. Behavioral rebuild-refuses check DEFERRED — prod has 0 pruned targets (oldest complete ADA audit 41 d old; prune at 90 d), forcing one would mutate prod; guard is correctly inert until the first pruned-audit rebuild (~2026-08+). Behavioral correctness covered by the 2 gate-green DB tests. A2-f1 COMPLETE.**
 - [ ] A3. API route kit (`withRoute()` wrapper) + tests for the 14 untested routes (1 wk)
 - [ ] A4. Observability floor: `/api/health`, pino logging, `/admin/ops` page (0.5–1 wk)
 - [ ] A5. Shared status hook → optional SSE notification layer (0.5 wk)
@@ -214,7 +214,7 @@ Interleave as needed (not blockers):
   overstated Phase 4: no self-healing schedules, no `lib/seo/providers/`, no
   live srt_/krt_ — doc error, owner-confirmed).
 - [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
-- [ ] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk)
+- [~] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk) — **BUILT + PR #90 (2026-07-03, `feat/c8-configurable-scoring-weights`).** Global `ScoringWeights` singleton (id=1) read by BOTH SEO scorers (`computeHealthScore` + `scoreLiveSeo`); `/settings` editor (cookie-gated `GET/PUT /api/settings/scoring-weights`); fixed-history `CrawlRun.scoreBreakdown` JSON snapshot; `ScoreExplanation` panel on SEO parser results (with a new health-score line) + `OnPageSeoSection` (archived-safe, degrades pre-C8). Pure/server module split keeps prisma out of the client bundle. ADA scorer + per-client weights + retroactive recompute OUT of scope. Spec + plan both Codex-reviewed; built subagent-driven (7 tasks, per-task + final opus review = READY TO MERGE). Additive migration (auto-applies on deploy); NO new env var; no `isPublicPath` change. Gate-green: tsc + 2919 tests + build. Awaiting Kevin merge/deploy/prod-verify.
 - [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)
 - [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test connection green, reports render correctly, SA granted + GA4/GSC mapped for every client Kevin currently has access to. Scorecard-#12 question RESOLVED — the code's "Key Events" (vs the spec's duplicate "Avg Position" Looker artifact) is accepted as-is (no change). **C10 COMPLETE** — delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6.
 
@@ -238,7 +238,36 @@ Interleave as needed (not blockers):
 
 ## Status log
 
-- 2026-07-02 (latest, A2-f1 built) — **A2-f1 BUILT + PR #88 (`fix/a2-f1-rebuild-pruned-ada-guard`).**
+- 2026-07-03 (latest, C8 built) — **C8 BUILT + PR #90 (`feat/c8-configurable-scoring-weights`).**
+  Roadmap choice = C8 (Kevin). Full feature pipeline: brainstorm (scope = the two
+  factor-weighted SEO scorers; global DB weight profile + `/settings` UI; fixed history) →
+  spec (`2026-07-03-configurable-scoring-weights-design.md`) → Codex accept-with-fixes
+  (resolve weights in the DB layer not the pure mapper; drop the dead `metadata.health_score`
+  precedence; validate a positive live-eligible factor; breakdown JSON = `{version,scorer,score,factors}`)
+  → plan → Codex accept-after-rework (compile-green commit boundaries — merge each scorer
+  refactor with its callers; split `weights.ts` pure vs `resolve-weights.ts` server so the
+  client card never bundles prisma; `parity.ts` edits `mapSeoResult` not `computeHealthScore`;
+  add the missing health-score display; `ScoreExplanation` empty-factors→nothing; jsdom pragma)
+  → subagent-driven build (7 TDD tasks, per-task spec+quality review, final whole-branch
+  review on opus = READY TO MERGE, 0 Critical/Important, 4 Minors all safe-to-defer).
+  New: `ScoringWeights` singleton table + `CrawlRun.scoreBreakdown`; `lib/scoring/weights.ts`
+  (pure) + `resolve-weights.ts` (server); both scorers → `{score,factors}` reading resolved
+  weights; `writeSeoFindings` + `broken-link-verify` persist score + breakdown from ONE call;
+  cookie-gated settings route; `ScoringWeightsCard`; `ScoreExplanation` panel on both SEO
+  results surfaces. Fresh DB scores identically to pre-C8 (defaults = old literals).
+  Gate-green: tsc + **2919 vitest** (301 files) + build. Additive migration (auto on deploy);
+  NO new env var; no `isPublicPath` change. **Next: Kevin merges PR #90 → deploys → prod-verifies
+  (light — set a non-default weight on `/settings`, run a scan, confirm the live SEO score +
+  explanation reflect it and existing scores are unchanged). NOTE: PR #90 also carries the
+  A2-f1-verified tracker/handoff (supersedes the docs-only PR #89) — merge #90 and close #89,
+  or merge #89 first and rebase #90.**
+- 2026-07-02 (A2-f1 verified) — **A2-f1 MERGED + DEPLOYED + PROD-VERIFIED. A2-f1 COMPLETE.**
+  PR #88 merged to main (`92d10e3`); deployed via plain `~/deploy.sh` (code-only, no migration);
+  prod `6f1c45f`→`92d10e3`, app online, clean boot; deployed guard source present in
+  `lib/findings/ada-write.ts`. Behavioral rebuild-refuses check DEFERRED (0 pruned targets in
+  prod; oldest complete ADA audit 41 d old, prune at 90 d — guard inert until ~2026-08+;
+  covered by the 2 DB tests).
+- 2026-07-02 (A2-f1 built) — **A2-f1 BUILT + PR #88 (`fix/a2-f1-rebuild-pruned-ada-guard`).**
   Roadmap choice = A2-f1 (Kevin). Small-bugfix pipeline (TDD): two DB-backed failing
   tests first (rebuild a pruned site audit / pruned standalone → must refuse AND leave
   the canonical `Finding`/`Violation` rows intact) — both went RED on current code
