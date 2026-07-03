@@ -45,6 +45,14 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '50mb',
     },
+    // /api/upload is matched by the middleware matcher ('/api/:path*'), and Next.js
+    // caps middleware-matched request bodies at 10MB by default, TRUNCATING beyond
+    // it. A truncated multipart body severs its boundary, so `request.formData()`
+    // throws and the upload route 500s with "Failed to upload files" (prod incident
+    // 2026-07-03). Match the upload route's own 100MB ceiling
+    // (DEFAULT_MAX_UPLOAD_BODY_BYTES in app/api/upload/route.ts) so that route's
+    // Content-Length check — not this silent truncation — is the single gate.
+    middlewareClientMaxBodySize: '100mb',
   },
   // Ensure Prisma's native query engine is bundled for deployment
   outputFileTracingIncludes: {
