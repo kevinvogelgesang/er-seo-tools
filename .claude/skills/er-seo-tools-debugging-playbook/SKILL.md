@@ -14,10 +14,9 @@ invisible to dev + tests** (minification, PM2 memory kills, reverse proxy, WAF, 
 divergence) — so "it works locally" eliminates almost nothing.
 
 Two ground rules before touching anything:
-- **Gate policy (2026-07-03 ruling — canonical in `er-seo-tools-change-control` rule 1):**
-  read-only SSH (logs, `pm2 status`, `sqlite3 SELECT`) is always fine; `pm2 restart`
-  and gate-green deploys are autonomous (verify + report after); SQL UPDATEs, server
-  `.env` edits, and destructive ops stay Kevin-gated.
+- **Never SSH-mutate the server or deploy without Kevin's explicit go.** Read-only SSH
+  (logs, `pm2 status`, `sqlite3 SELECT`) is fine for diagnosis; restarts, SQL UPDATEs,
+  and `~/deploy.sh` are Kevin actions.
 - **Prefer letting recovery self-heal** (see "Recovery behaviors" below) before any
   manual intervention. Most "stuck" states resolve within 10 minutes on their own.
 

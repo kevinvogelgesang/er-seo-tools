@@ -219,10 +219,8 @@ settled, 0 duplicate pairs. Phase 2's drills (same tracker) proved the drained
 case: a `pdfs-running` parent with zero jobs was finalized, not failed
 ("finalize-before-fail").
 
-**Prod drills:** `pm2 restart` is autonomous under the 2026-07-03 ruling
-(operational recovery), but a deliberate kill-mid-audit drill interrupts real
-work — schedule it with Kevin, write the assertion list BEFORE restarting, and
-report the results either way.
+**Prod drills are Kevin-gated** (`pm2 restart` is a server mutation): design the
+drill, hand Kevin the exact commands and assertion list; you read the results.
 
 ## Recipe 5 — Prove idempotency (double-run test)
 
@@ -299,10 +297,10 @@ your own fixtures.
 
 ## Recipe 7 — Prove a deploy is healthy (post-deploy verification)
 
-**When to invoke:** after every deploy — mandatory, not optional: under the
-2026-07-03 ruling deploys are autonomous when gate-green, and this recipe is
-the required second half of that autonomy (`er-seo-tools-change-control`
-rule 1). The verification below is read-only SSH.
+**When to invoke:** after every deploy. The deploy itself is **Kevin-gated**
+(AI sessions never run `~/deploy.sh`, never SSH-mutate, never merge to main
+without explicit go in the current conversation). The verification below is
+read-only — drive it via Kevin pasting output or read-only SSH he approves.
 
 **Checklist, in order:**
 

@@ -24,7 +24,7 @@ Core principle: **the DB and logs already know the answer.** SiteAudit staleness
 ## Ground rules (non-negotiable)
 
 - **Read-only always.** Every script opens SQLite with both `-readonly` and `file:...?mode=ro`. Never run mutating SQL against any DB, dev or prod. Repairs go through the app's own tools (`scripts/findings-rebuild.ts`) or code changes, never hand-written UPDATEs.
-- **Prod DB access is via SSH read commands only** (`ssh seo@144.126.213.242`). Reading logs and running these read-only scripts on the server is fine; gate-green deploys and `pm2 restart` are autonomous under the 2026-07-03 ruling, but hand-written DB writes and destructive ops stay Kevin-gated — see `er-seo-tools-change-control` rule 1.
+- **Prod DB access is via SSH read commands only** (`ssh seo@144.126.213.242`). Reading logs and running these read-only scripts on the server is fine; any mutation (deploy, PM2, DB writes) requires Kevin — see `er-seo-tools-change-control`.
 - **DateTime columns are integer epoch-milliseconds** in this SQLite schema (Prisma storage format; verified against `prisma/local-dev.db`). Compare with `strftime('%s','now')*1000`, render with `datetime(col/1000,'unixepoch')`. A comparison against a datetime *string* silently matches nothing.
 - **SQLite `||` binds tighter than `+`**: `a + b || '/' || c` computes `a + (b||'/'||c)` and coerces to a number. Parenthesize arithmetic before concatenating.
 

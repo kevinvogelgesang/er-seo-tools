@@ -41,8 +41,8 @@ Run in this order. All commands verified 2026-07-02 on branch
 | 1 | Type-check | `npm run lint` | `tsc --noEmit`. There is **no eslint** in this repo. `tsconfig.json` **excludes `**/*.test.ts(x)`** — test-file type errors do NOT surface here, only in vitest's own transform. |
 | 2 | Tests | `DATABASE_URL="file:./local-dev.db" npm test` | `vitest run`. 290 test files / 2871 tests, all green in ~51 s as of 2026-07-02. The `DATABASE_URL` prefix is **mandatory** (see the big trap below). |
 | 3 | Build | `npm run build` | `NODE_OPTIONS='--max-old-space-size=3072' next build`. The heap flag is a prod-OOM fix (PR #76) — never remove it. |
-| 4 | PR + merge | push branch, open PR via `gh`, merge once gate-green | Merge is autonomous under the 2026-07-03 ruling when gates 1–3 were re-run green in THIS session (`er-seo-tools-change-control` rule 1). |
-| 5 | Deploy + prod verification | deploy when needed, then verify on prod and **log it in the tracker** | Deploy = `git push`, then `ssh seo@144.126.213.242 "~/deploy.sh"` (autonomous when gate-green; verification immediately after is mandatory). Verification evidence goes into a dated status-log line in `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md`. |
+| 4 | PR | push branch, open PR via `gh` | AI sessions may push branches and open PRs. **Never merge to main and never deploy without Kevin's explicit go in the current conversation.** |
+| 5 | Prod verification | Kevin-gated deploy, then verify on prod and **log it in the tracker** | Deploy = `git push`, then Kevin runs `ssh seo@144.126.213.242 "~/deploy.sh"`. Verification evidence goes into a dated status-log line in `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md`. |
 
 **"Gate-green"** (the term used in tracker status logs, e.g. "gate green (tsc / vitest /
 build)") means gates 1–3 all pass locally: clean `tsc --noEmit`, full suite green, clean
@@ -175,8 +175,7 @@ Before saying a change is complete/fixed/passing, ALL of:
       new files, new deps, config, server/client component boundaries.
 - [ ] New behavior has a test; fixed bug has a guard test naming the bug.
 - [ ] For deploy-affecting changes: prod-verification steps written out (what to click,
-      what response/log line proves it) — an autonomous deploy without them is a
-      rule-1 violation, not a convenience.
+      what response/log line proves it) even though the deploy itself is Kevin-gated.
 - [ ] Tracker status-log line drafted if the change advances a tracker item (see
       `er-seo-tools-docs-and-writing` for the full handoff ritual — checkbox + dated
       log + handoff rewrite in the same commit).
