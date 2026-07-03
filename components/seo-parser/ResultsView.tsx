@@ -5,6 +5,7 @@ import { useState } from 'react';
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { AggregatedResult } from '@/lib/types';
+import { FileProcessingPanel } from './FileProcessingPanel';
 import { MetricsBar } from './MetricsBar';
 import { IssueTabs } from './IssueTabs';
 import { RecommendationList } from './RecommendationList';
@@ -83,10 +84,15 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
             {result.archived ? (
               <p className="text-gray-500 dark:text-white/50 text-sm mt-1">Archived — rebuilt from findings data</p>
             ) : (
-              <p className="text-gray-500 dark:text-white/50 text-sm mt-1">
-                {result.metadata.files_processed.length} files · {result.metadata.parsers_used.length}
-                {result.metadata.total_parsers_available ? `/${result.metadata.total_parsers_available}` : ''} parsers matched
-              </p>
+              <FileProcessingPanel
+                reports={result.metadata.file_reports}
+                archived={result.archived}
+                legacy={{
+                  filesProcessed: result.metadata.files_processed.length,
+                  parsersUsed: result.metadata.parsers_used.length,
+                  totalParsers: result.metadata.total_parsers_available,
+                }}
+              />
             )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -201,14 +207,6 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
             />
           </div>
         </details>
-
-        {/* Debug footer */}
-        {result.metadata.parsers_used.length > 0 && (
-          <details className="text-xs text-gray-400 dark:text-white/40 pb-4">
-            <summary className="cursor-pointer hover:text-gray-600 dark:hover:text-white/60 select-none">Debug info</summary>
-            <p className="mt-1">Parsers used: {result.metadata.parsers_used.join(', ')}</p>
-          </details>
-        )}
 
       </div>
 

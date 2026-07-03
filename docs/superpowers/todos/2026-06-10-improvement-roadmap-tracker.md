@@ -213,7 +213,7 @@ Interleave as needed (not blockers):
   2026-07-02 — description above corrected against plan+code (the original
   overstated Phase 4: no self-healing schedules, no `lib/seo/providers/`, no
   live srt_/krt_ — doc error, owner-confirmed).
-- [ ] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk)
+- [~] C7. Parser consolidation + streaming parse + per-file failure isolation (1 wk) — **DECOMPOSED into 3 independent PRs** (Kevin's call 2026-07-03): (1) failure-isolation surfacing, (2) parser consolidation, (3) streaming parse. Ordering: isolation → consolidation → streaming (consolidation shrinks streaming's blast radius; streaming last on the clean base — no active OOM, latent risk only). **Part 1 (per-file parse reporting) BUILT + PR #93 (`feat/c7-parse-file-reporting`), awaiting Kevin merge/deploy/prod-verify.** Structured `metadata.file_reports` (parsed/failed/unmatched/skipped + core/normal severity via `isCoreExport`), core-export failure banner on the SEO results page, `FileProcessingPanel` (dark-mode, backward-compat + archived-safe); drops dead `result.parsing_errors`; excludes `file_reports` from the Claude memo export. NO migration/env/middleware change. Spec+plan both Codex-reviewed; built subagent-driven (5 code tasks, per-task + final opus review = READY TO MERGE). Gate-green: tsc + 2932 tests (303 files) + build. Spec: `../specs/2026-07-03-parse-file-reporting-design.md` · Plan: `../plans/2026-07-03-parse-file-reporting.md`. Parts 2+3 NOT yet started.
 - [x] C8. Configurable scoring/priority weights + score-explanation panel (0.5–1 wk) — **COMPLETE: MERGED (PR #90, main `0f3225d`) + DEPLOYED + PROD-VERIFIED (2026-07-03).** Global `ScoringWeights` singleton (id=1) read by BOTH SEO scorers (`computeHealthScore` + `scoreLiveSeo`); `/settings` editor (cookie-gated `GET/PUT /api/settings/scoring-weights`); fixed-history `CrawlRun.scoreBreakdown` JSON snapshot; `ScoreExplanation` panel on SEO parser results (with a new health-score line) + `OnPageSeoSection` (archived-safe, degrades pre-C8). Pure/server module split keeps prisma out of the client bundle. ADA scorer + per-client weights + retroactive recompute OUT of scope. Spec + plan both Codex-reviewed; built subagent-driven (7 tasks, per-task + final opus review). Additive migration `20260703120000_configurable_scoring_weights` applied on deploy; NO new env var; no `isPublicPath` change. Prod-verified: migration applied, clean boot, `scoreBreakdown` column present, empty `ScoringWeights`→resolver returns defaults (identical to pre-C8), new route 401s unauth (correctly non-public); **behavioral eyeball confirmed in real data** — a scan run with `indexability` weight bumped to 21 persisted `score 82` with a weight-21 breakdown snapshot, and resetting weights to defaults (20) afterward did NOT change that historical run (fixed history proven). Gate-green: tsc + 2919 tests + build.
 - [ ] C9. ADA scoring v2 + poller/results-view consolidation (1–1.5 wks)
 - [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test connection green, reports render correctly, SA granted + GA4/GSC mapped for every client Kevin currently has access to. Scorecard-#12 question RESOLVED — the code's "Key Events" (vs the spec's duplicate "Avg Position" Looker artifact) is accepted as-is (no change). **C10 COMPLETE** — delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6.
@@ -238,7 +238,26 @@ Interleave as needed (not blockers):
 
 ## Status log
 
-- 2026-07-03 (latest, C8 verified + upload hotfix) — **C8 MERGED + DEPLOYED + PROD-VERIFIED = COMPLETE.**
+- 2026-07-03 (latest, C7 pt1 built) — **Roadmap choice = C7 (Kevin), DECOMPOSED into 3 PRs;
+  part 1 (per-file parse reporting) BUILT + PR #93 (`feat/c7-parse-file-reporting`).** Full feature
+  pipeline: brainstorm (found isolation ALREADY exists at the parse level — the gap was VISIBILITY:
+  `parsing_errors` written but never rendered; worst case a present-but-corrupt core export silently
+  yields a bad health score) → Kevin chose all-three-decomposed, order isolation→consolidation→streaming
+  → spec (`2026-07-03-parse-file-reporting-design.md`) → Codex accept-with-fixes (skipped=extname()!=.csv;
+  explicit parallel success list feeds aggregation+domain; strip file_reports from Claude memo not raw JSON;
+  isCoreExport over-inclusion guard: core AND no-non-core so a failed response_codes redirect variant is
+  severity:normal) → plan → Codex accept-with-fixes (replace-not-duplicate existing vi.mocks; pillar-trigger
+  mock must mockResolvedValue else success path .catch 500s; real fn is buildTechnicalAuditExport not
+  buildClaudeExport; wire-test in existing ResultsView.archived.test.tsx) → subagent-driven build (5 TDD
+  tasks, per-task spec+quality review all Approved, final opus whole-branch review = READY TO MERGE, 0
+  Critical/Important, all 9 cross-task invariants HOLD). New: FileReport types + optional
+  `metadata.file_reports`; `isCoreExport`; parse route emits one report/manifest-file + drops
+  `parsing_errors`; `FileProcessingPanel` (dark-mode) + core-failure banner in ResultsView (debug footer
+  removed). NO migration/env/middleware change. Gate-green: tsc + **2932 vitest** (303 files) + build.
+  **Next: Kevin merges PR #93 → deploys (plain `~/deploy.sh`, code-only) → prod-verifies (upload a small
+  crawl to a client/staging site with one corrupt + one mis-named CSV; confirm panel buckets + core-failure
+  banner; confirm a pre-PR session still renders). Then C7 part 2 (consolidation).**
+- 2026-07-03 (C8 verified + upload hotfix) — **C8 MERGED + DEPLOYED + PROD-VERIFIED = COMPLETE.**
   PR #90 merged to main (`0f3225d`); PR #89 (A2-f1 docs) also merged. Deployed via plain
   `~/deploy.sh` (Kevin go in-conversation); additive migration `20260703120000_configurable_scoring_weights`
   applied automatically; PM2 online, 0 restarts. **Structural prod-verify** (read-only prisma `.mjs`):
