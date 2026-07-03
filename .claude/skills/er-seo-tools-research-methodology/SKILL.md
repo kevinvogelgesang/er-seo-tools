@@ -127,7 +127,7 @@ hunch
   → subagent-driven TDD build (plan header mandates the sub-skill)
   → gates: npm run lint && npm test && npm run build
   → PR
-  → KEVIN's merge + deploy gate (never merge/deploy without his explicit go)
+  → merge once gate-green, deploy when needed (2026-07-03 ruling; destructive ops stay Kevin-gated)
   → prod verification (predicted numbers, §2)
   → tracker checkbox + dated status line + handoff rewrite (same commit)
   → specs/plans move to docs/superpowers/archive/ on ship
@@ -143,7 +143,7 @@ Evidence per stage (spot-check any of these):
 | Codex spec/plan review | Commits `a8ec2db` (spec fixes), `e716ced`/`7dd2ae2` (plan fixes); tracker lines record "accept-with-fixes ×8/×9/×14" with fixes named |
 | Subagent TDD build | Plan header: "**For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development…" (`plans/2026-06-30-autonomous-live-seo-source.md` line 3) |
 | Gates | `package.json`: `"lint": "tsc --noEmit"`, `"test": "vitest run"`, `"build": "NODE_OPTIONS='--max-old-space-size=3072' next build"` |
-| Kevin's gate | Owner ruling 2026-07-02: AI sessions may push branches and open PRs but never run `~/deploy.sh`, never SSH-mutate the server, never merge to main without Kevin's explicit go in the current conversation |
+| Gate policy | Owner ruling 2026-07-02, amended 2026-07-03: merge + deploy autonomous when gate-green (verify + report after); brainstorm→spec→plan ungated; destructive server ops Kevin-gated — canonical in `er-seo-tools-change-control` rules 1 & 4 |
 | Prod verification + tracker/handoff | Every SHIPPED tracker entry ends with a prod-verification account; handoff rewritten in the same commit (protocol in project `CLAUDE.md`) |
 | Archive on ship | `docs/superpowers/archive/specs/` + `archive/plans/` (lifecycle in `docs/superpowers/README.md`) |
 
@@ -215,7 +215,7 @@ double codepaths are where dev/prod divergence bugs breed.
 - Accepting a Codex (or any reviewer) finding without independently verifying it against the code — reviewer claims meet the same evidence bar.
 - Silently dropping a planned task. Skips get a written one-line rationale where the item is tracked (§3, retirement path).
 - Marking work done in the plan file's checkboxes and nowhere else. Nobody reads those; the tracker + handoff commit is the record.
-- Merging or deploying to "complete the experiment". Prod verification requires a deploy, and deploys are Kevin's gate — plan the verification, hand Kevin the runbook, wait.
+- Deploying to "complete the experiment" without the discipline. Autonomous deploy (2026-07-03 ruling) still requires gate-green first and predicted-numbers verification immediately after — deploy-then-eyeball is not an experiment.
 - Re-proposing a retired idea because you only read the code. Check the tracker/pentest tracker for "intentionally skipped"/"superseded" lines first.
 
 ## Provenance and maintenance

@@ -238,7 +238,9 @@ Interleave as needed (not blockers):
 
 ## Status log
 
-- 2026-07-03 (latest, C7 pt1 built) — **Roadmap choice = C7 (Kevin), DECOMPOSED into 3 PRs;
+- 2026-07-03 (gate-policy amendment, Kevin) — **Owner ruling amended: merge + deploy are now AUTONOMOUS when gate-green; brainstorm→spec→plan runs ungated.** Specifics (canonical in `.claude/skills/er-seo-tools-change-control` rules 1 & 4): a pasted "Continue the improvement roadmap" prompt is standing authorization to merge pending roadmap PRs at session start (gates re-run in that session first); deploys run when needed with mandatory post-deploy verification + report; operational recovery (`pm2 restart`, `migrate resolve`, lockfile-drift fix) and runbook-documented benign prod writes (pillar smoke) included. STILL Kevin-gated: destructive/irreversible server ops (prod data deletion, server `.env`/secrets edits, DB restore, force-push) + anything outside documented runbooks. After brainstorming, sessions proceed spec→Codex→plan→Codex without waiting; Kevin reviews after both artifacts are complete (Codex "rewrite" verdicts or contradictions with prior Kevin decisions still pause). All 16 skills + this handoff updated to match; the 2026-07-02 blanket gate wording is superseded wherever it appears in older log entries below. (Note: PR #94's branch carries its own tracker/handoff updates — resolve in its favor for C7 state, this entry's favor for gate policy, when it merges.)
+
+- 2026-07-03 (C7 pt1 built) — **Roadmap choice = C7 (Kevin), DECOMPOSED into 3 PRs;
   part 1 (per-file parse reporting) BUILT + PR #93 (`feat/c7-parse-file-reporting`).** Full feature
   pipeline: brainstorm (found isolation ALREADY exists at the parse level — the gap was VISIBILITY:
   `parsing_errors` written but never rendered; worst case a present-but-corrupt core export silently

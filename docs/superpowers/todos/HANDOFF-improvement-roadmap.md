@@ -21,19 +21,26 @@ merged/deployed/prod-verified. C8 + upload hotfix (PR #90/#91) + A2-f1 + D0 + C6
 Phase 4 + C10 all COMPLETE + PROD-VERIFIED. Work from main (once #93 merges).
 A 16-skill operator library lives in .claude/skills/.
 
-1. Load the skill er-seo-tools-change-control first (hard gates: no merge/
-   deploy/server mutation without Kevin's explicit go IN THIS conversation; docs
-   rituals mandatory; never scan non-client sites).
+1. Load the skill er-seo-tools-change-control first. Gate policy (2026-07-03
+   ruling, rule 1): THIS PASTED PROMPT is standing authorization to merge
+   pending roadmap PRs at session start — re-run the gates (lint/test/build) on
+   the PR branch in this session first — and to deploy when needed, ALWAYS
+   followed immediately by post-deploy verification. Destructive server ops
+   (prod data deletion, server .env edits, DB restore) stay Kevin-gated; docs
+   rituals mandatory; never scan non-client sites. Brainstorm→spec→plan runs
+   ungated (rule 4) — Kevin reviews after both are complete.
 2. Read docs/superpowers/todos/HANDOFF-improvement-roadmap.md (current state +
    next item) and docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md
    (full plan). Trust ranking when docs disagree: code > plan/spec >
    tracker/handoff.
 3. THE IMMEDIATE NEXT STEP depends on PR #93:
-   - If PR #93 is NOT yet merged: Kevin merges → deploys (plain ~/deploy.sh,
-     code-only, no migration/env) → prod-verify (upload a small crawl to a
+   - If PR #93 is NOT yet merged: re-run gates on feat/c7-parse-file-reporting →
+     merge → deploy (plain ~/deploy.sh, code-only, no migration/env — autonomous
+     per the 2026-07-03 ruling) → prod-verify (upload a small crawl to a
      CLIENT/STAGING site with one deliberately-corrupt CSV + one mis-named CSV;
      confirm the File-processing panel buckets + the core-failure banner; confirm
-     a pre-PR session still renders = backward-compat). Then tick C7-pt1 in the
+     a pre-PR session still renders = backward-compat; the uploads need
+     Kevin/an analyst with SF exports). Then tick C7-pt1 in the
      tracker + rewrite this handoff.
    - Once pt1 is verified: START C7 PART 2 (parser consolidation) via the full
      pipeline (spec → Codex → plan → Codex → subagent-driven TDD → gates → PR).
@@ -109,10 +116,11 @@ A 16-skill operator library lives in .claude/skills/.
 
 ## Next item
 
-**Gated on PR #93.** Immediate: Kevin merges/deploys/prod-verifies C7 part 1 (per-file
-parse reporting). Once verified, START **C7 part 2 (parser consolidation)** via the full
-pipeline. Then C7 part 3 (streaming parse). If Kevin redirects: C9, further C6, or
-SF-retirement Phase 1.
+**Immediate:** merge PR #93 (re-run gates first) + deploy — autonomous per the
+2026-07-03 ruling — then prod-verify C7 part 1 (per-file parse reporting; the
+fixture uploads need Kevin/an analyst). Once verified, START **C7 part 2
+(parser consolidation)** via the full pipeline. Then C7 part 3 (streaming
+parse). If Kevin redirects: C9, further C6, or SF-retirement Phase 1.
 
 ## Gotchas / decisions already made (don't relitigate)
 
