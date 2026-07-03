@@ -163,16 +163,48 @@ describe('H2Parser golden', () => {
 
 Run, pin. Verify single issue `missing_h2` (notice), `total_pages`/`excluded_urls` present. Re-run: PASS.
 
-- [ ] **Step 9: Add the `length===0` boundary assertion to the pageTitles golden file**
+- [ ] **Step 9: Add hardening assertions** (boundary, key-order, URL-caps, alternate columns, routing)
 
 Append to `pageTitles.golden.test.ts`:
 
 ```ts
+import { H1Parser } from './h1.parser';
+import { H2Parser } from './h2.parser';
+
 it('does not count length 0 as too short', () => {
   const csv = 'Address,Title 1,Title 1 Length\nhttps://ex.com/a,,0';
   const out = new PageTitlesParser(csv).parse() as { issues: { type: string }[] };
   expect(out.issues.some(i => i.type === 'title_too_short')).toBe(false);
   expect(out.issues.some(i => i.type === 'missing_title')).toBe(true);
+});
+
+it('top-level key insertion order is total_pages, excluded_urls, issues', () => {
+  const out = new PageTitlesParser('Address,Title 1\nhttps://ex.com/a,T').parse();
+  expect(Object.keys(out)).toEqual(['total_pages', 'excluded_urls', 'issues']);
+});
+
+it('caps missing URLs at 20 and duplicate group URLs at 50', () => {
+  const missingRows = Array.from({ length: 25 }, (_, i) => `https://ex.com/m${i},`).join('\n');
+  const missOut = new PageTitlesParser('Address,Title 1\n' + missingRows).parse() as { issues: { type: string; urls: string[] }[] };
+  expect(missOut.issues.find(i => i.type === 'missing_title')!.urls).toHaveLength(20);
+
+  const dupRows = Array.from({ length: 60 }, (_, i) => `https://ex.com/d${i},Same Title`).join('\n');
+  const dupOut = new PageTitlesParser('Address,Title 1\n' + dupRows).parse() as { issues: { type: string; groups: { urls: string[] }[] }[] };
+  expect(dupOut.issues.find(i => i.type === 'duplicate_title')!.groups[0].urls).toHaveLength(50);
+});
+
+it('H1/H2 resolve the alternate value columns (H1 / H2, not just H1-1 / H2-1)', () => {
+  const h1 = new H1Parser('Address,H1\nhttps://ex.com/a,\nhttps://ex.com/b,x').parse() as { issues: { type: string }[] };
+  expect(h1.issues.some(i => i.type === 'missing_h1')).toBe(true);
+  const h2 = new H2Parser('Address,H2\nhttps://ex.com/a,\nhttps://ex.com/b,x').parse() as { issues: { type: string }[] };
+  expect(h2.issues.some(i => i.type === 'missing_h2')).toBe(true);
+});
+
+it('static routing survives the refactor (filenamePattern + matchesFile)', () => {
+  expect(PageTitlesParser.matchesFile('page_titles_all.csv')).toBe(true);
+  expect(H1Parser.matchesFile('h1_all.csv')).toBe(true);
+  expect(H2Parser.matchesFile('h2_all.csv')).toBe(true);
+  expect((PageTitlesParser as unknown as { parserKey: string }).parserKey).toBe('pagetitles');
 });
 ```
 
@@ -254,11 +286,47 @@ Same structure with `PDFParser`, keys `total_pdfs`/`large_pdfs`/`broken_pdfs`, t
 
 - [ ] **Step 6: Populate + verify pdf** — run, pin, verify, PASS.
 
-- [ ] **Step 7: Run the whole resources dir**
+- [ ] **Step 7: Add hardening assertions to `css.golden.test.ts`** (key-order, 30-cap, alternate columns, routing)
+
+```ts
+import { JavaScriptParser } from './javascript.parser';
+import { PDFParser } from './pdf.parser';
+
+it('top-level key insertion order is totalKey, stats, issues', () => {
+  const out = new CSSParser('Address,Size (Bytes)\nhttps://ex.com/a.css,10').parse();
+  expect(Object.keys(out)).toEqual(['total_css_files', 'stats', 'issues']);
+});
+
+it('stats key insertion order is large then broken when both columns present', () => {
+  const out = new CSSParser('Address,Size (Bytes),Status Code\nhttps://ex.com/a.css,10,200').parse() as { stats: object };
+  expect(Object.keys(out.stats)).toEqual(['large_css_files', 'broken_css']);
+});
+
+it('caps large URLs at 30', () => {
+  const rows = Array.from({ length: 35 }, (_, i) => `https://ex.com/${i}.css,${200 * 1024}`).join('\n');
+  const out = new CSSParser('Address,Size (Bytes)\n' + rows).parse() as { issues: { type: string; urls: string[] }[] };
+  expect(out.issues.find(i => i.type === 'large_css_files')!.urls).toHaveLength(30);
+});
+
+it('resolves alternate columns (Size / File Size, Status)', () => {
+  const out = new CSSParser('Address,File Size,Status\nhttps://ex.com/a.css,300000,404').parse() as { stats: Record<string, number> };
+  expect(out.stats.large_css_files).toBe(1);
+  expect(out.stats.broken_css).toBe(1);
+});
+
+it('static routing survives the refactor', () => {
+  expect(CSSParser.matchesFile('internal_css.csv')).toBe(true);
+  expect(JavaScriptParser.matchesFile('javascript_all.csv')).toBe(true);
+  expect(PDFParser.matchesFile('some_pdf.csv')).toBe(true);
+  expect((JavaScriptParser as unknown as { parserKey: string }).parserKey).toBe('javascript');
+});
+```
+
+- [ ] **Step 8: Run the whole resources dir**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/resources/` → PASS (existing images/links tests unaffected).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add lib/parsers/resources/css.golden.test.ts lib/parsers/resources/javascript.golden.test.ts lib/parsers/resources/pdf.golden.test.ts
@@ -443,7 +511,7 @@ export abstract class LengthValidatorParser extends BaseParser {
 Replace its entire contents:
 
 ```ts
-import { LengthValidatorParser, LengthValidatorConfig } from './length-validator.base';
+import { LengthValidatorParser, type LengthValidatorConfig } from './length-validator.base';
 
 export class PageTitlesParser extends LengthValidatorParser {
   static parserKey = 'pagetitles';
@@ -467,7 +535,7 @@ export class PageTitlesParser extends LengthValidatorParser {
 - [ ] **Step 3: Convert `metaDescription.parser.ts`**
 
 ```ts
-import { LengthValidatorParser, LengthValidatorConfig } from './length-validator.base';
+import { LengthValidatorParser, type LengthValidatorConfig } from './length-validator.base';
 
 export class MetaDescriptionParser extends LengthValidatorParser {
   static parserKey = 'metadescription';
@@ -491,7 +559,7 @@ export class MetaDescriptionParser extends LengthValidatorParser {
 - [ ] **Step 4: Convert `h1.parser.ts`**
 
 ```ts
-import { LengthValidatorParser, LengthValidatorConfig } from './length-validator.base';
+import { LengthValidatorParser, type LengthValidatorConfig } from './length-validator.base';
 
 export class H1Parser extends LengthValidatorParser {
   static parserKey = 'h1';
@@ -510,7 +578,7 @@ export class H1Parser extends LengthValidatorParser {
 - [ ] **Step 5: Convert `h2.parser.ts`**
 
 ```ts
-import { LengthValidatorParser, LengthValidatorConfig } from './length-validator.base';
+import { LengthValidatorParser, type LengthValidatorConfig } from './length-validator.base';
 
 export class H2Parser extends LengthValidatorParser {
   static parserKey = 'h2';
@@ -633,7 +701,7 @@ export abstract class ResourceFileParser extends BaseParser {
 - [ ] **Step 2: Convert `css.parser.ts`**
 
 ```ts
-import { ResourceFileParser, ResourceFileConfig } from './resource-file.base';
+import { ResourceFileParser, type ResourceFileConfig } from './resource-file.base';
 
 export class CSSParser extends ResourceFileParser {
   static parserKey = 'css';
@@ -650,7 +718,7 @@ export class CSSParser extends ResourceFileParser {
 - [ ] **Step 3: Convert `javascript.parser.ts`**
 
 ```ts
-import { ResourceFileParser, ResourceFileConfig } from './resource-file.base';
+import { ResourceFileParser, type ResourceFileConfig } from './resource-file.base';
 
 export class JavaScriptParser extends ResourceFileParser {
   static parserKey = 'javascript';
@@ -667,7 +735,7 @@ export class JavaScriptParser extends ResourceFileParser {
 - [ ] **Step 4: Convert `pdf.parser.ts`**
 
 ```ts
-import { ResourceFileParser, ResourceFileConfig } from './resource-file.base';
+import { ResourceFileParser, type ResourceFileConfig } from './resource-file.base';
 
 export class PDFParser extends ResourceFileParser {
   static parserKey = 'pdf';
@@ -714,7 +782,7 @@ git commit -m "refactor(c7): extract ResourceFileParser; css/js/pdf become thin 
 ```ts
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { LengthValidatorParser, LengthValidatorConfig } from './length-validator.base';
+import { LengthValidatorParser, type LengthValidatorConfig } from './length-validator.base';
 
 class MissingOnly extends LengthValidatorParser {
   protected readonly config: LengthValidatorConfig = {
@@ -741,7 +809,7 @@ describe('LengthValidatorParser base', () => {
 ```ts
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { ResourceFileParser, ResourceFileConfig } from './resource-file.base';
+import { ResourceFileParser, type ResourceFileConfig } from './resource-file.base';
 
 class Res extends ResourceFileParser {
   protected readonly config: ResourceFileConfig = {
