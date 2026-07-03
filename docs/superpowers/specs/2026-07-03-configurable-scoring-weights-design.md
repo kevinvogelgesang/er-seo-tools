@@ -66,9 +66,13 @@ model ScoringWeights {
 }
 ```
 
-- **Singleton discipline:** the app always reads/writes `id = 1`. `resolveScoringWeights()`
-  (below) upserts / falls back to code defaults if the row is absent, so a fresh DB
-  (or a deploy before anyone saves) scores identically to today.
+- **Singleton discipline:** the app always reads/writes `id = 1` via
+  `prisma.scoringWeights.upsert({ where: { id: 1 }, … })`. `resolveScoringWeights()`
+  (below) reads `id=1` and falls back to code defaults if the row is absent, so a
+  fresh DB (or a deploy before anyone saves) scores identically to today. The
+  migration MAY add a raw `CHECK (id = 1)` constraint to let the DB enforce the
+  singleton (Codex suggestion) — nice-to-have, not required, since all writes go
+  through the `id=1` upsert.
 - **Chosen over a generic key-value `Setting` table:** typed columns, trivial
   validation, one row to reason about. No other settings need a store yet (YAGNI).
 - Reset-to-defaults = write the `DEFAULT_WEIGHTS` constants back to the row.
@@ -76,13 +80,29 @@ model ScoringWeights {
 ### 2.2 `CrawlRun.scoreBreakdown` (new nullable column)
 ```prisma
 // on model CrawlRun
-scoreBreakdown String?   // JSON: { factors: [{ key, label, weight, earned, possible }] }
+scoreBreakdown String?   // JSON, shape below
+```
+JSON shape (Codex fix — carry `version` + `scorer` + the score itself, not just
+factors, so future formula changes and any score/breakdown mismatch are diagnosable):
+```jsonc
+{
+  "version": 1,
+  "scorer": "health" | "live-seo",
+  "score": 72,                 // the score this breakdown produced (== CrawlRun.score)
+  "factors": [{ "key": "indexability", "label": "Indexability", "weight": 20, "earned": 18.2, "possible": 20 }, …]
+}
 ```
 - Written next to `score` for **sf-upload** (health) and **live-scan** (live SEO)
   runs. Not written for ADA runs.
 - Because `possible === weight` for each factor, the persisted breakdown **is** the
   weight snapshot — this is what gives "fixed history" for free (no separate weights
-  snapshot column).
+  snapshot column). The embedded `score` lets the panel assert it matches
+  `CrawlRun.score`.
+- **Typing surface:** `scoreBreakdown` must be added to the `CrawlRunInput` type
+  (`lib/findings/types.ts`) as well as the Prisma model — `writeFindingsRun`
+  (`lib/findings/writer.ts`) spreads `bundle.run` straight into `crawlRun.create`,
+  so the field flows through once both the type and the model carry it. Test bundle
+  factories that build a `FindingsBundle` need the new optional field too.
 - Tiny scalar (~8 factors) → **not** subject to blob pruning; survives 90-d archive.
 - Pre-C8 runs have `scoreBreakdown = null` → the panel renders an "unavailable" state
   (no recompute).
@@ -118,17 +138,25 @@ export function computeHealthScore(result: AggregatedResult, weights: ScoringWei
 export function scoreLiveSeo(inp: LiveScoreInputs, weights: ScoringWeights): ScoreResult;            // score null on the existing guards
 ```
 
-- **Purity preserved:** weights are passed in; the scorer never touches the DB. This
-  keeps the existing pure-function test posture and the "injected/pure" invariants.
-- **Callers resolve + persist** (both are already server-side with DB access):
-  - `lib/findings/seo-mapper.ts:128` — `const w = await resolveScoringWeights();`
-    then `score` + `scoreBreakdown` from `computeHealthScore(result, w)`. Preserve the
-    existing `result.metadata?.health_score ?? …` precedence **only for the number**;
-    the breakdown is always computed here so a stored score still gets an explanation.
-    (Confirm in the plan whether `metadata.health_score` is ever pre-set on the fresh
-    aggregator path — the code comment says it is not.)
-  - `lib/jobs/handlers/broken-link-verify.ts:232` — resolve weights, pass to
-    `scoreLiveSeo`, persist `run.score` + `run.scoreBreakdown`.
+- **Purity preserved (Codex fix — do NOT resolve weights in the mapper):**
+  `lib/findings/seo-mapper.ts` documents itself as a **pure** mapper and must stay
+  pure. Weight resolution (a DB read) belongs in the DB-aware layer. So:
+  - **SF-upload / health path:** `writeSeoFindings` (`lib/findings/seo-write.ts:19`,
+    the caller of `mapSeoResult`) calls `resolveScoringWeights()` and passes the
+    weights into `mapSeoResult(result, { …ctx, weights })`. `mapSeoResult` calls
+    `computeHealthScore(result, weights)` **once** and sets **both** `run.score`
+    and `run.scoreBreakdown` from that single `ScoreResult`. The mapper receives
+    weights as data → stays pure.
+  - **Live path:** `lib/jobs/handlers/broken-link-verify.ts:232` resolves weights,
+    passes to `scoreLiveSeo(inputs, weights)`, persists `run.score` +
+    `run.scoreBreakdown` from the one result.
+- **Remove the dead `metadata.health_score` precedence (Codex fix).** Today
+  `mapSeoResult` does `result.metadata?.health_score ?? computeHealthScore(result)`.
+  Verified: the fresh aggregator (`lib/services/aggregator.service.ts`) never sets
+  `metadata.health_score`, so the precedence is dead on the write path. For C8, drop
+  it — compute `score` + `scoreBreakdown` from **one** `computeHealthScore(result, w)`
+  call so the persisted number and its breakdown can never disagree. (`metadata.health_score`
+  as a display/diff field elsewhere is a separate audit — see §5 and Follow-ups.)
 - **Invariant — "perfect inputs → exactly 100":** holds for any finite non-negative
   weights with at least one > 0, because the score is `round(earned/possible*100)`
   and `earned === possible` when every included factor is perfect. A pure test asserts
@@ -136,10 +164,28 @@ export function scoreLiveSeo(inp: LiveScoreInputs, weights: ScoringWeights): Sco
 - **Invariant — live SEO null-guards unchanged:** `attempted<=0`,
   `observed/attempted<0.5`, `indexableScored<=0` still return `{score:null,…}`.
 
-### Backward compatibility
+### Backward compatibility + full call-site enumeration (Codex fix)
 `computeHealthScore` / `scoreLiveSeo` currently return a bare `number` / `number|null`.
-All call sites (2 non-test each, enumerated in §1/§3) and their tests are updated in
-the same change. No dual API — the return type changes to `ScoreResult`.
+The return type changes to `ScoreResult` (no dual API); every site below is updated
+in the same change:
+
+- **`computeHealthScore` callers/tests:** `lib/findings/seo-mapper.ts` (via
+  `writeSeoFindings`), `lib/services/scoring.service.test.ts`,
+  `lib/findings/seo-mapper.test.ts`, `lib/findings/parity.ts` (uses the score for
+  blob-vs-tables comparison — must read `.score`).
+- **`scoreLiveSeo` callers/tests:** `lib/jobs/handlers/broken-link-verify.ts`,
+  `lib/findings/live-seo-score.test.ts`, `lib/jobs/handlers/broken-link-verify.test.ts`
+  (+ any link-graph/builder tests asserting the score).
+- **Persistence typing:** `lib/findings/types.ts` (`CrawlRunInput`),
+  `lib/findings/writer.ts` (spread), writer tests + every `FindingsBundle` test factory.
+- **Panel readers (add `scoreBreakdown` to the query / return shape):**
+  `app/seo-parser/results/[sessionId]/page.tsx`,
+  `app/seo-parser/results/run/[runId]/page.tsx`,
+  `lib/findings/seo-findings-fallback.ts`, `components/seo-parser/ResultsView.tsx`,
+  `app/ada-audit/site/[id]/page.tsx`, `components/site-audit/OnPageSeoSection.tsx`.
+- **Metadata readers to AUDIT (likely no change, confirm in plan):**
+  `lib/services/diff.service.ts`, `app/api/diff/route.ts`,
+  `lib/parsers/claude-export-builder.ts`, `app/api/parse/history/route.ts`.
 
 ## 4. `/settings` UI + route
 
@@ -149,8 +195,15 @@ the same change. No dual API — the return type changes to `ScoreResult`.
   rejected (401/redirect), matching the repo's route-auth discipline.
 - `GET` → current weights (resolved row or defaults).
 - `PUT` → `validateWeights(body)`; on success upsert `id=1`, return the saved weights;
-  on failure 400 with `{ error }`. Validation: every weight a finite number ≥ 0, at
-  least one > 0 (so `possible` can never be 0). `JSON.parse` wrapped in try/catch.
+  on failure 400 with `{ error }`. `JSON.parse` wrapped in try/catch. Validation:
+  - every weight a finite number ≥ 0;
+  - **at least one positive *live-eligible* factor** (Codex fix) — i.e. a positive
+    weight among the non-`crawlDepth` factors. "At least one > 0 overall" is
+    insufficient: if only `crawlDepth` were > 0, `scoreLiveSeo` (which excludes
+    crawl depth) would have zero usable factors and `possible === 0` → it would
+    return `null` for every site. Requiring a positive live-eligible factor keeps
+    both scorers well-defined. (Health-score `possible` can't be 0 under this rule
+    either, since live-eligible factors are a subset of health factors.)
 
 ### 4.2 `/settings` card
 - A **"SEO scoring weights"** section on the existing `app/settings/page.tsx`: 8
@@ -166,11 +219,18 @@ the same change. No dual API — the return type changes to `ScoreResult`.
   `ScoreBreakdownFactor[]` (+ the score) and rendering a compact table/bars: factor
   label, weight, `earned/possible`, and % contribution to the final score. A footer
   note: "Weights as scored on <date>; current weights may differ."
-- **Placement:**
-  - **SEO parser results page** — near the health-score display (exact host component
-    identified in the plan; `CrawlRun.scoreBreakdown` added to that page's query).
+- **Placement + data plumbing (Codex fix — the breakdown is NOT in `AggregatedResult`):**
+  - **SEO parser results page** (`app/seo-parser/results/[sessionId]/page.tsx` and the
+    run variant `…/run/[runId]/page.tsx`): today the page loads the blob (or falls back
+    to `loadArchivedSeoResult`) and hands `ResultsView` only an `AggregatedResult`. The
+    `scoreBreakdown` lives on `CrawlRun`, not in that result. Plumb it as a **separate
+    prop**: the page reads `CrawlRun.scoreBreakdown` (it already resolves the run for the
+    archived fallback) and passes it into `ResultsView` → `ScoreExplanation`. (Avoid
+    stuffing it into `AggregatedResult`, which is the blob contract.)
   - **`components/site-audit/OnPageSeoSection.tsx`** — expandable, next to the live-SEO
-    `ScoreLine`. The section's query selects `scoreBreakdown`.
+    `ScoreLine`. The section's query selects `scoreBreakdown` from the live-scan run.
+  - The **live-SEO** panel simply omits `crawlDepth` (it is not one of its factors) —
+    no "not applicable" row needed, matching how `scoreLiveSeo` already works.
 - **States:** breakdown present → panel; `score === null` (live SEO unscoreable) →
   existing "not enough coverage" line, no panel; `scoreBreakdown === null` (pre-C8
   run) → "Score breakdown unavailable (scored before breakdowns were recorded)".
@@ -202,13 +262,42 @@ the same change. No dual API — the return type changes to `ScoreResult`.
   weights tests reset `id=1` to defaults in cleanup, and all *scoring* production reads
   pass weights explicitly (pure), so only the `resolveScoringWeights` tests touch the
   row.
-- **`metadata.health_score` precedence** — if some path pre-sets it, the persisted
-  *number* may differ from the freshly-computed breakdown's implied score. The plan
-  confirms the fresh-aggregator path does not pre-set it (per the seo-mapper comment);
-  if it can, we compute both from the same `computeHealthScore` call so they agree.
+- **`metadata.health_score` precedence** — RESOLVED by removing the precedence on the
+  write path (§3): `score` + `scoreBreakdown` come from one `computeHealthScore` call,
+  so they cannot disagree. The embedded `score` in the breakdown JSON is an extra guard.
 - **Merge-state note:** none of this touches canonical-run selection
   (`selectRuns`/`seo-canonical.ts`); the live score still never displaces the sf-upload
   canonical score.
+
+## 9. Deferred follow-ups (surfaced by Codex, out of C8 scope)
+
+- **`diff.service.ts` score source** — `getSeoDiff` reads `metadata.health_score` from
+  the blob for `health_score_delta`, not `CrawlRun.score`. On pruned (archived)
+  sessions that field is absent. Migrating diff to `CrawlRun.score` is a real
+  improvement but is orthogonal to C8 (it's about the diff data source, not weights).
+  Tracked as a follow-up, not built here.
+- **Preview-under-draft-weights** in `/settings` (see §1 non-goals) — a fast-follow.
+- **Legacy `Session.result.metadata.health_score`** — if any prod fresh-upload blob
+  ever carried it, those runs' `CrawlRun.score` was written from it pre-C8; C8 does
+  not rewrite history (fixed-history), and those runs simply show the "breakdown
+  unavailable" state. No action needed.
+
+## 10. Codex review (2026-07-03) — applied fixes
+
+Routed to Codex (accept-with-named-fixes). Applied in place:
+1. **Weight resolution moved out of the pure mapper** → into `writeSeoFindings`
+   (DB layer), passed into `mapSeoResult` (§3).
+2. **Dead `metadata.health_score` precedence removed** on the write path; score +
+   breakdown from one call (§3, §7).
+3. **Validation requires a positive *live-eligible* factor**, not just any positive
+   weight (§4.1).
+4. **Breakdown JSON carries `{ version, scorer, score, factors }`** (§2.2).
+5. **Explicit panel plumbing** — `scoreBreakdown` is a separate prop from `CrawlRun`,
+   not smuggled into `AggregatedResult`; reader pages enumerated (§5).
+6. **Full call-site enumeration** incl. `parity.ts`, `types.ts`, `writer.ts`, test
+   factories, and metadata readers to audit (§3).
+7. **Singleton** via `upsert({ where: { id: 1 } })`; optional DB `CHECK (id=1)` (§2.1).
+8. **`diff.service.ts` score-source migration** noted as a deferred follow-up (§9).
 
 ## 8. Acceptance criteria
 
