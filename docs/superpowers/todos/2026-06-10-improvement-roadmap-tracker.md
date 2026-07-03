@@ -220,8 +220,8 @@ Interleave as needed (not blockers):
 
 ## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
 
-- [~] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** a prod DB backup cron (verify whether one exists server-side first — none is recorded in the repo) + one failure alert (e.g. a daily job that emails/notifies when audits error or the queue stalls). Rationale: the agency-in-a-box goal requires the system to notice its own failures; currently there is no monitoring and the backup story is unverified. Scope deliberately minimal — full observability stays A4/D-track. **BUILT 2026-07-02 (PR #86, branch `feat/ops-safety-backup-alert`)** as two in-app durable jobs (no server cron, no schema migration): `db-backup` (daily@08:00, VACUUM INTO + atomic rename + prune-to-N) and `health-alert` (every:15m; errored audits / exhausted jobs / stalled queue / stale backup → optional `ALERT_WEBHOOK_URL`; atomic JSON-file dedup; delivery-aware state). Spec+plan both Codex-reviewed (accept/ship-with-fixes, applied); gates green (tsc / 2891 tests / build). **Awaiting Kevin merge → deploy → prod-verify** (spec §8). Deploy needs `pm2 delete && pm2 start` (ecosystem.config.js `BACKUP_DIR` added) + optional `ALERT_WEBHOOK_URL` in server .env + one manual `npx tsx scripts/db-backup.ts` post-deploy. *Server-side backup existence never verified (still open — the in-app job is additive regardless).*
-  *Status log:* 2026-07-02 — spec `docs/superpowers/specs/2026-07-02-ops-safety-backup-alert-design.md` + plan `docs/superpowers/plans/2026-07-02-ops-safety-backup-alert.md` written, both Codex-reviewed + fixes applied; 8 code tasks TDD-built (`lib/ops/{backup,alert-state,alert-webhook,health-check}.ts` + two `lib/jobs/handlers/` jobs + register + SYSTEM_SCHEDULES + `scripts/db-backup.ts`); gate-green; PR #86 opened. Next: Kevin merges + deploys + prod-verifies.
+- [x] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** DB backup + failure alert. **SHIPPED (PR #86) + DEPLOYED + PROD-VERIFIED 2026-07-02.** Two in-app durable jobs (no server cron, no schema migration): `db-backup` (daily@08:00, VACUUM INTO tmp + atomic rename + prune-to-7) and `health-alert` (every:15m; errored audits / exhausted jobs / stalled queue / stale backup → optional `ALERT_WEBHOOK_URL`; atomic JSON-file dedup; delivery-aware state that never loses an alert on a failed send; dark-by-default when the URL is unset). Spec+plan Codex-reviewed (fixes applied), archived. Prod-verified: PM2 online 0 restarts, `BACKUP_DIR=/home/seo/data/seo-tools/backups` loaded (delete+start applied), both Schedule rows seeded, health-alert ran on boot and correctly detected "no snapshot" + stayed dark (webhook unset — Kevin's Slack request pending admin approval), a 444 MB snapshot written to the persistent dir opens as valid SQLite (29 tables), disk 63 GB free (7×444 MB ≈ 3 GB). Full observability (metrics/dashboards) stays A4/D-track. **Follow-ups (small, non-blocking):** (a) the manual `scripts/db-backup.ts` uses `BACKUP_DIR`'s code default (`cwd/data/backups`, the app release dir) when run in a bare SSH shell — it must be invoked as `BACKUP_DIR=/home/seo/data/seo-tools/backups npx tsx scripts/db-backup.ts`; consider adding a warning when `BACKUP_DIR` is unset. (b) Turn on Slack alerts by setting `ALERT_WEBHOOK_URL` in the server `.env` once admin approves. (c) Server-side pre-existing-backup check was never run (moot — the in-app job is now the backup).
+  *Status log:* 2026-07-02 — spec+plan written (both Codex-reviewed, fixes applied); 8 code tasks TDD-built (`lib/ops/{backup,alert-state,alert-webhook,health-check}.ts` + `lib/jobs/handlers/{db-backup,health-alert}.ts` + register + SYSTEM_SCHEDULES + `scripts/db-backup.ts`); gate-green (tsc / 2891 tests / build); PR #86 merged + deployed (`pm2 delete && pm2 start` for the new `BACKUP_DIR` ecosystem var). Prod-verified same day (see above); spec/plan moved to `archive/`. **D0 COMPLETE.**
 - [ ] D1. Handoff engine consolidation: token factory, `HANDOFF_TYPES` registry,
   one `<MemoHandoffCard>`; retire legacy `pillar-analysis-narrative` skill (1 wk)
 - [ ] D2. Memo arrival via SSE notification (0.5 wk) — needs A5.
@@ -238,7 +238,24 @@ Interleave as needed (not blockers):
 
 ## Status log
 
-- 2026-07-02 (latest, D0) — **D0 BUILT + PR #86 opened (`feat/ops-safety-backup-alert`).**
+- 2026-07-02 (latest, D0 verified) — **D0 SHIPPED + DEPLOYED + PROD-VERIFIED. D0 COMPLETE.**
+  PR #86 merged; deployed with `pm2 delete seo-tools && pm2 start ecosystem.config.js`
+  (required for the new `BACKUP_DIR` ecosystem var — `pm2 restart` won't reload it).
+  Prod checks (read-only SSH, Kevin-authorized): PM2 `seo-tools` id 12 online, 0
+  restarts; `BACKUP_DIR=/home/seo/data/seo-tools/backups` in the running env;
+  `system-db-backup` (daily@08:00) + `system-health-alert` (every:15m) Schedule rows
+  seeded + enabled; the boot health-alert ran (job complete) and correctly logged
+  `backup stale: no snapshot found` + `webhook unset` (dark — `ALERT_WEBHOOK_URL`
+  not set, Slack pending admin approval); a manual backup produced a 444 MB snapshot
+  that opens as valid SQLite (29 tables) — first attempt landed in the app release
+  dir because a bare SSH shell lacks `BACKUP_DIR`, corrected by re-running with
+  `BACKUP_DIR=/home/seo/data/seo-tools/backups`; disk 63 GB free (7×444 MB ≈ 3 GB,
+  fine); the scheduled 08:00 job uses the correct env automatically. Spec/plan moved
+  to `archive/`. Small follow-ups logged on the D0 item (manual-script BACKUP_DIR
+  footgun; enable Slack later; stray release-dir backup to clean up). **Next: roadmap
+  choice resumes — A2-f1 / C-track (C7/C8/C9 or further C6) / SF-retirement campaign
+  Phase 1.**
+- 2026-07-02 (D0 built) — **D0 BUILT + PR #86 opened (`feat/ops-safety-backup-alert`).**
   Roadmap choice = D0 (Kevin: "Go for D0"). Full change-control pipeline run in one
   session: spec → Codex (accept-with-fixes: atomic temp+rename backup, `AdaAudit`
   has no `updatedAt`→`completedAt`, delivery-aware alert state, atomic JSON writes,

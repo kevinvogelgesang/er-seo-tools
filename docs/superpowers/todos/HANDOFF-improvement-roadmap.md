@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-02 (D0 built) · **Updated by:** D0 **BUILT + PR #86 opened** (`feat/ops-safety-backup-alert`) — full change-control pipeline (spec→Codex→plan→Codex→TDD→gates) done in one session; **awaiting Kevin merge → deploy → prod-verify**. Next action is a HUMAN step (Kevin), then D0 prod-verification.
+**Last updated:** 2026-07-02 (D0 complete) · **Updated by:** D0 **SHIPPED + DEPLOYED + PROD-VERIFIED** (PR #86). No verification pending — next is a **roadmap choice** again (A2-f1 / C-track / SF-retirement campaign Phase 1).
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -12,13 +12,13 @@ single next action.
 ```
 Continue the er-seo-tools improvement roadmap.
 
-State: D0 (minimal ops safety — DB backup + failure alert) is BUILT and in PR #86
-(branch feat/ops-safety-backup-alert), gates green (tsc / 2891 tests / build),
-spec + plan both Codex-reviewed with fixes applied. It is NOT merged/deployed/
-prod-verified yet — that is the next action and it is Kevin's. Everything else is
-prior state: C6 Phase 4 + C10 are both PROD-VERIFIED + closed. Work from
-feat/ops-safety-backup-alert until D0 ships, then main. A 16-skill operator
-library lives in .claude/skills/.
+State: D0 (minimal ops safety — DB backup + failure alert) is SHIPPED + DEPLOYED
++ PROD-VERIFIED (PR #86, 2026-07-02): two in-app durable jobs — db-backup
+(daily@08:00, VACUUM INTO + prune) and health-alert (every:15m → optional
+ALERT_WEBHOOK_URL; dark by default). Slack webhook NOT yet set (Kevin's request
+pending admin approval — alerts currently log-only). C6 Phase 4 + C10 also
+PROD-VERIFIED + closed. Work from main. A 16-skill operator library lives in
+.claude/skills/.
 
 1. Load the skill er-seo-tools-change-control first (hard gates: no merge/
    deploy/server mutation without Kevin's explicit go IN THIS conversation; docs
@@ -27,65 +27,58 @@ library lives in .claude/skills/.
    next item) and docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md
    (full plan). Trust ranking when docs disagree: code > plan/spec >
    tracker/handoff.
-3. NEXT ACTION = D0 ship + prod-verify (needs Kevin):
-   - Kevin merges PR #86 and deploys. Deploy gotchas (in the PR body): BACKUP_DIR
-     was added to ecosystem.config.js, and ecosystem env changes are NOT picked
-     up by `pm2 restart` → deploy needs `pm2 delete seo-tools && pm2 start
-     ecosystem.config.js`. Optionally set ALERT_WEBHOOK_URL (Slack incoming
-     webhook) in the server .env to turn alerts on (unset = dark, nothing bricks).
-   - After deploy, run one manual backup from the app dir so backup-stale doesn't
-     fire before the first 08:00 slot: `npx tsx scripts/db-backup.ts` from
-     /home/seo/webapps/seo-tools.
-   - Prod-verify per spec §8: system-db-backup + system-health-alert Schedule rows
-     seeded; a snapshot appears in BACKUP_DIR and opens cleanly in Prisma (no
-     .tmp left); force a condition (e.g. temporarily lower BACKUP_STALE_HOURS)
-     with ALERT_WEBHOOK_URL set → exactly one message, second run within cooldown
-     is suppressed; unset URL → no send. Prod is OAuth-only, so drive checks via
-     `npx tsx` from the app dir (see gotchas). Also worth doing: the server-side
-     pre-existing-backup check that was never run (crontab -l / ls the data dir) —
-     the in-app job is additive either way.
-   - Then run the docs ritual (tracker [~]→[x] + status line + handoff rewrite,
-     one commit) and give Kevin the updated paste-in prompt.
-4. AFTER D0 ships, the roadmap choice resumes (confirm with Kevin):
-   - A2-f1 — findings-rebuild pruned-ADA guard (small hardening; data-loss trap).
-   - C-track: C7 parser consolidation / C8 score-explanation panel / C9 ADA
-     scoring v2 / further C6 (SEO-only scan mode — spec §9 breadcrumb; external-
-     link verification).
+3. There is no pending verification — the next move is a ROADMAP CHOICE. Confirm
+   direction with Kevin, then run the full change-control pipeline (spec → Codex
+   → plan → Codex → TDD → gates → PR → Kevin merges/deploys → prod-verify). Menu:
+   - A2-f1 — findings-rebuild pruned-ADA guard (small hardening; data-loss trap
+     if scripts/findings-rebuild.ts runs against a pruned ADA audit).
+   - C-track: C7 (parser consolidation + streaming parse + per-file failure
+     isolation), C8 (configurable scoring weights + score-explanation panel),
+     C9 (ADA scoring v2 + poller/results-view consolidation), or further C6
+     (SEO-only scan mode — spec §9 breadcrumb; external-link verification).
    - SF-retirement campaign Phase 1 (SF-vs-live parity) — a MEASUREMENT stream
      (analysts run SF + upload alongside seoIntent live scans over 2–3 cycles),
      not a one-session build. Load er-seo-tools-sf-retirement-campaign; parity
      script at .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/
      sf-live-parity.ts.
+4. Small open D0 follow-ups (not blocking, do when convenient): set
+   ALERT_WEBHOOK_URL in the server .env once Slack admin approves; the manual
+   scripts/db-backup.ts must be run as `BACKUP_DIR=/home/seo/data/seo-tools/
+   backups npx tsx scripts/db-backup.ts` (a bare SSH shell lacks BACKUP_DIR →
+   writes to the release dir) — consider adding a warning when BACKUP_DIR is
+   unset; a stray 444 MB backup + alert-state.json may still sit in
+   /home/seo/webapps/seo-tools/data/backups/ (safe to rm).
+5. After any advance: tracker checkbox + dated status-log line, rewrite this
+   handoff, and end your final reply with this doc's updated paste-in prompt in a
+   code block.
 ```
 
 ## Current state
 
-- **D0 BUILT — PR #86, branch `feat/ops-safety-backup-alert` (awaiting Kevin
-  merge → deploy → prod-verify).** The minimal ops-safety layer, built as two
-  in-app durable jobs reusing the existing queue + system-schedule pattern —
-  **no schema migration, no server cron.** Spec
-  `docs/superpowers/specs/2026-07-02-ops-safety-backup-alert-design.md` + plan
-  `docs/superpowers/plans/2026-07-02-ops-safety-backup-alert.md`, both
-  Codex-reviewed (accept/ship-with-fixes; all fixes applied). Gates green (tsc /
-  2891 tests / build). New code:
-  - `lib/ops/backup.ts` — `runDbBackup()` (`VACUUM INTO` a `db-<utc-stamp>.sqlite`
-    via a `.tmp` + atomic rename; prune to `BACKUP_RETENTION_COUNT`=7) +
-    `newestBackupMtimeMs()`. `scripts/db-backup.ts` = manual/restore-prep wrapper.
+- **COMPLETE 2026-07-02: D0 — minimal ops safety (DB backup + failure alert).**
+  SHIPPED (PR #86, merged to main `6f1c45f`) + deployed + PROD-VERIFIED. Two
+  in-app durable jobs reusing the queue + system-schedule pattern — **no schema
+  migration, no server cron.** Spec/plan Codex-reviewed (fixes applied),
+  archived under `docs/superpowers/archive/`. Code:
+  - `lib/ops/backup.ts` — `runDbBackup()` (`VACUUM INTO` a `.tmp` + atomic
+    rename; prune to `BACKUP_RETENTION_COUNT`=7) + `newestBackupMtimeMs()`.
   - `lib/ops/alert-state.ts` — atomic JSON dedup store under `BACKUP_DIR`.
   - `lib/ops/alert-webhook.ts` — `sendAlert()` → `{sent, skipped}`; unset URL =
-    dark (logs, `skipped:true`); never throws.
+    dark; never throws.
   - `lib/ops/health-check.ts` — pure `evaluateHealth()` + DB/FS
     `collectHealthSignals()`; 4 conditions (errored audits [SiteAudit.updatedAt /
-    **AdaAudit.completedAt** — ADA has no updatedAt], exhausted jobs, stalled
-    queue [all 5 non-terminal SiteAudit statuses, 60-min bar], stale backup).
-  - `lib/jobs/handlers/db-backup.ts` (daily@08:00) + `health-alert.ts`
-    (every:15m); wired in `register.ts` + `SYSTEM_SCHEDULES`.
-  - `ecosystem.config.js` — `BACKUP_DIR=${DATA_HOME}/backups` added.
-  - **Delivery-aware commit rule:** dedup state advances only when nothing to
-    send / send succeeded / dark — a real webhook failure never loses an alert.
-  - **Deploy gotchas (in PR body):** ecosystem env change ⇒ `pm2 delete && pm2
-    start` (not `restart`); optional `ALERT_WEBHOOK_URL` in server .env; run one
-    manual backup post-deploy. All new env vars optional → no boot-brick.
+    **AdaAudit.completedAt**], exhausted jobs, stalled queue [5 non-terminal
+    SiteAudit statuses, 60-min bar], stale backup).
+  - `lib/jobs/handlers/{db-backup,health-alert}.ts`; wired in `register.ts` +
+    `SYSTEM_SCHEDULES`; `scripts/db-backup.ts` manual/restore-prep.
+  - `ecosystem.config.js` — `BACKUP_DIR=${DATA_HOME}/backups`.
+  - **Prod-verified:** PM2 online 0 restarts; `BACKUP_DIR` loaded in the running
+    env; both Schedule rows seeded; boot health-alert ran + correctly detected
+    "no snapshot" + dark (webhook unset); a 444 MB snapshot in the persistent dir
+    opens as valid SQLite (29 tables); disk 63 GB free.
+  - **Open follow-ups (small):** set `ALERT_WEBHOOK_URL` once Slack admin
+    approves (alerts log-only until then); manual-script `BACKUP_DIR` footgun
+    (run with `BACKUP_DIR=…`); optional cleanup of a stray release-dir backup.
 - **PROD-VERIFIED 2026-07-02: C6 Phase 4 — autonomous live SEO source + native
   link graph.** Merged (PR #85) + deployed (prod @ `9c07502`, migration
   `20260630120000_live_seo_source`). Campaign Gate 0.3 on client 12
@@ -94,96 +87,93 @@ library lives in .claude/skills/.
   Spec/plan archived. C6 stays `[~]` (hybrid discovery / validation / similarity
   / analytics-remainder still open).
 - **COMPLETE 2026-07-02: C10 — SEO Performance Reports.** Merged (PR #75) +
-  deployed 2026-06-22; PROD-VERIFIED by Kevin (/settings green, reports correct,
-  SA granted + GA4/GSC mapped for all his accessible clients; scorecard-#12 =
-  "Key Events", no change). Service-account auth; SA key at
+  deployed 2026-06-22; PROD-VERIFIED by Kevin. Service-account auth; SA key at
   `/home/seo/data/seo-tools/google-sa.json` (0600), SA email
   `er-seo-reports@seo-apps-485618.iam.gserviceaccount.com`. Delivers the GA4/GSC
   half of SF-retirement Phase 6.
 - **16-skill operator library** under `.claude/skills/` (commit `57ae636`, on
-  main). New tracker items from its review: A2-f1, D0 (D0 now built).
-- **A1, A2, B1–B5, C1–C5 DONE. C6 Phases 1–4 DONE.**
+  main).
+- **A1, A2, B1–B5, C1–C5 DONE. C6 Phases 1–4 DONE. C10 DONE. D0 DONE.**
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
   → proway.erstaging.site, `weekly:1@06:00` (noindex → broken-link findings only,
   null score — by design).
-- **⚠ PENDING HUMAN STEPS (Kevin) — optional/open (no verification blocking):**
-  1. **D0 ship + prod-verify** — see Next item.
+- **⚠ PENDING HUMAN STEPS (Kevin) — optional/open, none blocking:**
+  1. **D0:** set `ALERT_WEBHOOK_URL` in server `.env` once Slack admin approves;
+     optional `rm -rf /home/seo/webapps/seo-tools/data/backups` (stray files).
   2. **B4 quarter-plan decision** still open (near-empty prod QuarterPlan
      409-blocking the localStorage import — keep or delete + re-open).
   3. **First real qct_ push** not yet exercised.
   4. **Optional cleanup:** delete PillarAnalysis `cmr43gufj0001y200n9134fjp`
-     (Phase-4 pillar smoke artifact) if unwanted.
+     (C6 Phase-4 pillar smoke artifact) if unwanted.
   5. **C10 ongoing:** grant SA + map GA4/GSC for remaining clients as access is
      gained.
 - **Blocked / gated:** Anthropic API billing (03 Phase 3 + SF-retirement memo
   consumption); sitemap miss-rate measurement not yet run; daily/nightly cadences
   still gated (C6 supersede-trimming NOT built).
 - **Parked follow-ups (not next items):** D0 off-box backup replication
-  (S3/rsync — v1 keeps snapshots on-box only); C6 SEO-only scan mode (spec §9),
-  external-link verification, redirect/canonical/hreflang validation (campaign
-  Phase 4), content similarity (campaign Phase 5), daily-cadence supersede-
-  trimming; standalone single-page audit CSV/VPAT/report; public share-page
-  export buttons; expandable rows on public ADA share view; logo for the PDF;
-  `SessionPage` model drop (≥180 d after 2026-06-11); same-URL standalone-audit
-  diffing; fleet instance-level diffing; B2 v1 multi-domain limitation.
+  (S3/rsync — v1 keeps snapshots on-box only); D0 manual-script BACKUP_DIR
+  warning; C6 SEO-only scan mode (spec §9), external-link verification,
+  redirect/canonical/hreflang validation (campaign Phase 4), content similarity
+  (campaign Phase 5), daily-cadence supersede-trimming; standalone single-page
+  audit CSV/VPAT/report; public share-page export buttons; expandable rows on
+  public ADA share view; logo for the PDF; `SessionPage` model drop (≥180 d after
+  2026-06-11); same-URL standalone-audit diffing; fleet instance-level diffing;
+  B2 v1 multi-domain limitation.
 
 ## Next item
 
-**D0 ship + prod-verify — Kevin's step, then the docs ritual.** PR #86 is open on
-`feat/ops-safety-backup-alert`, gates green. The next actions:
+**No verification pending — this is a roadmap CHOICE.** Confirm direction with
+Kevin, then run the full change-control pipeline for whatever is picked (spec →
+Codex → plan → Codex → TDD → gates → PR → Kevin merges/deploys → prod-verify).
+Menu:
 
-1. **Kevin merges PR #86 + deploys.** Deploy gotchas (also in the PR body):
-   `BACKUP_DIR` was added to `ecosystem.config.js`; ecosystem env changes are NOT
-   picked up by `pm2 restart` → deploy needs `pm2 delete seo-tools && pm2 start
-   ecosystem.config.js`. Optionally set `ALERT_WEBHOOK_URL` (a Slack incoming
-   webhook) in the server `.env` to enable alerts (unset = dark, no boot-brick).
-2. **Post-deploy manual backup** so `backup-stale` doesn't fire before the first
-   08:00 slot: `npx tsx scripts/db-backup.ts` from `/home/seo/webapps/seo-tools`.
-3. **Prod-verify (spec §8):** `system-db-backup` + `system-health-alert` Schedule
-   rows seeded at boot; a snapshot lands in `BACKUP_DIR` and opens cleanly in
-   Prisma (no `.tmp` left); with `ALERT_WEBHOOK_URL` set, force a condition (e.g.
-   temporarily lower `BACKUP_STALE_HOURS`) → exactly one message, a second run
-   within cooldown is suppressed; unset URL → no send. Prod is OAuth-only — drive
-   checks via `npx tsx` from the app dir. Also worth doing: the server-side
-   pre-existing-backup check that was never run (`crontab -l`, `ls` the data dir).
-4. **Docs ritual:** flip tracker D0 `[~]`→`[x]`, add a dated status line, rewrite
-   this handoff, one commit; end the chat reply with the updated paste-in prompt.
-
-**After D0 ships**, the roadmap choice resumes (confirm with Kevin): A2-f1
-(findings-rebuild pruned-ADA guard), the C-track menu (C7/C8/C9 or further C6),
-or the SF-retirement campaign Phase 1 measurement stream.
+1. **A2-f1 — findings-rebuild pruned-ADA guard.** Small hardening:
+   `scripts/findings-rebuild.ts` against a pruned ADA audit is a data-loss trap;
+   add a guard. Bugfix/small-feature class.
+2. **C-track menu:** C7 (parser consolidation + streaming parse + per-file
+   failure isolation), C8 (configurable scoring weights + score-explanation
+   panel), C9 (ADA scoring v2 + poller/results-view consolidation), or further C6
+   (SEO-only scan mode — spec §9 breadcrumb; external-link verification).
+3. **SF-retirement campaign Phase 1 (SF-vs-live parity)** — unblocked, but it is a
+   MEASUREMENT stream, not a one-session build: analysts run SF + upload at
+   `/seo-parser` alongside a `seoIntent:true` live scan on the same client+day
+   over 2–3 reporting cycles; the parity script
+   (`.claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts`)
+   reports score delta / page-set Jaccard / per-issue-type deltas. Gate: N ≥ 5
+   clients × 2–3 cycles, every deviation explained in a dated parity log under
+   `docs/superpowers/todos/`. Also produces the sitemap miss-rate evidence that
+   gates SF-retirement Phase 2. Load `er-seo-tools-sf-retirement-campaign`.
 
 - **C10 non-blocking follow-ups** (defer): GA4 comparison window discards 4 metric
-  groups (quota trim — `ga4-provider.ts`); `rollupBatchStatus` duplicated
-  (render job vs `lib/services/seo-reports.ts`); `pruneSeoReports` should chunk
+  groups (quota trim — `ga4-provider.ts`); `rollupBatchStatus` duplicated (render
+  job vs `lib/services/seo-reports.ts`); `pruneSeoReports` should chunk
   `doomedIds`; stricter date/client validation on `POST /api/reports`.
 
 ## Gotchas / decisions already made (don't relitigate)
 
-- **D0 invariants (verified against code + gates 2026-07-02):**
-  - **Two in-app durable jobs, NOT a server cron** — deploys with the app,
-    testable, visible in job introspection. No schema migration (dedup = an
-    atomic JSON file under `BACKUP_DIR`, not a table — fine under single PM2 fork
-    + concurrency 1).
-  - **Backup = `VACUUM INTO` a `.tmp` then atomic rename** — a crashed/partial
-    VACUUM never leaves a `db-*.sqlite` that fools staleness detection. Runs as a
-    bare `$executeRawUnsafe` (VACUUM cannot run in a transaction — does NOT
-    violate the array-form rule, which is about interactive transactions). Safe
-    consistent snapshot under WAL, no checkpoint/serialization needed.
-  - **`AdaAudit` has NO `updatedAt`** — edge-trigger ADA errors on `completedAt`
-    (its error paths set it). SiteAudit + Job use `updatedAt`.
-  - **All new env vars OPTIONAL with code defaults** — `ALERT_WEBHOOK_URL` unset
-    = dark (compute + log, don't send); nothing `process.exit(1)`s at boot.
-  - **Webhook URL is trusted operator config, not user input** → plain timed
-    `fetch`, never `safeFetch` (which would block internal endpoints).
+- **D0 invariants (verified against code + prod 2026-07-02):**
+  - **Two in-app durable jobs, NOT a server cron** — no schema migration (dedup =
+    an atomic JSON file under `BACKUP_DIR`). Backup = `VACUUM INTO` a `.tmp` then
+    atomic rename (a partial VACUUM never fools staleness); bare `$executeRawUnsafe`
+    (VACUUM can't run in a transaction — does NOT violate the array-form rule).
+  - **`AdaAudit` has NO `updatedAt`** — edge-trigger ADA errors on `completedAt`.
+  - **All new env vars OPTIONAL with code defaults** — `ALERT_WEBHOOK_URL` unset =
+    dark (log, don't send); nothing `process.exit(1)`s at boot.
+  - **`BACKUP_DIR` is an ecosystem.config.js env var** → a deploy that only
+    `pm2 restart`s will NOT load it; needs `pm2 delete seo-tools && pm2 start
+    ecosystem.config.js`. The manual `scripts/db-backup.ts` in a bare SSH shell
+    also lacks it → prefix `BACKUP_DIR=/home/seo/data/seo-tools/backups`.
   - **Delivery-aware dedup:** advance state only on no-alerts / sent / dark; a
-    genuine delivery failure leaves state so the next 15-min tick retries.
-  - `db-backup` maxAttempts 2 (next daily slot is the ultimate retry);
-    `health-alert` maxAttempts 1 (next 15-min slot is the retry) and its handler
-    swallows all throws so monitoring never becomes a failed job.
+    genuine delivery failure retries next tick.
+  - Webhook URL is trusted operator config (not user input) → plain timed `fetch`,
+    never `safeFetch`. Job POSTs `{text}` (Slack/Google-Chat native).
 - **Prod is OAuth-only** (`ALLOW_PASSWORD_LOGIN=false`). Drive prod checks via
   `npx tsx` from `/home/seo/webapps/seo-tools` (relative `./lib/...` + `@/` alias
-  only resolve from the app dir). Server has no `sqlite3` CLI — node + Prisma.
+  only resolve from the app dir). Server has no `sqlite3` CLI. **pm2 process env
+  ≠ login-shell env ≠ .env:** ecosystem `env:` vars are injected into the pm2
+  process only (visible via `pm2 env <id>` / jlist), NOT into an SSH shell; `.env`
+  vars are read by the app at startup (any restart reloads them). Prod DB is at
+  `/home/seo/data/seo-tools/db.sqlite` (~456 MB); DATA_HOME=`/home/seo/data/seo-tools`.
 - Stack stays: SQLite + single PM2 process + Next.js. No Postgres/Redis/BullMQ.
 - **NEVER interactive `prisma.$transaction(async tx => ...)`** — array form only,
   conditionals via SQL `EXISTS`, manual `updatedAt = Date.now()` in raw SQL.
@@ -203,11 +193,12 @@ or the SF-retirement campaign Phase 1 measurement stream.
 - **C6 Phase 4 invariants:** `seoIntent` is the freshness-gated canonical SEO
   signal (`lib/services/seo-canonical.ts`: fresh sf-upload ≤30 d wins; else newest
   seoIntent live run becomes canonical AND feeds score surfaces); schedules are
-  operator-created (NO self-healing auto-creation — frontier item); `computeLinkGraph`
-  pure/offline off `CrawlPage.inlinks/outlinks`; canonical page-facts provider is
-  `lib/services/canonical-page-facts.ts` (`lib/seo/providers/` does NOT exist);
-  live consumption is pat_/brief only (srt_/krt_ stay SF-only); SEO-only scan mode
-  NOT built (spec §9 breadcrumb). Canonical selection is merge-state-sensitive.
+  operator-created (NO self-healing auto-creation — frontier item);
+  `computeLinkGraph` pure/offline off `CrawlPage.inlinks/outlinks`; canonical
+  page-facts provider is `lib/services/canonical-page-facts.ts` (`lib/seo/providers/`
+  does NOT exist); live consumption is pat_/brief only (srt_/krt_ stay SF-only);
+  SEO-only scan mode NOT built (spec §9 breadcrumb). Canonical selection is
+  merge-state-sensitive.
 - **C6 Phases 1–3 invariants:** a SiteAudit holds up to TWO CrawlRuns (compound
   `{siteAuditId_tool}` for findUnique/update); live-scan run has no origin blob;
   one builder (`broken-link-verify`) owns runId + shared ensurePage; injected
@@ -244,8 +235,9 @@ or the SF-retirement campaign Phase 1 measurement stream.
 - 2026-06-30 — **C6 Phase 4 BUILT** — autonomous live SEO source + native link graph.
 - 2026-07-02 — **Skill library SHIPPED (`57ae636`)** — 16 operator skills. New items: A2-f1, D0.
 - 2026-07-02 — **C6 Phase 4 MERGED + DEPLOYED (PR #85) + PROD-VERIFIED** (campaign Gate 0.3).
-- 2026-07-02 — **C10 PROD-VERIFIED (Kevin). C10 COMPLETE.** Both outstanding prod-verifications closed.
-- 2026-07-02 — **D0 BUILT + PR #86 opened** (`feat/ops-safety-backup-alert`) — DB
-  backup + failure alert, two in-app durable jobs, no schema migration. Spec+plan
-  Codex-reviewed; gates green (tsc / 2891 tests / build). Awaiting Kevin merge →
-  deploy → prod-verify.
+- 2026-07-02 — **C10 PROD-VERIFIED (Kevin). C10 COMPLETE.** Both prior prod-verifications closed.
+- 2026-07-02 — **D0 SHIPPED (PR #86) + DEPLOYED + PROD-VERIFIED. D0 COMPLETE.** DB
+  backup + failure alert, two in-app durable jobs, no schema migration. Deployed
+  via `pm2 delete && pm2 start` (new `BACKUP_DIR` ecosystem var). Prod: PM2 online,
+  schedules seeded, 444 MB snapshot opens clean, alert pipeline correct + dark
+  (Slack webhook pending admin approval). Spec/plan archived.
