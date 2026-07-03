@@ -37,6 +37,7 @@ async function clearTestState() {
     where: { OR: [{ sessionId: SESSION_ID }, { domain: 'par.test' }] },
   })
   await prisma.session.deleteMany({ where: { id: SESSION_ID } })
+  await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
 }
 
 describe('compareSeoParity', () => {

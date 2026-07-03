@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import type { AggregatedResult } from '@/lib/types'
 import { computeHealthScore } from '@/lib/services/scoring.service'
+import { DEFAULT_WEIGHTS } from '@/lib/scoring/weights'
 import { mapSeoResult } from './seo-mapper'
 import { runFindingKey, pageFindingKey } from './keys'
 
@@ -10,6 +11,7 @@ const CTX = {
   clientId: 7,
   startedAt: new Date('2026-06-10T00:00:00Z'),
   completedAt: new Date('2026-06-10T00:05:00Z'),
+  weights: DEFAULT_WEIGHTS,
 }
 
 /** Minimal current-format AggregatedResult: 2 pages, 1 critical issue with
@@ -67,10 +69,16 @@ describe('mapSeoResult', () => {
     expect(b.run.siteAuditId).toBeNull()
     expect(b.run.adaAuditId).toBeNull()
     expect(b.run.clientId).toBe(7)
-    expect(b.run.score).toBe(83)
+    expect(b.run.score).toBe(computeHealthScore(fixture(), DEFAULT_WEIGHTS).score)
     expect(b.run.domain).toBe('example.com')
     expect(b.run.status).toBe('complete')
     expect(b.run.pagesTotal).toBe(2)
+  })
+
+  it('persists a scoreBreakdown that parses back to the run score', () => {
+    const b = mapSeoResult(fixture(), CTX)
+    const parsed = JSON.parse(b.run.scoreBreakdown!)
+    expect(parsed).toMatchObject({ scorer: 'health', score: b.run.score })
   })
 
   it('builds one CrawlPage per page_index entry with normalized urls', () => {
@@ -100,13 +108,13 @@ describe('mapSeoResult', () => {
     expect(meta.affectedSource).toBe('parser-sample')
   })
 
-  it('computes the score when the blob lacks metadata.health_score', () => {
-    // Fresh aggregator output does NOT set metadata.health_score — only
-    // legacy blobs have it. The mapper must fall back to computeHealthScore.
+  it('computes the score directly, ignoring any legacy metadata.health_score', () => {
+    // C8 drops the metadata.health_score precedence entirely — the mapper
+    // always computes the score itself, even when a legacy blob carries one.
     const fx = fixture()
     delete (fx.metadata as Record<string, unknown>).health_score
     const b = mapSeoResult(fx, CTX)
-    expect(b.run.score).toBe(computeHealthScore(fx))
+    expect(b.run.score).toBe(computeHealthScore(fx, DEFAULT_WEIGHTS).score)
     expect(typeof b.run.score).toBe('number')
   })
 
