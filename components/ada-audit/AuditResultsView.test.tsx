@@ -95,4 +95,24 @@ describe('AuditResultsView — archived render contract', () => {
     )
     expect(container.textContent).toContain('— rules passed')
   })
+
+  it('omitting scoreMeta renders no version badge (backward-compatible)', () => {
+    render(<AuditResultsView {...baseProps} results={makeResults()} score={90} />)
+    expect(screen.queryByText(/^v1$/i)).toBeNull()
+    expect(screen.queryByText(/^v2$/i)).toBeNull()
+  })
+
+  it('passing scoreMeta renders the version badge with pass/incomplete counts', () => {
+    render(
+      <AuditResultsView
+        {...baseProps}
+        results={makeResults()}
+        score={90}
+        scoreMeta={{ version: 2, fromFallback: false, passCount: 40, incompleteCount: 3 }}
+      />,
+    )
+    expect(screen.getByText(/v2/i)).toBeTruthy()
+    expect(screen.getByText(/40 passed/)).toBeTruthy()
+    expect(screen.getByText(/3 needs review/)).toBeTruthy()
+  })
 })

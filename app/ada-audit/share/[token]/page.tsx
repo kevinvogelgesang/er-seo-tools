@@ -2,6 +2,8 @@ import { prisma } from '@/lib/db'
 import AuditResultsView from '@/components/ada-audit/AuditResultsView'
 import type { StoredAxeResults } from '@/lib/ada-audit/types'
 import { computeScore } from '@/lib/ada-audit/scoring'
+import { computeComplianceV2 } from '@/lib/ada-audit/scoring-v2'
+import { resolveDisplayScore } from '@/lib/ada-audit/display-score'
 import { buildArchivedAxeResults } from '@/lib/ada-audit/findings-fallback'
 
 export const dynamic = 'force-dynamic'
@@ -15,7 +17,10 @@ export default async function SharedAuditPage({ params }: Props) {
 
   const audit = await prisma.adaAudit.findUnique({
     where: { shareToken: token },
-    include: { client: { select: { name: true } } },
+    include: {
+      client: { select: { name: true } },
+      crawlRun: { select: { score: true, scoreBreakdown: true } },
+    },
   })
 
   if (!audit || audit.status !== 'complete' || !audit.shareExpiresAt || audit.shareExpiresAt < new Date()) {
@@ -77,11 +82,23 @@ export default async function SharedAuditPage({ params }: Props) {
     )
   }
 
-  // Archived results carry capped node samples — node-based scoring would lie.
-  // CrawlRun.score is the mapper-computed original; compliant = zero rows.
-  const computed = computeScore(results.violations, audit.wcagLevel)
-  const score = results.archived ? archivedScore ?? computed.score : computed.score
-  const compliant = results.archived ? results.violations.length === 0 : computed.compliant
+  // Prefer the persisted CrawlRun score + its version; fall back to the frozen
+  // v1 formula only when nothing was persisted. Archived blobs carry capped
+  // node samples — node-based v1 recompute would lie, so the fallback path
+  // uses the mapper-computed archivedScore there instead.
+  const { score, version, fromFallback } = resolveDisplayScore({
+    persistedScore: audit.crawlRun?.score ?? null,
+    scoreBreakdown: audit.crawlRun?.scoreBreakdown ?? null,
+    recompute: () => (results.archived ? archivedScore ?? null : computeScore(results.violations, audit.wcagLevel).score),
+  })
+  // Compliance follows the score's version: v2 = no WCAG-conformance violation
+  // (advisory best-practice findings don't break it); v1 fallback keeps the
+  // legacy "zero violations" notion.
+  const compliant = version >= 2
+    ? computeComplianceV2(results.violations)
+    : (results.archived ? results.violations.length === 0 : computeScore(results.violations, audit.wcagLevel).compliant)
+  const passCount = results.passes?.length ?? results.archivedCounts?.passed ?? null
+  const incompleteCount = results.incomplete?.length ?? results.archivedCounts?.incomplete ?? null
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
@@ -101,10 +118,11 @@ export default async function SharedAuditPage({ params }: Props) {
         createdAt={audit.createdAt.toISOString()}
         auditId={audit.id}
         wcagLevel={audit.wcagLevel}
-        score={score}
+        score={score ?? undefined}
         compliant={compliant}
         readOnly
         shareToken={token}
+        scoreMeta={{ version, fromFallback, passCount, incompleteCount }}
       />
     </main>
   )

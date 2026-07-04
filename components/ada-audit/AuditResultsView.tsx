@@ -33,6 +33,9 @@ interface Props {
   lighthouseSummary?: LighthouseSummary | null
   lighthouseError?: string | null
   pdfs?: AuditPdfRow[]
+  /** Optional. Threaded into the scorecard's v1/v2 badge (C9-A). Omitted =
+   *  no badge, identical render to before this prop existed. */
+  scoreMeta?: { version: number; fromFallback: boolean; passCount: number | null; incompleteCount: number | null }
 }
 
 function buildScorecard(results: StoredAxeResults): AuditScorecard {
@@ -48,7 +51,7 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, shareToken, lighthouseSummary = null, lighthouseError = null, pdfs = [] }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, shareToken, lighthouseSummary = null, lighthouseError = null, pdfs = [], scoreMeta }: Props) {
   const scorecard = buildScorecard(results)
   // Archived results synthesize passes/incomplete as [] — archivedCounts is
   // the truth there; empty arrays must never render as a literal 0 (Codex #3).
@@ -162,6 +165,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
             compliant={compliant}
             wcagLevel={wcagLevel}
             archivedCounts={results.archived ? results.archivedCounts ?? { passed: null, incomplete: null } : undefined}
+            scoreMeta={scoreMeta}
           />
         </div>
       </div>

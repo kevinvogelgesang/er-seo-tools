@@ -77,6 +77,9 @@ const dash = (n: number | null | undefined) => (n === null || n === undefined ? 
 
 // ── Inline-SVG sparkline ─────────────────────────────────────────────────────
 
+/** Absent scoreVersion predates versioning → v1 (C9-A). */
+const pointVersion = (p: ScorePoint) => p.scoreVersion ?? 1
+
 function sparklineSvg(points: ScorePoint[]): string {
   if (points.length === 0) return ''
   const W = 480, H = 80, PAD_X = 14, TOP = 10, BOTTOM = 24
@@ -88,9 +91,19 @@ function sparklineSvg(points: ScorePoint[]): string {
     TOP + (1 - Math.min(100, Math.max(0, score)) / 100) * plotH
 
   const coords = points.map((p, i) => `${x(i).toFixed(1)},${y(p.score).toFixed(1)}`)
-  const polyline = points.length >= 2
-    ? `<polyline fill="none" stroke="${BRAND.orange}" stroke-width="2" points="${coords.join(' ')}"/>`
-    : ''
+  // Draw one segment per adjacent pair so a formula-version boundary can be
+  // dashed instead of a solid connecting line — never implies a comparable delta.
+  let segments = ''
+  let markers = ''
+  for (let i = 1; i < points.length; i++) {
+    const changed = pointVersion(points[i]) !== pointVersion(points[i - 1])
+    const dash = changed ? ' stroke-dasharray="4 3"' : ''
+    segments += `<polyline fill="none" stroke="${BRAND.orange}" stroke-width="2"${dash} points="${coords[i - 1]} ${coords[i]}"/>`
+    if (changed) {
+      const mx = ((x(i - 1) + x(i)) / 2).toFixed(1)
+      markers += `<text x="${mx}" y="${TOP + 6}" font-size="7" fill="#dc2626" text-anchor="middle">${escapeHtml('formula changed')}</text>`
+    }
+  }
   const circles = points
     .map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.score).toFixed(1)}" r="3" fill="${BRAND.navy}"/>`)
     .join('')
@@ -101,7 +114,7 @@ function sparklineSvg(points: ScorePoint[]): string {
     (points.length >= 2
       ? `<text x="${W - PAD_X}" y="${H - 6}" font-size="9" fill="#6b7280" text-anchor="end">${escapeHtml(fmtDate(last.date))} · ${last.score}</text>`
       : '')
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img">${polyline}${circles}${labels}</svg>`
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img">${segments}${circles}${markers}${labels}</svg>`
 }
 
 // ── Section builders ─────────────────────────────────────────────────────────

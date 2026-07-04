@@ -1,5 +1,6 @@
 import type { AuditScorecard, ArchivedCounts } from '@/lib/ada-audit/types'
 import type { ImpactFilter } from './useSiteAuditPages'
+import { ScoreVersionBadge } from './ScoreVersionBadge'
 
 type ImpactKey = 'critical' | 'serious' | 'moderate' | 'minor'
 
@@ -19,6 +20,10 @@ interface Props {
   /** Optional. When the supplied impact matches a tile's impact key, the
    *  tile renders with a visible ring to signal "this filter is active." */
   activeImpact?: ImpactFilter
+  /** Optional. When provided, renders a small v1/v2 badge with pass/incomplete
+   *  counts next to the score (C9-A read-surface labeling). Omitted = renders
+   *  exactly as before (backward-compatible). */
+  scoreMeta?: { version: number; fromFallback: boolean; passCount: number | null; incompleteCount: number | null }
 }
 
 interface StatBox {
@@ -36,7 +41,7 @@ function scoreColor(score: number): string {
   return 'text-red-600 dark:text-red-400'
 }
 
-export default function AuditScorecard({ scorecard, score, compliant, wcagLevel, archivedCounts, onImpactClick, activeImpact }: Props) {
+export default function AuditScorecard({ scorecard, score, compliant, wcagLevel, archivedCounts, onImpactClick, activeImpact, scoreMeta }: Props) {
   const boxes: StatBox[] = [
     { label: 'Critical',  count: scorecard.critical,  impact: 'critical', bg: 'bg-red-50 dark:bg-red-500/10',      text: 'text-red-700 dark:text-red-400',      border: 'border-red-200 dark:border-red-500/30' },
     { label: 'Serious',   count: scorecard.serious,   impact: 'serious',  bg: 'bg-orange-50 dark:bg-orange-500/10', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-500/30' },
@@ -53,6 +58,14 @@ export default function AuditScorecard({ scorecard, score, compliant, wcagLevel,
           </span>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-body font-semibold text-navy/40 dark:text-white/40 uppercase tracking-wider">Score</span>
+            {scoreMeta && (
+              <ScoreVersionBadge
+                version={scoreMeta.version}
+                fromFallback={scoreMeta.fromFallback}
+                passCount={scoreMeta.passCount}
+                incompleteCount={scoreMeta.incompleteCount}
+              />
+            )}
             {compliant != null && (
               <span className={`inline-flex items-center gap-1 text-[11px] font-body font-semibold px-2 py-0.5 rounded border ${
                 compliant

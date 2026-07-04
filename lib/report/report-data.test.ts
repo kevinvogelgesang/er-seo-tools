@@ -77,6 +77,7 @@ async function seedAudit(opts: {
   completedAt: Date
   wcagLevel?: string
   runScore?: number | null
+  runScoreBreakdown?: string | null
   summary?: string | null
   requestedBy?: string | null
   pdfsTotal?: number
@@ -98,7 +99,7 @@ async function seedAudit(opts: {
   const run = await prisma.crawlRun.create({
     data: {
       tool: 'ada-audit', source: 'site-audit', domain: opts.domain, wcagLevel,
-      status: 'complete', score: opts.runScore ?? null,
+      status: 'complete', score: opts.runScore ?? null, scoreBreakdown: opts.runScoreBreakdown ?? null,
       pagesTotal: opts.pages.length, completedAt: opts.completedAt, siteAuditId: audit.id,
     },
   })
@@ -369,5 +370,26 @@ describe('loadSiteReportData', () => {
     // Level-matched previous run found → diff present.
     expect(data!.diff).not.toBeNull()
     expect(data!.previousCompletedAt).toBe('2026-05-01T00:00:00.000Z')
+  })
+
+  it('trend points carry scoreVersion parsed from scoreBreakdown (C9-A)', async () => {
+    const domain = `${PREFIX}version.example`
+    const base = `https://${domain}`
+    await seedAudit({
+      domain, completedAt: new Date('2026-05-01T00:00:00Z'),
+      runScore: 50, runScoreBreakdown: null, // absent → v1
+      summary: summaryBlob([{ url: `${base}/a` }]),
+      pages: [{ url: `${base}/a` }],
+    })
+    const current = await seedAudit({
+      domain, completedAt: new Date('2026-06-01T00:00:00Z'),
+      runScore: 70, runScoreBreakdown: JSON.stringify({ version: 2 }),
+      summary: summaryBlob([{ url: `${base}/a` }]),
+      pages: [{ url: `${base}/a` }],
+    })
+
+    const data = await loadSiteReportData(current.auditId)
+    expect(data!.trend.map((p) => p.score)).toEqual([50, 70])
+    expect(data!.trend.map((p) => p.scoreVersion)).toEqual([1, 2])
   })
 })

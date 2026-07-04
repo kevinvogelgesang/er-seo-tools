@@ -14,6 +14,7 @@ import { reportFileExists } from '@/lib/report/report-file'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
+import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
 
 export const dynamic = 'force-dynamic'
 
@@ -142,10 +143,17 @@ export default async function SiteAuditResultPage({ params }: Props) {
 
   // Prefer the run score (identical formula, mapper-computed) so archived
   // (capped-pass) aggregates can't shift it; counts still drive compliance.
-  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'ada-audit' } }, select: { score: true } })
+  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'ada-audit' } }, select: { score: true, scoreBreakdown: true } })
   const fromCounts = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
   const score = crawlRun?.score ?? fromCounts.score
   const compliant = fromCounts.compliant
+  // Site-level compliance stays count/summary-based (v1-of-v2) regardless of
+  // version — a per-page v2 compliance rollup is a documented follow-up, not
+  // built here to avoid loading blobs on the site page.
+  const scoreVersion = parseScoreVersion(crawlRun?.scoreBreakdown ?? null)
+  const scoreFromFallback = crawlRun?.score == null
+  const sitePassCount = summary.archived ? summary.archivedCounts?.passed ?? null : summary.aggregate.passed
+  const siteIncompleteCount = summary.archived ? summary.archivedCounts?.incomplete ?? null : summary.aggregate.incomplete
 
   // Changes-since-previous panel — null hides it (no earlier same-domain
   // same-level run, or this audit predates the findings layer).
@@ -227,6 +235,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
         compliant={compliant}
         pdfs={pdfs}
         siteAuditId={audit.id}
+        scoreMeta={{ version: scoreVersion, fromFallback: scoreFromFallback, passCount: sitePassCount, incompleteCount: siteIncompleteCount }}
       />
     </main>
   )

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import SiteAuditResultsView from '@/components/ada-audit/SiteAuditResultsView'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
+import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 
@@ -27,9 +28,13 @@ export default async function SharedSiteAuditPage({ params }: { params: Promise<
   if (!summary) summary = await buildSummaryFromFindings(audit.id)
   if (!summary) notFound() // pre-A2 complete with no blob — nothing renderable publicly
 
-  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'ada-audit' } }, select: { score: true } })
+  const crawlRun = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'ada-audit' } }, select: { score: true, scoreBreakdown: true } })
   const fromCounts = computeScoreFromCounts(summary.aggregate, audit.wcagLevel)
   const score = crawlRun?.score ?? fromCounts.score
+  const scoreVersion = parseScoreVersion(crawlRun?.scoreBreakdown ?? null)
+  const scoreFromFallback = crawlRun?.score == null
+  const sitePassCount = summary.archived ? summary.archivedCounts?.passed ?? null : summary.aggregate.passed
+  const siteIncompleteCount = summary.archived ? summary.archivedCounts?.incomplete ?? null : summary.aggregate.incomplete
 
   const pdfs: AuditPdfRow[] = audit.pdfAudits.map((p) => {
     let issues: PdfIssue[] = []
@@ -57,6 +62,7 @@ export default async function SharedSiteAuditPage({ params }: { params: Promise<
         pdfs={pdfs}
         siteAuditId={audit.id}
         shareMode
+        scoreMeta={{ version: scoreVersion, fromFallback: scoreFromFallback, passCount: sitePassCount, incompleteCount: siteIncompleteCount }}
       />
     </main>
   )

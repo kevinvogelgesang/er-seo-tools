@@ -8,6 +8,8 @@ import type { StoredAxeResults, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScore } from '@/lib/ada-audit/scoring'
+import { computeComplianceV2 } from '@/lib/ada-audit/scoring-v2'
+import { resolveDisplayScore } from '@/lib/ada-audit/display-score'
 import { buildArchivedAxeResults } from '@/lib/ada-audit/findings-fallback'
 
 export const dynamic = 'force-dynamic'
@@ -28,6 +30,7 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
       pdfAudits: {
         select: { url: true, fileSize: true, pageCount: true, issues: true, scanError: true },
       },
+      crawlRun: { select: { score: true, scoreBreakdown: true } },
     },
   })
 
@@ -171,11 +174,23 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
     )
   }
 
-  // Archived results carry capped node samples — node-based scoring would lie.
-  // CrawlRun.score is the mapper-computed original; compliant = zero rows.
-  const computed = computeScore(results.violations, audit.wcagLevel)
-  const score = results.archived ? archivedScore ?? computed.score : computed.score
-  const compliant = results.archived ? results.violations.length === 0 : computed.compliant
+  // Prefer the persisted CrawlRun score + its version; fall back to the frozen
+  // v1 formula only when nothing was persisted. Archived blobs carry capped
+  // node samples — node-based v1 recompute would lie, so the fallback path
+  // uses the mapper-computed archivedScore there instead.
+  const { score, version, fromFallback } = resolveDisplayScore({
+    persistedScore: audit.crawlRun?.score ?? null,
+    scoreBreakdown: audit.crawlRun?.scoreBreakdown ?? null,
+    recompute: () => (results.archived ? archivedScore ?? null : computeScore(results.violations, audit.wcagLevel).score),
+  })
+  // Compliance follows the score's version: v2 = no WCAG-conformance violation
+  // (advisory best-practice findings don't break it); v1 fallback keeps the
+  // legacy "zero violations" notion.
+  const compliant = version >= 2
+    ? computeComplianceV2(results.violations)
+    : (results.archived ? results.violations.length === 0 : computeScore(results.violations, audit.wcagLevel).compliant)
+  const passCount = results.passes?.length ?? results.archivedCounts?.passed ?? null
+  const incompleteCount = results.incomplete?.length ?? results.archivedCounts?.incomplete ?? null
 
   // Parse Lighthouse summary (tolerant of malformed JSON)
   let lighthouseSummary: LighthouseSummary | null = null
@@ -216,7 +231,7 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
         createdAt={audit.createdAt.toISOString()}
         auditId={id}
         wcagLevel={audit.wcagLevel}
-        score={score}
+        score={score ?? undefined}
         compliant={compliant}
         previousScore={previousScore}
         fromAuditId={fromId ?? null}
@@ -224,6 +239,7 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
         lighthouseSummary={lighthouseSummary}
         lighthouseError={audit.lighthouseError ?? null}
         pdfs={pdfs}
+        scoreMeta={{ version, fromFallback, passCount, incompleteCount }}
       />
     </main>
   )

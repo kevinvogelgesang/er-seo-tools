@@ -16,6 +16,7 @@ import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 import { buildSeries, type ScorePoint } from '@/lib/services/scorecard-shared'
+import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers'
 import type { SiteAuditSummary, StoredAxeResults } from '@/lib/ada-audit/types'
 import type { SiteReportData, ReportTopIssue, ReportWorstPage } from './report-html'
@@ -144,7 +145,8 @@ export async function loadSiteReportData(siteAuditId: string): Promise<SiteRepor
 
   // 3. Findings run (reports are findings-run-only) + summary-or-fallback.
   const run = await prisma.crawlRun.findUnique({
-    where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } }, select: { id: true, score: true },
+    where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } },
+    select: { id: true, score: true },
   })
   if (!run) return null
 
@@ -190,11 +192,12 @@ export async function loadSiteReportData(siteAuditId: string): Promise<SiteRepor
       domain: audit.domain, wcagLevel: audit.wcagLevel,
       score: { not: null }, completedAt: { not: null },
     },
-    select: { score: true, completedAt: true, createdAt: true },
+    select: { score: true, completedAt: true, createdAt: true, scoreBreakdown: true },
   })
   const points: ScorePoint[] = trendRuns.map((r) => ({
     date: (r.completedAt ?? r.createdAt).toISOString(),
     score: r.score as number,
+    scoreVersion: parseScoreVersion(r.scoreBreakdown),
   }))
   const trend = buildSeries(points).points
 

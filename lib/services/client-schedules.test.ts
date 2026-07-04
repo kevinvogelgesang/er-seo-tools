@@ -24,7 +24,9 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } }) // cascades schedules
 })
 
-async function makeScheduledAudit(scheduleId: string, createdAt: Date, status: string, score: number | null) {
+async function makeScheduledAudit(
+  scheduleId: string, createdAt: Date, status: string, score: number | null, scoreBreakdown?: string | null,
+) {
   const audit = await prisma.siteAudit.create({
     data: {
       domain: `${PREFIX}a.example.edu`, status, wcagLevel: 'wcag21aa',
@@ -33,7 +35,10 @@ async function makeScheduledAudit(scheduleId: string, createdAt: Date, status: s
   })
   if (score !== null) {
     await prisma.crawlRun.create({
-      data: { tool: 'ada-audit', source: 'site-audit', status: 'complete', domain: `${PREFIX}a.example.edu`, siteAuditId: audit.id, score },
+      data: {
+        tool: 'ada-audit', source: 'site-audit', status: 'complete', domain: `${PREFIX}a.example.edu`,
+        siteAuditId: audit.id, score, scoreBreakdown: scoreBreakdown ?? null,
+      },
     })
   }
   return audit
@@ -82,6 +87,23 @@ describe('getClientSchedules', () => {
     const afterError = (await getClientSchedules(clientId)).find((r) => r.id === sched.id)!
     expect(afterError.lastRun?.status).toBe('error')
     expect(afterError.lastDelta).toBeNull()
+  })
+
+  it('suppresses lastDelta across a v1→v2 score-formula boundary (C9-A)', async () => {
+    const sched = await prisma.schedule.create({
+      data: {
+        jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, clientId, cadence: 'weekly:7@06:00',
+        payload: JSON.stringify({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag21aa' }),
+        nextRunAt: new Date('2099-01-01T00:00:00Z'),
+      },
+    })
+    // v1 (no scoreBreakdown) → v2 (scoreBreakdown.version = 2): numeric
+    // score delta would be 20, but formulas differ so it must be suppressed.
+    await makeScheduledAudit(sched.id, new Date('2026-04-01T00:00:00Z'), 'complete', 70, null)
+    await makeScheduledAudit(sched.id, new Date('2026-05-01T00:00:00Z'), 'complete', 90, JSON.stringify({ version: 2 }))
+    const row = (await getClientSchedules(clientId)).find((r) => r.id === sched.id)!
+    expect(row.lastRun?.score).toBe(90)
+    expect(row.lastDelta).toBeNull()
   })
 
   it('does not surface non-scan schedules attached to the client', async () => {
