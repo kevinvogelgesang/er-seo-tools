@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ImagesParser } from './images.parser';
+import { parseString } from '../test-parse-helper';
 
 describe('ImagesParser', () => {
   describe('static properties', () => {
@@ -25,14 +26,12 @@ describe('ImagesParser', () => {
 
   describe('empty CSV', () => {
     it('returns empty object for empty string', () => {
-      const parser = new ImagesParser('');
-      expect(parser.parse()).toEqual({});
+      expect(parseString(ImagesParser, '')).toEqual({});
     });
 
     it('returns empty object for headers-only CSV', () => {
       const csv = `Address,Alt Text,Size (Bytes),Status Code,Width,Height`;
-      const parser = new ImagesParser(csv);
-      expect(parser.parse()).toEqual({});
+      expect(parseString(ImagesParser, csv)).toEqual({});
     });
   });
 
@@ -43,8 +42,7 @@ https://example.com/img1.jpg,
 https://example.com/img2.jpg,Some alt text
 https://example.com/img3.jpg,`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       expect(result.total_images).toBe(3);
       const issue = result.issues.find((i: { type: string }) => i.type === 'missing_alt_text');
@@ -64,8 +62,7 @@ https://example.com/img3.jpg,
 https://example.com/img4.jpg,
 https://example.com/img5.jpg,`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'missing_alt_text');
       expect(issue).toBeDefined();
@@ -81,8 +78,7 @@ https://example.com/img3.jpg,Good alt
 https://example.com/img4.jpg,Good alt
 https://example.com/img5.jpg,`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'missing_alt_text');
       expect(issue).toBeDefined();
@@ -95,8 +91,7 @@ https://example.com/img1.jpg,Descriptive text
 https://example.com/img2.jpg,Another description
 https://example.com/img3.jpg,`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       expect(result.stats.images_with_alt).toBe(2);
       expect(result.stats.missing_alt).toBe(1);
@@ -107,8 +102,7 @@ https://example.com/img3.jpg,`;
 https://example.com/img1.jpg,Alt 1
 https://example.com/img2.jpg,Alt 2`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'missing_alt_text');
       expect(issue).toBeUndefined();
@@ -120,8 +114,7 @@ https://example.com/img2.jpg,Alt 2`;
       const csv = `Address,Size (Bytes)
 https://example.com/img1.jpg,50000`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'missing_alt_text');
       expect(issue).toBeUndefined();
@@ -136,8 +129,7 @@ https://example.com/img1.jpg,50000`;
 https://example.com/huge.jpg,${VERY_LARGE}
 https://example.com/small.jpg,10000`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'very_large_images');
       expect(issue).toBeDefined();
@@ -152,8 +144,7 @@ https://example.com/small.jpg,10000`;
 https://example.com/large.jpg,${LARGE}
 https://example.com/small.jpg,10000`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'large_images');
       expect(issue).toBeDefined();
@@ -167,8 +158,7 @@ https://example.com/small.jpg,10000`;
       const csv = `Address,Size (Bytes)
 https://example.com/huge.jpg,${VERY_LARGE}`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const veryLargeIssue = result.issues.find((i: { type: string }) => i.type === 'very_large_images');
       const largeIssue = result.issues.find((i: { type: string }) => i.type === 'large_images');
@@ -182,8 +172,7 @@ https://example.com/a.jpg,${600 * 1024}
 https://example.com/b.jpg,${200 * 1024}
 https://example.com/c.jpg,50000`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       expect(result.stats.very_large_images).toBe(1);
       expect(result.stats.large_images).toBe(1);
@@ -193,8 +182,7 @@ https://example.com/c.jpg,50000`;
       const csv = `Address,Alt Text
 https://example.com/img1.jpg,Alt text`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       expect(result.stats.large_images).toBeUndefined();
       expect(result.stats.very_large_images).toBeUndefined();
@@ -208,8 +196,7 @@ https://example.com/missing.jpg,404
 https://example.com/error.jpg,500
 https://example.com/ok.jpg,200`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'broken_images');
       expect(issue).toBeDefined();
@@ -225,8 +212,7 @@ https://example.com/ok.jpg,200`;
 https://example.com/redirect.jpg,301
 https://example.com/ok.jpg,200`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'broken_images');
       expect(issue).toBeUndefined();
@@ -236,8 +222,7 @@ https://example.com/ok.jpg,200`;
       const csv = `Address,Status Code
 https://example.com/missing.jpg,404`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       expect(result.stats.broken_images).toBe(1);
     });
@@ -250,8 +235,7 @@ https://example.com/nodims.jpg,,
 https://example.com/nowidth.jpg,,100
 https://example.com/good.jpg,200,150`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'images_missing_dimensions');
       expect(issue).toBeDefined();
@@ -266,8 +250,7 @@ https://example.com/good.jpg,200,150`;
       const csv = `Address,Width,Height
 https://example.com/zero.jpg,0,0`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'images_missing_dimensions');
       expect(issue).toBeDefined();
@@ -278,8 +261,7 @@ https://example.com/zero.jpg,0,0`;
       const csv = `Address,Alt Text
 https://example.com/img.jpg,Some alt`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       const issue = result.issues.find((i: { type: string }) => i.type === 'images_missing_dimensions');
       expect(issue).toBeUndefined();
@@ -295,14 +277,14 @@ https://example.com/img.jpg,Some alt`;
     // Condition: size > LARGE_IMAGE_SIZE → large; size <= LARGE_IMAGE_SIZE → not large
     it('image of exactly 102400 bytes (100KB) is NOT flagged as large', () => {
       const csv = `Address,Size (Bytes)\nhttps://example.com/exact.jpg,${LARGE}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       const issue = result.issues.find((i: { type: string }) => i.type === 'large_images');
       expect(issue).toBeUndefined();
     });
 
     it('image of exactly 102401 bytes (1 byte over 100KB) IS flagged as large', () => {
       const csv = `Address,Size (Bytes)\nhttps://example.com/over.jpg,${LARGE + 1}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       const issue = result.issues.find((i: { type: string }) => i.type === 'large_images');
       expect(issue).toBeDefined();
       expect(issue.severity).toBe('warning');
@@ -311,7 +293,7 @@ https://example.com/img.jpg,Some alt`;
 
     it('image of exactly 102399 bytes (1 byte under 100KB) is NOT flagged', () => {
       const csv = `Address,Size (Bytes)\nhttps://example.com/under.jpg,${LARGE - 1}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       const largeIssue = result.issues.find((i: { type: string }) => i.type === 'large_images');
       const veryLargeIssue = result.issues.find((i: { type: string }) => i.type === 'very_large_images');
       expect(largeIssue).toBeUndefined();
@@ -322,7 +304,7 @@ https://example.com/img.jpg,Some alt`;
     // Condition: size > VERY_LARGE → very_large; size <= VERY_LARGE and size > LARGE → large
     it('image of exactly 512000 bytes (500KB) is flagged as large (not very_large)', () => {
       const csv = `Address,Size (Bytes)\nhttps://example.com/exact-vl.jpg,${VERY_LARGE}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       const veryLargeIssue = result.issues.find((i: { type: string }) => i.type === 'very_large_images');
       const largeIssue = result.issues.find((i: { type: string }) => i.type === 'large_images');
       expect(veryLargeIssue).toBeUndefined();
@@ -332,7 +314,7 @@ https://example.com/img.jpg,Some alt`;
 
     it('image of exactly 512001 bytes (1 byte over 500KB) IS flagged as very_large', () => {
       const csv = `Address,Size (Bytes)\nhttps://example.com/over-vl.jpg,${VERY_LARGE + 1}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       const issue = result.issues.find((i: { type: string }) => i.type === 'very_large_images');
       expect(issue).toBeDefined();
       expect(issue.severity).toBe('critical');
@@ -344,7 +326,7 @@ https://example.com/img.jpg,Some alt`;
 
     it('image of exactly 511999 bytes (1 byte under 500KB) is flagged as large only', () => {
       const csv = `Address,Size (Bytes)\nhttps://example.com/under-vl.jpg,${VERY_LARGE - 1}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       const veryLargeIssue = result.issues.find((i: { type: string }) => i.type === 'very_large_images');
       const largeIssue = result.issues.find((i: { type: string }) => i.type === 'large_images');
       expect(veryLargeIssue).toBeUndefined();
@@ -368,7 +350,7 @@ https://example.com/img.jpg,Some alt`;
         'https://example.com/10.jpg,',
       ].join('\n');
       const csv = `Address,Alt Text\n${rows}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       // 8/10 = 80%
       expect(result.stats.alt_coverage_percent).toBe(80);
       const issue = result.issues.find((i: { type: string }) => i.type === 'missing_alt_text');
@@ -381,7 +363,7 @@ https://example.com/img.jpg,Some alt`;
       const withAlt = Array.from({ length: 79 }, (_, i) => `https://example.com/img${i + 1}.jpg,Alt`);
       const withoutAlt = Array.from({ length: 21 }, (_, i) => `https://example.com/missing${i + 1}.jpg,`);
       const csv = `Address,Alt Text\n${[...withAlt, ...withoutAlt].join('\n')}`;
-      const result = new ImagesParser(csv).parse();
+      const result = parseString(ImagesParser, csv);
       expect(result.stats.alt_coverage_percent).toBe(79);
       const issue = result.issues.find((i: { type: string }) => i.type === 'missing_alt_text');
       expect(issue).toBeDefined();
@@ -399,8 +381,7 @@ https://example.com/b.jpg,,${LARGE},404,300,200
 https://example.com/c.jpg,Good alt,50000,200,100,80
 https://example.com/d.jpg,,50000,500,,`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       expect(result.total_images).toBe(4);
       expect(result.issues.find((i: { type: string }) => i.type === 'missing_alt_text')).toBeDefined();
@@ -415,8 +396,7 @@ https://example.com/d.jpg,,50000,500,,`;
 https://example.com/a.jpg,Alt A,50000,200,100,80
 https://example.com/b.jpg,Alt B,80000,200,200,150`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       expect(result.issues).toHaveLength(0);
     });
@@ -430,8 +410,7 @@ https://example.com/b.jpg,Alt
 https://example.com/c.jpg,Alt
 https://example.com/d.jpg,`;
 
-      const parser = new ImagesParser(csv);
-      const result = parser.parse();
+      const result = parseString(ImagesParser, csv);
 
       // 3/4 = 75%
       expect(result.stats.alt_coverage_percent).toBe(75);
