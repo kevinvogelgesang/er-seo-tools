@@ -228,7 +228,7 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
       // Site-level score = mean of per-page v2 scores (computeSiteScoreV2),
       // not a violation-count derivation — see scoring-v2.ts.
       score: siteScore,
-      scoreBreakdown: serializeAdaBreakdown(siteBreakdown),
+      scoreBreakdown: siteScore != null ? serializeAdaBreakdown(siteBreakdown) : null,
       wcagLevel: parent.wcagLevel,
       pagesTotal: pages.length,
       startedAt: parent.startedAt,

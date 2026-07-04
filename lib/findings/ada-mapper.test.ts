@@ -204,6 +204,15 @@ describe('mapAdaChildren', () => {
     expect(b.findings).toHaveLength(0)
   })
 
+  it('site run gets null score AND null scoreBreakdown when no page is scored (all children errored/non-complete)', () => {
+    const b = mapAdaChildren({ ...PARENT, pagesError: 2 }, [
+      child({ status: 'error', error: 'timeout', result: null }),
+      child({ id: 'child-2', url: 'https://mapper.test/old', status: 'redirected', finalUrl: 'https://mapper.test/new', result: null }),
+    ])
+    expect(b.run.score).toBeNull()
+    expect(b.run.scoreBreakdown).toBeNull()
+  })
+
   it('defensively dedupes a repeated ruleId on one page (one Finding + one Violation)', () => {
     const b = mapAdaChildren(PARENT, [
       child({ result: axeBlob([violation(), violation()]) }),

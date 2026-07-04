@@ -146,7 +146,7 @@ export async function loadSiteReportData(siteAuditId: string): Promise<SiteRepor
   // 3. Findings run (reports are findings-run-only) + summary-or-fallback.
   const run = await prisma.crawlRun.findUnique({
     where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } },
-    select: { id: true, score: true, scoreBreakdown: true },
+    select: { id: true, score: true },
   })
   if (!run) return null
 
