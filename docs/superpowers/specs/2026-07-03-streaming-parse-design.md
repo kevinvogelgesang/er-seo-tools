@@ -85,15 +85,18 @@ must not touch surfaces beyond the parsers/route it changes.
 
 ## 3. Scope: which parsers stream
 
-Convert **4** parsers (all keep O(1) or O(distinct-keys) state, so true row-streaming
-carries no algorithm-change parity risk):
+Convert **4** parsers. Streaming removes the raw string + full row array (the
+`O(rows + raw string)` double-copy); it does **not** make every parser `O(1)` — each
+retains its existing output/accumulator footprint, which the conversion preserves
+verbatim (Codex Low 9). None does an algorithm change, so there is no parity risk
+from restructuring:
 
-| Parser | Reads | State it keeps | Why safe to stream |
-|--------|-------|----------------|--------------------|
-| `ExternalLinksParser` | `all_outlinks` (biggest) | broken count + broken-dest URL list | pure per-row fold |
-| `AnchorTextParser` | `all_anchor_text` | anchor-count Map, destination→anchor-Set Map, position Map, capped URL lists, counters — all O(distinct anchors/destinations), **not** O(rows) | pure per-row fold; post-loop sort/slice unchanged |
-| `ImagesParser` | `images_all` | counts + capped URL lists (caps 20–30) | pure per-row fold |
-| `LinksIssuesParser` | `links_*` | maxDepth + (currently unbounded) URL list | pure per-row fold; output contract unchanged |
+| Parser | Reads | State it keeps | Footprint after streaming |
+|--------|-------|----------------|---------------------------|
+| `ExternalLinksParser` | `all_outlinks` (biggest) | broken count + broken-dest URL list | O(broken external links) — unbounded output list, but ≪ full file |
+| `AnchorTextParser` | `all_anchor_text` | anchor-count `Record`, destination→anchor-Set `Record`, position `Record`, capped URL lists (cap 50), counters | O(distinct anchors + distinct destinations) — **not** O(rows) |
+| `ImagesParser` | `images_all` | counts + capped URL lists (caps 20–30) | O(1) (fixed caps) |
+| `LinksIssuesParser` | `links_*` | maxDepth + (unbounded) URL list | O(rows) output list, but no raw string / row array |
 
 > Note on `LinksIssuesParser`: its output pushes **every** URL into the issue
 > (`urls` is unbounded by the current contract). Streaming the **input** still removes
@@ -115,64 +118,104 @@ export abstract class StreamingParser {
   static parserKey = '';                 // explicit literal per subclass (minification)
   static streaming = true;               // capability flag the route checks
 
-  static matchesFile(filename: string): boolean { /* identical to BaseParser */ }
+  static matchesFile(filename: string): boolean { /* delegates to filenameMatches() */ }
   static matchesContent(_headers: string[]): boolean { return false; }
   static matchesRawContent(_raw: string): boolean { return false; }
 
   protected headers: string[] = [];
   private headerMap = new Map<string, string>();
   private headersResolved = false;
+  private rowCount = 0;
   private domainCounts = new Map<string, number>();
 
   /** Called once per data row by the route's stream driver. */
   consume(row: CSVRow): void {
-    if (!this.headersResolved) { /* build headerMap from Object.keys(row); resolve on first row */ }
-    this.trackDomain(row);   // increment domainCounts for the Address/URL column
+    if (!this.headersResolved) {
+      // Codex-fixed (High 2): resolve headers + let the subclass cache its
+      // columns BEFORE any row is folded — several parsers need a column
+      // (e.g. AnchorText needs `Type`) to even decide whether to count a row.
+      this.headers = Object.keys(row);
+      this.headerMap = buildHeaderMap(this.headers);
+      this.onHeaders();          // subclass resolves + stores its column names
+      this.headersResolved = true;
+    }
+    this.rowCount++;
+    this.trackDomain(row);       // increment domainCounts for the Address/URL column
     this.consumeRow(row);
   }
 
+  /** Resolve column names into fields (once, before the first consumeRow). */
+  protected onHeaders(): void {}
   protected abstract consumeRow(row: CSVRow): void;   // subclass folds one row
-  abstract finalize(): ParsedData;                    // subclass emits output
+  abstract finalize(): ParsedData;                    // subclass emits output (no folding)
 
-  getPrimaryDomain(): string | null { /* argmax over domainCounts */ }
-
-  protected findColumn(names: string[]): string | null { /* shared impl */ }
+  protected get length(): number { return this.rowCount; }
+  protected get isEmpty(): boolean { return this.rowCount === 0; }
+  getPrimaryDomain(): string | null { /* mostCommonHostname(domainCounts) */ }
+  protected findColumn(names: string[]): string | null { /* findColumn(headerMap, names) */ }
 }
 ```
 
-Column resolution and primary-domain logic are **identical** to `BaseParser`'s. To
-avoid two divergent copies, extract the shared pieces into a small pure util
-`lib/parsers/header-map.ts`:
+**Lifecycle (Codex High 2):** `consume(row)` → on the *first* row: build the header
+map, call `onHeaders()` (subclass resolves + stores its column names as fields),
+then fold that same row. Subsequent rows fold directly. `finalize()` **emits only**
+— it does the post-loop sorts/slices/issue-construction, never row folding and never
+column resolution. This matches how the whole-file parsers resolve columns once at
+the top of `parse()`, before their loop. An empty file (zero rows) never resolves
+headers; `finalize()` sees `isEmpty === true` and returns the same `{}`/empty shape
+the whole-file `if (this.isEmpty) return {}` guard produces.
 
-- `buildHeaderMap(headers: string[]): Map<string,string>`
-- `findColumn(headerMap, names): string | null`
-- `mostCommonHostname(counts: Map<string,number>): string | null`
+**Shared header/domain util (Codex Medium 7).** To avoid two divergent copies,
+extract the shared pieces into a small pure util `lib/parsers/header-map.ts`:
+
+- `buildHeaderMap(headers: string[]): Map<string,string>` — **must preserve
+  `BaseParser` semantics exactly**: set both the original-case key and the
+  lowercased key for each header, in header order, so a later duplicate/case-fold
+  overwrites an earlier one (identical to the current `for (const h of headers)`
+  loop). `this.headers` stays the raw `meta.fields`/`Object.keys` array (some
+  parsers read it directly) — the util never mutates or re-orders it.
+- `findColumn(headerMap, names): string | null` — same first-match, case-insensitive
+  lookup as `BaseParser.findColumn`.
+- `mostCommonHostname(counts: Map<string,number>): string | null` — argmax, same
+  tie-break as `getPrimaryDomain`.
+- `filenameMatches(pattern: string | string[], filename: string): boolean` — the
+  pure substring/array logic behind both classes' static `matchesFile`.
 
 `BaseParser` is refactored to call these (behavior-preserving; covered by existing
-tests + the pt2 golden/parity net). `StreamingParser` calls the same functions.
-
-**Header resolution timing.** With `header:true`, Papa emits each row as an object
-keyed by the header names, and `results.meta.fields` is populated from the first
-data row's `step` callback. `StreamingParser.consume` resolves `headers`/`headerMap`
-lazily from the first row it sees (`Object.keys(row)` or the captured `meta.fields`).
-Subclasses resolve their columns inside `finalize()` (or memoize on first `consumeRow`);
-this mirrors the whole-file parsers, which resolve columns at the top of `parse()`.
+tests + the pt2 golden/parity net + new mixed-case duplicate-header tests).
+`StreamingParser` calls the same functions. Neither class changes `this.headers`.
 
 ### 4.2 The 4 parser conversions (mechanical, verbatim logic)
 
 For each target parser the transformation is purely structural:
 
+- Column lookups (`findColumn(...)`) move into `onHeaders()`, stored as instance
+  fields — resolved once before the first row folds (Codex High 2).
 - The `for (…of this.data)` / `for (let i…)` loop body → `consumeRow(row)`.
-- Loop-local accumulators (counts, Maps, Sets, capped arrays) → **instance fields**,
-  initialized in a `reset`/constructor.
+- Loop-local accumulators → **instance fields**, initialized in the constructor.
 - The post-loop tail (sorts, slices, issue construction, return object) → `finalize()`.
-- Column lookups move to `finalize()` (or memoized), using `this.findColumn`.
-- `this.length` (row count) → an instance counter incremented in `consumeRow`.
-- `this.isEmpty` → `rowCount === 0`, checked in `finalize()`.
+- `this.length` (row count) → the base's `rowCount` counter (`this.length` getter).
+- `this.isEmpty` → the base's getter, checked at the top of `finalize()`.
 
-Because the accumulation logic is **copied unchanged** and rows arrive in the same
-file order, byte-identical output follows — including sort-tie resolution, which
-depends only on first-seen insertion order (preserved).
+**Preserve the exact data structures — do NOT "upgrade" Records to Maps (Codex High 1).**
+The real parsers use plain objects: `AnchorTextParser`'s `anchorCounts`,
+`destinationAnchors` (`Record<string, Set<string>>`), and `positionCounts` are
+`Record`s; `Object.entries` enumeration order (integer-like keys first, ascending,
+then insertion order) differs from `Map` insertion order. `top_anchors` is
+`Object.entries(anchorCounts).sort((a,b)=>b[1]-a[1])` — a **stable** sort, so tie
+order = enumeration order. A numeric-looking anchor such as `"123"` would sort
+differently under a `Map`. The conversion keeps every accumulator's type verbatim;
+only its scope changes (local → field).
+
+**Preserve the capped-count quirk (Codex High 1).** `AnchorTextParser`'s
+`empty_anchor_text` / `non_descriptive_anchor_text` issue `count` is the length of
+the **capped** array (`emptyAnchorUrls`/`nonDescriptiveUrls`, cap 50), not the true
+occurrence total; `urls` is then `slice(0,30)`. Copy this verbatim — the golden
+fixture (below) must include >50 empty and >50 non-descriptive anchors to pin it.
+
+Because the accumulation logic is **copied unchanged** (same types, same caps, same
+order) and rows arrive in file order, byte-identical output follows — including
+sort-tie resolution, which depends only on enumeration/first-seen order (preserved).
 
 ### 4.2a Registry & type integration (load-bearing)
 
@@ -186,6 +229,9 @@ unchanged). Resolve the typing cleanly:
 - Define a shared **static class type** in `lib/parsers/types` (or `header-map.ts`):
   ```ts
   export type ParserClass = {
+    name: string;                        // Codex Medium 8: the route falls back to
+                                         // `ParserClass.name` when parserKey is '' —
+                                         // keep it in the type or that read won't compile
     filenamePattern: string | string[];
     parserKey: string;
     streaming?: boolean;                 // absent/false → whole-file
@@ -216,58 +262,91 @@ parseOne(filename):
   if ext != .csv        → { status: 'skipped' }         # unchanged
   if !exists            → failed('File not found')       # unchanged
 
-  # (1) bounded header-peek for detection — NEVER read the full file yet
-  headerChunk = readHeaderChunk(filePath)                # see 4.4
-  ParserClass = findParserForFile(filename, headerChunk)
-  if !ParserClass       → { status: 'unmatched' }        # big win: no full read
+  # (1) detection — filename FIRST (Codex Medium 5), peek only if that misses
+  ParserClass = findParserForFile(filename)              # no content: filename match only
+  if !ParserClass:
+    headerChunk = await readHeaderChunk(filePath)         # bounded read; see 4.4
+    ParserClass = findParserForFile(filename, headerChunk)
+  if !ParserClass       → { status: 'unmatched' }        # unmatched file is NEVER fully read
 
-  # (2) streaming path
-  if ParserClass.streaming:
-    parser = new ParserClass()
-    await streamCsv(filePath, row => parser.consume(row))  # createReadStream → Papa NODE_STREAM_INPUT
-    result = parser.finalize()
-    domain = parser.getPrimaryDomain()
-
-  # (3) whole-file path (unchanged)
-  else:
-    rawContent = await fs.readFile(filePath, 'utf-8')
-    parser = new ParserClass(rawContent)
-    result = parser.parse()
-    domain = parser.getPrimaryDomain()
+  try:
+    # (2) streaming path
+    if ParserClass.streaming:
+      parser = new ParserClass()
+      await streamCsv(filePath, row => parser.consume(row))  # see stream contract below
+      result = parser.finalize()
+      domain = parser.getPrimaryDomain()
+    # (3) whole-file path (unchanged)
+    else:
+      rawContent = await fs.readFile(filePath, 'utf-8')
+      parser = new ParserClass(rawContent)
+      result = parser.parse()
+      domain = parser.getPrimaryDomain()
+  catch err:
+    return failed(filename, err.message)                 # streaming errors join pt1's failed bucket
 
   return parsed(parserKey, result, filename, domain)
 ```
+
+Filename-first detection (Codex Medium 5) is behavior-equivalent to today —
+`findParserForFile` already tries `matchesFile` before any content step — and skips
+even the peek for the 4 streaming targets (all filename-matched) and every other
+filename-matched SF export. The peek runs only for content-detected files (SEMRush)
+and genuinely unmatched files.
+
+**Stream driver contract — `streamCsv(filePath, onRow)` (Codex High 3).** Returns a
+`Promise<void>` that:
+
+- opens `fs.createReadStream(filePath, { encoding: 'utf8' })` and pipes it into
+  `Papa.parse(Papa.NODE_STREAM_INPUT, { header: true, skipEmptyLines: true,
+  dynamicTyping: true })` — config **exactly matching** the whole-file
+  `BaseParser.parseCSV` for parity;
+- calls `onRow(row.data)` for each `data` event;
+- **rejects** on either the file `ReadStream`'s `error` OR the Papa stream's `error`,
+  and destroys both streams on error (no hang, no leaked fd);
+- **resolves only after** the Papa stream's completion event fires (all rows
+  delivered) — so `finalize()` never runs on a partial stream.
+
+Because `parseOne` wraps the whole parse in `try/catch`, a stream/read error yields
+the same `failed` `FileReport` (with `severity` from `isCoreExport`) that the
+whole-file path already produces on a thrown parser — pt1's failure-isolation
+contract is preserved for streaming files too.
 
 `file_reports` bookkeeping, `severity`/`isCoreExport`, the `successes[]` array, the
 aggregator wiring, domain/client matching, the transaction, and the findings
 dual-write are all **unchanged**.
 
-Papa streaming config **must exactly match** the whole-file config for parity:
-`{ header: true, skipEmptyLines: true, dynamicTyping: true }`.
-
 ### 4.4 Header-peek — `readHeaderChunk(filePath)`
 
-Read a bounded prefix sufficient for `findParserForFile`:
+Only reached when filename detection misses (§4.3 step 1) — i.e. content-detected
+SEMRush files and genuinely unmatched files. Reads a bounded prefix sufficient for
+the content steps of `findParserForFile`:
 
-- `findParserForFile` uses (in order) `matchesFile(filename)` (no content),
-  `matchesRawContent(raw)` (SEMRush metadata preamble — always at the top of the
-  file), and `matchesContent(headers)` (first line only). A bounded top-of-file
-  chunk covers all three.
-- Read via a `ReadStream` in chunks, accumulating until the **first newline** is
-  seen (guarantees the complete header line) **and** at least a base size is read
-  (default 64 KB, enough for any SEMRush metadata preamble); hard cap 1 MB to bound
-  pathological input. Return the accumulated prefix as a UTF-8 string.
-- All 4 streaming targets match by **filename** (step 1), so they don't even need
-  the content — but the peek is applied uniformly so *every* file (including the
-  whole-file parsers and unmatched files) benefits from not being fully read for
-  detection.
+- The remaining detection steps are `matchesRawContent(raw)` (SEMRush metadata
+  preamble — always at the very top of the file) and `matchesContent(headers)`
+  (first line only). A bounded top-of-file chunk covers both.
+- Read via a `ReadStream` in chunks, accumulating until the **first newline** is seen
+  (guarantees the complete header line) **and** at least a base size is read (default
+  64 KB, enough for any SEMRush metadata preamble); hard cap 1 MB. Return the
+  accumulated prefix as a UTF-8 string.
+- **1 MB cap hit before a newline (Codex Medium 6):** a CSV whose first line exceeds
+  1 MB is pathological (no real SF/SEMRush export does this). Behave deterministically:
+  return the 1-MB prefix as-is and let `findParserForFile` decide on it (in practice
+  → `unmatched`, since no content matcher will fire on a truncated giant line). This
+  branch is unit-tested so the behavior is pinned, not incidental.
 
-**Detection-equivalence invariant:** `findParserForFile(name, peek)` must return the
-same parser as `findParserForFile(name, fullContent)` for all real SF/SEMRush
-exports. This holds because (a) filename matches ignore content, (b) SEMRush
-metadata/headers live at the very top, well within 64 KB, (c) `matchesContent` reads
-only the first line. Verified by a route test that peeks vs full-reads each Manhattan
-fixture and asserts identical detection.
+**Detection-equivalence invariant (Codex Medium 6):** `findParserForFile(name, peek)`
+must return the same parser as `findParserForFile(name, fullContent)` for all real
+SF/SEMRush exports. This holds because (a) filename matches never reach the peek,
+(b) SEMRush metadata/headers live at the very top, well within 64 KB, (c)
+`matchesContent` reads only the first line. **Proven, not assumed:**
+- a route test peeks vs full-reads **each Manhattan fixture** and asserts identical
+  detection;
+- a **synthetic SEMRush Position Tracking fixture** (metadata preamble *before* the
+  CSV header) asserts `matchesRawContent` fires from the peek and equals full-content
+  detection;
+- synthetic header-only SEMRush fixtures (Organic Positions / Keyword Gap) assert
+  `matchesContent` from the peek equals full detection.
 
 ## 5. Parity & correctness strategy (non-negotiable)
 
@@ -283,10 +362,24 @@ Mirrors pt2, which shipped byte-identical:
 2. **Real-crawl byte-identical parity harness** (`npx tsx`): pipe the Manhattan crawl
    through pre-refactor vs post-refactor `parse()`/`finalize()` and `diff` the
    serialized output — the same technique that proved pt2 byte-identical.
-3. **BOM / chunk-boundary fixture.** Whole-file `Papa.parse(string)` and streaming
-   `Papa.parse(NODE_STREAM_INPUT)` must tokenize identically across (a) a leading
-   UTF-8 BOM and (b) a quoted field spanning a chunk boundary. Add an explicit
-   fixture exercising both and assert whole-file output === streaming output.
+3. **Tokenization parity fixtures (Codex High 4).** Whole-file `Papa.parse(string)`
+   and streaming `Papa.parse(NODE_STREAM_INPUT)` must tokenize identically. A single
+   BOM/chunk-boundary fixture is necessary but **not sufficient**. Add a parity table
+   that feeds the *same* bytes through both paths and asserts `toEqual` on the row
+   arrays, covering every case where Papa's string vs stream parsers can diverge:
+   - leading UTF-8 BOM
+   - quoted field spanning a chunk boundary
+   - CRLF (`\r\n`) line endings
+   - trailing blank line(s)
+   - last row without a final newline
+   - header-only CSV (zero data rows)
+   - empty file (zero bytes)
+   - a row with extra columns (Papa's `__parsed_extra`)
+   - `dynamicTyping` values: integers, floats, booleans, empty strings, and
+     quoted-numeric strings (`"123"` must stay a string)
+
+   This is a **generic Papa-parity test** (not parser-specific): it locks the
+   equivalence of the two Papa entry points that the whole design rests on.
 
 ## 6. Memory verification (evidence the fix works)
 
@@ -305,16 +398,32 @@ app path):
 
 ## 7. Testing
 
-- **Unit (golden):** the 4 golden suites above (§5.1), full `toEqual`.
-- **Unit (streaming base):** `StreamingParser` — header resolution on first row,
-  `findColumn`, incremental `getPrimaryDomain`, empty-input (`finalize()` on zero rows
-  returns the same `{}`/empty shape as the whole-file `isEmpty` guard).
-- **Unit (header util):** `header-map.ts` pure functions.
-- **Route:** two-path `parseOne` — a streaming parser routes through the stream driver;
-  a whole-file parser is unchanged; an **unmatched** file returns `unmatched` and is
-  **not** fully read (assert via a spied/limited read); detection-equivalence
-  (peek vs full) over the Manhattan fixtures.
-- **Parity:** BOM + chunk-boundary fixture (§5.3).
+- **Unit (golden):** the 4 golden suites above (§5.1), full `toEqual`. The
+  `anchortext` fixture MUST include tied anchor counts, numeric-looking anchors
+  (`"123"`), repeated destinations, empty anchors, and >50 empty / >50
+  non-descriptive anchors — to pin the enumeration-order tie-break and the
+  capped-count quirk (Codex High 1).
+- **Unit (streaming base):** `StreamingParser` — first-row header resolution +
+  `onHeaders()` called once **before** the first `consumeRow`; `findColumn`;
+  incremental `getPrimaryDomain`; `length`/`isEmpty`; empty-input (`finalize()` on
+  zero rows returns the same `{}`/empty shape as the whole-file `isEmpty` guard, and
+  `onHeaders` never fires).
+- **Unit (header util):** `header-map.ts` pure functions, incl. **mixed-case
+  duplicate headers** (later overwrites earlier; both original-case and lowercase
+  keys set) to prove `BaseParser` semantics are preserved (Codex Medium 7).
+- **Unit (stream driver, Codex High 3):** `streamCsv` rejects on a file `ReadStream`
+  error and on a Papa error, destroys both streams, and resolves only after
+  completion; a stream error surfaces as a `failed` `FileReport` through `parseOne`.
+- **Route:** two-path `parseOne` — a streaming parser routes through the stream
+  driver; a whole-file parser is unchanged; an **unmatched** file returns `unmatched`
+  and is **not** fully read (assert via a spied/limited read); filename-first
+  detection skips the peek for filename-matched files; detection-equivalence
+  (peek vs full) over the Manhattan fixtures **plus** synthetic SEMRush
+  metadata/header fixtures (Codex Medium 6); the 1-MB-cap-before-newline branch
+  returns the deterministic result.
+- **Parity (generic Papa, Codex High 4):** the whole-file-vs-stream `toEqual` table
+  (§5.3) — BOM, chunk boundary, CRLF, trailing blanks, no-final-newline, header-only,
+  empty file, `__parsed_extra`, dynamicTyping variants.
 - **Deferred pt2 Minors (fold in):** two golden cases in the consolidated bases —
   the `getSeoRelevantMask` mask-fallback branch, and a nonzero `excluded_urls` case —
   that pt2 left unpinned.
@@ -337,12 +446,15 @@ app path):
 
 | Risk | Mitigation |
 |------|------------|
-| Streaming vs whole-file tokenization differs (BOM, chunk boundaries, `dynamicTyping`) | Identical Papa config; §5.3 explicit BOM/chunk fixture; §5.2 real-crawl `diff` |
-| Header line > 64 KB peek | Peek loop extends to first newline, hard cap 1 MB |
-| Detection differs on a peek vs full read | Detection-equivalence route test over all Manhattan fixtures (§4.4) |
+| Streaming vs whole-file tokenization differs (BOM, CRLF, chunk boundaries, trailing/no newline, header-only, empty, `__parsed_extra`, `dynamicTyping`) | Identical Papa config; §5.3 full generic-parity `toEqual` table; §5.2 real-crawl `diff` |
+| A `Record`→`Map` "upgrade" changes enumeration/tie order | Data structures copied verbatim (§4.2); golden fixture with tied + numeric-looking anchors (Codex High 1) |
+| Columns needed during folding but resolved too late | `onHeaders()` resolves columns once before the first `consumeRow` (Codex High 2); base unit test asserts ordering |
+| Stream/read error hangs or bypasses the `failed` bucket | `streamCsv` rejects on both error sources + destroys streams; `parseOne` `try/catch` → `failed` FileReport (Codex High 3) |
+| Header line > 64 KB peek / > 1 MB | Peek extends to first newline; 1-MB cap → deterministic unmatched (unit-tested) |
+| Detection differs on peek vs full read | Equivalence tests over Manhattan fixtures + synthetic SEMRush metadata/header fixtures (Codex Medium 6) |
 | Class-name minification breaks aggregator lookups | Explicit `parserKey` literals retained; post-deploy bundle check (§8) |
-| `StreamingParser`/`BaseParser` `findColumn` drift | Single shared `header-map.ts` util used by both |
-| A converted parser subtly changes tie-ordering | Logic copied verbatim; first-seen order preserved; golden `toEqual` catches any drift |
+| `StreamingParser`/`BaseParser` `findColumn` drift | Single shared `header-map.ts` util; mixed-case duplicate-header test (Codex Medium 7) |
+| Memory guarantee overstated | Framed as O(accumulators/output contract), not O(1); Links/External keep their (bounded-in-practice) output URL lists (Codex Low 9) |
 
 ## 10. Files touched
 
@@ -353,10 +465,12 @@ app path):
 - `lib/parsers/resources/anchortext.golden.test.ts`
 - `lib/parsers/resources/images.golden.test.ts` (or extend existing `images.parser.test.ts`)
 - `lib/parsers/resources/linksissues.golden.test.ts`
-- `lib/parsers/streaming-parser.base.test.ts`
-- `lib/parsers/header-map.test.ts`
+- `lib/parsers/streaming-parser.base.test.ts` (incl. `onHeaders`-before-fold, empty-input)
+- `lib/parsers/header-map.test.ts` (incl. mixed-case duplicate headers)
+- `lib/parsers/papa-parity.test.ts` — generic whole-file-vs-stream `toEqual` table (§5.3)
 - `scripts/streaming-memory-check.ts` (dev harness)
-- a BOM/chunk-boundary parity test
+- the `ParserClass` static type — in `lib/parsers/header-map.ts` (or a small `lib/parsers/parser-class.ts`); §4.2a
+- SEMRush peek-equivalence fixtures/tests (position-tracking metadata + header-only) — in the route test
 
 **Modified:**
 - `lib/parsers/base.parser.ts` — delegate `findColumn`/header-map/domain to `header-map.ts` (behavior-preserving)
