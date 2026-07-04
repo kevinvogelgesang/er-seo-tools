@@ -35,6 +35,9 @@ interface Props {
   /** Public share view: suppresses every cookie-gated or internal affordance
    *  (triage, checks, by-violation view, row expansion, common-issue CTA). */
   shareMode?: boolean
+  /** Optional. Threaded into the scorecard's v1/v2 badge (C9-A). Omitted =
+   *  no badge, identical render to before this prop existed. */
+  scoreMeta?: { version: number; fromFallback: boolean; passCount: number | null; incompleteCount: number | null }
 }
 
 function ImpactCount({ n, color }: { n: number; color: string }) {
@@ -231,7 +234,7 @@ function paginationRange(current: number, total: number): (number | '...')[] {
 
 export default function SiteAuditResultsView({
   domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant, pdfs = [], siteAuditId,
-  shareMode = false,
+  shareMode = false, scoreMeta,
 }: Props) {
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
 
@@ -368,6 +371,7 @@ export default function SiteAuditResultsView({
             archivedCounts={summary.archived ? summary.archivedCounts ?? { passed: null, incomplete: null } : undefined}
             onImpactClick={handleScorecardImpactClick}
             activeImpact={filterImpact}
+            scoreMeta={scoreMeta}
           />
         </div>
       </div>
