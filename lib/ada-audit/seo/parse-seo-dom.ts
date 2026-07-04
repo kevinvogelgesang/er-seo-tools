@@ -16,7 +16,7 @@ export interface RawPageSeo {
   h2Count: number
   wordCount: number
   schemaTypes: string[]
-  hreflang: string[]
+  hreflang: { lang: string; href: string }[]
   imageCount: number
   imagesMissingAlt: number
   imagesMissingDimensions: number
@@ -72,13 +72,19 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
     } catch { /* ignore malformed */ }
   }
 
-  const hreflang = Array.from(doc.querySelectorAll('link[rel="alternate"][hreflang]'))
-    .map((l) => l.getAttribute('hreflang') || '')
-    .filter(Boolean)
+  // hreflang alternates as {lang, href} pairs — dedupe by lang keep-first, cap 50.
+  const hreflang: { lang: string; href: string }[] = []
+  const seenLang: Record<string, number> = {}
+  for (const l of Array.from(doc.querySelectorAll('link[rel="alternate"][hreflang]'))) {
+    const lang = l.getAttribute('hreflang') || ''
+    if (!lang || seenLang[lang]) continue
+    seenLang[lang] = 1
+    hreflang.push({ lang: lang, href: l.getAttribute('href') || '' })
+    if (hreflang.length >= 50) break
+  }
   // Bound the "bounded JSON" arrays: dedupe + cap at 50 each (Codex fix #7).
   const CAP = 50
   const boundedSchema = Array.from(new Set(schemaTypes)).slice(0, CAP)
-  const boundedHreflang = Array.from(new Set(hreflang)).slice(0, CAP)
   const imgs = Array.from(doc.querySelectorAll('img'))
   const imagesMissingAlt = imgs.filter((i) => !i.getAttribute('alt')).length
   const imagesMissingDimensions = imgs.filter((i) => !i.getAttribute('width') || !i.getAttribute('height')).length
@@ -92,7 +98,7 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
 
   return {
     title, metaDescription, robotsNoindex, canonicalUrl, h1, h1Count, h2Count,
-    wordCount: words, schemaTypes: boundedSchema, hreflang: boundedHreflang,
+    wordCount: words, schemaTypes: boundedSchema, hreflang,
     imageCount: imgs.length, imagesMissingAlt, imagesMissingDimensions, loginLike,
   }
 }

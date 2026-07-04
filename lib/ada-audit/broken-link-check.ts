@@ -6,7 +6,8 @@
 // precision posture). SafeUrlError / network error / timeout -> 'unconfirmed'
 // (excluded from broken counts; recall is a later concern). Transport is
 // injectable for tests.
-import { safeFetch, SafeUrlError } from '@/lib/security/safe-url'
+import { safeFetch } from '@/lib/security/safe-url'
+import { resolveUrl, type ResolveDeps } from './url-resolver'
 
 export type CheckResult = 'ok' | 'broken' | 'unconfirmed'
 
@@ -39,21 +40,12 @@ export async function checkUrl(
   deps: CheckDeps = realDeps,
   timeoutMs: number = DEFAULT_TIMEOUT,
 ): Promise<CheckResult> {
-  try {
-    const headStatus = await deps.fetchStatus(url, 'HEAD', timeoutMs)
-    if (headStatus < 400) return 'ok'
-    // HEAD >= 400: confirm with GET (servers mishandle HEAD).
-  } catch (err) {
-    if (err instanceof SafeUrlError) return 'unconfirmed'
-    // network/timeout on HEAD: fall through to GET (often HEAD-specific).
+  const resolveDeps: ResolveDeps = {
+    fetchResolved: async (u, method, t) => ({ status: await deps.fetchStatus(u, method, t), finalUrl: u, redirects: [] }),
+    now: deps.now,
+    sleep: deps.sleep,
   }
-  try {
-    const getStatus = await deps.fetchStatus(url, 'GET', timeoutMs)
-    return getStatus >= 400 ? 'broken' : 'ok'
-  } catch (err) {
-    if (err instanceof SafeUrlError) return 'unconfirmed'
-    return 'unconfirmed'
-  }
+  return (await resolveUrl(url, resolveDeps, timeoutMs)).result
 }
 
 /** Per-host minimum spacing. Call wait(host) before each request to a host. */
