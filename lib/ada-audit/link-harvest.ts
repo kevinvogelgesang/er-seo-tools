@@ -14,7 +14,7 @@ export interface HarvestedTarget {
 }
 
 const stripWww = (host: string) => host.replace(/^www\./, '')
-const sameDomain = (host: string, audited: string) => stripWww(host) === stripWww(audited)
+export const sameDomain = (host: string, audited: string) => stripWww(host) === stripWww(audited)
 
 /** Resolve + normalize a raw href/src. Returns null for non-navigational refs. */
 export function normalizeLinkTarget(raw: string, base: string): string | null {
