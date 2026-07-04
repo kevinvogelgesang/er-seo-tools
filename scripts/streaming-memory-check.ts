@@ -2,17 +2,29 @@
 //
 // Dev-only harness — NOT shipped in the app path. Builds a large (~500MB)
 // synthetic all_outlinks.csv by replicating the real Manhattan crawl export,
-// then runs one of two modes:
+// then runs one of three modes:
 //
+//   bare   — streamCsv(big, () => {}) with a no-op callback: no parser, no
+//            accumulation. Isolates the streaming DRIVER itself (readline +
+//            row dispatch) from any downstream parser's memory profile — the
+//            cleanest proof that the driver's RSS is bounded independent of
+//            file size.
 //   stream — the converted ExternalLinksParser via streamCsv (row-at-a-time,
 //            no full-file string, no full-row-array retention). Expected to
 //            complete with bounded RSS even under a constrained V8 heap.
+//            (driver cost from `bare` PLUS the parser's own O(broken-links)
+//            output accumulator.)
 //   whole  — raw Papa.parse(fs.readFileSync(big), CFG): the OLD whole-file
 //            profile (full file string + full parsed row array in memory at
 //            once). Expected to OOM under the same constrained heap. If it
 //            unexpectedly completes, the file wasn't large enough to produce
 //            an unambiguous contrast — this fails loudly (exit 2) rather than
 //            silently reporting a false "pass".
+//
+// All three modes sample process.memoryUsage().rss on a 100ms interval for
+// the duration of the parse and report the TRUE peak (max of samples), not
+// an end-of-run snapshot — an end snapshot understates peak because V8/GC
+// can reclaim short-lived garbage before the final read.
 //
 // Heap sizing note (verified 2026-07-03 on this machine/Node version): 512MB
 // is too tight even for the legitimate streaming path — a single-pass,
@@ -29,6 +41,7 @@
 // `big_outlinks.csv` there after running `whole`.
 //
 // Usage:
+//   NODE_OPTIONS='--max-old-space-size=1024' DATABASE_URL="file:./local-dev.db" npx tsx scripts/streaming-memory-check.ts bare
 //   NODE_OPTIONS='--max-old-space-size=1024' DATABASE_URL="file:./local-dev.db" npx tsx scripts/streaming-memory-check.ts stream
 //   NODE_OPTIONS='--max-old-space-size=1024' DATABASE_URL="file:./local-dev.db" npx tsx scripts/streaming-memory-check.ts whole; echo "whole exit: $?"
 import fs from 'fs';
@@ -90,23 +103,37 @@ function buildBigFile(): Promise<void> {
 async function run() {
   await buildBigFile();
   const mode = process.argv[2] || 'stream';
-  const before = process.memoryUsage().rss;
+
+  let peakRss = process.memoryUsage().rss;
+  const sampler = setInterval(() => {
+    const rss = process.memoryUsage().rss;
+    if (rss > peakRss) peakRss = rss;
+  }, 100);
+
   if (mode === 'whole') {
     // OLD profile: full string + full row array. Expected to OOM at a tight heap.
     const content = fs.readFileSync(big, 'utf-8');
     Papa.parse(content, CFG);
+    clearInterval(sampler);
     console.error(
       'UNEXPECTED: whole-file parse COMPLETED under the constrained heap — baseline invalid, raise the file size / lower the heap.'
     );
     fs.rmSync(big, { force: true });
     process.exit(2);
+  } else if (mode === 'bare') {
+    // Isolates the streaming DRIVER: no parser, no accumulation.
+    await streamCsv(big, () => {});
   } else {
     const p = new ExternalLinksParser();
     await streamCsv(big, (r: any) => p.consume(r));
     p.finalize();
   }
-  const after = process.memoryUsage().rss;
-  console.log(mode, 'peak RSS MB:', Math.round(after / 1048576), 'delta MB:', Math.round((after - before) / 1048576));
+
+  clearInterval(sampler);
+  console.log(mode, 'true peak RSS MB:', Math.round(peakRss / 1048576), '(continuous 100ms sampling)');
+  if (mode !== 'whole') {
+    console.log(mode, 'completed successfully');
+  }
   fs.rmSync(big, { force: true });
 }
 
