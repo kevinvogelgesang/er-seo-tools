@@ -1,7 +1,7 @@
 // lib/findings/ada-mapper.test.ts
 import { describe, it, expect } from 'vitest'
 import type { AxeViolation, StoredAxeResults } from '@/lib/ada-audit/types'
-import { computeScore, computeScoreFromCounts } from '@/lib/ada-audit/scoring'
+import { computeScoreV2 } from '@/lib/ada-audit/scoring-v2'
 import { mapAdaChildren, mapAdaSingle, mapImpactToSeverity } from './ada-mapper'
 import { pageFindingKey } from './keys'
 
@@ -88,13 +88,17 @@ describe('mapAdaChildren', () => {
     expect(b.run.status).toBe('partial')
   })
 
-  it('computes the run score from stored violation counts via computeScoreFromCounts', () => {
+  it('computes the run score (v2) as the mean of per-page v2 scores — single page here, so run.score === page.score', () => {
+    const violations = [violation(), violation({ id: 'image-alt', impact: 'critical' })]
     const b = mapAdaChildren(PARENT, [
-      child({ result: axeBlob([violation(), violation({ id: 'image-alt', impact: 'critical' })]) }),
+      child({ result: axeBlob(violations) }),
     ])
-    expect(b.run.score).toBe(
-      computeScoreFromCounts({ critical: 1, serious: 1, moderate: 0, minor: 0 }, 'wcag21aa').score,
-    )
+    const expected = computeScoreV2({
+      violations, incompleteCount: 0, domElementCount: null, wcagLevel: 'wcag21aa',
+    }).score
+    expect(b.run.score).toBe(expected)
+    expect(b.pages[0].score).toBe(expected)
+    expect(JSON.parse(b.run.scoreBreakdown as string).version).toBe(2)
   })
 
   it('builds one CrawlPage per child with status, error, finalUrl, adaAuditId', () => {
@@ -107,7 +111,9 @@ describe('mapAdaChildren', () => {
     const ok = b.pages.find((p) => p.url === 'https://mapper.test/a')!
     expect(ok.status).toBe('complete')
     expect(ok.adaAuditId).toBe('child-1')
-    expect(ok.score).toBe(computeScore([violation()], 'wcag21aa').score)
+    expect(ok.score).toBe(
+      computeScoreV2({ violations: [violation()], incompleteCount: 0, domElementCount: null, wcagLevel: 'wcag21aa' }).score,
+    )
     const err = b.pages.find((p) => p.url === 'https://mapper.test/gone')!
     expect(err.status).toBe('error')
     expect(err.error).toBe('nav timeout')
@@ -149,15 +155,21 @@ describe('mapAdaChildren', () => {
     expect(v.nodeCount).toBe(2)
   })
 
-  it('null impact → severity notice, Violation.impact "unknown", excluded from score counts', () => {
+  it('null impact → severity notice, Violation.impact "unknown", still weighted (as IMPACT_WEIGHT.null) into the v2 score', () => {
+    const violations = [violation({ id: 'odd-rule', impact: null })]
     const b = mapAdaChildren(PARENT, [
-      child({ result: axeBlob([violation({ id: 'odd-rule', impact: null })]) }),
+      child({ result: axeBlob(violations) }),
     ])
     expect(b.findings[0].severity).toBe('notice')
     expect(b.violations[0].impact).toBe('unknown')
-    expect(b.run.score).toBe(
-      computeScoreFromCounts({ critical: 0, serious: 0, moderate: 0, minor: 0 }, 'wcag21aa').score,
-    )
+    // v2 (unlike v1) does not exclude null-impact violations from scoring —
+    // they carry IMPACT_WEIGHT.null (1) — so this is NOT the same as a
+    // clean-page (100) score.
+    const expected = computeScoreV2({
+      violations, incompleteCount: 0, domElementCount: null, wcagLevel: 'wcag21aa',
+    }).score
+    expect(b.run.score).toBe(expected)
+    expect(b.run.score).toBeLessThan(100)
   })
 
   it('caps stored nodes at 5 with html truncated to 300 chars; nodeCount keeps the real total', () => {
@@ -225,7 +237,9 @@ describe('mapAdaSingle', () => {
     expect(b.run.wcagLevel).toBe('wcag22aa')
     expect(b.run.status).toBe('complete')
     expect(b.run.pagesTotal).toBe(1)
-    const expectedScore = computeScore([violation()], 'wcag22aa').score
+    const expectedScore = computeScoreV2({
+      violations: [violation()], incompleteCount: 0, domElementCount: null, wcagLevel: 'wcag22aa',
+    }).score
     expect(b.run.score).toBe(expectedScore)
     expect(b.pages).toHaveLength(1)
     expect(b.pages[0].url).toBe('https://www.single.test/page')
@@ -233,6 +247,8 @@ describe('mapAdaSingle', () => {
     expect(b.pages[0].score).toBe(expectedScore)
     expect(b.findings).toHaveLength(1)
     expect(b.violations).toHaveLength(1)
+    expect(b.run.scoreBreakdown).toBeTruthy()
+    expect(JSON.parse(b.run.scoreBreakdown as string).version).toBe(2)
   })
 
   it('a redirected standalone gets a run + one redirected page, no findings, null scores', () => {
@@ -301,5 +317,40 @@ describe('passCount/incompleteCount (C3)', () => {
     })
     expect(b.pages[0].passCount).toBe(1)
     expect(b.pages[0].incompleteCount).toBe(0)
+  })
+})
+
+describe('ada-mapper v2 scoring', () => {
+  it('writes a version-2 scoreBreakdown on the standalone run', () => {
+    const result = JSON.stringify({
+      violations: [{ id: 'image-alt', impact: 'serious', help: '', description: '', helpUrl: '',
+        tags: ['wcag2a'], nodes: [{ html: '<img>' }], nodeCount: 12 }],
+      passes: [], incomplete: [], inapplicable: [], domElementCount: 800,
+      timestamp: '', url: 'https://x.test/', testEngine: { name: '', version: '' }, testRunner: { name: '' },
+    })
+    const bundle = mapAdaSingle({ id: 'a1', url: 'https://x.test/', status: 'complete', result,
+      finalUrl: null, wcagLevel: 'wcag21aa', clientId: null, startedAt: null, completedAt: null })
+    expect(bundle.run.scoreBreakdown).toBeTruthy()
+    const b = JSON.parse(bundle.run.scoreBreakdown as string)
+    expect(b.version).toBe(2)
+    expect(b.scorer).toBe('ada-v2')
+    expect(bundle.run.score).toBe(bundle.pages[0].score)
+  })
+
+  it('site run score is the mean of per-page v2 scores', () => {
+    const mk = (id: string, url: string, nodeCount: number) => ({
+      id, url, status: 'complete', error: null, finalUrl: null,
+      result: JSON.stringify({ violations: nodeCount ? [{ id: 'image-alt', impact: 'serious',
+        help: '', description: '', helpUrl: '', tags: ['wcag2a'], nodes: [{ html: '<img>' }], nodeCount }] : [],
+        passes: [], incomplete: [], inapplicable: [], domElementCount: 1000,
+        timestamp: '', url, testEngine: { name: '', version: '' }, testRunner: { name: '' } }),
+    })
+    const parent = { id: 's1', domain: 'x.test', clientId: null, wcagLevel: 'wcag21aa',
+      pagesError: 0, startedAt: null, completedAt: null }
+    const bundle = mapAdaChildren(parent, [mk('c1', 'https://x.test/a', 0), mk('c2', 'https://x.test/b', 40)])
+    const pageScores = bundle.pages.map((p) => p.score!).filter((s) => s != null)
+    const mean = Math.round(pageScores.reduce((a, b) => a + b, 0) / pageScores.length)
+    expect(bundle.run.score).toBe(mean)
+    expect(JSON.parse(bundle.run.scoreBreakdown as string).version).toBe(2)
   })
 })

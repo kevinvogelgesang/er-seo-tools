@@ -3,14 +3,18 @@
 // Pure mappers: ADA audit rows (+ their axe result blobs) → FindingsBundle.
 // No DB access. Scores are COMPUTED here, never read from scalar columns —
 // AdaAudit.score / SiteAudit.score are not reliably persisted (the list and
-// detail routes compute them dynamically from blobs today):
-//   - page + standalone-run score: computeScore (node-based), matching the
-//     standalone list/detail display
-//   - site-run score: computeScoreFromCounts (violation-count-based),
-//     matching the site detail page's summary.aggregate derivation
+// detail routes compute them dynamically from blobs today). Scoring is v2
+// (C9-A, see lib/ada-audit/scoring-v2.ts — v1 scoring.ts is frozen and used
+// elsewhere, e.g. recents/list routes, but no longer by this mapper):
+//   - page + standalone-run score: computeScoreV2 (density-based, per page)
+//   - site-run score: computeSiteScoreV2 (mean of per-page v2 scores)
+//   - run.scoreBreakdown: serialized AdaScoreV2Breakdown (version 2)
 import { randomUUID } from 'crypto'
 import type { AxeNode, AxeViolation, ImpactLevel, StoredAxeResults } from '@/lib/ada-audit/types'
-import { computeScore, computeScoreFromCounts } from '@/lib/ada-audit/scoring'
+import {
+  computeScoreV2, computeSiteScoreV2, serializeAdaBreakdown, ADA_SCORE_VERSION,
+  type AdaScoreV2Breakdown,
+} from '@/lib/ada-audit/scoring-v2'
 import { normalizeHost } from '@/lib/services/normalize-host'
 import { normalizeFindingUrl, pageFindingKey } from './keys'
 import type { CrawlPageInput, FindingInput, FindingsBundle, ViolationInput } from './types'
@@ -85,6 +89,7 @@ interface ParsedAxe {
   violations: AxeViolation[]
   passCount: number
   incompleteCount: number
+  domElementCount: number | null
 }
 
 /** null = blob missing/malformed (≠ a valid empty violations array): the
@@ -98,22 +103,16 @@ function parseAxe(result: string | null): ParsedAxe | null {
       violations: r.violations,
       passCount: Array.isArray(r.passes) ? r.passes.length : 0,
       incompleteCount: Array.isArray(r.incomplete) ? r.incomplete.length : 0,
+      domElementCount: typeof r.domElementCount === 'number' ? r.domElementCount : null,
     }
   } catch {
     return null
   }
 }
 
-interface ViolationCounts {
-  critical: number
-  serious: number
-  moderate: number
-  minor: number
-}
-
-/** Shared per-page finding/violation emission. Mutates the bundle arrays and
- *  count accumulator; dedup is defensive (axe emits one entry per rule, but
- *  the @@unique([runId, dedupKey]) constraint must never see a duplicate). */
+/** Shared per-page finding/violation emission. Mutates the bundle arrays;
+ *  dedup is defensive (axe emits one entry per rule, but the
+ *  @@unique([runId, dedupKey]) constraint must never see a duplicate). */
 function emitPageViolations(
   runId: string,
   page: CrawlPageInput,
@@ -121,7 +120,6 @@ function emitPageViolations(
   seenKeys: Set<string>,
   findings: FindingInput[],
   violations: ViolationInput[],
-  counts: ViolationCounts,
 ): void {
   for (const v of axeViolations) {
     const dedupKey = pageFindingKey(v.id, page.url)
@@ -129,7 +127,6 @@ function emitPageViolations(
     seenKeys.add(dedupKey)
 
     const impact = v.impact ?? 'unknown'
-    if (impact !== 'unknown') counts[impact]++
 
     const findingId = randomUUID()
     findings.push({
@@ -158,7 +155,7 @@ function emitPageViolations(
       wcagTags: JSON.stringify(v.tags ?? []),
       help: v.help ?? null,
       helpUrl: v.helpUrl ?? null,
-      nodeCount: v.nodes?.length ?? 0,
+      nodeCount: v.nodeCount ?? v.nodes?.length ?? 0,
       nodes: capNodes(v.nodes ?? []),
     })
   }
@@ -171,7 +168,6 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
   const violations: ViolationInput[] = []
   const seenUrls = new Set<string>()
   const seenKeys = new Set<string>()
-  const counts: ViolationCounts = { critical: 0, serious: 0, moderate: 0, minor: 0 }
 
   for (const child of children) {
     const url = normalizeFindingUrl(child.url)
@@ -195,7 +191,10 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
       wordCount: null,
       crawlDepth: null,
       indexable: null,
-      score: axe ? computeScore(axe.violations, parent.wcagLevel).score : null,
+      score: axe
+        ? computeScoreV2({ violations: axe.violations, incompleteCount: axe.incompleteCount,
+            domElementCount: axe.domElementCount, wcagLevel: parent.wcagLevel }).score
+        : null,
       passCount: axe?.passCount ?? null,
       incompleteCount: axe?.incompleteCount ?? null,
       adaAuditId: child.id,
@@ -203,8 +202,16 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
     pages.push(page)
 
     if (axe) {
-      emitPageViolations(runId, page, axe.violations, seenKeys, findings, violations, counts)
+      emitPageViolations(runId, page, axe.violations, seenKeys, findings, violations)
     }
+  }
+
+  const pageScores = pages.map((p) => p.score).filter((s): s is number => s != null)
+  const siteScore = computeSiteScoreV2(pageScores)
+  const siteBreakdown: AdaScoreV2Breakdown = {
+    version: ADA_SCORE_VERSION, scorer: 'ada-v2', score: siteScore,
+    factors: { weightedFailNodes: 0, incompletePenalty: 0,
+      domElementCount: 0, density: 0, k: 0, pagesScored: pageScores.length },
   }
 
   return {
@@ -218,11 +225,10 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
       siteAuditId: parent.id,
       adaAuditId: null,
       status: parent.pagesError > 0 ? 'partial' : 'complete',
-      // Site-level derivation the summary-based UI uses: violation counts →
-      // computeScoreFromCounts. Counts cover only the violations actually
-      // stored (post-dedupe), so the run row is consistent with its
-      // Violation rows.
-      score: computeScoreFromCounts(counts, parent.wcagLevel).score,
+      // Site-level score = mean of per-page v2 scores (computeSiteScoreV2),
+      // not a violation-count derivation — see scoring-v2.ts.
+      score: siteScore,
+      scoreBreakdown: serializeAdaBreakdown(siteBreakdown),
       wcagLevel: parent.wcagLevel,
       pagesTotal: pages.length,
       startedAt: parent.startedAt,
@@ -239,10 +245,13 @@ export function mapAdaSingle(audit: AdaSingleInput): FindingsBundle {
   const url = normalizeFindingUrl(audit.url)
   const findings: FindingInput[] = []
   const violations: ViolationInput[] = []
-  const counts: ViolationCounts = { critical: 0, serious: 0, moderate: 0, minor: 0 }
 
   const axe = audit.status === 'complete' ? parseAxe(audit.result) : null
-  const score = axe ? computeScore(axe.violations, audit.wcagLevel).score : null
+  const v2 = axe
+    ? computeScoreV2({ violations: axe.violations, incompleteCount: axe.incompleteCount,
+        domElementCount: axe.domElementCount, wcagLevel: audit.wcagLevel })
+    : null
+  const score = v2?.score ?? null
 
   const page: CrawlPageInput = {
     id: randomUUID(),
@@ -264,7 +273,7 @@ export function mapAdaSingle(audit: AdaSingleInput): FindingsBundle {
     adaAuditId: audit.id,
   }
   if (axe) {
-    emitPageViolations(runId, page, axe.violations, new Set<string>(), findings, violations, counts)
+    emitPageViolations(runId, page, axe.violations, new Set<string>(), findings, violations)
   }
 
   return {
@@ -282,6 +291,7 @@ export function mapAdaSingle(audit: AdaSingleInput): FindingsBundle {
       // audits with errored pages.
       status: 'complete',
       score,
+      scoreBreakdown: v2 ? serializeAdaBreakdown(v2.breakdown) : null,
       wcagLevel: audit.wcagLevel,
       pagesTotal: 1,
       startedAt: audit.startedAt,
