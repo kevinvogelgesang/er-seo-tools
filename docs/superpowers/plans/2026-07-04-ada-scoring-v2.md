@@ -192,6 +192,12 @@ import { capViolationNodesForStorage, STORED_NODE_LIMIT } from './node-cap'
 nodes, so incomplete needs no raw count. Using `STORED_NODE_LIMIT` there keeps
 the magic number in one place.)
 
+Note: `rawResults.violations` is typed `any` in the runner, so passing it to
+`capViolationNodesForStorage(violations: AxeViolation[])` type-checks (`any` is
+assignable) and the return `AxeViolation[]` assigns back to the `any` field
+cleanly — no cast needed. If lint complains about the `any` flowing in, the
+existing `eslint-disable` on that block already covers it.
+
 - [ ] **Step 7: Verify lint + the full ada-audit test dir still pass**
 
 Run: `npm run lint && DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/`
@@ -218,7 +224,10 @@ git commit -m "feat(c9a): preserve raw pre-truncation node count in stored axe b
   - `ADA_SCORE_VERSION = 2`
   - `computeScoreV2(input: ScoreV2Input): ScoreV2Result`
     where `ScoreV2Input = { violations: AxeViolation[]; incompleteCount: number; domElementCount: number | null | undefined; wcagLevel: string }`
-    and `ScoreV2Result = { score: number; breakdown: AdaScoreV2Breakdown }`
+    and `ScoreV2Result = { score: number; compliant: boolean; breakdown: AdaScoreV2Breakdown }`
+  - `computeComplianceV2(violations: AxeViolation[]): boolean` — `true` iff NO
+    violation carries a WCAG-conformance tag (best-practice-only findings do not
+    break compliance). Exported for site-level reuse.
   - `computeSiteScoreV2(pageScores: number[]): number | null` — unweighted mean,
     rounded; `null` for empty input.
   - `AdaScoreV2Breakdown = { version: 2; scorer: 'ada-v2'; score: number | null; factors: AdaScoreFactors }`
@@ -300,6 +309,13 @@ describe('computeScoreV2', () => {
     expect(r.breakdown.version).toBe(ADA_SCORE_VERSION)
     expect(r.breakdown.scorer).toBe('ada-v2')
   })
+  it('compliance: clean page is compliant; a wcag violation breaks it', () => {
+    expect(computeScoreV2({ ...base, violations: [], domElementCount: 500 }).compliant).toBe(true)
+    expect(computeScoreV2({ ...base, violations: [viol({ id: 'a', nodeCount: 1, tags: ['wcag2a'] })], domElementCount: 500 }).compliant).toBe(false)
+  })
+  it('compliance: a best-practice-only violation does NOT break compliance', () => {
+    expect(computeScoreV2({ ...base, violations: [viol({ id: 'a', nodeCount: 5, tags: ['best-practice'] })], domElementCount: 500 }).compliant).toBe(true)
+  })
 })
 
 describe('computeSiteScoreV2', () => {
@@ -362,17 +378,26 @@ export interface AdaScoreV2Breakdown {
   score: number | null
   factors: AdaScoreFactors
 }
-export interface ScoreV2Result { score: number; breakdown: AdaScoreV2Breakdown }
+export interface ScoreV2Result { score: number; compliant: boolean; breakdown: AdaScoreV2Breakdown }
 
-function impactWeight(impact: ImpactLevel): number {
+// `impact` is nullable in the current AxeViolation type — accept null.
+function impactWeight(impact: ImpactLevel | null): number {
   return impact ? IMPACT_WEIGHT[impact] : IMPACT_WEIGHT.null
+}
+
+function hasWcagConformanceTag(tags: string[]): boolean {
+  return tags.some((t) => /^wcag\d/.test(t))
 }
 
 /** Advisory = best-practice tag present AND no WCAG-conformance tag. */
 export function isAdvisory(tags: string[]): boolean {
-  const hasBestPractice = tags.includes('best-practice')
-  const hasWcag = tags.some((t) => /^wcag\d/.test(t))
-  return hasBestPractice && !hasWcag
+  return tags.includes('best-practice') && !hasWcagConformanceTag(tags)
+}
+
+/** Compliant = no violation carries a WCAG-conformance tag. Best-practice-only
+ *  (advisory) violations do NOT break compliance. */
+export function computeComplianceV2(violations: AxeViolation[]): boolean {
+  return !violations.some((v) => hasWcagConformanceTag(v.tags ?? []))
 }
 
 export function computeScoreV2(input: ScoreV2Input): ScoreV2Result {
@@ -389,6 +414,7 @@ export function computeScoreV2(input: ScoreV2Input): ScoreV2Result {
   const score = Math.round(100 / (1 + K * density))
   return {
     score,
+    compliant: computeComplianceV2(input.violations),
     breakdown: {
       version: ADA_SCORE_VERSION, scorer: 'ada-v2', score,
       factors: { weightedFailNodes, incompletePenalty, domElementCount: dom, density, k: K },
@@ -608,9 +634,15 @@ Update the file's header comment (lines 5-10) to describe v2.
 - [ ] **Step 8: Run tests to verify they pass**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/ada-mapper.test.ts`
-Expected: PASS including the new cases and all pre-existing mapper tests. If a
-pre-existing test asserted an exact v1 score, update it to the v2 value (the
-mapper's output is intentionally changing) and note it in the commit.
+Expected: the new cases PASS. **Pre-existing mapper tests that assert exact v1
+scores WILL fail — this is intentional, not a regression.** The mapper's output
+score is changing from v1 to v2 by design. Specifically expect failures in any
+test asserting: a standalone `mapAdaSingle` numeric `score`/`page.score`; a site
+`mapAdaChildren` count-based `run.score`; and null-impact score behavior. For
+each, recompute the expected value with the v2 formula (or assert a range /
+`version === 2` instead of a brittle exact number where the exact value is not
+the point) and update it. Do NOT change a v2 output to match an old v1 number.
+Note every updated expectation in the commit body.
 
 - [ ] **Step 9: Commit**
 
@@ -790,26 +822,40 @@ Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/services/scorecard-s
 Expected: PASS. Fix any pre-existing series test that now needs `formulaChanged`
 in its expected object.
 
-- [ ] **Step 5: Populate `scoreVersion` at the ScorePoint builders**
+- [ ] **Step 5: Populate `scoreVersion` at the named ScorePoint builders**
 
-For each surface that builds `ScorePoint`s or a delta from ADA `CrawlRun`s:
+These are the exact surfaces (Codex-enumerated). In each, add `scoreBreakdown` to
+the Prisma `select` on the ADA `CrawlRun` rows, and set `scoreVersion:
+parseScoreVersion(row.scoreBreakdown)` where the row → `ScorePoint` mapping
+happens. Import `parseScoreVersion` from `@/lib/scoring/breakdown-version`.
 
-- `lib/services/client-schedules.ts` (`lastDelta`, ~line 93): the query that
-  reads `CrawlRun.score` by `siteAuditId` must also `select` `scoreBreakdown`;
-  when computing `lastDelta` between the two most recent runs, use
-  `parseScoreVersion` on each and set the delta to `null` when they differ.
-- Dashboard / fleet series builders (the callers of `buildSeries` — find with
-  `grep -rn "buildSeries" lib app components --include=*.ts --include=*.tsx`):
-  where they map `CrawlRun` rows → `ScorePoint`, add `scoreVersion:
-  parseScoreVersion(row.scoreBreakdown)` and ensure the query selects
-  `scoreBreakdown`.
-- `lib/report/report-data.ts` (trend select, ~line 195): add `scoreBreakdown` to
-  the `select`; when the trend array is built, attach `scoreVersion` per point so
-  the PDF trend can mark the boundary (the HTML builder shows "formula changed"
-  where `formulaChanged` — a one-line renderer change in `lib/report/report-html.ts`
-  or wherever the trend is drawn; keep it minimal, escape any dynamic text).
+- `lib/services/scorecard-shared.ts` — the ADA series helper `buildAdaSeries` (and
+  confirm `buildSeoSeries` is left unchanged for SEO, or also carries version if
+  it maps `CrawlRun`s; SEO runs already write a v1 breakdown, so
+  `parseScoreVersion` returns 1 for them — safe to apply uniformly). Where these
+  map rows → `ScorePoint`, attach `scoreVersion`.
+- `lib/services/client-dashboard.ts` — the `crawlRuns` select must add
+  `scoreBreakdown`; the row→point mapping attaches `scoreVersion`.
+- `lib/services/client-fleet.ts` — same as client-dashboard.
+- `lib/services/client-schedules.ts` (`lastDelta`, ~line 93) — the query reading
+  `CrawlRun.score` by `siteAuditId` must also `select` `scoreBreakdown`; compute
+  `lastDelta` between the two most recent runs with `parseScoreVersion` on each
+  and set the delta to `null` (and surface a "formula changed" flag if the card
+  renders one) when the versions differ.
+- `lib/report/report-data.ts` (run + trend selectors, ~line 195) — add
+  `scoreBreakdown` to both selects; attach `scoreVersion` to each trend
+  `ScorePoint` so the PDF can detect the boundary from the points array itself
+  (no `SiteReportData` shape change needed — see Step 5b).
 
-Import `parseScoreVersion` from `@/lib/scoring/breakdown-version` in each.
+- [ ] **Step 5b: Render the formula-change marker in the report HTML**
+
+`lib/report/report-html.ts` receives the trend as `ScorePoint[]`. Since each
+point now carries `scoreVersion`, the renderer detects a boundary without a data
+shape change: when two adjacent trend points differ in `scoreVersion`, render a
+small "formula changed" annotation (escaped) at that point and do NOT draw a
+connecting delta label across it. Keep it minimal — one conditional in the
+existing trend renderer. If the trend is drawn as an inline SVG, a short `<text>`
+label or a dashed segment is sufficient.
 
 - [ ] **Step 6: Add a focused test per wired surface**
 
@@ -826,8 +872,10 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add lib/services/scorecard-shared.ts lib/services/scorecard-shared.test.ts lib/services/client-schedules.ts lib/report/report-data.ts lib/report/report-html.ts lib/scoring/breakdown-version.ts
-# plus any dashboard/fleet builder + its test
+git add lib/services/scorecard-shared.ts lib/services/scorecard-shared.test.ts \
+  lib/services/client-dashboard.ts lib/services/client-fleet.ts lib/services/client-schedules.ts \
+  lib/report/report-data.ts lib/report/report-html.ts
+# plus the added/updated tests for the wired surfaces
 git commit -m "feat(c9a): version-aware trends — suppress v1↔v2 deltas, mark the boundary"
 ```
 
@@ -973,32 +1021,62 @@ export function ScoreVersionBadge({ version, fromFallback, passCount, incomplete
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/ada-audit/ScoreVersionBadge.test.tsx`
 Expected: PASS (2 tests).
 
-- [ ] **Step 9: Wire the resolver + badge into the standalone detail page**
+- [ ] **Step 9: Add `crawlRun` to the detail-page query + prefer persisted v2**
 
-In `app/ada-audit/[id]/page.tsx` (currently `const computed = computeScore(results.violations, audit.wcagLevel)` at ~line 176): the page loads the `AdaAudit` and (for A2) its `crawlRun`. Replace the always-recompute with:
+In `app/ada-audit/[id]/page.tsx`, the main `prisma.adaAudit.findUnique` (lines
+~24-32) currently `include`s `client` + `pdfAudits` but **NOT** `crawlRun`. Add it:
 
 ```tsx
-const { score, version, fromFallback } = resolveDisplayScore({
-  persistedScore: audit.crawlRun?.score ?? audit.score ?? null,
-  scoreBreakdown: audit.crawlRun?.scoreBreakdown ?? null,
-  recompute: () => computeScore(results.violations, audit.wcagLevel).score,
-})
+    include: {
+      client: { select: { name: true } },
+      pdfAudits: { select: { url: true, fileSize: true, pageCount: true, issues: true, scanError: true } },
+      crawlRun: { select: { score: true, scoreBreakdown: true } },
+    },
 ```
 
-Ensure the page's Prisma query includes `crawlRun: { select: { score: true, scoreBreakdown: true } }`. Render `<ScoreVersionBadge version={version} fromFallback={fromFallback} passCount={results.passes?.length ?? null} incompleteCount={results.incomplete?.length ?? null} />` next to the score. Keep `computeScore` imported (it is the fallback).
+Then replace the score/compliant derivation (currently lines ~176-178,
+`const computed = computeScore(...)` / `const score = ...` / `const compliant = ...`)
+with a version-aware block:
 
-- [ ] **Step 10: Wire the share page the same way**
+```tsx
+  const { score, version, fromFallback } = resolveDisplayScore({
+    persistedScore: audit.crawlRun?.score ?? null,
+    scoreBreakdown: audit.crawlRun?.scoreBreakdown ?? null,
+    // Archived blobs carry capped nodes → node-based v1 recompute would lie;
+    // keep the archived guard for the fallback path only.
+    recompute: () => (results.archived ? archivedScore ?? null : computeScore(results.violations, audit.wcagLevel).score),
+  })
+  // Compliance follows the score's version: v2 = no WCAG-conformance violation
+  // (advisory best-practice findings don't break it); v1 fallback keeps the
+  // legacy "zero violations" notion.
+  const compliant = version >= 2
+    ? computeComplianceV2(results.violations)
+    : (results.archived ? results.violations.length === 0 : computeScore(results.violations, audit.wcagLevel).compliant)
+```
 
-In `app/ada-audit/share/[token]/page.tsx` (~line 82): same substitution, same
-query addition, same badge. Share view stays read-only, no new fetches.
+Import `resolveDisplayScore` from `@/lib/ada-audit/display-score` and
+`computeComplianceV2` from `@/lib/ada-audit/scoring-v2`; keep `computeScore`
+imported (fallback). Compute `passCount`/`incompleteCount` for the badge:
+`results.passes?.length ?? results.archivedCounts?.passed ?? null` and
+`results.incomplete?.length ?? results.archivedCounts?.incomplete ?? null`.
 
-- [ ] **Step 11: Confirm site pages need only the badge**
+- [ ] **Step 10: Thread the badge through the view components (real plumbing)**
 
-`app/ada-audit/site/[id]/page.tsx` and `.../site/share/[token]/page.tsx` already
-prefer `CrawlRun.score` then fall back to `computeScoreFromCounts`. Add
-`scoreBreakdown` to their `crawlRun` select and render the badge using
-`parseScoreVersion(crawlRun?.scoreBreakdown)`; when they hit the count-fallback,
-pass `fromFallback` / version 1. No score-preference change needed.
+The score number is NOT rendered in the page file — it flows into
+`AuditResultsView` (`components/ada-audit/AuditResultsView.tsx`) which renders the
+scorecard (`AuditScorecard`). Read `AuditResultsView.tsx` first to find the
+score-render site. Add an optional prop `scoreMeta?: { version: number; fromFallback: boolean; passCount: number | null; incompleteCount: number | null }`
+to `AuditResultsView` (and to the scorecard component it delegates to), thread it
+from the page (`<AuditResultsView ... scoreMeta={{ version, fromFallback, passCount, incompleteCount }} />`),
+and render `<ScoreVersionBadge {...scoreMeta} />` adjacent to the score in the
+scorecard. Optional prop = backward-compatible: existing callers/tests that omit
+it render exactly as today (no badge). Update the `AuditResultsView` test to
+assert the badge appears when `scoreMeta` is passed.
+
+- [ ] **Step 11: Share page + site pages**
+
+- `app/ada-audit/share/[token]/page.tsx` (~line 82): add `crawlRun: { select: { score: true, scoreBreakdown: true } }` to its query, apply the same `resolveDisplayScore` + `computeComplianceV2` block, pass `scoreMeta` into its `AuditResultsView` (shareMode unchanged, read-only, no new fetches).
+- `app/ada-audit/site/[id]/page.tsx` (~line 146) and `.../site/share/[token]/page.tsx` (~line 31): these already prefer `CrawlRun.score` then fall back to `computeScoreFromCounts`. Add `scoreBreakdown` to their `crawlRun`/run select, derive `version = parseScoreVersion(run?.scoreBreakdown)` and `fromFallback` (true when they hit the count fallback), and thread `scoreMeta` into `SiteAuditResultsView` (`components/ada-audit/SiteAuditResultsView.tsx`) → its scorecard, same optional-prop pattern. Site compliance: when `version >= 2`, the run is already v2-scored — leave the existing compliance derivation (site-level compliance stays count/summary-based in v1-of-v2; a per-page v2 compliance rollup is a documented follow-up, NOT built here to avoid loading blobs on the site page).
 
 - [ ] **Step 12: Run the affected test dirs + lint**
 
@@ -1008,7 +1086,11 @@ Expected: PASS.
 - [ ] **Step 13: Commit**
 
 ```bash
-git add lib/ada-audit/display-score.ts lib/ada-audit/display-score.test.ts components/ada-audit/ScoreVersionBadge.tsx components/ada-audit/ScoreVersionBadge.test.tsx app/ada-audit/[id]/page.tsx app/ada-audit/share/[token]/page.tsx app/ada-audit/site/[id]/page.tsx app/ada-audit/site/share/[token]/page.tsx
+git add lib/ada-audit/display-score.ts lib/ada-audit/display-score.test.ts \
+  components/ada-audit/ScoreVersionBadge.tsx components/ada-audit/ScoreVersionBadge.test.tsx \
+  components/ada-audit/AuditResultsView.tsx components/ada-audit/SiteAuditResultsView.tsx \
+  app/ada-audit/[id]/page.tsx app/ada-audit/share/[token]/page.tsx \
+  app/ada-audit/site/[id]/page.tsx app/ada-audit/site/share/[token]/page.tsx
 git commit -m "feat(c9a): read surfaces prefer persisted v2 score; add version badge"
 ```
 
@@ -1028,17 +1110,23 @@ npm run build
 ```
 Expected: all green.
 
-- [ ] **Step 2: Parity spot-check on real data**
+- [ ] **Step 2: Sanity-check the v2 scale on real data**
 
-Rebuild findings for one recent completed ADA audit that still has its blob and
-confirm the v2 score is sane and labeled:
-```bash
-DATABASE_URL="file:./local-dev.db" npx tsx scripts/findings-rebuild.ts <siteAuditId>
-```
-(Read-only intent: use a dev DB audit; do NOT rebuild a pruned audit — the A2-f1
-guard refuses that.) Confirm the run's `scoreBreakdown.version === 2` and the
-score lands in a believable band vs the old v1 number (expect a shift — that is
-the point; it must not be absurd, e.g. every page 0 or 100).
+`scripts/findings-rebuild.ts <id>` is **DB-mutating** (delete-and-recreate of the
+run's findings tables) — NOT read-only. Do NOT run it against prod. Two safe
+options, pick one:
+- **(Preferred, no writes)** Write a throwaway `.mjs`/`.ts` that reads one recent
+  completed ADA audit's blob from the **dev** DB (or a copied fixture), calls
+  `mapAdaSingle`/`mapAdaChildren` in memory, and prints `run.score` +
+  `scoreBreakdown.version` — no DB write at all.
+- **(Dev-DB write, intentional)** Run `DATABASE_URL="file:./local-dev.db" npx tsx
+  scripts/findings-rebuild.ts <id>` against a **dev** audit that still has its
+  blob (the A2-f1 guard refuses a pruned one). This rewrites that dev run's
+  findings — acceptable on dev only.
+
+Either way, confirm `scoreBreakdown.version === 2` and the score lands in a
+believable band vs the old v1 number (expect a shift — that is the point; it must
+not be absurd, e.g. every page pinned to 0 or 100).
 
 - [ ] **Step 3: Commit any calibration tweak**
 
@@ -1069,17 +1157,39 @@ git commit -m "chore(c9a): calibrate K against real audit data"
 
 ---
 
+## Scope notes (v1-of-v2)
+
+- **List / recents / API surfaces** (`lib/ada-audit/recents-query.ts`, the
+  `/api/ada-audit` + `/api/site-audit` + `/api/audit-batches` + `audit-summary`
+  routes) already **prefer the persisted `CrawlRun.score`** and only recompute a
+  v1 count-based number as a null-fallback. They will therefore display the
+  correct persisted v2 number for new audits with **no code change** — they just
+  won't show a per-row version badge in v1-of-v2. That is acceptable: the badge
+  lives on the detail / share / site / report / dashboard-trend surfaces where the
+  score is the headline. A per-row list badge is a documented follow-up.
+- **Site-level v2 compliance rollup** (per-page WCAG-conformance → site compliant)
+  is deferred; site pages keep their existing count/summary-based compliance so we
+  don't load per-page blobs on the site view. Documented follow-up.
+
 ## Self-Review
 
 - **Spec coverage:** §3.1 per-page formula → Task 2. §3.2 site mean → Task 2/3.
   §3.4 raw nodeCount → Task 1. §4.1 version label → Task 3. §4.2 freeze +
   dual-write-fail label → Task 6 (`fromFallback`) + `resolveDisplayScore`. §4.3
-  read-surface preference → Task 6. §4.4 trend widening → Task 5. §5 surfacing →
-  Task 6 badge. §6 calibration → Task 2 Step 5 + Task 7 Step 2. §7 testing →
-  every task's tests. §8 no-migration → Global Constraints + Task 4. §10 open
-  items → Task 3 (factors shape, AdaAudit.score left to CrawlRun), Task 4 (reader
-  grep), Task 1 (nodeCount capture), Task 5 Step 5 (C3 diffing is findings-keyed —
-  confirmed no change needed).
+  read-surface preference → Task 6. §4.4 trend widening → Task 5 (exact surfaces:
+  scorecard-shared/client-dashboard/client-fleet/client-schedules/report-data/
+  report-html). §5 surfacing → Task 6 badge threaded through `AuditResultsView`/
+  `SiteAuditResultsView` → scorecard. **v2 compliance rule (spec §3.1 `compliant`)
+  → Task 2 `computeComplianceV2` + Task 6 read-surface wiring** (Codex gap: score
+  and compliance now move together, not score-v2 with compliance-v1). §6
+  calibration → Task 2 Step 5 + Task 7 Step 2. §7 testing → every task's tests.
+  §8 no-migration → Global Constraints + Task 4. §10 open items → Task 3 (factors
+  shape, AdaAudit.score left to CrawlRun), Task 4 (reader grep), Task 1 (nodeCount
+  capture), Task 5 (C3 diffing is findings-keyed — confirmed no change needed).
+- **Query-shape correctness (Codex):** detail + share pages do NOT currently load
+  `crawlRun` — Task 6 Steps 9/11 add the `include`/`select` explicitly.
+- **Intentional test breakage (Codex):** Task 3 Step 8 tells the agent v1→v2 score
+  changes in existing mapper tests are expected, and how to update them.
 - **Placeholder scan:** every code step carries real code; the only judgment step
   is `K` calibration, which is bounded by the golden-band test.
 - **Type consistency:** `computeScoreV2`/`computeSiteScoreV2`/`serializeAdaBreakdown`/
