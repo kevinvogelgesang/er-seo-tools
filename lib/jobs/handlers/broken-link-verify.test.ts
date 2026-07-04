@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { runBrokenLinkVerify, type VerifyDeps } from './broken-link-verify'
+import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 
 const DOMAIN = 'c6blv.example.com'
 
@@ -20,9 +21,11 @@ async function seed(targets: { targetUrl: string; kind: string; sourcePageUrl: s
   return sa.id
 }
 
-// deps: every targetUrl in brokenSet returns 'broken', else 'ok'
+// deps: every targetUrl in brokenSet resolves 'broken', else 'ok'
 const depsFor = (brokenSet: Set<string>): VerifyDeps => ({
-  checkUrl: async (url: string) => (brokenSet.has(url) ? 'broken' : 'ok'),
+  resolve: async (url: string) => (brokenSet.has(url)
+    ? { result: 'broken', finalUrl: null, status: 404, hops: 0, chain: [], tooManyRedirects: false }
+    : { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
   now: () => 0,
   sleep: async () => {},
 })
@@ -193,7 +196,7 @@ async function cleanScore() {
 }
 
 const stubDeps: VerifyDeps = {
-  checkUrl: async (_url: string) => 'ok',
+  resolve: async (url: string) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
   now: () => 0,
   sleep: async () => {},
 }
@@ -309,5 +312,98 @@ describe('runBrokenLinkVerify — live SEO score', () => {
     expect(runA!.score).not.toBeNull()
     expect(runB!.score).not.toBeNull()
     expect(runA!.score!).toBeGreaterThan(runB!.score!)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C6 Phase 4: canonical/redirect/hreflang validation folded into the builder
+// (scoped to the file's cleanup DOMAIN so the module-level clean() reaps it).
+// ---------------------------------------------------------------------------
+
+describe('runBrokenLinkVerify — canonical/redirect/hreflang validation', () => {
+  const ORIG_MAX = process.env.BROKEN_LINK_MAX_CHECKS
+  afterEach(() => {
+    if (ORIG_MAX === undefined) delete process.env.BROKEN_LINK_MAX_CHECKS
+    else process.env.BROKEN_LINK_MAX_CHECKS = ORIG_MAX
+  })
+
+  it('emits canonical/redirect/hreflang validation findings in the live-scan run', async () => {
+    const siteAuditId = await seed([
+      { targetUrl: `https://${DOMAIN}/t`, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    ])
+    await prisma.harvestedPageSeo.create({ data: {
+      siteAuditId, url: normalizeFindingUrl(`https://${DOMAIN}/a`), statusCode: 200, isHtml: true,
+      canonicalUrl: `https://${DOMAIN}/canon`, robotsNoindex: false, loginLike: false,
+      detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [{ lang: 'fr', href: `https://${DOMAIN}/dead` }] }),
+    } })
+    const resolve: VerifyDeps['resolve'] = async (url) => {
+      if (url.includes('/canon')) return { result: 'ok', finalUrl: `https://${DOMAIN}/canon2`, status: 200, hops: 1, chain: [`https://${DOMAIN}/canon2`], tooManyRedirects: false }
+      if (url.includes('/dead')) return { result: 'broken', finalUrl: null, status: 404, hops: 0, chain: [], tooManyRedirects: false }
+      if (url.includes('/t')) return { result: 'ok', finalUrl: `https://${DOMAIN}/t2`, status: 200, hops: 1, chain: [`https://${DOMAIN}/t2`], tooManyRedirects: false }
+      return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }
+    }
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, now: () => Date.now(), sleep: async () => {} })
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { status: true, findings: { select: { scope: true, type: true, count: true } } },
+    })
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('redirect_chain')).toBe(true)
+    expect(types.has('canonical_redirect')).toBe(true)
+    expect(types.has('hreflang_broken')).toBe(true)
+    expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBe(0)
+  })
+
+  it('resolves a shared link+canonical target ONCE yet maps to both applicable findings', async () => {
+    const siteAuditId = await seed([
+      { targetUrl: `https://${DOMAIN}/shared`, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    ])
+    await prisma.harvestedPageSeo.create({ data: {
+      siteAuditId, url: normalizeFindingUrl(`https://${DOMAIN}/a`), statusCode: 200, isHtml: true,
+      canonicalUrl: `https://${DOMAIN}/shared`, robotsNoindex: false, loginLike: false,
+      detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [] }),
+    } })
+    const calls = new Map<string, number>()
+    const resolve: VerifyDeps['resolve'] = async (url) => {
+      calls.set(url, (calls.get(url) ?? 0) + 1)
+      // redirect (hops>=1): applicable as BOTH redirect_chain (link) and canonical_redirect (canonical).
+      return { result: 'ok', finalUrl: `https://${DOMAIN}/shared2`, status: 200, hops: 1, chain: [`https://${DOMAIN}/shared2`], tooManyRedirects: false }
+    }
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, now: () => 0, sleep: async () => {} })
+    // The shared target resolved exactly once across the whole run (legacySet dedup).
+    expect([...calls.values()].reduce((a, b) => a + b, 0)).toBe(1)
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { findings: { select: { type: true } } },
+    })
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('redirect_chain')).toBe(true)
+    expect(types.has('canonical_redirect')).toBe(true)
+  })
+
+  it('cap consumed by legacy targets leaves a canonical-only target unresolved → run partial', async () => {
+    process.env.BROKEN_LINK_MAX_CHECKS = '1'
+    const siteAuditId = await seed([
+      { targetUrl: `https://${DOMAIN}/legacy`, kind: 'internal-link', sourcePageUrl: `https://${DOMAIN}/a` },
+    ])
+    await prisma.harvestedPageSeo.create({ data: {
+      siteAuditId, url: normalizeFindingUrl(`https://${DOMAIN}/a`), statusCode: 200, isHtml: true,
+      canonicalUrl: `https://${DOMAIN}/canon-only`, robotsNoindex: false, loginLike: false,
+      detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [] }),
+    } })
+    const resolved: string[] = []
+    const resolve: VerifyDeps['resolve'] = async (url) => {
+      resolved.push(url)
+      return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }
+    }
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, now: () => 0, sleep: async () => {} })
+    expect(resolved.some((u) => u.includes('/legacy'))).toBe(true)
+    expect(resolved.some((u) => u.includes('/canon-only'))).toBe(false)
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { status: true },
+    })
+    expect(run!.status).toBe('partial')
   })
 })

@@ -29,7 +29,7 @@ beforeEach(clean)
 afterAll(clean)
 
 const stubDeps: VerifyDeps = {
-  checkUrl: async (_url: string) => 'ok',
+  resolve: async (url: string) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
   now: () => 0,
   sleep: async () => {},
 }

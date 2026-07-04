@@ -21,7 +21,10 @@ import { mapBrokenLinkFindings, type BrokenTarget } from '@/lib/findings/broken-
 import { mapOnPageSeoFindings, type OnPageSeoRow } from '@/lib/findings/onpage-seo-mapper'
 import type { CrawlPageInput, FindingInput, FindingsBundle } from '@/lib/findings/types'
 import { randomUUID } from 'crypto'
-import { checkUrl, HostThrottle, realDeps, type CheckResult } from '@/lib/ada-audit/broken-link-check'
+import { HostThrottle } from '@/lib/ada-audit/broken-link-check'
+import { resolveUrl, realResolveDeps, type ResolveResult } from '@/lib/ada-audit/url-resolver'
+import { mapValidationFindings, type ValidationSeoRow, type ValidationLink } from '@/lib/findings/validation-mapper'
+import { normalizeLinkTarget, sameDomain } from '@/lib/ada-audit/link-harvest'
 import { parsePositiveInt } from '../config'
 import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
 import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
@@ -75,15 +78,15 @@ export interface BrokenLinkVerifyJob {
 }
 
 export interface VerifyDeps {
-  checkUrl: (url: string) => Promise<CheckResult>
+  resolve: (url: string) => Promise<ResolveResult>
   now: () => number
   sleep: (ms: number) => Promise<void>
 }
 
 const productionDeps: VerifyDeps = {
-  checkUrl: (url) => checkUrl(url, realDeps),
-  now: realDeps.now,
-  sleep: realDeps.sleep,
+  resolve: (url) => resolveUrl(url, realResolveDeps),
+  now: realResolveDeps.now,
+  sleep: realResolveDeps.sleep,
 }
 
 function assertPayload(p: unknown): BrokenLinkVerifyJob {
@@ -134,37 +137,96 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   // respecting the shared per-host throttle. Single-threaded JS makes the
   // shared cursor/counter mutations safe between awaits.
   const throttle = new HostThrottle(HOST_DELAY(), deps)
-  let checked = 0
-  let unconfirmed = 0
-  let cursor = 0
-  const broken: BrokenTarget[] = []
-  const worker = async (): Promise<void> => {
-    while (cursor < toCheck.length) {
-      const t = toCheck[cursor++]
-      let host = ''
-      try {
-        host = new URL(t.targetUrl).hostname
-      } catch {
-        unconfirmed++
-        continue
-      }
-      await throttle.wait(host)
-      const res = await deps.checkUrl(t.targetUrl)
-      checked++
-      if (res === 'broken') broken.push({ targetUrl: t.targetUrl, kind: t.kind, sourcePageUrls: [...t.sources] })
-      else if (res === 'unconfirmed') unconfirmed++
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), toCheck.length || 1) }, () => worker()))
 
-  // Load on-page SEO rows for the same audit.
+  // Load on-page SEO rows for the same audit. MOVED ABOVE the resolution-set
+  // construction — validationRows (canonical/hreflang) derives from these.
   const seoRows = await prisma.harvestedPageSeo.findMany({
     where: { siteAuditId: job.siteAuditId },
     select: {
       url: true, statusCode: true, isHtml: true, robotsNoindex: true, xRobotsNoindex: true,
       loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true, schemaCount: true,
+      canonicalUrl: true, detailsJson: true,
     },
   })
+
+  const auditedHost = (site.domain ?? job.domain ?? '').toLowerCase()
+  const isSameHost = (url: string): boolean => {
+    try { return sameDomain(new URL(url).hostname.toLowerCase(), auditedHost) } catch { return false }
+  }
+
+  // Parse hreflang pairs (tolerate legacy string[] shape) + collect validation inputs.
+  const parseHreflang = (json: string | null): { lang: string; href: string }[] => {
+    if (!json) return []
+    try {
+      const d = JSON.parse(json) as { hreflang?: unknown }
+      const h = d.hreflang
+      if (!Array.isArray(h)) return []
+      return h.map((e) => (e && typeof e === 'object' && 'href' in (e as object))
+        ? { lang: String((e as { lang?: unknown }).lang ?? ''), href: String((e as { href?: unknown }).href ?? '') }
+        : { lang: String(e), href: '' }) // legacy code-only: no href → no target/reciprocity finding
+        .filter((e) => e.lang)
+    } catch { return [] }
+  }
+  const validationRows: ValidationSeoRow[] = seoRows.map((r) => ({
+    url: r.url, canonicalUrl: r.canonicalUrl ?? null, hreflang: parseHreflang(r.detailsJson),
+  }))
+  const internalLinks: ValidationLink[] = rows
+    .filter((r) => r.kind === 'internal-link')
+    .map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl }))
+
+  // Resolution set: legacy link/image targets FIRST (existing deterministic order
+  // preserved + already capped), then canonical/hreflang-only same-domain targets
+  // not already present. The cap applies AFTER ordering (legacy consumes it first).
+  const legacyTargets = toCheck.map((t) => t.targetUrl)
+  const legacySet = new Set(legacyTargets.map((u) => normalizeFindingUrl(u)))
+  const validationTargets: string[] = []
+  const validationSeen = new Set<string>()
+  const addValidationTarget = (raw: string, base: string) => {
+    const abs = normalizeLinkTarget(raw, base); if (!abs || !isSameHost(abs)) return
+    const norm = normalizeFindingUrl(abs)
+    if (legacySet.has(norm) || validationSeen.has(norm)) return
+    validationSeen.add(norm); validationTargets.push(abs)
+  }
+  for (const r of validationRows) {
+    if (r.canonicalUrl) addValidationTarget(r.canonicalUrl, r.url)
+    for (const h of r.hreflang) if (h.href) addValidationTarget(h.href, r.url)
+  }
+  validationTargets.sort()
+  const remaining = Math.max(0, cap - legacyTargets.length)
+  const cappedValidation = validationTargets.length > remaining
+  const validationToResolve = cappedValidation ? validationTargets.slice(0, remaining) : validationTargets
+
+  // Resolve legacy + validation targets ONCE into a shared cache (reuses throttle).
+  const cache = new Map<string, ResolveResult>()
+  const allToResolve = [...legacyTargets, ...validationToResolve]
+  let cursor2 = 0
+  const cacheWorker = async (): Promise<void> => {
+    while (cursor2 < allToResolve.length) {
+      const url = allToResolve[cursor2++]
+      let host = ''
+      try {
+        host = new URL(url).hostname
+      } catch {
+        cache.set(normalizeFindingUrl(url), { result: 'unconfirmed', finalUrl: null, status: null, hops: 0, chain: [], tooManyRedirects: false })
+        continue
+      }
+      await throttle.wait(host)
+      cache.set(normalizeFindingUrl(url), await deps.resolve(url))
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), allToResolve.length || 1) }, () => cacheWorker()))
+
+  // Derive broken targets from the cache for mapBrokenLinkFindings (mapper unchanged).
+  let checked = 0
+  let unconfirmed = 0
+  const broken: BrokenTarget[] = []
+  for (const t of toCheck) {
+    const r = cache.get(normalizeFindingUrl(t.targetUrl))
+    if (!r) continue
+    checked++
+    if (r.result === 'broken') broken.push({ targetUrl: t.targetUrl, kind: t.kind, sourcePageUrls: [...t.sources] })
+    else if (r.result === 'unconfirmed') unconfirmed++
+  }
 
   // Task 3: Compute link graph INDEPENDENTLY of the `toCheck` verification cap
   // (which caps at 25 sources per target — wrong for page-level counts).
@@ -225,7 +287,10 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     runId, ensurePage, affectedComplete: !capped && !harvestTruncated,
     confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
   })
-  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings]
+  const validationFindings = mapValidationFindings(validationRows, internalLinks, cache, {
+    runId, ensurePage, auditedHost, affectedComplete: !cappedValidation,
+  })
+  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...validationFindings]
 
   // C6 Phase 3: live SEO score from the on-page signals (pure scorer).
   const runCounts = new Map(
@@ -248,7 +313,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
-      status: capped || harvestTruncated ? 'partial' : 'complete',
+      status: capped || harvestTruncated || cappedValidation ? 'partial' : 'complete',
       score: scoreResult.score, scoreBreakdown: serializeBreakdown('live-seo', scoreResult), wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
