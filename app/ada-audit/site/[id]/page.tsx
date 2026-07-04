@@ -8,6 +8,7 @@ import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
 import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
 import { OnPageSeoSection } from '@/components/site-audit/OnPageSeoSection'
+import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
 import SiteAuditExportBar from '@/components/ada-audit/SiteAuditExportBar'
 import { reportFileExists } from '@/lib/report/report-file'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
@@ -213,6 +214,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
         attempted={audit.pagesTotal}
         breakdown={liveScanRun?.scoreBreakdown ?? null}
       />
+      <TechnicalSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
       <SiteAuditResultsView
         domain={audit.domain}
         clientName={audit.client?.name ?? null}
