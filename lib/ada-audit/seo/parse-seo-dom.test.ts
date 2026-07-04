@@ -24,8 +24,22 @@ describe('parseSeoFromDocument', () => {
     expect(r.canonicalUrl).toBe('https://example.com/p')
     expect(r.robotsNoindex).toBe(true)
     expect(r.schemaTypes).toContain('Organization')
-    expect(r.hreflang).toContain('en')
+    expect(r.hreflang).toContainEqual({ lang: 'en', href: 'https://example.com/en' })
     expect(r.wordCount).toBeGreaterThanOrEqual(3)
+  })
+  it('harvests hreflang as {lang, href} pairs, dedupes by lang keep-first, keeps raw href', () => {
+    const r = dom(`<html><head>
+      <link rel="alternate" hreflang="en" href="https://x.com/en">
+      <link rel="alternate" hreflang="fr" href="/fr">
+      <link rel="alternate" hreflang="en" href="https://x.com/en-dup">
+      <link rel="alternate" hreflang="x-default" href="https://x.com/">
+      <link rel="alternate" hreflang="" href="https://x.com/empty">
+      </head><body></body></html>`)
+    expect(r.hreflang).toEqual([
+      { lang: 'en', href: 'https://x.com/en' },     // keep-first (dup 'en' dropped)
+      { lang: 'fr', href: '/fr' },                  // raw relative href preserved
+      { lang: 'x-default', href: 'https://x.com/' },
+    ]) // empty-lang entry dropped
   })
   it('flags login-like via password input', () => {
     expect(dom(`<html><body><form><input type="password"></form></body></html>`).loginLike).toBe(true)
