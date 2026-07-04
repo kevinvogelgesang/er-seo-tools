@@ -703,8 +703,8 @@ function streamed(csv: string): Promise<unknown[]> {
   });
 }
 
+// Cases where the two RAW Papa entry points tokenize identically.
 const CASES: Record<string, string> = {
-  bom: '﻿Address,Title\nhttps://a.com/x,Hello',
   crlf: 'Address,Title\r\nhttps://a.com/x,Hi\r\nhttps://a.com/y,Yo',
   trailingBlank: 'Address,Title\nhttps://a.com/x,Hi\n\n',
   noFinalNewline: 'Address,Title\nhttps://a.com/x,Hi',
@@ -721,13 +721,24 @@ describe('Papa whole-file vs stream parity', () => {
       expect(await streamed(csv)).toEqual(whole(csv));
     });
   }
+
+  // KNOWN ASYMMETRY (papaparse 5.5.3): the string path runs stripBom, the
+  // NODE_STREAM_INPUT path does NOT. This is exactly why streamCsv() strips the
+  // BOM itself (see stream-csv.ts) — proven at the driver level in stream-csv.test.ts.
+  it('documents the raw BOM asymmetry the driver compensates for', async () => {
+    const bom = '﻿Address,Title\nhttps://a.com/x,Hello';
+    const wholeKey = Object.keys(whole(bom)[0])[0];
+    const streamKey = Object.keys((await streamed(bom))[0])[0];
+    expect(wholeKey).toBe('Address');        // string path strips BOM
+    expect(streamKey).toBe('﻿Address');  // raw stream path does not
+  });
 });
 ```
 
-- [ ] **Step 2: Run — expect PASS** (this pins the invariant the design rests on; no product code yet)
+- [ ] **Step 2: Run — expect PASS** (pins the invariant the design rests on; no product code yet)
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/papa-parity.test.ts`
-Expected: PASS. If any case diverges, STOP — that divergence is a parity blocker; capture it and adjust the driver (e.g. explicit encoding) before proceeding.
+Expected: PASS — the 8 raw cases match, and the BOM-asymmetry test documents the one divergence that `streamCsv` compensates for. If any of the 8 raw cases diverges, STOP — that is a parity blocker beyond BOM; capture it before proceeding.
 
 - [ ] **Step 3: Write `stream-csv.test.ts` (failing)**
 
@@ -771,6 +782,17 @@ describe('streamCsv', () => {
     expect(count).toBe(N);
     await fs.rm(p, { force: true });
   });
+
+  it('strips a leading BOM so the first header matches the whole-file path', async () => {
+    // Every real SF export starts with a UTF-8 BOM. streamCsv must strip it so
+    // findColumn(['Address','URL']) resolves — matching Papa.parse(string).
+    const p = await tmp('﻿Address,Title\nhttps://a.com/x,Hi');
+    const rows: CSVRow[] = [];
+    await streamCsv(p, (r) => rows.push(r));
+    expect(Object.keys(rows[0])[0]).toBe('Address');   // NOT '﻿Address'
+    expect(rows).toEqual([{ Address: 'https://a.com/x', Title: 'Hi' }]);
+    await fs.rm(p, { force: true });
+  });
 });
 ```
 
@@ -782,6 +804,7 @@ Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/stream-csv.t
 
 ```ts
 import fs from 'fs';
+import { Transform } from 'stream';
 import Papa from 'papaparse';
 import { CSVRow } from '../types';
 
@@ -789,21 +812,51 @@ import { CSVRow } from '../types';
 export const PAPA_CONFIG = { header: true, skipEmptyLines: true, dynamicTyping: true } as const;
 
 /**
+ * Strip a leading UTF-8 BOM from the first string chunk.
+ *
+ * BOM PARITY (verified, papaparse 5.5.3): `Papa.parse(string)` runs `stripBom`
+ * on its input, so a leading BOM is removed; the `NODE_STREAM_INPUT` path does
+ * NOT strip it. Every real Screaming Frog export begins with a UTF-8 BOM, which
+ * would otherwise attach to the first header cell (`﻿Address`) and break
+ * `findColumn(['Address','URL'])`. The current whole-file parsers rely on Papa's
+ * string-path stripping; the streaming driver must reproduce it so its rows are
+ * byte-identical to the whole-file path. `decodeStrings: false` keeps chunks as
+ * the strings the utf8 file stream emits.
+ */
+function bomStripper(): Transform {
+  let first = true;
+  return new Transform({
+    decodeStrings: false,
+    transform(chunk: string, _enc, cb) {
+      if (first) {
+        first = false;
+        cb(null, chunk.charCodeAt(0) === 0xfeff ? chunk.slice(1) : chunk);
+      } else {
+        cb(null, chunk);
+      }
+    },
+  });
+}
+
+/**
  * Stream a CSV file row-by-row into `onRow`. Resolves after the Papa stream
- * finishes; rejects (and destroys both streams) on a file-read or Papa error.
+ * finishes; rejects (and destroys all streams) on a file-read or Papa error.
  */
 export function streamCsv(filePath: string, onRow: (row: CSVRow) => void): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
+    const stripper = bomStripper();
     const papaStream = Papa.parse(Papa.NODE_STREAM_INPUT, PAPA_CONFIG);
 
     const fail = (err: unknown) => {
       fileStream.destroy();
+      stripper.destroy();
       papaStream.destroy?.();
       reject(err instanceof Error ? err : new Error(String(err)));
     };
 
     fileStream.on('error', fail);
+    stripper.on('error', fail);
     papaStream.on('error', fail);
     papaStream.on('data', (row: CSVRow) => {
       try { onRow(row); } catch (err) { fail(err); }
@@ -813,7 +866,7 @@ export function streamCsv(filePath: string, onRow: (row: CSVRow) => void): Promi
     // last 'data' events are consumed (Codex High 2).
     papaStream.on('end', () => resolve());
 
-    fileStream.pipe(papaStream);
+    fileStream.pipe(stripper).pipe(papaStream);
   });
 }
 ```

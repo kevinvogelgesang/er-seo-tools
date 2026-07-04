@@ -367,7 +367,13 @@ Mirrors pt2, which shipped byte-identical:
    BOM/chunk-boundary fixture is necessary but **not sufficient**. Add a parity table
    that feeds the *same* bytes through both paths and asserts `toEqual` on the row
    arrays, covering every case where Papa's string vs stream parsers can diverge:
-   - leading UTF-8 BOM
+   - leading UTF-8 BOM — **known asymmetry, verified papaparse 5.5.3:** the
+     string path runs `stripBom`, the `NODE_STREAM_INPUT` path does NOT. Every
+     real SF export begins with a BOM (`ef bb bf`) that otherwise attaches to the
+     first header cell (`﻿Address`) and breaks `findColumn(['Address','URL'])`.
+     `streamCsv` therefore strips a leading BOM itself so its rows are
+     byte-identical to the whole-file path; the generic parity table documents the
+     raw asymmetry, and a driver-level test pins the strip.
    - quoted field spanning a chunk boundary
    - CRLF (`\r\n`) line endings
    - trailing blank line(s)
