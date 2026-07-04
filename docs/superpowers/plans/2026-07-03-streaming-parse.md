@@ -20,29 +20,60 @@
 - Papa config is identical on both paths: `{ header: true, skipEmptyLines: true, dynamicTyping: true }`.
 - Local dev: prefix Prisma CLI + vitest with `DATABASE_URL="file:./local-dev.db"`. Parser/node tests use `// @vitest-environment node`; React tests use jsdom + `afterEach(cleanup)`. Quick smoke scripts run via `npx tsx <file>.ts` (NOT `.mts`).
 - Reusable real crawl for fixtures/parity: `/Users/kevin/enrollment-resources/sf-crawls/manhattan/2026.07.03.11.29.25`. Never scan non-client sites.
+- **Branch first.** Before Task 1, create the feature branch: `git checkout -b feat/c7-streaming-parse` (main is the default; all commits below land on this branch). PR opens from it in Task 11.
 
 ---
 
-## Task 1: Golden characterization tests for the 4 target parsers (against CURRENT code)
+## Task 1: Shared interface-agnostic test helper + golden characterization for the 4 target parsers (against CURRENT code)
 
-Lock current behavior BEFORE any refactor. These are full-`toEqual` snapshots on synthetic inputs; they stay green through every later task. Written against the current whole-file parsers.
+Lock current behavior BEFORE any refactor. **Codex High 1 fix:** the goldens (and the existing `links`/`images` tests, migrated in Tasks 7/9) must call the parser through a helper that works for BOTH the whole-file (`new Parser(csv).parse()`) and post-conversion streaming (`consume`/`finalize`) interfaces — otherwise every golden breaks the moment its parser is converted. Introduce that helper first, then write all goldens against it.
 
 **Files:**
+- Create: `lib/parsers/test-parse-helper.ts`
 - Create: `lib/parsers/resources/externallinks.golden.test.ts`
 - Create: `lib/parsers/resources/anchortext.golden.test.ts`
 - Create: `lib/parsers/resources/images.golden.test.ts`
 - Create: `lib/parsers/resources/linksissues.golden.test.ts`
 
 **Interfaces:**
-- Consumes: current `ExternalLinksParser`, `LinksIssuesParser` (`lib/parsers/resources/links.parser.ts`), `AnchorTextParser` (`anchorText.parser.ts`), `ImagesParser` (`images.parser.ts`) — all `new Parser(csvString).parse()`.
-- Produces: golden suites that later tasks (parser conversions) must keep green.
+- Consumes: current `ExternalLinksParser`, `LinksIssuesParser` (`lib/parsers/resources/links.parser.ts`), `AnchorTextParser` (`anchorText.parser.ts`), `ImagesParser` (`images.parser.ts`).
+- Produces:
+  - `parseString(ParserClass, csv: string): Record<string, unknown>` — branches on `ParserClass.streaming`; for streaming, parses the string via Papa (same `PAPA_CONFIG`) and feeds each row to `consume()` then returns `finalize()`; else `new ParserClass(csv).parse()`. (String-input tokenization parity vs the real file stream is proven separately by the Task 5 Papa-parity table, so the golden helper can parse the string synchronously.)
+  - golden suites that later tasks (parser conversions) must keep green.
 
-- [ ] **Step 1: Write `externallinks.golden.test.ts`**
+- [ ] **Step 1: Write `test-parse-helper.ts`**
+
+```ts
+import Papa from 'papaparse';
+import type { CSVRow } from '../types';
+
+const PAPA_CONFIG = { header: true, skipEmptyLines: true, dynamicTyping: true } as const;
+
+type WholeFile = new (content: string) => { parse(): Record<string, unknown> };
+type Streaming = new () => { consume(row: CSVRow): void; finalize(): Record<string, unknown> };
+
+/** Parse a CSV string through whichever interface the parser exposes. */
+export function parseString(
+  ParserClass: (WholeFile | Streaming) & { streaming?: boolean },
+  csv: string
+): Record<string, unknown> {
+  if (ParserClass.streaming) {
+    const parser = new (ParserClass as Streaming)();
+    const rows = Papa.parse<CSVRow>(csv, PAPA_CONFIG).data;
+    for (const row of rows) parser.consume(row);
+    return parser.finalize();
+  }
+  return new (ParserClass as WholeFile)(csv).parse();
+}
+```
+
+- [ ] **Step 2: Write `externallinks.golden.test.ts`** (via `parseString`)
 
 ```ts
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { ExternalLinksParser } from './links.parser';
+import { parseString } from '../test-parse-helper';
 
 const CSV = [
   'Destination,Status Code',
@@ -54,7 +85,7 @@ const CSV = [
 
 describe('ExternalLinksParser golden', () => {
   it('broken (4xx/5xx) counted + collected in file order', () => {
-    expect(new ExternalLinksParser(CSV).parse()).toEqual({
+    expect(parseString(ExternalLinksParser, CSV)).toEqual({
       total_external_links: 4,
       stats: { broken_external_links: 2 },
       issues: [
@@ -70,17 +101,18 @@ describe('ExternalLinksParser golden', () => {
   });
 
   it('empty input → {}', () => {
-    expect(new ExternalLinksParser('Destination,Status Code').parse()).toEqual({});
+    expect(parseString(ExternalLinksParser, 'Destination,Status Code')).toEqual({});
   });
 });
 ```
 
-- [ ] **Step 2: Write `images.golden.test.ts`**
+- [ ] **Step 3: Write `images.golden.test.ts`**
 
 ```ts
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { ImagesParser } from './images.parser';
+import { parseString } from '../test-parse-helper';
 
 const VERY_LARGE = 600 * 1024, LARGE = 200 * 1024, OK = 10 * 1024;
 const CSV = [
@@ -92,7 +124,7 @@ const CSV = [
 
 describe('ImagesParser golden', () => {
   it('alt/size/status/dimension issues → exact output', () => {
-    expect(new ImagesParser(CSV).parse()).toEqual({
+    expect(parseString(ImagesParser, CSV)).toEqual({
       total_images: 3,
       stats: {
         missing_alt: 1,
@@ -120,17 +152,18 @@ describe('ImagesParser golden', () => {
   });
 
   it('empty input → {}', () => {
-    expect(new ImagesParser('Address,Alt Text').parse()).toEqual({});
+    expect(parseString(ImagesParser, 'Address,Alt Text')).toEqual({});
   });
 });
 ```
 
-- [ ] **Step 3: Write `linksissues.golden.test.ts`**
+- [ ] **Step 4: Write `linksissues.golden.test.ts`**
 
 ```ts
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { LinksIssuesParser } from './links.parser';
+import { parseString } from '../test-parse-helper';
 
 const CSV = [
   'Address,Crawl Depth',
@@ -141,7 +174,7 @@ const CSV = [
 
 describe('LinksIssuesParser golden', () => {
   it('collects all urls + max crawl depth', () => {
-    expect(new LinksIssuesParser(CSV).parse()).toEqual({
+    expect(parseString(LinksIssuesParser, CSV)).toEqual({
       total_pages: 3,
       stats: { max_crawl_depth: 3 },
       issues: [
@@ -157,17 +190,18 @@ describe('LinksIssuesParser golden', () => {
   });
 
   it('empty input → {}', () => {
-    expect(new LinksIssuesParser('Address,Crawl Depth').parse()).toEqual({});
+    expect(parseString(LinksIssuesParser, 'Address,Crawl Depth')).toEqual({});
   });
 });
 ```
 
-- [ ] **Step 4: Write `anchortext.golden.test.ts`** (the richest — pins tie-order, numeric-looking anchors, capped-count quirk)
+- [ ] **Step 5: Write `anchortext.golden.test.ts`** (the richest — pins tie-order, numeric-looking anchors, capped-count quirk)
 
 ```ts
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { AnchorTextParser } from './anchorText.parser';
+import { parseString } from '../test-parse-helper';
 
 // Rows: only 'hyperlink' Type counts. Includes a numeric-looking anchor "123",
 // a tie between two anchors, an empty anchor, and a non-descriptive anchor.
@@ -185,7 +219,7 @@ const rows = [
 
 describe('AnchorTextParser golden', () => {
   it('exact output (tie order, numeric anchor, capped counts)', () => {
-    const out = new AnchorTextParser(rows.join('\n')).parse();
+    const out = parseString(AnchorTextParser, rows.join('\n'));
     // Characterization: this object is captured from the CURRENT parser and pinned.
     // If the toEqual below is not yet filled, run the parser once and paste its
     // exact return value here, then commit. Do NOT hand-edit values afterward.
@@ -199,7 +233,7 @@ describe('AnchorTextParser golden', () => {
   });
 
   it('empty input → {}', () => {
-    expect(new AnchorTextParser('Type,Source,Destination,Anchor').parse()).toEqual({});
+    expect(parseString(AnchorTextParser, 'Type,Source,Destination,Anchor')).toEqual({});
   });
 });
 
@@ -211,7 +245,7 @@ describe('AnchorTextParser golden', () => {
 declare const CAPTURED_ANCHOR_OUTPUT: unknown;
 ```
 
-- [ ] **Step 5: Capture the AnchorText golden** — run the current parser once and pin the output
+- [ ] **Step 6: Capture the AnchorText golden** — run the current parser once and pin the output
 
 Run:
 ```bash
@@ -233,16 +267,41 @@ DATABASE_URL="file:./local-dev.db" npx tsx _cap.ts; rm -f _cap.ts
 ```
 Replace the `CAPTURED_ANCHOR_OUTPUT` placeholder + `declare` line with a literal `const CAPTURED_ANCHOR_OUTPUT = { …captured… };` and drop the `toMatchObject` scaffold once the full `toEqual` is in place.
 
-- [ ] **Step 6: Run all 4 golden suites against current code — expect PASS**
+- [ ] **Step 7: Capture real-crawl baselines for the Task 10 auto-diff** (Codex Medium — parity must be self-checking, not manual)
+
+Snapshot the CURRENT (whole-file) parser output over the real Manhattan exports into committed baseline JSON files. Task 10 diffs the streaming output against these automatically.
+
+```bash
+cd /Users/kevin/enrollment-resources/Claude/er-seo-tools
+mkdir -p test-fixtures/streaming-parity-baseline
+cat > _baseline.ts <<'EOF'
+import fs from 'fs'; import path from 'path';
+import { findParserForFile } from '@/lib/parsers';
+const dir = '/Users/kevin/enrollment-resources/sf-crawls/manhattan/2026.07.03.11.29.25';
+const outDir = 'test-fixtures/streaming-parity-baseline';
+for (const f of ['all_outlinks.csv','all_anchor_text.csv','images_all.csv']) {
+  const content = fs.readFileSync(path.join(dir, f), 'utf-8');
+  const P = findParserForFile(f, content) as any;
+  const out = new P(content).parse();
+  fs.writeFileSync(path.join(outDir, `${P.parserKey}.json`), JSON.stringify(out, null, 2));
+  console.log(f, '->', P.parserKey);
+}
+EOF
+DATABASE_URL="file:./local-dev.db" npx tsx _baseline.ts; rm -f _baseline.ts
+```
+
+(These baselines are captured from the pre-refactor parsers and committed here — the streaming output must reproduce them exactly.)
+
+- [ ] **Step 8: Run all 4 golden suites against current code — expect PASS**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/resources/externallinks.golden.test.ts lib/parsers/resources/images.golden.test.ts lib/parsers/resources/linksissues.golden.test.ts lib/parsers/resources/anchortext.golden.test.ts`
 Expected: all PASS (they characterize existing behavior).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add lib/parsers/resources/*.golden.test.ts
-git commit -m "test(c7): golden characterization for the 4 streaming-target parsers (pre-refactor)"
+git add lib/parsers/test-parse-helper.ts lib/parsers/resources/*.golden.test.ts test-fixtures/streaming-parity-baseline/
+git commit -m "test(c7): interface-agnostic parse helper + golden characterization + real-crawl parity baselines (pre-refactor)"
 ```
 
 ---
@@ -518,7 +577,6 @@ Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/streaming-pa
 ```ts
 import { CSVRow, ParsedData } from '../types';
 import { buildHeaderMap, findColumnInMap, mostCommonHostname, filenameMatches } from './header-map';
-import { toString } from '../utils/columnMapper';
 
 /**
  * Streaming sibling of BaseParser. Rows arrive one at a time via consume(); the
@@ -592,7 +650,7 @@ export abstract class StreamingParser {
 }
 ```
 
-> Note: `getPrimaryDomain` here counts only the Address/URL column (same as `BaseParser.getPrimaryDomain`). `toString` import is available if a subclass needs it; remove if unused to satisfy lint.
+> Note: `getPrimaryDomain` here counts only the Address/URL column (same as `BaseParser.getPrimaryDomain`). `trackDomain` uses `typeof val === 'string'` (not `toString`) — no extra imports, no unused-import lint failure.
 
 - [ ] **Step 4: Run — expect PASS**
 
@@ -703,6 +761,16 @@ describe('streamCsv', () => {
   it('rejects on a missing file', async () => {
     await expect(streamCsv('/no/such/file.csv', () => {})).rejects.toBeTruthy();
   });
+
+  it('delivers ALL rows before resolving (no early finish, Codex High 2)', async () => {
+    const N = 5000;
+    const lines = ['Address,Title', ...Array.from({ length: N }, (_, i) => `https://a.com/${i},T${i}`)];
+    const p = await tmp(lines.join('\n'));
+    let count = 0;
+    await streamCsv(p, () => { count++; });
+    expect(count).toBe(N);
+    await fs.rm(p, { force: true });
+  });
 });
 ```
 
@@ -740,15 +808,15 @@ export function streamCsv(filePath: string, onRow: (row: CSVRow) => void): Promi
     papaStream.on('data', (row: CSVRow) => {
       try { onRow(row); } catch (err) { fail(err); }
     });
+    // Resolve ONLY on the readable-side 'end' (all parsed rows delivered).
+    // NOT 'finish' — that's the writable side finishing and can fire before the
+    // last 'data' events are consumed (Codex High 2).
     papaStream.on('end', () => resolve());
-    papaStream.on('finish', () => resolve());
 
     fileStream.pipe(papaStream);
   });
 }
 ```
-
-> `end` and `finish` both resolve — the transform emits `end` after the last row; the second `resolve()` is a no-op (promises settle once). If the installed Papa Node stream emits only one, the other listener is harmless.
 
 - [ ] **Step 6: Run — expect PASS**
 
@@ -772,11 +840,12 @@ Wire the streaming path into the parse route BEFORE converting real parsers, so 
 - Create: `lib/parsers/read-header-chunk.test.ts`
 - Modify: `lib/parsers/index.ts` (widen `PARSERS`/`PARSER_MAP`/`findParserForFile` to `ParserClass`; add optional no-arg overload of `findParserForFile`)
 - Modify: `app/api/parse/[sessionId]/route.ts` (`parseOne` two-path)
-- Modify: `app/api/parse/[sessionId]/route.test.ts` (streaming path via a test double; unmatched-not-read; filename-first)
+- Modify: `lib/parsers/parser-key.test.ts` (cast update to `ParserClass`)
+- Create: `lib/parsers/detection-equivalence.test.ts` (**real** `findParserForFile`, NOT the mocked route test — Codex High 3)
 
 **Interfaces:**
 - Consumes: `streamCsv` (Task 5), `StreamingParser` (Task 4), `ParserClass` (Task 3), `findParserForFile` (existing).
-- Produces: `readHeaderChunk(filePath: string, opts?: { baseBytes?: number; maxBytes?: number }): Promise<string>`.
+- Produces: `readHeaderChunk(filePath: string, opts?: { baseChars?: number; maxChars?: number }): Promise<string>`. (Named `*Chars` not `*Bytes` because the stream is decoded `utf8`, so the accumulator length is characters, not bytes — Codex Low. Immaterial for a 64 KB ASCII-ish detection peek.)
 
 - [ ] **Step 1: Write `read-header-chunk.test.ts` (failing)**
 
@@ -804,15 +873,15 @@ describe('readHeaderChunk', () => {
   it('reads at least through the first newline', async () => {
     // base size tiny so we prove the newline-extension loop
     const p = await tmp('col1,col2,col3\nrow');
-    const out = await readHeaderChunk(p, { baseBytes: 4, maxBytes: 1024 });
+    const out = await readHeaderChunk(p, { baseChars: 4, maxChars: 1024 });
     expect(out.includes('\n')).toBe(true);
     expect(out.startsWith('col1,col2,col3')).toBe(true);
     await fs.rm(p, { force: true });
   });
 
-  it('caps at maxBytes when no newline appears', async () => {
+  it('caps at maxChars when no newline appears', async () => {
     const p = await tmp('x'.repeat(5000)); // no newline
-    const out = await readHeaderChunk(p, { baseBytes: 64, maxBytes: 1000 });
+    const out = await readHeaderChunk(p, { baseChars: 64, maxChars: 1000 });
     expect(out.length).toBeLessThanOrEqual(1000);
     await fs.rm(p, { force: true });
   });
@@ -828,31 +897,32 @@ Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/read-header-
 ```ts
 import fs from 'fs';
 
-const DEFAULT_BASE_BYTES = 64 * 1024;
-const DEFAULT_MAX_BYTES = 1024 * 1024;
+const DEFAULT_BASE_CHARS = 64 * 1024;
+const DEFAULT_MAX_CHARS = 1024 * 1024;
 
 /**
  * Read a bounded top-of-file prefix sufficient for content-based parser
- * detection: at least `baseBytes`, extended until the first newline (so the
- * full header line is present), hard-capped at `maxBytes`. Used only when
- * filename detection misses.
+ * detection: at least `baseChars`, extended until the first newline (so the
+ * full header line is present), hard-capped at `maxChars`. Used only when
+ * filename detection misses. Stream is decoded utf8, so the accumulator is
+ * measured in characters, not bytes (immaterial for a detection peek).
  */
 export function readHeaderChunk(
   filePath: string,
-  opts: { baseBytes?: number; maxBytes?: number } = {}
+  opts: { baseChars?: number; maxChars?: number } = {}
 ): Promise<string> {
-  const baseBytes = opts.baseBytes ?? DEFAULT_BASE_BYTES;
-  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  const baseChars = opts.baseChars ?? DEFAULT_BASE_CHARS;
+  const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
   return new Promise<string>((resolve, reject) => {
     const stream = fs.createReadStream(filePath, { encoding: 'utf8', highWaterMark: 64 * 1024 });
     let buf = '';
-    const done = () => { stream.destroy(); resolve(buf.slice(0, maxBytes)); };
+    const done = () => { stream.destroy(); resolve(buf.slice(0, maxChars)); };
     stream.on('data', (chunk: string) => {
       buf += chunk;
       const hasNewline = buf.indexOf('\n') !== -1;
-      if ((buf.length >= baseBytes && hasNewline) || buf.length >= maxBytes) done();
+      if ((buf.length >= baseChars && hasNewline) || buf.length >= maxChars) done();
     });
-    stream.on('end', () => resolve(buf.slice(0, maxBytes)));
+    stream.on('end', () => resolve(buf.slice(0, maxChars)));
     stream.on('error', reject);
   });
 }
@@ -868,6 +938,8 @@ Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/read-header-
 - Change `export const PARSERS: Array<typeof BaseParser> = [ … ]` → `export const PARSERS: ParserClass[] = [ … ]`
 - Change `export const PARSER_MAP: Record<string, typeof BaseParser> = { … }` → `Record<string, ParserClass>`
 - Change `findParserForFile(...): typeof BaseParser | null` → `ParserClass | null`, and make `rawContent` optional (already is). Add filename-only fast return (unchanged logic; content steps guarded by `if (!rawContent) return null;` which already exists).
+- The named re-export block (`index.ts:254-298`) exports concrete symbols, not `typeof BaseParser`, so it does NOT need changing (Codex confirmed).
+- **Update `lib/parsers/parser-key.test.ts`** — it currently casts each parser to `typeof BaseParser`; change those casts to the new `ParserClass` type (import from `./header-map`) so the test reflects the widened registry contract. Behavior unchanged; it still asserts every parser declares its own literal `parserKey` (the minification guard — must keep covering the streaming subclasses).
 
 Run: `DATABASE_URL="file:./local-dev.db" npx tsc --noEmit`
 Expected: PASS (BaseParser subclasses still satisfy `ParserClass`).
@@ -936,39 +1008,70 @@ const parseOne = async (filename: string): Promise<FileOutcome> => {
 
 (Delete the now-unused `AnyParser` type and the old whole-file-first read block. Keep `failed`, `FileOutcome`, `ParseSuccess`, the `reports`/`successes` loop, and everything after it unchanged.)
 
-- [ ] **Step 7: Add route tests** in `app/api/parse/[sessionId]/route.test.ts`
+- [ ] **Step 7: Detection-equivalence tests in a NON-mocked file** (Codex High 3)
 
-Add cases (follow the file's existing mocking conventions):
-- a **streaming** file: register/stub a fake `streaming = true` parser (or use `ExternalLinksParser` once Task 7 lands — but here, before conversion, assert the whole-file path still works for all real parsers, i.e. an `all_outlinks.csv` upload still parses via the whole-file branch and produces the golden `externallinks` output).
-- an **unmatched** file (`all_inlinks.csv` content) returns `status: 'unmatched'`.
-- **detection-equivalence:** for each Manhattan fixture filename+content, `findParserForFile(name)` (or `findParserForFile(name, readHeaderChunk-sized-prefix)`) equals `findParserForFile(name, fullContent)`.
-- **SEMRush peek-equivalence:** a synthetic Position Tracking CSV with a metadata preamble before the header resolves to `semrushpositiontracking` from a 64 KB-bounded prefix, matching full-content detection.
+`app/api/parse/[sessionId]/route.test.ts` mocks `@/lib/parsers` (`vi.mock('@/lib/parsers', …)`), so any `findParserForFile` assertion placed there would exercise the MOCK, not the real registry. Put the real detection-equivalence tests in a fresh file with no route mock. First read `SemrushPositionTrackingParser.matchesRawContent`/`matchesContent` for the exact trigger strings (real matcher: trimmed content starts with `-----` and contains `Report type: position_tracking_pages`).
+
+Create `lib/parsers/detection-equivalence.test.ts`:
 
 ```ts
-// Detection-equivalence (illustrative — place in a node-env describe):
+// @vitest-environment node
+import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { findParserForFile } from '@/lib/parsers';
-it('peek detection equals full detection for SEMRush position tracking', () => {
-  const meta = 'Report type: position_tracking_pages\nDate: 2026-07-03\n';
-  const full = meta + 'Keyword,Position,URL\nfoo,1,https://a.com/x\n';
-  const peek = full.slice(0, 64 * 1024);
-  const a = findParserForFile('pt_export_20260703.csv', peek);
-  const b = findParserForFile('pt_export_20260703.csv', full);
-  expect(a).toBe(b);
-  expect(a && (a as { parserKey: string }).parserKey).toBe('semrushpositiontracking');
+import { readHeaderChunk } from './read-header-chunk';
+
+const CRAWL = '/Users/kevin/enrollment-resources/sf-crawls/manhattan/2026.07.03.11.29.25';
+
+describe('peek-vs-full detection equivalence', () => {
+  const files = fs.existsSync(CRAWL) ? fs.readdirSync(CRAWL).filter((f) => f.endsWith('.csv')) : [];
+  for (const f of files) {
+    it(`same parser from peek and full: ${f}`, async () => {
+      const full = fs.readFileSync(path.join(CRAWL, f), 'utf-8');
+      const peek = await readHeaderChunk(path.join(CRAWL, f));
+      expect(findParserForFile(f, peek)).toBe(findParserForFile(f, full));
+    });
+  }
+
+  it('SEMRush Position Tracking: peek detection equals full (metadata preamble)', () => {
+    // Real matcher: trimmed content starts with '-----' and contains
+    // 'Report type: position_tracking_pages'.
+    const full = [
+      '-----',
+      'Project: example.com',
+      'Report type: position_tracking_pages',
+      '-----',
+      'URL,Keywords,Average Position,Estimated Traffic',
+      'https://a.com/x,5,3.2,120',
+    ].join('\n');
+    const peek = full.slice(0, 64 * 1024);
+    const a = findParserForFile('pt_20260703.csv', peek);
+    const b = findParserForFile('pt_20260703.csv', full);
+    expect(a).toBe(b);
+    expect(a && (a as { parserKey: string }).parserKey).toBe('semrushpositiontracking');
+  });
 });
 ```
 
-> Adjust the metadata/header strings to match the real `SemrushPositionTrackingParser.matchesRawContent`/`matchesContent` expectations — read that parser to get the exact trigger strings before writing the assertion.
+> The exact `-----`/`Report type:` strings above are illustrative — confirm them against the real `SemrushPositionTrackingParser` before finalizing, and adjust if the matcher differs.
 
-- [ ] **Step 8: Run route + parser suites — expect PASS**
+- [ ] **Step 8: Add route tests** in `app/api/parse/[sessionId]/route.test.ts`
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/parse lib/parsers`
-Expected: PASS. All real parsers still flow through the whole-file branch (none is `streaming` yet); the streaming branch is exercised by the fake/streaming-double test.
+These stay in the mocked route test (they exercise `parseOne`'s branching via the `findParserForFileMock`, not the real registry). Follow the file's existing named-mock convention:
+- **streaming path:** configure `findParserForFileMock` to return a fake class with `streaming = true` + `consume`/`finalize`; write a small CSV to the session upload dir; assert the outcome is `parsed` with the fake's `finalize()` result and that the file was driven via `consume` (not `fs.readFile`).
+- **unmatched not fully read:** `findParserForFileMock` returns `null`; assert outcome `unmatched`. (Optional: spy on `fs.readFile`/`readHeaderChunk` to assert only the peek ran.)
+- **whole-file path unchanged:** `findParserForFileMock` returns a fake whole-file class (`parse()`), assert it still routes through the `readFile` branch.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Run detection + route + parser suites — expect PASS**
+
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers app/api/parse`
+Expected: PASS. All real parsers still flow through the whole-file branch (none is `streaming` yet); the streaming branch is exercised by the route test's fake streaming class; detection-equivalence runs against the real registry.
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add lib/parsers/read-header-chunk.ts lib/parsers/read-header-chunk.test.ts lib/parsers/index.ts app/api/parse/[sessionId]/route.ts app/api/parse/[sessionId]/route.test.ts
+git add lib/parsers/read-header-chunk.ts lib/parsers/read-header-chunk.test.ts lib/parsers/detection-equivalence.test.ts lib/parsers/index.ts lib/parsers/parser-key.test.ts app/api/parse/[sessionId]/route.ts app/api/parse/[sessionId]/route.test.ts
 git commit -m "feat(c7): two-path parseOne (filename-first detect + header-peek + streamCsv) + widen registry to ParserClass"
 ```
 
@@ -1083,19 +1186,23 @@ export class ExternalLinksParser extends StreamingParser {
 
 > **Parity note:** the whole-file `ExternalLinksParser` resolved `statusCol`/`destCol` at parse start and only accumulated when BOTH exist — `onHeaders` + the `this.statusCol && this.destCol` guard reproduce that exactly. `stats` is `{}` when the columns are absent (matches original). `total_external_links` = row count (`this.length`).
 
-- [ ] **Step 2: Run golden + parser suites — expect PASS**
+- [ ] **Step 2: Migrate the EXISTING `links.parser.test.ts` to `parseString` (Codex High 1)**
+
+`lib/parsers/resources/links.parser.test.ts` calls `new LinksIssuesParser(csv).parse()` / `new ExternalLinksParser(csv).parse()` — these break now that the classes are streaming (no string ctor, no `parse()`). Replace every `new XParser(csv).parse()` with `parseString(XParser, csv)` and add `import { parseString } from '../test-parse-helper';`. Static-property assertions (`filenamePattern`, `matchesFile`) stay unchanged. This must be in THIS commit (same commit as the conversion) so the suite never has a red intermediate state.
+
+- [ ] **Step 3: Run golden + parser suites — expect PASS**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/resources/externallinks.golden.test.ts lib/parsers/resources/linksissues.golden.test.ts lib/parsers/resources/links.parser.test.ts`
 Expected: PASS (byte-identical to Task 1 snapshots).
 
-- [ ] **Step 3: tsc — expect PASS**
+- [ ] **Step 4: tsc — expect PASS**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx tsc --noEmit`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add lib/parsers/resources/links.parser.ts
+git add lib/parsers/resources/links.parser.ts lib/parsers/resources/links.parser.test.ts
 git commit -m "feat(c7): stream ExternalLinksParser + LinksIssuesParser via StreamingParser"
 ```
 
@@ -1367,18 +1474,22 @@ export class ImagesParser extends StreamingParser {
 }
 ```
 
-- [ ] **Step 2: Run the Images golden + existing images test — expect PASS**
+- [ ] **Step 2: Migrate the EXISTING `images.parser.test.ts` to `parseString` (Codex High 1)**
+
+`lib/parsers/resources/images.parser.test.ts` calls `new ImagesParser(csv).parse()` throughout — these break now that `ImagesParser` is streaming. Replace every `new ImagesParser(csv).parse()` with `parseString(ImagesParser, csv)` and add `import { parseString } from '../test-parse-helper';`. Static-property assertions stay unchanged. Same commit as the conversion (no red intermediate).
+
+- [ ] **Step 3: Run the Images golden + migrated images test — expect PASS**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/parsers/resources/images.golden.test.ts lib/parsers/resources/images.parser.test.ts`
 
-- [ ] **Step 3: tsc — expect PASS**
+- [ ] **Step 4: tsc — expect PASS**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx tsc --noEmit`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add lib/parsers/resources/images.parser.ts
+git add lib/parsers/resources/images.parser.ts lib/parsers/resources/images.parser.test.ts
 git commit -m "feat(c7): stream ImagesParser via StreamingParser"
 ```
 
@@ -1395,89 +1506,109 @@ Prove behavior-preservation on real data and demonstrate the memory fix.
 **Interfaces:**
 - Consumes: the converted parsers + `streamCsv`; the Manhattan crawl dir.
 
-- [ ] **Step 1: Write `scripts/streaming-parity-check.ts`**
+- [ ] **Step 1: Write `scripts/streaming-parity-check.ts` (self-diffing against the committed baselines)**
 
-Pipes each Manhattan CSV that maps to a converted parser through BOTH (a) the whole-file constructor on the pre-refactor commit and (b) the new streaming path, and diffs the serialized `parse()`/`finalize()` output. Since Task 1 goldens already lock behavior, this harness is the real-data confirmation:
+Runs the NEW streaming path over the real Manhattan exports and diffs each result against the pre-refactor baseline JSON committed in Task 1 Step 7 (`test-fixtures/streaming-parity-baseline/<parserKey>.json`). No manual worktree comparison — the script asserts equality itself and exits non-zero on any diff (Codex Medium).
 
 ```ts
 import fs from 'fs';
 import path from 'path';
+import assert from 'node:assert';
 import { findParserForFile } from '@/lib/parsers';
 import { streamCsv } from '@/lib/parsers/stream-csv';
 
 const dir = '/Users/kevin/enrollment-resources/sf-crawls/manhattan/2026.07.03.11.29.25';
+const baselineDir = 'test-fixtures/streaming-parity-baseline';
 const targets = ['all_outlinks.csv', 'all_anchor_text.csv', 'images_all.csv'];
 
+let failures = 0;
 for (const f of targets) {
   const p = path.join(dir, f);
   if (!fs.existsSync(p)) { console.log(`skip ${f} (absent)`); continue; }
-  const content = fs.readFileSync(p, 'utf-8');
-  const P = findParserForFile(f, content) as any;
-  // whole-file: reconstruct rows the streaming way for comparison is not possible
-  // once converted; instead compare streaming finalize() vs a golden JSON captured
-  // from the pre-refactor commit (git stash / worktree at HEAD~N). Print both.
-  const streamParser = new P();
-  await streamCsv(p, (row: any) => streamParser.consume(row));
-  const out = streamParser.finalize();
-  console.log(f, JSON.stringify(out).length, 'bytes');
-  fs.writeFileSync(`/tmp/parity-${P.parserKey}.json`, JSON.stringify(out, null, 2));
+  const P = findParserForFile(f) as any;                 // filename-first, no content
+  const parser = new P();
+  await streamCsv(p, (row: any) => parser.consume(row));
+  const out = parser.finalize();
+  const baselinePath = path.join(baselineDir, `${P.parserKey}.json`);
+  const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf-8'));
+  try {
+    assert.deepStrictEqual(out, baseline);
+    console.log(`✓ ${f} (${P.parserKey}) byte-identical to pre-refactor baseline`);
+  } catch {
+    failures++;
+    console.error(`✗ ${f} (${P.parserKey}) DIVERGED from baseline`);
+    fs.writeFileSync(`/tmp/parity-${P.parserKey}.actual.json`, JSON.stringify(out, null, 2));
+  }
 }
+if (failures) { console.error(`${failures} parser(s) diverged`); process.exit(1); }
+console.log('All streaming parsers reproduce the pre-refactor baseline exactly.');
 ```
 
 Run (post-refactor):
 ```bash
 DATABASE_URL="file:./local-dev.db" npx tsx scripts/streaming-parity-check.ts
 ```
-Then compare `/tmp/parity-*.json` against the same files generated from a worktree checked out at the pre-Task-7 commit (the whole-file parsers), exactly as pt2 did (`git worktree add … <pre-refactor-sha>` → run an equivalent whole-file dump → `diff`). Record: byte-identical or the diff.
+Expected: all `✓`, exit 0. Paste the output into the PR body as the real-crawl parity evidence.
 
-- [ ] **Step 2: Write `scripts/streaming-memory-check.ts`**
+- [ ] **Step 2: Write `scripts/streaming-memory-check.ts`** (sound OOM baseline via raw Papa — Codex Medium)
+
+The whole-file baseline must reproduce the OLD memory profile (full string + full row array), which the converted `ExternalLinksParser` no longer does. Use raw `Papa.parse(content, config)` for `whole`, and **fail loudly if `whole` completes** under the constrained heap (so the evidence is unambiguous).
 
 ```ts
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import Papa from 'papaparse';
 import { ExternalLinksParser } from '@/lib/parsers/resources/links.parser';
 import { streamCsv } from '@/lib/parsers/stream-csv';
 
-// Build a large synthetic all_outlinks by replicating the Manhattan export.
+const CFG = { header: true, skipEmptyLines: true, dynamicTyping: true } as const;
 const src = '/Users/kevin/enrollment-resources/sf-crawls/manhattan/2026.07.03.11.29.25/all_outlinks.csv';
 const big = path.join(os.tmpdir(), 'big_outlinks.csv');
-const lines = fs.readFileSync(src, 'utf-8').split('\n');
-const header = lines[0]; const body = lines.slice(1).filter(Boolean);
-const out = fs.createWriteStream(big);
-out.write(header + '\n');
-const TARGET_BYTES = 500 * 1024 * 1024;
-let written = header.length;
-while (written < TARGET_BYTES) { for (const l of body) { out.write(l + '\n'); written += l.length + 1; if (written >= TARGET_BYTES) break; } }
-out.end(() => run());
+
+function buildBigFile(): Promise<void> {
+  return new Promise((resolve) => {
+    const lines = fs.readFileSync(src, 'utf-8').split('\n');
+    const header = lines[0]; const body = lines.slice(1).filter(Boolean);
+    const ws = fs.createWriteStream(big);
+    ws.write(header + '\n');
+    const TARGET = 500 * 1024 * 1024;
+    let written = header.length + 1;
+    while (written < TARGET) { for (const l of body) { ws.write(l + '\n'); written += l.length + 1; if (written >= TARGET) break; } }
+    ws.end(() => resolve());
+  });
+}
 
 async function run() {
+  await buildBigFile();
   const mode = process.argv[2] || 'stream';
   const before = process.memoryUsage().rss;
   if (mode === 'whole') {
-    const content = fs.readFileSync(big, 'utf-8');   // expected to blow the heap at a constrained --max-old-space-size
-    new ExternalLinksParser(content as any); // NOTE: post-conversion ExternalLinksParser has no string ctor — see below
+    // OLD profile: full string + full row array. Expected to OOM at a tight heap.
+    const content = fs.readFileSync(big, 'utf-8');
+    Papa.parse(content, CFG);
+    console.error('UNEXPECTED: whole-file parse COMPLETED under the constrained heap — baseline invalid, raise the file size / lower the heap.');
+    process.exit(2);
   } else {
     const p = new ExternalLinksParser();
     await streamCsv(big, (r: any) => p.consume(r));
     p.finalize();
   }
   const after = process.memoryUsage().rss;
-  console.log(mode, 'RSS delta MB:', Math.round((after - before) / 1048576), 'peak RSS MB:', Math.round(after / 1048576));
+  console.log(mode, 'peak RSS MB:', Math.round(after / 1048576), 'delta MB:', Math.round((after - before) / 1048576));
   fs.rmSync(big, { force: true });
 }
+run();
 ```
-
-> For the `whole` baseline (post-conversion the streaming parser has no string constructor), demonstrate the cliff with a raw `Papa.parse(fs.readFileSync(big,'utf-8'), {header:true,dynamicTyping:true})` in a 2-line inline snippet instead — the point is that reading the 500 MB file into a string + full row array OOMs at a constrained heap, while `streamCsv` completes. Adjust as needed to produce a clean OOM-vs-completes contrast.
 
 Run:
 ```bash
 # streaming completes under a tight heap:
 NODE_OPTIONS='--max-old-space-size=512' DATABASE_URL="file:./local-dev.db" npx tsx scripts/streaming-memory-check.ts stream
-# whole-file baseline OOMs under the same heap:
-NODE_OPTIONS='--max-old-space-size=512' DATABASE_URL="file:./local-dev.db" npx tsx scripts/streaming-memory-check.ts whole
+# whole-file baseline OOMs (exit != 0) under the same heap:
+NODE_OPTIONS='--max-old-space-size=512' DATABASE_URL="file:./local-dev.db" npx tsx scripts/streaming-memory-check.ts whole; echo "whole exit: $?"
 ```
-Record the RSS numbers / the OOM-vs-completes contrast for the tracker.
+Expected: `stream` prints a bounded peak RSS and exits 0; `whole` dies with a heap-OOM (`Reached heap limit`, non-zero exit — NOT exit 2). Record both for the tracker. If `whole` prints the "UNEXPECTED" line (exit 2), increase `TARGET` or lower the heap until it OOMs — the contrast must be unambiguous.
 
 - [ ] **Step 3: Commit the harnesses**
 
@@ -1533,5 +1664,5 @@ EOF
 ## Self-review notes (post-write)
 
 - **Spec coverage:** §4.1 StreamingParser → Task 4; §4.2 conversions → Tasks 7–9; §4.2a registry type → Task 6 step 5; §4.3 route two-path → Task 6; §4.4 header-peek → Task 6 (`readHeaderChunk`); §5 golden+real-crawl → Tasks 1, 10; §5.3 Papa parity table → Task 5; §6 memory harness → Task 10; §7 tests → distributed; deferred Minors → Task 2; §8 rollout → Task 11 + post-merge deploy.
-- **Ordering invariant:** header-map/type-widening (Task 3, 6-step5) precede any parser conversion, so streaming subclasses type-check; the route streaming path (Task 6) precedes conversions, so each converted parser lands on a driver that already handles it. Golden tests (Task 1) call parsers directly and stay green independent of the route.
+- **Ordering invariant:** the interface-agnostic `parseString` helper (Task 1) precedes every golden so no golden breaks on conversion (Codex High 1); header-map/type-widening (Task 3, Task 6 step 5) precede any parser conversion, so streaming subclasses type-check; the route streaming path (Task 6) precedes conversions, so each converted parser lands on a driver that already handles it; the existing `links`/`images` direct tests migrate to `parseString` in the SAME commit as their conversion (Tasks 7/9), so the suite never goes red. Detection-equivalence lives in a non-mocked file (Task 6 step 7), NOT the `@/lib/parsers`-mocked route test. Real-crawl parity self-diffs against baselines captured pre-refactor (Task 1 step 7 → Task 10 step 1).
 - **Post-deploy (after merge):** app health; deployed-bundle minification-survival for the 4 `parserKey` literals; functional multi-file upload of the Manhattan crawl (also discharges pt1's pending panel-render check).
