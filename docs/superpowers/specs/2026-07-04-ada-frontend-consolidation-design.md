@@ -74,6 +74,12 @@ state and does **not** return the latest data (neither caller needs a return —
 `SiteAuditPoller` fans data into many counters via `onData`; `AuditPoller` maps to
 progress/message/status via `onData`).
 
+**Dependency model (Codex #1).** The hook stores `onData`, `onTerminal`, `getStatus`,
+and `isTerminal` in refs (updated each render) so inline caller callbacks don't
+restart the interval. The polling `useEffect` depends only on
+`[url, intervalMs, enabled, initialStatus, router]`. Without this, callers passing
+inline closures would tear down and recreate the interval on every render.
+
 ### Behavior (must match current pollers exactly)
 
 - **Terminal-on-mount:** if `isTerminal(initialStatus)` (or `enabled === false`),
@@ -96,12 +102,30 @@ progress/message/status via `onData`).
   caller's current status (the caller passes `initialStatus` for the mount decision;
   the loop itself re-decides via `getStatus`+`isTerminal` on each tick and self-stops).
 
-### Deliberately NOT added (behavior-preserving stance)
+### Deliberately NOT added (behavior-preserving stance, Codex #5)
 
 - **No `inFlight` overlap guard.** Codex suggested one; the current pollers use naive
   `setInterval` with no overlap protection, so adding a guard is a (small, slow-network-only)
   behavior change. C9-B preserves current semantics. `inFlight` is recorded as a
-  deferred optional improvement, not part of this refactor.
+  deferred optional improvement, not part of this refactor. The no-guard decision is
+  behavior-preserving, **not** "safe" in the stronger sense — it explicitly keeps the
+  current overlap / out-of-order risk. What the hook DOES guarantee (unchanged from
+  current + newly hardened):
+  - stale in-flight work after unmount is ignored (no `onData`/refresh post-unmount);
+  - a terminal response fires `router.refresh()` exactly once even if two terminal
+    responses arrive (ref guard);
+  - a late non-terminal response arriving after a terminal one is **not** newly
+    protected beyond current behavior (once terminal, the interval is cleared, so no
+    further ticks are scheduled; an already-in-flight straggler is ignored by the
+    unmount/refresh guards).
+
+### `AuditPoller` elapsed/ETA timer (Codex #2)
+
+The elapsed counter + ETA `useMemo` stay local to `AuditPoller`, but the current code
+clears BOTH the poll interval and the elapsed-tick interval when terminal data
+arrives (`AuditPoller.tsx:63-64`). Since the poll loop moves into the hook, wire
+`onTerminal` to clear the local `tickRef`, so the elapsed timer stops on terminal
+exactly as today (rather than ticking until `router.refresh()` unmounts the component).
 
 ### Caller wiring
 
@@ -128,9 +152,11 @@ fetch), rows are non-clickable, and the expand chevron is suppressed. This is pi
 by `SiteAuditResultsView.test.tsx`'s "shareMode → zero cookie-gated fetches" assertions,
 which must keep passing unchanged.
 
-Props are exactly the current closure inputs made explicit (page, shareMode, triage
-state/handlers, selected-violation state, key helpers). No behavior change — pure
-move + prop-threading.
+Props are exactly the current `PageRowProps` (Codex #7, verified against
+`SiteAuditResultsView.tsx:48-56`): `{ page: SitePageResult, triageMode: boolean,
+readOnly: boolean, checks: UseChecksReturn, shareMode: boolean }`. There is **no**
+selected-violation prop. The key helpers (`keyForPage`, `keyForPageViolation`) are
+imported directly by the new file. No behavior change — pure move.
 
 ## 5. Unit 3 — `useTriageMode` + `ArchivedAuditBanner`
 
@@ -144,28 +170,50 @@ Both `AuditResultsView` and `SiteAuditResultsView` duplicate:
 
 ### `useTriageMode(id, { enabled })` → `components/ada-audit/useTriageMode.ts`
 
-- Returns `{ triageMode: boolean, toggleTriage: () => void }` (exact names TBD in plan).
-- On mount, if `enabled`, reads `localStorage['er-triage-mode:'+id]` and seeds state
-  (guarded for SSR / missing `localStorage` — the tests mount with no `localStorage`
-  global and expect no throw).
-- `toggleTriage` flips state and writes `localStorage`.
-- When `enabled === false` (share/readOnly context), the read effect early-returns
-  and no writes occur — matching current behavior in both views
-  (`SiteAuditResultsView.tsx:249` `shareMode` early-return; `AuditResultsView` gates
-  via `readOnly`).
+- Returns `{ triageMode: boolean, toggleTriage: () => void }` (exact names finalized in plan).
+- Signature `useTriageMode(id: string | undefined, opts?: { enabled?: boolean })`,
+  `enabled` defaulting to `true`.
+- On mount, if `id` is truthy **and** `enabled`, reads `localStorage['er-triage-mode:'+id]`
+  and seeds state (guarded for SSR / missing `localStorage` — the tests mount with no
+  `localStorage` global and expect no throw).
+- `toggleTriage` flips state and, if `id` is truthy, writes `localStorage`.
+- When `enabled === false`, the read effect early-returns.
 
-**Note the asymmetry (do not normalize):** `SiteAuditResultsView` gates on `!shareMode`,
-`AuditResultsView` gates on `!readOnly`. The hook takes a single `enabled` boolean;
-each caller passes the correct expression (`!shareMode` / `!readOnly`). The hook does
-not know about `shareMode`/`readOnly`.
+**Behavior-preservation — the two views' current read-gating DIFFERS (Codex #3, verified):**
+- `SiteAuditResultsView.tsx:248-252` reads only when **`!shareMode`** (early-returns in
+  shareMode). → caller passes `useTriageMode(siteAuditId, { enabled: !shareMode })`.
+- `AuditResultsView.tsx:63-67` reads whenever **`auditId` exists** — it is **NOT**
+  gated by `readOnly` or `archived`. → caller passes `useTriageMode(auditId)` (enabled
+  default `true`). We deliberately **preserve** this (do NOT adopt Codex's suggested
+  `enabled: !readOnly && !archived` — that would be a behavior change / side-effect
+  reduction, out of scope for a near-zero-change refactor).
+
+**Do not normalize `shareMode` vs `readOnly`.** The hook knows neither; each caller
+supplies its own `enabled` expression. Because the toggle *button* is already gated
+(`AuditResultsView`: `auditId && !readOnly && !results.archived`; `SiteAuditResultsView`:
+`!shareMode`), writes only occur in the same contexts as today regardless of the hook's
+looser read-gate.
+
+**Archived suppression stays at the consumer (Codex #8 — rejected as a hook change).**
+Current archived suppression lives at the render level — `AuditResultsView` hides the
+triage button (`:147 !results.archived`), disables `useChecks` (`:88 !results.archived`),
+and drops `checksContext` (`:208 !results.archived`). The localStorage read itself is
+NOT archived-gated today. `useTriageMode` therefore does **not** gate on archived; the
+views keep their existing `!archived` gates on button/checks/checksContext, unchanged.
 
 ### `ArchivedAuditBanner` → `components/ada-audit/ArchivedAuditBanner.tsx`
 
 Pure presentational component rendering the existing amber banner markup (dark-mode
-variants preserved). Both views render `{archived && <ArchivedAuditBanner />}` in
-place of the inline block. If the two inline banners differ in copy, the shared
-component takes an optional prop to preserve each exact string (plan verifies the
-two are identical first; if identical, no prop).
+variants preserved). **The two banners' copy DIFFERS (Codex #4, verified):**
+- single-page (`AuditResultsView.tsx:100-108`): "full detail (screenshots, complete
+  code snippets, pass/incomplete lists) was pruned after 90 days. Violations shown are
+  exact; node samples are capped at 5 per rule."
+- site (`SiteAuditResultsView.tsx:319-326`): "full per-page detail was pruned after 90
+  days. Violations shown are exact; node samples are capped at 5 per rule."
+
+So the component takes a `variant: 'page' | 'site'` prop encoding the two exact
+strings (the shared wrapper markup — flex/amber classes — is identical). Both views
+render `{archived && <ArchivedAuditBanner variant="page|site" />}`.
 
 ## 6. Behavior-preservation invariants (the whole point)
 
@@ -182,13 +230,21 @@ two are identical first; if identical, no prop).
 
 ## 7. Testing strategy
 
-- **New:** `useAuditPoller.test.ts` (`renderHook`, node env, fetch mocked, fake
-  timers) — pins: terminal-on-mount inert; polls on interval; `onData` per tick;
-  terminal → `onTerminal` then single `router.refresh()`; refresh-once under a
-  simulated double-invoke; cleanup clears interval; network-blip keeps polling.
+- **New:** `useAuditPoller.test.ts` (`renderHook`, node env). Fake timers alone won't
+  pin the hard cases (Codex #6) — use **controllable deferred fetch promises** (a mock
+  that returns a promise you resolve manually) to assert:
+  - terminal-on-mount (or `enabled:false`) → **no fetch, no refresh**;
+  - a terminal response calls `onData`, then `onTerminal`, then **one** `router.refresh()`;
+  - two overlapping terminal responses → refresh fires **once**;
+  - unmount before a fetch resolves → **neither** `onData` nor refresh fires;
+  - non-OK response and thrown fetch → keeps polling (no refresh).
   (Fills the current gap — no poller tests exist today.)
-- **New:** `useTriageMode.test.ts` — read/seed from localStorage, toggle writes,
-  `enabled:false` no-op, no-`localStorage` no-throw.
+- **New:** `useTriageMode.test.ts` — read/seed from localStorage when `id`+`enabled`;
+  toggle writes; `enabled:false` → no read; missing `id` → no read/write; no-`localStorage`
+  global → no throw.
+- **New:** `AuditResultsView` read-only / no-`localStorage` no-throw case (Codex #3) —
+  confirm the share/readOnly render doesn't throw when `localStorage` is absent and that
+  the preserved unconditional read still no-ops safely.
 - **Preserve (must stay green unchanged):** `SiteAuditResultsView.test.tsx`
   (archived-render + shareMode zero-fetch contracts), `AuditResultsView.test.tsx`
   (archived-render contract), `useSiteAuditPages.test.ts`.
@@ -215,3 +271,17 @@ two are identical first; if identical, no prop).
 - `components/ada-audit/ArchivedAuditBanner.tsx`
 - `AuditResultsView.tsx` + `SiteAuditResultsView.tsx` using the shared hook + banner
 - Gates green (tsc · vitest · build); no migration; deploy is plain `~/deploy.sh`.
+
+## 10. Codex review disposition (2026-07-04)
+
+Verdict **ACCEPT-WITH-FIXES** (8 named fixes). All verified against code:
+- **#1** poller dependency model (callback refs) — **applied** (§3).
+- **#2** `AuditPoller` elapsed timer must stop on terminal via `onTerminal` — **applied** (§3).
+- **#3** current `AuditResultsView` localStorage read is NOT `readOnly`-gated — factual
+  correction **applied** (§5); Codex's proposed re-gating **rejected** as a behavior change.
+- **#4** `ArchivedAuditBanner` copy differs → `variant` prop — **applied** (§5).
+- **#5** tighten no-`inFlight` language — **applied** (§3).
+- **#6** stronger poller tests via deferred fetch promises — **applied** (§7).
+- **#7** correct `PageRow` props (no selected-violation) — **applied** (§4).
+- **#8** disable `useTriageMode` for archived — **rejected**: archived suppression lives
+  at the consumer today; hook-gating would change the localStorage-read behavior (§5).
