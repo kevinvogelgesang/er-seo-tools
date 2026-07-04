@@ -5,6 +5,8 @@
 // PillarAnalysis.score, Session issue counts) — NEVER blob-derived. Adding a
 // blob reader here would block the A2 PRUNE_ACTIVATED flips.
 
+import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
+
 export const SPARKLINE_POINTS = 12
 export const SCORE_DROP_THRESHOLD = 10
 export const STALE_DAYS = 30
@@ -12,29 +14,39 @@ export const STALE_DAYS = 30
 export interface ScorePoint {
   date: string // ISO
   score: number
+  /** Score-formula version (C9-A). Absent/undefined means v1 (pre-versioning). */
+  scoreVersion?: number
 }
 
 export interface ScoreSeries {
   latest: number | null
   previous: number | null
-  /** latest - previous; null when fewer than 2 points. */
+  /** latest - previous; null when fewer than 2 points, or when the latest two
+   *  points were computed under different score formulas (see formulaChanged). */
   delta: number | null
+  /** True when the latest two points differ in scoreVersion — the delta is
+   *  suppressed because a numeric comparison across formulas is meaningless. */
+  formulaChanged: boolean
   latestAt: string | null
   /** Ascending by date, capped at SPARKLINE_POINTS (most recent kept). */
   points: ScorePoint[]
 }
 
-export const EMPTY_SERIES: ScoreSeries = { latest: null, previous: null, delta: null, latestAt: null, points: [] }
+export const EMPTY_SERIES: ScoreSeries = {
+  latest: null, previous: null, delta: null, formulaChanged: false, latestAt: null, points: [],
+}
 
 export function buildSeries(points: ScorePoint[]): ScoreSeries {
   if (points.length === 0) return EMPTY_SERIES
   const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date))
   const latest = sorted[sorted.length - 1]
   const previous = sorted.length >= 2 ? sorted[sorted.length - 2] : null
+  const changed = !!previous && (latest.scoreVersion ?? 1) !== (previous.scoreVersion ?? 1)
   return {
     latest: latest.score,
     previous: previous ? previous.score : null,
-    delta: previous ? latest.score - previous.score : null,
+    delta: previous && !changed ? latest.score - previous.score : null,
+    formulaChanged: changed,
     latestAt: latest.date,
     points: sorted.slice(-SPARKLINE_POINTS),
   }
@@ -81,6 +93,8 @@ export interface AdaRunRow {
   createdAt: Date
   siteAuditId: string | null
   adaAuditId: string | null
+  /** JSON breakdown; version read via parseScoreVersion (C9-A). */
+  scoreBreakdown?: string | null
 }
 
 export interface LegacyAdaRow {
@@ -105,7 +119,11 @@ export function buildAdaSeries(
 ): { series: ScoreSeries; source: AdaSeriesSource; latestHref: string | null } {
   const sitePoints = runs
     .filter((r): r is AdaRunRow & { score: number } => r.source === 'site-audit' && r.score !== null)
-    .map((r) => ({ date: pointDate(r.completedAt, r.createdAt), score: r.score, href: r.siteAuditId ? `/ada-audit/site/${r.siteAuditId}` : null }))
+    .map((r) => ({
+      date: pointDate(r.completedAt, r.createdAt), score: r.score,
+      scoreVersion: parseScoreVersion(r.scoreBreakdown),
+      href: r.siteAuditId ? `/ada-audit/site/${r.siteAuditId}` : null,
+    }))
   if (sitePoints.length) {
     const sorted = sitePoints.sort((a, b) => a.date.localeCompare(b.date))
     return { series: buildSeries(sorted), source: 'site', latestHref: sorted[sorted.length - 1].href }
@@ -114,10 +132,15 @@ export function buildAdaSeries(
   const pageRuns = runs.filter((r): r is AdaRunRow & { score: number } => r.source === 'page-audit' && r.score !== null)
   const covered = new Set(pageRuns.map((r) => r.adaAuditId).filter(Boolean))
   const pagePoints = [
-    ...pageRuns.map((r) => ({ date: pointDate(r.completedAt, r.createdAt), score: r.score, href: r.adaAuditId ? `/ada-audit/${r.adaAuditId}` : null })),
+    ...pageRuns.map((r) => ({
+      date: pointDate(r.completedAt, r.createdAt), score: r.score,
+      scoreVersion: parseScoreVersion(r.scoreBreakdown),
+      href: r.adaAuditId ? `/ada-audit/${r.adaAuditId}` : null,
+    })),
+    // Legacy AdaAudit rows predate score versioning — always v1.
     ...legacy
       .filter((l): l is LegacyAdaRow & { score: number } => l.status === 'complete' && l.score !== null && !covered.has(l.id))
-      .map((l) => ({ date: pointDate(l.completedAt, l.createdAt), score: l.score, href: `/ada-audit/${l.id}` })),
+      .map((l) => ({ date: pointDate(l.completedAt, l.createdAt), score: l.score, scoreVersion: 1, href: `/ada-audit/${l.id}` })),
   ].sort((a, b) => a.date.localeCompare(b.date))
   if (pagePoints.length) {
     return { series: buildSeries(pagePoints), source: 'page', latestHref: pagePoints[pagePoints.length - 1].href }

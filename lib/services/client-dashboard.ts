@@ -100,7 +100,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     prisma.crawlRun.findMany({
       where: { clientId },
       select: {
-        id: true, tool: true, source: true, seoIntent: true, score: true,
+        id: true, tool: true, source: true, seoIntent: true, score: true, scoreBreakdown: true,
         completedAt: true, createdAt: true, sessionId: true, siteAuditId: true, adaAuditId: true,
       },
     }),

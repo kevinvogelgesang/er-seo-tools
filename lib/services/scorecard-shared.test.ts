@@ -40,6 +40,33 @@ describe('buildSeries', () => {
   })
 })
 
+describe('buildSeries version awareness', () => {
+  it('computes a numeric delta within one version', () => {
+    const s = buildSeries([
+      { date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 1 },
+      { date: '2026-07-01T00:00:00Z', score: 80, scoreVersion: 1 },
+    ])
+    expect(s.delta).toBe(10)
+    expect(s.formulaChanged).toBe(false)
+  })
+  it('suppresses the delta across a v1→v2 boundary', () => {
+    const s = buildSeries([
+      { date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 1 },
+      { date: '2026-07-01T00:00:00Z', score: 90, scoreVersion: 2 },
+    ])
+    expect(s.delta).toBeNull()
+    expect(s.formulaChanged).toBe(true)
+  })
+  it('treats an absent version as 1', () => {
+    const s = buildSeries([
+      { date: '2026-06-01T00:00:00Z', score: 70 },
+      { date: '2026-07-01T00:00:00Z', score: 80 },
+    ])
+    expect(s.delta).toBe(10)
+    expect(s.formulaChanged).toBe(false)
+  })
+})
+
 describe('buildSeoSeries', () => {
   it('uses completedAt ?? createdAt, skips null scores, builds latestHref from sessionId', () => {
     const { series, latestHref } = buildSeoSeries([
@@ -99,6 +126,24 @@ describe('buildAdaSeries', () => {
   it('site latestHref points at the site audit', () => {
     const { latestHref } = buildAdaSeries([siteRun], [])
     expect(latestHref).toBe('/ada-audit/site/sa-1')
+  })
+
+  it('attaches scoreVersion from scoreBreakdown and suppresses the delta across a formula-version boundary (C9-A)', () => {
+    const v1Run = { ...siteRun, score: 60, completedAt: D('2026-05-01T00:00:00.000Z'), createdAt: D('2026-05-01T00:00:00.000Z'), scoreBreakdown: null }
+    const v2Run = { ...siteRun, score: 85, completedAt: D('2026-06-10T00:00:00.000Z'), createdAt: D('2026-06-10T00:00:00.000Z'), scoreBreakdown: JSON.stringify({ version: 2 }) }
+    const { series } = buildAdaSeries([v1Run, v2Run], [])
+    expect(series.points.map((p) => p.scoreVersion)).toEqual([1, 2])
+    expect(series.delta).toBeNull()
+    expect(series.formulaChanged).toBe(true)
+  })
+
+  it('legacy AdaAudit rows always contribute a v1 point (predate score versioning)', () => {
+    const { series } = buildAdaSeries(
+      [{ ...pageRun, scoreBreakdown: JSON.stringify({ version: 2 }) }],
+      [legacy('ada-2', 60, '2026-06-01T00:00:00.000Z')],
+    )
+    expect(series.points.map((p) => p.scoreVersion)).toEqual([1, 2])
+    expect(series.formulaChanged).toBe(true)
   })
 })
 

@@ -107,6 +107,26 @@ describe('buildSiteReportHtml', () => {
       const html = buildSiteReportHtml(fixture({ trend: trendPoints(12) }))
       expect(html).toContain('<polyline')
     })
+    it('marks a v1→v2 boundary with a dashed segment and an escaped annotation, not a plain solid line', () => {
+      const html = buildSiteReportHtml(fixture({
+        trend: [
+          { date: '2026-05-01T00:00:00.000Z', score: 50, scoreVersion: 1 },
+          { date: '2026-06-01T00:00:00.000Z', score: 70, scoreVersion: 2 },
+        ],
+      }))
+      expect(html).toContain('stroke-dasharray')
+      expect(html).toContain('formula changed')
+    })
+    it('draws a plain solid polyline within one version (no boundary marker)', () => {
+      const html = buildSiteReportHtml(fixture({
+        trend: [
+          { date: '2026-05-01T00:00:00.000Z', score: 50, scoreVersion: 1 },
+          { date: '2026-06-01T00:00:00.000Z', score: 70, scoreVersion: 1 },
+        ],
+      }))
+      expect(html).not.toContain('stroke-dasharray')
+      expect(html).not.toContain('formula changed')
+    })
   })
 
   describe('changes since previous audit', () => {

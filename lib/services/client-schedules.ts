@@ -8,6 +8,7 @@
 import { prisma } from '@/lib/db'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
 import { getRunPairInstanceDiff } from './site-audit-diff'
+import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
 
 export interface ClientScheduleRow {
   id: string
@@ -47,7 +48,7 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
       scheduleId: true,
       status: true,
       completedAt: true,
-      crawlRuns: { where: { tool: 'ada-audit' }, select: { id: true, score: true } },
+      crawlRuns: { where: { tool: 'ada-audit' }, select: { id: true, score: true, scoreBreakdown: true } },
     },
   })
 
@@ -97,8 +98,12 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
             resolvedCount,
           }
         : null,
+      // C9-A: never diff a score across a formula-version boundary (absent
+      // scoreBreakdown = v1). A v1↔v2 pair suppresses the delta entirely —
+      // the UI already treats null as "no delta shown."
       lastDelta:
-        last?.status === 'complete' && lastScore !== null && prevScore !== null
+        last?.status === 'complete' && lastScore !== null && prevScore !== null &&
+        parseScoreVersion(last.crawlRuns[0]?.scoreBreakdown) === parseScoreVersion(prevAudit?.crawlRuns[0]?.scoreBreakdown)
           ? lastScore - prevScore
           : null,
     }

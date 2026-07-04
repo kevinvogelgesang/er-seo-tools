@@ -49,7 +49,7 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
       where: { clientId: { not: null } },
       select: {
         id: true, clientId: true, tool: true, source: true, seoIntent: true, domain: true, score: true,
-        completedAt: true, createdAt: true, sessionId: true, siteAuditId: true, adaAuditId: true,
+        scoreBreakdown: true, completedAt: true, createdAt: true, sessionId: true, siteAuditId: true, adaAuditId: true,
       },
     }),
     prisma.adaAudit.findMany({
