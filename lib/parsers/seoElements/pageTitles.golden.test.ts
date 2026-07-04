@@ -104,3 +104,34 @@ it('static routing survives the refactor (filenamePattern + matchesFile)', () =>
   expect(H2Parser.matchesFile('h2_all.csv')).toBe(true);
   expect((PageTitlesParser as unknown as { parserKey: string }).parserKey).toBe('pagetitles');
 });
+
+it('nonzero excluded_urls: non-indexable/non-HTML rows drop from the page set', () => {
+  // With an Indexability column present, non-indexable rows are excluded →
+  // excluded_urls = total rows - indexable-HTML rows.
+  const csv = [
+    'Address,Title 1,Indexability',
+    'https://ex.com/a,Good Title Here,Indexable',
+    'https://ex.com/b,Another Good Title,Non-Indexable',
+  ].join('\n');
+  const out = new PageTitlesParser(csv).parse() as { total_pages: number; excluded_urls: number };
+  expect(out.total_pages).toBe(1);
+  expect(out.excluded_urls).toBe(1);
+});
+
+it('mask-fallback branch: every row Non-Indexable → getSeoRelevantMask path', () => {
+  // Correction from the task brief: an ABSENT Indexability column does NOT trigger
+  // this branch — base.parser.ts's getIndexableMask() defaults to all-true when the
+  // column is missing, so getIndexableHtmlMask() stays all-true and hasIndexable
+  // stays true. The fallback (`!hasIndexable`) only fires when getIndexableHtmlMask()
+  // is all-false, e.g. every row is explicitly marked Non-Indexable. Verified via
+  // branch-coverage instrumentation: this CSV closes the length-validator.base.ts:33
+  // uncovered branch; the brief's literal "no Indexability column" CSV does not.
+  const csv = [
+    'Address,Title 1,Indexability',
+    'https://ex.com/a,Good Title Here,Non-Indexable',
+    'https://ex.com/b,Another Good Title,Non-Indexable',
+  ].join('\n');
+  const out = new PageTitlesParser(csv).parse() as { total_pages: number; excluded_urls: number };
+  expect(out.total_pages).toBe(2);
+  expect(out.excluded_urls).toBe(0);
+});
