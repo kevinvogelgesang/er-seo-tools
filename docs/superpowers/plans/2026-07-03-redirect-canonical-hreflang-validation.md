@@ -269,16 +269,17 @@ git commit -m "refactor(c6-p4): checkUrl delegates to resolveUrl (behavior uncha
 
 - [ ] **Step 1: Write the failing test** (update the hreflang case in `parse-seo-dom.test.ts`)
 
+FIRST open `lib/ada-audit/seo/parse-seo-dom.test.ts` and use its EXISTING DOM-construction helper (the file builds a `JSDOM` and passes `dom.window.document`/`dom.window` into `parseSeoFromDocument` — it does NOT use vitest globals). Mirror that helper (whatever it is named — e.g. `parse(html)` / `dom(html)`); do not introduce `document`/`window` globals. Replace the old `hreflang: string[]` assertion with:
+
 ```ts
 it('harvests hreflang as {lang, href} pairs, dedupes by lang keep-first, keeps raw href', () => {
-  document.head.innerHTML = `
-    <link rel="alternate" hreflang="en" href="https://x.com/en">
-    <link rel="alternate" hreflang="fr" href="/fr">
-    <link rel="alternate" hreflang="en" href="https://x.com/en-dup">
-    <link rel="alternate" hreflang="x-default" href="https://x.com/">
-    <link rel="alternate" hreflang="" href="https://x.com/empty">
-  `
-  const seo = parseSeoFromDocument(document, window)
+  // build the page via THIS FILE's existing JSDOM helper; the <head> contains:
+  //   <link rel="alternate" hreflang="en" href="https://x.com/en">
+  //   <link rel="alternate" hreflang="fr" href="/fr">
+  //   <link rel="alternate" hreflang="en" href="https://x.com/en-dup">
+  //   <link rel="alternate" hreflang="x-default" href="https://x.com/">
+  //   <link rel="alternate" hreflang="" href="https://x.com/empty">
+  const seo = parseWithHelper(/* the file's helper */ HEAD_HTML)
   expect(seo.hreflang).toEqual([
     { lang: 'en', href: 'https://x.com/en' },     // keep-first (dup 'en' dropped)
     { lang: 'fr', href: '/fr' },                  // raw relative href preserved
@@ -286,8 +287,6 @@ it('harvests hreflang as {lang, href} pairs, dedupes by lang keep-first, keeps r
   ]) // empty-lang entry dropped
 })
 ```
-
-(Match the test file's existing setup style — jsdom environment, `afterEach(cleanup)` if present, and however it constructs `document`. Remove/replace the old `hreflang: string[]` assertion.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -355,8 +354,9 @@ git commit -m "feat(c6-p4): harvest hreflang as {lang,href} pairs (es2017 helper
   - `interface ValidationSeoRow { url: string; canonicalUrl: string | null; hreflang: HreflangEntry[] }`
   - `interface ValidationLink { sourcePageUrl: string; targetUrl: string }` (internal-link only)
   - `interface ResolveLookup { get(normUrl: string): ResolveResult | undefined }`
-  - `interface ValidationMapDeps { runId: string; ensurePage: (url: string, scalars?: Partial<CrawlPageInput>) => CrawlPageInput; auditedHost: string }`
+  - `interface ValidationMapDeps { runId: string; ensurePage: (url: string, scalars?: Partial<CrawlPageInput>) => CrawlPageInput; auditedHost: string; affectedComplete: boolean }`
   - `function mapValidationFindings(seoRows: ValidationSeoRow[], links: ValidationLink[], resolve: ResolveLookup, deps: ValidationMapDeps): FindingInput[]`
+  - `affectedComplete` is `false` when the builder capped the validation resolution set (Codex plan-fix); external-unverified run notices are always complete (externals are never resolved, so the cap can't truncate them).
 
 **Finding types produced:** `canonical_broken`, `canonical_redirect`, `redirect_chain`, `redirect_loop`, `hreflang_broken`, `hreflang_no_return`, `hreflang_missing_self`, `hreflang_missing_x_default`, `hreflang_invalid_code`, `canonical_external_unverified` (run-only), `hreflang_external_unverified` (run-only). Broken-link types (`broken_*`) are NOT produced here — they stay in `broken-link-mapper`.
 
@@ -392,7 +392,7 @@ function makeDeps() {
     if (!p) { p = { id: randomUUID(), runId: 'R', url: u, status: null, error: null, finalUrl: null, statusCode: null, title: null, h1: null, metaDescription: null, wordCount: null, crawlDepth: null, indexable: null, score: null, passCount: null, incompleteCount: null, adaAuditId: null }; pages.push(p); byUrl.set(u, p) }
     return p
   }
-  return { runId: 'R', ensurePage, auditedHost: 'x.com', pages }
+  return { runId: 'R', ensurePage, auditedHost: 'x.com', affectedComplete: true, pages }
 }
 
 describe('mapValidationFindings', () => {
@@ -516,6 +516,7 @@ export interface ValidationMapDeps {
   runId: string
   ensurePage: (url: string, scalars?: Partial<CrawlPageInput>) => CrawlPageInput
   auditedHost: string
+  affectedComplete: boolean   // false when the builder capped the validation resolution set
 }
 
 const SEVERITY: Record<string, FindingInput['severity']> = {
@@ -542,7 +543,7 @@ const LANG_RE = /^([a-z]{2,3}(-[A-Za-z0-9]{2,8})*|x-default)$/i
 const URLS_PER_FINDING = 25
 
 export function mapValidationFindings(seoRows: ValidationSeoRow[], links: ValidationLink[], resolve: ResolveLookup, deps: ValidationMapDeps): FindingInput[] {
-  const { runId, ensurePage, auditedHost } = deps
+  const { runId, ensurePage, auditedHost, affectedComplete } = deps
   const findings: FindingInput[] = []
 
   // page -> type -> affected target url list (aggregation buffer). Run-scope count
@@ -624,17 +625,17 @@ export function mapValidationFindings(seoRows: ValidationSeoRow[], links: Valida
   const pageTypeCounts = new Map<string, number>()
   for (const [, byType] of pageHits) for (const [type] of byType) pageTypeCounts.set(type, (pageTypeCounts.get(type) ?? 0) + 1)
 
-  // Emit run-scope + page-scope findings.
+  // Emit run-scope + page-scope findings. (affectedComplete threaded from deps.)
   for (const [type, pageCount] of pageTypeCounts) {
     findings.push({ id: randomUUID(), runId, pageId: null, scope: 'run', type, severity: SEVERITY[type] ?? 'notice',
-      url: null, count: pageCount, affectedComplete: true, affectedSource: sourceOf(type),
+      url: null, count: pageCount, affectedComplete, affectedSource: sourceOf(type),
       detail: JSON.stringify({ description: DESC[type] ?? type }), dedupKey: runFindingKey(type) })
   }
   for (const [page, byType] of pageHits) {
     for (const [type, targets] of byType) {
       const p = ensurePage(page)
       findings.push({ id: randomUUID(), runId, pageId: p.id, scope: 'page', type, severity: SEVERITY[type] ?? 'notice',
-        url: page, count: targets.length, affectedComplete: true, affectedSource: sourceOf(type),
+        url: page, count: targets.length, affectedComplete, affectedSource: sourceOf(type),
         detail: JSON.stringify({ targets: targets.slice(0, URLS_PER_FINDING) }), dedupKey: pageFindingKey(type, page) })
     }
   }
@@ -682,39 +683,44 @@ git commit -m "feat(c6-p4): validation-mapper — canonical/redirect/hreflang fi
 
 - [ ] **Step 1: Write the failing test** (add to the existing DB-backed suite)
 
+FIRST read `lib/jobs/handlers/broken-link-verify.test.ts`: reuse its EXISTING `SiteAudit` seeding helper AND its cleanup DOMAIN (do NOT introduce `x.com` if the file scopes cleanup to a specific domain — use that domain; Codex flagged `x.com` as outside the file's cleanup). Import `normalizeFindingUrl` from `@/lib/findings/normalize-url` (or `@/lib/findings/keys`). Type the stub `resolve` as `VerifyDeps['resolve']` so `result` literals don't widen to `string`. Substitute `<DOMAIN>` with the file's cleanup domain below:
+
 ```ts
+import type { VerifyDeps } from './broken-link-verify'
+// ... normalizeFindingUrl imported at top ...
+
 it('emits canonical/redirect/hreflang validation findings in the live-scan run', async () => {
-  // seed a SiteAudit + HarvestedLink + HarvestedPageSeo (canonical + hreflang) — mirror the
-  // existing seeding helper in this file. One page /a with a same-domain canonical that
-  // redirects, one internal link /t that redirects, one dead same-domain hreflang alternate.
-  const siteAuditId = await seedAudit({ domain: 'x.com', pagesTotal: 1 })
+  const siteAuditId = await <existingSeedHelper>({ domain: '<DOMAIN>', pagesTotal: 1 })
   await prisma.harvestedLink.createMany({ data: [
-    { siteAuditId, sourcePageUrl: 'https://x.com/a', targetUrl: 'https://x.com/t', kind: 'internal-link', harvestTruncated: false },
+    { siteAuditId, sourcePageUrl: 'https://<DOMAIN>/a', targetUrl: 'https://<DOMAIN>/t', kind: 'internal-link', harvestTruncated: false },
   ] })
   await prisma.harvestedPageSeo.create({ data: {
-    siteAuditId, url: normalizeFindingUrl('https://x.com/a'), statusCode: 200, isHtml: true,
-    canonicalUrl: 'https://x.com/canon', robotsNoindex: false, loginLike: false,
-    detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [{ lang: 'fr', href: 'https://x.com/dead' }] }),
+    siteAuditId, url: normalizeFindingUrl('https://<DOMAIN>/a'), statusCode: 200, isHtml: true,
+    canonicalUrl: 'https://<DOMAIN>/canon', robotsNoindex: false, loginLike: false,
+    detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [{ lang: 'fr', href: 'https://<DOMAIN>/dead' }] }),
   } })
-  const resolve = async (url: string) => {
-    if (url.includes('/t')) return { result: 'ok', finalUrl: 'https://x.com/t2', status: 200, hops: 1, chain: ['https://x.com/t2'], tooManyRedirects: false }
-    if (url.includes('/canon')) return { result: 'ok', finalUrl: 'https://x.com/canon2', status: 200, hops: 1, chain: ['https://x.com/canon2'], tooManyRedirects: false }
+  const resolve: VerifyDeps['resolve'] = async (url) => {
+    if (url.includes('/t')) return { result: 'ok', finalUrl: 'https://<DOMAIN>/t2', status: 200, hops: 1, chain: ['https://<DOMAIN>/t2'], tooManyRedirects: false }
+    if (url.includes('/canon')) return { result: 'ok', finalUrl: 'https://<DOMAIN>/canon2', status: 200, hops: 1, chain: ['https://<DOMAIN>/canon2'], tooManyRedirects: false }
     if (url.includes('/dead')) return { result: 'broken', finalUrl: null, status: 404, hops: 0, chain: [], tooManyRedirects: false }
     return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }
   }
-  await runBrokenLinkVerify({ siteAuditId, domain: 'x.com' }, { resolve, now: () => Date.now(), sleep: async () => {} })
-  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } }, select: { findings: { select: { scope: true, type: true, count: true } } } })
+  await runBrokenLinkVerify({ siteAuditId, domain: '<DOMAIN>' }, { resolve, now: () => Date.now(), sleep: async () => {} })
+  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } }, select: { status: true, findings: { select: { scope: true, type: true, count: true } } } })
   const types = new Set(run!.findings.map((f) => f.type))
   expect(types.has('redirect_chain')).toBe(true)
   expect(types.has('canonical_redirect')).toBe(true)
   expect(types.has('hreflang_broken')).toBe(true)
-  // transient tables cleaned
   expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
   expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBe(0)
 })
 ```
 
-(Reuse whatever audit-seeding helper the existing tests in this file use; if none, create the `SiteAudit` inline with the required non-null fields as the other tests do.)
+Also add, in the SAME file:
+- **Dedup-once test:** one URL used as internal-link target AND a page's canonical resolves through the shared cache exactly once (assert the stub `resolve` is called once for that URL via a call-count spy) yet still yields both a `broken_internal_links`/`redirect_chain` AND a `canonical_*` finding as applicable.
+- **Cap→partial test:** set `process.env.BROKEN_LINK_MAX_CHECKS = '1'`, seed 1 legacy link + 1 canonical-only target, assert the canonical-only target is NOT resolved (cap consumed by the legacy link) and `run.status === 'partial'`. Restore the env in `afterEach`.
+
+**Also update `lib/jobs/handlers/broken-link-verify.graph.test.ts`** (Codex-flagged): its `VerifyDeps` stub uses `checkUrl` — change it to the new `resolve` shape (return a full `ResolveResult`) so it compiles under the changed `VerifyDeps`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -748,7 +754,11 @@ const productionDeps: VerifyDeps = {
 
 3. **Add `canonicalUrl` + `detailsJson` to the `seoRows` select** (the `prisma.harvestedPageSeo.findMany` select gains `canonicalUrl: true, detailsJson: true`).
 
-4. **Build the ordered, dedup'd, same-domain resolution set + cache.** Replace the current worker (which pushes into `broken`) with a cache-filling worker. `auditedHost` = `site.domain ?? job.domain ?? ''`.
+4. **Reorder + replace the worker (Codex plan-fix — Task 5 does NOT compose literally otherwise).** In the CURRENT function the order is: build `toCheck` + `cap`/`capped` (~L128) → old worker loop that fills `broken[]` (~L133–158) → `seoRows = harvestedPageSeo.findMany(...)` (~L160). Two structural edits:
+   - **(a) Move the `seoRows` findMany block ABOVE the resolution-set construction** (it must exist before `validationRows` reads it). The later graph/on-page/score code keeps using the same `seoRows` — moving it up is safe. Add `canonicalUrl: true, detailsJson: true` to its select (step 3 above).
+   - **(b) DELETE the old worker block entirely** — the `let checked = 0`, `let unconfirmed = 0`, `let cursor = 0`, `const broken: BrokenTarget[] = []`, the `const worker = async () => {...}`, and its `await Promise.all(...)`. **KEEP** `const throttle = new HostThrottle(HOST_DELAY(), deps)`. `checked`/`unconfirmed`/`broken` are re-declared in step 5 from the cache.
+
+   Then build the ordered, dedup'd, same-domain resolution set + cache-filling worker. `auditedHost` = `(site.domain ?? job.domain ?? '')`.
 
 ```ts
   const auditedHost = (site.domain ?? job.domain ?? '').toLowerCase()
@@ -823,9 +833,10 @@ const productionDeps: VerifyDeps = {
   }
 ```
 
-6. **Call `mapValidationFindings`** after `onPageFindings`/`brokenFindings` and merge:
+6. **Call `mapValidationFindings`** after `onPageFindings`/`brokenFindings` and merge (thread `affectedComplete: !cappedValidation`):
 ```ts
-  const validationFindings = mapValidationFindings(validationRows, internalLinks, cache, { runId, ensurePage, auditedHost })
+  const validationFindings = mapValidationFindings(validationRows, internalLinks, cache,
+    { runId, ensurePage, auditedHost, affectedComplete: !cappedValidation })
   const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...validationFindings]
 ```
 
@@ -1018,6 +1029,8 @@ And render it immediately after `<OnPageSeoSection … />` (line ~215):
 ```
 (No extra query — `liveScanRun` already carries the findings; the share view (`SiteAuditResultsView shareMode`) does not render these sections, so no share-page change.)
 
+**Known limitation (Codex plan-fix, documented not fixed):** `analyzed` reuses `onPageAnalyzed` (a CrawlPage with `statusCode != null`), which is also true for pre-Phase-4 live-scan runs (Phase 2/3). Such an older run has no validation findings, so `TechnicalSeoSection` renders "clean" for it even though validation never ran. This is a transient, self-healing cosmetic gap — the next audit rebuilds the run with validation, and we deliberately avoid a schema migration for a marker. Note it in the post-merge verification + the handoff so it isn't mistaken for a bug. (Do NOT add a durable Phase-4 marker in this increment.)
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -1038,14 +1051,16 @@ npm run build
 ```
 Expected: tsc clean · all tests pass (new: url-resolver, validation-mapper, broken-link-verify validation case, TechnicalSeoSection; unchanged: broken-link-check) · build clean.
 
-- [ ] **Step 2: Re-run the es2017 helper-free gate on the deployed-shape file** (belt-and-suspenders before PR)
+- [ ] **Step 2: Authoritative helper-free gate on the REAL build output** (Codex plan-fix — esbuild is only a precheck; SWC/Next is the prod compiler)
+
+The `npm run build` in Step 1 emits the actual SWC-compiled bundle. Grep it for escaping helpers in the `parseSeoFromDocument`/parse-seo-dom emit (the injected fn is bundled into the site-audit-page path):
 
 ```bash
-npx esbuild lib/ada-audit/seo/parse-seo-dom.ts --target=es2017 --format=esm 2>/dev/null \
-  | grep -nE '_type_of|_define_property|_to_consumable_array|_object_spread|__spread|__assign|_ts_' \
-  && echo "HELPER LEAKED" || echo "clean"
+grep -rlE 'parseSeoFromDocument|link\[rel="alternate"\]\[hreflang\]' .next/server 2>/dev/null \
+  | xargs grep -lE '_type_of|_to_consumable_array|_object_spread|_sliced_to_array|__spread|__assign|_create_class' 2>/dev/null \
+  && echo "HELPER LEAKED NEAR INJECTED FN — DO NOT MERGE" || echo "clean: no escaping helper in the built parse-seo-dom path"
 ```
-Expected: `clean`.
+Expected: `clean: ...`. (The esbuild es2017 grep in Task 3 Step 5 stays as the fast pre-check during development.)
 
 - [ ] **Step 3: Push + open PR**
 
