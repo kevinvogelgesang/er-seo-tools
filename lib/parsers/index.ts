@@ -1,4 +1,5 @@
 import { BaseParser } from './base.parser';
+import type { ParserClass } from './header-map';
 import { InternalParser } from './internal.parser';
 
 // SEO Elements
@@ -64,7 +65,7 @@ import { SemrushOrganicPositionsParser, SemrushOrganicPagesParser, SemrushPositi
 import { IssuesOverviewParser, BestPracticeParser, CarbonParser } from './issues';
 
 // Parser registry - all available parsers
-export const PARSERS: Array<typeof BaseParser> = [
+export const PARSERS: ParserClass[] = [
   // Core (highest priority)
   InternalParser,
 
@@ -144,7 +145,7 @@ export const PARSERS: Array<typeof BaseParser> = [
 ];
 
 // Parser map by name for easy lookup
-export const PARSER_MAP: Record<string, typeof BaseParser> = {
+export const PARSER_MAP: Record<string, ParserClass> = {
   internal: InternalParser,
   // Issues Overview
   issuesoverview: IssuesOverviewParser,
@@ -214,7 +215,7 @@ export const PARSER_MAP: Record<string, typeof BaseParser> = {
 export function findParserForFile(
   filename: string,
   rawContent?: string
-): typeof BaseParser | null {
+): ParserClass | null {
   // 1. Filename-based detection (fast path, covers all SF parsers)
   for (const ParserClass of PARSERS) {
     if (ParserClass.matchesFile(filename)) {

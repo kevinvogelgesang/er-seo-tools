@@ -1,0 +1,283 @@
+{
+  "total_hyperlinks": 10485,
+  "followed_links": 10485,
+  "nofollowed_links": 0,
+  "unique_anchors": 311,
+  "top_anchors": [
+    {
+      "anchor": "medical office specialist",
+      "count": 302
+    },
+    {
+      "anchor": "financial aid",
+      "count": 284
+    },
+    {
+      "anchor": "medical assistant",
+      "count": 272
+    },
+    {
+      "anchor": "comprehensive accounting with computer operations",
+      "count": 272
+    },
+    {
+      "anchor": "clinical technician",
+      "count": 272
+    },
+    {
+      "anchor": "medical billing & administrative specialist",
+      "count": 272
+    },
+    {
+      "anchor": "english as a second language (esl)",
+      "count": 272
+    },
+    {
+      "anchor": "bookkeeping",
+      "count": 272
+    },
+    {
+      "anchor": "apply now",
+      "count": 181
+    },
+    {
+      "anchor": "career services at msct get support with internships, job placement, resume reviews, mock interviews, and career counseling.",
+      "count": 180
+    },
+    {
+      "anchor": "meet our team meet the experienced industry professionals who lead your training.",
+      "count": 180
+    },
+    {
+      "anchor": "brooklyn, ny",
+      "count": 180
+    },
+    {
+      "anchor": "canvas login",
+      "count": 180
+    },
+    {
+      "anchor": "canvas log in to canvas to access your course materials, assignments, grades, and instructor communications.",
+      "count": 180
+    },
+    {
+      "anchor": "book an appointment take the first step and explore our campus in person.",
+      "count": 180
+    },
+    {
+      "anchor": "admissions find out how to apply, what to expect, and why msct could be the right fit for you.",
+      "count": 180
+    },
+    {
+      "anchor": "job listings find job openings and take the next step in your career.",
+      "count": 180
+    },
+    {
+      "anchor": "learn about student services",
+      "count": 180
+    },
+    {
+      "anchor": "international students learn about visa requirements, support services, and how to apply from abroad.",
+      "count": 180
+    },
+    {
+      "anchor": "contact us have questions? get in touch with our team.",
+      "count": 180
+    }
+  ],
+  "link_positions": {
+    "Header": 2751,
+    "Content": 1823,
+    "Footer": 3602,
+    "Navigation": 2309
+  },
+  "pages_with_varied_anchors": [
+    {
+      "url": "https://www.virtualadviser.com/privacypolicy.html",
+      "uniqueAnchors": 22
+    },
+    {
+      "url": "https://manhattanschool.edu/programs/comprehensive-accounting-with-computer-operations/",
+      "uniqueAnchors": 21
+    },
+    {
+      "url": "https://manhattanschool.edu/programs/medical-office-specialist/",
+      "uniqueAnchors": 21
+    },
+    {
+      "url": "https://manhattanschool.edu/programs/clinical-technician/",
+      "uniqueAnchors": 20
+    },
+    {
+      "url": "https://manhattanschool.edu/programs/medical-assistant/",
+      "uniqueAnchors": 19
+    },
+    {
+      "url": "https://manhattanschool.edu/programs/bookkeeping/",
+      "uniqueAnchors": 19
+    },
+    {
+      "url": "https://manhattanschool.edu/programs/medical-billing-administrative-specialist/",
+      "uniqueAnchors": 17
+    },
+    {
+      "url": "https://manhattanschool.edu/programs/english-as-a-second-language-esl/",
+      "uniqueAnchors": 17
+    },
+    {
+      "url": "https://manhattanschool.edu/campussafetysecurityreport/",
+      "uniqueAnchors": 14
+    },
+    {
+      "url": "https://manhattanschool.edu/book-tour/",
+      "uniqueAnchors": 10
+    },
+    {
+      "url": "https://manhattanschool.edu/admissions/",
+      "uniqueAnchors": 9
+    },
+    {
+      "url": "https://manhattanschool.edu/financial-aid/",
+      "uniqueAnchors": 9
+    },
+    {
+      "url": "https://manhattanschool.edu/apply-online/",
+      "uniqueAnchors": 8
+    },
+    {
+      "url": "https://manhattanschool.edu/",
+      "uniqueAnchors": 6
+    },
+    {
+      "url": "https://manhattanschool.edu/book-a-tour/",
+      "uniqueAnchors": 6
+    },
+    {
+      "url": "https://cr-msct.virtualadviser.com/?lead_src=cro_toolbar",
+      "uniqueAnchors": 6
+    },
+    {
+      "url": "https://manhattanschool.edu/international-students/",
+      "uniqueAnchors": 6
+    },
+    {
+      "url": "https://manhattanschool.edu/student-success/",
+      "uniqueAnchors": 6
+    },
+    {
+      "url": "https://manhattanschool.edu/articles/",
+      "uniqueAnchors": 6
+    },
+    {
+      "url": "https://manhattanschool.edu/category/healthcare/",
+      "uniqueAnchors": 6
+    }
+  ],
+  "stats": {
+    "total_hyperlinks": 10485,
+    "unique_anchor_texts": 311,
+    "empty_anchors": 50,
+    "non_descriptive_anchors": 14,
+    "followed_percentage": 100
+  },
+  "issues": [
+    {
+      "type": "empty_anchor_text",
+      "severity": "warning",
+      "count": 50,
+      "description": "50 internal links with empty anchor text",
+      "urls": [
+        "https://manhattanschool.edu/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/medical-assistant/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/medical-assistant/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/medical-assistant/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/career-services-support/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/career-services-support/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/career-services-support/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/faculty/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/faculty/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/faculty/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/locations/brooklyn-campus/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/locations/brooklyn-campus/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/locations/brooklyn-campus/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/comprehensive-accounting-with-computer-operations/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/comprehensive-accounting-with-computer-operations/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/programs/comprehensive-accounting-with-computer-operations/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/book-a-tour/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/book-a-tour/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/book-a-tour/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/book-a-tour/?lead_src=cro_toolbar -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/book-a-tour/?lead_src=cro_toolbar -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/book-a-tour/?lead_src=cro_toolbar -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/privacy-policy/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/privacy-policy/ -> https://manhattanschool.edu/",
+        "https://manhattanschool.edu/privacy-policy/ -> https://manhattanschool.edu/"
+      ]
+    },
+    {
+      "type": "non_descriptive_anchor_text",
+      "severity": "notice",
+      "count": 14,
+      "description": "14 internal links with non-descriptive anchor text (e.g., \"click here\", \"read more\")",
+      "urls": [
+        "https://manhattanschool.edu/programs/medical-assistant/ -> \"Details\" -> https://manhattanschool.edu/programs/medical-assistant/",
+        "https://manhattanschool.edu/programs/ -> \"Learn more\" -> https://manhattanschool.edu/programs/medical-assistant/",
+        "https://manhattanschool.edu/programs/ -> \"Learn more\" -> https://manhattanschool.edu/programs/comprehensive-accounting-with-computer-operations/",
+        "https://manhattanschool.edu/programs/comprehensive-accounting-with-computer-operations/ -> \"Details\" -> https://manhattanschool.edu/programs/comprehensive-accounting-with-computer-operations/",
+        "https://manhattanschool.edu/programs/ -> \"Learn more\" -> https://manhattanschool.edu/programs/clinical-technician/",
+        "https://manhattanschool.edu/programs/clinical-technician/ -> \"Details\" -> https://manhattanschool.edu/programs/clinical-technician/",
+        "https://manhattanschool.edu/programs/ -> \"Learn more\" -> https://manhattanschool.edu/programs/medical-billing-administrative-specialist/",
+        "https://manhattanschool.edu/programs/medical-billing-administrative-specialist/ -> \"Details\" -> https://manhattanschool.edu/programs/medical-billing-administrative-specialist/",
+        "https://manhattanschool.edu/programs/ -> \"Learn more\" -> https://manhattanschool.edu/programs/english-as-a-second-language-esl/",
+        "https://manhattanschool.edu/programs/english-as-a-second-language-esl/ -> \"Details\" -> https://manhattanschool.edu/programs/english-as-a-second-language-esl/",
+        "https://manhattanschool.edu/programs/ -> \"Learn more\" -> https://manhattanschool.edu/programs/medical-office-specialist/",
+        "https://manhattanschool.edu/programs/medical-office-specialist/ -> \"Details\" -> https://manhattanschool.edu/programs/medical-office-specialist/",
+        "https://manhattanschool.edu/programs/ -> \"Learn more\" -> https://manhattanschool.edu/programs/bookkeeping/",
+        "https://manhattanschool.edu/programs/bookkeeping/ -> \"Details\" -> https://manhattanschool.edu/programs/bookkeeping/"
+      ]
+    },
+    {
+      "type": "single_anchor_variation",
+      "severity": "notice",
+      "count": 77,
+      "description": "77 pages receive internal links with only one anchor text variation. Consider diversifying anchor text.",
+      "urls": [
+        "https://translate.google.com/",
+        "https://manhattanschool.edu/career-placement-support/",
+        "https://www.google.com/search?q=manhattan+school+of+computer+technology&rlz=1C5CHFA_enCA994CA994&oq=manhattan+school+&gs_lcrp=EgZjaHJvbWUqBggDEEUYOzIKCAAQABjjAhiABDIHCAEQLhiABDIGCAIQRRg5MgYIAxBFGDsyBwgEEAAYgAQyBggFEEUYPDIGCAYQRRg9MgYIBxBFGD3SAQg1NDAwajBqN6gCALACAA&sourceid=chrome&ie=UTF-8",
+        "https://cr-msct.virtualadviser.com/?lead_src=w-header",
+        "https://manhattanschool.edu/admissions",
+        "https://jobs.appone.com/msct",
+        "https://manhattanschool.edu/student-success",
+        "https://login.pearson.com/v1/piapi/piui/signin?client_id=cGnFEyiajGgv2EhcShCPBa7jqwSFpSG5&login_success_url=https:%2F%2Freader-prod.gls.pearson-intl.com%2Fbookshelf%3FiesCode%3DEuppyiSUYk",
+        "http://quiz/",
+        "https://www.bls.gov/ooh/healthcare/medical-assistants.htm",
+        "https://www.bls.gov/oes/tables.htm",
+        "https://manhattanschool.edu/cdn-cgi/l/email-protection",
+        "https://www.google.com/maps/place/931+Coney+Island+Ave,+Brooklyn,+NY+11230/@40.6347189,-73.9670398,17z/",
+        "https://www.isoa.org/",
+        "https://www.bklynlibrary.org/",
+        "https://zoom.us/",
+        "https://community.instructure.com/en/kb/canvas-lms-student-guide",
+        "https://community.instructure.com/en/kb/canvas_mobile-app-android-guide",
+        "https://community.instructure.com/en/kb/canvas_mobile-app-ios-guide",
+        "https://community.instructure.com/en/kb/canvas-video-guides",
+        "https://community.instructure.com/en/kb/canvas-lms-instructor-guide",
+        "https://www.bls.gov/ooh/office-and-administrative-support/bookkeeping-accounting-and-auditing-clerks.htm",
+        "https://manhattanschool.edu/student-services/",
+        "https://www.hesc.ny.gov/find-aid/nys-grants-scholarships/tuition-assistance-program-tap/",
+        "https://fafsa.gov/",
+        "https://studentaid.gov/understand-aid/types/loans",
+        "https://www.hesc.ny.gov/home/",
+        "https://studentaid.gov/understand-aid/types/grants/pell",
+        "https://manhattanschool.edu/about-us-msct",
+        "https://studentaid.gov/h/apply-for-aid/fafsa"
+      ]
+    }
+  ]
+}

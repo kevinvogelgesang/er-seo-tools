@@ -1,0 +1,19 @@
+{
+  "total_images": 496,
+  "stats": {
+    "large_images": 2,
+    "very_large_images": 0
+  },
+  "issues": [
+    {
+      "type": "large_images",
+      "severity": "warning",
+      "count": 2,
+      "description": "2 large images (> 100KB)",
+      "urls": [
+        "https://manhattanschool.edu/wp-content/uploads/2026/01/comprehensive_accounting_with_computer_operations_hybrid_2026-01-29_1717.png",
+        "https://msct.b-cdn.net/wp-content/uploads/2022/07/July-15-Medical-Office-Specialist-working-in-a-hospital.jpg"
+      ]
+    }
+  ]
+}
