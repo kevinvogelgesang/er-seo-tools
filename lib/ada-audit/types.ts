@@ -40,6 +40,10 @@ export interface AxeViolation {
   nodes: AxeNode[]
   /** @deprecated 2026-05-26 — new audits set screenshotPath on each AxeNode. Kept for legacy audits. */
   screenshotPath?: string
+  /** Raw pre-truncation count of failing nodes. `nodes` is capped at 20 for
+   *  storage; this preserves the true count for v2 density scoring. Absent on
+   *  pre-v2 blobs — consumers fall back to `nodes.length`. */
+  nodeCount?: number
 }
 
 /** Subset of axe-core AxeResults stored in the DB (nodes truncated to 20 per violation) */

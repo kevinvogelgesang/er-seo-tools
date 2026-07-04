@@ -14,6 +14,7 @@ import { isTransientRunnerError } from './runner-retry'
 import { detectRedirect } from './redirect-detect'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
+import { capViolationNodesForStorage, STORED_NODE_LIMIT } from './node-cap'
 
 const AXE_PATH = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js')
 
@@ -334,16 +335,12 @@ export async function runAxeAudit(
     })
 
     await progress(90, 'Processing results…')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rawResults.violations = rawResults.violations.map((v: any) => ({
-      ...v,
-      nodes: v.nodes.slice(0, 20),
-    }))
+    rawResults.violations = capViolationNodesForStorage(rawResults.violations)
     if (Array.isArray(rawResults.incomplete)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rawResults.incomplete = rawResults.incomplete.map((v: any) => ({
         ...v,
-        nodes: v.nodes.slice(0, 20),
+        nodes: v.nodes.slice(0, STORED_NODE_LIMIT),
       }))
     }
 
