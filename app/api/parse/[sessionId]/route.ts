@@ -4,6 +4,8 @@ import path from 'path';
 import { prisma } from '@/lib/db';
 import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
 import { findParserForFile } from '@/lib/parsers';
+import { readHeaderChunk } from '@/lib/parsers/read-header-chunk';
+import { streamCsv } from '@/lib/parsers/stream-csv';
 import { AggregatorService } from '@/lib/services/aggregator.service';
 import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 import { buildSessionPages } from '@/lib/services/session-page-builder';
@@ -11,7 +13,7 @@ import { normalizeHost } from '@/lib/services/normalize-host';
 import { missingCoreExports, isCoreExport } from '@/lib/parsers/expected-exports';
 import { writeSeoFindings } from '@/lib/findings/seo-write';
 import { loadArchivedSeoResult } from '@/lib/findings/seo-findings-fallback';
-import type { FileReport } from '@/lib/types';
+import type { FileReport, CSVRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,7 +106,10 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
 
     const aggregator = new AggregatorService();
 
-    type AnyParser = { parse(): Record<string, unknown>; getPrimaryDomain(): string | null };
+    type AnyWholeFileParser = { parse(): Record<string, unknown>; getPrimaryDomain(): string | null };
+    type AnyStreamingParser = {
+      consume(row: CSVRow): void; finalize(): Record<string, unknown>; getPrimaryDomain(): string | null;
+    };
     type ParseSuccess = { parserName: string; result: Record<string, unknown>; filename: string; primaryDomain: string | null };
     type FileOutcome = { report: FileReport; success?: ParseSuccess };
 
@@ -123,33 +128,38 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       if (path.extname(filename).toLowerCase() !== '.csv') {
         return { report: { filename, status: 'skipped', severity: 'info' } };
       }
+      try { await fs.access(filePath); } catch { return failed(filename, 'File not found'); }
 
-      try {
-        await fs.access(filePath);
-      } catch {
-        return failed(filename, 'File not found');
-      }
-
-      let rawContent: string;
-      try {
-        rawContent = await fs.readFile(filePath, 'utf-8');
-      } catch (readError) {
-        return failed(filename, readError instanceof Error ? readError.message : 'Unknown error');
-      }
-
-      const ParserClass = findParserForFile(filename, rawContent);
+      // Detection: filename first; peek only if that misses.
+      let ParserClass = findParserForFile(filename);
       if (!ParserClass) {
-        return { report: { filename, status: 'unmatched', severity: 'info' } };
+        let headerChunk: string;
+        try { headerChunk = await readHeaderChunk(filePath); }
+        catch (e) { return failed(filename, e instanceof Error ? e.message : 'Unknown error'); }
+        ParserClass = findParserForFile(filename, headerChunk);
       }
+      if (!ParserClass) return { report: { filename, status: 'unmatched', severity: 'info' } };
+
+      // Explicit static parserKey, NOT ParserClass.name — prod minifies class names.
+      const parserName = (ParserClass as unknown as { parserKey?: string }).parserKey
+        || ParserClass.name.replace('Parser', '').toLowerCase();
 
       try {
-        const ParserConstructor = ParserClass as unknown as new (content: string) => AnyParser;
-        const parser = new ParserConstructor(rawContent);
-        const result = parser.parse();
-        const primaryDomain = parser.getPrimaryDomain();
-        // Explicit static parserKey, NOT ParserClass.name — prod minifies class names.
-        const parserName = (ParserClass as unknown as { parserKey?: string }).parserKey
-          || ParserClass.name.replace('Parser', '').toLowerCase();
+        let result: Record<string, unknown>;
+        let primaryDomain: string | null;
+        if ((ParserClass as unknown as { streaming?: boolean }).streaming) {
+          const Ctor = ParserClass as unknown as new () => AnyStreamingParser;
+          const parser = new Ctor();
+          await streamCsv(filePath, (row) => parser.consume(row));
+          result = parser.finalize();
+          primaryDomain = parser.getPrimaryDomain();
+        } else {
+          const rawContent = await fs.readFile(filePath, 'utf-8');
+          const Ctor = ParserClass as unknown as new (content: string) => AnyWholeFileParser;
+          const parser = new Ctor(rawContent);
+          result = parser.parse();
+          primaryDomain = parser.getPrimaryDomain();
+        }
         return {
           report: { filename, status: 'parsed', parser: parserName, severity: 'info' },
           success: { parserName, result, filename, primaryDomain },

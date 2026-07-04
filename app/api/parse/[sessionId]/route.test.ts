@@ -62,6 +62,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getUploadDir } from '@/lib/upload-helpers';
 import { POST } from './route';
+import type { CSVRow } from '@/lib/types';
 
 const VALID_ID = '64c1a005-40e9-40d8-a62c-e4226cc78c0b';
 const ctx = { params: Promise.resolve({ sessionId: VALID_ID }) };
@@ -197,5 +198,107 @@ describe('POST /api/parse/[sessionId] — file_reports', () => {
     expect(body.result.parsing_errors).toBeUndefined();
     expect(body.result.metadata.parsers_used).toContain('responsecodes');
     expect(body.result.metadata.parsers_used).not.toContain('pagetitles'); // it threw
+  });
+});
+
+// Two-path parseOne (Task 6): filename-first detection with a header-peek
+// fallback, then a streaming branch (consume/finalize) vs the unchanged
+// whole-file branch (constructor(content)/parse()). These all exercise the
+// MOCKED findParserForFile (findParserForFileMock), never the real registry
+// — that coverage lives in lib/parsers/detection-equivalence.test.ts.
+describe('POST /api/parse/[sessionId] — two-path parseOne', () => {
+  const dir = getUploadDir(VALID_ID);
+
+  function fakeStreamingParser(key: string, finalizeResult: Record<string, unknown>, rowsSeen: unknown[]) {
+    return class {
+      static parserKey = key;
+      static streaming = true;
+      consume(row: CSVRow) { rowsSeen.push(row); }
+      finalize() { return finalizeResult; }
+      getPrimaryDomain() { return 'stream.example.com'; }
+    };
+  }
+
+  beforeEach(async () => {
+    // workflow: 'keyword-research' skips the core-export gate entirely, so
+    // these tests can focus purely on parseOne's branching.
+    sessionUpdateManyMock.mockReset().mockResolvedValue({ count: 1 });
+    sessionUpdateMock.mockReset().mockResolvedValue({});
+    clientFindManyMock.mockReset().mockResolvedValue([]);
+    txMock.mockReset().mockResolvedValue([]);
+    triggerPillarAnalysisMock.mockReset().mockResolvedValue(undefined);
+    await fs.mkdir(dir, { recursive: true });
+  });
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); vi.restoreAllMocks(); });
+
+  it('streaming path: drives a streaming-flagged parser via consume/finalize, not a whole-file read', async () => {
+    const rowsSeen: unknown[] = [];
+    const finalizeResult = { streamed: true, rowCount: 2 };
+    const StreamingClass = fakeStreamingParser('fakestreaming', finalizeResult, rowsSeen);
+
+    sessionFindUniqueMock.mockReset().mockResolvedValue({
+      id: VALID_ID, status: 'pending', workflow: 'keyword-research', files: JSON.stringify(['streaming.csv']),
+    });
+    findParserForFileMock.mockReset().mockImplementation((filename: string) =>
+      filename === 'streaming.csv' ? StreamingClass : null
+    );
+    await fs.writeFile(
+      path.join(dir, 'streaming.csv'),
+      'Address,Title\nhttps://example.com/,Hi\nhttps://example.com/2,Yo\n'
+    );
+
+    const readFileSpy = vi.spyOn(fs, 'readFile');
+
+    const res = await POST({} as never, ctx as never);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const reports = body.result.metadata.file_reports as Array<{ filename: string; status: string }>;
+    expect(reports.find((r) => r.filename === 'streaming.csv')).toMatchObject({ status: 'parsed' });
+    // The streaming branch must never whole-file `fs.readFile` the CSV.
+    expect(readFileSpy).not.toHaveBeenCalledWith(path.join(dir, 'streaming.csv'), 'utf-8');
+    // Driven row-by-row via consume(), and the aggregator got finalize()'s result.
+    expect(rowsSeen).toHaveLength(2);
+  });
+
+  it('unmatched: filename miss + content-peek miss never triggers a whole-file read', async () => {
+    sessionFindUniqueMock.mockReset().mockResolvedValue({
+      id: VALID_ID, status: 'pending', workflow: 'keyword-research', files: JSON.stringify(['nomatch.csv']),
+    });
+    findParserForFileMock.mockReset().mockImplementation(() => null);
+    await fs.writeFile(path.join(dir, 'nomatch.csv'), 'Foo,Bar\n1,2\n');
+
+    const readFileSpy = vi.spyOn(fs, 'readFile');
+
+    const res = await POST({} as never, ctx as never);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const reports = body.result.metadata.file_reports as Array<{ filename: string; status: string }>;
+    expect(reports.find((r) => r.filename === 'nomatch.csv')).toMatchObject({ status: 'unmatched' });
+    // findParserForFile is consulted filename-first, then with the bounded peek —
+    // never with a full fs.readFile of the CSV.
+    expect(findParserForFileMock).toHaveBeenCalledWith('nomatch.csv');
+    expect(readFileSpy).not.toHaveBeenCalledWith(path.join(dir, 'nomatch.csv'), 'utf-8');
+  });
+
+  it('whole-file path unchanged: a non-streaming match still routes through constructor(content)/parse()', async () => {
+    sessionFindUniqueMock.mockReset().mockResolvedValue({
+      id: VALID_ID, status: 'pending', workflow: 'keyword-research', files: JSON.stringify(['wholefile.csv']),
+    });
+    findParserForFileMock.mockReset().mockImplementation((filename: string) =>
+      filename === 'wholefile.csv' ? goodParser('wholefile') : null
+    );
+    await fs.writeFile(path.join(dir, 'wholefile.csv'), 'Address\nhttps://example.com/\n');
+
+    const readFileSpy = vi.spyOn(fs, 'readFile');
+
+    const res = await POST({} as never, ctx as never);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const reports = body.result.metadata.file_reports as Array<{ filename: string; status: string }>;
+    expect(reports.find((r) => r.filename === 'wholefile.csv')).toMatchObject({ status: 'parsed' });
+    expect(readFileSpy).toHaveBeenCalledWith(path.join(dir, 'wholefile.csv'), 'utf-8');
   });
 });

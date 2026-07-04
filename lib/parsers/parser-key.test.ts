@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PARSERS } from './index';
-import type { BaseParser } from './base.parser';
+import type { ParserClass } from './header-map';
 
 // Guards the production-only minification bug: the parse route used to derive
 // the parsedData key from ParserClass.name, which the SWC build mangles to
@@ -15,20 +15,20 @@ describe('parser keys are explicit + minification-proof', () => {
         Object.prototype.hasOwnProperty.call(P, 'parserKey'),
         `${P.name} must declare a static parserKey (string literal — class names are minified in prod)`,
       ).toBe(true);
-      expect(typeof (P as typeof BaseParser).parserKey).toBe('string');
-      expect(((P as typeof BaseParser).parserKey ?? '').length).toBeGreaterThan(0);
+      expect(typeof (P as ParserClass).parserKey).toBe('string');
+      expect(((P as ParserClass).parserKey ?? '').length).toBeGreaterThan(0);
     }
   });
 
   it('parserKey equals the canonical aggregator key (the un-minified name-derivation)', () => {
     for (const P of PARSERS) {
       const canonical = P.name.replace('Parser', '').toLowerCase();
-      expect((P as typeof BaseParser).parserKey).toBe(canonical);
+      expect((P as ParserClass).parserKey).toBe(canonical);
     }
   });
 
   it('parser keys are unique across the registry', () => {
-    const keys = PARSERS.map((p) => (p as typeof BaseParser).parserKey);
+    const keys = PARSERS.map((p) => (p as ParserClass).parserKey);
     expect(new Set(keys).size).toBe(keys.length);
   });
 });
