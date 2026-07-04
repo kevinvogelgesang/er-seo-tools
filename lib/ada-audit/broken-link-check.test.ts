@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { checkUrl, HostThrottle, type CheckDeps } from './broken-link-check'
+import { SafeUrlError } from '@/lib/security/safe-url'
 
 function depsWith(map: Record<string, number[]>): CheckDeps {
   // map: url -> [headStatus, getStatus?]
@@ -43,6 +44,15 @@ describe('checkUrl', () => {
       sleep: async () => {},
     }
     expect(await checkUrl('https://x.com/a', deps)).toBe('unconfirmed')
+  })
+  it('SafeUrlError on HEAD returns unconfirmed without a GET (delegation preserves posture)', async () => {
+    const calls: string[] = []
+    const deps: CheckDeps = {
+      fetchStatus: async (_u, m) => { calls.push(m); throw new SafeUrlError('blocked') },
+      now: () => 0, sleep: async () => {},
+    }
+    expect(await checkUrl('https://x.com/a', deps)).toBe('unconfirmed')
+    expect(calls).toEqual(['HEAD'])
   })
 })
 
