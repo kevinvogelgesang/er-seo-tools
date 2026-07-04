@@ -2,6 +2,7 @@ import Papa from 'papaparse';
 import { CSVData, CSVRow, ParsedData } from '../types';
 import { findColumnName, isHtmlContentType, isIndexable, toString } from '../utils/columnMapper';
 import { isSeoRelevantUrl } from '../utils/urlFilter';
+import { buildHeaderMap, findColumnInMap, mostCommonHostname, filenameMatches } from './header-map';
 
 export abstract class BaseParser {
   protected data: CSVData = [];
@@ -20,10 +21,7 @@ export abstract class BaseParser {
   constructor(csvContent: string) {
     this.parseCSV(csvContent);
     // Build a case-insensitive lookup map once per parser instantiation (O(n) → O(1) per findColumn call)
-    for (const h of this.headers) {
-      this.headerMap.set(h, h);
-      this.headerMap.set(h.toLowerCase(), h);
-    }
+    this.headerMap = buildHeaderMap(this.headers);
   }
 
   private parseCSV(content: string): void {
@@ -46,12 +44,7 @@ export abstract class BaseParser {
    * Check if a filename matches this parser's pattern
    */
   static matchesFile(filename: string): boolean {
-    if (!this.filenamePattern) return false;
-    const lower = filename.toLowerCase();
-    if (Array.isArray(this.filenamePattern)) {
-      return this.filenamePattern.some(p => lower.includes(p.toLowerCase()));
-    }
-    return lower.includes(this.filenamePattern.toLowerCase());
+    return filenameMatches(this.filenamePattern, filename);
   }
 
   /**
@@ -77,11 +70,7 @@ export abstract class BaseParser {
    * Get a column by checking multiple possible names (case-insensitive, O(1) via headerMap)
    */
   protected findColumn(possibleNames: string[]): string | null {
-    for (const name of possibleNames) {
-      const found = this.headerMap.get(name) ?? this.headerMap.get(name.toLowerCase());
-      if (found !== undefined) return found;
-    }
-    return null;
+    return findColumnInMap(this.headerMap, possibleNames);
   }
 
   /**
@@ -187,8 +176,7 @@ export abstract class BaseParser {
       }
     }
 
-    if (counts.size === 0) return null;
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    return mostCommonHostname(counts);
   }
 
   /**
