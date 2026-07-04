@@ -6,7 +6,7 @@
 // precision posture). SafeUrlError / network error / timeout -> 'unconfirmed'
 // (excluded from broken counts; recall is a later concern). Transport is
 // injectable for tests.
-import { safeFetch, SafeUrlError } from '@/lib/security/safe-url'
+import { safeFetch } from '@/lib/security/safe-url'
 import { resolveUrl, type ResolveDeps } from './url-resolver'
 
 export type CheckResult = 'ok' | 'broken' | 'unconfirmed'

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { resolveUrl, type ResolveDeps } from './url-resolver'
 import { SafeUrlError } from '@/lib/security/safe-url'
 

@@ -133,9 +133,11 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   if (capped) console.warn(`[broken-link-verify] ${job.siteAuditId}: capping ${unique.length} -> ${cap} checks`)
   const toCheck = capped ? unique.slice(0, cap) : unique
 
-  // Bounded concurrency: CONCURRENCY workers pull from a shared cursor, each
-  // respecting the shared per-host throttle. Single-threaded JS makes the
-  // shared cursor/counter mutations safe between awaits.
+  // Bounded concurrency: CONCURRENCY workers pull unique targets from a shared
+  // cursor and resolve each ONCE into the shared `cache` map, respecting the
+  // shared per-host throttle. Single-threaded JS makes the shared
+  // cursor/cache mutations safe between awaits. broken/checked/unconfirmed
+  // are derived from `cache` afterward, not mutated by the workers directly.
   const throttle = new HostThrottle(HOST_DELAY(), deps)
 
   // Load on-page SEO rows for the same audit. MOVED ABOVE the resolution-set
@@ -288,7 +290,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
   })
   const validationFindings = mapValidationFindings(validationRows, internalLinks, cache, {
-    runId, ensurePage, auditedHost, affectedComplete: !cappedValidation,
+    runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation,
   })
   const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...validationFindings]
 
