@@ -569,12 +569,16 @@ describe('useTriageMode', () => {
     expect(store._map.get('er-triage-mode:a1')).toBe('0')
   })
 
-  it('missing id: no read, no write, no throw', () => {
-    const store = memStore({ 'er-triage-mode:undefined': '1' })
+  it('missing id: no write, no throw (state still toggles)', () => {
+    // No seed: if the hook wrongly wrote with a falsy id it would CREATE
+    // the `er-triage-mode:undefined` key, which `.has()` would catch. The
+    // guard is on the write, not on React state, so triageMode still flips.
+    const store = memStore()
     vi.stubGlobal('localStorage', store)
     const { result } = renderHook(() => useTriageMode(undefined))
     expect(result.current.triageMode).toBe(false)
     act(() => result.current.toggleTriage())
+    expect(result.current.triageMode).toBe(true)
     expect(store._map.has('er-triage-mode:undefined')).toBe(false)
   })
 
