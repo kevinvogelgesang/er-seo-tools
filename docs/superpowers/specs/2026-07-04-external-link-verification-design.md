@@ -168,29 +168,34 @@ derivation fills. Track `externalChecked` (targets with a cache entry) and `exte
   per-type lookup.)
 - **Split emission, per-pass confidence (Codex #5):** call `mapBrokenLinkFindings` **twice** — once
   for the internal/image `broken[]` subset with internal-scoped confidence, once for the external
-  subset with external-scoped confidence (`checked/unconfirmed/capped` = the external pass numbers).
-  No `confidenceByType` API. No collision: `runFindingKey(type)` and `pageFindingKey(type, src)` both
-  include `type`, so the two calls' outputs never share a `dedupKey`.
-- **Emit the external run finding whenever externals were *attempted* (Codex #10):** i.e. when
-  `externalChecked > 0 || externalCapped`. This finding carries `count = distinct broken external
-  targets` (**may be 0**) and the external confidence in `detail`. A zero-count run finding is the
-  signal the UI needs to distinguish "checked externals, clean (with coverage/partial)" from "never
-  ran". A 0-count finding contributes 0 to every aggregation (priority/B2/dashboards sum counts), so
-  it is inert everywhere except the results-page section. Page-scope external findings are emitted
-  only for actually-broken targets, as today.
+  subset with external-scoped confidence + `severity:'warning'`. No `confidenceByType` API. No
+  collision: `runFindingKey(type)` and `pageFindingKey(type, src)` both include `type`, so the two
+  calls' outputs never share a `dedupKey`.
+- **NO zero-count finding is written (plan-review correction).** The spec earlier considered emitting
+  a zero-count external run finding for coverage transparency (spec Codex #10 offered this OR a
+  `run.status`-based UI note). Plan review found a `count:0` `broken_external_links` finding is **not
+  inert downstream** — `calculatePriorityScore` (`priority.service.ts`) scores by type weight × count
+  scale, and its count-0 scale multiplier defaults to 1.0, so a zero-count finding would inflate
+  priority/open-issue surfaces. Therefore the external mapper call is a **plain** call: it emits a
+  run finding (+ page findings) **only when there are actually-broken external targets** (`count >
+  0`), exactly like the internal call. When externals are clean, nothing is written.
 
 ### 4.5 UI (`BrokenLinksSection.tsx`)
 
-- Add `broken_external_links` to `BROKEN_TYPES` and a `TYPE_LABEL` entry ("Broken external links").
-- Render externals as a **warning tier**, visually distinct and ordered below the critical internal
-  findings. Dark-mode variants on every new element (per change-control UI rule).
-- **The external block keys off the external run finding's presence, NOT `count > 0`** (Codex #10):
-  if the external finding exists with `count > 0` → render the broken list; with `count === 0` →
-  render "No broken external links found"; the confidence line always reads
-  `checked`/`unconfirmed`/`capped` from the external finding's detail and shows a partial/coverage
-  note when `externalCapped`. If no external run finding exists at all → externals were not analyzed
-  (pre-feature or disabled) and the block is omitted, unchanged from today. The internal
-  verified-clean state is untouched.
+- Add `broken_external_links` to a `TYPE_LABEL` entry ("Broken external links") and render it as a
+  **warning tier** (amber), visually distinct and ordered below the critical internal findings.
+  Dark-mode variants on every new element (per change-control UI rule).
+- **External block renders only when a `broken_external_links` run finding exists with `count > 0`**
+  (same shape as internal). Its confidence line reads `checked`/`unconfirmed` and a partial note from
+  **that finding's own detail** (`capped`/`harvestTruncated`), NOT the global `run.status`
+  (Codex plan-#6 — per-tier partial).
+- **Coverage/partial transparency without a finding (spec Codex #10, run.status option):** the
+  verified-clean state keeps its copy, but when `run.status === 'partial'` it appends a note ("Some
+  links could not be fully checked — results are partial."). This is the only place the global
+  `run.status` is the sole signal (no finding to read a detail from). The nicety of showing "checked
+  N externals" when fully clean is dropped for v1 — coverage is measured from builder inputs/logs for
+  the retirement gate, not this UI. If no `broken_external_links` finding exists and the run is
+  `complete`, the section is unchanged from today.
 
 ## 5. Timeout-safety analysis (the load-bearing risk)
 
