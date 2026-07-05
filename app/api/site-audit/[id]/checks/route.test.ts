@@ -65,18 +65,27 @@ describe('PUT /api/site-audit/[id]/checks', () => {
     const audit = await makeAudit('bad-scope')
     const res = await PUT(jsonReq('PUT', { scope: 'node', key: VALID_KEY, checked: true }), params(audit.id))
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe(
+      'scope must be "page" or "page-violation", key must be string, checked must be boolean',
+    )
   })
 
   it('400 when key is non-string', async () => {
     const audit = await makeAudit('bad-key-type')
     const res = await PUT(jsonReq('PUT', { scope: 'page', key: 123, checked: true }), params(audit.id))
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe(
+      'scope must be "page" or "page-violation", key must be string, checked must be boolean',
+    )
   })
 
   it('400 when checked is non-boolean', async () => {
     const audit = await makeAudit('bad-checked-type')
     const res = await PUT(jsonReq('PUT', { scope: 'page', key: VALID_KEY, checked: 'yes' }), params(audit.id))
     expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe(
+      'scope must be "page" or "page-violation", key must be string, checked must be boolean',
+    )
   })
 
   it('400 when key is not 64-hex', async () => {

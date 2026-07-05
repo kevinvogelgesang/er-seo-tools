@@ -1,6 +1,6 @@
 // A3 Task 7 — characterization tests for GET /api/seo-parser/run/[runId]/pages.
 // DB-backed, real prisma, prefix-namespaced fixtures.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { GET } from './route'
@@ -98,17 +98,33 @@ describe('GET /api/seo-parser/run/[runId]/pages', () => {
   })
 
   it('clamps limit to [1, 200] and respects offset', async () => {
+    // Only 2 fixture rows exist, so row counts alone can't prove clamping —
+    // assert the actual `take`/`skip` passed to prisma instead. Delegate to
+    // the real implementation so results stay correct (vitest's spyOn does
+    // not call through automatically).
+    const originalFindMany = prisma.crawlPage.findMany.bind(prisma.crawlPage)
+    const findManySpy = vi
+      .spyOn(prisma.crawlPage, 'findMany')
+      .mockImplementation((...args) => originalFindMany(...args))
+
     const resHigh = await GET(new NextRequest('http://localhost/x?limit=9999'), params(runId))
-    expect((await resHigh.json()).pages).toHaveLength(2) // only 2 rows exist; clamp itself covered by non-throw
+    expect((await resHigh.json()).pages).toHaveLength(2)
+    expect(findManySpy.mock.calls.at(-1)?.[0]).toMatchObject({ take: 200 })
 
     const resOffset = await GET(new NextRequest('http://localhost/x?limit=1&offset=1'), params(runId))
     const body = await resOffset.json()
     expect(body.pages).toHaveLength(1)
     expect(body.total).toBe(2)
+    expect(findManySpy.mock.calls.at(-1)?.[0]).toMatchObject({ take: 1, skip: 1 })
 
     const resZero = await GET(new NextRequest('http://localhost/x?limit=0'), params(runId))
-    // limit=0 is falsy -> Math.max(...||50...) path; clamps to at least 1
+    // limit=0 is falsy -> `parseInt('0',10) || 50` yields 50, not clamped to 1.
     expect((await resZero.json()).pages.length).toBeGreaterThanOrEqual(1)
+    expect(findManySpy.mock.calls.at(-1)?.[0]).toMatchObject({ take: 50 })
+
+    // vi.spyOn's mockRestore() can drop the method entirely on Prisma's
+    // proxy-backed model delegates; reassign the saved original directly.
+    prisma.crawlPage.findMany = originalFindMany
   })
 
   it('filters by issueType', async () => {
