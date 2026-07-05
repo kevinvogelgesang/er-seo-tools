@@ -6,6 +6,7 @@ import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
 import { findParserForFile } from '@/lib/parsers';
 import { readHeaderChunk } from '@/lib/parsers/read-header-chunk';
 import { streamCsv } from '@/lib/parsers/stream-csv';
+import { mapWithConcurrency } from '@/lib/parsers/parse-limit';
 import { AggregatorService } from '@/lib/services/aggregator.service';
 import { triggerPillarAnalysis } from '../pillar-analysis-trigger';
 import { buildSessionPages } from '@/lib/services/session-page-builder';
@@ -169,10 +170,15 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       }
     };
 
+    // Parse concurrently under a bounded, process-wide cap (parse-limit.ts).
+    // Results come back in sessionFiles order, so the order-sensitive aggregator
+    // ingestion below (latest-wins scalars / per_url_index, domain tally) is
+    // byte-identical to the old sequential loop.
+    const outcomes = await mapWithConcurrency(sessionFiles, (filename) => parseOne(filename));
+
     const reports: FileReport[] = [];
     const successes: ParseSuccess[] = [];
-    for (const filename of sessionFiles) {
-      const outcome = await parseOne(filename);
+    for (const outcome of outcomes) {
       reports.push(outcome.report);
       if (outcome.success) successes.push(outcome.success);
     }
