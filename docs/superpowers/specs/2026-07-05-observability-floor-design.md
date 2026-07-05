@@ -54,26 +54,44 @@ audit IDs, disk, pool state stay behind auth on `/admin/ops`).
   - `status: 'degraded'` (still **200**, so the monitor does not false-page on a
     soft issue) when `evaluateHealth(collectHealthSignals())` produces any alert
     line (errored audits, exhausted jobs, stalled queue, stale backup). The alert
-    *text* is NOT included in the public body — only the `degraded` flag. Passing a
-    fresh zero-cooldown `AlertState` keeps the read stateless (it never mutates the
-    alert job's dedup file).
+    *text* is NOT included in the public body — only the `degraded` flag.
+  - **`since` window (Codex #2 — correctness):** call
+    `collectHealthSignals(now, now - healthEvalOpts().lookbackMs)`. Do **not** pass
+    `since: 0` / a zero-time "fresh" state — that would count *all historical*
+    errored audits/jobs and pin `/api/health` to `degraded` forever. Pass a fresh
+    zero-cooldown `AlertState` only so the read stays stateless (it never mutates
+    the alert job's dedup file), but the `since` must be the lookback window.
+  - **Guardrails for an unauthenticated poller (Codex #1):** the degraded
+    computation does real Prisma + FS reads, so (a) wrap it in a short in-memory
+    TTL cache (e.g. 10 s) keyed nowhere — one module-level cached result — so a
+    sub-minute uptime poll doesn't hammer the DB; (b) run it under a short timeout
+    and **fail open** to `status:'ok'` if it exceeds it or throws; (c) the cheap
+    `SELECT 1` DB ping stays separate and uncached (it is the only hard-down
+    signal). Response always sets `Cache-Control: no-store`.
 - `503 { status: 'down' }` when a `SELECT 1` DB ping throws.
 - The route owns its own try/catch and returns explicit `Response`s for every path
   (200 and 503). `withRoute` (A3) passes a returned `Response` through untouched,
   so wrapping is optional; the route must never let the health check itself throw a
-  500 — a failed signal collection degrades to `status:'ok'`-with-DB-up rather than
-  crashing the endpoint (DB reachability is the only hard-down condition).
+  500 — a failed/timed-out signal collection **fails open** to
+  `status:'ok'`-with-DB-up rather than crashing the endpoint (DB reachability is
+  the only hard-down condition).
 
 **Security-sensitive requirements (the "bit us three times" rule):**
-- Add `/api/health` to `middleware.ts` `isPublicPath`.
-- Add a `middleware.test.ts` case asserting `/api/health` is reachable without an
-  auth cookie AND that `/admin/ops` (and `/api/…` generally) still 401/redirects
-  without one.
+- Add `/api/health` to `middleware.ts` `isPublicPath` as an **exact** match, not a
+  broad prefix (Codex #8) — a future `/api/health/detail` must stay gated.
+- Add a `middleware.test.ts` case asserting `isPublicPath('/api/health') === true`,
+  `isPublicPath('/api/health/detail') === false`, and that `/admin/ops` (and
+  `/api/…` generally) still 401/redirects without a cookie.
 
 ## Deliverable 2 — `/admin/ops` (cookie-gated ops page, the detail tier)
 
 A **server component** page. It is NOT in `isPublicPath`, so middleware enforces the
 cookie gate; the page queries directly (no intermediate API route). Read-only v1.
+
+**Per-section fault isolation (Codex #5):** `/admin/ops` is most needed *during*
+failures, so a single throwing loader must not blank the page. Load each panel's
+data with `Promise.allSettled` (or an isolated try/catch per loader) and render
+"unavailable" for any section whose loader rejected — never a whole-page 500.
 
 **Renders:**
 - **Job queue** — `getJobQueueState()`: a type×status count grid, oldest-running
@@ -85,9 +103,14 @@ cookie gate; the page queries directly (no intermediate API route). Read-only v1
   `fs.promises.statfs` (`bavail * bsize`), measured on the **data volume** (the DB
   file's directory). Returns `null` on failure → UI shows "—".
 - **DB size** — new `lib/ops/db-size.ts` `getDbSizeBytes()`: resolve the SQLite
-  file from `DATABASE_URL` (strip `file:`; a relative path is resolved the way
-  Prisma resolves it — relative to `prisma/schema.prisma`'s directory), `fs.stat`
-  it; `null` on failure → "—". Defensive: never throw.
+  file from `DATABASE_URL` and report the **full WAL footprint** (Codex #3):
+  `main + -wal + -shm` (each `fs.stat`'d best-effort; missing sidecar files
+  contribute 0). Label the panel row "DB footprint (main+WAL)". **Hardened path
+  parsing (Codex #4):** handle `file:/absolute/path`, `file:./rel`, `file:../rel`,
+  and any `?…` query suffix; Prisma resolves a **relative** SQLite path against the
+  `prisma/` schema directory (NOT process cwd), so resolve the same way. `null` on
+  any failure → "—". Defensive: never throw. Tests cover prod's
+  `file:/home/.../db.sqlite` (absolute) and local `file:./local-dev.db` (relative).
 - **Browser pool** — new `getPoolState()` accessor on `browser-pool.ts` (below).
 - **Cleanup stats** — last-run summary line for the daily `cleanup` /
   `screenshot-sweep` system schedules, read from their `Job`/`Schedule` rows
@@ -116,12 +139,21 @@ reload is fine; SSE is A5).
     alongside the existing DB write; and replace the two existing
     `console.warn`/`console.error` worker lines (tick-failed, settle-failed) with
     the logger. This is the highest-signal seam for "what failed overnight."
+    **Retain the original error object (Codex #6):** the worker currently collapses
+    the caught handler failure into `error: string | null` before settling, which
+    loses the stack. Keep the caught `unknown` (e.g. a parallel `caughtErr`
+    variable) alongside the string so `logError` gets the real `Error` (message +
+    stack + context), not just the pre-flattened message.
 - The other ~130 tagged `console.*` calls are left as-is (opportunistic later).
 - **Constraint:** the logger is server-only and never `.toString()`-injected into an
   audited page, so the SWC-helper hazard (`parse-seo-dom.ts` rule) does not apply.
-- **Boot safety:** `pino` is a normal dependency, needs no env var, and must not add
-  a `process.exit(1)` boot dependency — it degrades to plain console if a transport
-  fails to load.
+- **Boot safety / runtime-safe transport (Codex #7):** `pino` is a normal
+  dependency, needs no env var, and must not add a `process.exit(1)` boot
+  dependency. **Prod = plain JSON to stdout with NO transport** (no worker thread).
+  `pino-pretty` is a **devDependency**, referenced only on the dev branch and
+  loaded lazily — never statically `require`d/imported in a path that runs in prod
+  (prod installs without dev deps, so a static import would throw at boot). Any
+  transport-construction failure falls back to plain pino/console.
 
 ## Browser-pool accessor
 
@@ -138,7 +170,9 @@ export function getPoolState(): {
     free: slots,
     waiting: waiters.length,
     draining,
-    browserAlive: browser !== null,
+    // Codex #9: browser !== null overstates health during a disconnect edge;
+    // prefer the live connectivity flag.
+    browserAlive: browser?.connected === true,
     pagesServed,
   }
 }
@@ -169,12 +203,20 @@ pool. Pure getter.
 
 - **`/api/health`** (route unit test, mocked prisma): 200 ok when DB ping resolves +
   no signals; 200 degraded when a signal trips (public body carries only the flag,
-  no alert text); 503 down when the ping rejects; the health check throwing (non-DB)
-  does not 500. Assert no alert-state file is written.
-- **middleware**: `/api/health` reachable cookie-less; `/admin/ops` gated cookie-less.
+  no alert text); 503 down when the ping rejects; the signal collection
+  throwing/slow **fails open to 200 ok** (does not 500 or 503). Assert no
+  alert-state file is written, `Cache-Control: no-store` is set, and the degraded
+  read uses a lookback-window `since` (historical errors outside the window do NOT
+  force degraded).
+- **middleware**: `isPublicPath('/api/health') === true`,
+  `isPublicPath('/api/health/detail') === false`; `/admin/ops` gated cookie-less.
 - **`lib/ops/disk.ts` / `db-size.ts`**: happy path + `null` on stat failure (mock `fs`).
+  db-size path resolution covers prod `file:/home/.../db.sqlite` (absolute) and
+  local `file:./local-dev.db` (relative → `prisma/` dir), plus a `?…` query suffix,
+  and sums the `-wal`/`-shm` sidecars when present (Codex #3/#4).
 - **`getPoolState()`**: reflects `slots`/`waiters`/`draining`/`browser` transitions
-  (acquire → inUse++, release → inUse--).
+  (acquire → inUse++, release → inUse--). **Mock `puppeteer.launch`** (or drive the
+  pure state seam only) — A4 tests must never launch real Chrome (Codex #10).
 - **`logError`**: emits structured fields; sanitizes error objects (no raw object leak).
 - **`/admin/ops` page**: renders the queue grid + health rows from mocked loaders;
   degraded banner shows; "—" for null disk/db-size. (`// @vitest-environment jsdom`
@@ -205,3 +247,15 @@ shows a JSON `logError` line after a deliberate no-op. Tracker + handoff ritual.
   the DB-ping-only path stays cheap and the signal collection can be made
   best-effort (skip on its own timeout) — noted for the plan, not required v1.
 ```
+
+## Codex review
+
+Routed through Codex (session `019f2b57`, 2026-07-05). Verdict: **"the design is
+sound"** — accept with 10 named fixes, all applied in place above (tagged `Codex
+#1`–`#10`): public-health TTL/timeout/fail-open + `no-store` (#1), lookback-window
+`since` not `0` (#2), WAL+shm DB footprint (#3), hardened `DATABASE_URL` parsing (#4),
+per-section fault isolation on `/admin/ops` (#5), retain the original error object at
+the worker seam (#6), runtime-safe pino transport / dev-only `pino-pretty` (#7),
+exact `/api/health` allowlist entry (#8), `browser?.connected` for `browserAlive`
+(#9), mock puppeteer in pool tests (#10). No rewrite requested; no contradiction with
+prior decisions.
