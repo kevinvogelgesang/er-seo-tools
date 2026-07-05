@@ -63,34 +63,54 @@ import { renderHook, cleanup } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useAuditPoller } from './useAuditPoller'
 
+import type { UseAuditPollerArgs } from './useAuditPoller'
+
 const refresh = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
 
 type Poll = { status: string }
 
-// A fetch mock whose responses you resolve manually via the returned queue.
+// Flush the two awaited microtasks (fetch() then res.json()) the hook performs.
+async function flushAsync() {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+// A fetch mock whose responses you resolve/reject manually via the returned queue.
 function makeFetch() {
-  const pending: Array<(v: { ok: boolean; body?: unknown }) => void> = []
-  const fn = vi.fn(() =>
-    new Promise((resolve) => {
-      pending.push((v) =>
-        resolve({ ok: v.ok, json: async () => v.body } as Response),
-      )
-    }),
+  const pending: Array<{
+    resolve: (v: { ok: boolean; body?: unknown }) => void
+    reject: (e: unknown) => void
+  }> = []
+  const fn = vi.fn(
+    () =>
+      new Promise((resolve, reject) => {
+        pending.push({
+          resolve: (v) =>
+            resolve({ ok: v.ok, json: async () => v.body } as Response),
+          reject,
+        })
+      }),
   )
   return {
     fn,
-    // resolve the Nth outstanding fetch (FIFO)
     resolveNext(v: { ok: boolean; body?: unknown }) {
       const p = pending.shift()
       if (!p) throw new Error('no pending fetch')
-      p(v)
+      p.resolve(v)
+    },
+    rejectNext(e: unknown) {
+      const p = pending.shift()
+      if (!p) throw new Error('no pending fetch')
+      p.reject(e)
     },
     pendingCount: () => pending.length,
   }
 }
 
-const args = (over: Partial<Parameters<typeof useAuditPoller>[0]>) => ({
+const args = (
+  over: Partial<UseAuditPollerArgs<Poll>> = {},
+): UseAuditPollerArgs<Poll> => ({
   url: '/api/x',
   intervalMs: 1000,
   initialStatus: 'running',
@@ -138,7 +158,7 @@ describe('useAuditPoller', () => {
     renderHook(() => useAuditPoller(args({ onData })))
     await vi.advanceTimersByTimeAsync(1000)
     f.resolveNext({ ok: true, body: { status: 'running' } })
-    await Promise.resolve()
+    await flushAsync()
     expect(onData).toHaveBeenCalledWith({ status: 'running' })
     expect(refresh).not.toHaveBeenCalled()
   })
@@ -151,7 +171,7 @@ describe('useAuditPoller', () => {
     renderHook(() => useAuditPoller(args({ onData, onTerminal })))
     await vi.advanceTimersByTimeAsync(1000)
     f.resolveNext({ ok: true, body: { status: 'complete' } })
-    await Promise.resolve(); await Promise.resolve()
+    await flushAsync()
     expect(onData).toHaveBeenCalledWith({ status: 'complete' })
     expect(onTerminal).toHaveBeenCalledWith({ status: 'complete' })
     expect(refresh).toHaveBeenCalledTimes(1)
@@ -165,9 +185,9 @@ describe('useAuditPoller', () => {
     await vi.advanceTimersByTimeAsync(1000)   // fetch #2 in flight (no inFlight guard)
     expect(f.pendingCount()).toBe(2)
     f.resolveNext({ ok: true, body: { status: 'complete' } })
-    await Promise.resolve(); await Promise.resolve()
+    await flushAsync()
     f.resolveNext({ ok: true, body: { status: 'complete' } })
-    await Promise.resolve(); await Promise.resolve()
+    await flushAsync()
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
@@ -179,20 +199,34 @@ describe('useAuditPoller', () => {
     await vi.advanceTimersByTimeAsync(1000)
     unmount()
     f.resolveNext({ ok: true, body: { status: 'complete' } })
-    await Promise.resolve(); await Promise.resolve()
+    await flushAsync()
     expect(onData).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
   })
 
-  it('non-OK and thrown fetch keep polling (no refresh)', async () => {
+  it('non-OK response keeps polling (no refresh)', async () => {
     const f = makeFetch()
     global.fetch = f.fn as unknown as typeof fetch
     renderHook(() => useAuditPoller(args({})))
     await vi.advanceTimersByTimeAsync(1000)
     f.resolveNext({ ok: false })
-    await Promise.resolve()
+    await flushAsync()
     await vi.advanceTimersByTimeAsync(1000)
     expect(f.fn).toHaveBeenCalledTimes(2)
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('thrown fetch keeps polling (no refresh)', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    const onData = vi.fn()
+    renderHook(() => useAuditPoller(args({ onData })))
+    await vi.advanceTimersByTimeAsync(1000)
+    f.rejectNext(new Error('network down'))
+    await flushAsync()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.fn).toHaveBeenCalledTimes(2)
+    expect(onData).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
   })
 })
@@ -266,6 +300,10 @@ export function useAuditPoller<T>({
     if (!enabled) return
     if (isTerminalRef.current(initialStatus)) return
 
+    // A new polling run (new url/interval, or a remount) starts un-refreshed.
+    // Old effect work is neutralized by its own `cancelled` guard, so this
+    // never lets a stale run double-refresh.
+    refreshedRef.current = false
     let cancelled = false
     const timer = setInterval(async () => {
       try {
@@ -298,7 +336,7 @@ export function useAuditPoller<T>({
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/ada-audit/useAuditPoller.test.ts`
-Expected: PASS (7 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -335,13 +373,12 @@ import { useAuditPoller } from './useAuditPoller'
 ```
 (Remove the `import { useRouter } from 'next/navigation'` line — the hook owns `router` now.)
 
-2. In the component body, remove `const router = useRouter()` and remove `pollRef`. Keep `startRef` and `tickRef`. Add the terminal predicate. Replace the **poll** `useEffect` (the `pollRef` interval, currently lines ~49-73) with a `useAuditPoller` call. Keep the **elapsed** `useEffect` (lines ~39-46) verbatim.
+2. In the component body, remove `const router = useRouter()`, remove `pollRef`, and **remove the `status` state entirely** (`const [status, setStatus] = useState(initialStatus)`). It was consumed only by the old poll effect's guard/dep — the JSX and `estimatedRemaining` never read it (verified: `status` appears only at `AuditPoller.tsx:32,50,60,62,73`, all inside the removed poll effect). Leaving it would fail `npm run lint` as an unused local. Keep `startRef` and `tickRef`. Add the terminal predicate. Replace the **poll** `useEffect` (the `pollRef` interval, currently lines ~49-73) with a `useAuditPoller` call. Keep the **elapsed** `useEffect` (lines ~39-46) verbatim.
 
 Resulting top of the component (state + effects):
 ```tsx
   const [progress, setProgress] = useState(initialProgress)
   const [message, setMessage] = useState(initialProgressMessage || 'Starting…')
-  const [status, setStatus] = useState(initialStatus)
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(new Date(createdAt).getTime())
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -368,17 +405,16 @@ Resulting top of the component (state + effects):
     onData: (d) => {
       setProgress(d.progress ?? 0)
       setMessage(d.progressMessage || 'Running…')
-      setStatus(d.status)
     },
     onTerminal: () => { if (tickRef.current) clearInterval(tickRef.current) },
   })
 ```
-Leave `estimatedRemaining` (`useMemo`) and the entire JSX return unchanged. `status` is still read by the `estimatedRemaining`/JSX exactly as before.
+Leave `estimatedRemaining` (`useMemo`) and the entire JSX return unchanged (neither reads `status`).
 
 - [ ] **Step 2: Typecheck**
 
 Run: `npm run lint`
-Expected: PASS (no unused `useRouter`, no type errors). If `status` is flagged unused, it is still consumed by JSX — verify it is.
+Expected: PASS (no unused `useRouter`, no unused `status`, no type errors).
 
 - [ ] **Step 3: Run the poller + adjacent tests**
 
@@ -507,23 +543,23 @@ function memStore(seed: Record<string, string> = {}) {
 }
 
 describe('useTriageMode', () => {
-  afterEach(() => { cleanup(); vi.restoreAllMocks() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
   it('reads seeded localStorage when id present and enabled', () => {
-    ;(globalThis as any).localStorage = memStore({ 'er-triage-mode:a1': '1' })
+    vi.stubGlobal('localStorage', memStore({ 'er-triage-mode:a1': '1' }))
     const { result } = renderHook(() => useTriageMode('a1'))
     expect(result.current.triageMode).toBe(true)
   })
 
   it('does not read when enabled:false', () => {
-    ;(globalThis as any).localStorage = memStore({ 'er-triage-mode:a1': '1' })
+    vi.stubGlobal('localStorage', memStore({ 'er-triage-mode:a1': '1' }))
     const { result } = renderHook(() => useTriageMode('a1', { enabled: false }))
     expect(result.current.triageMode).toBe(false)
   })
 
   it('toggle flips state and writes localStorage', () => {
     const store = memStore()
-    ;(globalThis as any).localStorage = store
+    vi.stubGlobal('localStorage', store)
     const { result } = renderHook(() => useTriageMode('a1'))
     act(() => result.current.toggleTriage())
     expect(result.current.triageMode).toBe(true)
@@ -535,7 +571,7 @@ describe('useTriageMode', () => {
 
   it('missing id: no read, no write, no throw', () => {
     const store = memStore({ 'er-triage-mode:undefined': '1' })
-    ;(globalThis as any).localStorage = store
+    vi.stubGlobal('localStorage', store)
     const { result } = renderHook(() => useTriageMode(undefined))
     expect(result.current.triageMode).toBe(false)
     act(() => result.current.toggleTriage())
@@ -543,7 +579,7 @@ describe('useTriageMode', () => {
   })
 
   it('no localStorage global: does not throw', () => {
-    delete (globalThis as any).localStorage
+    vi.stubGlobal('localStorage', undefined)
     expect(() => {
       const { result } = renderHook(() => useTriageMode('a1'))
       act(() => result.current.toggleTriage())
@@ -713,7 +749,7 @@ git commit -m "feat(c9b): ArchivedAuditBanner shared component (page|site varian
 **Interfaces:**
 - Consumes: `useTriageMode` (Task 4), `ArchivedAuditBanner` (Task 5).
 
-**Preservation notes:** current localStorage read is unconditional (not `readOnly`/`archived`-gated) — pass `useTriageMode(auditId)` (enabled default true) to preserve exactly. Archived suppression stays at the consumer (button `!readOnly && !results.archived`, `useChecks` `!results.archived`, `checksContext` `!results.archived`) — do NOT move it into the hook.
+**Preservation notes:** current localStorage read is unconditional (not `readOnly`/`archived`-gated) — pass `useTriageMode(auditId)` (enabled default true) to preserve exactly. **C9-B preserves current single-page read behavior; only writes remain unreachable in `readOnly` because the toggle button is already hidden by `!readOnly && !results.archived`.** Archived suppression stays at the consumer (button `!readOnly && !results.archived`, `useChecks` `!results.archived`, `checksContext` `!results.archived`) — do NOT move it into the hook.
 
 - [ ] **Step 1: Add the imports**
 
@@ -770,28 +806,23 @@ Append to `components/ada-audit/AuditResultsView.test.tsx` (inside the existing 
 
 ```tsx
   it('renders read-only without a localStorage global and does not throw', () => {
-    const saved = (globalThis as any).localStorage
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (globalThis as any).localStorage
-    try {
-      expect(() =>
-        render(
-          <AuditResultsView
-            results={{ violations: [], passes: [], incomplete: [] } as any}
-            url="https://example.com"
-            clientName={null}
-            createdAt={new Date(0).toISOString()}
-            auditId="a1"
-            readOnly
-          />,
-        ),
-      ).not.toThrow()
-    } finally {
-      ;(globalThis as any).localStorage = saved
-    }
+    vi.stubGlobal('localStorage', undefined)
+    expect(() =>
+      render(
+        <AuditResultsView
+          results={{ violations: [], passes: [], incomplete: [] } as StoredAxeResults}
+          url="https://example.com"
+          clientName={null}
+          createdAt={new Date(0).toISOString()}
+          auditId="a1"
+          readOnly
+        />,
+      ),
+    ).not.toThrow()
+    vi.unstubAllGlobals()
   })
 ```
-(Match the existing file's import of `AuditResultsView`, `render`, and the `StoredAxeResults` shape it already uses for archived/live cases — reuse its established fixture/casting pattern rather than the minimal `as any` above if the file provides a helper.)
+Reuse the existing file's imports of `AuditResultsView`, `render`, `vi`, and its `StoredAxeResults` fixture/casting pattern (prefer its established helper over the minimal cast above if one exists). If the file's top-level `afterEach` already calls `vi.unstubAllGlobals()`, drop the trailing call.
 
 - [ ] **Step 5: Typecheck + run the view tests**
 
@@ -830,26 +861,28 @@ git commit -m "refactor(c9b): AuditResultsView uses useTriageMode + ArchivedAudi
 
 - [ ] **Step 1: Create `PageRow.tsx` with the moved code**
 
-Create `components/ada-audit/PageRow.tsx` starting with `'use client'` and the imports the moved code references:
+Create `components/ada-audit/PageRow.tsx` starting with `'use client'` and the imports the moved code references (all verified present in the `:56-219` body):
 ```tsx
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Spinner } from '@/components/Spinner'
 import type { SitePageResult, StoredAxeResults } from '@/lib/ada-audit/types'
 import AuditIssueTabs from './AuditIssueTabs'
 import type { UseChecksReturn } from './useChecks'
 import { keyForPage, keyForPageViolation } from '@/lib/ada-audit/checks-keys-browser'
+import { safeExternalHref } from '@/lib/safe-external-href'
 ```
-Then paste the `ImpactCount` function (from `SiteAuditResultsView.tsx:43-46`), the `PageRowProps` interface (`:48-54`), and the `PageRow` function (`:56-219`) verbatim. Add `export default` to `PageRow` (`export default function PageRow(...)`).
+(`safeExternalHref` is used at the current `:108` and `Spinner` at `:187`, both inside the PageRow body.) Then paste the `ImpactCount` function (from `SiteAuditResultsView.tsx:43-46`), the `PageRowProps` interface (`:48-54`), and the `PageRow` function (`:56-219`) verbatim. Add `export default` to `PageRow` (`export default function PageRow(...)`).
 
-**Import-completeness check:** the moved body may reference additional symbols (e.g. `safeExternalHref` if the row renders the page URL as a link). `npm run lint` in Step 3 will flag any missing import — add it from the same source `SiteAuditResultsView.tsx` imported it (see its import block, lines 1-21). Do not leave `ImpactCount`/`PageRow` behind in the original file.
+**Import-completeness check:** `npm run lint` in Step 3 is the backstop for any symbol missed above. Do not leave `ImpactCount`/`PageRow` behind in the original file.
 
 - [ ] **Step 2: Remove the moved code from `SiteAuditResultsView.tsx` and import PageRow**
 
 In `components/ada-audit/SiteAuditResultsView.tsx`:
 - Delete `ImpactCount` (`:43-46`), `PageRowProps` (`:48-54`), and `PageRow` (`:56-219`).
 - Add `import PageRow from './PageRow'` to the import block.
-- Remove now-unused imports from `SiteAuditResultsView.tsx` that were ONLY used by the moved code (candidates: `keyForPage`, `keyForPageViolation`; possibly `StoredAxeResults`, `AuditIssueTabs`, `UseChecksReturn` — but these may still be used elsewhere in the file; let `npm run lint` decide). Keep the `<PageRow ... />` render call (`:444-451`) exactly as-is.
+- Remove now-unused imports from `SiteAuditResultsView.tsx` that were ONLY used by the moved code. **Verified only-in-PageRow (remove these): `Spinner` (`:4`), `safeExternalHref` (`:18`), `keyForPage`/`keyForPageViolation` (`:20`).** `StoredAxeResults` (`:6`), `AuditIssueTabs` (`:8`), `UseChecksReturn` (`:19`) may still be referenced elsewhere in the file — let `npm run lint` decide (remove only if flagged unused). Keep the `<PageRow ... />` render call (`:444-451`) exactly as-is.
 
 - [ ] **Step 3: Typecheck**
 
@@ -977,3 +1010,16 @@ Request a code review (superpowers:requesting-code-review or a review subagent) 
 - **Spec coverage:** Unit 1 (useAuditPoller) → Tasks 1-3; Unit 2 (PageRow) → Task 7; Unit 3 (useTriageMode + ArchivedAuditBanner) → Tasks 4-6, 8. Behavior-preservation invariants (§6) → preservation notes in each task + Task 9 grep/review. Testing strategy (§7) → Tasks 1, 4, 5, 6 tests + Task 9 gate. All spec sections covered.
 - **Placeholder scan:** none — every new file has complete code; refactor tasks give exact line anchors + before/after blocks; extraction task (7) is a pure move with tsc as the import-completeness check (legitimate for a verbatim move).
 - **Type consistency:** `UseAuditPollerArgs<T>`, `useTriageMode(id, {enabled})` return `{triageMode, toggleTriage}`, `ArchivedAuditBanner({variant})`, `PageRowProps` — names identical across producing/consuming tasks and match the verified current code.
+
+## Codex plan-review disposition (2026-07-04)
+
+Verdict **ACCEPT-WITH-FIXES** (9 named fixes). All applied:
+- **#1** remove unused `status` state from `AuditPoller` after Task 2 (verified: `status` used only in the removed poll effect) — Task 2.
+- **#2** type the test `args()` helper as `UseAuditPollerArgs<Poll>` — Task 1.
+- **#3** deterministic microtask flush (`flushAsync` = two awaits, for `fetch()`+`res.json()`) — Task 1.
+- **#4** actually test a thrown fetch (`rejectNext`) — Task 1 (now 8 tests).
+- **#5** reset `refreshedRef` at each effect start so a url change on a live instance can still refresh (safe via the `cancelled` guard) — Task 1 impl.
+- **#6** "no-`inFlight`" framed as *intentionally unchanged*, not "safe" — spec §3 + impl comment.
+- **#7** `vi.stubGlobal`/`vi.unstubAllGlobals` for localStorage tests — Tasks 4, 6.
+- **#8** enumerate `PageRow` imports (`Spinner`, `safeExternalHref` verified used) and remove them + `keyForPage*` from `SiteAuditResultsView` — Task 7.
+- **#9** explicit note that single-page read behavior is preserved (writes unreachable in `readOnly` via the hidden toggle) — Task 6.
