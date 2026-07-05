@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { Spinner } from '@/components/Spinner'
-import { useRouter } from 'next/navigation'
 import type { LiveAuditChild } from '@/lib/ada-audit/types'
 import LiveAuditTable from './LiveAuditTable'
+import { useAuditPoller } from './useAuditPoller'
 
 interface PollData {
   status: string
@@ -44,7 +44,6 @@ export default function SiteAuditPoller({
   initialPagesComplete,
   initialPagesError,
 }: Props) {
-  const router = useRouter()
   const [pagesTotal, setPagesTotal] = useState(initialPagesTotal)
   const [pagesComplete, setPagesComplete] = useState(initialPagesComplete)
   const [pagesError, setPagesError] = useState(initialPagesError)
@@ -59,43 +58,30 @@ export default function SiteAuditPoller({
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
   const [activeAudit, setActiveAudit] = useState<PollData['activeAudit']>(null)
   const [liveChildren, setLiveChildren] = useState<LiveAuditChild[]>([])
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    if (status === 'complete' || status === 'error' || status === 'cancelled') return
-
-    timerRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/site-audit/${id}`)
-        if (!res.ok) return
-        const data: PollData = await res.json()
-
-        setPagesTotal(data.pagesTotal)
-        setPagesComplete(data.pagesComplete)
-        setPagesError(data.pagesError)
-        setPdfsTotal(data.pdfsTotal ?? 0)
-        setPdfsComplete(data.pdfsComplete ?? 0)
-        setPdfsError(data.pdfsError ?? 0)
-        setPdfsSkipped(data.pdfsSkipped ?? 0)
-        setLighthouseTotal(data.lighthouseTotal ?? 0)
-        setLighthouseComplete(data.lighthouseComplete ?? 0)
-        setLighthouseError(data.lighthouseError ?? 0)
-        setStatus(data.status)
-        setQueuePosition(data.queuePosition)
-        setActiveAudit(data.activeAudit)
-        setLiveChildren(data.liveChildren ?? [])
-
-        if (data.status === 'complete' || data.status === 'error' || data.status === 'cancelled') {
-          if (timerRef.current) clearInterval(timerRef.current)
-          router.refresh()
-        }
-      } catch {
-        // Network blip — keep polling
-      }
-    }, 3000)
-
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [id, status, router])
+  useAuditPoller<PollData>({
+    url: `/api/site-audit/${id}`,
+    intervalMs: 3000,
+    initialStatus,
+    getStatus: (d) => d.status,
+    isTerminal: (s) => s === 'complete' || s === 'error' || s === 'cancelled',
+    onData: (data) => {
+      setPagesTotal(data.pagesTotal)
+      setPagesComplete(data.pagesComplete)
+      setPagesError(data.pagesError)
+      setPdfsTotal(data.pdfsTotal ?? 0)
+      setPdfsComplete(data.pdfsComplete ?? 0)
+      setPdfsError(data.pdfsError ?? 0)
+      setPdfsSkipped(data.pdfsSkipped ?? 0)
+      setLighthouseTotal(data.lighthouseTotal ?? 0)
+      setLighthouseComplete(data.lighthouseComplete ?? 0)
+      setLighthouseError(data.lighthouseError ?? 0)
+      setStatus(data.status)
+      setQueuePosition(data.queuePosition)
+      setActiveAudit(data.activeAudit)
+      setLiveChildren(data.liveChildren ?? [])
+    },
+  })
 
   const scanned = pagesComplete + pagesError
   const progress = pagesTotal > 0 ? Math.round((scanned / pagesTotal) * 100) : 0
