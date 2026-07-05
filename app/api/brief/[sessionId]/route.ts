@@ -4,6 +4,7 @@ import path from 'path';
 import { prisma } from '@/lib/db';
 import { isValidSessionId, getUploadDir } from '@/lib/upload-helpers';
 import { BriefService } from '@/lib/services/brief.service';
+import { withRoute } from '@/lib/api/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +29,10 @@ function detectFileType(filename: string, content: string): 'internal' | 'struct
  * Generate an AI-ready brief from uploaded files.
  * Body: { clientName: string }
  */
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export const POST = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   const { sessionId } = await params;
+  // A3: keep the {} default on malformed JSON (Codex-mandated preservation —
+  // NOT swapped for parseJsonBody; see Task 12 brief).
   const body = await request.json().catch(() => ({}));
   const clientName = typeof body.clientName === 'string' ? body.clientName.trim() : '';
 
@@ -40,51 +43,45 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: 'Client name is required' }, { status: 400 });
   }
 
-  try {
-    const session = await prisma.session.findUnique({ where: { id: sessionId } });
-    if (!session) {
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-    }
-
-    const uploadDir = getUploadDir(sessionId);
-    const briefService = new BriefService();
-    const filesProcessed: Array<{ name: string; type: string; count: number }> = [];
-    let sessionFiles: string[] = [];
-    try { sessionFiles = JSON.parse(session.files) as string[]; } catch { sessionFiles = []; }
-
-    for (const filename of sessionFiles) {
-      const filePath = path.join(uploadDir, filename);
-      try { await fs.access(filePath); } catch { continue; }
-
-      const content = await fs.readFile(filePath, 'utf-8');
-      const fileType = detectFileType(filename, content);
-
-      switch (fileType) {
-        case 'internal': {
-          const count = briefService.parseInternalCsv(content);
-          filesProcessed.push({ name: filename, type: 'ScreamingFrog Internal', count });
-          break;
-        }
-        case 'structured': {
-          const count = briefService.parseStructuredDataCsv(content);
-          filesProcessed.push({ name: filename, type: 'ScreamingFrog Structured Data', count });
-          break;
-        }
-        case 'semrush': {
-          const count = briefService.parseSemrushCsv(content);
-          filesProcessed.push({ name: filename, type: 'SEMRush Keywords', count });
-          break;
-        }
-        default:
-          filesProcessed.push({ name: filename, type: 'Unknown (skipped)', count: 0 });
-      }
-    }
-
-    const result = briefService.generate(clientName);
-    return NextResponse.json({ brief: result.brief, stats: result.stats, filesProcessed });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Brief generation error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+  const session = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (!session) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
-}
+
+  const uploadDir = getUploadDir(sessionId);
+  const briefService = new BriefService();
+  const filesProcessed: Array<{ name: string; type: string; count: number }> = [];
+  let sessionFiles: string[] = [];
+  try { sessionFiles = JSON.parse(session.files) as string[]; } catch { sessionFiles = []; }
+
+  for (const filename of sessionFiles) {
+    const filePath = path.join(uploadDir, filename);
+    try { await fs.access(filePath); } catch { continue; }
+
+    const content = await fs.readFile(filePath, 'utf-8');
+    const fileType = detectFileType(filename, content);
+
+    switch (fileType) {
+      case 'internal': {
+        const count = briefService.parseInternalCsv(content);
+        filesProcessed.push({ name: filename, type: 'ScreamingFrog Internal', count });
+        break;
+      }
+      case 'structured': {
+        const count = briefService.parseStructuredDataCsv(content);
+        filesProcessed.push({ name: filename, type: 'ScreamingFrog Structured Data', count });
+        break;
+      }
+      case 'semrush': {
+        const count = briefService.parseSemrushCsv(content);
+        filesProcessed.push({ name: filename, type: 'SEMRush Keywords', count });
+        break;
+      }
+      default:
+        filesProcessed.push({ name: filename, type: 'Unknown (skipped)', count: 0 });
+    }
+  }
+
+  const result = briefService.generate(clientName);
+  return NextResponse.json({ brief: result.brief, stats: result.stats, filesProcessed });
+});

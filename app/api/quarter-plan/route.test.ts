@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { GET, PUT } from './route'
@@ -163,6 +163,20 @@ describe('PUT /api/quarter-plan', () => {
 })
 
 describe('POST /api/quarter-plan/import', () => {
+  it('400 invalid_json on malformed', async () => {
+    const bad = new NextRequest('http://localhost/api/quarter-plan/import', { method: 'POST', body: 'nope{' })
+    const res = await IMPORT(bad)
+    expect(res.status).toBe(400)
+    // A3: normalized from "Invalid JSON body"
+    expect((await res.json()).error).toBe('invalid_json')
+  })
+
+  it('400 with sanitizePlanPayload error on invalid payload shape', async () => {
+    const res = await IMPORT(jsonReq('POST', null))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('Invalid payload')
+  })
+
   it('imports onto an empty DB', async () => {
     const id = await makeClient('imp')
     const res = await IMPORT(jsonReq('POST', payload([{ clientId: id, week: 3, position: 0, priority: 2, status: 'on_hold', note: 'memo', completed: true }])))
@@ -220,6 +234,21 @@ describe('quarter push routes (B5)', () => {
   const pushableRow = (clientId: number): Partial<AssignmentPayload> =>
     ({ clientId, week: 3, position: 0, priority: 2, status: 'in_progress', note: 'cycle note', completed: false })
 
+  // Hand-mint a qct_ token with arbitrary claims/secret/expiry, mirroring the
+  // lib's own signing config (issuer/audience) so only the deliberately-wrong
+  // field trips verification.
+  async function signQct(
+    planId: string,
+    opts: { scope?: string[]; expiresIn?: string; secret?: string } = {},
+  ): Promise<string> {
+    const secret = new TextEncoder().encode(opts.secret ?? 'dev-quarter-push-secret-do-not-use-in-prod')
+    const jwt = await new SignJWT({ scope: opts.scope ?? ['read', 'receipt-write'] })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuer('er-seo-tools').setAudience('quarter-cycle-push').setSubject(planId)
+      .setIssuedAt().setExpirationTime(opts.expiresIn ?? '1h').sign(secret)
+    return `qct_${jwt}`
+  }
+
   async function makePushablePlan() {
     const clientId = await makeClient('push')
     await prisma.client.update({ where: { id: clientId }, data: { teamworkTasklistId: '12345' } })
@@ -227,6 +256,19 @@ describe('quarter push routes (B5)', () => {
     const plan = (await prisma.quarterPlan.findFirst())!
     return { clientId, planId: plan.id }
   }
+
+  it('mint: 401 auth_required with no auth cookie (password auth configured)', async () => {
+    // isValidAuthCookie dev-bypasses when APP_AUTH_PASSWORD is unset — stub it
+    // so the no-cookie path actually exercises the 401 branch.
+    vi.stubEnv('APP_AUTH_PASSWORD', 'test-password')
+    try {
+      const res = await MINT(bearerReq('http://localhost/api/quarter-plan/push/mint-token', null, { method: 'POST' }))
+      expect(res.status).toBe(401)
+      expect((await res.json()).error).toBe('auth_required')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 
   it('mint: 409 no_plan when none, 409 nothing_planned when nothing pushable', async () => {
     expect((await MINT(bearerReq('http://localhost/api/quarter-plan/push/mint-token', null, { method: 'POST' }))).status).toBe(409)
@@ -261,10 +303,14 @@ describe('quarter push routes (B5)', () => {
   it('export: 401 without/with-wrong bearer; 200 with the contract shape', async () => {
     const { clientId, planId } = await makePushablePlan()
     const url = `http://localhost/api/quarter-plan/push/${planId}`
-    expect((await EXPORT(bearerReq(url, null), { params: Promise.resolve({ planId: String(planId) }) })).status).toBe(401)
+    const noAuth = await EXPORT(bearerReq(url, null), { params: Promise.resolve({ planId: String(planId) }) })
+    expect(noAuth.status).toBe(401)
+    expect((await noAuth.json()).error).toBe('auth_missing_or_malformed')
 
     const { token } = await mintQuarterPushToken(String(planId + 1)) // wrong plan
-    expect((await EXPORT(bearerReq(url, token), { params: Promise.resolve({ planId: String(planId) }) })).status).toBe(401)
+    const wrongPlan = await EXPORT(bearerReq(url, token), { params: Promise.resolve({ planId: String(planId) }) })
+    expect(wrongPlan.status).toBe(401)
+    expect((await wrongPlan.json()).error).toBe('token_wrong_plan_id')
 
     const good = await mintQuarterPushToken(String(planId))
     const res = await EXPORT(bearerReq(url, good.token), { params: Promise.resolve({ planId: String(planId) }) })
@@ -302,6 +348,66 @@ describe('quarter push routes (B5)', () => {
     await prisma.quarterPlan.deleteMany({})
     const res = await EXPORT(bearerReq(`http://localhost/api/quarter-plan/push/${planId}`, token), { params: Promise.resolve({ planId: String(planId) }) })
     expect(res.status).toBe(404)
+  })
+
+  it('export: 404 not_found when a newer plan supersedes the token\'s plan', async () => {
+    const { planId } = await makePushablePlan()
+    const { token } = await mintQuarterPushToken(String(planId))
+    await prisma.quarterPlan.create({ data: { name: 'newer plan' } }) // now the latest — old token's plan is stale
+    const res = await EXPORT(bearerReq(`http://localhost/api/quarter-plan/push/${planId}`, token), { params: Promise.resolve({ planId: String(planId) }) })
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toBe('not_found')
+  })
+
+  it('export: 401 token_missing_scope without \'read\'; hand-minted expired/bad-sig tokens', async () => {
+    const { planId } = await makePushablePlan()
+    const url = `http://localhost/api/quarter-plan/push/${planId}`
+    const routeParams = { params: Promise.resolve({ planId: String(planId) }) }
+
+    const noReadScope = await signQct(String(planId), { scope: ['receipt-write'] })
+    const noReadRes = await EXPORT(bearerReq(url, noReadScope), routeParams)
+    expect(noReadRes.status).toBe(401)
+    expect((await noReadRes.json()).error).toBe('token_missing_scope')
+
+    const badSig = await signQct(String(planId), { secret: 'a-completely-different-signing-secret' })
+    const badSigRes = await EXPORT(bearerReq(url, badSig), routeParams)
+    expect(badSigRes.status).toBe(401)
+    expect((await badSigRes.json()).error).toBe('token_invalid_signature')
+
+    // Wart, pinned as-is: tokenErrorCode()'s 'expired' substring check never
+    // matches jose's real expiry message ('"exp" claim timestamp check
+    // failed'), so an actually-expired token falls through to token_invalid,
+    // not token_expired.
+    const expired = await signQct(String(planId), { expiresIn: '-10s' })
+    const expiredRes = await EXPORT(bearerReq(url, expired), routeParams)
+    expect(expiredRes.status).toBe(401)
+    expect((await expiredRes.json()).error).toBe('token_invalid')
+  })
+
+  it('receipt: 401 auth_missing_or_malformed without a bearer token', async () => {
+    const { planId } = await makePushablePlan()
+    const res = await RECEIPT(
+      bearerReq(`http://localhost/api/quarter-plan/push/${planId}/receipt`, null, { method: 'POST', body: JSON.stringify({ created: 1 }) }),
+      { params: Promise.resolve({ planId: String(planId) }) },
+    )
+    expect(res.status).toBe(401)
+    expect((await res.json()).error).toBe('auth_missing_or_malformed')
+  })
+
+  it('receipt: 401 token_invalid_signature and token_wrong_plan_id for hand-minted bad tokens', async () => {
+    const { planId } = await makePushablePlan()
+    const url = `http://localhost/api/quarter-plan/push/${planId}/receipt`
+    const routeParams = { params: Promise.resolve({ planId: String(planId) }) }
+
+    const badSig = await signQct(String(planId), { secret: 'a-completely-different-signing-secret' })
+    const badSigRes = await RECEIPT(bearerReq(url, badSig, { method: 'POST', body: JSON.stringify({ created: 1 }) }), routeParams)
+    expect(badSigRes.status).toBe(401)
+    expect((await badSigRes.json()).error).toBe('token_invalid_signature')
+
+    const { token: wrongPlanToken } = await mintQuarterPushToken(String(planId + 1))
+    const wrongPlanRes = await RECEIPT(bearerReq(url, wrongPlanToken, { method: 'POST', body: JSON.stringify({ created: 1 }) }), routeParams)
+    expect(wrongPlanRes.status).toBe(401)
+    expect((await wrongPlanRes.json()).error).toBe('token_wrong_plan_id')
   })
 
   it('receipt: 401 for a read-only token (scope enforcement)', async () => {

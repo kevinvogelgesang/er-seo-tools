@@ -11,6 +11,8 @@ import { prisma } from '@/lib/db'
 import { nextRun } from '@/lib/jobs/scheduler'
 import { cancelJobsByGroup } from '@/lib/jobs/queue'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
+import { withRoute } from '@/lib/api/with-route'
+import { parseJsonBody } from '@/lib/api/body'
 
 type Params = { params: Promise<{ id: string; scheduleId: string }> }
 
@@ -22,14 +24,9 @@ async function findOwnedSchedule(rawClientId: string, scheduleId: string) {
   })
 }
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+export const PATCH = withRoute(async (request: NextRequest, { params }: Params) => {
   const { id, scheduleId } = await params
-  let body: Record<string, unknown>
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
-  }
+  const body = await parseJsonBody<Record<string, unknown>>(request)
   if (typeof body.enabled !== 'boolean') {
     return NextResponse.json({ error: 'enabled_required' }, { status: 400 })
   }
@@ -56,9 +53,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       : { enabled: false },
   })
   return NextResponse.json({ ok: true })
-}
+})
 
-export async function DELETE(_request: NextRequest, { params }: Params) {
+export const DELETE = withRoute(async (_request: NextRequest, { params }: Params) => {
   const { id, scheduleId } = await params
   const sched = await findOwnedSchedule(id, scheduleId)
   if (!sched) return NextResponse.json({ error: 'not_found' }, { status: 404 })
@@ -66,4 +63,4 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
   await cancelJobsByGroup(`schedule:${sched.id}`)
   await prisma.schedule.delete({ where: { id: sched.id } })
   return NextResponse.json({ ok: true })
-}
+})
