@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
 import type { AuditDetail } from '@/lib/ada-audit/types'
+import { useAuditPoller } from './useAuditPoller'
 
 interface Props {
   id: string
@@ -26,16 +26,16 @@ export default function AuditPoller({
   initialProgress,
   initialProgressMessage,
 }: Props) {
-  const router = useRouter()
   const [progress, setProgress] = useState(initialProgress)
   const [message, setMessage] = useState(initialProgressMessage || 'Starting…')
-  const [status, setStatus] = useState(initialStatus)
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(new Date(createdAt).getTime())
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Live elapsed counter — ticks every second
+  const isTerminal = (s: string) =>
+    s === 'complete' || s === 'error' || s === 'redirected'
+
+  // Live elapsed counter — ticks every second (unchanged)
   useEffect(() => {
     const updateElapsed = () => {
       setElapsed(Math.floor((Date.now() - startRef.current) / 1000))
@@ -45,32 +45,18 @@ export default function AuditPoller({
     return () => { if (tickRef.current) clearInterval(tickRef.current) }
   }, [])
 
-  // Poll DB every second
-  useEffect(() => {
-    if (status === 'complete' || status === 'error' || status === 'redirected') return
-
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/ada-audit/${id}`)
-        if (!res.ok) return
-        const data: AuditDetail = await res.json()
-
-        setProgress(data.progress ?? 0)
-        setMessage(data.progressMessage || 'Running…')
-        setStatus(data.status)
-
-        if (data.status === 'complete' || data.status === 'error' || data.status === 'redirected') {
-          if (pollRef.current) clearInterval(pollRef.current)
-          if (tickRef.current) clearInterval(tickRef.current)
-          router.refresh()
-        }
-      } catch {
-        // Network blip — keep polling
-      }
-    }, 1000)
-
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [id, status, router])
+  useAuditPoller<AuditDetail>({
+    url: `/api/ada-audit/${id}`,
+    intervalMs: 1000,
+    initialStatus,
+    getStatus: (d) => d.status,
+    isTerminal,
+    onData: (d) => {
+      setProgress(d.progress ?? 0)
+      setMessage(d.progressMessage || 'Running…')
+    },
+    onTerminal: () => { if (tickRef.current) clearInterval(tickRef.current) },
+  })
 
   // Estimated seconds remaining — reliable once progress > 15%
   const estimatedRemaining = useMemo(() => {
