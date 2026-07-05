@@ -52,9 +52,14 @@ Steps:
 1. Create `app/api/<path>/route.ts`. Exemplar (cookie-gated POST with full input
    hygiene): `app/api/site-audit/route.ts`. Exemplar (token-authed GET):
    `app/api/seo-roadmap/[id]/route.ts`.
-2. **Body parsing convention:** wrap `await request.json()` in try-catch → 400
-   `{ error: 'Invalid JSON body' }` (or `invalid_json`). Never let a malformed body 500.
-   Same for any `JSON.parse` of DB blob columns.
+2. **Wrap the handler in `withRoute`** (`@/lib/api/with-route`) and, for JSON bodies, use
+   `parseJsonBody` (`@/lib/api/body`) instead of a raw `await request.json()`. Throw
+   `HttpError(status, code)` (`@/lib/api/errors`) for error responses — `withRoute` turns
+   it into `{ error: code }` at that status; a malformed body becomes 400 `invalid_json`
+   automatically. `withRoute` also nets Prisma `P2025`→404/`P2002`→409 as a last resort
+   and unknown throws → 500 `internal_error`, and passes any thrown/returned `Response`
+   straight through — it does no auth, that stays in middleware. Same JSON-safety applies
+   to any `JSON.parse` of DB blob columns (still wrap those manually).
 3. Next 15 dynamic params are async: `{ params }: { params: Promise<{ id: string }> }`
    then `const { id } = await params`.
 4. If (and only if) the route must bypass the cookie gate, add the exact-match regex or
