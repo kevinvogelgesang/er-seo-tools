@@ -15,6 +15,8 @@ import CommonIssueCallout from './CommonIssueCallout'
 import { useChecks } from './useChecks'
 import { ClientDate } from '@/components/ClientDate'
 import PageRow from './PageRow'
+import { useTriageMode } from './useTriageMode'
+import { ArchivedAuditBanner } from './ArchivedAuditBanner'
 
 interface Props {
   domain: string
@@ -61,21 +63,7 @@ export default function SiteAuditResultsView({
   const [viewMode, setViewMode] = useState<'table' | 'by-violation'>('table')
   const [currentPage, setCurrentPage] = useState(1)
 
-  const [triageMode, setTriageMode] = useState(false)
-
-  useEffect(() => {
-    if (shareMode) return // public view: triage is internal-only; never touch localStorage
-    const stored = localStorage.getItem(`er-triage-mode:${siteAuditId}`)
-    if (stored === '1') setTriageMode(true)
-  }, [siteAuditId, shareMode])
-
-  const onToggleTriage = () => {
-    setTriageMode((prev) => {
-      const next = !prev
-      localStorage.setItem(`er-triage-mode:${siteAuditId}`, next ? '1' : '0')
-      return next
-    })
-  }
+  const { triageMode, toggleTriage } = useTriageMode(siteAuditId, { enabled: !shareMode })
 
   const checks = useChecks({
     endpoint: `/api/site-audit/${siteAuditId}/checks`,
@@ -134,14 +122,7 @@ export default function SiteAuditResultsView({
 
   return (
     <div className="space-y-6">
-      {summary.archived && (
-        <div className="flex gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl text-[12px] font-body text-amber-800 dark:text-amber-400 leading-relaxed">
-          <span>
-            <strong>Archived audit:</strong> full per-page detail was pruned after 90 days.
-            Violations shown are exact; node samples are capped at 5 per rule.
-          </span>
-        </div>
-      )}
+      {summary.archived && <ArchivedAuditBanner variant="site" />}
       <ComplianceBanner />
 
       {/* Header */}
@@ -172,7 +153,7 @@ export default function SiteAuditResultsView({
             <div className="flex-shrink-0">
               <button
                 type="button"
-                onClick={onToggleTriage}
+                onClick={toggleTriage}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
               >
                 {triageMode ? 'Triage on' : 'Triage off'}
