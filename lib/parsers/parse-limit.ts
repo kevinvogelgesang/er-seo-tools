@@ -55,3 +55,44 @@ export class Semaphore {
     }
   }
 }
+
+// The single process-wide permit pool (see the module header).
+const parseSemaphore = new Semaphore(PARSE_CONCURRENCY);
+
+/**
+ * Run `fn` over `items` with at most PARSE_CONCURRENCY in flight PROCESS-WIDE
+ * (the shared `parseSemaphore`). Uses a per-call worker pool that pulls the
+ * next index and acquires a permit just-in-time — NOT an enqueue-all map — so
+ * concurrent calls interleave fairly instead of one draining first.
+ *
+ * Results are returned in INPUT order (`result[i]` ⟷ `items[i]`), regardless
+ * of completion order. If `fn` rejects for any item, this rejects with the
+ * first such reason but ONLY after every started worker has settled, so no
+ * parse keeps running in the background past the caller's catch.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.min(PARSE_CONCURRENCY, items.length);
+
+  const worker = async (): Promise<void> => {
+    // `cursor++` is atomic within a synchronous step (single-threaded JS).
+    for (let index = cursor++; index < items.length; index = cursor++) {
+      await parseSemaphore.acquire();
+      try {
+        results[index] = await fn(items[index], index);
+      } finally {
+        parseSemaphore.release();
+      }
+    }
+  };
+
+  const workers = Array.from({ length: workerCount }, () => worker());
+  const settled = await Promise.allSettled(workers);
+  const failure = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+  if (failure) throw failure.reason;
+  return results;
+}
