@@ -1,6 +1,6 @@
 # Streaming Parse Concurrency (Design)
 
-**Status:** Draft (Codex review pending) · **Date:** 2026-07-04 · **Author:** streaming-concurrency session
+**Status:** Codex-reviewed (accept-with-fixes; all 8 folded in) · **Date:** 2026-07-04 · **Author:** streaming-concurrency session
 **Roadmap item:** C7 Phase-3 payoff — parse the uploaded Screaming Frog CSVs
 **concurrently** now that C7 pt3 (streaming parse, PR #95) made per-file memory bounded.
 **Roadmap source:** `docs/superpowers/nyi/improvement-roadmaps/01-seo-parser.md` §Phase 3
@@ -132,18 +132,36 @@ A module-scoped bounded-concurrency runner built from a small, independently-tes
   next FIFO waiter or increments the free count). No timers, no external deps.
   Constructor-injectable `size` makes the cap unit-testable at arbitrary N.
 - `mapWithConcurrency<T, R>(items: T[], fn: (item: T, index: number) => Promise<R>): Promise<R[]>`
-  — the per-request driver: for each item it `await`s the **shared module-level**
-  semaphore, runs `fn`, and releases the permit in a `finally`; resolves to results in
-  **input order** (result `[i]` ⟷ `items[i]`, regardless of completion order). It takes
-  no `limit` argument — the cap is owned by the module.
+  — the per-request driver; resolves to results in **input order** (result `[i]` ⟷
+  `items[i]`, regardless of completion order). It takes no `limit` argument — the cap is
+  owned by the module.
+
+**Scheduling — a per-call worker pool, NOT enqueue-all (Codex #1).** A naive
+`items.map(async item => { await sem.acquire(); … })` would enqueue *all* N tasks as FIFO
+waiters up front, so a 49-file upload parks 49 waiters ahead of a second request's tasks —
+the cap is preserved but the second upload is starved behind head-of-line blocking. Instead
+`mapWithConcurrency` runs a **per-call pool of at most `PARSE_CONCURRENCY` local workers**;
+each worker pulls the next unclaimed index, `await`s a permit from the shared semaphore
+**just-in-time**, runs `fn`, releases in `finally`, and loops until the index cursor is
+exhausted. This bounds the shared FIFO queue to ~`PARSE_CONCURRENCY` waiters per in-flight
+call (≤ 4 total for two concurrent uploads), so concurrent uploads interleave fairly instead
+of one draining fully first.
 
 **Global scope (how the cap is enforced).** `parse-limit.ts` instantiates exactly **one**
-`Semaphore(PARSE_CONCURRENCY)` at module load. Every parse task — across every concurrent
-`/api/parse` request — acquires a permit from that single instance before running
-`parseOne` and releases it in a `finally`. One semaphore per process ⇒ the cap is
-process-wide, not per-request (G3): two simultaneous uploads share the same 2 permits.
-Permits always release in `finally`, so a throwing task cannot leak a permit (defense in
-depth — `parseOne` doesn't throw today, but the primitive must be correct regardless).
+`Semaphore(PARSE_CONCURRENCY)` at module load. Every worker — across every concurrent
+`/api/parse` request — acquires a permit from that single instance. When a single upload
+runs alone, its `PARSE_CONCURRENCY` workers each hold a permit → full utilization; when two
+uploads overlap, their combined `2×PARSE_CONCURRENCY` workers contend for the same
+`PARSE_CONCURRENCY` permits → total in-flight stays capped process-wide (G3). Permits always
+release in `finally`, so a throwing task cannot leak a permit.
+
+**Rejection contract (Codex #2).** `mapWithConcurrency` is a generic helper: if `fn`
+rejects, the helper rejects — but only *after* every already-started worker settles, so no
+background parse keeps running past the caller's `catch` (defense in depth). For THIS
+feature the contract is moot in practice: `parseOne` try/catches every failure into a
+`FileOutcome` and never rejects, so the batch always completes with one outcome per file.
+The settle-before-reject behavior exists so the primitive stays correct if a future caller
+passes a throwing `fn`.
 
 ### 5.2 The route change (`route.ts:172–184`)
 
@@ -175,8 +193,9 @@ tally, `$transaction` write, findings dual-write, pillar fire) is **untouched**.
 ## 6. Data flow
 
 ```
-sessionFiles ─► mapWithConcurrency(files, parseOne)   // cap = module-owned PARSE_CONCURRENCY
-                   │  each task: acquire module semaphore ─► parseOne ─► release (finally)
+sessionFiles ─► mapWithConcurrency(files, parseOne)   // ≤PARSE_CONCURRENCY workers/call
+                   │  each worker: pull next index ─► acquire shared permit (JIT)
+                   │               ─► parseOne ─► release (finally) ─► loop
                    ▼
               outcomes[] (input order)
                    │  (ordered walk)
@@ -192,10 +211,11 @@ sessionFiles ─► mapWithConcurrency(files, parseOne)   // cap = module-owned 
   `FileOutcome`; it does not reject. So `mapWithConcurrency` sees only resolved
   promises and the batch always completes — per-file isolation (C7 pt1) is preserved
   for free.
-- The semaphore releases its permit in a `finally`, so even a hypothetical throw
-  (future refactor of `parseOne`) cannot deadlock the pool. `mapWithConcurrency`
-  itself does not use `Promise.all`'s fail-fast semantics in a way that would drop
-  outcomes — every task's result is placed at its index.
+- Each worker releases its permit in a `finally`, so even a hypothetical throw (future
+  refactor of `parseOne`) cannot deadlock the pool. The helper's generic contract
+  (§5.1, Codex #2): if `fn` ever rejects it rejects *after* started workers settle
+  (no orphaned background parse), never dropping or reordering the outcomes that did
+  resolve — each lands at its input index.
 - No new user-facing error surface; `metadata.file_reports` is produced exactly as
   before.
 
@@ -205,9 +225,23 @@ sessionFiles ─► mapWithConcurrency(files, parseOne)   // cap = module-owned 
   (`er-seo-tools-config-and-flags`) alongside `SITE_AUDIT_CONCURRENCY`, `PSI_CONCURRENCY`,
   `BROKEN_LINK_CONCURRENCY`. Not required in prod (has a safe default), so it does NOT
   add to `instrumentation.ts` fail-fast — no Kevin pre-deploy `.env` step needed.
-- Sizing rationale: ~751 MB peak per big-file stream; `2 × 751 ≈ 1.5 GB` worst case
-  leaves headroom under the 2400M ceiling even if a site audit's Chrome pages are
-  resident. Cap 2 is the conservative, consistent default.
+- Sizing rationale (Codex #6 — stated honestly, not as a safety proof): cap 2 is a
+  **conservative default grounded in the observed per-parser bound** (~751 MB peak for
+  a ~500 MB stream in the C7 pt3 harness). It is NOT a hard headroom guarantee:
+  `2 × 751 ≈ 1.5 GB` against the 2400M PM2 ceiling leaves ~900 MB for the Node
+  baseline, aggregation, Prisma, and any co-scheduled site-audit/Lighthouse work — real
+  crawls rarely hit the harness peak, but a pathological pair of huge uploads
+  co-scheduled with a site audit could pressure the ceiling. The mitigation is the
+  env knob: **drop `PARSE_CONCURRENCY` to 1** on a box under heavy co-scheduled load.
+  Default 2 is the balance for the common case (few analysts, uploads rarely overlap
+  site audits).
+
+**Runtime assumption (Codex #7).** The process-wide cap holds because the app runs as a
+**single long-lived Node process** (RunCloud + PM2 fork mode, per the frozen core stack) —
+one module instance ⇒ one `Semaphore`. It is NOT valid under multi-process/cluster or
+serverless (each worker would get its own semaphore). The parse route already requires the
+Node runtime (`fs`, Prisma, `streamCsv`); this feature adds no new constraint, but the plan
+notes the assumption so it isn't silently broken by a future runtime change.
 
 ## 9. Testing
 
@@ -223,16 +257,32 @@ sessionFiles ─► mapWithConcurrency(files, parseOne)   // cap = module-owned 
 - **Process-wide cap:** two overlapping `mapWithConcurrency` invocations (simulating
   two simultaneous uploads) never exceed `PARSE_CONCURRENCY` total in flight —
   proving the single shared semaphore is module-scoped, not per-call.
+- **Overlap fairness (Codex #8):** a second `mapWithConcurrency` call started while a
+  large first call is mid-flight begins making progress *before* the first drains all
+  its items — proving the per-call worker pool + JIT acquire avoids head-of-line
+  starvation (would fail under the naive enqueue-all scheme).
 - **`parseConcurrencyFromEnv` clamp:** `undefined`/`"0"`/`"-3"`/`"abc"` → default 2;
   `"3"` → 3. Tested against the pure helper, not by mutating the frozen constant.
 
 ### 9.2 Extend: `app/api/parse/[sessionId]/route.test.ts`
-- In the existing "two-path parseOne" block, add a case where fake parsers resolve
-  **out of order** (staggered) and assert `successes` / `reports` / `parsers_used` /
-  the domain tally land in `sessionFiles` order — i.e. concurrency does not perturb
-  ingestion order.
-- Assert at most `PARSE_CONCURRENCY` parses run concurrently for a multi-file session
-  (concurrency probe injected via the fake parser).
+- **Ordered ingestion, observed at the aggregator (Codex #3):** `route.test.ts` mocks
+  `AggregatorService`, so the golden aggregator suites do NOT prove the *route* fed
+  `addParserResult` in file order. Extend the mock to **record every
+  `addParserResult(parserName, data, filename)` call** and assert the call order equals
+  `sessionFiles` order even when parses complete out of order. Also assert
+  `reports` / `successes` / `parsers_used` land in file order.
+- **Make out-of-order completion real (Codex #4):** a fake parser's `parse()` is
+  synchronous, so "resolves out of order" must be induced at the I/O boundary — mock
+  `fs.readFile` (whole-file path) and/or `streamCsv` (streaming path) with per-file
+  delays (e.g. the file listed *first* resolves *last*), so the concurrency actually
+  reorders completion and the ordering assertion is meaningful.
+- **Domain-tie tie-break (Codex #5):** with two files of equal primary-domain count
+  completing out of order, assert `metadata.site_name` resolves to the same domain as
+  the sequential path (the sort is stable + fed from the file-ordered `successes`, so
+  insertion order is the tie-break — pin it).
+- **Concurrency bound:** assert at most `PARSE_CONCURRENCY` parses run concurrently for
+  a multi-file session (a probe incremented on parse entry / decremented on exit,
+  injected via the delayed I/O mock).
 
 ### 9.3 Guard suites (must stay green, unchanged)
 - `lib/services/aggregator.service.test.ts` + `aggregator.keyword-gaps.test.ts` +
