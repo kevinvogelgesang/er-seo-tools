@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-05 (A3 API route kit — MERGED+DEPLOYED+PROD-VERIFIED) · **Updated by:** the A3 session (PR #102, main `c0cbb22`). Next is a roadmap-menu choice (no single mandated item).
+**Last updated:** 2026-07-05 (SF-retirement Phase 1 KICKOFF — parity measurement + miss-rate data-state audit; docs-only, no code) · **Updated by:** the SF-retirement-Phase-1 session. Next action is **operational**: Kevin/analyst triggers seoIntent audits of indexable client sites (manhattan first) to fill the two Phase-1 data streams.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -12,112 +12,97 @@ single next action.
 ```
 Continue the er-seo-tools improvement roadmap.
 
-State: A3 (API route kit + tests for the untested routes) is now MERGED +
-DEPLOYED + PROD-VERIFIED (2026-07-05, PR #102, main `c0cbb22`). It added a small
-`lib/api/` route kit and closed the untested-route gap with zero net prod risk.
-- Scope was corrected from code first: roadmap said "14 untested" but the tree
-  had 73 routes / 52 sibling tests; Codex plan review found the 5 quarter-plan
-  subroutes were already covered in the `quarter-plan/route.test.ts` monolith →
-  REAL untested count = 16. Auth is entirely middleware-owned, so `withRoute`
-  gets NO auth; logging deferred to A4; no zod.
-- What shipped (tests-first, adopt-incrementally):
-  - Phase 1: characterization tests pinning current behavior of all 16 untested
-    routes (incl. deliberately pinned quirks: the two `brief` 500 `error.message`
-    leaks, `clients`-POST-bad-JSON-500, `brief/[sessionId]`'s `{}`-default).
-  - Phase 2: `lib/api/` kit — `errors.ts` (`HttpError`), `body.ts`
-    (`parseJsonBody`→`400 invalid_json`), `with-route.ts` (`withRoute`: passes
-    handler-returned AND thrown `Response` through; `HttpError`→status+code;
-    Prisma `P2025`→404/`P2002`→409 as a LAST-RESORT net; unknown→`500
-    internal_error` with NO message leak; rest-args generic type-checks no-arg
-    `GET()` + `(req,ctx)`).
-  - Phase 3: kit adopted on 8 plain-JSON cookie-gated routes under their green
-    Phase-1 tests. Streaming/file/public-share/token routes are test-only in v1.
-  - Deliberate normalizations (all test-pinned): `clients` POST bad-JSON 500→400
-    `invalid_json`; both `brief` 500s stop leaking `error.message` →
-    `internal_error` (`brief/[sessionId]` KEEPS `.catch(()=>({}))`);
-    `diff`/`quarter-plan/import`/`site-audit checks`/`ada-audit checks` bad-JSON
-    string→`invalid_json`; cross-route: removing a route's inline 500 catch
-    standardizes its unhandled-500 body to `internal_error` (route-specific
-    strings like `clients`' human duplicate-name 409 PRESERVED via explicit
-    P2002 catch, never the generic mapper).
-- Process: spec Codex accept-with-fixes; plan Codex accept-with-fixes ×6
-  (quarter-plan monolith / count 21→16, APP_AUTH_PASSWORD stub, screenshots
-  404-only, no flaky accessCount assert, preserve brief {} default, thrown-
-  Response passthrough); subagent-driven TDD (16 tasks, all reviews Approved,
-  3 fix-loops); final opus whole-branch review READY TO MERGE (0 Critical/0
-  Important). Gates re-run in the merging session: tsc + 3320 tests (361 files)
-  + build. Plain `~/deploy.sh` (no migration).
-- Latent bug found + pinned (NOT fixed — needs a separate ticket):
-  `tokenErrorCode()`'s `'expired'` substring never matches jose's real expiry
-  message → an expired `qct_` token returns `token_invalid` not `token_expired`.
-A2/A2-f1/B1–B5/C1–C10/C9(A+B)/D0 all COMPLETE + PROD-VERIFIED. A1, A3 COMPLETE.
-C7 fully complete. C6: Phases 1–4 + on-page + live score + redirect/canonical/
+State: SF-retirement Phase 1 (SF-vs-live PARITY MEASUREMENT + collect
+discoveryCoverageJson miss-rate DATA) is IN PROGRESS. This work is OPERATIONAL
+(a query/data problem, not a build) and spans 2-3 reporting cycles, so it does
+not complete in one session. Kickoff done 2026-07-05 (docs-only, no code):
+- Corrected the campaign skill's stale "Phase 0 = next action": Phase 0
+  (feat/autonomous-live-seo-source: seoIntent + pickCanonicalSeo + CrawlRun-native
+  /seo-parser) was MERGED as PR #85 on 2026-07-02 (verified git log
+  main..feat/autonomous-live-seo-source = 0; seoIntent + lib/services/seo-canonical.ts
+  on main). Phase 1 is correctly the work.
+- Read-only prod inventory (all tool:'seo-parser' CrawlRuns): 83 total = 7
+  sf-upload + 76 live-scan, of which ONLY 1 is seoIntent (manhattanschool.edu,
+  score 98, ~2.7d). discoveryCoverageJson: 0 runs. discoveryMode: 0 audits.
+  → The C6 Increment-1 miss-rate stream has produced ZERO data points because NO
+  site audit has run since Increment 1 deployed 2026-07-04 (weekly canary last
+  fired Mon 2026-06-30, next Mon 2026-07-07; the lone seoIntent run also predates
+  it). This IS the handoff's long-standing "FIRST GATE DATA POINT still pending."
+- First parity data point recorded (sf-live-parity.ts manhattanschool.edu, prod,
+  read-only): SF run de498917 score 82 (168 pages) vs Live run 54680dd9 score 98
+  (66 pages, seoIntent) → Δ+16 (expected — Live scores a narrower factor set);
+  page-set Jaccard 0.337 (LOW, but SF's 168 is inflated by asset URLs SF crawls
+  and the page-only live scan doesn't; SF-only set ALSO holds real content pages
+  sitemap-discovery missed — /admissions /programs /career-placement-support/
+  /student-success /book-a-tour/ — evidence FOR hybrid-discovery Phase 2, to be
+  quantified cleanly by discoveryCoverageJson); only shared issue type
+  duplicate_title 1|1 (Δ0); ~70 SF-only types = expected capability gaps. All
+  deviations explained.
+- Candidates: only 3 real client domains have SF uploads (manhattan client 12,
+  glowcollegecanada.ca 30, nuvani.edu 15); proway is the noindex canary. NO active
+  client has seedUrls → all eligible for sitemap-mode miss-rate. 30 active clients
+  → reaching the >=5-client gate needs fresh SF uploads on >=2 more.
+- Deliverable: docs/superpowers/todos/2026-07-05-sf-live-parity-log.md (data-state
+  snapshot + manhattan data point + candidate list + operational plan).
+A2/A2-f1/A3/B1-B5/C1-C10/C9(A+B)/D0 all COMPLETE + PROD-VERIFIED. A1 COMPLETE.
+C7 fully complete. C6: Phases 1-4 + on-page + live score + redirect/canonical/
 hreflang validation + external-link verification + hybrid-discovery Increment 1
-(miss-rate measurement) all shipped. A 16-skill operator library lives in
-.claude/skills/.
+(miss-rate MECHANISM, 0 data yet) all shipped. A 16-skill operator library lives
+in .claude/skills/.
 
 1. Load the skill er-seo-tools-change-control first. Gate policy (2026-07-03
    ruling, rules 1 & 4): THIS PASTED PROMPT is standing authorization to merge
-   pending roadmap PRs at session start — re-run the gates (lint/test/build) on
-   the PR branch in this session first — and to deploy when needed, ALWAYS
-   followed immediately by post-deploy verification. Destructive server ops
-   (prod data deletion, server .env edits, DB restore) stay Kevin-gated; docs
-   rituals mandatory; never scan non-client sites. Brainstorm→spec→plan runs
-   ungated — Kevin reviews after both artifacts are complete. Route design
-   questions to Codex, not Kevin (his standing instruction this session).
-2. Read docs/superpowers/todos/HANDOFF-improvement-roadmap.md (current state +
-   next item) and docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md
-   (full plan). Trust ranking when docs disagree: code > plan/spec >
-   tracker/handoff. Always re-map the actual code before writing a spec — the
-   handoff's forward-looking scope drifts (A3 proved this: "14 untested" was
-   really 16, and 5 quarter-plan routes were already tested).
-3. THE IMMEDIATE NEXT STEP: roadmap-menu choice (no single mandated item). Ask
-   Kevin which, or pick and proceed via the full pipeline (brainstorm → spec →
-   Codex → plan → Codex → subagent TDD → gates → PR → merge → deploy → verify →
-   docs ritual):
-   - SF-retirement data stream (Phase 1): run the existing SF-vs-live PARITY
-     script across ≥5 clients × 2–3 cycles AND collect `discoveryCoverageJson`
-     across real seoIntent audits — this DATA gates hybrid-discovery Increment 2
-     (the crawler). Operational more than code. Load er-seo-tools-sf-retirement-campaign.
-   - Further C6 (SF-retirement §5): hybrid discovery INCREMENT 2 (the capped BFS
-     crawler — gated on the Increment-1 miss-rate DATA) · reachability graph +
-     true depth (3b) · content similarity (Phase 5, embeddings asset in deps).
-   - Track A infra: A4 observability floor (`/api/health` + pino + `/admin/ops`)
-     · A5 SSE hook · A6 shared UI primitives · A7 auth hardening + Playwright.
-     (A3's `lib/api/` kit is now the pattern new routes/A4 build on.)
-   - Track D: D1 handoff-engine consolidation · D3 shared lib/seo-fetch/ · D4
-     client robots/sitemap checks · D6 RankMath redirect generator.
-   - Reusable real crawl for any fixture/parity need:
-     /Users/kevin/enrollment-resources/sf-crawls/manhattan/2026.07.03.11.29.25
-     (all exports; manhattanschool.edu is an existing client). Never scan non-client sites.
-4. LIGHT PENDING behavioral verify (not blocking, all inert-until-first-case):
-   - A3 error-envelope normalizations: the adopted routes' new codes
-     (`clients` POST bad-JSON 400 `invalid_json`; `brief` 500 `internal_error`
-     no-leak; the `*/checks` + `diff` + `import` bad-JSON `invalid_json`) are
-     cookie-gated → confirmed deployed, but only fire on the specific inputs
-     with a session. Exercise incidentally via normal dashboard use.
-   - Sitemap miss-rate (C6 Increment 1): FIRST GATE DATA POINT still pending — a
-     real seoIntent audit of an indexable client site WITH a sitemap →
-     `discoveryCoverageJson` `mode:'sitemap'` + plausible `offBaselineCount`.
-   - External-link verification: `broken_external_links` amber tier on the next
-     client audit with outbound links.
-   - Streaming concurrency wall-clock on a real multi-big-file upload (Manhattan 49-CSV).
-   - C9-A v2-scale · C9-B UI-render · C6-validation finding-emission · C7 pt1 File-processing panel.
+   pending roadmap PRs at session start (re-run the gates lint/test/build on the
+   PR branch in this session first) and to deploy when needed, ALWAYS followed
+   immediately by post-deploy verification. Destructive server ops (prod data
+   deletion, server .env edits, DB restore) stay Kevin-gated; docs rituals
+   mandatory; never scan non-client sites. Brainstorm->spec->plan runs ungated.
+   Route design questions to Codex, not Kevin.
+2. Read docs/superpowers/todos/HANDOFF-improvement-roadmap.md + the tracker
+   docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md + the parity
+   log docs/superpowers/todos/2026-07-05-sf-live-parity-log.md. Trust ranking
+   when docs disagree: code > plan/spec > tracker/handoff. Always re-map the
+   actual code before writing a spec (the campaign skill was already found stale
+   this session — Phase 0 was long merged).
+3. THE IMMEDIATE NEXT STEP is OPERATIONAL (needs Kevin/analyst — prod is
+   OAuth-only, no automated cookie): trigger seoIntent audits of indexable client
+   sites triggered after 2026-07-04 to fill BOTH Phase-1 data streams. Concretely:
+   - Kevin triggers a fresh seoIntent audit on manhattanschool.edu (client 12) via
+     the UI, OR supplies an er_auth cookie so the runbook curls can be run
+     (er-seo-tools-sf-retirement-campaign Gate 0.3 Step 2:
+     POST /api/site-audit {domain, wcagLevel:'wcag21aa', clientId:12, seoIntent:true}).
+     → first discoveryCoverageJson data point (mode:'sitemap') + refreshed pair.
+   - Then glowcollegecanada.ca (30) + nuvani.edu (15) (already have SF uploads).
+   - Analysts run fresh SF uploads on >=2 MORE clients to reach the >=5-client gate.
+   - After each audit: on prod, cd /home/seo/webapps/seo-tools && npx tsx
+     .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts <domain>
+     AND read the run's discoveryCoverageJson; record both as a new dated data
+     point in 2026-07-05-sf-live-parity-log.md.
+   If Kevin would rather switch tracks while data accumulates, the menu is open:
+   further C6 (hybrid discovery Increment 2 is GATED on this miss-rate data;
+   reachability graph 3b; content similarity Phase 5) · Track A infra (A4
+   observability /api/health + pino + /admin/ops, builds on A3's lib/api/ kit; A5
+   SSE; A6 UI primitives; A7 auth+Playwright) · Track D (D1 handoff-engine
+   consolidation; D3 shared lib/seo-fetch/; D4 client robots/sitemap checks; D6
+   RankMath generator).
+4. Reusable real crawl for any fixture/parity need (never scan non-client sites):
+   /Users/kevin/enrollment-resources/sf-crawls/manhattan/2026.07.03.11.29.25
+   (all exports; manhattanschool.edu is client 12).
 5. Small open follow-ups (not blocking):
-   - **`tokenErrorCode()` expired-token bug** (found in A3): expired `qct_`
-     tokens report `token_invalid` not `token_expired` — the `'expired'`
-     substring test never matches jose's `'"exp" claim timestamp check failed'`.
-     Fix + a pinning test (the Phase-1 test currently pins the WRONG behavior
-     with a comment).
-   - **A3 doc caveat:** `withRoute` would 500 a thrown Next `redirect()`/
-     `notFound()` (non-`Response` control-flow throw). No adopted route uses
-     them; add a one-line note to the kit's CLAUDE.md/SKILL guidance if a future
-     route needs to throw a redirect.
-   - D0: set `ALERT_WEBHOOK_URL` in the server .env once Slack admin approves;
-     optional BACKUP_DIR-unset warning in scripts/db-backup.ts; two ~444 MB
-     backups in /home/seo/data/seo-tools/backups/ (safe to rm the older one).
-   - Stray untracked server files: `~/probe-beal.ts.bak`, audit-aggregate.js,
-     audit-snapshot.js, .env.*.bak, lighthouse-reports/ (Kevin may rm).
+   - tokenErrorCode() expired-token bug (found in A3): expired qct_ tokens report
+     token_invalid not token_expired — the 'expired' substring test never matches
+     jose's '"exp" claim timestamp check failed'. Fix + repoint the Phase-1 test
+     (currently pins the WRONG behavior with a comment).
+   - A3 doc caveat: withRoute would 500 a thrown Next redirect()/notFound()
+     (non-Response control-flow throw). No adopted route uses them; add a one-line
+     note to the kit guidance if a future route needs to throw a redirect.
+   - D0: set ALERT_WEBHOOK_URL in the server .env once Slack admin approves;
+     optional BACKUP_DIR-unset warning in scripts/db-backup.ts; two ~444 MB backups
+     in /home/seo/data/seo-tools/backups/ (safe to rm the older one).
+   - Stray untracked server files: ~/probe-beal.ts.bak, audit-aggregate.js,
+     audit-snapshot.js, .env.*.bak, lighthouse-reports/ (Kevin may rm). NOTE: this
+     session left two read-only scratch scripts at ~/parity-inventory.ts +
+     ~/sf-domains.ts (outside the repo tree, harmless; rm anytime).
 6. After any advance: tracker checkbox + dated status-log line, rewrite this
    handoff, and end your final reply with this doc's updated paste-in prompt in a
    code block.
@@ -125,122 +110,122 @@ hreflang validation + external-link verification + hybrid-discovery Increment 1
 
 ## Current state
 
-- **MERGED + DEPLOYED + PROD-VERIFIED 2026-07-05: A3 API route kit.** PR #102
-  (`c0cbb22`) merged to main + deployed via plain `~/deploy.sh` (no migration).
-  - **What shipped (tests-first, adopt-incrementally; zero net prod risk):**
-    - `lib/api/` kit: `errors.ts` (`HttpError`), `body.ts` (`parseJsonBody`→`400 invalid_json`),
-      `with-route.ts` (`withRoute` — uniform envelope, Prisma last-resort net, no 500 leak,
-      passes handler/thrown `Response` through, rest-args generic).
-    - Characterization tests for the **16** sibling-untested routes (count corrected 21→16 — 5
-      quarter-plan subroutes already in the monolith test, extended in-place).
-    - Kit adopted on 8 plain-JSON cookie-gated routes; streaming/file/public-share/token routes test-only.
-  - **Key decisions (locked, don't relitigate):** no auth in `withRoute` (middleware owns it);
-    no zod; logging deferred to A4; Prisma mapping is a LAST-RESORT net (route-specific error
-    strings preserved via explicit catches); `brief/[sessionId]` keeps its `{}`-default; bad-JSON
-    standardizes to `invalid_json` across adopted routes; 500s standardize to `internal_error`.
-  - **Gate-green in the merging session:** tsc clean · **3320 tests (361 files)** · build compiled.
-  - **Post-deploy verification:** commit `c0cbb22`; `lib/api/` present + compiled into `.next/server`;
-    clean boot; gated API route → `401 {"error":"auth_required"}`; login 200. Error-envelope
-    normalizations are cookie-gated → inert until exercised with a session.
-  - Spec: `../archive/specs/2026-07-05-api-route-kit-design.md` · Plan: `../archive/plans/2026-07-05-api-route-kit.md` (both archived).
+- **IN PROGRESS 2026-07-05: SF-retirement Phase 1 (parity + miss-rate data collection).**
+  Docs-only kickoff (no code). This is OPERATIONAL and multi-cycle — it does not
+  finish in one session.
+  - **Corrected the campaign skill's stale premise:** it treats "Phase 0 = merge
+    feat/autonomous-live-seo-source" as the next action, but that branch merged as
+    PR #85 on 2026-07-02 (verified on main). Phase 1 is the real work.
+  - **Prod data state (read-only inventory, 2026-07-05):** 83 seo-parser CrawlRuns
+    = 7 sf-upload + 76 live-scan; **only 1 seoIntent** (manhattan, score 98).
+    **discoveryCoverageJson: 0 runs. discoveryMode: 0 audits** — the miss-rate
+    mechanism (deployed 2026-07-04) has produced no data because no audit has run
+    since. First data needs a post-2026-07-04 seoIntent audit of an indexable
+    client site with a sitemap.
+  - **First parity data point recorded** (manhattan): Δ+16 score (Live 98 / SF 82),
+    Jaccard 0.337 (asset-inflated on the SF side + real sitemap-missed content
+    pages), duplicate_title the only shared type (Δ0). All deviations explained.
+  - **Deliverable:** `docs/superpowers/todos/2026-07-05-sf-live-parity-log.md`.
+  - **Blocker:** filling both streams needs seoIntent audits triggered on prod
+    (OAuth-only → Kevin via UI, or supplies an `er_auth` cookie). Analysts also
+    need fresh SF uploads on ≥2 more clients to reach the ≥5-client gate.
 - **A1, A2, A2-f1, A3, B1–B5, C1–C10, C9(A+B), D0 all COMPLETE + PROD-VERIFIED.**
   C7 fully complete. C6 Phases 1–4 + on-page + live score + redirect/canonical/hreflang
-  validation + external-link verification + hybrid-discovery Increment 1 (miss-rate measurement) shipped.
+  validation + external-link verification + hybrid-discovery Increment 1 (miss-rate MECHANISM) shipped.
 - **Weekly canary schedule still LIVE in prod:** client 31 "ER Staging Canary"
   → proway.erstaging.site, `weekly:1@06:00`. Noindex → good for plumbing, near-empty for on-page/coverage.
-- **⚠ PENDING HUMAN STEPS (Kevin), none blocking:**
-  1. **A3 error-envelope behavioral checks** — cookie-gated normalizations fire incidentally on
-     normal dashboard use; confirmed deployed.
-  2. **Sitemap miss-rate first data point** (C6 Increment 1) — next real seoIntent audit of an
-     indexable client site with a sitemap. Gates hybrid-discovery Increment 2.
-  3. **Seed-url fleet audit** — how many campaign clients have `Client.seedUrls` (those show "not
-     applicable" → fewer applicable miss-rate data points).
-  4. **External-link behavioral check** · **streaming-concurrency wall-clock** · **C9-A v2-scale ·
-     C9-B UI-render · C6-validation finding-emission · C7 pt1 panel** (all light).
+  Next fire Mon 2026-07-07 (first audit on Increment-1 code → will set discoveryMode, but noindex ⇒ weak miss-rate).
+- **⚠ PENDING HUMAN STEPS (Kevin), none blocking a code change but blocking Phase-1 data:**
+  1. **Trigger seoIntent audits** (manhattan first, then glow/nuvani) → discoveryCoverageJson + parity pairs.
+  2. **Fresh SF uploads on ≥2 more clients** (analysts) → reach the ≥5-client parity gate.
+  3. **A3 error-envelope behavioral checks** — cookie-gated normalizations fire incidentally on normal use.
+  4. **External-link behavioral check** · **streaming-concurrency wall-clock** · **C9-A v2-scale · C9-B UI-render · C6-validation finding-emission · C7 pt1 panel** (all light).
   5. **`tokenErrorCode()` expired-token bug** (found in A3) — fix + repoint the Phase-1 test.
   6. **D0:** set `ALERT_WEBHOOK_URL`; optional stray-backup + stray-server-file rm.
   7. **B4 quarter-plan decision** still open (near-empty prod QuarterPlan 409-blocking the localStorage import).
   8. **First real qct_ push** not yet exercised.
   9. **C10 ongoing:** grant SA + map GA4/GSC for remaining clients as access is gained.
 - **Blocked / gated:** Anthropic API billing; **hybrid-discovery Increment 2 (the crawler) gated on
-  the Increment-1 miss-rate DATA** (collect it across clients first); daily/nightly cadences gated.
+  the Increment-1 miss-rate DATA** (now actively being collected — Phase 1); daily/nightly cadences gated.
 - **Parked follow-ups:** hybrid discovery Increment 2 / reachability graph 3b / content similarity
   Phase 5; A3 minors (withRoute redirect()/notFound() doc caveat, test-fixture dedup, explicit
   unmapped-Prisma-code→500 test); discovery-coverage Minors; manual-UI-flow discovery mode threading;
   external-link partial-coverage UI Minor; C9-B optional `AuditHeaderCard`; C9-A site-level v2-compliance
   rollup; C7 pt1 corrupt-core detection; C8 diff score-source migration; D0 off-box backup replication;
   standalone single-page audit CSV/VPAT/report; public share-page export buttons; expandable rows on
-  public ADA share; logo for the PDF; `SessionPage` model drop (≥180 d after 2026-06-11); SF-retirement
-  campaign Phase 1; A4–A7 infra; D1–D6 workflow-polish.
+  public ADA share; logo for the PDF; `SessionPage` model drop (≥180 d after 2026-06-11); A4–A7 infra; D1–D6 workflow-polish.
 
 ## Next item
 
-**No single mandated item — A3 is fully shipped.** Pick from the roadmap menu
-(ask Kevin or choose) and run the full pipeline:
-- **SF-retirement Phase 1** — SF-vs-live PARITY MEASUREMENT + collect miss-rate DATA (gates hybrid
-  discovery Increment 2). Load `er-seo-tools-sf-retirement-campaign`. Most strategically load-bearing.
-- **Further C6** — hybrid discovery Increment 2 (the crawler, gated on data) / reachability graph 3b /
-  content similarity Phase 5.
+**SF-retirement Phase 1 is in progress and is OPERATIONAL — the next action needs Kevin/analyst, not code.**
+Trigger seoIntent audits of indexable client sites (post-2026-07-04) to fill the two data streams:
+1. **manhattan (client 12)** first — validated, indexable, has a sitemap → first `discoveryCoverageJson`
+   point + refreshed parity pair. Kevin via UI, or supplies an `er_auth` cookie for the runbook curls.
+2. Then **glowcollegecanada.ca (30)** + **nuvani.edu (15)** (already have SF uploads).
+3. Analysts: fresh SF uploads on **≥2 more clients** → reach the ≥5-client gate.
+4. After each audit: run `sf-live-parity.ts <domain>` + read `discoveryCoverageJson`; append a dated
+   data point to `2026-07-05-sf-live-parity-log.md`.
+
+**If Kevin prefers to switch tracks while data accumulates** (the data cadence is inherently multi-week):
+- **Further C6** — hybrid discovery Increment 2 (the crawler, GATED on this miss-rate data) / reachability
+  graph 3b / content similarity Phase 5.
 - **Track A infra** — A4 observability (`/api/health` + pino + `/admin/ops`, builds on A3's `lib/api/`)
   / A5 SSE / A6 UI primitives / A7 auth+Playwright.
-- **Track D** — D1 handoff-engine consolidation / D3 shared lib/seo-fetch/ / D4 client robots-sitemap /
-  D6 RankMath generator.
+- **Track D** — D1 handoff-engine consolidation / D3 shared lib/seo-fetch/ / D4 client robots-sitemap / D6 RankMath generator.
 
 ## Gotchas / decisions already made (don't relitigate)
 
-- **A3 kit decisions (locked 2026-07-05):** `withRoute` does NO auth (middleware
-  is the single cookie gate; token routes self-verify; adding auth would
-  double-gate and break direct handler tests); no zod (a dep + would make A3 a
-  validation migration); logging deferred to A4 (single `console.error` only);
-  Prisma P2025→404/P2002→409 is a LAST-RESORT net — routes that already handle a
-  Prisma code keep their own error string (never delegate to the generic
-  mapper); `withRoute` passes handler-returned AND thrown `Response` through;
-  bad-JSON standardizes to `invalid_json`, unhandled-500 to `internal_error`
-  across adopted routes; `brief/[sessionId]` keeps its `.catch(()=>({}))`
-  `{}`-default. New routes should adopt `withRoute` + `parseJsonBody`.
-- **Route-count re-mapping beats the roadmap number.** A3's "14 untested" was
-  really 16, and 5 quarter-plan subroutes were already tested in the monolith.
-  ALWAYS enumerate `app/api/**/route.ts` vs `route.test.ts` AND check monolith
-  test files before trusting a count.
-- **`priority.service.calculatePriorityScore` scores by type weight × count-scale,
-  count-0 scale defaults 1.0** — a count-0 run finding is NOT inert. Never emit
-  zero-count findings; surface measurement/coverage as run metadata or `run.status`.
-- **The handoff's forward-looking scope drifts — re-map the code first.** Before writing any
-  spec, dispatch an Explore/read pass over the actual code; trust code > handoff.
-- **NEW deploy gotcha — stray untracked `.ts` files on the server break the build
-  when you change a public function's signature.** `next build` type-checks EVERY
-  `.ts`/`.tsx` in the tree, including untracked scratch files. Move/rename them out
-  of the repo tree server-side (operational recovery, reversible). Known strays:
-  `~/probe-beal.ts.bak`, audit-aggregate.js/audit-snapshot.js/.env.*.bak/lighthouse-reports/.
-- **Injected-into-page code must stay SWC-helper-free** — `parseSeoFromDocument`
-  (`parse-seo-dom.ts`) is `.toString()`-injected; no `typeof`; verify at es2017 on the
-  BUILT bundle only when you touch it.
+- **The campaign skill (`er-seo-tools-sf-retirement-campaign`) is STALE on Phase 0** — it says "merge
+  feat/autonomous-live-seo-source" is the next action; that branch merged as PR #85 (2026-07-02).
+  Phase 1 (parity + miss-rate data) is the current campaign work.
+- **Phase 1 is a measurement/query problem, not a build.** Both sources land as `CrawlRun`s; the
+  read-only `sf-live-parity.ts` script + `discoveryCoverageJson` are the instruments. Do NOT build
+  anything for Phase 1 — record numbers and explain deviations.
+- **Miss-rate cleanliness:** raw parity Jaccard is asset-inflated (SF crawls CSS/JS/images; the live
+  scan is page-only). The clean sitemap-miss instrument is `discoveryCoverageJson` (excludes images +
+  non-page extensions). Use it for the Increment-2 gate; use Jaccard only as a rough proxy.
+- **Triggering audits needs auth** — prod is OAuth-only (`ALLOW_PASSWORD_LOGIN=false`). No automated
+  cookie exists; do NOT invent a direct-enqueue bypass. Kevin triggers via UI or supplies an `er_auth`
+  cookie for the documented runbook curls. Scanning CLIENT sites is authorized (rule 3 forbids only third-party).
+- **A3 kit decisions (locked 2026-07-05):** `withRoute` does NO auth (middleware is the single cookie
+  gate); no zod; logging deferred to A4; Prisma P2025→404/P2002→409 is a LAST-RESORT net (routes that
+  already handle a Prisma code keep their own error string); `withRoute` passes handler-returned AND
+  thrown `Response` through; bad-JSON→`invalid_json`, unhandled-500→`internal_error` across adopted
+  routes; `brief/[sessionId]` keeps its `{}`-default. New routes should adopt `withRoute` + `parseJsonBody`.
+- **`priority.service.calculatePriorityScore` scores by type weight × count-scale, count-0 scale
+  defaults 1.0** — a count-0 run finding is NOT inert. Never emit zero-count findings; surface
+  measurement/coverage as run metadata (`discoveryCoverageJson`) or `run.status`, never a Finding.
+- **The handoff's forward-looking scope drifts — re-map the code first.** Before writing any spec,
+  dispatch an Explore/read pass over the actual code; trust code > handoff (proven again this session).
+- **Deploy gotcha — stray untracked `.ts` files on the server break the build** when you change a public
+  function's signature (`next build` type-checks EVERY `.ts`/`.tsx`, incl. untracked scratch files).
+  Keep scratch scripts OUTSIDE the repo tree (`/home/seo/*.ts`, not `/home/seo/webapps/seo-tools/**`).
+  Known strays: `~/probe-beal.ts.bak`, audit-aggregate.js/audit-snapshot.js/.env.*.bak/lighthouse-reports/,
+  plus this session's `~/parity-inventory.ts` + `~/sf-domains.ts` (both read-only, outside repo, safe).
+- **Injected-into-page code must stay SWC-helper-free** — `parseSeoFromDocument` (`parse-seo-dom.ts`) is
+  `.toString()`-injected; no `typeof`; verify at es2017 on the BUILT bundle only when you touch it.
 - **Never rely on `Class.name`/function names at runtime** (SWC minifies them).
-- **Canonical-run selection unchanged:** `sf-upload` stays canonical; live-scan segregated.
+- **Canonical-run selection (on main since PR #85):** `pickCanonicalSeo` — fresh SF (≤30 d) wins; a
+  newer seoIntent live run supersedes; a NON-seoIntent live run can NEVER be canonical. Live score
+  never displaces the sf-upload canonical outside the freshness window.
 - **Deploy protocol:** code-only / config-only → plain `~/deploy.sh` (migrations apply automatically);
   `ecosystem.config.js`/env changes → `pm2 delete && pm2 start`. Prod has NO `sqlite3` CLI — drive
-  read-only prod queries with a throwaway `.mjs`/`node -e` IN THE APP DIR using `new PrismaClient()`.
+  read-only prod queries with a throwaway `.ts`/`.mjs` (outside the repo tree) via `npx tsx` from the app dir.
 - **Prod is OAuth-only** (`ALLOW_PASSWORD_LOGIN=false`); prod DB `/home/seo/data/seo-tools/db.sqlite`;
-  prod URL `https://seo.erstaging.site`. Unauth API requests → `401 {"error":"auth_required"}` (that's
-  the middleware gate; you can't reach cookie-gated handlers from outside without a session).
+  prod URL `https://seo.erstaging.site`. Unauth API requests → `401 {"error":"auth_required"}`.
 - Stack stays: SQLite + single PM2 process + Next.js. No Postgres/Redis/BullMQ.
 - **NEVER interactive `prisma.$transaction(async tx => ...)`** — array form only.
 - **Never `git add -A` at repo root** — `pentest-results/`, `googlefc472dc61896519a.html`,
   `SEO_Report_1st_Draft.pdf` are untracked + not gitignored. Add specific paths only.
 - **Local dev quirk:** prefix prisma CLI + vitest with `DATABASE_URL="file:./local-dev.db"`.
-  React render tests need `afterEach(cleanup)` + `// @vitest-environment jsdom`; parser/node/route
-  tests use node env (global default, no docblock). `tsc --noEmit` has NO `noUnusedLocals`.
-  No `@testing-library/jest-dom`. **Test env pins UPLOADS_DIR to a non-writable prod path** (Next
-  loads only `.env`, not `.env.local`) → mock `fs/promises` at the boundary, don't touch disk.
-  **Use BLOCK-BODY `beforeEach(() => { mock.mockReset() })`** — an implicit-return arrow returning
-  the mock trips a Vitest 2.1.9 false-fail (found twice in A3). Quarter-plan route tests MUST stay in
-  the `quarter-plan/route.test.ts` monolith (singleton DB) — never a sibling file.
-- **Handoff-token / public route gotcha (bit us THREE times):** any new token-authed or public
-  route MUST get a `middleware.ts` `isPublicPath` entry + a `middleware.test.ts` case.
+  React render tests need `afterEach(cleanup)` + `// @vitest-environment jsdom`. `tsc --noEmit` has NO
+  `noUnusedLocals`. Test env pins UPLOADS_DIR to a non-writable prod path → mock `fs/promises`. Use
+  BLOCK-BODY `beforeEach(() => { mock.mockReset() })`. Quarter-plan route tests MUST stay in the
+  `quarter-plan/route.test.ts` monolith (singleton DB) — never a sibling file.
+- **Handoff-token / public route gotcha (bit us THREE times):** any new token-authed or public route
+  MUST get a `middleware.ts` `isPublicPath` entry + a `middleware.test.ts` case.
 - **Codex session for this workspace:** `019f2b57-...` (registry `~/.claude/state/codex-consultations.json`).
   If a resumed Codex answer looks off-topic, `--fresh`.
-- **SDD progress ledger** (`.superpowers/sdd/progress.md`) is git-ignored scratch, OVERWRITTEN each
-  feature; per-task report files get REUSED across cycles — tell implementers to OVERWRITE.
 
 ## History
 
@@ -252,31 +237,19 @@ hreflang validation + external-link verification + hybrid-discovery Increment 1
 - 2026-06-16/17 — C6 Phases 1–3 (#70, #71, #73) SHIPPED + prod-verified.
 - 2026-06-22 — C10 (#75) + build-heap fix (#76), deployed, migration applied.
 - 2026-06-30 — C6 Phase 4 (autonomous live SEO source) BUILT.
-- 2026-07-02 — Skill library SHIPPED (`57ae636`). C6 Phase 4 MERGED+DEPLOYED (#85)+VERIFIED.
-  C10 PROD-VERIFIED (COMPLETE). D0 SHIPPED (#86)+DEPLOYED+VERIFIED (COMPLETE).
-  A2-f1 MERGED+DEPLOYED+PROD-VERIFIED. **A2-f1 COMPLETE.**
-- 2026-07-03 — **C8 BUILT+MERGED (#90)+DEPLOYED+PROD-VERIFIED = COMPLETE.** Upload hotfix **PR #91**.
-- 2026-07-03 — **C7 (all 3 parts) MERGED (#93/#94/#95) + DEPLOYED + PROD-VERIFIED = COMPLETE.**
-- 2026-07-03 — **C6 SF-retirement redirect/canonical/hreflang validation MERGED (#96, `270b81f`)
-  + DEPLOYED + PROD-VERIFIED.**
-- 2026-07-04 — **C9-A (ADA Scoring v2) MERGED (#97, `6e9bb55`) + DEPLOYED + PROD-VERIFIED.**
-- 2026-07-04 — **C9-B (ADA-audit frontend consolidation) MERGED (#98, `c082868`) + DEPLOYED +
-  PROD-VERIFIED. C9 COMPLETE (both halves).**
-- 2026-07-04 — **Streaming parse concurrency (C7 Phase-3 payoff) MERGED (#99, `47c5f87`) + DEPLOYED +
-  PROD-VERIFIED.**
-- 2026-07-04 — **C6 external-link verification MERGED (#100, `a421c25`) + DEPLOYED + PROD-VERIFIED.**
-- 2026-07-04 — **C6 hybrid discovery Increment 1 (sitemap miss-rate measurement) MERGED (#101,
-  `9a70368`) + DEPLOYED + PROD-VERIFIED.** Measurement-first miss-rate from already-harvested
-  `HarvestedLink` data; stored on `CrawlRun.discoveryCoverageJson` (NOT a Finding). Migration
-  `20260704120000_discovery_coverage`.
-- 2026-07-05 — **A3 (API route kit + tests for the 16 untested routes) MERGED (#102, `c0cbb22`) +
-  DEPLOYED + PROD-VERIFIED. A3 COMPLETE.** `lib/api/` kit (`withRoute`/`HttpError`/`parseJsonBody`),
-  characterization tests for all 16 sibling-untested routes (count corrected 21→16 via Codex — 5
-  quarter-plan subroutes already in the monolith), kit adopted on 8 plain-JSON routes. Auth stays in
-  middleware; no zod; Prisma net is last-resort; bad-JSON→`invalid_json`, 500→`internal_error`;
-  `brief/[sessionId]` `{}`-default preserved. Spec Codex accept-with-fixes; plan Codex ×6; subagent-TDD
-  16 tasks (all reviews Approved, 3 fix-loops); final opus review READY TO MERGE. Gates: tsc + 3320
-  tests (361 files) + build. Found + pinned a latent `tokenErrorCode()` expired-token bug (separate
-  ticket). Merge also landed the previously-uncommitted C6-Increment-1 CLAUDE.md docs. Next: roadmap
-  menu — SF-retirement data stream / further C6 / Track A (A4–A7) / Track D.
+- 2026-07-02 — Skill library SHIPPED (`57ae636`). C6 Phase 4 MERGED+DEPLOYED (#85)+VERIFIED (Phase 0 done).
+  C10 PROD-VERIFIED (COMPLETE). D0 SHIPPED (#86)+DEPLOYED+VERIFIED (COMPLETE). A2-f1 COMPLETE.
+- 2026-07-03 — **C8 BUILT+MERGED (#90)+DEPLOYED+PROD-VERIFIED.** Upload hotfix **PR #91**. **C7 (all 3 parts)
+  MERGED (#93/#94/#95) + DEPLOYED + PROD-VERIFIED.** **C6 redirect/canonical/hreflang validation MERGED (#96).**
+- 2026-07-04 — **C9-A (#97) + C9-B (#98) = C9 COMPLETE. Streaming parse concurrency (#99). C6 external-link
+  verification (#100). C6 hybrid discovery Increment 1 (sitemap miss-rate MEASUREMENT, #101, `9a70368`)** —
+  all MERGED + DEPLOYED + PROD-VERIFIED. Migration `20260704120000_discovery_coverage`.
+- 2026-07-05 — **A3 (API route kit + tests for the 16 untested routes) MERGED (#102, `c0cbb22`) + DEPLOYED +
+  PROD-VERIFIED. A3 COMPLETE.** `lib/api/` kit; count corrected 21→16; kit on 8 routes; found+pinned the
+  `tokenErrorCode()` expired-token bug.
+- 2026-07-05 — **SF-retirement Phase 1 KICKOFF (docs-only).** Corrected the campaign skill's stale Phase-0
+  premise (merged 2026-07-02); read-only prod inventory → **0 discoveryCoverageJson data points** (no audit
+  since Increment 1 deployed) + only 1 seoIntent run; first parity data point recorded (manhattan Δ+16,
+  Jaccard 0.337, all deviations explained); parity log `2026-07-05-sf-live-parity-log.md` created. Next
+  action is operational (Kevin/analyst triggers seoIntent audits; prod is OAuth-only).
 ```
