@@ -32,8 +32,8 @@ export class Semaphore {
 
   constructor(size: number) {
     // Clamp defensively: the class is exported, so guard against an accidental
-    // 0/negative size that would deadlock (env is already clamped upstream).
-    this.free = Math.max(1, Math.floor(size));
+    // 0/negative/NaN size that would deadlock (env is already clamped upstream).
+    this.free = Number.isFinite(size) && size >= 1 ? Math.floor(size) : 1;
   }
 
   acquire(): Promise<void> {

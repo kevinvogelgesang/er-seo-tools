@@ -82,4 +82,13 @@ describe('Semaphore', () => {
     await w2;
     expect(order).toEqual([1, 2]); // FIFO
   });
+
+  it('clamps a bad constructor size (0 / negative / NaN) to a usable 1 permit', async () => {
+    for (const bad of [0, -5, NaN]) {
+      const sem = new Semaphore(bad);
+      let acquired = false;
+      await sem.acquire().then(() => { acquired = true; });
+      expect(acquired).toBe(true); // would hang (timeout) if clamp yielded 0/NaN
+    }
+  });
 });
