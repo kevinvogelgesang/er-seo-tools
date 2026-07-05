@@ -22,10 +22,10 @@ import { mapOnPageSeoFindings, type OnPageSeoRow } from '@/lib/findings/onpage-s
 import type { CrawlPageInput, FindingInput, FindingsBundle } from '@/lib/findings/types'
 import { randomUUID } from 'crypto'
 import { HostThrottle } from '@/lib/ada-audit/broken-link-check'
-import { resolveUrl, realResolveDeps, type ResolveResult } from '@/lib/ada-audit/url-resolver'
+import { resolveUrl, resolveExternalHead, realResolveDeps, type ResolveResult } from '@/lib/ada-audit/url-resolver'
 import { mapValidationFindings, type ValidationSeoRow, type ValidationLink } from '@/lib/findings/validation-mapper'
 import { normalizeLinkTarget, sameDomain } from '@/lib/ada-audit/link-harvest'
-import { parsePositiveInt } from '../config'
+import { parsePositiveInt, parseNonNegativeInt } from '../config'
 import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
 import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
 import { serializeBreakdown } from '@/lib/scoring/weights'
@@ -71,6 +71,11 @@ const MAX_CHECKS = () => parsePositiveInt(process.env.BROKEN_LINK_MAX_CHECKS, 20
 const HOST_DELAY = () => parsePositiveInt(process.env.BROKEN_LINK_HOST_DELAY_MS, 250)
 const CONCURRENCY = () => parsePositiveInt(process.env.BROKEN_LINK_CONCURRENCY, 4)
 const URLS_PER_FINDING = 25
+const JOB_TIMEOUT_MS = 900_000 // 15-min queue ceiling (single source; used at registration + external budget)
+const SAFETY_RESERVE_MS = 60_000 // reserve to write the run before the ceiling
+const EXTERNAL_MAX_CHECKS = () => parseNonNegativeInt(process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS, 300)
+const EXTERNAL_TIMEOUT = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIMEOUT_MS, 8_000)
+const EXTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, 300_000)
 
 export interface BrokenLinkVerifyJob {
   siteAuditId: string
@@ -79,12 +84,14 @@ export interface BrokenLinkVerifyJob {
 
 export interface VerifyDeps {
   resolve: (url: string) => Promise<ResolveResult>
+  resolveExternal: (url: string, timeoutMs: number) => Promise<ResolveResult>
   now: () => number
   sleep: (ms: number) => Promise<void>
 }
 
 const productionDeps: VerifyDeps = {
   resolve: (url) => resolveUrl(url, realResolveDeps),
+  resolveExternal: (url, timeoutMs) => resolveExternalHead(url, realResolveDeps, timeoutMs),
   now: realResolveDeps.now,
   sleep: realResolveDeps.sleep,
 }
@@ -97,6 +104,7 @@ function assertPayload(p: unknown): BrokenLinkVerifyJob {
 
 export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = productionDeps): Promise<void> {
   const job = assertPayload(payload)
+  const jobStartedAt = deps.now()
   const site = await prisma.siteAudit.findUnique({
     where: { id: job.siteAuditId },
     select: { id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true, seoIntent: true },
@@ -230,6 +238,72 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     else if (r.result === 'unconfirmed') unconfirmed++
   }
 
+  // ---- External-link verification (HEAD-only; separate cap + remaining-time soft budget) ----
+  const EXTERNAL_MAX = EXTERNAL_MAX_CHECKS()
+  const externalBroken: BrokenTarget[] = []
+  let externalChecked = 0
+  let externalUnconfirmed = 0
+  let externalCapped = false
+  let externalHarvestTruncated = false
+  if (EXTERNAL_MAX > 0) {
+    const extRows = await prisma.harvestedLink.findMany({
+      where: { siteAuditId: job.siteAuditId, kind: 'external-link' },
+      orderBy: [{ targetUrl: 'asc' }, { sourcePageUrl: 'asc' }],
+      select: { targetUrl: true, sourcePageUrl: true, harvestTruncated: true },
+    })
+    externalHarvestTruncated = extRows.some((r) => r.harvestTruncated)
+    const extByTarget = new Map<string, Set<string>>()
+    for (const r of extRows) {
+      let s = extByTarget.get(r.targetUrl)
+      if (!s) { s = new Set<string>(); extByTarget.set(r.targetUrl, s) }
+      if (s.size < URLS_PER_FINDING) s.add(normalizeFindingUrl(r.sourcePageUrl))
+    }
+    const extUnique = [...extByTarget.entries()].map(([targetUrl, sources]) => ({ targetUrl, sources }))
+    externalCapped = extUnique.length > EXTERNAL_MAX
+    const extToCheck = externalCapped ? extUnique.slice(0, EXTERNAL_MAX) : extUnique
+
+    if (extToCheck.length > 0) {
+      const remaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
+      const externalDeadlineMs = Math.max(0, Math.min(EXTERNAL_TIME_BUDGET(), remaining))
+      if (externalDeadlineMs <= 0) {
+        externalCapped = true // no time left; skip the pass, run stays partial
+      } else {
+        const timeout = EXTERNAL_TIMEOUT()
+        const externalStartedAt = deps.now()
+        const extCache = new Map<string, ResolveResult>()
+        let extCursor = 0
+        const unconfirmedResult = (): ResolveResult => ({ result: 'unconfirmed', finalUrl: null, status: null, hops: 0, chain: [], tooManyRedirects: false })
+        const extWorker = async (): Promise<void> => {
+          while (extCursor < extToCheck.length) {
+            if (deps.now() - externalStartedAt >= externalDeadlineMs) { externalCapped = true; return }
+            const t = extToCheck[extCursor++]
+            const norm = normalizeFindingUrl(t.targetUrl)
+            let host = ''
+            try { host = new URL(t.targetUrl).hostname } catch {
+              extCache.set(norm, unconfirmedResult()); continue
+            }
+            // Failure isolation (Codex plan-#5): wrap BOTH throttle.wait and resolveExternal
+            // so a throw anywhere degrades this one target to unconfirmed, never rejecting the pool.
+            try {
+              await throttle.wait(host)
+              extCache.set(norm, await deps.resolveExternal(t.targetUrl, timeout))
+            } catch {
+              extCache.set(norm, unconfirmedResult())
+            }
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), extToCheck.length) }, () => extWorker()))
+        for (const t of extToCheck) {
+          const r = extCache.get(normalizeFindingUrl(t.targetUrl))
+          if (!r) continue // never launched (budget tripped) -> uncounted; externalCapped already set
+          externalChecked++
+          if (r.result === 'broken') externalBroken.push({ targetUrl: t.targetUrl, kind: 'external-link', sourcePageUrls: [...t.sources] })
+          else if (r.result === 'unconfirmed') externalUnconfirmed++
+        }
+      }
+    }
+  }
+
   // Task 3: Compute link graph INDEPENDENTLY of the `toCheck` verification cap
   // (which caps at 25 sources per target — wrong for page-level counts).
   // Best-effort: a failure logs and falls back to null aggregates so it never
@@ -289,10 +363,15 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     runId, ensurePage, affectedComplete: !capped && !harvestTruncated,
     confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
   })
+  const externalFindings = mapBrokenLinkFindings(externalBroken, {
+    runId, ensurePage, affectedComplete: !externalCapped && !externalHarvestTruncated,
+    confidence: { checked: externalChecked, broken: externalBroken.length, unconfirmed: externalUnconfirmed, capped: externalCapped, harvestTruncated: externalHarvestTruncated },
+    severity: 'warning',
+  })
   const validationFindings = mapValidationFindings(validationRows, internalLinks, cache, {
     runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation,
   })
-  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...validationFindings]
+  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...externalFindings, ...validationFindings]
 
   // C6 Phase 3: live SEO score from the on-page signals (pure scorer).
   const runCounts = new Map(
@@ -315,7 +394,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
-      status: capped || harvestTruncated || cappedValidation ? 'partial' : 'complete',
+      status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated ? 'partial' : 'complete',
       score: scoreResult.score, scoreBreakdown: serializeBreakdown('live-seo', scoreResult), wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
@@ -326,7 +405,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   await prisma.harvestedPageSeo.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   console.log(
-    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, on-page rows ${seoRows.length}`,
+    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, external checked ${externalChecked}, external broken ${externalBroken.length}, external unconfirmed ${externalUnconfirmed}, on-page rows ${seoRows.length}`,
   )
 }
 
@@ -353,7 +432,7 @@ export function registerBrokenLinkVerifyHandler(): void {
     concurrency: 1, // one verifier across the box; per-URL parallelism is internal (CONCURRENCY workers)
     maxAttempts: 2,
     backoffBaseMs: 60_000,
-    timeoutMs: 900_000, // 15 min ceiling; bounded concurrency keeps real runs well under this
+    timeoutMs: JOB_TIMEOUT_MS, // 15 min ceiling; bounded concurrency keeps real runs well under this
     handler: (payload) => runBrokenLinkVerify(payload),
     onExhausted: onBrokenLinkVerifyExhausted,
   })

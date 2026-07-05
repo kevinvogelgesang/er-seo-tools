@@ -19,6 +19,7 @@ export interface BrokenLinkMapDeps {
   runId: string
   ensurePage: (url: string, scalars?: Partial<CrawlPageInput>) => CrawlPageInput
   affectedComplete: boolean
+  severity?: 'critical' | 'warning'
   confidence: {
     checked: number
     broken: number
@@ -31,16 +32,18 @@ export interface BrokenLinkMapDeps {
 const TYPE_OF: Record<BrokenTarget['kind'], string | null> = {
   'internal-link': 'broken_internal_links',
   image: 'broken_images',
-  'external-link': null, // not verified in v1
+  'external-link': 'broken_external_links',
 }
 const DESC: Record<string, string> = {
   broken_internal_links: 'Internal links that resolve to a 4xx/5xx response.',
   broken_images: 'Image resources that resolve to a 4xx/5xx response.',
+  broken_external_links: 'External links that resolve to a 404, 410, or 5xx response.',
 }
 const URLS_PER_FINDING = 25
 
 export function mapBrokenLinkFindings(broken: BrokenTarget[], deps: BrokenLinkMapDeps): FindingInput[] {
   const { runId, ensurePage, affectedComplete, confidence } = deps
+  const severity = deps.severity ?? 'critical'
   const byType = new Map<string, BrokenTarget[]>()
   for (const t of broken) {
     const type = TYPE_OF[t.kind]
@@ -53,7 +56,7 @@ export function mapBrokenLinkFindings(broken: BrokenTarget[], deps: BrokenLinkMa
   for (const [type, targets] of byType) {
     const distinctTargets = new Set(targets.map((t) => t.targetUrl)).size
     findings.push({
-      id: randomUUID(), runId, pageId: null, scope: 'run', type, severity: 'critical',
+      id: randomUUID(), runId, pageId: null, scope: 'run', type, severity,
       url: null, count: distinctTargets, affectedComplete, affectedSource: 'live-scan-verify',
       detail: JSON.stringify({ description: DESC[type] ?? type, ...confidence }),
       dedupKey: runFindingKey(type),
@@ -69,7 +72,7 @@ export function mapBrokenLinkFindings(broken: BrokenTarget[], deps: BrokenLinkMa
     for (const [src, targetUrls] of bySource) {
       const page = ensurePage(src)
       findings.push({
-        id: randomUUID(), runId, pageId: page.id, scope: 'page', type, severity: 'critical',
+        id: randomUUID(), runId, pageId: page.id, scope: 'page', type, severity,
         url: src, count: targetUrls.length, affectedComplete, affectedSource: 'live-scan-verify',
         detail: JSON.stringify({ brokenTargetUrls: targetUrls.slice(0, URLS_PER_FINDING) }),
         dedupKey: pageFindingKey(type, src),

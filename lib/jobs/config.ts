@@ -5,6 +5,11 @@ export function parsePositiveInt(value: string | undefined, fallback: number): n
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
+export function parseNonNegativeInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
 export const DEFAULT_MAX_ATTEMPTS = 3
 export const DEFAULT_BACKOFF_BASE_MS = 30_000
 export const BACKOFF_CAP_MS = 15 * 60 * 1000

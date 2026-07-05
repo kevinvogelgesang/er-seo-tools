@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { resolveUrl, type ResolveDeps } from './url-resolver'
+import { resolveUrl, resolveExternalHead, type ResolveDeps } from './url-resolver'
 import { SafeUrlError } from '@/lib/security/safe-url'
 
 function deps(fetchResolved: ResolveDeps['fetchResolved']): ResolveDeps {
@@ -55,5 +55,54 @@ describe('resolveUrl', () => {
     const d = deps(async (_u, m) => { calls.push(m); if (m === 'HEAD') throw new Error('ECONNRESET'); return { status: 200, finalUrl: 'https://x.com/a', redirects: [] } })
     expect((await resolveUrl('https://x.com/a', d)).result).toBe('ok')
     expect(calls).toEqual(['HEAD', 'GET'])
+  })
+})
+
+describe('resolveExternalHead (HEAD-only)', () => {
+  const depsWith = (headStatus: number | Error) => {
+    const calls: string[] = []
+    const d: ResolveDeps = {
+      fetchResolved: async (_url, method) => {
+        calls.push(method)
+        if (headStatus instanceof Error) throw headStatus
+        return { status: headStatus, finalUrl: _url, redirects: [] }
+      },
+      now: () => 0,
+      sleep: async () => {},
+    }
+    return { deps: d, calls }
+  }
+
+  it('classifies 404/410/5xx as broken', async () => {
+    for (const s of [404, 410, 500, 503]) {
+      const { deps: d } = depsWith(s)
+      expect((await resolveExternalHead('https://x.example/a', d, 8000)).result).toBe('broken')
+    }
+  })
+
+  it('classifies anti-bot 401/403/405/429 and other 4xx as unconfirmed', async () => {
+    for (const s of [401, 403, 405, 429, 400, 402]) {
+      const { deps: d } = depsWith(s)
+      expect((await resolveExternalHead('https://x.example/a', d, 8000)).result).toBe('unconfirmed')
+    }
+  })
+
+  it('classifies <400 as ok', async () => {
+    for (const s of [200, 204, 301, 302]) {
+      const { deps: d } = depsWith(s)
+      expect((await resolveExternalHead('https://x.example/a', d, 8000)).result).toBe('ok')
+    }
+  })
+
+  it('never issues a GET (HEAD-only), even on a 5xx', async () => {
+    const { deps: d, calls } = depsWith(500)
+    await resolveExternalHead('https://x.example/a', d, 8000)
+    expect(calls).toEqual(['HEAD'])
+  })
+
+  it('treats a SafeUrlError as unconfirmed and does not GET', async () => {
+    const { deps: d, calls } = depsWith(new SafeUrlError('blocked'))
+    expect((await resolveExternalHead('https://x.example/a', d, 8000)).result).toBe('unconfirmed')
+    expect(calls).toEqual(['HEAD'])
   })
 })

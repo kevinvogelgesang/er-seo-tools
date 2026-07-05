@@ -21,11 +21,27 @@ async function seed(targets: { targetUrl: string; kind: string; sourcePageUrl: s
   return sa.id
 }
 
+// External-link seed: N distinct external targets, each linked from one source page on DOMAIN.
+async function seedExternal(targets: { targetUrl: string; sourcePageUrl?: string }[]) {
+  const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+  if (targets.length)
+    await prisma.harvestedLink.createMany({
+      data: targets.map((t) => ({
+        siteAuditId: sa.id, targetUrl: t.targetUrl, kind: 'external-link',
+        sourcePageUrl: t.sourcePageUrl ?? 'https://c6blv.example.com/a',
+      })),
+    })
+  return sa.id
+}
+
 // deps: every targetUrl in brokenSet resolves 'broken', else 'ok'
 const depsFor = (brokenSet: Set<string>): VerifyDeps => ({
   resolve: async (url: string) => (brokenSet.has(url)
     ? { result: 'broken', finalUrl: null, status: 404, hops: 0, chain: [], tooManyRedirects: false }
     : { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+  resolveExternal: async (url: string) => (brokenSet.has(url)
+    ? { result: 'broken' as const, finalUrl: url, status: 404, hops: 0, chain: [], tooManyRedirects: false }
+    : { result: 'ok' as const, finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
   now: () => 0,
   sleep: async () => {},
 })
@@ -64,13 +80,15 @@ describe('runBrokenLinkVerify', () => {
     expect(run!.findings).toHaveLength(0)
   })
 
-  it('does not count external-link targets as broken', async () => {
+  it('counts external-link targets as broken_external_links (warning)', async () => {
     const id = await seed([
       { targetUrl: 'https://other.com/x', kind: 'external-link', sourcePageUrl: 'https://c6blv.example.com/a' },
     ])
     await runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, depsFor(new Set(['https://other.com/x'])))
     const run = await liveRun(id)
-    expect(run!.findings).toHaveLength(0)
+    const ext = run!.findings.find((f) => f.scope === 'run' && f.type === 'broken_external_links')
+    expect(ext?.count).toBe(1)
+    expect(ext?.severity).toBe('warning')
   })
 
   it('idempotent re-run replaces the run (no unique-constraint error)', async () => {
@@ -197,6 +215,7 @@ async function cleanScore() {
 
 const stubDeps: VerifyDeps = {
   resolve: async (url: string) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+  resolveExternal: async (url: string) => ({ result: 'ok' as const, finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
   now: () => 0,
   sleep: async () => {},
 }
@@ -342,7 +361,8 @@ describe('runBrokenLinkVerify — canonical/redirect/hreflang validation', () =>
       if (url.includes('/t')) return { result: 'ok', finalUrl: `https://${DOMAIN}/t2`, status: 200, hops: 1, chain: [`https://${DOMAIN}/t2`], tooManyRedirects: false }
       return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }
     }
-    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, now: () => Date.now(), sleep: async () => {} })
+    const resolveExternal: VerifyDeps['resolveExternal'] = async (url) => ({ result: 'ok' as const, finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, resolveExternal, now: () => Date.now(), sleep: async () => {} })
     const run = await prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
       select: { status: true, findings: { select: { scope: true, type: true, count: true } } },
@@ -370,7 +390,8 @@ describe('runBrokenLinkVerify — canonical/redirect/hreflang validation', () =>
       // redirect (hops>=1): applicable as BOTH redirect_chain (link) and canonical_redirect (canonical).
       return { result: 'ok', finalUrl: `https://${DOMAIN}/shared2`, status: 200, hops: 1, chain: [`https://${DOMAIN}/shared2`], tooManyRedirects: false }
     }
-    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, now: () => 0, sleep: async () => {} })
+    const resolveExternal: VerifyDeps['resolveExternal'] = async (url) => ({ result: 'ok' as const, finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, resolveExternal, now: () => 0, sleep: async () => {} })
     // The shared target resolved exactly once across the whole run (legacySet dedup).
     expect([...calls.values()].reduce((a, b) => a + b, 0)).toBe(1)
     const run = await prisma.crawlRun.findUnique({
@@ -397,7 +418,8 @@ describe('runBrokenLinkVerify — canonical/redirect/hreflang validation', () =>
       resolved.push(url)
       return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }
     }
-    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, now: () => 0, sleep: async () => {} })
+    const resolveExternal: VerifyDeps['resolveExternal'] = async (url) => ({ result: 'ok' as const, finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { resolve, resolveExternal, now: () => 0, sleep: async () => {} })
     expect(resolved.some((u) => u.includes('/legacy'))).toBe(true)
     expect(resolved.some((u) => u.includes('/canon-only'))).toBe(false)
     const run = await prisma.crawlRun.findUnique({
@@ -405,5 +427,115 @@ describe('runBrokenLinkVerify — canonical/redirect/hreflang validation', () =>
       select: { status: true },
     })
     expect(run!.status).toBe('partial')
+  })
+})
+
+describe('runBrokenLinkVerify — external verification (call behavior)', () => {
+  it('calls resolveExternal for each external target', async () => {
+    const id = await seedExternal([
+      { targetUrl: 'https://ext.example/dead' },
+      { targetUrl: 'https://ext.example/live' },
+    ])
+    const seen: string[] = []
+    const deps: VerifyDeps = {
+      resolve: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+      resolveExternal: async (url) => { seen.push(url); return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false } },
+      now: () => 0, sleep: async () => {},
+    }
+    await runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, deps)
+    expect(seen.sort()).toEqual(['https://ext.example/dead', 'https://ext.example/live'])
+  })
+
+  it('kill switch: BROKEN_LINK_EXTERNAL_MAX_CHECKS=0 never calls resolveExternal', async () => {
+    const prev = process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS
+    process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS = '0'
+    try {
+      const id = await seedExternal([{ targetUrl: 'https://ext.example/x' }])
+      const seen: string[] = []
+      const deps: VerifyDeps = {
+        resolve: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+        resolveExternal: async (url) => { seen.push(url); return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false } },
+        now: () => 0, sleep: async () => {},
+      }
+      await runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, deps)
+      expect(seen).toHaveLength(0)
+    } finally {
+      if (prev === undefined) delete process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS
+      else process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS = prev
+    }
+  })
+
+  it('no remaining time before the external pass: resolveExternal is never called, job resolves', async () => {
+    const id = await seedExternal([{ targetUrl: 'https://ext.example/dead' }])
+    let now = 0
+    const seen: string[] = []
+    const deps: VerifyDeps = {
+      // The internal pass runs first; advance the clock past (JOB_TIMEOUT_MS - SAFETY_RESERVE_MS)
+      // inside the internal resolve so the external budget computes <= 0.
+      resolve: async (url) => { now = 850_001; return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false } },
+      resolveExternal: async (url) => { seen.push(url); return { result: 'broken', finalUrl: url, status: 404, hops: 0, chain: [], tooManyRedirects: false } },
+      now: () => now, sleep: async () => {},
+    }
+    // Seed one internal target too so the internal `resolve` runs and advances the clock.
+    await prisma.harvestedLink.create({ data: { siteAuditId: id, targetUrl: 'https://c6blv.example.com/i', kind: 'internal-link', sourcePageUrl: 'https://c6blv.example.com/a' } })
+    await expect(runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, deps)).resolves.toBeUndefined()
+    expect(seen).toHaveLength(0) // budget <= 0 -> external pass skipped
+  })
+
+  it('mid-pass budget exhaustion launches only a prefix, job still resolves', async () => {
+    // Pin concurrency to 1 so the budget-trip point is deterministic: with N workers
+    // all N claim before the first resolveExternal advances the clock.
+    const prev = process.env.BROKEN_LINK_CONCURRENCY
+    process.env.BROKEN_LINK_CONCURRENCY = '1'
+    try {
+      const id = await seedExternal([
+        { targetUrl: 'https://ext.example/a' }, { targetUrl: 'https://ext.example/b' },
+        { targetUrl: 'https://ext.example/c' }, { targetUrl: 'https://ext.example/d' },
+      ])
+      let now = 0
+      const seen: string[] = []
+      const deps: VerifyDeps = {
+        resolve: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+        // First external check consumes the whole budget; the next claim sees it exceeded and stops.
+        resolveExternal: async (url) => { seen.push(url); now += 400_000; return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false } },
+        now: () => now, sleep: async () => {},
+      }
+      await expect(runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, deps)).resolves.toBeUndefined()
+      expect(seen).toHaveLength(1) // 400_000 > 300_000 budget -> exactly one launched, rest skipped
+    } finally {
+      if (prev === undefined) delete process.env.BROKEN_LINK_CONCURRENCY
+      else process.env.BROKEN_LINK_CONCURRENCY = prev
+    }
+  })
+
+  it('a throwing resolveExternal does not reject the verifier (failure isolation)', async () => {
+    const id = await seedExternal([{ targetUrl: 'https://ext.example/boom' }])
+    const deps: VerifyDeps = {
+      resolve: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+      resolveExternal: async () => { throw new Error('transport blew up') },
+      now: () => 0, sleep: async () => {},
+    }
+    await expect(runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, deps)).resolves.toBeUndefined()
+  })
+
+  it('emits broken_external_links only for broken targets, none when clean', async () => {
+    const cleanId = await seedExternal([{ targetUrl: 'https://ext.example/live' }])
+    await runBrokenLinkVerify({ siteAuditId: cleanId, domain: DOMAIN }, depsFor(new Set())) // nothing broken
+    const cleanRun = await liveRun(cleanId)
+    expect(cleanRun!.findings.some((f) => f.type === 'broken_external_links')).toBe(false) // NO zero-count finding
+  })
+
+  it('internal-link verification is unchanged when a broken external is present', async () => {
+    const id = await seed([
+      { targetUrl: 'https://c6blv.example.com/int-dead', kind: 'internal-link', sourcePageUrl: 'https://c6blv.example.com/a' },
+      { targetUrl: 'https://other.com/ext-dead', kind: 'external-link', sourcePageUrl: 'https://c6blv.example.com/a' },
+    ])
+    await runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, depsFor(new Set(['https://c6blv.example.com/int-dead', 'https://other.com/ext-dead'])))
+    const run = await liveRun(id)
+    const internal = run!.findings.find((f) => f.scope === 'run' && f.type === 'broken_internal_links')
+    expect(internal?.severity).toBe('critical')
+    expect(internal?.count).toBe(1)
+    const ext = run!.findings.find((f) => f.scope === 'run' && f.type === 'broken_external_links')
+    expect(ext?.severity).toBe('warning')
   })
 })

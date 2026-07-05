@@ -60,3 +60,22 @@ export async function resolveUrl(url: string, deps: ResolveDeps = realResolveDep
     return { ...UNCONFIRMED, tooManyRedirects: err instanceof SafeUrlError && err.message === 'Too many redirects' }
   }
 }
+
+/** HEAD-only external-link check (C6 external verification). Never issues a GET.
+ * broken = 404 | 410 | 5xx; ok = <400; everything else (401/403/405/429, other
+ * 4xx, throws) = unconfirmed — the deliberate anti-bot-tolerant posture. */
+export async function resolveExternalHead(
+  url: string,
+  deps: ResolveDeps = realResolveDeps,
+  timeoutMs: number = DEFAULT_TIMEOUT,
+): Promise<ResolveResult> {
+  try {
+    const head = await deps.fetchResolved(url, 'HEAD', timeoutMs)
+    const status = head.status
+    const broken = status === 404 || status === 410 || (status >= 500 && status <= 599)
+    const result: ResolveResult['result'] = status < 400 ? 'ok' : broken ? 'broken' : 'unconfirmed'
+    return { result, finalUrl: head.finalUrl, status, hops: head.redirects.length, chain: head.redirects, tooManyRedirects: false }
+  } catch (err) {
+    return { ...UNCONFIRMED, tooManyRedirects: err instanceof SafeUrlError && err.message === 'Too many redirects' }
+  }
+}
