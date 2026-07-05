@@ -2,11 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a small `lib/api/` toolkit (`withRoute` / `HttpError` / `parseJsonBody`) and tests for the 21 currently-untested API routes, then adopt the kit on a safe subset of routes — without changing observable behavior except deliberate, enumerated normalizations.
+**Goal:** Add a small `lib/api/` toolkit (`withRoute` / `HttpError` / `parseJsonBody`) and tests for the currently-untested API routes, then adopt the kit on a safe subset of routes — without changing observable behavior except deliberate, enumerated normalizations.
 
-**Architecture:** Three phases ordered as a risk control. Phase 1 pins the current behavior of all 21 untested routes with characterization tests (these PASS against current code — they are a safety net, not red-green). Phase 2 builds the kit with genuine TDD. Phase 3 adopts the kit on plain-JSON cookie-gated routes, each edit made only with its Phase-1 test green; deliberate normalizations update the test in the same commit.
+**Architecture:** Three phases ordered as a risk control. Phase 1 pins the current behavior of the untested routes with characterization tests (these PASS against current code — they are a safety net, not red-green). Phase 2 builds the kit with genuine TDD. Phase 3 adopts the kit on plain-JSON cookie-gated routes, each edit made only with its Phase-1 test green; deliberate normalizations update the test in the same commit.
 
 **Tech Stack:** Next.js 15 App Router route handlers, TypeScript, Vitest (node environment, `globals: false`, `fileParallelism: false`), Prisma/SQLite.
+
+## Scope correction (Codex plan review, 2026-07-05)
+
+There are **16 routes with no test coverage**, not 21. The five quarter-plan
+subroutes (`activity`, `import`, `push/mint-token`, `push/[planId]`,
+`push/[planId]/receipt`) are ALREADY tested inside the monolithic
+`app/api/quarter-plan/route.test.ts` — which carries an explicit warning that
+these tests must stay in one file because `QuarterPlan` is a singleton over the
+shared dev DB. **Do NOT create sibling test files for quarter-plan subroutes**
+(it splits singleton tests and races the DB). Task 5 instead extends that one
+file for any missing cases.
 
 ## Global Constraints
 
@@ -15,6 +26,7 @@
 - **No logging layer** — A4 owns pino. The kit uses a single `console.error` in the 500 branch only.
 - **500 bodies never leak `error.message`** — always `{ error: 'internal_error' }`.
 - **Prisma mapping in `withRoute` is a last-resort net** — it catches only Prisma errors the handler did not already handle; route-specific error semantics (e.g. `clients` human-readable 409) are preserved.
+- **`vi.stubEnv('APP_AUTH_PASSWORD', 'test-password')` for any in-handler `isValidAuthCookie` test** — `isValidAuthCookie` dev-bypasses when `APP_AUTH_PASSWORD` is unset, so a "no cookie → 401" case only holds with the password stubbed; build the valid cookie under the same signing config.
 - **Tests: node env, no `@vitest-environment` docblock; explicit vitest imports** (`globals: false`). Local runs prefix `DATABASE_URL="file:./local-dev.db"`.
 - **DB-backed tests namespace fixtures with a unique prefix** and clean up in `beforeEach`/`afterAll`, deleting child/CrawlRun rows before parents.
 - **Never run a live crawl in a test** — `discoverPages` is always mocked (change-control rule 3).
@@ -37,14 +49,13 @@
 > reference before writing:
 > - DB-backed: `app/api/clients/[id]/route.test.ts`, `app/api/site-audit/route.test.ts`
 > - Mocked-lib/mocked-prisma: `app/api/seo-parser/[sessionId]/pages/route.test.ts`, `lib/jobs/handlers/site-audit-discover.test.ts` (for the `discoverPages` mock idiom)
-> - Token (Bearer): `app/api/pillar-analysis/[id]/mint-token/route.test.ts`
+> - Token (Bearer) + singleton discipline: `app/api/quarter-plan/route.test.ts`
 
 ### Exemplars (one per response/auth style — reuse the shape, change the specifics)
 
 **A. DB-backed cookie-gated route** (real Prisma, prefix-namespaced fixtures):
 
 ```ts
-// @ts-nocheck  ← DO NOT add this; shown only to keep the plan snippet short
 import { describe, it, expect, beforeEach, afterAll } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -60,14 +71,6 @@ async function clear() {
 }
 beforeEach(clear)
 afterAll(clear)
-
-function jsonReq(url: string, method: string, body?: unknown) {
-  return new NextRequest(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-}
 
 describe('PATCH /api/clients/[id]/schedules/[scheduleId]', () => {
   it('400 invalid_json on malformed body', async () => {
@@ -101,25 +104,21 @@ beforeEach(() => discoverPagesMock.mockReset())
 it('returns discovered urls for a valid domain', async () => {
   discoverPagesMock.mockResolvedValue({ urls: ['https://x.test/a'], mode: 'sitemap', capped: false })
   const req = new NextRequest('http://localhost/api/site-audit/discover', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ domain: 'x.test' }),
   })
   const res = await POST(req)
   expect(res.status).toBe(200)
-  const body = await res.json()
-  expect(body.pageCount).toBe(1)
+  expect((await res.json()).pageCount).toBe(1)
 })
 
 it('422 when discoverPages throws', async () => {
   discoverPagesMock.mockRejectedValue(new Error('boom'))
   const req = new NextRequest('http://localhost/api/site-audit/discover', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ domain: 'x.test' }),
   })
-  const res = await POST(req)
-  expect(res.status).toBe(422)
+  expect((await POST(req)).status).toBe(422)
 })
 ```
 
@@ -129,14 +128,13 @@ it('422 when discoverPages throws', async () => {
 const res = await GET(req, params(sessionId))
 expect(res.status).toBe(200)
 expect(res.headers.get('Content-Disposition')).toContain('attachment')
-const text = await res.text()
-expect(text.length).toBeGreaterThan(0)
+expect((await res.text()).length).toBeGreaterThan(0)
 ```
 
-**D. Raw-file response** (`screenshots`) — assert content-type + arrayBuffer:
+**D. Raw-file response** (`screenshots`) — 404-only characterization (see Task 1 note):
 
 ```ts
-const res = await GET(req, { params: Promise.resolve({ auditId: 'bad/../id', filename: 'x.png' }) })
+const res = await GET(req, { params: Promise.resolve({ auditId: '../etc', filename: 'x.png' }) })
 expect(res.status).toBe(404) // path-traversal rejected
 ```
 
@@ -160,20 +158,18 @@ async function authHeader(planId: string) {
 - Test: `app/api/ada-audit/screenshots/[auditId]/[filename]/route.test.ts` (Create)
 - Test: `app/api/ada-audit/share/[token]/checks/route.test.ts` (Create)
 
-**Interfaces:**
-- Consumes: `prisma` from `@/lib/db`; `getAdaAuditChecks`/`setAdaAuditCheck` from `@/lib/ada-audit/checks-store`; handlers from each `./route`.
-- Produces: nothing (test-only).
+**Interfaces:** Consumes `prisma` from `@/lib/db`; `getAdaAuditChecks`/`setAdaAuditCheck` from `@/lib/ada-audit/checks-store`; handlers from each `./route`. Produces nothing.
 
-Case table (assert exact status + `body.error` code; DB-backed style A, create a real `AdaAudit`/`SiteAudit` fixture where a row is needed):
+Case table (assert exact status + `body.error` code; DB-backed style A):
 
-`ada-audit/[id]/checks` — GET returns `{ checks }` (200) for existing audit; **404 `Audit not found`** for missing id. PUT: `400 Invalid JSON` on `'{not json'`; `400` when `scope!=='node'`, `key` non-string, `checked` non-boolean, or `key` not matching `/^[0-9a-f]{64}$/`; 200 `{ checks }` on a valid 64-hex key (assert `setAdaAuditCheck` persisted via a follow-up GET).
+`ada-audit/[id]/checks` — GET returns `{ checks }` (200) for an existing `AdaAudit` fixture; **404 `Audit not found`** for missing id. PUT: `400 Invalid JSON` on `'{not json'`; `400` when `scope!=='node'`, `key` non-string, `checked` non-boolean, or `key` not matching `/^[0-9a-f]{64}$/`; 200 `{ checks }` on a valid 64-hex key (assert `setAdaAuditCheck` persisted via a follow-up GET).
 
-`ada-audit/screenshots/[auditId]/[filename]` — GET **404** when `auditId`/`filename` fail the traversal allowlist regex; **404 `Not found`** when the file is absent. (No fixture file needed — assert the 404 paths only.)
+`ada-audit/screenshots/[auditId]/[filename]` — **404-only characterization** (Codex fix: no success fixture — avoids env-configured `SCREENSHOTS_DIR` setup). Assert **404** when `auditId`/`filename` fail the traversal allowlist regex, and **404 `Not found`** when the file is absent. The 200 image path is left to manual/integration coverage; note this in a comment.
 
 `ada-audit/share/[token]/checks` — GET **404 `Share link not found or expired`** for unknown token, non-`complete` status, or missing/expired `shareExpiresAt`; 200 `{ checks }` for a complete audit with a valid unexpired `shareToken` fixture.
 
-- [ ] **Step 1:** Write the three test files per the case table, style A + exemplar D for screenshots.
-- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/ada-audit/[id]/checks app/api/ada-audit/screenshots app/api/ada-audit/share/[token]/checks` — Expected: PASS (pins current behavior). If any fails, investigate before proceeding.
+- [ ] **Step 1:** Write the three test files per the case table (style A + exemplar D for screenshots).
+- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/ada-audit/[id]/checks" "app/api/ada-audit/screenshots" "app/api/ada-audit/share/[token]/checks"` — Expected: PASS.
 - [ ] **Step 3:** Commit — `test(a3): characterize ada-audit checks/screenshots/share-checks routes`.
 
 ### Task 2: Brief + diff routes
@@ -183,19 +179,19 @@ Case table (assert exact status + `body.error` code; DB-backed style A, create a
 - Test: `app/api/brief/live/route.test.ts` (Create)
 - Test: `app/api/diff/route.test.ts` (Create)
 
-**Interfaces:** Consumes `prisma`, `isValidSessionId` semantics (via real session fixtures or mocked service). Produces nothing.
+**Interfaces:** Consumes `prisma`, session fixtures / mocked services. Produces nothing.
 
 Case table:
 
-`brief/[sessionId]` (POST) — `400 Invalid session ID` for a bad `sessionId`; `400 Client name is required` when `clientName` absent (note: bad JSON currently defaults to `{}`, so a malformed body with no clientName hits the `400 Client name is required` path — pin that); **`500` currently returns `{ error: <message> }`** — pin the leak (assert `res.status===500`; a Phase-3 task will change this). Success path (`{ brief, stats, filesProcessed }`) may be skipped if wiring a full session-with-files fixture is impractical — cover the validation + error branches, which is where the kit lands.
+`brief/[sessionId]` (POST) — `400 Invalid session ID` for a bad `sessionId`; `400 Client name is required` when `clientName` absent; **pin that a malformed JSON body currently defaults to `{}` → `400 Client name is required`** (this behavior is PRESERVED in Phase 3 — see Task 12); pin the outer-catch `500 { error: <message> }` leak (assert `res.status===500`; Task 12 changes the leak, not the `{}` default). The full success path may be skipped if a full session-with-files fixture is impractical — cover validation + error branches.
 
 `brief/live` (POST) — `400 Invalid JSON body` on `'{not json'`; `400` for non-object body, non-positive-int `clientId`, empty/non-string `domain`; `404` (`No canonical SEO run found...`) when the canonical run is null; pin the outer-catch `500 { error: <message> }` leak.
 
-`diff` (POST) — `400 Invalid JSON body` on malformed; `400` for `sessionAId`/`sessionBId` failing `isValidSessionId`; `404` when a session is missing; `400` when a session status `!== 'complete'`; `409 session_archived` when pruned. Use real session fixtures (style A) or a mocked `@/lib/db` (style B) — pick whichever is less fixture-heavy for these read paths.
+`diff` (POST) — `400 Invalid JSON body` on malformed; `400` for `sessionAId`/`sessionBId` failing `isValidSessionId`; `404` when a session is missing; `400` when a session status `!== 'complete'`; `409 session_archived` when pruned.
 
 - [ ] **Step 1:** Write the three test files per the case table.
 - [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/brief app/api/diff` — Expected: PASS.
-- [ ] **Step 3:** Commit — `test(a3): characterize brief + diff routes (pins current 500 leaks)`.
+- [ ] **Step 3:** Commit — `test(a3): characterize brief + diff routes (pins current 500 leaks + {} default)`.
 
 ### Task 3: Export routes (streaming)
 
@@ -207,7 +203,7 @@ Case table:
 
 Case table:
 
-`export/[sessionId]/[format]` (GET) — `400` for a `format` not in `{json,summary,markdown}`; `400 Invalid session ID`; `404 Session not found`; `400 'Parsing not complete'` for a non-complete session; success: 200 with `Content-Disposition: attachment` and `Content-Type` matching the format (`application/json` for json, `text/markdown` for markdown). Read via `res.text()`.
+`export/[sessionId]/[format]` (GET) — `400` for a `format` not in `{json,summary,markdown}`; `400 Invalid session ID`; `404 Session not found`; `400 'Parsing not complete'`; success: 200 with `Content-Disposition: attachment` and `Content-Type` matching the format. Read via `res.text()`.
 
 `export/[sessionId]/claude` (GET) — `400` invalid session; `404` not found; `400 'Parsing not complete'`; `409 session_archived` when `archivePrunedAt` set and no result; success: 200 streamed attachment.
 
@@ -221,58 +217,42 @@ Case table:
 - Test: `app/api/clients/route.test.ts` (Create)
 - Test: `app/api/clients/[id]/schedules/[scheduleId]/route.test.ts` (Create)
 
-**Interfaces:** Consumes `prisma`, handlers `GET`/`POST` from `./route`, `PATCH`/`DELETE` from the schedule route; `cancelJobsByGroup` side effect (assert Schedule row gone rather than job internals). Style A.
+**Interfaces:** Consumes `prisma`; `GET`/`POST` from `./route`, `PATCH`/`DELETE` from the schedule route; `cancelJobsByGroup` side effect (assert Schedule row gone, not job internals). Style A.
 
 Case table:
 
-`clients` — GET 200 returns an array (assert a namespaced fixture client appears). POST 201 `{ ...client }` on `{ name }`; `400 name is required` when name missing; `409 A client with that name already exists` on duplicate (create the fixture twice); **pin the current bad-JSON behavior: malformed body → `500`** (this is the defect Phase 3 fixes — assert `500` here).
+`clients` — GET 200 returns an array (assert a namespaced fixture appears). POST 201 `{ ...client }` on `{ name }`; `400 name is required` when missing; `409 A client with that name already exists` on duplicate; **pin the current bad-JSON behavior: malformed body → `500`** (the defect Task 11 fixes — assert `500` here).
 
-`clients/[id]/schedules/[scheduleId]` — PATCH `400 invalid_json` on malformed; `400 enabled_required` when `enabled` absent/non-boolean; `404 not_found` for a schedule not owned by the client; `409 client_archived` when re-enabling on an archived client; 200 `{ ok: true }` on success (assert `nextRunAt` recomputed / row updated). DELETE: `404 not_found` for missing; 200 `{ ok: true }` on success (assert `prisma.schedule.count` is 0 after).
+`clients/[id]/schedules/[scheduleId]` — PATCH `400 invalid_json` on malformed; `400 enabled_required` when `enabled` absent/non-boolean; `404 not_found` for a schedule not owned by the client; `409 client_archived` when re-enabling on an archived client; 200 `{ ok: true }` on success. DELETE: `404 not_found` for missing; 200 `{ ok: true }` on success (assert `prisma.schedule.count` is 0 after). Cadence must be literal `weekly:`/`monthly:` (C2 rule).
 
-- [ ] **Step 1:** Write both test files (style A). For schedules, create a real Client + Schedule (`name` prefixed) fixture; cadence must be literal `weekly:`/`monthly:` per C2 rules.
-- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/clients/route app/api/clients/[id]/schedules/[scheduleId]` — Expected: PASS (incl. the `500`-on-bad-JSON pin).
+- [ ] **Step 1:** Write both test files (style A) with prefixed Client + Schedule fixtures.
+- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/clients/route" "app/api/clients/[id]/schedules/[scheduleId]"` — Expected: PASS (incl. the `500`-on-bad-JSON pin).
 - [ ] **Step 3:** Commit — `test(a3): characterize clients list/create + schedule PATCH/DELETE`.
 
-### Task 5: Quarter-plan cookie routes
+### Task 5: Extend the quarter-plan monolith for any missing cases (NO sibling files)
 
 **Files:**
-- Test: `app/api/quarter-plan/activity/route.test.ts` (Create)
-- Test: `app/api/quarter-plan/import/route.test.ts` (Create)
-- Test: `app/api/quarter-plan/push/mint-token/route.test.ts` (Create)
+- Modify: `app/api/quarter-plan/route.test.ts` (extend in-file only)
 
-**Interfaces:** Consumes `prisma`; `AUTH_COOKIE_NAME`/`createAuthCookieValue` from `@/lib/auth` for the mint-token in-handler cookie check. `activity`/`queue` handlers are no-arg `GET()`.
+**Interfaces:** The file already imports `IMPORT`, `ACTIVITY`, `MINT`, `EXPORT`, `RECEIPT`, `mintQuarterPushToken`, `SignJWT`. Add cases within the existing `describe` blocks / add new `describe`s in the SAME file. `QuarterPlan` is a singleton — reuse the file's existing cleanup (`prisma.quarterPlan.deleteMany({})`).
 
-Case table:
+Read the existing file first and add ONLY the cases below that are not already asserted:
 
-`quarter-plan/activity` (GET, no-arg) — 200 `{ activity }`; when no plan exists, 200 `{ activity: {} }`.
+`quarter-plan/import` (POST) — `400 Invalid JSON body` on malformed; `400` with `sanitizePlanPayload`'s error; 201 on valid create; `409 A quarter plan already exists` on createOnly conflict.
 
-`quarter-plan/import` (POST) — `400 Invalid JSON body` on malformed; `400` with `sanitizePlanPayload`'s error for an invalid payload; 201 on a valid create; `409 A quarter plan already exists` when a plan already exists (createOnly conflict). Clean up the created QuarterPlan in `afterAll`.
+`quarter-plan/activity` (GET, no-arg) — 200 `{ activity }`; 200 `{ activity: {} }` when no plan.
 
-`quarter-plan/push/mint-token` (POST) — **`401 auth_required` when no auth cookie** (explicit in-handler check — set/omit the `cookie` header to exercise both); with a valid cookie: `409 no_plan` when no plan; `409 nothing_planned` when the plan has nothing pushable; 200 `{ token, planId }` with `token` matching `/^qct_/` when pushable.
+`quarter-plan/push/mint-token` (POST) — **`401 auth_required` with no auth cookie** (requires `vi.stubEnv('APP_AUTH_PASSWORD','test-password')` — see Global Constraints); `409 no_plan`; `409 nothing_planned`; 200 `{ token, planId }` with `token` matching `/^qct_/`.
 
-- [ ] **Step 1:** Write the three files. mint-token uses the cookie-auth idiom (`cookie: ${AUTH_COOKIE_NAME}=${await createAuthCookieValue({sub:'test:op',email:null,hd:null,name:null})}`).
-- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/quarter-plan/activity app/api/quarter-plan/import app/api/quarter-plan/push/mint-token` — Expected: PASS.
-- [ ] **Step 3:** Commit — `test(a3): characterize quarter-plan activity/import/mint-token`.
+`quarter-plan/push/[planId]` (GET, qct_) — `401 auth_missing_or_malformed`; token-error `401`s (hand-mint expired/wrong-plan/bad-sig); `401 token_missing_scope` without `'read'`; `404 not_found` when not the latest plan; 200 `{ planId, assignments, ... }` on a valid read token.
 
-### Task 6: Quarter-plan token (qct_) routes
+`quarter-plan/push/[planId]/receipt` (POST, qct_) — `401 auth_missing_or_malformed`; token `401`s; `401 token_missing_scope` without `'receipt-write'`; `400 Invalid JSON body` on malformed (valid token); `404 not_found` when not the latest; 200 `{ ok: true }` (assert `teamworkPushedAt` written).
 
-**Files:**
-- Test: `app/api/quarter-plan/push/[planId]/route.test.ts` (Create)
-- Test: `app/api/quarter-plan/push/[planId]/receipt/route.test.ts` (Create)
+- [ ] **Step 1:** Read `app/api/quarter-plan/route.test.ts`; add only the missing cases above, in-file.
+- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/quarter-plan/route` — Expected: PASS.
+- [ ] **Step 3:** Commit — `test(a3): extend quarter-plan monolith for missing subroute cases`.
 
-**Interfaces:** Consumes `mintQuarterPushToken` from `@/lib/quarter-push-token`, `SignJWT` from `jose`, `prisma`. Bearer exemplar E. Requires the `qct_` token secret env stubbed the same way the existing quarter-push token tests do — check `lib/quarter-push-token.ts` for the env var name and `vi.stubEnv` it.
-
-Case table:
-
-`push/[planId]` (GET) — `401 auth_missing_or_malformed` with no/garbage `Authorization`; `401` with `token_expired`/`token_wrong_plan_id`/`token_invalid_signature`/`token_invalid` (hand-mint the matching failure); `401 token_missing_scope` when the token lacks `'read'`; `404 not_found` when the plan is not the latest; 200 `{ planId, assignments, ... }` on a valid `read`-scoped token for the latest plan.
-
-`push/[planId]/receipt` (POST) — `401 auth_missing_or_malformed`; token errors → `401`; `401 token_missing_scope` without `'receipt-write'`; `400 Invalid JSON body` on malformed body (with a valid token); `404 not_found` when not the latest plan; 200 `{ ok: true }` on success (assert `teamworkPushedAt` written).
-
-- [ ] **Step 1:** Write both files (exemplar E). Create a real QuarterPlan fixture and mint a scoped token against its id.
-- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/quarter-plan/push/[planId]` — Expected: PASS.
-- [ ] **Step 3:** Commit — `test(a3): characterize quarter-plan qct_ push GET + receipt`.
-
-### Task 7: Public share routes
+### Task 6: Public share routes
 
 **Files:**
 - Test: `app/api/share/route.test.ts` (Create)
@@ -282,15 +262,15 @@ Case table:
 
 Case table:
 
-`share` (POST) — `400 Invalid JSON body` on malformed; `400 Invalid or missing sessionId` when `sessionId` fails `isValidSessionId`; `404 Session not found`; `400 Session is not complete`; success 200 `{ token, shareUrl, expiresAt }` (create a complete Session fixture; assert a `ShareLink` row was created).
+`share` (POST) — `400 Invalid JSON body` on malformed; `400 Invalid or missing sessionId`; `404 Session not found`; `400 Session is not complete`; success 200 `{ token, shareUrl, expiresAt }` (complete Session fixture; assert a `ShareLink` row created).
 
-`share/[token]` (GET) — `400 Invalid token`; `404 Share link not found`; `410 Share link has expired` (create an expired `ShareLink`); `400` when the session is not complete; success 200 `{ result, expiresAt, sessionId, siteName }` (assert `accessCount` increments — fire-and-forget, so re-read after a tick or assert best-effort).
+`share/[token]` (GET) — `400 Invalid token`; `404 Share link not found`; `410 Share link has expired` (expired `ShareLink` fixture); `400` when the session is not complete; success 200 `{ result, expiresAt, sessionId, siteName }`. **Do NOT assert `accessCount` increments** (Codex fix — it's a `void`-fire-and-forget update and re-read races).
 
-- [ ] **Step 1:** Write both files (style A). Note the `410` (not 404) for expiry.
-- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/share/route app/api/share/[token]` — Expected: PASS.
+- [ ] **Step 1:** Write both files (style A). Note the `410` (not 404) for expiry; no accessCount assertion.
+- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/share/route" "app/api/share/[token]"` — Expected: PASS.
 - [ ] **Step 3:** Commit — `test(a3): characterize public share create + read routes`.
 
-### Task 8: Site-audit + seo-parser-run untested routes
+### Task 7: Site-audit + seo-parser-run untested routes
 
 **Files:**
 - Test: `app/api/site-audit/[id]/checks/route.test.ts` (Create)
@@ -298,41 +278,40 @@ Case table:
 - Test: `app/api/site-audit/queue/route.test.ts` (Create)
 - Test: `app/api/seo-parser/run/[runId]/pages/route.test.ts` (Create)
 
-**Interfaces:** Consumes `prisma`; `setSiteAuditCheck`/`getSiteAuditChecks` from `@/lib/ada-audit/checks-store`; `discoverPages` from `@/lib/ada-audit/sitemap-crawler` (MOCKED, exemplar B); `getQueueStatus` from `@/lib/ada-audit/queue-manager` (mock or real). `queue`/`discover` handlers: `queue` is no-arg `GET()`, `discover` is `POST(request)` (no params).
+**Interfaces:** Consumes `prisma`; `setSiteAuditCheck`/`getSiteAuditChecks` from `@/lib/ada-audit/checks-store`; `discoverPages` from `@/lib/ada-audit/sitemap-crawler` (MOCKED, exemplar B); `getQueueStatus` from `@/lib/ada-audit/queue-manager`. `queue` is no-arg `GET()`; `discover` is `POST(request)` (no params).
 
 Case table:
 
 `site-audit/[id]/checks` — GET 200 `{ checks }`; **404 `Audit not found`**. PUT: `400 Invalid JSON` on malformed; `400` when `scope` not in `{'page','page-violation'}`, `key` non-string, `checked` non-boolean, or `key` not 64-hex; 200 `{ checks }` on valid (assert `setSiteAuditCheck` persisted).
 
-`site-audit/discover` (POST) — `400 Invalid JSON body`; `400` when `domain` missing; `400 Invalid domain...` for a domain failing the normalize/regex; **`422`** when the mocked `discoverPages` rejects; 200 `{ domain, pageCount, urls }` on success. **`discoverPages` MUST be mocked** — never a live crawl.
+`site-audit/discover` (POST) — `400 Invalid JSON body`; `400` when `domain` missing; `400 Invalid domain...` for a bad domain; **`422`** when the mocked `discoverPages` rejects; 200 `{ domain, pageCount, urls }`. **`discoverPages` MUST be mocked** — never a live crawl.
 
 `site-audit/queue` (GET, no-arg) — 200 with the queue-status shape from `getQueueStatus()`.
 
 `seo-parser/run/[runId]/pages` (GET) — 200 `{ pages, total }` for a real `CrawlRun` (`tool:'seo-parser'`) with pages; **`{ pages: [], total: 0 }` (200, NOT 404)** when the run is missing or `tool !== 'seo-parser'`; respect `limit` clamp (1–200) and `offset`.
 
-- [ ] **Step 1:** Write the four files. `discover` uses exemplar B (mock `@/lib/ada-audit/sitemap-crawler`).
-- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/site-audit/[id]/checks app/api/site-audit/discover app/api/site-audit/queue app/api/seo-parser/run` — Expected: PASS.
+- [ ] **Step 1:** Write the four files. `discover` uses exemplar B.
+- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/site-audit/[id]/checks" "app/api/site-audit/discover" "app/api/site-audit/queue" "app/api/seo-parser/run"` — Expected: PASS.
 - [ ] **Step 3:** Commit — `test(a3): characterize site-audit checks/discover/queue + seo-parser run pages`.
 
-### Task 9: Phase-1 gate
+### Task 8: Phase-1 gate
 
-- [ ] **Step 1:** Run the full suite: `DATABASE_URL="file:./local-dev.db" npm test` — Expected: PASS, test count up by 21 files.
+- [ ] **Step 1:** Run the full suite: `DATABASE_URL="file:./local-dev.db" npm test` — Expected: PASS; test files up by 15 (16 untested routes minus the 5 quarter-plan cases folded into the existing monolith file, plus screenshots/checks combined per task) and the quarter-plan monolith extended.
 - [ ] **Step 2:** Run `npm run lint` — Expected: clean.
-- [ ] **Step 3:** No commit (gate only). All 21 untested routes now have behavior-pinning tests — the roadmap's "route tests" deliverable is met before any refactor.
+- [ ] **Step 3:** No commit (gate only). All 16 untested routes now have behavior-pinning tests and the quarter-plan monolith is filled — the roadmap's "route tests" deliverable is met before any refactor.
 
 ---
 
 ## Phase 2 — The kit (`lib/api/`)
 
-### Task 10: `HttpError` + `parseJsonBody`
+### Task 9: `HttpError` + `parseJsonBody`
 
 **Files:**
-- Create: `lib/api/errors.ts`
-- Create: `lib/api/body.ts`
+- Create: `lib/api/errors.ts`, `lib/api/body.ts`
 - Test: `lib/api/errors.test.ts`, `lib/api/body.test.ts`
 
 **Interfaces:**
-- Produces: `class HttpError extends Error { status: number; code: string }`; `async function parseJsonBody<T = unknown>(req: NextRequest): Promise<T>` (throws `HttpError(400, 'invalid_json')` on parse failure).
+- Produces: `class HttpError extends Error { readonly status: number; readonly code: string }`; `async function parseJsonBody<T = unknown>(req: NextRequest): Promise<T>` (throws `HttpError(400, 'invalid_json')` on parse failure).
 
 - [ ] **Step 1: Write failing tests** (`lib/api/body.test.ts`):
 
@@ -340,7 +319,6 @@ Case table:
 import { describe, it, expect } from 'vitest'
 import { NextRequest } from 'next/server'
 import { parseJsonBody } from './body'
-import { HttpError } from './errors'
 
 describe('parseJsonBody', () => {
   it('parses a valid JSON body', async () => {
@@ -402,7 +380,7 @@ export async function parseJsonBody<T = unknown>(req: NextRequest): Promise<T> {
 - [ ] **Step 4: Run — verify PASS.**
 - [ ] **Step 5: Commit** — `feat(a3): add lib/api HttpError + parseJsonBody`.
 
-### Task 11: `withRoute`
+### Task 10: `withRoute`
 
 **Files:**
 - Create: `lib/api/with-route.ts`
@@ -410,7 +388,8 @@ export async function parseJsonBody<T = unknown>(req: NextRequest): Promise<T> {
 
 **Interfaces:**
 - Consumes: `HttpError` from `./errors`.
-- Produces: `function withRoute<A extends unknown[]>(handler: (...args: A) => Promise<Response> | Response): (...args: A) => Promise<Response>`. Rest-args typing so no-arg `GET()`, `(req)`, and `(req, ctx)` all type-check; Next 15 async `params` unaffected (it's inside `ctx`).
+- Produces: `function withRoute<A extends unknown[]>(handler: (...args: A) => Promise<Response> | Response): (...args: A) => Promise<Response>`. Rest-args typing so no-arg `GET()`, `(req)`, and `(req, ctx)` all type-check; Next 15 async `params` is inside `ctx` and unaffected.
+- **A thrown `Response` is passed through** (returned as-is), not swallowed to 500 (Codex fix — avoids a route-kit trap for handlers that throw a redirect/response).
 
 - [ ] **Step 1: Write failing tests** (`lib/api/with-route.test.ts`):
 
@@ -433,27 +412,28 @@ describe('withRoute', () => {
     expect(await res.json()).toEqual({ ok: true })
   })
   it('maps HttpError to its status + code', async () => {
-    const wrapped = withRoute(async () => { throw new HttpError(404, 'not_found') })
-    const res = await wrapped()
+    const res = await withRoute(async () => { throw new HttpError(404, 'not_found') })()
     expect(res.status).toBe(404)
     expect((await res.json()).error).toBe('not_found')
   })
   it('maps Prisma P2025 -> 404 not_found', async () => {
-    const wrapped = withRoute(async () => { throw prismaKnown('P2025') })
-    const res = await wrapped()
+    const res = await withRoute(async () => { throw prismaKnown('P2025') })()
     expect(res.status).toBe(404)
     expect((await res.json()).error).toBe('not_found')
   })
   it('maps Prisma P2002 -> 409 conflict', async () => {
-    const wrapped = withRoute(async () => { throw prismaKnown('P2002') })
-    const res = await wrapped()
+    const res = await withRoute(async () => { throw prismaKnown('P2002') })()
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe('conflict')
   })
+  it('passes a THROWN Response through unchanged', async () => {
+    const res = await withRoute(async () => { throw NextResponse.json({ x: 1 }, { status: 302 }) })()
+    expect(res.status).toBe(302)
+    expect(await res.json()).toEqual({ x: 1 })
+  })
   it('maps an unknown throw -> 500 internal_error with no message leak', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const wrapped = withRoute(async () => { throw new Error('secret detail') })
-    const res = await wrapped()
+    const res = await withRoute(async () => { throw new Error('secret detail') })()
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.error).toBe('internal_error')
@@ -487,6 +467,8 @@ export function withRoute<A extends unknown[]>(
     try {
       return await handler(...args)
     } catch (err) {
+      // A handler may throw an already-formed Response (e.g. a redirect); honor it.
+      if (err instanceof Response) return err
       if (err instanceof HttpError) {
         return NextResponse.json({ error: err.code }, { status: err.status })
       }
@@ -502,71 +484,78 @@ export function withRoute<A extends unknown[]>(
 ```
 
 - [ ] **Step 4: Run — verify PASS.**
-- [ ] **Step 5: Verify typing** — add a compile-only smoke to the test file (no-arg + (req,ctx) both wrapped) and run `npm run lint`. Expected: clean.
-- [ ] **Step 6: Commit** — `feat(a3): add lib/api withRoute wrapper`.
+- [ ] **Step 5: Verify typing** — confirm `withRoute(async () => ...)` (no-arg) and `withRoute(async (req, ctx) => ...)` both type-check by using both forms in the test file, then run `npm run lint`. Expected: clean. (This gates Phase 3, which wraps no-arg `GET()` handlers.)
+- [ ] **Step 6: Commit** — `feat(a3): add lib/api withRoute wrapper (incl. thrown-Response passthrough)`.
 
 ---
 
 ## Phase 3 — Opportunistic adoption (under green Phase-1 tests)
 
-> For each route: (1) if a deliberate normalization applies, update its Phase-1
-> test to expect the new behavior in the SAME commit, with a one-line comment;
-> (2) refactor the route onto `withRoute`/`parseJsonBody`; (3) run that route's
-> test — green. Any UNexpected red = drift; stop and reconcile.
+> For each route: (1) if a deliberate normalization applies, update its test to
+> expect the new behavior in the SAME commit, with a one-line comment; (2)
+> refactor the route onto `withRoute`/`parseJsonBody`; (3) run that route's test
+> — green. Any UNexpected red = drift; stop and reconcile. **Every validation
+> branch converted to an `HttpError` throw MUST preserve the existing error code
+> string** unless the task names a deliberate normalization.
+>
+> Before→after malformed-JSON table (the only deliberate envelope changes):
+> | Route | before | after |
+> |---|---|---|
+> | `clients` POST | `500` (unhandled) | `400 invalid_json` |
+> | `brief/live` POST | `400 "Invalid JSON body"` | `400 invalid_json` |
+> | `brief/[sessionId]` POST | `{}` default → `400 Client name is required` | **UNCHANGED** (preserve `.catch(()=>({}))`) |
+> | `diff` POST | `400 "Invalid JSON body"` | `400 invalid_json` |
+> | `quarter-plan/import` POST | `400 "Invalid JSON body"` | `400 invalid_json` |
+> | `site-audit/[id]/checks` PUT | `400 "Invalid JSON"` | `400 invalid_json` |
+> | `ada-audit/[id]/checks` PUT | `400 "Invalid JSON"` | `400 invalid_json` |
+>
+> The two `brief` 500 message-leaks → `500 internal_error` is the other deliberate change (Task 12).
 
-### Task 12: Adopt on `clients/route.ts` (fixes bad-JSON 500)
+### Task 11: Adopt on `clients/route.ts` (fixes bad-JSON 500)
 
 **Files:** Modify `app/api/clients/route.ts`; Modify `app/api/clients/route.test.ts`.
 
-Deliberate change: POST malformed body `500` → `400 invalid_json`. The duplicate-name `409 A client with that name already exists` is PRESERVED — keep the route's explicit P2002 catch (do not delegate it to `withRoute`'s generic mapper).
-
-- [ ] **Step 1:** Update the bad-JSON test case: expect `400` + `invalid_json` (comment: `// A3: normalized from 500`).
-- [ ] **Step 2:** Wrap `GET`/`POST` in `withRoute`; replace the inline `await request.json()` with `parseJsonBody(request)`; keep the explicit `catch` mapping P2002 → the human 409 (so that behavior is unchanged).
-- [ ] **Step 3:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/clients/route` — Expected: PASS (409 unchanged, bad-JSON now 400).
+- [ ] **Step 1:** Update the bad-JSON test case: expect `400` + `invalid_json` (`// A3: normalized from 500`).
+- [ ] **Step 2:** Wrap `GET`/`POST` in `withRoute`; replace the inline `await request.json()` with `parseJsonBody(request)`; **keep the explicit `catch` that maps P2002 → the human-readable `409 A client with that name already exists`** (do not delegate to the generic net — preserve the string).
+- [ ] **Step 3:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/clients/route"` — Expected: PASS (409 unchanged, bad-JSON now 400).
 - [ ] **Step 4:** Commit — `refactor(a3): adopt withRoute on clients route (bad-JSON 500->400)`.
 
-### Task 13: Adopt on `brief/[sessionId]` + `brief/live` (stops message leak)
+### Task 12: Adopt on `brief/live` + `brief/[sessionId]` (stops message leak; preserves {} default)
 
 **Files:** Modify both routes + their Phase-1 tests.
 
-Deliberate change: the outer-catch `500 { error: <message> }` → `500 { error: 'internal_error' }`.
-
-- [ ] **Step 1:** Update both tests' 500 cases: expect `body.error === 'internal_error'` (comment: `// A3: no longer leaks message`).
-- [ ] **Step 2:** Wrap the `POST` handlers in `withRoute`; delete the manual outer try-catch (withRoute owns it); use `parseJsonBody` for `brief/live`. For `brief/[sessionId]`, keep the `.catch(()=>({}))` default ONLY if a test pins the `{}`-default validation path — otherwise replace with `parseJsonBody` and update that test case to `400 invalid_json` (note it as a second deliberate change if so).
+- [ ] **Step 1:** Update both tests' 500 cases: expect `body.error === 'internal_error'` (`// A3: no longer leaks message`). Do NOT change the `brief/[sessionId]` `400 Client name is required` case.
+- [ ] **Step 2:** Wrap both `POST` handlers in `withRoute`; delete the manual outer try-catch (withRoute owns the 500). For `brief/live`, swap the inline JSON parse for `parseJsonBody`. **For `brief/[sessionId]`, KEEP `.catch(() => ({}))`** (Codex fix — do not use `parseJsonBody` here; the `{}` default is not on the deliberate-change list).
 - [ ] **Step 3:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/brief` — Expected: PASS.
 - [ ] **Step 4:** Commit — `refactor(a3): adopt withRoute on brief routes (stop 500 message leak)`.
 
-### Task 14: Adopt on `diff` + `quarter-plan/import` (bad-JSON code normalization)
+### Task 13: Adopt on `diff` + `quarter-plan/import` (bad-JSON code normalization)
 
-**Files:** Modify both routes + their Phase-1 tests.
+**Files:** Modify `app/api/diff/route.ts`, `app/api/quarter-plan/import/route.ts`, `app/api/diff/route.test.ts`, and **`app/api/quarter-plan/route.test.ts`** (the import test lives in the monolith — edit it there, not a sibling).
 
-Deliberate change: `400 "Invalid JSON body"` → `400 invalid_json`.
-
-- [ ] **Step 1:** Update both tests' malformed-body cases to expect `invalid_json` (comment noting the normalization).
-- [ ] **Step 2:** Wrap handlers in `withRoute`; swap inline JSON parse for `parseJsonBody`; preserve all other status codes (`404`/`400`/`409 session_archived`/`409 A quarter plan already exists`) by keeping their explicit throws/returns (convert to `throw new HttpError(...)` where it tidies the code, keeping the SAME code string — e.g. `HttpError(409, 'session_archived')`).
-- [ ] **Step 3:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/diff app/api/quarter-plan/import` — Expected: PASS.
+- [ ] **Step 1:** Update the malformed-body cases (diff test + the import case in the monolith) to expect `invalid_json` (`// A3: normalized from "Invalid JSON body"`).
+- [ ] **Step 2:** Wrap handlers in `withRoute`; swap inline JSON parse for `parseJsonBody`; preserve all other codes (`404`/`400`/`409 session_archived`/`409 A quarter plan already exists`) by keeping their explicit throws/returns (convert to `throw new HttpError(status, '<same code string>')` only where it tidies the code, keeping the string identical).
+- [ ] **Step 3:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/diff app/api/quarter-plan/route` — Expected: PASS.
 - [ ] **Step 4:** Commit — `refactor(a3): adopt withRoute on diff + quarter-plan/import`.
 
-### Task 15: Adopt on `site-audit/[id]/checks` + `ada-audit/[id]/checks` (bad-JSON code normalization)
+### Task 14: Adopt on `site-audit/[id]/checks` + `ada-audit/[id]/checks` (bad-JSON code normalization)
 
 **Files:** Modify both routes + their Phase-1 tests.
 
-Deliberate change: `400 "Invalid JSON"` → `400 invalid_json`.
-
 - [ ] **Step 1:** Update both tests' PUT malformed-body cases to expect `invalid_json`.
-- [ ] **Step 2:** Wrap `GET`/`PUT` in `withRoute`; swap to `parseJsonBody`; convert the `404 Audit not found` and the validation `400`s to explicit `HttpError` throws with the SAME code strings, OR leave them as direct `NextResponse.json` returns (withRoute passes returns through). Keep the `getOperatorLabel` logic unchanged.
-- [ ] **Step 3:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/site-audit/[id]/checks app/api/ada-audit/[id]/checks` — Expected: PASS.
+- [ ] **Step 2:** Wrap `GET`/`PUT` in `withRoute`; swap to `parseJsonBody`; convert `404 Audit not found` and the validation `400`s to explicit `HttpError` throws with the SAME code strings, OR leave them as direct `NextResponse.json` returns (withRoute passes returns through). Keep the `getOperatorLabel` logic unchanged.
+- [ ] **Step 3:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/site-audit/[id]/checks" "app/api/ada-audit/[id]/checks"` — Expected: PASS.
 - [ ] **Step 4:** Commit — `refactor(a3): adopt withRoute on site-audit + ada-audit checks routes`.
 
-### Task 16: Adopt on behavior-preserving reads (`clients/[id]/schedules/[scheduleId]`, `quarter-plan/activity`, `site-audit/queue`)
+### Task 15: Adopt on behavior-preserving reads (`clients/[id]/schedules/[scheduleId]`, `quarter-plan/activity`, `site-audit/queue`)
 
-**Files:** Modify the three routes + relevant Phase-1 tests (expect NO assertion changes — pure envelope/net adoption).
+**Files:** Modify the three routes. Test edits: schedule test is a sibling; `quarter-plan/activity` test is in the monolith. Expect NO assertion changes (pure envelope/net adoption).
 
-- [ ] **Step 1:** Wrap each handler in `withRoute`. For `schedules/[scheduleId]` keep `invalid_json`/`enabled_required`/`not_found`/`client_archived` codes exactly (they already match the kit's style — convert to `HttpError` throws or leave as returns). `quarter-plan/activity` + `site-audit/queue` are no-arg `GET()` — `withRoute(async () => ...)` must type-check (verified in Task 11).
-- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/clients/[id]/schedules/[scheduleId] app/api/quarter-plan/activity app/api/site-audit/queue` — Expected: PASS with NO test changes.
+- [ ] **Step 1:** Wrap each handler in `withRoute`. For `schedules/[scheduleId]` keep `invalid_json`/`enabled_required`/`not_found`/`client_archived` codes exactly. `quarter-plan/activity` + `site-audit/queue` are no-arg `GET()` — `withRoute(async () => ...)` must type-check (verified in Task 10).
+- [ ] **Step 2:** Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/clients/[id]/schedules/[scheduleId]" app/api/quarter-plan/route "app/api/site-audit/queue"` — Expected: PASS with NO test changes.
 - [ ] **Step 3:** Commit — `refactor(a3): adopt withRoute on schedule/activity/queue reads`.
 
-### Task 17: Docs + new-route guidance + final gate
+### Task 16: Docs + new-route guidance + final gate
 
 **Files:** Modify `CLAUDE.md` (add `lib/api/` to Key files + a one-line "new routes use `withRoute` + `parseJsonBody`" note); Modify `.claude/skills/er-seo-tools-extension-recipes/SKILL.md` (route recipe references the kit). Tracker + handoff handled in the ship ritual, not here.
 
@@ -579,8 +568,8 @@ Deliberate change: `400 "Invalid JSON"` → `400 invalid_json`.
 
 ## Self-review notes
 
-- **Spec coverage:** Phase 1 (Tasks 1–8) covers all 21 untested routes; Task 9 gates it. Phase 2 (Tasks 10–11) builds the kit per spec. Phase 3 (Tasks 12–16) adopts the enumerated safe subset; every deliberate normalization from the spec's "Bad-JSON standardization" block maps to a task (clients→T12, brief leaks→T13, diff/import→T14, checks→T15). Excluded routes (streaming/file/public-share/token) are test-only (Tasks 3, 1-screenshots, 7, 6) and never adopted — matches the spec's exclusion list. Docs (Task 17) = spec's Phase-3 deliverable.
-- **No auth added to withRoute** — honored (Global Constraints).
-- **Prisma mapping = last-resort net** — honored: T12 keeps clients' explicit 409; T14/T15 keep specific codes via explicit throws.
-- **Placeholder scan:** all test tasks give exemplars + explicit case tables (status + code per case); kit tasks give full code. No TBDs.
-- **Type consistency:** `withRoute` rest-args signature (T11) supports the no-arg handlers used in T16; `HttpError(status, code)` and `parseJsonBody` signatures consistent across T10/T11/T12–16.
+- **Spec coverage:** Phase 1 (Tasks 1–7) covers all 16 sibling-untested routes; Task 5 fills the quarter-plan monolith in-file (Codex fix #1). Task 8 gates Phase 1. Phase 2 (Tasks 9–10) builds the kit per spec, incl. thrown-Response passthrough (Codex fix #6). Phase 3 (Tasks 11–15) adopts the enumerated safe subset; every deliberate normalization maps to a task and to the before→after table. Docs (Task 16) = spec's Phase-3 deliverable.
+- **Codex fixes applied:** #1 quarter-plan monolith (Task 5, count corrected to 16); #2 `APP_AUTH_PASSWORD` stub (Global Constraints + Task 5); #3 screenshots 404-only (Task 1); #4 no accessCount assertion (Task 6); #5 preserve `brief/[sessionId]` `{}` default (Task 12 + before→after table); #6 thrown-Response passthrough (Task 10).
+- **No auth added to withRoute; Prisma mapping = last-resort net** — honored (Task 11 keeps clients' explicit 409; Tasks 13/14 keep specific codes via same-string throws).
+- **Placeholder scan:** all test tasks give exemplars + explicit case tables; kit tasks give full code. No TBDs.
+- **Type consistency:** `withRoute` rest-args signature (Task 10) supports the no-arg handlers used in Task 15; `HttpError(status, code)` + `parseJsonBody` signatures consistent across Tasks 9–15.
