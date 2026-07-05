@@ -41,6 +41,7 @@ export interface CrawlRunInput {
   status: 'complete' | 'partial'
   score: number | null
   scoreBreakdown?: string | null   // JSON breakdown; sf-upload + live-scan (v1) and ada-audit (v2) runs
+  discoveryCoverageJson?: string | null   // C6 hybrid-discovery: live-scan runs only
   wcagLevel: string | null
   pagesTotal: number
   startedAt: Date | null
