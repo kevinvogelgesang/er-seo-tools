@@ -27,10 +27,15 @@ describe('GET /api/ada-audit/screenshots/[auditId]/[filename]', () => {
     expect((await res.json()).error).toBe('Not found')
   })
 
-  it('404 Not found when the file is absent (allowlist-valid but no file on disk)', async () => {
+  it('404 Not found when the file is absent (allowlist-valid but no file on disk — reaches the fs.readFile catch branch, not the allowlist guard)', async () => {
+    // auditId is intentionally all-alphanumeric (passes AUDIT_ID_RE = /^[a-z0-9]+$/i)
+    // and filename is intentionally [a-z0-9_-]+.png (passes FILENAME_RE) so this
+    // request clears the allowlist guard entirely and only 404s because
+    // fs.readFile rejects on the nonexistent path — distinct from the
+    // allowlist-reject cases above.
     const res = await GET(
       new NextRequest('http://localhost/api/ada-audit/screenshots/x/x.png'),
-      params('__a3ada__nonexistent-audit-id', 'nonexistent-file.png'),
+      params('nonexistentauditid', 'nonexistent-file.png'),
     )
     expect(res.status).toBe(404)
     expect((await res.json()).error).toBe('Not found')
