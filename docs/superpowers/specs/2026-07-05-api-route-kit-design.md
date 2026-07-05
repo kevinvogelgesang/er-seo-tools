@@ -143,7 +143,20 @@ export async function parseJsonBody<T = unknown>(req: NextRequest): Promise<T>
 
 `withRoute` is a thin wrapper: it never inspects the request beyond catching, so
 it is compatible with every method signature (`GET()` no-arg, `GET(req, ctx)`,
-`PUT(req, ctx)`) and with Next 15's `ctx.params: Promise<...>`.
+`PUT(req, ctx)`) and with Next 15's `ctx.params: Promise<...>`. The signature must
+be **loose enough that `withRoute(async () => ...)` (no-arg) type-checks cleanly** —
+the plan pins the exact typing (likely a rest-args/variadic handler form or a
+context defaulting to `unknown`), verified with `tsc --noEmit`.
+
+**Prisma mapping is a last-resort net, not a replacement for route-specific
+semantics (Codex fix).** `withRoute`'s P2025→404 / P2002→409 mapping catches only
+Prisma errors the handler did **not** already handle. Routes that resolve a
+specific Prisma failure themselves keep their exact current behavior — e.g.
+`clients` POST catches P2002 and returns the human-readable `A client with that
+name already exists`; `withRoute` never sees that error, so adopting the wrapper
+introduces **zero** drift on the duplicate-client 409. Generic mapping only
+backstops routes that currently fall through to an unhandled 500. A route wanting
+a machine-coded conflict opts in explicitly by throwing `HttpError(409, '<code>')`.
 
 **Deliverable:** `lib/api/` + unit tests covering: pass-through of a normal JSON
 response, `HttpError` mapping for each status, P2025/P2002 mapping, unknown-error
@@ -162,7 +175,21 @@ decided in the plan, but bounded to this class):
 - `diff`, `site-audit/[id]/checks`, `ada-audit/[id]/checks`,
   `clients/[id]/schedules/[scheduleId]`, `quarter-plan/import`,
   `quarter-plan/activity`, `site-audit/queue` — envelope + Prisma mapping,
-  behavior-preserving.
+  behavior-preserving **except** the bad-JSON standardization below.
+
+**Bad-JSON standardization is a deliberate, enumerated change (Codex fix).**
+Adopting `parseJsonBody()` normalizes every adopted route's malformed-body
+response to `400 { error: 'invalid_json' }`. This is broader than the three
+originally-named changes: routes that today return `Invalid JSON body` (`diff`,
+`quarter-plan/import`) or `Invalid JSON` (`site-audit/[id]/checks`,
+`ada-audit/[id]/checks`) will change their **error code string** (status stays
+`400`). The plan MUST enumerate the exact before→after error code for every
+adopted route and update each route's Phase-1 test in the same commit. Routes
+where this drift is unwanted are not adopted in v1. Net deliberate changes:
+- `clients` POST bad JSON: `500 internal error` → `400 invalid_json` (fixes a defect).
+- `brief/[sessionId]`, `brief/live`: 500 body stops leaking `error.message` → `500 internal_error`.
+- `diff`, `quarter-plan/import`: `400 "Invalid JSON body"` → `400 invalid_json`.
+- `site-audit/[id]/checks`, `ada-audit/[id]/checks` (PUT): `400 "Invalid JSON"` → `400 invalid_json`.
 
 **Excluded from v1 adoption** (test-only, internals untouched):
 - Streaming: `export/[sessionId]/[format]`, `export/[sessionId]/claude`.
@@ -205,19 +232,22 @@ the same commit with a one-line rationale.
   401 path (that's middleware, covered by `middleware.test.ts`). Only
   `mint-token` + token routes have unit-testable auth.
 
-## Open questions (routed to Codex, not Kevin)
+## Resolved decisions (Codex review, 2026-07-05 — accept-with-named-fixes)
 
-1. **Validation in v1:** hand-rolled tiny assert helpers vs no validation helper
-   at all (routes keep inline checks) vs add zod. Lean: **no formal validation
-   layer in v1** — ad-hoc inline validation stays; revisit if a real schema need
-   emerges. Adding zod is a dep + scope creep for a consistency-only item.
-2. **Phase 3 normalizations:** fix the `error.message` leak and the
-   `clients`-POST-bad-JSON-500 as part of adoption (test updated), or strictly
-   preserve current behavior and defer fixes? Lean: **fix them** — they're
-   genuine (minor) defects and the whole point of a uniform envelope; each is a
-   deliberate, tested, one-line-noted change.
-3. **`withRoute` ergonomics** with mixed handler signatures (no-arg `GET()` vs
-   `(req, ctx)`), and whether the generic `C` context type is worth it vs `any`.
+1. **Validation in v1: no formal validation layer.** Ad-hoc inline validation
+   stays; the kit provides `parseJsonBody()` only. Adding zod would turn a
+   consistency item into a validation migration (Codex agreed).
+2. **Phase 3 normalizations: fix the defects, enumerate every envelope change.**
+   The two `error.message` leaks and the `clients`-POST-bad-JSON-500 are fixed;
+   AND every other bad-JSON code change caused by `parseJsonBody()` adoption is
+   enumerated in the Phase 3 list above and pinned per-route in the plan (Codex's
+   main spec-gap fix — see the "Bad-JSON standardization" block).
+3. **`withRoute` ergonomics: thin, signature-loose pass-through.** Must type-check
+   for no-arg `GET()`, `(req, ctx)`, and Next 15 async `params`; exact typing
+   pinned in the plan and verified with `tsc`. Prisma mapping is a last-resort net
+   (see the Phase 2 "Prisma mapping" block), so route-specific error semantics are
+   preserved. Token-route Bearer parsing stays out of `withRoute`; factor a shared
+   helper later only if duplication actually hurts.
 
 ## Risks & mitigations
 
