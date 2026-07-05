@@ -30,9 +30,22 @@ import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
 import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
 import { serializeBreakdown } from '@/lib/scoring/weights'
 import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
+import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/seo/discovery-coverage'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import type { JobExhaustedContext } from '../types'
+
+// parseUrlList is private to site-audit-discover.ts — define a local parser
+// here instead of importing it.
+function safeParseUrlList(json: string | null): string[] {
+  if (!json) return []
+  try {
+    const v = JSON.parse(json)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
 
 /**
  * Pick the homepage URL from the audited URL set.
@@ -107,7 +120,10 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   const jobStartedAt = deps.now()
   const site = await prisma.siteAudit.findUnique({
     where: { id: job.siteAuditId },
-    select: { id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true, seoIntent: true },
+    select: {
+      id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true, seoIntent: true,
+      discoveredUrls: true, discoveryMode: true, discoveryCapped: true,
+    },
   })
   if (!site) return // deleted audit -> no-op
 
@@ -390,6 +406,18 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     pagesWithSchema: seoRows.filter((r) => (r.schemaCount ?? 0) > 0).length,
   }, weights)
 
+  // C6 hybrid-discovery Increment 1: sitemap miss-rate from already-harvested
+  // internal links vs the discovery baseline. ZERO new fetches. NOT a Finding.
+  const discoveredUrls = safeParseUrlList(site.discoveredUrls)
+  const coverage = computeDiscoveryCoverage({
+    discoveredUrls,
+    internalLinks: rows
+      .filter((r) => r.kind === 'internal-link')
+      .map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl })),
+    discoveryMode: (site.discoveryMode as DiscoveryMode | null) ?? null,
+    discoveryCapped: site.discoveryCapped ?? false,
+  })
+
   const bundle: FindingsBundle = {
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
@@ -398,6 +426,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
       score: scoreResult.score, scoreBreakdown: serializeBreakdown('live-seo', scoreResult), wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
+      discoveryCoverageJson: JSON.stringify(coverage),
     },
     pages, findings, violations: [],
   }
