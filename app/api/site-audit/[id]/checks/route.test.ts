@@ -54,11 +54,12 @@ describe('PUT /api/site-audit/[id]/checks', () => {
     expect((await res.json()).error).toBe('Audit not found')
   })
 
-  it('400 "Invalid JSON" on malformed body', async () => {
+  it('400 invalid_json on malformed body', async () => {
+    // A3: normalized from "Invalid JSON"
     const audit = await makeAudit('bad-json')
     const res = await PUT(jsonReq('PUT', '{not json'), params(audit.id))
     expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('Invalid JSON')
+    expect((await res.json()).error).toBe('invalid_json')
   })
 
   it('400 when scope is not "page" or "page-violation"', async () => {

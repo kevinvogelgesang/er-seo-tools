@@ -46,11 +46,12 @@ describe('GET /api/ada-audit/[id]/checks', () => {
 })
 
 describe('PUT /api/ada-audit/[id]/checks', () => {
-  it('400 Invalid JSON on malformed body', async () => {
+  it('400 invalid_json on malformed body', async () => {
+    // A3: normalized from "Invalid JSON"
     const audit = await makeAudit('badjson')
     const res = await PUT(putReq('{not json'), params(audit.id))
     expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('Invalid JSON')
+    expect((await res.json()).error).toBe('invalid_json')
   })
 
   it('404 Audit not found for a missing id (checked before body parse)', async () => {
