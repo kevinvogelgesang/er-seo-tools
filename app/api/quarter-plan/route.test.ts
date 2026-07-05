@@ -163,11 +163,12 @@ describe('PUT /api/quarter-plan', () => {
 })
 
 describe('POST /api/quarter-plan/import', () => {
-  it('400 Invalid JSON body on malformed', async () => {
+  it('400 invalid_json on malformed', async () => {
     const bad = new NextRequest('http://localhost/api/quarter-plan/import', { method: 'POST', body: 'nope{' })
     const res = await IMPORT(bad)
     expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('Invalid JSON body')
+    // A3: normalized from "Invalid JSON body"
+    expect((await res.json()).error).toBe('invalid_json')
   })
 
   it('400 with sanitizePlanPayload error on invalid payload shape', async () => {

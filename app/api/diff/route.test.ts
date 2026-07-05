@@ -56,10 +56,11 @@ async function makeSession(tag: string, opts: { status?: string; result?: string
 }
 
 describe('POST /api/diff', () => {
-  it('400 Invalid JSON body on malformed body', async () => {
+  it('400 invalid_json on malformed body', async () => {
     const res = await POST(req('{not json'));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Invalid JSON body');
+    // A3: normalized from "Invalid JSON body"
+    expect((await res.json()).error).toBe('invalid_json');
   });
 
   it('400 Invalid sessionAId for a malformed id', async () => {
