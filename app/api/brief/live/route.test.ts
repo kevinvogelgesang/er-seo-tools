@@ -1,8 +1,10 @@
-// A3 Task 2: characterization tests for POST /api/brief/live — pins CURRENT
-// behavior. The canonical-run lookup (`buildBriefFromCanonical`) is mocked
-// (a real fixture would need a full CrawlPage-backed canonical run); the
-// outer-catch `{ error: error.message }` 500 leak is deliberately pinned
-// here — Task 12 fixes it, not this test.
+// A3 Task 2 (updated by Task 12): characterization tests for POST
+// /api/brief/live. The canonical-run lookup (`buildBriefFromCanonical`) is
+// mocked (a real fixture would need a full CrawlPage-backed canonical run).
+// Task 12 adopted `withRoute` + `parseJsonBody` on this route: malformed
+// JSON now returns the kit's normalized `invalid_json` code (was
+// `"Invalid JSON body"`), and the outer-catch `error.message` 500 leak is
+// gone (unexpected errors now return `500 { error: 'internal_error' }`).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -30,10 +32,10 @@ function req(body: unknown): NextRequest {
 }
 
 describe('POST /api/brief/live', () => {
-  it('400 Invalid JSON body on malformed JSON', async () => {
+  it('400 invalid_json on malformed JSON', async () => {
     const res = await POST(req('{not json'));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Invalid JSON body');
+    expect((await res.json()).error).toBe('invalid_json'); // A3: normalized from "Invalid JSON body"
     expect(buildBriefFromCanonicalMock).not.toHaveBeenCalled();
   });
 
@@ -86,10 +88,10 @@ describe('POST /api/brief/live', () => {
     expect(buildBriefFromCanonicalMock).toHaveBeenCalledWith({ clientId: 1, domain: 'example.com' });
   });
 
-  it('pins: outer-catch 500 leaks error.message', async () => {
+  it('500 internal_error when buildBriefFromCanonical throws (no message leak)', async () => {
     buildBriefFromCanonicalMock.mockRejectedValue(new Error('boom'));
     const res = await POST(req({ clientId: 1, domain: 'example.com' }));
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe('boom');
+    expect((await res.json()).error).toBe('internal_error'); // A3: no longer leaks message
   });
 });

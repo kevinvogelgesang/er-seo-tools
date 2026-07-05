@@ -1,11 +1,12 @@
-// A3 Task 2: characterization tests for POST /api/brief/[sessionId] — pins
-// CURRENT behavior, warts included. Two deliberate defects are pinned here:
+// A3 Task 2 (updated by Task 12): characterization tests for POST
+// /api/brief/[sessionId]. One deliberate defect remains pinned here:
 //   1. A malformed JSON request body silently defaults to `{}` (caught by
 //      `.catch(() => ({}))`), which then fails the clientName check with the
-//      SAME 400 as an omitted clientName.
-//   2. The outer catch leaks `error.message` straight into the response body
-//      (`{ error: message }`, status 500) — Task 12 fixes this; do not "fix"
-//      the route here.
+//      SAME 400 as an omitted clientName. This is preserved by design (Task
+//      12 adopts withRoute but keeps the `{}` default) — do NOT "fix" it.
+// Task 12 adopted `withRoute` on this route, which stopped the outer-catch
+// `error.message` leak: unexpected errors now return a generic
+// `500 { error: 'internal_error' }`.
 // The full upload-parse success path is skipped (needs a real multi-file SF
 // export fixture) — validation + error branches are covered instead.
 // Session lookups use the real DB (house style A); `fs/promises` is mocked
@@ -85,7 +86,7 @@ describe('POST /api/brief/[sessionId]', () => {
     expect((await res.json()).error).toBe('Session not found');
   });
 
-  it('pins: outer-catch 500 leaks error.message when a session file cannot be read', async () => {
+  it('500 internal_error when a session file cannot be read (no message leak)', async () => {
     const sessionId = randomUUID();
     await prisma.session.create({
       data: {
@@ -99,14 +100,14 @@ describe('POST /api/brief/[sessionId]', () => {
 
     // fs.access() (wrapped, skip-on-fail) succeeds, but the subsequent
     // fs.readFile() is NOT wrapped in the route and throws — that error
-    // propagates unmodified to the outer catch and its message is echoed
-    // straight into the JSON response.
+    // propagates to withRoute's outer catch, which maps any unhandled
+    // throw to a generic 500 without echoing the exception message.
     accessMock.mockResolvedValue(undefined);
     readFileMock.mockRejectedValue(new Error('EISDIR: illegal operation on a directory, read'));
 
     const res = await POST(req({ clientName: 'Acme' }), params(sessionId));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.error).toBe('EISDIR: illegal operation on a directory, read');
+    expect(body.error).toBe('internal_error'); // A3: no longer leaks message
   });
 });
