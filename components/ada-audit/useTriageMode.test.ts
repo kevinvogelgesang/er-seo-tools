@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { renderHook, act, cleanup } from '@testing-library/react'
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { useTriageMode } from './useTriageMode'
 
 function memStore(seed: Record<string, string> = {}) {

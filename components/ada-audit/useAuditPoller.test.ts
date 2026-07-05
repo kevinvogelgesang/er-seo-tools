@@ -120,7 +120,8 @@ describe('useAuditPoller', () => {
   it('two overlapping terminal responses refresh once', async () => {
     const f = makeFetch()
     global.fetch = f.fn as unknown as typeof fetch
-    renderHook(() => useAuditPoller(args({})))
+    const onTerminal = vi.fn()
+    renderHook(() => useAuditPoller(args({ onTerminal })))
     await vi.advanceTimersByTimeAsync(1000)   // fetch #1 in flight
     await vi.advanceTimersByTimeAsync(1000)   // fetch #2 in flight (no inFlight guard)
     expect(f.pendingCount()).toBe(2)
@@ -129,6 +130,7 @@ describe('useAuditPoller', () => {
     f.resolveNext({ ok: true, body: { status: 'complete' } })
     await flushAsync()
     expect(refresh).toHaveBeenCalledTimes(1)
+    expect(onTerminal).toHaveBeenCalledTimes(1)
   })
 
   it('unmount before fetch resolves calls neither onData nor refresh', async () => {
