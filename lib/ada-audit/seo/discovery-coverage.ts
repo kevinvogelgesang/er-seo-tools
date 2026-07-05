@@ -47,7 +47,11 @@ const NON_PAGE_EXT = /\.(pdf|zip|gz|jpe?g|png|gif|svg|webp|ico|docx?|xlsx?|pptx?
 /**
  * Coverage-specific normalizer applied identically to baseline + linked sets.
  * Builds on normalizeFindingUrl's intent (lowercase host, drop fragment) and
- * additionally strips tracking params + trailing slash on ANY path.
+ * additionally strips tracking params + trailing slash on ANY path, strips a
+ * leading www. host prefix, and pins the scheme to https — mirroring the
+ * www-insensitive same-domain check in link-harvest.ts so a page harvested
+ * as https://www.example.com/a matches a sitemap baseline entry for
+ * https://example.com/a instead of being falsely counted as off-baseline.
  */
 export function normalizeCoverageUrl(url: string): string {
   let u: URL
@@ -57,6 +61,8 @@ export function normalizeCoverageUrl(url: string): string {
     return normalizeFindingUrl(url) // non-URL passes through there too
   }
   u.hash = ''
+  u.hostname = u.hostname.replace(/^www\./, '')
+  u.protocol = 'https:'
   for (const p of TRACKING_PARAMS) u.searchParams.delete(p)
   if (u.pathname !== '/') u.pathname = u.pathname.replace(/\/+$/, '')
   let out = u.toString()

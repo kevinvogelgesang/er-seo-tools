@@ -13,6 +13,13 @@ describe('normalizeCoverageUrl', () => {
   it('passes non-URLs through unchanged', () => {
     expect(normalizeCoverageUrl('not a url')).toBe('not a url')
   })
+  it('collapses www prefix and http/https scheme to the same normalized URL', () => {
+    const withWww = normalizeCoverageUrl('https://www.example.com/a')
+    const bare = normalizeCoverageUrl('https://example.com/a')
+    const http = normalizeCoverageUrl('http://example.com/a')
+    expect(withWww).toBe(bare)
+    expect(http).toBe(bare)
+  })
   it('treats query-param order and index.html as intentionally DISTINCT (v1 accepted, Codex fix #5)', () => {
     // Documenting non-goals: we do not sort query params or collapse index.html.
     // Acceptable because both sides normalize identically; residual mismatches
@@ -114,6 +121,15 @@ describe('computeDiscoveryCoverage', () => {
     expect(r.sample[0].targetUrl).toBe('https://example.com/off000') // sorted
     expect(r.sample[0].sourcePageUrls).toHaveLength(5)
     expect(r.sample[0].sourcePageUrls[0]).toBe('https://example.com/src00') // sorted
+  })
+
+  it('treats www + scheme variants of a baseline URL as covered, not off-baseline', () => {
+    const r = computeDiscoveryCoverage({
+      ...base,
+      discoveredUrls: ['https://example.com/a'],
+      internalLinks: [{ sourcePageUrl: 'https://example.com/x', targetUrl: 'https://www.example.com/a' }],
+    })
+    expect(r.offBaselineCount).toBe(0)
   })
 
   it('handles empty inputs without throwing', () => {
