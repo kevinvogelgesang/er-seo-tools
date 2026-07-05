@@ -43,9 +43,9 @@ C6 Increment 1 (sitemap miss-rate: `discoveryMode`/`discoveryCapped` on SiteAudi
 client site (with a sitemap) triggered after 2026-07-04.** This is the handoff's
 long-standing "FIRST GATE DATA POINT still pending."
 
-### Parity candidates (domains that already have an SF upload)
+### Parity candidates
 
-Only these have the SF half already (need a seoIntent audit to complete/refresh a pair):
+**A. Already uploaded as `sf-upload` CrawlRuns in prod** (SF half live in the DB):
 
 | Domain | Client | SF score | SF age | Notes |
 |---|---|---|---|---|
@@ -54,10 +54,25 @@ Only these have the SF half already (need a seoIntent audit to complete/refresh 
 | nuvani.edu | 15 (Nuvani Institute) | 81 | 24 d | Needs a seoIntent audit |
 | proway.erstaging.site | 31 (ER Staging Canary) | 86 | 24 d | Noindex canary — plumbing only, no on-page/coverage |
 
-No active client has `seedUrls` set → none are `pre-discovered` by seed URLs → all
-are eligible for **sitemap-mode** miss-rate measurement (good — more applicable data points).
-30 active clients total; only 3 real client domains have SF data → **reaching the
-≥5-client gate needs fresh SF uploads on ≥2 more clients** (analyst action).
+**B. Fresh full SF crawls on DISK (2026-07-05), NOT yet uploaded** — Kevin ran these
+manually with GA4+GSC + full 47-CSV bulk exports. They become the SF half of a parity
+pair **only after being uploaded at `/seo-parser`** (creates a `Session` + `sf-upload`
+CrawlRun). GA4/GSC verified correct on the bidwell export (matched property, real metrics):
+
+| Slug (sf-crawls/) | Client | Domain | Crawl timestamp |
+|---|---|---|---|
+| bidwell | 3 (Bidwell Training Center) | bidwelltraining.edu | 2026.07.05.10.03.16 |
+| boca | 4 (Boca Beauty Academy) | bocabeautyacademy.edu | 2026.07.05.10.15.20 |
+| brockway | 5 (Brockway Center for Arts and Technology) | brockwaycatart.org | 2026.07.05.10.17.39 |
+| brownson | 6 (Brownson Technical School) | brownson.edu | 2026.07.05.10.22.32 |
+| cambria | 29 (Cambria College) | cambriacollege.ca | 2026.07.05.10.27.40 |
+| discovery | 26 (Discovery Community College) | discoverycommunitycollege.com | 2026.07.05.11.12.53 |
+| manhattan | 12 (Manhattan School of Computer Technology) | manhattanschool.edu | 2026.07.03.11.29.25 (already uploaded) |
+
+**→ SF-side prerequisite now MET for the ≥5-client gate** (7 clients with fresh crawls).
+No active client has `seedUrls` set → all are eligible for **sitemap-mode** miss-rate
+measurement (good — more applicable data points). Remaining work is operational: upload
+the disk crawls + trigger matching seoIntent audits + record parity/coverage per domain.
 
 ---
 
@@ -89,16 +104,22 @@ the **first miss-rate data point** and (b) refresh the pair on post-Increment-1 
 
 ## Operational plan to fill the two data streams
 
-Both streams are blocked on the same operational action — **triggering seoIntent
-audits of indexable client sites** — which needs an authed prod session (prod is
-OAuth-only; no automated cookie available). Options:
-1. Kevin triggers seoIntent audits from the UI (or supplies an `er_auth` cookie so
-   a session can run the runbook curls), starting with **manhattanschool.edu**
-   (validated, indexable, has a sitemap → first `discoveryCoverageJson` point).
-2. Analysts run fresh SF uploads on ≥2 more clients (beyond manhattan / glow / nuvani)
-   to reach the ≥5-client parity gate.
-3. After each audit: run `sf-live-parity.ts <domain>` + record the
-   `discoveryCoverageJson` value here as a new dated data point.
+SF-side crawls now exist for 7 clients (§ candidates B). The remaining work is a
+per-domain loop, all needing an authed prod session (prod is OAuth-only; no
+automated cookie — Kevin via UI, or supplies an `er_auth` cookie for the runbook curls).
+
+**Per client in {manhattan 12, bidwell 3, boca 4, brockway 5, brownson 6, cambria 29, discovery 26}:**
+1. **Upload the fresh SF export** at `/seo-parser` → creates a `Session` + `sf-upload`
+   CrawlRun for the domain (the SF half). (manhattan already uploaded — skip.)
+2. **Trigger a `seoIntent` site audit** on the same domain → live-scan CrawlRun +
+   `discoveryCoverageJson` (the live half + the miss-rate data point). Runbook:
+   `POST /api/site-audit {domain, wcagLevel:'wcag21aa', clientId:<id>, seoIntent:true}`.
+3. **Record both numbers** here as a dated data point: on prod,
+   `npx tsx .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts <domain>`
+   AND read the live run's `discoveryCoverageJson` (mode / offBaselineCount / missRate).
+
+Start with **manhattan** (already has both halves — just needs a *fresh* post-Increment-1
+seoIntent audit to get its first `discoveryCoverageJson`), then the 6 disk crawls.
 
 **Gate to pass Phase 1:** ≥5 clients × 2–3 cycles, every deviation explained here.
 **Gate for hybrid-discovery Increment 2:** measured sitemap miss-rate across real

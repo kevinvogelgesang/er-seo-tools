@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-05 (SF-retirement Phase 1 KICKOFF — parity measurement + miss-rate data-state audit; docs-only, no code) · **Updated by:** the SF-retirement-Phase-1 session. Next action is **operational**: Kevin/analyst triggers seoIntent audits of indexable client sites (manhattan first) to fill the two Phase-1 data streams.
+**Last updated:** 2026-07-05 (SF-retirement Phase 1 — kickoff + 6 fresh SF crawls landed on disk; docs-only, no code) · **Updated by:** the SF-retirement-Phase-1 session. Next action is **operational**: Kevin uploads the 7 fresh SF crawls at /seo-parser + triggers matching seoIntent audits, recording parity + discoveryCoverageJson per domain.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -38,12 +38,20 @@ not complete in one session. Kickoff done 2026-07-05 (docs-only, no code):
   quantified cleanly by discoveryCoverageJson); only shared issue type
   duplicate_title 1|1 (Δ0); ~70 SF-only types = expected capability gaps. All
   deviations explained.
-- Candidates: only 3 real client domains have SF uploads (manhattan client 12,
-  glowcollegecanada.ca 30, nuvani.edu 15); proway is the noindex canary. NO active
-  client has seedUrls → all eligible for sitemap-mode miss-rate. 30 active clients
-  → reaching the >=5-client gate needs fresh SF uploads on >=2 more.
+- SF-SIDE PREREQUISITE NOW MET: Kevin manually ran 6 fresh full SF crawls on
+  2026-07-05 (GA4+GSC + 47-CSV bulk exports) into sf-crawls/, plus manhattan
+  (2026-07-03) = 7 clients: bidwell(3)=bidwelltraining.edu,
+  boca(4)=bocabeautyacademy.edu, brockway(5)=brockwaycatart.org,
+  brownson(6)=brownson.edu, cambria(29)=cambriacollege.ca,
+  discovery(26)=discoverycommunitycollege.com, manhattan(12)=manhattanschool.edu.
+  GA4/GSC verified CORRECT on the bidwell export (matched property, real metrics).
+  BUT these are on DISK — they become the SF half of a parity pair ONLY after
+  upload at /seo-parser (creates a Session + sf-upload CrawlRun). Only 3 domains
+  (manhattan/glow/nuvani) are uploaded in prod so far. NO active client has
+  seedUrls → all eligible for sitemap-mode miss-rate.
 - Deliverable: docs/superpowers/todos/2026-07-05-sf-live-parity-log.md (data-state
-  snapshot + manhattan data point + candidate list + operational plan).
+  snapshot + manhattan data point + full candidate list incl. the 6 disk crawls +
+  per-domain operational plan).
 A2/A2-f1/A3/B1-B5/C1-C10/C9(A+B)/D0 all COMPLETE + PROD-VERIFIED. A1 COMPLETE.
 C7 fully complete. C6: Phases 1-4 + on-page + live score + redirect/canonical/
 hreflang validation + external-link verification + hybrid-discovery Increment 1
@@ -64,20 +72,24 @@ in .claude/skills/.
    when docs disagree: code > plan/spec > tracker/handoff. Always re-map the
    actual code before writing a spec (the campaign skill was already found stale
    this session — Phase 0 was long merged).
-3. THE IMMEDIATE NEXT STEP is OPERATIONAL (needs Kevin/analyst — prod is
-   OAuth-only, no automated cookie): trigger seoIntent audits of indexable client
-   sites triggered after 2026-07-04 to fill BOTH Phase-1 data streams. Concretely:
-   - Kevin triggers a fresh seoIntent audit on manhattanschool.edu (client 12) via
-     the UI, OR supplies an er_auth cookie so the runbook curls can be run
-     (er-seo-tools-sf-retirement-campaign Gate 0.3 Step 2:
-     POST /api/site-audit {domain, wcagLevel:'wcag21aa', clientId:12, seoIntent:true}).
-     → first discoveryCoverageJson data point (mode:'sitemap') + refreshed pair.
-   - Then glowcollegecanada.ca (30) + nuvani.edu (15) (already have SF uploads).
-   - Analysts run fresh SF uploads on >=2 MORE clients to reach the >=5-client gate.
-   - After each audit: on prod, cd /home/seo/webapps/seo-tools && npx tsx
-     .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts <domain>
-     AND read the run's discoveryCoverageJson; record both as a new dated data
-     point in 2026-07-05-sf-live-parity-log.md.
+3. THE IMMEDIATE NEXT STEP is OPERATIONAL (needs Kevin's authed prod session —
+   OAuth-only, no automated cookie; Kevin via UI, or supplies an er_auth cookie
+   for the runbook curls). The SF crawls exist on disk for 7 clients; run this
+   per-domain loop for {manhattan 12, bidwell 3, boca 4, brockway 5, brownson 6,
+   cambria 29, discovery 26}:
+   a. UPLOAD the fresh SF export at /seo-parser → Session + sf-upload CrawlRun
+      (manhattan already uploaded — skip its upload). SF export dirs are under
+      /Users/kevin/enrollment-resources/sf-crawls/<slug>/<newest-timestamp>/.
+   b. TRIGGER a seoIntent audit on the same domain (er-seo-tools-sf-retirement-campaign
+      Gate 0.3 Step 2: POST /api/site-audit {domain, wcagLevel:'wcag21aa',
+      clientId:<id>, seoIntent:true}) → live-scan run + discoveryCoverageJson
+      (the FIRST miss-rate data point comes from any indexable client here).
+   c. RECORD both: on prod, cd /home/seo/webapps/seo-tools && npx tsx
+      .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts <domain>
+      AND read the live run's discoveryCoverageJson (mode/offBaselineCount/missRate);
+      append a dated data point to 2026-07-05-sf-live-parity-log.md.
+   Start with manhattan (both halves exist — just needs a FRESH post-Increment-1
+   seoIntent audit for its first discoveryCoverageJson), then the 6 disk crawls.
    If Kevin would rather switch tracks while data accumulates, the menu is open:
    further C6 (hybrid discovery Increment 2 is GATED on this miss-rate data;
    reachability graph 3b; content similarity Phase 5) · Track A infra (A4
@@ -100,9 +112,8 @@ in .claude/skills/.
      optional BACKUP_DIR-unset warning in scripts/db-backup.ts; two ~444 MB backups
      in /home/seo/data/seo-tools/backups/ (safe to rm the older one).
    - Stray untracked server files: ~/probe-beal.ts.bak, audit-aggregate.js,
-     audit-snapshot.js, .env.*.bak, lighthouse-reports/ (Kevin may rm). NOTE: this
-     session left two read-only scratch scripts at ~/parity-inventory.ts +
-     ~/sf-domains.ts (outside the repo tree, harmless; rm anytime).
+     audit-snapshot.js, .env.*.bak, lighthouse-reports/ (Kevin may rm). This
+     session's read-only prod scratch scripts were all cleaned up (none left).
 6. After any advance: tracker checkbox + dated status-log line, rewrite this
    handoff, and end your final reply with this doc's updated paste-in prompt in a
    code block.
@@ -125,10 +136,16 @@ in .claude/skills/.
   - **First parity data point recorded** (manhattan): Δ+16 score (Live 98 / SF 82),
     Jaccard 0.337 (asset-inflated on the SF side + real sitemap-missed content
     pages), duplicate_title the only shared type (Δ0). All deviations explained.
-  - **Deliverable:** `docs/superpowers/todos/2026-07-05-sf-live-parity-log.md`.
-  - **Blocker:** filling both streams needs seoIntent audits triggered on prod
-    (OAuth-only → Kevin via UI, or supplies an `er_auth` cookie). Analysts also
-    need fresh SF uploads on ≥2 more clients to reach the ≥5-client gate.
+  - **SF-side prerequisite now MET:** Kevin manually ran 6 fresh full SF crawls
+    2026-07-05 (GA4+GSC + 47-CSV exports) into `sf-crawls/` — bidwell(3), boca(4),
+    brockway(5), brownson(6), cambria(29), discovery(26) — plus manhattan(12) from
+    07-03 = **7 clients**. GA4/GSC verified correct on the bidwell export. These are
+    on DISK; they become `sf-upload` runs only after upload at `/seo-parser`.
+  - **Deliverable:** `docs/superpowers/todos/2026-07-05-sf-live-parity-log.md`
+    (data-state snapshot + manhattan data point + full candidate list + per-domain plan).
+  - **Blocker:** filling both streams needs Kevin's authed prod session (OAuth-only)
+    to (a) upload the disk SF crawls at `/seo-parser` and (b) trigger matching
+    seoIntent audits, then record parity + `discoveryCoverageJson` per domain.
 - **A1, A2, A2-f1, A3, B1–B5, C1–C10, C9(A+B), D0 all COMPLETE + PROD-VERIFIED.**
   C7 fully complete. C6 Phases 1–4 + on-page + live score + redirect/canonical/hreflang
   validation + external-link verification + hybrid-discovery Increment 1 (miss-rate MECHANISM) shipped.
@@ -157,14 +174,16 @@ in .claude/skills/.
 
 ## Next item
 
-**SF-retirement Phase 1 is in progress and is OPERATIONAL — the next action needs Kevin/analyst, not code.**
-Trigger seoIntent audits of indexable client sites (post-2026-07-04) to fill the two data streams:
-1. **manhattan (client 12)** first — validated, indexable, has a sitemap → first `discoveryCoverageJson`
-   point + refreshed parity pair. Kevin via UI, or supplies an `er_auth` cookie for the runbook curls.
-2. Then **glowcollegecanada.ca (30)** + **nuvani.edu (15)** (already have SF uploads).
-3. Analysts: fresh SF uploads on **≥2 more clients** → reach the ≥5-client gate.
-4. After each audit: run `sf-live-parity.ts <domain>` + read `discoveryCoverageJson`; append a dated
-   data point to `2026-07-05-sf-live-parity-log.md`.
+**SF-retirement Phase 1 is in progress and is OPERATIONAL — the next action needs Kevin's authed
+prod session, not code.** Fresh SF crawls now exist on disk for 7 clients (SF-side prerequisite met).
+Per-domain loop for {manhattan 12, bidwell 3, boca 4, brockway 5, brownson 6, cambria 29, discovery 26}:
+1. **Upload** the fresh SF export at `/seo-parser` → `sf-upload` run (manhattan already uploaded).
+2. **Trigger** a `seoIntent` audit on the same domain → live-scan run + `discoveryCoverageJson`
+   (the first miss-rate data point comes from any indexable client here).
+3. **Record** both: `sf-live-parity.ts <domain>` + the live run's `discoveryCoverageJson`; append a
+   dated data point to `2026-07-05-sf-live-parity-log.md`.
+Start with **manhattan** (both halves exist — needs a fresh post-Increment-1 seoIntent audit for its
+first `discoveryCoverageJson`), then the 6 disk crawls.
 
 **If Kevin prefers to switch tracks while data accumulates** (the data cadence is inherently multi-week):
 - **Further C6** — hybrid discovery Increment 2 (the crawler, GATED on this miss-rate data) / reachability
@@ -250,6 +269,9 @@ Trigger seoIntent audits of indexable client sites (post-2026-07-04) to fill the
 - 2026-07-05 — **SF-retirement Phase 1 KICKOFF (docs-only).** Corrected the campaign skill's stale Phase-0
   premise (merged 2026-07-02); read-only prod inventory → **0 discoveryCoverageJson data points** (no audit
   since Increment 1 deployed) + only 1 seoIntent run; first parity data point recorded (manhattan Δ+16,
-  Jaccard 0.337, all deviations explained); parity log `2026-07-05-sf-live-parity-log.md` created. Next
-  action is operational (Kevin/analyst triggers seoIntent audits; prod is OAuth-only).
+  Jaccard 0.337, all deviations explained); parity log `2026-07-05-sf-live-parity-log.md` created.
+- 2026-07-05 — **6 fresh full SF crawls landed on disk** (Kevin, manual): bidwell/boca/brockway/brownson/
+  cambria/discovery (+ manhattan 07-03) = 7 clients with GA4+GSC + 47-CSV exports; GA4/GSC verified correct
+  on the bidwell export. SF-side prerequisite for the ≥5-client gate MET. Next action operational: upload at
+  /seo-parser + trigger matching seoIntent audits + record parity/coverage (Kevin's authed session; OAuth-only).
 ```
