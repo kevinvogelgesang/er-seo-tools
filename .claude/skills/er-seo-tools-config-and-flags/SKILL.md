@@ -109,6 +109,17 @@ Only `PILLAR_TOKEN_SECRET` is checked at boot; the other three break their featu
 
 Schedule tick is hardcoded 60 s (`lib/jobs/worker.ts:244`), not env-configurable.
 
+### SEO parser concurrency
+
+| Var | Purpose | Code default | Prod | Read site |
+|---|---|---|---|---|
+| `PARSE_CONCURRENCY` | max concurrent CSV parses in `POST /api/parse/[sessionId]` | 2 | — | `lib/parsers/parse-limit.ts` |
+
+- Clamped to ≥ 1 (bad/zero/negative/NaN → 2, via `parseConcurrencyFromEnv`); never required-in-prod (safe default → no `instrumentation.ts` fail-fast, no pre-deploy `.env` step).
+- **Process-wide**, not per-request: a single shared `Semaphore` module singleton caps total concurrent parses across all simultaneous uploads. Sound only under the single-PM2-process model (one Node process = one semaphore).
+- Not a job-queue knob — parsing runs inline in the route request/response (the C7 "keep-synchronous" decision). Concurrency lives in `mapWithConcurrency`, a per-call worker pool over the shared semaphore.
+- Sizing: ~751 MB peak per big-file stream (C7 pt3 harness); `2 × 751 ≈ 1.5 GB` vs the 2400M PM2 ceiling shared with site-audit/Lighthouse leaves ~900 MB headroom — a conservative default, NOT a hard proof. **Drop to 1** on a box under heavy co-scheduled site-audit load; raising it multiplies peak parse memory.
+
 ### Broken-link verifier (C6)
 
 | Var | Code default | Read site |
