@@ -80,13 +80,15 @@ describe('runBrokenLinkVerify', () => {
     expect(run!.findings).toHaveLength(0)
   })
 
-  it('does not count external-link targets as broken', async () => {
+  it('counts external-link targets as broken_external_links (warning)', async () => {
     const id = await seed([
       { targetUrl: 'https://other.com/x', kind: 'external-link', sourcePageUrl: 'https://c6blv.example.com/a' },
     ])
     await runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, depsFor(new Set(['https://other.com/x'])))
     const run = await liveRun(id)
-    expect(run!.findings).toHaveLength(0)
+    const ext = run!.findings.find((f) => f.scope === 'run' && f.type === 'broken_external_links')
+    expect(ext?.count).toBe(1)
+    expect(ext?.severity).toBe('warning')
   })
 
   it('idempotent re-run replaces the run (no unique-constraint error)', async () => {
@@ -514,5 +516,26 @@ describe('runBrokenLinkVerify — external verification (call behavior)', () => 
       now: () => 0, sleep: async () => {},
     }
     await expect(runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, deps)).resolves.toBeUndefined()
+  })
+
+  it('emits broken_external_links only for broken targets, none when clean', async () => {
+    const cleanId = await seedExternal([{ targetUrl: 'https://ext.example/live' }])
+    await runBrokenLinkVerify({ siteAuditId: cleanId, domain: DOMAIN }, depsFor(new Set())) // nothing broken
+    const cleanRun = await liveRun(cleanId)
+    expect(cleanRun!.findings.some((f) => f.type === 'broken_external_links')).toBe(false) // NO zero-count finding
+  })
+
+  it('internal-link verification is unchanged when a broken external is present', async () => {
+    const id = await seed([
+      { targetUrl: 'https://c6blv.example.com/int-dead', kind: 'internal-link', sourcePageUrl: 'https://c6blv.example.com/a' },
+      { targetUrl: 'https://other.com/ext-dead', kind: 'external-link', sourcePageUrl: 'https://c6blv.example.com/a' },
+    ])
+    await runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, depsFor(new Set(['https://c6blv.example.com/int-dead', 'https://other.com/ext-dead'])))
+    const run = await liveRun(id)
+    const internal = run!.findings.find((f) => f.scope === 'run' && f.type === 'broken_internal_links')
+    expect(internal?.severity).toBe('critical')
+    expect(internal?.count).toBe(1)
+    const ext = run!.findings.find((f) => f.scope === 'run' && f.type === 'broken_external_links')
+    expect(ext?.severity).toBe('warning')
   })
 })

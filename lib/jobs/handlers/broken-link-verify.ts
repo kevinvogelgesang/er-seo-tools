@@ -363,10 +363,15 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     runId, ensurePage, affectedComplete: !capped && !harvestTruncated,
     confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
   })
+  const externalFindings = mapBrokenLinkFindings(externalBroken, {
+    runId, ensurePage, affectedComplete: !externalCapped && !externalHarvestTruncated,
+    confidence: { checked: externalChecked, broken: externalBroken.length, unconfirmed: externalUnconfirmed, capped: externalCapped, harvestTruncated: externalHarvestTruncated },
+    severity: 'warning',
+  })
   const validationFindings = mapValidationFindings(validationRows, internalLinks, cache, {
     runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation,
   })
-  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...validationFindings]
+  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...externalFindings, ...validationFindings]
 
   // C6 Phase 3: live SEO score from the on-page signals (pure scorer).
   const runCounts = new Map(
@@ -389,7 +394,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
-      status: capped || harvestTruncated || cappedValidation ? 'partial' : 'complete',
+      status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated ? 'partial' : 'complete',
       score: scoreResult.score, scoreBreakdown: serializeBreakdown('live-seo', scoreResult), wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
@@ -400,7 +405,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   await prisma.harvestedPageSeo.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   console.log(
-    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, on-page rows ${seoRows.length}`,
+    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, external checked ${externalChecked}, external broken ${externalBroken.length}, external unconfirmed ${externalUnconfirmed}, on-page rows ${seoRows.length}`,
   )
 }
 
