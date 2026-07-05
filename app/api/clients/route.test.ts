@@ -1,5 +1,6 @@
 // A3 Phase 1 characterization: GET/POST /api/clients, AS-IS (warts included).
-// Pins the malformed-JSON 500 defect on POST — Task 11 will fix it to 400.
+// Task 11 adopted withRoute/parseJsonBody; the malformed-JSON case below is
+// the one deliberate normalization (500 -> 400 invalid_json).
 import { describe, it, expect, beforeEach, afterAll } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -68,8 +69,10 @@ describe('POST /api/clients', () => {
     expect((await res.json()).error).toBe('A client with that name already exists')
   })
 
-  it('pins the current defect: malformed JSON body -> 500 (fixed in a later phase)', async () => {
+  it('400 invalid_json on malformed JSON body', async () => {
+    // A3: normalized from 500
     const res = await POST(rawReq('POST', '{not json'))
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('invalid_json')
   })
 })
