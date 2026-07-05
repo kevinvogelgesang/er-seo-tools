@@ -19,11 +19,13 @@ export interface BrokenLinksRun {
   findings: FindingLite[]
 }
 
-const BROKEN_TYPES = new Set(['broken_internal_links', 'broken_images'])
+const BROKEN_TYPES = new Set(['broken_internal_links', 'broken_images']) // critical tier
+const EXTERNAL_TYPE = 'broken_external_links'
 
 const TYPE_LABEL: Record<string, string> = {
   broken_internal_links: 'Broken internal links',
   broken_images: 'Broken images',
+  broken_external_links: 'Broken external links',
 }
 
 function parseDetail(detail: string | null): Record<string, unknown> {
@@ -46,6 +48,59 @@ function Card({ children }: { children: React.ReactNode }) {
   )
 }
 
+function pagesForTypes(run: BrokenLinksRun, allow: (t: string) => boolean) {
+  const byType = new Map<string, { url: string; targets: string[] }[]>()
+  for (const f of run.findings) {
+    if (f.scope !== 'page' || !f.url || !allow(f.type)) continue
+    const targets = (parseDetail(f.detail).brokenTargetUrls as string[]) ?? []
+    const list = byType.get(f.type) ?? []
+    list.push({ url: f.url, targets })
+    byType.set(f.type, list)
+  }
+  return byType
+}
+
+// Per-tier partial (Codex plan-#6): derived from THIS finding's detail, not global run.status.
+function CoverageLine({ detail }: { detail: string | null }) {
+  const conf = parseDetail(detail)
+  const checked = typeof conf.checked === 'number' ? conf.checked : null
+  const unconfirmed = typeof conf.unconfirmed === 'number' ? conf.unconfirmed : 0
+  const partial = conf.capped === true || conf.harvestTruncated === true
+  if (checked === null && unconfirmed === 0 && !partial) return null
+  return (
+    <p className="text-[12px] font-body text-navy/45 dark:text-white/45 mb-3">
+      {checked !== null && <>Checked {checked} unique target{checked === 1 ? '' : 's'}. </>}
+      {unconfirmed > 0 && <>{unconfirmed} could not be confirmed (timeout/blocked) and are excluded. </>}
+      {partial && <>Results are partial (capped or budget/harvest-truncated).</>}
+    </p>
+  )
+}
+
+function BrokenGroup({ label, color, findingCount, pages }: {
+  label: string; color: string; findingCount: number; pages: { url: string; targets: string[] }[]
+}) {
+  return (
+    <div>
+      <p className={`text-[13px] font-body font-semibold ${color}`}>{label}: {findingCount}</p>
+      {pages.length > 0 && (
+        <ul className="mt-1 space-y-1">
+          {pages.slice(0, 25).map((p, i) => (
+            <li key={i} className="text-[12px] font-body text-navy/60 dark:text-white/60">
+              <span className="break-all">{p.url}</span>
+              {p.targets.length > 0 && (
+                <span className="text-navy/40 dark:text-white/40">
+                  {' '}→ {p.targets.slice(0, 5).join(', ')}
+                  {p.targets.length > 5 ? ` (+${p.targets.length - 5} more)` : ''}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export function BrokenLinksSection({ run }: { run: BrokenLinksRun | null }) {
   if (!run) {
     return (
@@ -57,70 +112,51 @@ export function BrokenLinksSection({ run }: { run: BrokenLinksRun | null }) {
     )
   }
 
-  const runScope = run.findings.filter((f) => f.scope === 'run' && f.count > 0 && BROKEN_TYPES.has(f.type))
-  if (runScope.length === 0) {
+  // We only ever emit run findings with count > 0 (no zero-count coverage findings), so
+  // presence == "there are broken items of this type".
+  const internalRunScope = run.findings.filter((f) => f.scope === 'run' && f.count > 0 && BROKEN_TYPES.has(f.type))
+  const externalRun = run.findings.find((f) => f.scope === 'run' && f.count > 0 && f.type === EXTERNAL_TYPE)
+  const hasInternal = internalRunScope.length > 0
+  const hasExternal = !!externalRun
+
+  if (!hasInternal && !hasExternal) {
+    // Clean. The only coverage signal available here is the global run.status (there is no
+    // finding to read a per-tier detail from), so surface partial from it.
     return (
       <Card>
         <p className="text-[13px] font-body text-green-700 dark:text-green-400">
           Verified — no broken links or images found.
+          {run.status === 'partial' && (
+            <span className="text-navy/45 dark:text-white/45">{' '}Some links could not be fully checked — results are partial.</span>
+          )}
         </p>
       </Card>
     )
   }
 
-  // Confidence block lives on every run-scope finding's detail (same values).
-  const conf = parseDetail(runScope[0].detail)
-  const checked = typeof conf.checked === 'number' ? conf.checked : null
-  const unconfirmed = typeof conf.unconfirmed === 'number' ? conf.unconfirmed : 0
-  const partial = run.status === 'partial'
-
-  // Group page-scope findings by type -> [{ sourceUrl, brokenTargets }].
-  const pageByType = new Map<string, { url: string; targets: string[] }[]>()
-  for (const f of run.findings) {
-    if (f.scope !== 'page' || !f.url || !BROKEN_TYPES.has(f.type)) continue
-    const targets = (parseDetail(f.detail).brokenTargetUrls as string[]) ?? []
-    const list = pageByType.get(f.type) ?? []
-    list.push({ url: f.url, targets })
-    pageByType.set(f.type, list)
-  }
+  const internalPages = pagesForTypes(run, (t) => BROKEN_TYPES.has(t))
+  const externalPages = pagesForTypes(run, (t) => t === EXTERNAL_TYPE)
 
   return (
     <Card>
-      {(partial || unconfirmed > 0 || checked !== null) && (
-        <p className="text-[12px] font-body text-navy/45 dark:text-white/45 mb-3">
-          {checked !== null && <>Checked {checked} unique target{checked === 1 ? '' : 's'}. </>}
-          {unconfirmed > 0 && <>{unconfirmed} could not be confirmed (timeout/blocked) and are excluded. </>}
-          {partial && <>Results are partial (capped or harvest-truncated).</>}
-        </p>
+      {hasInternal && (
+        <div className="mb-4">
+          <CoverageLine detail={internalRunScope[0].detail} />
+          <div className="space-y-4">
+            {internalRunScope.map((f) => (
+              <BrokenGroup key={f.type} label={TYPE_LABEL[f.type] ?? f.type} color="text-red-600 dark:text-red-400"
+                findingCount={f.count} pages={internalPages.get(f.type) ?? []} />
+            ))}
+          </div>
+        </div>
       )}
-      <div className="space-y-4">
-        {runScope.map((f) => {
-          const pages = pageByType.get(f.type) ?? []
-          return (
-            <div key={f.type}>
-              <p className="text-[13px] font-body font-semibold text-red-600 dark:text-red-400">
-                {TYPE_LABEL[f.type] ?? f.type}: {f.count}
-              </p>
-              {pages.length > 0 && (
-                <ul className="mt-1 space-y-1">
-                  {pages.slice(0, 25).map((p, i) => (
-                    <li key={i} className="text-[12px] font-body text-navy/60 dark:text-white/60">
-                      <span className="break-all">{p.url}</span>
-                      {p.targets.length > 0 && (
-                        <span className="text-navy/40 dark:text-white/40">
-                          {' '}
-                          → {p.targets.slice(0, 5).join(', ')}
-                          {p.targets.length > 5 ? ` (+${p.targets.length - 5} more)` : ''}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      {hasExternal && (
+        <div>
+          <CoverageLine detail={externalRun!.detail} />
+          <BrokenGroup label={TYPE_LABEL[EXTERNAL_TYPE]} color="text-amber-600 dark:text-amber-400"
+            findingCount={externalRun!.count} pages={externalPages.get(EXTERNAL_TYPE) ?? []} />
+        </div>
+      )}
     </Card>
   )
 }
