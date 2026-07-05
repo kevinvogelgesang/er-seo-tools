@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getQueueStatus } from '@/lib/ada-audit/queue-manager'
+import { withRoute } from '@/lib/api/with-route'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,7 +9,7 @@ export const dynamic = 'force-dynamic'
  * Lightweight endpoint for polling queue status.
  * Returns the active audit (if any) and all queued audits with positions.
  */
-export async function GET() {
+export const GET = withRoute(async () => {
   const status = await getQueueStatus()
   return NextResponse.json(status)
-}
+})
