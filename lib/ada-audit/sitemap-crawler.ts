@@ -230,10 +230,14 @@ async function collectFromSitemap(xml: string, normDomain: string): Promise<stri
 /**
  * Discovers pages for a domain via sitemap.xml (checking robots.txt, common paths).
  * Falls back to a shallow homepage link crawl if no sitemap is found.
- * Returns all discovered URLs belonging to the domain, up to HARD_CAP (1000).
+ * Returns all discovered URLs belonging to the domain, up to HARD_CAP (1000),
+ * plus provenance: `mode` ('sitemap' | 'shallow-crawl') and `capped` (true when
+ * the sitemap yielded more than HARD_CAP unique pages, computed before slicing).
  * Throws if the domain fails SSRF checks or no pages are discovered.
  */
-export async function discoverPages(domain: string): Promise<string[]> {
+export async function discoverPages(
+  domain: string,
+): Promise<{ urls: string[]; mode: 'sitemap' | 'shallow-crawl'; capped: boolean }> {
   const normDomain = normaliseDomain(domain)
 
   // SSRF check on the domain itself before any fetch
@@ -285,13 +289,12 @@ export async function discoverPages(domain: string): Promise<string[]> {
         `No sitemap found on ${normDomain} (tried direct + browser fetch on all candidates) and shallow crawl found 0 pages`
       )
     }
-    return crawledPages
+    return { urls: crawledPages, mode: 'shallow-crawl', capped: false }
   }
 
   // 5. Filter to same domain, deduplicate, apply hard cap
-  const filtered = dedupeUrls(
-    allPageUrls.filter((u) => isSameDomain(u, normDomain))
-  ).slice(0, HARD_CAP)
+  const deduped = dedupeUrls(allPageUrls.filter((u) => isSameDomain(u, normDomain)))
+  const filtered = deduped.slice(0, HARD_CAP)
 
   if (filtered.length === 0) {
     throw new Error(
@@ -300,5 +303,5 @@ export async function discoverPages(domain: string): Promise<string[]> {
     )
   }
 
-  return filtered
+  return { urls: filtered, mode: 'sitemap', capped: deduped.length > HARD_CAP }
 }

@@ -419,7 +419,11 @@ describe('discoverPages SSRF protections', () => {
       return { response, url: url.toString(), redirects: [] }
     })
 
-    await expect(discoverPages('example.com')).resolves.toEqual(['https://example.com/safe-page'])
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/safe-page'],
+      mode: 'shallow-crawl',
+      capped: false,
+    })
     expect(requestedUrls).not.toContain('http://127.0.0.1/sitemap.xml')
   })
 
@@ -449,7 +453,11 @@ describe('discoverPages SSRF protections', () => {
       return { response, url: url.toString(), redirects: [] }
     })
 
-    await expect(discoverPages('example.com')).resolves.toEqual(['https://example.com/page'])
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/page'],
+      mode: 'sitemap',
+      capped: false,
+    })
     expect(requestedUrls).not.toContain('https://other.test/sitemap.xml')
   })
 
@@ -488,8 +496,48 @@ describe('discoverPages SSRF protections', () => {
       return { response, url: url.toString(), redirects: [] }
     })
 
-    await expect(discoverPages('example.com')).resolves.toEqual(['https://example.com/page'])
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/page'],
+      mode: 'sitemap',
+      capped: false,
+    })
     expect(requestedUrls).not.toContain('https://other.test/child.xml')
+  })
+})
+
+describe('discoverPages hard cap', () => {
+  afterEach(() => {
+    safeFetchMock.mockReset()
+    vi.clearAllMocks()
+  })
+
+  it('sets capped=true when the sitemap yields more than HARD_CAP unique pages', async () => {
+    const total = 1005
+    const urlEntries = Array.from({ length: total }, (_, i) =>
+      `<url><loc>https://example.com/page-${i}</loc></url>`
+    ).join('')
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('', { status: 404 })
+      }
+      if (url === 'https://example.com/sitemap.xml') {
+        return new Response(`<urlset>${urlEntries}</urlset>`, {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+
+    const result = await discoverPages('example.com')
+    expect(result.mode).toBe('sitemap')
+    expect(result.capped).toBe(true)
+    expect(result.urls).toHaveLength(1000)
   })
 })
 
@@ -534,7 +582,9 @@ describe('discoverPages browser fallback', () => {
     })
 
     const result = await discoverPages('example.edu')
-    expect(result.sort()).toEqual([
+    expect(result.mode).toBe('sitemap')
+    expect(result.capped).toBe(false)
+    expect(result.urls.sort()).toEqual([
       'https://example.edu/about/',
       'https://example.edu/post-1/',
       'https://example.edu/post-2/',
