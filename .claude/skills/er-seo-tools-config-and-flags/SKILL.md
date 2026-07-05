@@ -128,6 +128,9 @@ Schedule tick is hardcoded 60 s (`lib/jobs/worker.ts:244`), not env-configurable
 | `BROKEN_LINK_HOST_DELAY_MS` | 250 | `broken-link-verify.ts:66` |
 | `BROKEN_LINK_CONCURRENCY` | 4 (internal workers inside the single job) | `broken-link-verify.ts:67` |
 | `BROKEN_LINK_REQUEST_TIMEOUT_MS` | 10000 | `lib/ada-audit/broken-link-check.ts:20` |
+| `BROKEN_LINK_EXTERNAL_MAX_CHECKS` | 300 | Max distinct external targets verified per live-scan run. **0 disables external verification entirely** (no-deploy kill switch; parsed via parseNonNegativeInt). |
+| `BROKEN_LINK_EXTERNAL_TIMEOUT_MS` | 8000 | Per-request HEAD timeout for external checks (shorter than the 10s internal default). |
+| `BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS` | 300000 | Soft wall-clock cap on the external pass; further clamped by remaining job time (JOB_TIMEOUT_MS − elapsed − 60s reserve). Overflow → run status 'partial'. |
 
 ### Retention / upload / analytics
 
