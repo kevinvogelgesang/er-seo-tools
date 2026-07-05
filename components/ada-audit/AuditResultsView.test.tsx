@@ -115,4 +115,17 @@ describe('AuditResultsView — archived render contract', () => {
     expect(screen.getByText(/40 passed/)).toBeTruthy()
     expect(screen.getByText(/3 needs review/)).toBeTruthy()
   })
+
+  it('renders read-only without a localStorage global and does not throw', () => {
+    vi.stubGlobal('localStorage', undefined)
+    expect(() =>
+      render(
+        <AuditResultsView
+          {...baseProps}
+          results={makeResults()}
+          readOnly
+        />,
+      ),
+    ).not.toThrow()
+  })
 })

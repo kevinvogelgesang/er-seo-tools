@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import type { StoredAxeResults, AuditScorecard, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 import AuditScorecardComponent from './AuditScorecard'
@@ -14,6 +13,8 @@ import PdfIssuesSection from './PdfIssuesSection'
 import { KnownLimitationsNotice } from './KnownLimitationsNotice'
 import { safeExternalHref } from '@/lib/safe-external-href'
 import { useChecks } from './useChecks'
+import { useTriageMode } from './useTriageMode'
+import { ArchivedAuditBanner } from './ArchivedAuditBanner'
 import { ClientDate } from '@/components/ClientDate'
 
 interface Props {
@@ -58,21 +59,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
   const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
   const auditHref = safeExternalHref(url)
 
-  const [triageMode, setTriageMode] = useState(false)
-
-  useEffect(() => {
-    if (!auditId) return
-    const stored = localStorage.getItem(`er-triage-mode:${auditId}`)
-    if (stored === '1') setTriageMode(true)
-  }, [auditId])
-
-  const onToggleTriage = () => {
-    setTriageMode((prev) => {
-      const next = !prev
-      if (auditId) localStorage.setItem(`er-triage-mode:${auditId}`, next ? '1' : '0')
-      return next
-    })
-  }
+  const { triageMode, toggleTriage } = useTriageMode(auditId)
 
   const checksEndpoint = readOnly && shareToken
     ? `/api/ada-audit/share/${shareToken}/checks`
@@ -97,15 +84,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
       {fromAuditId && (
         <RescanBanner previousScore={previousScore ?? null} currentScore={score ?? null} />
       )}
-      {results.archived && (
-        <div className="flex gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl text-[12px] font-body text-amber-800 dark:text-amber-400 leading-relaxed">
-          <span>
-            <strong>Archived audit:</strong> full detail (screenshots, complete code snippets,
-            pass/incomplete lists) was pruned after 90 days. Violations shown are exact;
-            node samples are capped at 5 per rule.
-          </span>
-        </div>
-      )}
+      {results.archived && <ArchivedAuditBanner variant="page" />}
       <ComplianceBanner />
 
       {/* Header */}
@@ -148,7 +127,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
             <div className="flex-shrink-0 flex items-center gap-2">
               <button
                 type="button"
-                onClick={onToggleTriage}
+                onClick={toggleTriage}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
               >
                 {triageMode ? 'Triage on' : 'Triage off'}
