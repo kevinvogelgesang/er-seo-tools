@@ -100,6 +100,8 @@ describe('Semaphore', () => {
     await sem.acquire();
     try {
       throw new Error('boom');
+    } catch {
+      /* swallow — the caller-side try/finally still releases */
     } finally {
       sem.release();
     }
@@ -107,6 +109,15 @@ describe('Semaphore', () => {
     let acquired = false;
     await sem.acquire().then(() => { acquired = true; });
     expect(acquired).toBe(true);
+  });
+
+  it('clamps a bad constructor size (0 / negative / NaN) to a usable 1 permit', async () => {
+    for (const bad of [0, -5, NaN]) {
+      const sem = new Semaphore(bad);
+      let acquired = false;
+      await sem.acquire().then(() => { acquired = true; });
+      expect(acquired).toBe(true); // would hang (timeout) if clamp yielded 0/NaN
+    }
   });
 
   it('hands a released permit to the next FIFO waiter', async () => {
@@ -168,8 +179,9 @@ export class Semaphore {
 
   constructor(size: number) {
     // Clamp defensively: the class is exported, so guard against an accidental
-    // 0/negative size that would deadlock (env is already clamped upstream).
-    this.free = Math.max(1, Math.floor(size));
+    // 0/negative/NaN size that would deadlock (env is already clamped upstream).
+    // NOTE: Math.max(1, NaN) === NaN — must test finiteness explicitly.
+    this.free = Number.isFinite(size) && size >= 1 ? Math.floor(size) : 1;
   }
 
   acquire(): Promise<void> {
