@@ -23,9 +23,16 @@ vi.mock('@/lib/db', () => ({
 // Keep the heavy parse pipeline + pillar trigger out of the gate test.
 // NOTE: route.ts imports the trigger from '../pillar-analysis-trigger' (parent
 // dir), so the mock path MUST match exactly or it won't intercept.
+// aggregatorCalls records the ORDER addParserResult() is invoked (i.e. the
+// ingestion order the route feeds the aggregator), so ordering tests can
+// assert it stays manifest-order even when the underlying parses complete
+// out of order under concurrency.
+const { aggregatorCalls } = vi.hoisted(() => ({ aggregatorCalls: [] as string[] }));
 vi.mock('@/lib/services/aggregator.service', () => ({
   AggregatorService: class {
-    addParserResult() {}
+    addParserResult(_name: string, _data: unknown, filename: string) {
+      aggregatorCalls.push(filename);
+    }
     aggregate() {
       return {
         crawl_summary: {}, issues: { critical: [], warnings: [], notices: [] },
@@ -61,6 +68,7 @@ vi.mock('@/lib/parsers', () => ({
 import fs from 'fs/promises';
 import path from 'path';
 import { getUploadDir } from '@/lib/upload-helpers';
+import { PARSE_CONCURRENCY } from '@/lib/parsers/parse-limit';
 import { POST } from './route';
 import type { CSVRow } from '@/lib/types';
 
@@ -133,6 +141,14 @@ function goodParser(key: string) {
     constructor(_c: string) {}
     parse() { return {}; }
     getPrimaryDomain() { return 'example.com'; }
+  };
+}
+function goodParserWithDomain(key: string, domain: string) {
+  return class {
+    static parserKey = key;
+    constructor(_content: string) {}
+    parse() { return { ok: true }; }
+    getPrimaryDomain() { return domain; }
   };
 }
 function throwingParser(key: string) {
@@ -300,5 +316,105 @@ describe('POST /api/parse/[sessionId] — two-path parseOne', () => {
     const reports = body.result.metadata.file_reports as Array<{ filename: string; status: string }>;
     expect(reports.find((r) => r.filename === 'wholefile.csv')).toMatchObject({ status: 'parsed' });
     expect(readFileSpy).toHaveBeenCalledWith(path.join(dir, 'wholefile.csv'), 'utf-8');
+  });
+});
+
+describe('POST /api/parse/[sessionId] — concurrent parse ordering', () => {
+  const dir = getUploadDir(VALID_ID);
+
+  beforeEach(async () => {
+    sessionUpdateManyMock.mockReset().mockResolvedValue({ count: 1 });
+    sessionUpdateMock.mockReset().mockResolvedValue({});
+    clientFindManyMock.mockReset().mockResolvedValue([]);
+    txMock.mockReset().mockResolvedValue([]);
+    triggerPillarAnalysisMock.mockReset().mockResolvedValue(undefined);
+    aggregatorCalls.length = 0;
+    await fs.mkdir(dir, { recursive: true });
+  });
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); vi.restoreAllMocks(); });
+
+  it('ingests into the aggregator in sessionFiles order even when parses finish out of order', async () => {
+    const files = ['a.csv', 'b.csv', 'c.csv'];
+    // Delay reads so the FIRST file resolves LAST → completion order reverses.
+    const delayByFile: Record<string, number> = { 'a.csv': 40, 'b.csv': 20, 'c.csv': 5 };
+    sessionFindUniqueMock.mockReset().mockResolvedValue({
+      id: VALID_ID, status: 'pending', workflow: 'keyword-research', files: JSON.stringify(files),
+    });
+    // Every file is a whole-file (non-streaming) match → route calls fs.readFile.
+    findParserForFileMock.mockReset().mockImplementation((filename: string) =>
+      files.includes(filename) ? goodParser(filename.replace('.csv', '')) : null
+    );
+    for (const f of files) await fs.writeFile(path.join(dir, f), 'Address\nhttps://example.com/\n');
+
+    const realReadFile = fs.readFile;
+    const delayedRead = async (p: unknown, options: unknown): Promise<string | Buffer> => {
+      const base = path.basename(String(p));
+      if (base in delayByFile) await new Promise((r) => setTimeout(r, delayByFile[base]));
+      return (realReadFile as (a: unknown, b: unknown) => Promise<string | Buffer>)(p, options);
+    };
+    vi.spyOn(fs, 'readFile').mockImplementation(delayedRead as unknown as typeof fs.readFile);
+
+    const res = await POST({} as never, ctx as never);
+    expect(res.status).toBe(200);
+    // Ingestion order is manifest order, NOT completion order (c,b,a).
+    expect(aggregatorCalls).toEqual(['a.csv', 'b.csv', 'c.csv']);
+    const body = await res.json();
+    const reports = body.result.metadata.file_reports as Array<{ filename: string }>;
+    expect(reports.map((r) => r.filename)).toEqual(['a.csv', 'b.csv', 'c.csv']);
+  });
+
+  it('resolves the domain tie-break to the manifest-order winner under out-of-order completion', async () => {
+    // Two files, equal primary-domain count (1 each) for DIFFERENT domains;
+    // the manifest-first file's domain must win (stable sort + ordered successes).
+    const files = ['first.csv', 'second.csv'];
+    sessionFindUniqueMock.mockReset().mockResolvedValue({
+      id: VALID_ID, status: 'pending', workflow: 'keyword-research', files: JSON.stringify(files),
+    });
+    findParserForFileMock.mockReset().mockImplementation((filename: string) => {
+      if (filename === 'first.csv') return goodParserWithDomain('first', 'first.example.com');
+      if (filename === 'second.csv') return goodParserWithDomain('second', 'second.example.com');
+      return null;
+    });
+    for (const f of files) await fs.writeFile(path.join(dir, f), 'Address\nhttps://example.com/\n');
+
+    // second.csv resolves first, first.csv resolves last.
+    const realReadFile = fs.readFile;
+    const delayedRead = async (p: unknown, options: unknown): Promise<string | Buffer> => {
+      if (path.basename(String(p)) === 'first.csv') await new Promise((r) => setTimeout(r, 30));
+      return (realReadFile as (a: unknown, b: unknown) => Promise<string | Buffer>)(p, options);
+    };
+    vi.spyOn(fs, 'readFile').mockImplementation(delayedRead as unknown as typeof fs.readFile);
+
+    const res = await POST({} as never, ctx as never);
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.result.metadata.site_name).toBe('first.example.com');
+  });
+
+  it('runs at most PARSE_CONCURRENCY parses at once', async () => {
+    const files = ['p1.csv', 'p2.csv', 'p3.csv', 'p4.csv', 'p5.csv'];
+    sessionFindUniqueMock.mockReset().mockResolvedValue({
+      id: VALID_ID, status: 'pending', workflow: 'keyword-research', files: JSON.stringify(files),
+    });
+    findParserForFileMock.mockReset().mockImplementation((filename: string) =>
+      files.includes(filename) ? goodParser(filename.replace('.csv', '')) : null
+    );
+    for (const f of files) await fs.writeFile(path.join(dir, f), 'Address\nhttps://example.com/\n');
+
+    let current = 0; let peak = 0;
+    const realReadFile = fs.readFile;
+    const delayedRead = async (p: unknown, options: unknown): Promise<string | Buffer> => {
+      current++; peak = Math.max(peak, current);
+      await new Promise((r) => setTimeout(r, 15));
+      current--;
+      return (realReadFile as (a: unknown, b: unknown) => Promise<string | Buffer>)(p, options);
+    };
+    vi.spyOn(fs, 'readFile').mockImplementation(delayedRead as unknown as typeof fs.readFile);
+
+    const res = await POST({} as never, ctx as never);
+    expect(res.status).toBe(200);
+    expect(peak).toBeLessThanOrEqual(PARSE_CONCURRENCY);
+    // env-tunable: only assert real parallelism when the cap allows it.
+    if (PARSE_CONCURRENCY > 1) expect(peak).toBeGreaterThan(1);
   });
 });
