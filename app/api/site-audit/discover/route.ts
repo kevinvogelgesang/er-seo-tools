@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const urls = await discoverPages(domain)
+    const { urls } = await discoverPages(domain)
     return NextResponse.json({ domain, pageCount: urls.length, urls })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Discovery failed'

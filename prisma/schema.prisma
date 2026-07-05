@@ -139,6 +139,8 @@ model SiteAudit {
   score         Int?                              // 0-100
   runnerType    String     @default("jsdom")      // jsdom | browser
   discoveredUrls String?   // JSON: string[] — pre-discovered URLs stored for queued audits
+  discoveryMode         String?   // 'sitemap' | 'shallow-crawl' | 'pre-discovered' — discovery provenance
+  discoveryCapped       Boolean?  // true = discovery hit the 1000-page HARD_CAP (miss-rate not applicable)
   clientId      Int?
   client        Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   pageAudits    AdaAudit[]
@@ -367,6 +369,7 @@ model CrawlRun {
   startedAt       DateTime?
   completedAt     DateTime?
   archivePrunedAt DateTime?  // set when the origin row's blob was pruned
+  discoveryCoverageJson String?   // C6 hybrid-discovery Increment 1: sitemap miss-rate metrics (live-scan runs only)
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]

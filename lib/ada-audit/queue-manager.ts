@@ -113,6 +113,7 @@ export async function enqueueAudit(
       wcagLevel,
       discoveredUrls: preDiscoveredUrls ? JSON.stringify(preDiscoveredUrls) : null,
       pagesTotal: preDiscoveredUrls ? preDiscoveredUrls.length : 0,
+      discoveryMode: preDiscoveredUrls ? 'pre-discovered' : null,
       batchId,
       requestedBy: requestedBy ?? null,
       scheduleId: scheduleId ?? null,

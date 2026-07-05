@@ -105,10 +105,16 @@ export async function runSiteAuditDiscoverJob(payload: unknown): Promise<void> {
   // out the same set.
   let urls = parseUrlList(audit.discoveredUrls)
   if (urls === null) {
-    const discovered = [...new Set(await discoverPages(audit.domain))]
+    const result = await discoverPages(audit.domain)
+    const discovered = [...new Set(result.urls)]
     const persisted = await prisma.siteAudit.updateMany({
       where: { id: siteAuditId, discoveredUrls: null },
-      data: { discoveredUrls: JSON.stringify(discovered), pagesTotal: discovered.length },
+      data: {
+        discoveredUrls: JSON.stringify(discovered),
+        pagesTotal: discovered.length,
+        discoveryMode: result.mode,
+        discoveryCapped: result.capped,
+      },
     })
     if (persisted.count === 1) {
       urls = discovered

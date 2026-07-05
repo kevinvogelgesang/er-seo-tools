@@ -51,12 +51,14 @@ describe('jobs/handlers/site-audit-discover', () => {
   it('fresh claim: discovers, persists discoveredUrls+pagesTotal, creates children, enqueues page jobs', async () => {
     const site = await seedQueued('fresh')
     const urls = [`https://${PREFIX}fresh/a`, `https://${PREFIX}fresh/b`]
-    vi.mocked(discoverPages).mockResolvedValue(urls)
+    vi.mocked(discoverPages).mockResolvedValue({ urls, mode: 'sitemap', capped: false })
     await runSiteAuditDiscoverJob({ siteAuditId: site.id })
 
     const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
     expect(s?.status).toBe('running')
     expect(s?.pagesTotal).toBe(2)
+    expect(s?.discoveryMode).toBe('sitemap')
+    expect(s?.discoveryCapped).toBe(false)
     expect(JSON.parse(s!.discoveredUrls!)).toEqual(urls)
     const children = await prisma.adaAudit.findMany({ where: { siteAuditId: site.id } })
     expect(children).toHaveLength(2)
@@ -119,9 +121,11 @@ describe('jobs/handlers/site-audit-discover', () => {
 
   it('dedupes duplicate URLs from discovery (pagesTotal matches unique children)', async () => {
     const site = await seedQueued('dupes')
-    vi.mocked(discoverPages).mockResolvedValue([
-      `https://${PREFIX}dupes/a`, `https://${PREFIX}dupes/a`, `https://${PREFIX}dupes/b`,
-    ])
+    vi.mocked(discoverPages).mockResolvedValue({
+      urls: [`https://${PREFIX}dupes/a`, `https://${PREFIX}dupes/a`, `https://${PREFIX}dupes/b`],
+      mode: 'sitemap',
+      capped: false,
+    })
     await runSiteAuditDiscoverJob({ siteAuditId: site.id })
     const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
     expect(s?.pagesTotal).toBe(2)
@@ -130,7 +134,7 @@ describe('jobs/handlers/site-audit-discover', () => {
 
   it('zero URLs: finalizes immediately', async () => {
     const site = await seedQueued('empty')
-    vi.mocked(discoverPages).mockResolvedValue([])
+    vi.mocked(discoverPages).mockResolvedValue({ urls: [], mode: 'sitemap', capped: false })
     await runSiteAuditDiscoverJob({ siteAuditId: site.id })
     expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
   })
