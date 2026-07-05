@@ -99,46 +99,65 @@ const externalRows = await prisma.harvestedLink.findMany({
 
 Dedupe to unique `targetUrl` collecting ≤`URLS_PER_FINDING` (25) source pages each, exactly
 mirroring the internal dedup. Cap at `BROKEN_LINK_EXTERNAL_MAX_CHECKS`; overflow sets an
-`externalCapped` flag. `harvestTruncated` from external rows folds into the existing
-`harvestTruncated` OR (a truncated harvest already implies `partial`).
+`externalCapped` flag.
 
-### 4.2 External resolution pass (bounded by cap AND a soft time budget)
+**Harvest-truncation is scoped per pass (Codex #6).** The existing `harvestTruncated =
+rows.some(...)` is computed over internal+image rows ONLY and is left **byte-unchanged** — it
+continues to flag internal findings. External rows compute their OWN `externalHarvestTruncated`
+from the external row set. The run is `partial` if **either** is true, but the two flags never
+cross: internal findings' confidence/`affectedComplete` must not shift because an external harvest
+was truncated (that would violate invariant #1).
+
+### 4.2 External resolution pass (HEAD-only, bounded by cap AND a remaining-time-aware budget)
 
 A second worker pool, run **after** the existing internal/validation resolution completes,
-resolving external targets into a **separate** `externalCache: Map<normUrl, ResolveResult>`:
+resolving external targets into a **separate** `externalCache`:
 
-- Reuses the **same `HostThrottle` instance** (per-host delay still applies; cheap since externals
-  are mostly distinct hosts).
-- Uses `BROKEN_LINK_CONCURRENCY` workers (same knob).
-- Each check uses a **shorter external request timeout** `BROKEN_LINK_EXTERNAL_TIMEOUT_MS`
-  (default **8000**), passed through `deps.resolve(url, timeoutMs?)` → `resolveUrl(url, deps,
-  timeoutMs)` (both already accept a `timeoutMs` param; `VerifyDeps.resolve` gains an optional
-  second arg — injectable, backward-compatible in tests).
-- **Soft wall-clock deadline** `BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS` (default **300000** = 5 min):
-  before pulling the next target, a worker checks `deps.now() - externalStartedAt >= budget`; once
-  exceeded, workers stop launching new checks. Any external not resolved when the budget trips is
-  **not counted as broken** and sets `externalCapped` (→ run `status:'partial'`). This bounds the
-  NEW work at ~budget + one in-flight round regardless of how many external hosts are dead/slow.
+- **HEAD-only (Codex #3).** Externals use a dedicated HEAD-only resolver — NOT `resolveUrl` (which
+  does HEAD→GET). This halves the per-dead-host cost (one timeout, not two) and reduces third-party
+  load. Implemented as a new `deps.resolveExternal(url)` (production = a HEAD-only path over
+  `safeFetch` with the external timeout; injectable for tests). **Tests must prove GET is never
+  issued for an external target.** *Precision tradeoff, stated plainly (Codex #4):* HEAD-only loses
+  more than "405→unconfirmed" — some hosts mishandle HEAD and return 404/5xx when a GET would
+  succeed. That is the accepted v1 tradeoff, justified by the locked anti-bot posture (we already
+  suppress the ambiguous 4xx) and the timeout guarantee; externals are a warning-tier finding.
+- Reuses the **same `HostThrottle` instance** (per-host delay still applies; safe across sequential
+  passes — Codex #11; the only effect is a possible ≤`HOST_DELAY_MS` wait on a host also checked
+  internally; harmless).
+- Uses `BROKEN_LINK_CONCURRENCY` workers (same knob). Each check uses a shorter external request
+  timeout `BROKEN_LINK_EXTERNAL_TIMEOUT_MS` (default **8000**).
+- **Worker failure isolation (Codex #7):** the external worker wraps `deps.resolveExternal` in
+  try/catch — an unexpected throw classifies that target as `unconfirmed`, never rejecting the pool.
+  The external pass must always degrade to `partial`/`unconfirmed`, never job-fail into a retry
+  loop. (The internal pass is left byte-unchanged; production `resolveUrl` already never throws.)
+- **Remaining-time-aware soft budget (Codex #1, #8):** capture `jobStartedAt = deps.now()` at
+  handler entry. Compute
+  `externalDeadlineMs = Math.max(0, min(BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, JOB_TIMEOUT_MS -
+  (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS))` where `JOB_TIMEOUT_MS = 900000` (single source,
+  shared with job registration) and `SAFETY_RESERVE_MS` (default 60000) reserves time to write the
+  run. If `externalDeadlineMs <= 0`, **skip the external pass entirely**, set `externalCapped`, mark
+  the run `partial`, and still write it. Otherwise each worker, **immediately before claiming the
+  next target**, checks `deps.now() - externalStartedAt >= externalDeadlineMs`; once exceeded it
+  stops claiming. Workers already in flight finish (added latency ≤ one external request timeout).
+  Any external **never launched** is uncounted and sets `externalCapped` exactly once.
 
-### 4.3 Kind-aware external broken derivation
+### 4.3 HEAD-only external classification
 
-Iterate the capped external targets, reading `externalCache`:
+Classify each external target from its HEAD result:
 
 ```
-for (const t of externalToCheck) {
-  const r = externalCache.get(normalizeFindingUrl(t.targetUrl))
-  if (!r) continue                         // never launched (budget tripped) → uncounted
-  externalChecked++
-  if (r.result === 'broken') {
-    if (r.status != null && ANTI_BOT_STATUSES.has(r.status)) externalUnconfirmed++   // 401/403/405/429
-    else broken.push({ targetUrl: t.targetUrl, kind: 'external-link', sourcePageUrls: [...t.sources] })
-  } else if (r.result === 'unconfirmed') externalUnconfirmed++
-}
+// HEAD status:
+//   < 400            -> ok
+//   404, 410, 5xx    -> broken
+//   401,403,405,429  -> unconfirmed (anti-bot; locked decision)
+//   any other status -> unconfirmed (can't confidently call broken)
+// SafeUrlError / network / timeout / throw -> unconfirmed
 ```
 
-`ANTI_BOT_STATUSES = new Set([401, 403, 405, 429])`. `BrokenTarget.kind` already admits
+`BROKEN_STATUS(status) = status === 404 || status === 410 || (status >= 500 && status <= 599)`.
+Everything else that is not `<400` is `unconfirmed`. `BrokenTarget.kind` already admits
 `'external-link'`; push external broken targets onto the same `broken[]` array the internal
-derivation fills.
+derivation fills. Track `externalChecked` (targets with a cache entry) and `externalUnconfirmed`.
 
 ### 4.4 Emit `broken_external_links` (`broken-link-mapper.ts`)
 
@@ -147,22 +166,31 @@ derivation fills.
 - **Severity is now type-dependent:** `broken_external_links` → `'warning'`; the two internal
   types stay `'critical'`. (Today severity is a hardcoded `'critical'` at L56/L72 — replace with a
   per-type lookup.)
-- **Per-pass confidence:** the run-scope finding's `detail` must report the counts of *its own*
-  pass. The mapper is given external-scoped confidence (`checked/unconfirmed/capped` = the external
-  pass numbers) for `broken_external_links`, and internal-scoped confidence for the internal types.
-  Mechanism (plan/Codex to finalize): either pass a `confidenceByType` map, or call the mapper's
-  emit twice (internal set, external set) — the run/page keying already namespaces by `type`, so
-  splitting the call cannot collide. Page-scope keying is unchanged (`pageFindingKey(type, src)`).
+- **Split emission, per-pass confidence (Codex #5):** call `mapBrokenLinkFindings` **twice** — once
+  for the internal/image `broken[]` subset with internal-scoped confidence, once for the external
+  subset with external-scoped confidence (`checked/unconfirmed/capped` = the external pass numbers).
+  No `confidenceByType` API. No collision: `runFindingKey(type)` and `pageFindingKey(type, src)` both
+  include `type`, so the two calls' outputs never share a `dedupKey`.
+- **Emit the external run finding whenever externals were *attempted* (Codex #10):** i.e. when
+  `externalChecked > 0 || externalCapped`. This finding carries `count = distinct broken external
+  targets` (**may be 0**) and the external confidence in `detail`. A zero-count run finding is the
+  signal the UI needs to distinguish "checked externals, clean (with coverage/partial)" from "never
+  ran". A 0-count finding contributes 0 to every aggregation (priority/B2/dashboards sum counts), so
+  it is inert everywhere except the results-page section. Page-scope external findings are emitted
+  only for actually-broken targets, as today.
 
 ### 4.5 UI (`BrokenLinksSection.tsx`)
 
 - Add `broken_external_links` to `BROKEN_TYPES` and a `TYPE_LABEL` entry ("Broken external links").
 - Render externals as a **warning tier**, visually distinct and ordered below the critical internal
   findings. Dark-mode variants on every new element (per change-control UI rule).
-- The confidence line for the external block reads `checked`/`unconfirmed`/`capped` from the
-  external finding's own detail (so "checked N externals, M unconfirmed" is accurate to the external
-  pass). Verified-clean state extends to "no broken external links" when the external finding is
-  absent/zero.
+- **The external block keys off the external run finding's presence, NOT `count > 0`** (Codex #10):
+  if the external finding exists with `count > 0` → render the broken list; with `count === 0` →
+  render "No broken external links found"; the confidence line always reads
+  `checked`/`unconfirmed`/`capped` from the external finding's detail and shows a partial/coverage
+  note when `externalCapped`. If no external run finding exists at all → externals were not analyzed
+  (pre-feature or disabled) and the block is omitted, unchanged from today. The internal
+  verified-clean state is untouched.
 
 ## 5. Timeout-safety analysis (the load-bearing risk)
 
@@ -170,45 +198,57 @@ The job timeout is **900_000 ms (15 min)**, `maxAttempts:2`. If the handler exce
 aborts it and **no CrawlRun is written** → recovery re-enqueues → risk of a retry loop. So the
 external pass must be deterministically bounded.
 
-**Worst case without a soft budget:** 300 externals, all dead, at concurrency 4. With the default
-10 s request timeout, `resolveUrl` on a dead host times out on HEAD (~10 s) then GET (~10 s) = ~20 s
-each → `300/4 × 20 s = 1500 s = 25 min` — alone exceeds the whole job budget. The 300 cap is **not
-sufficient** on its own.
+**Worst case per dead external host (HEAD-only, §4.2):** one HEAD timeout at the 8 s external
+timeout = ~8 s (HEAD-only means no GET fallback — Codex #2/#3). At concurrency 4, 300 dead externals
+= `300/4 × 8 s = 600 s = 10 min` if unbounded — still too long stacked after the internal pass, so
+the time budget, not the cap, is the real guarantee.
 
-**Mitigations (all three, layered):**
-1. **Soft time budget (primary):** the external pass stops launching after
-   `BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS` (default 5 min). This caps the NEW work independent of
-   dead-host fraction; unresolved externals just don't get counted (`partial`).
-2. **Shorter external request timeout (8 s):** halves per-dead-host cost vs the 10 s default.
-3. **Separate 300 cap (secondary):** bounds total external fetch volume and DB read.
+**Mitigations (layered):**
+1. **Remaining-time-aware soft budget (primary — Codex #1):**
+   `externalDeadlineMs = max(0, min(BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, JOB_TIMEOUT_MS − elapsed −
+   SAFETY_RESERVE_MS))`, computed from `jobStartedAt` at handler entry. The external pass can never
+   push total handler time past `JOB_TIMEOUT_MS − SAFETY_RESERVE_MS`, regardless of how long the
+   internal pass took or how many external hosts are dead. If the internal pass already consumed the
+   budget, externals are skipped and the run is written `partial`.
+2. **HEAD-only + 8 s external timeout:** one timeout per dead host (not two), lower third-party load.
+3. **Separate cap (default 300):** bounds total external fetch volume and the DB read.
 
-The **internal + validation pass is unchanged** and historically completes with headroom inside 15
-min on real client sites; the external pass adds at most ~5 min (soft budget) + one in-flight round.
-Combined worst case stays under the 15-min timeout.
+Deterministic bound: `handler_time ≈ internal_pass_time + min(external work, externalDeadlineMs) +
+one in-flight round (≤ 8 s) + run write`. Because `externalDeadlineMs` subtracts elapsed internal
+time and a `SAFETY_RESERVE_MS` write reserve, the run is always written before the 15-min queue
+kill — the failure mode is a `partial` run, never a timed-out job with no run (which would trigger a
+recovery re-enqueue loop).
 
-**Open question for Codex (§10):** should externals be **HEAD-only** (skip the GET confirm) to
-halve worst-case per-host cost and reduce third-party load? Given we already treat 405 (a common
-HEAD rejection) as `unconfirmed`, HEAD-only externals lose little precision (a host that 405s HEAD
-is unconfirmed either way) while cutting the dead-host cost in half. Recommendation: adopt HEAD-only
-for externals *if* Codex agrees the precision loss is acceptable; otherwise keep HEAD→GET behind the
-soft budget. Either way the soft budget is the hard guarantee.
+## 6. Config / env (default-only unless set)
 
-## 6. Config / env (all `parsePositiveInt`, default-only unless set)
+| Var | Default | Parser | Purpose |
+|---|---|---|---|
+| `BROKEN_LINK_EXTERNAL_MAX_CHECKS` | 300 | `parseNonNegativeInt` | Max distinct external targets verified per run. **`0` disables external verification** entirely (skip the pass — a no-deploy kill switch). Codex #9. |
+| `BROKEN_LINK_EXTERNAL_TIMEOUT_MS` | 8000 | `parsePositiveInt` | Per-request HEAD timeout for external checks (shorter than the 10 s internal default) |
+| `BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS` | 300000 | `parsePositiveInt` | Soft wall-clock cap on the external pass (further clamped by remaining job time); overflow → `partial` |
 
-| Var | Default | Purpose |
-|---|---|---|
-| `BROKEN_LINK_EXTERNAL_MAX_CHECKS` | 300 | Max distinct external targets verified per run |
-| `BROKEN_LINK_EXTERNAL_TIMEOUT_MS` | 8000 | Per-request timeout for external checks (shorter than the 10 s internal default) |
-| `BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS` | 300000 | Soft wall-clock cap on the external pass; overflow → `partial` |
+Two internal constants (not env, single-sourced): `JOB_TIMEOUT_MS = 900000` (also used at job
+registration) and `SAFETY_RESERVE_MS = 60000`.
+
+**`parseNonNegativeInt` is a NEW helper** in `lib/jobs/config.ts` alongside `parsePositiveInt`:
+returns the parsed integer when `>= 0` and finite, else the fallback. It exists specifically so
+`BROKEN_LINK_EXTERNAL_MAX_CHECKS=0` disables the pass (`parsePositiveInt` would silently return the
+300 fallback for `0`). All other new caps keep `parsePositiveInt`.
 
 Existing `BROKEN_LINK_CONCURRENCY` (4) and `BROKEN_LINK_HOST_DELAY_MS` (250) are reused. Document
-all three new vars in the `er-seo-tools-config-and-flags` skill in the same PR.
+all three new vars + the kill-switch semantics in the `er-seo-tools-config-and-flags` skill in the
+same PR.
 
 ## 7. Testing strategy
 
-- **`resolveUrl`/derivation unit tests:** external target with status 404/410/500 → broken;
-  401/403/405/429 → unconfirmed; timeout/network/SafeUrlError → unconfirmed. Internal target with
-  403 still → broken (proves the internal path is untouched).
+- **HEAD-only + derivation unit tests:** external target with HEAD status 404/410/500 → broken;
+  401/403/405/429 → unconfirmed; other non-2xx → unconfirmed; timeout/network/SafeUrlError →
+  unconfirmed. **Assert GET is never issued for an external target** (spy the injected transport —
+  Codex #3). Internal target with 403 still → broken (proves the internal path is untouched).
+- **Kill-switch test:** `BROKEN_LINK_EXTERNAL_MAX_CHECKS=0` → external pass skipped, no external
+  finding emitted, internal findings unchanged (`parseNonNegativeInt` — Codex #9).
+- **Remaining-time-budget test:** injected `now()` where the internal pass consumed the whole
+  budget → external pass skipped, run written `partial` (not a job failure — Codex #1/#7).
 - **Builder tests (`broken-link-verify.test.ts`):** injected `deps.resolve` returning scripted
   results per URL. Assert: externals read + verified; internal cap unaffected by externals;
   external cap independent; a `broken_external_links` run finding at `warning` with the right count;
@@ -225,10 +265,14 @@ all three new vars in the `er-seo-tools-config-and-flags` skill in the same PR.
 ## 8. Invariants (must hold; verified in final review)
 
 1. **Internal-link/image verification is byte-unchanged** — same query, dedup, cap, pool, timeout,
-   classification, findings, severity (`critical`). Externals are a strictly additive second pass.
+   classification, findings, severity (`critical`), and confidence. External harvest-truncation
+   never shifts internal findings' `affectedComplete`/confidence (Codex #6). Externals are a
+   strictly additive second pass.
 2. **Externals never consume the internal 2000 cap** — separate query, separate cap, separate cache.
-3. **The external pass is deterministically time-bounded** — soft budget guarantees the 15-min job
-   timeout is never exceeded by external work; overflow degrades to `partial`, never a job failure.
+3. **The external pass is deterministically time-bounded** — the remaining-time-aware budget
+   guarantees the handler writes its run before the 15-min queue kill; overflow degrades to
+   `partial`, never a job failure/retry loop. An external `deps.resolveExternal` throw degrades one
+   target to `unconfirmed` (Codex #7), never rejecting the pool.
 4. **`broken_external_links` reuses the existing SF-world type** (priority 35, recommendation,
    `'external'` membership) — no new type string, no scoring surprise.
 5. **No false positive on anti-bot blocks** — external 401/403/405/429 are `unconfirmed`.
@@ -244,13 +288,14 @@ External broken-link *recall* (re-checking unconfirmed), redirect-chain reportin
 subdomain reclassification, per-client toggles, and any change to internal-link behavior or the
 canonical-run selection are explicitly out of scope.
 
-## 10. Open questions routed to Codex
+## 10. Open questions — RESOLVED by Codex review (2026-07-04)
 
-1. **HEAD-only for externals?** (§5) — precision loss vs halved dead-host cost + reduced third-party
-   load. Recommendation: yes, given 405→unconfirmed already.
-2. **Per-pass confidence mechanism** (§4.4) — `confidenceByType` map vs split emit calls. Which is
-   cleaner without duplicating the run/page keying logic?
-3. **Soft-budget granularity** — absolute 5-min external budget vs a budget derived from remaining
-   job time. Recommendation: absolute (simple, internal pass has headroom).
-4. **Is the default external cap (300) + 8 s timeout + 5-min budget the right combination** for the
-   15-min job timeout with real-site external-host distributions? Sanity-check the arithmetic.
+1. **HEAD-only for externals?** → **Yes** (Codex #3). Dedicated HEAD-only resolver
+   (`deps.resolveExternal`), not `resolveUrl`; tests prove GET is never issued. Precision tradeoff
+   stated plainly in §4.2 (Codex #4).
+2. **Per-pass confidence mechanism** → **Split emit calls** (Codex #5), not a `confidenceByType`
+   API. See §4.4.
+3. **Soft-budget granularity** → **Remaining-time-aware, NOT absolute** (Codex #1). The internal
+   pass runs first unbounded, so an absolute budget is not a 15-min guarantee. See §4.2/§5.
+4. **Cap/timeout/budget combination** → Arithmetic corrected for HEAD-only (Codex #2): ~8 s per dead
+   host, `600 s` unbounded at cap 300 → the remaining-time budget (not the cap) is the guarantee.
