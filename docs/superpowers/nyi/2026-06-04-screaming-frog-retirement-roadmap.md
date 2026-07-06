@@ -43,7 +43,7 @@ Tagged: **(A)** irreducible without changing the crawl/discovery model · **(B)*
 | **Broken** pages / internal links / images / JS / CSS / PDFs | **B** | Highest-value gap (top of `priority.service.ts`). Needs a throttled, deduped out-of-band verifier. |
 | **Redirect chains** (beyond the audited page's own redirect) | **B** | Capture per-page now; resolve harvested URLs out of band. |
 | **Canonical / hreflang validation** (target fetch + status + return-link) | **B** | MVP classifies tags; validation needs a shared URL-resolver pass. |
-| **Anchor-text** analysis | **B** | Buildable from harvested `<a>` text/targets. |
+| **Anchor-text** analysis | **B** | Buildable from harvested `<a>` text/targets — but NOT captured yet (verified 2026-07-06): `HarvestedLink` persists only `sourcePageUrl`/`targetUrl`/`kind`, so anchor text dies in the page evaluate. SF's `all_anchor_text.csv` (→ `AnchorTextParser`) is today the ONLY source of the `empty_anchor_text` / `non_descriptive_anchor_text` / `single_anchor_variation` findings + anchor-diversity stats. See the Phase 4/5 note below. |
 | **Resource inventory + size** checks | **B** | Needs network-event capture or follow-up HEAD/GET. |
 | **Exact + near-duplicate** content | **B** | MVP does exact title/meta/H1 only; real similarity needs hashing/shingling/MinHash + boilerplate control. |
 | **Structured-data validation** (errors/warnings) | **B** | Type extraction is cheap; validation needs a validator/external API. |
@@ -96,6 +96,20 @@ Effort: **S** ≈ days · **M** ≈ 1–2 wks · **L** ≈ 3+ wks. Each phase is
 ### Phase 5 — Content similarity + quality layer
 - **Effort:** M/L. **Architecture:** store normalized text fingerprints, exact hashes, near-duplicate signatures (MinHash/SimHash), readability metrics.
 - **Unlocks:** duplicate/near-duplicate parity. **Risk:** boilerplate and rendered-text variance → false positives.
+
+> **Note (2026-07-06) — anchor-text capture must land before the Phase 7 gate.**
+> Full-export sweep vs the parser (Nuvani, all 629 SF exports) confirmed the SF
+> input contract is otherwise complete: `all_outlinks` and `all_anchor_text` ARE
+> parsed (`ExternalLinksParser`/`AnchorTextParser`), `all_inlinks` is redundant
+> with `all_anchor_text` + `internal_all` and correctly ignored. The ONE dataset
+> that exists nowhere in the live pipeline is **anchor text**: the harvest
+> `page.evaluate` reads every `<a>` but persists only source/target/kind
+> (`HarvestedLink`), so anchor-quality findings are SF-only today. Cheapest fix
+> (Phase 4/5-adjacent, spec it then): capture trimmed anchor text in the SAME
+> harvest evaluate (zero extra round-trips, bounded length), ride the existing
+> post-settle persist, and emit the three anchor findings in the
+> `broken-link-verify` builder from rows it already reads. Until then the Phase 1
+> parity log will show anchor types as expected "—" rows — record, don't chase.
 
 ### Phase 6 — Non-crawl integrations (GSC / GA4 / SEMRush)
 - **Effort:** M/L. **Architecture:** direct API ingestion keyed to client/session; feeds `keyword_signals` and the keyword/pillar memos.
