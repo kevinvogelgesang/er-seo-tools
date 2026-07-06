@@ -4,7 +4,8 @@
 // a throwing loader degrades to { ok: false } (and is logged) instead of blanking
 // the page, because /admin/ops is most needed WHILE things are failing.
 import { getJobQueueState, getCleanupStats, type JobQueueState, type CleanupStat } from '@/lib/jobs/introspection'
-import { collectHealthSignals, evaluateHealth, healthEvalOpts, type HealthSignals } from '@/lib/ops/health-check'
+import { type HealthSignals } from '@/lib/ops/health-check'
+import { computeHealthAlerts } from '@/lib/ops/health-summary'
 import { getDiskFree } from '@/lib/ops/disk'
 import { getDbSizeBytes, resolveDbPath } from '@/lib/ops/db-size'
 import { getPoolState } from '@/lib/ada-audit/browser-pool'
@@ -47,10 +48,7 @@ export async function loadOpsSnapshot(): Promise<OpsSnapshot> {
     section('queue', () => getJobQueueState()),
     section('cleanup', () => getCleanupStats()),
     section('health', async () => {
-      const now = new Date()
-      const opts = healthEvalOpts()
-      const signals = await collectHealthSignals(now, now.getTime() - opts.lookbackMs)
-      const { alerts } = evaluateHealth(signals, { lastCheckAt: 0, cooldowns: {} }, now, opts)
+      const { signals, alerts } = await computeHealthAlerts(new Date())
       return { signals, degraded: alerts.length > 0 }
     }),
     section('disk', () => getDiskFree(dataDir)),

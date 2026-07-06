@@ -34,4 +34,26 @@ describe('logError', () => {
     expect((arg.err as { message: string }).message).toBe('kaboom')
     spy.mockRestore()
   })
+
+  it('never throws into the caller even if logger.error throws', () => {
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => { throw new Error('EPIPE') })
+    expect(() => logError({ jobId: 'j2' }, new Error('boom'))).not.toThrow()
+    spy.mockRestore()
+  })
+})
+
+describe('logger construction', () => {
+  it('does not throw at import with an invalid LOG_LEVEL', async () => {
+    vi.resetModules()
+    const prev = process.env.LOG_LEVEL
+    process.env.LOG_LEVEL = 'bogus-level'
+    try {
+      const mod = await import('./index')
+      expect(mod.logger).toBeDefined()
+      expect(() => mod.logError({ a: 1 }, new Error('x'))).not.toThrow()
+    } finally {
+      process.env.LOG_LEVEL = prev
+      vi.resetModules()
+    }
+  })
 })
