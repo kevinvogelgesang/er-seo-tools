@@ -112,7 +112,9 @@ import pino, { type Logger } from 'pino'
 
 function createLogger(): Logger {
   const level = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug')
-  if (process.env.NODE_ENV !== 'production') {
+  // Codex-plan #1: gate pretty transport to development ONLY. Under NODE_ENV='test'
+  // (vitest) a transport worker thread leaks open handles; and prod has no dev deps.
+  if (process.env.NODE_ENV === 'development') {
     try {
       return pino({ level, transport: { target: 'pino-pretty', options: { colorize: true } } })
     } catch {
@@ -362,7 +364,46 @@ describe('resolveDbPath', () => {
     expect(resolveDbPath('postgresql://x')).toBeNull()
   })
 })
+
+// Codex-plan #2: getDbSizeBytes itself must be tested (not only resolveDbPath).
+import * as fsp from 'fs/promises'
+import { getDbSizeBytes } from './db-size'
+vi.mock('fs/promises', () => ({ stat: vi.fn() }))
+
+describe('getDbSizeBytes', () => {
+  const OLD = process.env.DATABASE_URL
+  beforeEach(() => { vi.mocked(fsp.stat).mockReset(); process.env.DATABASE_URL = 'file:/x/db.sqlite' })
+  afterEach(() => { process.env.DATABASE_URL = OLD })
+
+  it('sums main + -wal + -shm', async () => {
+    vi.mocked(fsp.stat).mockImplementation(async (f) => {
+      const map: Record<string, number> = { '/x/db.sqlite': 100, '/x/db.sqlite-wal': 20, '/x/db.sqlite-shm': 3 }
+      return { size: map[String(f)] ?? 0 } as never
+    })
+    expect(await getDbSizeBytes()).toBe(123)
+  })
+
+  it('counts a missing sidecar as 0', async () => {
+    vi.mocked(fsp.stat).mockImplementation(async (f) => {
+      if (String(f) === '/x/db.sqlite') return { size: 50 } as never
+      throw new Error('ENOENT') // -wal / -shm absent
+    })
+    expect(await getDbSizeBytes()).toBe(50)
+  })
+
+  it('returns null when DATABASE_URL is not a file: URL', async () => {
+    process.env.DATABASE_URL = 'postgresql://x'
+    expect(await getDbSizeBytes()).toBeNull()
+  })
+
+  it('returns null when even the main file is absent (total 0)', async () => {
+    vi.mocked(fsp.stat).mockRejectedValue(new Error('ENOENT'))
+    expect(await getDbSizeBytes()).toBeNull()
+  })
+})
 ```
+
+Add `vi, beforeEach, afterEach` to the vitest import at the top of this test file.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -573,9 +614,11 @@ Create `app/api/health/route.test.ts`:
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
 import * as summary from '@/lib/ops/health-summary'
+import { logError } from '@/lib/log'
 import { GET } from './route'
 
 vi.mock('@/lib/db', () => ({ prisma: { $queryRaw: vi.fn() } }))
+vi.mock('@/lib/log', () => ({ logError: vi.fn() }))
 
 describe('GET /api/health', () => {
   beforeEach(() => { vi.restoreAllMocks(); vi.mocked(prisma.$queryRaw).mockResolvedValue([{ 1: 1 }]) })
@@ -600,12 +643,13 @@ describe('GET /api/health', () => {
     expect(JSON.stringify(body)).not.toMatch(/audit|job|backup|queue/i)
   })
 
-  it('503 down when the DB ping rejects', async () => {
+  it('503 down when the DB ping rejects, and logs the failure', async () => {
     vi.mocked(prisma.$queryRaw).mockRejectedValue(new Error('db gone'))
     const res = await GET()
     expect(res.status).toBe(503)
     expect((await res.json()).status).toBe('down')
     expect(res.headers.get('cache-control')).toBe('no-store')
+    expect(logError).toHaveBeenCalledWith({ scope: 'health-db-ping' }, expect.any(Error))
   })
 
   it('fails open to 200 ok if the summary throws (does not 500/503)', async () => {
@@ -636,15 +680,18 @@ Create `app/api/health/route.ts`:
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getLivenessSummary } from '@/lib/ops/health-summary'
+import { logError } from '@/lib/log'
 import pkg from '@/package.json'
 
 const NO_STORE = { 'Cache-Control': 'no-store' }
 
 export async function GET(): Promise<Response> {
-  // Hard-down signal: a cheap, uncached DB ping.
+  // Hard-down signal: a cheap, uncached DB ping. A failure here is the one thing
+  // worth logging from this endpoint (Codex-plan #3).
   try {
     await prisma.$queryRaw`SELECT 1`
-  } catch {
+  } catch (err) {
+    logError({ scope: 'health-db-ping' }, err)
     return NextResponse.json({ status: 'down' }, { status: 503, headers: NO_STORE })
   }
 
@@ -755,28 +802,51 @@ Claude-Session: https://claude.ai/code/session_0164SKzWEYXkt5NnRXUNZKvY"
 
 **Interfaces:**
 - Consumes: `prisma`.
-- Produces: `getCleanupStats(): Promise<Array<{ type: string; lastCompletedAt: Date | null; lastError: string | null }>>` for the maintenance job types `['cleanup','screenshot-sweep','stale-audit-reset','db-backup','health-alert']`.
+- Produces: `getCleanupStats(): Promise<Array<{ type: string; lastCompletedAt: Date | null; lastStatus: string | null; lastError: string | null }>>` for the maintenance job types `['cleanup','screenshot-sweep','stale-audit-reset','db-backup','health-alert']`.
 
-**Notes:** No structured cleanup metric exists, so report last-run timestamp + error only (spec: "do not fabricate counts").
+**Notes:** No structured cleanup metric exists, so report last-run timestamp + **status** + error (spec: "timestamp + status only … do not fabricate counts"; Codex-plan #4 — include status).
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `lib/jobs/introspection.test.ts`:
+Append to `lib/jobs/introspection.test.ts`. This test mocks Prisma so the newest-row selection + field mapping are actually asserted (Codex-plan #5), rather than only the shape:
 ```ts
 describe('getCleanupStats', () => {
-  it('returns one row per maintenance job type with last-run shape', async () => {
+  it('maps the newest job row per maintenance type (status + error + completedAt)', async () => {
+    const { prisma } = await import('@/lib/db')
+    const spy = vi.spyOn(prisma.job, 'findFirst').mockImplementation((async (args: { where: { type: string } }) => {
+      if (args.where.type === 'cleanup') {
+        return { completedAt: new Date('2026-07-05T09:00:00Z'), status: 'complete', lastError: null }
+      }
+      if (args.where.type === 'db-backup') {
+        return { completedAt: new Date('2026-07-05T08:00:00Z'), status: 'error', lastError: 'disk full' }
+      }
+      return null // no run yet for the other types
+    }) as never)
+
     const { getCleanupStats } = await import('./introspection')
     const rows = await getCleanupStats()
-    expect(Array.isArray(rows)).toBe(true)
-    for (const r of rows) {
-      expect(typeof r.type).toBe('string')
-      expect('lastCompletedAt' in r).toBe(true)
-      expect('lastError' in r).toBe(true)
-    }
-    expect(rows.map((r) => r.type)).toContain('cleanup')
+
+    // findFirst called once per maintenance type, ordered by completedAt desc.
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ orderBy: { completedAt: 'desc' } }))
+
+    const cleanup = rows.find((r) => r.type === 'cleanup')!
+    expect(cleanup.lastStatus).toBe('complete')
+    expect(cleanup.lastError).toBeNull()
+    expect(cleanup.lastCompletedAt?.toISOString()).toBe('2026-07-05T09:00:00.000Z')
+
+    const backup = rows.find((r) => r.type === 'db-backup')!
+    expect(backup.lastStatus).toBe('error')
+    expect(backup.lastError).toBe('disk full')
+
+    const swept = rows.find((r) => r.type === 'screenshot-sweep')!
+    expect(swept.lastCompletedAt).toBeNull()
+    expect(swept.lastStatus).toBeNull()
+
+    spy.mockRestore()
   })
 })
 ```
+Add `vi` to the vitest import at the top of `introspection.test.ts` if not already present.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -792,6 +862,7 @@ const MAINTENANCE_TYPES = ['cleanup', 'screenshot-sweep', 'stale-audit-reset', '
 export interface CleanupStat {
   type: string
   lastCompletedAt: Date | null
+  lastStatus: string | null
   lastError: string | null
 }
 
@@ -801,9 +872,14 @@ export async function getCleanupStats(): Promise<CleanupStat[]> {
       const last = await prisma.job.findFirst({
         where: { type },
         orderBy: { completedAt: 'desc' },
-        select: { completedAt: true, lastError: true },
+        select: { completedAt: true, status: true, lastError: true },
       })
-      return { type, lastCompletedAt: last?.completedAt ?? null, lastError: last?.lastError ?? null }
+      return {
+        type,
+        lastCompletedAt: last?.completedAt ?? null,
+        lastStatus: last?.status ?? null,
+        lastError: last?.lastError ?? null,
+      }
     }),
   )
   return rows
@@ -856,17 +932,23 @@ vi.mock('@/lib/ops/db-size', () => ({ getDbSizeBytes: vi.fn(async () => 456) }))
 vi.mock('@/lib/ada-audit/browser-pool', () => ({
   getPoolState: () => ({ poolSize: 2, inUse: 0, free: 2, waiting: 0, draining: false, browserAlive: false, pagesServed: 0 }),
 }))
+vi.mock('@/lib/log', () => ({ logError: vi.fn() }))
 
 import { loadOpsSnapshot } from './ops-snapshot'
+import { logError } from '@/lib/log'
 
 describe('loadOpsSnapshot', () => {
-  it('isolates a failed section without blanking the rest (Codex #5)', async () => {
+  it('isolates a failed section without blanking the rest, and logs it (Codex #5/#6)', async () => {
     const snap = await loadOpsSnapshot()
     expect(snap.queue.ok).toBe(true)
     expect(snap.health.ok).toBe(false) // collectHealthSignals threw
     expect(snap.disk.ok).toBe(true)
     if (snap.disk.ok) expect(snap.disk.data).toBe(123)
     expect(snap.pool.ok).toBe(true)
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'ops-snapshot', section: 'health' }),
+      expect.any(Error),
+    )
   })
 })
 ```
@@ -891,6 +973,7 @@ import { getDiskFree } from '@/lib/ops/disk'
 import { getDbSizeBytes } from '@/lib/ops/db-size'
 import { getPoolState } from '@/lib/ada-audit/browser-pool'
 import { resolveDbPath } from '@/lib/ops/db-size'
+import { logError } from '@/lib/log'
 import path from 'path'
 
 export type Section<T> = { ok: true; data: T } | { ok: false }
@@ -909,10 +992,13 @@ export interface OpsSnapshot {
   pool: Section<ReturnType<typeof getPoolState>>
 }
 
-async function section<T>(fn: () => Promise<T> | T): Promise<Section<T>> {
+async function section<T>(name: string, fn: () => Promise<T> | T): Promise<Section<T>> {
   try {
     return { ok: true, data: await fn() }
-  } catch {
+  } catch (err) {
+    // Codex-plan #6: a failed panel degrades to { ok:false } AND is logged, so the
+    // page still renders while the failure is captured for the ops log.
+    logError({ scope: 'ops-snapshot', section: name }, err)
     return { ok: false }
   }
 }
@@ -923,18 +1009,18 @@ export async function loadOpsSnapshot(): Promise<OpsSnapshot> {
   const dataDir = dbPath ? path.dirname(dbPath) : process.cwd()
 
   const [queue, cleanup, health, disk, dbSize, pool] = await Promise.all([
-    section(() => getJobQueueState()),
-    section(() => getCleanupStats()),
-    section(async () => {
+    section('queue', () => getJobQueueState()),
+    section('cleanup', () => getCleanupStats()),
+    section('health', async () => {
       const now = new Date()
       const opts = healthEvalOpts()
       const signals = await collectHealthSignals(now, now.getTime() - opts.lookbackMs)
       const { alerts } = evaluateHealth(signals, { lastCheckAt: 0, cooldowns: {} }, now, opts)
       return { signals, degraded: alerts.length > 0 }
     }),
-    section(() => getDiskFree(dataDir)),
-    section(() => getDbSizeBytes()),
-    section(() => getPoolState()),
+    section('disk', () => getDiskFree(dataDir)),
+    section('dbSize', () => getDbSizeBytes()),
+    section('pool', () => getPoolState()),
   ])
 
   return { queue, cleanup, health, disk, dbSize, pool }
@@ -986,7 +1072,7 @@ afterEach(cleanup)
 
 const base: OpsSnapshot = {
   queue: { ok: true, data: { counts: { psi: { complete: 3, error: 1 } }, oldestRunning: null, recentFailures: [] } },
-  cleanup: { ok: true, data: [{ type: 'cleanup', lastCompletedAt: null, lastError: null }] },
+  cleanup: { ok: true, data: [{ type: 'cleanup', lastCompletedAt: null, lastStatus: null, lastError: null }] },
   health: { ok: true, data: { degraded: false, signals: { newErroredSiteAudits: 0, newErroredAdaAudits: 0, newExhaustedJobs: 0, stalledAudit: null, newestBackupAgeHours: 2 } } },
   disk: { ok: true, data: 5_000_000_000 },
   dbSize: { ok: true, data: 456_000_000 },
@@ -1007,6 +1093,11 @@ describe('OpsView', () => {
 
   it('shows "unavailable" for a failed section (Codex #5)', () => {
     render(<OpsView snapshot={{ ...base, health: { ok: false } }} />)
+    expect(screen.getByText(/unavailable/i)).toBeTruthy()
+  })
+
+  it('renders a failed System metric as "unavailable", not "—" (Codex-plan #7)', () => {
+    render(<OpsView snapshot={{ ...base, disk: { ok: false } }} />)
     expect(screen.getByText(/unavailable/i)).toBeTruthy()
   })
 })
@@ -1048,9 +1139,11 @@ export function OpsView({ snapshot }: { snapshot: OpsSnapshot }) {
   return (
     <div className="space-y-2">
       <Card title="System">
+        {/* Codex-plan #7: a failed loader renders "unavailable", distinct from a
+            null metric ("—") which means "measured, not available on this host". */}
         <dl className="grid grid-cols-2 gap-2 text-sm font-body text-gray-700 dark:text-white/70">
-          <dt>Disk free</dt><dd>{disk.ok ? fmtBytes(disk.data) : '—'}</dd>
-          <dt>DB footprint (main+WAL)</dt><dd>{dbSize.ok ? fmtBytes(dbSize.data) : '—'}</dd>
+          <dt>Disk free</dt><dd>{disk.ok ? fmtBytes(disk.data) : <span className="text-amber-600 dark:text-amber-400">unavailable</span>}</dd>
+          <dt>DB footprint (main+WAL)</dt><dd>{dbSize.ok ? fmtBytes(dbSize.data) : <span className="text-amber-600 dark:text-amber-400">unavailable</span>}</dd>
         </dl>
       </Card>
 
@@ -1115,7 +1208,11 @@ export function OpsView({ snapshot }: { snapshot: OpsSnapshot }) {
             {cleanup.data.map((c) => (
               <React.Fragment key={c.type}>
                 <dt>{c.type}</dt>
-                <dd>{c.lastCompletedAt ? new Date(c.lastCompletedAt).toISOString() : '—'}{c.lastError ? ` (err: ${c.lastError})` : ''}</dd>
+                <dd>
+                  {c.lastCompletedAt ? new Date(c.lastCompletedAt).toISOString() : '—'}
+                  {c.lastStatus ? ` [${c.lastStatus}]` : ''}
+                  {c.lastError ? ` (err: ${c.lastError})` : ''}
+                </dd>
               </React.Fragment>
             ))}
           </dl>
@@ -1197,14 +1294,19 @@ Inspect `lib/jobs/worker.test.ts` first to match its harness (how it registers a
 it('logs a structured error when a job exhausts its retries', async () => {
   const { logger } = await import('@/lib/log')
   const spy = vi.spyOn(logger, 'error').mockImplementation(() => {})
-  // register a handler that always throws, enqueue with maxAttempts=1, run one tick
-  // (use the file's existing enqueue/tick helpers)
-  // ... drive the worker so the job settles to 'error' ...
-  expect(spy).toHaveBeenCalled()
-  const arg = spy.mock.calls.at(-1)?.[0] as Record<string, unknown>
-  expect(arg).toHaveProperty('jobId')
-  expect((arg.err as { message: string }).message).toMatch(/./)
-  spy.mockRestore()
+  try {
+    // register a handler that always throws, enqueue with maxAttempts=1, run one tick
+    // (use the file's existing enqueue/tick helpers)
+    // ... drive the worker so the job settles to 'error' ...
+    expect(spy).toHaveBeenCalledTimes(1) // exactly one structured error on exhaustion
+    const arg = spy.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    expect(arg).toHaveProperty('jobId')
+    expect((arg.err as { message: string }).message).toMatch(/./)
+  } finally {
+    // Codex-plan #9: restore in finally so a failed assertion cannot poison
+    // later worker tests that share this module's logger singleton.
+    spy.mockRestore()
+  }
 })
 ```
 If `worker.test.ts`'s harness makes a full enqueue→tick awkward to assert in isolation, instead add a focused unit around the settle path, or assert via the existing "job errors" test by spying on `logger.error`. Keep the assertion to: `logger.error` called with `{ jobId, type, attempt, err:{message} }` on exhaustion.
@@ -1328,3 +1430,21 @@ Log in and load `/admin/ops`; confirm the panels render with real prod numbers. 
 **Placeholder scan:** Task 11 Step 1 leaves the worker-test harness wiring to be matched against the actual `worker.test.ts` (the file's enqueue/tick helpers aren't reproduced here) — this is a deliberate "inspect first" instruction, not a code placeholder, because the harness shape must be read from the file; the assertion contract (spy on `logger.error`, check `{jobId,type,attempt,err.message}`) is fully specified. All other steps contain complete code.
 
 **Type consistency:** `getPoolState`'s return shape is identical in Task 2 (definition), Task 9 (`ReturnType<typeof getPoolState>`), and Task 10 (mock + render). `Section<T>` / `OpsSnapshot` defined in Task 9, consumed verbatim in Task 10. `CleanupStat` defined in Task 8, imported in Task 9. `HealthSignals` reused from `health-check.ts`. `getLivenessSummary` returns `{status:'ok'|'degraded'}` in Tasks 5 + 6. ✓
+
+## Codex plan review
+
+Routed through Codex (session `019f2b57`, 2026-07-05; retried after a transient
+websocket drop). Verdict: accept-with-fixes — no rewrite; Codex independently
+**verified** the load-bearing assumptions (`AlertState` shape, `collectHealthSignals`/
+`evaluateHealth`/`healthEvalOpts` signatures, `JobQueueState` export, the
+`browser-pool.test.ts` `loadPool` mock, `PUBLIC_EXACT_PATHS`, `resolveJsonModule`
+on for the `@/package.json` import). 9 findings applied in place:
+- #1 gate pino-pretty transport to `NODE_ENV==='development'` (no transport worker under vitest `test`).
+- #2 test `getDbSizeBytes` itself (summing, missing sidecars, non-file URL, all-absent).
+- #3 `/api/health` actually uses `logError` on the 503 DB-down path (interface/spec had claimed it).
+- #4 `getCleanupStats` includes `lastStatus`; rendered on `/admin/ops`.
+- #5 strengthen the cleanup-stats test (mock Prisma, assert newest-row selection + mapping).
+- #6 `ops-snapshot` `section()` logs each failed loader (`scope:'ops-snapshot'`) while still degrading to `{ok:false}`.
+- #7 `OpsView` renders a failed System metric as "unavailable" (distinct from a null metric's "—").
+- #9 worker-seam test restores the `logger.error` spy in `finally` (one-call assertion).
+(#8 was a confirmation that `caughtErr`'s scope + log-before-`runOnExhausted` ordering is correct — no change.)
