@@ -28,6 +28,8 @@
 - Modify: `lib/ops/health-check.ts`
 - Test: `lib/ops/health-check.test.ts`
 - Modify: `lib/jobs/handlers/health-alert.test.ts` (fixture only — CLEAN gains the new arrays; without this the suite crashes at runtime on `undefined.length`)
+- Modify: `lib/ops/health-summary.test.ts:5` (fixture only — `zeroSignals` is typed `hc.HealthSignals`; `tsc --noEmit` fails without the new arrays)
+- Modify: `components/admin/OpsView.test.tsx:12` (fixture only — the inline `health.data.signals` literal, same reason)
 
 **Interfaces:**
 - Consumes: existing `evaluateHealth(signals, state, now, opts)` / `AlertState` (`lib/ops/alert-state.ts`).
@@ -107,17 +109,21 @@ describe('evaluateHealth', () => {
 
   it('exhausted job links via groupKey when it names a scan; others unlinked', () => {
     const r = evaluateHealth({
-      ...clean, newExhaustedJobs: 3,
+      ...clean, newExhaustedJobs: 4,
       exhaustedJobDetails: [
         { id: 'j1', type: 'site-audit-page', lastError: 'timeout', groupKey: 'site-audit:sa5' },
         { id: 'j2', type: 'ada-audit', lastError: 'timeout', groupKey: 'ada-audit:a7' },
         { id: 'j3', type: 'cleanup', lastError: 'disk full', groupKey: null },
+        { id: 'j4', type: 'weird`type <x>', lastError: 'x', groupKey: ':' },
       ],
     }, st, now, OPTS)
     expect(r.alerts[0]).toContain('Job `site-audit-page` exhausted retries: `timeout`')
     expect(r.alerts[0]).toContain('<https://seo.example.com/ada-audit/site/sa5|View scan>')
     expect(r.alerts[1]).toContain('<https://seo.example.com/ada-audit/a7|View scan>')
     expect(r.alerts[2]).toBe('• Job `cleanup` exhausted retries: `disk full`')
+    // Job type is DB string data: backticks neutralized + mrkdwn-escaped, and a
+    // malformed groupKey (':' — empty prefix/id) never yields a link.
+    expect(r.alerts[3]).toBe("• Job `weird'type &lt;x&gt;` exhausted retries: `x`")
   })
 
   it('error text: collapse newlines → truncate 140 → backticks neutralized → mrkdwn escaped', () => {
@@ -185,7 +191,9 @@ describe('normalizeAppUrl', () => {
 })
 ```
 
-In `lib/jobs/handlers/health-alert.test.ts`, update the `CLEAN` fixture (the mocked `collectHealthSignals` feeds the REAL `evaluateHealth`, which now reads the arrays):
+Update **every** `HealthSignals` fixture in the repo (Codex plan-review fix 1 — these are typed literals, so `tsc --noEmit` fails after the interface change; the handler test also crashes at runtime because the mocked `collectHealthSignals` feeds the REAL `evaluateHealth`):
+
+`lib/jobs/handlers/health-alert.test.ts` — `CLEAN`:
 
 ```ts
 const CLEAN = {
@@ -193,6 +201,22 @@ const CLEAN = {
   erroredSiteAuditDetails: [], erroredAdaAuditDetails: [], exhaustedJobDetails: [],
   stalledAudit: null, newestBackupAgeHours: 1,
 }
+```
+
+`lib/ops/health-summary.test.ts` — `zeroSignals`:
+
+```ts
+const zeroSignals: hc.HealthSignals = {
+  newErroredSiteAudits: 0, newErroredAdaAudits: 0, newExhaustedJobs: 0,
+  erroredSiteAuditDetails: [], erroredAdaAuditDetails: [], exhaustedJobDetails: [],
+  stalledAudit: null, newestBackupAgeHours: 1,
+}
+```
+
+`components/admin/OpsView.test.tsx` — the inline `health` panel literal:
+
+```ts
+  health: { ok: true, data: { degraded: false, signals: { newErroredSiteAudits: 0, newErroredAdaAudits: 0, newExhaustedJobs: 0, erroredSiteAuditDetails: [], erroredAdaAuditDetails: [], exhaustedJobDetails: [], stalledAudit: null, newestBackupAgeHours: 2 } } },
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -227,19 +251,25 @@ export interface EvalOpts {
   appUrl: string | null // validated absolute http(s) origin for scan links; null = render no links
 }
 
-// & first so already-produced entities aren't double-escaped.
+// Escape & BEFORE < and > — otherwise the &lt;/&gt; produced by the later
+// replacements would themselves be re-escaped to &amp;lt;.
 function escapeMrkdwn(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// Order is load-bearing: collapse → truncate → neutralize backticks → escape.
-// Truncating before escaping means an entity is never cut mid-way; neutralizing
-// backticks keeps error text from breaking out of the Slack code span.
+// For any DB string rendered inside a Slack `code span`: backticks neutralized
+// so the text can't break out of the span, then mrkdwn-escaped.
+function codeSpanSafe(s: string): string {
+  return escapeMrkdwn(s.replace(/`/g, "'"))
+}
+
+// Order is load-bearing: collapse → truncate → codeSpanSafe (backticks → escape).
+// Truncating before escaping means an entity is never cut mid-way.
 function sanitizeErrorText(err: string | null): string {
   const collapsed = (err ?? '').replace(/\s+/g, ' ').trim()
   if (!collapsed) return '(no error message)'
   const truncated = collapsed.length > 140 ? `${collapsed.slice(0, 139)}…` : collapsed
-  return escapeMrkdwn(truncated.replace(/`/g, "'"))
+  return codeSpanSafe(truncated)
 }
 
 // Display labels (domains/URLs) cap at 60 chars; link targets never truncate.
@@ -264,9 +294,13 @@ export function normalizeAppUrl(raw: string | undefined): string | null {
 }
 
 // 'site-audit:<id>' / 'ada-audit:<id>' group keys name a scan we can link to.
+// Explicit about malformed keys: no colon, empty prefix, or empty id → null.
 function scanPathFromGroupKey(groupKey: string | null): string | null {
   if (!groupKey) return null
-  const [prefix, id] = [groupKey.slice(0, groupKey.indexOf(':')), groupKey.slice(groupKey.indexOf(':') + 1)]
+  const i = groupKey.indexOf(':')
+  if (i <= 0) return null
+  const prefix = groupKey.slice(0, i)
+  const id = encodeURIComponent(groupKey.slice(i + 1))
   if (!id) return null
   if (prefix === 'site-audit') return `/ada-audit/site/${id}`
   if (prefix === 'ada-audit') return `/ada-audit/${id}`
@@ -311,7 +345,7 @@ Inside `evaluateHealth`, replace the two count lines with (cooldown/backup block
     } else {
       for (const d of details) {
         const path = scanPathFromGroupKey(d.groupKey)
-        alerts.push(`• Job \`${d.type}\` exhausted retries: \`${sanitizeErrorText(d.lastError)}\`${path ? scanLink(opts.appUrl, path) : ''}`)
+        alerts.push(`• Job \`${codeSpanSafe(d.type)}\` exhausted retries: \`${sanitizeErrorText(d.lastError)}\`${path ? scanLink(opts.appUrl, path) : ''}`)
       }
       const more = signals.newExhaustedJobs - details.length
       if (more > 0) alerts.push(`  …and ${more} more exhausted job(s)`)
@@ -343,7 +377,7 @@ The stalled line becomes:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ops/health-check.test.ts lib/jobs/handlers/health-alert.test.ts lib/ops/health-check.collect.test.ts`
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ops/health-check.test.ts lib/jobs/handlers/health-alert.test.ts lib/ops/health-check.collect.test.ts lib/ops/health-summary.test.ts components/admin/OpsView.test.tsx`
 Expected: PASS (collect suite still passes — stub arrays are additive).
 
 - [ ] **Step 5: Typecheck and commit**
@@ -351,7 +385,7 @@ Expected: PASS (collect suite still passes — stub arrays are additive).
 Run: `npx tsc --noEmit` — expected clean.
 
 ```bash
-git add lib/ops/health-check.ts lib/ops/health-check.test.ts lib/jobs/handlers/health-alert.test.ts
+git add lib/ops/health-check.ts lib/ops/health-check.test.ts lib/jobs/handlers/health-alert.test.ts lib/ops/health-summary.test.ts components/admin/OpsView.test.tsx
 git commit -m "feat(alerts): render per-scan error detail + links in evaluateHealth"
 ```
 
@@ -379,17 +413,24 @@ await prisma.job.deleteMany({ where: { type: { startsWith: PFX } } })
 
 ```ts
   it('detail arrays respect the since window, cap at 5, and carry error fields', async () => {
-    const now = new Date()
+    // Codex plan-review fix 2: use a synthetic FUTURE window so the shared
+    // local-dev.db can never interfere — every pre-existing row's
+    // updatedAt/completedAt is <= real now < since, so exact length/order
+    // assertions are deterministic.
+    const now = new Date(Date.now() + 60 * 60_000)
     const since = now.getTime() - 15 * 60_000
 
-    // Errored site audit — updatedAt auto-set to now on create (in window).
+    // Errored site audit — @updatedAt auto-sets to REAL now on create (outside
+    // the future window), so push it into the window via raw SQL. updatedAt is
+    // stored as integer ms; raw statements must set it manually (house rule).
     const sa = await prisma.siteAudit.create({
       data: { domain: `${PFX}detail`, wcagLevel: 'wcag21aa', status: 'error', error: 'discover blew up', requestedBy: 'manual' },
     })
+    await prisma.$executeRaw`UPDATE "SiteAudit" SET "updatedAt" = ${now.getTime() - 1000} WHERE "id" = ${sa.id}`
 
-    // Six errored ADA audits in window (completedAt is settable directly — no
-    // raw SQL needed) + one OUTSIDE the window. Windowing uses completedAt
-    // because AdaAudit has no updatedAt.
+    // Six errored ADA audits in the window (completedAt is settable directly —
+    // no raw SQL needed; windowing uses completedAt because AdaAudit has no
+    // updatedAt) + one OUTSIDE the window.
     for (let i = 0; i < 6; i++) {
       await prisma.adaAudit.create({
         data: {
@@ -405,16 +446,18 @@ await prisma.job.deleteMany({ where: { type: { startsWith: PFX } } })
       },
     })
 
-    // Exhausted job with a scan-shaped groupKey (updatedAt auto = now).
-    await prisma.job.create({
+    // Exhausted job with a scan-shaped groupKey; same raw updatedAt bump.
+    const job = await prisma.job.create({
       data: { type: `${PFX}job`, status: 'error', lastError: 'exhausted', groupKey: `site-audit:${sa.id}` },
     })
+    await prisma.$executeRaw`UPDATE "Job" SET "updatedAt" = ${now.getTime() - 1000} WHERE "id" = ${job.id}`
 
     const sig = await collectHealthSignals(now, since)
 
-    // Site-audit detail carries the error text (shared dev DB — assert membership, not exact length).
-    const saDetail = sig.erroredSiteAuditDetails.find((d) => d.id === sa.id)
-    expect(saDetail).toMatchObject({ domain: `${PFX}detail`, error: 'discover blew up' })
+    // Only our rows can be inside the future window → exact assertions.
+    expect(sig.erroredSiteAuditDetails).toEqual([
+      { id: sa.id, domain: `${PFX}detail`, error: 'discover blew up' },
+    ])
 
     // Cap at 5, newest-first by completedAt, out-of-window row excluded.
     expect(sig.erroredAdaAuditDetails).toHaveLength(5)
@@ -424,12 +467,13 @@ await prisma.job.deleteMany({ where: { type: { startsWith: PFX } } })
     expect(sig.erroredAdaAuditDetails.some((d) => d.id === old.id)).toBe(false)
 
     // Job detail carries lastError + groupKey for link routing.
-    const jobDetail = sig.exhaustedJobDetails.find((d) => d.type === `${PFX}job`)
-    expect(jobDetail).toMatchObject({ lastError: 'exhausted', groupKey: `site-audit:${sa.id}` })
+    expect(sig.exhaustedJobDetails).toEqual([
+      { id: job.id, type: `${PFX}job`, lastError: 'exhausted', groupKey: `site-audit:${sa.id}` },
+    ])
   })
 ```
 
-Note: the 5-length / ordering assertions on `erroredAdaAuditDetails` are safe in the shared dev DB because our six rows have `completedAt` = now — any stray errored rows are older and sort after ours (and out-of-window rows are filtered entirely).
+The `afterEach` additions above MUST land in the same edit as this test (they run even when the test fails mid-way, so partial setup never strands prefixed rows in the shared DB).
 
 - [ ] **Step 2: Run test to verify it fails**
 
