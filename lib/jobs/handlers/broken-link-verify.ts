@@ -89,6 +89,11 @@ const SAFETY_RESERVE_MS = 60_000 // reserve to write the run before the ceiling
 const EXTERNAL_MAX_CHECKS = () => parseNonNegativeInt(process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS, 300)
 const EXTERNAL_TIMEOUT = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIMEOUT_MS, 8_000)
 const EXTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, 300_000)
+const INTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_INTERNAL_TIME_BUDGET_MS, 600_000)
+
+const unconfirmedResult = (): ResolveResult => ({
+  result: 'unconfirmed', finalUrl: null, status: null, hops: 0, chain: [], tooManyRedirects: false,
+})
 
 export interface BrokenLinkVerifyJob {
   siteAuditId: string
@@ -225,19 +230,36 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   // Resolve legacy + validation targets ONCE into a shared cache (reuses throttle).
   const cache = new Map<string, ResolveResult>()
   const allToResolve = [...legacyTargets, ...validationToResolve]
+  // Internal time budget (mirrors the external pass): clamp to reserve the external
+  // budget (only when external is enabled) + the post-verification reserve, so the
+  // run is written instead of the job dying at JOB_TIMEOUT_MS before writeFindingsRun.
+  const externalReserveMs = EXTERNAL_MAX_CHECKS() > 0 ? EXTERNAL_TIME_BUDGET() : 0
+  const internalDeadlineMs = Math.max(
+    0,
+    Math.min(INTERNAL_TIME_BUDGET(), JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - externalReserveMs - SAFETY_RESERVE_MS),
+  )
+  let internalBudgetHit = false
+  const internalStartedAt = deps.now()
   let cursor2 = 0
   const cacheWorker = async (): Promise<void> => {
     while (cursor2 < allToResolve.length) {
+      if (deps.now() - internalStartedAt >= internalDeadlineMs) { internalBudgetHit = true; return }
       const url = allToResolve[cursor2++]
       let host = ''
       try {
         host = new URL(url).hostname
       } catch {
-        cache.set(normalizeFindingUrl(url), { result: 'unconfirmed', finalUrl: null, status: null, hops: 0, chain: [], tooManyRedirects: false })
+        cache.set(normalizeFindingUrl(url), unconfirmedResult())
         continue
       }
-      await throttle.wait(host)
-      cache.set(normalizeFindingUrl(url), await deps.resolve(url))
+      // Failure isolation (mirrors the external worker): a throw in throttle.wait or
+      // deps.resolve degrades THIS target to unconfirmed, never rejecting the pool.
+      try {
+        await throttle.wait(host)
+        cache.set(normalizeFindingUrl(url), await deps.resolve(url))
+      } catch {
+        cache.set(normalizeFindingUrl(url), unconfirmedResult())
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), allToResolve.length || 1) }, () => cacheWorker()))
@@ -288,7 +310,6 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
         const externalStartedAt = deps.now()
         const extCache = new Map<string, ResolveResult>()
         let extCursor = 0
-        const unconfirmedResult = (): ResolveResult => ({ result: 'unconfirmed', finalUrl: null, status: null, hops: 0, chain: [], tooManyRedirects: false })
         const extWorker = async (): Promise<void> => {
           while (extCursor < extToCheck.length) {
             if (deps.now() - externalStartedAt >= externalDeadlineMs) { externalCapped = true; return }
@@ -376,8 +397,8 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   // LINK truncation flag (Codex fix #2) — always pass false here.
   const onPageFindings = mapOnPageSeoFindings(seoRows as OnPageSeoRow[], { runId, ensurePage, harvestTruncated: false })
   const brokenFindings = mapBrokenLinkFindings(broken, {
-    runId, ensurePage, affectedComplete: !capped && !harvestTruncated,
-    confidence: { checked, broken: broken.length, unconfirmed, capped, harvestTruncated },
+    runId, ensurePage, affectedComplete: !capped && !harvestTruncated && !internalBudgetHit,
+    confidence: { checked, broken: broken.length, unconfirmed, capped: capped || internalBudgetHit, harvestTruncated },
   })
   const externalFindings = mapBrokenLinkFindings(externalBroken, {
     runId, ensurePage, affectedComplete: !externalCapped && !externalHarvestTruncated,
@@ -385,7 +406,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     severity: 'warning',
   })
   const validationFindings = mapValidationFindings(validationRows, internalLinks, cache, {
-    runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation,
+    runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation && !internalBudgetHit,
   })
   const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...externalFindings, ...validationFindings]
 
@@ -422,7 +443,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
-      status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated ? 'partial' : 'complete',
+      status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated || internalBudgetHit ? 'partial' : 'complete',
       score: scoreResult.score, scoreBreakdown: serializeBreakdown('live-seo', scoreResult), wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
@@ -434,7 +455,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   await prisma.harvestedPageSeo.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   console.log(
-    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, external checked ${externalChecked}, external broken ${externalBroken.length}, external unconfirmed ${externalUnconfirmed}, on-page rows ${seoRows.length}`,
+    `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, external checked ${externalChecked}, external broken ${externalBroken.length}, external unconfirmed ${externalUnconfirmed}, on-page rows ${seoRows.length}, internalBudgetHit ${internalBudgetHit} (${cache.size}/${allToResolve.length} resolved)`,
   )
 }
 
