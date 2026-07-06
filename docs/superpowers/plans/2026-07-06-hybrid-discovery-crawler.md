@@ -1054,12 +1054,16 @@ In `lib/jobs/handlers/site-audit-discover.ts`:
 2. Compute the effective crawl budget from the job's remaining time. Add near the top: `const DISCOVER_JOB_TIMEOUT_MS = 300_000; const INSERT_RESERVE_MS = 60_000; const CRAWL_FLOOR_MS = 15_000;`. Capture `const jobStartedAt = Date.now()` at the top of `runSiteAuditDiscoverJob`.
 3. Replace the `discoverPages(audit.domain)` call and the persist block. For the **non-pre-discovered** branch (`urls === null`):
 
+Declare a same-invocation flag before the `urls === null` block: `let freshlyDiscoveredThisRun = false`. **Why (real bug found in review):** `audit` is read once at the top; `audit.discoverySourcesJson` stays the stale in-memory `null` even after the fresh branch persists a non-null map. Without the flag, the pre-discovered branch's guard (`… && audit.discoverySourcesJson === null && …`) evaluates true after a fresh discovery and fires a SECOND full hybrid crawl (the DB guard makes the persist no-op, but the wasted crawl burns the very budget this task adds). The flag makes the fresh and pre-discovered branches mutually exclusive within one invocation.
+
 ```typescript
+  let freshlyDiscoveredThisRun = false
   if (urls === null) {
     const elapsed = Date.now() - jobStartedAt
     const timeBudgetMs = Math.max(0, DISCOVER_JOB_TIMEOUT_MS - elapsed - INSERT_RESERVE_MS)
     const hybrid = audit.seoIntent && timeBudgetMs >= CRAWL_FLOOR_MS
     const result = await discoverPages(audit.domain, { hybrid, timeBudgetMs })
+    freshlyDiscoveredThisRun = true
     const discovered = [...new Set(result.urls)]
     const persisted = await prisma.siteAudit.updateMany({
       where: { id: siteAuditId, discoveredUrls: null },
@@ -1085,7 +1089,9 @@ In `lib/jobs/handlers/site-audit-discover.ts`:
 
 ```typescript
   // Pre-discovered seoIntent audit not yet hybrid-expanded → expand from stored seeds.
-  if (audit.seoIntent && audit.discoverySourcesJson === null && urls && urls.length > 0) {
+  // `!freshlyDiscoveredThisRun`: if the fresh branch above already ran, `audit`'s
+  // in-memory discoverySourcesJson is stale-null — the flag prevents a double crawl.
+  if (!freshlyDiscoveredThisRun && audit.seoIntent && audit.discoverySourcesJson === null && urls && urls.length > 0) {
     const elapsed = Date.now() - jobStartedAt
     const timeBudgetMs = Math.max(0, DISCOVER_JOB_TIMEOUT_MS - elapsed - INSERT_RESERVE_MS)
     if (timeBudgetMs >= CRAWL_FLOOR_MS) {
