@@ -940,7 +940,10 @@ export async function discoverPagesWithDeps(
   const capped = seedCapped || crawl.stoppedBy === 'hardCap'
   return {
     urls: crawl.urls,
-    mode: crawl.addedByCrawl > 0 ? 'hybrid' : seedMode,
+    // 'hybrid' when a crawl ran on provided seeds OR the crawl expanded the set.
+    // (opts.seeds means a deliberate pre-discovered hybrid expansion, even if 0
+    // new links were found — the provided-seeds test requires 'hybrid' here.)
+    mode: (opts.seeds || crawl.addedByCrawl > 0) ? 'hybrid' : seedMode,
     capped,
     coverage: {
       sources: crawl.sources, sitemapCount: crawl.sitemapCount,
@@ -962,6 +965,11 @@ export async function discoverPages(
   opts: { hybrid?: boolean; seeds?: string[]; timeBudgetMs?: number } = {},
 ): Promise<DiscoverResult> {
   const normDomain = normaliseDomain(domain)
+  // SSRF check FIRST, before ANY network fetch — preserves the existing
+  // "rejects internal hostnames before fetching" guarantee (the robots fetch
+  // below would otherwise be the first network call). Per-request SSRF still
+  // re-resolves inside safeFetch; this top check is the pre-fetch reject.
+  await assertSafeHttpUrl(`https://${normDomain}`)
   const robotsText = await fetchRobotsRaw(`https://${normDomain}`) // single robots fetch
   return discoverPagesWithDeps(domain, opts, {
     resolveSeeds: (d) => resolveSeedsReal(d, robotsText),
