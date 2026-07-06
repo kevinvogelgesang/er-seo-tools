@@ -121,8 +121,13 @@ export async function hybridCrawl(
           if (!sameDomain(h, host)) continue
           if (isNonPage(key)) continue
           if (segmentCount(key) > bounds.maxPathSegments) continue
+          // robots must match the REAL resolved path — a trailing slash is
+          // significant to Disallow patterns (`^/admin/` ≠ `/admin`), and
+          // normalizeCoverageUrl STRIPS non-root trailing slashes, so matching
+          // the coverage `key` here would let a Disallow:/admin/ target through.
+          // (isNonPage/segmentCount are trailing-slash-insensitive → key is fine.)
           let pn: string
-          try { pn = new URL(key).pathname } catch { continue }
+          try { pn = new URL(resolved).pathname } catch { continue }
           if (!isAllowed(pn, robots)) continue
           const pk = pathKey(key)
           const seenVariants = queryVariants.get(pk) ?? 0

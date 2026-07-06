@@ -99,4 +99,30 @@ describe('hybridCrawl', () => {
     const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B({ maxPathSegments: 5 }), deps, { disallow: [], allow: [] })
     expect(r.urls.some((u) => u.includes('/m'))).toBe(false)
   })
+
+  it('honors Disallow on a directory-root trailing-slash target (robots matches the real path, not the coverage key)', async () => {
+    const deps = graph({ 'https://x.com/': ['https://x.com/admin/'] })
+    const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B(), deps, { disallow: ['/admin/'], allow: [] })
+    expect(r.urls.some((u) => u.includes('/admin'))).toBe(false)
+  })
+
+  it('stops at hardCap, including capping seeds', async () => {
+    const seeds = Array.from({ length: 5 }, (_, i) => ({ url: `https://x.com/s${i}`, source: 'sitemap' as const }))
+    const r = await hybridCrawl(seeds, HOST, B({ hardCap: 3 }), graph({}), { disallow: [], allow: [] })
+    expect(r.urls.length).toBe(3)
+    expect(r.stoppedBy).toBe('hardCap')
+  })
+
+  it('stops at the time budget', async () => {
+    const deps = graph({ 'https://x.com/': ['https://x.com/a'], 'https://x.com/a': [] })
+    const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B({ timeBudgetMs: 5 }), deps, { disallow: [], allow: [] })
+    expect(r.stoppedBy).toBe('timeBudget')
+  })
+
+  it('counts sitemap/seed seeds in sitemapCount, linked in addedByCrawl', async () => {
+    const deps = graph({ 'https://x.com/': ['https://x.com/a'], 'https://x.com/a': [] })
+    const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B(), deps, { disallow: [], allow: [] })
+    expect(r.sitemapCount).toBe(1)
+    expect(r.addedByCrawl).toBe(1)
+  })
 })
