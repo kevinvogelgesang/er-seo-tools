@@ -17,8 +17,14 @@ serialized by the host throttle, so on sites with many/slow internal links the
 internal pass alone exceeds the **hardcoded 15-min `JOB_TIMEOUT_MS`**. The job is
 then killed by the queue **before `writeFindingsRun` (line 433)** — a **total
 loss**: no live-scan run, no score, no coverage/miss-rate, no on-page findings,
-no broken-link findings. The job retries and exhausts (3 attempts), so the run is
-never built.
+no broken-link findings. The job retries under the queue's attempt policy and
+eventually exhausts (`onExhausted` is log-only), so the run is never built.
+
+> Note (pre-existing, out of scope): the handler registers `maxAttempts: 2`
+> (line 462) but `enqueueBrokenLinkVerify` passes none, so the `Job` rows carry
+> the schema default `@default(3)` — prod rows observed at `att=2/3`. This
+> registration-vs-row inconsistency is unrelated to this fix; logged as a
+> follow-up, not addressed here.
 
 ### Evidence (prod, 2026-07-06)
 
@@ -68,26 +74,47 @@ const INTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_INTE
 ```
 
 Default 600 s (10 min). It is an **upper bound**; the effective deadline is
-clamped (below) to always reserve room for the external pass + the write.
+clamped (below) to always reserve room for the external pass + **all
+post-verification work**.
+
+**`SAFETY_RESERVE_MS` (60 s) is a post-*verification* reserve, not just a write
+reserve** (Codex fix #4). After both verification passes, the job still runs
+`computeLinkGraph` (BFS over every harvested edge — 53k on the largest site),
+CrawlPage materialization, scoring, coverage, `writeFindingsRun` (chunked
+`createMany`), and two `deleteMany`s. On the 53k-link case this must complete
+inside 60 s for the "always writes" guarantee to hold — see Risks + the
+prod-verify step. If it proves tight, raise `SAFETY_RESERVE_MS` (it is the same
+constant the external clamp uses, so a bump widens both reserves safely).
 
 ### 2. Internal deadline, clamped to reserve external + write (before `cacheWorker`)
 
 Mirror the external clamp at line 282-283. Computed once, before the internal
-resolution loop starts:
+resolution loop starts. **Reserve external budget only when the external pass is
+actually enabled** (Codex fix #2):
 
 ```ts
-const internalReserveMs = EXTERNAL_TIME_BUDGET() + SAFETY_RESERVE_MS // reserve external pass + write
+const externalReserveMs = EXTERNAL_MAX_CHECKS() > 0 ? EXTERNAL_TIME_BUDGET() : 0
+const internalReserveMs = externalReserveMs + SAFETY_RESERVE_MS // reserve external pass (if any) + post-verify work
 const internalDeadlineMs = Math.max(
   0,
   Math.min(INTERNAL_TIME_BUDGET(), JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - internalReserveMs),
 )
 ```
 
-With defaults at job start (`elapsed ≈ 0`): `min(600_000, 900_000 − 300_000 −
-60_000) = 540_000` (9 min) internal, leaving 5 min external budget + 1 min
-write-safety. The internal pass can never starve external or the write. The
-existing external clamp (`remaining = JOB_TIMEOUT_MS − elapsed − SAFETY_RESERVE`)
-is unchanged and still self-corrects to whatever internal actually consumed.
+With defaults at job start (`elapsed ≈ 0`, external enabled): `min(600_000,
+900_000 − 300_000 − 60_000) = 540_000` (9 min) internal, leaving 5 min external
+budget + 1 min for post-verification work. When external is disabled
+(`BROKEN_LINK_EXTERNAL_MAX_CHECKS=0`), internal gets the full `min(600_000,
+840_000) = 600_000` (10 min). The internal pass can never starve external or the
+write. The existing external clamp (`remaining = JOB_TIMEOUT_MS − elapsed −
+SAFETY_RESERVE`) is unchanged and still self-corrects to whatever internal
+actually consumed.
+
+**The budget is soft, not a hard stop** (Codex fix #3): workers check the
+deadline *before* pulling the next target, so up to `CONCURRENCY` in-flight
+`throttle.wait + resolve` rounds (one per worker) can overshoot the deadline
+before returning. This is the same semantics the external pass already has; the
+`SAFETY_RESERVE_MS` cushion absorbs it.
 
 ### 3. Deadline check in `cacheWorker` (exact mirror of `extWorker` line 294)
 
@@ -97,14 +124,33 @@ const internalStartedAt = deps.now()
 const cacheWorker = async (): Promise<void> => {
   while (cursor2 < allToResolve.length) {
     if (deps.now() - internalStartedAt >= internalDeadlineMs) { internalBudgetHit = true; return }
-    // ... existing body unchanged ...
+    const url = allToResolve[cursor2++]
+    let host = ''
+    try { host = new URL(url).hostname } catch {
+      cache.set(normalizeFindingUrl(url), unconfirmedResult()); continue
+    }
+    // Failure isolation (Codex fix #6, mirrors the external worker at line 303):
+    // a throw in throttle.wait or deps.resolve degrades this ONE target to
+    // unconfirmed instead of rejecting the whole pool and losing the run.
+    try {
+      await throttle.wait(host)
+      cache.set(normalizeFindingUrl(url), await deps.resolve(url))
+    } catch {
+      cache.set(normalizeFindingUrl(url), unconfirmedResult())
+    }
   }
 }
 ```
 
-Targets never resolved are simply absent from `cache`; the broken-derivation loop
-(line 249-255) **already** skips them via `if (!r) continue` — they are counted
-as neither `checked` nor `broken`. No change needed there.
+This also adds **failure isolation** the internal worker currently lacks (the
+external worker already has it, line 303) — consistent with the "never total
+loss" goal. Reuse a shared `unconfirmedResult()` helper (the external pass
+already defines one inline at line 291; hoist it or duplicate).
+
+Targets never resolved (budget tripped before they were pulled) are simply absent
+from `cache`; the broken-derivation loop (line 249-255) **already** skips them via
+`if (!r) continue` — they are counted as neither `checked` nor `broken`. No change
+needed there.
 
 Edge case: if `internalDeadlineMs <= 0` (a retry starts with almost no time left
 — unlikely since a fresh job's `jobStartedAt` is near-zero), the worker sets
@@ -117,8 +163,7 @@ external `externalDeadlineMs <= 0` guard (line 284).
 - **Run status** (line 425): add `|| internalBudgetHit` to the `partial` trigger.
 - **Broken-link findings completeness** (line 379): `affectedComplete: !capped &&
   !harvestTruncated && !internalBudgetHit`.
-- **Broken-link confidence** (line 380): the `confidence` object should reflect
-  the truncation. Fold `internalBudgetHit` into the `capped` signal it reports
+- **Broken-link confidence** (line 380): `capped: capped || internalBudgetHit`
   (treat a budget hit as a cap for confidence purposes — same downstream meaning:
   "we didn't check everything").
 - **Validation findings completeness** (line 388): `affectedComplete: !capped &&
@@ -166,9 +211,20 @@ All three use the injected clock — no real network, no wall-clock dependence.
 
 ## Risks
 
-- **Under-reserving the write window.** Mitigated by the clamp reserving
-  `EXTERNAL_TIME_BUDGET + SAFETY_RESERVE` (5 + 1 min) and by `SAFETY_RESERVE_MS`
-  being the existing, already-proven write reserve.
+- **Post-verification work exceeds the 60 s reserve on huge sites.** The reserve
+  covers graph compute + materialization + scoring + coverage + write + deletes,
+  not just the write (Codex fix #4). If the 53k-link case overruns, the job could
+  still time out *during* the write — but the transient rows would survive
+  (delete happens after write) and recovery would re-enqueue, so it degrades to a
+  retry, not a permanent loss. Prod-verify measures this; bump `SAFETY_RESERVE_MS`
+  if needed.
+- **Soft-budget overshoot.** Up to `CONCURRENCY` in-flight resolves can overshoot
+  the internal deadline (Codex fix #3); the reserve absorbs it, same as external.
+- **Partial is final** (Codex fix #7). Once a `partial` run is written the
+  transient tables are deleted, so that audit can never be re-verified to
+  completion — a fuller result requires a new audit. This matches the existing
+  `capped`/`externalCapped` behavior and is acceptable: the gate-critical outputs
+  (score, coverage, on-page) are already complete in a partial run.
 - **Behavior change for currently-passing small sites.** None: sites that finish
   under budget never trip the deadline (test 2 is the regression guard).
 - **Env var not set in prod.** Default 600 s applies; no new *required* env var,
