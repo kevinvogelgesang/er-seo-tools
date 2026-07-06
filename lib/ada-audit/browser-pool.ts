@@ -165,6 +165,29 @@ export async function releasePage(page: Page): Promise<void> {
   maybeArmIdleTimer()
 }
 
+// A4 observability: synchronous module-state snapshot for /admin/ops + /api/health.
+// No await, no lock acquisition — cannot perturb the pool.
+export function getPoolState(): {
+  poolSize: number
+  inUse: number
+  free: number
+  waiting: number
+  draining: boolean
+  browserAlive: boolean
+  pagesServed: number
+} {
+  return {
+    poolSize: POOL_SIZE,
+    inUse: POOL_SIZE - slots,
+    free: slots,
+    waiting: waiters.length,
+    draining,
+    // `browser !== null` overstates health during a disconnect edge.
+    browserAlive: browser?.connected === true,
+    pagesServed,
+  }
+}
+
 export async function closeBrowser(): Promise<void> {
   cancelIdleTimer()
   // Reset the recycle state on EVERY close (recycle, idle, shutdown, between

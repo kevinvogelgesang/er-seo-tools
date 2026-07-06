@@ -18,6 +18,7 @@
 //   over-concurrent), not corrupt.
 
 import { prisma } from '@/lib/db'
+import { logError } from '@/lib/log'
 import { BACKOFF_CAP_MS, HEARTBEAT_MS, jobPollMs, jobStaleSweepMs } from './config'
 import { getJobHandler, listJobTypes, runOnExhausted } from './registry'
 import type { ResolvedJobHandlerConfig } from './types'
@@ -78,7 +79,7 @@ export async function runWorkerTickOnce(): Promise<void> {
       }
     }
   } catch (err) {
-    console.error('[jobs] worker tick failed:', (err as Error).message)
+    logError({ subsystem: '[jobs]', scope: 'worker-tick' }, err)
   } finally {
     ticking = false
   }
@@ -118,6 +119,9 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
   }, HEARTBEAT_MS)
 
   let error: string | null = null
+  // Retain the original caught object so logError gets the real Error (stack +
+  // context), not just the pre-flattened message.
+  let caughtErr: unknown = null
   try {
     try {
       let payload: unknown
@@ -132,6 +136,7 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
         abort,
       )
     } catch (err) {
+      caughtErr = err
       error = err instanceof Error ? err.message : String(err)
     } finally {
       clearInterval(heartbeat)
@@ -149,6 +154,7 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
           data: { status: 'error', lastError: error, completedAt: new Date() },
         })
         if (res.count === 1) {
+          logError({ subsystem: '[jobs]', jobId: job.id, type: job.type, attempt: job.attempts }, caughtErr ?? error)
           await runOnExhausted(job.type, job.payload, job.id, job.attempts, error)
         }
       } else {
@@ -165,7 +171,7 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
     } catch (err) {
       // Settle write failed (e.g. transient SQLITE_BUSY). The row stays
       // 'running' with a stale heartbeat; the stale sweep recovers it.
-      console.warn(`[jobs] settle failed for job=${job.id}:`, (err as Error).message)
+      logError({ subsystem: '[jobs]', scope: 'worker-settle', jobId: job.id }, err)
     }
   } finally {
     // Release the slot only AFTER settle so a concurrent poll/kick can't

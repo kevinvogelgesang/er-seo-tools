@@ -60,3 +60,15 @@ describe('isPublicPath — auth-gate allowlist', () => {
     expect(isPublicPath(p)).toBe(false);
   });
 });
+
+describe('isPublicPath — A4 health endpoint', () => {
+  it('exempts exactly /api/health', () => {
+    expect(isPublicPath('/api/health')).toBe(true);
+  });
+  it('does NOT exempt a deeper health path (future detail stays gated)', () => {
+    expect(isPublicPath('/api/health/detail')).toBe(false);
+  });
+  it('keeps /admin/ops gated', () => {
+    expect(isPublicPath('/admin/ops')).toBe(false);
+  });
+});

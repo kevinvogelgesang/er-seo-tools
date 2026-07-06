@@ -34,3 +34,33 @@ export async function getJobQueueState(): Promise<JobQueueState> {
   })
   return { counts, oldestRunning, recentFailures }
 }
+
+const MAINTENANCE_TYPES = ['cleanup', 'screenshot-sweep', 'stale-audit-reset', 'db-backup', 'health-alert'] as const
+
+export interface CleanupStat {
+  type: string
+  lastCompletedAt: Date | null
+  lastStatus: string | null
+  lastError: string | null
+}
+
+// A4 observability — last-run summary per maintenance job type for /admin/ops. No
+// structured cleanup counts exist, so report last-run timestamp + status + error.
+export async function getCleanupStats(): Promise<CleanupStat[]> {
+  const rows = await Promise.all(
+    MAINTENANCE_TYPES.map(async (type) => {
+      const last = await prisma.job.findFirst({
+        where: { type },
+        orderBy: { completedAt: 'desc' },
+        select: { completedAt: true, status: true, lastError: true },
+      })
+      return {
+        type,
+        lastCompletedAt: last?.completedAt ?? null,
+        lastStatus: last?.status ?? null,
+        lastError: last?.lastError ?? null,
+      }
+    }),
+  )
+  return rows
+}

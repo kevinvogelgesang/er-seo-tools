@@ -16,6 +16,9 @@ export default function SettingsPage() {
           <p className="text-sm font-body text-gray-500 dark:text-white/50">
             Google service-account connection status, monthly report schedule, and SEO scoring weights.
           </p>
+          <p className="mt-2 text-sm font-body">
+            <a href="/admin/ops" className="text-blue-600 dark:text-blue-400 hover:underline">Ops dashboard →</a>
+          </p>
         </div>
         <ServiceAccountCard />
         <ScheduleControls />

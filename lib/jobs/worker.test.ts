@@ -124,6 +124,30 @@ describe('jobs/worker', () => {
     expect(onExhausted).toHaveBeenCalledWith({ x: 1 }, { jobId: id, attempts: 1, lastError: 'fatal' })
   })
 
+  it('logs a structured error when a job exhausts its retries', async () => {
+    const { logger } = await import('@/lib/log')
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => {})
+    try {
+      registerJobHandler({
+        type: 'test-w', concurrency: 1, maxAttempts: 1,
+        handler: async () => { throw new Error('boom-log') },
+      })
+      const { id } = await enqueueJob({ type: 'test-w', payload: { y: 2 }, maxAttempts: 1 })
+      await runWorkerTickOnce()
+      await waitFor(async () => (await prisma.job.findUnique({ where: { id } }))?.status === 'error')
+      const call = spy.mock.calls.find((c) => (c[0] as { jobId?: string })?.jobId === id)
+      expect(call).toBeTruthy()
+      const arg = call![0] as Record<string, unknown>
+      expect(arg.type).toBe('test-w')
+      expect(arg.attempt).toBe(1)
+      expect((arg.err as { message: string }).message).toBe('boom-log')
+    } finally {
+      // Restore in finally so a failed assertion cannot poison later worker tests
+      // that share this module's logger singleton.
+      spy.mockRestore()
+    }
+  })
+
   it('timeout settles as a throw and aborts the handler signal', async () => {
     let seenSignal: AbortSignal | null = null
     registerJobHandler({
