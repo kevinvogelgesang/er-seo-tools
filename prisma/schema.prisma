@@ -141,6 +141,7 @@ model SiteAudit {
   discoveredUrls String?   // JSON: string[] — pre-discovered URLs stored for queued audits
   discoveryMode         String?   // 'sitemap' | 'shallow-crawl' | 'pre-discovered' — discovery provenance
   discoveryCapped       Boolean?  // true = discovery hit the 1000-page HARD_CAP (miss-rate not applicable)
+  discoverySourcesJson  String?   // C6 Increment 2: JSON {v,sources(url->source),sitemapCount,sitemapCapped,stoppedBy,fetches}
   clientId      Int?
   client        Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
   pageAudits    AdaAudit[]
