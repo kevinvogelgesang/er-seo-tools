@@ -517,6 +517,19 @@ First, in `discovery-coverage.ts`, export the trap regex so the crawler reuses i
 // Fetch + clock are injected (CrawlDeps) so the BFS logic is unit-testable with
 // no network. Raw HTTP only — NO headless Chrome (memory fence). Results are
 // assembled in frontier order so bounded concurrency never changes the output.
+//
+// TWO REPRESENTATIONS per node (do NOT conflate them — this was a real bug):
+//   • KEY   = normalizeCoverageUrl(url) — dedup + precedence + `sources` map key
+//             + frontier bookkeeping. Coverage-normalization strips the root
+//             trailing slash, strips `www.`, and pins https, so it MUST NOT be
+//             the URL we fetch (that would mutate the request target).
+//   • FETCH = the resolved real URL (seed's original url, or normalizeLinkTarget
+//             output for a link) — what deps.fetchPageLinks receives AND what
+//             lands in `urls` (→ discoveredUrls → the audited AdaAudit.url set,
+//             matching the existing sitemap path which stores real URLs).
+// `sources` keys are coverage-normalized; each corresponds 1:1 to a `urls`
+// entry via normalizeCoverageUrl (they are not always string-equal — e.g. a
+// root seed's url `https://x.com/` has key `https://x.com`).
 import { normalizeLinkTarget, sameDomain } from '../link-harvest'
 import { normalizeCoverageUrl, NON_PAGE_EXT } from './discovery-coverage'
 import { isAllowed, type RobotsRules } from './robots-rules'
@@ -556,7 +569,8 @@ export async function hybridCrawl(
   const start = deps.now()
   const host = auditedHost.toLowerCase()
   const sources: Record<string, CrawlSource> = {}
-  const order: string[] = []            // insertion order (frontier order) of accepted URLs
+  const order: string[] = []            // coverage-normalized KEYS in frontier order
+  const fetchUrlOf = new Map<string, string>()  // key → resolved FETCH url (real url to request / emit)
   const depthOf = new Map<string, number>()
   const queryVariants = new Map<string, number>()
   let addedByCrawl = 0
@@ -564,15 +578,18 @@ export async function hybridCrawl(
   let sitemapCount = 0
   let stoppedBy: CrawlResult['stoppedBy'] = 'exhausted'
 
-  const accept = (normalized: string, source: CrawlSource, depth: number): boolean => {
-    const existing = sources[normalized]
+  // `key` is coverage-normalized (dedup/sources); `fetchUrl` is the resolved
+  // real URL to fetch and to emit in `urls`.
+  const accept = (key: string, fetchUrl: string, source: CrawlSource, depth: number): boolean => {
+    const existing = sources[key]
     if (existing !== undefined) {
-      if (PRECEDENCE[source] > PRECEDENCE[existing]) sources[normalized] = source // upgrade only
+      if (PRECEDENCE[source] > PRECEDENCE[existing]) sources[key] = source // upgrade only
       return false
     }
-    sources[normalized] = source
-    order.push(normalized)
-    depthOf.set(normalized, depth)
+    sources[key] = source
+    order.push(key)
+    fetchUrlOf.set(key, fetchUrl)
+    depthOf.set(key, depth)
     if (source === 'linked') addedByCrawl++
     else sitemapCount++
     return true
@@ -583,10 +600,10 @@ export async function hybridCrawl(
   // sitemap baseline all stay aligned (never more sources than sliced urls).
   for (const s of seeds) {
     if (order.length >= bounds.hardCap) { stoppedBy = 'hardCap'; break }
-    const n = normalizeCoverageUrl(s.url)
+    const key = normalizeCoverageUrl(s.url)
     let ok = false
-    try { ok = sameDomain(new URL(n).hostname.toLowerCase(), host) } catch { ok = false }
-    if (ok) accept(n, s.source, 0)
+    try { ok = sameDomain(new URL(key).hostname.toLowerCase(), host) } catch { ok = false }
+    if (ok) accept(key, s.url, s.source, 0)  // fetchUrl = the seed's ORIGINAL url (not coverage-normalized)
   }
 
   // Frontier = accepted URLs at the current depth not yet fetched.
@@ -602,32 +619,32 @@ export async function hybridCrawl(
       const wave = frontier.slice(i, i + room)
       fetches += wave.length
       if (fetches >= bounds.maxFetches && i + room < frontier.length) stoppedBy = 'maxFetches'
-      const pages = await Promise.all(wave.map((u) => deps.fetchPageLinks(u)))
+      const pages = await Promise.all(wave.map((k) => deps.fetchPageLinks(fetchUrlOf.get(k)!)))  // fetch the REAL url, not the key
       for (const page of pages) {                       // assemble in wave (=frontier) order
         if (!page) continue
         let finalOk = false
         try { finalOk = sameDomain(new URL(page.finalUrl).hostname.toLowerCase(), host) } catch { finalOk = false }
         if (!finalOk) continue                          // Codex #7: off-host final URL contributes nothing
         for (const raw of page.links) {
-          const resolved = normalizeLinkTarget(raw, page.finalUrl)  // Codex #8: resolve vs final URL
+          const resolved = normalizeLinkTarget(raw, page.finalUrl)  // Codex #8: resolve vs final URL (the FETCH url)
           if (!resolved) continue
-          const n = normalizeCoverageUrl(resolved)
+          const key = normalizeCoverageUrl(resolved)                // dedup/sources KEY
           let h: string
-          try { h = new URL(n).hostname.toLowerCase() } catch { continue }
+          try { h = new URL(key).hostname.toLowerCase() } catch { continue }
           if (!sameDomain(h, host)) continue
-          if (isNonPage(n)) continue
-          if (segmentCount(n) > bounds.maxPathSegments) continue
+          if (isNonPage(key)) continue
+          if (segmentCount(key) > bounds.maxPathSegments) continue
           let pn: string
-          try { pn = new URL(n).pathname } catch { continue }
+          try { pn = new URL(key).pathname } catch { continue }
           if (!isAllowed(pn, robots)) continue
-          const pk = pathKey(n)
+          const pk = pathKey(key)
           const seenVariants = queryVariants.get(pk) ?? 0
           if (seenVariants >= bounds.maxQueryVariantsPerPath) continue
-          if (sources[n] !== undefined) continue        // already known
+          if (sources[key] !== undefined) continue      // already known
           if (addedByCrawl >= bounds.maxAdded) { stoppedBy = 'maxAdded'; break outer }
           if (order.length >= bounds.hardCap) { stoppedBy = 'hardCap'; break outer }
           queryVariants.set(pk, seenVariants + 1)
-          accept(n, 'linked', depth + 1)
+          accept(key, resolved, 'linked', depth + 1)     // fetchUrl = the resolved real url
         }
       }
     }
@@ -639,7 +656,9 @@ export async function hybridCrawl(
     if (deeper) stoppedBy = 'depth'
   }
 
-  return { urls: order.slice(0, bounds.hardCap), sources, sitemapCount, addedByCrawl, fetches, stoppedBy }
+  // Emit the REAL fetch urls (keys map 1:1 to fetchUrls), sliced to hardCap.
+  const urls = order.slice(0, bounds.hardCap).map((k) => fetchUrlOf.get(k)!)
+  return { urls, sources, sitemapCount, addedByCrawl, fetches, stoppedBy }
 }
 ```
 
@@ -1205,7 +1224,7 @@ git commit -m "docs(c6): document HYBRID_CRAWL_* env vars"
 - Existing `discovery-coverage` tests run unchanged — back-compat guard in Task 2 Step 4.
 - Pre-discovered race test — Task 6 Step 1 should include a case where a second attempt's guarded `updateMany` returns `count === 0` and the handler re-reads (fix #8).
 - **Confirm scheduled `seoIntent` audits are NOT pre-seeded** (else the crawler runs the cheap pre-discovered path over stored seeds instead of full sitemap discovery, or — if seeds are absent — the normal path). Verify at prod-verification time that the campaign clients hit the sitemap-discovery hybrid path (`discoveryMode:'hybrid'`, `sources` mostly `sitemap`+`linked`, not `seed`).
-- Inspect one produced `discoverySourcesJson`: every key must appear in `SiteAudit.discoveredUrls` — no stranded source-map-only URLs (guaranteed by Task 3 fix #3, verify empirically).
+- Inspect one produced `discoverySourcesJson`: every `sources` key must be the coverage-normalized form of some `SiteAudit.discoveredUrls` entry (they are NOT always string-equal — a root seed url `https://x.com/` has key `https://x.com`; `discoveredUrls` holds the real fetch URLs, `sources` keys are coverage-normalized). Verify `normalizeCoverageUrl(url)` of each discoveredUrls entry covers the key set — no stranded source-map-only keys (guaranteed by Task 3 fix #3 + the key↔fetchUrl 1:1 map, verify empirically).
 
 ## Execution Handoff
 
