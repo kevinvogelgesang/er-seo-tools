@@ -14,7 +14,7 @@ vi.mock('./sitemap-crawler-browser-fetch', () => ({
   fetchSitemapViaBrowser: vi.fn(),
 }))
 
-import { discoverPages } from './sitemap-crawler'
+import { discoverPages, discoverPagesWithDeps } from './sitemap-crawler'
 import { SafeUrlError } from '../security/safe-url'
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 
@@ -597,5 +597,42 @@ describe('discoverPages browser fallback', () => {
     expect(browserCalls.some((u) => u.includes('sitemap_index.xml'))).toBe(true)
     expect(browserCalls.some((u) => u.includes('post-sitemap.xml'))).toBe(true)
     expect(browserCalls.some((u) => u.includes('page-sitemap.xml'))).toBe(true)
+  })
+})
+
+describe('discoverPages hybrid', () => {
+  it('hybrid:false is unchanged (no coverage, never mode hybrid)', async () => {
+    const r = await discoverPagesWithDeps('x.com', { hybrid: false }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/a'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async () => null, now: () => 0,
+    })
+    expect(r).toEqual({ urls: ['https://x.com/a'], mode: 'sitemap', capped: false })
+    expect('coverage' in r).toBe(false)
+  })
+
+  it('hybrid:true expands the seed set and returns provenance', async () => {
+    const graph: Record<string, string[]> = {
+      'https://x.com/a': ['https://x.com/b'], 'https://x.com/b': [],
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/a'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => (u in graph ? { links: graph[u], finalUrl: u } : null),
+      now: () => 0,
+      robots: { disallow: [], allow: [] },
+    })
+    expect(r.mode).toBe('hybrid')
+    expect(r.urls).toContain('https://x.com/b')
+    expect(r.coverage!.sources['https://x.com/a']).toBe('sitemap')
+    expect(r.coverage!.sources['https://x.com/b']).toBe('linked')
+    expect(r.coverage!.sitemapCount).toBe(1)
+  })
+
+  it('hybrid:true with provided seeds tags them seed', async () => {
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, seeds: ['https://x.com/p'] }, {
+      resolveSeeds: async () => { throw new Error('should not resolve when seeds provided') },
+      fetchPageLinks: async () => null, now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.mode).toBe('hybrid')
+    expect(r.coverage!.sources['https://x.com/p']).toBe('seed')
   })
 })
