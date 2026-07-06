@@ -49,7 +49,7 @@ const TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_conten
 
 // Obvious non-page targets an <a href> may point at. Excluded from L so assets
 // never count as "missed pages". Extension checked on the pathname only.
-const NON_PAGE_EXT = /\.(pdf|zip|gz|jpe?g|png|gif|svg|webp|ico|docx?|xlsx?|pptx?|mp4|mp3|wav|css|js|mjs|json|xml|rss|txt|csv)$/i
+export const NON_PAGE_EXT = /\.(pdf|zip|gz|jpe?g|png|gif|svg|webp|ico|docx?|xlsx?|pptx?|mp4|mp3|wav|css|js|mjs|json|xml|rss|txt|csv)$/i
 
 /**
  * Coverage-specific normalizer applied identically to baseline + linked sets.
