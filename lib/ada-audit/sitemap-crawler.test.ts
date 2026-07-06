@@ -635,4 +635,23 @@ describe('discoverPages hybrid', () => {
     expect(r.mode).toBe('hybrid')
     expect(r.coverage!.sources['https://x.com/p']).toBe('seed')
   })
+
+  it('applies the env time-budget ceiling even when opts.timeBudgetMs is larger', async () => {
+    const orig = process.env.HYBRID_CRAWL_TIME_BUDGET_MS
+    process.env.HYBRID_CRAWL_TIME_BUDGET_MS = '5'  // 5ms ceiling
+    try {
+      let clock = 0
+      const r = await discoverPagesWithDeps('x.com', { hybrid: true, seeds: ['https://x.com/', 'https://x.com/a'], timeBudgetMs: 999999 }, {
+        resolveSeeds: async () => { throw new Error('seeds provided; resolveSeeds must not be called') },
+        fetchPageLinks: async (u) => ({ links: [], finalUrl: u }),
+        now: () => (clock += 10),  // advances 10ms/call → exceeds the 5ms ceiling on the first wave check
+        robots: { disallow: [], allow: [] },
+      })
+      // Without the Math.min fix, timeBudgetMs would be 999999 and the crawl would NOT stop by time.
+      expect(r.coverage!.stoppedBy).toBe('timeBudget')
+    } finally {
+      if (orig === undefined) delete process.env.HYBRID_CRAWL_TIME_BUDGET_MS
+      else process.env.HYBRID_CRAWL_TIME_BUDGET_MS = orig
+    }
+  })
 })

@@ -420,7 +420,7 @@ export async function discoverPagesWithDeps(
     maxDepth: HY_MAX_DEPTH(),
     maxAdded: HY_MAX_ADDED(),
     maxFetches: HY_MAX_FETCHES(),
-    timeBudgetMs: opts.timeBudgetMs ?? HY_TIME_BUDGET(),
+    timeBudgetMs: Math.min(opts.timeBudgetMs ?? Number.POSITIVE_INFINITY, HY_TIME_BUDGET()),
     hardCap: HARD_CAP,
     maxQueryVariantsPerPath: HY_QUERY_VARIANTS(),
     maxPathSegments: HY_PATH_SEGMENTS(),
