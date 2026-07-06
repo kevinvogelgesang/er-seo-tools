@@ -22,6 +22,9 @@ const PUBLIC_EXACT_PATHS = new Set([
   // Public "about" page — the app's home-page URL for the Google OAuth consent
   // screen; must be reachable without auth and describe the app's purpose.
   '/about',
+  // A4 observability — public shallow liveness for an uptime monitor. Exact match
+  // only; a future /api/health/detail must stay cookie-gated.
+  '/api/health',
 ])
 
 // Skill-handoff API routes are authenticated by a short-lived JWT verified
