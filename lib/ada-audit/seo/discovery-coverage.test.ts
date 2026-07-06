@@ -137,3 +137,48 @@ describe('computeDiscoveryCoverage', () => {
     expect(r).toMatchObject({ discoveredCount: 0, linkedInternalCount: 0, offBaselineCount: 0, missRate: 0 })
   })
 })
+
+describe('computeDiscoveryCoverage — hybrid dual rate', () => {
+  it('reports sitemap vs residual rates from the sitemap baseline', () => {
+    // sitemap baseline: /a. full hybrid baseline (discoveredUrls): /a,/b (crawler found /b).
+    // harvested links: /a,/b,/c. sitemap misses {b,c}=2 of 3; residual misses {c}=1 of 3.
+    const r = computeDiscoveryCoverage({
+      discoveredUrls: ['https://x.com/a', 'https://x.com/b'],
+      sitemapBaseline: ['https://x.com/a'],
+      sitemapCapped: false,
+      internalLinks: [
+        { sourcePageUrl: 'https://x.com/a', targetUrl: 'https://x.com/a' },
+        { sourcePageUrl: 'https://x.com/a', targetUrl: 'https://x.com/b' },
+        { sourcePageUrl: 'https://x.com/a', targetUrl: 'https://x.com/c' },
+      ],
+      discoveryMode: 'hybrid',
+      discoveryCapped: false,
+    })
+    expect(r.sitemapMissRate).toBeCloseTo(2 / 3)
+    expect(r.sitemapApplicable).toBe(true)
+    expect(r.residualMissRate).toBeCloseTo(1 / 3)
+    expect(r.residualApplicable).toBe(true)
+  })
+
+  it('sitemapApplicable is false when the sitemap portion was capped', () => {
+    const r = computeDiscoveryCoverage({
+      discoveredUrls: ['https://x.com/a'], sitemapBaseline: ['https://x.com/a'],
+      sitemapCapped: true, internalLinks: [], discoveryMode: 'hybrid', discoveryCapped: false,
+    })
+    expect(r.sitemapApplicable).toBe(false)
+    expect(r.sitemapMissRate).toBeNull()
+  })
+
+  it('back-compat: no sitemapBaseline behaves exactly as before', () => {
+    const input = {
+      discoveredUrls: ['https://x.com/a'],
+      internalLinks: [{ sourcePageUrl: 'https://x.com/a', targetUrl: 'https://x.com/b' }],
+      discoveryMode: 'sitemap' as const, discoveryCapped: false,
+    }
+    const r = computeDiscoveryCoverage(input)
+    expect(r.missRate).toBeCloseTo(1 / 2)      // {b} off {a} baseline
+    expect(r.sitemapMissRate).toBe(r.missRate)
+    expect(r.residualMissRate).toBeNull()
+    expect(r.applicable).toBe(true)
+  })
+})
