@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-06 (SF-retirement Phase 1 — **7-client parity + first miss-rate DATA collected**; 3 verifier bugs found+fixed, incl. the real `safeFetch` 999 hang) · **Updated by:** the SF-retirement data-stream session. Next action is a **roadmap-menu pick** — hybrid-discovery Increment 2 (the crawler) is now **evidence-backed and ungated**.
+**Last updated:** 2026-07-06 (evening — adversarial review of PR #107 → **safeFetch hardening PR #108 shipped** on top of the Phase-1 data session) · **Updated by:** the #107-review session. Next action is still a **roadmap-menu pick** — hybrid-discovery Increment 2 (the crawler) is **evidence-backed and ungated**.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -15,8 +15,8 @@ Continue the er-seo-tools improvement roadmap.
 State: SF-retirement Phase 1 gate DATA is IN HAND (2026-07-06). There is NO
 work-in-progress. The next action is a roadmap-menu pick (see step 3).
 
-This session (2026-07-06 PM): Kevin picked the SF-retirement data stream and supplied
-an er_auth cookie so I drove it autonomously. Collected the full 7-client parity +
+Session 2026-07-06 PM (data): Kevin picked the SF-retirement data stream and supplied
+an er_auth cookie so Claude drove it autonomously. Collected the full 7-client parity +
 sitemap miss-rate dataset (bidwell 3, boca 4, brockway 5, brownson 6, manhattan 12,
 discovery 26, cambria 29): upload SF export at /seo-parser -> parse -> trigger a
 seoIntent site audit -> record sf-live-parity.ts + the live run's discoveryCoverageJson.
@@ -24,22 +24,27 @@ RESULT — both gates MET (cycle 1): >=5-client parity (7 clients, all deviation
 explained) AND the FIRST discoveryCoverageJson miss-rate data ever (was 0 -> 7 points,
 7.7%-42.2%, median ~21%, 4/7 >=18%, 3/7 >=37%) = strong quantified evidence FOR building
 hybrid-discovery Increment 2. Full table in docs/superpowers/todos/2026-07-05-sf-live-parity-log.md.
+That batch surfaced 3 verifier bugs, all fixed+deployed+prod-verified: PR #105
+(internal verify time budget), #106 (reserve margin), #107 (d95d70b, THE real fix:
+safeFetch hung forever on out-of-range HTTP status — LinkedIn's 999 made
+new Response({status}) throw RangeError inside the response callback after
+settled=true -> promise never settled -> 15-min job timeout cycles).
 
-The batch (first-ever run of the live scanner across real medium/large client sites)
-surfaced 3 verifier bugs, all fixed+deployed+prod-verified:
-- PR #105 (8588f56): internal-link verify pass had no time budget (external did) ->
-  slow sites died before the run write. Added BROKEN_LINK_INTERNAL_TIME_BUDGET_MS +
-  clamped deadline + failure isolation + internalBudgetHit->partial.
-- PR #106 (75bc134): widened SAFETY_RESERVE_MS 60s->180s (allocation margin; mis-aimed
-  but harmless).
-- PR #107 (d95d70b, THE real fix): safeFetch hung forever on out-of-range HTTP status
-  (LinkedIn's 999) — new Response({status}) throws RangeError inside the response
-  callback after settled=true -> promise never settles -> verifier worker blocks ->
-  15-min job timeout cycle (manhattan, cambria). A time budget can't stop a promise
-  that never settles. Fix: isConstructibleResponseStatus guard + try/catch around the
-  whole Response construction (Codex ACCEPT-WITH-FIXES; SSRF-neutral). After #107 all
-  7 built (manhattan 99, cambria 100, brownson 90 complete; boca/discovery/brockway
-  partial from external-cap / WAF-403s, not timeouts).
+Session 2026-07-06 evening (this update): Kevin asked for an adversarial review of
+PR #107 ("ensure the fix is the best it can be") — 8 finder angles + per-finding
+verification. Verdict: #107 correct; 3 CONFIRMED gaps hardened in PR #108 (b68a83f,
+merged+deployed+prod-verified, Codex ACCEPT):
+- Settle invariant made STRUCTURAL in fetchWithPinnedAddress (one fail() helper +
+  callback-wide try/catch — the status checks previously sat OUTSIDE the try).
+- Deterministic response-level failures (missing/out-of-range status, Response-
+  construction throw) all reject SafeUrlError now -> resolveUrl no longer fires a
+  doomed identical GET retry.
+- LAST never-settling path closed: 30s inactivity-based idle-socket timeout in the
+  transport (tarpit host + signal-less caller — pdf-runner.fetchOnce has no
+  AbortSignal). Redirect loop also cancels intermediate responses' unread bodies.
+- #107's "real transport isn't loopback-testable" claim was WRONG: it's now exported
+  test-only (does no address validation itself) with loopback regression tests
+  (999 rejects-not-hangs, 200, idle timeout, redirect-body cancel).
 
 A1/A2/A2-f1/A3/A4/B1-B5/C1-C10/C9(A+B)/D0 all COMPLETE + PROD-VERIFIED. C7 complete.
 C6: Phases 1-4 + on-page + live score + redirect/canonical/hreflang + external-link +
@@ -83,7 +88,10 @@ DATA (7 points). A 16-skill operator library lives in .claude/skills/.
    cambria,discovery}/<newest>/ — 7 clients, fresh (2026-07-03..05), all uploaded to prod.
 5. Small open follow-ups (not blocking):
    - broken-link-verify maxAttempts inconsistency: registers maxAttempts:2 but
-     enqueueBrokenLinkVerify passes none so Job rows carry schema @default(3). Harmless.
+     enqueueBrokenLinkVerify passes none so Job rows carry schema @default(3). Mostly
+     harmless, but OBSERVED live 2026-07-06 19:47:58: "[broken-link-verify] exhausted
+     after 3 attempts: Job interrupted by restart" — repeated deploys can exhaust a
+     verifier; recoverBrokenLinkVerifies() re-enqueues it while harvest rows persist.
    - brockway (client 5) serves HTTP 403 to the scanner (WAF): 28/84 pages blocked.
      Its server IP needs allowlisting before the live scanner fully replaces SF there.
    - tokenErrorCode() expired-token bug (from A3): expired qct_ tokens report
@@ -108,7 +116,11 @@ DATA (7 points). A 16-skill operator library lives in .claude/skills/.
   deviation notes + the 3-PR bug arc. **NO work-in-progress.**
 - **3 verifier bugs fixed + deployed + prod-verified:** PR #105 (internal verify time
   budget, `8588f56`), #106 (reserve margin, `75bc134`), **#107 (the real `safeFetch`
-  999-hang fix, `d95d70b`)**. All gate-green, Codex-reviewed.
+  999-hang fix, `d95d70b`)**. All gate-green, Codex-reviewed. **PR #108 (`b68a83f`,
+  2026-07-06 evening) hardened #107 after an adversarial review:** structural settle
+  guarantee, SafeUrlError for all deterministic response failures (no doomed GET
+  retries), 30s idle-socket timeout (closes the tarpit + signal-less-caller hang),
+  redirect-body cancellation, real-transport loopback regression tests. 3,380 tests.
 - **A1, A2, A2-f1, A3, A4, B1–B5, C1–C10, C9(A+B), D0 all COMPLETE + PROD-VERIFIED.**
   C7 complete. C6 Phases 1–4 + on-page + live score + redirect/canonical/hreflang +
   external-link + hybrid-discovery Increment 1 shipped — Increment 1 now has DATA.
@@ -140,11 +152,14 @@ alternatives: parity cycles 2–3 (operational), or Track A code infra (A5/A6/A7
   modified tracked docs and commit/stash them first.** For reconciling local main after
   a squash-merge, prefer `git status` inspection first; `reset --hard origin/main` is
   only safe when the working tree has no uncommitted work you care about.
-- **The `safeFetch` 999-hang (fixed #107) is the model bug of this session:** a promise
+- **The `safeFetch` 999-hang (fixed #107, hardened #108) is the model bug:** a promise
   that never settles cannot be stopped by any downstream time budget. When a verify job
-  "times out" but its targets resolve fast in isolation, suspect a non-settling await
-  (out-of-range status, unbounded DNS, etc.), not a slow site. `isConstructibleResponseStatus`
-  now guards `new Response` in `lib/security/safe-url.ts`.
+  "times out" but its targets resolve fast in isolation, suspect a non-settling await,
+  not a slow site. Since #108 the transport settles STRUCTURALLY (callback-wide
+  try/catch + 30s idle-socket timeout) and deterministic response failures are
+  SafeUrlError (terminal, no GET retry). Real-transport loopback tests exist in
+  `safe-url.test.ts` — `fetchWithPinnedAddress` is exported test-only; extend those
+  tests when touching the transport.
 - **The live scanner had NEVER been batch-run across real medium/large client sites before
   this session** — that's why 3 latent bugs surfaced at once. Expect more first-contact
   bugs when Increment 2 changes the crawl shape.
@@ -205,5 +220,6 @@ alternatives: parity cycles 2–3 (operational), or Track A code infra (A5/A6/A7
 - 2026-07-05 — **A3 (API route kit) MERGED (#102) + DEPLOYED + PROD-VERIFIED. A3 COMPLETE.** + SF-retirement Phase 1 kickoff (6 fresh SF crawls on disk; parity log created).
 - 2026-07-06 — **A4 observability floor MERGED (#103, `75e160a`) + DEPLOYED + PROD-VERIFIED. A4 COMPLETE.** (A4 doc updates were later lost to a `git reset --hard` and reconstructed — see tracker note.)
 - 2026-07-06 — **Slack alert enrichment MERGED (#104) + archived (`f5db71b`).**
-- 2026-07-06 — **SF-retirement Phase 1 DATA: 7-client parity + first miss-rate (7 points, 7.7%–42.2%) collected.** 3 verifier bugs fixed: PR #105 (`8588f56`) internal verify time budget, #106 (`75bc134`) reserve margin, **#107 (`d95d70b`) the `safeFetch` 999-hang** — all merged+deployed+prod-verified. Hybrid-discovery Increment 2 now ungated. **Next: roadmap menu (Increment 2 recommended).**
+- 2026-07-06 — **SF-retirement Phase 1 DATA: 7-client parity + first miss-rate (7 points, 7.7%–42.2%) collected.** 3 verifier bugs fixed: PR #105 (`8588f56`) internal verify time budget, #106 (`75bc134`) reserve margin, **#107 (`d95d70b`) the `safeFetch` 999-hang** — all merged+deployed+prod-verified. Hybrid-discovery Increment 2 now ungated.
+- 2026-07-06 (evening) — **Adversarial review of #107 → safeFetch hardening PR #108 (`b68a83f`) merged+deployed+prod-verified.** Structural settle guarantee, SafeUrlError classification, 30s idle-socket timeout, redirect-body cancel, real-transport loopback tests. Codex ACCEPT. **Next: roadmap menu (Increment 2 recommended).**
 ```
