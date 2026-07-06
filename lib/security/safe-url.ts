@@ -300,17 +300,32 @@ export function createPinnedLookup(address: { address: string; family: number })
  * True when `status` is within the range the WHATWG `Response` constructor
  * accepts (200-599 inclusive). Out-of-range codes — LinkedIn's anti-bot 999,
  * stray 1xx, malformed CDN responses — make `new Response(..., { status })`
- * throw RangeError, so the real transport must screen them before constructing
- * a Response (see fetchWithPinnedAddress).
+ * throw RangeError. The transport screens them for a typed, provably-attributed
+ * SafeUrlError; the callback-wide try/catch in fetchWithPinnedAddress is the
+ * actual settle guarantee.
  */
 export function isConstructibleResponseStatus(status: number): boolean {
   return Number.isInteger(status) && status >= 200 && status <= 599
 }
 
-async function fetchWithPinnedAddress(
+// Idle-socket ceiling for the real transport: a host that accepts the TCP/TLS
+// connection but then goes silent (tarpit) would otherwise leave the promise
+// pending forever for callers that pass no AbortSignal (pdf-runner's fetchOnce).
+// This is an inactivity timeout, not a total-duration budget — slow-but-flowing
+// downloads are unaffected.
+const SOCKET_IDLE_TIMEOUT_MS = 30_000
+
+/**
+ * The real safeFetch transport. Exported for unit testing only (like
+ * createPinnedLookup) — it performs NO address validation itself (that lives in
+ * resolveSafeHttpUrl), which is exactly what lets tests drive it against a
+ * loopback server. Production code must go through safeFetch.
+ */
+export async function fetchWithPinnedAddress(
   url: URL,
   init: RequestInit | undefined,
-  resolved: ResolvedSafeHttpUrl
+  resolved: ResolvedSafeHttpUrl,
+  idleTimeoutMs: number = SOCKET_IDLE_TIMEOUT_MS
 ): Promise<Response> {
   const address = resolved.addresses[0]
   const body = bodyToRequestPayload(init?.body)
@@ -332,54 +347,49 @@ async function fetchWithPinnedAddress(
       headers: headersToObject(init?.headers),
       lookup: createPinnedLookup(address),
     }, (res) => {
-      const status = res.statusCode
-      if (!status) {
+      // This callback runs on a later tick, so a synchronous throw here is NOT
+      // caught by the Promise constructor — it escapes and the promise never
+      // settles (the 2026-07-06 verifier hang: LinkedIn's 999 made
+      // `new Response` throw RangeError after `settled` was set). fail() + the
+      // callback-wide try/catch make settlement structural: every path through
+      // this callback resolves or rejects.
+      const fail = (err: Error) => {
         settled = true
-        reject(new Error('Response missing status code'))
+        reject(err)
         res.destroy()
-        return
       }
-
-      // WHATWG `new Response(..., { status })` throws RangeError for statuses
-      // outside 200-599 (e.g. LinkedIn's anti-bot 999). That throw happened
-      // inside this response callback AFTER `settled` was set, so neither
-      // resolve nor reject ran -> the promise hung forever, blocking the
-      // broken-link verifier's worker until the 15-min job timeout (2026-07-06).
-      // Detect it up front and reject; callers treat this like any network
-      // failure (-> 'unconfirmed', i.e. reachable-but-unclassifiable, never
-      // reported as broken).
-      if (!isConstructibleResponseStatus(status)) {
-        settled = true
-        reject(new SafeUrlError(`Unsupported response status: ${status}`))
-        res.destroy()
-        return
-      }
-
-      // Build the WHATWG Response inside try/catch. ANY synchronous throw in this
-      // response callback (Readable.toWeb, responseHeadersFromIncoming, or
-      // new Response on a statusText/header edge case) would otherwise escape
-      // with `settled` already true — leaving the promise forever-pending and
-      // hanging the caller (the failure class behind the 2026-07-06 verifier
-      // timeouts). Reject instead so callers degrade normally.
-      let response: Response
       try {
-        const body = status === 204 || status === 205 || status === 304
+        const status = res.statusCode
+        if (!status) {
+          // Deterministic for this response — SafeUrlError so callers classify
+          // it as terminal instead of retrying an identical doomed request.
+          return fail(new SafeUrlError('Response missing status code'))
+        }
+        if (!isConstructibleResponseStatus(status)) {
+          return fail(new SafeUrlError(`Unsupported response status: ${status}`))
+        }
+        const resBody = status === 204 || status === 205 || status === 304
           ? null
           : Readable.toWeb(res) as ReadableStream<Uint8Array>
-        if (!body) res.resume()
-        response = new Response(body, {
+        if (!resBody) res.resume()
+        const response = new Response(resBody, {
           status,
           statusText: res.statusMessage,
           headers: responseHeadersFromIncoming(res.headers),
         })
-      } catch (err) {
         settled = true
-        res.destroy()
-        reject(err instanceof Error ? err : new Error(String(err)))
-        return
+        resolve(response)
+      } catch (err) {
+        // Response construction failed (statusText/header edge case). Also
+        // deterministic — same doomed request on retry.
+        fail(new SafeUrlError(
+          `Response construction failed: ${err instanceof Error ? err.message : String(err)}`
+        ))
       }
-      settled = true
-      resolve(response)
+    })
+
+    req.setTimeout(idleTimeoutMs, () => {
+      req.destroy(new Error('Socket idle timeout'))
     })
 
     const abort = () => {
@@ -429,6 +439,10 @@ export async function safeFetch(
         redirects,
       }
     }
+
+    // Drop the redirect response's unread body now — otherwise its socket is
+    // held until the caller's abort signal fires (or indefinitely without one).
+    void response.body?.cancel().catch(() => {})
 
     const location = response.headers.get('location')
     if (!location) {

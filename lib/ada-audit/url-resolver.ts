@@ -4,7 +4,10 @@
 // final status that safeFetch already computes (checkUrl discards them).
 // Preserves checkUrl's EXACT precision posture: HEAD-first; HEAD>=400 or a
 // non-SafeUrlError HEAD throw confirms with GET; a SafeUrlError on HEAD
-// (SSRF/DNS/'Too many redirects') returns 'unconfirmed' immediately (no GET).
+// returns 'unconfirmed' immediately (no GET). SafeUrlError covers both
+// pre-request blocks (SSRF/DNS/'Too many redirects') and, since PR #107+,
+// deterministic response-level failures (out-of-range status like LinkedIn's
+// 999, unconstructible Response) — all cases where a GET retry is doomed.
 import { safeFetch, SafeUrlError } from '@/lib/security/safe-url'
 
 export interface ResolveResult {
