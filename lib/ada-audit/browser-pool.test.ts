@@ -136,3 +136,25 @@ describe('browser-pool recycle gate + idle close', () => {
     expect(true).toBe(true) // reaching here = no deadlock
   })
 })
+
+describe('getPoolState (A4)', () => {
+  it('reports initial idle state with no browser', async () => {
+    const pool = await loadPool({ pool: '2' })
+    expect(pool.getPoolState()).toEqual({
+      poolSize: 2, inUse: 0, free: 2, waiting: 0,
+      draining: false, browserAlive: false, pagesServed: 0,
+    })
+  })
+
+  it('reflects an acquired page and a live browser', async () => {
+    const pool = await loadPool({ pool: '2' })
+    const page = await pool.acquirePage()
+    const s = pool.getPoolState()
+    expect(s.inUse).toBe(1)
+    expect(s.free).toBe(1)
+    expect(s.browserAlive).toBe(true) // mock browser.connected === true
+    expect(s.pagesServed).toBe(1)
+    await pool.releasePage(page)
+    expect(pool.getPoolState().inUse).toBe(0)
+  })
+})
