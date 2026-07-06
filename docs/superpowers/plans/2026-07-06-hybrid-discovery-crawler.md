@@ -498,6 +498,34 @@ describe('hybridCrawl', () => {
     const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B({ maxPathSegments: 5 }), deps, { disallow: [], allow: [] })
     expect(r.urls.some((u) => u.includes('/m'))).toBe(false)
   })
+
+  it('honors Disallow on a directory-root trailing-slash target (robots matches the real path, not the coverage key)', async () => {
+    // key of https://x.com/admin/ normalizes to /admin; Disallow:/admin/ must still block it.
+    const deps = graph({ 'https://x.com/': ['https://x.com/admin/'] })
+    const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B(), deps, { disallow: ['/admin/'], allow: [] })
+    expect(r.urls.some((u) => u.includes('/admin'))).toBe(false)
+  })
+
+  it('stops at hardCap, including capping seeds', async () => {
+    const seeds = Array.from({ length: 5 }, (_, i) => ({ url: `https://x.com/s${i}`, source: 'sitemap' as const }))
+    const r = await hybridCrawl(seeds, HOST, B({ hardCap: 3 }), graph({}), { disallow: [], allow: [] })
+    expect(r.urls.length).toBe(3)
+    expect(r.stoppedBy).toBe('hardCap')
+  })
+
+  it('stops at the time budget', async () => {
+    // clock advances 10ms per now() call; timeBudget 5ms trips on the first wave check.
+    const deps = graph({ 'https://x.com/': ['https://x.com/a'], 'https://x.com/a': [] })
+    const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B({ timeBudgetMs: 5 }), deps, { disallow: [], allow: [] })
+    expect(r.stoppedBy).toBe('timeBudget')
+  })
+
+  it('counts sitemap/seed seeds in sitemapCount, linked in addedByCrawl', async () => {
+    const deps = graph({ 'https://x.com/': ['https://x.com/a'], 'https://x.com/a': [] })
+    const r = await hybridCrawl([{ url: 'https://x.com/', source: 'sitemap' }], HOST, B(), deps, { disallow: [], allow: [] })
+    expect(r.sitemapCount).toBe(1) // the one seed
+    expect(r.addedByCrawl).toBe(1) // /a
+  })
 })
 ```
 
@@ -634,8 +662,13 @@ export async function hybridCrawl(
           if (!sameDomain(h, host)) continue
           if (isNonPage(key)) continue
           if (segmentCount(key) > bounds.maxPathSegments) continue
+          // robots must match the REAL resolved path — a trailing slash is
+          // significant to Disallow patterns (`^/admin/` ≠ `/admin`), and
+          // normalizeCoverageUrl STRIPS non-root trailing slashes, so matching
+          // the coverage `key` here would let a Disallow:/admin/ target through.
+          // (isNonPage/segmentCount are trailing-slash-insensitive → key is fine.)
           let pn: string
-          try { pn = new URL(key).pathname } catch { continue }
+          try { pn = new URL(resolved).pathname } catch { continue }
           if (!isAllowed(pn, robots)) continue
           const pk = pathKey(key)
           const seenVariants = queryVariants.get(pk) ?? 0
