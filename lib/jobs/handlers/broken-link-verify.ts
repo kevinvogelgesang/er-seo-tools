@@ -48,6 +48,28 @@ function safeParseUrlList(json: string | null): string[] {
 }
 
 /**
+ * Derive the sitemap-sourced baseline (+ its own capped flag) from
+ * SiteAudit.discoverySourcesJson (C6 Increment 2's {v,sources,sitemapCount,
+ * sitemapCapped,...} shape) for the dual miss-rate inputs to
+ * computeDiscoveryCoverage. Pure and tolerant: null / malformed / missing
+ * `sources` all degrade to {undefined,undefined} (legacy single-rate
+ * behavior), never throwing into the builder.
+ */
+export function deriveSitemapBaseline(json: string | null): { baseline: string[] | undefined; sitemapCapped: boolean | undefined } {
+  if (!json) return { baseline: undefined, sitemapCapped: undefined }
+  try {
+    const parsed = JSON.parse(json) as { sources?: Record<string, string>; sitemapCapped?: boolean }
+    if (!parsed || typeof parsed.sources !== 'object' || !parsed.sources) return { baseline: undefined, sitemapCapped: undefined }
+    const baseline = Object.entries(parsed.sources)
+      .filter(([, src]) => src === 'sitemap' || src === 'seed' || src === 'shallow')
+      .map(([url]) => url)
+    return { baseline, sitemapCapped: parsed.sitemapCapped === true }
+  } catch {
+    return { baseline: undefined, sitemapCapped: undefined }
+  }
+}
+
+/**
  * Pick the homepage URL from the audited URL set.
  * Returns one of the ORIGINAL `urls` strings (so the byUrl lookup key matches).
  * Strategy: prefer the normalized https://<domain>/ if it's in the audited set,
@@ -136,7 +158,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     where: { id: job.siteAuditId },
     select: {
       id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true, seoIntent: true,
-      discoveredUrls: true, discoveryMode: true, discoveryCapped: true,
+      discoveredUrls: true, discoveryMode: true, discoveryCapped: true, discoverySourcesJson: true,
     },
   })
   if (!site) return // deleted audit -> no-op
@@ -439,6 +461,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   // C6 hybrid-discovery Increment 1: sitemap miss-rate from already-harvested
   // internal links vs the discovery baseline. ZERO new fetches. NOT a Finding.
   const discoveredUrls = safeParseUrlList(site.discoveredUrls)
+  const { baseline: sitemapBaseline, sitemapCapped } = deriveSitemapBaseline(site.discoverySourcesJson)
   const coverage = computeDiscoveryCoverage({
     discoveredUrls,
     internalLinks: rows
@@ -446,6 +469,8 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
       .map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl })),
     discoveryMode: (site.discoveryMode as DiscoveryMode | null) ?? null,
     discoveryCapped: site.discoveryCapped ?? false,
+    sitemapBaseline,
+    sitemapCapped,
   })
 
   const bundle: FindingsBundle = {
