@@ -21,6 +21,7 @@ const { runHealthAlert } = await import('./health-alert')
 
 const CLEAN = {
   newErroredSiteAudits: 0, newErroredAdaAudits: 0, newExhaustedJobs: 0,
+  erroredSiteAuditDetails: [], erroredAdaAuditDetails: [], exhaustedJobDetails: [],
   stalledAudit: null, newestBackupAgeHours: 1,
 }
 beforeEach(() => {

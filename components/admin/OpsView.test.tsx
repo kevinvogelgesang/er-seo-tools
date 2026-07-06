@@ -9,7 +9,7 @@ afterEach(cleanup)
 const base: OpsSnapshot = {
   queue: { ok: true, data: { counts: { psi: { complete: 3, error: 1 } }, oldestRunning: null, recentFailures: [] } },
   cleanup: { ok: true, data: [{ type: 'cleanup', lastCompletedAt: null, lastStatus: null, lastError: null }] },
-  health: { ok: true, data: { degraded: false, signals: { newErroredSiteAudits: 0, newErroredAdaAudits: 0, newExhaustedJobs: 0, stalledAudit: null, newestBackupAgeHours: 2 } } },
+  health: { ok: true, data: { degraded: false, signals: { newErroredSiteAudits: 0, newErroredAdaAudits: 0, newExhaustedJobs: 0, erroredSiteAuditDetails: [], erroredAdaAuditDetails: [], exhaustedJobDetails: [], stalledAudit: null, newestBackupAgeHours: 2 } } },
   disk: { ok: true, data: 5_000_000_000 },
   dbSize: { ok: true, data: 456_000_000 },
   pool: { ok: true, data: { poolSize: 2, inUse: 1, free: 1, waiting: 0, draining: false, browserAlive: true, pagesServed: 9 } },
