@@ -14,7 +14,29 @@ Data source: prod DB (`/home/seo/data/seo-tools/db.sqlite`). Parity numbers from
 
 ---
 
-## Current data state (prod snapshot, 2026-07-05)
+## ✅ 2026-07-06 — Phase 1 gate MET (7-client parity + first miss-rate data)
+
+**Both gates cleared in one operator session** (Kevin supplied an `er_auth` cookie;
+Claude drove upload → parse → seoIntent audit → parity/coverage recording):
+- **≥5-client parity gate:** 7 clients, every deviation explained (below).
+- **Hybrid-discovery Increment-2 gate DATA:** 7 `discoveryCoverageJson` points
+  (was **0**), miss-rate **7.7%–42.2%** — sitemaps routinely omit reachable
+  content. See the 2026-07-06 data table + synthesis under **Data points**.
+
+Three prod bugs were surfaced + fixed by this exercise (the live scanner had
+never before been run across a batch of real medium/large client sites):
+- **PR #105** — internal-link verify pass had no time budget (external did) →
+  slow-but-finite sites died before the run write. Added `BROKEN_LINK_INTERNAL_TIME_BUDGET_MS`.
+- **PR #106** — widened `SAFETY_RESERVE_MS` 60s→180s (budget-allocation margin).
+- **PR #107 (the real one)** — `safeFetch` hung forever on out-of-range HTTP
+  statuses (LinkedIn's `999`): `new Response({status})` threw inside the response
+  callback after `settled=true`, so the promise never settled → verifier worker
+  blocked → 15-min job timeout cycle (manhattan, cambria). A time budget can't
+  stop a promise that never settles — #107 is what actually unblocked them.
+
+---
+
+## Current data state (prod snapshot, 2026-07-05 — superseded by 2026-07-06 above)
 
 Read-only inventory of all `tool:'seo-parser'` CrawlRuns:
 
@@ -99,6 +121,65 @@ asset-URL Jaccard inflation; documented issue-type capability gaps). No unexplai
 deviation → no bug hunt. **⚠ Caveat:** this pair predates Increment 1, so it carries
 no `discoveryCoverageJson`. Re-run a fresh seoIntent audit on manhattan to (a) capture
 the **first miss-rate data point** and (b) refresh the pair on post-Increment-1 code.
+
+---
+
+### 2026-07-06 · full 7-client batch (post-#107) · cycle 1
+
+All 7 target clients: fresh SF export uploaded at `/seo-parser` (→ `sf-upload`
+CrawlRun) + a `seoIntent` site audit triggered (→ `live-scan` CrawlRun with
+`discoveryCoverageJson`). Every audit ran `mode:'sitemap'`, non-capped → every
+miss-rate is a valid headline number. Numbers from `sf-live-parity.ts` +
+`CrawlRun.discoveryCoverageJson` on prod.
+
+| Domain | Client | SF | Live | Δ (live−SF) | live status | Jaccard | **miss-rate** | off-baseline | page errors |
+|---|---|---|---|---|---|---|---|---|---|
+| bidwelltraining.edu | 3 | 90 | 89 | **−1** | complete | 0.651 | **8.5%** | 5 | 1 |
+| brockwaycatart.org | 5 | 62 | 73 | +11 | partial | 0.385 | **7.7%** | 7 | 28 (all HTTP 403) |
+| brownson.edu | 6 | 81 | 90 | +9 | complete | 0.395 | **18.3%** | 19 | 0 |
+| cambriacollege.ca | 29 | 83 | 100 | +17 | complete | 0.784 | **21.1%** | 24 | 0 |
+| manhattanschool.edu | 12 | 82 | 99 | +17 | complete | 0.343 | **37.4%** | 40 | 0 |
+| discoverycommunitycollege.com | 26 | 62 | 89 | +27 | partial | 0.471 | **40.4%** | 420 | 3 |
+| bocabeautyacademy.edu | 4 | 81 | 98 | +17 | partial | 0.401 | **42.2%** | 127 | 0 |
+
+**Miss-rate synthesis (the Increment-2 gate number):** range **7.7%–42.2%**,
+median ~21%, mean ~25%. **4 of 7 sites ≥ 18%; 3 of 7 ≥ 37%.** Sitemaps routinely
+omit a large fraction of internally-reachable content — strong, quantified
+evidence FOR building hybrid-discovery **Increment 2** (the link-graph crawler).
+`offBaseline` counts reachable internal-link targets absent from the sitemap
+baseline (images + non-page extensions already excluded — this is the clean
+instrument, not raw Jaccard). Low miss-rate (brockway/bidwell ~8%) = tight
+sitemaps; high (boca/discovery ~40%) = sitemaps missing whole content sections.
+
+**Score-delta verdict:** all deviations explained. Live > SF on 6/7 (Δ +9..+27,
+bidwell −1). Expected & documented: the live score omits SF's crawl-depth,
+broken-link, security-header, redirect, orphan, and analytics penalties, so it
+reads higher; it is NOT the same denominator (do not tune to zero — track the
+distribution). Live page counts < SF because SF's page set includes asset URLs
+the page-only live scan excludes (inflates SF, deflates Jaccard).
+
+**Per-domain deviation notes (all explained → no bug hunt):**
+- **brockway** — 28/84 pages returned **HTTP 403 "blocking automated scanners"**
+  (client-side WAF/bot-blocker). Live run is `partial`; broken-link findings
+  incomplete but score/coverage/on-page complete. *Operational finding: this
+  client's server IP must be allowlisted before the live scanner can fully
+  replace SF there.*
+- **boca/discovery** — `partial` from the external-link cap (300) + internal
+  verification budget, NOT from a timeout (post-#105/#107). Coverage + score
+  complete.
+- **manhattan/cambria** — initially timed out (the `safeFetch` 999 hang, PR #107);
+  after the fix both built `complete` with score 99/100. manhattan's earlier
+  07-02 pair (coverage null, pre-Increment-1) is superseded by this fresh run.
+- **Live-only issue types** (broken_internal_links, broken_images, missing_h1/
+  meta, thin_content) vs **SF-only types** (~70: redirects, alt text, security
+  headers, canonical, orphans, analytics joins) are documented capability
+  differences, recorded, not chased.
+
+**Gate status after this batch:**
+- Phase 1 parity gate (N≥5 × deviations explained): **MET for cycle 1** (7 clients).
+  Roadmap wants 2–3 cycles — cycles 2–3 accrue on the next scheduled/manual runs.
+- Hybrid-discovery Increment-2 miss-rate gate: **DATA IN HAND** (7 points, clear
+  signal). Decision to build the crawler is now evidence-backed, not blocked.
 
 ---
 
