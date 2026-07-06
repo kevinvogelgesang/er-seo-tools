@@ -85,7 +85,16 @@ const HOST_DELAY = () => parsePositiveInt(process.env.BROKEN_LINK_HOST_DELAY_MS,
 const CONCURRENCY = () => parsePositiveInt(process.env.BROKEN_LINK_CONCURRENCY, 4)
 const URLS_PER_FINDING = 25
 const JOB_TIMEOUT_MS = 900_000 // 15-min queue ceiling (single source; used at registration + external budget)
-const SAFETY_RESERVE_MS = 60_000 // reserve to write the run before the ceiling
+// Reserve subtracted from BOTH the internal and external deadlines: it must cover
+// in-flight-request overshoot on both passes (each stops STARTING work at its
+// deadline but awaits up to CONCURRENCY in-flight resolves) PLUS all post-verify
+// work (graph compute, page materialization, scoring, writeFindingsRun, deletes).
+// 60s proved razor-thin in prod (2026-07-06): slow client sites (manhattanschool.edu,
+// cambriacollege.ca) whose fetches hang near the 10s request timeout ran BOTH passes
+// to their full budgets, and internal(9m)+external(5m)+overshoot+post-verify tipped
+// just past the 15-min ceiling -> the job was killed before the write. 180s gives
+// the two capped passes ~11-12m combined and a comfortable margin for the rest.
+const SAFETY_RESERVE_MS = 180_000
 const EXTERNAL_MAX_CHECKS = () => parseNonNegativeInt(process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS, 300)
 const EXTERNAL_TIMEOUT = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIMEOUT_MS, 8_000)
 const EXTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, 300_000)
