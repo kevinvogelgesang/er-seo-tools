@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { createServer } from 'node:http'
+import { createServer as createNetServer } from 'node:net'
+import type { AddressInfo } from 'node:net'
 import {
   SafeUrlError,
   assertSafeHttpUrl,
   createPinnedLookup,
+  fetchWithPinnedAddress,
   isConstructibleResponseStatus,
   isPrivateOrInternalAddress,
   readResponseTextWithLimit,
@@ -10,11 +14,9 @@ import {
 } from './safe-url'
 
 describe('isConstructibleResponseStatus', () => {
-  // WHATWG `new Response(..., { status })` throws RangeError outside 200-599.
-  // Real servers (LinkedIn = 999, some CDNs) return out-of-range codes; the
-  // real transport MUST detect these and reject, never let `new Response` throw
-  // inside the response callback (which left the safeFetch promise forever-
-  // pending and hung the broken-link verifier -> 15-min job timeouts, 2026-07-06).
+  // WHATWG `new Response(..., { status })` throws RangeError outside 200-599
+  // (LinkedIn = 999, some CDNs). See the response-callback comment in
+  // fetchWithPinnedAddress for the 2026-07-06 incident this guards against.
   it('accepts the WHATWG-constructible range 200-599', () => {
     expect(isConstructibleResponseStatus(200)).toBe(true)
     expect(isConstructibleResponseStatus(204)).toBe(true)
@@ -41,6 +43,78 @@ describe('isConstructibleResponseStatus', () => {
     // sanity: the values we reject really do throw in the constructor
     expect(() => new Response(null, { status: 999 })).toThrow(RangeError)
   })
+})
+
+describe('fetchWithPinnedAddress (real transport against loopback)', () => {
+  // Drives the ACTUAL node:http transport — the code path the 2026-07-06 hang
+  // lived in. fetchWithPinnedAddress does no address validation (that lives in
+  // resolveSafeHttpUrl), which is what makes a loopback server reachable here;
+  // production traffic still goes through safeFetch's full SSRF pipeline.
+  const resolvedFor = (url: URL) => ({
+    url,
+    addresses: [{ address: '127.0.0.1', family: 4 as const }],
+  })
+
+  async function withHttpServer(
+    handler: Parameters<typeof createServer>[1],
+    run: (url: URL) => Promise<void>
+  ) {
+    const server = createServer(handler)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    try {
+      await run(new URL(`http://127.0.0.1:${port}/`))
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+
+  it('rejects with SafeUrlError — never hangs — on out-of-range status 999', async () => {
+    await withHttpServer(
+      (_req, res) => {
+        res.writeHead(999)
+        res.end()
+      },
+      async (url) => {
+        await expect(fetchWithPinnedAddress(url, undefined, resolvedFor(url)))
+          .rejects.toThrow('Unsupported response status: 999')
+        await expect(fetchWithPinnedAddress(url, undefined, resolvedFor(url)))
+          .rejects.toBeInstanceOf(SafeUrlError)
+      }
+    )
+  }, 10_000)
+
+  it('resolves a normal 200 with body and headers', async () => {
+    await withHttpServer(
+      (_req, res) => {
+        res.writeHead(200, { 'x-check': 'yes' })
+        res.end('hello')
+      },
+      async (url) => {
+        const response = await fetchWithPinnedAddress(url, undefined, resolvedFor(url))
+        expect(response.status).toBe(200)
+        expect(response.headers.get('x-check')).toBe('yes')
+        expect(await response.text()).toBe('hello')
+      }
+    )
+  }, 10_000)
+
+  it('rejects via the idle-socket timeout when the server accepts but never responds', async () => {
+    const accepted: Array<{ destroy: () => void }> = []
+    const server = createNetServer((socket) => {
+      accepted.push(socket) // accept, send nothing — a tarpit
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const url = new URL(`http://127.0.0.1:${port}/`)
+    try {
+      await expect(fetchWithPinnedAddress(url, undefined, resolvedFor(url), 100))
+        .rejects.toThrow('Socket idle timeout')
+    } finally {
+      for (const socket of accepted) socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }, 10_000)
 })
 
 describe('isPrivateOrInternalAddress', () => {
@@ -140,6 +214,24 @@ describe('safeFetch', () => {
     expect(result.url).toBe('https://www.example.com/final')
     expect(result.redirects).toEqual(['https://www.example.com/final'])
     expect(await result.response.text()).toBe('ok')
+  })
+
+  it('cancels the unread body of intermediate redirect responses', async () => {
+    const cancelled = vi.fn()
+    const lookup = vi.fn(async () => [{ address: '93.184.216.34', family: 4 }])
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(
+        new ReadableStream({ cancel: cancelled }),
+        { status: 301, headers: { Location: 'https://www.example.com/final' } }
+      ))
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    await safeFetch('https://example.com', undefined, { lookup, transport })
+    // cancel() is fired-and-forgotten inside the redirect loop; let it land.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(cancelled).toHaveBeenCalled()
   })
 
   it('passes the validated DNS address to the transport for pinning', async () => {
