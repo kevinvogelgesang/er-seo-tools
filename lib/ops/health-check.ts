@@ -176,29 +176,45 @@ export async function collectHealthSignals(now: Date, since: number): Promise<He
   const stallMinutes = Number(process.env.QUEUE_STALL_MINUTES) || 60
   const stallBefore = new Date(now.getTime() - stallMinutes * 60_000)
 
-  const [newErroredSiteAudits, newErroredAdaAudits, newExhaustedJobs, stalled, backupMtime] =
-    await Promise.all([
-      prisma.siteAudit.count({ where: { status: 'error', updatedAt: { gt: sinceDate } } }),
-      // AdaAudit has NO updatedAt — its error paths set completedAt.
-      prisma.adaAudit.count({ where: { status: 'error', completedAt: { gt: sinceDate } } }),
-      prisma.job.count({ where: { status: 'error', updatedAt: { gt: sinceDate } } }),
-      prisma.siteAudit.findFirst({
-        where: { status: { in: TRANSIENT_STATUSES }, updatedAt: { lt: stallBefore } },
-        orderBy: { updatedAt: 'asc' },
-        select: { id: true, updatedAt: true },
-      }),
-      newestBackupMtimeMs(),
-    ])
+  const [
+    newErroredSiteAudits, newErroredAdaAudits, newExhaustedJobs, stalled, backupMtime,
+    erroredSiteAuditDetails, erroredAdaAuditDetails, exhaustedJobDetails,
+  ] = await Promise.all([
+    prisma.siteAudit.count({ where: { status: 'error', updatedAt: { gt: sinceDate } } }),
+    // AdaAudit has NO updatedAt — its error paths set completedAt.
+    prisma.adaAudit.count({ where: { status: 'error', completedAt: { gt: sinceDate } } }),
+    prisma.job.count({ where: { status: 'error', updatedAt: { gt: sinceDate } } }),
+    prisma.siteAudit.findFirst({
+      where: { status: { in: TRANSIENT_STATUSES }, updatedAt: { lt: stallBefore } },
+      orderBy: { updatedAt: 'asc' },
+      select: { id: true, updatedAt: true },
+    }),
+    newestBackupMtimeMs(),
+    // Detail rows: same window fields as the counts, newest-first, capped.
+    prisma.siteAudit.findMany({
+      where: { status: 'error', updatedAt: { gt: sinceDate } },
+      orderBy: { updatedAt: 'desc' }, take: 5,
+      select: { id: true, domain: true, error: true },
+    }),
+    prisma.adaAudit.findMany({
+      where: { status: 'error', completedAt: { gt: sinceDate } },
+      orderBy: { completedAt: 'desc' }, take: 5,
+      select: { id: true, url: true, error: true, siteAuditId: true },
+    }),
+    prisma.job.findMany({
+      where: { status: 'error', updatedAt: { gt: sinceDate } },
+      orderBy: { updatedAt: 'desc' }, take: 5,
+      select: { id: true, type: true, lastError: true, groupKey: true },
+    }),
+  ])
 
   return {
     newErroredSiteAudits,
     newErroredAdaAudits,
     newExhaustedJobs,
-    // Detail rows land in the next commit — empty arrays keep today's
-    // aggregate-count lines via the fallback above.
-    erroredSiteAuditDetails: [],
-    erroredAdaAuditDetails: [],
-    exhaustedJobDetails: [],
+    erroredSiteAuditDetails,
+    erroredAdaAuditDetails,
+    exhaustedJobDetails,
     stalledAudit: stalled
       ? { id: stalled.id, minutesStuck: Math.round((now.getTime() - stalled.updatedAt.getTime()) / 60_000) }
       : null,
