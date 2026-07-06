@@ -7,13 +7,15 @@
 // the result on CrawlRun.discoveryCoverageJson.
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 
-export type DiscoveryMode = 'sitemap' | 'shallow-crawl' | 'pre-discovered'
+export type DiscoveryMode = 'sitemap' | 'shallow-crawl' | 'pre-discovered' | 'hybrid'
 
 export interface DiscoveryCoverageInput {
   discoveredUrls: string[]
   internalLinks: Array<{ sourcePageUrl: string; targetUrl: string }>
   discoveryMode: DiscoveryMode | null
   discoveryCapped: boolean
+  sitemapBaseline?: string[] // sitemap-sourced subset of discoveredUrls; enables the intrinsic sitemapMissRate
+  sitemapCapped?: boolean // the sitemap portion alone exceeded HARD_CAP (drives sitemapApplicable)
 }
 
 export interface DiscoveryCoverageSampleEntry {
@@ -30,6 +32,11 @@ export interface DiscoveryCoverage {
   offBaselineCount: number
   missRate: number | null
   sample: DiscoveryCoverageSampleEntry[]
+  sitemapMissRate: number | null
+  sitemapApplicable: boolean
+  residualMissRate: number | null
+  residualApplicable: boolean
+  hybridCapped: boolean
 }
 
 const SAMPLE_CAP = 50
@@ -42,7 +49,7 @@ const TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_conten
 
 // Obvious non-page targets an <a href> may point at. Excluded from L so assets
 // never count as "missed pages". Extension checked on the pathname only.
-const NON_PAGE_EXT = /\.(pdf|zip|gz|jpe?g|png|gif|svg|webp|ico|docx?|xlsx?|pptx?|mp4|mp3|wav|css|js|mjs|json|xml|rss|txt|csv)$/i
+export const NON_PAGE_EXT = /\.(pdf|zip|gz|jpe?g|png|gif|svg|webp|ico|docx?|xlsx?|pptx?|mp4|mp3|wav|css|js|mjs|json|xml|rss|txt|csv)$/i
 
 /**
  * Coverage-specific normalizer applied identically to baseline + linked sets.
@@ -79,41 +86,54 @@ function isNonPage(normalizedUrl: string): boolean {
 }
 
 export function computeDiscoveryCoverage(input: DiscoveryCoverageInput): DiscoveryCoverage {
-  const { discoveredUrls, internalLinks, discoveryMode, discoveryCapped } = input
+  const { discoveredUrls, internalLinks, discoveryMode, discoveryCapped, sitemapBaseline, sitemapCapped } = input
 
-  const baseline = new Set(discoveredUrls.map(normalizeCoverageUrl))
+  const fullBaseline = new Set(discoveredUrls.map(normalizeCoverageUrl))
 
-  // Map normalized off-baseline target -> sorted unique source pages.
+  // linked set (normalized page targets, non-pages excluded) built once
   const linked = new Set<string>()
-  const offSources = new Map<string, Set<string>>()
+  const offSourcesFull = new Map<string, Set<string>>()
   for (const link of internalLinks) {
     const target = normalizeCoverageUrl(link.targetUrl)
     if (isNonPage(target)) continue
     linked.add(target)
-    if (!baseline.has(target)) {
-      let sources = offSources.get(target)
-      if (!sources) {
-        sources = new Set<string>()
-        offSources.set(target, sources)
-      }
-      sources.add(normalizeCoverageUrl(link.sourcePageUrl))
+    if (!fullBaseline.has(target)) {
+      let s = offSourcesFull.get(target)
+      if (!s) { s = new Set<string>(); offSourcesFull.set(target, s) }
+      s.add(normalizeCoverageUrl(link.sourcePageUrl))
     }
   }
 
-  const discoveredCount = baseline.size
+  const missAgainst = (base: Set<string>): number => {
+    const off = new Set<string>()
+    for (const t of linked) if (!base.has(t)) off.add(t)
+    const denom = base.size + off.size
+    return denom === 0 ? 0 : off.size / denom
+  }
+
+  const discoveredCount = fullBaseline.size
   const linkedInternalCount = linked.size
-  const offBaselineCount = offSources.size
+  const offBaselineCount = offSourcesFull.size
 
+  // Legacy fields: unchanged semantics (diff vs the FULL baseline, gated on the old rule).
   const applicable = discoveryMode === 'sitemap' && discoveryCapped === false
-  const denom = discoveredCount + offBaselineCount
-  const missRate = applicable ? (denom === 0 ? 0 : offBaselineCount / denom) : null
+  const missRate = applicable ? missAgainst(fullBaseline) : null
 
-  const sample: DiscoveryCoverageSampleEntry[] = [...offSources.keys()]
+  // Hybrid dual rates.
+  const hybridCapped = discoveryCapped === true
+  const hasSitemapBaseline = Array.isArray(sitemapBaseline)
+  const sitemapSet = hasSitemapBaseline ? new Set(sitemapBaseline!.map(normalizeCoverageUrl)) : null
+  const sitemapApplicable = hasSitemapBaseline && sitemapCapped !== true
+  const sitemapMissRate = sitemapApplicable ? missAgainst(sitemapSet!) : (hasSitemapBaseline ? null : missRate)
+  const residualApplicable = hasSitemapBaseline && !hybridCapped
+  const residualMissRate = residualApplicable ? missAgainst(fullBaseline) : null
+
+  const sample: DiscoveryCoverageSampleEntry[] = [...offSourcesFull.keys()]
     .sort()
     .slice(0, SAMPLE_CAP)
     .map((targetUrl) => ({
       targetUrl,
-      sourcePageUrls: [...offSources.get(targetUrl)!].sort().slice(0, SOURCES_PER_TARGET),
+      sourcePageUrls: [...offSourcesFull.get(targetUrl)!].sort().slice(0, SOURCES_PER_TARGET),
     }))
 
   return {
@@ -125,5 +145,10 @@ export function computeDiscoveryCoverage(input: DiscoveryCoverageInput): Discove
     offBaselineCount,
     missRate,
     sample,
+    sitemapMissRate,
+    sitemapApplicable,
+    residualMissRate,
+    residualApplicable,
+    hybridCapped,
   }
 }

@@ -132,6 +132,20 @@ Schedule tick is hardcoded 60 s (`lib/jobs/worker.ts:244`), not env-configurable
 | `BROKEN_LINK_EXTERNAL_TIMEOUT_MS` | 8000 | Per-request HEAD timeout for external checks (shorter than the 10s internal default). |
 | `BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS` | 300000 | Soft wall-clock cap on the external pass; further clamped by remaining job time (JOB_TIMEOUT_MS − elapsed − 60s reserve). Overflow → run status 'partial'. |
 
+### Hybrid discovery crawler (C6, seoIntent site audits only)
+
+| Var | Code default | Read site |
+|---|---|---|
+| `HYBRID_CRAWL_MAX_DEPTH` | 3 | `lib/ada-audit/sitemap-crawler.ts:28`. BFS hop limit from the seed set. |
+| `HYBRID_CRAWL_MAX_ADDED` | 300 | `sitemap-crawler.ts:29`. Max linked pages discovered beyond the seed set. |
+| `HYBRID_CRAWL_MAX_FETCHES` | 400 | `sitemap-crawler.ts:30`. Max total page fetches performed during the crawl. |
+| `HYBRID_CRAWL_TIME_BUDGET_MS` | 120000 | `sitemap-crawler.ts:31`. Crawl wall-clock budget ceiling; further clamped by remaining time in the `site-audit-discover` job. |
+| `HYBRID_CRAWL_CONCURRENCY` | 6 | `sitemap-crawler.ts:32`. Concurrent frontier fetches. |
+| `HYBRID_CRAWL_MAX_QUERY_VARIANTS_PER_PATH` | 5 | `sitemap-crawler.ts:33`. Faceted-nav trap guard — caps distinct query-string variants crawled per path. |
+| `HYBRID_CRAWL_MAX_PATH_SEGMENTS` | 12 | `sitemap-crawler.ts:34`. Calendar/deep-path trap guard — caps URL path-segment depth followed. |
+
+Applies only to `seoIntent` site audits (hybrid discovery: sitemap-seeded crawl that follows same-domain links); non-seoIntent audits are unaffected.
+
 ### Retention / upload / analytics
 
 | Var | Purpose | Code default | Prod | Read site |

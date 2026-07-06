@@ -183,3 +183,89 @@ describe('jobs/handlers/site-audit-discover', () => {
     await expect(runSiteAuditDiscoverJob({ nope: true } as never)).rejects.toThrow(/payload/i)
   })
 })
+
+describe('jobs/handlers/site-audit-discover — hybrid discovery wiring (Task 6)', () => {
+  beforeEach(async () => {
+    vi.mocked(discoverPages).mockReset()
+    vi.mocked(finalizeSiteAudit).mockClear()
+    await clearTestState()
+  })
+
+  it('seoIntent audit: calls discoverPages with hybrid:true and persists discoveryMode=hybrid + non-null discoverySourcesJson', async () => {
+    const site = await seedQueued('hybrid-seo', { seoIntent: true })
+    const urls = [`https://${PREFIX}hybrid-seo/a`, `https://${PREFIX}hybrid-seo/b`]
+    vi.mocked(discoverPages).mockResolvedValue({
+      urls,
+      mode: 'hybrid',
+      capped: false,
+      coverage: {
+        sources: { [urls[0]]: 'sitemap', [urls[1]]: 'linked' },
+        sitemapCount: 1,
+        sitemapCapped: false,
+        stoppedBy: 'exhausted',
+        fetches: 2,
+      },
+    })
+
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+
+    expect(discoverPages).toHaveBeenCalledWith(site.domain, { hybrid: true, timeBudgetMs: expect.any(Number) })
+    // Regression guard: a fresh (non-pre-discovered) seoIntent discovery must
+    // hybrid-expand exactly ONCE in this invocation — the pre-discovered
+    // hybrid-expand branch must not re-fire off a stale in-memory `audit`
+    // snapshot and re-crawl the set this same run just produced.
+    expect(discoverPages).toHaveBeenCalledTimes(1)
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(s?.discoveryMode).toBe('hybrid')
+    expect(s?.discoverySourcesJson).not.toBeNull()
+    const sources = JSON.parse(s!.discoverySourcesJson!)
+    expect(sources).toMatchObject({
+      v: 1,
+      sources: { [urls[0]]: 'sitemap', [urls[1]]: 'linked' },
+      sitemapCount: 1,
+      sitemapCapped: false,
+      stoppedBy: 'exhausted',
+      fetches: 2,
+    })
+  })
+
+  it('non-seoIntent audit: calls discoverPages with hybrid:false and discoverySourcesJson stays null', async () => {
+    const site = await seedQueued('sitemap-only')
+    const urls = [`https://${PREFIX}sitemap-only/a`]
+    vi.mocked(discoverPages).mockResolvedValue({ urls, mode: 'sitemap', capped: false })
+
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+
+    expect(discoverPages).toHaveBeenCalledWith(site.domain, { hybrid: false, timeBudgetMs: expect.any(Number) })
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(s?.discoveryMode).toBe('sitemap')
+    expect(s?.discoverySourcesJson).toBeNull()
+  })
+
+  it('pre-discovered seoIntent audit (seeded discoveredUrls, no source map yet): hybrid-expands from the stored seeds', async () => {
+    const seeds = [`https://${PREFIX}predisc-seo/a`]
+    const site = await seedQueued('predisc-seo', {
+      seoIntent: true,
+      discoveredUrls: JSON.stringify(seeds),
+      pagesTotal: 1,
+    })
+    const expanded = [...seeds, `https://${PREFIX}predisc-seo/b`]
+    vi.mocked(discoverPages).mockResolvedValue({
+      urls: expanded,
+      mode: 'hybrid',
+      capped: false,
+      coverage: { sources: { [expanded[1]]: 'linked' }, sitemapCount: 1, sitemapCapped: false, stoppedBy: 'exhausted', fetches: 1 },
+    })
+
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+
+    expect(discoverPages).toHaveBeenCalledTimes(1)
+    expect(discoverPages).toHaveBeenCalledWith(site.domain, { hybrid: true, seeds, timeBudgetMs: expect.any(Number) })
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(s?.discoveryMode).toBe('hybrid')
+    expect(JSON.parse(s!.discoveredUrls!)).toEqual(expanded)
+    expect(s?.pagesTotal).toBe(2)
+    expect(s?.discoverySourcesJson).not.toBeNull()
+    expect(await prisma.adaAudit.count({ where: { siteAuditId: site.id } })).toBe(2)
+  })
+})

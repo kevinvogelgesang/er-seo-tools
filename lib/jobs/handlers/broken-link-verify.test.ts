@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
-import { runBrokenLinkVerify, type VerifyDeps } from './broken-link-verify'
+import { runBrokenLinkVerify, deriveSitemapBaseline, type VerifyDeps } from './broken-link-verify'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 
 const DOMAIN = 'c6blv.example.com'
@@ -51,6 +51,33 @@ const liveRun = (id: string) =>
     where: { siteAuditId_tool: { siteAuditId: id, tool: 'seo-parser' } },
     include: { findings: true },
   })
+
+describe('deriveSitemapBaseline', () => {
+  it('derives the sitemap baseline from the source map', () => {
+    const json = JSON.stringify({
+      v: 1,
+      sources: { 'https://x.com/a': 'sitemap', 'https://x.com/b': 'linked', 'https://x.com/c': 'seed' },
+      sitemapCount: 2,
+      sitemapCapped: false,
+    })
+    const d = deriveSitemapBaseline(json)
+    expect(d.baseline!.sort()).toEqual(['https://x.com/a', 'https://x.com/c'])
+    expect(d.sitemapCapped).toBe(false)
+  })
+
+  it('returns undefined for null / non-hybrid', () => {
+    expect(deriveSitemapBaseline(null)).toEqual({ baseline: undefined, sitemapCapped: undefined })
+  })
+
+  it('returns undefined for malformed JSON', () => {
+    expect(deriveSitemapBaseline('{not json')).toEqual({ baseline: undefined, sitemapCapped: undefined })
+  })
+
+  it('returns undefined when sources is missing or not an object', () => {
+    expect(deriveSitemapBaseline(JSON.stringify({ v: 1 }))).toEqual({ baseline: undefined, sitemapCapped: undefined })
+    expect(deriveSitemapBaseline(JSON.stringify({ v: 1, sources: null }))).toEqual({ baseline: undefined, sitemapCapped: undefined })
+  })
+})
 
 describe('runBrokenLinkVerify', () => {
   it('writes a live-scan run with broken findings and deletes harvest rows', async () => {

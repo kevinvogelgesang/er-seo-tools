@@ -32,4 +32,27 @@ describe('DiscoveryCoverageSection', () => {
     render(<DiscoveryCoverageSection run={cov({ applicable: true, mode: 'sitemap', capped: false, discoveredCount: 8, offBaselineCount: 0, missRate: 0, sample: [] })} />)
     expect(screen.getByText(/every internally-linked URL was in the sitemap/i)).toBeTruthy()
   })
+
+  it('shows dual miss-rate for a successful hybrid run, not the "not measured" text', () => {
+    render(
+      <DiscoveryCoverageSection
+        run={cov({
+          mode: 'hybrid',
+          capped: false,
+          applicable: false,
+          discoveredCount: 10,
+          offBaselineCount: 2,
+          missRate: null,
+          sample: [],
+          sitemapMissRate: 0.4,
+          sitemapApplicable: true,
+          residualMissRate: 0.05,
+          residualApplicable: true,
+        })}
+      />,
+    )
+    expect(screen.getByText(/40% of internally-reachable URLs/i)).toBeTruthy()
+    expect(screen.getByText(/5% remained undiscovered/i)).toBeTruthy()
+    expect(screen.queryByText(/not measured/i)).toBeNull()
+  })
 })

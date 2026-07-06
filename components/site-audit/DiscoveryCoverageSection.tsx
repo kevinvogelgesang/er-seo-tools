@@ -17,7 +17,7 @@ function Card({ children }: { children: React.ReactNode }) {
 }
 
 interface CoverageData {
-  mode: 'sitemap' | 'shallow-crawl' | 'pre-discovered' | null
+  mode: 'sitemap' | 'shallow-crawl' | 'pre-discovered' | 'hybrid' | null
   capped: boolean
   applicable: boolean
   discoveredCount: number
@@ -25,6 +25,11 @@ interface CoverageData {
   offBaselineCount: number
   missRate: number | null
   sample: Array<{ targetUrl: string; sourcePageUrls: string[] }>
+  sitemapMissRate?: number | null
+  sitemapApplicable?: boolean
+  residualMissRate?: number | null
+  residualApplicable?: boolean
+  hybridCapped?: boolean
 }
 
 export function DiscoveryCoverageSection({
@@ -45,6 +50,47 @@ export function DiscoveryCoverageSection({
       Discovery coverage
     </h2>
   )
+
+  if (data.mode === 'hybrid') {
+    const sPct = data.sitemapMissRate != null ? Math.round(data.sitemapMissRate * 100) : null
+    const rPct = data.residualMissRate != null ? Math.round(data.residualMissRate * 100) : null
+    return (
+      <Card>
+        {heading}
+        <p className="mt-1 text-[13px] font-body text-navy/70 dark:text-white/70">
+          {sPct != null ? (
+            <>The sitemap omitted{' '}
+              <span className="font-semibold text-navy dark:text-white">{sPct}% of internally-reachable URLs</span>.{' '}</>
+          ) : (
+            <>The sitemap miss-rate was not measurable for this run.{' '}</>
+          )}
+          {rPct != null
+            ? <>Hybrid discovery crawled linked pages; {rPct}% remained undiscovered.</>
+            : <>Hybrid discovery expanded the crawl beyond the sitemap.</>}
+        </p>
+        {data.sample.length > 0 && (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-[13px] font-body text-navy/60 dark:text-white/60">
+              Show {data.sample.length} URL{data.sample.length === 1 ? '' : 's'} still off-baseline
+            </summary>
+            <ul className="mt-1 space-y-1">
+              {data.sample.map((s) => (
+                <li key={s.targetUrl} className="text-[12px] font-mono text-navy/70 dark:text-white/70 break-all">
+                  {s.targetUrl}
+                  {s.sourcePageUrls.length > 0 && (
+                    <span className="text-navy/40 dark:text-white/40">
+                      {' '}← {s.sourcePageUrls[0]}
+                      {s.sourcePageUrls.length > 1 ? ` (+${s.sourcePageUrls.length - 1})` : ''}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </Card>
+    )
+  }
 
   if (!data.applicable) {
     return (

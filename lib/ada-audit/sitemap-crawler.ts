@@ -5,6 +5,10 @@ import {
   safeFetch,
 } from '../security/safe-url'
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
+import { hybridCrawl, type CrawlBounds, type CrawlSource, type FetchedPage } from './seo/hybrid-crawl'
+import { parseRobots, type RobotsRules } from './seo/robots-rules'
+import { sameDomain } from './link-harvest'
+import { parsePositiveInt } from '@/lib/jobs/config'
 
 const HARD_CAP = 1000
 const FETCH_TIMEOUT = 15_000
@@ -18,6 +22,16 @@ const MAX_ROBOTS_BYTES = 500_000
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
+// ─── Hybrid-crawl env tunables ───────────────────────────────────────────────
+
+const HY_MAX_DEPTH = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_DEPTH, 3)
+const HY_MAX_ADDED = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_ADDED, 300)
+const HY_MAX_FETCHES = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_FETCHES, 400)
+const HY_TIME_BUDGET = () => parsePositiveInt(process.env.HYBRID_CRAWL_TIME_BUDGET_MS, 120_000)
+const HY_CONCURRENCY = () => parsePositiveInt(process.env.HYBRID_CRAWL_CONCURRENCY, 6)
+const HY_QUERY_VARIANTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_QUERY_VARIANTS_PER_PATH, 5)
+const HY_PATH_SEGMENTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_PATH_SEGMENTS, 12)
 
 // ─── XML helpers ─────────────────────────────────────────────────────────────
 
@@ -92,23 +106,59 @@ async function fetchSitemapXml(url: string): Promise<string | null> {
   return await fetchSitemapViaBrowser(url)
 }
 
-async function fetchRobotsTxt(base: string): Promise<string[]> {
+/** Single robots.txt fetch — returns the raw body, or '' on any failure. */
+async function fetchRobotsRaw(base: string): Promise<string> {
   try {
     const { response: res } = await safeFetch(`${base}/robots.txt`, {
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     })
-    if (!res.ok) return []
+    if (!res.ok) return ''
     const { text, truncated } = await readResponseTextWithLimit(res, MAX_ROBOTS_BYTES)
-    if (truncated) return []
-    const urls: string[] = []
-    for (const line of text.split('\n')) {
-      const match = line.match(/^\s*Sitemap:\s*(.+)/i)
-      if (match) urls.push(match[1].trim())
-    }
-    return urls
+    if (truncated) return ''
+    return text
   } catch {
-    return []
+    return ''
+  }
+}
+
+/** Pure `Sitemap:` line scan over an already-fetched robots.txt body. */
+function extractSitemapUrls(text: string): string[] {
+  const urls: string[] = []
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\s*Sitemap:\s*(.+)/i)
+    if (match) urls.push(match[1].trim())
+  }
+  return urls
+}
+
+/** Raw-HTTP fetch of a page's same-doc <a href>s + the post-redirect final URL.
+ *  Returns null on any fetch failure or if the final URL left the audited host. */
+export async function fetchPageLinks(url: string, auditedHost: string): Promise<FetchedPage | null> {
+  try {
+    const { response: res, url: finalUrl } = await safeFetch(url, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,*/*' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+    })
+    if (!res.ok) return null
+    const ct = res.headers.get('content-type') ?? ''
+    if (!ct.includes('html')) return null
+    let finalHost: string
+    try {
+      finalHost = new URL(finalUrl).hostname.toLowerCase()
+    } catch {
+      return null
+    }
+    if (!sameDomain(finalHost, auditedHost.toLowerCase())) return null
+    const { text, truncated } = await readResponseTextWithLimit(res, MAX_HTML_BYTES)
+    if (truncated) return null
+    const hrefs: string[] = []
+    const re = /<a[^>]+href=["']([^"']+)["']/gi
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) hrefs.push(m[1])
+    return { links: hrefs, finalUrl }
+  } catch {
+    return null
   }
 }
 
@@ -225,7 +275,7 @@ async function collectFromSitemap(xml: string, normDomain: string): Promise<stri
   return pageUrls
 }
 
-// ─── Main export ─────────────────────────────────────────────────────────────
+// ─── Seed resolution (sitemap → shallow-crawl fallback) ─────────────────────
 
 /**
  * Discovers pages for a domain via sitemap.xml (checking robots.txt, common paths).
@@ -233,19 +283,19 @@ async function collectFromSitemap(xml: string, normDomain: string): Promise<stri
  * Returns all discovered URLs belonging to the domain, up to HARD_CAP (1000),
  * plus provenance: `mode` ('sitemap' | 'shallow-crawl') and `capped` (true when
  * the sitemap yielded more than HARD_CAP unique pages, computed before slicing).
- * Throws if the domain fails SSRF checks or no pages are discovered.
+ * Throws if no pages are discovered. The SSRF check on the domain itself runs
+ * in the caller (`discoverPages`), before robots.txt is even fetched — do not
+ * re-check here, that would fetch-then-check instead of check-then-fetch.
  */
-export async function discoverPages(
+async function resolveSeedsReal(
   domain: string,
+  robotsText: string,
 ): Promise<{ urls: string[]; mode: 'sitemap' | 'shallow-crawl'; capped: boolean }> {
   const normDomain = normaliseDomain(domain)
-
-  // SSRF check on the domain itself before any fetch
   const base = `https://${normDomain}`
-  await assertSafeHttpUrl(base)
 
-  // 1. Check robots.txt for Sitemap: directives
-  const robotsSitemapUrls = await fetchRobotsTxt(base)
+  // 1. Sitemap: directives already extracted from the (already-fetched) robots.txt
+  const robotsSitemapUrls = extractSitemapUrls(robotsText)
 
   // 2. Build ordered list of sitemap URLs to try
   const sitemapCandidates = [
@@ -304,4 +354,132 @@ export async function discoverPages(
   }
 
   return { urls: filtered, mode: 'sitemap', capped: deduped.length > HARD_CAP }
+}
+
+// ─── Hybrid-crawl-aware discovery (deps-injected core + public wrapper) ─────
+
+interface DiscoverDeps {
+  resolveSeeds: (domain: string) => Promise<{ urls: string[]; mode: 'sitemap' | 'shallow-crawl'; capped: boolean }>
+  fetchPageLinks: (url: string) => Promise<FetchedPage | null>
+  now: () => number
+  robots?: RobotsRules
+}
+
+export interface DiscoverResult {
+  urls: string[]
+  mode: 'sitemap' | 'shallow-crawl' | 'hybrid'
+  capped: boolean
+  coverage?: { sources: Record<string, CrawlSource>; sitemapCount: number; sitemapCapped: boolean; stoppedBy: string; fetches: number }
+}
+
+/**
+ * Deps-injected discovery core (exported test-only). Resolves seeds (sitemap
+ * or shallow-crawl, unless `opts.seeds` is provided), then — when
+ * `opts.hybrid` is set — expands the seed set via `hybridCrawl`. When
+ * `opts.hybrid` is falsy, returns exactly the pre-existing shape (no
+ * `coverage`, mode never `'hybrid'`) — this is the regression contract for
+ * `discoverPages(domain)` / `discoverPages(domain, { hybrid: false })`.
+ */
+export async function discoverPagesWithDeps(
+  domain: string,
+  opts: { hybrid?: boolean; seeds?: string[]; timeBudgetMs?: number },
+  deps: DiscoverDeps,
+): Promise<DiscoverResult> {
+  const normDomain = normaliseDomain(domain)
+  const host = normDomain
+
+  // Resolve seeds: provided (pre-discovered) or via sitemap/shallow.
+  let seedMode: 'sitemap' | 'shallow-crawl'
+  let seedUrls: string[]
+  let seedCapped: boolean
+  let seedSource: 'sitemap' | 'seed' | 'shallow'
+  if (opts.seeds) {
+    seedUrls = [...new Set(opts.seeds)]
+    seedMode = 'sitemap'
+    seedCapped = false
+    seedSource = 'seed'
+  } else {
+    const resolved = await deps.resolveSeeds(domain)
+    seedUrls = resolved.urls
+    seedMode = resolved.mode
+    seedCapped = resolved.capped
+    seedSource = resolved.mode === 'shallow-crawl' ? 'shallow' : 'sitemap'
+  }
+
+  if (!opts.hybrid) {
+    return { urls: seedUrls, mode: seedMode, capped: seedCapped }
+  }
+
+  const robots = deps.robots ?? { disallow: [], allow: [] }
+  // Codex #4: resolveSeedsReal already sliced to HARD_CAP, so `seedUrls.length >
+  // HARD_CAP` is always false. The sitemap portion's cap comes from the
+  // resolver's `capped` flag (sitemap mode) or, for provided seeds, whether the
+  // raw seed count exceeded the cap before slicing.
+  const sitemapCappedBefore = opts.seeds ? opts.seeds.length > HARD_CAP : (seedSource === 'sitemap' && seedCapped)
+  const bounds: CrawlBounds = {
+    maxDepth: HY_MAX_DEPTH(),
+    maxAdded: HY_MAX_ADDED(),
+    maxFetches: HY_MAX_FETCHES(),
+    timeBudgetMs: Math.min(opts.timeBudgetMs ?? Number.POSITIVE_INFINITY, HY_TIME_BUDGET()),
+    hardCap: HARD_CAP,
+    maxQueryVariantsPerPath: HY_QUERY_VARIANTS(),
+    maxPathSegments: HY_PATH_SEGMENTS(),
+    concurrency: HY_CONCURRENCY(),
+  }
+  const crawl = await hybridCrawl(
+    seedUrls.map((u) => ({ url: u, source: seedSource })),
+    host,
+    bounds,
+    { fetchPageLinks: deps.fetchPageLinks, now: deps.now },
+    robots,
+  )
+  // Codex #5: a set of exactly HARD_CAP is NOT capped (matches existing
+  // discoverPages semantics: capped only when a source overflowed the cap).
+  const capped = seedCapped || crawl.stoppedBy === 'hardCap'
+  return {
+    urls: crawl.urls,
+    // Explicit `opts.seeds` is itself a hybrid-flow signal (skips normal
+    // seed resolution), so it reports 'hybrid' even when the crawl adds
+    // nothing beyond the provided seeds; otherwise 'hybrid' only when the
+    // crawl actually expanded the sitemap/shallow seed set.
+    mode: opts.seeds || crawl.addedByCrawl > 0 ? 'hybrid' : seedMode,
+    capped,
+    coverage: {
+      sources: crawl.sources,
+      sitemapCount: crawl.sitemapCount,
+      sitemapCapped: sitemapCappedBefore,
+      stoppedBy: crawl.stoppedBy,
+      fetches: crawl.fetches,
+    },
+  }
+}
+
+/**
+ * Public discovery entrypoint. Fetches robots.txt exactly once (feeding both
+ * the sitemap-candidate resolution AND the hybrid crawl's Disallow rules),
+ * then delegates to `discoverPagesWithDeps` with real deps.
+ *
+ * `discoverPages(domain)` and `discoverPages(domain, { hybrid: false })` are
+ * the pre-existing regression contract: identical shape/behavior to the
+ * original sitemap→shallow-crawl-only implementation.
+ */
+export async function discoverPages(
+  domain: string,
+  opts: { hybrid?: boolean; seeds?: string[]; timeBudgetMs?: number } = {},
+): Promise<DiscoverResult> {
+  const normDomain = normaliseDomain(domain)
+  const base = `https://${normDomain}`
+
+  // SSRF check on the domain itself before any fetch — must precede the
+  // robots.txt fetch, not just the sitemap-candidate fetches, so a request
+  // to a private/internal domain never reaches the network at all.
+  await assertSafeHttpUrl(base)
+
+  const robotsText = await fetchRobotsRaw(base) // single robots fetch
+  return discoverPagesWithDeps(domain, opts, {
+    resolveSeeds: (d) => resolveSeedsReal(d, robotsText),
+    fetchPageLinks: (u) => fetchPageLinks(u, normDomain),
+    now: () => Date.now(),
+    robots: parseRobots(robotsText),
+  })
 }
