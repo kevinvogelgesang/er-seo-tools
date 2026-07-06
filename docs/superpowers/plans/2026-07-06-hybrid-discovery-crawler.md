@@ -927,7 +927,12 @@ export async function discoverPagesWithDeps(
   const sitemapCappedBefore = opts.seeds ? opts.seeds.length > HARD_CAP : (seedSource === 'sitemap' && seedCapped)
   const bounds: CrawlBounds = {
     maxDepth: HY_MAX_DEPTH(), maxAdded: HY_MAX_ADDED(), maxFetches: HY_MAX_FETCHES(),
-    timeBudgetMs: opts.timeBudgetMs ?? HY_TIME_BUDGET(), hardCap: HARD_CAP,
+    // Budget = min(env ceiling, remaining-job-time passed by the handler). The
+    // env HYBRID_CRAWL_TIME_BUDGET_MS is the PRIMARY ceiling (must stay live so
+    // it's tunable without redeploy); opts.timeBudgetMs only clamps it DOWN when
+    // little job time remains. `??` (fallback) would let the handler's larger
+    // remaining-time value bypass the ceiling entirely — use Math.min.
+    timeBudgetMs: Math.min(opts.timeBudgetMs ?? Number.POSITIVE_INFINITY, HY_TIME_BUDGET()), hardCap: HARD_CAP,
     maxQueryVariantsPerPath: HY_QUERY_VARIANTS(), maxPathSegments: HY_PATH_SEGMENTS(),
     concurrency: HY_CONCURRENCY(),
   }
