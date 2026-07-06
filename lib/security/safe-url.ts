@@ -296,6 +296,17 @@ export function createPinnedLookup(address: { address: string; family: number })
   }) as any
 }
 
+/**
+ * True when `status` is within the range the WHATWG `Response` constructor
+ * accepts (200-599 inclusive). Out-of-range codes — LinkedIn's anti-bot 999,
+ * stray 1xx, malformed CDN responses — make `new Response(..., { status })`
+ * throw RangeError, so the real transport must screen them before constructing
+ * a Response (see fetchWithPinnedAddress).
+ */
+export function isConstructibleResponseStatus(status: number): boolean {
+  return Number.isInteger(status) && status >= 200 && status <= 599
+}
+
 async function fetchWithPinnedAddress(
   url: URL,
   init: RequestInit | undefined,
@@ -329,17 +340,46 @@ async function fetchWithPinnedAddress(
         return
       }
 
-      const body = status === 204 || status === 205 || status === 304
-        ? null
-        : Readable.toWeb(res) as ReadableStream<Uint8Array>
-      if (!body) res.resume()
+      // WHATWG `new Response(..., { status })` throws RangeError for statuses
+      // outside 200-599 (e.g. LinkedIn's anti-bot 999). That throw happened
+      // inside this response callback AFTER `settled` was set, so neither
+      // resolve nor reject ran -> the promise hung forever, blocking the
+      // broken-link verifier's worker until the 15-min job timeout (2026-07-06).
+      // Detect it up front and reject; callers treat this like any network
+      // failure (-> 'unconfirmed', i.e. reachable-but-unclassifiable, never
+      // reported as broken).
+      if (!isConstructibleResponseStatus(status)) {
+        settled = true
+        reject(new SafeUrlError(`Unsupported response status: ${status}`))
+        res.destroy()
+        return
+      }
 
+      // Build the WHATWG Response inside try/catch. ANY synchronous throw in this
+      // response callback (Readable.toWeb, responseHeadersFromIncoming, or
+      // new Response on a statusText/header edge case) would otherwise escape
+      // with `settled` already true — leaving the promise forever-pending and
+      // hanging the caller (the failure class behind the 2026-07-06 verifier
+      // timeouts). Reject instead so callers degrade normally.
+      let response: Response
+      try {
+        const body = status === 204 || status === 205 || status === 304
+          ? null
+          : Readable.toWeb(res) as ReadableStream<Uint8Array>
+        if (!body) res.resume()
+        response = new Response(body, {
+          status,
+          statusText: res.statusMessage,
+          headers: responseHeadersFromIncoming(res.headers),
+        })
+      } catch (err) {
+        settled = true
+        res.destroy()
+        reject(err instanceof Error ? err : new Error(String(err)))
+        return
+      }
       settled = true
-      resolve(new Response(body, {
-        status,
-        statusText: res.statusMessage,
-        headers: responseHeadersFromIncoming(res.headers),
-      }))
+      resolve(response)
     })
 
     const abort = () => {

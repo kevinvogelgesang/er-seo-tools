@@ -3,10 +3,45 @@ import {
   SafeUrlError,
   assertSafeHttpUrl,
   createPinnedLookup,
+  isConstructibleResponseStatus,
   isPrivateOrInternalAddress,
   readResponseTextWithLimit,
   safeFetch,
 } from './safe-url'
+
+describe('isConstructibleResponseStatus', () => {
+  // WHATWG `new Response(..., { status })` throws RangeError outside 200-599.
+  // Real servers (LinkedIn = 999, some CDNs) return out-of-range codes; the
+  // real transport MUST detect these and reject, never let `new Response` throw
+  // inside the response callback (which left the safeFetch promise forever-
+  // pending and hung the broken-link verifier -> 15-min job timeouts, 2026-07-06).
+  it('accepts the WHATWG-constructible range 200-599', () => {
+    expect(isConstructibleResponseStatus(200)).toBe(true)
+    expect(isConstructibleResponseStatus(204)).toBe(true)
+    expect(isConstructibleResponseStatus(301)).toBe(true)
+    expect(isConstructibleResponseStatus(404)).toBe(true)
+    expect(isConstructibleResponseStatus(599)).toBe(true)
+  })
+  it('rejects out-of-range statuses (incl. LinkedIn-style 999 and 1xx)', () => {
+    expect(isConstructibleResponseStatus(999)).toBe(false)
+    expect(isConstructibleResponseStatus(600)).toBe(false)
+    expect(isConstructibleResponseStatus(199)).toBe(false)
+    expect(isConstructibleResponseStatus(100)).toBe(false)
+    expect(isConstructibleResponseStatus(0)).toBe(false)
+    expect(isConstructibleResponseStatus(-1)).toBe(false)
+  })
+  it('rejects non-integer / NaN statuses (Number.isInteger guard)', () => {
+    expect(isConstructibleResponseStatus(NaN)).toBe(false)
+    expect(isConstructibleResponseStatus(200.5)).toBe(false)
+  })
+  it('matches what new Response actually permits (no RangeError on accepted values)', () => {
+    for (const s of [200, 204, 301, 404, 599]) {
+      expect(() => new Response(null, { status: s })).not.toThrow()
+    }
+    // sanity: the values we reject really do throw in the constructor
+    expect(() => new Response(null, { status: 999 })).toThrow(RangeError)
+  })
+})
 
 describe('isPrivateOrInternalAddress', () => {
   it('blocks private, loopback, link-local, and unspecified IPv4 addresses', () => {
