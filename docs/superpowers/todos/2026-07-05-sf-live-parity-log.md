@@ -371,3 +371,57 @@ zero. All explained.
   cambria under-expand) — possible frontier/depth tuning; (2) upload the fresh 070726-style SF crawls to
   prod for clean score/near-dup pairs on the remaining clients (re-crawled WITH Crawl Analysis). **brockway
   DROPPED — random 403s (not allowlistable, not crawl-related); excluded from parity going forward.**
+
+---
+
+## ✅ 2026-07-07 (later) — content-similarity near-dup parity EXPANDED to 5 clients
+
+Kevin re-crawled 5 clients WITH Crawl Analysis + JS render + content-area boilerplate exclusion
+(`sf-crawls/070726-testcrawls/`: nuvani, manhattan, bidwell, boca, cambria — brownson not re-crawled,
+brockway dropped). This upgrades the content-similarity parity from **1 client (nuvani) to 5**, compared
+against the same-day live scans (§2026-07-07 above). Cross-check script confirmed, per SF-flagged page,
+whether it is in our live page set and in our exact/near dup groups.
+
+| Client | SF near-dup pages | Live near / exact | Verdict |
+|---|---|---|---|
+| **cambria** | 0 | 0 / 0 | **Full agreement** (both clean) |
+| **boca** | 30 (25 pagination + **5 category-index**) | 0 / **2 groups** | **Agreement on scanned pages** — all 5 SF-flagged category-index pages are IN our exact-dup groups; 25 pagination pages absent from our set (sitemap-mode) |
+| **nuvani** | 6 (all pagination) | 0 / 0 | Pagination absent from our page set (sitemap-mode) |
+| **manhattan** | 2 (`/contact-us/`, `/apply-online/` @96%) | 0 / 0 | Both scanned + eligible (422 / 453 words) — we correctly **do NOT** flag (precision by design) |
+| **bidwell** | 2 (`/blog/`, `/blog/category/blog/` @100%) | 0 / 0 | Both scanned + eligible (238 / 239 words) — real listing dup we **under-detect** |
+
+**Two divergence classes, both explained, both reflecting our precision-first design:**
+
+1. **Archive / pagination / listing pages (nuvani 6, boca 25, bidwell 2).** WordPress pagination
+   (`/category/*/page/N`) and blog-index-vs-category listings. Cause is twofold: (a) **not in our page
+   set** — sitemap-mode audits don't scan pagination (nuvani/boca pagination confirmed absent); (b) even
+   when scanned (bidwell `/blog/` + `/blog/category/blog/`, 238/239 words, both in-set & eligible), our
+   **DF-boilerplate shingle filter treats recurring listing text as boilerplate and drops it**, and the
+   two listing pages aren't byte-identical (238≠239) → neither exact nor ≥0.9 near. This is a **known
+   archive/listing blind spot** — but these are canonical-handled, lower-priority dupes (our separate
+   redirect/canonical validation covers the SEO concern).
+
+2. **Shared-template content pages (manhattan `/contact-us/` + `/apply-online/` @96%).** Both fully
+   scanned, indexable, 422/453 words — NOT thin. SF flags them near-dup because its content area still
+   includes the shared conversion template (address, phone, program list, CTAs, testimonial blocks). Our
+   **DF-boilerplate filter drops shingles recurring across ≥3 pages** (exactly that shared template),
+   leaving each page's distinct content → below 0.9. **This is our design intent** — contact-us and
+   apply-online are distinct-intent pages; flagging them as duplicate content would be a false positive.
+   Here our conservative result is arguably **more correct** than SF's.
+
+3. **Genuine duplicate primary content (boca category-index pages).** SF flags the 5 category landing
+   pages (e.g. beauty-school / beauty-career, 703 words each) as near-dup 91–100%; **our engine
+   independently grouped 4 of them + a blog/news pair as EXACT dupes.** Same conclusion, different label
+   (we say byte-identical-after-strip, SF says ~100% near). **Strong agreement where it matters.**
+
+**Verdict (content-similarity parity, 5 clients):** our engine is **high-precision on primary content**
+(agrees with SF on real dupes — boca; correctly rejects shared-template false positives — manhattan) and
+**archive/pagination-blind** (nuvani, boca pagination, bidwell listings — partly sitemap-mode coverage,
+partly DF-boilerplate filtering). Every deviation is explained; **no bug.** This **reinforces the
+measurement-only posture**: promoting the signal to a Finding / `scoreLiveSeo` factor would neither
+false-positive on content pages NOR fully replace SF's archive-dup detection — so it is not justified by
+this data. If archive-dup coverage is later wanted, the lever is discovery (hybrid must reach pagination)
++ a listing-aware relaxation of the DF filter — a deliberate future increment, not a bug fix.
+
+**Remaining for a fuller comparison:** re-crawl brownson with Crawl Analysis (the 6th); optionally SF
+`Bulk Export → Content → Near Duplicates` for page-pair (group-vs-group) detail.

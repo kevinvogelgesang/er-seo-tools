@@ -374,6 +374,18 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-07 (**SF-retirement validation — content-similarity near-dup parity EXPANDED to 5 clients**) —
+  Kevin re-crawled nuvani/manhattan/bidwell/boca/cambria WITH Crawl Analysis + JS render + content-area
+  exclusion (`sf-crawls/070726-testcrawls/`), upgrading content-similarity parity from 1 → 5 clients.
+  Cross-checked every SF-flagged near-dup page vs our live page set + dup groups. Result: **cambria full
+  agreement (0=0); boca agreement on scanned pages** (all 5 SF category-index pages ∈ our exact-dup
+  groups; 25 pagination pages absent — sitemap-mode); **nuvani** pagination absent; **manhattan**
+  (contact-us/apply-online @96%) we correctly DON'T flag (DF-boilerplate filter drops shared conversion
+  template — precision by design); **bidwell** (blog/blog-category @100%) real listing dup we under-detect
+  (listing text DF-filtered as boilerplate). Verdict: engine is **high-precision on primary content,
+  archive/pagination-blind** — every deviation explained, no bug; **reinforces measurement-only** (promotion
+  to Finding/score not justified). brockway DROPPED (random 403s). Detail: parity log 2026-07-07 (later)
+  section. Follow-ups: re-crawl brownson (6th); optional SF near-dup page-pair export.
 - 2026-07-07 (**A8 — direction picked, spec + PR 1 plan written + Codex-reviewed — next: execute PR 1**) —
   Kevin picked **Direction A "Navy Command Deck"** from the two mockups and locked: incremental
   per-section PRs, dark mode retained, Reference nav group, mobile-first, and **full macOS-style

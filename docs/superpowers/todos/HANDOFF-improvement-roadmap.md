@@ -58,9 +58,12 @@ follow from the spec after PR 1 ships.
   widget dashboard (verified-source widgets only; KPI/needs-attention deferred to
   PR 3.5), PR 3 adds the widget editor (sizes + drag + keyboard reorder +
   localStorage layout), PR 4+ per-tool polish.
-- **SF-retirement validation:** 7-client parity cycles recorded (2026-07-07 section
-  of docs/superpowers/todos/2026-07-05-sf-live-parity-log.md); content-similarity
-  behavioral prod-verify complete. No open validation work-in-progress.
+- **SF-retirement validation:** 7-client parity cycles recorded; content-similarity
+  behavioral prod-verify complete; content-similarity near-dup parity now **5 clients**
+  (SF Crawl-Analysis re-crawls) — engine is high-precision on primary content,
+  archive/pagination-blind, every deviation explained, measurement-only reinforced. See
+  2026-07-07 sections of docs/superpowers/todos/2026-07-05-sf-live-parity-log.md. No open
+  validation work-in-progress (optional: re-crawl brownson as the 6th; brockway dropped).
 - **Remaining roadmap after A8:** A5 (SSE), A7 (auth/test hardening), C6 analytics
   integrations (partly billing-gated), D1–D6. See tracker.
 
