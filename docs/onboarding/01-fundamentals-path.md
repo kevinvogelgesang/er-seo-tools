@@ -79,6 +79,22 @@ review comments, stage individual hunks (not just whole files), and read a
 `git add -p`, and `git log --stat` locally — these are core daily-driver
 skills here, not just PR mechanics.
 
+Commit hygiene matters as much as the code itself. Each commit should be
+one logical change — a fix, a copy tweak, one piece of a feature — never a
+grab bag of unrelated edits, because a reviewer reads a PR commit by commit
+and a mixed commit is harder to reason about (and harder to undo cleanly if
+something goes wrong later). Before you open a PR, read your own branch's
+`git log`: do the commit boundaries tell a readable story, and does each
+message say what changed, in the house style from Unit 1? If two commits
+are really one change — or one commit is really three — tidy that up
+*before* asking for review, not after.
+
+For responding to review comments, the best teacher is this repo's own
+history: open any merged PR in this repo on GitHub and read a review thread
+end to end — notice how every comment gets either a reply explaining a
+decision or a follow-up commit addressing it, and nothing is silently
+ignored. That's the expectation for your PRs too.
+
 **Repo anchor.** Browse this repo's own merged pull requests on GitHub
 (`github.com/kevinvogelgesang/er-seo-tools/pulls?q=is%3Apr+is%3Amerged`) and
 read a few descriptions. Then look at the branch names behind recent merges
@@ -231,6 +247,7 @@ covers what Node is, running scripts, and the basics of `npm` and
   "start": "next start",
   "lint": "tsc --noEmit",
   "test": "vitest run"
+  // …plus several more (db:*, test:*, audit:ci) you'll meet later
 }
 ```
 
