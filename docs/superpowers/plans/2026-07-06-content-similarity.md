@@ -70,15 +70,42 @@ In `lib/findings/types.ts`, in `CrawlRunInput`, immediately after the `reachabil
   contentSimilarityJson?: string | null
 ```
 
-- [ ] **Step 5: Verify types compile**
+- [ ] **Step 5: Add a schema/type round-trip test (Codex #11)**
 
-Run: `npm run lint`
-Expected: PASS (no errors). `writeFindingsRun` needs NO change — it spreads `run` into `crawlRun.create`.
+Create `lib/findings/content-similarity-column.test.ts` — a tiny DB round-trip that catches schema/type drift
+early (the full builder round-trip lands in Task 5, but Task 1 otherwise only typechecks):
+```ts
+import { describe, it, expect } from 'vitest'
+import { prisma } from '@/lib/db'
+import { randomUUID } from 'crypto'
 
-- [ ] **Step 6: Commit**
+describe('CrawlRun.contentSimilarityJson column', () => {
+  it('persists and reads back the JSON, and defaults to null', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: 'colcheck.test', status: 'complete' } })
+    const withJson = await prisma.crawlRun.create({
+      data: { id: randomUUID(), tool: 'seo-parser', source: 'live-scan', status: 'complete', siteAuditId: sa.id, contentSimilarityJson: '{"v":1}' },
+    })
+    expect(withJson.contentSimilarityJson).toBe('{"v":1}')
+    // default null when omitted (separate SiteAudit — one live-scan run per audit via the C6 compound unique)
+    const sa2 = await prisma.siteAudit.create({ data: { domain: 'colcheck.test', status: 'complete' } })
+    const noJson = await prisma.crawlRun.create({ data: { id: randomUUID(), tool: 'ada-audit', source: 'ada-audit', status: 'complete', siteAuditId: sa2.id } })
+    expect(noJson.contentSimilarityJson).toBeNull()
+    await prisma.siteAudit.deleteMany({ where: { domain: 'colcheck.test' } })
+  })
+})
+```
+(If `crawlRun.create` reports a missing required field, add it from the schema — the point is only to
+exercise the new column.)
+
+- [ ] **Step 6: Run + lint**
+
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/content-similarity-column.test.ts && npm run lint`
+Expected: PASS. `writeFindingsRun` needs NO change — it spreads `run` into `crawlRun.create`.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add prisma/schema.prisma prisma/migrations/20260706130000_content_similarity lib/findings/types.ts
+git add prisma/schema.prisma prisma/migrations/20260706130000_content_similarity lib/findings/types.ts lib/findings/content-similarity-column.test.ts
 git commit -m "feat(content-sim): schema — transient contentText + CrawlRun.contentSimilarityJson"
 ```
 
@@ -95,41 +122,48 @@ git commit -m "feat(content-sim): schema — transient contentText + CrawlRun.co
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `lib/ada-audit/seo/parse-seo-dom.test.ts` (follow the existing jsdom `document`-building pattern in that file):
+Add to `lib/ada-audit/seo/parse-seo-dom.test.ts` — use the file's existing `dom(html)` helper (JSDOM;
+there is NO global `document`/`window` in this node-env test file, Codex #3):
 ```ts
 describe('contentText capture (C6 Phase 5)', () => {
   it('excludes nav/header/footer/aside from contentText but not from wordCount', () => {
-    document.body.innerHTML = `
+    const r = dom(`<html><body>
       <header>Site Menu Home About Contact</header>
       <nav>Programs Admissions Tuition</nav>
       <main><p>Our nursing program prepares students for licensure in twelve months.</p></main>
-      <footer>Copyright 2026 All Rights Reserved Privacy Policy</footer>`
-    const r = parseSeoFromDocument(document, window)
+      <footer>Copyright 2026 All Rights Reserved Privacy Policy</footer></body></html>`)
     expect(r.contentText).toContain('nursing program prepares students')
     expect(r.contentText).not.toContain('Site Menu')
     expect(r.contentText).not.toContain('Copyright')
     expect(r.contentText).not.toContain('Programs Admissions')
-    // wordCount still counts ALL visible text (header+nav+main+footer)
-    expect(r.wordCount).toBeGreaterThan(15)
+    expect(r.wordCount).toBeGreaterThan(15) // wordCount still counts ALL visible text
   })
 
   it('sets contentTruncated when content exceeds the 30k cap and still counts all words', () => {
     const long = 'lorem ipsum dolor '.repeat(3000) // ~54k chars
-    document.body.innerHTML = `<main><p>${long}</p></main>`
-    const r = parseSeoFromDocument(document, window)
+    const r = dom(`<html><body><main><p>${long}</p></main></body></html>`)
     expect(r.contentTruncated).toBe(true)
     expect((r.contentText ?? '').length).toBeLessThanOrEqual(30_000)
     expect(r.wordCount).toBeGreaterThan(5000) // walk completed, count reflects full page
   })
 
   it('leaves contentText undefined when there is no main content', () => {
-    document.body.innerHTML = `<nav>Home About</nav><footer>Copyright</footer>`
-    const r = parseSeoFromDocument(document, window)
+    const r = dom(`<html><body><nav>Home About</nav><footer>Copyright</footer></body></html>`)
     expect(r.contentText).toBeUndefined()
     expect(r.contentTruncated).toBe(false)
   })
+
+  it('injected source stays SWC-helper-free (no escaping _type_of/module refs) — Codex #4', () => {
+    // The function is `.toString()`-injected into the page; verify the SOURCE it stringifies to
+    // contains no SWC helper leakage and no `typeof`.
+    const src = parseSeoFromDocument.toString()
+    expect(src).not.toMatch(/_type_of|_instanceof|_class_call_check|require\(/)
+    expect(src).not.toMatch(/\btypeof\b/) // typeof compiles to a module-scope helper at es2017
+  })
 })
 ```
+(If a stricter es2017-compile guard already exists elsewhere in the suite, this per-source grep is the
+minimum bar for the new code; keep it.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -200,37 +234,55 @@ git commit -m "feat(content-sim): capture bounded main-content text in parseSeoF
 ### Task 3: Transient persistence — `persistPageSeo`
 
 **Files:**
-- Modify: `lib/jobs/handlers/site-audit-page.ts` (`persistPageSeo` ~:93-125)
-- Test: `lib/jobs/handlers/site-audit-page.test.ts` (existing; if absent, add a focused DB-backed test file at that path)
+- Modify: `lib/jobs/handlers/site-audit-page.ts` (`persistPageSeo` ~:86-129 — add `export`, test-only, mirroring `_resetExtractorForTesting`; add the two fields to the `create`)
+- Test: `lib/jobs/handlers/site-audit-page.test.ts` (create if absent)
 
 **Interfaces:**
 - Consumes: `RawPageSeo.contentText`, `RawPageSeo.contentTruncated` (Task 2).
-- Produces: `HarvestedPageSeo` rows carrying `contentText` + `contentTruncated`.
+- Produces: `HarvestedPageSeo` rows carrying `contentText` + `contentTruncated`. `persistPageSeo` exported for testing.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Export `persistPageSeo` for testing**
 
-Add a DB-backed test (mirror the existing `persistPageSeo` / harvest-write test setup in the file; create a `SiteAudit` parent, call `persistPageSeo`, read back the row):
+In `lib/jobs/handlers/site-audit-page.ts`, change `async function persistPageSeo(` to:
 ```ts
-it('persists contentText + contentTruncated on the harvested row', async () => {
-  const audit = await prisma.siteAudit.create({ data: { domain: 'ex.test', wcagLevel: 'wcag21aa', status: 'complete' } })
-  await persistPageSeo(audit.id, 'https://ex.test/p', {
-    title: 't', metaDescription: undefined, robotsNoindex: false, canonicalUrl: undefined,
-    h1: 'h', h1Count: 1, h2Count: 0, wordCount: 120, schemaTypes: [], hreflang: [],
-    imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, loginLike: false,
-    contentText: 'the nursing program prepares students', contentTruncated: false,
-  } as RawPageSeo)
-  const row = await prisma.harvestedPageSeo.findFirst({ where: { siteAuditId: audit.id } })
-  expect(row?.contentText).toBe('the nursing program prepares students')
-  expect(row?.contentTruncated).toBe(false)
+// Exported for testing (see site-audit-page.test.ts); the production caller is runSiteAuditPageJob.
+export async function persistPageSeo(
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Create/extend `lib/jobs/handlers/site-audit-page.test.ts` (SiteAudit shape matches the working `broken-link-verify.test.ts` pattern — no `wcagLevel` needed):
+```ts
+import { describe, it, expect } from 'vitest'
+import { prisma } from '@/lib/db'
+import { persistPageSeo } from './site-audit-page'
+import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
+
+const seo = (over: Partial<RawPageSeo>): RawPageSeo => ({
+  title: 't', metaDescription: undefined, robotsNoindex: false, canonicalUrl: undefined,
+  h1: 'h', h1Count: 1, h2Count: 0, wordCount: 120, schemaTypes: [], hreflang: [],
+  imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, loginLike: false,
+  contentText: undefined, contentTruncated: false, ...over,
+})
+
+describe('persistPageSeo — content similarity fields', () => {
+  it('persists contentText + contentTruncated on the harvested row', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: 'persist.test', status: 'complete' } })
+    await persistPageSeo(audit.id, 'https://persist.test/p', seo({ contentText: 'the nursing program prepares students', contentTruncated: true }))
+    const row = await prisma.harvestedPageSeo.findFirst({ where: { siteAuditId: audit.id } })
+    expect(row?.contentText).toBe('the nursing program prepares students')
+    expect(row?.contentTruncated).toBe(true)
+    await prisma.siteAudit.delete({ where: { id: audit.id } })
+  })
 })
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [ ] **Step 3: Run to verify failure**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/site-audit-page.test.ts`
-Expected: FAIL (columns written as undefined / row missing fields).
+Expected: FAIL (columns written as null/undefined — fields not yet in the `create`).
 
-- [ ] **Step 3: Add the two fields to the `create`**
+- [ ] **Step 4: Add the two fields to the `create`**
 
 In `persistPageSeo`'s `prisma.harvestedPageSeo.create({ data: { … } })`, after the `detailsJson: …` line:
 ```ts
@@ -238,12 +290,12 @@ In `persistPageSeo`'s `prisma.harvestedPageSeo.create({ data: { … } })`, after
         contentTruncated: seo.contentTruncated,
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [ ] **Step 5: Run to verify pass**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/site-audit-page.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/jobs/handlers/site-audit-page.ts lib/jobs/handlers/site-audit-page.test.ts
@@ -270,75 +322,90 @@ git commit -m "feat(content-sim): persist contentText on the transient Harvested
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `lib/ada-audit/seo/content-similarity.test.ts`:
+Create `lib/ada-audit/seo/content-similarity.test.ts`. Fixtures use distinct-token runs to control
+Jaccard, all clear the default `minTokens=50` (Codex #1), and similarity-focused cases pass
+`NF` (`boilerplateDfRatio: 0.99` ≈ DF-off) so the DF filter doesn't erase the signal — DF behavior is
+exercised separately by the two boilerplate tests with default options (Codex #4):
 ```ts
 import { describe, it, expect } from 'vitest'
 import { computeContentSimilarity, type SimilarityPageInput } from './content-similarity'
 
 const p = (url: string, text: string, contentTruncated = false): SimilarityPageInput => ({ url, contentText: text, contentTruncated })
-const body = (extra = '') =>
-  'our nursing program prepares students for licensure in twelve months with clinical placement ' + extra
+const toks = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${i}`).join(' ')
+const NF = { boilerplateDfRatio: 0.99 } // effectively disables DF filtering for similarity-focused tests
 
 describe('computeContentSimilarity', () => {
   it('returns null with fewer than 2 eligible pages', () => {
-    expect(computeContentSimilarity([p('/a', body())])).toBeNull()
+    expect(computeContentSimilarity([p('/a', toks('w', 80))])).toBeNull()
   })
 
-  it('flags exact duplicates (identical normalized text)', () => {
-    const r = computeContentSimilarity([p('/a', body('alpha beta gamma')), p('/b', body('alpha beta gamma')), p('/c', 'entirely different content about culinary arts baking pastry techniques and kitchen safety standards')])!
+  it('flags exact duplicates and does not re-list them as a near group', () => {
+    const same = toks('w', 80)
+    const r = computeContentSimilarity([p('/a', same), p('/b', same), p('/c', toks('z', 80))], NF)!
     expect(r.exactDuplicateGroups).toHaveLength(1)
-    expect(r.exactDuplicateGroups[0].urls.sort()).toEqual(['/a', '/b'])
-    // an all-exact group is NOT re-listed as a near group
-    expect(r.nearDuplicateGroups.find(g => g.urls.sort().join() === '/a,/b')).toBeUndefined()
+    expect(r.exactDuplicateGroups[0].urls).toEqual(['/a', '/b'])
+    expect(r.nearDuplicateGroups.find(g => g.urls.join() === '/a,/b')).toBeUndefined()
   })
 
-  it('flags near duplicates below exact but above threshold', () => {
-    const base = ('word' + Array.from({ length: 200 }, (_, i) => ' w' + i).join(''))
-    const r = computeContentSimilarity([p('/a', base + ' tailone'), p('/b', base + ' tailtwo'), p('/c', 'unrelated ' + Array.from({ length: 200 }, (_, i) => ' z' + i).join(''))])!
+  it('flags near duplicates that are above threshold but not exact', () => {
+    const base = toks('w', 120)
+    const r = computeContentSimilarity([p('/a', base + ' xtail'), p('/b', base + ' ytail'), p('/c', toks('z', 120))], NF)!
     const g = r.nearDuplicateGroups.find(x => x.urls.includes('/a') && x.urls.includes('/b'))
     expect(g).toBeDefined()
     expect(g!.similarity).toBeGreaterThanOrEqual(0.9)
+    expect(g!.similarity).toBeLessThan(1)
+    expect(r.exactDuplicateGroups).toHaveLength(0) // near, not exact
   })
 
-  it('does NOT group two pages that share only a large boilerplate block (df floor still lets 2-page real dups through)', () => {
-    const boiler = Array.from({ length: 120 }, (_, i) => 'menu' + i).join(' ')
+  it('reports MIN pairwise similarity and exactSubgroups for a mixed exact+near group (Codex #7/#8)', () => {
+    const base = toks('w', 120)
+    // A,B identical (exact, Jaccard 1); C near both (base with a changed tail)
+    const r = computeContentSimilarity([p('/a', base), p('/b', base), p('/c', base + ' zt')], NF)!
+    const g = r.nearDuplicateGroups.find(x => x.urls.length === 3)!
+    expect(g.urls).toEqual(['/a', '/b', '/c'])
+    expect(g.similarity).toBeGreaterThanOrEqual(0.9)
+    expect(g.similarity).toBeLessThan(1) // min pairwise = A/C (or B/C), NOT the exact A/B
+    expect(g.exactSubgroups).toEqual([['/a', '/b']])
+    expect(r.exactDuplicateGroups[0].urls).toEqual(['/a', '/b'])
+  })
+
+  it('does NOT falsely group two pages sharing a moderate boilerplate block (2-page df floor, Codex #4)', () => {
+    const boiler = toks('nav', 60)
+    // default options: boiler df=2 < boilerplateDfMin(3) → NOT dropped; distinct bodies keep Jaccard low.
     const r = computeContentSimilarity([
-      p('/a', boiler + ' the biology department offers genetics microbiology and ecology courses'),
-      p('/b', boiler + ' the culinary school teaches pastry baking and kitchen management skills'),
-    ])
-    // Only 2 pages: df of the shared boilerplate = 2, ratio 1.0 > 0.5 AND df>=3 is FALSE → NOT dropped as boilerplate,
-    // but the distinct bodies keep Jaccard below threshold → no near group.
-    expect(r?.nearDuplicateGroups ?? []).toHaveLength(0)
+      p('/a', boiler + ' ' + toks('a', 120)),
+      p('/b', boiler + ' ' + toks('b', 120)),
+    ])!
+    expect(r.boilerplateShinglesDropped).toBe(0)
+    expect(r.nearDuplicateGroups).toHaveLength(0)
   })
 
   it('drops shared boilerplate across many pages so distinct bodies are not falsely grouped', () => {
-    const boiler = Array.from({ length: 120 }, (_, i) => 'nav' + i).join(' ')
-    const pages = [
-      p('/a', boiler + ' astronomy telescopes nebulae galaxies stellar physics coursework here'),
-      p('/b', boiler + ' plumbing pipefitting welding hvac apprenticeship trades program here'),
-      p('/c', boiler + ' accounting taxation auditing finance bookkeeping business program here'),
-    ]
-    const r = computeContentSimilarity(pages)!
+    const boiler = toks('nav', 60)
+    const r = computeContentSimilarity([
+      p('/a', boiler + ' ' + toks('a', 120)),
+      p('/b', boiler + ' ' + toks('b', 120)),
+      p('/c', boiler + ' ' + toks('c', 120)),
+    ])! // default options: boiler df=3, 3/3=1.0>0.5 AND df>=3 → dropped
     expect(r.boilerplateShinglesDropped).toBeGreaterThan(0)
     expect(r.nearDuplicateGroups).toHaveLength(0)
   })
 
   it('excludes truncated pages from exact groups but counts them', () => {
-    const same = body('identical prefix content here for both')
-    const r = computeContentSimilarity([p('/a', same, true), p('/b', same, true), p('/c', 'other unrelated content about welding and metal fabrication techniques for beginners')])!
+    const same = toks('w', 80)
+    const r = computeContentSimilarity([p('/a', same, true), p('/b', same, true), p('/c', toks('z', 80))], NF)!
     expect(r.truncatedPages).toBe(2)
     expect(r.exactDuplicateGroups).toHaveLength(0)
   })
 
-  it('skips pages below the content-token floor', () => {
-    const r = computeContentSimilarity([p('/a', 'too short'), p('/b', 'also short here'), p('/c', body('enough words to clear the floor easily with lots of additional content tokens present'))])
-    // /a and /b below minTokens → < 2 eligible → null
+  it('skips pages below the content-token floor (→ < 2 eligible → null)', () => {
+    const r = computeContentSimilarity([p('/a', 'too short'), p('/b', 'also short here'), p('/c', toks('w', 80))])
     expect(r).toBeNull()
   })
 
   it('is deterministic (byte-identical JSON on repeat)', () => {
-    const pages = [p('/a', body('alpha')), p('/b', body('alpha')), p('/c', body('beta gamma delta'))]
-    expect(JSON.stringify(computeContentSimilarity(pages))).toBe(JSON.stringify(computeContentSimilarity(pages)))
+    const pages = [p('/a', toks('w', 80)), p('/b', toks('w', 80)), p('/c', toks('z', 80))]
+    expect(JSON.stringify(computeContentSimilarity(pages, NF))).toBe(JSON.stringify(computeContentSimilarity(pages, NF)))
   })
 })
 ```
@@ -451,9 +518,14 @@ export function computeContentSimilarity(pages: SimilarityPageInput[], opts: Con
   for (const r of raw) for (const h of new Set(r.sh)) df.set(h, (df.get(h) ?? 0) + 1)
   const dropped = new Set<number>()
   for (const [h, c] of df) if (c >= o.boilerplateDfMin && c / eligible.length > o.boilerplateDfRatio) dropped.add(h)
-  const sets = raw.map(r => ({ url: r.url, sh: r.sh.filter(h => !dropped.has(h)).sort((a, b) => a - b) }))
+  // Codex #2: drop pages whose filtered shingle set is EMPTY (all-boilerplate) — an empty
+  // set makes minhash all-0xffffffff and exactJaccard([],[])===1, falsely grouping them.
+  // Exact-dup detection above is unaffected (it hashes full `norm`, not shingles).
+  const sets = raw
+    .map(r => ({ url: r.url, sh: r.sh.filter(h => !dropped.has(h)).sort((a, b) => a - b) }))
+    .filter(s => s.sh.length > 0)
 
-  // MinHash signatures
+  // MinHash signatures (only over pages with non-empty filtered shingles)
   const { a, b } = permSeeds(o.minhashPerms)
   const sigs = sets.map(s => ({ url: s.url, sh: s.sh, sig: minhash(s.sh, a, b) }))
 
@@ -498,9 +570,23 @@ export function computeContentSimilarity(pages: SimilarityPageInput[], opts: Con
   const cmpGroup = (x: { urls: string[] }, y: { urls: string[] }) =>
     y.urls.length - x.urls.length || (x.urls[0] < y.urls[0] ? -1 : x.urls[0] > y.urls[0] ? 1 : 0)
   exactGroups.sort(cmpGroup); near.sort(cmpGroup)
-  const capGroups = <T extends { urls: string[] }>(arr: T[]): T[] => {
+  // Codex #9: when a near group's urls are truncated, filter exactSubgroups to the RETAINED
+  // urls (drop subgroups that fall below 2) so annotations never reference omitted URLs.
+  const capGroups = <T extends { urls: string[]; exactSubgroups?: string[][] }>(arr: T[]): T[] => {
     if (arr.length > o.maxGroups) { arr = arr.slice(0, o.maxGroups); capped = true }
-    return arr.map(g => (g.urls.length > o.maxUrlsPerGroup ? ((capped = true), { ...g, urls: g.urls.slice(0, o.maxUrlsPerGroup) }) : g))
+    return arr.map(g => {
+      if (g.urls.length <= o.maxUrlsPerGroup) return g
+      capped = true
+      const urls = g.urls.slice(0, o.maxUrlsPerGroup)
+      const kept = new Set(urls)
+      const next: T = { ...g, urls }
+      if (g.exactSubgroups) {
+        const subs = g.exactSubgroups.map(s => s.filter(u => kept.has(u))).filter(s => s.length >= 2)
+        if (subs.length) next.exactSubgroups = subs
+        else delete (next as { exactSubgroups?: string[][] }).exactSubgroups
+      }
+      return next
+    })
   }
 
   return {
@@ -538,32 +624,60 @@ git commit -m "feat(content-sim): pure MinHash+exact-Jaccard near/exact-duplicat
 
 - [ ] **Step 1: Write the failing integration tests**
 
-Add to `lib/jobs/handlers/broken-link-verify.test.ts` (follow the file's existing pattern: seed a complete `SiteAudit` + `HarvestedPageSeo` rows, run the handler, read the live-scan `CrawlRun`):
+Add a new `describe` block to `lib/jobs/handlers/broken-link-verify.test.ts`, reusing the file's real
+`stubDeps` (`now: () => 0`) and the `harvestedPageSeo.createMany` seeding style from the "live SEO score"
+block. Add a small local helper for the indexable row shape + a ≥50-token dup body (Codex #6):
 ```ts
-it('writes contentSimilarityJson with a near/exact duplicate group', async () => {
-  const audit = await seedCompleteAudit() // existing helper in this file
-  const dup = 'our nursing program prepares students for licensure in twelve months with clinical placement rotations across regional hospitals and skills labs'
-  await seedPageSeo(audit.id, 'https://ex.test/a', { contentText: dup, contentTruncated: false })
-  await seedPageSeo(audit.id, 'https://ex.test/b', { contentText: dup, contentTruncated: false })
-  await seedPageSeo(audit.id, 'https://ex.test/c', { contentText: 'completely different content about welding pipefitting and metal fabrication trades apprenticeship program details here', contentTruncated: false })
-  await runBrokenLinkVerify({ siteAuditId: audit.id, domain: 'ex.test' } as any, deps)
-  const run = await prisma.crawlRun.findFirst({ where: { siteAuditId: audit.id, tool: 'seo-parser' } })
-  const data = JSON.parse(run!.contentSimilarityJson!)
-  expect(data.v).toBe(1)
-  expect(data.exactDuplicateGroups[0].urls.sort()).toEqual(['https://ex.test/a', 'https://ex.test/b'])
-})
+describe('runBrokenLinkVerify — content similarity', () => {
+  const SIM_DOMAIN = 'contentsim.test'
+  const clean = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: SIM_DOMAIN } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: SIM_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: SIM_DOMAIN } })
+  }
+  beforeEach(clean); afterAll(clean)
+  const row = (siteAuditId: string, path: string, contentText: string) => ({
+    siteAuditId, url: `https://${SIM_DOMAIN}${path}`, statusCode: 200, isHtml: true,
+    robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+    title: 't', h1: 'h', metaDescription: 'm', wordCount: 800, schemaCount: 1, contentText, contentTruncated: false,
+  })
+  const dup = Array.from({ length: 80 }, (_, i) => `w${i}`).join(' ')      // ≥ minTokens
+  const other = Array.from({ length: 80 }, (_, i) => `z${i}`).join(' ')
 
-it('leaves contentSimilarityJson null when fewer than 2 eligible pages, and still writes the run + deletes transient rows', async () => {
-  const audit = await seedCompleteAudit()
-  await seedPageSeo(audit.id, 'https://ex.test/only', { contentText: 'short', contentTruncated: false })
-  await runBrokenLinkVerify({ siteAuditId: audit.id, domain: 'ex.test' } as any, deps)
-  const run = await prisma.crawlRun.findFirst({ where: { siteAuditId: audit.id, tool: 'seo-parser' } })
-  expect(run).not.toBeNull()
-  expect(run!.contentSimilarityJson).toBeNull()
-  expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: audit.id } })).toBe(0)
+  it('writes contentSimilarityJson with an exact-duplicate group', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIM_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [row(sa.id, '/a', dup), row(sa.id, '/b', dup), row(sa.id, '/c', other)] })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIM_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
+    const data = JSON.parse(run!.contentSimilarityJson!)
+    expect(data.v).toBe(1)
+    expect(data.exactDuplicateGroups[0].urls.sort()).toEqual([`https://${SIM_DOMAIN}/a`, `https://${SIM_DOMAIN}/b`])
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBe(0) // transient deleted
+  })
+
+  it('leaves contentSimilarityJson null when fewer than 2 eligible pages (run still written + transient deleted)', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIM_DOMAIN, status: 'complete', pagesTotal: 1, pagesComplete: 1, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [row(sa.id, '/only', 'short text')] })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIM_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
+    expect(run).not.toBeNull()
+    expect(run!.contentSimilarityJson).toBeNull()
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBe(0)
+  })
+
+  it('skips similarity when little job time remains but still writes the run (Codex #7)', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIM_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [row(sa.id, '/a', dup), row(sa.id, '/b', dup), row(sa.id, '/c', other)] })
+    // now() returns 0 for jobStartedAt (first call) then a near-timeout value → simRemaining < CONTENT_SIM_RESERVE_MS
+    let first = true
+    const lateDeps = { ...stubDeps, now: () => { if (first) { first = false; return 0 } return 899_000 } }
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIM_DOMAIN }, lateDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
+    expect(run).not.toBeNull()
+    expect(run!.contentSimilarityJson).toBeNull()
+  })
 })
 ```
-(If the file lacks `seedPageSeo`, add a tiny local helper that `prisma.harvestedPageSeo.create`s with `statusCode:200, isHtml:true` + the passed overrides.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -640,31 +754,38 @@ git commit -m "feat(content-sim): compute + store contentSimilarityJson in the l
 
 - [ ] **Step 1: Write the failing component tests**
 
-Create `components/site-audit/ContentSimilaritySection.test.tsx` (mirror `ReachabilitySection.test.tsx`):
+Create `components/site-audit/ContentSimilaritySection.test.tsx` (mirror `ReachabilitySection.test.tsx`
+exactly: jsdom env pragma, `container.innerHTML === ''` for empty, `container.textContent` for grouped
+URLs since a group renders as ONE text node — Codex #10):
 ```tsx
-import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
+// @vitest-environment jsdom
+import { describe, it, expect, afterEach } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
 import { ContentSimilaritySection } from './ContentSimilaritySection'
 
+afterEach(cleanup)
 const sim = (o: object) => ({ contentSimilarityJson: JSON.stringify({ v: 1, ...o }) })
 
 describe('ContentSimilaritySection', () => {
-  it('renders nothing when the run or json is null', () => {
-    expect(render(<ContentSimilaritySection run={null} />).container).toBeEmptyDOMElement()
-    expect(render(<ContentSimilaritySection run={{ contentSimilarityJson: null }} />).container).toBeEmptyDOMElement()
+  it('renders nothing when run is null', () => {
+    expect(render(<ContentSimilaritySection run={null} />).container.innerHTML).toBe('')
+  })
+  it('renders nothing when contentSimilarityJson is null', () => {
+    expect(render(<ContentSimilaritySection run={{ contentSimilarityJson: null }} />).container.innerHTML).toBe('')
   })
   it('shows a clean state when there are no duplicate groups', () => {
-    const { getByText } = render(<ContentSimilaritySection run={sim({ pagesEligible: 40, exactDuplicateGroups: [], nearDuplicateGroups: [] }) as any} />)
-    expect(getByText(/no duplicate/i)).toBeTruthy()
+    const { container } = render(<ContentSimilaritySection run={sim({ pagesEligible: 40, exactDuplicateGroups: [], nearDuplicateGroups: [] })} />)
+    expect(container.textContent).toMatch(/no duplicate/i)
   })
   it('lists exact and near duplicate groups', () => {
-    const { getByText } = render(<ContentSimilaritySection run={sim({
+    const { container } = render(<ContentSimilaritySection run={sim({
       pagesEligible: 40, boilerplateShinglesDropped: 12,
       exactDuplicateGroups: [{ urls: ['/a', '/b'], count: 2 }],
       nearDuplicateGroups: [{ urls: ['/c', '/d'], similarity: 0.93 }],
-    }) as any} />)
-    expect(getByText('/a')).toBeTruthy()
-    expect(getByText(/93%/)).toBeTruthy()
+    })} />)
+    expect(container.textContent).toContain('/a')
+    expect(container.textContent).toMatch(/93%/)
+    expect(screen.getByText(/exact duplicates/i)).toBeTruthy()
   })
 })
 ```
@@ -803,6 +924,18 @@ Trigger/observe one `seoIntent` live-scan run on a client domain (via the authed
 Tick the tracker's content-similarity/Phase-5 item + add a dated status-log line; rewrite `HANDOFF-improvement-roadmap.md` (state, next item, gotchas, updated paste-in prompt); add the CLAUDE.md C6 doc line; append a parity-log entry noting the feature shipped and the parity-validation cycle is now pending. `git mv` the spec + plan to `docs/superpowers/archive/`. Commit tracker+handoff+CLAUDE.md **together**. End the final chat reply with the updated paste-in prompt.
 
 ---
+
+## Codex plan review — resolved (ACCEPT-WITH-NAMED-FIXES ×11, 2026-07-06)
+
+Codex reviewed this plan (session `019f2b57`); all 11 applied in place: (1) fixtures now clear
+`minTokens=50`; (2) **real bug** — drop empty-filtered-shingle pages before MinHash (else `exactJaccard([],[])===1`
+false-groups them) [Task 4 code]; (3) parser tests use the real `dom()` JSDOM helper; (4) explicit
+SWC-`typeof`/helper source guard [Task 2]; (5) `persistPageSeo` exported test-only [Task 3]; (6) Task 5 tests
+use the file's real `harvestedPageSeo.createMany`+`stubDeps` pattern, not invented helpers; (7) low-remaining-time
+skip test added [Task 5]; (8) component similarity documented as MIN weakest-pair + covered by the mixed-group
+test [Task 4]; (9) **real bug** — capped near-group `urls` now filter `exactSubgroups` to retained URLs [Task 4 code];
+(10) UI tests use `// @vitest-environment jsdom`, `container.innerHTML===''`, `container.textContent` [Task 6];
+(11) schema/type round-trip test [Task 1].
 
 ## Self-Review
 
