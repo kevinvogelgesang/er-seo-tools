@@ -496,6 +496,25 @@ Interleave as needed (not blockers):
 - [ ] D4. Client-attached robots/sitemap checks + history (2–3 days)
 - [ ] D5. Scheduled robots/sitemap monitoring with change-only alerts (3–4 days) — needs A1.
 - [ ] D6. RankMath redirect generator + dry-run + post-deploy verifier (1–1.5 wks) — or explicitly freeze as a doc; decide, don't drift.
+- [ ] **D7. Scan-completion notifications (Slack v1, email v2)** — added 2026-07-07
+  (Kevin request, for team members using the tool). Opt-in checkbox on audit submit
+  forms ("Notify me when this finishes") → notify identity captured from the
+  Google-OAuth session (ER email — `lib/auth.ts` already exposes name/email;
+  `requestedBy` is already stored on SiteAudit/AdaAudit rows) → the finalizer /
+  standalone terminal writer fires a NEVER-FAIL notify hook (same rule as findings
+  hooks). **v1 = Slack shared channel** via the D0 webhook pattern
+  (`lib/ops/alert-webhook.ts` `sendAlert()` is built + tested) — use a SEPARATE
+  `SCAN_WEBHOOK_URL` env so scan chatter doesn't pollute the health-alert channel;
+  message = requester name, domain, score, deep link (`NEXT_PUBLIC_APP_URL`).
+  ⚠ Shares D0's blocker: Slack incoming-webhook admin approval still pending
+  (D0 follow-up (b)) — one approval unlocks both. **v2 options** (each needs a
+  decision): per-user Slack DMs (Slack bot app + `users.lookupByEmail` — more
+  admin approval) and/or email (no SMTP exists; Google Workspace SMTP relay vs
+  Gmail API via the existing service account + domain-wide delegation). Schema:
+  nullable `notifyEmail` on SiteAudit/AdaAudit (additive). Scheduled scans default
+  to NO notification (noise); per-schedule opt-in is a spec decision. Small: v1
+  ≈ 1–2 days once the webhook URL exists. Pairs naturally with C11 PR 2
+  (visibility) — consider folding v1 in there.
 
 ## Gated decisions (block specific items; decide, then unblock)
 
