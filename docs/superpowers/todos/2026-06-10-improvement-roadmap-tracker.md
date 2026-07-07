@@ -89,9 +89,17 @@ Interleave as needed (not blockers):
   differentiated with an "SEO spin" — less "toolbox", more polished product.
   Reference shells: PostHog home, VirtualAdviser 6, HubSpot. Dark mode +
   mobile behavior preserved. Subsumes A6 (primitives + data-driven nav =
-  Phase 1). Two HTML direction mockups produced 2026-07-07 (scratchpad;
-  A "Navy Command Deck" vs B "Light Studio") — **direction pick + spec
-  pending Kevin**, then normal spec → Codex → plan flow.
+  Phase 1). **Direction A ("Navy Command Deck") picked by Kevin 2026-07-07**
+  + decisions locked: incremental per-section PRs; Reference nav group;
+  mobile-first; FULL macOS-style homepage widgets (sizes + drag reorder +
+  persisted per-browser layout). Spec:
+  `../specs/2026-07-07-app-shell-redesign-design.md` (Codex
+  ACCEPT-WITH-FIXES ×9, applied) · PR 1 plan:
+  `../plans/2026-07-07-app-shell-pr1.md` (Codex ACCEPT-WITH-FIXES ×5,
+  applied — incl. hydration-safe CSS-driven initial collapse). **Next:
+  execute PR 1** (route-group split + tools registry + sidebar shell);
+  then PR 2 fixed dashboard → PR 3 widget editor → PR 3.5 aggregate
+  widgets → PR 4+ per-tool polish.
 
 ## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
 
@@ -365,6 +373,23 @@ Interleave as needed (not blockers):
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
+
+- 2026-07-07 (**A8 — direction picked, spec + PR 1 plan written + Codex-reviewed — next: execute PR 1**) —
+  Kevin picked **Direction A "Navy Command Deck"** from the two mockups and locked: incremental
+  per-section PRs, dark mode retained, Reference nav group, mobile-first, and **full macOS-style
+  homepage widgets** (sizes + drag reorder + persisted per-browser layout; a global "UI size"
+  slider was considered and rejected — browser zoom covers it). Spec committed
+  (`../specs/2026-07-07-app-shell-redesign-design.md`) → Codex ACCEPT-WITH-FIXES ×9 (public/app
+  route-group split, footer to public-only, combined anti-FOUC stamp, exact widget data sources
+  w/ aggregates deferred to PR 3.5, exact quick-start redirect targets, logout preserved,
+  sticky-offset audit, DnD keyboard fallback, PR 2 deployability) — all applied. PR 1 plan
+  committed (`../plans/2026-07-07-app-shell-pr1.md`, 7 TDD tasks, ~+22 tests, no migration/deps)
+  → Codex ACCEPT-WITH-FIXES ×5 (hydration-safe CSS-driven initial collapse via
+  `html[data-sidebar]` arbitrary variant + post-mount sync — Codex confirmed the draft's
+  useState-initializer approach was a real SSR-mismatch bug; ThemeToggle light-topbar restyle;
+  hidden registry entries for keyword-research/pillar-analysis titles; manual hydration
+  regression check; mobile drawer drops the collapse control) — all applied. NO app code
+  touched. Handoff rewritten to "execute PR 1".
 
 - 2026-07-07 (**SF-retirement VALIDATION — content-similarity parity cycle 1 + parity cycle 2 (7 clients); operational, no code change**) —
   Operator session (Kevin's `er_auth` cookie). Fired fresh `seoIntent` live scans on 7 clients
