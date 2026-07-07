@@ -1,43 +1,188 @@
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
+import { NON_PAGE_EXT } from '@/lib/ada-audit/seo/discovery-coverage'
+
 export interface LinkGraphRow { inlinks: number; outlinks: number; crawlDepth: number | null }
-export interface LinkGraphResult { byUrl: Map<string, LinkGraphRow>; depthAvailable: boolean }
-export function computeLinkGraph(
-  rows: { sourcePageUrl: string; targetUrl: string; kind: string }[],
-  auditedUrls: string[], homepageUrl: string | null,
-): LinkGraphResult {
-  // Build a map from normalized URL → original URL (first seen wins)
-  const normToOrig = new Map<string, string>()
-  for (const u of auditedUrls) {
-    const n = normalizeFindingUrl(u)
-    if (!normToOrig.has(n)) normToOrig.set(n, u)
+
+export interface ReachabilitySummary {
+  nodeCount: number
+  indexableNodeCount: number
+  edgeCount: number
+  homepageResolved: boolean
+  orphanCount: number
+  orphanSample: string[]
+  unreachableCount: number
+  unreachableSample: string[]
+  depthHistogram: Record<string, number>
+  maxDepth: number | null
+  deepSample: Array<{ url: string; depth: number }>
+}
+
+export interface LinkGraphResult {
+  byUrl: Map<string, LinkGraphRow>
+  depthAvailable: boolean
+  summary: ReachabilitySummary
+}
+
+const SAMPLE_CAP = 50
+const DEEP_THRESHOLD = 4
+
+function isNonPage(normalizedUrl: string): boolean {
+  try {
+    return NON_PAGE_EXT.test(new URL(normalizedUrl).pathname)
+  } catch {
+    return false
   }
-  const audited = new Set(normToOrig.keys())
-  const inSets = new Map<string, Set<string>>(), outSets = new Map<string, Set<string>>()
+}
+
+/**
+ * Scheme/www-insensitive "root key" for homepage matching: lowercase host,
+ * strip a leading `www.`, drop fragment (URL parsing already ignores it for
+ * pathname), and reduce the path to '' when it's the bare root (or root with
+ * trailing slashes). A query string disqualifies a URL from being root —
+ * normalizeFindingUrl treats `?ref=nav` as a distinct node from the bare
+ * root, so it must never be selected as the homepage anchor. Returns null
+ * for non-URLs.
+ */
+function rootKey(url: string): { key: string; isRoot: boolean } | null {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.toLowerCase().replace(/^www\./, '')
+    const trimmedPath = u.pathname.replace(/\/+$/, '')
+    const isRoot = trimmedPath === '' && !u.search
+    return { key: host + (isRoot ? '' : trimmedPath), isRoot }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Full-graph reachability. Nodes = (discovered `nodes` ∪ edge endpoints) minus
+ * non-page targets, normalized via normalizeFindingUrl (first-seen original wins,
+ * reconciling with CrawlPage.url). inlinks/outlinks span the whole page graph.
+ * crawlDepth = clicks-from-home BFS anchored on the homepage, matched
+ * scheme/www-insensitively against the real node set (see rootKey) — not an
+ * exact-string match, and no shallowest-node fallback when it fails to
+ * resolve. Summary (orphan/unreachable/histogram) is over the eligible set =
+ * indexable page nodes, so depthHistogram['null'] === unreachableCount.
+ */
+export function computeLinkGraph(
+  edges: { sourcePageUrl: string; targetUrl: string; kind: string }[],
+  nodes: string[],
+  homepageUrl: string | null,
+  indexableUrls: Set<string>,
+): LinkGraphResult {
+  // normalized indexable set
+  const indexable = new Set<string>()
+  for (const u of indexableUrls) indexable.add(normalizeFindingUrl(u))
+
+  // node map: normalized -> original (first-seen wins). Seed from `nodes`, then
+  // add edge endpoints. Non-page URLs are excluded.
+  const normToOrig = new Map<string, string>()
+  const addNode = (u: string): string | null => {
+    const n = normalizeFindingUrl(u)
+    if (isNonPage(n)) return null
+    if (!normToOrig.has(n)) normToOrig.set(n, u)
+    return n
+  }
+  for (const u of nodes) addNode(u)
+
+  const inSets = new Map<string, Set<string>>()
+  const outSets = new Map<string, Set<string>>()
   const adj = new Map<string, Set<string>>()
-  for (const r of rows) {
-    if (r.kind !== 'internal-link') continue
-    const s = normalizeFindingUrl(r.sourcePageUrl), t = normalizeFindingUrl(r.targetUrl)
-    if (!audited.has(s) || !audited.has(t)) continue
+  let edgeCount = 0
+  for (const e of edges) {
+    if (e.kind !== 'internal-link') continue
+    const s = addNode(e.sourcePageUrl)
+    const t = addNode(e.targetUrl)
+    if (s == null || t == null) continue   // non-page endpoint dropped
+    if (s === t) continue                  // self-link excluded
     ;(inSets.get(t) ?? inSets.set(t, new Set()).get(t)!).add(s)
     ;(outSets.get(s) ?? outSets.set(s, new Set()).get(s)!).add(t)
-    ;(adj.get(s) ?? adj.set(s, new Set()).get(s)!).add(t)
+    const a = adj.get(s) ?? adj.set(s, new Set()).get(s)!
+    if (!a.has(t)) { a.add(t); edgeCount++ }   // distinct edges only (Codex #4)
   }
-  const home = homepageUrl ? normalizeFindingUrl(homepageUrl) : null
-  const depthAvailable = !!home && audited.has(home)
+
+  // Homepage anchor: match the root page scheme/www-insensitively against the
+  // real node set (the builder synthesizes a bare-apex https URL that may not
+  // equal the site's actual www-canonical or http-only homepage node), then
+  // anchor the BFS on that matched node's normalized key. `byUrl` keying is
+  // unaffected — still normalizeFindingUrl, first-seen original.
+  const targetRoot = homepageUrl ? rootKey(homepageUrl) : null
+  let home: string | null = null
+  if (targetRoot?.isRoot) {
+    for (const norm of normToOrig.keys()) {
+      const nodeRoot = rootKey(norm)
+      if (nodeRoot?.isRoot && nodeRoot.key === targetRoot.key) { home = norm; break }
+    }
+  }
+  const homepageResolved = home != null
   const depth = new Map<string, number>()
-  if (depthAvailable) {
+  if (homepageResolved) {
     const q = [home!]; depth.set(home!, 0)
     while (q.length) {
       const cur = q.shift()!, d = depth.get(cur)!
       for (const nxt of adj.get(cur) ?? []) if (!depth.has(nxt)) { depth.set(nxt, d + 1); q.push(nxt) }
     }
   }
+
   const byUrl = new Map<string, LinkGraphRow>()
   for (const [norm, orig] of normToOrig) {
     byUrl.set(orig, {
-      inlinks: inSets.get(norm)?.size ?? 0, outlinks: outSets.get(norm)?.size ?? 0,
-      crawlDepth: depthAvailable ? (depth.get(norm) ?? null) : null,
+      inlinks: inSets.get(norm)?.size ?? 0,
+      outlinks: outSets.get(norm)?.size ?? 0,
+      crawlDepth: homepageResolved ? (depth.get(norm) ?? null) : null,
     })
   }
-  return { byUrl, depthAvailable }
+
+  // Summary over the eligible set = indexable page nodes.
+  // Invariant (Codex #3): depthHistogram['null'] === unreachableCount. Holds in
+  // both cases — when homepageResolved, the home node has depth 0 (never null, so
+  // never in either count); when unresolved, the home isn't a node at all, so the
+  // `!isHome` guard below excludes nothing from the eligible null set.
+  const eligible: string[] = []
+  for (const norm of normToOrig.keys()) if (indexable.has(norm)) eligible.push(norm)
+
+  const orphanSample: string[] = []
+  const unreachableSample: string[] = []
+  const deep: Array<{ url: string; depth: number }> = []
+  const histogram: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4plus': 0, 'null': 0 }
+  let orphanCount = 0, unreachableCount = 0, maxDepth: number | null = null
+
+  for (const norm of eligible) {
+    const orig = normToOrig.get(norm)!
+    const isHome = home != null && norm === home
+    const inl = inSets.get(norm)?.size ?? 0
+    const d = homepageResolved ? (depth.get(norm) ?? null) : null
+
+    if (!isHome && inl === 0) {
+      orphanCount++
+      if (orphanSample.length < SAMPLE_CAP) orphanSample.push(orig)
+    }
+    if (!isHome && d == null) {
+      unreachableCount++
+      if (unreachableSample.length < SAMPLE_CAP) unreachableSample.push(orig)
+    }
+    if (d == null) histogram['null']++
+    else {
+      histogram[d >= 4 ? '4plus' : String(d)]++
+      if (maxDepth == null || d > maxDepth) maxDepth = d
+      if (d >= DEEP_THRESHOLD) deep.push({ url: orig, depth: d })
+    }
+  }
+  deep.sort((a, b) => b.depth - a.depth || a.url.localeCompare(b.url))
+
+  const summary: ReachabilitySummary = {
+    nodeCount: normToOrig.size,
+    indexableNodeCount: eligible.length,
+    edgeCount,
+    homepageResolved,
+    orphanCount,
+    orphanSample,
+    unreachableCount,
+    unreachableSample,
+    depthHistogram: histogram,
+    maxDepth,
+    deepSample: deep.slice(0, SAMPLE_CAP),
+  }
+  return { byUrl, depthAvailable: homepageResolved, summary }
 }

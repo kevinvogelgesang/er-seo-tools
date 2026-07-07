@@ -69,38 +69,6 @@ export function deriveSitemapBaseline(json: string | null): { baseline: string[]
   }
 }
 
-/**
- * Pick the homepage URL from the audited URL set.
- * Returns one of the ORIGINAL `urls` strings (so the byUrl lookup key matches).
- * Strategy: prefer the normalized https://<domain>/ if it's in the audited set,
- * else pick the shallowest-path URL, else null.
- */
-function pickHomepage(urls: string[], domain: string | null): string | null {
-  if (!urls.length) return null
-  const normalizedHome = domain ? normalizeFindingUrl(`https://${domain}/`) : null
-  if (normalizedHome) {
-    for (const u of urls) {
-      if (normalizeFindingUrl(u) === normalizedHome) return u
-    }
-  }
-  // Fallback: pick the URL whose pathname has the fewest path segments (shallowest)
-  let best: string | null = null
-  let bestDepth = Infinity
-  for (const u of urls) {
-    try {
-      const parsed = new URL(u)
-      const segments = parsed.pathname.split('/').filter(Boolean).length
-      if (segments < bestDepth) {
-        bestDepth = segments
-        best = u
-      }
-    } catch {
-      // skip malformed
-    }
-  }
-  return best
-}
-
 export const BROKEN_LINK_VERIFY_JOB_TYPE = 'broken-link-verify'
 const MAX_CHECKS = () => parsePositiveInt(process.env.BROKEN_LINK_MAX_CHECKS, 2000)
 const HOST_DELAY = () => parsePositiveInt(process.env.BROKEN_LINK_HOST_DELAY_MS, 250)
@@ -372,18 +340,31 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     }
   }
 
-  // Task 3: Compute link graph INDEPENDENTLY of the `toCheck` verification cap
-  // (which caps at 25 sources per target — wrong for page-level counts).
-  // Best-effort: a failure logs and falls back to null aggregates so it never
-  // blocks the live-scan run write.
-  const auditedUrls = [...new Set(seoRows.map((r) => r.url))]
-  const homepageUrl = pickHomepage(auditedUrls, site.domain ?? job.domain)
+  // Hoisted above the graph block: also feeds indexableUrls below, and
+  // ensurePage()'s per-row `indexable` scalar further down.
+  const indexableOf = (r: typeof seoRows[number]) =>
+    r.statusCode != null && r.statusCode >= 200 && r.statusCode < 300 &&
+    r.isHtml && !r.robotsNoindex && !r.xRobotsNoindex
+
+  // roadmap 3b: reachability over the FULL discovered graph (not just audited).
+  // Best-effort: a failure logs and falls back to null aggregates + null summary.
+  const discoveredNodes = safeParseUrlList(site.discoveredUrls)
+  // Seed audited seoRow urls FIRST so first-seen-original keying prefers r.url,
+  // keeping graph.byUrl.get(r.url) reliable, and so an audited page with no
+  // discovered-URL match and no edges still gets a graph row (Codex #6/#7).
+  const graphNodes = [...seoRows.map((r) => r.url), ...discoveredNodes]
+  const indexableUrls = new Set(
+    seoRows.filter((r) => indexableOf(r) && !r.loginLike).map((r) => r.url),
+  )
+  const domain = site.domain ?? job.domain
+  const homepageUrl = domain ? normalizeFindingUrl(`https://${domain}/`) : null // null-domain guard (Codex #5)
   let graph: ReturnType<typeof computeLinkGraph> | null = null
   try {
     graph = computeLinkGraph(
       rows.map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl, kind: r.kind })),
-      auditedUrls,
+      graphNodes,
       homepageUrl,
+      indexableUrls,
     )
   } catch (e) {
     console.error('[live-seo] graph compute failed', e)
@@ -408,12 +389,9 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   }
 
   // Materialize a CrawlPage for EVERY harvested on-page row, scalars populated.
-  const indexableOf = (r: typeof seoRows[number]) =>
-    r.statusCode != null && r.statusCode >= 200 && r.statusCode < 300 &&
-    r.isHtml && !r.robotsNoindex && !r.xRobotsNoindex
   for (const r of seoRows) {
     // Look up graph results with the RAW r.url string (byUrl is keyed by the
-    // original auditedUrls strings, which are the seoRow urls).
+    // original graphNodes strings, and seoRow urls are seeded first).
     const g = graph?.byUrl.get(r.url)
     ensurePage(r.url, {
       statusCode: r.statusCode, title: r.title, h1: r.h1, metaDescription: r.metaDescription,
@@ -482,6 +460,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
       discoveryCoverageJson: JSON.stringify(coverage),
+      reachabilityJson: graph ? JSON.stringify({ v: 1, ...graph.summary }) : null,
     },
     pages, findings, violations: [],
   }
