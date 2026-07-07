@@ -1,7 +1,11 @@
 // lib/widgets/registry.tsx
-// Authoritative list of homepage widgets + the PR-2 fixed default layout.
-// PR 3 adds edit/persistence; PR 3.5 adds the KPI strip + Needs-attention
-// aggregate widgets (deliberately absent here — their loaders are unverified).
+// Authoritative list of homepage widgets + the default layout. PR 3 adds
+// edit/persistence; PR 3.5 adds the KPI strip + Needs-attention aggregate
+// widgets (loaders verified — /api/fleet/kpi + /api/fleet/needs-attention over
+// getClientFleet). Registry is authoritative: a browser with a stored layout
+// gets any newly registered id appended at defaultSize (normalizeLayout), so
+// existing users see the two new widgets at the END until they Reset layout —
+// no version bump for a purely additive change.
 import type { WidgetDef, LayoutItem } from './types'
 import { LiveNowWidget } from '@/components/widgets/LiveNowWidget'
 import { RecentParsesWidget } from '@/components/widgets/RecentParsesWidget'
@@ -10,9 +14,13 @@ import { QuickSiteAuditWidget } from '@/components/widgets/QuickSiteAuditWidget'
 import { QuickParserWidget } from '@/components/widgets/QuickParserWidget'
 import { QuickReportWidget } from '@/components/widgets/QuickReportWidget'
 import { QuickRobotsWidget } from '@/components/widgets/QuickRobotsWidget'
+import { KpiStripWidget } from '@/components/widgets/KpiStripWidget'
+import { NeedsAttentionWidget } from '@/components/widgets/NeedsAttentionWidget'
 
 export const WIDGETS: WidgetDef[] = [
+  { id: 'kpi-strip', title: 'Fleet at a glance', sizes: ['wide', 'xl'], defaultSize: 'xl', Component: KpiStripWidget },
   { id: 'live-now', title: 'Live now', sizes: ['sm', 'wide', 'lg'], defaultSize: 'lg', Component: LiveNowWidget },
+  { id: 'needs-attention', title: 'Needs attention', sizes: ['sm', 'lg'], defaultSize: 'lg', Component: NeedsAttentionWidget },
   { id: 'quick-site-audit', title: 'Start a site audit', sizes: ['sm', 'wide'], defaultSize: 'wide', Component: QuickSiteAuditWidget },
   { id: 'quick-parser', title: 'Parse a Screaming Frog export', sizes: ['sm', 'wide'], defaultSize: 'wide', Component: QuickParserWidget },
   { id: 'quick-report', title: 'Generate a performance report', sizes: ['sm', 'wide'], defaultSize: 'wide', Component: QuickReportWidget },
@@ -21,9 +29,13 @@ export const WIDGETS: WidgetDef[] = [
   { id: 'quick-robots', title: 'Check robots.txt', sizes: ['sm'], defaultSize: 'sm', Component: QuickRobotsWidget },
 ]
 
-// Fixed PR-2 order (no persistence). Grid auto-flow packs the spans.
+// Default display order. KPI strip is the full-width banner up top, then the
+// live queue + worst-movers, then the quick-start cards. Grid auto-flow packs
+// the spans.
 export const DEFAULT_LAYOUT: LayoutItem[] = [
+  { id: 'kpi-strip', size: 'xl' },
   { id: 'live-now', size: 'lg' },
+  { id: 'needs-attention', size: 'lg' },
   { id: 'quick-site-audit', size: 'wide' },
   { id: 'quick-parser', size: 'wide' },
   { id: 'quick-report', size: 'wide' },
