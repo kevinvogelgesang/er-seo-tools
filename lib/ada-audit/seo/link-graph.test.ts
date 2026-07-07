@@ -124,6 +124,19 @@ describe('computeLinkGraph — full-graph reachability', () => {
     expect(g.byUrl.get(A)!.crawlDepth).toBe(1)
   })
 
+  it('rootKey excludes a query-string URL from the homepage-anchor match (Fix 1)', () => {
+    // True bare-root node ('https://x.test' / 'https://x.test/') is ABSENT from
+    // the node set. A query-string homepage link (?ref=nav) IS present, as an
+    // edge target — normalizeFindingUrl treats it as a DISTINCT node (only a
+    // bare root with no search gets its trailing slash stripped). rootKey must
+    // NOT collapse it to root, or the BFS anchors on a dead-end node and
+    // falsely reports full reachability instead of an honest unresolved homepage.
+    const QS = 'https://x.test/?ref=nav'
+    const edges = [{ sourcePageUrl: A, targetUrl: QS, kind: 'internal-link' }]
+    const g = computeLinkGraph(edges, [A], 'https://x.test', idx(A, QS))
+    expect(g.summary.homepageResolved).toBe(false)
+  })
+
   it('regression: exact-apex homepage still resolves (Fix 1)', () => {
     const edges = [{ sourcePageUrl: H, targetUrl: A, kind: 'internal-link' }]
     const g = computeLinkGraph(edges, [H, A], H, idx(H, A))
