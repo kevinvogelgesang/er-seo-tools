@@ -183,6 +183,45 @@ the page-only live scan excludes (inflates SF, deflates Jaccard).
 
 ---
 
+## ✅ 2026-07-06 — hybrid-discovery Increment 2 (THE CRAWLER) PROD-VERIFIED
+
+**First hybrid live run on prod** (Kevin supplied an `er_auth` cookie). A fresh
+`seoIntent` audit on **manhattanschool.edu** (client 12) — the highest-miss cycle-1
+client — exercised the full crawler path end-to-end. SiteAudit `cmr9z8t81000q8wkilv2hap6w`;
+live-scan CrawlRun `6ac72a7b-b369-4556-bd44-5e3039d2d80b`.
+
+| Check (runbook) | Result |
+|---|---|
+| `SiteAudit.discoveryMode` | **`hybrid`** ✓ (was the key gate) |
+| `discoveryCapped` | `false` |
+| `seoIntent` | `true` |
+| `discoverySourcesJson` | populated: `{v:1, sitemapCount:67, sitemapCapped:false, stoppedBy:'exhausted', fetches:109}`; **source breakdown `{sitemap:67, linked:42}`** — the expected sitemap+linked mix |
+| audited page count vs sitemap-only | **109 discovered vs 67 sitemap-only** — the crawler added **42 link-reachable pages** the sitemap omitted (97 audited; 12 non-2xx/filtered) |
+| live-scan run built + coexists | live-scan `score=91`, `status=complete`, `coverage=YES`, alongside the ada-audit run (`score=98`, `status=partial`) via the C6 compound unique ✓ |
+| `discoveryCoverageJson.sitemapMissRate` | **0.385 (38.5%)** — intrinsic, cycle-comparable; ≈ cycle-1's 37.4% for manhattan (`42/109`) ✓ |
+| `discoveryCoverageJson.residualMissRate` | **0.027 (2.7%)** — **materially lower**; the crawler closed a 38.5% gap to 2.7% (`3/112`) — THE success number ✓ |
+| `stoppedBy` (which bound halted the crawl) | **`exhausted`** — ran to natural completion; the budget was ample, no bound hit |
+
+**Residual = noise, not missed content.** The 3 remaining off-baseline targets are
+two `?lead_src=cro_toolbar` tracking-param variants of `/apply-online` + `/book-a-tour`
+(CRO-toolbar query params, not distinct content) and one `wp-content/*.html` upload
+(an asset file). Real missed-content rate after the crawl is effectively **0%**.
+
+**Verdict:** the crawler behaves exactly as designed in prod — hybrid discovery is
+active only for seoIntent audits, per-URL provenance is recorded, the dual miss-rate
+correctly reports the intrinsic gap (38.5%) *and* proves the crawl closed it (→2.7%).
+**Increment 2 feature prod-verification: PASS.** (Note: the legacy top-level
+`missRate`/`applicable` are intentionally `null`/`false` for a hybrid run — superseded
+by the dual `sitemap*`/`residual*` fields; NOT a bug.)
+
+This fresh run also = **manhattan parity cycle 2** (post-Increment-2, hybrid):
+live-scan score **91** (was 98/99 on the sitemap-only runs — expected, since the
+broader hybrid page set surfaces more on-page issues that pull the live score down;
+still no crawl-depth/broken-link penalties, so it reads above SF's 82). Deviation
+explained; not a bug.
+
+---
+
 ## Operational plan to fill the two data streams
 
 SF-side crawls now exist for 7 clients (§ candidates B). The remaining work is a
