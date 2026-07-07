@@ -56,15 +56,16 @@ their contents.
 **`/quarter-grid`.** A drag-and-drop board for planning what SEO work
 happens across roughly thirty clients over a quarter — the same kind of
 planning you might otherwise track in a spreadsheet or a project board. In
-dev terms: it's an interactive page with drag-and-drop state that can push
-planned weeks of work into Teamwork (the team's project-management tool).
+dev terms: it's an interactive drag-and-drop page that can push planned
+weeks of work into Teamwork (the team's project-management tool).
 
 **`/rankmath-redirects`.** A guide for migrating WordPress redirects when a
 client's site changes URL structure — the kind of reference sheet you'd
 otherwise keep in a doc. In dev terms: it's mostly a static content page.
 
-**`/clients`.** The list of clients this toolkit tracks, matched to their
-domains — your client roster, but wired into the rest of the app so every
+**`/clients`.** The list of clients this toolkit tracks, each matched to
+their domain so a scan of a site can be connected to the right client
+automatically — your client roster, wired into the rest of the app so every
 other tool knows which client it's working on. In dev terms: it's a set of
 pages for creating, editing, and looking up client records in the database.
 
@@ -73,7 +74,8 @@ from Google Analytics 4, Search Console, and the CRM's Prospects data,
 compared period-over-period — the recurring client report you'd otherwise
 assemble by hand every month. It runs on demand or on a monthly schedule. In
 dev terms: it's a page that triggers a background job which fetches data
-from those external APIs, renders an HTML report, and turns it into a PDF.
+from those external APIs, turns the data into an HTML report, and saves
+that report as a PDF.
 
 **`/settings`.** Where you can see whether the app's connection to Google's
 reporting APIs is working (the credential that lets `/reports` pull GA4 and
@@ -96,9 +98,9 @@ column yet, just know it's coming.
 | A page inside a crawl | `CrawlPage` | `03-codebase-tour.md` |
 | An issue/finding from an audit | `Finding` | `03-codebase-tour.md` |
 | An accessibility violation | `Violation` | `03-codebase-tour.md` |
-| A Screaming Frog export you uploaded | A parser *Session* | `04-how-it-runs.md` |
-| A full-site accessibility scan | `SiteAudit` | `04-how-it-runs.md` |
-| A single-page accessibility scan | `AdaAudit` | `04-how-it-runs.md` |
+| A Screaming Frog export you uploaded | A parser *Session* | `03-codebase-tour.md` |
+| A full-site accessibility scan | `SiteAudit` | `03-codebase-tour.md` |
+| A single-page accessibility scan | `AdaAudit` | `03-codebase-tour.md` |
 | A PageSpeed / Core Web Vitals check | A *PSI* (PageSpeed Insights) / *Lighthouse* job | `04-how-it-runs.md` |
 | A scan you want to run automatically and repeatedly | A `Schedule` | `04-how-it-runs.md` |
 
