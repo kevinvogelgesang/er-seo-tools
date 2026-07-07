@@ -73,6 +73,13 @@ describe('tools registry', () => {
     expect(toolForPathname('/clients/12')!.id).toBe('clients')
     expect(toolForPathname('/nonexistent')).toBeUndefined()
   })
+
+  it('hidden tools resolve for titles but are flagged out of the nav', () => {
+    const kw = toolForPathname('/keyword-research/abc123')
+    expect(kw?.name).toBe('Keyword Research')
+    expect(kw?.hidden).toBe(true)
+    expect(toolForPathname('/pillar-analysis/9')?.hidden).toBe(true)
+  })
 })
 ```
 
@@ -137,6 +144,9 @@ export interface ToolDef {
   icon: ComponentType<{ className?: string }>
   description: string
   children?: { name: string; href: string }[]
+  // Codex plan-fix 3: hidden tools get no nav entry but still resolve via
+  // toolForPathname so the Topbar titles their pages correctly.
+  hidden?: boolean
 }
 
 export const NAV_GROUPS: { id: NavGroupId; label: string }[] = [
@@ -187,6 +197,9 @@ export const TOOLS: ToolDef[] = [
   { id: 'rankmath-redirects', name: 'RankMath Redirects', href: '/rankmath-redirects', group: 'reference', icon: IconRedirect, description: 'WordPress redirect migration runbook' },
   { id: 'oxygen-guide', name: 'Oxygen Guide', href: '/oxygen-tailwind-guide', group: 'reference', icon: IconBook, description: 'Oxygen + Tailwind stack guide' },
   { id: 'settings', name: 'Settings', href: '/settings', group: 'footer', icon: IconSettings, description: 'Google connection & scoring weights' },
+  // Hidden: shell-wrapped pages reached from flows, not from the nav.
+  { id: 'keyword-research', name: 'Keyword Research', href: '/keyword-research', group: 'run', icon: IconParser, description: 'Keyword research sessions', hidden: true },
+  { id: 'pillar-analysis', name: 'Pillar Analysis', href: '/pillar-analysis', group: 'run', icon: IconParser, description: 'Pillar analysis dashboards', hidden: true },
 ]
 
 // Longest-prefix match so /ada-audit/queue → site-audit; '/' is exact-only.
@@ -208,7 +221,7 @@ export function toolForPathname(pathname: string): ToolDef | undefined {
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `npx vitest run lib/tools-registry.test.ts`
-Expected: PASS (4 tests)
+Expected: PASS (5 tests)
 
 - [ ] **Step 6: Commit**
 
@@ -307,7 +320,7 @@ git commit -m "feat(shell): sidebar collapse pref + combined anti-FOUC stamp"
 
 **Interfaces:**
 - Consumes: `TOOLS`, `NAV_GROUPS` (Task 1); `IconChevron` (Task 1).
-- Produces: `SidebarNav({ collapsed, onToggleCollapse, onNavigate }: { collapsed: boolean; onToggleCollapse: () => void; onNavigate?: () => void })` — consumed by Task 5's `AppShell`. `onNavigate` fires on any link click (drawer close hook).
+- Produces: `SidebarNav({ collapsed, onToggleCollapse, onNavigate, showCollapseControl }: { collapsed: boolean; onToggleCollapse: () => void; onNavigate?: () => void; showCollapseControl?: boolean })` — consumed by Task 5's `AppShell`. `onNavigate` fires on any link click (drawer close hook); `showCollapseControl` (default `true`) is `false` in the mobile drawer (Codex plan-fix 5 — a drawer must not show a rail-collapse control). Hidden registry tools are never rendered.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -364,6 +377,14 @@ describe('SidebarNav', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(onToggle).toHaveBeenCalledOnce()
   })
+
+  it('never renders hidden tools and omits the collapse control when told to', () => {
+    pathnameMock.value = '/'
+    render(<SidebarNav collapsed={false} onToggleCollapse={noop} showCollapseControl={false} />)
+    expect(screen.queryByText('Keyword Research')).toBeNull()
+    expect(screen.queryByText('Pillar Analysis')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).toBeNull()
+  })
 })
 ```
 
@@ -387,6 +408,7 @@ interface SidebarNavProps {
   collapsed: boolean
   onToggleCollapse: () => void
   onNavigate?: () => void
+  showCollapseControl?: boolean
 }
 
 function NavItem({ tool, active, collapsed, showChildren, pathname, onNavigate }: {
@@ -430,10 +452,10 @@ function NavItem({ tool, active, collapsed, showChildren, pathname, onNavigate }
   )
 }
 
-export function SidebarNav({ collapsed, onToggleCollapse, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ collapsed, onToggleCollapse, onNavigate, showCollapseControl = true }: SidebarNavProps) {
   const pathname = usePathname()
   const activeTool = toolForPathname(pathname)
-  const footerTools = TOOLS.filter((t) => t.group === 'footer')
+  const footerTools = TOOLS.filter((t) => t.group === 'footer' && !t.hidden)
 
   return (
     <div className="flex h-full flex-col bg-gradient-to-b from-navy-deep to-navy text-white/80">
@@ -453,7 +475,7 @@ export function SidebarNav({ collapsed, onToggleCollapse, onNavigate }: SidebarN
 
       <nav className="flex-1 overflow-y-auto px-3">
         {NAV_GROUPS.map((group) => {
-          const tools = TOOLS.filter((t) => t.group === group.id)
+          const tools = TOOLS.filter((t) => t.group === group.id && !t.hidden)
           if (tools.length === 0) return null
           return (
             <div key={group.id}>
@@ -491,15 +513,17 @@ export function SidebarNav({ collapsed, onToggleCollapse, onNavigate }: SidebarN
             onNavigate={onNavigate}
           />
         ))}
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label="Collapse sidebar"
-          className={`mt-1 flex w-full items-center gap-3 rounded-lg py-2 text-[13px] text-white/50 transition-colors hover:bg-white/5 hover:text-white ${collapsed ? 'justify-center px-0' : 'px-2.5'}`}
-        >
-          <IconChevron className={`h-4 w-4 shrink-0 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
-          {!collapsed && <span>Collapse</span>}
-        </button>
+        {showCollapseControl && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label="Collapse sidebar"
+            className={`mt-1 flex w-full items-center gap-3 rounded-lg py-2 text-[13px] text-white/50 transition-colors hover:bg-white/5 hover:text-white ${collapsed ? 'justify-center px-0' : 'px-2.5'}`}
+          >
+            <IconChevron className={`h-4 w-4 shrink-0 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
+            {!collapsed && <span>Collapse</span>}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -509,7 +533,7 @@ export function SidebarNav({ collapsed, onToggleCollapse, onNavigate }: SidebarN
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run components/shell/SidebarNav.test.tsx`
-Expected: PASS (4 tests)
+Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -631,6 +655,23 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
 Note: the "+ New scan" CTA and ⌘K affordance from the mockup arrive with the
 dashboard (PR 2) where their destinations exist — YAGNI here.
 
+- [ ] **Step 3b: Restyle ThemeToggle for the light topbar (Codex plan-fix 2)**
+
+`components/ThemeToggle.tsx` is styled for the old dark nav (`text-white/60 …`
+around line 20) and would be near-invisible on the white topbar in light mode.
+Its ONLY consumer after this PR is the Topbar (the old nav is deleted in Task
+6), so restyle in place — replace the button's color classes with:
+
+```
+text-navy/60 hover:text-navy hover:bg-gray-100 dark:text-white/60 dark:hover:text-white dark:hover:bg-white/5
+```
+
+Keep every other class and all behavior (mounted-gate, aria-label) unchanged.
+Run `npx vitest run components/ThemeToggle.test.tsx` if that test file exists
+(`ls components/ThemeToggle.test.tsx`) and update any class assertions;
+otherwise `npx vitest run components/` to confirm nothing else asserts the old
+classes.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run components/shell/Topbar.test.tsx`
@@ -681,10 +722,12 @@ describe('AppShell', () => {
     expect(screen.getByText('page body').closest('main')).toBeTruthy()
   })
 
-  it('initial collapse comes from the pre-hydration html attribute', () => {
+  it('syncs collapse from the pre-hydration html attribute after mount', () => {
+    // First render is always expanded (hydration-safe); the mount effect
+    // reads the stamp and collapses. render() flushes effects, so the
+    // icon-only state is observable here.
     document.documentElement.setAttribute('data-sidebar', 'collapsed')
     render(<AppShell><p>x</p></AppShell>)
-    // collapsed sidebar renders icon-only links (aria-label present, no visible text)
     expect(screen.getByLabelText('Site Audits')).toBeTruthy()
   })
 
@@ -727,12 +770,18 @@ import { Topbar } from './Topbar'
 import { SIDEBAR_STORAGE_KEY } from '@/lib/shell/sidebar-pref'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  // Initial value comes from the pre-hydration stamp so server + first client
-  // render agree (Codex fix 3); localStorage is only read by the layout script.
-  const [collapsed, setCollapsed] = useState(
-    () => typeof document !== 'undefined' && document.documentElement.getAttribute('data-sidebar') === 'collapsed',
-  )
+  // Hydration safety (Codex plan-fix 1): server HTML and the FIRST client
+  // render must be identical, so React state starts 'expanded' on both. The
+  // pre-paint WIDTH on a collapsed reload is handled purely in CSS via the
+  // html[data-sidebar="collapsed"] stamp (see the aside's arbitrary variant);
+  // labels inside the 68px overflow-hidden rail are clipped, so the post-mount
+  // state sync below flips them without any visible flash.
+  const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+
+  useEffect(() => {
+    setCollapsed(document.documentElement.getAttribute('data-sidebar') === 'collapsed')
+  }, [])
 
   const toggleCollapse = () => {
     setCollapsed((prev) => {
@@ -754,9 +803,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — width is CSS-driven off the html attribute so a
+          collapsed reload paints at 68px BEFORE hydration (no flash, no
+          hydration mismatch); React state only re-renders labels/tooltips. */}
       <aside
-        className={`sticky top-0 hidden h-screen shrink-0 overflow-hidden transition-[width] duration-200 md:block ${collapsed ? 'w-[68px]' : 'w-[248px]'}`}
+        className="sticky top-0 hidden h-screen w-[248px] shrink-0 overflow-hidden transition-[width] duration-200 md:block [html[data-sidebar=collapsed]_&]:w-[68px]"
       >
         <SidebarNav collapsed={collapsed} onToggleCollapse={toggleCollapse} />
       </aside>
@@ -773,8 +824,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div role="dialog" aria-modal="true" aria-label="Navigation" className="absolute inset-y-0 left-0 w-[280px] shadow-2xl">
             <SidebarNav
               collapsed={false}
-              onToggleCollapse={() => setDrawerOpen(false)}
+              onToggleCollapse={() => {}}
               onNavigate={() => setDrawerOpen(false)}
+              showCollapseControl={false}
             />
           </div>
         </div>
@@ -1009,6 +1061,11 @@ Run: `npm run dev` and eyeball:
 - `/` — sidebar visible, Home active, homepage content unchanged inside shell
 - `/ada-audit` → `/ada-audit/queue` — Site Audits active, sub-links shown, queue page sticky elements sane
 - collapse → reload — rail stays collapsed with no flash (anti-FOUC stamp)
+- **Hydration regression check (Codex plan-fix 4):** with DevTools console
+  open, run `localStorage.setItem('er-sidebar','collapsed')`, hard-reload
+  `/clients` — expect the rail to paint collapsed immediately AND **zero
+  React hydration warnings** in the console; repeat once with the value
+  removed (`localStorage.removeItem('er-sidebar')`)
 - `/login` (logged out) + an existing `/ada-audit/site/share/<token>` URL — NO sidebar, Footer present
 - narrow viewport — hamburger opens drawer, link click closes it
 - dark + light theme on all of the above
@@ -1026,7 +1083,7 @@ git commit -m "fix(shell): retune sticky offsets for the new topbar height"
 ## Verification (whole PR)
 
 1. `npx tsc --noEmit` — clean.
-2. `npx vitest run` — full suite green (new tests: registry ×4, sidebar-pref ×2, SidebarNav ×4, Topbar ×4, AppShell ×4, route-groups ×2 = +20).
+2. `npx vitest run` — full suite green (new tests: registry ×5, sidebar-pref ×2, SidebarNav ×5, Topbar ×4, AppShell ×4, route-groups ×2 = +22).
 3. `npm run build` — succeeds; route URL set unchanged.
 4. Manual pass per Task 7 Step 4.
 5. PR via the normal flow (branch → PR → review); deploy is plain `~/deploy.sh` (no migration, no env change).
