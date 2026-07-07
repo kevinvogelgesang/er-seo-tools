@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   parseRobotsTxt,
   testUrlAgainstRobots,
@@ -291,6 +292,8 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
   const [urlInput, setUrlInput] = useState('')
   const [urlFetching, setUrlFetching] = useState(false)
   const [urlFetchError, setUrlFetchError] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const autoRanRef = useRef(false)
 
   const handleValidate = () => {
     if (!content.trim()) return
@@ -336,6 +339,20 @@ function RobotsSection({ onFetchSitemap }: { onFetchSitemap?: (url: string) => v
       setUrlFetching(false)
     }
   }
+
+  // Auto-run when arriving from the homepage Quick-Robots widget (?url=…).
+  // The ref guard makes it fire exactly once — React 19 dev StrictMode double-
+  // invokes mount effects, which would otherwise fetch twice (Codex fix 4).
+  useEffect(() => {
+    if (autoRanRef.current) return
+    const initial = searchParams.get('url')
+    if (initial) {
+      autoRanRef.current = true
+      setUrlInput(initial)
+      void fetchFromUrl(initial, 'robots')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <SectionCard title="Robots.txt Validator" icon={<RobotsIcon className="w-4 h-4" />}>
@@ -778,7 +795,7 @@ function BotReferenceSection() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function RobotsValidatorPage() {
+function RobotsValidatorContent() {
   const [sitemapContent, setSitemapContent] = useState('')
   const [sitemapResult, setSitemapResult] = useState<SitemapParseResult | null>(null)
 
@@ -831,5 +848,13 @@ export default function RobotsValidatorPage() {
         <BotReferenceSection />
       </div>
     </div>
+  )
+}
+
+export default function RobotsValidatorPage() {
+  return (
+    <Suspense fallback={null}>
+      <RobotsValidatorContent />
+    </Suspense>
   )
 }
