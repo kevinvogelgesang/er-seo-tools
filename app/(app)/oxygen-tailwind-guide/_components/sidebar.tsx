@@ -44,7 +44,7 @@ export function Sidebar({ sections }: { sections: SidebarSection[] }) {
 
   return (
     <aside className="hidden lg:block w-[230px] flex-shrink-0">
-      <nav className="sticky top-[80px] max-h-[calc(100vh-100px)] overflow-y-auto pr-3 pb-12">
+      <nav className="sticky top-[73px] max-h-[calc(100vh-90px)] overflow-y-auto pr-3 pb-12">
         {grouped.map((group, gi) => (
           <div key={gi} className="mb-6">
             {group.group && (
