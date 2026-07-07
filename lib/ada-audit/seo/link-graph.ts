@@ -35,6 +35,24 @@ function isNonPage(normalizedUrl: string): boolean {
 }
 
 /**
+ * Scheme/www-insensitive "root key" for homepage matching: lowercase host,
+ * strip a leading `www.`, drop fragment (URL parsing already ignores it for
+ * pathname), and reduce the path to '' when it's the bare root (or root with
+ * trailing slashes). Returns null for non-URLs.
+ */
+function rootKey(url: string): { key: string; isRoot: boolean } | null {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.toLowerCase().replace(/^www\./, '')
+    const trimmedPath = u.pathname.replace(/\/+$/, '')
+    const isRoot = trimmedPath === ''
+    return { key: host + (isRoot ? '' : trimmedPath), isRoot }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Full-graph reachability. Nodes = (discovered `nodes` ∪ edge endpoints) minus
  * non-page targets, normalized via normalizeFindingUrl (first-seen original wins,
  * reconciling with CrawlPage.url). inlinks/outlinks span the whole page graph.
@@ -79,9 +97,20 @@ export function computeLinkGraph(
     if (!a.has(t)) { a.add(t); edgeCount++ }   // distinct edges only (Codex #4)
   }
 
-  // exact-homepage BFS (no fallback)
-  const home = homepageUrl ? normalizeFindingUrl(homepageUrl) : null
-  const homepageResolved = !!home && normToOrig.has(home)
+  // Homepage anchor: match the root page scheme/www-insensitively against the
+  // real node set (the builder synthesizes a bare-apex https URL that may not
+  // equal the site's actual www-canonical or http-only homepage node), then
+  // anchor the BFS on that matched node's normalized key. `byUrl` keying is
+  // unaffected — still normalizeFindingUrl, first-seen original.
+  const targetRoot = homepageUrl ? rootKey(homepageUrl) : null
+  let home: string | null = null
+  if (targetRoot?.isRoot) {
+    for (const norm of normToOrig.keys()) {
+      const nodeRoot = rootKey(norm)
+      if (nodeRoot?.isRoot && nodeRoot.key === targetRoot.key) { home = norm; break }
+    }
+  }
+  const homepageResolved = home != null
   const depth = new Map<string, number>()
   if (homepageResolved) {
     const q = [home!]; depth.set(home!, 0)

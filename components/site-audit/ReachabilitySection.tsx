@@ -71,15 +71,15 @@ export function ReachabilitySection({
       <p className="mt-1 text-[12px] font-body text-navy/40 dark:text-white/40">
         Measurement only — not part of the score.
       </p>
-      <SampleList label="Orphaned pages" urls={data.orphanSample} />
-      <SampleList label="Unreachable pages" urls={data.unreachableSample} />
-      {data.deepSample.length > 0 && (
+      <SampleList label="Orphaned pages" urls={data.orphanSample ?? []} />
+      <SampleList label="Unreachable pages" urls={data.unreachableSample ?? []} />
+      {(data.deepSample ?? []).length > 0 && (
         <details className="mt-2">
           <summary className="cursor-pointer text-[13px] font-body text-navy/60 dark:text-white/60">
-            Deep pages ({data.deepSample.length})
+            Deep pages ({(data.deepSample ?? []).length})
           </summary>
           <ul className="mt-1 space-y-1">
-            {data.deepSample.map((d) => (
+            {(data.deepSample ?? []).map((d) => (
               <li key={d.url} className="text-[12px] font-mono text-navy/70 dark:text-white/70 break-all">
                 {d.url} <span className="text-navy/40 dark:text-white/40">({d.depth} clicks)</span>
               </li>

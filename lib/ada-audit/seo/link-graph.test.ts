@@ -107,6 +107,30 @@ describe('computeLinkGraph — full-graph reachability', () => {
     expect(g.summary.maxDepth).toBeNull()
   })
 
+  it('www-canonical homepage resolves scheme/www-insensitively (Fix 1)', () => {
+    // Actual homepage node is www-canonical; builder passes the bare apex.
+    const WWW_H = 'https://www.x.test'
+    const edges = [{ sourcePageUrl: WWW_H, targetUrl: A, kind: 'internal-link' }]
+    const g = computeLinkGraph(edges, [WWW_H, A], 'https://x.test', idx(WWW_H, A))
+    expect(g.summary.homepageResolved).toBe(true)
+    expect(g.byUrl.get(A)!.crawlDepth).toBe(1)
+  })
+
+  it('http-only homepage resolves scheme/www-insensitively (Fix 1)', () => {
+    const HTTP_H = 'http://x.test'
+    const edges = [{ sourcePageUrl: HTTP_H, targetUrl: A, kind: 'internal-link' }]
+    const g = computeLinkGraph(edges, [HTTP_H, A], 'https://x.test', idx(HTTP_H, A))
+    expect(g.summary.homepageResolved).toBe(true)
+    expect(g.byUrl.get(A)!.crawlDepth).toBe(1)
+  })
+
+  it('regression: exact-apex homepage still resolves (Fix 1)', () => {
+    const edges = [{ sourcePageUrl: H, targetUrl: A, kind: 'internal-link' }]
+    const g = computeLinkGraph(edges, [H, A], H, idx(H, A))
+    expect(g.summary.homepageResolved).toBe(true)
+    expect(g.byUrl.get(A)!.crawlDepth).toBe(1)
+  })
+
   it('depthHistogram buckets ≥4 into 4plus', () => {
     const edges = [
       { sourcePageUrl: H, targetUrl: A, kind: 'internal-link' },
