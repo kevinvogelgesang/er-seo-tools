@@ -8,7 +8,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import { RelativeTime } from '@/app/pillar-analysis/[id]/components/RelativeTime'
+import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
 
 interface SeriesProp {
   latest: number | null

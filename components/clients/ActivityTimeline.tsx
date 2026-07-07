@@ -3,7 +3,7 @@
 // Reverse-chron activity list for one client. Server-renderable; RelativeTime
 // is the only client leaf. Local item interface (repo convention).
 
-import { RelativeTime } from '@/app/pillar-analysis/[id]/components/RelativeTime'
+import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
 
 export interface ActivityTimelineItem {
   type: 'seo-parse' | 'keyword-research' | 'site-audit' | 'ada-audit' | 'pillar-analysis' | 'seo-roadmap'

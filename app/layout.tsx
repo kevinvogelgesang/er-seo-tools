@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
 import { Barlow, Source_Sans_3 } from 'next/font/google'
 import './globals.css'
-import Nav from '@/components/nav'
-import Footer from '@/components/footer'
 import { ThemeProvider } from '@/components/ThemeProvider'
 
 const barlow = Barlow({
@@ -42,7 +40,7 @@ export default function RootLayout({
         {/* Anti-FOUC: apply saved theme + sidebar state before first paint */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('er-theme');var p=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';if((t||p)==='dark')document.documentElement.classList.add('dark');if(localStorage.getItem('er-sidebar')==='collapsed')document.documentElement.setAttribute('data-sidebar','collapsed');}catch(e){}})();` }} />
       </head>
-      <body className="min-h-screen flex flex-col bg-white dark:bg-navy-deep text-navy dark:text-white antialiased">
+      <body className="min-h-screen bg-white dark:bg-navy-deep text-navy dark:text-white antialiased">
         <ThemeProvider>
           <a
             href="#main-content"
@@ -50,9 +48,7 @@ export default function RootLayout({
           >
             Skip to main content
           </a>
-          <Nav />
-          <main id="main-content" className="flex-1">{children}</main>
-          <Footer />
+          {children}
         </ThemeProvider>
       </body>
     </html>

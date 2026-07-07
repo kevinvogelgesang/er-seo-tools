@@ -7,7 +7,7 @@
 // dynamic ssr:false import (Recharts).
 
 import dynamic from 'next/dynamic'
-import { RelativeTime } from '@/app/pillar-analysis/[id]/components/RelativeTime'
+import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
 import type { ReactNode } from 'react'
 
 const Sparkline = dynamic(() => import('./Sparkline').then((m) => ({ default: m.Sparkline })), { ssr: false })
