@@ -56,6 +56,9 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/site-audit/abc/share',
     // C8 settings routes are dashboard-triggered → stays cookie-gated
     '/api/settings/scoring-weights',
+    // A8 PR 3.5 fleet-aggregate routes feed the homepage widgets → cookie-gated by omission
+    '/api/fleet/kpi',
+    '/api/fleet/needs-attention',
   ])('keeps non-handoff route %s gated', (p) => {
     expect(isPublicPath(p)).toBe(false);
   });

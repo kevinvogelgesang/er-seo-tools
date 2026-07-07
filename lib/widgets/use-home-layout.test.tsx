@@ -101,8 +101,10 @@ describe('useHomeLayout', () => {
     const { result } = renderHook(() => useHomeLayout())
     await waitFor(() => expect(result.current.hydrated).toBe(true))
 
+    // Move the 2nd default-layout widget up → it becomes first (order-agnostic).
+    const secondId = DEFAULT_LAYOUT[1].id
     act(() => {
-      result.current.dispatch({ type: 'move', id: 'quick-site-audit', dir: 'up' })
+      result.current.dispatch({ type: 'move', id: secondId, dir: 'up' })
     })
 
     await waitFor(() => {
@@ -110,7 +112,7 @@ describe('useHomeLayout', () => {
       const parsed = JSON.parse(stored as string)
       expect(parsed.items).toEqual(result.current.layout)
     })
-    expect(result.current.layout[0].id).toBe('quick-site-audit')
+    expect(result.current.layout[0].id).toBe(secondId)
   })
 
   it('persists a reorder dispatch to localStorage after hydration', async () => {

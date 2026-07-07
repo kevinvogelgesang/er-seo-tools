@@ -23,9 +23,20 @@ describe('widget registry', () => {
       expect(w!.sizes).toContain(item.size)
     }
   })
-  it('does NOT register deferred aggregate widgets (PR 3.5)', () => {
-    const ids = WIDGETS.map((w) => w.id)
-    expect(ids).not.toContain('kpi-strip')
-    expect(ids).not.toContain('needs-attention')
+  it('registers the PR 3.5 aggregate widgets with their expected sizes', () => {
+    const kpi = WIDGETS.find((w) => w.id === 'kpi-strip')
+    expect(kpi).toBeTruthy()
+    expect(kpi!.sizes).toEqual(['wide', 'xl'])
+    expect(kpi!.defaultSize).toBe('xl')
+    const needs = WIDGETS.find((w) => w.id === 'needs-attention')
+    expect(needs).toBeTruthy()
+    expect(needs!.sizes).toEqual(['sm', 'lg'])
+    expect(needs!.defaultSize).toBe('lg')
+  })
+
+  it('places both aggregate widgets in the default layout', () => {
+    const ids = DEFAULT_LAYOUT.map((i) => i.id)
+    expect(ids).toContain('kpi-strip')
+    expect(ids).toContain('needs-attention')
   })
 })

@@ -39,8 +39,8 @@ describe('DashboardGrid', () => {
     for (const title of ['Live now', 'Start a site audit', 'Recent parses']) {
       expect(screen.getAllByText(title).length).toBeGreaterThan(0)
     }
-    // Sanity: registry has exactly the seven PR-2 widgets.
-    expect(WIDGETS.length).toBe(7)
+    // Sanity: registry has the 7 PR-2 widgets + the 2 PR-3.5 aggregates.
+    expect(WIDGETS.length).toBe(9)
   })
 
   it('view mode shows a Customize button (aria-pressed=false) and live frames', () => {
@@ -90,8 +90,9 @@ describe('DashboardGrid', () => {
     const before = headingOrder()
     expect(before).toEqual(DEFAULT_LAYOUT.map((i) => WIDGETS.find((w) => w.id === i.id)!.title))
 
-    const liveNow = WIDGETS.find((w) => w.id === 'live-now')!
-    fireEvent.click(screen.getByLabelText(`Move ${liveNow.title} later`))
+    // Move the first widget "later" → it swaps with its neighbor (index 0↔1).
+    const first = WIDGETS.find((w) => w.id === DEFAULT_LAYOUT[0].id)!
+    fireEvent.click(screen.getByLabelText(`Move ${first.title} later`))
 
     const after = headingOrder()
     expect(after[0]).toBe(before[1])
