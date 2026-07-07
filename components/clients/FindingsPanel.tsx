@@ -8,7 +8,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { RelativeTime } from '@/app/pillar-analysis/[id]/components/RelativeTime'
+import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
 
 export interface FindingRowProp {
   tool: 'seo' | 'ada'
