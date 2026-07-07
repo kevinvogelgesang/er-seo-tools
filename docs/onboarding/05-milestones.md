@@ -263,9 +263,10 @@ structured logs, `/admin/ops`, and the common diagnoses table — then:
   narrated to Kevin afterward — what you checked, in what order, and why.
 
 **Gate.** You own Stage 4 when both unsupervised drills (one deploy, one
-diagnosis) are done and you've narrated each one afterward, and you can
-answer "what would you check first?" for the runbook's common symptoms
-(a stuck audit, a 502, a restart loop) without hesitating or guessing.
+diagnosis) are done and you've narrated each one afterward, and Kevin quizzes
+you cold on the runbook's common symptoms (a stuck audit, a 502, a restart
+loop) and you name the correct first check from `08-operations-runbook.md`
+section 4 for each one without looking it up.
 
 Until this gate is cleared: no production queue operations of any kind, and
 no server SSH mutations — full stop, no exceptions, regardless of how

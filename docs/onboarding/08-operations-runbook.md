@@ -97,7 +97,7 @@ this way — read that first if this is your first time here.
 | Database | `/home/seo/data/seo-tools/db.sqlite` (plus its `-wal` and `-shm` sidecar files — WAL mode) |
 | Uploads | `/home/seo/data/seo-tools/uploads` |
 | Generated report PDFs | `/home/seo/data/seo-tools/reports` |
-| DB backup snapshots | `/home/seo/data/seo-tools/backups` (see §7) |
+| DB backup snapshots | `/home/seo/data/seo-tools/backups` (see §6) |
 | Logs | `/home/seo/logs/` |
 
 The data directory living *outside* the app directory is deliberate — a
@@ -164,7 +164,7 @@ only tells you where to look.
 One boot-safety detail worth knowing: the logger's own construction is
 guarded end to end — an invalid `LOG_LEVEL` value cannot itself crash the
 process at startup. If the app won't boot, the logger is never the cause;
-look at the fail-fast gates in §5 instead.
+look at the fail-fast gates in §4's "PM2 restart loop" row instead.
 
 ## 4. Common diagnoses
 

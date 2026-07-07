@@ -12,11 +12,16 @@ that are genuinely fragile.*
 ## 1. What this is
 
 er-seo-tools is an internal web app for one SEO agency (Enrollment Resources).
-It runs SEO and WCAG-accessibility audits against client websites — you upload a
+It runs SEO and WCAG (the W3C's Web Content Accessibility Guidelines,
+i.e. web accessibility) audits against client websites — you upload a
 Screaming Frog crawl or point it at a domain, and it produces prioritized
-reports, health scores, branded PDFs, and a per-client history. It is a
-Next.js 15 (App Router) + TypeScript + Prisma/SQLite app, deployed as a single
-long-running Node process on one small VPS.
+reports, health scores, branded PDFs, and a per-client history. The
+accessibility audits themselves run on **axe-core**, an open-source
+accessibility-testing engine, driven headlessly inside a real Chrome instance.
+It is a Next.js 15 (App Router) + TypeScript + Prisma/SQLite app, deployed as
+a single long-running Node process on one small VPS hosted on **RunCloud**
+(a server-management panel for VPS providers — think "cheaper, self-managed
+Heroku").
 
 **The promise of this doc:** after reading it, plus a skim of `03-codebase-tour.md`
 (the static map of the repo) and `04-how-it-runs.md` (the runtime machinery), you
@@ -68,19 +73,23 @@ is the schema; the file lives at `/home/seo/data/seo-tools/db.sqlite` in prod),
 accessed through Prisma. This is a hard constraint in `CLAUDE.md` ("SQLite only —
 no Postgres/MySQL").
 
-**Why.** One box, one file, zero database server to operate, trivial backup (copy
-the file). At this scale the operational simplicity is worth more than
-concurrency headroom.
+**Why.** One box, one file, zero database server to operate, and a backup story
+that's a single `VACUUM INTO` snapshot rather than a managed-database export
+pipeline (see the honest state of that snapshot in section 4). At this scale
+the operational simplicity is worth more than concurrency headroom.
 
 **Consequences.** SQLite has a *single writer* — one write lock for the whole
-database, in WAL mode with a 5-second busy timeout. That lock is the tax you pay,
-and it produced the most instructive incident in the repo's history:
+database, in WAL mode (Write-Ahead Logging — SQLite's mode that lets readers
+proceed concurrently with a writer, but still serializes writers to one at a
+time) with a 5-second busy timeout. That lock is the tax you pay, and it
+produced the most instructive incident in the repo's history:
 
 > **2026-06-10 — "Operations timed out."** The first real PDF-bearing site audit
 > after the durable job queue shipped wedged; 15 of 23 pages failed. Root cause:
 > an *interactive* Prisma transaction (`prisma.$transaction(async tx => …)`)
 > holds SQLite's single write lock across `await` round-trips. Four concurrent
-> pdfjs parses starved the Node event loop, so the lock outlived the 5-second
+> `pdfjs` (a PDF-parsing library) invocations starved the Node event loop, so
+> the lock outlived the 5-second
 > busy timeout for every other writer, and they all timed out.
 
 That incident hardened into three non-negotiable house rules, all in `CLAUDE.md`
@@ -123,10 +132,11 @@ gives you none of those.
 (the server pulls from GitHub, installs, migrates, restarts). Restarts are a real
 event — Chrome must be cleaned up on SIGTERM (`instrumentation.ts` handles this),
 and in-flight jobs must survive a restart (decision 3). Memory is finite and has
-bitten twice: PM2's runtime ceiling is set to restart at 2400 MB
-(`ecosystem.config.js`), and the *build* separately ran the Node heap out of
-memory once as the codebase grew (fixed with a `--max-old-space-size` flag in the
-build script).
+bitten twice: PM2's runtime restart ceiling (2026-05-14 — a legitimate Lighthouse
+memory peak triggered a SIGKILL restart at the then-1200 MB ceiling, raised to
+2400 MB in `ecosystem.config.js`), and, separately, the *build* itself ran the
+Node heap out of memory once as the codebase grew (2026-06-22, fixed with a
+`--max-old-space-size` flag in the build script).
 
 **Revisit if.** You need horizontal scale or true elastic burst — but note that
 gets you into multi-instance territory, which the job worker is not designed for
@@ -196,10 +206,14 @@ viewers — genuinely not the case here.
 ### Decision 5 — Findings dual-write + 90-day blob pruning
 
 **Decision.** Audit results are written twice: once as the original JSON "blob"
-(e.g. `Session.result`, `SiteAudit.summary`, `AdaAudit.result`) and once as a
-normalized relational subtree (`CrawlRun → CrawlPage / Finding / Violation`). See
-`lib/findings/`. Blobs are pruned 90 days after completion; the normalized tables
-are the durable record. Read surfaces fall back to the tables when the blob is gone.
+on the record that started the audit (`Session` = a Screaming Frog CSV upload,
+`SiteAudit` = a whole-site crawl audit, `AdaAudit` = a single-page accessibility
+audit — hence `Session.result`, `SiteAudit.summary`, `AdaAudit.result`) and once
+as a normalized relational subtree keyed off a `CrawlRun` (one audit run) with
+child `CrawlPage` (one crawled page), `Finding` (one SEO issue), and `Violation`
+(one accessibility issue) rows. See `lib/findings/`. Blobs are pruned 90 days
+after completion; the normalized tables are the durable record. Read surfaces
+fall back to the tables when the blob is gone.
 
 **Why — and the honest history matters here.** The blobs came *first*. The app
 originally stored results as JSON strings. The normalized "findings layer" was
@@ -297,18 +311,20 @@ browser work to a separate service. On this VPS, 4 is the ceiling.
 ### Decision 8 — Lighthouse provider is selectable; prod uses PageSpeed
 
 **Decision.** Performance/Lighthouse scoring is behind a `LIGHTHOUSE_PROVIDER`
-setting with three supported modes: `pagespeed` (call Google's PageSpeed Insights
-API), `local` (run Lighthouse in our own Chrome), or `off`. Prod currently runs
-`pagespeed` (`ecosystem.config.js`).
+setting with three supported modes: `pagespeed` (call Google's PageSpeed
+Insights, "PSI", API), `local` (run Lighthouse in our own Chrome), or `off`.
+Prod currently runs `pagespeed` (`ecosystem.config.js`).
 
 **Why.** Running Lighthouse locally is CPU- and memory-heavy, and on a small VPS
 already juggling axe audits in Chrome, that contention hurts. PageSpeed Insights
 offloads the work to Google's infrastructure. The accepted cost is **score
 variance**: PSI runs from Google data-center IPs with a cold profile, so its
 numbers differ from historical local-Lighthouse numbers, and education-sector
-client sites behind WAF/bot-mitigation sometimes serve Google a challenge page that
-PSI then scores. Per-page PSI failures fail *only* the Lighthouse portion of an
-audit by design — axe and PDFs still complete.
+client sites behind a WAF (Web Application Firewall, a layer that filters
+traffic before it reaches the site) or other bot-mitigation sometimes serve
+Google a challenge page that PSI then scores. Per-page PSI failures fail
+*only* the Lighthouse portion of an audit by design — axe and PDFs still
+complete.
 
 **Consequences.** `local` and `off` are **supported, working modes, not dead
 code** — don't delete them. `local` is the escape hatch if PSI quota or reliability
@@ -368,8 +384,10 @@ near them.
   stale-timeout logic here *without* a column would silently never fire. Leave it
   alone.
 
-- **The prod-only minification bug class.** The prod build minifies with SWC;
-  dev and tests don't. This has produced two separate incidents:
+- **The prod-only minification bug class.** The prod build minifies with SWC
+  (the Rust-based compiler Next.js uses to transpile and minify TypeScript —
+  not an internal codename); dev and tests don't. This has produced two
+  separate incidents:
   - *Minified class names breaking key lookups (2026-06-02).* Parser keys were
     derived from `ParserClass.name`; SWC renames classes in the prod build only
     (`InternalParser` → `af`), so every hardcoded lookup missed and prod produced
@@ -389,8 +407,12 @@ near them.
   URLs, uploads, raw SQL, minified identifiers, or Node-version-specific behavior
   needs a prod verification pass — green local tests are not sufficient evidence.
 
-- **SSRF discipline — never raw-`fetch` a user-provided URL.** Audits fetch client
-  sites, sitemaps, and links, all from URLs users control. Every such fetch goes
+- **SSRF discipline — never raw-`fetch` a user-provided URL.** SSRF
+  (Server-Side Request Forgery) is the class of attack where a server is
+  tricked into making a request to a URL its owner didn't intend — e.g. a
+  user-supplied "sitemap URL" that actually points at the server's own
+  internal admin panel or cloud-metadata endpoint. Audits fetch client sites,
+  sitemaps, and links, all from URLs users control. Every such fetch goes
   through the safe-URL helpers in `lib/security/safe-url.ts` (`safeFetch` /
   `assertSafeHttpUrl`), which block private/internal hosts and addresses, reject
   credentials-in-URL and non-http(s) schemes, re-validate on every redirect hop,
@@ -415,14 +437,24 @@ near them.
   There is no multi-instance safety.
 
 - **Memory ceilings are real and have bitten twice.** Two independent knobs, two
-  incidents: the PM2 *runtime* restart ceiling (2400 MB) and the *build-time* Node
-  heap (raised via a flag in the build script after a deploy OOM'd). A large PR can
-  hit the build ceiling again.
+  incidents: the PM2 *runtime* restart ceiling (2026-05-14, raised 1200 MB → 2400 MB
+  after a legitimate Lighthouse memory peak triggered a SIGKILL) and the
+  *build-time* Node heap (2026-06-22, raised via a `--max-old-space-size` flag in
+  the build script after a deploy's `next build` OOM'd). A large PR can hit the
+  build ceiling again.
 
-- **No monitoring/alerting to speak of.** Failures surface in server logs
-  (`/home/seo/logs/`) and the UI. A dead schedule or a repeatedly failing
-  dual-write is silent until someone looks. There is a lightweight ops/health
-  surface, but no paging.
+- **Monitoring/alerting exists but is thin, and the backup story has real gaps.**
+  There is a `system-health-alert` schedule (every 15 minutes) that checks DB
+  health, job failures, stalled audits, and backup staleness, surfaced in
+  `/admin/ops` and `/api/health` — and a daily `system-db-backup` schedule
+  (`VACUUM INTO`, retained 7). But: the health-alert only reaches a human if
+  `ALERT_WEBHOOK_URL` is set (unset means it's logged and computed, never sent —
+  whether it's actually configured in prod isn't verifiable from this repo);
+  backups live on the *same disk* as the live database, so a disk failure takes
+  out both together; and there is no documented or tested restore procedure. A
+  dead schedule or a repeatedly failing dual-write that nobody's webhook catches
+  is still silent until someone looks. Full detail in
+  `08-operations-runbook.md` sections 3 and 6 — don't duplicate it here.
 
 - **Client-domain matching is loose.** Sessions are attributed to clients by a
   first-match, bidirectional host-suffix comparison with no shared service. A
@@ -473,7 +505,8 @@ progression, because a subtle mistake here has broad or silent blast radius:
 - **Recovery paths** — the stale-audit sweep and startup recovery. A wrong "treat
   a read error as zero jobs" here destroys healthy audits.
 - `middleware.ts` and auth (`lib/auth.ts`) — the global gate and the allowlist.
-- `lib/security/` — SSRF protection and the same-site/CSRF guard.
+- `lib/security/` — SSRF protection and the same-site/CSRF (Cross-Site Request
+  Forgery — a forged request riding a logged-in user's own cookies) guard.
 
 A useful heuristic: UI-scoped and copy changes are safe to hand off early;
 anything touching concurrency, the schema, auth, recovery, or external fetches

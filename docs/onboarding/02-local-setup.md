@@ -21,7 +21,7 @@ Mac-first (a short Windows note is at the bottom).
 |---|---|---|
 | Node.js 22 or newer | `node --version` | `package.json`'s `engines` field requires `>=22`; production runs Node 22. If you don't have Node yet, install it via [nvm](https://github.com/nvm-sh/nvm) or the official installer at <https://nodejs.org>. |
 | git | `git --version` | Comes preinstalled on most Macs; if not, `xcode-select --install` or install via [Homebrew](https://brew.sh). |
-| Google Chrome | Installed as a normal Mac app | Only needed once you get to the ADA-audit step (Section 4) — the app drives a real Chrome install to run accessibility audits. |
+| Google Chrome | Installed as a normal Mac app | Only needed once you get to the ADA-audit step (Section 3) — the app drives a real Chrome install to run accessibility audits. |
 
 You do **not** need Docker, Postgres, or any other external service. The
 database is a single local SQLite file that lives inside your clone.
@@ -64,7 +64,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 `DATABASE_URL` is the only variable you strictly need for dev — everything
 else in `.env.example` has a workable default or gates an optional feature
 (see the table below). Leave `APP_AUTH_PASSWORD` **unset** — that's what
-turns on the dev login bypass (more in Section 6).
+turns on the dev login bypass (more in Section 5).
 
 - `DATABASE_URL` — where Prisma reads/writes the SQLite file. `file:./local-dev.db`
   resolves relative to the `prisma/` directory, so the real file ends up at

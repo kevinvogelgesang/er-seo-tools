@@ -204,9 +204,10 @@ set up locally:
   built around: don't just accept the explanation, go confirm it against
   the actual function.
 - *"What does `isPublicPath()` in `middleware.ts` do, and what happens if a
-  new route isn't added to it?"* — this one has a real incident behind it
-  (a new route 401'ing in production because it was missed), which is a
-  good early lesson in why a seemingly small oversight in this file matters.
+  new route isn't added to it?"* — this footgun has bitten multiple times
+  (a new public or token route 401'ing in production because it was missed
+  here), which is a good early lesson in why a seemingly small oversight in
+  this file matters.
 
 Notice the shape of all three: they ask the AI assistant to explain code
 that already exists, in a file you can immediately go open and check. That's

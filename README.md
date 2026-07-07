@@ -2,6 +2,8 @@
 
 A unified Next.js webapp housing all SEO tools for the Enrollment Resources team.
 
+> New to this codebase? Start at [docs/onboarding/README.md](docs/onboarding/README.md).
+
 ## Tools
 
 | Tool | Route | Description |
