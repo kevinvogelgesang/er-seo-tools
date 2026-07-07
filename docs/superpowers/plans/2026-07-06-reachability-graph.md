@@ -27,36 +27,68 @@
 - Modify: `prisma/schema.prisma` (CrawlRun model, after `discoveryCoverageJson` at line ~373)
 - Create: `prisma/migrations/20260706120000_reachability_graph/migration.sql`
 - Modify: `lib/findings/types.ts:44` (add field to `CrawlRunInput`)
-- Test: `lib/findings/writer.test.ts` (round-trip)
+- Create: `lib/findings/writer.reachability.test.ts` (round-trip — mirrors `writer.discovery-coverage.test.ts`)
 
 **Interfaces:**
 - Produces: `CrawlRun.reachabilityJson: string | null` column; `CrawlRunInput.reachabilityJson?: string | null` field consumed by Task 3.
 
 - [ ] **Step 1: Write the failing writer round-trip test**
 
-Add to `lib/findings/writer.test.ts` (follow the file's existing `writeFindingsRun` test setup — an in-memory/`file:` test DB run; copy the harness of the nearest existing test):
+`writeFindingsRun` enforces an exactly-one-origin guard (`writer.ts:38`), so the run MUST carry a real `siteAuditId` — a null-origin run fails before `reachabilityJson` is exercised (Codex plan-review #1). Mirror `lib/findings/writer.discovery-coverage.test.ts` exactly. Create `lib/findings/writer.reachability.test.ts`:
 
 ```ts
-it('persists reachabilityJson on the CrawlRun', async () => {
-  const runId = randomUUID()
-  await writeFindingsRun({
-    run: {
-      id: runId, tool: 'seo-parser', source: 'live-scan', domain: 'x.test',
-      clientId: null, sessionId: null, siteAuditId: null, adaAuditId: null,
-      status: 'complete', score: null, wcagLevel: null, pagesTotal: 0,
-      startedAt: null, completedAt: null,
-      reachabilityJson: JSON.stringify({ v: 1, orphanCount: 3 }),
-    },
-    pages: [], findings: [], violations: [],
+// @vitest-environment node
+import { describe, it, expect, beforeEach } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { prisma } from '@/lib/db'
+import { writeFindingsRun } from './writer'
+import type { CrawlRunInput } from './types'
+
+function baseRun(siteAuditId: string): CrawlRunInput {
+  return {
+    id: randomUUID(), tool: 'seo-parser', source: 'live-scan', domain: 'example.com',
+    clientId: null, sessionId: null, siteAuditId, adaAuditId: null, status: 'complete',
+    score: null, scoreBreakdown: null, wcagLevel: null, pagesTotal: 0,
+    startedAt: null, completedAt: null,
+  }
+}
+
+describe('writeFindingsRun persists reachabilityJson', () => {
+  let siteAuditId: string
+  beforeEach(async () => {
+    const audit = await prisma.siteAudit.create({
+      data: { domain: 'example.com', status: 'complete', wcagLevel: 'wcag21aa' },
+    })
+    siteAuditId = audit.id
   })
-  const row = await prisma.crawlRun.findUnique({ where: { id: runId }, select: { reachabilityJson: true } })
-  expect(JSON.parse(row!.reachabilityJson!).orphanCount).toBe(3)
+
+  it('round-trips the reachabilityJson column', async () => {
+    const json = JSON.stringify({ v: 1, orphanCount: 3 })
+    await writeFindingsRun({
+      run: { ...baseRun(siteAuditId), reachabilityJson: json },
+      pages: [], findings: [], violations: [],
+    })
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { reachabilityJson: true },
+    })
+    expect(run?.reachabilityJson).toBe(json)
+  })
+
+  it('leaves the column null when omitted', async () => {
+    await writeFindingsRun({ run: baseRun(siteAuditId), pages: [], findings: [], violations: [] })
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { reachabilityJson: true },
+    })
+    expect(run?.reachabilityJson).toBeNull()
+  })
 })
 ```
 
 - [ ] **Step 2: Run it — expect FAIL**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/writer.test.ts -t reachabilityJson`
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/writer.reachability.test.ts`
 Expected: FAIL — TS error "reachabilityJson does not exist on type CrawlRunInput" (and/or unknown column).
 
 - [ ] **Step 3: Add the schema column**
@@ -95,13 +127,13 @@ In `lib/findings/types.ts`, after line 44 (`discoveryCoverageJson?: string | nul
 
 - [ ] **Step 7: Run the test — expect PASS**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/writer.test.ts -t reachabilityJson`
-Expected: PASS.
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/writer.reachability.test.ts`
+Expected: PASS (both cases).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add prisma/schema.prisma prisma/migrations/20260706120000_reachability_graph lib/findings/types.ts lib/findings/writer.test.ts
+git add prisma/schema.prisma prisma/migrations/20260706120000_reachability_graph lib/findings/types.ts lib/findings/writer.reachability.test.ts
 git commit -m "feat(3b): add CrawlRun.reachabilityJson column + CrawlRunInput field"
 ```
 
@@ -220,15 +252,27 @@ describe('computeLinkGraph — full-graph reachability', () => {
     expect(g.summary.nodeCount).toBe(2)        // H, A only
   })
 
-  it('normalizes root-slash / www / http-https / self-links', () => {
+  it('collapses bare-root slash variants and excludes self-links (normalizeFindingUrl semantics)', () => {
+    // normalizeFindingUrl ONLY strips the trailing slash on a bare root path
+    // (not www, not scheme, not non-root slashes). So 'https://x.test/' and
+    // 'https://x.test' are the same node; '/a/' and '/a' would NOT be.
     const edges = [
-      { sourcePageUrl: 'http://www.x.test', targetUrl: 'https://x.test/a/', kind: 'internal-link' },
-      { sourcePageUrl: A, targetUrl: A, kind: 'internal-link' },   // self-link excluded
+      { sourcePageUrl: 'https://x.test/', targetUrl: A, kind: 'internal-link' },
+      { sourcePageUrl: 'https://x.test', targetUrl: A, kind: 'internal-link' }, // same source node as above
+      { sourcePageUrl: A, targetUrl: A, kind: 'internal-link' },               // self-link excluded
     ]
     const g = computeLinkGraph(edges, [H, A], H, idx(H, A))
-    // 'http://www.x.test' and 'https://x.test/' collapse to the same homepage node.
     expect(g.summary.homepageResolved).toBe(true)
-    expect(g.byUrl.get(A)!.inlinks).toBe(1)     // from homepage; self-link not counted
+    expect(g.byUrl.get(A)!.inlinks).toBe(1)     // one distinct source (homepage); self-link not counted
+    expect(g.summary.edgeCount).toBe(1)          // distinct home->A edge counted once (Codex #4)
+  })
+
+  it('null-bucket reconciles with unreachableCount when homepage is unresolved (Codex #3)', () => {
+    const edges = [{ sourcePageUrl: A, targetUrl: B, kind: 'internal-link' }]
+    const g = computeLinkGraph(edges, [A, B], null, idx(A, B))   // no homepage
+    expect(g.summary.homepageResolved).toBe(false)
+    expect(g.summary.depthHistogram['null']).toBe(g.summary.unreachableCount)
+    expect(g.summary.unreachableCount).toBe(2)   // homepage not a node → not excluded
   })
 
   it('empty edges/nodes → zeroed summary, no throw', () => {
@@ -340,8 +384,8 @@ export function computeLinkGraph(
     if (s === t) continue                  // self-link excluded
     ;(inSets.get(t) ?? inSets.set(t, new Set()).get(t)!).add(s)
     ;(outSets.get(s) ?? outSets.set(s, new Set()).get(s)!).add(t)
-    ;(adj.get(s) ?? adj.set(s, new Set()).get(s)!).add(t)
-    edgeCount++
+    const a = adj.get(s) ?? adj.set(s, new Set()).get(s)!
+    if (!a.has(t)) { a.add(t); edgeCount++ }   // distinct edges only (Codex #4)
   }
 
   // exact-homepage BFS (no fallback)
@@ -366,6 +410,10 @@ export function computeLinkGraph(
   }
 
   // Summary over the eligible set = indexable page nodes.
+  // Invariant (Codex #3): depthHistogram['null'] === unreachableCount. Holds in
+  // both cases — when homepageResolved, the home node has depth 0 (never null, so
+  // never in either count); when unresolved, the home isn't a node at all, so the
+  // `!isHome` guard below excludes nothing from the eligible null set.
   const eligible: string[] = []
   for (const norm of normToOrig.keys()) if (indexable.has(norm)) eligible.push(norm)
 
@@ -460,6 +508,19 @@ it('attaches reachabilityJson and counts inlinks from discovered-but-unfetched n
   const a = run!.pages.find((p) => p.url.endsWith('/a'))
   expect(a!.inlinks).toBe(2)   // home + /ghost (unfetched) both count
 })
+
+it('an audited page with no harvested links still gets graph scalars (not null)', async () => {
+  // Seed a seoRow whose url has NO outgoing/incoming HarvestedLink edges.
+  // ... (seed per the file's helpers) ...
+  await runBrokenLinkVerify(job, deps)
+  const run = await prisma.crawlRun.findUnique({
+    where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+    select: { pages: { select: { url: true, inlinks: true, outlinks: true } } },
+  })
+  const lonely = run!.pages.find((p) => p.url.endsWith('/lonely'))
+  expect(lonely!.inlinks).toBe(0)    // seeded as a node → 0, not null
+  expect(lonely!.outlinks).toBe(0)
+})
 ```
 
 - [ ] **Step 2: Run it — expect FAIL**
@@ -475,15 +536,20 @@ In `broken-link-verify.ts`, replace the graph-compute block (currently ~379-390)
   // roadmap 3b: reachability over the FULL discovered graph (not just audited).
   // Best-effort: a failure logs and falls back to null aggregates + null summary.
   const discoveredNodes = safeParseUrlList(site.discoveredUrls)
+  // Seed audited seoRow urls FIRST so first-seen-original keying prefers r.url,
+  // keeping graph.byUrl.get(r.url) reliable, and so an audited page with no
+  // discovered-URL match and no edges still gets a graph row (Codex #6/#7).
+  const graphNodes = [...seoRows.map((r) => r.url), ...discoveredNodes]
   const indexableUrls = new Set(
     seoRows.filter((r) => indexableOf(r) && !r.loginLike).map((r) => r.url),
   )
-  const homepageUrl = normalizeFindingUrl(`https://${site.domain ?? job.domain}/`)
+  const domain = site.domain ?? job.domain
+  const homepageUrl = domain ? normalizeFindingUrl(`https://${domain}/`) : null   // null-domain guard (Codex #5)
   let graph: ReturnType<typeof computeLinkGraph> | null = null
   try {
     graph = computeLinkGraph(
       rows.map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl, kind: r.kind })),
-      discoveredNodes,
+      graphNodes,
       homepageUrl,
       indexableUrls,
     )
@@ -495,7 +561,7 @@ In `broken-link-verify.ts`, replace the graph-compute block (currently ~379-390)
 Notes for the implementer:
 - `indexableOf` is defined at ~411 — move its definition ABOVE this block (it's a pure local; hoist the `const indexableOf = …` above the graph call), or inline the same predicate. Keep one definition.
 - Remove the now-unused `auditedUrls`/`pickHomepage` usage for the graph. `pickHomepage` becomes dead — delete it and its call if nothing else uses it (grep first: `grep -n pickHomepage lib/jobs/handlers/broken-link-verify.ts`).
-- The per-row lookup `graph?.byUrl.get(r.url)` at ~417 still works — `byUrl` is keyed by the original url strings, and `r.url` is among the discovered/edge originals. (If a seoRow url is NOT among the graph nodes — impossible for a fetched page that also has edges, but defensively — the lookup returns undefined and scalars stay null, as today.)
+- The per-row lookup `graph?.byUrl.get(r.url)` at ~417 stays correct: `graphNodes` lists every `r.url` first, so `byUrl` is keyed by those exact strings and the lookup hits.
 
 - [ ] **Step 4: Attach `reachabilityJson` to the run bundle**
 
@@ -537,35 +603,43 @@ git commit -m "feat(3b): builder computes full-graph reachability + attaches rea
 
 - [ ] **Step 1: Write the failing component test**
 
-Create `components/site-audit/ReachabilitySection.test.tsx`:
+Create `components/site-audit/ReachabilitySection.test.tsx` (mirror `DiscoveryCoverageSection.test.tsx`: jsdom pragma, `afterEach(cleanup)`, `toBeTruthy()`/`container.innerHTML`/`queryByText` — this repo has NO jest-dom, so do NOT use `toBeInTheDocument` — Codex #8):
 
 ```tsx
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+// @vitest-environment jsdom
+import { describe, it, expect, afterEach } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
 import { ReachabilitySection } from './ReachabilitySection'
 
-const measured = JSON.stringify({
+afterEach(cleanup)
+
+const reach = (o: object) => ({ reachabilityJson: JSON.stringify(o) })
+const measured = {
   v: 1, nodeCount: 100, indexableNodeCount: 88, edgeCount: 400, homepageResolved: true,
   orphanCount: 6, orphanSample: ['https://x.test/orphan'],
   unreachableCount: 4, unreachableSample: ['https://x.test/lost'],
   depthHistogram: { '0': 1, '1': 22, '2': 48, '3': 13, '4plus': 0, 'null': 4 },
   maxDepth: 3, deepSample: [],
-})
+}
 
 describe('ReachabilitySection', () => {
-  it('renders nothing when reachabilityJson is null', () => {
+  it('renders nothing when the column is null', () => {
     const { container } = render(<ReachabilitySection run={{ reachabilityJson: null }} />)
-    expect(container.firstChild).toBeNull()
+    expect(container.innerHTML).toBe('')
   })
   it('renders nothing when run is null', () => {
     const { container } = render(<ReachabilitySection run={null} />)
-    expect(container.firstChild).toBeNull()
+    expect(container.innerHTML).toBe('')
   })
-  it('renders orphan + unreachable counts in the measured state', () => {
-    render(<ReachabilitySection run={{ reachabilityJson: measured }} />)
-    expect(screen.getByText(/6/)).toBeInTheDocument()
-    expect(screen.getByText(/orphan/i)).toBeInTheDocument()
-    expect(screen.getByText(/https:\/\/x\.test\/orphan/)).toBeInTheDocument()
+  it('renders orphan + unreachable counts and the orphan sample in the measured state', () => {
+    const { container } = render(<ReachabilitySection run={reach(measured)} />)
+    expect(screen.getByText(/6/)).toBeTruthy()
+    expect(container.textContent).toMatch(/orphan/i)
+    expect(screen.getByText('https://x.test/orphan')).toBeTruthy()
+  })
+  it('shows the homepage-unresolved copy when homepageResolved is false', () => {
+    render(<ReachabilitySection run={reach({ ...measured, homepageResolved: false })} />)
+    expect(screen.getByText(/homepage not found/i)).toBeTruthy()
   })
 })
 ```
