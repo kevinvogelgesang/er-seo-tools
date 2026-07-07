@@ -457,6 +457,76 @@ describe('runBrokenLinkVerify — canonical/redirect/hreflang validation', () =>
   })
 })
 
+// ---------------------------------------------------------------------------
+// Task 3 (roadmap 3b): full-graph reachability wired into the builder
+// ---------------------------------------------------------------------------
+
+describe('runBrokenLinkVerify — reachabilityJson + full-graph scalars', () => {
+  it('attaches reachabilityJson and counts inlinks from discovered-but-unfetched nodes', async () => {
+    const HOME = `https://${DOMAIN}/`
+    const A = `https://${DOMAIN}/a`
+    const GHOST = `https://${DOMAIN}/ghost` // discovered but never harvested/fetched
+
+    const sa = await prisma.siteAudit.create({
+      data: {
+        domain: DOMAIN, status: 'complete', clientId: null,
+        discoveredUrls: JSON.stringify([HOME, A, GHOST]),
+      },
+    })
+    const siteAuditId = sa.id
+
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: HOME, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 'Home', h1: 'Home', metaDescription: 'M', wordCount: 400 },
+        { siteAuditId, url: A, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 'A', h1: 'A', metaDescription: 'M', wordCount: 400 },
+      ],
+    })
+    // home -> /a, and /ghost -> /a (ghost was discovered but never audited/harvested itself)
+    await prisma.harvestedLink.createMany({
+      data: [
+        { siteAuditId, sourcePageUrl: HOME, targetUrl: A, kind: 'internal-link' },
+        { siteAuditId, sourcePageUrl: GHOST, targetUrl: A, kind: 'internal-link' },
+      ],
+    })
+
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, depsFor(new Set()))
+
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { reachabilityJson: true, pages: { select: { url: true, inlinks: true } } },
+    })
+    expect(run).not.toBeNull()
+    const reach = JSON.parse(run!.reachabilityJson!)
+    expect(reach.v).toBe(1)
+    expect(reach.nodeCount).toBeGreaterThanOrEqual(2)
+    const a = run!.pages.find((p) => p.url.endsWith('/a'))
+    expect(a!.inlinks).toBe(2) // home + /ghost (unfetched) both count
+  })
+
+  it('an audited page with no harvested links still gets graph scalars (not null)', async () => {
+    const LONELY = `https://${DOMAIN}/lonely`
+
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    const siteAuditId = sa.id
+
+    await prisma.harvestedPageSeo.create({
+      data: { siteAuditId, url: LONELY, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 'Lonely', h1: 'Lonely', metaDescription: 'M', wordCount: 400 },
+    })
+    // No HarvestedLink rows reference LONELY at all.
+
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, depsFor(new Set()))
+
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
+      select: { pages: { select: { url: true, inlinks: true, outlinks: true } } },
+    })
+    const lonely = run!.pages.find((p) => p.url.endsWith('/lonely'))
+    expect(lonely).not.toBeUndefined()
+    expect(lonely!.inlinks).toBe(0) // seeded as a node -> 0, not null
+    expect(lonely!.outlinks).toBe(0)
+  })
+})
+
 describe('runBrokenLinkVerify — external verification (call behavior)', () => {
   it('calls resolveExternal for each external target', async () => {
     const id = await seedExternal([
