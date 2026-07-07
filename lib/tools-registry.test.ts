@@ -42,5 +42,7 @@ describe('tools registry', () => {
     expect(kw?.name).toBe('Keyword Research')
     expect(kw?.hidden).toBe(true)
     expect(toolForPathname('/pillar-analysis/9')?.hidden).toBe(true)
+    expect(toolForPathname('/admin/ops')?.name).toBe('Ops')
+    expect(toolForPathname('/admin/ops')?.hidden).toBe(true)
   })
 })

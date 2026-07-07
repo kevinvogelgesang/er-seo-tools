@@ -65,4 +65,12 @@ describe('AppShell', () => {
     fireEvent.click(screen.getAllByText('SEO Parser')[1] ?? screen.getAllByText('SEO Parser')[0])
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
   })
+
+  it('mobile drawer closes on Escape', () => {
+    render(<AppShell><p>x</p></AppShell>)
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation menu' }))
+    expect(screen.getByRole('dialog', { name: 'Navigation' })).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+  })
 })

@@ -73,6 +73,7 @@ export const TOOLS: ToolDef[] = [
   // Hidden: shell-wrapped pages reached from flows, not from the nav.
   { id: 'keyword-research', name: 'Keyword Research', href: '/keyword-research', group: 'run', icon: IconParser, description: 'Keyword research sessions', hidden: true },
   { id: 'pillar-analysis', name: 'Pillar Analysis', href: '/pillar-analysis', group: 'run', icon: IconParser, description: 'Pillar analysis dashboards', hidden: true },
+  { id: 'admin', name: 'Ops', href: '/admin', group: 'footer', icon: IconSettings, description: 'System health & operations', hidden: true },
 ]
 
 // Longest-prefix match so /ada-audit/queue → site-audit; '/' is exact-only.

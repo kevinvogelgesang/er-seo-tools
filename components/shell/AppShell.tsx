@@ -38,6 +38,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => { document.body.style.overflow = '' }
   }, [drawerOpen])
 
+  // Escape closes the drawer
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawerOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawerOpen])
+
+  // Auto-close the drawer if the viewport reaches the desktop breakpoint, so
+  // it can't be left open across a resize with both navs mounted + the
+  // scroll-lock stuck. Guard matchMedia — jsdom doesn't implement it.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => { if (mq.matches) setDrawerOpen(false) }
+    mq.addEventListener?.('change', onChange)
+    return () => mq.removeEventListener?.('change', onChange)
+  }, [])
+
   return (
     <div className="flex min-h-screen">
       {/* Desktop sidebar — width is CSS-driven off the html attribute so a

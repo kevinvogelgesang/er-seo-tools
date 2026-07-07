@@ -21,6 +21,7 @@ describe('SidebarNav', () => {
     }
     expect(screen.getByText('Site Audits')).toBeTruthy()
     expect(screen.getByText('Settings')).toBeTruthy()
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeTruthy()
   })
 
   it('marks the active tool via aria-current and shows its children', () => {

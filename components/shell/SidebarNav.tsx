@@ -75,7 +75,7 @@ export function SidebarNav({ collapsed, onToggleCollapse, onNavigate, showCollap
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3">
+      <nav aria-label="Primary" className="flex-1 overflow-y-auto px-3">
         {NAV_GROUPS.map((group) => {
           const tools = TOOLS.filter((t) => t.group === group.id && !t.hidden)
           if (tools.length === 0) return null
