@@ -57,8 +57,6 @@ export function EditableWidgetTile({
           <div className="flex shrink-0 items-center gap-1">
             <span
               draggable
-              role="button"
-              tabIndex={0}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
               aria-label={`Reorder ${widget.title}`}

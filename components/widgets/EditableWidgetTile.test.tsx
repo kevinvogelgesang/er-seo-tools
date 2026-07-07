@@ -71,6 +71,18 @@ describe('EditableWidgetTile', () => {
     expect(props.onDragStart).toHaveBeenCalledTimes(1)
   })
 
+  it('the drag handle is a pointer-only affordance: no button role, not tab-focusable', () => {
+    renderTile()
+    const handle = screen.getByLabelText('Reorder Start a site audit')
+    // A grip with role="button" + tabIndex=0 but no onClick/onKeyDown is
+    // announced as actionable to keyboard/AT users yet does nothing on
+    // Enter/Space — the ↑/↓ move buttons are the real keyboard path.
+    expect(handle.getAttribute('role')).not.toBe('button')
+    expect(handle.getAttribute('tabIndex')).toBeNull()
+    // Not in the accessible-button tree at all.
+    expect(screen.queryByRole('button', { name: 'Reorder Start a site audit' })).toBeNull()
+  })
+
   it('size stepper calls onResize on click and names current + next size', () => {
     const props = renderTile()
     const stepper = screen.getByLabelText('Size: wide. Change to lg')

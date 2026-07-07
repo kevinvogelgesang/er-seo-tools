@@ -7,11 +7,18 @@ import { WidgetFrame, WidgetErrorBoundary } from './WidgetFrame'
 import { EditableWidgetTile } from './EditableWidgetTile'
 import { useHomeLayout } from '@/lib/widgets/use-home-layout'
 
-// Desktop-only controls: CSS-gated (`hidden md:inline-flex`), never a
+// Desktop-only entry point: CSS-gated (`hidden md:inline-flex`), never a
 // `window.innerWidth` read at render — keeps server/first-paint markup
-// identical regardless of viewport (plan Architecture §4).
+// identical regardless of viewport (plan Architecture §4). Entering edit mode
+// stays desktop-only; Customize uses this class.
 const CONTROL_BUTTON_CLASS =
   'hidden md:inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[13px] font-body font-medium text-navy hover:bg-gray-50 dark:border-navy-border dark:bg-navy-card dark:text-white dark:hover:bg-navy-deep'
+
+// Once editing===true, the exit affordance (Done) and Reset must stay
+// reachable at any viewport — narrowing below `md` mid-edit must never strand
+// the user in edit mode with no way out. Same look, no `hidden md:` gate.
+const EDIT_CONTROL_BUTTON_CLASS =
+  'inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[13px] font-body font-medium text-navy hover:bg-gray-50 dark:border-navy-border dark:bg-navy-card dark:text-white dark:hover:bg-navy-deep'
 
 export function DashboardGrid() {
   const { layout, dispatch } = useHomeLayout()
@@ -56,14 +63,14 @@ export function DashboardGrid() {
             <button
               type="button"
               onClick={() => dispatch({ type: 'reset' })}
-              className={CONTROL_BUTTON_CLASS}
+              className={EDIT_CONTROL_BUTTON_CLASS}
             >
               Reset layout
             </button>
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className={CONTROL_BUTTON_CLASS}
+              className={EDIT_CONTROL_BUTTON_CLASS}
             >
               Done
             </button>

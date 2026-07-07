@@ -70,6 +70,19 @@ describe('DashboardGrid', () => {
     expect(screen.queryByRole('button', { name: 'Customize' })).toBeNull()
   })
 
+  it('the Done exit affordance is never `hidden md:`-gated once editing===true (mobile-narrowing regression)', () => {
+    render(<DashboardGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'Customize' }))
+
+    const done = screen.getByRole('button', { name: 'Done' })
+    const reset = screen.getByRole('button', { name: 'Reset layout' })
+    // A user who entered edit mode on desktop and then narrowed below `md`
+    // must still see Done/Reset — neither may carry the `hidden` class that
+    // gates the view-mode Customize button.
+    expect(done.className).not.toMatch(/\bhidden\b/)
+    expect(reset.className).not.toMatch(/\bhidden\b/)
+  })
+
   it('clicking a tile\'s move-down button swaps its DOM order with its neighbor', () => {
     render(<DashboardGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'Customize' }))
