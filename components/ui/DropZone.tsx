@@ -20,9 +20,23 @@ export function DropZone({
     onFiles(Array.from(list))
   }
 
+  const open = () => {
+    if (!disabled) inputRef.current?.click()
+  }
+
   return (
     <div
-      onClick={() => !disabled && inputRef.current?.click()}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      aria-label={label}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          open()
+        }
+      }}
       onDragOver={(e) => { if (!disabled) { e.preventDefault(); setOver(true) } }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); emit(e.dataTransfer.files) }}
@@ -30,7 +44,7 @@ export function DropZone({
         disabled
           ? 'cursor-not-allowed border-gray-200 dark:border-navy-border opacity-50'
           : over
-          ? 'border-orange bg-orange/5'
+          ? 'border-orange bg-orange/5 dark:bg-orange/10'
           : 'border-gray-300 hover:border-orange dark:border-navy-border dark:hover:border-orange'
       }`}
     >

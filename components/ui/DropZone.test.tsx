@@ -22,4 +22,11 @@ describe('DropZone', () => {
     fireEvent.drop(zone, { dataTransfer: { files: [file] } })
     expect(onFiles).not.toHaveBeenCalled()
   })
+  it('is keyboard-operable via role=button and tabIndex', () => {
+    const onFiles = vi.fn()
+    render(<DropZone onFiles={onFiles} label="Drop CSVs" />)
+    const zone = screen.getByRole('button')
+    expect(zone).toHaveProperty('tabIndex', 0)
+    expect(() => fireEvent.keyDown(zone, { key: 'Enter' })).not.toThrow()
+  })
 })
