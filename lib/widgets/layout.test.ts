@@ -155,6 +155,48 @@ describe('normalizeLayout', () => {
     expect(() => normalizeLayout(frozenDefault as LayoutItem[], WIDGETS)).not.toThrow()
     expect(frozenDefault).toEqual(snapshot)
   })
+
+  it('drops a null entry instead of crashing, and appends the missing widgets it displaced', () => {
+    const items: LayoutItem[] = [null as unknown as LayoutItem]
+    let result: LayoutItem[] = []
+    expect(() => {
+      result = normalizeLayout(items, WIDGETS)
+    }).not.toThrow()
+    expect(result).toEqual(normalizeLayout([], WIDGETS))
+  })
+
+  it('drops a non-object entry (string) instead of crashing', () => {
+    const items: LayoutItem[] = ['not-an-item' as unknown as LayoutItem]
+    expect(() => normalizeLayout(items, WIDGETS)).not.toThrow()
+    const result = normalizeLayout(items, WIDGETS)
+    expect(result).toEqual(normalizeLayout([], WIDGETS))
+  })
+
+  it('drops an item missing an id', () => {
+    const items: LayoutItem[] = [{ size: 'sm' } as unknown as LayoutItem]
+    const result = normalizeLayout(items, WIDGETS)
+    expect(result).toEqual(normalizeLayout([], WIDGETS))
+  })
+
+  it('drops an item whose id is not a string', () => {
+    const items: LayoutItem[] = [{ id: 42, size: 'sm' } as unknown as LayoutItem]
+    const result = normalizeLayout(items, WIDGETS)
+    expect(result).toEqual(normalizeLayout([], WIDGETS))
+  })
+
+  it('drops malformed items while keeping valid ones alongside them', () => {
+    const items: LayoutItem[] = [
+      { id: 'a', size: 'sm' },
+      null as unknown as LayoutItem,
+      { id: 'b', size: 'lg' },
+    ]
+    const result = normalizeLayout(items, WIDGETS)
+    expect(result).toEqual([
+      { id: 'a', size: 'sm' },
+      { id: 'b', size: 'lg' },
+      { id: 'c', size: 'sm' },
+    ])
+  })
 })
 
 describe('loadLayout', () => {
@@ -207,6 +249,15 @@ describe('loadLayout', () => {
     const raw = JSON.stringify({ version: LAYOUT_VERSION, items })
     const result = loadLayout(raw, WIDGETS, DEFAULT_LAYOUT)
     expect(result.find((i) => i.id === 'ghost')).toBeUndefined()
+  })
+
+  it('degrades gracefully instead of crashing on a hand-corrupted null item (repro)', () => {
+    const raw = '{"version":1,"items":[null]}'
+    let result: LayoutItem[] = []
+    expect(() => {
+      result = loadLayout(raw, WIDGETS, DEFAULT_LAYOUT)
+    }).not.toThrow()
+    expect(result).toEqual(normalizeLayout([], WIDGETS))
   })
 })
 

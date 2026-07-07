@@ -33,6 +33,8 @@ export function normalizeLayout(items: LayoutItem[], widgets: WidgetMeta[]): Lay
   const result: LayoutItem[] = []
 
   for (const item of items) {
+    if (item === null || typeof item !== 'object' || typeof item.id !== 'string') continue // malformed item — never crash on hand-corrupted storage
+
     const widget = byId.get(item.id)
     if (!widget) continue // unknown id
     if (seen.has(item.id)) continue // duplicate — keep first occurrence
@@ -121,9 +123,8 @@ export function reorderLayout(
 
   const reduced = items.filter((item) => item.id !== draggedId)
   const insertAt = reduced.findIndex((item) => item.id === targetId)
-  const result = reduced.slice()
-  result.splice(insertAt, 0, dragged)
-  return result
+  reduced.splice(insertAt, 0, dragged)
+  return reduced
 }
 
 // Swap with neighbor; clamp at ends; unknown id → unchanged.
