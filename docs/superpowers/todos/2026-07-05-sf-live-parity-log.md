@@ -244,3 +244,24 @@ seoIntent audit to get its first `discoveryCoverageJson`), then the 6 disk crawl
 **Gate to pass Phase 1:** ≥5 clients × 2–3 cycles, every deviation explained here.
 **Gate for hybrid-discovery Increment 2:** measured sitemap miss-rate across real
 seoIntent audits shows sitemaps routinely miss important pages (roadmap §5).
+
+---
+
+## ✅ 2026-07-06 — content similarity (C6 Phase 5) SHIPPED — parity validation now PENDING
+
+The lexical near/exact-duplicate capability shipped (PR #111, main `146a14d`; deployed + prod-verified
+to the autonomous extent — health 200, all 3 migration columns present, clean restart). The live scan
+now computes `CrawlRun.contentSimilarityJson` (measurement-only; no Finding, no score change).
+
+**New parity stream opened (not yet filled):** the SF-vs-live parity gate now has a THIRD dimension
+beyond score-delta + miss-rate — **near-duplicate agreement**: compare the live `nearDuplicateGroups`
+(and `exactDuplicateGroups`) against SF's **Near Duplicate** column (SF computes it at a ~90% threshold;
+`docs/screaming-frog-setup.md:91,127`) on the 7 fresh client crawls.
+
+**Blocked on a fresh authed seoIntent scan** (prod OAuth-only; only NEW audits harvest `contentText` →
+compute similarity — runs built before the deploy carry `contentSimilarityJson = null`). Next authed
+session: trigger a seoIntent audit on an indexable client site, read the live-scan run's
+`contentSimilarityJson`, and record group-level agreement/variance vs SF here. Expected explainable
+deviations: SF's content-area configuration, threshold differences, and our two-layer boilerplate control
+(in-page element strip + document-frequency shingle filter). This is the gate that would later justify
+promoting the signal to a Finding / `scoreLiveSeo` factor — NOT done in this increment.
