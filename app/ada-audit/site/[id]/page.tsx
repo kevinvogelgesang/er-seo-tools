@@ -9,6 +9,7 @@ import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
 import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
 import { OnPageSeoSection } from '@/components/site-audit/OnPageSeoSection'
 import { DiscoveryCoverageSection } from '@/components/site-audit/DiscoveryCoverageSection'
+import { ReachabilitySection } from '@/components/site-audit/ReachabilitySection'
 import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
 import SiteAuditExportBar from '@/components/ada-audit/SiteAuditExportBar'
 import { reportFileExists } from '@/lib/report/report-file'
@@ -169,6 +170,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
       score: true,
       scoreBreakdown: true,
       discoveryCoverageJson: true,
+      reachabilityJson: true,
       findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
       // C6 Phase 3: page scalars drive the analyzed marker + the coverage line.
       pages: { select: { statusCode: true, indexable: true } },
@@ -226,6 +228,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
       />
       <TechnicalSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
       <DiscoveryCoverageSection run={liveScanRun} />
+      <ReachabilitySection run={liveScanRun} />
       <SiteAuditResultsView
         domain={audit.domain}
         clientName={audit.client?.name ?? null}
