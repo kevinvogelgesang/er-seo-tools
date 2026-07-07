@@ -372,6 +372,7 @@ model CrawlRun {
   archivePrunedAt DateTime?  // set when the origin row's blob was pruned
   discoveryCoverageJson String?   // C6 hybrid-discovery Increment 1: sitemap miss-rate metrics (live-scan runs only)
   reachabilityJson String?   // roadmap 3b: internal-link reachability metrics (orphans/depth/clicks-from-home); live-scan runs only; NOT a finding
+  contentSimilarityJson String? // C6 Phase 5: near/exact-duplicate content groups (live-scan runs only); measurement, NOT a finding
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]
@@ -430,6 +431,8 @@ model HarvestedPageSeo {
   imagesMissingDimensions Int?
   harvestTruncated Boolean @default(false)
   detailsJson   String?   // bounded JSON: { schemaTypes: string[], hreflang: string[] }
+  contentText      String?  // C6 Phase 5: transient normalized main-content text (≤30k), deleted with the row; NEVER durable
+  contentTruncated Boolean  @default(false)
   createdAt     DateTime  @default(now())
 
   @@index([siteAuditId])

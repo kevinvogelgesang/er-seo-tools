@@ -43,6 +43,7 @@ export interface CrawlRunInput {
   scoreBreakdown?: string | null   // JSON breakdown; sf-upload + live-scan (v1) and ada-audit (v2) runs
   discoveryCoverageJson?: string | null   // C6 hybrid-discovery: live-scan runs only
   reachabilityJson?: string | null   // roadmap 3b: reachability metrics; live-scan runs only
+  contentSimilarityJson?: string | null   // C6 Phase 5: near/exact-duplicate groups; live-scan runs only
   wcagLevel: string | null
   pagesTotal: number
   startedAt: Date | null
