@@ -118,11 +118,41 @@ Interleave as needed (not blockers):
   dashboard in the shell). Plan Codex-reviewed (ACCEPT-WITH-FIXES ×6, applied);
   final whole-branch review (opus) = Ready-to-merge, 0 Critical/Important.
   Gates: tsc · **3534 tests / 400 files** · build (`/` + `/robots-validator`
-  static). Plan → `../archive/plans/`. **Next: PR 3** (widget editor — sizes,
-  drag + keyboard reorder, `localStorage('er-home-layout')` persistence, reset)
-  → PR 3.5 aggregate widgets (KPI strip + Needs-attention, gated on
-  verifying/building B1/B2 loaders) → PR 4+ per-tool polish. Spec stays in
-  `../specs/` (active through PR 4).
+  static). Plan → `../archive/plans/`.
+  **PR 3 SHIPPED 2026-07-07 (PR #115, main `229e901`) + DEPLOYED; PROD-VERIFIED
+  after a follow-up purge fix (PR #116, main `e04a05b`)** — authed interactive
+  smoke on the live dashboard: 0 console errors/warnings, Customize → edit mode
+  with 7 drag handles + size steppers + ↓ keyboard reorder, layout persisted to
+  `localStorage('er-home-layout')` and **survived reload with 0 hydration
+  warnings** despite the stored order differing from the server default, Reset
+  restored the default, and **widget tiles now render at their true sizes**
+  (wide = 444 px / 2 cols, lg = 444×538 / 2 cols × 2 rows, sm = 214 px; live
+  size-toggle resizes in real time). **Latent-bug caught by this smoke:** the
+  `spanClass()` span utilities (`col-span-1`/`md:col-span-2`/`lg:row-span-2`/
+  `lg:col-span-4`) live only in `lib/widgets/grid.ts`, but Tailwind's `content`
+  globs scanned only `app`/`components`/`pages` — so those classes were **purged
+  from the prod CSS since PR 2** (every tile rendered 1-column; unnoticed because
+  PR 2's sizing was never eyeballed). Fix = add `./lib/**` to the content globs +
+  a guard test; before/after proven by CSS grep (`.md:col-span-2` NOT-FOUND →
+  present). —
+  the widget editor: pure layout reducer spine (`lib/widgets/layout.ts` —
+  normalize/load/serialize/reorder/move/cycle/reducer, never imports the
+  registry, never mutates inputs) + hydration-safe `useHomeLayout` hook (SSR +
+  first-paint render DEFAULT_LAYOUT; localStorage read only in an effect;
+  persist armed only post-hydration — proven via `setItem` call-history +
+  StrictMode tests) + `EditableWidgetTile` (drag handle, size stepper, ↑/↓
+  keyboard reorder, live body suppressed in edit mode) + stateful
+  `DashboardGrid` (Customize/Done/Reset, native HTML5 DnD reorder + trailing
+  drop zone, CSS-gated desktop-only). Order+size only; `localStorage(
+  'er-home-layout')` = `{version:1,items:[{id,size}]}`; unknown ids dropped,
+  missing widgets appended, malformed/version-bump → default. Plan
+  Codex-reviewed (ACCEPT-WITH-FIXES 2–10, applied in place); per-task
+  spec+quality reviews + final whole-branch review (opus) = Ready-to-merge,
+  0 Critical/Important. Gates: tsc · **3612 tests / 403 files** · build (`/`
+  9.48 kB). Plan → `../archive/plans/`. **Next: PR 3.5** (aggregate widgets —
+  KPI strip + Needs-attention, **GATED on first verifying/building the B1/B2
+  fleet loaders**) → PR 4+ per-tool polish. Spec stays in `../specs/` (active
+  through PR 4).
 
 ## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
 
@@ -397,6 +427,37 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-07 (**A8 PR 3 — homepage widget editor SHIPPED + DEPLOYED**) —
+  Wrote the PR 3 plan (`plans/2026-07-07-app-shell-pr3.md`), Codex-reviewed it (accept-with-named-fixes,
+  fixes 2–10 applied in place: pure `layout.ts` takes a `WidgetMeta[]` and never imports the registry;
+  persistence armed only post-hydration; enumerated `reorderLayout` edge cases; drag-handle DnD plumbing
+  incl. `setData`/`effectAllowed`/`preventDefault`; CSS-gated desktop-only, not `innerWidth`; placeholder
+  edit-tile reuses `WidgetFrame`; a11y `aria-pressed`/labels/disabled-edges; hook-test coverage), then
+  executed via subagent-driven-development in an isolated worktree — 4 TDD tasks + 4 review-fix commits
+  (8 commits). Built the reducer-first spine `lib/widgets/layout.ts` (normalize/load/serialize/reorder/
+  move/cycle/`createLayoutReducer`; pure, never mutates inputs; guards null/garbage stored items — 51
+  tests), hydration-safe `lib/widgets/use-home-layout.ts` (SSR + first paint render DEFAULT_LAYOUT;
+  localStorage read only in an effect; persist gated on `hydrated`; no-clobber proven via `setItem`
+  call-history + StrictMode tests — 11 tests), `components/widgets/EditableWidgetTile.tsx` (drag handle,
+  size stepper, ↑/↓ keyboard reorder, live body suppressed in edit mode — 9 tests), and a stateful
+  `components/widgets/DashboardGrid.tsx` (Customize/Done/Reset, native HTML5 DnD reorder + trailing
+  drop zone, edit-exit reachable at any viewport). `localStorage('er-home-layout')` = `{version:1,
+  items:[{id,size}]}`; order+size only; unknown ids dropped / missing widgets appended / malformed /
+  version-bump → default. Per-task spec+quality reviews (each fixed) + final whole-branch review (opus)
+  = Ready-to-merge, 0 Critical/Important. Gate-green: tsc / **3612 tests · 403 files** / build (`/`
+  9.48 kB). PR #115 merged (`229e901`) + deployed via plain `~/deploy.sh` (no migration). **Authed
+  interactive prod smoke (Kevin logged the browser in) surfaced a LATENT purge bug:** widget tiles all
+  rendered 1-column regardless of size — root cause: `spanClass()` in `lib/widgets/grid.ts` emits the
+  span utilities (`col-span-1`/`md:col-span-2`/`lg:row-span-2`/`lg:col-span-4`) but Tailwind's `content`
+  globs scanned only `app`/`components`/`pages`, so those classes were purged from the prod CSS **since
+  PR 2** (never caught — PR 2 sizing was never eyeballed; `getComputedStyle` on a `md:col-span-2` tile =
+  `grid-column:auto`, `.md:col-span-2` NOT-FOUND in the deployed CSS). Fix (**PR #116, `e04a05b`**): add
+  `./lib/**` to the content globs + `tailwind.config.test.ts` guard; `next build` then emits the classes
+  (CSS-grep confirmed). Redeployed; **re-verified live**: wide = 444 px / 2 cols, lg = 444×538, sm =
+  214 px, live size-toggle resizes in real time, 0 console/hydration warnings, reorder + persist +
+  reset all correct, layout left at default. Plan → `archive/plans/`; spec stays in `specs/` (active
+  through PR 4). **Next: PR 3.5 aggregate widgets — GATED on first verifying/building the B1/B2 fleet
+  loaders.**
 - 2026-07-07 (**A8 PR 2 — fixed-layout quick-start dashboard SHIPPED + DEPLOYED**) —
   Wrote the PR 2 plan (`plans/2026-07-07-app-shell-pr2.md`), Codex-reviewed it (ACCEPT-WITH-FIXES
   ×6, all applied in place: useSyncExternalStore + inFlight guard on the queue poller; report period
