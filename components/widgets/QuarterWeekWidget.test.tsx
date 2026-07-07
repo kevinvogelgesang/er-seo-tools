@@ -1,17 +1,9 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, act } from '@testing-library/react'
 import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from 'vitest'
 import { QuarterWeekWidget } from './QuarterWeekWidget'
 
-// shouldAdvanceTime: true lets the fake clock tick forward in real time so
-// React's scheduler (which flushes effect-driven state updates via a faked
-// setTimeout) still commits — plain vi.useFakeTimers() deadlocks waitFor here
-// (verified: MutationObserver fires fine under fake timers, but React's
-// scheduler never gets to flush without either shouldAdvanceTime or manual
-// timer-advancing, since this project runs with `globals: false` so
-// testing-library's jest-fake-timers detection never engages its
-// fake-timer-aware polling branch).
-beforeAll(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); vi.setSystemTime(new Date('2026-07-08T12:00:00')) })
+beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-07-08T12:00:00')) })
 afterAll(() => { vi.useRealTimers() })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -31,18 +23,21 @@ describe('QuarterWeekWidget', () => {
       [{ id: 1, name: 'Acme' }],
     )
     render(<QuarterWeekWidget size="wide" />)
-    await waitFor(() => expect(screen.getByText('Acme')).toBeTruthy())
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('Acme')).toBeTruthy()
   })
 
   it('shows a no-plan state when plan is null', async () => {
     stubFetch(null, [], [])
     render(<QuarterWeekWidget size="sm" />)
-    await waitFor(() => expect(screen.getByText(/no quarter plan/i)).toBeTruthy())
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText(/no quarter plan/i)).toBeTruthy()
   })
 
   it('shows a degraded note when the plan fetch errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')))
     render(<QuarterWeekWidget size="sm" />)
-    await waitFor(() => expect(screen.getByText(/couldn.t load/i)).toBeTruthy())
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText(/couldn.t load/i)).toBeTruthy()
   })
 })
