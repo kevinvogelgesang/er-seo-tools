@@ -377,6 +377,114 @@ Interleave as needed (not blockers):
   *Status log:* 2026-07-04 — C9-A + C9-B both shipped (see Status log entries). **C9 COMPLETE.**
 - [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test connection green, reports render correctly, SA granted + GA4/GSC mapped for every client Kevin currently has access to. Scorecard-#12 question RESOLVED — the code's "Key Events" (vs the spec's duplicate "Avg Position" Looker artifact) is accepted as-is (no change). **C10 COMPLETE** — delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6.
 
+- [ ] **C11. SEO Audits v1 — URL-triggered SEO-only scans + `/seo-parser` →
+  `/seo-audits` maturation** — **PRIORITY-BUMPED (Kevin, 2026-07-07)**; grew from
+  "manual SEO-scan UI exposure" (small) into the committed v1 of the SEO-audit
+  surface. Original gap: the seoIntent live-SEO scan (C6 Phase 4, PR #85) is **API-only**: `POST
+  /api/site-audit` accepts `seoIntent: true` and `POST /api/clients/[id]/schedules`
+  accepts a `seoIntent` flag, but **zero UI components reference seoIntent** — no
+  checkbox on `SiteAuditForm` (or the A8 quick-site-audit widget), no toggle on
+  `ScheduledScansCard`. Kevin cannot trigger or schedule an SEO-purposed scan from
+  the webapp without curl. Scope: (a) "SEO scan" intent toggle on the manual
+  site-audit form + quick-audit widget, (b) seoIntent toggle on schedule creation
+  (D1-style: ADA + SEO schedules coexist per domain), (c) label the intent in queue/
+  history views, (d) **SEO-phase visibility** (Kevin, 2026-07-07): the post-terminal
+  `broken-link-verify` phase is currently INVISIBLE — the audit shows `complete`
+  while the verifier runs (up to 15 min), and `BrokenLinksSection`/`OnPageSeoSection`
+  render "not verified/analyzed" indistinguishably from "still running". v1 fix =
+  probe the `broken-link-verify` job state in group `site-audit:<id>` and surface a
+  "SEO analysis queued/running/failed" state on the results page + history chip
+  (queueing already exists — durable queue, concurrency 1 — it's just unsurfaced).
+  (e) **fine-grained SEO-phase progress bar — COMMITTED scope (Kevin, 2026-07-07)**:
+  the verify job knows its total (deduped check count, capped 2000) and can report
+  checked-so-far; needs a progress channel — recommend a generic nullable
+  `Job.progress` (0–100) + `progressMessage` riding the existing attempt-fenced
+  heartbeat update (benefits the ops page for every job type), vs an ADA-style
+  nullable SiteAudit column; decide in spec. Prod timing context (measured
+  2026-07-07): `broken-link-verify` median 36s / p90 55s — short but visible.
+  ~~DECISION (Kevin, 2026-07-07 AM): SEO scans stay permanently PAIRED~~ —
+  **SUPERSEDED same day** after prod timing data (page job 4.6s avg but PSI 30.3s
+  avg = the dominant cost; SEO-only ≈ 3–4 min/100 pages vs 12–48 min paired):
+  (f) **SEO-only scan mode is now IN scope** — `seoOnly` mode flag on SiteAudit;
+  page job takes a render-only path (navigate + settle + harvest, NO axe/
+  screenshots), skips PDF dispatch and PSI enqueue; finalizer requires pagesDone
+  only; verify builder unchanged. The `// FUTURE` breadcrumbs
+  (`app/api/site-audit/route.ts:38` + `scheduled-site-audit.ts:102`) become the
+  implementation sites. Paired full-pipeline scans remain for ADA schedules;
+  whether seoIntent schedules flip to seoOnly is a spec decision.
+  (g) **URL scan form in the SEO section** — enter a URL/domain → enqueue a
+  seoOnly+seoIntent audit; reuses the existing queue/discovery/hybrid-crawler/
+  browser pipeline; results already render as "Live scan" history entries +
+  `/seo-parser/results/run/[runId]`. Note: same GLOBAL site-audit queue (one at a
+  time by design — the browser pool is the real constraint), so an SEO scan can
+  wait behind a long ADA audit; show queue position ((d)/(e) visibility work
+  covers this). A separate fast lane is explicitly OUT of v1.
+  (h) **Rename `/seo-parser` → `/seo-audits` + section maturation** — route rename
+  with redirects from the old path (bookmarks/share links), nav label, and the
+  section becomes the SEO hub: URL scan form + SF CSV upload + merged history
+  (+ surface per-client scan schedules). API routes (`/api/parse/*`) stay put in
+  v1; audit the pat_/srt_/krt_ "Webapp:" URL lines in handoff exports for the
+  rename. **UI/UX parity requirement (Kevin, 2026-07-07): the matured SEO-audits
+  section must FEEL like the ADA-Audit section** — same structural patterns
+  (tabbed index à la `AuditIndexTabs`, form card + queue banner + poller +
+  history list, results-page section blocks, dark-mode variants), slightly
+  different where the domain differs, never strange between the two. PR 3's spec
+  should inventory the ADA components and reuse/mirror rather than restyle.
+  Suggested shape: PR 1 = (f)+(g) backend+form, PR 2 = (a)–(e) visibility
+  + toggles, PR 3 = (h) rename/maturation + UI parity.
+  **Ordering (Kevin, 2026-07-07): C11 queues BEHIND A8 PR 3** (widget editor,
+  in progress in another session) — the handoff's next action is unchanged;
+  C11 is the next item after A8 PR 3 lands.
+- [ ] **C12. Content auditing (data correctness · keyword cannibalization · content
+  quality)** — CANDIDATE, exploration only (Kevin, 2026-07-07). Full problem map,
+  capability tiers, cost model, and sequencing in
+  `../nyi/FUTURE-content-auditing.md`. Tier-0 increments (GSC query×page
+  cannibalization report; stale-date/readability signals) are buildable now with
+  zero new gates; the data-correctness half is **gated on the Anthropic API billing
+  decision** (same gate as memo generation — est. ~$10–20/mo fleet-wide with Haiku
+  batched). No spec yet; do not start without the ritual.
+- [ ] **C13. Site-audit results UI polish batch** (small fixes, Kevin 2026-07-07) —
+  mostly independent one-liners; the last item is an INVESTIGATION first:
+  - [ ] "Pages are audited one at a time" (`components/ada-audit/SiteAuditPoller.tsx:204`)
+    is inaccurate — concurrency is `SITE_AUDIT_CONCURRENCY` (prod 2); reword.
+  - [ ] "Known limitations" disclaimer (`components/ada-audit/KnownLimitationsNotice.tsx`)
+    too in-your-face on the site-audit results page — collapse/soften (e.g. small
+    footnote link or collapsed-by-default).
+  - [ ] Paginate "Pages with Issues" at 25 rows (currently `PAGE_SIZE` 50 in
+    `components/ada-audit/SiteAuditResultsView.tsx`).
+  - [ ] Develop "Site-Wide Patterns" (`components/ada-audit/CommonIssueCallout.tsx`):
+    per-pattern dropdown with (a) a screenshot of ONE representative element,
+    (b) the list of unique affected elements, (c) REMOVE the "view affected
+    pages" link.
+  - [ ] Tab order in the ADA audit view (`components/ada-audit/AuditIndexTabs.tsx`):
+    Site Audit tab first, Single Page second.
+  - [ ] **INVESTIGATE: scoring-v2 scorecard shows "0 rules passed – 0 needs
+    review" on the Bellus audit** (`components/ada-audit/AuditScorecard.tsx` —
+    `scorecard.passed`/needs-review render 0). Possible v2-mapper or
+    scorecard-aggregation gap (C9-A shipped 2026-07-04; Bellus 407-page audit is
+    post-v2). Root-cause before fixing — may be a real data bug, not UI.
+- [ ] **C14. Prospect sales audit view (client-facing pruned Site Audit results)** —
+  larger feat (Kevin, 2026-07-07). Sales scans a PROSPECT's site pre-meeting and
+  pulls up a branded, pruned results page live in the meeting: progressive
+  disclosure — section-level severity/counts up front (no immediate issue dump),
+  each section expandable to REAL demonstrable issues ("don't dangle a carrot
+  without being able to show it's a carrot"). Likely shape: a sales-mode variant
+  of the C4 share view (token-gated public route, zero cookie-gated fetches)
+  with drill-down enabled, per-section. Sections + current data readiness:
+  - **Accessibility** — READY (violations/score/screenshots all exist).
+  - **SEO** — READY (live-scan findings, live SEO score, on-page sections).
+  - **Core Web Vitals** — data EXISTS (per-page PSI `lighthouseSummary`); needs a
+    presentable section (currently raw per-page).
+  - **GEO** — PARTIAL: schema/JSON-LD types + coverage already harvested; real GEO
+    checks (llms.txt, AI-crawler robots rules, answerability structure) are new →
+    `// FUTURE` beyond the schema-signal slice.
+  - **E-E-A-T** — NOT derivable from current harvest (author bylines, about/contact
+    presence, citation signals = new checks, partly LLM-shaped) → `// FUTURE` in v1.
+  Policy note: this deliberately extends scanning to prospect (non-client) domains —
+  owner-sanctioned business use (Kevin 2026-07-07); the "never scan third-party
+  sites" rule stays for dev/testing. Needs spec (scan intake for prospects,
+  token/expiry model, which findings are safe to show a prospect).
+
 ## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
 
 - [x] D0 (pulled forward 2026-07-02, Kevin-approved). **Minimal ops safety before SF-retirement Phase 2:** DB backup + failure alert. **SHIPPED (PR #86) + DEPLOYED + PROD-VERIFIED 2026-07-02.** Two in-app durable jobs (no server cron, no schema migration): `db-backup` (daily@08:00, VACUUM INTO tmp + atomic rename + prune-to-7) and `health-alert` (every:15m; errored audits / exhausted jobs / stalled queue / stale backup → optional `ALERT_WEBHOOK_URL`; atomic JSON-file dedup; delivery-aware state that never loses an alert on a failed send; dark-by-default when the URL is unset). Spec+plan Codex-reviewed (fixes applied), archived. Prod-verified: PM2 online 0 restarts, `BACKUP_DIR=/home/seo/data/seo-tools/backups` loaded (delete+start applied), both Schedule rows seeded, health-alert ran on boot and correctly detected "no snapshot" + stayed dark (webhook unset — Kevin's Slack request pending admin approval), a 444 MB snapshot written to the persistent dir opens as valid SQLite (29 tables), disk 63 GB free (7×444 MB ≈ 3 GB). Full observability (metrics/dashboards) stays A4/D-track. **Follow-ups (small, non-blocking):** (a) the manual `scripts/db-backup.ts` uses `BACKUP_DIR`'s code default (`cwd/data/backups`, the app release dir) when run in a bare SSH shell — it must be invoked as `BACKUP_DIR=/home/seo/data/seo-tools/backups npx tsx scripts/db-backup.ts`; consider adding a warning when `BACKUP_DIR` is unset. (b) Turn on Slack alerts by setting `ALERT_WEBHOOK_URL` in the server `.env` once admin approves. (c) Server-side pre-existing-backup check was never run (moot — the in-app job is now the backup).
