@@ -43,6 +43,12 @@ Write around them with an explicit callout box `> **Kevin fills in:** …` at th
 - Produces: `bash scripts/check-onboarding-docs.sh` — exits 0 when all backtick repo-path anchors in `docs/onboarding/*.md` exist; exits 1 listing `MISSING: <doc> -> <path>` otherwise; always prints (non-fatal) `DURATION?` lines for time-words in junior-path docs for manual review. Every later task runs this.
 - Produces: the canonical doc-set table (filenames + one-liners) that all other docs' cross-links must match.
 
+- [ ] **Step 0: Create the working branch** (Codex plan-review fix 5)
+
+```bash
+git checkout -b feat/onboarding-guide
+```
+
 - [ ] **Step 1: Create the checker script**
 
 ```bash
@@ -57,12 +63,15 @@ fail=0
 tmp="$(mktemp)"
 
 grep -RnoE --include='*.md' \
-  '`(app|components|lib|prisma|scripts|test|docs|\.claude)/[^` ]+`|`(middleware\.ts|instrumentation\.ts|package\.json|ecosystem\.config\.js|CLAUDE\.md|tailwind\.config\.ts)`' \
+  '`(app|components|lib|prisma|scripts|test|docs|\.claude)/[^` ]+`|`(middleware\.ts|instrumentation\.ts|package\.json|ecosystem\.config\.js|CLAUDE\.md|tailwind\.config\.ts|README\.md|SECURITY\.md|\.env\.example|vitest\.config\.mts|next\.config\.ts|tsconfig\.json|audit-ci\.jsonc)`' \
   docs/onboarding > "$tmp" || true
 
 while IFS= read -r line; do
+  # grep -Rno output is file:line:match — the match itself may contain colons
+  # (e.g. `lib/foo.ts:symbol`), so peel exactly two fields off the front.
   file="${line%%:*}"
-  match="${line##*:}"
+  rest="${line#*:}"
+  match="${rest#*:}"
   path="${match//\`/}"
   path="${path%%:*}"   # strip :line / :symbol suffix
   if [ ! -e "$path" ]; then
@@ -97,7 +106,7 @@ Expected: `OK: all anchors exist` (no docs yet, nothing to fail).
 Content requirements (see spec "README" section):
 - Title + 2–3 sentence purpose: this folder takes a new developer from zero to owning er-seo-tools; also contains a standalone brief for an experienced outside reviewer.
 - **Two entry points, prominent:** "Junior developer: start at `00-orientation.md` and go in order." / "Senior developer advising or reviewing: read `07-senior-brief.md`, then skim `03-codebase-tour.md` and `04-how-it-runs.md` (follow the *Senior: read now* labels)."
-- The doc-set table — exactly these files and one-line purposes:
+- The doc-set table — exactly these files and one-line purposes. **In the README, write the file column as full repo paths in backticks (`docs/onboarding/00-orientation.md`, …) so the checker validates them** (Codex plan-review fix 2); shown short here for readability:
 
 | File | What it is |
 |---|---|
@@ -117,7 +126,7 @@ Content requirements (see spec "README" section):
 - [ ] **Step 4: Run the checker**
 
 Run: `bash scripts/check-onboarding-docs.sh`
-Expected for this task only: `MISSING:` lines for exactly the nine not-yet-written `docs/onboarding/0*.md` files referenced in the README table (they're forward references — keep the backticks). Any OTHER missing path is a typo; fix it. Task 11 re-runs the checker expecting a fully clean pass.
+Expected for this task only: `MISSING:` lines for exactly the nine not-yet-written `docs/onboarding/0*.md` files referenced (as full paths) in the README table — they're forward references and prove the checker sees them. Any OTHER missing path is a typo; fix it. Task 11 re-runs the checker expecting a fully clean pass.
 
 - [ ] **Step 5: Commit**
 
@@ -408,7 +417,7 @@ git commit -m "docs(onboarding): 07-senior-brief — decisions, rationale, debt,
 
 **Files:**
 - Create: `docs/onboarding/08-operations-runbook.md`
-- Read first: spec section "08-operations-runbook.md"; `.claude/skills/er-seo-tools-run-and-operate/SKILL.md`; `.claude/skills/er-seo-tools-debugging-playbook/SKILL.md`; `.claude/skills/er-seo-tools-diagnostics-and-tooling/SKILL.md`; `CLAUDE.md` "Deploy" section
+- Read first: spec section "08-operations-runbook.md"; `.claude/skills/er-seo-tools-run-and-operate/SKILL.md`; `.claude/skills/er-seo-tools-debugging-playbook/SKILL.md`; `.claude/skills/er-seo-tools-diagnostics-and-tooling/SKILL.md`; `CLAUDE.md` "Deploy" section; **current A4 ops code (Codex plan-review fix 4 — the run-and-operate skill predates A4 and contains stale statements like "no /api/health endpoint"; the code wins):** `app/api/health/route.ts`, `app/(app)/admin/ops/page.tsx`, `lib/ops/health-summary.ts`, `lib/ops/ops-snapshot.ts`, `lib/jobs/introspection.ts`, `lib/log/index.ts`
 
 **Interfaces:**
 - Consumes: Stage 4 gate definition (05); 04's prod-topology section.
@@ -417,7 +426,7 @@ git commit -m "docs(onboarding): 07-senior-brief — decisions, rationale, debt,
 - [ ] **Step 1: Write the doc.** Register: a runbook — imperative, symptom-first, safe-by-default. Sections:
 
 1. Re-orientation opener + the prime directive: **look before you touch** — check evidence (logs, `/admin/ops`, queue state) before any restart/delete/config change; a familiar-looking symptom can have a different cause.
-2. **Deploy** — always `git push` first (server pulls from GitHub); `ssh seo@144.126.213.242 "~/deploy.sh"`; what deploy.sh does at a high level (pull, install, migrate deploy, build, PM2 restart — writer confirms against the run-and-operate skill); how to verify a deploy landed (health endpoint, log tail, version/behavior check).
+2. **Deploy** — always `git push` first (server pulls from GitHub); `ssh seo@144.126.213.242 "~/deploy.sh"`; what deploy.sh does described by **documented/observable effects only** (pull, install, `prisma migrate deploy`, build, PM2 restart) — the script body lives on the server, so do NOT invent internals; per the run-and-operate skill, state effects and mark exact steps as server-verified-only (Codex plan-review fix 6); how to verify a deploy landed (health endpoint, log tail, version/behavior check).
 3. **Server layout** — app `/home/seo/webapps/seo-tools`; DB `/home/seo/data/seo-tools/db.sqlite` (+ `-wal`/`-shm`); uploads + reports under `/home/seo/data/seo-tools/`; logs `/home/seo/logs/`.
 4. **Health + observability** — `/api/health`, `/admin/ops` panels, the structured pino logs on stderr (PM2 error log), the `subsystem` field, how to grep by tag.
 5. **Common diagnoses** — symptom-first table sourced from the debugging-playbook + diagnostics skills (point at them for full recipes): audit stuck in `queued`/`running` (heartbeat age → stale-reset behavior → when to wait vs. act); 502 Bad Gateway; PM2 restart loop (including the invalid-`LOG_LEVEL`-can't-crash-boot guard and startup "Refusing to start" class); OOM (Chrome memory); "[findings] dual-write failed" → `npx tsx scripts/findings-rebuild.ts <id>`; share link 404 (token TTL).
