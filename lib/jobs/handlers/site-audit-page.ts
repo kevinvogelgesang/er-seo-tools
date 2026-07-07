@@ -83,7 +83,8 @@ async function persistHarvest(
  * SUCCESSFUL settle (caller invokes only after settlePage() returned true).
  * url is the audited job URL (normalized), NEVER page.url().
  */
-async function persistPageSeo(
+// Exported for testing (see site-audit-page.test.ts); the production caller is runSiteAuditPageJob.
+export async function persistPageSeo(
   siteAuditId: string,
   pageUrl: string,
   seo: RawPageSeo | null,
@@ -121,6 +122,8 @@ async function persistPageSeo(
         // which would falsely mark on-page findings incomplete (Codex fix #2).
         harvestTruncated: false,
         detailsJson: JSON.stringify({ schemaTypes: seo.schemaTypes, hreflang: seo.hreflang }),
+        contentText: seo.contentText ?? null,
+        contentTruncated: seo.contentTruncated,
       },
     })
   } catch (e) {

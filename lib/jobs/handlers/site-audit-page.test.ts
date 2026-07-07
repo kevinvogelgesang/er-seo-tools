@@ -13,7 +13,8 @@ const { dispatchPdfScans } = await import('@/lib/ada-audit/pdf-orchestrator')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
 const { enqueuePsiJob } = await import('@/lib/ada-audit/lighthouse-queue')
 const { getLighthouseProvider } = await import('@/lib/ada-audit/lighthouse-provider')
-const { runSiteAuditPageJob, onSiteAuditPageExhausted } = await import('./site-audit-page')
+const { runSiteAuditPageJob, onSiteAuditPageExhausted, persistPageSeo } = await import('./site-audit-page')
+import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
 
 const PREFIX = 'sap-handler-test-'
 
@@ -175,5 +176,23 @@ describe('jobs/handlers/site-audit-page', () => {
 
   it('rejects a malformed payload', async () => {
     await expect(runSiteAuditPageJob({ nope: true } as never)).rejects.toThrow(/payload/i)
+  })
+})
+
+describe('persistPageSeo — content similarity fields', () => {
+  const seo = (over: Partial<RawPageSeo>): RawPageSeo => ({
+    title: 't', metaDescription: undefined, robotsNoindex: false, canonicalUrl: undefined,
+    h1: 'h', h1Count: 1, h2Count: 0, wordCount: 120, schemaTypes: [], hreflang: [],
+    imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, loginLike: false,
+    contentText: undefined, contentTruncated: false, ...over,
+  })
+
+  it('persists contentText + contentTruncated on the harvested row', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: 'persist.test', status: 'complete' } })
+    await persistPageSeo(audit.id, 'https://persist.test/p', seo({ contentText: 'the nursing program prepares students', contentTruncated: true }))
+    const row = await prisma.harvestedPageSeo.findFirst({ where: { siteAuditId: audit.id } })
+    expect(row?.contentText).toBe('the nursing program prepares students')
+    expect(row?.contentTruncated).toBe(true)
+    await prisma.siteAudit.delete({ where: { id: audit.id } })
   })
 })
