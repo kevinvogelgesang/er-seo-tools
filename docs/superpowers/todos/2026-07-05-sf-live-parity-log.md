@@ -356,9 +356,11 @@ zero. All explained.
   residual = sitemapMiss, 11.5% / 21.1%). For these the residual is largely pagination + thank-you
   pages (low value — nuvani sample confirms `/news/page/2` + thank-you URLs). Candidate for a
   crawler-depth/frontier tuning increment; measured here, not chased.
-- **brockway** remains WAF-403 impaired: sitemapMiss **87%** (only 6 sitemap URLs seen), residual
-  29.8% — the WAF blocks both discovery and verification. Reconfirms the server-IP allowlist need
-  before the live scanner can replace SF there.
+- **brockway — EXCLUDE from parity conclusions (data unreliable).** sitemapMiss swung **7.7%
+  (2026-07-06) → 87% (2026-07-07, only 6 sitemap URLs seen)** between cycles. Kevin confirmed
+  (2026-07-07) the site 403s **randomly** — it is NOT a fixable server-IP allowlist issue and NOT
+  crawl-related; the random blocking makes brockway's live numbers non-reproducible. **Decision: skip
+  brockway for the live scanner / parity going forward.**
 
 **Gate status after cycle 2:**
 - Phase-1 parity gate (N≥5 × deviations explained): **cycle 2 MET** (7 clients, every deviation
@@ -366,5 +368,6 @@ zero. All explained.
 - Content-similarity parity: **cycle 1 recorded** (live baseline for 7 + true SF comparison for nuvani).
   Broader SF comparison pending the other 6 re-crawled with Crawl Analysis.
 - **Follow-ups surfaced (none blocking):** (1) hybrid-crawler expansion inconsistency (brownson/nuvani/
-  cambria under-expand) — possible frontier/depth tuning; (2) brockway WAF allowlist; (3) upload the
-  fresh 070726 SF crawls to prod for clean score/near-dup pairs on the remaining clients.
+  cambria under-expand) — possible frontier/depth tuning; (2) upload the fresh 070726-style SF crawls to
+  prod for clean score/near-dup pairs on the remaining clients (re-crawled WITH Crawl Analysis). **brockway
+  DROPPED — random 403s (not allowlistable, not crawl-related); excluded from parity going forward.**
