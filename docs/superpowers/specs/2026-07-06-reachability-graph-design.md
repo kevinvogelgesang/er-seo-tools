@@ -16,6 +16,8 @@ The signal to fix this is **already in hand at build time**: the builder loads t
 
 **Deliverable = truer per-page numbers + reachability metrics surfaced as run metadata + a UI section. NO score change, NO orphan Finding.** This is the measurement-first step (same arc as Increment 1 → Increment 2). Promoting orphans/depth to a scored Finding or into `scoreLiveSeo` is a deliberate, evidence-gated later step, explicitly out of scope here.
 
+**Applies to every live-scan run, not just seoIntent (Codex #6).** The finalizer enqueues `broken-link-verify` for *every* completed site audit (`site-audit-finalizer.ts:132`); `seoIntent` is stored, not a gate on the verifier. So a live-scan `CrawlRun` — and now `reachabilityJson` — is produced for all site audits that harvested links. Hybrid discovery (seoIntent) only makes the node set *richer* (extra discovered nodes); reachability is meaningful for a sitemap-only audit too. No seoIntent guard is added. (Plain ADA audits already build a live-scan run today with broken-link/on-page findings; 3b adds one metadata field to that existing run — no new run, no change to the audited page set.)
+
 ### Depth semantics correction
 
 The crawler's `hybridCrawl` BFS `depthOf` (`hybrid-crawl.ts`) is **seed-relative** — every sitemap-seeded URL is depth 0 — so it is *not* clicks-from-home and is **not** used here. We compute **clicks-from-home = BFS from the homepage over the full internal-link edge graph**, the SEO-meaningful metric `computeLinkGraph` already models (just over a truncated graph today).
@@ -30,14 +32,15 @@ Change the signature from `(rows, auditedUrls, homepageUrl)` to operate over the
 export interface LinkGraphRow { inlinks: number; outlinks: number; crawlDepth: number | null }
 
 export interface ReachabilitySummary {
-  nodeCount: number
+  nodeCount: number                   // all page nodes in the graph
+  indexableNodeCount: number          // page nodes that are indexable (the eligible set — Codex #4)
   edgeCount: number
   homepageResolved: boolean
   orphanCount: number
   orphanSample: string[]              // capped
   unreachableCount: number
   unreachableSample: string[]         // capped
-  depthHistogram: Record<string, number> // keys: '0','1','2','3','4plus','null'
+  depthHistogram: Record<string, number> // over the ELIGIBLE (indexable) set; keys '0','1','2','3','4plus','null' — 'null' == unreachableCount (Codex #4)
   maxDepth: number | null
   deepSample: Array<{ url: string; depth: number }> // depth >= DEEP_THRESHOLD, capped
 }
@@ -51,25 +54,26 @@ export interface LinkGraphResult {
 export function computeLinkGraph(
   edges: { sourcePageUrl: string; targetUrl: string; kind: string }[],
   nodes: string[],                    // full discovered node set (was: auditedUrls)
-  homepageUrl: string | null,
+  homepageUrl: string | null,         // EXACT normalized homepage (Codex #2) — NOT a shallowest fallback
   indexableUrls: Set<string>,         // normalized urls that are indexable && !loginLike (orphan eligibility)
 ): LinkGraphResult
 ```
 
-**Node set.** `nodes` = `SiteAudit.discoveredUrls` **∪ all edge endpoints** (so a link target never listed in `discoveredUrls` still participates as a node and contributes honest inlink counts). Normalization: `normalizeFindingUrl` on every url (unchanged from today), first-seen original wins — reconciles with `CrawlPage.url`.
+**Node set.** `nodes` = (`SiteAudit.discoveredUrls` **∪ all edge endpoints**) **minus non-page targets** (Codex #3). A link target never listed in `discoveredUrls` still participates as a node (honest inlink counts), but obvious non-page URLs (PDFs/assets) are excluded via the existing exported `NON_PAGE_EXT` from `discovery-coverage.ts` — this is a *page* reachability graph, matching the coverage instrument. Normalization: `normalizeFindingUrl` on every url (unchanged from today), first-seen original wins — reconciles with `CrawlPage.url`.
 
-**Edges.** Every `kind === 'internal-link'` row (image edges ignored, as today). Self-links (`s === t` after normalization) excluded.
+**Edges.** Every `kind === 'internal-link'` row (image edges ignored, as today); edges to non-page targets dropped along with those nodes. Self-links (`s === t` after normalization) excluded.
 
-**inlinks/outlinks.** Counted across the whole graph (distinct sources/targets per node), unchanged algorithm — only the node/edge domain widens.
+**inlinks/outlinks.** Counted across the whole page graph (distinct sources/targets per node), unchanged algorithm — only the node/edge domain widens. Includes inlinks from non-indexable pages (a real page's inlinks shouldn't be filtered by the *linker's* indexability).
 
-**crawlDepth.** BFS from the normalized homepage over the full adjacency. `homepageResolved` = homepage node present among `nodes`. Unreachable nodes → `crawlDepth: null`.
+**crawlDepth (clicks-from-home).** BFS from the **exact normalized homepage** (`homepageUrl`, derived by the builder as `normalizeFindingUrl('https://<domain>/')`) over the full adjacency. `homepageResolved` = that exact homepage node is present among `nodes`. **No shallowest-audited-URL fallback** (Codex #2): if the exact homepage is absent, `homepageResolved:false` and all depths are `null` (BFS from a random shallow page would be a misleading "clicks from home"). Unreachable nodes → `crawlDepth: null`.
 
-**Summary.**
-- **orphan** = a node that is (a) in `indexableUrls` and (b) has 0 inlinks. Only indexability-known nodes can be orphans — an edge-only node (never fetched, no indexability signal) is never counted as an orphan (avoids false positives). `orphanSample` capped at `SAMPLE_CAP`.
-- **unreachable** = a node in `indexableUrls` with `crawlDepth === null` (no internal path from home). `unreachableSample` capped.
-- **depthHistogram** buckets all nodes by depth (`'4plus'` aggregates ≥4; `'null'` = unreachable/unknown).
-- **maxDepth** over finite depths (null if none).
-- **deepSample** = nodes with `crawlDepth >= DEEP_THRESHOLD` (4), capped, sorted by depth desc then url.
+**Summary** (orphan / unreachable / histogram all computed over the **eligible set** = indexable page nodes, so `depthHistogram['null'] === unreachableCount`, Codex #4):
+- **orphan** = a node that is (a) in `indexableUrls`, (b) **not the homepage** (Codex #1 — the homepage legitimately has 0 internal inlinks once self-links are excluded, so it must never count as an orphan), and (c) has 0 inlinks. Only indexability-known nodes can be orphans — an edge-only node (never fetched, no indexability signal) is never counted (avoids false positives). `orphanSample` capped at `SAMPLE_CAP`.
+- **unreachable** = an eligible node with `crawlDepth === null` (no internal path from home; homepage itself excluded). `unreachableSample` capped.
+- **depthHistogram** buckets the **eligible** nodes by depth (`'4plus'` aggregates ≥4; `'null'` = unreachable, reconciles with `unreachableCount`).
+- **maxDepth** over finite eligible depths (null if none).
+- **deepSample** = eligible nodes with `crawlDepth >= DEEP_THRESHOLD` (4), capped, sorted by depth desc then url.
+- **nodeCount** = all page nodes; **indexableNodeCount** = eligible nodes (the histogram/orphan/unreachable denominator).
 
 Constants: `SAMPLE_CAP = 50`, `DEEP_THRESHOLD = 4` (module-local, mirroring `discovery-coverage.ts`).
 
@@ -78,9 +82,11 @@ Pure function, no I/O — all inputs passed by the builder.
 ### 2. Builder integration (`broken-link-verify.ts`)
 
 - Build `indexableUrls` from the `HarvestedPageSeo` rows already loaded (`indexable && !loginLike`, normalized) — the same eligibility test on-page findings use.
+- Derive the **exact** homepage: `homepageUrl = normalizeFindingUrl('https://' + (site.domain ?? job.domain) + '/')` — **not** `pickHomepage` (Codex #2), whose shallowest-audited fallback would produce a misleading clicks-from-home BFS root. (`pickHomepage` is used only here; it can be dropped or left unused for reachability.)
 - Call `computeLinkGraph(harvestedLinkRows, discoveredNodes, homepageUrl, indexableUrls)` where `discoveredNodes = site.discoveredUrls` (parsed) — inside the **existing** try/catch (`:383-390`): on failure, log + leave scalars null AND `reachabilityJson` null; never fail the run.
 - Per-node scalars written onto the `CrawlPage` rows the builder already creates for audited pages (lookup by normalized url, as today at `:417-423`). Discovered-but-unfetched nodes get no CrawlPage row — their facts live only in the summary.
 - Attach `reachabilityJson: JSON.stringify({ v: 1, ...summary })` to the live-scan `CrawlRun` bundle (alongside `discoveryCoverageJson` at `:484`).
+- **Add `reachabilityJson?: string` to the `CrawlRunInput` interface** (`lib/findings/types.ts:43`, Codex #5) — `writeFindingsRun` persists via `{ ...run }` (`writer.ts:40`), so the field is dropped silently without the type member. Add a writer round-trip test.
 
 ### 3. Persistence — additive migration
 
@@ -90,7 +96,7 @@ New nullable column `CrawlRun.reachabilityJson String?` (comment: "roadmap 3b: i
 
 New `components/site-audit/ReachabilitySection.tsx`, rendered below `DiscoveryCoverageSection` in `app/ada-audit/site/[id]/page.tsx` (add `reachabilityJson` to the `crawlRun.findUnique` select at `:171`). Reads `liveScanRun.reachabilityJson` only.
 
-- **absent** (null — pre-3b / non-hybrid / graph failure) → renders nothing.
+- **absent** (`reachabilityJson` null — pre-3b runs or a graph-compute failure; a homepage-unresolved run still writes the field with `homepageResolved:false`) → renders nothing.
 - **measured** → headline tiles (orphan count, unreachable count, max depth), a compact depth-distribution bar from `depthHistogram`, and collapsible sample lists (orphaned pages, deep pages) with outbound links. Disclaimer that it is measurement, not a scored issue (mirrors `DiscoveryCoverageSection`'s "never feeds priority scoring" note).
 - Dark-mode `dark:` variants on every element; no hydration-mismatch pattern; inherits the page's share-mode read-only behavior (no cookie-gated fetches).
 
@@ -104,10 +110,22 @@ HarvestedPageSeo(indexable)┘        │
                                     └─► summary ─► CrawlRun.reachabilityJson ──► ReachabilitySection
 ```
 
+## Downstream behavior drift (Codex #7 — intended, not inert)
+
+Changing live-scan `CrawlPage.inlinks/outlinks/crawlDepth` to full-graph values is a *desired* accuracy improvement, but it is **not inert** — three consumers read those scalars via `canonical-page-facts.ts` and will shift on live-scan (canonical) runs:
+- **Brief orphan count** (`brief.service.ts:503`, `inlinks === 0`) — becomes *more* accurate (fewer false orphans from the old audited-only filter). Expected to change; update the brief characterization/snapshot tests rather than blindly re-baseline.
+- **Pillar analysis page-type fallback** (`pageType.ts:83`, `crawlDepth ?? 99`) — depth values shift (clicks-from-home over the full graph, exact-homepage rooted). Review pillar snapshots.
+- **PagesTable "Deepest" sort** (`components/seo-parser/PagesTable.tsx`) — display only, no logic change.
+
+SF-upload runs are untouched (`seo-mapper.ts` + `avg_crawl_depth`, different path). These drifts apply only to live-scan runs.
+
 ## Testing
 
-- **`link-graph.test.ts`** (extend): inlinks count edges from unfetched nodes; clicks-from-home depth correct through a non-audited intermediary (not null); orphan = 0-inlink indexable node; edge-only (non-indexable-known) node never an orphan; unreachable = null-depth indexable node; homepage absent → `homepageResolved:false`, all depths null, no throw; empty edges/nodes → zeroed summary, no throw; self-link excluded; `depthHistogram` buckets incl. `'4plus'`/`'null'`.
-- **`broken-link-verify.test.ts`** (extend): builder attaches `reachabilityJson` + truer CrawlPage scalars; graph failure → `reachabilityJson` null, scalars null, run still written (best-effort).
+- **`link-graph.test.ts`** (extend): inlinks count edges from unfetched nodes; clicks-from-home depth correct *through* a non-audited intermediary (not null); orphan = 0-inlink indexable non-homepage node; **homepage with 0 inlinks is NOT an orphan** (Codex #1); edge-only (non-indexable-known) node never an orphan; unreachable = null-depth eligible node; **exact homepage absent → `homepageResolved:false`, all depths null, NO shallowest-fallback BFS** (Codex #2); non-page target (`.pdf`/`.jpg`) excluded from nodes/edges (Codex #3); empty edges/nodes → zeroed summary, no throw; self-link excluded; `depthHistogram` over eligible set with `'null' === unreachableCount` and `'4plus'` bucket (Codex #4).
+- **URL-normalization / redirect tests** (Codex #8, in `link-graph.test.ts`): root-slash vs no-slash, `www.` vs apex, http vs https all normalize to one node (via `normalizeFindingUrl`); a discovered URL given as the *original* request URL reconciles with a harvested *source* URL for the same normalized page (no phantom duplicate node); documents that graph normalization uses `normalizeFindingUrl` (not `normalizeCoverageUrl`, which additionally strips tracking params / www / pins scheme — the graph deliberately does not, matching `CrawlPage.url`).
+- **`broken-link-verify.test.ts`** (extend): builder attaches `reachabilityJson` + truer CrawlPage scalars; exact-homepage derivation used (not `pickHomepage`); graph failure → `reachabilityJson` null, scalars null, run still written (best-effort).
+- **`writer.test.ts`** (extend, Codex #5): a `CrawlRunInput` carrying `reachabilityJson` round-trips to the persisted `CrawlRun.reachabilityJson` column.
+- **Brief / pillar characterization** (Codex #7): update the affected `brief-from-canonical` / pillar snapshots as *reviewed* changes; assert the direction (fewer false orphans), not a blind re-baseline.
 - **`ReachabilitySection.test.tsx`** (new): absent + measured states render correctly.
 
 ## Non-goals
@@ -119,4 +137,4 @@ HarvestedPageSeo(indexable)┘        │
 
 ## Deploy notes
 
-Additive-nullable migration only; no new required-in-prod env var → plain `~/deploy.sh` (migration auto-applies). Feature only affects live-scan runs (seoIntent audits); plain ADA audits and SF uploads unchanged. No `.toString()`-injected code (the crawler and graph are raw compute — no SWC-helper / `Class.name` minification concern). Prod-verify on a fresh seoIntent audit of a high-miss client (manhattan): expect `reachabilityJson` populated with a plausible `orphanCount`/`depthHistogram`, `ReachabilitySection` rendering the measured state, and CrawlPage inlink counts ≥ the pre-3b audited-only counts.
+Additive-nullable migration only; no new required-in-prod env var → plain `~/deploy.sh` (migration auto-applies). Affects **every live-scan run** (all site audits that harvested links — Codex #6), enriched for seoIntent/hybrid audits by the larger discovered-node set; SF uploads unchanged. No `.toString()`-injected code (the graph is raw compute — no SWC-helper / `Class.name` minification concern). Prod-verify on a fresh seoIntent audit of a high-miss client (manhattan): expect `reachabilityJson` populated with a plausible `orphanCount`/`depthHistogram` (`'null'` bucket == `unreachableCount`), `homepageResolved:true`, `ReachabilitySection` rendering the measured state, and CrawlPage inlink counts ≥ the pre-3b audited-only counts.
