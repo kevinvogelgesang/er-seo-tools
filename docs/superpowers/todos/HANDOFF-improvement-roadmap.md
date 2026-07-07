@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-07 (**A8 app-shell redesign: direction picked, spec + PR 1 plan WRITTEN + CODEX-REVIEWED. Next action = EXECUTE the PR 1 plan.**) · **Updated by:** the A8 brainstorm/spec/plan session.
+**Last updated:** 2026-07-07 (**A8 PR 1 — left-sidebar app shell SHIPPED + DEPLOYED + PROD-VERIFIED. Next action = write + execute the A8 PR 2 plan (fixed-layout quick-start dashboard).**) · **Updated by:** the A8 PR 1 execution session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -10,22 +10,23 @@ single next action.
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap: EXECUTE the A8 PR 1 plan.
+Continue the er-seo-tools improvement roadmap: A8 PR 2 — the fixed-layout quick-start dashboard.
 
-State: A8 (app-shell + homepage redesign, absorbs A6) is fully designed and planned.
-Kevin picked Direction A "Navy Command Deck" (dark navy left sidebar, white canvas,
-orange accents) from two delivered mockups; decisions locked: incremental per-section
-PRs, dark mode retained, Guides under a "Reference" nav group, mobile-first, and FULL
-macOS-style homepage widgets (sizes + drag reorder + persisted layout) in later PRs.
-Spec: docs/superpowers/specs/2026-07-07-app-shell-redesign-design.md (Codex
-ACCEPT-WITH-FIXES x9, all applied). PR 1 plan (the thing to execute now):
-docs/superpowers/plans/2026-07-07-app-shell-pr1.md (Codex ACCEPT-WITH-FIXES x5, all
-applied — incl. the hydration-safe CSS-driven initial collapse via
-html[data-sidebar] arbitrary variant; do NOT regress that to React-state-only).
-PR 1 = (app)/(public) route-group split + tools registry + sidebar shell + topbar
-with form-POST logout + old nav deletion + sticky-offset fixes. 7 TDD tasks, ~+22
-tests, no migration, no new deps. PR 2 (fixed dashboard) and PR 3 (widget editor)
-follow from the spec after PR 1 ships.
+State: A8 PR 1 (left-sidebar app shell) SHIPPED + DEPLOYED + PROD-VERIFIED 2026-07-07
+(PR #112, main f48c98d). The shell is live: (app)/(public) route-group split, tools
+registry (lib/tools-registry.ts), components/shell/{SidebarNav,Topbar,AppShell}, old
+components/nav.tsx deleted, hydration-safe CSS-driven collapse. The homepage is still the
+OLD brochure content, now rendered INSIDE the shell at app/(app)/page.tsx (body untouched
+by PR 1 — PR 2 replaces it). Spec (covers all A8 PRs, stays active through PR 4):
+docs/superpowers/specs/2026-07-07-app-shell-redesign-design.md (Codex ACCEPT-WITH-FIXES
+x9, applied). PR 1 plan is archived at docs/superpowers/archive/plans/. There is NO PR 2
+plan yet — writing it is the first step.
+
+PR 2 = Dashboard v1, FIXED layout (spec §8 PR 2 + §3.3 + §4 + §5): a widget registry +
+CSS-grid dashboard rendering the verified-data-source widget set at default sizes, and
+DELETE the old homepage content. NO edit mode, NO drag, NO layout persistence (that's
+PR 3), NO aggregate widgets (KPI strip + Needs-attention are DEFERRED to PR 3.5 — their
+B1/B2 loaders must be verified/built first; do NOT build them in PR 2).
 
 1. Load the skill er-seo-tools-change-control first. Gate policy (2026-07-03 ruling,
    rules 1 & 4): THIS PASTED PROMPT is standing authorization to merge pending roadmap
@@ -34,46 +35,65 @@ follow from the spec after PR 1 ships.
    Destructive server ops stay Kevin-gated; docs rituals mandatory; never scan
    non-client sites. Brainstorm->spec->plan runs ungated (route design questions to
    Codex, not Kevin; notify Kevin one line per artifact, don't wait).
-2. Read the PR 1 plan docs/superpowers/plans/2026-07-07-app-shell-pr1.md + spec
-   docs/superpowers/specs/2026-07-07-app-shell-redesign-design.md. Trust ranking when
-   docs disagree: code > plan/spec > tracker/handoff.
-3. Execute the plan with superpowers:subagent-driven-development (or executing-plans)
-   on a feature branch (worktree per house style). UI-class change: every component
-   needs dark-mode variants; watch the two intentional gotchas — (a) hydration: server
-   HTML and first client render must be identical (collapse width is CSS-driven off
-   the html[data-sidebar] stamp, React state syncs post-mount), (b) the (public)
-   route group must track middleware isPublicPath (the plan's drift test pins it).
-4. Gates: npx tsc --noEmit + npx vitest run + npm run build, then PR -> merge ->
-   plain ~/deploy.sh (no migration) -> post-deploy verify (login page chrome-less,
-   share URL chrome-less, app pages shelled, collapsed-reload no hydration warnings).
-5. Do the docs ritual: tracker checkbox/status-log + rewrite this handoff (next item
-   = A8 PR 2 dashboard) in the same commit as the ship.
+2. Read the spec (§3.3 widget system, §4 quick-start→live-flow routing, §5 shared
+   primitives, §8 phasing). Trust ranking when docs disagree: code > plan/spec >
+   tracker/handoff. VERIFY every widget data source exists in the code before using it
+   (Codex fix 4/9 — this is why aggregates are deferred).
+3. Write the PR 2 plan: docs/superpowers/plans/2026-07-07-app-shell-pr2.md, per-task TDD.
+   Notify Kevin (one line + path), route to Codex review, apply named fixes in place,
+   then execute (superpowers:subagent-driven-development, worktree per house style).
+4. Gates: npx tsc --noEmit + npx vitest run + npm run build (UI-class change: dark-mode
+   variants on every element; no hydration-mismatch patterns). Then PR -> merge ->
+   plain ~/deploy.sh (no migration expected) -> post-deploy verify (homepage renders the
+   dashboard inside the shell; each quick-start lands in the live flow).
+5. Docs ritual: tracker checkbox/status-log + rewrite this handoff (next item = A8 PR 3
+   widget editor) in the same commit as the ship.
 ```
 
 ## Current state (2026-07-07)
 
-- **A8 (active, [~]):** spec + PR 1 plan done and Codex-reviewed; NO code built yet.
-  Homepage mockups (direction A chosen) live in the session scratchpad — visual
-  reference is the spec §1 + the mockup description; PR 2 rebuilds the homepage as a
-  widget dashboard (verified-source widgets only; KPI/needs-attention deferred to
-  PR 3.5), PR 3 adds the widget editor (sizes + drag + keyboard reorder +
-  localStorage layout), PR 4+ per-tool polish.
-- **SF-retirement validation:** 7-client parity cycles recorded; content-similarity
-  behavioral prod-verify complete; content-similarity near-dup parity now **5 clients**
-  (SF Crawl-Analysis re-crawls) — engine is high-precision on primary content,
-  archive/pagination-blind, every deviation explained, measurement-only reinforced. See
-  2026-07-07 sections of docs/superpowers/todos/2026-07-05-sf-live-parity-log.md. No open
-  validation work-in-progress (optional: re-crawl brownson as the 6th; brockway dropped).
+- **A8 (active, [~]) — PR 1 DONE:** shell shipped + deployed + prod-verified. Delivered:
+  `lib/tools-registry.ts` (single nav source, absorbs A6) + `components/shell/icons.tsx`
+  (hand-inlined SVG, no icon lib); `components/shell/` = SidebarNav (collapsible
+  248↔68px, active orange notch, "Primary" nav landmark), Topbar (route title,
+  ThemeToggle, plain form-POST logout, mobile hamburger), AppShell (desktop rail +
+  mobile drawer + Escape/desktop auto-close + collapse persistence); `(app)`/`(public)`
+  route groups; slimmed `app/layout.tsx` (providers + combined anti-FOUC theme+sidebar
+  script + skip link); `app/route-groups.test.ts` drift test; hidden `admin` registry
+  entry. Homepage content UNTOUCHED (lives at `app/(app)/page.tsx`, brochure body intact).
+- **A8 next — PR 2 (fixed dashboard):** replace the brochure homepage with a widget grid.
+  Verified-source widgets only (spec §3.3 table, PR-2 column): Quick-start Site Audit /
+  SEO Parser / Performance Report / Robots Validator, plus Live-now, Recent-parses,
+  Quarter-Grid-this-week. Aggregate widgets (KPI strip, Needs-attention) DEFERRED to PR 3.5.
+  Edit mode + drag + persistence are PR 3.
+- **SF-retirement validation:** parity cycles recorded; content-similarity near-dup parity
+  at 5 clients (Crawl-Analysis re-crawls) — high-precision on primary content,
+  archive/pagination-blind, measurement-only reinforced. No open WIP (optional: re-crawl
+  brownson as 6th; brockway dropped). See docs/superpowers/todos/2026-07-05-sf-live-parity-log.md.
 - **Remaining roadmap after A8:** A5 (SSE), A7 (auth/test hardening), C6 analytics
   integrations (partly billing-gated), D1–D6. See tracker.
 
-## Gotchas for the next session
+## Gotchas for the next session (A8 PR 2)
 
-- The PR 1 plan's Task 5 hydration approach is deliberate (Codex-flagged): do not
-  "simplify" it back to a useState initializer that reads the DOM — that mismatches.
-- ThemeToggle gets restyled in Task 4 Step 3b because its only post-PR consumer is
-  the new light topbar; if another consumer appears, use a className prop instead.
-- ada-audit's share subtrees move to (public) with mkdir -p + git mv — URLs must not
-  change (route groups are URL-invisible; the build route table is the check).
-- keyword-research + pillar-analysis are hidden registry entries (titles only, no
-  nav) — they were never in the old nav either.
+- **Verify data sources before wiring a widget** (Codex fix 4/9). Exact quick-start
+  targets, already spec-verified against `app/` (spec §4): Site audit → POST
+  `/api/site-audit` → `{id}` → redirect `/ada-audit/site/[id]` (SiteAuditPoller); SF parse
+  → existing `/api/upload` session flow → `/seo-parser/results/[sessionId]`; Report → POST
+  `/api/reports` with the FULL required body (client, period, `comparisonMode` — widget
+  supplies defaults) → `/reports` (highlight new row); Robots → client-side redirect to
+  `/robots-validator?url=…` — this page needs a SMALL new param-read + auto-run-on-mount
+  (the one piece of NEW page behavior in PR 2). Live-now = `/api/site-audit/queue` (5s
+  poll); Recent parses = `/api/parse/history`; Quarter Grid this week = `/api/quarter-plan`.
+- **Do NOT build KPI strip / Needs-attention in PR 2** — their B1/B2 fleet loaders don't
+  exist yet; they are PR 3.5 behind a loader-verification task.
+- **Widgets fault-isolated** like `loadOpsSnapshot` — a failed fetch renders a degraded
+  card, never blanks the dashboard. Multiple widgets polling the same endpoint should
+  share ONE module-level fetcher/interval (don't multiply queue-poll load); cadence stays
+  at existing rates.
+- **Extract `components/ui/` primitives as needed, not speculatively** (spec §5):
+  StatusPill, ScoreRing (SVG), Card, KpiTile, DropZone, CopyButton, HistoryTable — first
+  time the dashboard needs one.
+- The shell is already live and wraps every `(app)` page — PR 2 only replaces the
+  `app/(app)/page.tsx` body; do not re-touch the shell.
+- UI-class change: dark-mode `dark:` variants on every element; ThemeToggle's only
+  consumer is the Topbar now.

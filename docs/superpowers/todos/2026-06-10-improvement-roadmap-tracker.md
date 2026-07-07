@@ -95,11 +95,20 @@ Interleave as needed (not blockers):
   persisted per-browser layout). Spec:
   `../specs/2026-07-07-app-shell-redesign-design.md` (Codex
   ACCEPT-WITH-FIXES ×9, applied) · PR 1 plan:
-  `../plans/2026-07-07-app-shell-pr1.md` (Codex ACCEPT-WITH-FIXES ×5,
-  applied — incl. hydration-safe CSS-driven initial collapse). **Next:
-  execute PR 1** (route-group split + tools registry + sidebar shell);
-  then PR 2 fixed dashboard → PR 3 widget editor → PR 3.5 aggregate
-  widgets → PR 4+ per-tool polish.
+  `../archive/plans/2026-07-07-app-shell-pr1.md` (Codex ACCEPT-WITH-FIXES ×5,
+  applied — incl. hydration-safe CSS-driven initial collapse).
+  **PR 1 SHIPPED 2026-07-07 (PR #112, main `f48c98d`) + DEPLOYED +
+  PROD-VERIFIED** — left-sidebar app shell (`components/shell/`:
+  SidebarNav/Topbar/AppShell) + `(app)`/`(public)` route-group split +
+  tools registry (`lib/tools-registry.ts`, absorbs A6) + hand-inlined SVG
+  icons; old `components/nav.tsx` deleted; hydration-safe CSS-driven
+  collapse; drift test pins `(public)` to `isPublicPath`. Gates: tsc ·
+  **3484 tests / 382 files** · build (URLs unchanged); browser-verified
+  (chrome-less public pages, shelled app pages, collapsed-reload 68px w/
+  0 hydration warnings). **Next: execute PR 2** (fixed-layout quick-start
+  dashboard); then PR 3 widget editor → PR 3.5 aggregate widgets → PR 4+
+  per-tool polish. Spec stays in `../specs/` (active through PR 4); PR 1
+  plan moved to `../archive/plans/`.
 
 ## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
 
@@ -373,6 +382,32 @@ Interleave as needed (not blockers):
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
+
+- 2026-07-07 (**A8 PR 1 — left-sidebar app shell SHIPPED + DEPLOYED + PROD-VERIFIED**) —
+  Executed the PR 1 plan via subagent-driven-development in an isolated worktree (7 TDD tasks + 1
+  final-review fix commit, 8 commits). Built: tools registry `lib/tools-registry.ts` (single nav
+  source, absorbs A6) + hand-inlined SVG icons (no icon lib); `components/shell/` = SidebarNav
+  (registry-driven, collapsible 248↔68px, active orange notch), Topbar (route title, ThemeToggle,
+  **plain form-POST logout**, mobile hamburger), AppShell (desktop rail + mobile drawer + collapse
+  persistence). Split `app/` into `(app)` (mounts AppShell) / `(public)` (chrome-less, owns Footer)
+  route groups via `git mv`; root `app/layout.tsx` slimmed to providers + combined anti-FOUC
+  (theme + `data-sidebar`) script + skip link; old `components/nav.tsx` DELETED (no dual-nav).
+  Hydration-safe collapse: React state starts expanded (server==client), collapsed pre-paint width
+  is CSS-only via `html[data-sidebar=collapsed]` arbitrary variant, mount effect syncs — verified
+  in-browser (collapsed reload paints 68px, **0 React hydration warnings**). Drift test
+  `app/route-groups.test.ts` pins `(public)`/`(app)` membership to middleware `isPublicPath`.
+  Sticky offsets retuned under the new ~57px topbar. Straggler caught by tsc: 4 `components/clients/*`
+  files repointed `RelativeTime` import to the moved `(app)/` path. Final whole-branch review (opus):
+  READY TO MERGE, 0 Critical/Important; 3 Minors FIXED (hidden `admin` registry entry so `/admin/ops`
+  titles correctly; drawer Escape-close + auto-close on desktop breakpoint; `aria-label="Primary"` nav
+  landmark). Gates re-run this session on branch: tsc clean · **3484 tests / 382 files** · build
+  (route URLs `/`,`/login`,`/ada-audit/share/[token]`,`/ada-audit/site/share/[token]` unchanged). PR #112
+  merged (main `f48c98d`) → plain `~/deploy.sh` (no migration, no new deps, no new env var) →
+  prod-verified: `/api/health` 200 ok, `/` 307→login (auth gate + `NEXT_PUBLIC_APP_URL`), `/login` 200
+  chrome-less (0 "Primary" nav) with the new `data-sidebar` anti-FOUC stamp present (proves new layout
+  live), `/ada-audit/share/nope` 200 (public prefix, not a login redirect). Homepage CONTENT untouched
+  (dashboard is PR 2). **Next: A8 PR 2** — fixed-layout quick-start dashboard (spec §8 PR 2). PR 1 plan
+  archived; spec stays active (`../specs/2026-07-07-app-shell-redesign-design.md`) through PR 4.
 
 - 2026-07-07 (**SF-retirement validation — content-similarity near-dup parity EXPANDED to 5 clients**) —
   Kevin re-crawled nuvani/manhattan/bidwell/boca/cambria WITH Crawl Analysis + JS render + content-area
