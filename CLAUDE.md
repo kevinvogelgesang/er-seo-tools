@@ -52,7 +52,7 @@ whenever Kevin asks for "the handoff prompt" / "handoff". Do all three, in order
 - `lib/ada-audit/scoring.ts` — `computeScore(violations, wcagLevel)` → `{ score: 0–100, compliant: boolean }`
 - `lib/ada-audit/sitemap-crawler.ts` — `discoverPages(domain)` with robots.txt, wp-sitemap, gzip support, 1000-page hard cap
 - `lib/ada-audit/queue-manager.ts` — global FIFO queue: `enqueueAudit()` / `processNext()` / `resetStaleAudits()` / `recoverQueue()`
-- `lib/jobs/system-schedules.ts` — code-owned `system-*` Schedule rows (cleanup daily@09:00, screenshot-sweep every:30m, stale-audit-reset every:10m), seeded idempotently at boot; `system-` is a reserved namespace
+- `lib/jobs/system-schedules.ts` — code-owned `system-*` Schedule rows (cleanup daily@09:00, screenshot-sweep every:30m, stale-audit-reset every:10m, db-backup daily@08:00 — fresh snapshot before cleanup's retention deletes, health-alert every:15m), seeded idempotently at boot; `system-` is a reserved namespace
 - `lib/jobs/handlers/scheduled-site-audit.ts` — C2 wrapper job fired by client-owned Schedule rows: resolves its Schedule via the Job row, re-validates client+domain (config rot disables the schedule, DB errors retry), then enters `queueSiteAuditRequest()`
 - `lib/ada-audit/carry-forward-checks.ts` — `carryForwardSiteAuditChecks()` copies `SiteAuditCheck` rows by content key from the previous completed same-domain audit (fire-and-forget in the finalizer, invoked before the findings hook)
 - `lib/ada-audit/scheduled-retention.ts` — `pruneScheduledSiteAudits()`: cadence-aware deletion of schedule-originated terminal SiteAudits (weekly 90 d / monthly 365 d / daily 14 d priced-in; keep latest 2 completed per schedule); CrawlRun findings survive via SetNull; in `runCleanup()`
