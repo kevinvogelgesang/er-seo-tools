@@ -210,8 +210,10 @@ on the record that started the audit (`Session` = a Screaming Frog CSV upload,
 `SiteAudit` = a whole-site crawl audit, `AdaAudit` = a single-page accessibility
 audit — hence `Session.result`, `SiteAudit.summary`, `AdaAudit.result`) and once
 as a normalized relational subtree keyed off a `CrawlRun` (one audit run) with
-child `CrawlPage` (one crawled page), `Finding` (one SEO issue), and `Violation`
-(one accessibility issue) rows. See `lib/findings/`. Blobs are pruned 90 days
+child `CrawlPage` (one crawled page) and `Finding` (one detected issue of any
+kind — SEO, accessibility, or link-check) rows; `Violation` rows attach
+one-to-one to axe-derived findings to carry accessibility-specific detail. See
+`lib/findings/`. Blobs are pruned 90 days
 after completion; the normalized tables are the durable record. Read surfaces
 fall back to the tables when the blob is gone.
 
@@ -243,8 +245,9 @@ their fallbacks can finally be dropped. Until then, both shapes are load-bearing
 ### Decision 6 — Auth: signed cookie sessions, one global gate
 
 **Decision.** Authentication is a signed session cookie (`er_auth`) — see
-`lib/auth.ts`. The cookie is base64url-encoded JSON (`sub`, `email`, `hd`, `name`,
-`exp`) plus an HMAC-SHA256 signature, 12-hour TTL. Login has two paths: **Google
+`lib/auth.ts`. The cookie is base64url-encoded JSON (`v` — session-format
+version stamp, `sub`, `email`, `hd`, `name`, `exp`) plus an HMAC-SHA256
+signature, 12-hour TTL. Login has two paths: **Google
 OAuth as the primary** (verified ID token, restricted to the company's hosted
 domain, with a per-user active/revoked check), and a **break-glass shared-password
 path** that mints a synthetic identity (`sub = 'password:break-glass'`). The gate
@@ -490,8 +493,9 @@ Fast things to check on almost any PR:
   (`lib/security/safe-url.ts`), never a bare `fetch()`.
 - **New UI carries `dark:` variants.** The app is class-based dark mode
   throughout; a component without `dark:` styling is a visible bug.
-- **Tests exist and run against the right database.** Test runs must target the
-  test DB, not the dev/prod file.
+- **Tests exist and run against the right database.** Test runs must use an
+  explicit local `DATABASE_URL` (`file:./local-dev.db` — tests share the dev
+  DB; there is no separate test DB), never the prod file.
 
 ### (b) Danger zones — require your review the longest
 

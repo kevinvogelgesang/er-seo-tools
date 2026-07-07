@@ -456,7 +456,6 @@ optional, at least one relation to another model, and what real-world thing
 ## Where to go next
 
 Once you've worked through these nine units — in whatever order relative to
-Stage 0/1 of `05-milestones.md` made sense for you — you're ready for
-`02-local-setup.md`: getting the app running on your own machine. If you
-haven't already started clicking through the live app while you worked
-through this path, that's the natural next step regardless.
+Stage 0/1 of `05-milestones.md` made sense for you — you've likely already
+been through `02-local-setup.md` and the early Stages; if not, that's your
+next stop. Either way, `05-milestones.md` is the spine from here.
