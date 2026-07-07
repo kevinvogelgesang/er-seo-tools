@@ -39,8 +39,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={`scroll-smooth ${barlow.variable} ${sourceSans.variable}`} suppressHydrationWarning>
       <head>
-        {/* Anti-FOUC: apply saved theme before first paint */}
-        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('er-theme');var p=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';if((t||p)==='dark')document.documentElement.classList.add('dark');}catch(e){}})();` }} />
+        {/* Anti-FOUC: apply saved theme + sidebar state before first paint */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('er-theme');var p=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';if((t||p)==='dark')document.documentElement.classList.add('dark');if(localStorage.getItem('er-sidebar')==='collapsed')document.documentElement.setAttribute('data-sidebar','collapsed');}catch(e){}})();` }} />
       </head>
       <body className="min-h-screen flex flex-col bg-white dark:bg-navy-deep text-navy dark:text-white antialiased">
         <ThemeProvider>
