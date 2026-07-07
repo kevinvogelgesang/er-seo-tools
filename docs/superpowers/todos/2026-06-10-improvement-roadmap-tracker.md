@@ -149,9 +149,28 @@ Interleave as needed (not blockers):
   Codex-reviewed (ACCEPT-WITH-FIXES 2–10, applied in place); per-task
   spec+quality reviews + final whole-branch review (opus) = Ready-to-merge,
   0 Critical/Important. Gates: tsc · **3612 tests / 403 files** · build (`/`
-  9.48 kB). Plan → `../archive/plans/`. **Next: PR 3.5** (aggregate widgets —
-  KPI strip + Needs-attention, **GATED on first verifying/building the B1/B2
-  fleet loaders**) → PR 4+ per-tool polish. Spec stays in `../specs/` (active
+  9.48 kB). Plan → `../archive/plans/`.
+  **PR 3.5 SHIPPED 2026-07-07 (PR #118, main `0c13cb6`) + DEPLOYED +
+  PROD-VERIFIED** — the two aggregate widgets deferred from PR 2. **Loader gate
+  (spec §3.3 + §8) PASSED first:** `getClientFleet()` (B1) already returns
+  per-client `FleetRow` (`seo/ada.delta`, `openCritical`, `alerts`) from
+  canonical `CrawlRun.score`, and `getQueueStatus()` gives active+queued — so no
+  fleet-wide aggregator or worst-movers ranker existed and PR 3.5 adds two PURE
+  reductions over that verified data (`lib/services/fleet-aggregates.ts`:
+  `computeFleetKpi` + `rankNeedsAttention`; **no new DB queries / blob reads /
+  schema**). Widgets are `'use client'` + two cookie-gated GET routes
+  (`/api/fleet/kpi`, `/api/fleet/needs-attention`, `withRoute`) — the spec's
+  "server component" wording is superseded by the client-bundle registry
+  (**code > spec**). KPI strip (`wide`/`xl`) + Needs-attention (`sm`/`lg`) added
+  to `registry.tsx` (additive — **no `LAYOUT_VERSION` bump**; existing browsers
+  get them appended until Reset). Codex ACCEPT-WITH-FIXES ×7 (all applied).
+  Gates: tsc · **3643 tests / 409 files** · build (both fleet routes registered).
+  **Prod (Playwright, authed):** KPI strip = Active 0 / Avg ADA 80 / Avg SEO 79 /
+  Open criticals 128; Needs-attention = 8 ranked rows (a score-drop mover ranks
+  above criticals-only rows, as designed) linking to `/clients/[id]`; **KPI cell
+  measured 904 px = full 4-col grid width** (no purge regression); 0 console
+  errors / 0 hydration warnings. Plan → `../archive/plans/`. **Next: PR 4+**
+  per-tool polish passes (spec §8 PR 4). Spec stays in `../specs/` (active
   through PR 4).
 
 ## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
@@ -553,6 +572,33 @@ Interleave as needed (not blockers):
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
+
+- 2026-07-07 (**A8 PR 3.5 — aggregate homepage widgets SHIPPED + DEPLOYED + PROD-VERIFIED**) —
+  Verified the loader gate FIRST (Explore sweep): `getClientFleet()` (B1, `lib/services/client-fleet.ts`)
+  already returns per-client `FleetRow` with `seo/ada.delta`, `openCritical`, `alerts` from canonical
+  `CrawlRun.score`; `getQueueStatus()` gives active+queued. No fleet-wide aggregator or worst-movers ranker
+  existed, so PR 3.5 adds two PURE reductions over that verified data —
+  `lib/services/fleet-aggregates.ts`: `computeFleetKpi` (activeScans/avgAda/avgSeo/openCriticals; queue
+  fault-isolated → `activeScans:null` on queue failure) + `rankNeedsAttention` (worst-movers total order:
+  worstDelta[SEO-wins-tie] → openCritical desc → alertPriority desc → name → clientId). No new DB queries,
+  blob reads, or schema. Two cookie-gated GET routes (`app/api/fleet/{kpi,needs-attention}`, `withRoute`,
+  `force-dynamic`, `isPublicPath`-omitted + middleware.test assertions) + two `'use client'` widgets
+  (`KpiStripWidget`/`NeedsAttentionWidget` — same effect-fetch pattern as the other 7; the spec's "server
+  component" wording is superseded by the client-bundle registry, **code > spec**). Registry +2 entries
+  (kpi-strip `wide`/`xl`; needs-attention `sm`/`lg`) + default-layout slots; **additive, no `LAYOUT_VERSION`
+  bump** (existing browsers append the new ids until Reset — observed in prod). Plan
+  (`plans/2026-07-07-app-shell-pr3.5.md`) Codex-reviewed ACCEPT-WITH-FIXES ×7, all applied in place
+  (DashboardGrid count 7→9, clientId tie-break, metric SEO-wins tie, alertPriority ordering, EMPTY_SERIES
+  fixtures, red `tone="error"` delta chip, KPI queue-failure widget test). En route, fixed a real test-infra
+  gotcha: `beforeEach(() => mock.mockReset())` implicitly RETURNS the mock, which vitest runs as a teardown
+  callback — invoking a mock whose impl throws surfaced a phantom "boom"; block-body `{ … }` fixes it.
+  Gates: tsc · **3643 tests / 409 files** · build (both fleet routes registered). PR #118 → main `0c13cb6`
+  → `~/deploy.sh` (no pending migrations). **Prod verify (Playwright, authed `seo.erstaging.site`):** KPI
+  strip = Active 0 / Avg ADA 80 / Avg SEO 79 / Open criticals 128; Needs-attention = 8 ranked rows (BEONAIR
+  ↓3 leads as a real mover, then criticals-desc) → `/clients/[id]`; **KPI cell measured 904 px = full 4-col
+  grid width** (no `lg:col-span-4` purge regression — PR #116 `./lib/**` glob holds); inner stat grid = 4
+  cols; 0 console errors / 0 hydration warnings (one transient 502 on `/api/site-audit/queue` during the PM2
+  restart window, gone on reload). Plan → `archive/plans/`. **Next: A8 PR 4+** per-tool polish (spec §8 PR 4).
 
 - 2026-07-07 (**A8 PR 3 — homepage widget editor SHIPPED + DEPLOYED**) —
   Wrote the PR 3 plan (`plans/2026-07-07-app-shell-pr3.md`), Codex-reviewed it (accept-with-named-fixes,
