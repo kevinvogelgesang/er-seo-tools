@@ -265,3 +265,106 @@ session: trigger a seoIntent audit on an indexable client site, read the live-sc
 deviations: SF's content-area configuration, threshold differences, and our two-layer boilerplate control
 (in-page element strip + document-frequency shingle filter). This is the gate that would later justify
 promoting the signal to a Finding / `scoreLiveSeo` factor — NOT done in this increment.
+
+---
+
+## ✅ 2026-07-07 — content-similarity parity (cycle 1) + parity cycle 2 (7 clients)
+
+**Operator session** (Kevin supplied an `er_auth` cookie). Fresh `seoIntent` live scans on 7 clients
+(manhattan 12, bidwell 3, boca 4, brockway 5, brownson 6, cambria 29, nuvani 15 — discovery 26 dropped
+mid-session: 1287-page SF crawl too slow). All 7 built a `live-scan` `CrawlRun` with
+`contentSimilarityJson` populated + `discoveryCoverageJson`. **This also closes the content-similarity
+BEHAVIORAL prod-verify** (was pending since PR #111): `contentSimilarityJson` confirmed populating on
+fresh seoIntent scans across 7 real client sites.
+
+### A. Content-similarity near-dup parity (the NEW stream)
+
+**Live content-similarity output (2026-07-07):**
+
+| Client | pagesEligible | thin skipped | boilerplate shingles dropped | EXACT groups | NEAR groups |
+|---|---|---|---|---|---|
+| manhattan | 70 | 1 | 54 | 0 | 0 |
+| bidwell | 43 | 11 | 10 | 0 | 0 |
+| boca | 148 | 47 | 4 | **2** (sizes 4, 2) | 0 |
+| brockway | 24 | 2 | 0 | 0 | 0 |
+| brownson | 76 | 8 | 5 | 0 | 0 |
+| cambria | 86 | 4 | 4 | 0 | 0 |
+| nuvani | 121 | 1 | 26 | 0 | 0 |
+
+**SF near-dup half — only nuvani is valid.** The 6 cycle-1 SF crawls carry **no near-duplicate data**:
+the columns exist in `internal_all.csv` but are blank because SF's post-crawl **Crawl Analysis** step was
+not run before export (exact-hash dupes populate at crawl time; near-dupes require the Analysis pass).
+Kevin re-crawled **nuvani** with Crawl Analysis + JS rendering + content-area boilerplate exclusion
+(`sf-crawls/070726-testcrawls/2026.07.07.08.30.42/`) → SF near-dup **is** populated there:
+- **nuvani SF: 6 pages flagged near-dup @95%**, all WordPress pagination archives
+  (`/news/page/{6,9,10}`, `/category/news/page/{5,8,9}`); 0 exact.
+
+**nuvani deviation (SF 6 near-dup vs Live 0) — EXPLAINED, not a bug:**
+- The 6 SF near-dupes are pagination archives. nuvani ran **sitemap-mode** (the hybrid crawler added
+  0 linked pages); those pages are **not in nuvani's XML sitemap** and sit in the off-baseline/residual
+  set (11.5%). Confirmed: `discoveryCoverageJson.sample` for the nuvani run lists `/news/page/2` (plus
+  thank-you pages). Our page-only scan (122 CrawlPages, **zero** `/page/` or `/category/` URLs) never
+  included them → nothing to flag.
+- Pagination archives are **low-SEO-value** near-dupes (they should be canonicalized/noindexed, not
+  chased as duplicate content). SF flags them because it link-crawls to them and hashes the listing area.
+- Even if scanned, our two-layer boilerplate control (element strip + DF shingle filter — 26 shingles
+  dropped on nuvani) is stricter than SF's default, so we would flag fewer.
+
+**boca exact-dup (Live 2 groups vs SF 0 on the old boca crawl) — EXPLAINED:**
+- Live exact groups: `{4 category archives: /category/{beauty-career,beauty-school,blog,esthetics}/}`
+  + `{/blog/, /category/news/}`. After boilerplate stripping these thin taxonomy listings are
+  byte-identical → identical sha256. A defensible "thin duplicate archive pages" signal.
+- The on-disk boca SF crawl is the cycle-1 raw-HTML export (no Crawl Analysis, no JS render, full-page
+  hashing incl. distinct category names) → 0 exact. **Not comparable**; a fresh 070726-style boca crawl
+  is the real comparison.
+
+**Content-similarity verdict:** our engine is **precise/conservative** — zero near-dup false positives
+across 7 real client sites; it fires only on genuinely-identical thin archives (boca exact). The only SF
+near-dup signal (nuvani pagination) is low-value and outside our scanned page set. **No unexplained
+deviation → no bug hunt.** This is consistent with the measurement-only posture: promoting content
+similarity to a Finding / `scoreLiveSeo` factor is NOT justified by this data (the signal is sparse and,
+where SF has more, it's pagination noise). Fuller comparison needs the other clients re-crawled with
+Crawl Analysis (and optionally SF's `Bulk Export → Content → Near Duplicates` for page-pair detail).
+
+### B. Score + miss-rate parity — cycle 2
+
+| Client | SF | Live | Δ | Jaccard | disc mode | sitemapMiss | residualMiss | live status |
+|---|---|---|---|---|---|---|---|---|
+| manhattan | 82 | 91 | +9 | 0.506 | hybrid | 38.5% | **2.7%** | complete |
+| bidwell | 90 | 88 | **−2** | 0.667 | hybrid | 8.5% | **0.0%** | complete |
+| boca | 81 | 90 | +9 | 0.758 | hybrid | 47.4% | **3.3%** | partial |
+| brockway | 62 | 85 | +23 | 0.444 | hybrid | **87.0%** | 29.8% | partial |
+| brownson | 81 | 90 | +9 | 0.395 | hybrid | 18.3% | 18.1% | complete |
+| cambria | 83 | 100 | +17 | 0.784 | sitemap | 21.1% | 21.1% | complete |
+| nuvani | 81\* | 100 | +19 | 0.787 | sitemap | 11.5% | 11.5% | complete |
+
+\*nuvani SF is the old **2026-06-11** upload (the fresh 070726 crawl is on disk, not yet uploaded to
+prod) — its Δ is indicative only.
+
+**Score-delta verdict:** Live > SF on 6/7 (Δ +9..+23); **bidwell −2** (the near-parity case). Same,
+documented reason as cycle 1 — the live score omits SF's crawl-depth, broken-link, security-header,
+redirect, orphan, and analytics penalties, so it reads higher; different denominator, do not tune to
+zero. All explained.
+
+**Discovery / miss-rate — NEW in cycle 2 (hybrid crawler, Increment 2, now live):**
+- **Where the crawler expanded well it closed the gap dramatically:** manhattan 38.5%→**2.7%**,
+  boca 47.4%→**3.3%**, bidwell 8.5%→**0.0%** (source mix e.g. manhattan `{sitemap:67, linked:42}`,
+  boca `{sitemap:174, linked:147}`). This is the Increment-2 success signal, now reproduced across
+  multiple clients.
+- **Crawler expansion is INCONSISTENT** (worth a follow-up, not a regression): brownson ran hybrid but
+  added only +1 linked (residual 18.1%); nuvani/cambria fell back to **sitemap-mode** (0 expansion →
+  residual = sitemapMiss, 11.5% / 21.1%). For these the residual is largely pagination + thank-you
+  pages (low value — nuvani sample confirms `/news/page/2` + thank-you URLs). Candidate for a
+  crawler-depth/frontier tuning increment; measured here, not chased.
+- **brockway** remains WAF-403 impaired: sitemapMiss **87%** (only 6 sitemap URLs seen), residual
+  29.8% — the WAF blocks both discovery and verification. Reconfirms the server-IP allowlist need
+  before the live scanner can replace SF there.
+
+**Gate status after cycle 2:**
+- Phase-1 parity gate (N≥5 × deviations explained): **cycle 2 MET** (7 clients, every deviation
+  explained). manhattan is now on cycle 3 (07-06 hybrid + this run). Roadmap wants 2–3 cycles — on track.
+- Content-similarity parity: **cycle 1 recorded** (live baseline for 7 + true SF comparison for nuvani).
+  Broader SF comparison pending the other 6 re-crawled with Crawl Analysis.
+- **Follow-ups surfaced (none blocking):** (1) hybrid-crawler expansion inconsistency (brownson/nuvani/
+  cambria under-expand) — possible frontier/depth tuning; (2) brockway WAF allowlist; (3) upload the
+  fresh 070726 SF crawls to prod for clean score/near-dup pairs on the remaining clients.

@@ -232,7 +232,10 @@ Interleave as needed (not blockers):
   NO Finding, NO `scoreLiveSeo` change (promotion gated on parity evidence + Kevin sign-off). Read-time
   `ContentSimilaritySection` (results page). Timing bench 479ms/1000 pages. Gates: lint / 3461 tests / build green.
   Prod-verify: `/api/health` 200, all 3 columns present on prod DB, clean restart; **behavioral verify
-  (contentSimilarityJson populated on a fresh seoIntent live-scan) PENDING Kevin's next authed client-site scan.**
+  COMPLETE 2026-07-07 — `contentSimilarityJson` populated on 7 fresh seoIntent live-scans** (near-dup 0/7,
+  exact boca 2 thin-archive groups; precise/conservative — zero false positives). Parity vs SF: only nuvani
+  had a valid SF near-dup half; its SF-flagged pagination archives fell outside our sitemap-mode page set
+  (explained, not a miss). See `2026-07-05-sf-live-parity-log.md` 2026-07-07 section.
   **Phase 4 (autonomous live SEO source + native link graph) MERGED (PR #85) +
   DEPLOYED 2026-07-02 (prod @ 9c07502, migration `20260630120000_live_seo_source`
   applied clean) — PROD-VERIFIED 2026-07-02** (campaign Gate 0.3, client 12
@@ -363,6 +366,29 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-07 (**SF-retirement VALIDATION — content-similarity parity cycle 1 + parity cycle 2 (7 clients); operational, no code change**) —
+  Operator session (Kevin's `er_auth` cookie). Fired fresh `seoIntent` live scans on 7 clients
+  (manhattan/bidwell/boca/brockway/brownson/cambria/nuvani; discovery dropped — 1287-page SF crawl too
+  slow). All 7 built a `live-scan` `CrawlRun` with **`contentSimilarityJson` populated** + coverage —
+  which also **closes the content-similarity BEHAVIORAL prod-verify** that was pending since PR #111.
+  **Content-similarity parity (NEW stream):** live near-dup = **0 across all 7**, exact = boca 2 groups
+  (thin WordPress taxonomy archives, byte-identical after boilerplate strip). Only nuvani has a valid SF
+  near-dup half (Kevin re-crawled it with Crawl Analysis + JS render + content-area exclusion →
+  `sf-crawls/070726-testcrawls/`); SF flagged 6 pagination archives @95%, we flagged 0 **because nuvani
+  ran sitemap-mode and those `/news/page/N` pages aren't in the sitemap** (confirmed in the run's
+  `discoveryCoverageJson.sample`) — not a detection miss. The other 6 cycle-1 SF crawls have no near-dup
+  data (Crawl Analysis wasn't run before export). **Verdict: our engine is precise/conservative — zero
+  near-dup false positives on 7 real sites;** measurement-only posture holds (no Finding/score promotion
+  justified by this data). **Score+miss-rate parity cycle 2:** live > SF on 6/7 (Δ +9..+23), bidwell −2
+  — all explained (live omits SF's depth/broken-link/security/redirect/orphan/analytics penalties). **New:
+  hybrid crawler (Increment 2) now closes the sitemap gap where it expands** — manhattan 38.5%→2.7%,
+  boca 47.4%→3.3%, bidwell 8.5%→0% — but expansion is **inconsistent** (brownson +1 linked / residual
+  18.1%; nuvani+cambria fell back to sitemap-mode, 0 expansion) → candidate crawler-depth/frontier
+  tuning increment (measured, not chased). brockway still WAF-403 (sitemapMiss 87%). Full data +
+  every-deviation-explained in `2026-07-05-sf-live-parity-log.md` (2026-07-07 section). Follow-ups
+  (non-blocking): re-crawl the other 6 with Crawl Analysis for a full near-dup comparison; upload the
+  fresh 070726 SF crawls to prod for clean score pairs; hybrid-crawler expansion tuning; brockway
+  allowlist.
 - 2026-07-07 (**A8 app-shell + homepage redesign — NEW ITEM, brainstorming started**) — Kevin
   requested a complete homepage + nav redesign: left collapsible sidebar, quick-start homepage
   (each tool startable inline, jumping into its live flow — e.g. site audit → queue), ER-website-

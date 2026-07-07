@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-06 (**content similarity C6 Phase 5 SHIPPED + PROD-VERIFIED (PR #111); ALL C6 SF-retirement capability phases now shipped; no work-in-progress — next action is a roadmap-menu pick**) · **Updated by:** the content-similarity build session.
+**Last updated:** 2026-07-07 (**SF-retirement VALIDATION advanced: content-similarity parity cycle 1 + score/miss-rate parity cycle 2 recorded for 7 clients; content-similarity behavioral prod-verify COMPLETE. No work-in-progress — next action is a roadmap-menu pick (or continue validation / A8 homepage redesign, which is mid-brainstorm).**) · **Updated by:** the SF-retirement validation session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -12,25 +12,20 @@ single next action.
 ```
 Continue the er-seo-tools improvement roadmap.
 
-State: content similarity (C6 Phase 5) is BUILT + MERGED (PR #111, main 146a14d) + DEPLOYED +
-PROD-VERIFIED (autonomous scope) 2026-07-06. This was the LAST remaining C6/SF-retirement
-CAPABILITY phase — all of them (broken links, on-page, live score, external links, hybrid
-discovery Increments 1+2, reachability 3b, content similarity) are now shipped. There is NO
-work-in-progress; the next action is a roadmap-menu pick (step 3 below).
-
-Session 2026-07-06 built content similarity end to end: brainstorm (Kevin locked measurement-first
-+ lexical/SF-parity over semantic embeddings) -> spec (Codex ACCEPT-WITH-FIXES x10) -> plan (Codex
-ACCEPT-WITH-FIXES x11, incl. 2 REAL code bugs caught) -> 6-task inline TDD (gate-green each) ->
-merge -> deploy -> prod-verify. It captures bounded main-content text in-page (parse-seo-dom.ts,
-nav/header/footer/aside stripped, <=30k, SWC-safe, wordCount unchanged) into transient
-HarvestedPageSeo.contentText (deleted post-write, NEVER durable), computes exact (sha256) + near
-(MinHash-128 candidate -> exact-Jaccard refine over DF-boilerplate-filtered 5-word shingles at 0.9)
-duplicate groups in the broken-link-verify builder (time-budget-guarded, fail-to-null), and stores
-them on new nullable CrawlRun.contentSimilarityJson (migration 20260706130000_content_similarity)
-+ a read-time ContentSimilaritySection. Measurement-only: NO Finding, NO scoreLiveSeo change.
-Prod-verify PASS (autonomous): /api/health 200, all 3 columns present on prod DB, clean restart.
-BEHAVIORAL verify (contentSimilarityJson populated on a fresh seoIntent live-scan) is PENDING an
-authed client-site scan (prod OAuth-only; only NEW audits harvest contentText -> compute).
+State: ALL C6/SF-retirement CAPABILITY phases are shipped + prod-verified. The 2026-07-07 session did
+SF-retirement VALIDATION (operational, no code change): fresh seoIntent live scans on 7 clients
+(manhattan/bidwell/boca/brockway/brownson/cambria/nuvani) → recorded (a) content-similarity parity
+cycle 1 and (b) score/miss-rate parity cycle 2, every deviation explained, in
+docs/superpowers/todos/2026-07-05-sf-live-parity-log.md (2026-07-07 section). This ALSO closed the
+content-similarity behavioral prod-verify (contentSimilarityJson now confirmed populating on fresh
+seoIntent scans). Key results: live near-dup = 0 across all 7 (precise/conservative — zero false
+positives); exact-dup = boca 2 thin-archive groups. Only nuvani had a valid SF near-dup half (Kevin
+re-crawled it WITH Crawl Analysis + JS render + content-area exclusion → sf-crawls/070726-testcrawls/);
+SF flagged 6 pagination archives, we flagged 0 because nuvani ran sitemap-mode and those /news/page/N
+pages aren't in the sitemap (explained, not a miss). Score: live > SF on 6/7 (Δ +9..+23), bidwell −2.
+Hybrid crawler (Increment 2) closes the sitemap gap where it expands (manhattan 38.5%→2.7%, boca
+47.4%→3.3%, bidwell 8.5%→0%) but expansion is INCONSISTENT (brownson/nuvani/cambria under-expand). There
+is NO work-in-progress; the next action is a roadmap-menu pick (step 3).
 
 1. Load the skill er-seo-tools-change-control first. Gate policy (2026-07-03 ruling,
    rules 1 & 4): THIS PASTED PROMPT is standing authorization to merge pending roadmap
@@ -47,39 +42,50 @@ authed client-site scan (prod OAuth-only; only NEW audits harvest contentText ->
    disagree: code > plan/spec > tracker/handoff. ALWAYS re-map the actual code before
    writing a spec (skills/handoff scope drifts — proven repeatedly).
 3. PICK THE NEXT ROADMAP ITEM (ask Kevin if unsure — genuine fork):
-   a. SF-retirement VALIDATION (natural next step — all capabilities now shipped): the
-      capability thesis is complete, so the remaining SF-retirement work is proving parity.
-      (i) Content-similarity parity: on a fresh seoIntent scan, compare live nearDuplicateGroups/
-      exactDuplicateGroups vs SF's Near Duplicate column on the 7 client crawls (new parity
-      stream opened in the parity log). (ii) Parity cycles 2-3 (roadmap wants 2-3; cycle 1 done,
-      manhattan cycle 2 done) — re-run the other 6 clients on hybrid seoIntent audits. Both need
-      Kevin's er_auth cookie (12h TTL) + client-site scans. Operational, not a build.
-   b. Track A infra (code-only, no auth): A5 shared status hook -> optional SSE (0.5 wk) ·
-      A6 shared UI primitives + data-driven nav (1 wk) · A7 auth hardening + per-worker test
-      DBs + one Playwright smoke (1 wk).
-   c. Track D workflow-polish: D1 handoff-engine consolidation · D3 shared lib/seo-fetch/ ·
+   a. A8 app-shell + homepage redesign (mid-brainstorm as of 2026-07-07): Kevin requested a full
+      homepage + nav redesign (left collapsible sidebar, quick-start inline-launch homepage,
+      ER-website-derived "app not website"). Two direction mockups (A navy command-deck / B light
+      PostHog-style) were built + delivered; AWAITING KEVIN'S DIRECTION PICK before spec. If Kevin
+      picks a direction, this becomes the active build (UI-class: dark-mode variants + no hydration
+      mismatch). Absorbs the old A6.
+   b. SF-retirement VALIDATION continuation (operational, needs cookie): the capability thesis is
+      complete; remaining is proving parity across cycles. (i) Re-crawl the other 6 clients WITH
+      Crawl Analysis + JS render + content-area exclusion (the levers nuvani got) → fills the SF
+      near-dup half for a full content-similarity comparison. (ii) Upload the fresh 070726 SF crawls
+      to prod for clean score pairs. (iii) Parity cycle 3 (roadmap wants 2-3; cycle 1+2 done). Needs
+      Kevin's er_auth cookie (12h) + client-site scans.
+   c. Track A infra (code-only, no auth): A5 shared status hook -> optional SSE (0.5 wk) ·
+      A7 auth hardening + per-worker test DBs + one Playwright smoke (1 wk). (A6 absorbed into A8.)
+   d. Track D workflow-polish: D1 handoff-engine consolidation · D3 shared lib/seo-fetch/ ·
       D4 client robots/sitemap checks · D6 RankMath generator.
-   d. Analytics (roadmap Phase 6, the last thing under C6): SEMrush/DataForSEO ingestion +
-      memo consumption (memo consumption gated on the Anthropic API billing decision).
-   Recommended: (a) SF-retirement validation — capabilities are done; parity data is what turns
-   "can drop Screaming Frog" into "did drop it" per client. Needs Kevin's cookie. For a heads-down
-   code-only session with no cookie, A5/A6 (Track A infra).
+   e. Analytics (roadmap Phase 6, last under C6): SEMrush/DataForSEO ingestion + memo consumption
+      (memo consumption gated on the Anthropic API billing decision).
+   Recommended: if Kevin has picked an A8 direction, build A8. Otherwise, for a code-only heads-down
+   session, Track A (A5/A7) or Track D. SF-retirement validation continuation needs a cookie.
 3b. GATED follow-ons (NOT this session unless Kevin asks, each needs evidence + sign-off):
    (i) fold clicks-from-home depth / orphan signal into scoreLiveSeo (reachability data exists on
    CrawlRun.reachabilityJson; the depth-guard exclusion at live-seo-score.ts:90 is deliberate).
-   (ii) promote content similarity to a priority.service Finding / scoreLiveSeo factor — needs the
-   parity data from 3a(i) first. Both are the deliberately-deferred, test-breaking, evidence-gated
-   decisions. Do NOT do either without parallel-run evidence + Kevin sign-off.
+   (ii) promote content similarity to a priority.service Finding / scoreLiveSeo factor — the 2026-07-07
+   parity data does NOT justify this (live near-dup is sparse; where SF has more it's pagination noise).
+   Both remain deliberately-deferred, test-breaking, evidence-gated decisions.
 4. Reusable real crawls for any fixture/parity need (never scan non-client sites):
    /Users/kevin/enrollment-resources/sf-crawls/{manhattan,bidwell,boca,brockway,brownson,
-   cambria,discovery}/<newest>/ — 7 clients, fresh (2026-07-03..05), all uploaded to prod.
+   cambria,discovery}/<newest>/ — 7 clients (2026-07-03..05, cycle-1: raw-HTML, NO Crawl Analysis).
+   PLUS /Users/kevin/enrollment-resources/sf-crawls/070726-testcrawls/<ts>/ — nuvani, the FIRST
+   properly-configured crawl (Crawl Analysis + JS render + content-area exclusion; near-dup populated).
 5. Small open follow-ups (not blocking):
-   - CONTENT SIMILARITY behavioral prod-verify still pending an authed seoIntent scan (see State).
-   - broken-link-verify maxAttempts inconsistency: registers maxAttempts:2 but
-     enqueueBrokenLinkVerify passes none so Job rows carry schema @default(3). Harmless but
-     OBSERVED live: repeated deploys can exhaust a verifier; recoverBrokenLinkVerifies() re-enqueues.
-   - brockway (client 5) serves HTTP 403 to the scanner (WAF): 28/84 pages blocked; server IP
-     needs allowlisting before the live scanner fully replaces SF there.
+   - HYBRID-CRAWLER EXPANSION INCONSISTENCY (new 2026-07-07): the Increment-2 crawler closes the
+     sitemap gap superbly on some sites (manhattan 38.5%→2.7%, boca 47.4%→3.3%, bidwell →0%) but
+     barely expands on others (brownson +1 linked / residual 18.1%; nuvani+cambria fall back to
+     sitemap-mode, 0 expansion). Candidate crawler-depth/frontier tuning increment (measured, not a bug).
+   - broken-link-verify maxAttempts inconsistency: registers maxAttempts:2 but enqueueBrokenLinkVerify
+     passes none so Job rows carry schema @default(3). Harmless; recoverBrokenLinkVerifies() re-enqueues.
+   - brockway (client 5) serves HTTP 403 to the scanner (WAF): sitemapMiss 87% / 28 pages blocked;
+     server IP needs allowlisting before the live scanner fully replaces SF there.
+   - SF Crawl-Analysis gotcha: the 6 cycle-1 SF crawls have NO near-dup data (columns blank) because
+     SF's post-crawl Crawl Analysis step wasn't run before export (exact-hash populates at crawl time;
+     near-dup requires the Analysis pass). Only 070726-testcrawls (nuvani) has it. To fill the other 6:
+     re-crawl WITH Analysis + auto-analyse-at-end + JS render + content-area exclusion.
    - 3b Minor (deferred): safeParseUrlList(site.discoveredUrls) parsed twice in the builder;
      a wp-content/*.html asset counted as an indexable node (edge case).
    - tokenErrorCode() expired-token bug (from A3): expired qct_ reports token_invalid not token_expired.
@@ -96,69 +102,68 @@ authed client-site scan (prod OAuth-only; only NEW audits harvest contentText ->
 
 ## Current state
 
-- **Content similarity (C6 Phase 5) BUILT + MERGED (PR #111, main `146a14d`) + DEPLOYED + PROD-VERIFIED
-  (autonomous scope) 2026-07-06.** Lexical near/exact-duplicate on the live scan; bounded main-content
-  text captured in-page → transient `HarvestedPageSeo.contentText` (never durable) → pure
-  `content-similarity.ts` (MinHash+exact-Jaccard over DF-boilerplate-filtered shingles) in the builder
-  (time-budget-guarded) → new nullable `CrawlRun.contentSimilarityJson` (migration
-  `20260706130000_content_similarity`) + `ContentSimilaritySection`. Measurement-only (no Finding, no
-  score change). Prod-verify PASS (health 200, 3 columns present, clean restart). **Behavioral verify
-  (contentSimilarityJson populated on a fresh seoIntent scan) PENDING an authed client-site scan.**
-- **ALL C6/SF-retirement CAPABILITY phases now shipped + PROD-VERIFIED:** broken-link verifier, on-page
-  SEO, live SEO score, external-link verification, redirect/canonical/hreflang, hybrid discovery
-  (Increments 1+2), reachability graph 3b, content similarity. Only analytics integrations (Phase 6,
-  partly billing-gated) remain under C6.
+- **SF-retirement VALIDATION advanced 2026-07-07 (operational, no code change).** Fresh `seoIntent` live
+  scans on 7 clients → recorded **content-similarity parity cycle 1** + **score/miss-rate parity cycle 2**
+  in `2026-07-05-sf-live-parity-log.md` (2026-07-07 section), every deviation explained. Also **closed the
+  content-similarity behavioral prod-verify** (`contentSimilarityJson` confirmed populating on 7 fresh
+  scans). Live near-dup = 0/7 (precise/conservative); exact = boca 2 thin-archive groups. nuvani is the
+  one true SF near-dup comparison (its SF-flagged pagination archives fall outside our sitemap-mode page
+  set — explained). Score: live > SF 6/7 (Δ +9..+23), bidwell −2.
+- **ALL C6/SF-retirement CAPABILITY phases shipped + PROD-VERIFIED:** broken-link verifier, on-page SEO,
+  live SEO score, external-link verification, redirect/canonical/hreflang, hybrid discovery (Increments
+  1+2), reachability graph 3b, content similarity. Only analytics integrations (Phase 6, partly
+  billing-gated) remain under C6.
 - **A1, A2, A2-f1, A3, A4, B1–B5, C1–C10, C9(A+B), D0 all COMPLETE + PROD-VERIFIED.** C7 complete.
-- **SF-retirement Phase 1 gate DATA in hand** (7-client parity + 7 miss-rate points, 7.7%–42.2%).
-  Cycle 1 done; manhattan cycle 2 done. Roadmap wants 2–3 cycles. **New parity stream opened:**
-  content-similarity near-dup agreement vs SF's Near Duplicate column (needs a fresh authed scan).
+- **A8 app-shell + homepage redesign** is a NEW item, mid-brainstorm (2026-07-07): two direction mockups
+  delivered, awaiting Kevin's direction pick before spec. Absorbs the old A6.
+- **Parity status:** cycle 1 (7 clients) + cycle 2 (7 clients) done; content-similarity cycle 1 (live
+  baseline + nuvani SF comparison) done. Roadmap wants 2–3 cycles — on track. Full near-dup comparison
+  on the other 6 needs them re-crawled WITH Crawl Analysis (the levers nuvani got).
 - **Weekly canary still LIVE:** client 31 "ER Staging Canary" → proway.erstaging.site, `weekly:1@06:00`.
-- **⚠ Human-in-the-loop leftovers (Kevin, none blocking a code change):** 1. content-similarity behavioral
-  prod-verify + near-dup parity (needs a fresh seoIntent scan). 2. brockway WAF-403 allowlist. 3. parity
-  cycles 2–3 (6 remaining clients). 4. tokenErrorCode() fix. 5. A4 uptime monitor + `/admin/ops` eyeball.
+- **⚠ Human-in-the-loop leftovers (Kevin, none blocking a code change):** 1. re-crawl the other 6 with
+  Crawl Analysis for full near-dup parity + upload fresh 070726 SF crawls to prod. 2. brockway WAF-403
+  allowlist. 3. A8 direction pick. 4. tokenErrorCode() fix. 5. A4 uptime monitor + `/admin/ops` eyeball.
   6. D0 `ALERT_WEBHOOK_URL`. 7. B4 quarter-plan decision; first real qct_ push; C10 SA-grant.
 - **Blocked / gated:** Anthropic API billing (direct memo generation + content-similarity memo consumption).
   Daily/nightly cadences still gated. Folding depth/orphans into scoreLiveSeo AND promoting content
-  similarity to a Finding/score factor both need parallel-run evidence + Kevin sign-off.
+  similarity to a Finding/score factor both need parallel-run evidence + Kevin sign-off (the 2026-07-07
+  data does NOT justify the content-similarity promotion).
 
 ## Next item
 
-**Roadmap-menu pick** (step 3). Recommended: **SF-retirement validation** — the capabilities are all
-built, so the remaining SF-retirement work is proving parity (content-similarity near-dup agreement +
-parity cycles 2–3). Needs Kevin's `er_auth` cookie + client-site scans. Code-only alternative with no
-cookie: Track A infra (A5/A6/A7).
+**Roadmap-menu pick** (step 3). If Kevin has picked an **A8** direction, that's the active build (UI class).
+Otherwise: continue **SF-retirement validation** (needs cookie — re-crawl the other 6 with Crawl Analysis
+for full near-dup parity; parity cycle 3) or a code-only **Track A / Track D** item.
 
 ## Gotchas / decisions already made (don't relitigate)
 
-- **Content similarity is MEASUREMENT-ONLY** — no `priority.service` Finding, no `scoreLiveSeo` change
-  (same discipline as reachability 3b / discovery-coverage; avoids the `priority.service` count-0
-  scale-1.0 landmine). Promotion to a Finding / score factor is gated on SF-parity evidence + Kevin's
-  sign-off — do NOT wire it into the score without both.
+- **Content similarity is MEASUREMENT-ONLY** — no `priority.service` Finding, no `scoreLiveSeo` change.
+  The 2026-07-07 parity data reinforces this: live near-dup is sparse and where SF finds more it's
+  pagination noise. Promotion stays gated on parity evidence + Kevin sign-off.
+- **Our content-similarity engine is PRECISE/conservative by design** (two-layer boilerplate control:
+  in-page element strip + DF shingle filter, 0.9 Jaccard). Zero near-dup false positives on 7 real sites
+  is the expected, good outcome — not a coverage gap.
+- **SF near-dup needs Crawl Analysis** (post-crawl step). Cycle-1 SF crawls lack it (blank columns); only
+  `070726-testcrawls` (nuvani) has it. Exact-hash dupes DO populate at crawl time without Analysis.
 - **`HarvestedPageSeo.contentText` is raw page prose:** transient (deleted post-write; 7-day backstop),
-  NEVER durable (only fingerprint-derived groups reach `CrawlRun.contentSimilarityJson`), never logged,
-  never `select`ed outside `broken-link-verify.ts`. Don't add it to any other query/API/UI.
+  NEVER durable, never logged, never `select`ed outside `broken-link-verify.ts`. Don't add it elsewhere.
 - **The similarity module is DETERMINISTIC by contract** (verify job is `maxAttempts:2`): fixed-seed
   `Math.imul` hashing, sorted outputs — NO `Math.random`/`Date.now`. Keep it that way.
 - **`parse-seo-dom.ts` stays SWC-helper-free** (`.toString()`-injected): no `typeof`, no module scope.
-  The new `contentText` capture reuses the SAME tree-walk and must NOT change `wordCount` semantics
-  (a test asserts it). The 30k cap stops APPENDING, not the walk.
-- **crawl-depth / orphans are DELIBERATELY out of `scoreLiveSeo`** (live-seo-score.ts:90). Reachability
-  3b computes them (reachabilityJson) but does NOT score them. Folding them in is evidence+sign-off-gated.
-- **Reachability + content similarity + coverage all run for EVERY live-scan run** (the finalizer
-  enqueues `broken-link-verify` for every completed audit); hybrid discovery (seoIntent) enriches the node set.
+- **crawl-depth / orphans are DELIBERATELY out of `scoreLiveSeo`** (live-seo-score.ts:90). Folding in is
+  evidence+sign-off-gated.
 - **The live-scan run is built by a SEPARATE `broken-link-verify` job AFTER the SiteAudit reaches
   `complete`** (fire-and-forget, concurrency 1). "SiteAudit complete" ≠ "live run ready" — poll for the run.
-- **`er_auth` cookie is 12h TTL.** Do cookie-dependent work (upload/parse/trigger) up front; polling +
-  recording are read-only SSH and outlive the cookie. Prod is OAuth-only (`ALLOW_PASSWORD_LOGIN=false`).
+- **`er_auth` cookie is 12h TTL.** Do cookie-dependent work (trigger audits) up front; polling + recording
+  is read-only SSH and outlives the cookie. Prod is OAuth-only (`ALLOW_PASSWORD_LOGIN=false`).
 - **Prod has NO sqlite3 CLI** — drive read-only prod queries with a throwaway `.ts` via `npx tsx` from the
-  app dir; import as `@/lib/db`. Clean it up after (I used `_colcheck.ts` this session and deleted it).
+  app dir (`scp` it up, run, delete after). Cookie-independent.
 - **Deploy protocol:** code/config → plain `~/deploy.sh` (migrations auto-apply); `ecosystem.config.js`/
   env changes → `pm2 delete && pm2 start`.
 - **NEVER `git add -A` at repo root** — `pentest-results/`, `SEO_Report_1st_Draft.pdf`,
   `googlefc472dc61896519a.html` are untracked + not gitignored. Add explicit paths only.
 - **Canonical-run selection (on main):** `pickCanonicalSeo` — fresh SF (≤30 d) wins; a newer seoIntent
-  live run supersedes; a NON-seoIntent live run can NEVER be canonical. (Content similarity is metadata on
-  the live-scan run — it never affects canonical selection.)
+  live run supersedes; a NON-seoIntent live run can NEVER be canonical.
 - **Prod URL** `https://seo.erstaging.site`; prod DB `/home/seo/data/seo-tools/db.sqlite`; app dir
   `/home/seo/webapps/seo-tools`. Unauth API → `401 {"error":"auth_required"}`.
 - Stack stays: SQLite + single PM2 process + Next.js. **NEVER interactive `prisma.$transaction(async tx => ...)`** — array form only.
@@ -177,4 +182,10 @@ cookie: Track A infra (A5/A6/A7).
 - 2026-07-06 — A4 (#103). Slack alert enrichment (#104). SF-retirement Phase 1 DATA (#105/#106/#107). safeFetch hardening (#108).
 - 2026-07-06 — hybrid-discovery Increment 2 (THE CRAWLER) MERGED (#109) + DEPLOYED + PROD-VERIFIED. Migration `20260705080000_discovery_sources`.
 - 2026-07-06 — reachability graph 3b MERGED (PR #110, main `140a850`) + DEPLOYED + PROD-VERIFIED. Migration `20260706120000_reachability_graph`.
-- 2026-07-06 — **content similarity C6 Phase 5 MERGED (PR #111, main `146a14d`) + DEPLOYED + PROD-VERIFIED (autonomous scope).** MinHash+exact-Jaccard near/exact-dup on `CrawlRun.contentSimilarityJson` (migration `20260706130000_content_similarity`) + `ContentSimilaritySection`. Measurement-only. Codex ACCEPT-WITH-FIXES ×10 (spec) + ×11 (plan, 2 real bugs). 6-task inline TDD. **ALL C6 capability phases shipped. Next: SF-retirement validation (content-sim parity + cycles 2–3) or Track A infra.**
+- 2026-07-06 — content similarity C6 Phase 5 MERGED (PR #111, main `146a14d`) + DEPLOYED + PROD-VERIFIED (autonomous scope). Migration `20260706130000_content_similarity`. Measurement-only. ALL C6 capability phases shipped.
+- 2026-07-07 — **SF-retirement VALIDATION (operational, no code change):** 7-client fresh seoIntent scans →
+  content-similarity parity cycle 1 + score/miss-rate parity cycle 2 recorded (parity log 2026-07-07
+  section), every deviation explained. Content-similarity behavioral prod-verify CLOSED. Live near-dup
+  0/7 (precise); nuvani the one true SF near-dup comparison (pagination archives outside our sitemap-mode
+  set). Hybrid crawler closes the gap where it expands (manhattan 38.5%→2.7%) but expansion is inconsistent
+  → follow-up. A8 homepage redesign is mid-brainstorm (mockups delivered, awaiting direction pick).
