@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-07 (**A8 PR 1 — left-sidebar app shell SHIPPED + DEPLOYED + PROD-VERIFIED. Next action = write + execute the A8 PR 2 plan (fixed-layout quick-start dashboard).**) · **Updated by:** the A8 PR 1 execution session.
+**Last updated:** 2026-07-07 (**A8 PR 2 — fixed-layout quick-start dashboard SHIPPED + DEPLOYED. Next action = write + execute the A8 PR 3 plan (widget editor: sizes + drag/keyboard reorder + localStorage persistence + reset).**) · **Updated by:** the A8 PR 2 execution session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -10,90 +10,116 @@ single next action.
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap: A8 PR 2 — the fixed-layout quick-start dashboard.
+Continue the er-seo-tools improvement roadmap: A8 PR 3 — the homepage widget editor.
 
-State: A8 PR 1 (left-sidebar app shell) SHIPPED + DEPLOYED + PROD-VERIFIED 2026-07-07
-(PR #112, main f48c98d). The shell is live: (app)/(public) route-group split, tools
-registry (lib/tools-registry.ts), components/shell/{SidebarNav,Topbar,AppShell}, old
-components/nav.tsx deleted, hydration-safe CSS-driven collapse. The homepage is still the
-OLD brochure content, now rendered INSIDE the shell at app/(app)/page.tsx (body untouched
-by PR 1 — PR 2 replaces it). Spec (covers all A8 PRs, stays active through PR 4):
-docs/superpowers/specs/2026-07-07-app-shell-redesign-design.md (Codex ACCEPT-WITH-FIXES
-x9, applied). PR 1 plan is archived at docs/superpowers/archive/plans/. There is NO PR 2
-plan yet — writing it is the first step.
+State: A8 PR 1 (left-sidebar app shell) SHIPPED + PROD-VERIFIED (PR #112). A8 PR 2
+(fixed-layout quick-start dashboard) SHIPPED + DEPLOYED 2026-07-07 (PR #113, main
+acbf96e). Live now: app/(app)/page.tsx renders <DashboardGrid/> from a fixed
+DEFAULT_LAYOUT in lib/widgets/registry.tsx — 7 widgets (live-now, quick-site-audit,
+quick-parser, quick-report, quarter-week, recent-parses, quick-robots) at fixed
+sizes, each wrapped in WidgetErrorBoundary → spanClass div → WidgetFrame → Component.
+The widget model (WidgetSize 'sm'|'wide'|'lg'|'xl', LayoutItem {id,size}, WidgetDef)
+is in lib/widgets/types.ts; spanClass in lib/widgets/grid.ts; a shared ref-counted
+queue poller in lib/widgets/queue-poll.ts. Spec (covers all A8 PRs, active through
+PR 4): docs/superpowers/specs/2026-07-07-app-shell-redesign-design.md (§3.3 widget
+system incl. edit mode). PR 2 plan archived at docs/superpowers/archive/plans/. NO
+PR 3 plan yet — writing it is the first step.
 
-PR 2 = Dashboard v1, FIXED layout (spec §8 PR 2 + §3.3 + §4 + §5): a widget registry +
-CSS-grid dashboard rendering the verified-data-source widget set at default sizes, and
-DELETE the old homepage content. NO edit mode, NO drag, NO layout persistence (that's
-PR 3), NO aggregate widgets (KPI strip + Needs-attention are DEFERRED to PR 3.5 — their
-B1/B2 loaders must be verified/built first; do NOT build them in PR 2).
+PR 3 = the widget editor (spec §3.3 "Edit mode" + "Persistence"): a "Customize"
+button toggles edit mode; each widget gets a size stepper (cycles its supported
+sizes) and becomes draggable (native HTML5 DnD, same pattern as Quarter Grid
+chips); drop reorders the layout array; grid auto-flows. Codex fix 8: ALSO render
+move-up/move-down buttons per widget so reorder never requires a pointer (keyboard
+a11y). "Reset layout" restores DEFAULT_LAYOUT. Persist to
+localStorage('er-home-layout') = {version:1, items:[{id,size}]} in display order:
+unknown ids dropped on load, missing registered widgets appended at defaultSize
+(registry authoritative), malformed JSON → default, version bump resets. Order +
+size ONLY (no free-form x/y). Desktop-only editing in v1; mobile inherits the
+chosen order/size of that browser. A pure layout reducer (reorder/resize/reset/
+unknown-id-drop/version-bump) with unit tests is the spine (spec §7).
 
 1. Load the skill er-seo-tools-change-control first. Gate policy (2026-07-03 ruling,
-   rules 1 & 4): THIS PASTED PROMPT is standing authorization to merge pending roadmap
-   PRs at session start (re-run gates lint/test/build on the branch this session first)
-   and to deploy when needed, ALWAYS followed immediately by post-deploy verification.
+   rules 1 & 4): THIS PASTED PROMPT is standing authorization to merge pending
+   roadmap PRs at session start (re-run gates lint/test/build on the branch this
+   session first) and to deploy when needed, ALWAYS followed by post-deploy verify.
    Destructive server ops stay Kevin-gated; docs rituals mandatory; never scan
    non-client sites. Brainstorm->spec->plan runs ungated (route design questions to
    Codex, not Kevin; notify Kevin one line per artifact, don't wait).
-2. Read the spec (§3.3 widget system, §4 quick-start→live-flow routing, §5 shared
-   primitives, §8 phasing). Trust ranking when docs disagree: code > plan/spec >
-   tracker/handoff. VERIFY every widget data source exists in the code before using it
-   (Codex fix 4/9 — this is why aggregates are deferred).
-3. Write the PR 2 plan: docs/superpowers/plans/2026-07-07-app-shell-pr2.md, per-task TDD.
-   Notify Kevin (one line + path), route to Codex review, apply named fixes in place,
-   then execute (superpowers:subagent-driven-development, worktree per house style).
-4. Gates: npx tsc --noEmit + npx vitest run + npm run build (UI-class change: dark-mode
-   variants on every element; no hydration-mismatch patterns). Then PR -> merge ->
-   plain ~/deploy.sh (no migration expected) -> post-deploy verify (homepage renders the
-   dashboard inside the shell; each quick-start lands in the live flow).
-5. Docs ritual: tracker checkbox/status-log + rewrite this handoff (next item = A8 PR 3
-   widget editor) in the same commit as the ship.
+2. Read the spec §3.3 (edit mode + persistence). Trust ranking when docs disagree:
+   code > plan/spec > tracker/handoff. Reuse the existing widget model + registry +
+   DashboardGrid from PR 2 — PR 3 makes the grid stateful (layout state + editor),
+   it does NOT rebuild the widgets. Study Quarter Grid's native HTML5 DnD for the
+   drag pattern (grep quarter-grid for draggable/onDragStart/onDrop).
+3. Write the PR 3 plan: docs/superpowers/plans/2026-07-07-app-shell-pr3.md, per-task
+   TDD (lead with the pure layout reducer + its unit tests). Notify Kevin (one line
+   + path), route to Codex review, apply named fixes in place, then execute
+   (superpowers:subagent-driven-development, worktree per house style).
+4. Gates: npx tsc --noEmit + DATABASE_URL="file:./local-dev.db" npm test + npm run
+   build (UI-class change: dark: on every element; no hydration-mismatch — read the
+   layout from localStorage in useEffect/useSyncExternalStore, render DEFAULT_LAYOUT
+   on the server + first client paint). Then PR -> merge -> plain ~/deploy.sh (no
+   migration) -> post-deploy verify.
+5. Docs ritual: tracker checkbox/status-log + rewrite this handoff (next item = A8
+   PR 3.5 aggregate widgets — KPI strip + Needs-attention, GATED on verifying/
+   building the B1/B2 fleet loaders first) in the same commit as the ship.
 ```
 
 ## Current state (2026-07-07)
 
-- **A8 (active, [~]) — PR 1 DONE:** shell shipped + deployed + prod-verified. Delivered:
-  `lib/tools-registry.ts` (single nav source, absorbs A6) + `components/shell/icons.tsx`
-  (hand-inlined SVG, no icon lib); `components/shell/` = SidebarNav (collapsible
-  248↔68px, active orange notch, "Primary" nav landmark), Topbar (route title,
-  ThemeToggle, plain form-POST logout, mobile hamburger), AppShell (desktop rail +
-  mobile drawer + Escape/desktop auto-close + collapse persistence); `(app)`/`(public)`
-  route groups; slimmed `app/layout.tsx` (providers + combined anti-FOUC theme+sidebar
-  script + skip link); `app/route-groups.test.ts` drift test; hidden `admin` registry
-  entry. Homepage content UNTOUCHED (lives at `app/(app)/page.tsx`, brochure body intact).
-- **A8 next — PR 2 (fixed dashboard):** replace the brochure homepage with a widget grid.
-  Verified-source widgets only (spec §3.3 table, PR-2 column): Quick-start Site Audit /
-  SEO Parser / Performance Report / Robots Validator, plus Live-now, Recent-parses,
-  Quarter-Grid-this-week. Aggregate widgets (KPI strip, Needs-attention) DEFERRED to PR 3.5.
-  Edit mode + drag + persistence are PR 3.
-- **SF-retirement validation:** parity cycles recorded; content-similarity near-dup parity
-  at 5 clients (Crawl-Analysis re-crawls) — high-precision on primary content,
-  archive/pagination-blind, measurement-only reinforced. No open WIP (optional: re-crawl
-  brownson as 6th; brockway dropped). See docs/superpowers/todos/2026-07-05-sf-live-parity-log.md.
-- **Remaining roadmap after A8:** A5 (SSE), A7 (auth/test hardening), C6 analytics
-  integrations (partly billing-gated), D1–D6. See tracker.
+- **A8 (active, [~]) — PR 1 + PR 2 DONE:**
+  - **PR 1** (shell): SHIPPED + PROD-VERIFIED (PR #112). `components/shell/`
+    (SidebarNav/Topbar/AppShell), `(app)`/`(public)` route groups, tools registry
+    `lib/tools-registry.ts`, hydration-safe CSS collapse.
+  - **PR 2** (dashboard v1, fixed): SHIPPED + DEPLOYED (PR #113, main `acbf96e`).
+    Widget model `lib/widgets/` (types/grid/queue-poll/registry) + `components/ui/`
+    primitives (StatusPill/ScoreRing/DropZone) + `components/widgets/` (WidgetFrame
+    + WidgetErrorBoundary + DashboardGrid) + 7 verified-source widgets; robots
+    `?url=` auto-run (Suspense); brochure homepage deleted; `/` static 7.91 kB.
+    Gates green (tsc · 3534 tests / 400 files · build); final opus review clean.
+    Authed dashboard render pending a Kevin eyeball (cookie-gated — automated checks
+    confirmed server on `acbf96e`, health ok, `/`→`/login`).
+- **A8 next — PR 3 (widget editor):** make the fixed grid stateful — size stepper,
+  native HTML5 drag + keyboard move-up/down reorder, `localStorage('er-home-layout')`
+  persistence, reset-to-default. Pure layout reducer is the spine. Reuse PR 2's
+  model/registry/widgets; don't rebuild them.
+- **A8 after PR 3 — PR 3.5 (aggregate widgets):** KPI strip + Needs-attention,
+  each GATED on verifying/building its server-side loader from the B1/B2 services
+  first (Codex fix 4/9 — this is why they were deferred out of PR 2). Then PR 4+
+  per-tool polish (one PR per tool section adopting `components/ui/` primitives).
+- **Remaining roadmap after A8:** A5 (SSE), A7 (auth/test hardening), D1–D6, and
+  gated items (Anthropic billing). See tracker.
 
-## Gotchas for the next session (A8 PR 2)
+## Gotchas for the next session (A8 PR 3)
 
-- **Verify data sources before wiring a widget** (Codex fix 4/9). Exact quick-start
-  targets, already spec-verified against `app/` (spec §4): Site audit → POST
-  `/api/site-audit` → `{id}` → redirect `/ada-audit/site/[id]` (SiteAuditPoller); SF parse
-  → existing `/api/upload` session flow → `/seo-parser/results/[sessionId]`; Report → POST
-  `/api/reports` with the FULL required body (client, period, `comparisonMode` — widget
-  supplies defaults) → `/reports` (highlight new row); Robots → client-side redirect to
-  `/robots-validator?url=…` — this page needs a SMALL new param-read + auto-run-on-mount
-  (the one piece of NEW page behavior in PR 2). Live-now = `/api/site-audit/queue` (5s
-  poll); Recent parses = `/api/parse/history`; Quarter Grid this week = `/api/quarter-plan`.
-- **Do NOT build KPI strip / Needs-attention in PR 2** — their B1/B2 fleet loaders don't
-  exist yet; they are PR 3.5 behind a loader-verification task.
-- **Widgets fault-isolated** like `loadOpsSnapshot` — a failed fetch renders a degraded
-  card, never blanks the dashboard. Multiple widgets polling the same endpoint should
-  share ONE module-level fetcher/interval (don't multiply queue-poll load); cadence stays
-  at existing rates.
-- **Extract `components/ui/` primitives as needed, not speculatively** (spec §5):
-  StatusPill, ScoreRing (SVG), Card, KpiTile, DropZone, CopyButton, HistoryTable — first
-  time the dashboard needs one.
-- The shell is already live and wraps every `(app)` page — PR 2 only replaces the
-  `app/(app)/page.tsx` body; do not re-touch the shell.
-- UI-class change: dark-mode `dark:` variants on every element; ThemeToggle's only
-  consumer is the Topbar now.
+- **Reuse, don't rebuild.** PR 2 already ships the widget model (`lib/widgets/types.ts`),
+  `spanClass` (`lib/widgets/grid.ts`), the registry + `DEFAULT_LAYOUT`
+  (`lib/widgets/registry.tsx`), and `DashboardGrid` (`components/widgets/`). PR 3
+  turns the grid stateful (layout state driven by localStorage, editor controls);
+  the 7 widget components are unchanged.
+- **No hydration mismatch (same discipline as PR 2).** The persisted layout is a
+  client-only value — render `DEFAULT_LAYOUT` on the server + first client paint,
+  then adopt the stored layout after mount (useEffect / useSyncExternalStore). A
+  render-time `localStorage.getItem` would diverge and warn. `components/ThemeToggle.tsx`
+  and PR 2's `queue-poll.ts` are the reference patterns.
+- **Native HTML5 DnD only** (spec §2 "no new drag-and-drop dependency") — mirror
+  Quarter Grid's chips (`grep -rn "draggable\|onDragStart\|onDrop" components/quarter-grid`).
+- **Keyboard reorder is REQUIRED** (Codex spec-fix 8): move-up/move-down buttons per
+  widget in edit mode, so reordering never needs a pointer. Native DnD alone regresses
+  keyboard a11y.
+- **Persistence contract (spec §3.3):** `localStorage('er-home-layout')` =
+  `{version:1, items:[{id,size}]}` in display order. On load: drop unknown ids,
+  append missing registered widgets at their `defaultSize` (registry is
+  authoritative), malformed JSON → `DEFAULT_LAYOUT`, a `version` bump resets. Wrap
+  load/save in try-catch (quota/malformed). DB persistence is deferred to A7.
+- **Order + size ONLY** — no free-form x/y placement; grid auto-flow does the packing.
+- **Build gate catches the real risks:** `tsc --noEmit` + full vitest + `npm run
+  build`. The dominant repo failure mode is prod-only (minification/hydration), so
+  the build + an authed prod eyeball matter more than green unit tests alone.
+- **Local `main` divergence (informational):** as of this ship, the local `main`
+  in the primary worktree has 3 UNPUSHED, non-A8 docs commits (an "onboarding doc
+  set": `c840145`, `44829d5`, `9cf5c0b`) that are NOT on `origin/main`. This
+  session deliberately based its docs-ritual commit on `origin/main` (via a
+  `docs/a8-pr2-ship` branch) so as NOT to publish that in-progress work. Next
+  session: reconcile local `main` with `origin/main` before branching (e.g.
+  `git fetch && git rebase origin/main` on `main`, or work from a fresh branch off
+  `origin/main`). Do not force-lose those 3 commits — they're Kevin's local work.

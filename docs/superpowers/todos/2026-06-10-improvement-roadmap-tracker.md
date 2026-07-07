@@ -105,10 +105,24 @@ Interleave as needed (not blockers):
   collapse; drift test pins `(public)` to `isPublicPath`. Gates: tsc ·
   **3484 tests / 382 files** · build (URLs unchanged); browser-verified
   (chrome-less public pages, shelled app pages, collapsed-reload 68px w/
-  0 hydration warnings). **Next: execute PR 2** (fixed-layout quick-start
-  dashboard); then PR 3 widget editor → PR 3.5 aggregate widgets → PR 4+
-  per-tool polish. Spec stays in `../specs/` (active through PR 4); PR 1
-  plan moved to `../archive/plans/`.
+  0 hydration warnings).
+  **PR 2 SHIPPED 2026-07-07 (PR #113, main `acbf96e`) + DEPLOYED** (server on
+  `acbf96e`, `/api/health` ok, `/`→`/login` gate correct; authed dashboard
+  render pending a Kevin eyeball) — fixed-layout quick-start dashboard: widget
+  model (`lib/widgets/`: types/grid/queue-poll/registry) + `components/ui/`
+  primitives (StatusPill/ScoreRing/DropZone) + `components/widgets/` framework
+  (WidgetFrame + WidgetErrorBoundary + DashboardGrid) + 7 verified-source
+  widgets (Live-now, Recent-parses, Quarter-week, quick-start Site-Audit/
+  Parser/Report/Robots); robots-validator gained `?url=` param-read + auto-run
+  (Suspense-wrapped); old brochure homepage deleted (`/` now static 7.91 kB
+  dashboard in the shell). Plan Codex-reviewed (ACCEPT-WITH-FIXES ×6, applied);
+  final whole-branch review (opus) = Ready-to-merge, 0 Critical/Important.
+  Gates: tsc · **3534 tests / 400 files** · build (`/` + `/robots-validator`
+  static). Plan → `../archive/plans/`. **Next: PR 3** (widget editor — sizes,
+  drag + keyboard reorder, `localStorage('er-home-layout')` persistence, reset)
+  → PR 3.5 aggregate widgets (KPI strip + Needs-attention, gated on
+  verifying/building B1/B2 loaders) → PR 4+ per-tool polish. Spec stays in
+  `../specs/` (active through PR 4).
 
 ## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
 
@@ -383,6 +397,30 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-07 (**A8 PR 2 — fixed-layout quick-start dashboard SHIPPED + DEPLOYED**) —
+  Wrote the PR 2 plan (`plans/2026-07-07-app-shell-pr2.md`), Codex-reviewed it (ACCEPT-WITH-FIXES
+  ×6, all applied in place: useSyncExternalStore + inFlight guard on the queue poller; report period
+  computed in a mount useEffect w/ Date.UTC; QuarterWeek startDate string|null + position-first sort;
+  robots autoRanRef StrictMode guard; two-batch upload carry-forward test; vi.unstubAllGlobals in
+  afterEach), then executed via subagent-driven-development in an isolated worktree — 14 TDD tasks +
+  3 review-fix commits (16 commits). Built: widget model `lib/widgets/` (types/grid/queue-poll shared
+  ref-counted poller/registry), `components/ui/` primitives (StatusPill/ScoreRing/DropZone — DropZone
+  made keyboard-accessible after review), `components/widgets/` framework (WidgetFrame +
+  WidgetErrorBoundary per-cell fault isolation + DashboardGrid CSS grid 4/2/1), 7 verified-source
+  widgets (Live-now, Recent-parses, Quarter-week, quick-start Site-Audit/Parser/Report/Robots — each
+  POSTs an existing route and redirects into the live flow), `?url=` param-read + Suspense-wrapped
+  auto-run on the robots-validator page; old brochure homepage deleted (`/` now static 7.91 kB
+  dashboard inside the shell). Every quick-start data contract re-verified against the real routes
+  before use (Codex fix 4/9 rationale). Per-task spec+quality review each task; final whole-branch
+  review (opus) = Ready-to-merge, 0 Critical/Important (1 Minor deep-link fix applied: RecentParses
+  live-scan rows → `/seo-parser/results/run/[id]`). Gates GREEN in the merging session: tsc clean ·
+  **3534 tests / 400 files** · `npm run build` (`/` + `/robots-validator` static, no useSearchParams
+  boundary error). PR #113 merged (main `acbf96e`) + deployed (plain `~/deploy.sh`, no migration).
+  Prod: server on `acbf96e`, `/api/health` ok, `/`→`/login` gate correct, `/login` 200 — authed
+  dashboard render is the one spot-check left for a Kevin eyeball (cookie-gated). Scope deferred as
+  designed: NO edit mode / drag / persistence (PR 3), NO KPI-strip / Needs-attention aggregates
+  (PR 3.5, gated on B1/B2 loader verification). Plan → `archive/plans/`. **Next: A8 PR 3** (widget
+  editor).
 - 2026-07-07 (**A8 PR 1 — left-sidebar app shell SHIPPED + DEPLOYED + PROD-VERIFIED**) —
   Executed the PR 1 plan via subagent-driven-development in an isolated worktree (7 TDD tasks + 1
   final-review fix commit, 8 commits). Built: tools registry `lib/tools-registry.ts` (single nav
