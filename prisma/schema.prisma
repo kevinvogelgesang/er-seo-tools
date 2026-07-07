@@ -371,6 +371,7 @@ model CrawlRun {
   completedAt     DateTime?
   archivePrunedAt DateTime?  // set when the origin row's blob was pruned
   discoveryCoverageJson String?   // C6 hybrid-discovery Increment 1: sitemap miss-rate metrics (live-scan runs only)
+  reachabilityJson String?   // roadmap 3b: internal-link reachability metrics (orphans/depth/clicks-from-home); live-scan runs only; NOT a finding
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]
