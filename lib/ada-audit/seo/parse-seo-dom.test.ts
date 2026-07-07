@@ -63,3 +63,38 @@ describe('parseSeoFromDocument', () => {
     expect(r.schemaTypes).toEqual(expect.arrayContaining(['WebPage', 'Article', 'BlogPosting']))
   })
 })
+
+describe('contentText capture (C6 Phase 5)', () => {
+  it('excludes nav/header/footer/aside from contentText but not from wordCount', () => {
+    const r = dom(`<html><body>
+      <header>Site Menu Home About Contact</header>
+      <nav>Programs Admissions Tuition</nav>
+      <main><p>Our nursing program prepares students for licensure in twelve months.</p></main>
+      <footer>Copyright 2026 All Rights Reserved Privacy Policy</footer></body></html>`)
+    expect(r.contentText).toContain('nursing program prepares students')
+    expect(r.contentText).not.toContain('Site Menu')
+    expect(r.contentText).not.toContain('Copyright')
+    expect(r.contentText).not.toContain('Programs Admissions')
+    expect(r.wordCount).toBeGreaterThan(15) // wordCount still counts ALL visible text
+  })
+
+  it('sets contentTruncated when content exceeds the 30k cap and still counts all words', () => {
+    const long = 'lorem ipsum dolor '.repeat(3000) // ~54k chars
+    const r = dom(`<html><body><main><p>${long}</p></main></body></html>`)
+    expect(r.contentTruncated).toBe(true)
+    expect((r.contentText ?? '').length).toBeLessThanOrEqual(30_000)
+    expect(r.wordCount).toBeGreaterThan(5000) // walk completed, count reflects full page
+  })
+
+  it('leaves contentText undefined when there is no main content', () => {
+    const r = dom(`<html><body><nav>Home About</nav><footer>Copyright</footer></body></html>`)
+    expect(r.contentText).toBeUndefined()
+    expect(r.contentTruncated).toBe(false)
+  })
+
+  it('injected source stays SWC-helper-free (no escaping _type_of/module refs)', () => {
+    const src = parseSeoFromDocument.toString()
+    expect(src).not.toMatch(/_type_of|_instanceof|_class_call_check|require\(/)
+    expect(src).not.toMatch(/\btypeof\b/) // typeof compiles to a module-scope helper at es2017
+  })
+})

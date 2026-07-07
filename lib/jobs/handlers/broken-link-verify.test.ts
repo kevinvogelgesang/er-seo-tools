@@ -636,3 +636,52 @@ describe('runBrokenLinkVerify — external verification (call behavior)', () => 
     expect(ext?.severity).toBe('warning')
   })
 })
+
+describe('runBrokenLinkVerify — content similarity', () => {
+  const SIM_DOMAIN = 'contentsim.test'
+  const cleanSim = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: SIM_DOMAIN } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: SIM_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: SIM_DOMAIN } })
+  }
+  beforeEach(cleanSim); afterAll(cleanSim)
+  const row = (siteAuditId: string, path: string, contentText: string) => ({
+    siteAuditId, url: `https://${SIM_DOMAIN}${path}`, statusCode: 200, isHtml: true,
+    robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+    title: 't', h1: 'h', metaDescription: 'm', wordCount: 800, schemaCount: 1, contentText, contentTruncated: false,
+  })
+  const dup = Array.from({ length: 80 }, (_, i) => `w${i}`).join(' ')
+  const other = Array.from({ length: 80 }, (_, i) => `z${i}`).join(' ')
+
+  it('writes contentSimilarityJson with an exact-duplicate group', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIM_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [row(sa.id, '/a', dup), row(sa.id, '/b', dup), row(sa.id, '/c', other)] })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIM_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
+    const data = JSON.parse(run!.contentSimilarityJson!)
+    expect(data.v).toBe(1)
+    expect(data.exactDuplicateGroups[0].urls.sort()).toEqual([`https://${SIM_DOMAIN}/a`, `https://${SIM_DOMAIN}/b`])
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBe(0)
+  })
+
+  it('leaves contentSimilarityJson null when fewer than 2 eligible pages (run still written + transient deleted)', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIM_DOMAIN, status: 'complete', pagesTotal: 1, pagesComplete: 1, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [row(sa.id, '/only', 'short text')] })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIM_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
+    expect(run).not.toBeNull()
+    expect(run!.contentSimilarityJson).toBeNull()
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBe(0)
+  })
+
+  it('skips similarity when little job time remains but still writes the run', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIM_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [row(sa.id, '/a', dup), row(sa.id, '/b', dup), row(sa.id, '/c', other)] })
+    let first = true
+    const lateDeps: VerifyDeps = { ...stubDeps, now: () => { if (first) { first = false; return 0 } return 899_000 } }
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIM_DOMAIN }, lateDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
+    expect(run).not.toBeNull()
+    expect(run!.contentSimilarityJson).toBeNull()
+  })
+})

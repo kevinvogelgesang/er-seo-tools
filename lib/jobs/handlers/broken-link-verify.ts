@@ -31,6 +31,7 @@ import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
 import { serializeBreakdown } from '@/lib/scoring/weights'
 import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/seo/discovery-coverage'
+import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import type { JobExhaustedContext } from '../types'
@@ -85,6 +86,7 @@ const JOB_TIMEOUT_MS = 900_000 // 15-min queue ceiling (single source; used at r
 // just past the 15-min ceiling -> the job was killed before the write. 180s gives
 // the two capped passes ~11-12m combined and a comfortable margin for the rest.
 const SAFETY_RESERVE_MS = 180_000
+const CONTENT_SIM_RESERVE_MS = 30_000 // skip similarity if less than this remains before the job ceiling
 const EXTERNAL_MAX_CHECKS = () => parseNonNegativeInt(process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS, 300)
 const EXTERNAL_TIMEOUT = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIMEOUT_MS, 8_000)
 const EXTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, 300_000)
@@ -175,7 +177,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     select: {
       url: true, statusCode: true, isHtml: true, robotsNoindex: true, xRobotsNoindex: true,
       loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true, schemaCount: true,
-      canonicalUrl: true, detailsJson: true,
+      canonicalUrl: true, detailsJson: true, contentText: true, contentTruncated: true,
     },
   })
 
@@ -451,6 +453,22 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
     sitemapCapped,
   })
 
+  // C6 Phase 5: content similarity. Best-effort + time-budget-guarded — a similarity
+  // failure or overrun must NEVER fail the live-scan write (mirrors the graph fail-to-null).
+  let contentSimilarityJson: string | null = null
+  const simRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
+  if (simRemaining >= CONTENT_SIM_RESERVE_MS) {
+    try {
+      const simInputs: SimilarityPageInput[] = seoRows
+        .filter((r) => indexableOf(r) && !r.loginLike)
+        .map((r) => ({ url: r.url, contentText: r.contentText, contentTruncated: r.contentTruncated }))
+      const sim = computeContentSimilarity(simInputs)
+      if (sim) contentSimilarityJson = JSON.stringify({ v: 1, ...sim })
+    } catch (e) {
+      console.error('[live-seo] content similarity failed', e)
+    }
+  }
+
   const bundle: FindingsBundle = {
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
@@ -461,6 +479,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
       seoIntent: site.seoIntent,
       discoveryCoverageJson: JSON.stringify(coverage),
       reachabilityJson: graph ? JSON.stringify({ v: 1, ...graph.summary }) : null,
+      contentSimilarityJson,
     },
     pages, findings, violations: [],
   }

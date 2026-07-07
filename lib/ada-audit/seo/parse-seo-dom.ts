@@ -21,6 +21,8 @@ export interface RawPageSeo {
   imagesMissingAlt: number
   imagesMissingDimensions: number
   loginLike: boolean
+  contentText?: string
+  contentTruncated: boolean
 }
 
 export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
@@ -48,13 +50,39 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
     }
     return false
   }
+  // C6 Phase 5: also accumulate bounded main-content text (excludes nav/header/
+  // footer/aside so cross-page boilerplate doesn't inflate similarity). Layer-1
+  // boilerplate strip; the builder does layer-2 (cross-page DF filtering).
+  const inBoilerplateRegion = (el: Element | null): boolean => {
+    for (let e: Element | null = el; e; e = e.parentElement) {
+      const tag = e.tagName
+      if (tag === 'NAV' || tag === 'HEADER' || tag === 'FOOTER' || tag === 'ASIDE') return true
+      const role = e.getAttribute && e.getAttribute('role')
+      if (role === 'navigation' || role === 'banner' || role === 'contentinfo') return true
+    }
+    return false
+  }
+  const CONTENT_CAP = 30000
+  let content = ''
+  let contentTruncated = false
   const walker = doc.createTreeWalker(doc.body || doc.documentElement, (win as unknown as { NodeFilter: typeof NodeFilter }).NodeFilter.SHOW_TEXT)
   let words = 0
   let n: Node | null
   while ((n = walker.nextNode())) {
     if (hiddenAncestor(n.parentElement)) continue
     const t = (n.textContent || '').trim()
-    if (t) words += t.split(/\s+/).filter(Boolean).length
+    if (!t) continue
+    words += t.split(/\s+/).filter(Boolean).length
+    // do NOT break/continue on cap — keep walking so wordCount stays whole
+    if (!contentTruncated && !inBoilerplateRegion(n.parentElement)) {
+      const piece = content ? ' ' + t : t
+      if (content.length + piece.length > CONTENT_CAP) {
+        content += piece.slice(0, CONTENT_CAP - content.length)
+        contentTruncated = true
+      } else {
+        content += piece
+      }
+    }
   }
 
   // schema @type set — JSON-LD only, with @graph recursion.
@@ -100,5 +128,6 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
     title, metaDescription, robotsNoindex, canonicalUrl, h1, h1Count, h2Count,
     wordCount: words, schemaTypes: boundedSchema, hreflang,
     imageCount: imgs.length, imagesMissingAlt, imagesMissingDimensions, loginLike,
+    contentText: content || undefined, contentTruncated,
   }
 }
