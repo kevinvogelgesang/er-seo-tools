@@ -71,24 +71,44 @@ Nav groups (Kevin-approved):
 
 ### 3.2 App shell
 
+- **Route-group split (Codex fix 1):** the shell must NOT wrap public
+  routes. Restructure `app/` into route groups: `(app)/` gets the sidebar
+  shell layout; `(public)/` (login, about, privacy, `share/*`,
+  `/ada-audit/share/*`, `/ada-audit/site/share/*` — everything in
+  `middleware.ts` `PUBLIC_PATH_PREFIXES`) keeps a minimal chrome-less
+  layout. Root `app/layout.tsx` keeps only html/body/theme providers. The
+  route-group membership must be asserted against `isPublicPath` in a test
+  so the two can't drift.
+- **Footer (Codex fix 2):** the global `Footer` moves to the `(public)`
+  layout only; the app shell has no footer (the sidebar foot carries
+  settings/collapse/version).
 - `SidebarNav` (client component): groups from the registry; active item =
   orange left notch + subtle orange-tinted background (mockup A treatment);
   sub-links render as a nested list under the active tool (desktop expanded
   mode only).
-- **Collapse:** button at the sidebar foot toggles a 248px ↔ 68px icon rail;
-  state in `localStorage('er-sidebar')`, applied pre-hydration by the
-  existing anti-FOUC script pattern to avoid layout flash. Collapsed items
-  get `title` tooltips.
+- **Collapse:** button at the sidebar foot toggles a 248px ↔ 68px icon rail.
+  **Anti-FOUC composition (Codex fix 3):** the existing prepaint script only
+  sets `.dark` from `er-theme`; extend it into one combined pre-hydration
+  script that also reads `localStorage('er-sidebar')`, validates the value
+  (`'collapsed'` only; anything else → expanded), and stamps
+  `data-sidebar="collapsed"` on `<html>`; the client component reads that
+  attribute as its initial state so server/client markup agree (no
+  hydration mismatch). Collapsed items get `title` tooltips.
 - **Topbar:** page title (from route segment), quick-actions button (⌘K
   placeholder, wired later), "+ New scan" primary CTA, theme toggle,
-  avatar. `ThemeToggle` moves here from the old nav.
+  avatar. `ThemeToggle` moves here from the old nav. **Logout (Codex fix
+  6):** the old nav's logout affordance is preserved — avatar menu with
+  Logout, calling the existing logout route.
 - **Mobile (<md):** sidebar becomes an off-canvas drawer (hamburger in a
   slim top bar), same registry data; body scroll locked while open;
   the drawer is the *same component* with a `variant` prop, not a fork.
 - **Dark mode:** sidebar is navy in both themes (it already is the dark
   surface); canvas/cards follow the existing `dark:` token mapping.
 - The old horizontal nav + dropdown code is deleted in the same PR that
-  mounts the shell (no dual-nav period).
+  mounts the shell (no dual-nav period). **Sticky-offset audit (Codex fix
+  7):** PR 1 includes a repo-wide scan for offsets keyed to the old nav
+  height (`top-[60px]`, `top-[80px]`, sticky headers, `pt-*` on page
+  roots) and fixes each against the new shell.
 
 ### 3.3 Widget system (homepage)
 
@@ -113,26 +133,32 @@ data at larger sizes (the component receives `size` and decides: e.g.
 "Needs attention" sm = top 3 clients, lg = 8 with score deltas; "Live now"
 sm = count + one bar, wide/lg = full progress list).
 
-**v1 widget set** (all backed by existing APIs — no new domain endpoints):
+**v1 widget set — verified data sources only (Codex fixes 4 + 9).** PR 2 is
+deployable, so it ships ONLY widgets whose data source exists today and is
+named exactly; aggregate widgets whose loaders don't exist yet are deferred
+to PR 3.5 behind a loader-verification task:
 
-| Widget | Sizes | Data source |
-|---|---|---|
-| KPI strip (active scans, avg ADA, avg SEO, open criticals) | wide, xl | client-fleet/dashboard aggregates |
-| Quick start: Site Audit (domain + WCAG → Start) | sm, wide | POST `/api/site-audit` → redirect to queue |
-| Quick start: SEO Parser (CSV dropzone) | sm, wide | existing upload endpoint → redirect to session |
-| Quick start: Performance Report (client + period) | sm, wide | POST report → redirect to `/reports` status |
-| Quick start: Robots Validator (URL) | sm | redirect to `/robots-validator?url=…` prefilled |
-| Live now (running/queued scans + progress) | sm, wide, lg | `/api/site-audit/queue` (5s poll, existing cadence) |
-| Recent results (score ring + delta) | sm, lg | recents/timeline endpoints |
-| Needs attention (worst movers) | sm, lg | B2 findings/action-center data |
-| Quarter Grid this week | sm, wide | quarter-plan API |
+| Widget | Sizes | Data source | PR |
+|---|---|---|---|
+| Quick start: Site Audit (domain + WCAG → Start) | sm, wide | POST `/api/site-audit` → `{id}` | 2 |
+| Quick start: SEO Parser (CSV dropzone) | sm, wide | existing `/api/upload` session-create flow | 2 |
+| Quick start: Performance Report (client + period) | sm, wide | POST `/api/reports` (all required fields incl. `comparisonMode` supplied by the widget) | 2 |
+| Quick start: Robots Validator (URL) | sm | redirect to `/robots-validator?url=…` — **prefill/auto-run is NEW behavior** on that page (small param-read addition), not reuse | 2 |
+| Live now (running/queued scans + progress) | sm, wide, lg | `/api/site-audit/queue` (5s poll, existing cadence) | 2 |
+| Recent parses | sm, lg | `/api/parse/history` | 2 |
+| Quarter Grid this week | sm, wide | `/api/quarter-plan` | 2 |
+| KPI strip (active scans, avg ADA, avg SEO, open criticals) | wide, xl | server-component loader reusing the B1 client-fleet services — loader must be verified/built first | 3.5 |
+| Needs attention (worst movers) | sm, lg | B2 findings/action-center services — same verification gate | 3.5 |
 
 **Edit mode.** A "Customize" button toggles edit mode: widgets get a size
 stepper (cycles supported sizes) and become draggable (native HTML5 DnD,
 same pattern as Quarter Grid chips); drop reorders the layout array; grid
-auto-flows. "Reset layout" restores the default. No free-form x/y
-placement — **order + size only**, grid auto-flow does the packing (this is
-what keeps mobile sane and the editor simple).
+auto-flows. **Keyboard fallback (Codex fix 8):** edit mode also renders
+move-up/move-down buttons on each widget so reordering never requires a
+pointer (native DnD alone would regress keyboard accessibility). "Reset
+layout" restores the default. No free-form x/y placement — **order + size
+only**, grid auto-flow does the packing (this is what keeps mobile sane
+and the editor simple).
 
 **Persistence.** `localStorage('er-home-layout')`:
 `{ version: 1, items: [{ id, size }] }` in display order. Per-browser is
@@ -151,16 +177,23 @@ browser — acceptable for v1, noted limitation.
 The defining interaction: starting work from Home lands you *inside* the
 running flow, never on a confirmation page.
 
-- **Site audit:** POST the existing create endpoint; on 200 redirect to the
-  audit's queue/progress view (existing `SiteAuditPoller` surface). Errors
-  render inline in the widget (reuse route error envelope).
-- **SF parse:** hand the dropped files to the existing upload path, redirect
-  to the session page which already shows parse state.
-- **Report:** POST, redirect to `/reports` with the new report highlighted
-  (its existing polling status row).
-- **Robots:** client-side redirect with the URL prefilled + auto-run.
+Exact targets (Codex fix 5 — verified against `app/`):
 
-No new backend behavior; the widgets are thin clients of existing routes.
+- **Site audit:** POST `/api/site-audit` → `{ id }` → redirect to
+  `/ada-audit/site/[id]` (the existing `SiteAuditPoller` progress/queue
+  surface). Errors render inline in the widget (route error envelope).
+- **SF parse:** hand the dropped files to the existing `/api/upload`
+  session flow → redirect to `/seo-parser/results/[sessionId]`, which
+  already shows parse state.
+- **Report:** POST `/api/reports` with the full required body (client,
+  period, `comparisonMode` — widget supplies sane defaults) → redirect to
+  `/reports` with the new report highlighted (existing polling status row).
+- **Robots:** client-side redirect to `/robots-validator?url=…`; the
+  validator page gains a small param-read + auto-run on mount — the one
+  piece of NEW page behavior in this section, scoped to that page.
+
+Otherwise no new backend behavior; the widgets are thin clients of
+existing routes.
 
 ## 5. Shared primitives (absorbs A6)
 
@@ -193,17 +226,23 @@ the first time the redesign needs it, not speculatively.
 
 ## 8. Phasing (independent PRs, each gate-green + deployable)
 
-1. **PR 1 — Registry + app shell:** tools registry, sidebar (collapse,
-   groups, mobile drawer), topbar, old nav deleted. Homepage untouched.
-2. **PR 2 — Dashboard v1 (fixed layout):** widget registry + grid + the v1
-   widget set at default sizes; old homepage content deleted. No edit mode.
-3. **PR 3 — Widget editor:** sizes, drag-to-reorder, persistence, reset.
-4. **PR 4+ — Per-tool polish passes:** one PR per tool section (seo-parser,
+1. **PR 1 — Registry + app shell:** route-group split (`(app)`/`(public)`),
+   tools registry, sidebar (collapse, groups, mobile drawer), topbar with
+   logout, footer moved to public layout, old nav deleted, sticky-offset
+   audit. Homepage untouched (renders inside the shell).
+2. **PR 2 — Dashboard v1 (fixed layout):** widget registry + grid + the
+   verified-source widget set at default sizes; old homepage content
+   deleted. No edit mode, no aggregate widgets.
+3. **PR 3 — Widget editor:** sizes, drag-to-reorder + keyboard reorder,
+   persistence, reset.
+4. **PR 3.5 — Aggregate widgets:** KPI strip + Needs attention, each gated
+   on verifying/building its server-side loader from the B1/B2 services.
+5. **PR 4+ — Per-tool polish passes:** one PR per tool section (seo-parser,
    ada-audit, clients, reports, …) adopting `components/ui/` primitives and
    the deck visual language. Each independently shippable; adjust
    per-section as Kevin reviews (his stated preference).
 
-Phases 1–3 ≈ the tracked 1.5–2 wks; Phase 4 is open-ended by design.
+Phases 1–3.5 ≈ the tracked 1.5–2 wks; Phase 4 is open-ended by design.
 
 ## 9. Risks / notes
 
