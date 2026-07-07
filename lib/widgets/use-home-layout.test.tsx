@@ -1,9 +1,10 @@
 // lib/widgets/use-home-layout.test.tsx
 // @vitest-environment jsdom
+import { StrictMode } from 'react'
 import { renderHook, act, waitFor, cleanup } from '@testing-library/react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { useHomeLayout } from './use-home-layout'
-import { LAYOUT_STORAGE_KEY, LAYOUT_VERSION, normalizeLayout } from './layout'
+import { LAYOUT_STORAGE_KEY, LAYOUT_VERSION, normalizeLayout, serializeLayout } from './layout'
 import { WIDGETS, DEFAULT_LAYOUT } from './registry'
 import type { LayoutItem } from './types'
 
@@ -189,17 +190,68 @@ describe('useHomeLayout', () => {
     const seeded = JSON.stringify({ version: LAYOUT_VERSION, items: custom })
     lsStore.set(LAYOUT_STORAGE_KEY, seeded)
 
+    // Spy on setItem (still writing through to the in-memory store, so
+    // hydration itself is unaffected) to capture the FULL call history.
+    // A single final read (the old assertion) can't distinguish "never
+    // wrote the default" from "wrote the default transiently, then a
+    // microtask-deferred correction landed before we looked" — a real
+    // pre-hydration-overwrite bug can slip a default write in between
+    // Effect 1's setHydrated(true) and its dispatch landing, and that
+    // transient write would still pass a final-state-only check.
+    const setItemSpy = vi.spyOn(localStorageMock, 'setItem')
+
     const { result } = renderHook(() => useHomeLayout())
 
     await waitFor(() => expect(result.current.hydrated).toBe(true))
 
-    // After mount + hydration, the persisted value must still reflect the
-    // seeded custom layout (normalized), never the raw DEFAULT_LAYOUT that
-    // the reducer's initial state rendered with before the read effect ran.
+    const serializedDefault = serializeLayout(normalizeLayout(DEFAULT_LAYOUT, WIDGETS))
+    const serializedCustom = serializeLayout(normalizeLayout(custom, WIDGETS))
+
+    const writtenValues = setItemSpy.mock.calls
+      .filter(([key]) => key === LAYOUT_STORAGE_KEY)
+      .map(([, value]) => value)
+
+    // The default's serialized form must NEVER appear in the write
+    // history — not even transiently — while a seeded custom layout is
+    // the intended state.
+    expect(writtenValues).not.toContain(serializedDefault)
+    // Every write that did happen must be the idempotent rewrite of the
+    // seeded/current custom layout.
+    for (const value of writtenValues) {
+      expect(value).toBe(serializedCustom)
+    }
+
+    // Keep the final-state assertion too, for a direct end-state check.
     const storedAfter = lsStore.get(LAYOUT_STORAGE_KEY)
     expect(storedAfter).toBeTruthy()
     const parsedAfter = JSON.parse(storedAfter as string)
     expect(parsedAfter.items).toEqual(normalizeLayout(custom, WIDGETS))
     expect(parsedAfter.items).not.toEqual(normalizeLayout(DEFAULT_LAYOUT, WIDGETS))
+  })
+
+  it('hydrates to the seeded custom layout under React StrictMode (double-invoked effects)', async () => {
+    const custom: LayoutItem[] = [
+      { id: 'quick-robots', size: 'sm' },
+      { id: 'live-now', size: 'wide' },
+      { id: 'quick-site-audit', size: 'wide' },
+      { id: 'quick-parser', size: 'wide' },
+      { id: 'quick-report', size: 'wide' },
+      { id: 'quarter-week', size: 'wide' },
+      { id: 'recent-parses', size: 'sm' },
+    ]
+    lsStore.set(LAYOUT_STORAGE_KEY, JSON.stringify({ version: LAYOUT_VERSION, items: custom }))
+
+    const { result } = renderHook(() => useHomeLayout(), {
+      wrapper: ({ children }) => <StrictMode>{children}</StrictMode>,
+    })
+
+    await waitFor(() => expect(result.current.hydrated).toBe(true))
+
+    expect(result.current.layout).toEqual(normalizeLayout(custom, WIDGETS))
+
+    const storedAfter = lsStore.get(LAYOUT_STORAGE_KEY)
+    expect(storedAfter).toBeTruthy()
+    const parsedAfter = JSON.parse(storedAfter as string)
+    expect(parsedAfter.items).toEqual(normalizeLayout(custom, WIDGETS))
   })
 })
