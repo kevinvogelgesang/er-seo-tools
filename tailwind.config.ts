@@ -6,6 +6,10 @@ const config: Config = {
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './app/**/*.{js,ts,jsx,tsx,mdx}',
+    // lib/ emits Tailwind classes too (e.g. spanClass() in lib/widgets/grid.ts).
+    // Without this glob those classes are purged — the widget grid sizes
+    // silently render as 1-column (latent since A8 PR 2; fixed 2026-07-07).
+    './lib/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     extend: {
