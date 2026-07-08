@@ -657,8 +657,15 @@ Interleave as needed (not blockers):
 - [ ] D4. Client-attached robots/sitemap checks + history (2–3 days)
 - [ ] D5. Scheduled robots/sitemap monitoring with change-only alerts (3–4 days) — needs A1.
 - [ ] D6. RankMath redirect generator + dry-run + post-deploy verifier (1–1.5 wks) — or explicitly freeze as a doc; decide, don't drift.
-- [ ] **D7. Scan-completion email notifications — SHELVED 2026-07-08, design
-  parked in `../nyi/specs/2026-07-08-scan-email-notifications-design.md`.**
+- [~] **D7. Scan-completion email notifications — UNSHELVED 2026-07-08 PM
+  (build starting in a parallel session); design in
+  `../nyi/specs/2026-07-08-scan-email-notifications-design.md` (the build
+  session git-mv's it to active `specs/`).** Transport UNBLOCKED: Kevin staged
+  `MAILGUN_API_KEY` (domain-scoped sending key) + `MAILGUN_DOMAIN` in the
+  server `.env` 2026-07-08 and applied `chmod 600` to `.env` (closing the
+  world-readable gap found the same day). Residual pre-build check: confirm
+  the Mailgun sending domain shows VERIFIED (a 2026-07-08 dig found no Mailgun
+  DNS on the obvious subdomains — the build session's step 0).
   History: added 2026-07-07 (Slack v1) → reprioritized 2026-07-08 AM (per-user
   email v1 via Gmail API + domain-wide delegation, Slack dropped) → full design
   brainstormed + Kevin-approved 2026-07-08 → **SHELVED same day: the Workspace
@@ -688,6 +695,17 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-08 (**D7 UNSHELVED — transport staged, build handed to a parallel session**) — Kevin
+  obtained the Mailgun domain-scoped sending key, added `MAILGUN_API_KEY` + `MAILGUN_DOMAIN` to
+  the server `.env` himself, and ran `chmod 600` on `.env` (fixing the world-readable-`.env`
+  finding from this session's secrets review: `other::r--` + a RunCloud ACL that only blocked
+  `users-rc`; SA JSON was already 0600). No restart needed — nothing deployed reads the vars yet
+  (dark-by-default). D7 flipped `[ ]`→`[~]`; a D7 build prompt was handed to Kevin for a parallel
+  Opus session: step 0 = verify the Mailgun sending domain is DNS-verified (2026-07-08 dig found
+  no Mailgun records on mg./mail./mailgun./email. subdomains — domain name lives in the server
+  `.env`), then git-mv the design doc to active `specs/` → first-ever Codex review → plan →
+  build → ship per ritual. **Parallel open thread: the A8 decision (another per-tool polish pass
+  vs. mark A8 done) — still Kevin's call, unclaimed by any session.**
 - 2026-07-08 (**D7 provider decided: MAILGUN**) — Kevin picked the email transport for the
   shelved D7 scan-completion notifications: **Mailgun** (an initial "Mailjet" slip was corrected
   in-session minutes later — Mailgun is authoritative). Sender stays kevin@enrollmentresources.com
