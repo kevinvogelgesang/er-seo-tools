@@ -52,5 +52,7 @@ describe('LiveNowWidget', () => {
     render(<LiveNowWidget size="lg" />)
     // one for the active audit, one for the seoOnly queued domain
     expect(screen.getAllByText('SEO').length).toBe(2)
+    // C11 PR 3: seoOnly active audit routes to /seo-audits, not the ADA site page.
+    expect(screen.getByRole('link', { name: /active-seo\.com/i }).getAttribute('href')).toBe('/seo-audits')
   })
 })

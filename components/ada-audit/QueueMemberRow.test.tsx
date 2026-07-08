@@ -46,4 +46,9 @@ describe('QueueMemberRow (C11 PR 2a IntentChip)', () => {
     renderRow(makeMember({ seoOnly: true }))
     expect(screen.getAllByText('SEO').length).toBe(1)
   })
+
+  it('C11 PR 3: a seoOnly member links to /seo-audits, not the ADA site page', () => {
+    renderRow(makeMember({ seoOnly: true, domain: 'example.com' }))
+    expect(screen.getByRole('link', { name: /example\.com/i }).getAttribute('href')).toBe('/seo-audits')
+  })
 })

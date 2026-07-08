@@ -57,5 +57,7 @@ describe('DashboardQueueStatus (C11 PR 2a IntentChip)', () => {
     }
     render(<DashboardQueueStatus queueStatus={queueStatus} />)
     expect(screen.getAllByText('SEO').length).toBe(1)
+    // C11 PR 3: seoOnly active audit routes to /seo-audits, not the ADA site page.
+    expect(screen.getByRole('link', { name: /Current Scan/i }).getAttribute('href')).toBe('/seo-audits')
   })
 })
