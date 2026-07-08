@@ -12,6 +12,8 @@ import { DiscoveryCoverageSection } from '@/components/site-audit/DiscoveryCover
 import { ReachabilitySection } from '@/components/site-audit/ReachabilitySection'
 import { ContentSimilaritySection } from '@/components/site-audit/ContentSimilaritySection'
 import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
+import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
+import { classifySeoPhase, getLatestSeoVerifyJob } from '@/lib/ada-audit/seo-phase'
 import SiteAuditExportBar from '@/components/ada-audit/SiteAuditExportBar'
 import { reportFileExists } from '@/lib/report/report-file'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
@@ -173,6 +175,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
   const liveScanRun = await prisma.crawlRun.findUnique({
     where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'seo-parser' } },
     select: {
+      id: true,
       status: true,
       score: true,
       scoreBreakdown: true,
@@ -188,6 +191,13 @@ export default async function SiteAuditResultPage({ params }: Props) {
   const observedPages = liveScanRun?.pages.filter((p) => p.statusCode != null).length ?? 0
   const indexablePages = liveScanRun?.pages.filter((p) => p.indexable === true).length ?? 0
   const onPageAnalyzed = observedPages > 0
+
+  // C11 PR 2b: when the live-scan run hasn't landed yet, resolve why (still
+  // running/queued/failed/unavailable) so the SEO sections can be replaced by
+  // a single status banner instead of six silent "not verified" blocks.
+  const seoPhase = liveScanRun
+    ? ({ state: 'done', progress: null, message: null } as const)
+    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
 
   // Report button starts 'ready' only when the stamp AND the file agree
   // (Codex fix: never trust the column alone — retention may have deleted the PDF).
@@ -224,20 +234,26 @@ export default async function SiteAuditResultPage({ params }: Props) {
         initialReportGeneratedAt={initialReportGeneratedAt}
       />
       {instanceDiff && <SiteAuditDiffPanel diff={instanceDiff.diff} previous={instanceDiff.previous} />}
-      <BrokenLinksSection run={liveScanRun} />
-      <OnPageSeoSection
-        run={liveScanRun}
-        analyzed={onPageAnalyzed}
-        score={liveScanRun?.score ?? null}
-        observed={observedPages}
-        indexable={indexablePages}
-        attempted={audit.pagesTotal}
-        breakdown={liveScanRun?.scoreBreakdown ?? null}
-      />
-      <TechnicalSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
-      <DiscoveryCoverageSection run={liveScanRun} />
-      <ReachabilitySection run={liveScanRun} />
-      <ContentSimilaritySection run={liveScanRun} />
+      {liveScanRun ? (
+        <>
+          <BrokenLinksSection run={liveScanRun} />
+          <OnPageSeoSection
+            run={liveScanRun}
+            analyzed={onPageAnalyzed}
+            score={liveScanRun?.score ?? null}
+            observed={observedPages}
+            indexable={indexablePages}
+            attempted={audit.pagesTotal}
+            breakdown={liveScanRun?.scoreBreakdown ?? null}
+          />
+          <TechnicalSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
+          <DiscoveryCoverageSection run={liveScanRun} />
+          <ReachabilitySection run={liveScanRun} />
+          <ContentSimilaritySection run={liveScanRun} />
+        </>
+      ) : (
+        <SeoPhaseBanner phase={seoPhase} />
+      )}
       <SiteAuditResultsView
         domain={audit.domain}
         clientName={audit.client?.name ?? null}
