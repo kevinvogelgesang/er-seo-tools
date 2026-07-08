@@ -2,26 +2,11 @@
 
 import Link from 'next/link'
 import type { LiveAuditChild } from '@/lib/ada-audit/types'
+import { StatusPill } from '@/components/ui/StatusPill'
+import { auditStatusTone } from './status-tone'
 
 interface Props {
   rows: LiveAuditChild[]
-}
-
-function StatusPill({ status }: { status: LiveAuditChild['status'] }) {
-  const styles: Record<LiveAuditChild['status'], string> = {
-    complete:   'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400',
-    error:      'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400',
-    running:    'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400',
-    pending:    'bg-gray-100 dark:bg-navy-light text-navy/60 dark:text-white/60',
-    redirected: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400',
-  }
-  return (
-    <span
-      className={`text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${styles[status]}`}
-    >
-      {status}
-    </span>
-  )
 }
 
 function ImpactCounts({ child }: { child: LiveAuditChild }) {
@@ -90,7 +75,7 @@ export default function LiveAuditTable({ rows }: Props) {
                     </div>
                   )}
                 </td>
-                <td className="px-6 py-2.5"><StatusPill status={c.status} /></td>
+                <td className="px-6 py-2.5"><StatusPill label={c.status} tone={auditStatusTone(c.status)} /></td>
                 <td className="px-6 py-2.5"><ImpactCounts child={c} /></td>
               </tr>
             )
