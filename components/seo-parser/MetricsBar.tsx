@@ -23,7 +23,7 @@ export function MetricsBar({ totalUrls, criticalCount, warningsCount, noticesCou
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       <Tile label="Total URLs">
-        <span className="font-bold text-2xl text-[#1c2d4a] dark:text-white">{totalUrls.toLocaleString()}</span>
+        <span className="font-bold text-2xl text-navy dark:text-white">{totalUrls.toLocaleString()}</span>
       </Tile>
 
       <Tile label="Critical">
