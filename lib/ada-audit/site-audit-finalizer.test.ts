@@ -14,10 +14,23 @@ vi.mock('@/lib/ada-audit/queue-manager', () => ({
 vi.mock('@/lib/ada-audit/carry-forward-checks', () => ({
   carryForwardSiteAuditChecks: vi.fn(async () => undefined),
 }))
+// C11: mock the ADA dual-write and the live-scan enqueue so seoOnly assertions
+// are call/no-call spies (both are void fire-and-forget in the finalizer, so
+// DB-presence assertions would be timing-flaky). No existing test asserts on
+// either, so mocking them out is behavior-neutral here.
+vi.mock('@/lib/findings/writer', () => ({
+  writeFindingsRun: vi.fn(async () => undefined),
+}))
+vi.mock('@/lib/jobs/handlers/broken-link-verify', () => ({
+  enqueueBrokenLinkVerify: vi.fn(async () => undefined),
+}))
 
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('./site-audit-finalizer')
 const { processNext } = await import('@/lib/ada-audit/queue-manager')
+const { carryForwardSiteAuditChecks } = await import('@/lib/ada-audit/carry-forward-checks')
+const { writeFindingsRun } = await import('@/lib/findings/writer')
+const { enqueueBrokenLinkVerify } = await import('@/lib/jobs/handlers/broken-link-verify')
 
 async function clearTestState() {
   await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: 'finalize-test-' } } })
@@ -28,6 +41,7 @@ async function clearTestState() {
 async function makeAudit(overrides: Partial<{
   status: string
   discoveredUrls: string | null
+  seoOnly: boolean
   pagesTotal: number; pagesComplete: number; pagesError: number
   pdfsTotal: number; pdfsComplete: number; pdfsError: number; pdfsSkipped: number
   lighthouseTotal: number; lighthouseComplete: number; lighthouseError: number
@@ -36,6 +50,7 @@ async function makeAudit(overrides: Partial<{
     data: {
       domain: `finalize-test-${Math.random().toString(36).slice(2, 8)}.example`,
       status: overrides.status ?? 'running',
+      seoOnly: overrides.seoOnly ?? false,
       // Discovery-done marker: a running audit with null discoveredUrls is
       // owned by the discover handler and the finalizer must not touch it.
       // Default to '[]' so the drain-predicate tests exercise what they mean.
@@ -189,5 +204,70 @@ describe('finalizeSiteAudit — phase 3 guards', () => {
     const audit = await makeAudit({ discoveredUrls: '[]', pagesTotal: 0 })
     await finalizeSiteAudit(audit.id)
     expect((await prisma.siteAudit.findUnique({ where: { id: audit.id } }))?.status).toBe('complete')
+  })
+})
+
+describe('finalizeSiteAudit — C11 seoOnly guard', () => {
+  beforeEach(async () => {
+    vi.mocked(processNext).mockClear()
+    vi.mocked(carryForwardSiteAuditChecks).mockClear()
+    vi.mocked(writeFindingsRun).mockClear()
+    vi.mocked(enqueueBrokenLinkVerify).mockClear()
+    await clearTestState()
+  })
+
+  it('C11: seoOnly completion writes null summary, no ada-audit run, still enqueues verify', async () => {
+    // Arrange: a seoOnly parent whose pages are all settled complete (Task 3
+    // leaves pdfsTotal=0, lighthouseTotal=0 for seoOnly), so the drain
+    // predicate passes.
+    const parent = await makeAudit({
+      seoOnly: true,
+      pagesTotal: 2, pagesComplete: 2,
+    })
+
+    await finalizeSiteAudit(parent.id)
+
+    // Row is complete with a NULL summary (no ADA summary built).
+    const audit = await prisma.siteAudit.findUnique({
+      where: { id: parent.id },
+      select: { status: true, summary: true },
+    })
+    expect(audit).toEqual({ status: 'complete', summary: null })
+
+    // No ADA dual-write (mapAdaChildren/writeFindingsRun) and no carry-forward.
+    expect(writeFindingsRun).not.toHaveBeenCalled()
+    expect(carryForwardSiteAuditChecks).not.toHaveBeenCalled()
+    // Belt-and-suspenders: no ada-audit CrawlRun exists for this audit.
+    const adaRun = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: parent.id, tool: 'ada-audit' } },
+      select: { id: true },
+    })
+    expect(adaRun).toBeNull()
+
+    // The live-scan builder is still enqueued — the only output for seoOnly.
+    expect(enqueueBrokenLinkVerify).toHaveBeenCalledWith(parent.id, parent.domain)
+    // And the queue is still kicked.
+    expect(processNext).toHaveBeenCalled()
+  })
+
+  it('C11: a full (non-seoOnly) audit still builds a summary, dual-writes, carries forward, and enqueues verify', async () => {
+    const parent = await makeAudit({
+      seoOnly: false,
+      pagesTotal: 2, pagesComplete: 2,
+      pdfsTotal: 1, pdfsComplete: 1,
+      lighthouseTotal: 2, lighthouseComplete: 2,
+    })
+
+    await finalizeSiteAudit(parent.id)
+
+    const audit = await prisma.siteAudit.findUnique({
+      where: { id: parent.id },
+      select: { status: true, summary: true },
+    })
+    expect(audit?.status).toBe('complete')
+    expect(audit?.summary).not.toBeNull()
+    expect(writeFindingsRun).toHaveBeenCalled()
+    expect(carryForwardSiteAuditChecks).toHaveBeenCalledWith(parent.id)
+    expect(enqueueBrokenLinkVerify).toHaveBeenCalledWith(parent.id, parent.domain)
   })
 })

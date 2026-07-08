@@ -15,6 +15,7 @@
 // kick happens here via dynamic import.
 
 import { prisma } from '@/lib/db'
+import type { Prisma } from '@prisma/client'
 import { buildSiteAuditSummary } from './site-audit-helpers'
 import { closeBatchIfDrained } from './audit-batch-helpers'
 import { carryForwardSiteAuditChecks } from './carry-forward-checks'
@@ -29,7 +30,7 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
   const audit = await prisma.siteAudit.findUnique({
     where: { id },
     select: {
-      status: true, batchId: true, discoveredUrls: true,
+      status: true, batchId: true, discoveredUrls: true, seoOnly: true,
       domain: true, clientId: true, wcagLevel: true, startedAt: true,
       pagesTotal: true, pagesComplete: true, pagesError: true, pagesRedirected: true,
       pdfsTotal: true, pdfsComplete: true, pdfsError: true, pdfsSkipped: true,
@@ -67,26 +68,40 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     return
   }
 
-  // All drained — NOW load the children for the summary build.
+  // All drained — NOW build the completion. A full audit loads its children
+  // and writes an ADA summary; a seoOnly audit (C11) has no axe results, so it
+  // writes a bare `complete` with a null summary and never loads children (the
+  // children exist only for the ADA summary + dual-write, both skipped below).
   // Deterministic order (A2): the findings mapper's keep-first URL dedupe
   // must keep the same child here as in writeAdaSiteFindings/compareAdaParity.
   // Harmless to the summary build (it re-sorts pages itself).
-  const pageAudits = await prisma.adaAudit.findMany({
-    where: { siteAuditId: id },
-    include: { pdfAudits: true },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-  })
-  const summary = buildSiteAuditSummary(pageAudits)
   const completedAt = new Date()
-  await prisma.siteAudit.update({
-    where: { id },
-    data: {
-      status: 'complete',
-      summary: JSON.stringify(summary),
-      completedAt,
-    },
-  })
+  let pageAudits: Prisma.AdaAuditGetPayload<{ include: { pdfAudits: true } }>[] | null = null
+  if (audit.seoOnly) {
+    await prisma.siteAudit.update({
+      where: { id },
+      data: { status: 'complete', summary: null, completedAt },
+    })
+  } else {
+    pageAudits = await prisma.adaAudit.findMany({
+      where: { siteAuditId: id },
+      include: { pdfAudits: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+    const summary = buildSiteAuditSummary(pageAudits)
+    await prisma.siteAudit.update({
+      where: { id },
+      data: {
+        status: 'complete',
+        summary: JSON.stringify(summary),
+        completedAt,
+      },
+    })
+  }
 
+  // Order below is IDENTICAL to the full-audit path today: closeBatch →
+  // processNext → (ADA-only) carryForward → ADA dual-write →
+  // enqueueBrokenLinkVerify (LAST, both modes).
   await closeBatchIfDrained(audit.batchId).catch((e) => {
     console.warn('[site-audit-finalizer] closeBatchIfDrained failed for batch', audit.batchId, ':', (e as Error).message)
   })
@@ -99,34 +114,38 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     console.warn('[site-audit-finalizer] processNext kick failed:', (e as Error).message)
   }
 
-  // Carry triage checks forward from the previous completed same-domain
-  // audit (C2). Fire-and-forget; invoked before the findings hook so the
-  // findings hook stays LAST. Disjoint tables — overlap is harmless.
-  void carryForwardSiteAuditChecks(id).catch((e) => {
-    console.error('[checks] carry-forward failed for site audit', id, e)
-  })
-
-  // Dual-write the normalized findings run (A2 Phase 2). Fire-and-forget and
-  // best-effort: must never delay or fail the legacy completion side effects
-  // above. The bundle maps from the already-loaded children — no second load.
-  try {
-    const bundle = mapAdaChildren(
-      {
-        id,
-        domain: audit.domain,
-        clientId: audit.clientId,
-        wcagLevel: audit.wcagLevel,
-        pagesError: audit.pagesError,
-        startedAt: audit.startedAt,
-        completedAt,
-      },
-      pageAudits,
-    )
-    void writeFindingsRun(bundle).catch((e) => {
-      console.error('[findings] ADA dual-write failed for site audit', id, e)
+  if (!audit.seoOnly && pageAudits) {
+    // Carry triage checks forward from the previous completed same-domain
+    // audit (C2). Fire-and-forget; invoked before the findings hook so the
+    // findings hook stays LAST. Disjoint tables — overlap is harmless.
+    void carryForwardSiteAuditChecks(id).catch((e) => {
+      console.error('[checks] carry-forward failed for site audit', id, e)
     })
-  } catch (e) {
-    console.error('[findings] ADA bundle mapping failed for site audit', id, e)
+
+    // Dual-write the normalized findings run (A2 Phase 2). Fire-and-forget and
+    // best-effort: must never delay or fail the legacy completion side effects
+    // above. The bundle maps from the already-loaded children — no second load.
+    // Skipped for seoOnly: no ADA results, and an empty ada-audit run would
+    // make ADA export routes (which gate purely on the run existing) look valid.
+    try {
+      const bundle = mapAdaChildren(
+        {
+          id,
+          domain: audit.domain,
+          clientId: audit.clientId,
+          wcagLevel: audit.wcagLevel,
+          pagesError: audit.pagesError,
+          startedAt: audit.startedAt,
+          completedAt,
+        },
+        pageAudits,
+      )
+      void writeFindingsRun(bundle).catch((e) => {
+        console.error('[findings] ADA dual-write failed for site audit', id, e)
+      })
+    } catch (e) {
+      console.error('[findings] ADA bundle mapping failed for site audit', id, e)
+    }
   }
 
   // C6: verify harvested links out-of-band. Fire-and-forget, and the LAST step
