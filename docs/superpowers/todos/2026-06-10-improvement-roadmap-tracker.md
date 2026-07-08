@@ -524,11 +524,18 @@ Interleave as needed (not blockers):
   /seo-parser with a pending-status card (readiness = `liveScanRunId` on
   GET /api/site-audit/[id]). **PR 1 SHIPPED + PROD-VERIFIED 2026-07-08** (PR #122,
   main `11fcaf6`; migration `20260707140000_seo_only` auto-applied on deploy) — see
-  Status log. **NEXT: C11 PR 2** — seoIntent/seoOnly toggles on the forms +
-  `ScheduledScansCard`, intent labels in queue/history, SEO-phase visibility
-  (`broken-link-verify` job-state probe + `Job.progress`), and the seoOnly error-state
-  UI the PR1 pending card defers (brainstorm → spec → plan → build). Then PR 3
-  (rename/maturation). C11 checkbox stays [ ] until all 3 PRs land.
+  Status log. **PR 2 was SPLIT by Codex** into 2a (migration-free toggles/labels/error)
+  + 2b (SEO-phase visibility + progress, one migration). **PR 2a SHIPPED + PROD-VERIFIED**
+  (PR #124, main `2d18ac9`) — seoIntent/seoOnly toggles on `SiteAuditForm`/quick-widget/
+  `ScheduledScansCard`, `IntentChip` labeling in queue/history, `SeoScanForm` terminal
+  error-state. **PR 2b SHIPPED + PROD-VERIFIED 2026-07-08** (PR #126, main `c457eb1`;
+  migration `20260707120000_job_progress` auto-applied) — generic `Job.progress`/
+  `progressMessage` on the fenced heartbeat, `broken-link-verify` progress reporting,
+  `classifySeoPhase`/`getSeoPhase`, `seoPhase` on the detail API, ADA `SeoPhaseBanner`
+  + `SeoScanForm` progress bar & failure/stall terminals — see Status log. **NEXT: C11
+  PR 3** — rename `/seo-parser` → `/seo-audits` (redirects, nav, handoff "Webapp:" URL) +
+  section maturation to mirror the ADA-audit surface + live-scan results-view
+  fallback-banner polish. C11 checkbox stays [ ] until PR 3 (the last of the 3) lands.
 - [ ] **C12. Content auditing (data correctness · keyword cannibalization · content
   quality)** — CANDIDATE, exploration only (Kevin, 2026-07-07). Full problem map,
   capability tiers, cost model, and sequencing in
@@ -617,6 +624,41 @@ Interleave as needed (not blockers):
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
+
+- 2026-07-08 (**C11 PR 2b — SEO-phase visibility + fine-grained progress SHIPPED + DEPLOYED + PROD-VERIFIED**) —
+  The two items PR 2a deferred (the post-terminal `broken-link-verify` "SEO analysis" phase was
+  INVISIBLE — audit read `complete` while the verifier ran, and the SEO sections rendered a flat
+  "not verified" indistinguishable from running/failed/done). **Scope set via Codex** (Kevin routed
+  the brainstorm decisions to Codex, turn 33): ship the ADA site page + `SeoScanForm`; **defer the
+  history chip**; server-probe (no poller) on the ADA page; progress bar + counts on the
+  actively-waiting `SeoScanForm`. Delivered: **generic nullable `Job.progress` (0–100) +
+  `Job.progressMessage`** (migration `20260707120000_job_progress`, additive) written by the
+  worker's existing **fenced heartbeat** from an in-memory cell handlers push via a new
+  `ctx.reportProgress` — no extra writes, benefits every job type / `/admin/ops`; lifecycle reset
+  on claim, `100` on success, `null` on retry/error. `broken-link-verify` now receives `ctx`
+  (registration previously dropped it) and reports `Checked X/Y links` (~0–90%) → `Checking
+  external links…` → `Building SEO report…` (~95%); done is signalled by `liveScanRunId`, so the
+  bar never pegs at 100 while the builder writes. Pure `classifySeoPhase` + `getLatestSeoVerifyJob`
+  (`lib/ada-audit/seo-phase.ts`): `liveScanRunId` wins → done; else latest verify job →
+  running/queued/failed; else (no run + no job, incl. retention-pruned) → unavailable. `seoPhase`
+  added to `GET /api/site-audit/[id]` (route's inline `satisfies` extension only — shared
+  `SiteAuditDetail` untouched). ADA site page renders a single `SeoPhaseBanner` when the live-scan
+  run is absent (all six SEO sections gated as one block); `SeoScanForm` renders the progress bar +
+  terminal failed/unavailable states (kills the pre-existing infinite "Building…" spin). Executed
+  subagent-driven (3 dependency groups, 9 TDD tasks; opus whole-branch review **CLEAN, fencing/
+  concurrency "airtight," 0 Critical/Important** — 1 Minor fixed: external-pass relabel). Gates: tsc
+  clean · **3716 tests / 424 files** · `next build`. PR #126 → merged (main `c457eb1`) → `~/deploy.sh`
+  (migration auto-applied, app healthy). **Prod verify (Playwright, authed, `seo.erstaging.site`):**
+  triggered a seoOnly scan of ER-controlled `proway.erstaging.site` (35 pages) → observed
+  **running → "Building SEO report…" → "View SEO results →"**; prod DB confirmed the verify Job
+  settled `progress:100, progressMessage:null` (the exact lifecycle) and the live-scan run built;
+  the deployed API returned `seoPhase:{state:'done'}` + `liveScanRunId`; a normal completed ADA
+  audit (`www.bellusacademy.edu`) still renders all six SEO sections with no banner/regression.
+  Spec + plan → `../archive/`. (**Note:** the PR 2a ship — PR #124, main `2d18ac9`: seoIntent/seoOnly
+  toggles on `SiteAuditForm`/quick-widget/`ScheduledScansCard`, `IntentChip` queue/history labeling,
+  `SeoScanForm` terminal error-state — was prod-verified but its status-log entry was skipped that
+  session; recorded here for completeness.) **C11 stays `[ ]`** — only PR 3 (rename/maturation)
+  remains. Next: C11 PR 3.
 
 - 2026-07-08 (**C11 PR 1 — SEO-only scan mode + URL scan form SHIPPED + DEPLOYED + PROD-VERIFIED**) —
   First PR of the C11 3-PR arc. A render-only `seoOnly` site-audit mode (navigate + settle +
