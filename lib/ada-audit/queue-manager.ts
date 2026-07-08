@@ -78,6 +78,8 @@ export interface EnqueueAuditOptions {
   seoIntent?: boolean
   /** C11: render-only SEO scan (skips axe/screenshots/PDF/PSI). Implies seoIntent. */
   seoOnly?: boolean
+  /** D7: verified session email to notify on completion. null/absent = silent. */
+  notifyEmail?: string | null
 }
 
 /**
@@ -94,7 +96,7 @@ export async function enqueueAudit(
   wcagLevel: string,
   opts: EnqueueAuditOptions = {},
 ): Promise<{ id: string; status: string }> {
-  const { requestedBy, scheduleId, seoIntent, seoOnly } = opts
+  const { requestedBy, scheduleId, seoIntent, seoOnly, notifyEmail } = opts
   // Dedupe up front: pagesTotal must equal the number of UNIQUE children the
   // discover handler will fan out (the (siteAuditId,url) index collapses
   // duplicates). Written together with discoveredUrls so the finalizer's
@@ -121,6 +123,7 @@ export async function enqueueAudit(
       scheduleId: scheduleId ?? null,
       seoIntent: seoIntent ?? false,
       seoOnly: seoOnly ?? false,
+      notifyEmail: notifyEmail ?? null,
     },
   })
 

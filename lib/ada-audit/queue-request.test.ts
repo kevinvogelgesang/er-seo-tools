@@ -41,7 +41,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-fresh.example',
       42,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false, notifyEmail: null },
     )
   })
 
@@ -83,7 +83,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-norm.example',
       null,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false, notifyEmail: null },
     )
   })
 
@@ -182,6 +182,26 @@ describe('queueSiteAuditRequest', () => {
     expect(queueManager.enqueueAudit).toHaveBeenLastCalledWith(
       domain, null, 'wcag21aa',
       expect.objectContaining({ seoOnly: false, seoIntent: false }),
+    )
+  })
+
+  // D7: schedules + bulk-queue go through this helper WITHOUT notifyEmail — they
+  // must stay silent (notifyEmail defaults to null).
+  it('defaults notifyEmail to null when not supplied (schedules/bulk stay silent)', async () => {
+    const domain = 'qr-test-notify-default.example'
+    await queueSiteAuditRequest({ domain, clientId: null, wcagLevel: 'wcag21aa' })
+    expect(queueManager.enqueueAudit).toHaveBeenLastCalledWith(
+      domain, null, 'wcag21aa',
+      expect.objectContaining({ notifyEmail: null }),
+    )
+  })
+
+  it('threads a supplied notifyEmail through to enqueueAudit', async () => {
+    const domain = 'qr-test-notify-set.example'
+    await queueSiteAuditRequest({ domain, clientId: null, wcagLevel: 'wcag21aa', notifyEmail: 'op@enrollmentresources.com' })
+    expect(queueManager.enqueueAudit).toHaveBeenLastCalledWith(
+      domain, null, 'wcag21aa',
+      expect.objectContaining({ notifyEmail: 'op@enrollmentresources.com' }),
     )
   })
 })
