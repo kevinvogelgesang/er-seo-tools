@@ -62,7 +62,7 @@ describe('AppShell', () => {
     const drawer = screen.getByRole('dialog', { name: 'Navigation' })
     expect(drawer).toBeTruthy()
     // clicking a nav link inside the drawer closes it
-    fireEvent.click(screen.getAllByText('SEO Parser')[1] ?? screen.getAllByText('SEO Parser')[0])
+    fireEvent.click(screen.getAllByText('SEO Audits')[1] ?? screen.getAllByText('SEO Audits')[0])
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
   })
 

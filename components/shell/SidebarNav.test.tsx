@@ -46,7 +46,7 @@ describe('SidebarNav', () => {
     const onNavigate = vi.fn()
     const onToggle = vi.fn()
     render(<SidebarNav collapsed={false} onToggleCollapse={onToggle} onNavigate={onNavigate} />)
-    fireEvent.click(screen.getByText('SEO Parser'))
+    fireEvent.click(screen.getByText('SEO Audits'))
     expect(onNavigate).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(onToggle).toHaveBeenCalledOnce()
