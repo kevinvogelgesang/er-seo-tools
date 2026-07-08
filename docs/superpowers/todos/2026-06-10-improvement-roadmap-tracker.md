@@ -652,30 +652,21 @@ Interleave as needed (not blockers):
 - [ ] D4. Client-attached robots/sitemap checks + history (2–3 days)
 - [ ] D5. Scheduled robots/sitemap monitoring with change-only alerts (3–4 days) — needs A1.
 - [ ] D6. RankMath redirect generator + dry-run + post-deploy verifier (1–1.5 wks) — or explicitly freeze as a doc; decide, don't drift.
-- [ ] **D7. Scan-completion notifications — EMAIL v1 (per-user)** — added
-  2026-07-07; **REPRIORITIZED 2026-07-08 (Kevin): email first, Slack dropped** —
-  notifications are for INDIVIDUALS, not a shared pool, and a Slack bot (needed
-  for per-user DMs) is unwanted setup. Opt-in checkbox on audit submit forms
-  ("Email me when this finishes") → recipient captured from the Google-OAuth
-  session (ER email — `lib/auth.ts` already exposes name/email; `requestedBy`
-  already stored on SiteAudit/AdaAudit) → the finalizer / standalone terminal
-  writer fires a NEVER-FAIL notify hook (same rule as findings hooks).
-  **Transport (spec decision, recommended first): Gmail API via the EXISTING
-  service account + domain-wide delegation** — reuses `GOOGLE_SA_KEY_FILE` and
-  the `googleapis` dependency (zero new secrets/vendors); one-time Workspace
-  admin step: grant the SA client ID the `gmail.send` scope (DWD) + pick an
-  impersonated sender (e.g. seo-tools@enrollmentresources.com). All recipients
-  are @enrollmentresources.com → intra-domain delivery, no deliverability
-  concerns. Alternatives if DWD is unwanted: Workspace SMTP relay + nodemailer
-  (new dep + admin console config) or a dedicated account app-password SMTP
-  (weakest). **Reliability: send via a small durable `notify-email` job**
-  (queue exists; retries/backoff free) rather than a bare fire-and-forget fetch.
-  Email = requester name, domain, score, deep link (`NEXT_PUBLIC_APP_URL`).
-  Schema: nullable `notifyEmail` on SiteAudit/AdaAudit (additive). Scheduled
-  scans default to NO notification (noise); per-schedule opt-in is a spec
-  decision. v1 ≈ 2–3 days incl. the DWD admin step. Pairs naturally with C11
-  PR 2 (visibility) — consider folding in there. (Slack shared-channel variant
-  survives only as a possible ops-side echo, NOT a user-facing path.)
+- [ ] **D7. Scan-completion email notifications — SHELVED 2026-07-08, design
+  parked in `../nyi/specs/2026-07-08-scan-email-notifications-design.md`.**
+  History: added 2026-07-07 (Slack v1) → reprioritized 2026-07-08 AM (per-user
+  email v1 via Gmail API + domain-wide delegation, Slack dropped) → full design
+  brainstormed + Kevin-approved 2026-07-08 → **SHELVED same day: the Workspace
+  admin rejected the DWD approach and wants SendGrid or Mailjet; no account/API
+  key exists yet.** All product decisions are SETTLED in the parked design doc
+  (site audits only · requester email from the OAuth session, server-stamped ·
+  failures email Kevin not the requester · send after the SEO-analysis pass ·
+  per-scan checkbox on SiteAuditForm + SeoScanForm, never sticky · schedules
+  silent · durable `notify-email` job, dedupKeyed · dark-by-default env gate).
+  The transport is isolated in `lib/notify/` by design, so the provider swap
+  invalidates only that section. **Unblock = SendGrid/Mailjet account + API key
+  + domain-auth (SPF/DKIM) decision from the admin**, then: rewrite the design
+  doc's §Transport → Codex review (never done) → plan → build (~2 days).
 
 ## Gated decisions (block specific items; decide, then unblock)
 
