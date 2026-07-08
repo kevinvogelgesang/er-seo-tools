@@ -102,7 +102,7 @@ whenever Kevin asks for "the handoff prompt" / "handoff". Do all three, in order
 ## Tools in the app
 | Route | Description |
 |-------|-------------|
-| `/seo-parser` | Upload Screaming Frog CSVs → prioritized SEO report with health score |
+| `/seo-audits` | Scan a URL for on-page SEO or upload Screaming Frog CSVs → prioritized SEO report with health score (formerly `/seo-parser`; old path 308-redirects) |
 | `/ada-audit` | Single-page and site-wide WCAG accessibility audit via headless Chrome + axe-core |
 | `/robots-validator` | robots.txt + sitemap.xml validation |
 | `/quarter-grid` | Drag-and-drop quarterly planning for ~30 clients (v1/v2/v3) |

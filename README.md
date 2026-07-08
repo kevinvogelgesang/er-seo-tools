@@ -8,9 +8,9 @@ A unified Next.js webapp housing all SEO tools for the Enrollment Resources team
 
 | Tool | Route | Description |
 |---|---|---|
-| SEO Parser | `/seo-parser` | Upload Screaming Frog CSVs, get prioritized issue reports, health score, and recommendations |
-| SEO Parser — Crawl Diff | `/seo-parser/diff` | Compare two crawl sessions to track improvement over time |
-| SEO Parser — Shared Reports | `/share/[token]` | Read-only shareable links for completed audits (30-day expiry) |
+| SEO Audits | `/seo-audits` | Scan a URL for on-page SEO, or upload Screaming Frog CSVs for a prioritized report with health score and recommendations |
+| SEO Audits — Crawl Diff | `/seo-audits/diff` | Compare two crawl sessions to track improvement over time |
+| SEO Audits — Shared Reports | `/share/[token]` | Read-only shareable links for completed audits (30-day expiry) |
 | ADA Audit | `/ada-audit` | Single-page WCAG accessibility audit via headless Chrome + axe-core |
 | ADA Audit — Site-wide | `/ada-audit` (Site tab) | Crawl an entire domain via sitemap and audit all pages (queued, one at a time) |
 | ADA Audit — Shared Reports | `/ada-audit/share/[token]` | Read-only shareable links for audit results |
@@ -54,7 +54,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 > **Note:** ADA audits require Google Chrome. On macOS, set `CHROME_EXECUTABLE` in `.env` to the path of your Chrome installation (e.g. `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`). On the production server it's installed at `/usr/bin/google-chrome`.
 
-## SEO Parser Features
+## SEO Audits Features
 
 - **Multi-file upload** — drop any combination of Screaming Frog CSV exports
 - **30+ parsers** — internal pages, images, JS, CSS, redirects, hreflang, structured data, analytics, Search Console, PageSpeed, and more
