@@ -21,7 +21,13 @@ async function mkAudit(data: Record<string, unknown>): Promise<string> {
 describe('runNotifyEmailJob', () => {
   const OLD = process.env
   beforeEach(() => { sendSpy.mockClear(); process.env = { ...OLD, MAILGUN_API_KEY: 'k', MAILGUN_DOMAIN: 'mg.x', NEXT_PUBLIC_APP_URL: 'https://app.example' } })
-  afterEach(async () => { process.env = OLD; await prisma.siteAudit.deleteMany({ where: { domain: 'notify-test.example' } }) })
+  afterEach(async () => {
+    process.env = OLD
+    // CrawlRun.siteAuditId is onDelete: SetNull — delete runs first so orphans
+    // can't contaminate the deterministic previous-run selection of later tests.
+    await prisma.crawlRun.deleteMany({ where: { domain: 'notify-test.example' } })
+    await prisma.siteAudit.deleteMany({ where: { domain: 'notify-test.example' } })
+  })
 
   it('sends the complete email and stamps notifyCompleteSentAt', async () => {
     const id = await mkAudit({ notifyEmail: 'r@example.com' })
@@ -82,5 +88,27 @@ describe('runNotifyEmailJob', () => {
     expect(sendSpy).toHaveBeenCalledTimes(2)
     row = await prisma.siteAudit.findUnique({ where: { id } })
     expect(row?.notifyCompleteSentAt).not.toBeNull()
+  })
+
+  it('passes enrichment (counts + pages) to the complete email', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: 'notify-test.example', status: 'complete', wcagLevel: 'wcag21aa', notifyEmail: 'r@example.com', pagesComplete: 4, pagesTotal: 4 } })
+    await prisma.crawlRun.create({ data: { tool: 'seo-parser', source: 'live-scan', status: 'complete', domain: 'notify-test.example', siteAuditId: audit.id, score: 88,
+      findings: { create: [{ scope: 'run', type: 'broken_internal_links', severity: 'critical', count: 2, dedupKey: 'z1' }] } } })
+    await runNotifyEmailJob({ siteAuditId: audit.id, kind: 'complete' }, deps)
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    const content = (sendSpy.mock.calls[0][0] as { content: { text: string } }).content
+    expect(content.text).toContain('4 of 4')
+    expect(content.text).toContain('Broken links & images: 2')
+  })
+
+  it('still sends a basic email (and stamps marker once) when enrichment throws', async () => {
+    const id = await mkAudit({ notifyEmail: 'r@example.com' })
+    const spy = vi.spyOn(prisma.finding, 'aggregate').mockRejectedValueOnce(new Error('db boom'))
+    await prisma.crawlRun.create({ data: { tool: 'seo-parser', source: 'live-scan', status: 'complete', domain: 'notify-test.example', siteAuditId: id, score: 50 } })
+    await runNotifyEmailJob({ siteAuditId: id, kind: 'complete' }, deps)
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    const row = await prisma.siteAudit.findUnique({ where: { id } })
+    expect(row?.notifyCompleteSentAt).not.toBeNull()
+    spy.mockRestore()
   })
 })
