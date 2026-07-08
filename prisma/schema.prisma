@@ -158,6 +158,9 @@ model SiteAudit {
   shareToken        String?   @unique // C4: public read-only share link (mirror of AdaAudit)
   shareExpiresAt    DateTime?
   reportGeneratedAt DateTime? // C4: last successful report-render stamp (file under REPORTS_DIR)
+  notifyEmail          String?    // D7: recipient (verified session email), stamped at creation when opt-in ticked; null = silent
+  notifyCompleteSentAt DateTime?  // D7: durable at-least-once guard for the 'complete' email
+  notifyFailedSentAt   DateTime?  // D7: durable at-least-once guard for the 'failed' email
   checks           SiteAuditCheck[]
   crawlRuns        CrawlRun[]
   harvestedLinks   HarvestedLink[]
