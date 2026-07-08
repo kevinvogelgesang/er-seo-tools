@@ -32,7 +32,7 @@ describe('tools registry', () => {
   it('toolForPathname matches longest prefix, exact for home', () => {
     expect(toolForPathname('/')!.id).toBe('home')
     expect(toolForPathname('/ada-audit/queue')!.id).toBe('site-audit')
-    expect(toolForPathname('/seo-parser/results/abc')!.id).toBe('seo-parser')
+    expect(toolForPathname('/seo-audits/results/abc')!.id).toBe('seo-parser')
     expect(toolForPathname('/clients/12')!.id).toBe('clients')
     expect(toolForPathname('/nonexistent')).toBeUndefined()
   })

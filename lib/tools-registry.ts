@@ -49,11 +49,11 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
-    id: 'seo-parser', name: 'SEO Parser', href: '/seo-parser', group: 'run', icon: IconParser,
+    id: 'seo-parser', name: 'SEO Audits', href: '/seo-audits', group: 'run', icon: IconParser,
     description: 'Screaming Frog uploads & crawl diffs',
     children: [
-      { name: 'All sessions', href: '/seo-parser' },
-      { name: 'Compare crawls', href: '/seo-parser/diff' },
+      { name: 'All sessions', href: '/seo-audits' },
+      { name: 'Compare crawls', href: '/seo-audits/diff' },
     ],
   },
   { id: 'reports', name: 'SEO Reports', href: '/reports', group: 'run', icon: IconReports, description: 'GA4 + GSC branded client PDFs' },
