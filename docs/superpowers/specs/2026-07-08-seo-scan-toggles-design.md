@@ -1,8 +1,9 @@
 # SEO-Scan Intent Toggles + Labeling (C11 PR 2a) — Design
 
-Status: **draft** (brainstormed with Kevin; three scoping decisions
-Codex-adjudicated 2026-07-08 — see §3). Author: Claude. Roadmap item: **C11 PR 2**,
-sub-PR **2a** (tracker `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md:452`).
+Status: **reviewed** (brainstormed with Kevin; three scoping decisions
+Codex-adjudicated 2026-07-08 — see §3; spec reviewed by Codex "ACCEPT-WITH-NAMED-FIXES"
+— all 8 fixes applied 2026-07-08). Author: Claude. Roadmap item: **C11 PR 2**, sub-PR
+**2a** (tracker `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md:452`).
 
 ## 1. Goal
 
@@ -117,28 +118,53 @@ audit that also emits SEO data; only `seoOnly` audits are SEO-purposed and skip 
 - Dark-mode variants on every new element; no hydration concern (all state is
   client-side, no SSR value mismatch).
 
-**`QuickSiteAuditWidget`** (a): the widget's **response routing is already
-seoOnly-aware** (PR 1 — it branches 202/409 on `data.seoOnly` → `/seo-parser` vs
-`/ada-audit/site/${id}`). PR 2a only adds the intent toggle to its request body
-(`seoOnly: intent === 'seo'` in the POST at ~L22, a compact segmented control near the
-WCAG `<select>` at L46-55). No routing change needed.
+**`QuickSiteAuditWidget`** (a) — **needs routing work, not just the request body**
+(Codex fix #1). The widget branches on `data.seoOnly`, but `POST /api/site-audit`
+returns `data.seoOnly` **only on 409** (`{error, id, seoOnly}`); the **202** returns
+`{id, status:'queued'}` with no `seoOnly`. So today a brand-new SEO scan (202) has
+`data.seoOnly === undefined` → routes to `/ada-audit/site/:id` → bounces to
+`/seo-parser` via the redirect, **losing the id** (no polling handoff). PR 2a:
+- Add the intent toggle to the request body (`seoOnly: intent === 'seo'`, compact
+  segmented control near the WCAG `<select>` at L46-55).
+- Route by **local intent** (authoritative, since 202 omits `seoOnly`): SEO intent →
+  `/seo-parser?scan=${data.id}` (both 202 and 409); ADA intent → `/ada-audit/site/${data.id}`.
+  Keep `|| data.seoOnly` on the 409 branch as a belt-and-suspenders fallback.
 
 ### 4.3 Intent pickup on `SeoScanForm` (a, continued) + terminal error phase (error)
 
-- **Query-param pickup:** on mount, read `useSearchParams().get('scan')`; if present and
-  no active scan, adopt it as `auditId`, set phase `running`, and persist it to
-  `sessionStorage['seo-scan-id']` (so a refresh still resumes). This is the handoff
-  target for §4.2's SEO route. Read in an effect (never during render) to avoid
-  hydration mismatch — consistent with the existing sessionStorage-resume effect.
+- **Query-param pickup (`?scan=<id>`)** — the handoff target for §4.2's SEO routes.
+  On mount, read the param via **`new URLSearchParams(window.location.search).get('scan')`
+  inside the existing mount effect** (Codex fix #2), **not** `useSearchParams()`: the
+  `/seo-parser` page is a fully-client page with no `<Suspense>` boundary around
+  `SeoScanForm`, and `useSearchParams()` there forces a client-render deopt + build
+  warning. Reading `window.location.search` in a mount effect is client-only, needs no
+  Suspense, and can't hydration-mismatch.
+- **Precedence (Codex fix #2):** the query param **wins over** `sessionStorage['seo-scan-id']`.
+  When `?scan=<id>` is present: adopt it as `auditId`, **overwrite** the sessionStorage
+  key, clear any stale `runId`/`error`, set phase `running`, and start polling that id.
+  Only fall back to the stored id when no `?scan=` is present. (Otherwise a stale stored
+  id races and keeps polling the wrong scan.)
+- **Submit 409-with-id → adopt, don't error (Codex fix #3):** on the form's own submit,
+  a 409 currently sets `phase='error'`. Change it to adopt `data.id` and poll it
+  (matching the `?scan=` handoff) — the in-flight scan is exactly what the user wants to
+  watch.
 - **Terminal error phase:** extend `poll()` — when `d.status === 'error' ||
-  d.status === 'cancelled'`, set phase `error`, set a message ("SEO scan failed — please
-  try again."), clear `sessionStorage['seo-scan-id']`, and stop polling (the existing
-  effect already stops when `phase === 'ready'`; extend the guard to also stop on
-  `error`). Also: if `poll()`'s fetch returns a persistent non-OK (e.g. 404, audit
-  deleted), treat as terminal error rather than silent no-op after a bounded number of
-  misses (keep simple: 404 → error immediately; other non-OK → transient, keep polling).
+  d.status === 'cancelled'`, set phase `error` with a message ("SEO scan failed — please
+  try again."), clear `sessionStorage['seo-scan-id']`, and stop polling (the effect
+  already stops on `phase === 'ready'`; extend the guard to also stop on `error`).
+  A persistent non-OK fetch: **404 → terminal error immediately** (audit deleted); other
+  non-OK → transient, keep polling.
+- **Scope boundary (Codex fix #3):** 2a fixes only **parent-audit** terminal states. A
+  permanently-stuck `building` state (audit `complete` but the post-terminal
+  `broken-link-verify` never produces `liveScanRunId`) is **legitimately PR 2b** —
+  2a does not add a `building`-timeout guard. Documented so it isn't mistaken for an
+  omission.
 
-### 4.4 Intent-labeling pass (c) — scoped to queue + scan-trigger surfaces
+### 4.4 Intent-labeling pass (c) — queue, active-batch member rows, and scan-trigger surfaces
+
+*(Wording per Codex fix #7: this is **not** a "full labeling pass across all history
+views." Batch detail is covered transitively through `QueueMemberRow`; batch-summary
+aggregates stay unlabeled.)*
 
 **Scope discipline:** the Explore map found ~15 components that touch a scan/audit/
 findings label. Most are **client-command-center findings panels** (`FleetTable`,
@@ -179,24 +205,37 @@ Target set (each renders `<IntentChip seoOnly={row.seoOnly} />`, dark-mode-safe)
 - **`ScheduledScansCard`**: add an intent `<select>` (Accessibility / SEO) to the create
   form. When SEO is chosen, hide the WCAG-level select (send default). Include
   `seoIntent: intent === 'seo'` and `seoOnly: intent === 'seo'` in the POST body.
-  Render the intent chip on each schedule row (`s.seoOnly`/`s.seoIntent` must be exposed
-  by `getClientSchedules` — additive field on `ClientScheduleRow`). For an SEO schedule
-  row, the last-run link must **not** point at `/ada-audit/site/:id` (it redirects); link
-  to `/seo-parser` (or omit the link) and prefer the live-scan `seo-parser` run for the
-  score — see the ScheduledScansCard last-run note in §6.
-- **`POST /api/clients/[id]/schedules`**: read `body.seoOnly === true`; write
-  `seoOnly` into the Schedule payload alongside `seoIntent`; enforce `seoOnly ⇒ seoIntent`
-  server-side (mirror `queueSiteAuditRequest`). Uniqueness key unchanged
-  `(client, domain, seoIntent)`.
+  Render `<IntentChip seoOnly={s.seoOnly} />` on each schedule row — **the chip is driven
+  by `seoOnly`, not `seoIntent`** (Codex fix #5): a legacy full-pipeline `seoIntent:true,
+  seoOnly:false` autonomous schedule is an accessibility schedule and must not read as
+  "render-only SEO". Both fields exposed on `ClientScheduleRow` (additive).
+- **`POST /api/clients/[id]/schedules`** (Codex fix #4): coerce **before** the uniqueness
+  check —
+  ```ts
+  const seoOnly = body.seoOnly === true
+  const seoIntent = body.seoIntent === true || seoOnly   // seoOnly ⇒ seoIntent
+  ```
+  then run the existing `(client, domain, seoIntent)` duplicate check against this
+  coerced `seoIntent`, and write `seoOnly` into the payload
+  (`{clientId, domain, wcagLevel, seoIntent, seoOnly}`). (If coercion happened only at
+  write time, a `{seoOnly:true}`-without-`seoIntent` body would be duplicate-checked as
+  an ADA schedule.) Uniqueness key unchanged `(client, domain, seoIntent)`.
 - **`scheduled-site-audit.ts`**: add `seoOnly?: boolean` to `ScheduledSiteAuditPayload`
   + `parsePayload`; pass `seoOnly: p.seoOnly ?? false` to `queueSiteAuditRequest`
   (which forces `seoIntent`). Replace the `// FUTURE` breadcrumb with a comment noting
   the flip is now wired for `seoOnly` schedules; full-pipeline stays the default for
-  ADA (and legacy autonomous `seoIntent`-only) schedules.
-- **`getClientSchedules`** (`lib/services/client-schedules.ts`): parse `seoOnly`/
-  `seoIntent` from the payload onto each `ClientScheduleRow`; for `seoOnly` schedules,
-  source the last-run score from the live-scan `seo-parser` `CrawlRun` (the finalizer
-  never writes an ada-audit run for seoOnly) rather than `tool:'ada-audit'`.
+  ADA **and** legacy `seoIntent`-only autonomous schedules (never backfilled — additive
+  payload field defaults false).
+- **`getClientSchedules`** (`lib/services/client-schedules.ts`) — SEO last-run semantics
+  (Codex fix #6): parse `seoOnly`/`seoIntent` onto each `ClientScheduleRow`. For a
+  `seoOnly` schedule:
+  - **Score**: source from the live-scan `seo-parser` `CrawlRun` (the finalizer never
+    writes an ada-audit run for seoOnly), not `tool:'ada-audit'`.
+  - **Link**: live run exists → `/seo-parser/results/run/${runId}`; audit exists but no
+    live run yet → `/seo-parser?scan=${auditId}` (pending); never `/ada-audit/site/:id`.
+  - **Delta**: `lastDelta` is the SEO score delta **or null** for 2a — do **not** invoke
+    ADA instance-diff (`getRunPairInstanceDiff` rejects non-`ada-audit` runs) and do not
+    compute an ADA-style delta from missing ADA runs.
 
 ## 5. Error handling
 
@@ -229,19 +268,31 @@ Target set (each renders `<IntentChip seoOnly={row.seoOnly} />`, dark-mode-safe)
 ## 7. Testing
 
 - `scan-intent.ts`: unit table (seoOnly → 'seo'; falsy/absent → 'ada'; label map).
-- `SeoScanForm.test.tsx`: (1) `?scan=<id>` adopts the id and polls; (2) `status:'error'`
-  → error phase + sessionStorage cleared + polling stopped; (3) `status:'cancelled'`
-  same; (4) 404 → error.
+- `SeoScanForm.test.tsx`: (1) `?scan=<id>` adopts the id and polls; (2) **`?scan=` wins
+  over a stale `sessionStorage['seo-scan-id']`** (Codex fix #8) — different stored id,
+  form polls the query-param id and overwrites storage; (3) `status:'error'` → error
+  phase + sessionStorage cleared + polling stopped; (4) `status:'cancelled'` same;
+  (5) 404 → error; (6) **submit 409-with-id → adopts+polls that id** (not error).
+  (`window.location.search` stubbed, or the test navigates with a real search string.)
 - `SiteAuditForm.test.tsx`: SEO intent → POST body carries `seoOnly:true` and success
   routes to `/seo-parser?scan=…`, not `/ada-audit/site/…`; ADA intent unchanged; WCAG
   hidden under SEO intent.
-- `QuickSiteAuditWidget.test.tsx`: SEO intent → seoOnly POST + SEO routing.
+- `QuickSiteAuditWidget.test.tsx`: **new SEO 202 (`{id,status}`, no `seoOnly`) routes to
+  `/seo-parser?scan=${id}` by local intent** (Codex fix #8); ADA intent → ADA page;
+  409 SEO → `/seo-parser?scan=${id}`.
 - `ScheduledScansCard.test.tsx`: SEO create → POST body carries `seoOnly:true` +
-  `seoIntent:true`; row renders the SEO chip; SEO row last-run link is not the ADA page.
-- `schedules/route` test: `seoOnly` persisted into payload; `seoOnly ⇒ seoIntent`
-  coercion; `(client, domain, seoIntent)` uniqueness still coexists ADA + SEO.
+  `seoIntent:true`; SEO row renders the chip (driven by `seoOnly`); SEO row last-run link
+  is `/seo-parser/results/run/…` or `/seo-parser?scan=…`, never the ADA page.
+- `schedules/route` test: **`{seoOnly:true}` without `seoIntent` coerces to
+  `seoIntent:true` before the uniqueness check** (Codex fix #8) and persists both into the
+  payload; `(client, domain, seoIntent)` uniqueness still coexists an ADA + an SEO
+  schedule for the same domain.
 - `scheduled-site-audit.test.ts`: `seoOnly` payload → `queueSiteAuditRequest` called with
   `seoOnly:true`; absent → full pipeline (`seoOnly:false`).
-- Labeling components: each renders the correct chip for a seoOnly vs ada row.
+- `client-schedules` test (Codex fix #8): a `seoOnly` schedule sources its last-run score
+  from the live `seo-parser` run and does **not** invoke ADA instance-diff / ADA-style
+  delta.
+- Labeling components: `IntentChip` renders the correct label for a seoOnly vs ada row;
+  each of the 4 §4.4 targets shows the chip.
 - Gate: `tsc --noEmit` + `DATABASE_URL=… npm test` + `npm run build`. UI dark-mode +
   no-hydration review on every new element.
