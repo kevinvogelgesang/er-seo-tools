@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { prisma } from '@/lib/db'
 import SiteAuditPoller from '@/components/ada-audit/SiteAuditPoller'
@@ -18,6 +18,7 @@ import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
+import { seoOnlyRedirectTarget } from './seo-only-redirect'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +40,11 @@ export default async function SiteAuditResultPage({ params }: Props) {
   })
 
   if (!audit) notFound()
+
+  // C11: seoOnly audits have no ADA data — send them to the SEO parser
+  // instead of rendering the ADA "Result data unavailable" fallback.
+  const seoOnlyTarget = seoOnlyRedirectTarget(audit)
+  if (seoOnlyTarget) redirect(seoOnlyTarget)
 
   const breadcrumb = (
     <div className="flex items-center gap-2 text-[13px] font-body text-navy/50 dark:text-white/50">
