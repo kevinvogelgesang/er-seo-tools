@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import Link from 'next/link'
 import { Spinner } from '@/components/Spinner'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
+import { IntentChip } from '@/components/ada-audit/IntentChip'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import { parseManualUrls } from '@/lib/ada-audit/manual-urls'
 import { formatInBrowserTZ } from '@/lib/ada-audit/format-date'
@@ -512,7 +513,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
             return (
               <div className="space-y-1.5">
                 <p className="text-[12px] font-body font-semibold text-blue-800 dark:text-blue-300">
-                  {label}: {a.domain}
+                  {label}: {a.domain} <IntentChip seoOnly={a.seoOnly} />
                   <span className="font-normal text-blue-600/60 dark:text-blue-400/60 ml-2">
                     {total > 0
                       ? `${complete}/${total} ${unit} (${pct}%)`
@@ -531,7 +532,15 @@ export default function SiteAuditForm({ queueStatus }: Props) {
             <p className="text-[11px] font-body text-blue-600/60 dark:text-blue-400/60">
               {queueStatus.queued.length} audit{queueStatus.queued.length !== 1 ? 's' : ''} queued
               {queueStatus.queued.length <= 3 && (
-                <> — {queueStatus.queued.map(q => q.domain).join(', ')}</>
+                <>
+                  {' — '}
+                  {queueStatus.queued.map((q, i) => (
+                    <Fragment key={q.id}>
+                      {i > 0 && ', '}
+                      <IntentChip seoOnly={q.seoOnly} /> {q.domain}
+                    </Fragment>
+                  ))}
+                </>
               )}
             </p>
           )}

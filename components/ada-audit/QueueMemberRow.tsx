@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import type { AuditBatchMember } from '@/lib/ada-audit/types'
 import { formatDuration, formatDurationHover } from '@/lib/ada-audit/duration'
+import { IntentChip } from '@/components/ada-audit/IntentChip'
 
 const STATUS_LABEL: Record<string, string> = {
   queued: 'Queued',
@@ -65,8 +66,8 @@ export default function QueueMemberRow({ member, onCancelled }: Props) {
       <td className="px-6 py-3 font-body text-[13px] text-navy dark:text-white">
         {/* C11: a seoOnly audit has no ADA results — route to /seo-parser
             (the ADA site page redirects it away) and flag it as an SEO scan. */}
-        <Link href={member.seoOnly ? '/seo-parser' : `/ada-audit/site/${member.id}`} className="hover:text-orange">
-          {member.seoOnly && <span className="mr-1 rounded bg-orange/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-orange">SEO</span>}
+        <Link href={member.seoOnly ? '/seo-parser' : `/ada-audit/site/${member.id}`} className="hover:text-orange inline-flex items-center gap-1">
+          <IntentChip seoOnly={member.seoOnly} />
           {member.domain}
         </Link>
       </td>

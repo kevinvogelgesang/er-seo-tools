@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react'
 
 const pushMock = vi.hoisted(() => vi.fn())
 vi.mock('next/navigation', () => ({
@@ -9,8 +9,49 @@ vi.mock('next/navigation', () => ({
 }))
 
 import SiteAuditForm from './SiteAuditForm'
+import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); pushMock.mockReset() })
+
+describe('SiteAuditForm queue banner IntentChip (C11 PR 2a)', () => {
+  it('labels the active row and the seoOnly queued domain, not the ADA queued domain', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/clients') return { json: async () => [] } as Response
+      return { ok: true, json: async () => ({}) } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const queueStatus: QueueStatusWithBatch = {
+      active: {
+        id: 'a1',
+        domain: 'active-seo.com',
+        status: 'running',
+        pagesTotal: 10,
+        pagesComplete: 3,
+        pagesError: 0,
+        pdfsTotal: 0,
+        pdfsComplete: 0,
+        pdfsError: 0,
+        pdfsSkipped: 0,
+        lighthouseTotal: 0,
+        lighthouseComplete: 0,
+        lighthouseError: 0,
+        clientId: null,
+        seoOnly: true,
+      },
+      queued: [
+        { id: 'q1', domain: 'seo-queued.com', position: 1, clientId: null, seoOnly: true },
+        { id: 'q2', domain: 'ada-queued.com', position: 2, clientId: null, seoOnly: false },
+      ],
+      batch: null,
+    }
+    render(<SiteAuditForm queueStatus={queueStatus} />)
+    // Scope to the queue banner — the "Scan type" toggle button also renders the text "SEO".
+    await waitFor(() => expect(screen.getByText(/New audits will be queued/i)).toBeTruthy())
+    const banner = screen.getByText(/New audits will be queued/i).closest('div')!
+    // one for the active row, one for the seoOnly queued domain — none for the ADA queued domain
+    expect(within(banner).getAllByText('SEO').length).toBe(2)
+  })
+})
 
 describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
   it('SEO intent sends seoOnly:true and routes to /seo-parser?scan=', async () => {
