@@ -32,7 +32,7 @@ export function IssueTrendCard({ sessions, latestTwo }: { sessions: SeoHistorySe
         <h3 className="text-sm font-semibold text-[#1c2d4a] dark:text-white uppercase tracking-wide">Issue Trend</h3>
         {latestTwo && (
           <a
-            href={`/seo-parser/diff?a=${latestTwo[0]}&b=${latestTwo[1]}`}
+            href={`/seo-audits/diff?a=${latestTwo[0]}&b=${latestTwo[1]}`}
             className="text-xs font-semibold text-[#f5a623] hover:text-[#e09415] transition-colors"
           >
             Compare latest two crawls →

@@ -23,8 +23,8 @@ describe('RecentParsesWidget', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => rows }))
     render(<RecentParsesWidget size="lg" />)
     await waitFor(() => expect(screen.getByText('Example')).toBeTruthy())
-    expect(screen.getByText('Example').closest('a')?.getAttribute('href')).toBe('/seo-parser/results/s1')
-    expect(screen.getByText('Two').closest('a')?.getAttribute('href')).toBe('/seo-parser/results/run/r1')
+    expect(screen.getByText('Example').closest('a')?.getAttribute('href')).toBe('/seo-audits/results/s1')
+    expect(screen.getByText('Two').closest('a')?.getAttribute('href')).toBe('/seo-audits/results/run/r1')
   })
 
   it('shows an empty state when there are no parses', async () => {

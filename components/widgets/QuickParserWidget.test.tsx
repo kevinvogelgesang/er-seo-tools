@@ -18,7 +18,7 @@ describe('QuickParserWidget', () => {
     const zone = screen.getByText(/drop screaming frog/i).closest('div')!
     const file = new File(['a,b'], 'internal.csv', { type: 'text/csv' })
     fireEvent.drop(zone, { dataTransfer: { files: [file] } })
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser/results/sess9'))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-audits/results/sess9'))
   })
 
   it('shows an inline error when the upload fails', async () => {

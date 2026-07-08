@@ -134,7 +134,7 @@ machine-readable column. Map any returned `error_kind` per §2.
 
 The full document lives in the dashboard; keep the reply brief. Include the
 site name, the headline numbers for the workflow, and the dashboard link:
-`{Webapp}/seo-parser/results/{sessionId}` (srt_) ·
+`{Webapp}/seo-audits/results/{sessionId}` (srt_) ·
 `/keyword-research/{sessionId}` (krt_) · `/pillar-analysis/{id}` (pat_).
 If you added a §3 scope note, mention the audit was partial in one clause.
 

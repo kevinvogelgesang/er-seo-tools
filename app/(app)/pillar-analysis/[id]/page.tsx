@@ -65,7 +65,7 @@ export default async function PillarAnalysisPage({
           <div>
             {pa.session && (
             <Link
-              href={`/seo-parser/results/${pa.session.id}`}
+              href={`/seo-audits/results/${pa.session.id}`}
               className="text-sm text-gray-500 dark:text-white/50 hover:text-[#1c2d4a] dark:hover:text-white inline-flex items-center mb-3"
             >
               ← Back to SEO Audit

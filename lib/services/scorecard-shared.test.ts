@@ -76,7 +76,7 @@ describe('buildSeoSeries', () => {
     ])
     expect(series.latest).toBe(90)
     expect(series.delta).toBe(10)
-    expect(latestHref).toBe('/seo-parser/results/sess-b')
+    expect(latestHref).toBe('/seo-audits/results/sess-b')
   })
   it('latestHref is null when the latest run is an orphan (sessionId SetNull)', () => {
     const { latestHref } = buildSeoSeries([

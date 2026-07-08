@@ -173,7 +173,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     } else {
       timeline.push({
         type: 'seo-parse', id: s.id, title: s.siteName ?? s.id, status: s.status,
-        date: s.createdAt.toISOString(), href: `/seo-parser/results/${s.id}`,
+        date: s.createdAt.toISOString(), href: `/seo-audits/results/${s.id}`,
         stat: s.totalUrls !== null ? `${s.totalUrls} URLs · ${s.criticalCount ?? 0} critical` : null,
       })
     }
@@ -187,13 +187,13 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     if (s.seoRoadmap) {
       timeline.push({
         type: 'seo-roadmap', id: s.seoRoadmap.id, title: s.siteName ?? s.id, status: s.seoRoadmap.status,
-        date: s.seoRoadmap.createdAt.toISOString(), href: `/seo-parser/results/${s.id}`, stat: null,
+        date: s.seoRoadmap.createdAt.toISOString(), href: `/seo-audits/results/${s.id}`, stat: null,
       })
     }
   }
   for (const a of siteAudits) {
     // C11: seoOnly audits have no ADA results — the /ada-audit/site page
-    // redirects them to /seo-parser (Task 7). Point the timeline link there
+    // redirects them to /seo-audits (Task 7). Point the timeline link there
     // directly and tag the title so it doesn't read as an accessibility audit.
     const scheduledSuffix = a.scheduleId ? ' · scheduled' : ''
     timeline.push({
@@ -202,7 +202,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
       title: `${a.domain}${a.seoOnly ? ' · SEO scan' : ''}${scheduledSuffix}`,
       status: a.status,
       date: a.createdAt.toISOString(),
-      href: a.seoOnly ? '/seo-parser' : `/ada-audit/site/${a.id}`,
+      href: a.seoOnly ? '/seo-audits' : `/ada-audit/site/${a.id}`,
       stat: a.pagesTotal > 0 ? `${a.pagesTotal} pages` : null,
     })
   }

@@ -192,7 +192,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
       })
 
       const data = await res.json()
-      const dest = intent === 'seo' ? `/seo-parser?scan=${data.id}` : `/ada-audit/site/${data.id}`
+      const dest = intent === 'seo' ? `/seo-audits?scan=${data.id}` : `/ada-audit/site/${data.id}`
       if (!res.ok) {
         if (res.status === 409 && data.id) {
           setError(`A site audit for this domain is already running.`)
@@ -253,7 +253,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
         }),
       })
       const data = await res.json()
-      const dest = intent === 'seo' ? `/seo-parser?scan=${data.id}` : `/ada-audit/site/${data.id}`
+      const dest = intent === 'seo' ? `/seo-audits?scan=${data.id}` : `/ada-audit/site/${data.id}`
       if (!res.ok) {
         if (res.status === 409 && data.id) {
           setError('A site audit for this domain is already running.')

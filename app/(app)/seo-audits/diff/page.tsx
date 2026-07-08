@@ -190,7 +190,7 @@ export default function DiffPage() {
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-white/50 mb-3">
-            <Link href="/seo-parser" className="hover:text-[#1c2d4a] dark:hover:text-white transition-colors">
+            <Link href="/seo-audits" className="hover:text-[#1c2d4a] dark:hover:text-white transition-colors">
               SEO Parser
             </Link>
             <span>/</span>
@@ -221,7 +221,7 @@ export default function DiffPage() {
           {!loadingHistory && sessions.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-white/50">
               No completed sessions found.{' '}
-              <Link href="/seo-parser" className="text-[#f5a623] hover:underline">
+              <Link href="/seo-audits" className="text-[#f5a623] hover:underline">
                 Run an analysis first.
               </Link>
             </p>

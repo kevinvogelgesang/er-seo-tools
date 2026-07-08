@@ -64,9 +64,9 @@ export default function QueueMemberRow({ member, onCancelled }: Props) {
   return (
     <tr className="border-b border-gray-50 dark:border-navy-border/50 hover:bg-gray-50/50 dark:hover:bg-navy-deep/30">
       <td className="px-6 py-3 font-body text-[13px] text-navy dark:text-white">
-        {/* C11: a seoOnly audit has no ADA results — route to /seo-parser
+        {/* C11: a seoOnly audit has no ADA results — route to /seo-audits
             (the ADA site page redirects it away) and flag it as an SEO scan. */}
-        <Link href={member.seoOnly ? '/seo-parser' : `/ada-audit/site/${member.id}`} className="hover:text-orange inline-flex items-center gap-1">
+        <Link href={member.seoOnly ? '/seo-audits' : `/ada-audit/site/${member.id}`} className="hover:text-orange inline-flex items-center gap-1">
           <IntentChip seoOnly={member.seoOnly} />
           {member.domain}
         </Link>

@@ -68,11 +68,11 @@ export interface SeoRunRow {
 }
 
 /** Resolve the deep-link href for a SEO sparkline / scorecard point.
- *  Live-scan runs link to /seo-parser/results/run/<crawlRunId>;
- *  sf-upload runs link to /seo-parser/results/<sessionId> (or null if orphaned). */
+ *  Live-scan runs link to /seo-audits/results/run/<crawlRunId>;
+ *  sf-upload runs link to /seo-audits/results/<sessionId> (or null if orphaned). */
 function seoHref(r: SeoRunRow): string | null {
-  if (r.source === 'live-scan' && r.crawlRunId) return `/seo-parser/results/run/${r.crawlRunId}`
-  return r.sessionId ? `/seo-parser/results/${r.sessionId}` : null
+  if (r.source === 'live-scan' && r.crawlRunId) return `/seo-audits/results/run/${r.crawlRunId}`
+  return r.sessionId ? `/seo-audits/results/${r.sessionId}` : null
 }
 
 export function buildSeoSeries(runs: SeoRunRow[]): { series: ScoreSeries; latestHref: string | null } {

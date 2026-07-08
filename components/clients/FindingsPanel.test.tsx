@@ -8,7 +8,7 @@ import { FindingsPanel, type FindingRowProp, type SourceMetaProp } from './Findi
 afterEach(cleanup)
 
 const meta = (over: Partial<SourceMetaProp> = {}): SourceMetaProp => ({
-  runAt: '2026-06-10T00:00:00.000Z', href: '/seo-parser/results/s1', domain: 'acme.example',
+  runAt: '2026-06-10T00:00:00.000Z', href: '/seo-audits/results/s1', domain: 'acme.example',
   hasPrevious: true, newTypeCount: 0, resolvedTypeCount: 0,
   newInstanceCount: null, resolvedInstanceCount: null, ...over,
 })
@@ -17,7 +17,7 @@ const row = (over: Partial<FindingRowProp> = {}): FindingRowProp => ({
   tool: 'seo', type: 'broken_pages', severity: 'critical', count: 4,
   countDelta: null, isNew: false, description: 'Broken pages found', helpUrl: null,
   urls: ['https://acme.example/a', 'https://acme.example/b'], totalUrls: 2,
-  isSample: false, href: '/seo-parser/results/s1', ...over,
+  isSample: false, href: '/seo-audits/results/s1', ...over,
 })
 
 describe('FindingsPanel', () => {

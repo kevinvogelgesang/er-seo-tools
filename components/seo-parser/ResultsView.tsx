@@ -14,7 +14,7 @@ import { ExportButtons } from './ExportButtons';
 import { CopyToClipboard } from './CopyToClipboard';
 import { PageDetailModal } from './PageDetailModal';
 import { ShareModal } from './ShareModal';
-import { NeedsScreamingFrog } from '@/components/seo/SeoSourceBadge';
+import { NeedsScreamingFrog, SeoSourceBadge } from '@/components/seo/SeoSourceBadge';
 import { DuplicateContentSection } from './DuplicateContentSection';
 import { KeywordSignalsPanel } from './KeywordSignalsPanel';
 import { SuggestedPriorities } from './SuggestedPriorities';
@@ -53,6 +53,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, healthScore, scoreBreakdown }: ResultsViewProps) {
   const router = useRouter();
   const siteName = result.metadata?.site_name || 'Site';
+  const isLiveScan = !!runId && !sessionId;
 
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -82,7 +83,9 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="font-bold text-2xl text-navy dark:text-white">{siteName} — SEO Audit</h1>
-            {result.archived ? (
+            {isLiveScan ? (
+              <p className="mt-1"><SeoSourceBadge source="live-scan" /></p>
+            ) : result.archived ? (
               <p className="text-gray-500 dark:text-white/50 text-sm mt-1">Archived — rebuilt from findings data</p>
             ) : (
               <FileProcessingPanel
@@ -113,7 +116,7 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
             )}
             {pillarButton}
             <button
-              onClick={() => router.push('/seo-parser')}
+              onClick={() => router.push('/seo-audits')}
               className="px-4 py-2 border border-gray-200 dark:border-navy-border rounded-lg text-sm text-gray-600 dark:text-white/60 hover:bg-gray-50 dark:hover:bg-navy-light transition-colors"
             >
               New Analysis
@@ -123,8 +126,10 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
 
         {/* Completeness guard — recompute if absent so pre-feature sessions are covered too.
             NEVER recompute on an archived fallback (findings-only data would misclassify as
-            missing inputs); the archived banner replaces it. */}
-        {result.archived ? (
+            missing inputs); the archived banner replaces it. A live-scan run is
+            findings-only by construction (no page_index/file uploads) — the
+            completeness verdict doesn't apply, so it's suppressed entirely. */}
+        {isLiveScan ? null : result.archived ? (
           <ArchivedSessionBanner />
         ) : (
           <AuditCompletenessBanner completeness={result.completeness ?? computeCompleteness(result)} />

@@ -27,15 +27,15 @@ describe('QuickSiteAuditWidget', () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/ada-audit/site/dup'))
   })
 
-  it('C11: routes a seoOnly 409 duplicate to /seo-parser', async () => {
+  it('C11: routes a seoOnly 409 duplicate to /seo-audits', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 409, ok: false, json: async () => ({ error: 'in flight', id: 'dup', seoOnly: true }) }))
     render(<QuickSiteAuditWidget size="wide" />)
     fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'example.com' } })
     fireEvent.click(screen.getByRole('button', { name: /start/i }))
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser?scan=dup'))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-audits?scan=dup'))
   })
 
-  it('C11: new SEO 202 (no seoOnly in body) routes by local intent to /seo-parser?scan=', async () => {
+  it('C11: new SEO 202 (no seoOnly in body) routes by local intent to /seo-audits?scan=', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
       const body = JSON.parse(String(init!.body))
       expect(body.seoOnly).toBe(true)
@@ -45,7 +45,7 @@ describe('QuickSiteAuditWidget', () => {
     fireEvent.click(screen.getByRole('button', { name: /SEO/i }))
     fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'x.edu' } })
     fireEvent.click(screen.getByRole('button', { name: /start/i }))
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser?scan=Q1'))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-audits?scan=Q1'))
   })
 
   it('shows an inline error on a 400 and does not redirect', async () => {

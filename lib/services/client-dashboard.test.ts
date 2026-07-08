@@ -78,11 +78,11 @@ describe('getClientDashboard', () => {
     const types = d.timeline.map((t) => t.type)
     expect(types).toEqual(['ada-audit', 'site-audit', 'seo-roadmap', 'pillar-analysis', 'keyword-research', 'seo-parse'])
     const byType = Object.fromEntries(d.timeline.map((t) => [t.type, t]))
-    expect(byType['seo-parse'].href).toBe(`/seo-parser/results/${tech.id}`)
+    expect(byType['seo-parse'].href).toBe(`/seo-audits/results/${tech.id}`)
     expect(byType['keyword-research'].href).toBe(`/keyword-research/${kw.id}`)
     expect(byType['site-audit'].href).toBe(`/ada-audit/site/${sa.id}`)
     expect(byType['ada-audit'].href).toBe(`/ada-audit/${ada.id}`)
-    expect(byType['seo-roadmap'].href).toBe(`/seo-parser/results/${tech.id}`)
+    expect(byType['seo-roadmap'].href).toBe(`/seo-audits/results/${tech.id}`)
     expect(byType['pillar-analysis'].href).toMatch(/^\/pillar-analysis\//)
     expect(byType['site-audit'].stat).toBe('23 pages')
   })
@@ -163,7 +163,7 @@ describe('getClientDashboard', () => {
     // Live-scan is now the canonical run → score surfaced in the SEO series.
     expect(result.seo.series.latest).toBe(72)
     // Deep link routes to the run-results page (no sessionId).
-    expect(result.seo.latestHref).toMatch(/^\/seo-parser\/results\/run\//)
+    expect(result.seo.latestHref).toMatch(/^\/seo-audits\/results\/run\//)
   })
 
   it('Task 9: fresh sf-upload still wins over a fresh seoIntent live-scan', async () => {
@@ -193,7 +193,7 @@ describe('getClientDashboard', () => {
     const result = await getClientDashboard(c.id, NOW)
     // Fresh SF wins: score = 88 not 60
     expect(result.seo.series.latest).toBe(88)
-    expect(result.seo.latestHref).toMatch(/^\/seo-parser\/results\//)
+    expect(result.seo.latestHref).toMatch(/^\/seo-audits\/results\//)
     expect(result.seo.latestHref).not.toMatch(/\/run\//)
   })
 

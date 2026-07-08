@@ -102,9 +102,9 @@ Configure these in **Configuration → API Access**:
 
 ---
 
-## Use case 1 — Technical Audit (`/seo-parser`)
+## Use case 1 — Technical Audit (`/seo-audits`)
 
-The bread-and-butter audit that produces the prioritized SEO report at `/seo-parser/results/[id]`.
+The bread-and-butter audit that produces the prioritized SEO report at `/seo-audits/results/[id]`.
 
 ### What to enable on top of the base config
 
@@ -134,7 +134,7 @@ After the spider finishes, click **Crawl Analysis → Start**. This computes Lin
 
 ## Use case 2 — Keyword Research
 
-Keyword research isn't a built tool inside er-seo-tools — it's a workflow that combines SF's URL inventory with Semrush exports and GSC data, then surfaces opportunities through the same `/seo-parser` upload flow plus the Semrush parsers.
+Keyword research isn't a built tool inside er-seo-tools — it's a workflow that combines SF's URL inventory with Semrush exports and GSC data, then surfaces opportunities through the same `/seo-audits` upload flow plus the Semrush parsers.
 
 ### What to enable on top of the base config
 
@@ -153,7 +153,7 @@ Keyword research isn't a built tool inside er-seo-tools — it's a workflow that
 
 ### Required exports from Semrush (downloaded separately, then uploaded alongside SF CSVs)
 
-Pull these from the client's Semrush project and include in the same `/seo-parser` upload:
+Pull these from the client's Semrush project and include in the same `/seo-audits` upload:
 
 - **Organic Research → Positions** (export type: "Organic Research → Positions" → CSV). Filename will look like `client.com-organic.Positions-<region>-<date>.csv`. Parsed by `SemrushOrganicPositionsParser`.
 - **Organic Research → Pages** (export type: "Organic Research → Pages" → CSV). Filename like `client.com-organic.Pages-<region>-<date>.csv`. Parsed by `SemrushOrganicPagesParser`.
@@ -169,7 +169,7 @@ The parsers detect Semrush exports by content (header signature), so the exact f
 
 ## Use case 3 — Pillar Analysis (this feature)
 
-Phase 1 of pillar-analysis runs automatically when an SF crawl completes parsing in `/seo-parser`. The crawl just needs to be configured so the per-URL signals exist.
+Phase 1 of pillar-analysis runs automatically when an SF crawl completes parsing in `/seo-audits`. The crawl just needs to be configured so the per-URL signals exist.
 
 ### What to enable on top of the base config
 
@@ -248,4 +248,4 @@ Keep your three configs in `~/Documents/SF Configs/` (or wherever you prefer). T
 - **`First Paragraph` column is empty for everything:** the XPath didn't match the site's HTML structure. Right-click any URL in the Internal tab → "View Custom Extraction" to see what the spider actually pulled. Try the alternative XPaths in §3.2.
 - **`search_console.csv` missing:** GSC API connection didn't authenticate. Check **API Access → Google Search Console → Account** is signed in and the property is selected.
 - **Bulk Export only produces 5 files:** SF's "Bulk Export" submenu has many sub-sections. Use **Reports → Bulk Reports** or run **Bulk Export → All** for a full dump.
-- **Pillar analysis dashboard shows score but no clusters:** SF crawl was fine, but the cluster threshold is too strict for the site's content. Lower `clusterSimilarityThreshold` in `lib/services/pillarAnalysis/config.ts` (default 0.55 → try 0.45). Re-run via the seo-parser pipeline.
+- **Pillar analysis dashboard shows score but no clusters:** SF crawl was fine, but the cluster threshold is too strict for the site's content. Lower `clusterSimilarityThreshold` in `lib/services/pillarAnalysis/config.ts` (default 0.55 → try 0.45). Re-run via the seo-audits pipeline.

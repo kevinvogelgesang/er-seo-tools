@@ -13,6 +13,15 @@ vi.mock('next/dynamic', () => ({
     },
 }))
 
+const liveResult: AggregatedResult = {
+  crawl_summary: { total_urls: 2 },
+  issues: { critical: [], warnings: [], notices: [] },
+  site_structure: {}, resources: {}, technical_seo: {}, performance: {},
+  recommendations: [],
+  metadata: { files_processed: [], parsers_used: [], total_parsers_available: 0, site_name: 'live.test' },
+  archived: false,
+} as unknown as AggregatedResult
+
 const archivedResult: AggregatedResult = {
   crawl_summary: { total_urls: 5, indexable_urls: 4, non_indexable_urls: 1 },
   issues: {
@@ -69,5 +78,18 @@ describe('ResultsView archived mode', () => {
     expect(screen.getByText(/File processing:/)).toBeTruthy();
     expect(screen.queryByText('Debug info')).toBeNull(); // footer removed
     expect(screen.getByText(/unreliable/i)).toBeTruthy(); // core-failure banner
+  })
+})
+
+describe('ResultsView live-scan mode', () => {
+  it('renders a live-scan run as first-class (no archived, no completeness banner)', () => {
+    render(<ResultsView result={liveResult} runId="run_abc" />)
+    expect(screen.queryByText(/Archived — rebuilt from findings/i)).toBeNull()
+    expect(screen.getByText(/Live scan/i)).toBeTruthy() // SeoSourceBadge text
+    // AuditCompletenessBanner would otherwise render "Incomplete audit — internal
+    // crawl missing" for this fixture (no page_index, no internal_all file) —
+    // confirmed by reading AuditCompletenessBanner.tsx. Its absence here proves
+    // the live-scan branch actually suppresses the banner, not just coincidence.
+    expect(screen.queryByText(/Incomplete audit/i)).toBeNull()
   })
 })

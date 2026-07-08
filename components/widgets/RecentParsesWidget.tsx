@@ -22,8 +22,8 @@ function hrefFor(row: ParseRow): string {
   // Live-scan runs deep-link to their run results page (the id is a CrawlRun id);
   // sessions to the session results page.
   return row.kind === 'session'
-    ? `/seo-parser/results/${row.id}`
-    : `/seo-parser/results/run/${row.id}`
+    ? `/seo-audits/results/${row.id}`
+    : `/seo-audits/results/run/${row.id}`
 }
 
 export function RecentParsesWidget({ size }: { size: WidgetSize }) {

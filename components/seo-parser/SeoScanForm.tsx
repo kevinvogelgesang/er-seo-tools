@@ -36,7 +36,7 @@ export function SeoScanForm() {
           // Strip ?scan= so a later refresh doesn't re-adopt this stale id
           // and clobber sessionStorage if the operator has since started a
           // new scan.
-          window.history.replaceState({}, '', '/seo-parser');
+          window.history.replaceState({}, '', '/seo-audits');
         } catch {
           // ignore
         }
@@ -227,7 +227,7 @@ export function SeoScanForm() {
       {phase === 'ready' && runId && (
         <p className="mt-3 text-sm">
           <a
-            href={`/seo-parser/results/run/${runId}`}
+            href={`/seo-audits/results/run/${runId}`}
             className="font-bold text-orange hover:underline dark:text-orange"
           >
             View SEO results →
