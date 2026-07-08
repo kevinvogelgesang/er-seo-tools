@@ -259,6 +259,13 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
     return
   }
 
+  // This job does not yet request renderOnly, so the runner only ever returns
+  // 'audited' (or the 'redirected' handled above). Narrow defensively — C11
+  // Task 3 will pass renderOnly here and add explicit 'rendered' handling.
+  if (runResult.kind !== 'audited') {
+    throw new Error(`site-audit-page: unexpected runner result kind '${runResult.kind}'`)
+  }
+
   const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo } = runResult
 
   // PDFs FIRST: dispatchPdfScans commits PdfAudit rows + pdfsTotal++ and
