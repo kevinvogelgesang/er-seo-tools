@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest'
+import { it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 vi.mock('./SeoScanForm', () => ({ SeoScanForm: () => <div data-testid="scan-panel" /> }))
 vi.mock('./SeoUploadCard', () => ({ SeoUploadCard: () => <div data-testid="upload-panel" /> }))
