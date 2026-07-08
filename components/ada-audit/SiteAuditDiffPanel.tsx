@@ -4,16 +4,15 @@ import { useState } from 'react'
 import Link from 'next/link'
 import type { InstanceDiff, RuleInstanceDiff } from '@/lib/services/findings-shared'
 import { ClientDate } from '@/components/ClientDate'
+import { StatusPill } from '@/components/ui/StatusPill'
 
 interface Props {
   diff: InstanceDiff
   previous: { siteAuditId: string | null; completedAt: string | null }
 }
 
-const SEV_PILL: Record<string, string> = {
-  critical: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400',
-  warning: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400',
-  notice: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60',
+function sevTone(sev: string): 'error' | 'warning' | 'neutral' {
+  return sev === 'critical' ? 'error' : sev === 'warning' ? 'warning' : 'neutral'
 }
 
 function RuleRow({ rule }: { rule: RuleInstanceDiff }) {
@@ -22,7 +21,7 @@ function RuleRow({ rule }: { rule: RuleInstanceDiff }) {
   return (
     <li className="py-2">
       <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex flex-wrap items-center gap-2 text-left text-[12px] font-body">
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${SEV_PILL[rule.severity]}`}>{rule.severity}</span>
+        <StatusPill label={rule.severity} tone={sevTone(rule.severity)} />
         <span className="font-semibold text-navy dark:text-white">{rule.type}</span>
         {isNewRule && (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-600 text-white">NEW</span>
@@ -73,16 +72,15 @@ export default function SiteAuditDiffPanel({ diff, previous }: Props) {
       </div>
       <div className="p-6 space-y-4">
         <div className="flex flex-wrap gap-2 text-[12px] font-body font-semibold">
-          <span className={`px-2 py-1 rounded-lg ${diff.newCount > 0 ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50'}`}>
-            {diff.newCount} new{diff.newCount > 0 ? ` (${diff.regressedCount} regressed · ${diff.newPageCount} on new pages)` : ''}
-          </span>
-          <span className={`px-2 py-1 rounded-lg ${diff.resolvedCount > 0 ? 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50'}`}>
-            {diff.resolvedCount} resolved
-          </span>
-          <span className="px-2 py-1 rounded-lg bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50">{diff.unchangedCount} unchanged</span>
+          <StatusPill
+            tone={diff.newCount > 0 ? 'error' : 'neutral'}
+            label={`${diff.newCount} new${diff.newCount > 0 ? ` (${diff.regressedCount} regressed · ${diff.newPageCount} on new pages)` : ''}`}
+          />
+          <StatusPill tone={diff.resolvedCount > 0 ? 'success' : 'neutral'} label={`${diff.resolvedCount} resolved`} />
+          <StatusPill tone="neutral" label={`${diff.unchangedCount} unchanged`} />
           {diff.notRescannedCount > 0 && (
-            <span className="px-2 py-1 rounded-lg bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50" title="Violations on pages that were not part of this crawl — neither new nor resolved.">
-              {diff.notRescannedCount} not re-scanned
+            <span title="Violations on pages that were not part of this crawl — neither new nor resolved.">
+              <StatusPill tone="neutral" label={`${diff.notRescannedCount} not re-scanned`} />
             </span>
           )}
         </div>
