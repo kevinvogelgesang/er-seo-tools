@@ -197,7 +197,7 @@ const seoPhase = classifySeoPhase({
   job: await getLatestSeoVerifyJob(audit.id),
 })
 ```
-Return `seoPhase` in the JSON and add it to the `SiteAuditDetail` type extension. `liveScanRunId` stays (what `SeoScanForm` reads for the results link). One extra indexed query per poll — acceptable (`SeoScanForm` polls at 2 s only while a scan is pending, and self-terminates on `ready`/`error`). Note: when `liveScanRunId` is present the classifier returns `done` **without** consulting the job, so the job lookup can be skipped in that branch (short-circuit before the `await`).
+Return `seoPhase` in the JSON and add it to the route's **inline** `satisfies SiteAuditDetail & {...}` extension — NOT to the shared `SiteAuditDetail` interface (other routes return it; a required new field would break them — Codex plan-review fix). `SeoScanForm` reads `d.seoPhase` off the parsed JSON, no shared-type dependency. `liveScanRunId` stays (what `SeoScanForm` reads for the results link, and the readiness source of truth). One extra indexed query per poll — acceptable (`SeoScanForm` polls at 2 s only while a scan is pending, and self-terminates on `ready`/`error`). Note: when `liveScanRunId` is present the classifier returns `done` **without** consulting the job, so the job lookup can be skipped in that branch (short-circuit before the `await`).
 
 ### 3.6 ADA site page — server-probe banner
 
@@ -242,8 +242,7 @@ Progress bar is a small inline element (orange fill on a neutral track), dark-mo
 | `lib/jobs/worker.ts` | progress cell + heartbeat flush; claim resets progress |
 | `lib/jobs/handlers/broken-link-verify.ts` | forward ctx in registration; `runBrokenLinkVerify(payload, deps, ctx?)`; report progress in the resolution loop + finalizing |
 | `lib/ada-audit/seo-phase.ts` | new — `classifySeoPhase` (pure) + `getSeoPhase` (DB) |
-| `app/api/site-audit/[id]/route.ts` | + `seoPhase` in GET response |
-| `lib/ada-audit/types.ts` | `SiteAuditDetail` gains `seoPhase` |
+| `app/api/site-audit/[id]/route.ts` | + `seoPhase` in GET response, added to the route's **inline** `satisfies` extension (shared `SiteAuditDetail` unchanged) |
 | `app/(app)/ada-audit/site/[id]/page.tsx` | compute `getSeoPhase`; gate SEO sections vs `SeoPhaseBanner` |
 | `components/site-audit/SeoPhaseBanner.tsx` | new — server-rendered status banner |
 | `components/seo-parser/SeoScanForm.tsx` | consume `seoPhase`; progress bar + failed/unavailable terminals |

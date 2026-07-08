@@ -88,53 +88,65 @@ git commit -m "feat(jobs): add nullable Job.progress + progressMessage columns"
 **Interfaces:**
 - Produces: `JobHandlerContext.reportProgress: (progress: number | null, message: string | null) => void` (consumed by Task 3).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Create `lib/jobs/worker.progress.test.ts`. This is a DB-backed test that runs a job whose handler reports progress and asserts the row reflects it, and that a successful settle sets `progress: 100`. Use the existing test harness pattern (register a handler, enqueue, run one tick). Model it on the closest existing worker test (`ls lib/jobs/*worker*.test.ts` and copy its imports/setup).
+Create `lib/jobs/worker.progress.test.ts`. Use the **real** harness helpers (verified in `lib/jobs/worker.test.ts`): `clearJobRegistryForTests`, `resetWorkerForTests`, `runWorkerTickOnce`, `enqueueJob`, `registerJobHandler`, plus a local `deferred()`. Two tests: (a) the success-settle contract (`progress:100`, message null) — deterministic, real timers; (b) the **heartbeat flush** using fake timers + `advanceTimersByTimeAsync` so a mid-run `reportProgress(42,…)` lands on the row under the fence.
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { prisma } from '@/lib/db'
-import { registerJobHandler, __resetHandlersForTest } from '@/lib/jobs/registry'
-import { enqueueJob } from '@/lib/jobs/queue'
-import { runWorkerTickOnce, __stopForTest } from '@/lib/jobs/worker'
+import { registerJobHandler, clearJobRegistryForTests } from './registry'
+import { enqueueJob } from './queue'
+import { runWorkerTickOnce, resetWorkerForTests } from './worker'
 
-// NOTE: adjust imports to the real exports; confirm the tick/registry helpers
-// by reading an existing worker test before writing this.
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((res) => { resolve = res })
+  return { promise, resolve }
+}
+async function waitFor(pred: () => Promise<boolean>, tries = 60): Promise<void> {
+  for (let i = 0; i < tries; i++) { if (await pred()) return; await new Promise((r) => setTimeout(r, 25)) }
+  throw new Error('waitFor timed out')
+}
 
 describe('worker progress', () => {
   beforeEach(async () => {
-    await prisma.job.deleteMany({})
-    __resetHandlersForTest?.()
+    clearJobRegistryForTests()
+    resetWorkerForTests()
+    await prisma.job.deleteMany({ where: { type: { startsWith: 'test-prog' } } })
   })
-  afterEach(() => __stopForTest?.())
+  afterEach(() => { vi.useRealTimers() })
 
-  it('flushes reported progress to the row and sets 100 on success', async () => {
-    let sawProgressDuringRun: number | null = -1
-    registerJobHandler({
-      type: 'test-progress',
-      concurrency: 1,
-      handler: async (_payload, ctx) => {
-        ctx.reportProgress(42, 'Checked 42/100 links')
-        // Force one heartbeat flush by waiting slightly past HEARTBEAT_MS is too
-        // slow for a unit test; instead assert the cell path directly by reading
-        // the row after a manual heartbeat is impractical here. So this test
-        // asserts the SUCCESS-settle contract (progress:100) which is synchronous.
-        const row = await prisma.job.findFirst({ where: { type: 'test-progress' } })
-        sawProgressDuringRun = row?.progress ?? null
-      },
-    })
-    await enqueueJob({ type: 'test-progress', payload: {} })
+  it('sets progress:100 and clears message on successful settle', async () => {
+    registerJobHandler({ type: 'test-prog-ok', concurrency: 1, handler: async (_p, ctx) => { ctx.reportProgress(42, 'Checked 42/100 links') } })
+    const { id } = await enqueueJob({ type: 'test-prog-ok', payload: {} })
     await runWorkerTickOnce()
-    const done = await prisma.job.findFirst({ where: { type: 'test-progress' } })
-    expect(done?.status).toBe('complete')
-    expect(done?.progress).toBe(100)
-    expect(done?.progressMessage).toBeNull()
+    await waitFor(async () => (await prisma.job.findUnique({ where: { id } }))?.status === 'complete')
+    const row = await prisma.job.findUnique({ where: { id } })
+    expect(row?.progress).toBe(100)
+    expect(row?.progressMessage).toBeNull()
+  })
+
+  it('flushes reported progress to the row on the fenced heartbeat', async () => {
+    vi.useFakeTimers()
+    const gate = deferred()
+    registerJobHandler({
+      type: 'test-prog-hb', concurrency: 1,
+      handler: async (_p, ctx) => { ctx.reportProgress(42, 'Checked 42/100 links'); await gate.promise },
+    })
+    const { id } = await enqueueJob({ type: 'test-prog-hb', payload: {} })
+    void runWorkerTickOnce()
+    await vi.advanceTimersByTimeAsync(15_000) // one HEARTBEAT_MS tick flushes the cell
+    const mid = await prisma.job.findUnique({ where: { id } })
+    expect(mid?.progress).toBe(42)
+    expect(mid?.progressMessage).toBe('Checked 42/100 links')
+    gate.resolve()
+    await vi.advanceTimersByTimeAsync(0)
   })
 })
 ```
 
-> Implementer note: heartbeat-flush timing is hard to unit-test deterministically (15 s interval). This test locks the **settle** contract (`progress:100` on success, message cleared). The heartbeat-flush wiring is covered by the type + the manual reasoning that the interval callback reads the same cell; if the existing test harness exposes a way to trigger the interval, add an assertion that a mid-run `reportProgress(42,…)` value lands under the fence. Do not block the task on simulating the timer.
+> Implementer note: if the fake-timer + real-SQLite interaction proves flaky (the `updateMany` promise not settling under `advanceTimersByTimeAsync`), the **success-settle test is the required one**; downgrade the heartbeat test to poll with real timers only if you first lower the wait by confirming an earlier flush — do NOT change `HEARTBEAT_MS`. Verify the exact harness helper names against `lib/jobs/worker.test.ts` before writing.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -328,15 +340,18 @@ export async function runBrokenLinkVerify(
 ): Promise<void> {
 ```
 
-After `allToResolve` is constructed (and before `cacheWorker` is defined), add:
+After `allToResolve` is constructed (and before `cacheWorker` is defined), add a **safe** reporter (must never throw into the loop — Global Constraint):
 
 ```ts
+  // Best-effort; never throws into the resolution loop.
+  const report = (progress: number | null, message: string | null) => {
+    try { ctx?.reportProgress(progress, message) } catch { /* ignore */ }
+  }
   const totalToResolve = allToResolve.length
   let resolvedCount = 0
   const reportResolveProgress = () => {
-    if (!ctx) return
     const pct = totalToResolve ? Math.floor((resolvedCount / totalToResolve) * 90) : 0
-    ctx.reportProgress(pct, `Checked ${resolvedCount}/${totalToResolve} links`)
+    report(pct, `Checked ${resolvedCount}/${totalToResolve} links`)
   }
 ```
 
@@ -363,13 +378,13 @@ In `cacheWorker`, the URL-parse-fail branch and the normal end-of-iteration both
 
 - [ ] **Step 5: Report the finalize phase**
 
-Immediately before the findings-build / `writeFindingsRun` section (after the external + validation passes complete, before the run is written), add:
+Pin the placement (Codex fix): report **after** the internal + external + validation resolution passes are complete and **before** the graph/findings/score/coverage/content-similarity bundle assembly begins — so the UI shows "building" during *all* post-network work, not only the instant before the DB write. Grep for `writeFindingsRun` to locate the write, then walk **up** to the first line of bundle assembly (the first `map*Findings` / `computeContentSimilarity` / `computeDiscoveryCoverage` / `scoreLiveSeo` call after the external pass) and insert just above it:
 
 ```ts
-  if (ctx) ctx.reportProgress(95, 'Building SEO report…')
+  report(95, 'Building SEO report…')
 ```
 
-(Place it just before the code that assembles the bundle and calls `writeFindingsRun` — grep for `writeFindingsRun` to find the spot.)
+(Uses the safe `report` wrapper from Step 3.)
 
 - [ ] **Step 6: Forward ctx in the registration**
 
@@ -502,7 +517,7 @@ export function classifySeoPhase(input: { liveScanRunId: string | null; job: Ver
 export async function getLatestSeoVerifyJob(siteAuditId: string): Promise<VerifyJob | null> {
   return prisma.job.findFirst({
     where: { type: BROKEN_LINK_VERIFY_JOB_TYPE, groupKey: `site-audit:${siteAuditId}` },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], // id tiebreaker → deterministic on same-ms rows
     select: { status: true, progress: true, progressMessage: true },
   })
 }
@@ -539,13 +554,12 @@ git commit -m "feat(seo-phase): classifySeoPhase + getLatestSeoVerifyJob + getSe
 ### Task 5: `GET /api/site-audit/[id]` — expose `seoPhase`
 
 **Files:**
-- Modify: `app/api/site-audit/[id]/route.ts` (GET, ~13-128)
-- Modify: `lib/ada-audit/types.ts` (`SiteAuditDetail`, ~223)
+- Modify: `app/api/site-audit/[id]/route.ts` (GET, ~13-128 — the response object + its inline `satisfies` extension)
 - Test: `app/api/site-audit/[id]/route.seo-phase.test.ts` (create)
 
 **Interfaces:**
-- Consumes: `classifySeoPhase`, `getLatestSeoVerifyJob` (Task 4).
-- Produces: `seoPhase: SeoPhase` on the GET response + `SiteAuditDetail.seoPhase`.
+- Consumes: `classifySeoPhase`, `getLatestSeoVerifyJob`, `SeoPhase` (Task 4).
+- Produces: `seoPhase: SeoPhase` on the GET response (added to the route's **inline** `satisfies SiteAuditDetail & {...}` extension — NOT to the shared `SiteAuditDetail` interface, which other routes return; Codex fix #5).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -567,14 +581,14 @@ Expected: FAIL — `json.seoPhase` is undefined.
 
 In `app/api/site-audit/[id]/route.ts`, add imports:
 ```ts
-import { classifySeoPhase, getLatestSeoVerifyJob } from '@/lib/ada-audit/seo-phase'
+import { classifySeoPhase, getLatestSeoVerifyJob, type SeoPhase } from '@/lib/ada-audit/seo-phase'
 ```
 
 Before the `return NextResponse.json({...})`, compute (short-circuit the job lookup when done):
 ```ts
   const liveScanRunId = audit.crawlRuns[0]?.id ?? null
-  const seoPhase = liveScanRunId
-    ? { state: 'done' as const, progress: null, message: null }
+  const seoPhase: SeoPhase = liveScanRunId
+    ? { state: 'done', progress: null, message: null }
     : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
 ```
 
@@ -585,13 +599,18 @@ Reuse `liveScanRunId` in the response (replace the inline `audit.crawlRuns[0]?.i
     seoPhase,
 ```
 
-- [ ] **Step 4: Extend the type**
+- [ ] **Step 4: Extend the route's inline response type (NOT shared `SiteAuditDetail`)**
 
-In `lib/ada-audit/types.ts`, add to `SiteAuditDetail`:
+In the same file, the return already ends with `} satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit; liveScanRunId: string | null }`. Add `seoPhase` to that inline extension only:
 ```ts
-  seoPhase: import('./seo-phase').SeoPhase
+  } satisfies SiteAuditDetail & {
+    queuePosition: number | null
+    activeAudit: typeof activeAudit
+    liveScanRunId: string | null
+    seoPhase: SeoPhase
+  })
 ```
-(Or add a top-level `import type { SeoPhase } from './seo-phase'` and `seoPhase: SeoPhase`.) Confirm the route's `satisfies SiteAuditDetail & {...}` still holds — the `liveScanRunId: string | null` line in the `satisfies` extension stays.
+Do **not** touch `lib/ada-audit/types.ts` — leaving `SiteAuditDetail` unchanged keeps every other route that returns it compiling. `SeoScanForm` reads `d.seoPhase` off the parsed JSON (no shared-type dependency).
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -601,7 +620,7 @@ Expected: PASS (new test + existing route tests green).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add "app/api/site-audit/[id]/route.ts" lib/ada-audit/types.ts "app/api/site-audit/[id]/route.seo-phase.test.ts"
+git add "app/api/site-audit/[id]/route.ts" "app/api/site-audit/[id]/route.seo-phase.test.ts"
 git commit -m "feat(api): expose seoPhase on GET /api/site-audit/[id]"
 ```
 
@@ -619,31 +638,38 @@ git commit -m "feat(api): expose seoPhase on GET /api/site-audit/[id]"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `components/site-audit/SeoPhaseBanner.test.tsx`:
+Create `components/site-audit/SeoPhaseBanner.test.tsx`. Match house style (verified in `BrokenLinksSection.test.tsx`): the `// @vitest-environment jsdom` directive on line 1, `afterEach(cleanup)`, and `.toBeTruthy()`/`.toBeNull()` assertions — the repo does **not** configure `@testing-library/jest-dom`, so `toBeInTheDocument()` is unavailable.
 
 ```tsx
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+// @vitest-environment jsdom
+import { render, screen, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach } from 'vitest'
 import { SeoPhaseBanner } from './SeoPhaseBanner'
+
+afterEach(cleanup)
 
 describe('SeoPhaseBanner', () => {
   it('running shows counts + refresh hint', () => {
     render(<SeoPhaseBanner phase={{ state: 'running', progress: 40, message: 'Checked 4/10 links' }} />)
-    expect(screen.getByText(/SEO analysis running/i)).toBeInTheDocument()
-    expect(screen.getByText(/Checked 4\/10 links/)).toBeInTheDocument()
-    expect(screen.getByText(/refresh/i)).toBeInTheDocument()
+    expect(screen.getByText(/SEO analysis running/i)).toBeTruthy()
+    expect(screen.getByText(/Checked 4\/10 links/)).toBeTruthy()
+    expect(screen.getByText(/refresh/i)).toBeTruthy()
   })
   it('queued', () => {
     render(<SeoPhaseBanner phase={{ state: 'queued', progress: null, message: null }} />)
-    expect(screen.getByText(/SEO analysis queued/i)).toBeInTheDocument()
+    expect(screen.getByText(/SEO analysis queued/i)).toBeTruthy()
   })
   it('failed', () => {
     render(<SeoPhaseBanner phase={{ state: 'failed', progress: null, message: null }} />)
-    expect(screen.getByText(/SEO analysis failed/i)).toBeInTheDocument()
+    expect(screen.getByText(/SEO analysis failed/i)).toBeTruthy()
   })
   it('unavailable', () => {
     render(<SeoPhaseBanner phase={{ state: 'unavailable', progress: null, message: null }} />)
-    expect(screen.getByText(/not available/i)).toBeInTheDocument()
+    expect(screen.getByText(/not available/i)).toBeTruthy()
+  })
+  it('done renders nothing', () => {
+    const { container } = render(<SeoPhaseBanner phase={{ state: 'done', progress: null, message: null }} />)
+    expect(container.firstChild).toBeNull()
   })
 })
 ```
@@ -827,28 +853,29 @@ const [progress, setProgress] = useState<number | null>(null)
 const [progressMsg, setProgressMsg] = useState<string | null>(null)
 ```
 
-In `poll`, replace the `d.status === 'complete'` branch logic with `seoPhase`-driven handling:
+In `poll`, replace the `d.status === 'complete'` branch logic with `seoPhase`-driven handling. **Readiness is `liveScanRunId`, not `seoPhase.state === 'done'`** (Codex fix #7 — the UI needs the id to render the results link; the API keeps them aligned but the id is the source of truth). Clear stale progress on every terminal/non-building transition (Codex fix #8):
 
 ```ts
+    const clearProgress = () => { setProgress(null); setProgressMsg(null) }
     if (d.status === 'error' || d.status === 'cancelled') {
       setError('SEO scan failed — please try again.')
-      setPhase('error')
+      setPhase('error'); clearProgress()
       try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
       return
     }
     if (d.status === 'complete') {
       const st = d.seoPhase?.state
-      if (d.liveScanRunId || st === 'done') {
+      if (d.liveScanRunId) {
         setRunId(d.liveScanRunId)
-        setPhase('ready')
+        setPhase('ready'); clearProgress()
         try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
       } else if (st === 'failed') {
         setError('SEO analysis failed — please try again.')
-        setPhase('error')
+        setPhase('error'); clearProgress()
         try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
       } else if (st === 'unavailable') {
         setError('SEO analysis is unavailable for this scan.')
-        setPhase('error')
+        setPhase('error'); clearProgress()
         try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
       } else {
         // running | queued — verifier in flight
@@ -858,8 +885,10 @@ In `poll`, replace the `d.status === 'complete'` branch logic with `seoPhase`-dr
       }
       return
     }
-    setPhase('running')
+    setPhase('running'); clearProgress()
 ```
+
+Also clear progress when a **new scan** is adopted/submitted: in the mount effect (the `?scan=` / stored-id adoption) and in `submit`'s 202/409 success branches, add `setProgress(null); setProgressMsg(null)` alongside the existing `setPhase('running')` so a re-used mounted form never shows the prior scan's counts.
 
 - [ ] **Step 4: Render the progress bar in the `building` state**
 
