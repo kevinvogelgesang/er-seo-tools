@@ -109,7 +109,32 @@ describe('scheduled-site-audit handler', () => {
       requestedBy: 'scheduled',
       scheduleId: sched.id,
       seoIntent: false,
+      seoOnly: false,
     })
+  })
+
+  it('forwards seoOnly:true from the payload to queueSiteAuditRequest', async () => {
+    const sched = await makeSchedule({ clientId: client.id })
+    const job = await makeJob(sched.id)
+    await handler(
+      { clientId: client.id, domain: `${PREFIX}ok.example.edu`, wcagLevel: 'wcag21aa', seoOnly: true },
+      ctxFor(job.id),
+    )
+    expect(queueMock.queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ seoOnly: true }),
+    )
+  })
+
+  it('forwards seoOnly:false when absent from the payload (control)', async () => {
+    const sched = await makeSchedule({ clientId: client.id })
+    const job = await makeJob(sched.id)
+    await handler(
+      { clientId: client.id, domain: `${PREFIX}ok.example.edu`, wcagLevel: 'wcag21aa' },
+      ctxFor(job.id),
+    )
+    expect(queueMock.queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ seoOnly: false }),
+    )
   })
 
   it('no-ops when the job has no scheduleId', async () => {
