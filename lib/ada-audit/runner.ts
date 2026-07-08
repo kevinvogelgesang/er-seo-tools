@@ -42,6 +42,9 @@ export interface RunAxeOptions {
   // lighthouse-queue. The local-LH branch is unaffected — local LH genuinely
   // needs the page slot and is not used in production.
   siteAudit?: boolean
+  // C11: render-only SEO scan — keep navigation/settle/redirect-detect/harvest
+  // but skip axe + screenshots + BOTH Lighthouse paths. Returns kind:'rendered'.
+  renderOnly?: boolean
 }
 
 export type RunAxeResult =
@@ -64,6 +67,16 @@ export type RunAxeResult =
   | {
       kind: 'redirected'
       finalUrl: string
+    }
+  | {
+      // C11: render-only result — no axe, no Lighthouse. Same harvest payload
+      // as the audited variant so the live-scan builder is source-agnostic.
+      kind: 'rendered'
+      finalUrl?: string
+      redirected?: boolean
+      harvestedLinks: HarvestedTarget[]
+      harvestedLinksTruncated: boolean
+      harvestedPageSeo: RawPageSeo | null
     }
 
 export async function runAxeAudit(
@@ -148,7 +161,7 @@ export async function runAxeAudit(
     // ── Phase 1: navigation owned by either Lighthouse or us ─────────────
     const provider = getLighthouseProvider()
 
-    if (provider === 'local') {
+    if (provider === 'local' && !options?.renderOnly) {
       // Existing single-navigation optimization: LH owns page.goto
       await progress(20, 'Running Lighthouse…')
       try {
@@ -162,7 +175,7 @@ export async function runAxeAudit(
       // and cache state even if it errors mid-run.
       await resetCdpAfterLighthouse(page).catch(() => {})
     } else {
-      // 'pagespeed' or 'off': we own navigation
+      // 'pagespeed' or 'off' (or any provider under renderOnly): we own navigation
       await progress(20, 'Loading page…')
 
       let response: HTTPResponse | null = null
@@ -285,7 +298,7 @@ export async function runAxeAudit(
         }
       }
 
-      if (provider === 'pagespeed') {
+      if (provider === 'pagespeed' && !options?.renderOnly) {
         if (options?.siteAudit) {
           // Site audit: PSI is queued separately via lighthouse-queue and
           // does not hold the puppeteer page slot. lighthouseSummary stays
@@ -310,69 +323,77 @@ export async function runAxeAudit(
     }
 
     // ── Phase 2: axe on the already-loaded page ──────────────────────────
-    await progress(75, 'Analyzing page…')
-    const domElementCount = await page.evaluate(() => document.querySelectorAll('*').length)
+    // Skipped entirely under renderOnly (SEO scan) — no axe, no screenshots,
+    // no PDF harvest. The `axe` binding stays undefined and is never read on
+    // the render-only path (it returns early before the audited return below).
+    let axe: StoredAxeResults | undefined
+    if (!options?.renderOnly) {
+      await progress(75, 'Analyzing page…')
+      const domElementCount = await page.evaluate(() => document.querySelectorAll('*').length)
 
-    await progress(82, 'Running accessibility checks…')
-    await page.addScriptTag({ path: AXE_PATH })
+      await progress(82, 'Running accessibility checks…')
+      await page.addScriptTag({ path: AXE_PATH })
 
-    // WCAG 2.1 AA = all 2.0 A/AA rules + new 2.1 rules.
-    // WCAG 2.2 AA adds 2.2 AA on top. Passing only 'wcag21aa' misses inherited 2.0 rules.
-    // "best practices" mode adds best-practice rules + WCAG 2.2 AA on top of 2.1 AA.
-    const wcagTags = wcagLevel === 'wcag22aa'
-      ? ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
-      : ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
+      // WCAG 2.1 AA = all 2.0 A/AA rules + new 2.1 rules.
+      // WCAG 2.2 AA adds 2.2 AA on top. Passing only 'wcag21aa' misses inherited 2.0 rules.
+      // "best practices" mode adds best-practice rules + WCAG 2.2 AA on top of 2.1 AA.
+      const wcagTags = wcagLevel === 'wcag22aa'
+        ? ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
+        : ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawResults = await page.evaluate(async (axeOpts: any) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return await (window as any).axe.run(document, axeOpts)
-    }, {
-      runOnly: { type: 'tag', values: wcagTags },
-      resultTypes: ['violations', 'incomplete'],
-      reporter: 'no-passes',
-      iframes: false,
-    })
+      const rawResults = await page.evaluate(async (axeOpts: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return await (window as any).axe.run(document, axeOpts)
+      }, {
+        runOnly: { type: 'tag', values: wcagTags },
+        resultTypes: ['violations', 'incomplete'],
+        reporter: 'no-passes',
+        iframes: false,
+      })
 
-    await progress(90, 'Processing results…')
-    rawResults.violations = capViolationNodesForStorage(rawResults.violations)
-    if (Array.isArray(rawResults.incomplete)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rawResults.incomplete = rawResults.incomplete.map((v: any) => ({
-        ...v,
-        nodes: v.nodes.slice(0, STORED_NODE_LIMIT),
-      }))
-    }
-
-    const axe = rawResults as StoredAxeResults
-    axe.domElementCount = domElementCount
-
-    const shouldCapture = options?.captureScreenshots !== false  // default ON
-    if (shouldCapture && options?.auditId) {
-      const screenshotDir = options.screenshotDir ?? path.join(SCREENSHOTS_DIR, options.auditId)
-      await progress(93, 'Capturing element screenshots…')
-      try {
-        await captureViolationScreenshots(page, axe.violations, screenshotDir)
-      } catch (err) {
-        console.warn('[ada-audit/screenshots] capture phase failed, continuing:', err)
+      await progress(90, 'Processing results…')
+      rawResults.violations = capViolationNodesForStorage(rawResults.violations)
+      if (Array.isArray(rawResults.incomplete)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rawResults.incomplete = rawResults.incomplete.map((v: any) => ({
+          ...v,
+          nodes: v.nodes.slice(0, STORED_NODE_LIMIT),
+        }))
       }
-      // Capture was attempted; record that, independent of whether any
-      // violations existed (a clean page legitimately yields zero shots).
-      axe.captureScreenshots = true
-    }
 
-    // ── Phase 3: PDF harvest from same DOM ───────────────────────────────
-    // Harvest failure must not fail the audit — log + return empty list.
-    await progress(95, 'Harvesting linked PDFs…')
-    try {
-      harvestedPdfUrls = await harvestPdfLinks(page, parsed.hostname.toLowerCase())
-    } catch (e) {
-      console.warn('[ada-audit] PDF harvest failed:', (e as Error).message)
-      harvestedPdfUrls = []
+      axe = rawResults as StoredAxeResults
+      axe.domElementCount = domElementCount
+
+      const shouldCapture = options?.captureScreenshots !== false  // default ON
+      if (shouldCapture && options?.auditId) {
+        const screenshotDir = options.screenshotDir ?? path.join(SCREENSHOTS_DIR, options.auditId)
+        await progress(93, 'Capturing element screenshots…')
+        try {
+          await captureViolationScreenshots(page, axe.violations, screenshotDir)
+        } catch (err) {
+          console.warn('[ada-audit/screenshots] capture phase failed, continuing:', err)
+        }
+        // Capture was attempted; record that, independent of whether any
+        // violations existed (a clean page legitimately yields zero shots).
+        axe.captureScreenshots = true
+      }
+
+      // ── Phase 3: PDF harvest from same DOM ───────────────────────────────
+      // Harvest failure must not fail the audit — log + return empty list.
+      await progress(95, 'Harvesting linked PDFs…')
+      try {
+        harvestedPdfUrls = await harvestPdfLinks(page, parsed.hostname.toLowerCase())
+      } catch (e) {
+        console.warn('[ada-audit] PDF harvest failed:', (e as Error).message)
+        harvestedPdfUrls = []
+      }
     }
 
     // C6: harvest <a href> + <img src> targets + on-page SEO for the live-scan
     // builder. Non-fatal (best-effort), same contract as the PDF harvest above.
+    // Runs for BOTH the audited and render-only paths — the harvest is what the
+    // SEO live-scan builder consumes.
     let harvestedLinks: HarvestedTarget[] = []
     let harvestedLinksTruncated = false
     let harvestedPageSeo: RawPageSeo | null = null
@@ -385,7 +406,11 @@ export async function runAxeAudit(
       console.warn('[ada-audit] link/seo harvest failed:', (e as Error).message)
     }
 
-    return { kind: 'audited', axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
+    if (options?.renderOnly) {
+      return { kind: 'rendered', harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
+    }
+
+    return { kind: 'audited', axe: axe as StoredAxeResults, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
   } finally {
     await releasePage(page)
   }

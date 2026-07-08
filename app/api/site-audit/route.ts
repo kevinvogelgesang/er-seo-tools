@@ -34,11 +34,8 @@ export async function POST(request: NextRequest) {
   const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
 
   const seoIntent = raw?.seoIntent === true
+  const seoOnly = raw?.seoOnly === true
 
-  // FUTURE (efficiency): scheduled/on-demand SEO scans currently run the FULL ADA
-  // site-audit pipeline (axe + screenshots + PSI) and reuse its live-scan run as the
-  // SEO report. A dedicated SEO-only scan mode (skip axe/screenshots/PSI) is the planned
-  // optimization — see docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md §9.
   const result = await queueSiteAuditRequest({
     domain,
     clientId,
@@ -46,6 +43,7 @@ export async function POST(request: NextRequest) {
     preDiscoveredUrls: rawPreDiscoveredUrls,
     requestedBy,
     seoIntent,
+    seoOnly,
   })
 
   if (result.kind === 'invalid') {
@@ -56,12 +54,13 @@ export async function POST(request: NextRequest) {
     // body, preserving the original 409 shape for any existing callers.
     const existing = await prisma.siteAudit.findUnique({
       where: { id: result.existingId },
-      select: { domain: true },
+      select: { domain: true, seoOnly: true },
     })
     return NextResponse.json(
       {
         error: `A site audit for ${existing?.domain ?? 'this domain'} is already queued or running`,
         id: result.existingId,
+        seoOnly: existing?.seoOnly ?? false,
       },
       { status: 409 },
     )
@@ -129,6 +128,7 @@ export async function GET(request: NextRequest) {
       requestedBy: a.requestedBy ?? null,
       startedAt: a.startedAt?.toISOString() ?? null,
       completedAt: a.completedAt?.toISOString() ?? null,
+      seoOnly: a.seoOnly,
     } satisfies SiteAuditDetail & { score: number | null; wcagLevel: string }
   })
 

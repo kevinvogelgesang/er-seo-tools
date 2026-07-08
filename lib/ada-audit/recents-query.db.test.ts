@@ -63,9 +63,17 @@ beforeAll(async () => {
     data: { tool: 'ada-audit', source: 'site-audit', domain: `${PREFIX}s3.example`, siteAuditId: sitePruned.id, status: 'complete', score: 33, wcagLevel: 'wcag21aa' },
   })
 
+  // C11: a completed seoOnly site audit — has no ADA data and must NOT appear
+  // in the ADA recents list (it would show a null score + deep-link to the
+  // ADA site page, which Task 7 redirects away).
+  const siteSeoOnly = await prisma.siteAudit.create({
+    data: { domain: `${PREFIX}s4.example`, status: 'complete', summary: null, wcagLevel: 'wcag21aa', requestedBy: OPERATOR, completedAt: new Date(), seoOnly: true },
+  })
+
   ids = {
     pageRun: pageRun.id, pageLegacy: pageLegacy.id, pagePruned: pagePruned.id,
     siteRun: siteRun.id, siteLegacy: siteLegacy.id, sitePruned: sitePruned.id,
+    siteSeoOnly: siteSeoOnly.id,
   }
 })
 
@@ -94,5 +102,10 @@ describe('fetchAllRecents — C3 score source (DB-backed)', () => {
     const site = items.find((i) => i.id === ids.sitePruned)
     expect(page?.score).toBe(37)
     expect(site?.score).toBe(33)
+  })
+
+  it('C11: excludes seoOnly site audits from ADA recents', async () => {
+    const items = await fetchAllRecents(100, OPERATOR)
+    expect(items.map((i) => i.id)).not.toContain(ids.siteSeoOnly)
   })
 })

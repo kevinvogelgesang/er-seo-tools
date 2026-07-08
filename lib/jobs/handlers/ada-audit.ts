@@ -105,6 +105,14 @@ export async function runAdaAuditJob(payload: unknown): Promise<void> {
     return
   }
 
+  // This handler never requests renderOnly, so the runner only ever returns
+  // 'audited' (or the 'redirected' handled above). Narrow defensively — a
+  // 'rendered' result here would be a programming error. (C11 Task 3 wires
+  // renderOnly through the site-audit page job, not this standalone path.)
+  if (result.kind !== 'audited') {
+    throw new Error(`ada-audit: unexpected runner result kind '${result.kind}'`)
+  }
+
   const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls } = result
 
   // PDFs FIRST — see header. Standalone completion is NOT gated on PDFs;

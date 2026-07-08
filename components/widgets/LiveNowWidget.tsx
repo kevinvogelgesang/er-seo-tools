@@ -34,10 +34,16 @@ export function LiveNowWidget({ size }: { size: WidgetSize }) {
     <div className="flex h-full flex-col gap-3">
       {active && (() => {
         const p = computeActivePhaseSummary(active)
+        // C11: a seoOnly audit has no ADA results — route to /seo-parser
+        // (the ADA site page redirects it away) and flag it as an SEO scan.
+        const href = active.seoOnly ? '/seo-parser' : `/ada-audit/site/${active.id}`
         return (
-          <Link href={`/ada-audit/site/${active.id}`} className="block rounded-lg border border-gray-100 p-2 hover:border-orange/50 dark:border-navy-border">
+          <Link href={href} className="block rounded-lg border border-gray-100 p-2 hover:border-orange/50 dark:border-navy-border">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="truncate font-display text-[14px] font-bold text-navy dark:text-white">{active.domain}</span>
+              <span className="truncate font-display text-[14px] font-bold text-navy dark:text-white">
+                {active.seoOnly && <span className="mr-1 rounded bg-orange/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-orange">SEO</span>}
+                {active.domain}
+              </span>
               <StatusPill label={active.status} tone="running" />
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
@@ -56,7 +62,10 @@ export function LiveNowWidget({ size }: { size: WidgetSize }) {
         <ul className="space-y-1 overflow-auto">
           {queued.slice(0, 6).map((q) => (
             <li key={q.id} className="flex items-center justify-between gap-2 text-[12px] font-body">
-              <span className="truncate text-gray-600 dark:text-white/60">{q.domain}</span>
+              <span className="truncate text-gray-600 dark:text-white/60">
+                {q.seoOnly && <span className="mr-1 rounded bg-orange/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-orange">SEO</span>}
+                {q.domain}
+              </span>
               <span className="shrink-0 text-gray-400 dark:text-white/30">#{q.position}</span>
             </li>
           ))}

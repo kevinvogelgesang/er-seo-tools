@@ -54,6 +54,11 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/clients/7/schedules/abc123',
     // C4 share-mint route is dashboard-triggered → stays cookie-gated
     '/api/site-audit/abc/share',
+    // C11: the seoOnly POST only changed the request body shape, not the
+    // route's path or auth class — /api/site-audit stays cookie-gated like
+    // every other site-audit route (no new isPublicPath entry for this PR).
+    '/api/site-audit',
+    '/api/site-audit/abc123',
     // C8 settings routes are dashboard-triggered → stays cookie-gated
     '/api/settings/scoring-weights',
     // A8 PR 3.5 fleet-aggregate routes feed the homepage widgets → cookie-gated by omission

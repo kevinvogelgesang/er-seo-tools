@@ -49,7 +49,10 @@ function siteScore(status: string, summary: string | null, wcagLevel: string): n
 
 export async function fetchAllRecents(limit = 100, operator?: string): Promise<RecentItem[]> {
   const pageWhere = operator ? { requestedBy: operator, siteAuditId: null } : { siteAuditId: null }
-  const siteWhere = operator ? { requestedBy: operator } : {}
+  // C11: seoOnly site audits carry no ADA data — exclude them from the ADA
+  // recents list so they aren't shown with a null score + a deep-link to the
+  // ADA site page (which Task 7 redirects away).
+  const siteWhere = operator ? { requestedBy: operator, seoOnly: false } : { seoOnly: false }
   const [pages, sites] = await Promise.all([
     prisma.adaAudit.findMany({
       where: pageWhere, orderBy: { createdAt: 'desc' }, take: limit,

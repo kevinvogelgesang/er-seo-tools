@@ -28,7 +28,9 @@ export async function GET() {
   const summaries: ClientAuditSummary[] = await Promise.all(
     clients.map(async (c) => {
       const latest = await prisma.siteAudit.findFirst({
-        where: { clientId: c.id, status: 'complete' },
+        // C11: exclude seoOnly audits — this table shows the latest *ADA* site
+        // audit per client (null ADA score + deep-link to /ada-audit/site/[id]).
+        where: { clientId: c.id, status: 'complete', seoOnly: false },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,

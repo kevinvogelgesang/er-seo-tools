@@ -91,7 +91,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     }),
     prisma.siteAudit.findMany({
       where: { clientId },
-      select: { id: true, domain: true, status: true, pagesTotal: true, createdAt: true, completedAt: true, scheduleId: true },
+      select: { id: true, domain: true, status: true, pagesTotal: true, createdAt: true, completedAt: true, scheduleId: true, seoOnly: true },
     }),
     prisma.adaAudit.findMany({
       where: { clientId, siteAuditId: null },
@@ -192,10 +192,17 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     }
   }
   for (const a of siteAudits) {
+    // C11: seoOnly audits have no ADA results — the /ada-audit/site page
+    // redirects them to /seo-parser (Task 7). Point the timeline link there
+    // directly and tag the title so it doesn't read as an accessibility audit.
+    const scheduledSuffix = a.scheduleId ? ' · scheduled' : ''
     timeline.push({
       // C2: schedule-originated audits are tagged in the timeline title.
-      type: 'site-audit', id: a.id, title: a.scheduleId ? `${a.domain} · scheduled` : a.domain, status: a.status,
-      date: a.createdAt.toISOString(), href: `/ada-audit/site/${a.id}`,
+      type: 'site-audit', id: a.id,
+      title: `${a.domain}${a.seoOnly ? ' · SEO scan' : ''}${scheduledSuffix}`,
+      status: a.status,
+      date: a.createdAt.toISOString(),
+      href: a.seoOnly ? '/seo-parser' : `/ada-audit/site/${a.id}`,
       stat: a.pagesTotal > 0 ? `${a.pagesTotal} pages` : null,
     })
   }

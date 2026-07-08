@@ -27,6 +27,14 @@ describe('QuickSiteAuditWidget', () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/ada-audit/site/dup'))
   })
 
+  it('C11: routes a seoOnly 409 duplicate to /seo-parser', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 409, ok: false, json: async () => ({ error: 'in flight', id: 'dup', seoOnly: true }) }))
+    render(<QuickSiteAuditWidget size="wide" />)
+    fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: /start/i }))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser'))
+  })
+
   it('shows an inline error on a 400 and does not redirect', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 400, ok: false, json: async () => ({ error: 'bad domain' }) }))
     render(<QuickSiteAuditWidget size="wide" />)

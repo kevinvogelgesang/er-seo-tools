@@ -507,6 +507,23 @@ Interleave as needed (not blockers):
   **Ordering (Kevin, 2026-07-07): C11 queues BEHIND A8 PR 3** (widget editor,
   in progress in another session) — the handoff's next action is unchanged;
   C11 is the next item after A8 PR 3 lands.
+  *Status log:* 2026-07-07 — **Kevin pivoted here from A8 per-tool polish** (A8
+  PR 3/PR 4 both shipped, so C11 is unblocked; A8 stays [~], next A8 pass = PR 5
+  ada-audit polish, resumed after C11). Brainstormed PR-1 as the entry point of
+  the 3-PR arc. **PR 1 (seoOnly render-only scan mode + URL scan form) spec +
+  plan WRITTEN and Codex-reviewed** (fresh Codex session `019f3f3e…`: design
+  ruling → spec review "ACCEPT WITH NAMED FIXES" ×8 → plan review "ACCEPT WITH
+  NAMED FIXES" ×9, all applied). Spec `specs/2026-07-07-seo-only-scan-mode-design.md`
+  + plan `plans/2026-07-07-seo-only-scan-mode.md` (11 TDD tasks) committed on
+  branch `feat/c11-pr1-seo-only-scan` (worktree `.claude/worktrees/c11-pr1`,
+  `e4268ae`/`97206a0`). Locked decisions: independent `SiteAudit.seoOnly` column
+  (seoOnly⇒seoIntent at enqueue); on-demand form only (schedules untouched);
+  page job reads mode off the parent row; runner `renderOnly`→`kind:'rendered'`;
+  **NO ada-audit CrawlRun/summary/carry-forward for seoOnly** (ADA exports gate on
+  the ada run existing); keep broken-link-verify as the live-scan builder; form on
+  /seo-parser with a pending-status card (readiness = `liveScanRunId` on
+  GET /api/site-audit/[id]). **NEXT: execute the plan** (subagent-driven) → PR →
+  deploy → prod-verify (authed Playwright submit of a client-domain seoOnly scan).
 - [ ] **C12. Content auditing (data correctness · keyword cannibalization · content
   quality)** — CANDIDATE, exploration only (Kevin, 2026-07-07). Full problem map,
   capability tiers, cost model, and sequencing in

@@ -21,7 +21,7 @@ export async function POST(
 
   const audit = await prisma.siteAudit.findUnique({
     where: { id },
-    select: { id: true, status: true, shareToken: true, shareExpiresAt: true },
+    select: { id: true, status: true, shareToken: true, shareExpiresAt: true, seoOnly: true },
   })
 
   if (!audit) {
@@ -31,6 +31,13 @@ export async function POST(
   if (audit.status !== 'complete') {
     return NextResponse.json(
       { error: 'Site audit must be complete before sharing' },
+      { status: 400 }
+    )
+  }
+
+  if (audit.seoOnly) {
+    return NextResponse.json(
+      { error: 'SEO-only scans are not shareable as accessibility reports' },
       { status: 400 }
     )
   }
