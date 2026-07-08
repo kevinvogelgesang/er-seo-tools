@@ -7,9 +7,11 @@ type Phase = 'idle' | 'submitting' | 'running' | 'building' | 'ready' | 'error';
 
 const STORAGE_KEY = 'seo-scan-id';
 
-export function SeoScanForm() {
+export function SeoScanForm({ notifyAvailable = false }: { notifyAvailable?: boolean }) {
   const [domain, setDomain] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
+  // D7: opt-in email notification — ALWAYS unchecked on mount, never persisted.
+  const [notify, setNotify] = useState(false);
   const [auditId, setAuditId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function SeoScanForm() {
     const res = await fetch('/api/site-audit', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ domain: value, seoOnly: true }),
+      body: JSON.stringify({ domain: value, seoOnly: true, notify }),
     });
     const d = await res.json().catch(() => ({}));
     if (res.status === 202 && d.id) {
@@ -205,6 +207,13 @@ export function SeoScanForm() {
           {phase === 'submitting' ? 'Starting…' : 'Scan'}
         </button>
       </form>
+
+      {notifyAvailable && (
+        <label className="mt-3 flex items-center gap-2 text-[13px] text-navy dark:text-white/70">
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+          Email me when this finishes
+        </label>
+      )}
 
       {phase === 'running' && (
         <p className="mt-3">

@@ -22,9 +22,11 @@ interface Props {
   recentItems: RecentItem[]
   operator: string | null
   initialScope: 'all' | 'mine'
+  /** D7: true when a verified session email exists — gates the notify checkbox. */
+  notifyAvailable?: boolean
 }
 
-export default function AuditIndexTabs({ recentItems, operator, initialScope }: Props) {
+export default function AuditIndexTabs({ recentItems, operator, initialScope, notifyAvailable = false }: Props) {
   const searchParams = useSearchParams()
 
   // Initial tab derived from URL so SSR + first paint match. Infer 'site'
@@ -110,7 +112,7 @@ export default function AuditIndexTabs({ recentItems, operator, initialScope }: 
           </div>
         </div>
         <div className="p-6">
-          {tab === 'single' ? <AuditForm /> : <SiteAuditForm queueStatus={queueStatus} />}
+          {tab === 'single' ? <AuditForm /> : <SiteAuditForm queueStatus={queueStatus} notifyAvailable={notifyAvailable} />}
         </div>
       </div>
 

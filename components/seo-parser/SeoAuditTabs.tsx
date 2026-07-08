@@ -6,7 +6,7 @@ import { SeoUploadCard } from './SeoUploadCard'
 
 type Tab = 'scan' | 'upload'
 
-export function SeoAuditTabs() {
+export function SeoAuditTabs({ notifyAvailable = false }: { notifyAvailable?: boolean }) {
   const [tab, setTab] = useState<Tab>('scan') // Scan default so inbound ?scan= lands on a mounted SeoScanForm
   return (
     <div className="space-y-6">
@@ -39,7 +39,7 @@ export function SeoAuditTabs() {
           Upload Screaming Frog CSVs
         </button>
       </div>
-      {tab === 'scan' ? <SeoScanForm /> : <SeoUploadCard />}
+      {tab === 'scan' ? <SeoScanForm notifyAvailable={notifyAvailable} /> : <SeoUploadCard />}
     </div>
   )
 }
