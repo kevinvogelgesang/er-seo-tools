@@ -24,7 +24,7 @@ function ResultErrorState() {
           This completed session has a stored result that could not be read.
         </p>
         <a
-          href="/seo-parser"
+          href="/seo-audits"
           className="inline-block px-6 py-3 bg-navy text-white font-display font-bold text-sm rounded-lg hover:bg-navy-deep transition-colors"
         >
           Back to Upload
@@ -63,7 +63,7 @@ export default async function ResultsPage({ params }: Props) {
               <h2 className="font-display font-bold text-xl text-navy dark:text-white mb-2">Parsing Failed</h2>
               <p className="text-gray-600 dark:text-white/60 text-sm mb-6">{session.error || 'An unexpected error occurred.'}</p>
               <a
-                href="/seo-parser"
+                href="/seo-audits"
                 className="inline-block px-6 py-3 bg-orange text-navy font-display font-bold text-sm rounded-lg hover:bg-orange-dark transition-colors"
               >
                 Try Again
@@ -81,7 +81,7 @@ export default async function ResultsPage({ params }: Props) {
                   : 'Upload files and click Analyze to generate results.'}
               </p>
               <a
-                href="/seo-parser"
+                href="/seo-audits"
                 className="inline-block px-6 py-3 bg-navy text-white font-display font-bold text-sm rounded-lg hover:bg-navy-deep transition-colors"
               >
                 Back to Upload

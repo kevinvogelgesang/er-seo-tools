@@ -92,7 +92,7 @@ export default function SEOParserPage() {
 
       if (!res.ok) throw new Error(data.error || 'Parsing failed');
 
-      router.push(`/seo-parser/results/${sessionId}`);
+      router.push(`/seo-audits/results/${sessionId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Parsing failed');
       setIsParsing(false);
@@ -180,7 +180,7 @@ export default function SEOParserPage() {
         {/* Compare link */}
         <div className="text-center">
           <Link
-            href="/seo-parser/diff"
+            href="/seo-audits/diff"
             className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-white/50 hover:text-navy dark:hover:text-white transition-colors"
           >
             Compare two crawls
