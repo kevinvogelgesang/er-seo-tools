@@ -34,6 +34,7 @@ import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/se
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
+import { enqueueNotifyEmail } from './notify-email'
 import type { JobExhaustedContext, JobHandlerContext } from '../types'
 
 // parseUrlList is private to site-audit-discover.ts — define a local parser
@@ -133,6 +134,7 @@ export async function runBrokenLinkVerify(
     select: {
       id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true, seoIntent: true,
       discoveredUrls: true, discoveryMode: true, discoveryCapped: true, discoverySourcesJson: true,
+      notifyEmail: true, notifyCompleteSentAt: true,
     },
   })
   if (!site) return // deleted audit -> no-op
@@ -509,6 +511,16 @@ export async function runBrokenLinkVerify(
   console.log(
     `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, external checked ${externalChecked}, external broken ${externalBroken.length}, external unconfirmed ${externalUnconfirmed}, on-page rows ${seoRows.length}, internalBudgetHit ${internalBudgetHit} (${cache.size}/${allToResolve.length} resolved)`,
   )
+
+  // D7: notify the requester that the scan (incl. this SEO pass) finished. Awaited
+  // in try/catch, NOT bare fire-and-forget: don't let the verify job settle before
+  // the notify insert is attempted; the catch guarantees a notify failure never
+  // fails the builder (findings-hook rule). Gate on the marker too so a retry
+  // after a successful send doesn't re-enqueue a redundant notify job.
+  if (site.notifyEmail && !site.notifyCompleteSentAt) {
+    try { await enqueueNotifyEmail(site.id, 'complete') }
+    catch (e) { console.error('[notify-email] complete enqueue failed', site.id, e) }
+  }
 }
 
 /** Fire-and-forget enqueue, mirrors enqueuePsiJob. Returns the enqueue promise
@@ -524,8 +536,19 @@ export function enqueueBrokenLinkVerify(siteAuditId: string, domain: string | nu
   })
 }
 
-export async function onBrokenLinkVerifyExhausted(_p: unknown, ctx: JobExhaustedContext): Promise<void> {
+export async function onBrokenLinkVerifyExhausted(payload: unknown, ctx: JobExhaustedContext): Promise<void> {
   console.warn(`[broken-link-verify] exhausted after ${ctx.attempts} attempts: ${ctx.lastError}`)
+  // D7: the parent SiteAudit is already terminal 'complete' at this point (verify
+  // is enqueued post-terminal), so still send the completion email. The content
+  // builder tolerates a missing SEO run. Never throw from onExhausted.
+  const p = payload as { siteAuditId?: string } | null
+  if (!p?.siteAuditId) return
+  const row = await prisma.siteAudit
+    .findUnique({ where: { id: p.siteAuditId }, select: { notifyEmail: true, notifyCompleteSentAt: true } })
+    .catch(() => null)
+  if (row?.notifyEmail && !row.notifyCompleteSentAt) {
+    try { await enqueueNotifyEmail(p.siteAuditId, 'complete') } catch { /* never throw from onExhausted */ }
+  }
 }
 
 export function registerBrokenLinkVerifyHandler(): void {

@@ -301,8 +301,17 @@ export async function failSiteAudit(id: string, message: string): Promise<void> 
   await cancelJobsByGroup(`site-audit:${id}`).catch(() => {})
   const row = await prisma.siteAudit.findUnique({
     where: { id },
-    select: { batchId: true },
+    select: { batchId: true, notifyEmail: true },
   }).catch(() => null)
+  // D7: notify the admin of a failed audit that had opted in. Enqueued AFTER
+  // cancelJobsByGroup (the notify job carries NO site-audit:<id> group, so it is
+  // not cancelled), and only reached in the flipped>0 branch (one notify per
+  // fail). await import dodges the jobs<->queue-manager import cycle. Never
+  // throws into failSiteAudit.
+  if (row?.notifyEmail) {
+    const { enqueueNotifyEmail } = await import('@/lib/jobs/handlers/notify-email')
+    await enqueueNotifyEmail(id, 'failed').catch(() => {})
+  }
   if (row?.batchId) {
     await closeBatchIfDrained(row.batchId).catch(() => {})
   }

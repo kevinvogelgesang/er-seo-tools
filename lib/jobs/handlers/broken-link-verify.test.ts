@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { prisma } from '@/lib/db'
 import { runBrokenLinkVerify, deriveSitemapBaseline, type VerifyDeps } from './broken-link-verify'
+import * as notifyMod from './notify-email'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 
 const DOMAIN = 'c6blv.example.com'
@@ -683,5 +684,46 @@ describe('runBrokenLinkVerify — content similarity', () => {
     const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
     expect(run).not.toBeNull()
     expect(run!.contentSimilarityJson).toBeNull()
+  })
+})
+
+// ─── D7: completion-notify seam ───────────────────────────────────────────────
+describe('runBrokenLinkVerify — D7 completion notify', () => {
+  const D7_DOMAIN = 'c6blv-d7.example.com'
+  async function clearD7() {
+    await prisma.crawlRun.deleteMany({ where: { domain: D7_DOMAIN } })
+    await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: D7_DOMAIN } } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: D7_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: D7_DOMAIN } })
+  }
+  beforeEach(clearD7)
+  afterAll(clearD7)
+  afterEach(() => vi.restoreAllMocks())
+
+  const deps: VerifyDeps = {
+    resolve: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+    resolveExternal: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+    now: () => 0, sleep: async () => {},
+  }
+
+  it('enqueues a complete notification when the audit opted in', async () => {
+    const spy = vi.spyOn(notifyMod, 'enqueueNotifyEmail').mockResolvedValue(undefined)
+    const sa = await prisma.siteAudit.create({ data: { domain: D7_DOMAIN, status: 'complete', notifyEmail: 'r@example.com' } })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: D7_DOMAIN }, deps)
+    expect(spy).toHaveBeenCalledWith(sa.id, 'complete')
+  })
+
+  it('does not enqueue when notifyEmail is null', async () => {
+    const spy = vi.spyOn(notifyMod, 'enqueueNotifyEmail').mockResolvedValue(undefined)
+    const sa = await prisma.siteAudit.create({ data: { domain: D7_DOMAIN, status: 'complete', notifyEmail: null } })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: D7_DOMAIN }, deps)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('does not re-enqueue when notifyCompleteSentAt is already set', async () => {
+    const spy = vi.spyOn(notifyMod, 'enqueueNotifyEmail').mockResolvedValue(undefined)
+    const sa = await prisma.siteAudit.create({ data: { domain: D7_DOMAIN, status: 'complete', notifyEmail: 'r@example.com', notifyCompleteSentAt: new Date() } })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: D7_DOMAIN }, deps)
+    expect(spy).not.toHaveBeenCalled()
   })
 })
