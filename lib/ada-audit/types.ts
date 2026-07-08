@@ -302,7 +302,7 @@ export interface AuditBatchMember {
   startedAt: string | null
   completedAt: string | null
   requestedBy: string | null
-  seoOnly: boolean           // C11: route to /seo-parser, label "SEO" (no ADA data)
+  seoOnly: boolean           // C11: route to /seo-audits, label "SEO" (no ADA data)
 }
 
 export interface AuditBatchDetail {
@@ -335,14 +335,14 @@ export interface QueueStatusWithBatch {
     lighthouseComplete: number
     lighthouseError: number
     clientId: number | null
-    seoOnly: boolean           // C11: route to /seo-parser, label "SEO" (no ADA data)
+    seoOnly: boolean           // C11: route to /seo-audits, label "SEO" (no ADA data)
   } | null
   queued: {
     id: string
     domain: string
     position: number
     clientId: number | null
-    seoOnly: boolean           // C11: route to /seo-parser, label "SEO"
+    seoOnly: boolean           // C11: route to /seo-audits, label "SEO"
   }[]
   batch: {
     id: string

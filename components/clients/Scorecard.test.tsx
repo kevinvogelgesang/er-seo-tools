@@ -6,7 +6,7 @@ import { Scorecard } from './Scorecard'
 
 describe('Scorecard', () => {
   it('renders the score, max and an up-delta', () => {
-    render(<Scorecard label="SEO Health" score={90} max={100} delta={5} asOf="2026-06-10T00:00:00.000Z" href="/seo-parser/results/x" points={[]} />)
+    render(<Scorecard label="SEO Health" score={90} max={100} delta={5} asOf="2026-06-10T00:00:00.000Z" href="/seo-audits/results/x" points={[]} />)
     expect(screen.getByText('90')).toBeTruthy()
     expect(screen.getByText('▲ 5')).toBeTruthy()
     expect(screen.getByText('SEO Health')).toBeTruthy()

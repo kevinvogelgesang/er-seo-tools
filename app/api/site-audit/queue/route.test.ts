@@ -42,7 +42,7 @@ describe('GET /api/site-audit/queue', () => {
 
   // C11: a queued seoOnly audit is a legitimately in-flight audit and must
   // still surface in the shared queue view, tagged seoOnly so consumers route
-  // it to /seo-parser instead of /ada-audit/site/[id].
+  // it to /seo-audits instead of /ada-audit/site/[id].
   const CLEANUP_DOMAIN = 'c11-queue-seoonly.example'
   afterAll(async () => {
     await prisma.siteAudit.deleteMany({ where: { domain: CLEANUP_DOMAIN } })

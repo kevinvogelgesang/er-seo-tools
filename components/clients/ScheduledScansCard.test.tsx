@@ -156,7 +156,7 @@ describe('ScheduledScansCard', () => {
       lastDelta: null,
     }]} />)
     expect(screen.getByText('SEO')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /complete/i }).getAttribute('href')).toBe('/seo-parser/results/run/R1')
+    expect(screen.getByRole('link', { name: /complete/i }).getAttribute('href')).toBe('/seo-audits/results/run/R1')
   })
 
   it('surfaces API errors inline', async () => {

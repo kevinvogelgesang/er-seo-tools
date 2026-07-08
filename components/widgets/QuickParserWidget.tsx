@@ -15,7 +15,7 @@ export function QuickParserWidget({ size }: { size: WidgetSize }) {
     setBusy(true); setError(null)
     try {
       const { sessionId } = await uploadAndParse(files)
-      router.push(`/seo-parser/results/${sessionId}`)
+      router.push(`/seo-audits/results/${sessionId}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed.')
       setBusy(false)

@@ -27,7 +27,7 @@ export function QuickSiteAuditWidget({ size }: { size: WidgetSize }) {
       // in-flight audit (seoOnly present as a fallback in case intent drifted).
       if ((res.status === 202 || res.status === 409) && data.id) {
         const seo = intent === 'seo' || data.seoOnly === true
-        router.push(seo ? `/seo-parser?scan=${data.id}` : `/ada-audit/site/${data.id}`)
+        router.push(seo ? `/seo-audits?scan=${data.id}` : `/ada-audit/site/${data.id}`)
         return
       }
       setError(data.error || 'Could not start the audit.')

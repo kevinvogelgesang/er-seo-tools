@@ -153,7 +153,7 @@ describe('getClientFindings', () => {
     expect(out.rows.some((r) => r.type === 'missing_title')).toBe(true)
     // seo.liveScan must be null (no double-count)
     // The canonical run is seo.current; there is no separate additive liveScan
-    expect(out.seo?.href).toMatch(/^\/seo-parser\/results\/run\//)
+    expect(out.seo?.href).toMatch(/^\/seo-audits\/results\/run\//)
   })
 
   it('Task 9: fresh sf-upload still keeps SEO canonical; seoIntent live-scan goes to liveScan additive', async () => {
@@ -185,7 +185,7 @@ describe('getClientFindings', () => {
     // Live-scan additive findings also surface
     expect(out.rows.some((r) => r.type === 'broken_internal_links')).toBe(true)
     // seo meta points at the sf-upload (session href, not run href)
-    expect(out.seo?.href).toMatch(/^\/seo-parser\/results\//)
+    expect(out.seo?.href).toMatch(/^\/seo-audits\/results\//)
     expect(out.seo?.href).not.toMatch(/\/run\//)
   })
 
@@ -244,7 +244,7 @@ describe('getClientFindings', () => {
     expect(mt.urls).toHaveLength(2)
     expect(mt.isSample).toBe(false)      // explicit true
     expect(mt.description).toBe('Pages without titles')
-    expect(mt.href).toMatch(/^\/seo-parser\/results\//)
+    expect(mt.href).toMatch(/^\/seo-audits\/results\//)
     const tc = out.rows.find((r) => r.type === 'thin_content')!
     expect(tc.isSample).toBe(true)       // null affectedComplete → sample
     expect(out.rows[0].type).toBe('missing_title') // critical sorts first

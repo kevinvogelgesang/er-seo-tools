@@ -59,8 +59,8 @@ function parseDescription(detail: string | null): string | null {
 function runHref(run: RunRef): string | null {
   if (run.tool === 'seo-parser') {
     // Live-scan canonical run: link to the run-results page.
-    if (run.source === 'live-scan') return `/seo-parser/results/run/${run.id}`
-    return run.sessionId ? `/seo-parser/results/${run.sessionId}` : null
+    if (run.source === 'live-scan') return `/seo-audits/results/run/${run.id}`
+    return run.sessionId ? `/seo-audits/results/${run.sessionId}` : null
   }
   if (run.source === 'site-audit') return run.siteAuditId ? `/ada-audit/site/${run.siteAuditId}` : null
   return run.adaAuditId ? `/ada-audit/${run.adaAuditId}` : null

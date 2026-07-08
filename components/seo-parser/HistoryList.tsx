@@ -229,8 +229,8 @@ export function HistoryList() {
           {filtered.map((item) => {
             const isRun = item.kind === 'run';
             const resultsPath = isRun
-              ? `/seo-parser/results/run/${item.id}`
-              : `/seo-parser/results/${item.id}`;
+              ? `/seo-audits/results/run/${item.id}`
+              : `/seo-audits/results/${item.id}`;
             return (
             <div key={item.id} className="relative group">
               <button

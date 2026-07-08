@@ -113,7 +113,7 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
             )}
             {pillarButton}
             <button
-              onClick={() => router.push('/seo-parser')}
+              onClick={() => router.push('/seo-audits')}
               className="px-4 py-2 border border-gray-200 dark:border-navy-border rounded-lg text-sm text-gray-600 dark:text-white/60 hover:bg-gray-50 dark:hover:bg-navy-light transition-colors"
             >
               New Analysis

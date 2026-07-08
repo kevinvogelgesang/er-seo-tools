@@ -33,17 +33,17 @@ it('C11: submits seoOnly and advances to a ready link when liveScanRunId arrives
 
   await waitFor(() => {
     const link = screen.getByRole('link', { name: /view|result/i }) as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('/seo-parser/results/run/run9');
+    expect(link.getAttribute('href')).toBe('/seo-audits/results/run/run9');
   });
 });
 
 describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
-  beforeEach(() => { sessionStorage.clear(); window.history.pushState({}, '', '/seo-parser') })
+  beforeEach(() => { sessionStorage.clear(); window.history.pushState({}, '', '/seo-audits') })
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('adopts ?scan= and polls it, overriding stale sessionStorage', async () => {
     sessionStorage.setItem('seo-scan-id', 'OLD')
-    window.history.pushState({}, '', '/seo-parser?scan=NEW')
+    window.history.pushState({}, '', '/seo-audits?scan=NEW')
     const fetchMock = vi.fn(async (url: string) => {
       expect(url).toBe('/api/site-audit/NEW')   // must poll NEW, never OLD
       return { ok: true, json: async () => ({ status: 'running' }) } as Response
@@ -55,7 +55,7 @@ describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
   })
 
   it('strips ?scan= from the URL after adoption', async () => {
-    window.history.pushState({}, '', '/seo-parser?scan=NEW')
+    window.history.pushState({}, '', '/seo-audits?scan=NEW')
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ status: 'running' }) } as Response))
     vi.stubGlobal('fetch', fetchMock)
     render(<SeoScanForm />)
@@ -87,7 +87,7 @@ describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
 })
 
 describe('SeoScanForm — seoPhase-driven progress (C11 PR 2b)', () => {
-  beforeEach(() => { sessionStorage.clear(); window.history.pushState({}, '', '/seo-parser') })
+  beforeEach(() => { sessionStorage.clear(); window.history.pushState({}, '', '/seo-audits') })
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('renders progress bar + message while SEO analysis is running', async () => {
@@ -132,7 +132,7 @@ describe('SeoScanForm — seoPhase-driven progress (C11 PR 2b)', () => {
     render(<SeoScanForm />)
     await waitFor(() => {
       const link = screen.getByRole('link', { name: /view|result/i }) as HTMLAnchorElement
-      expect(link.getAttribute('href')).toBe('/seo-parser/results/run/run1')
+      expect(link.getAttribute('href')).toBe('/seo-audits/results/run/run1')
     })
   })
 })

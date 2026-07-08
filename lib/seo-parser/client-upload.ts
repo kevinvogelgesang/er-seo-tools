@@ -1,4 +1,4 @@
-// Client helper mirroring app/(app)/seo-parser/page.tsx handleDrop + handleAnalyze:
+// Client helper mirroring app/(app)/seo-audits/page.tsx handleDrop + handleAnalyze:
 // upload CSVs in ≤40MB batches (carry the sessionId forward so all files land in
 // one session; Nginx caps the body at ~50MB), then trigger the parse. Returns the
 // session id for a results redirect.
