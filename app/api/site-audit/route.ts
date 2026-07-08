@@ -54,12 +54,13 @@ export async function POST(request: NextRequest) {
     // body, preserving the original 409 shape for any existing callers.
     const existing = await prisma.siteAudit.findUnique({
       where: { id: result.existingId },
-      select: { domain: true },
+      select: { domain: true, seoOnly: true },
     })
     return NextResponse.json(
       {
         error: `A site audit for ${existing?.domain ?? 'this domain'} is already queued or running`,
         id: result.existingId,
+        seoOnly: existing?.seoOnly ?? false,
       },
       { status: 409 },
     )

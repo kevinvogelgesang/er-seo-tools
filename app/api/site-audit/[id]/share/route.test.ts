@@ -23,6 +23,7 @@ async function seedSiteAudit(opts: {
   status?: string
   shareToken?: string | null
   shareExpiresAt?: Date | null
+  seoOnly?: boolean
 } = {}) {
   const audit = await prisma.siteAudit.create({
     data: {
@@ -31,6 +32,7 @@ async function seedSiteAudit(opts: {
       wcagLevel: 'wcag21aa',
       shareToken: opts.shareToken ?? null,
       shareExpiresAt: opts.shareExpiresAt ?? null,
+      seoOnly: opts.seoOnly ?? false,
     },
   })
   createdIds.push(audit.id)
@@ -109,6 +111,15 @@ describe('/api/site-audit/[id]/share (DB-backed)', () => {
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toBe('Site audit must be complete before sharing')
+  })
+
+  it('C11: share rejects a seoOnly audit', async () => {
+    const audit = await seedSiteAudit({ seoOnly: true })
+
+    const res = await POST(makeRequest(audit.id), makeParams(audit.id))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/seo/i)
   })
 
   it('returns 404 for an unknown audit', async () => {

@@ -24,7 +24,7 @@ export function QuickSiteAuditWidget({ size }: { size: WidgetSize }) {
       const data = await res.json().catch(() => ({}))
       // 202 → queued; 409 → existing in-flight audit (still land in the flow).
       if ((res.status === 202 || res.status === 409) && data.id) {
-        router.push(`/ada-audit/site/${data.id}`)
+        router.push(data.seoOnly ? '/seo-parser' : `/ada-audit/site/${data.id}`)
         return
       }
       setError(data.error || 'Could not start the audit.')
