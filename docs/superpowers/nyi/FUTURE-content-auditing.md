@@ -1,6 +1,13 @@
 # FUTURE — Content auditing (data correctness, keyword cannibalization, content quality)
 
 **Status:** exploration only — no spec, no plan, nothing committed.
+**Gate update (2026-07-08):** the Anthropic-API-billing gated decision was resolved
+**NO — no plans to use any AI API at the moment** (roadmap tracker, Gated decisions).
+Every AI-dependent check below (data correctness, LLM content quality) is OFF the
+table until Kevin reopens that gate; only the zero-AI rows (GSC cannibalization,
+stale dates, readability, and the already-shipped similarity/thin checks — plus
+topic cannibalization, which uses the LOCAL MiniLM embeddings, not an API) remain
+buildable C12 candidates.
 **Written:** 2026-07-07, at Kevin's request ("the next goal for the app is to be
 able to audit the actual content on the websites"). This doc maps the problem,
 what the repo already has, what each check actually requires, and the realistic

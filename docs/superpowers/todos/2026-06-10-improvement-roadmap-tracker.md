@@ -463,6 +463,9 @@ Interleave as needed (not blockers):
   main `140a850`)**; **content similarity (Phase 5) SHIPPED + PROD-VERIFIED 2026-07-06 (PR #111,
   main `146a14d`)** — see Status log. **All C6 SF-retirement CAPABILITY phases are now shipped;**
   only analytics integrations (roadmap Phase 6, partly billing-gated) remain under C6.
+  (Gate update 2026-07-08: the AI-API side of the billing gate is RESOLVED NO — see
+  Gated decisions. Phase 6's remaining open piece is SEMRush/data-joiner ingestion, a
+  third-party data-API billing question, NOT an AI API; GA4/GSC already delivered by C10.)
   **Reachability graph 3b:** `computeLinkGraph` refactored to the FULL discovered node set (was
   audited-only), truer inlinks/outlinks + clicks-from-home depth (exact-homepage BFS, scheme/www-
   insensitive anchor), orphan/unreachable/depth-histogram surfaced as new nullable
@@ -596,9 +599,11 @@ Interleave as needed (not blockers):
   capability tiers, cost model, and sequencing in
   `../nyi/FUTURE-content-auditing.md`. Tier-0 increments (GSC query×page
   cannibalization report; stale-date/readability signals) are buildable now with
-  zero new gates; the data-correctness half is **gated on the Anthropic API billing
+  zero new gates; the data-correctness half was **gated on the Anthropic API billing
   decision** (same gate as memo generation — est. ~$10–20/mo fleet-wide with Haiku
-  batched). No spec yet; do not start without the ritual.
+  batched) — **gate RESOLVED NO 2026-07-08 (no AI API planned): the data-correctness
+  half is OFF; only the zero-AI Tier-0 increments remain candidates.** No spec yet;
+  do not start without the ritual.
 - [ ] **C13. Site-audit results UI polish batch** (small fixes, Kevin 2026-07-07) —
   mostly independent one-liners; the last item is an INVESTIGATION first:
   - [ ] "Pages are audited one at a time" (`components/ada-audit/SiteAuditPoller.tsx:204`)
@@ -670,12 +675,24 @@ Interleave as needed (not blockers):
 
 ## Gated decisions (block specific items; decide, then unblock)
 
-- [ ] **Anthropic API billing** — gates direct memo generation (03 Phase 3). Until decided, all AI stays skill-handoff.
+- [x] **Anthropic API billing** — gates direct memo generation (03 Phase 3). Until decided, all AI stays skill-handoff. **DECIDED 2026-07-08 (Kevin): NO — at the moment there are no plans to use ANY AI API (Anthropic or otherwise).** Consequences: 03 Phase 3 (direct memo generation) is OFF the roadmap; all AI stays the skill-handoff clipboard flow (pat_/srt_/krt_/qct_) indefinitely; C12's data-correctness half is OFF (only its zero-AI Tier-0 increments remain candidates); any AI-shaped slice of SF-retirement Phase 6 is off (NB: SEMRush ingestion is a third-party DATA API, not an AI API — that remains a separate, still-open billing question). Reopening this gate is a Kevin decision — a session must never treat it as pending or silently unblock AI features; add a new gated-decision entry if it reopens.
 - [x] **DB growth projection** — run 2026-06-10 against production (numbers in the A2 spec). Verdict: 90-d archive window + findings-forever safe for human-triggered and weekly scheduled volume; **nightly fleet scans are NOT safe with these defaults — C2 must add a cadence-aware retention class first.**
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
 
+- 2026-07-08 (**GATED DECISION RESOLVED: no AI API**) — Kevin ruled the "Anthropic API
+  billing" gated decision **NO: at the moment there are no plans to use any AI API**
+  (Anthropic or any other LLM provider). Recorded across the docs of record: gated-decisions
+  entry checked off with the verdict inline; C12 annotated (data-correctness half OFF, zero-AI
+  Tier-0 increments remain the only C12 candidates); C6 annotated (Phase 6's AI-shaped slice
+  off; SEMRush data-API ingestion explicitly kept a SEPARATE open question — it is not an AI
+  API); CLAUDE.md "Do not" rule strengthened from "billing not currently set up" to a settled
+  no-AI-API decision. Consequence map: 03 Phase 3 (direct memo generation) off the roadmap —
+  all AI memo work stays the pat_/srt_/krt_/qct_ skill-handoff clipboard flow; D1/D2 (handoff
+  engine consolidation + SSE arrival) are UNAFFECTED (they polish the zero-AI transport).
+  Docs-only change, no code. Reopening the gate is a Kevin decision. **Next: unchanged — the
+  A8 decision (another per-tool polish pass vs. mark A8 done).**
 - 2026-07-08 (**A8 PR 5 — ada-audit visual polish SHIPPED + DEPLOYED + PROD-VERIFIED**) —
   Second per-tool polish pass (Kevin picked seo-parser + ada-audit back-to-back). Brainstorm →
   spec → plan → build, all in-session; spec + plan Codex-reviewed (accept-with-fixes ×4 / ×3,

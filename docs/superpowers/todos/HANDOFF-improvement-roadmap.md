@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-08 (**A8 PR 5 — ada-audit visual polish SHIPPED + DEPLOYED + PROD-VERIFIED** (PR #130, main `ccd98b3`; migration-free). Second per-tool polish pass — ScoreRing + StatusPill adoption across ada-audit. **Next action = decide WITH Kevin: another A8 per-tool polish pass (PR 6 — clients / reports / robots-validator / quarter-grid) OR call the A8 per-tool arc done and mark A8 `[x]`.**) · **Updated by:** the A8 PR 5 execution session.
+**Last updated:** 2026-07-08 (**GATED DECISION RESOLVED: NO AI API** — Kevin ruled there are no plans to use any AI API (Anthropic or otherwise) at the moment. Tracker Gated-decisions entry checked off with verdict; C12 data-correctness half OFF (zero-AI Tier-0 only); 03 Phase 3 direct memo generation off the roadmap (skill-handoff clipboard flow stays); CLAUDE.md "Do not" rule strengthened. SEMRush ingestion (a data API, not an AI API) stays a separate open question. Earlier same day: **A8 PR 5 — ada-audit visual polish SHIPPED + DEPLOYED + PROD-VERIFIED** (PR #130, main `ccd98b3`). **Next action = unchanged: decide WITH Kevin — another A8 per-tool polish pass (PR 6 — clients / reports / robots-validator / quarter-grid) OR call the A8 per-tool arc done and mark A8 `[x]`.**) · **Updated by:** the gate-decision recording session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -14,6 +14,13 @@ Continue the er-seo-tools improvement roadmap. A8 PR 5 — ada-audit visual poli
 DEPLOYED + PROD-VERIFIED (PR #130, main ccd98b3). A8 PRs 1–3.5 (shell/dashboard/widget-editor/
 aggregate-widgets) + PR 4 (seo-parser polish, #120) + PR 5 (ada-audit polish, #130) are all
 shipped. C11 (SEO Audits v1) is fully complete (#122/#124/#126/#128).
+
+STANDING GATE (decided 2026-07-08): NO AI API — Kevin ruled there are no plans to use any AI
+API (Anthropic or any LLM provider). Never propose or build AI-API features: direct memo
+generation (03 Phase 3), C12's data-correctness half, and any AI slice of SF-retirement Phase 6
+are OFF. All AI stays the pat_/srt_/krt_/qct_ skill-handoff clipboard flow. Only Kevin reopens
+this (tracker → Gated decisions). SEMRush ingestion is a data API, not an AI API — separate,
+still-open question.
 
 *** FIRST STEP: A8 PR 4+ (per-tool visual polish) is OPEN-ENDED by design (spec §8). seo-parser
 and ada-audit — the two tools Kevin pre-picked back-to-back — are both done. So there is NO
@@ -84,6 +91,15 @@ PR-5-proven recipe (reuse it):
 ```
 
 ## Current state (2026-07-08)
+
+- **GATED DECISION RESOLVED (2026-07-08): NO AI API.** Kevin ruled there are no plans to use
+  any AI API at the moment (Anthropic or otherwise). Recorded in: tracker Gated-decisions
+  (checked, verdict inline), C12 entry (data-correctness half OFF; zero-AI Tier-0 increments
+  are the only C12 candidates), C6 entry (Phase 6's AI slice off; SEMRush data-API ingestion
+  stays a separate open billing question), CLAUDE.md "Do not" rule, and
+  `nyi/FUTURE-content-auditing.md` header. 03 Phase 3 (direct memo generation) is off the
+  roadmap; D1/D2 (handoff engine + SSE arrival) are unaffected — they polish the zero-AI
+  transport. Reopening the gate = Kevin only.
 
 - **A8 (active, [~]) — homepage/shell COMPLETE through PR 3.5; per-tool polish (PR 4+) in
   progress. NEXT = a Kevin decision (another pass vs. done).**

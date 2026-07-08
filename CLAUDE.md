@@ -128,7 +128,7 @@ whenever Kevin asks for "the handoff prompt" / "handoff". Do all three, in order
 
 ## Do not
 - Use interactive `prisma.$transaction(async tx => ...)` anywhere — array-form `$transaction([...])` only. Interactive transactions hold SQLite's write lock across event-loop round-trips; concurrent pdfjs parsing starves the loop and every other writer times out ("Operations timed out", 2026-06-10 production incident). Express conditional logic in SQL (`EXISTS` predicates) instead, and set `updatedAt` manually in raw statements (`Date.now()` — storage is integer ms; raw SQL bypasses `@updatedAt`).
-- Add Claude AI analysis features — requires separate Anthropic API billing not currently set up
+- Add AI/LLM API features (Anthropic or any other provider) — decided 2026-07-08: no plans to use any AI API; all AI stays the skill-handoff clipboard flow (pat_/srt_/krt_/qct_). Reopening this is a Kevin decision recorded in the roadmap tracker's Gated decisions, never a session call
 - Use `npm ci` on production (RunCloud uses `npm install`)
 - Trust request origin headers for share URLs — use `NEXT_PUBLIC_APP_URL`
 - Increase `BROWSER_POOL_SIZE` above 4 without first checking VPS memory headroom — each Chrome page is ~150-200 MB resident
