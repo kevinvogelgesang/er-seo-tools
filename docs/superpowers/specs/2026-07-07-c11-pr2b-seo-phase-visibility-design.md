@@ -119,11 +119,17 @@ reportProgress: (progress: number | null, message: string | null) => void
 ```
 Existing handlers ignore it (no behavior change). This is the generic seam that benefits `/admin/ops` for every job type.
 
-**Stale-progress reset on re-claim (Codex fix):** `claimNext` must clear prior-attempt progress so attempt 2 doesn't display attempt 1's numbers until its first heartbeat. Add to the claim `updateMany` data:
-```ts
-data: { status: 'running', attempts: { increment: 1 }, startedAt: new Date(), heartbeatAt: new Date(),
-        progress: null, progressMessage: null },
-```
+**Progress lifecycle across claim/settle (Codex fix #2).** Progress must be cleared/finalized at every state transition so no stale value survives into `/admin/ops` or a re-claim:
+- **Claim** (`claimNext`): reset so attempt 2 doesn't show attempt 1's numbers — add `progress: null, progressMessage: null` to the claim `updateMany` data:
+  ```ts
+  data: { status: 'running', attempts: { increment: 1 }, startedAt: new Date(), heartbeatAt: new Date(),
+          progress: null, progressMessage: null },
+  ```
+- **Successful settle:** `{ status: 'complete', completedAt, progress: 100, progressMessage: null }` (a completed job reads 100% in `/admin/ops`).
+- **Retry re-queue:** `{ status: 'queued', …, progress: null, progressMessage: null }` (a waiting-to-retry row shows no progress).
+- **Final error:** `{ status: 'error', lastError, …, progress: null, progressMessage: null }` (clear — the failure lives in `lastError`, not a frozen bar).
+
+All three settle writes are already fenced with the same `fence`; add the columns to their existing `data`.
 
 ### 3.3 `broken-link-verify` — receive ctx + report progress
 
@@ -133,13 +139,15 @@ handler: (payload, ctx) => runBrokenLinkVerify(payload, undefined, ctx),
 ```
 Signature becomes `runBrokenLinkVerify(payload, deps = productionDeps, ctx?: JobHandlerContext)`. `ctx` optional so the existing tests (which call `runBrokenLinkVerify(payload, stubDeps)`) keep compiling; when absent, `report` is a no-op.
 
-**Phase model (avoids "bar stuck at 100% while still writing" — Codex fix).** The job's dominant cost is network resolution; the build+write phase is fast but non-trivial. Map progress so it never reaches 100 inside the job — **done is signalled by the run appearing (`liveScanRunId`), not by `progress===100`**. Concretely:
-- Internal link/image resolution loop: `progress = floor(checked / totalToResolve * 90)`, `message = "Checked ${checked}/${total} links"`. `report` is called inside the loop; the heartbeat throttles the actual writes.
+**Live counter (Codex fix #3).** The existing `checked` variable is derived in a post-`Promise.all` loop over `toCheck` — it is **not** live during resolution and cannot drive progress. Add a shared `let resolvedCount = 0` incremented **inside `cacheWorker`** after each target resolves or degrades (single-threaded JS makes the shared increment safe between awaits), and report from `resolvedCount`. `allToResolve` is the denominator — it includes validation-only canonical/hreflang targets alongside link/image targets, so the copy is "Checked X/Y links" as a deliberate loose label (validation targets counted as part of the resolution set); the number is honest even if "links" is slightly generous.
+
+**Phase model (avoids "bar stuck at 100% while still writing" — Codex fix).** The job's dominant cost is network resolution; the build+write phase is fast but non-trivial. Map progress so it never reaches 100 *inside the handler* — **done is signalled by the run appearing (`liveScanRunId`), not by handler `progress`**. (The worker sets `progress:100` only at successful settle, per §3.2, i.e. after the run is already written.) Concretely:
+- Internal/validation resolution loop: `progress = floor(resolvedCount / allToResolve.length * 90)`, `message = "Checked ${resolvedCount}/${allToResolve.length} links"`. `report` is called inside `cacheWorker`; the heartbeat is the only DB writer so there is no per-target write.
 - External-link pass: `message = "Checking external links…"`, progress held ~90.
 - Finalizing (findings build + `CrawlRun` write + transient delete): `report(95, "Building SEO report…")`.
 - The job then completes and the run exists → every reader flips to **done** via `liveScanRunId`. The bar visibly fills to ~95 % then resolves to the results link — it never sits pegged at 100 while work continues.
 
-`totalToResolve` = the deduped, capped resolution-set length already computed in the handler (internal targets first, cap `BROKEN_LINK_MAX_CHECKS`). Reporting is best-effort and must never throw into the resolution loop.
+Reporting is best-effort and must never throw into the resolution loop.
 
 ### 3.4 Shared state classifier — `lib/ada-audit/seo-phase.ts`
 
@@ -170,21 +178,39 @@ Rules (precedence top-down):
    - `cancelled` → `{ state: 'unavailable' }`
 3. else (no run **and** no job — never enqueued, or error job pruned after 30 d) → `{ state: 'unavailable' }`.
 
+**Avoid a duplicate run query (Codex fix #1).** Both callers already have the live-scan run id in hand (the API loads `crawlRuns` for `liveScanRunId`; the ADA page loads `liveScanRun`). So the classifier stays **pure** and the DB layer only adds the *job* lookup — never a second run query:
 ```ts
-// DB wrapper:
-export async function getSeoPhase(siteAuditId: string): Promise<SeoPhase>
+// job-only DB helper (the run id is already known by both callers):
+export async function getLatestSeoVerifyJob(siteAuditId: string):
+  Promise<{ status: string; progress: number | null; progressMessage: string | null } | null>
+// = job.findFirst({ where: { type: 'broken-link-verify', groupKey: `site-audit:${siteAuditId}` },
+//     orderBy: { createdAt: 'desc' }, select: { status, progress, progressMessage } })
 ```
-Queries: (1) the live-scan run id (`crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } }, select: { id: true } })`), and (2) the latest verify job (`job.findFirst({ where: { type: 'broken-link-verify', groupKey: \`site-audit:${siteAuditId}\` }, orderBy: { createdAt: 'desc' }, select: { status, progress, progressMessage } })`). Both indexed (`[groupKey,status]`, `[type,status]`). Then `classifySeoPhase`.
+`[groupKey,status]` and `[type,status]` are both indexed. A convenience `getSeoPhase(siteAuditId)` (does its own run lookup + job lookup + classify) exists for callers without a preloaded run id, but the API and ADA page use the split form (their known `liveScanRunId` + `getLatestSeoVerifyJob` + `classifySeoPhase`).
 
 ### 3.5 `GET /api/site-audit/[id]` — expose `seoPhase`
 
-Add `seoPhase: await getSeoPhase(audit.id)` to the JSON response and to the `SiteAuditDetail` type extension. `liveScanRunId` stays (it's what `getSeoPhase` uses internally and what `SeoScanForm` reads for the results link). One extra indexed query per poll — acceptable (`SeoScanForm` polls at 2 s only while a scan is pending, and self-terminates on `ready`/`error`).
+The route already loads `crawlRuns` (→ `liveScanRunId`). Add **only** the job lookup:
+```ts
+const seoPhase = classifySeoPhase({
+  liveScanRunId: audit.crawlRuns[0]?.id ?? null,
+  job: await getLatestSeoVerifyJob(audit.id),
+})
+```
+Return `seoPhase` in the JSON and add it to the `SiteAuditDetail` type extension. `liveScanRunId` stays (what `SeoScanForm` reads for the results link). One extra indexed query per poll — acceptable (`SeoScanForm` polls at 2 s only while a scan is pending, and self-terminates on `ready`/`error`). Note: when `liveScanRunId` is present the classifier returns `done` **without** consulting the job, so the job lookup can be skipped in that branch (short-circuit before the `await`).
 
 ### 3.6 ADA site page — server-probe banner
 
-In `app/(app)/ada-audit/site/[id]/page.tsx`, after loading `liveScanRun`, compute `const seoPhase = await getSeoPhase(audit.id)`. Then:
-- **`liveScanRun` present (state `done`, incl. empty-harvest):** render the six SEO sections exactly as today. No change.
-- **`liveScanRun` null:** render a single `<SeoPhaseBanner phase={seoPhase} />` **in place of** the six null-state sections (they'd all say "not verified" — noisy). The banner shows:
+In `app/(app)/ada-audit/site/[id]/page.tsx`, after loading `liveScanRun`, compute the phase from the already-known run id (split form, no duplicate query):
+```ts
+const seoPhase = classifySeoPhase({
+  liveScanRunId: liveScanRun ? audit.id /* run exists */ : null,
+  job: liveScanRun ? null : await getLatestSeoVerifyJob(audit.id),
+})
+```
+(Since the page loads the run *object* not its id, "run exists" is the done signal — pass a non-null marker or refactor the select to include `id`.) Then:
+- **`liveScanRun` present (state `done`, incl. empty-harvest):** render the SEO sections exactly as today. No change.
+- **`liveScanRun` null:** render a single `<SeoPhaseBanner phase={seoPhase} />` **in place of the entire SEO section cluster** — `BrokenLinksSection`, `OnPageSeoSection`, `TechnicalSeoSection`, `DiscoveryCoverageSection`, `ReachabilitySection`, `ContentSimilaritySection` (six sections, each rendered once — Codex flagged a possible `ContentSimilaritySection` duplication; verified on origin/main @ 0d1d481 that it renders exactly once at line 240, no duplicate exists). All six read the same null run, so gating them as one block with a single ternary (`{liveScanRun ? <>…six sections…</> : <SeoPhaseBanner phase={seoPhase} />}`) guarantees no stray null-state section leaks outside the gate. The banner shows:
   - `running` → "SEO analysis running — checked X/Y" (from `progress`/`message`) + a **"Refresh"** link/hint (this page doesn't poll).
   - `queued` → "SEO analysis queued…" + refresh hint.
   - `failed` → "SEO analysis failed" (amber/red), suggest re-running.
@@ -235,6 +261,7 @@ No middleware change (no new route; `GET /api/site-audit/[id]` is already auth-g
 - `GET /api/site-audit/[id]`: response includes `seoPhase` with the right state for run-present / job-running / no-job fixtures.
 - `SeoPhaseBanner`: renders each state, dark-mode classes present.
 - `SeoScanForm`: `failed`/`unavailable` stop the poll + clear storage; `running` renders the bar with counts; `done` renders the results link. (Extend existing `SeoScanForm.test.tsx`.)
+- **Ctx fixtures (Codex fix #5):** adding `reportProgress` to `JobHandlerContext` will break any test that constructs a *typed* ctx object literal. Sweep for those and add `reportProgress: vi.fn()` (or a no-op). Runtime is unaffected — the worker owns ctx creation and `runBrokenLinkVerify(payload, deps, ctx?)` keeps `ctx` optional so existing `runBrokenLinkVerify(payload, stubDeps)` call sites compile unchanged.
 
 Gates: `npx tsc --noEmit` (run `npx prisma generate` first — fresh worktree client may be stale), `DATABASE_URL="file:./local-dev.db" npm test`, `npm run build`.
 
@@ -248,7 +275,8 @@ Authed Playwright against a **client** domain already in the system (never a thi
 
 ## 7. Risks / edge cases
 
-- **Heartbeat cadence vs UI poll cadence:** progress is persisted at `HEARTBEAT_MS`, the SeoScanForm poll is 2 s. If `HEARTBEAT_MS` > 2 s the bar updates in steps — acceptable (verify plan should note the actual `HEARTBEAT_MS`).
+- **Heartbeat cadence vs UI poll cadence:** `HEARTBEAT_MS` is **15,000 ms** (`lib/jobs/config.ts`), the SeoScanForm poll is 2 s. So progress persists — and the bar visibly advances — in **~15 s steps**. For a 36 s-median / 55 s-p90 verify job that is only ~2–4 visible increments. Acceptable for v1 (the bar proves the phase is alive and roughly how far along); do **not** shorten the generic heartbeat for this (it would add DB write load across every job type). A dedicated faster progress write is a possible fast-follow if the stepping feels too coarse in prod. **This means a very fast/empty-harvest scan may jump queued→done with 0–1 progress ticks** — the UI must handle "done with no intermediate progress" gracefully (it does: `done` is driven by `liveScanRunId`, not by the bar reaching any value).
+- **Failed-state copy:** the `failed`/`SeoPhaseBanner` states show a **generic** message in v1, not `Job.lastError` (avoid leaking internal error text to the operator surface; `lastError` stays in logs / `/admin/ops`). Revisit if operators need the reason inline.
 - **`complete`-but-no-run anomaly** classified as `unavailable` (not `done`) — correct-fails-safe; the builder is designed to always write a run (empty-harvest included), so this is a real anomaly worth surfacing as "unavailable" rather than pretending done.
 - **Retention:** an audit whose verify errored >30 d ago (job pruned) shows `unavailable`, not `failed`. Acceptable — the distinction is only interesting while fresh.
 - **Non-seoOnly audits still hit `broken-link-verify`** — the ADA banner covers them; the two surfaces share `getSeoPhase`.
