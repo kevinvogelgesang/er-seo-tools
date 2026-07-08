@@ -34,3 +34,13 @@ describe('next.config request-body caps', () => {
     expect(sa).toBeGreaterThanOrEqual(50 * 1024 * 1024)
   })
 })
+
+describe('next.config /seo-parser → /seo-audits redirects', () => {
+  it('permanently redirects the base path and all subpaths', async () => {
+    const redirects = await (nextConfig.redirects?.() ?? Promise.resolve([]))
+    const base = redirects.find((r) => r.source === '/seo-parser')
+    const sub = redirects.find((r) => r.source === '/seo-parser/:path*')
+    expect(base).toMatchObject({ destination: '/seo-audits', permanent: true })
+    expect(sub).toMatchObject({ destination: '/seo-audits/:path*', permanent: true })
+  })
+})

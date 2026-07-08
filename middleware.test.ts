@@ -64,6 +64,9 @@ describe('isPublicPath — auth-gate allowlist', () => {
     // A8 PR 3.5 fleet-aggregate routes feed the homepage widgets → cookie-gated by omission
     '/api/fleet/kpi',
     '/api/fleet/needs-attention',
+    // C11 PR3: the renamed SEO tool surface is authed exactly like /seo-parser was.
+    '/seo-audits',
+    '/seo-audits/results/run/abc',
   ])('keeps non-handoff route %s gated', (p) => {
     expect(isPublicPath(p)).toBe(false);
   });

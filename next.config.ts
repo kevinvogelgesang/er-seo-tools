@@ -23,6 +23,16 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   // Don't advertise the framework to every visitor (removes `X-Powered-By`).
   poweredByHeader: false,
+  async redirects() {
+    // C11 PR3: /seo-parser renamed to /seo-audits. Permanent 308s so old
+    // bookmarks and already-shipped srt_ handoff "Webapp:" links survive.
+    // redirects() runs BEFORE middleware, so the old path 308s first and the
+    // new path is then auth-gated exactly as the old one was.
+    return [
+      { source: '/seo-parser', destination: '/seo-audits', permanent: true },
+      { source: '/seo-parser/:path*', destination: '/seo-audits/:path*', permanent: true },
+    ]
+  },
   async headers() {
     return [
       {
