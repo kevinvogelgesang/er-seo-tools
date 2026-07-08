@@ -7,6 +7,7 @@ import type { AuditPdfRow, SiteAuditDetail } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-children-helpers'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
+import { classifySeoPhase, getLatestSeoVerifyJob, type SeoPhase } from '@/lib/ada-audit/seo-phase'
 
 export const dynamic = 'force-dynamic'
 
@@ -99,6 +100,11 @@ export async function GET(
       )
     : undefined
 
+  const liveScanRunId = audit.crawlRuns[0]?.id ?? null
+  const seoPhase: SeoPhase = liveScanRunId
+    ? { state: 'done', progress: null, message: null }
+    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
+
   return NextResponse.json({
     id: audit.id,
     createdAt: audit.createdAt.toISOString(),
@@ -126,12 +132,14 @@ export async function GET(
     queuePosition,
     activeAudit,
     seoOnly: audit.seoOnly,
-    liveScanRunId: audit.crawlRuns[0]?.id ?? null,
+    liveScanRunId,
+    seoPhase,
     ...(liveChildren ? { liveChildren } : {}),
   } satisfies SiteAuditDetail & {
     queuePosition: number | null
     activeAudit: typeof activeAudit
     liveScanRunId: string | null
+    seoPhase: SeoPhase
   })
 }
 
