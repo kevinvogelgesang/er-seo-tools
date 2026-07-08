@@ -522,8 +522,13 @@ Interleave as needed (not blockers):
   **NO ada-audit CrawlRun/summary/carry-forward for seoOnly** (ADA exports gate on
   the ada run existing); keep broken-link-verify as the live-scan builder; form on
   /seo-parser with a pending-status card (readiness = `liveScanRunId` on
-  GET /api/site-audit/[id]). **NEXT: execute the plan** (subagent-driven) → PR →
-  deploy → prod-verify (authed Playwright submit of a client-domain seoOnly scan).
+  GET /api/site-audit/[id]). **PR 1 SHIPPED + PROD-VERIFIED 2026-07-08** (PR #122,
+  main `11fcaf6`; migration `20260707140000_seo_only` auto-applied on deploy) — see
+  Status log. **NEXT: C11 PR 2** — seoIntent/seoOnly toggles on the forms +
+  `ScheduledScansCard`, intent labels in queue/history, SEO-phase visibility
+  (`broken-link-verify` job-state probe + `Job.progress`), and the seoOnly error-state
+  UI the PR1 pending card defers (brainstorm → spec → plan → build). Then PR 3
+  (rename/maturation). C11 checkbox stays [ ] until all 3 PRs land.
 - [ ] **C12. Content auditing (data correctness · keyword cannibalization · content
   quality)** — CANDIDATE, exploration only (Kevin, 2026-07-07). Full problem map,
   capability tiers, cost model, and sequencing in
@@ -612,6 +617,40 @@ Interleave as needed (not blockers):
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
+
+- 2026-07-08 (**C11 PR 1 — SEO-only scan mode + URL scan form SHIPPED + DEPLOYED + PROD-VERIFIED**) —
+  First PR of the C11 3-PR arc. A render-only `seoOnly` site-audit mode (navigate + settle +
+  harvest links/on-page-SEO; SKIP axe + screenshots + PDF dispatch + PSI) + a URL scan form on
+  `/seo-parser`. ~4× cheaper than the paired ADA pipeline. Executed subagent-driven (11 TDD
+  tasks, fresh implementer + two-stage spec/quality review per task, all Approved) then an opus
+  whole-branch review (**Ready to merge, 0 Critical/Important**). Architecture: new independent
+  `SiteAudit.seoOnly` column (migration `20260707140000_seo_only`, additive
+  `BOOLEAN NOT NULL DEFAULT false`; `seoOnly⇒seoIntent` forced at `queueSiteAuditRequest`);
+  `runAxeAudit` `renderOnly`→`kind:'rendered'` (skips axe + screenshots + BOTH Lighthouse
+  paths, non-render path byte-for-byte unchanged); page job reads `seoOnly` off the parent
+  row (authoritative), settles children `complete` with `pagesComplete++` only; finalizer
+  skips ALL ADA output (null summary, no carry-forward, **no `tool:'ada-audit'` CrawlRun**)
+  but keeps `enqueueBrokenLinkVerify` LAST (the live-scan builder — the only output for
+  seoOnly); detail route adds `liveScanRunId` (form readiness signal); ADA surfaces guarded
+  (share 400, quick-widget 409→`/seo-parser`, `/ada-audit/site/[id]` redirect, list/queue/
+  dashboard exclude-or-label); recovery covers zero-harvest seoOnly. Gates: tsc clean ·
+  **3665 tests / 414 files** (new runner/page/finalizer/detail/share/redirect/recovery/form/
+  invariant tests) · `next build`. PR #122 → merged (main `11fcaf6`) → `~/deploy.sh` (migration
+  auto-applied). **Prod verify (Playwright, authed, `seo.erstaging.site`):** submitted a
+  seoOnly scan for client domain `manhattanschool.edu` → POST 202, `seoOnly:true` persisted;
+  render-only drain held `pdfsTotal:0`/`lighthouseTotal:0` throughout to `complete` (97 complete
+  + 5 error + 7 redirect = 109); **all three ADA exports (csv/vpat/report) → `409 no_findings_run`**
+  (confirming NO ada-audit run was created); `broken-link-verify` built the live-scan run
+  (`liveScanRunId 421a7b07…`); the pending card flipped to **ready** with the correct
+  `/seo-parser/results/run/…` link; results page rendered a real SEO report (91 health score,
+  97 URLs, 2 critical / 5 warnings / 3 notices), 0 console errors. (The "Archived — rebuilt from
+  findings data" banner on the live-scan result is the pre-existing C6 findings-fallback view —
+  every live-scan run renders that way, no `Session.result` blob; polish candidate for PR 3.)
+  Spec + plan → `../archive/`. **C11 stays `[ ]`** (ticks only when all 3 PRs land). Minors
+  logged for later: recovery `seoOnlyComplete` query is unbounded-but-negligible (trivial
+  `NOT:{crawlRuns:{some:{tool:'seo-parser'}}}` fix); SeoScanForm has no terminal error/failed
+  state (PR 2 error-UI scope). **Next: C11 PR 2** — toggles + intent labels + SEO-phase
+  visibility + seoOnly error-state UI.
 
 - 2026-07-07 (**A8 PR 4 — seo-parser visual polish SHIPPED + DEPLOYED + PROD-VERIFIED**) —
   First per-tool polish pass of the open-ended A8 PR 4+ phase (Kevin picked seo-parser +
