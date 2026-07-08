@@ -168,7 +168,7 @@ export function HistoryList() {
 
   return (
     <div className="mt-12">
-      <h2 className="text-xl font-bold text-[#1c2d4a] dark:text-white mb-4">Recent Analyses</h2>
+      <h2 className="text-xl font-bold text-navy dark:text-white mb-4">Recent Analyses</h2>
 
       {/* Filters row */}
       <div className="flex gap-2 mb-4">
@@ -194,7 +194,7 @@ export function HistoryList() {
             placeholder="Filter by site name…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white dark:bg-navy-card dark:text-white dark:placeholder:text-white/40"
+            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 bg-white dark:bg-navy-card dark:text-white dark:placeholder:text-white/40"
           />
         </div>
 
@@ -209,7 +209,7 @@ export function HistoryList() {
               else if (v === 'unassigned') setClientFilter('unassigned');
               else setClientFilter(parseInt(v, 10));
             }}
-            className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white dark:bg-navy-card text-gray-600 dark:text-white min-w-[140px]"
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 bg-white dark:bg-navy-card text-gray-600 dark:text-white min-w-[140px]"
           >
             <option value="">All clients</option>
             <option value="unassigned">Unassigned</option>
@@ -270,7 +270,7 @@ export function HistoryList() {
                     {isRun ? 'Live scan' : 'SF upload'}
                   </span>
                   {item.clientName && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#1c2d4a]/8 dark:bg-white/10 text-[#1c2d4a] dark:text-white font-medium">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-navy/[0.08] dark:bg-white/10 text-navy dark:text-white font-medium">
                       {item.clientName}
                     </span>
                   )}
@@ -292,7 +292,7 @@ export function HistoryList() {
                     </>
                   )}
                 </div>
-                <div className="mt-2 text-[#f5a623] text-xs font-semibold group-hover:underline">
+                <div className="mt-2 text-orange text-xs font-semibold group-hover:underline">
                   View Results →
                 </div>
               </button>
