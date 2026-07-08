@@ -449,8 +449,11 @@ Interleave as needed (not blockers):
   *Status log:* 2026-07-04 — C9-A + C9-B both shipped (see Status log entries). **C9 COMPLETE.**
 - [x] **C10. SEO Performance Reports (GA4 + GSC client reporting — replaces the manual Looker export)** — NET-NEW (not from the 00–06 roadmap docs; greenlit by Kevin 2026-06-22). Branded per-client PDF with period-over-period comparisons, on-demand (any date range × any client subset) + scheduled monthly; auth via a Google **service account** (no consent screen, no expiry, granted per client); CRM "Prospects" via a pluggable provider (manual-entry fallback v1). **Delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6** as a reusable `lib/analytics/` provider layer. Spec/plan (Codex 4 passes) archived: `archive/specs/2026-06-22-seo-performance-reports-design.md` · `archive/plans/2026-06-22-seo-performance-reports.md`. **SHIPPED 2026-06-22 (PR #75 + build-heap fix #76, deployed to prod, migration applied).** Built subagent-driven (25 tasks, 2 phases); gate green (2703 tests / tsc / build); whole-branch + Codex merge reviews passed. **PROD-VERIFIED 2026-07-02 (Kevin):** `/settings` Test connection green, reports render correctly, SA granted + GA4/GSC mapped for every client Kevin currently has access to. Scorecard-#12 question RESOLVED — the code's "Key Events" (vs the spec's duplicate "Avg Position" Looker artifact) is accepted as-is (no change). **C10 COMPLETE** — delivers the GA4/GSC analytics-ingestion half of SF-retirement Phase 6.
 
-- [ ] **C11. SEO Audits v1 — URL-triggered SEO-only scans + `/seo-parser` →
-  `/seo-audits` maturation** — **PRIORITY-BUMPED (Kevin, 2026-07-07)**; grew from
+- [x] **C11. SEO Audits v1 — URL-triggered SEO-only scans + `/seo-parser` →
+  `/seo-audits` maturation** — **COMPLETE 2026-07-08 (PR 3 = last of 3 shipped).**
+  PR 1 (seoOnly, #122), PR 2a (toggles/labels, #124), PR 2b (SEO-phase visibility
+  + progress, #126), PR 3 (rename + maturation + live-scan polish, #128) all
+  SHIPPED + DEPLOYED. — **PRIORITY-BUMPED (Kevin, 2026-07-07)**; grew from
   "manual SEO-scan UI exposure" (small) into the committed v1 of the SEO-audit
   surface. Original gap: the seoIntent live-SEO scan (C6 Phase 4, PR #85) is **API-only**: `POST
   /api/site-audit` accepts `seoIntent: true` and `POST /api/clients/[id]/schedules`
@@ -507,6 +510,29 @@ Interleave as needed (not blockers):
   **Ordering (Kevin, 2026-07-07): C11 queues BEHIND A8 PR 3** (widget editor,
   in progress in another session) — the handoff's next action is unchanged;
   C11 is the next item after A8 PR 3 lands.
+  *Status log:* 2026-07-08 — **PR 3 (h) SHIPPED (PR #128, main b679038) + DEPLOYED + PROD-VERIFIED.**
+  Spec+plan both Codex-reviewed (fixes applied), archived. Subagent-driven build, 9 TDD
+  tasks: (1) `next.config.ts` permanent 308 redirects `/seo-parser*`→`/seo-audits*`
+  (+ `next.config.test.ts` + `middleware.test.ts` gated-path guard); (2) `git mv` route
+  tree `app/(app)/seo-parser`→`seo-audits` (history preserved); (3) nav registry + footer
+  label "SEO Parser"→"SEO Audits" (internal `id:'seo-parser'` kept); (4) 4 seoOnly
+  behavioral hrefs (`seo-only-redirect.ts` + LiveNowWidget/QueueMemberRow/DashboardQueueStatus);
+  (5) remaining product links (widgets, client cards, service link-builders, seo components);
+  (6) `er-handoff-memo` srt_ "Webapp:" line + README + CLAUDE tools-table; (7) **live-scan
+  polish** — `buildSeoResultFromRun` `archived` opt + `loadRunSeoResult` selects `source`
+  (`archived: source!=='live-scan'`) + `ResultsView` `isLiveScan` branch (first-class
+  "Live scan" badge, suppresses archived AND false-completeness banners; pruned-session
+  fallback unchanged); (8) maturation — `SeoAuditTabs` (ADA-style pill toggle, Scan default
+  + Upload) + extracted `SeoUploadCard`, page → server component with `max-w-5xl` ADA-mirror
+  header, reuses merged `HistoryList`. **KEPT (not renamed):** persisted `tool:'seo-parser'`
+  CrawlRun discriminator, `/api/parse/*` + `/api/seo-parser/*` API routes, `@/components/seo-parser`
+  / `@/lib/seo-parser` import paths. Gate-green (tsc / 3727 tests / build). Final opus
+  whole-branch review: READY TO MERGE (all 6 rename invariants confirmed). Prod-verified:
+  308 redirects work for base/subpaths/deep-links with query preserved, `/seo-audits`
+  auth-gated with correct `?next=`, footer nav shows "SEO Audits", PM2 online 0-error.
+  **Authed-UI spot-check (tabbed hub + live-scan first-class result) pending Kevin's Google
+  OAuth session — staging login is OAuth-only, not headlessly automatable; covered by the
+  3727 passing tests + build.** Spec/plan → `archive/`.
   *Status log:* 2026-07-07 — **Kevin pivoted here from A8 per-tool polish** (A8
   PR 3/PR 4 both shipped, so C11 is unblocked; A8 stays [~], next A8 pass = PR 5
   ada-audit polish, resumed after C11). Brainstormed PR-1 as the entry point of
