@@ -126,6 +126,36 @@ describe('getClientSchedules', () => {
     expect(row!.domain).toBe('')
     expect(row!.wcagLevel).toBe('wcag21aa')
   })
+
+  it('a seoOnly schedule sources score from the live-scan run and skips ADA diff', async () => {
+    const sched = await prisma.schedule.create({
+      data: {
+        jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, clientId, cadence: 'weekly:1@06:00',
+        payload: JSON.stringify({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag21aa', seoOnly: true }),
+        nextRunAt: new Date('2099-01-01T00:00:00Z'),
+      },
+    })
+    const audit = await prisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}a.example.edu`, status: 'complete', wcagLevel: 'wcag21aa',
+        scheduleId: sched.id, createdAt: new Date('2026-05-01T00:00:00Z'),
+        completedAt: new Date('2026-05-01T00:00:00Z'),
+      },
+    })
+    const liveRun = await prisma.crawlRun.create({
+      data: {
+        tool: 'seo-parser', source: 'live-scan', status: 'complete',
+        domain: `${PREFIX}a.example.edu`, siteAuditId: audit.id, score: 77,
+      },
+    })
+
+    const row = (await getClientSchedules(clientId)).find((r) => r.id === sched.id)!
+    expect(row.seoOnly).toBe(true)
+    expect(row.lastRun?.score).toBe(77)
+    expect(row.lastRun?.newCount).toBeNull()
+    expect(row.lastDelta).toBeNull()
+    expect(row.liveRunId).toBe(liveRun.id)
+  })
 })
 
 // ── C3: instance new/resolved chips ─────────────────────────────────────────
