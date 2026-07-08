@@ -370,8 +370,39 @@ describe('loadCompleteEnrichment', () => {
     const e = await loadCompleteEnrichment(input)
     expect(e.change.seoDelta).toBe(5) // 90 - 85
   })
+
+  it('rejects a later candidate and a same-timestamp higher-id candidate for SEO delta', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: DOM, status: 'complete', wcagLevel: 'wcag21aa', pagesComplete: 1, pagesTotal: 1 } })
+    const ts = new Date('2026-07-08')
+    const cur = await mkRun({ siteAuditId: audit.id, score: 90, completedAt: ts })
+    await mkRun({ score: 60, completedAt: new Date('2026-07-10') })  // later → excluded
+    // same timestamp, higher id than cur → excluded (only strictly-earlier or lower-id-at-tie count)
+    const older = await mkRun({ score: 70, completedAt: new Date('2026-07-02') })
+    const input = { id: audit.id, domain: DOM, seoOnly: true, pagesComplete: 1, pagesTotal: 1,
+      crawlRuns: [{ id: cur.id, tool: 'seo-parser', source: 'live-scan', status: 'complete', score: 90, scoreBreakdown: null, domain: DOM, completedAt: ts, createdAt: cur.createdAt }] }
+    void older
+    const e = await loadCompleteEnrichment(input)
+    expect(e.change.seoDelta).toBe(20) // 90 - 70, never the later 60
+  })
+
+  it('suppresses adaDelta on scorer-version mismatch and seoDelta on SEO version mismatch', async () => {
+    // Two live runs with differing score-breakdown versions → seoDelta null.
+    const audit = await prisma.siteAudit.create({ data: { domain: DOM, status: 'complete', wcagLevel: 'wcag21aa', pagesComplete: 1, pagesTotal: 1 } })
+    const cur = await mkRun({ siteAuditId: audit.id, score: 90, completedAt: new Date('2026-07-08'),
+      scoreBreakdown: JSON.stringify({ version: 2, scorer: 'live-seo', score: 90, factors: [] }) })
+    await mkRun({ score: 80, completedAt: new Date('2026-07-01'),
+      scoreBreakdown: JSON.stringify({ version: 1, scorer: 'live-seo', score: 80, factors: [] }) })
+    const input = { id: audit.id, domain: DOM, seoOnly: true, pagesComplete: 1, pagesTotal: 1,
+      crawlRuns: [{ id: cur.id, tool: 'seo-parser', source: 'live-scan', status: 'complete', score: 90,
+        scoreBreakdown: JSON.stringify({ version: 2, scorer: 'live-seo', score: 90, factors: [] }),
+        domain: DOM, completedAt: new Date('2026-07-08'), createdAt: cur.createdAt }] }
+    const e = await loadCompleteEnrichment(input)
+    expect(e.change.seoDelta).toBeNull() // version 2 vs 1 → suppressed
+  })
 })
 ```
+
+> **Test note:** `parseScoreVersion` reads the `version` field of the breakdown JSON (verify the exact field name against `@/lib/scoring/breakdown-version` when implementing — the ADA v1↔v2 assertion depends on it). If it keys off a differently-named field, adjust the fixture JSON to match.
 
 - [ ] **Step 2: Run to verify fail**
 
@@ -436,15 +467,24 @@ export async function loadCompleteEnrichment(audit: EnrichAuditInput): Promise<C
   let resolvedIssues: number | null = null
   let previousDate: string | null = null
 
+  // Baseline dates are tracked PER delta — ADA and SEO can compare against
+  // different prior scans (SEO-only scans between full audits). A single strip
+  // date is shown only when the present baselines agree (Codex plan-fix #2).
+  let adaDate: string | null = null
+  let seoDate: string | null = null
+
   // ADA new/resolved + ADA score delta (full audits only; diff is ADA-anchored)
   const diff = await getSiteAuditInstanceDiff(audit.id)
   if (diff) {
-    newIssues = diff.diff.newCount + diff.diff.newPageCount
+    // newCount already partitions into regressedCount + newPageCount — do NOT
+    // add newPageCount (verified findings-shared.ts:270-272; Codex plan-fix #1).
+    newIssues = diff.diff.newCount
     resolvedIssues = diff.diff.resolvedCount
-    previousDate = diff.previous.completedAt ? new Date(diff.previous.completedAt).toISOString().slice(0, 10) : null
-    if (ada?.score != null && diff.previous.siteAuditId) {
+    adaDate = diff.previous.completedAt ? new Date(diff.previous.completedAt).toISOString().slice(0, 10) : null
+    if (ada?.score != null) {
+      // Load the previous ADA run by its exact run id (Codex plan-fix #4).
       const prevAda = await prisma.crawlRun.findUnique({
-        where: { siteAuditId_tool: { siteAuditId: diff.previous.siteAuditId, tool: 'ada-audit' } },
+        where: { id: diff.previous.runId },
         select: { score: true, scoreBreakdown: true },
       })
       if (prevAda?.score != null && parseScoreVersion(ada.scoreBreakdown) === parseScoreVersion(prevAda.scoreBreakdown)) {
@@ -466,9 +506,13 @@ export async function loadCompleteEnrichment(audit: EnrichAuditInput): Promise<C
       .sort((a, b) => stamp(b) - stamp(a) || b.id.localeCompare(a.id))[0] ?? null
     if (prev?.score != null && parseScoreVersion(live.scoreBreakdown) === parseScoreVersion(prev.scoreBreakdown)) {
       seoDelta = live.score - prev.score
-      if (!previousDate) previousDate = (prev.completedAt ?? prev.createdAt).toISOString().slice(0, 10)
+      seoDate = (prev.completedAt ?? prev.createdAt).toISOString().slice(0, 10)
     }
   }
+
+  // Reconcile: show a date only when every present baseline agrees.
+  const dates = [adaDate, seoDate].filter((d): d is string => d != null)
+  previousDate = dates.length > 0 && dates.every((d) => d === dates[0]) ? dates[0] : null
 
   return { pagesComplete: audit.pagesComplete, pagesTotal: audit.pagesTotal, counts, partial,
     change: { seoDelta, adaDelta, newIssues, resolvedIssues, previousDate } }
@@ -501,8 +545,21 @@ git commit -m "feat(notify): D7 enrichment loader — counts, partial flags, cha
 - Consumes: `loadCompleteEnrichment`, `EnrichAuditInput` from `@/lib/notify/enrichment`; `logError` from `@/lib/log`.
 - Produces: no new exports (handler behavior only).
 
-- [ ] **Step 1: Write failing tests** — append to `lib/jobs/handlers/notify-email.test.ts`:
+- [ ] **Step 1: Write failing tests** — append to `lib/jobs/handlers/notify-email.test.ts`.
 
+**First fix the existing `afterEach` cleanup** (Codex plan-fix #6): `CrawlRun.siteAuditId`
+is `onDelete: SetNull`, so deleting only `SiteAudit` orphans the live/ada runs these
+tests create — they then contaminate the deterministic previous-run selection of later
+tests. Delete CrawlRuns for the test domain **before** the SiteAudits:
+```ts
+  afterEach(async () => {
+    process.env = OLD
+    await prisma.crawlRun.deleteMany({ where: { domain: 'notify-test.example' } })
+    await prisma.siteAudit.deleteMany({ where: { domain: 'notify-test.example' } })
+  })
+```
+
+Then append the new cases:
 ```ts
   it('passes enrichment (counts + pages) to the complete email', async () => {
     const audit = await prisma.siteAudit.create({ data: { domain: 'notify-test.example', status: 'complete', wcagLevel: 'wcag21aa', notifyEmail: 'r@example.com', pagesComplete: 4, pagesTotal: 4 } })
@@ -536,10 +593,22 @@ Expected: FAIL (enrichment not wired; `4 of 4` absent).
 
 - [ ] **Step 3: Edit `lib/jobs/handlers/notify-email.ts`.**
 
-3a. Add imports near the top:
+3a. Add imports near the top + a small deadline helper (Codex plan-fix #3 — the
+job's 30s worker timeout does NOT cancel pending Prisma work, so an unbounded
+enrichment read could delay the send past timeout and widen the duplicate-send
+window; cap it):
 ```ts
 import { loadCompleteEnrichment } from '@/lib/notify/enrichment'
 import { logError } from '@/lib/log'
+
+const ENRICHMENT_DEADLINE_MS = 5_000
+
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('enrichment deadline exceeded')), ms)
+    p.then((v) => { clearTimeout(t); resolve(v) }, (e) => { clearTimeout(t); reject(e) })
+  })
+}
 ```
 
 3b. Expand the `findUnique` `select` (the `complete`/`failed` shared load) to add the enrichment fields:
@@ -569,10 +638,10 @@ import { logError } from '@/lib/log'
     }
     let content
     try {
-      const enrichment = await loadCompleteEnrichment({
+      const enrichment = await withDeadline(loadCompleteEnrichment({
         id: audit.id, domain: audit.domain, seoOnly: audit.seoOnly,
         pagesComplete: audit.pagesComplete, pagesTotal: audit.pagesTotal, crawlRuns: audit.crawlRuns,
-      })
+      }), ENRICHMENT_DEADLINE_MS)
       content = buildCompleteEmail({ ...base, ...enrichment })
     } catch (err) {
       logError({ subsystem: 'jobs', job: 'notify-email', siteAuditId: audit.id }, err)
@@ -619,4 +688,6 @@ git commit -m "feat(notify): D7 wire enrichment into completion email; send+mark
 
 **Placeholders:** none — every code step is complete. One explicit verify note (`parseScoreVersion` null semantics) with a defined fallback behavior, not a TODO.
 
-**Type consistency:** `CompleteInput` (T1) ⊇ `CompleteEnrichment` (T2) — the handler spreads `{...base, ...enrichment}`; `enrichment` supplies `pagesComplete/pagesTotal/counts/partial/change`, `base` supplies the rest. `loadCompleteEnrichment(EnrichAuditInput)` shape matches the handler's expanded `select` exactly (id, domain, seoOnly, pagesComplete, pagesTotal, crawlRuns{id,tool,source,status,score,scoreBreakdown,domain,completedAt,createdAt}). `getSiteAuditInstanceDiff` return used as `diff.diff.{newCount,newPageCount,resolvedCount}` + `diff.previous.{siteAuditId,completedAt}` — matches `SiteAuditDiffResult`.
+**Type consistency:** `CompleteInput` (T1) ⊇ `CompleteEnrichment` (T2) — the handler spreads `{...base, ...enrichment}`; `enrichment` supplies `pagesComplete/pagesTotal/counts/partial/change`, `base` supplies the rest. `loadCompleteEnrichment(EnrichAuditInput)` shape matches the handler's expanded `select` exactly (id, domain, seoOnly, pagesComplete, pagesTotal, crawlRuns{id,tool,source,status,score,scoreBreakdown,domain,completedAt,createdAt}). `getSiteAuditInstanceDiff` return used as `diff.diff.{newCount,resolvedCount}` (newCount alone — it already subsumes regressed+newPage, verified) + `diff.previous.{runId,completedAt}` (previous ADA run loaded by `runId`, not `siteAuditId`) — matches `SiteAuditDiffResult`.
+
+**Codex plan-review fixes applied (turn 40):** #1 newCount-only arithmetic · #2 per-delta baseline dates reconciled to one strip date only when they agree · #3 5s enrichment deadline (`withDeadline`) so a slow read can't push the send past the 30s job timeout · #4 previous ADA run by `previous.runId` · #5 added version-gate + candidate-rejection tests · #6 Task 3 `afterEach` deletes CrawlRuns before SiteAudits.
