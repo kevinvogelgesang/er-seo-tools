@@ -33,6 +33,10 @@ async function clearTestState() {
     await prisma.job.deleteMany({
       where: { groupKey: { in: sites.map((s) => `site-audit:${s.id}`) } },
     })
+    // D7 notify-email jobs carry NO site-audit group key — clean them by dedupKey.
+    await prisma.job.deleteMany({
+      where: { type: 'notify-email', dedupKey: { in: sites.flatMap((s) => [`notify-email:${s.id}:complete`, `notify-email:${s.id}:failed`]) } },
+    })
   }
   await prisma.pdfAudit.deleteMany({ where: { url: { contains: PREFIX } } })
   await prisma.adaAudit.deleteMany({ where: { url: { contains: PREFIX } } })
@@ -212,6 +216,20 @@ describe('failSiteAudit', () => {
     expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.status).toBe('complete')
     expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('complete')
     expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('queued')
+  })
+
+  it('D7: enqueues a failed notify job when the audit opted in', async () => {
+    const site = await seedSite('fail-notify', 'running', { discoveredUrls: '[]', pagesTotal: 1, notifyEmail: 'r@example.com' })
+    await failSiteAudit(site.id, 'boom')
+    const notifyJob = await prisma.job.findFirst({ where: { type: 'notify-email', dedupKey: `notify-email:${site.id}:failed` } })
+    expect(notifyJob).not.toBeNull()
+  })
+
+  it('D7: does NOT enqueue a notify job when notifyEmail is null', async () => {
+    const site = await seedSite('fail-silent', 'running', { discoveredUrls: '[]', pagesTotal: 1 })
+    await failSiteAudit(site.id, 'boom')
+    const notifyJob = await prisma.job.findFirst({ where: { type: 'notify-email', dedupKey: `notify-email:${site.id}:failed` } })
+    expect(notifyJob).toBeNull()
   })
 })
 

@@ -6,7 +6,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
-import { GET } from './route'
+import { createAuthCookieValue, AUTH_COOKIE_NAME } from '@/lib/auth'
+import { GET, POST } from './route'
 
 const PREFIX = 'c3sal-'
 
@@ -80,5 +81,46 @@ describe('GET /api/site-audit — C3 score source', () => {
     const row = items.find((i) => i.id === ids.pruned)
     expect(row?.score).toBe(37)
     expect(row?.summary).toBeNull()
+  })
+})
+
+// ─── POST /api/site-audit — D7 notifyEmail server-side stamping ───────────────
+describe('POST /api/site-audit — D7 notifyEmail stamping', () => {
+  const NOTIFY_PREFIX = 'notify-d7-'
+  async function clearNotify() {
+    await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: NOTIFY_PREFIX } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: NOTIFY_PREFIX } } })
+  }
+  beforeAll(clearNotify)
+  afterAll(clearNotify)
+
+  async function postAudit(body: object, cookie?: string): Promise<Response> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (cookie) headers.cookie = `${AUTH_COOKIE_NAME}=${cookie}`
+    return POST(new NextRequest('http://localhost/api/site-audit', { method: 'POST', headers, body: JSON.stringify(body) }))
+  }
+
+  it('stamps notifyEmail from the verified session when notify:true, ignoring a client-supplied address', async () => {
+    const cookie = await createAuthCookieValue({ sub: 'google:1', email: 'op@enrollmentresources.com', hd: 'enrollmentresources.com', name: 'Op' })
+    const res = await postAudit({ domain: `${NOTIFY_PREFIX}stamp.example`, notify: true, email: 'attacker@evil.com' }, cookie)
+    expect(res.status).toBe(202)
+    const { id } = await res.json()
+    const row = await prisma.siteAudit.findUnique({ where: { id } })
+    expect(row?.notifyEmail).toBe('op@enrollmentresources.com')
+  })
+
+  it('leaves notifyEmail null when notify is absent', async () => {
+    const cookie = await createAuthCookieValue({ sub: 'google:1', email: 'op@enrollmentresources.com', hd: 'enrollmentresources.com', name: 'Op' })
+    const res = await postAudit({ domain: `${NOTIFY_PREFIX}none.example` }, cookie)
+    const { id } = await res.json()
+    const row = await prisma.siteAudit.findUnique({ where: { id } })
+    expect(row?.notifyEmail).toBeNull()
+  })
+
+  it('leaves notifyEmail null when notify:true but there is no session email', async () => {
+    const res = await postAudit({ domain: `${NOTIFY_PREFIX}nosession.example`, notify: true })
+    const { id } = await res.json()
+    const row = await prisma.siteAudit.findUnique({ where: { id } })
+    expect(row?.notifyEmail).toBeNull()
   })
 })

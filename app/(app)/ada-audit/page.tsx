@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { cookies } from 'next/headers'
-import { AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME, getOperatorLabel } from '@/lib/auth'
+import { AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME, getOperatorLabel, getAuthSession } from '@/lib/auth'
 import { fetchAllRecents } from '@/lib/ada-audit/recents-query'
 import AuditIndexTabs from '@/components/ada-audit/AuditIndexTabs'
 
@@ -9,9 +9,12 @@ export const dynamic = 'force-dynamic'
 
 export default async function AdaAuditPage() {
   const c = await cookies()
-  const operator = await getOperatorLabel(c.get(AUTH_COOKIE_NAME)?.value, c.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+  const authCookie = c.get(AUTH_COOKIE_NAME)?.value
+  const operator = await getOperatorLabel(authCookie, c.get(OPERATOR_NAME_COOKIE_NAME)?.value)
   const initialScope = operator ? 'mine' : 'all'
   const recentItems = await fetchAllRecents(10, operator ?? undefined)
+  // D7: only offer the notify checkbox when a verified session email exists.
+  const notifyAvailable = Boolean((await getAuthSession(authCookie))?.email)
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
@@ -22,7 +25,7 @@ export default async function AdaAuditPage() {
         </p>
       </div>
       <Suspense>
-        <AuditIndexTabs recentItems={recentItems} operator={operator} initialScope={initialScope} />
+        <AuditIndexTabs recentItems={recentItems} operator={operator} initialScope={initialScope} notifyAvailable={notifyAvailable} />
       </Suspense>
     </main>
   )

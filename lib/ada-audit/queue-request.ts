@@ -32,6 +32,8 @@ export interface QueueRequestInput {
   seoIntent?: boolean
   /** C11: render-only SEO scan mode. Forces seoIntent. */
   seoOnly?: boolean
+  /** D7: verified session email to notify on completion. null/absent = silent. */
+  notifyEmail?: string | null
 }
 
 export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<QueueRequestResult> {
@@ -82,6 +84,7 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
     scheduleId: input.scheduleId ?? null,
     seoIntent: (input.seoIntent ?? false) || seoOnly,
     seoOnly,
+    notifyEmail: input.notifyEmail ?? null,
   })
   return { kind: 'queued', id }
 }

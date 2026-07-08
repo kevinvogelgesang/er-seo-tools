@@ -28,9 +28,11 @@ interface Props {
   /** Lifted queue snapshot fed from the parent's 5s poll. `null` until the
    *  first poll resolves; banner stays hidden in that case. */
   queueStatus: QueueStatusWithBatch | null
+  /** D7: true when a verified session email exists — gates the notify checkbox. */
+  notifyAvailable?: boolean
 }
 
-export default function SiteAuditForm({ queueStatus }: Props) {
+export default function SiteAuditForm({ queueStatus, notifyAvailable = false }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -64,6 +66,8 @@ export default function SiteAuditForm({ queueStatus }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
   const [intent, setIntent] = useState<'ada' | 'seo'>('ada')
+  // D7: opt-in email notification — ALWAYS unchecked on mount, never persisted.
+  const [notify, setNotify] = useState(false)
 
   // Discovery confirmation state
   const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null)
@@ -188,6 +192,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
           wcagLevel,
           urls: discoveredUrls,
           seoOnly: intent === 'seo',
+          notify,
         }),
       })
 
@@ -250,6 +255,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
           wcagLevel,
           urls,
           seoOnly: intent === 'seo',
+          notify,
         }),
       })
       const data = await res.json()
@@ -502,6 +508,14 @@ export default function SiteAuditForm({ queueStatus }: Props) {
           ))}
         </div>
       </div>
+      )}
+
+      {/* D7: opt-in scan-completion email (hidden without a session email) */}
+      {notifyAvailable && (
+        <label className="flex items-center gap-2 text-[13px] font-body text-navy dark:text-white/70">
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+          Email me when this finishes
+        </label>
       )}
 
       {/* Queue status banner */}

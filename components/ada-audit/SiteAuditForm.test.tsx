@@ -74,3 +74,36 @@ describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-audits?scan=A1'))
   })
 })
+
+describe('SiteAuditForm D7 notify checkbox', () => {
+  const clientsStub = () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/clients') return { json: async () => [] } as Response
+      return { ok: true, json: async () => ({}) } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  }
+
+  it('is hidden when notifyAvailable is false', async () => {
+    clientsStub()
+    render(<SiteAuditForm queueStatus={null} notifyAvailable={false} />)
+    await waitFor(() => expect(screen.queryByText(/email me when this finishes/i)).toBeNull())
+  })
+
+  it('is shown and unchecked on load when notifyAvailable is true', async () => {
+    clientsStub()
+    render(<SiteAuditForm queueStatus={null} notifyAvailable={true} />)
+    const cb = await screen.findByLabelText(/email me when this finishes/i) as HTMLInputElement
+    expect(cb.checked).toBe(false)
+  })
+
+  it('stays unchecked after unmount/remount (never sticky)', async () => {
+    clientsStub()
+    const { unmount } = render(<SiteAuditForm queueStatus={null} notifyAvailable={true} />)
+    fireEvent.click(await screen.findByLabelText(/email me when this finishes/i))
+    unmount()
+    render(<SiteAuditForm queueStatus={null} notifyAvailable={true} />)
+    const cb = await screen.findByLabelText(/email me when this finishes/i) as HTMLInputElement
+    expect(cb.checked).toBe(false)
+  })
+})

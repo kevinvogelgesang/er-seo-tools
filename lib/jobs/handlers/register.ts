@@ -20,6 +20,7 @@ import { registerSeoReportRenderHandler } from './seo-report-render'
 import { registerSeoReportMonthlyRunHandler } from './seo-report-monthly-run'
 import { registerDbBackupHandler } from './db-backup'
 import { registerHealthAlertHandler } from './health-alert'
+import { registerNotifyEmailHandler } from './notify-email'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
@@ -37,4 +38,5 @@ export function registerBuiltInJobHandlers(): void {
   registerSeoReportMonthlyRunHandler()
   registerDbBackupHandler()
   registerHealthAlertHandler()
+  registerNotifyEmailHandler()
 }

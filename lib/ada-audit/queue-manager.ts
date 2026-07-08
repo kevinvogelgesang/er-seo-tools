@@ -78,6 +78,8 @@ export interface EnqueueAuditOptions {
   seoIntent?: boolean
   /** C11: render-only SEO scan (skips axe/screenshots/PDF/PSI). Implies seoIntent. */
   seoOnly?: boolean
+  /** D7: verified session email to notify on completion. null/absent = silent. */
+  notifyEmail?: string | null
 }
 
 /**
@@ -94,7 +96,7 @@ export async function enqueueAudit(
   wcagLevel: string,
   opts: EnqueueAuditOptions = {},
 ): Promise<{ id: string; status: string }> {
-  const { requestedBy, scheduleId, seoIntent, seoOnly } = opts
+  const { requestedBy, scheduleId, seoIntent, seoOnly, notifyEmail } = opts
   // Dedupe up front: pagesTotal must equal the number of UNIQUE children the
   // discover handler will fan out (the (siteAuditId,url) index collapses
   // duplicates). Written together with discoveredUrls so the finalizer's
@@ -121,6 +123,7 @@ export async function enqueueAudit(
       scheduleId: scheduleId ?? null,
       seoIntent: seoIntent ?? false,
       seoOnly: seoOnly ?? false,
+      notifyEmail: notifyEmail ?? null,
     },
   })
 
@@ -298,8 +301,17 @@ export async function failSiteAudit(id: string, message: string): Promise<void> 
   await cancelJobsByGroup(`site-audit:${id}`).catch(() => {})
   const row = await prisma.siteAudit.findUnique({
     where: { id },
-    select: { batchId: true },
+    select: { batchId: true, notifyEmail: true },
   }).catch(() => null)
+  // D7: notify the admin of a failed audit that had opted in. Enqueued AFTER
+  // cancelJobsByGroup (the notify job carries NO site-audit:<id> group, so it is
+  // not cancelled), and only reached in the flipped>0 branch (one notify per
+  // fail). await import dodges the jobs<->queue-manager import cycle. Never
+  // throws into failSiteAudit.
+  if (row?.notifyEmail) {
+    const { enqueueNotifyEmail } = await import('@/lib/jobs/handlers/notify-email')
+    await enqueueNotifyEmail(id, 'failed').catch(() => {})
+  }
   if (row?.batchId) {
     await closeBatchIfDrained(row.batchId).catch(() => {})
   }

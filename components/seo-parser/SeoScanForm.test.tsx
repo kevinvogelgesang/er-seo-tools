@@ -136,3 +136,51 @@ describe('SeoScanForm — seoPhase-driven progress (C11 PR 2b)', () => {
     })
   })
 })
+
+describe('SeoScanForm — D7 notify checkbox', () => {
+  it('is hidden when notifyAvailable is false', () => {
+    vi.stubGlobal('fetch', vi.fn());
+    render(<SeoScanForm notifyAvailable={false} />);
+    expect(screen.queryByText(/email me when this finishes/i)).toBeNull();
+  });
+
+  it('is shown and unchecked on load when notifyAvailable is true', () => {
+    vi.stubGlobal('fetch', vi.fn());
+    render(<SeoScanForm notifyAvailable={true} />);
+    const cb = screen.getByLabelText(/email me when this finishes/i) as HTMLInputElement;
+    expect(cb.checked).toBe(false);
+  });
+
+  it('posts notify:true when the box is ticked', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 202, json: async () => ({ id: 'sa1', status: 'queued' }) })
+      .mockResolvedValue({ ok: true, json: async () => ({ status: 'complete', liveScanRunId: 'run9' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<SeoScanForm notifyAvailable={true} />);
+    fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'example.edu' } });
+    fireEvent.click(screen.getByLabelText(/email me when this finishes/i));
+    fireEvent.click(screen.getByRole('button', { name: /scan/i }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/site-audit', expect.objectContaining({ method: 'POST' }))
+    );
+    const postBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(postBody.notify).toBe(true);
+  });
+
+  it('posts notify:false when the box is left unticked', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 202, json: async () => ({ id: 'sa1', status: 'queued' }) })
+      .mockResolvedValue({ ok: true, json: async () => ({ status: 'complete', liveScanRunId: 'run9' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<SeoScanForm notifyAvailable={true} />);
+    fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'example.edu' } });
+    fireEvent.click(screen.getByRole('button', { name: /scan/i }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/site-audit', expect.objectContaining({ method: 'POST' }))
+    );
+    const postBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(postBody.notify).toBe(false);
+  });
+});
