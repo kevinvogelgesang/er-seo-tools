@@ -1,3 +1,5 @@
+import { StatusPill } from '@/components/ui/StatusPill'
+
 export function ScoreVersionBadge({ version, fromFallback, passCount, incompleteCount }: {
   version: number
   fromFallback: boolean
@@ -12,11 +14,8 @@ export function ScoreVersionBadge({ version, fromFallback, passCount, incomplete
       : 'Score v1 (legacy formula)'
   return (
     <span className="inline-flex items-center gap-2 text-xs text-gray-500 dark:text-white/60">
-      <span
-        title={title}
-        className="rounded px-1.5 py-0.5 font-medium bg-gray-100 text-gray-600 dark:bg-navy-border dark:text-white/70"
-      >
-        {label}
+      <span title={title}>
+        <StatusPill label={label} tone="neutral" />
       </span>
       {passCount != null && <span>{passCount} passed</span>}
       {incompleteCount != null && <span>{incompleteCount} needs review</span>}
