@@ -21,7 +21,7 @@ import { prisma } from '@/lib/db'
 import { logError } from '@/lib/log'
 import { BACKOFF_CAP_MS, HEARTBEAT_MS, jobPollMs, jobStaleSweepMs } from './config'
 import { getJobHandler, listJobTypes, runOnExhausted } from './registry'
-import type { ResolvedJobHandlerConfig } from './types'
+import type { JobHandlerContext, ResolvedJobHandlerConfig } from './types'
 
 interface ClaimedJob {
   id: string
@@ -100,6 +100,8 @@ async function claimNext(type: string): Promise<ClaimedJob | null> {
         attempts: { increment: 1 },
         startedAt: new Date(),
         heartbeatAt: new Date(),
+        progress: null,
+        progressMessage: null,
       },
     })
     if (res.count === 1) {
@@ -112,11 +114,25 @@ async function claimNext(type: string): Promise<ClaimedJob | null> {
 async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promise<void> {
   const fence = { id: job.id, status: 'running', attempts: job.attempts }
   const abort = new AbortController()
+  // Per-execution progress cell; the heartbeat is the only DB writer.
+  let progressCell: { progress: number | null; message: string | null } = { progress: null, message: null }
   const heartbeat = setInterval(() => {
     void prisma.job
-      .updateMany({ where: fence, data: { heartbeatAt: new Date() } })
+      .updateMany({ where: fence, data: { heartbeatAt: new Date(), progress: progressCell.progress, progressMessage: progressCell.message } })
       .catch(() => {})
   }, HEARTBEAT_MS)
+
+  const ctx: JobHandlerContext = {
+    jobId: job.id,
+    attempt: job.attempts,
+    signal: abort.signal,
+    reportProgress: (progress, message) => {
+      progressCell = {
+        progress: progress == null ? null : Math.max(0, Math.min(100, Math.round(progress))),
+        message: message ?? null,
+      }
+    },
+  }
 
   let error: string | null = null
   // Retain the original caught object so logError gets the real Error (stack +
@@ -131,7 +147,7 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
         throw new Error('Unparseable job payload')
       }
       await runWithTimeout(
-        cfg.handler(payload, { jobId: job.id, attempt: job.attempts, signal: abort.signal }),
+        cfg.handler(payload, ctx),
         cfg.timeoutMs,
         abort,
       )
@@ -146,12 +162,12 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
       if (error === null) {
         await prisma.job.updateMany({
           where: fence,
-          data: { status: 'complete', completedAt: new Date() },
+          data: { status: 'complete', completedAt: new Date(), progress: 100, progressMessage: null },
         })
       } else if (job.attempts >= job.maxAttempts) {
         const res = await prisma.job.updateMany({
           where: fence,
-          data: { status: 'error', lastError: error, completedAt: new Date() },
+          data: { status: 'error', lastError: error, completedAt: new Date(), progress: null, progressMessage: null },
         })
         if (res.count === 1) {
           logError({ subsystem: '[jobs]', jobId: job.id, type: job.type, attempt: job.attempts }, caughtErr ?? error)
@@ -165,6 +181,8 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
             lastError: error,
             runAfter: new Date(Date.now() + backoffMs(cfg.backoffBaseMs, job.attempts)),
             heartbeatAt: null,
+            progress: null,
+            progressMessage: null,
           },
         })
       }

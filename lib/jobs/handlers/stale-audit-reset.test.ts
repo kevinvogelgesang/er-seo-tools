@@ -9,7 +9,7 @@ vi.mock('@/lib/ada-audit/queue-manager', () => ({
 const { registerStaleAuditResetHandler, STALE_AUDIT_RESET_JOB_TYPE } = await import('./stale-audit-reset')
 const { getJobHandler, clearJobRegistryForTests } = await import('../registry')
 
-const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal }
+const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal, reportProgress: () => {} }
 
 describe('jobs/handlers/stale-audit-reset', () => {
   beforeEach(() => {

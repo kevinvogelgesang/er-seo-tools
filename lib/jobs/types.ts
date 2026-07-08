@@ -11,6 +11,10 @@ export interface JobHandlerContext {
   jobId: string
   attempt: number
   signal: AbortSignal
+  /** Best-effort progress reporter. Mutates an in-memory cell the worker
+   *  flushes on its next fenced heartbeat. Never throws. progress is 0-100
+   *  (clamped) or null to clear. */
+  reportProgress: (progress: number | null, message: string | null) => void
 }
 
 export interface JobExhaustedContext {

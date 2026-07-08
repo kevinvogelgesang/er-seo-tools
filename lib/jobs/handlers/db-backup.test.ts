@@ -22,7 +22,7 @@ describe('db-backup handler', () => {
   it('calls runDbBackup and rethrows on failure', async () => {
     registerDbBackupHandler()
     const cfg = getJobHandler(DB_BACKUP_JOB_TYPE)!
-    const ctx = { jobId: 'j', attempt: 1, signal: new AbortController().signal }
+    const ctx = { jobId: 'j', attempt: 1, signal: new AbortController().signal, reportProgress: () => {} }
     backupMock.runDbBackup.mockResolvedValueOnce({ file: '/x/db.sqlite', bytes: 10, prunedCount: 0 })
     await expect(cfg.handler({}, ctx)).resolves.toBeUndefined()
     expect(backupMock.runDbBackup).toHaveBeenCalledOnce()
