@@ -23,6 +23,7 @@ import { ArchivedSessionBanner } from './ArchivedSessionBanner';
 import { computeCompleteness } from '@/lib/services/completeness';
 import { PagesTable } from './PagesTable';
 import { ScoreExplanation } from '@/components/scoring/ScoreExplanation';
+import { ScoreRing } from '@/components/ui/ScoreRing';
 
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
 const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
@@ -131,11 +132,16 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
 
         {/* Score explanation (C8) — reads only the persisted breakdown, never recomputes */}
         {healthScore != null && (
-          <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border p-4">
-            <p className="text-sm font-semibold text-[#1c2d4a] dark:text-white">
-              SEO health score: {healthScore}/100
-            </p>
-            <ScoreExplanation breakdown={scoreBreakdown ?? null} />
+          <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-4">
+            <div className="flex flex-col sm:flex-row items-start gap-4">
+              <ScoreRing score={healthScore} size={80} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-navy dark:text-white">
+                  SEO health score
+                </p>
+                <ScoreExplanation breakdown={scoreBreakdown ?? null} />
+              </div>
+            </div>
           </div>
         )}
 
