@@ -149,6 +149,7 @@ model SiteAudit {
   batch         AuditBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
   requestedBy   String?    // operator name from er-operator-name cookie at creation time
   seoIntent     Boolean    @default(false) // true = this audit was enqueued by the autonomous SEO pipeline
+  seoOnly       Boolean    @default(false) // C11: render-only SEO scan mode (skips axe/screenshots/PDF/PSI). Implies seoIntent.
   startedAt        DateTime?
   completedAt      DateTime?
   pagesRedirected  Int       @default(0)

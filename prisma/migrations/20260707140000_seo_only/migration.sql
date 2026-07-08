@@ -1,0 +1,2 @@
+-- AddSeoOnly
+ALTER TABLE "SiteAudit" ADD COLUMN "seoOnly" BOOLEAN NOT NULL DEFAULT false;

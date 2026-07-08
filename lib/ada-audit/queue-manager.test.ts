@@ -252,3 +252,21 @@ describe('enqueueAudit scheduleId attribution (C2)', () => {
     await prisma.schedule.delete({ where: { id: sched.id } })
   })
 })
+
+describe('enqueueAudit seoOnly persistence (C11)', () => {
+  it('C11: enqueueAudit writes seoOnly + seoIntent to the row', async () => {
+    const { enqueueAudit } = await import('./queue-manager')
+    const { id } = await enqueueAudit(`${PREFIX}seoonly2.example.edu`, null, 'wcag21aa', { seoOnly: true, seoIntent: true })
+    const row = await prisma.siteAudit.findUnique({ where: { id }, select: { seoOnly: true, seoIntent: true } })
+    expect(row).toEqual({ seoOnly: true, seoIntent: true })
+    await prisma.siteAudit.delete({ where: { id } })
+  })
+
+  it('C11: enqueueAudit defaults seoOnly to false when omitted', async () => {
+    const { enqueueAudit } = await import('./queue-manager')
+    const { id } = await enqueueAudit(`${PREFIX}seoonly3.example.edu`, null, 'wcag21aa', {})
+    const row = await prisma.siteAudit.findUnique({ where: { id }, select: { seoOnly: true } })
+    expect(row).toEqual({ seoOnly: false })
+    await prisma.siteAudit.delete({ where: { id } })
+  })
+})

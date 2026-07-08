@@ -30,6 +30,8 @@ export interface QueueRequestInput {
   scheduleId?: string | null
   /** D1: true when this audit was enqueued by the autonomous SEO pipeline. */
   seoIntent?: boolean
+  /** C11: render-only SEO scan mode. Forces seoIntent. */
+  seoOnly?: boolean
 }
 
 export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<QueueRequestResult> {
@@ -73,11 +75,13 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
   }
 
   const wcagLevel = input.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
+  const seoOnly = input.seoOnly === true
   const { id } = await enqueueAudit(domain, input.clientId, wcagLevel, {
     preDiscoveredUrls: normalisedUrls,
     requestedBy: input.requestedBy ?? null,
     scheduleId: input.scheduleId ?? null,
-    seoIntent: input.seoIntent ?? false,
+    seoIntent: (input.seoIntent ?? false) || seoOnly,
+    seoOnly,
   })
   return { kind: 'queued', id }
 }

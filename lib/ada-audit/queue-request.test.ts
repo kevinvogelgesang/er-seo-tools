@@ -41,7 +41,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-fresh.example',
       42,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false },
     )
   })
 
@@ -83,7 +83,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-norm.example',
       null,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false },
     )
   })
 
@@ -165,5 +165,23 @@ describe('queueSiteAuditRequest', () => {
     expect(r).toEqual({ kind: 'queued', id: 'mock-audit-id' })
     const [, , , opts] = vi.mocked(queueManager.enqueueAudit).mock.calls[0]
     expect(opts.seoIntent).toBeFalsy()
+  })
+
+  it('C11: seoOnly forces seoIntent in the enqueueAudit call', async () => {
+    const domain = 'qr-test-seoonly.example'
+    await queueSiteAuditRequest({ domain, clientId: null, wcagLevel: 'wcag21aa', seoOnly: true })
+    expect(queueManager.enqueueAudit).toHaveBeenLastCalledWith(
+      domain, null, 'wcag21aa',
+      expect.objectContaining({ seoOnly: true, seoIntent: true }),
+    )
+  })
+
+  it('C11: seoOnly defaults to false and does not force seoIntent when omitted', async () => {
+    const domain = 'qr-test-seoonly-default.example'
+    await queueSiteAuditRequest({ domain, clientId: null, wcagLevel: 'wcag21aa' })
+    expect(queueManager.enqueueAudit).toHaveBeenLastCalledWith(
+      domain, null, 'wcag21aa',
+      expect.objectContaining({ seoOnly: false, seoIntent: false }),
+    )
   })
 })
