@@ -334,6 +334,8 @@ model Job {
   startedAt    DateTime?
   completedAt  DateTime?
   lastError    String?
+  progress        Int?     // 0-100, generic per-job progress; written on the fenced heartbeat
+  progressMessage String?  // human-readable status, e.g. "Checked 420/1900 links"
   dedupKey     String?   // active-window idempotency key (partial unique index, see migration)
   groupKey     String?   // owner linkage, e.g. 'site-audit:<id>'
   scheduleId   String?   // set when enqueued by the scheduler tick

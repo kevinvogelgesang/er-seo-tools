@@ -9,7 +9,7 @@ vi.mock('@/lib/ada-audit/screenshot-sweeper', () => ({
 const { registerScreenshotSweepHandler, SCREENSHOT_SWEEP_JOB_TYPE } = await import('./screenshot-sweep')
 const { getJobHandler, clearJobRegistryForTests } = await import('../registry')
 
-const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal }
+const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal, reportProgress: () => {} }
 
 describe('jobs/handlers/screenshot-sweep', () => {
   beforeEach(() => {

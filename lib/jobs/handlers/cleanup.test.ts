@@ -7,7 +7,7 @@ vi.mock('@/lib/cleanup', () => ({ runCleanup: (...a: unknown[]) => runCleanup(..
 const { registerCleanupHandler, CLEANUP_JOB_TYPE } = await import('./cleanup')
 const { getJobHandler, clearJobRegistryForTests } = await import('../registry')
 
-const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal }
+const ctx = { jobId: 'j1', attempt: 1, signal: new AbortController().signal, reportProgress: () => {} }
 
 describe('jobs/handlers/cleanup', () => {
   beforeEach(() => {

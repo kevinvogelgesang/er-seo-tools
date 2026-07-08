@@ -13,6 +13,8 @@ export function SeoScanForm() {
   const [auditId, setAuditId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [progressMsg, setProgressMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // On mount: a ?scan=<id> handoff (from SiteAuditForm / QuickSiteAuditWidget)
@@ -48,16 +50,23 @@ export function SeoScanForm() {
       setAuditId(id);
       setRunId(null);
       setError(null);
+      setProgress(null);
+      setProgressMsg(null);
       setPhase('running');
     }
   }, []);
 
   const poll = useCallback(async (id: string) => {
     const res = await fetch(`/api/site-audit/${id}`);
+    const clearProgress = () => {
+      setProgress(null);
+      setProgressMsg(null);
+    };
     if (!res.ok) {
       if (res.status === 404) {
         setError('SEO scan failed — the scan could not be found.');
         setPhase('error');
+        clearProgress();
         try {
           sessionStorage.removeItem(STORAGE_KEY);
         } catch {
@@ -70,6 +79,7 @@ export function SeoScanForm() {
     if (d.status === 'error' || d.status === 'cancelled') {
       setError('SEO scan failed — please try again.');
       setPhase('error');
+      clearProgress();
       try {
         sessionStorage.removeItem(STORAGE_KEY);
       } catch {
@@ -77,19 +87,45 @@ export function SeoScanForm() {
       }
       return;
     }
-    if (d.status === 'complete' && d.liveScanRunId) {
-      setRunId(d.liveScanRunId);
-      setPhase('ready');
-      try {
-        sessionStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // ignore
+    if (d.status === 'complete') {
+      const st = d.seoPhase?.state;
+      if (d.liveScanRunId) {
+        setRunId(d.liveScanRunId);
+        setPhase('ready');
+        clearProgress();
+        try {
+          sessionStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+      } else if (st === 'failed') {
+        setError('SEO analysis failed — please try again.');
+        setPhase('error');
+        clearProgress();
+        try {
+          sessionStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+      } else if (st === 'unavailable') {
+        setError('SEO analysis is unavailable for this scan.');
+        setPhase('error');
+        clearProgress();
+        try {
+          sessionStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+      } else {
+        // running | queued — verifier in flight
+        setProgress(d.seoPhase?.progress ?? null);
+        setProgressMsg(d.seoPhase?.message ?? null);
+        setPhase('building');
       }
-    } else if (d.status === 'complete') {
-      setPhase('building');
-    } else {
-      setPhase('running');
+      return;
     }
+    setPhase('running');
+    clearProgress();
   }, []);
 
   useEffect(() => {
@@ -118,6 +154,8 @@ export function SeoScanForm() {
     if (res.status === 202 && d.id) {
       setAuditId(d.id);
       setPhase('running');
+      setProgress(null);
+      setProgressMsg(null);
       try {
         sessionStorage.setItem(STORAGE_KEY, d.id);
       } catch {
@@ -129,6 +167,8 @@ export function SeoScanForm() {
       setAuditId(d.id);
       setRunId(null);
       setPhase('running');
+      setProgress(null);
+      setProgressMsg(null);
       try {
         sessionStorage.setItem(STORAGE_KEY, d.id);
       } catch {
@@ -172,9 +212,17 @@ export function SeoScanForm() {
         </p>
       )}
       {phase === 'building' && (
-        <p className="mt-3">
+        <div className="mt-3">
           <StatusPill tone="running" label="Building SEO report…" />
-        </p>
+          {progressMsg && (
+            <p className="mt-2 text-[12px] text-navy/50 dark:text-white/50">{progressMsg}</p>
+          )}
+          {progress != null && (
+            <div className="mt-2 h-2 w-full rounded-full bg-gray-100 dark:bg-navy-deep overflow-hidden">
+              <div className="h-full rounded-full bg-orange transition-all" style={{ width: `${progress}%` }} />
+            </div>
+          )}
+        </div>
       )}
       {phase === 'ready' && runId && (
         <p className="mt-3 text-sm">

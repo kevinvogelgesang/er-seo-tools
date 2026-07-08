@@ -23,7 +23,7 @@ const createdScheduleIds: string[] = []
 const createdJobIds: string[] = []
 
 function ctxFor(jobId: string) {
-  return { jobId, attempt: 1, signal: new AbortController().signal }
+  return { jobId, attempt: 1, signal: new AbortController().signal, reportProgress: () => {} }
 }
 
 async function makeSchedule(overrides: Record<string, unknown> = {}) {

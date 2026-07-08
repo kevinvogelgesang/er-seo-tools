@@ -34,7 +34,7 @@ import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/se
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
-import type { JobExhaustedContext } from '../types'
+import type { JobExhaustedContext, JobHandlerContext } from '../types'
 
 // parseUrlList is private to site-audit-discover.ts — define a local parser
 // here instead of importing it.
@@ -121,7 +121,11 @@ function assertPayload(p: unknown): BrokenLinkVerifyJob {
   return { siteAuditId: j.siteAuditId, domain: typeof j.domain === 'string' ? j.domain : null }
 }
 
-export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = productionDeps): Promise<void> {
+export async function runBrokenLinkVerify(
+  payload: unknown,
+  deps: VerifyDeps = productionDeps,
+  ctx?: JobHandlerContext,
+): Promise<void> {
   const job = assertPayload(payload)
   const jobStartedAt = deps.now()
   const site = await prisma.siteAudit.findUnique({
@@ -242,6 +246,16 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
   let internalBudgetHit = false
   const internalStartedAt = deps.now()
   let cursor2 = 0
+  // Best-effort; never throws into the resolution loop.
+  const report = (progress: number | null, message: string | null) => {
+    try { ctx?.reportProgress(progress, message) } catch { /* ignore */ }
+  }
+  const totalToResolve = allToResolve.length
+  let resolvedCount = 0
+  const reportResolveProgress = () => {
+    const pct = totalToResolve ? Math.floor((resolvedCount / totalToResolve) * 90) : 0
+    report(pct, `Checked ${resolvedCount}/${totalToResolve} links`)
+  }
   const cacheWorker = async (): Promise<void> => {
     while (cursor2 < allToResolve.length) {
       if (deps.now() - internalStartedAt >= internalDeadlineMs) { internalBudgetHit = true; return }
@@ -251,6 +265,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
         host = new URL(url).hostname
       } catch {
         cache.set(normalizeFindingUrl(url), unconfirmedResult())
+        resolvedCount++; reportResolveProgress()
         continue
       }
       // Failure isolation (mirrors the external worker): a throw in throttle.wait or
@@ -261,6 +276,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
       } catch {
         cache.set(normalizeFindingUrl(url), unconfirmedResult())
       }
+      resolvedCount++; reportResolveProgress()
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), allToResolve.length || 1) }, () => cacheWorker()))
@@ -310,6 +326,9 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
         const timeout = EXTERNAL_TIMEOUT()
         const externalStartedAt = deps.now()
         const extCache = new Map<string, ResolveResult>()
+        // Spec §3.3: hold the bar at ~90 and relabel while the external pass runs
+        // (it has no per-target counter; can run up to the external time budget).
+        report(90, 'Checking external links…')
         let extCursor = 0
         const extWorker = async (): Promise<void> => {
           while (extCursor < extToCheck.length) {
@@ -406,6 +425,7 @@ export async function runBrokenLinkVerify(payload: unknown, deps: VerifyDeps = p
 
   // On-page has no per-page cap in MVP, so its completeness is independent of the
   // LINK truncation flag (Codex fix #2) — always pass false here.
+  report(95, 'Building SEO report…')
   const onPageFindings = mapOnPageSeoFindings(seoRows as OnPageSeoRow[], { runId, ensurePage, harvestTruncated: false })
   const brokenFindings = mapBrokenLinkFindings(broken, {
     runId, ensurePage, affectedComplete: !capped && !harvestTruncated && !internalBudgetHit,
@@ -515,7 +535,7 @@ export function registerBrokenLinkVerifyHandler(): void {
     maxAttempts: 2,
     backoffBaseMs: 60_000,
     timeoutMs: JOB_TIMEOUT_MS, // 15 min ceiling; bounded concurrency keeps real runs well under this
-    handler: (payload) => runBrokenLinkVerify(payload),
+    handler: (payload, ctx) => runBrokenLinkVerify(payload, undefined, ctx),
     onExhausted: onBrokenLinkVerifyExhausted,
   })
 }

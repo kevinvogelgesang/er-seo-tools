@@ -85,3 +85,54 @@ describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
     await waitFor(() => expect(screen.getByText(/SEO scan failed/i)).toBeTruthy())
   })
 })
+
+describe('SeoScanForm — seoPhase-driven progress (C11 PR 2b)', () => {
+  beforeEach(() => { sessionStorage.clear(); window.history.pushState({}, '', '/seo-parser') })
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('renders progress bar + message while SEO analysis is running', async () => {
+    sessionStorage.setItem('seo-scan-id', 'X')
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ status: 'complete', liveScanRunId: null, seoPhase: { state: 'running', progress: 60, message: 'Checked 6/10 links' } }),
+    } as Response)))
+    render(<SeoScanForm />)
+    expect(await screen.findByText(/Checked 6\/10 links/)).toBeTruthy()
+    expect(screen.getByText(/Building SEO report/i)).toBeTruthy()
+  })
+
+  it('treats seoPhase failed as terminal and clears sessionStorage', async () => {
+    sessionStorage.setItem('seo-scan-id', 'X')
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ status: 'complete', liveScanRunId: null, seoPhase: { state: 'failed', progress: null, message: null } }),
+    } as Response)))
+    render(<SeoScanForm />)
+    expect(await screen.findByText(/SEO analysis failed/i)).toBeTruthy()
+    expect(sessionStorage.getItem('seo-scan-id')).toBeNull()
+  })
+
+  it('treats seoPhase unavailable as a terminal state', async () => {
+    sessionStorage.setItem('seo-scan-id', 'X')
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ status: 'complete', liveScanRunId: null, seoPhase: { state: 'unavailable', progress: null, message: null } }),
+    } as Response)))
+    render(<SeoScanForm />)
+    expect(await screen.findByText(/unavailable/i)).toBeTruthy()
+    expect(sessionStorage.getItem('seo-scan-id')).toBeNull()
+  })
+
+  it('readiness is keyed on liveScanRunId, not seoPhase.state', async () => {
+    sessionStorage.setItem('seo-scan-id', 'X')
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ status: 'complete', liveScanRunId: 'run1', seoPhase: { state: 'running', progress: 99, message: 'almost' } }),
+    } as Response)))
+    render(<SeoScanForm />)
+    await waitFor(() => {
+      const link = screen.getByRole('link', { name: /view|result/i }) as HTMLAnchorElement
+      expect(link.getAttribute('href')).toBe('/seo-parser/results/run/run1')
+    })
+  })
+})

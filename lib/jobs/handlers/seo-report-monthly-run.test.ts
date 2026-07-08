@@ -99,6 +99,7 @@ async function runHandler(jobId: string, payload: unknown = { comparisonMode: 'p
     jobId,
     attempt: 1,
     signal: new AbortController().signal,
+    reportProgress: () => {},
   })
 }
 
