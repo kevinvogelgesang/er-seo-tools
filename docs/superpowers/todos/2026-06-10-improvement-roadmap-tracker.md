@@ -702,8 +702,10 @@ Interleave as needed (not blockers):
     send + `notifyCompleteSentAt` marker stay OUTSIDE (idempotency byte-for-byte
     unchanged). Spec+plan Codex-reviewed (both accept-with-fixes; 6 plan fixes applied:
     newCount-only, per-delta baseline dates, enrichment deadline, previous-run-by-id,
-    version-gate tests, test-cleanup orphan fix). Gates green (3777 tests). PR #TBD.
-    Spec/plan: `../archive/specs/2026-07-08-scan-email-enrichment-design.md` +
+    version-gate tests, test-cleanup orphan fix). Gates green (3777 tests).
+    **SHIPPED PR #133 (main `ee57455`) + DEPLOYED + health-verified 2026-07-08**
+    (no migration; process online, no boot/notify errors). Spec/plan:
+    `../archive/specs/2026-07-08-scan-email-enrichment-design.md` +
     `../archive/plans/2026-07-08-scan-email-enrichment.md`. Prod visual confirmation =
     Kevin's next real scan.
 
