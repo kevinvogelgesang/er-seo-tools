@@ -326,6 +326,9 @@ export async function runBrokenLinkVerify(
         const timeout = EXTERNAL_TIMEOUT()
         const externalStartedAt = deps.now()
         const extCache = new Map<string, ResolveResult>()
+        // Spec §3.3: hold the bar at ~90 and relabel while the external pass runs
+        // (it has no per-target counter; can run up to the external time budget).
+        report(90, 'Checking external links…')
         let extCursor = 0
         const extWorker = async (): Promise<void> => {
           while (extCursor < extToCheck.length) {
