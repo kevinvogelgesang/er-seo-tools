@@ -169,9 +169,32 @@ Interleave as needed (not blockers):
   Open criticals 128; Needs-attention = 8 ranked rows (a score-drop mover ranks
   above criticals-only rows, as designed) linking to `/clients/[id]`; **KPI cell
   measured 904 px = full 4-col grid width** (no purge regression); 0 console
-  errors / 0 hydration warnings. Plan → `../archive/plans/`. **Next: PR 4+**
-  per-tool polish passes (spec §8 PR 4). Spec stays in `../specs/` (active
-  through PR 4).
+  errors / 0 hydration warnings. Plan → `../archive/plans/`.
+  **PR 4 (seo-parser) SHIPPED 2026-07-07 (PR #120, main merge) + DEPLOYED +
+  PROD-VERIFIED** — first per-tool polish pass (Kevin picked seo-parser +
+  ada-audit back-to-back; ada-audit is PR 5). VISUAL-ONLY: `ScoreRing`
+  adopted on the results health-score card (was plain `NN/100` text; guard +
+  `ScoreExplanation` preserved), hex→Tailwind-token normalization
+  (`navy`/`orange`/`navy-deep`/`orange-dark`), page-wrapper reconciliation
+  with the shell (dropped redundant `min-h-screen bg-[#f4f6f9]` from the
+  upload + results roots; fallbacks → `min-h-[60vh]`), deck card language on
+  the upload card/FileDropzone/HistoryList. MetricsBar restricted to a
+  value-preserving one-line token swap (shared with the public share view).
+  Incidental fix: the client-name chip's invalid `bg-[…]/8` opacity step now
+  renders via `bg-navy/[0.08]`. Spec + plan Codex-reviewed (accept-with-fixes
+  ×5 spec, ×3 plan, applied); per-task spec+quality reviews + final
+  whole-branch review (opus) = Ready-to-merge, 0 Critical/Important. Gates:
+  tsc · **3645 tests / 410 files** (new `ResultsView.score.test.tsx`) · build.
+  **Prod (Playwright, authed):** `/seo-parser` upload card measured **672 px**
+  (= `max-w-2xl`, no purge collapse), h1 `rgb(28,45,74)` = `navy` exact, page
+  root `min-height:0` + transparent (shell supplies `rgb(244,246,249)`);
+  results page **ScoreRing 80×80, aria-label "score 90", dial "90"**, breakdown
+  table intact, root reconciled; 0 console errors, 0 hydration warnings (the 2
+  warnings are pre-existing CSP-beacon + Recharts container-measure). Spec +
+  plan → `../archive/`. **Next: A8 PR 5 — ada-audit polish** (same visual-only
+  contract). A8 stays `[~]` — PR 4+ is open-ended per-tool; umbrella spec
+  stays in `../specs/`.
+  **Next: PR 5+** per-tool polish passes (spec §8 PR 4+).
 
 ## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
 
@@ -572,6 +595,34 @@ Interleave as needed (not blockers):
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
+
+- 2026-07-07 (**A8 PR 4 — seo-parser visual polish SHIPPED + DEPLOYED + PROD-VERIFIED**) —
+  First per-tool polish pass of the open-ended A8 PR 4+ phase (Kevin picked seo-parser +
+  ada-audit back-to-back; ada-audit is PR 5). Full pipeline: brainstorm (scope chosen WITH
+  Kevin = upload page + results header) → spec (`../specs/2026-07-07-app-shell-pr4-seo-parser-polish-design.md`,
+  Codex accept-with-fixes ×5: header-child-component non-goal, keep `healthScore != null`
+  guard, drop false "identical bands" claim, null→no-card + ScoreExplanation-renders tests,
+  responsive `flex-col sm:flex-row`+`min-w-0 flex-1` for the ScoreExplanation table) → plan
+  (`../archive/plans/2026-07-07-app-shell-pr4-seo-parser-polish.md`, Codex accept-with-fixes
+  ×3: JSON `scoreBreakdown` test fixture since `ScoreExplanation` only `JSON.parse`s,
+  `bg-navy/8`→`bg-navy/[0.08]` invalid opacity step, expand residual-hex greps to cover all
+  hex in the two touched page/component files). VISUAL-ONLY (no behavior/data/API change):
+  `ScoreRing` on the results health-score card, hex→token normalization, page-wrapper
+  reconciliation with the shell, deck card language; MetricsBar limited to a value-preserving
+  token swap (shared with the public share view). Latent-bug fix: the client-name chip's
+  invalid `bg-[#1c2d4a]/8` (opacity step `8` off Tailwind's scale → no bg) now renders via
+  `bg-navy/[0.08]`. Executed subagent-driven (Task 1 ScoreRing+test; Tasks 2-6 token/wrapper
+  swaps) with per-task spec+quality reviews + opus whole-branch review (Ready-to-merge, 0
+  Critical/Important). Gates: tsc clean · **3645 tests / 410 files** (new
+  `ResultsView.score.test.tsx`) · `next build`. PR #120 → merged → `~/deploy.sh` (no pending
+  migrations). **Prod verify (Playwright, authed, `seo.erstaging.site`):** `/seo-parser`
+  upload card = **672 px** (`max-w-2xl`, no purged-CSS collapse), h1 = `rgb(28,45,74)` (`navy`
+  exact), page root `min-height:0`/transparent (shell supplies `rgb(244,246,249)`); a completed
+  results page (bidwelltraining.edu, score 90) shows **ScoreRing 80×80, `aria-label "score 90"`,
+  dial "90"**, breakdown table intact, root reconciled; **0 console errors / 0 hydration
+  warnings** (2 pre-existing warnings: report-only CSP for the Cloudflare beacon + Recharts
+  container-measure). Screenshot: `pr4-prod-verify-results-scorering.png`. Spec + plan →
+  `../archive/`. A8 stays `[~]` (PR 4+ open-ended). **Next: A8 PR 5 — ada-audit visual polish.**
 
 - 2026-07-07 (**A8 PR 3.5 — aggregate homepage widgets SHIPPED + DEPLOYED + PROD-VERIFIED**) —
   Verified the loader gate FIRST (Explore sweep): `getClientFleet()` (B1, `lib/services/client-fleet.ts`)
