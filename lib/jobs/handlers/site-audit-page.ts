@@ -204,6 +204,15 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
     where: { id: job.adaAuditId, status: { in: ['pending', 'running'] } },
     data: { status: 'running', startedAt: new Date() },
   })
+
+  // C11: seoOnly is authoritative on the PARENT SiteAudit row — NOT the payload.
+  // Read it BEFORE the claim-0 branch so both paths (repair + normal) see it.
+  const parent = await prisma.siteAudit.findUnique({
+    where: { id: job.siteAuditId },
+    select: { seoOnly: true },
+  })
+  const seoOnly = parent?.seoOnly === true
+
   if (claimed.count !== 1) {
     // Already settled (or cascaded by recovery). Repair the two crash
     // windows that leave settled state without follow-through:
@@ -213,7 +222,10 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
       where: { id: job.adaAuditId },
       select: { status: true },
     })
-    if (child?.status === 'axe-complete') {
+    // A seoOnly child never reaches 'axe-complete' (it settles straight to
+    // 'complete'), so this is already unreachable for seoOnly — the guard is
+    // defensive belt-and-braces.
+    if (child?.status === 'axe-complete' && !seoOnly) {
       enqueuePsiJob(job)
     }
     await finalizeWarn(job.siteAuditId, 'claim no-op')
@@ -227,6 +239,7 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
     runResult = await runAxeAudit(job.url, job.wcagLevel, undefined, {
       auditId: job.adaAuditId,
       siteAudit: detachPsi,
+      renderOnly: seoOnly,
     })
   } catch (err) {
     // Domain failure: settle and complete the job — no per-page retry,
@@ -259,11 +272,23 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
     return
   }
 
-  // This job does not yet request renderOnly, so the runner only ever returns
-  // 'audited' (or the 'redirected' handled above). Narrow defensively — C11
-  // Task 3 will pass renderOnly here and add explicit 'rendered' handling.
-  if (runResult.kind !== 'audited') {
-    throw new Error(`site-audit-page: unexpected runner result kind '${runResult.kind}'`)
+  // C11: render-only (seoOnly) result — no axe, no Lighthouse, no PDFs. Settle
+  // the child straight to 'complete' bumping ONLY pagesComplete (mirrors the
+  // non-detach settle but result:null), then persist harvest + page-SEO fenced
+  // to a winning settle, then finalize. NEVER dispatchPdfScans / lighthouseTotal
+  // / enqueuePsiJob for a seoOnly page.
+  if (runResult.kind === 'rendered') {
+    const settled = await settlePage(
+      job,
+      ['pagesComplete'],
+      { status: 'complete', result: null, runnerType: 'browser', completedAt: new Date() },
+      ['running'],
+    )
+    if (!settled) return
+    await persistHarvest(job.siteAuditId, job.url, runResult.harvestedLinks, runResult.harvestedLinksTruncated)
+    await persistPageSeo(job.siteAuditId, job.url, runResult.harvestedPageSeo)
+    await finalizeWarn(job.siteAuditId, 'seo-only page settle')
+    return
   }
 
   const { axe, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo } = runResult

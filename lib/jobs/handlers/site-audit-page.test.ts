@@ -23,11 +23,12 @@ async function clearTestState() {
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
 }
 
-async function seed(name: string, childStatus = 'pending') {
+async function seed(name: string, childStatus = 'pending', seoOnly = false) {
   const site = await prisma.siteAudit.create({
     data: {
       domain: `${PREFIX}${name}`, status: 'running', wcagLevel: 'wcag21aa',
       discoveredUrls: JSON.stringify([`https://${PREFIX}${name}/p`]), pagesTotal: 1,
+      seoOnly,
     },
   })
   const child = await prisma.adaAudit.create({
@@ -176,6 +177,34 @@ describe('jobs/handlers/site-audit-page', () => {
 
   it('rejects a malformed payload', async () => {
     await expect(runSiteAuditPageJob({ nope: true } as never)).rejects.toThrow(/payload/i)
+  })
+
+  it('C11: seoOnly page settles complete with pagesComplete++ and no PDF/PSI', async () => {
+    vi.mocked(runAxeAudit).mockResolvedValue({
+      kind: 'rendered',
+      harvestedLinks: [
+        { targetUrl: 'https://dead.example/x', kind: 'internal-link' as const },
+        { targetUrl: 'https://img.example/y.png', kind: 'image' as const },
+      ],
+      harvestedLinksTruncated: false,
+      harvestedPageSeo: null,
+    })
+    const { site, child, payload } = await seed('seo-only', 'pending', true)
+    await runSiteAuditPageJob(payload)
+    // Runner asked to render only.
+    expect(vi.mocked(runAxeAudit).mock.calls[0][3]).toMatchObject({ renderOnly: true })
+    const row = await prisma.adaAudit.findUnique({ where: { id: child.id }, select: { status: true, result: true } })
+    expect(row).toEqual({ status: 'complete', result: null })
+    const refreshedParent = await prisma.siteAudit.findUnique({
+      where: { id: site.id },
+      select: { pagesComplete: true, pdfsTotal: true, lighthouseTotal: true },
+    })
+    expect(refreshedParent).toEqual({ pagesComplete: 1, pdfsTotal: 0, lighthouseTotal: 0 })
+    expect(dispatchPdfScans).not.toHaveBeenCalled()
+    expect(enqueuePsiJob).not.toHaveBeenCalled()
+    expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
+    // Harvest still persisted on the successful settle.
+    expect(await prisma.harvestedLink.count({ where: { siteAuditId: site.id } })).toBe(2)
   })
 })
 
