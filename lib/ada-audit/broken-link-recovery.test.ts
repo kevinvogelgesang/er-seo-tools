@@ -62,4 +62,29 @@ describe('recoverBrokenLinkVerifies', () => {
     const job = await prisma.job.findFirst({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })
     expect(job).not.toBeNull()
   })
+
+  it('C11: recovery re-enqueues a complete zero-harvest seoOnly audit', async () => {
+    // Arrange: complete seoOnly SiteAudit, NO HarvestedLink/HarvestedPageSeo rows,
+    // NO seo-parser CrawlRun, NO active verify job. Today's transient-keyed scan
+    // never sees this row (all pages failed/redirected or harvest returned null,
+    // then the process crashed before enqueueBrokenLinkVerify).
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', seoOnly: true } })
+    const n = await recoverBrokenLinkVerifies()
+    expect(n).toBeGreaterThanOrEqual(1)
+    const job = await prisma.job.findFirst({
+      where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` },
+      select: { id: true },
+    })
+    expect(job).not.toBeNull()
+  })
+
+  it('C11: does not double-enqueue a seoOnly audit that also has transient rows', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', seoOnly: true } })
+    await prisma.harvestedLink.create({
+      data: { siteAuditId: sa.id, targetUrl: 'https://c6blr.example.com/x', kind: 'internal-link', sourcePageUrl: 'https://c6blr.example.com/a' },
+    })
+    const n = await recoverBrokenLinkVerifies()
+    expect(n).toBe(1)
+    expect(await prisma.job.count({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })).toBe(1)
+  })
 })

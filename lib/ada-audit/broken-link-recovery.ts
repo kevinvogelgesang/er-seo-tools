@@ -17,8 +17,30 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
     prisma.harvestedPageSeo.findMany({ distinct: ['siteAuditId'], select: { siteAuditId: true } }),
   ])
   const pending = [...new Set([...links, ...seo].map((r) => r.siteAuditId))].map((siteAuditId) => ({ siteAuditId }))
+  // C11: complete seoOnly audits can strand with ZERO transient rows — if every
+  // page failed/redirected (or harvest returned null) and the process crashed
+  // after 'complete' but before enqueueBrokenLinkVerify, nothing was written to
+  // HarvestedLink/HarvestedPageSeo, so the transient-keyed scan above misses them
+  // and no live-scan run is ever built. Union these ids in; the per-id body below
+  // still skips any that already have a seo-parser run or an active verifier, and
+  // the Set de-dupes a seoOnly audit already covered by transient rows. An
+  // empty-harvest verify still writes a clean run (the builder handles it).
+  //
+  // Codex note (re-enqueue bound): a permanently errored verifier is not "active",
+  // so a seoOnly audit whose verify keeps failing gets re-enqueued each sweep. This
+  // MIRRORS the existing transient-path behavior — bounded by the job's own
+  // maxAttempts/backoff and self-terminating once a seo-parser run lands. Intended;
+  // no unbounded-retry suppression here (out of scope for PR1).
+  const seoOnlyComplete = await prisma.siteAudit.findMany({
+    where: { seoOnly: true, status: 'complete' },
+    select: { id: true },
+  })
+  const candidateIds = new Set<string>([
+    ...pending.map((r) => r.siteAuditId),
+    ...seoOnlyComplete.map((s) => s.id),
+  ])
   let enqueued = 0
-  for (const { siteAuditId } of pending) {
+  for (const siteAuditId of candidateIds) {
     const site = await prisma.siteAudit.findUnique({
       where: { id: siteAuditId },
       select: { status: true, domain: true },
