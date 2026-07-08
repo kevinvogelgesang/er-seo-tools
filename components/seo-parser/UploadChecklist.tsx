@@ -37,7 +37,7 @@ export function UploadChecklist({ files }: { files: string[] }) {
       )}
 
       <details>
-        <summary className="cursor-pointer font-medium text-[#1c2d4a] dark:text-white">
+        <summary className="cursor-pointer font-medium text-navy dark:text-white">
           Crawl coverage ({coverage.filter((c) => c.present).length}/{coverage.length} expected exports)
         </summary>
         <ul className="mt-2 space-y-1">
@@ -47,7 +47,7 @@ export function UploadChecklist({ files }: { files: string[] }) {
                 {c.present ? '✓' : '○'}
               </span>
               <span>
-                <span className="text-[#1c2d4a] dark:text-white">{c.export.label}</span>{' '}
+                <span className="text-navy dark:text-white">{c.export.label}</span>{' '}
                 <span className="text-xs uppercase tracking-wide text-gray-400 dark:text-white/40">
                   {TIER_LABEL[c.export.tier]}
                 </span>

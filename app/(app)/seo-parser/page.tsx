@@ -106,11 +106,11 @@ export default function SEOParserPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep py-12 px-6">
+    <div className="py-12 px-6">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="font-display font-extrabold text-3xl text-[#1c2d4a] dark:text-white mb-2">SEO Parser</h1>
+          <h1 className="font-display font-extrabold text-3xl text-navy dark:text-white mb-2">SEO Parser</h1>
           <p className="text-gray-600 dark:text-white/60 text-sm leading-relaxed">
             Upload Screaming Frog CSV exports to surface critical SEO issues, crawl metrics, and
             actionable recommendations.
@@ -119,7 +119,7 @@ export default function SEOParserPage() {
 
         {/* Upload card */}
         <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6 mb-6">
-          <h2 className="font-semibold text-[#1c2d4a] dark:text-white text-sm mb-4 uppercase tracking-wide">
+          <h2 className="font-semibold text-navy dark:text-white text-sm mb-4 uppercase tracking-wide">
             Upload CSV Files
           </h2>
           <FileDropzone
@@ -145,7 +145,7 @@ export default function SEOParserPage() {
                 <button
                   onClick={handleAnalyze}
                   disabled={isParsing || isUploading || coreMissing.length > 0}
-                  className="flex-1 bg-[#f5a623] text-[#1c2d4a] font-display font-bold text-sm px-6 py-3 rounded-lg hover:bg-[#e8971a] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 bg-orange text-navy font-display font-bold text-sm px-6 py-3 rounded-lg hover:bg-orange-dark transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isParsing ? (
                     <span className="flex items-center justify-center gap-2">
@@ -177,7 +177,7 @@ export default function SEOParserPage() {
         <div className="text-center">
           <Link
             href="/seo-parser/diff"
-            className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-white/50 hover:text-[#1c2d4a] dark:hover:text-white transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-white/50 hover:text-navy dark:hover:text-white transition-colors"
           >
             Compare two crawls
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

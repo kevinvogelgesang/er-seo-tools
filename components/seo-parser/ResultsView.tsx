@@ -23,6 +23,7 @@ import { ArchivedSessionBanner } from './ArchivedSessionBanner';
 import { computeCompleteness } from '@/lib/services/completeness';
 import { PagesTable } from './PagesTable';
 import { ScoreExplanation } from '@/components/scoring/ScoreExplanation';
+import { ScoreRing } from '@/components/ui/ScoreRing';
 
 const StatusCodeBarChart = dynamic(() => import('./charts/StatusCodeBarChart').then(m => ({ default: m.StatusCodeBarChart })), { ssr: false });
 const CrawlDepthChart = dynamic(() => import('./charts/CrawlDepthChart').then(m => ({ default: m.CrawlDepthChart })), { ssr: false });
@@ -43,7 +44,7 @@ interface ResultsViewProps {
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border p-6">
-      <h3 className="text-sm font-semibold text-[#1c2d4a] dark:text-white uppercase tracking-wide mb-4">{title}</h3>
+      <h3 className="text-sm font-semibold text-navy dark:text-white uppercase tracking-wide mb-4">{title}</h3>
       {children}
     </div>
   );
@@ -74,13 +75,13 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
   );
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep py-12 px-6">
+    <div className="py-12 px-6">
       <div className="max-w-6xl mx-auto space-y-6">
 
         {/* Header row */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="font-bold text-2xl text-[#1c2d4a] dark:text-white">{siteName} — SEO Audit</h1>
+            <h1 className="font-bold text-2xl text-navy dark:text-white">{siteName} — SEO Audit</h1>
             {result.archived ? (
               <p className="text-gray-500 dark:text-white/50 text-sm mt-1">Archived — rebuilt from findings data</p>
             ) : (
@@ -102,7 +103,7 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
                 <ExportButtons sessionId={sessionId} />
                 <button
                   onClick={() => setShareOpen(true)}
-                  className="px-4 py-2 border border-[#1c2d4a] dark:border-navy-border rounded-lg text-sm text-[#1c2d4a] dark:text-white font-medium hover:bg-[#1c2d4a] hover:text-white transition-colors"
+                  className="px-4 py-2 border border-navy dark:border-navy-border rounded-lg text-sm text-navy dark:text-white font-medium hover:bg-navy hover:text-white transition-colors"
                 >
                   Share Report
                 </button>
@@ -131,11 +132,16 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
 
         {/* Score explanation (C8) — reads only the persisted breakdown, never recomputes */}
         {healthScore != null && (
-          <div className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border p-4">
-            <p className="text-sm font-semibold text-[#1c2d4a] dark:text-white">
-              SEO health score: {healthScore}/100
-            </p>
-            <ScoreExplanation breakdown={scoreBreakdown ?? null} />
+          <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-4">
+            <div className="flex flex-col sm:flex-row items-start gap-4">
+              <ScoreRing score={healthScore} size={80} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-navy dark:text-white">
+                  SEO health score
+                </p>
+                <ScoreExplanation breakdown={scoreBreakdown ?? null} />
+              </div>
+            </div>
           </div>
         )}
 
@@ -191,7 +197,7 @@ export function ResultsView({ result, sessionId, runId, pillarButton, roadmap, h
         {/* Crawled pages drill-down */}
         <details className="bg-white dark:bg-navy-card rounded-lg shadow-sm border border-gray-100 dark:border-navy-border overflow-hidden group">
           <summary className="px-6 py-4 flex items-center gap-3 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-navy-light transition-colors">
-            <span className="text-sm font-semibold text-[#1c2d4a] dark:text-white uppercase tracking-wide">
+            <span className="text-sm font-semibold text-navy dark:text-white uppercase tracking-wide">
               Crawled Pages
             </span>
             <span className="text-gray-400 dark:text-white/40 text-base leading-none ml-auto group-open:rotate-90 transition-transform">

@@ -51,7 +51,7 @@ export function FileDropzone({ files, isUploading, uploadProgress = 0, onDrop }:
         className={`
           border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
           transition-colors duration-200
-          ${isDragActive ? 'border-[#f5a623] bg-orange-50' : 'border-gray-300 dark:border-navy-border hover:border-[#f5a623]'}
+          ${isDragActive ? 'border-orange bg-orange/5 dark:bg-orange/10' : 'border-gray-300 dark:border-navy-border hover:border-orange'}
           ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
         `}
       >
@@ -76,7 +76,7 @@ export function FileDropzone({ files, isUploading, uploadProgress = 0, onDrop }:
               <p className="text-xs text-gray-500 dark:text-white/50">Uploading… {uploadProgress}%</p>
             </div>
           ) : isDragActive ? (
-            <p className="text-[#f5a623] font-medium">Drop CSV or TXT files here</p>
+            <p className="text-orange font-medium">Drop CSV or TXT files here</p>
           ) : (
             <>
               <p className="text-gray-600 dark:text-white/60">Drag and drop Screaming Frog CSV exports here</p>
@@ -110,7 +110,7 @@ export function FileDropzone({ files, isUploading, uploadProgress = 0, onDrop }:
             border border-gray-300 dark:border-navy-border
             text-gray-700 dark:text-white/70
             bg-white dark:bg-navy-card
-            hover:border-[#f5a623] hover:text-[#f5a623] dark:hover:text-[#f5a623]
+            hover:border-orange hover:text-orange dark:hover:text-orange
             transition-colors duration-200
             ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
           `}
@@ -128,7 +128,7 @@ export function FileDropzone({ files, isUploading, uploadProgress = 0, onDrop }:
       </div>
 
       {files.length > 0 && (
-        <div className="bg-gray-50 dark:bg-navy-deep rounded-lg p-4">
+        <div className="bg-gray-50 dark:bg-navy-deep rounded-xl border border-gray-100 dark:border-navy-border p-4">
           <h3 className="text-sm font-medium text-gray-700 dark:text-white/70 mb-2">Uploaded Files ({files.length})</h3>
           <ul className="space-y-1 max-h-40 overflow-y-auto">
             {files.map((file, index) => (
