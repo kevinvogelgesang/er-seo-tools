@@ -107,6 +107,16 @@ describe('loadArchivedSeoResult', () => {
   })
 })
 
+describe('buildSeoResultFromRun archived flag', () => {
+  const run = { pagesTotal: 3, score: 55, domain: 'example.com' }
+  it('defaults to archived:true (session prune fallback)', () => {
+    expect(buildSeoResultFromRun(run, [], [], { siteName: null, files: [] }).archived).toBe(true)
+  })
+  it('honors archived:false when opts.archived is false', () => {
+    expect(buildSeoResultFromRun(run, [], [], { siteName: null, files: [] }, { archived: false }).archived).toBe(false)
+  })
+})
+
 describe('buildSeoResultFromRun', () => {
   it('omits indexable counts when every page indexable is null', () => {
     const b = bundle('c5fb-pure-1', 'unused')
@@ -179,7 +189,7 @@ describe('loadRunSeoResult', () => {
 
     const r = await loadRunSeoResult(runId)
     expect(r).not.toBeNull()
-    expect(r!.archived).toBe(true)
+    expect(r!.archived).toBe(false)
     expect(r!.metadata.health_score).toBe(88)
     expect(r!.crawl_summary.total_urls).toBe(2)
     expect(r!.issues.critical).toHaveLength(1)

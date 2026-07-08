@@ -21,6 +21,7 @@ export function buildSeoResultFromRun(
   pages: PageFacts[],
   findings: FindingFacts[],
   origin: OriginContext,
+  opts: { archived?: boolean } = {},
 ): AggregatedResult {
   // --- crawl_summary ---
   const summary: AggregatedResult['crawl_summary'] = { total_urls: run.pagesTotal }
@@ -99,7 +100,7 @@ export function buildSeoResultFromRun(
       site_name: origin.siteName ?? run.domain ?? undefined,
       health_score: run.score ?? undefined,
     },
-    archived: true,
+    archived: opts.archived ?? true,
     // completeness intentionally ABSENT: the builder never sets a verdict;
     // ResultsView suppresses its computeCompleteness() recompute when
     // result.archived — the archived banner replaces the completeness banner.
@@ -108,13 +109,14 @@ export function buildSeoResultFromRun(
 
 /** Run-native loader for live-scan (and future blob-less) CrawlRuns.
  *  Returns null when the run is not found or is not a seo-parser run.
- *  The returned result is always `archived:true` — ResultsView renders the
- *  archived-fallback path (no completeness banner, no memo/diff/export). */
+ *  A `source:'live-scan'` run is first-class data (never pruned/degraded) and
+ *  is returned `archived:false`; any other source (e.g. an sf-upload run hit
+ *  via a run URL) stays conservatively `archived:true`. */
 export async function loadRunSeoResult(runId: string): Promise<AggregatedResult | null> {
   const run = await prisma.crawlRun.findUnique({
     where: { id: runId },
     select: {
-      tool: true, pagesTotal: true, score: true, domain: true,
+      tool: true, source: true, pagesTotal: true, score: true, domain: true,
       pages: { select: { url: true, statusCode: true, wordCount: true, crawlDepth: true, indexable: true } },
       findings: { select: { scope: true, type: true, severity: true, url: true, count: true, affectedComplete: true, affectedSource: true, detail: true } },
     },
@@ -126,6 +128,7 @@ export async function loadRunSeoResult(runId: string): Promise<AggregatedResult 
     run.pages,
     run.findings,
     { siteName: null, files: [] },
+    { archived: run.source !== 'live-scan' },
   )
 }
 
