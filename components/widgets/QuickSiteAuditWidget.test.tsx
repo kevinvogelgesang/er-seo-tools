@@ -32,7 +32,20 @@ describe('QuickSiteAuditWidget', () => {
     render(<QuickSiteAuditWidget size="wide" />)
     fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'example.com' } })
     fireEvent.click(screen.getByRole('button', { name: /start/i }))
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser'))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser?scan=dup'))
+  })
+
+  it('C11: new SEO 202 (no seoOnly in body) routes by local intent to /seo-parser?scan=', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init!.body))
+      expect(body.seoOnly).toBe(true)
+      return { status: 202, ok: true, json: async () => ({ id: 'Q1', status: 'queued' }) } as Response
+    }))
+    render(<QuickSiteAuditWidget size="wide" />)
+    fireEvent.click(screen.getByRole('button', { name: /SEO/i }))
+    fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'x.edu' } })
+    fireEvent.click(screen.getByRole('button', { name: /start/i }))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser?scan=Q1'))
   })
 
   it('shows an inline error on a 400 and does not redirect', async () => {

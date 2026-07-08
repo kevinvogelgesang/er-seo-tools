@@ -15,24 +15,68 @@ export function SeoScanForm() {
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Survive a soft refresh: resume polling a still-pending scan.
-  // sessionStorage read happens on mount (effect), never during render, to avoid hydration mismatch.
+  // On mount: a ?scan=<id> handoff (from SiteAuditForm / QuickSiteAuditWidget)
+  // WINS over a stale sessionStorage id; otherwise resume a stored pending scan.
+  // Read in an effect (never during render) — no hydration mismatch, no
+  // useSearchParams (this page has no Suspense boundary).
   useEffect(() => {
+    let id: string | null = null;
     try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        setAuditId(saved);
-        setPhase('running');
+      const q = new URLSearchParams(window.location.search).get('scan');
+      if (q) {
+        id = q;
+        try {
+          sessionStorage.setItem(STORAGE_KEY, q);
+        } catch {
+          // ignore
+        }
+        try {
+          // Strip ?scan= so a later refresh doesn't re-adopt this stale id
+          // and clobber sessionStorage if the operator has since started a
+          // new scan.
+          window.history.replaceState({}, '', '/seo-parser');
+        } catch {
+          // ignore
+        }
+      } else {
+        id = sessionStorage.getItem(STORAGE_KEY);
       }
     } catch {
-      // sessionStorage unavailable (private browsing, etc.) — degrade silently.
+      // sessionStorage/location unavailable — degrade silently.
+    }
+    if (id) {
+      setAuditId(id);
+      setRunId(null);
+      setError(null);
+      setPhase('running');
     }
   }, []);
 
   const poll = useCallback(async (id: string) => {
     const res = await fetch(`/api/site-audit/${id}`);
-    if (!res.ok) return;
+    if (!res.ok) {
+      if (res.status === 404) {
+        setError('SEO scan failed — the scan could not be found.');
+        setPhase('error');
+        try {
+          sessionStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+      }
+      return; // other non-OK → transient, keep polling
+    }
     const d = await res.json();
+    if (d.status === 'error' || d.status === 'cancelled') {
+      setError('SEO scan failed — please try again.');
+      setPhase('error');
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+      return;
+    }
     if (d.status === 'complete' && d.liveScanRunId) {
       setRunId(d.liveScanRunId);
       setPhase('ready');
@@ -49,7 +93,7 @@ export function SeoScanForm() {
   }, []);
 
   useEffect(() => {
-    if (!auditId || phase === 'ready') return;
+    if (!auditId || phase === 'ready' || phase === 'error') return;
     void poll(auditId); // immediate first poll (snappy + test-friendly)
     timer.current = setInterval(() => {
       void poll(auditId);
@@ -73,6 +117,17 @@ export function SeoScanForm() {
     const d = await res.json().catch(() => ({}));
     if (res.status === 202 && d.id) {
       setAuditId(d.id);
+      setPhase('running');
+      try {
+        sessionStorage.setItem(STORAGE_KEY, d.id);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    if (res.status === 409 && d.id) {
+      setAuditId(d.id);
+      setRunId(null);
       setPhase('running');
       try {
         sessionStorage.setItem(STORAGE_KEY, d.id);

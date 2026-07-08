@@ -36,4 +36,21 @@ describe('LiveNowWidget', () => {
     render(<LiveNowWidget size="sm" />)
     expect(screen.getByText(/unavailable/i)).toBeTruthy()
   })
+
+  it('labels the active audit and queued domains with the SEO chip, not the ADA ones (C11 PR 2a)', () => {
+    queueMock.value = {
+      data: {
+        active: { id: 'a1', domain: 'active-seo.com', status: 'running', pagesTotal: 10, pagesComplete: 4, pagesError: 0, pdfsTotal: 0, pdfsComplete: 0, pdfsError: 0, pdfsSkipped: 0, lighthouseTotal: 0, lighthouseComplete: 0, lighthouseError: 0, clientId: null, seoOnly: true },
+        queued: [
+          { id: 'q1', domain: 'seo-queued.com', position: 1, clientId: null, seoOnly: true },
+          { id: 'q2', domain: 'ada-queued.com', position: 2, clientId: null, seoOnly: false },
+        ],
+        batch: null,
+      },
+      error: false, loading: false,
+    }
+    render(<LiveNowWidget size="lg" />)
+    // one for the active audit, one for the seoOnly queued domain
+    expect(screen.getAllByText('SEO').length).toBe(2)
+  })
 })

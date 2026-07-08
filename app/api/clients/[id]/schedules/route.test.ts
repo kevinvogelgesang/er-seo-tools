@@ -56,7 +56,7 @@ describe('POST /api/clients/[id]/schedules', () => {
     expect(sched?.jobType).toBe(SCHEDULED_SITE_AUDIT_JOB_TYPE)
     expect(sched?.clientId).toBe(clientId)
     expect(sched?.name).toBeNull()
-    expect(JSON.parse(sched!.payload)).toEqual({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag22aa', seoIntent: false })
+    expect(JSON.parse(sched!.payload)).toEqual({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag22aa', seoIntent: false, seoOnly: false })
     expect(sched!.nextRunAt.getTime()).toBeGreaterThan(Date.now())
   })
 
@@ -287,5 +287,47 @@ describe('D1: seoIntent coexistence', () => {
     const seoSched = mine.find((s) => s.seoIntent)
     expect(adaSched).toBeDefined()
     expect(seoSched).toBeDefined()
+  })
+})
+
+describe('C11 PR2a: seoOnly coercion', () => {
+  let d2ClientId: number
+
+  beforeAll(async () => {
+    const c = await prisma.client.create({
+      data: {
+        name: `${PREFIX}d2-client`,
+        domains: JSON.stringify([`${PREFIX}t.example.edu`, `${PREFIX}t2.example.edu`]),
+      },
+    })
+    d2ClientId = c.id
+  })
+
+  afterAll(async () => {
+    await prisma.client.deleteMany({ where: { name: `${PREFIX}d2-client` } })
+  })
+
+  it('coerces seoOnly⇒seoIntent before uniqueness and persists both', async () => {
+    const res = await POST(
+      jsonReq('POST', { domain: `${PREFIX}t.example.edu`, cadence: 'weekly:1@06:00', seoOnly: true }),
+      p(d2ClientId),
+    )
+    expect(res.status).toBe(201)
+    const { id } = await res.json()
+    const sched = await prisma.schedule.findUnique({ where: { id } })
+    const payload = JSON.parse(sched!.payload) as Record<string, unknown>
+    expect(payload.seoOnly).toBe(true)
+    expect(payload.seoIntent).toBe(true)
+  })
+
+  it('coexists ADA + SEO schedules for one domain; a same-intent dup 409s', async () => {
+    const mk = (extra: object) =>
+      POST(
+        jsonReq('POST', { domain: `${PREFIX}t2.example.edu`, cadence: 'weekly:1@06:00', ...extra }),
+        p(d2ClientId),
+      )
+    expect((await mk({})).status).toBe(201) // ADA
+    expect((await mk({ seoOnly: true })).status).toBe(201) // SEO — different seoIntent
+    expect((await mk({})).status).toBe(409) // duplicate ADA
   })
 })

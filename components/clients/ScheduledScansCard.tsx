@@ -6,6 +6,7 @@
 
 import { useCallback, useState } from 'react'
 import type { ClientScheduleRow } from '@/lib/services/client-schedules'
+import { IntentChip } from '@/components/ada-audit/IntentChip'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -37,6 +38,7 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
   const [day, setDay] = useState('1')
   const [time, setTime] = useState('06:00')
   const [level, setLevel] = useState('wcag21aa')
+  const [intent, setIntent] = useState<'ada' | 'seo'>('ada')
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/clients/${clientId}/schedules`)
@@ -72,6 +74,8 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
           domain,
           cadence: freq === 'weekly' ? `weekly:${day}@${time}` : `monthly:${day}@${time}`,
           wcagLevel: level,
+          seoIntent: intent === 'seo',
+          seoOnly: intent === 'seo',
         }),
       }),
     )
@@ -146,12 +150,21 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
             <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-gray-500 dark:text-white/50">WCAG level</span>
-            <select value={level} onChange={(e) => setLevel(e.target.value)} className={inputCls}>
-              <option value="wcag21aa">Required (2.1 AA)</option>
-              <option value="wcag22aa">Aspirational (2.2 AA)</option>
+            <span className="text-gray-500 dark:text-white/50">Scan type</span>
+            <select aria-label="Scan type" value={intent} onChange={(e) => setIntent(e.target.value as 'ada' | 'seo')} className={inputCls}>
+              <option value="ada">Accessibility</option>
+              <option value="seo">SEO</option>
             </select>
           </label>
+          {intent === 'ada' && (
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 dark:text-white/50">WCAG level</span>
+              <select value={level} onChange={(e) => setLevel(e.target.value)} className={inputCls}>
+                <option value="wcag21aa">Required (2.1 AA)</option>
+                <option value="wcag22aa">Aspirational (2.2 AA)</option>
+              </select>
+            </label>
+          )}
           <button
             onClick={() => void create()}
             disabled={busy || !domain}
@@ -169,6 +182,7 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
           {schedules.map((s) => (
             <li key={s.id} className="py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
               <span className="font-semibold text-gray-800 dark:text-white/90">{s.domain || '(unknown domain)'}</span>
+              <IntentChip seoOnly={s.seoOnly} />
               <span className="text-gray-500 dark:text-white/50">{humanizeCadence(s.cadence)}</span>
               <span className="text-gray-400 dark:text-white/40">{s.wcagLevel === 'wcag22aa' ? 'WCAG 2.2 AA' : 'WCAG 2.1 AA'}</span>
               {s.enabled ? (
@@ -179,7 +193,12 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
               {s.lastRun && (
                 <span className="text-gray-500 dark:text-white/50">
                   last:{' '}
-                  <a href={`/ada-audit/site/${s.lastRun.id}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                  <a
+                    href={s.seoOnly
+                      ? (s.liveRunId ? `/seo-parser/results/run/${s.liveRunId}` : `/seo-parser?scan=${s.lastRun.id}`)
+                      : `/ada-audit/site/${s.lastRun.id}`}
+                    className="text-blue-600 dark:text-blue-400 hover:underline"
+                  >
                     {s.lastRun.status}
                     {s.lastRun.score !== null ? ` · ${s.lastRun.score}` : ''}
                   </a>

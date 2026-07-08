@@ -1,8 +1,10 @@
 'use client'
 
+import { Fragment } from 'react'
 import Link from 'next/link'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
+import { IntentChip } from '@/components/ada-audit/IntentChip'
 
 interface Props {
   /** `null` while the first poll is in flight; otherwise a snapshot from
@@ -127,7 +129,8 @@ export default function DashboardQueueStatus({ queueStatus }: Props) {
             // C11: seoOnly audits carry no ADA data — route to /seo-parser
             // (the ADA site page redirects it away).
             href={active.seoOnly ? '/seo-parser' : `/ada-audit/site/${active.id}`}
-            title={active.seoOnly ? 'Current Scan · SEO' : 'Current Scan'}
+            title="Current Scan"
+            trailing={<IntentChip seoOnly={active.seoOnly} />}
           />
           <CardBody>
             <CurrentScanContent active={active} />
@@ -198,7 +201,15 @@ function QueueListContent({ queued }: { queued: QueueStatusWithBatch['queued'] }
         {queued.length} audit{queued.length !== 1 ? 's' : ''} waiting
       </p>
       <p className="text-[12px] font-body text-navy/50 dark:text-white/50 truncate">
-        {visible.map((q) => q.domain).join(', ')}
+        {visible.map((q, i) => (
+          <Fragment key={q.id}>
+            {i > 0 && ', '}
+            <span className="inline-flex items-center gap-1">
+              <IntentChip seoOnly={q.seoOnly} />
+              {q.domain}
+            </span>
+          </Fragment>
+        ))}
         {overflow > 0 && ` …and ${overflow} more`}
       </p>
     </div>

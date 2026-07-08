@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import Link from 'next/link'
 import { Spinner } from '@/components/Spinner'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
+import { IntentChip } from '@/components/ada-audit/IntentChip'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import { parseManualUrls } from '@/lib/ada-audit/manual-urls'
 import { formatInBrowserTZ } from '@/lib/ada-audit/format-date'
@@ -62,6 +63,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
+  const [intent, setIntent] = useState<'ada' | 'seo'>('ada')
 
   // Discovery confirmation state
   const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null)
@@ -185,15 +187,17 @@ export default function SiteAuditForm({ queueStatus }: Props) {
           clientId: selectedClient?.id ?? null,
           wcagLevel,
           urls: discoveredUrls,
+          seoOnly: intent === 'seo',
         }),
       })
 
       const data = await res.json()
+      const dest = intent === 'seo' ? `/seo-parser?scan=${data.id}` : `/ada-audit/site/${data.id}`
       if (!res.ok) {
         if (res.status === 409 && data.id) {
           setError(`A site audit for this domain is already running.`)
           setIsRunning(false)
-          router.push(`/ada-audit/site/${data.id}`)
+          router.push(dest)
           return
         }
         setError(data.error ?? 'Request failed')
@@ -201,7 +205,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
         return
       }
 
-      router.push(`/ada-audit/site/${data.id}`)
+      router.push(dest)
     } catch {
       setError('Network error — please try again')
       setIsRunning(false)
@@ -245,21 +249,23 @@ export default function SiteAuditForm({ queueStatus }: Props) {
           clientId: selectedClient?.id ?? null,
           wcagLevel,
           urls,
+          seoOnly: intent === 'seo',
         }),
       })
       const data = await res.json()
+      const dest = intent === 'seo' ? `/seo-parser?scan=${data.id}` : `/ada-audit/site/${data.id}`
       if (!res.ok) {
         if (res.status === 409 && data.id) {
           setError('A site audit for this domain is already running.')
           setIsRunning(false)
-          router.push(`/ada-audit/site/${data.id}`)
+          router.push(dest)
           return
         }
         setError(data.error ?? 'Request failed')
         setIsRunning(false)
         return
       }
-      router.push(`/ada-audit/site/${data.id}`)
+      router.push(dest)
     } catch {
       setError('Network error — please try again')
       setIsRunning(false)
@@ -438,7 +444,37 @@ export default function SiteAuditForm({ queueStatus }: Props) {
         )}
       </div>
 
+      {/* Scan intent */}
+      <div>
+        <p id="scan-intent-label" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
+          Scan type
+        </p>
+        <div role="group" aria-labelledby="scan-intent-label" className="flex gap-2">
+          {([
+            { value: 'ada', label: 'Accessibility', badge: 'WCAG + on-page signals' },
+            { value: 'seo', label: 'SEO', badge: 'Render-only, faster' },
+          ] as const).map(({ value, label, badge }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={intent === value}
+              onClick={() => setIntent(value)}
+              disabled={isBusy}
+              className={`flex-1 flex flex-col items-center px-3 py-2 rounded-lg border text-[13px] font-body transition-colors disabled:opacity-50 ${
+                intent === value
+                  ? 'border-orange bg-orange/5 text-orange font-semibold'
+                  : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:border-gray-400'
+              }`}
+            >
+              <span>{label}</span>
+              <span className={`text-[11px] font-normal mt-0.5 ${intent === value ? 'text-orange/70' : 'text-navy/40 dark:text-white/40'}`}>{badge}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* WCAG level selector */}
+      {intent === 'ada' && (
       <div>
         <p id="site-wcag-level-label" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
           WCAG Level
@@ -466,6 +502,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
           ))}
         </div>
       </div>
+      )}
 
       {/* Queue status banner */}
       {queueStatus && (queueStatus.active || queueStatus.queued.length > 0) && (
@@ -476,7 +513,7 @@ export default function SiteAuditForm({ queueStatus }: Props) {
             return (
               <div className="space-y-1.5">
                 <p className="text-[12px] font-body font-semibold text-blue-800 dark:text-blue-300">
-                  {label}: {a.domain}
+                  {label}: {a.domain} <IntentChip seoOnly={a.seoOnly} />
                   <span className="font-normal text-blue-600/60 dark:text-blue-400/60 ml-2">
                     {total > 0
                       ? `${complete}/${total} ${unit} (${pct}%)`
@@ -495,7 +532,15 @@ export default function SiteAuditForm({ queueStatus }: Props) {
             <p className="text-[11px] font-body text-blue-600/60 dark:text-blue-400/60">
               {queueStatus.queued.length} audit{queueStatus.queued.length !== 1 ? 's' : ''} queued
               {queueStatus.queued.length <= 3 && (
-                <> — {queueStatus.queued.map(q => q.domain).join(', ')}</>
+                <>
+                  {' — '}
+                  {queueStatus.queued.map((q, i) => (
+                    <Fragment key={q.id}>
+                      {i > 0 && ', '}
+                      <IntentChip seoOnly={q.seoOnly} /> {q.domain}
+                    </Fragment>
+                  ))}
+                </>
               )}
             </p>
           )}

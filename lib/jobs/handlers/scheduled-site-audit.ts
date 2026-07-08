@@ -24,6 +24,8 @@ interface ScheduledSiteAuditPayload {
   wcagLevel: string
   /** D1: true when this schedule was created by the autonomous SEO pipeline. */
   seoIntent?: boolean
+  /** C11 PR 2a: true when this schedule should run the render-only SEO path. */
+  seoOnly?: boolean
 }
 
 function parsePayload(payload: unknown): ScheduledSiteAuditPayload | null {
@@ -33,7 +35,8 @@ function parsePayload(payload: unknown): ScheduledSiteAuditPayload | null {
   if (typeof p.domain !== 'string' || p.domain.length === 0) return null
   const wcagLevel = p.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
   const seoIntent = p.seoIntent === true
-  return { clientId: p.clientId, domain: p.domain, wcagLevel, seoIntent }
+  const seoOnly = p.seoOnly === true
+  return { clientId: p.clientId, domain: p.domain, wcagLevel, seoIntent, seoOnly }
 }
 
 async function disableSchedule(scheduleId: string, reason: string): Promise<void> {
@@ -99,10 +102,9 @@ export function registerScheduledSiteAuditHandler(): void {
         return
       }
 
-      // FUTURE (efficiency): scheduled/on-demand SEO scans currently run the FULL ADA
-      // site-audit pipeline (axe + screenshots + PSI) and reuse its live-scan run as the
-      // SEO report. A dedicated SEO-only scan mode (skip axe/screenshots/PSI) is the planned
-      // optimization — see docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md §9.
+      // C11 PR 2a: seoOnly schedules run the render-only path (skip axe/
+      // screenshots/PSI); the live-scan run is still built post-terminal.
+      // Legacy seoIntent-only schedules stay full-pipeline (seoOnly:false).
 
       // Dynamic import: avoids a static handler → queue-manager edge
       // (same reasoning as stale-audit-reset / site-audit-discover).
@@ -114,6 +116,7 @@ export function registerScheduledSiteAuditHandler(): void {
         requestedBy: 'scheduled',
         scheduleId: schedule.id,
         seoIntent: p.seoIntent ?? false,
+        seoOnly: p.seoOnly ?? false,
       })
       if (result.kind === 'duplicate') {
         console.log(`[schedule] ${schedule.id}: slot skipped — audit ${result.existingId} already in flight`)

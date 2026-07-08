@@ -86,7 +86,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const wcagLevel = body.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
-  const seoIntent = body.seoIntent === true
+  const seoOnly = body.seoOnly === true
+  const seoIntent = body.seoIntent === true || seoOnly // seoOnly ⇒ seoIntent
 
   // Best-effort uniqueness (D1): one schedule per (client, domain, seoIntent).
   // An ADA schedule (seoIntent falsy/absent) and an SEO schedule (seoIntent:true)
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE,
       clientId,
       cadence,
-      payload: JSON.stringify({ clientId, domain, wcagLevel, seoIntent }),
+      payload: JSON.stringify({ clientId, domain, wcagLevel, seoIntent, seoOnly }),
       nextRunAt: nextRun(cadence, new Date()), // never immediate
     },
   })

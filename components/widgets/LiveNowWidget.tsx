@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useQueueStatus } from '@/lib/widgets/queue-poll'
 import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
 import { StatusPill } from '@/components/ui/StatusPill'
+import { IntentChip } from '@/components/ada-audit/IntentChip'
 import type { WidgetSize } from '@/lib/widgets/types'
 
 export function LiveNowWidget({ size }: { size: WidgetSize }) {
@@ -40,8 +41,8 @@ export function LiveNowWidget({ size }: { size: WidgetSize }) {
         return (
           <Link href={href} className="block rounded-lg border border-gray-100 p-2 hover:border-orange/50 dark:border-navy-border">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="truncate font-display text-[14px] font-bold text-navy dark:text-white">
-                {active.seoOnly && <span className="mr-1 rounded bg-orange/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-orange">SEO</span>}
+              <span className="truncate font-display text-[14px] font-bold text-navy dark:text-white inline-flex items-center gap-1">
+                <IntentChip seoOnly={active.seoOnly} />
                 {active.domain}
               </span>
               <StatusPill label={active.status} tone="running" />
@@ -62,8 +63,8 @@ export function LiveNowWidget({ size }: { size: WidgetSize }) {
         <ul className="space-y-1 overflow-auto">
           {queued.slice(0, 6).map((q) => (
             <li key={q.id} className="flex items-center justify-between gap-2 text-[12px] font-body">
-              <span className="truncate text-gray-600 dark:text-white/60">
-                {q.seoOnly && <span className="mr-1 rounded bg-orange/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-orange">SEO</span>}
+              <span className="truncate text-gray-600 dark:text-white/60 inline-flex items-center gap-1">
+                <IntentChip seoOnly={q.seoOnly} />
                 {q.domain}
               </span>
               <span className="shrink-0 text-gray-400 dark:text-white/30">#{q.position}</span>
