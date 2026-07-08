@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-08 (**D7 UNSHELVED → `[~]`, build claimed by a parallel session** — Mailgun sending key + domain staged in the server `.env` by Kevin (chmod 600 applied); build session owns domain-verification check → Codex review → plan → build. Earlier today: **D7 provider decided: MAILGUN** — sender kevin@; Mailgun requires a verified sending domain (recommended `mg.enrollmentresources.com`, 2 TXT records) — no single-sender shortcut; design doc §Transport rewritten. Also today: **GATED DECISION RESOLVED: NO AI API** — Kevin ruled there are no plans to use any AI API (Anthropic or otherwise) at the moment. Tracker Gated-decisions entry checked off with verdict; C12 data-correctness half OFF (zero-AI Tier-0 only); 03 Phase 3 direct memo generation off the roadmap (skill-handoff clipboard flow stays); CLAUDE.md "Do not" rule strengthened. SEMRush ingestion (a data API, not an AI API) stays a separate open question. Earlier same day: **A8 PR 5 — ada-audit visual polish SHIPPED + DEPLOYED + PROD-VERIFIED** (PR #130, main `ccd98b3`). **Next action = unchanged: decide WITH Kevin — another A8 per-tool polish pass (PR 6 — clients / reports / robots-validator / quarter-grid) OR call the A8 per-tool arc done and mark A8 `[x]`.**) · **Updated by:** the gate-decision recording session.
+**Last updated:** 2026-07-08 (**D7 arc fully COMPLETE.** Scan-completion email notifications shipped + deployed earlier (PR #132). This session: (1) **real-send smoke DONE** — email delivered + rendered; Kevin's own inbox showed a "Be careful with this message" DMARC banner, **resolved env-only** by setting `NOTIFY_FROM="Enrollment Resources SEO <seo-tools@enrollment.email>"` + `pm2 restart` (DKIM `d=mg.enrollment.email` relaxed-aligns with the `enrollment.email` From org domain, `p=reject` → DMARC passes; a fresh external recipient inboxed first try — Kevin's inbox was a cousin-domain false-flag). (2) **Email enrichment SHIPPED** — branded, info-rich complete + failed emails (score cards, X-of-Y pages, issue counts, change-vs-last-scan). Feature-class: brainstorm → spec → Codex → plan → Codex → 3 TDD tasks; both artifacts accept-with-fixes (6 plan fixes applied); gates green (3777 tests). Branch `feat/d7-email-enrichment`.) · **Updated by:** the enrichment session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -10,137 +10,81 @@ single next action.
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. A8 PR 5 — ada-audit visual polish is SHIPPED +
-DEPLOYED + PROD-VERIFIED (PR #130, main ccd98b3). A8 PRs 1–3.5 (shell/dashboard/widget-editor/
-aggregate-widgets) + PR 4 (seo-parser polish, #120) + PR 5 (ada-audit polish, #130) are all
-shipped. C11 (SEO Audits v1) is fully complete (#122/#124/#126/#128).
+Continue the er-seo-tools improvement roadmap. The D7 scan-completion email arc is COMPLETE:
+notifications shipped/deployed (PR #132), the real-send smoke passed, the Gmail "be careful"
+DMARC banner was resolved env-only (NOTIFY_FROM=seo-tools@enrollment.email + pm2 restart, no
+redeploy), and the email enrichment (branded HTML + score cards + pages + issue counts +
+change-vs-last-scan) shipped on branch feat/d7-email-enrichment (merged + deployed this session —
+verify state below). The only D7 follow-up is a nice-to-have: enriched-email inbox placement for
+INTERNAL @enrollmentresources.com recipients (cousin-domain of the enrollment.email sender) —
+optionally a Google Workspace admin allowlist, not code.
 
-STANDING GATE (decided 2026-07-08): NO AI API — Kevin ruled there are no plans to use any AI
-API (Anthropic or any LLM provider). Never propose or build AI-API features: direct memo
-generation (03 Phase 3), C12's data-correctness half, and any AI slice of SF-retirement Phase 6
-are OFF. All AI stays the pat_/srt_/krt_/qct_ skill-handoff clipboard flow. Only Kevin reopens
-this (tracker → Gated decisions). SEMRush ingestion is a data API, not an AI API — separate,
-still-open question.
+STANDING GATE (decided 2026-07-08): NO AI API — Kevin ruled there are no plans to use any AI API
+(Anthropic or any LLM provider). Never propose or build AI-API features: direct memo generation
+(03 Phase 3), C12's data-correctness half, and any AI slice of SF-retirement Phase 6 are OFF. All
+AI stays the pat_/srt_/krt_/qct_ skill-handoff clipboard flow. Only Kevin reopens this (tracker →
+Gated decisions). SEMRush ingestion is a data API, not an AI API — separate, still-open question.
 
-*** FIRST STEP: A8 PR 4+ (per-tool visual polish) is OPEN-ENDED by design (spec §8). seo-parser
-and ada-audit — the two tools Kevin pre-picked back-to-back — are both done. So there is NO
-pre-decided next tool. ASK KEVIN: (a) do another per-tool polish pass (candidate tools that still
-hand-roll status/score chrome or carry their own page wrappers: /clients, /reports, /robots-validator,
-/quarter-grid — scope the tightest slice WITH him, like PR 4/PR 5 did), or (b) call the A8 per-tool
-arc DONE → mark A8 [x] in the tracker and pick the next roadmap item. Do NOT assume a tool. ***
+FIRST STEP — confirm the enrichment PR is merged + deployed + prod-verified (git log origin/main;
+ssh seo@144.126.213.242 "~/deploy.sh" if not yet deployed; then /api/health + confirm the process
+restarted clean). The enriched email's real visual confirmation is Kevin's next real scan — ask him
+to tick "Email me when this finishes" on any scan and eyeball the branded email.
 
-If Kevin picks a tool: brainstorm→spec→plan for THAT tool's surface only, small + independently
-shippable. VISUAL/primitive-adoption ONLY — no behavior/data/API/scoring change; existing tests
-stay green. Reuse the PR 5 recipe below.
+Then pick the next roadmap item WITH Kevin (menu — no single pre-decided next item):
+- A8 per-tool visual polish (OPEN-ENDED, spec §8): PR 4 (seo-parser) + PR 5 (ada-audit) shipped.
+  Either do another per-tool pass (candidate tools still hand-rolling status/score chrome or owning
+  page wrappers: /clients, /reports, /robots-validator, /quarter-grid — scope the tightest slice) OR
+  call the arc done and mark A8 [x]. Reuse the PR-5 recipe below. VISUAL/primitive-adoption ONLY —
+  no behavior/data/API/scoring change; existing tests stay green.
+- SF-retirement: further hybrid-discovery increments, or parity cycles 2–3 (accrue on future runs).
+- Track A infra: A5 (SSE progress), A6 (more UI primitives), A7 (auth + Playwright e2e).
+- Track D workflow polish.
 
-PR-5-proven recipe (reuse it):
-(a) Adopt the EXISTING components/ui/ primitives — ScoreRing (score:number|null, size; bands
-    ≥80 green/≥50 amber/else red; null→dashed em-dash ring) and StatusPill (label, tone:
-    neutral|running|success|error|warning). Do NOT modify StatusPill's tone set (shared with the
-    Home widgets — a tone change ripples cross-tool). If a helper needs its tone type, it is now
-    EXPORTED: `import type { Tone } from '@/components/ui/StatusPill'`.
-(b) For lifecycle/status pills, map BY COLOR not by word so operational surfaces stay pixel-stable.
-    ada-audit's reusable helper is `components/ada-audit/status-tone.ts` `auditStatusTone(status)`
-    (complete→success, error→error, running/pdfs-running/lighthouse-running→warning[amber],
-    redirected→running[blue], else→neutral). Copy the pattern per tool; don't force a global helper
-    across tools with different status vocabularies.
-(c) EXCLUDE things StatusPill/ScoreRing don't model: impact/severity 4-level palettes with dots/
-    borders, INTERACTIVE toggle chips/buttons (converting them = a behavior change → forbidden),
-    and score displays whose bands differ from ScoreRing's ≥80/≥50 (e.g. Lighthouse uses ≥90 — do
-    NOT swap those). Document each exclusion in the spec; these are future `SeverityBadge` work.
-(d) hex→Tailwind-token swap is pixel-safe where it applies — navy=#1c2d4a, orange=#f5a623,
-    navy-deep=#0f1d30, orange-dark=#d4881a; opacity uses bg-navy/[0.08] (NOT /8 — invalid step).
-    NOTE: ada-audit needed NEITHER hex swap NOR wrapper reconciliation (already clean) — check
-    each tool; don't assume it needs the same work seo-parser did.
-(e) The shell <main> (components/shell/AppShell.tsx) supplies bg-[#f4f6f9] dark:bg-navy-deep, so
-    in-shell page roots should DROP their own min-h-screen bg-* (keep py/px + max-w/mx-auto);
-    centered fallbacks → min-h-[60vh]. WATCH shared authed+public-share components: a component
-    rendered OUTSIDE the shell (public /share views) canNOT have its wrapper stripped. Do the
-    ownership check (grep importers) before touching any wrapper.
-(f) This repo has NO jest-dom — component tests use .getAttribute()/.toBeTruthy()/
-    queryByText(...)===null / container.querySelector(...), never toBeInTheDocument/toHaveAttribute;
-    jsdom tests start with `// @vitest-environment jsdom`.
+Read first: docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md (status log newest
+first + the D7 entry), CLAUDE.md (the D7 + broken-link-verifier architecture patterns), and — if
+touching notifications — docs/superpowers/archive/specs/2026-07-08-scan-email-enrichment-design.md
++ archive/plans/2026-07-08-scan-email-enrichment.md (and the D7 base spec/plan alongside them).
 
-1. Load skill er-seo-tools-change-control first. Gate policy (rules 1 & 4): THIS PASTED PROMPT is
-   standing authorization to merge gate-green roadmap PRs at session start (re-run lint/test/build
-   on the branch this session first) and to deploy when needed, ALWAYS followed by post-deploy
-   verify. FOR UI PRs, post-deploy verify SHOULD drive the real authed tool page via Playwright and
-   MEASURE layout (getComputedStyle / widths) — server-side health is NOT enough (A8 PR 2 shipped a
-   purged-CSS size bug caught only by a real-browser width measure). Prod URL:
-   https://seo.erstaging.site (authed — but login is Google OAuth ONLY, NOT headlessly automatable;
-   the Playwright MCP session may NOT be authed, in which case authed-UI checks fall to Kevin —
-   verify redirects/HTTP + public surfaces + the prod CSS bundle for your new classes yourself, flag
-   the authed visual spot-check for Kevin). Destructive server ops stay Kevin-gated; docs rituals
-   mandatory; NEVER scan non-client sites (dev-test scans ONLY against a client domain in the system
-   or an *.erstaging.site domain you control). Brainstorm→spec→plan runs ungated (route each artifact
-   to Codex, notify Kevin one line + path, don't wait).
-2. Trust ranking when docs disagree: code > plan/spec > tracker/handoff.
-3. Fresh worktree off origin/main. WORKTREE ENV NOTE (no node_modules): run `npm install`
-   (~15s cache-warm), write a root `.env` (`DATABASE_URL=file:./local-dev.db`,
-   `UPLOADS_DIR=./local-uploads`, `NEXT_PUBLIC_APP_URL=http://localhost:3000`,
-   `CHROME_EXECUTABLE=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`), then
-   `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && … prisma generate` before
-   trusting tsc. A per-tool polish PR is almost certainly migration-free (visual only).
-4. Gates before PR: npx tsc --noEmit + DATABASE_URL="file:./local-dev.db" npm test + npm run build.
-   UI class: dark: on every element; no hydration mismatch; existing tests stay green; any NEW
-   Tailwind class must be reachable by the content globs (incl. ./lib/**). Then PR → merge
-   (gate-green) → ~/deploy.sh → post-deploy verify.
-5. Docs ritual: tracker status-log + rewrite this handoff in the same commit as the ship. On ship,
-   move spec + plan to docs/superpowers/archive/. A8 stays [~] while per-tool passes continue; mark
-   A8 [x] the moment Kevin says the per-tool arc is done, then pick the next roadmap item.
+Load skill er-seo-tools-change-control FIRST. Gate policy (rules 1 & 4): THIS PASTED PROMPT is
+standing authorization to merge gate-green roadmap PRs at session start (re-run lint/test/build on
+the branch this session first) and to deploy when needed, ALWAYS followed by post-deploy verify.
+Destructive server ops (.env/secrets edits, DB restore, rm) stay Kevin-gated. NEVER scan non-client
+sites (dev-test scans ONLY against a client domain in the system or an *.erstaging.site domain you
+control). Brainstorm→spec→plan runs ungated (route each artifact to Codex, notify Kevin one line +
+path, don't wait). Docs ritual mandatory: tracker status-log + rewrite this handoff in the SAME
+commit as the ship, ending your final reply with this paste-in prompt. Trust ranking when docs
+disagree: code > plan/spec > tracker/handoff.
+
+WORKTREE ENV NOTE (fresh worktree off origin/main, no node_modules): `npm install`, write a root
+`.env` (DATABASE_URL=file:./local-dev.db, UPLOADS_DIR=./local-uploads,
+NEXT_PUBLIC_APP_URL=http://localhost:3000, CHROME_EXECUTABLE=/Applications/Google Chrome.app/
+Contents/MacOS/Google Chrome), then `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy
+&& … prisma generate` before trusting tsc. Gates: npx tsc --noEmit + DATABASE_URL="file:./local-dev.db"
+npm test + npm run build. UI class: dark: on every element, no hydration mismatch, new Tailwind
+classes reachable by the content globs (incl. ./lib/**).
 ```
 
 ## Current state (2026-07-08)
 
-- **D7 (ACTIVE `[~]`, claimed by a parallel session 2026-07-08 PM) — Mailgun transport STAGED.**
-  Provider = MAILGUN (an initial "Mailjet" slip was corrected same session). Kevin added
-  `MAILGUN_API_KEY` (domain-scoped sending key) + `MAILGUN_DOMAIN` to the server `.env` and
-  chmod-600'd it. Sender = kevin@enrollmentresources.com. A dedicated build session (prompt handed
-  to Kevin 2026-07-08) owns: step-0 verify the sending domain is DNS-verified (dig found no
-  Mailgun records on obvious subdomains as of 2026-07-08), git-mv the design doc
-  (`nyi/specs/2026-07-08-scan-email-notifications-design.md`) to active `specs/`, first-ever
-  Codex review, plan, build, ship (~2 days). Do NOT double-claim D7 from this handoff while that
-  session is live; its ship will update this doc.
+- **D7 scan-completion email — FULLY COMPLETE.**
+  - Base feature: merged PR #132 (main `3df75ee`); migration `20260708120000` applied + health-verified. LIVE (not dark): `MAILGUN_API_KEY` + `MAILGUN_DOMAIN` staged in prod `.env`.
+  - **Real-send smoke DONE:** delivered + rendered. Gmail "Be careful with this message" banner on Kevin's own inbox = DMARC non-alignment (`From: @enrollmentresources.com`, sender `mg.enrollment.email`). **Resolved env-only:** `NOTIFY_FROM="Enrollment Resources SEO <seo-tools@enrollment.email>"` (+ `pm2 restart`, no redeploy). DKIM `d=mg.enrollment.email` relaxed-aligns with `enrollment.email` (org DMARC `p=reject`) → passes; banner gone. Mailgun Events API showed `DELIVERED` / Gmail `2.0.0 OK gsmtp`; fresh external recipient inboxed first try.
+  - **Enrichment SHIPPED** (branch `feat/d7-email-enrichment`, PR #TBD — fill after merge). Branded table-based HTML (navy header, score cards colored by band, X-of-Y pages, counts table, change strip, incomplete-scan qualifier) + the failed email restyled with truncated error. Pure builder `lib/notify/content.ts` + new best-effort loader `lib/notify/enrichment.ts`; handler wires it inside a **5s-deadline try/catch** — `sendEmail` + `notifyCompleteSentAt` marker stay OUTSIDE (D7 idempotency byte-for-byte unchanged). Prod visual confirmation = Kevin's next scan.
+  - **Enrichment code gotchas (if you touch it):** counts are independently nullable — `null` = run-absent (unknown), a rendered `0` = run-present-none-found; never conflate. Deltas are version-gated via `parseScoreVersion(scoreBreakdown)` (ADA runs are v2, live-SEO v1). `newIssues = diff.diff.newCount` ALONE — `newCount` already subsumes `regressedCount` + `newPageCount` (findings-shared.ts:270-272); do not add `newPageCount`. Previous ADA run loaded by `diff.previous.runId` (not `siteAuditId`, which can go null). SEO previous-run selection is deterministic (`completedAt ?? createdAt` desc, id tie-break, strictly-earlier, non-null score). Tests that create CrawlRuns must delete them BEFORE the SiteAudit (`SetNull` orphans contaminate previous-run selection).
+  - **D7 base gotchas (unchanged):** idempotency = durable sent-markers, NOT `dedupKey` (active-window only); `notify-email` job must NEVER carry `groupKey: site-audit:<id>` (`failSiteAudit` cancels that group); send hooks never throw into the audit/builder; `NOTIFY_*`/`MAILGUN_*` read only in `lib/notify/config.ts`, none in `instrumentation.ts` fail-fast (dark-by-default).
 
-- **GATED DECISION RESOLVED (2026-07-08): NO AI API.** Kevin ruled there are no plans to use
-  any AI API at the moment (Anthropic or otherwise). Recorded in: tracker Gated-decisions
-  (checked, verdict inline), C12 entry (data-correctness half OFF; zero-AI Tier-0 increments
-  are the only C12 candidates), C6 entry (Phase 6's AI slice off; SEMRush data-API ingestion
-  stays a separate open billing question), CLAUDE.md "Do not" rule, and
-  `nyi/FUTURE-content-auditing.md` header. 03 Phase 3 (direct memo generation) is off the
-  roadmap; D1/D2 (handoff engine + SSE arrival) are unaffected — they polish the zero-AI
-  transport. Reopening the gate = Kevin only.
+- **STANDING GATE (2026-07-08): NO AI API.** Kevin ruled there are no plans to use any AI API (Anthropic or otherwise). 03 Phase 3 (direct memo generation) off the roadmap; C12 data-correctness half OFF (zero-AI Tier-0 only); SF-retirement Phase 6 AI slice off; all AI stays the skill-handoff clipboard flow (pat_/srt_/krt_/qct_). SEMRush ingestion is a data API, not an AI API — separate open question. Reopening = Kevin only (tracker → Gated decisions).
 
-- **A8 (active, [~]) — homepage/shell COMPLETE through PR 3.5; per-tool polish (PR 4+) in
-  progress. NEXT = a Kevin decision (another pass vs. done).**
-  - PR 1 (shell): #112, main `f48c98d`. PR 2 (dashboard): #113, `acbf96e` (+ purge fix #116/#117).
-    PR 3 (widget editor): #115, `229e901`. PR 3.5 (aggregate widgets): #118, `0c13cb6`.
-  - **PR 4 (seo-parser polish): #120** — ScoreRing on results health-score, hex→token,
-    wrapper reconciliation, deck card language.
-  - **PR 5 (ada-audit polish): #130, main `ccd98b3` — SHIPPED + DEPLOYED + PROD-VERIFIED.**
-    VISUAL-ONLY, pure primitive adoption (ada-audit was already shell-clean + token-based → NO
-    wrapper/hex work). `ScoreRing` on `AuditScorecard` headline (size 72) + `ClientsAuditSummary`
-    score badge (size 32). `StatusPill` on every hand-rolled lifecycle/severity/compliance pill
-    (`AuditScorecard` compliant, `ScoreVersionBadge`, `SiteAuditDiffPanel` severity + count chips,
-    `QueueMemberRow`, `LiveAuditTable` [local dupe deleted], `ClientsAuditSummary` ChipForStatus)
-    via NEW `components/ada-audit/status-tone.ts` `auditStatusTone()` (color-preserving). `StatusPill`
-    got a type-only `Tone` export. **Excluded (documented):** impact-severity tiles/chips/badges
-    (interactive + 4-level palette → future `SeverityBadge`), `LighthouseSection` (bands ≥90 ≠
-    ScoreRing ≥80), plain-text/dense columns. Gates: tsc · 3732 tests / 427 files · build.
-    **Prod verify:** health ok, auth gate intact, no global purge, ALL new ScoreRing/StatusPill tone
-    classes confirmed in the shipped prod CSS bundle (purge ruled out). **Authed visual eyeball of
-    the ada-audit scorecard/queue/clients/diff is the one residual check — flagged for Kevin (MCP
-    Playwright isn't authed; Google-OAuth-only).** Spec + plan → `archive/`.
-  - **The decision for the next session:** A8 PR 4+ is open-ended. The two pre-picked tools
-    (seo-parser, ada-audit) are done. ASK Kevin whether to do PR 6 on another tool (candidates that
-    still hand-roll chrome or own wrappers: `/clients`, `/reports`, `/robots-validator`,
-    `/quarter-grid`) or call A8 done and mark it `[x]`.
+- **A8 per-tool visual polish arc — OPEN-ENDED (`[~]`, spec §8).** Shell/dashboard/widgets (PR 1–3.5) + PR 4 (seo-parser, #120) + PR 5 (ada-audit, #130, prod-verified) shipped. No pre-decided next tool — decide with Kevin: another per-tool pass (`/clients`, `/reports`, `/robots-validator`, `/quarter-grid`) or mark A8 `[x]`.
 
-- **C11 — SEO Audits v1: COMPLETE ✅ ([x]).** All 3 PRs shipped + deployed + prod-verified
-  (#122 `11fcaf6`, #124 `2d18ac9`, #126 `c457eb1`, #128 `b679038`). `/seo-parser`→`/seo-audits`
-  rename with 308 redirects; persisted `tool:'seo-parser'` discriminator + `/api/parse|seo-parser`
-  routes + `@/…/seo-parser` module paths deliberately KEPT.
+- **C11 — SEO Audits v1: COMPLETE ✅ ([x]).** `/seo-parser`→`/seo-audits` with 308 redirects; persisted `tool:'seo-parser'` discriminator + `/api/parse|seo-parser` routes + `@/…/seo-parser` module paths deliberately KEPT.
 
-- **Everything else** (Tracks A–D, C6 SF-retirement, C10 reports, C12/C13/C14): unchanged — see the
-  tracker (`2026-06-10-improvement-roadmap-tracker.md`) for authoritative per-item status and the
-  full status log.
+- **Everything else** (Tracks A–D, C6 SF-retirement, C10 reports, C12/C13/C14): unchanged — see the tracker for authoritative per-item status + the full status log.
+
+## PR-5-proven recipe (reuse for any A8 per-tool polish pass — VISUAL ONLY)
+
+- Adopt the EXISTING `components/ui/` primitives — `ScoreRing` (`score: number|null`, `size`; bands ≥80 green / ≥50 amber / else red; null → dashed em-dash ring) and `StatusPill` (`label`, `tone: neutral|running|success|error|warning`). Do NOT modify `StatusPill`'s tone set (shared with the Home widgets — a tone change ripples cross-tool). Its tone type is exported: `import type { Tone } from '@/components/ui/StatusPill'`.
+- For lifecycle/status pills map BY COLOR not by word so operational surfaces stay pixel-stable (`components/ada-audit/status-tone.ts` `auditStatusTone(status)` is the template — copy the pattern per tool, don't force a global helper across tools with different status vocabularies).
+- EXCLUDE things the primitives don't model: impact/severity 4-level palettes, INTERACTIVE toggle chips (converting them = a behavior change → forbidden), and score displays whose bands differ from ScoreRing's ≥80/≥50 (Lighthouse uses ≥90 — do NOT swap). Document each exclusion; these are future `SeverityBadge` work.
+- The shell `<main>` (`components/shell/AppShell.tsx`) supplies `bg-[#f4f6f9] dark:bg-navy-deep`, so in-shell page roots should DROP their own `min-h-screen bg-*`; but a component rendered OUTSIDE the shell (public `/share` views) canNOT have its wrapper stripped — grep importers first.
+- No behavior/data/API/scoring change; existing tests stay green; dark-mode variants on every surface. This repo has NO jest-dom — component tests use `.getAttribute()`/`.toBeTruthy()`/`queryByText(...)===null`, `// @vitest-environment jsdom`.

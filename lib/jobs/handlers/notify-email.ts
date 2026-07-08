@@ -13,11 +13,25 @@
 import { prisma } from '@/lib/db'
 import { isNotifyEnabled, notifyAdminEmail } from '@/lib/notify/config'
 import { buildCompleteEmail, buildFailedEmail } from '@/lib/notify/content'
+import { loadCompleteEnrichment } from '@/lib/notify/enrichment'
 import { sendEmail, realNotifyDeps, type NotifyDeps } from '@/lib/notify/transport'
+import { logError } from '@/lib/log'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 
 export const NOTIFY_EMAIL_JOB_TYPE = 'notify-email'
+
+// The 30s worker timeout does NOT cancel pending Prisma work, so cap the
+// best-effort enrichment read — a slow read must not push the send past the job
+// timeout and widen the at-least-once duplicate window.
+const ENRICHMENT_DEADLINE_MS = 5_000
+
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('enrichment deadline exceeded')), ms)
+    p.then((v) => { clearTimeout(t); resolve(v) }, (e) => { clearTimeout(t); reject(e) })
+  })
+}
 
 export interface NotifyEmailJob {
   siteAuditId: string
@@ -50,7 +64,8 @@ export async function runNotifyEmailJob(payload: unknown, deps: NotifyDeps = rea
       id: true, domain: true, status: true, error: true, requestedBy: true, notifyEmail: true,
       seoOnly: true, seoIntent: true, notifyCompleteSentAt: true, notifyFailedSentAt: true,
       startedAt: true, completedAt: true,
-      crawlRuns: { select: { tool: true, source: true, score: true } },
+      pagesComplete: true, pagesTotal: true,
+      crawlRuns: { select: { id: true, tool: true, source: true, status: true, score: true, scoreBreakdown: true, domain: true, completedAt: true, createdAt: true } },
     },
   })
   if (!audit) return // deleted -> no-op
@@ -67,11 +82,26 @@ export async function runNotifyEmailJob(payload: unknown, deps: NotifyDeps = rea
     const durationMs = audit.startedAt && audit.completedAt
       ? audit.completedAt.getTime() - audit.startedAt.getTime() : null
     const scanType = audit.seoOnly ? 'SEO' : audit.seoIntent ? 'ADA + SEO' : 'ADA'
-    const content = buildCompleteEmail({
+    const base = {
       domain: audit.domain, scanType, requestedBy: audit.requestedBy,
       adaScore: audit.seoOnly ? null : adaScore, seoScore: liveScore, durationMs,
       resultsUrl: url, seoUnavailable: !seoRun,
-    })
+    }
+    // Enrichment is best-effort: loading AND the enriched build sit inside the
+    // try; a failure (or the deadline) degrades to the base email. sendEmail +
+    // the marker stamp stay OUTSIDE — a send failure must never stamp, and an
+    // enrichment failure must never suppress the send.
+    let content
+    try {
+      const enrichment = await withDeadline(loadCompleteEnrichment({
+        id: audit.id, domain: audit.domain, seoOnly: audit.seoOnly,
+        pagesComplete: audit.pagesComplete, pagesTotal: audit.pagesTotal, crawlRuns: audit.crawlRuns,
+      }), ENRICHMENT_DEADLINE_MS)
+      content = buildCompleteEmail({ ...base, ...enrichment })
+    } catch (err) {
+      logError({ subsystem: 'jobs', job: 'notify-email', siteAuditId: audit.id }, err)
+      content = buildCompleteEmail(base)
+    }
     await sendEmail({ to: audit.notifyEmail, content }, deps)
     await prisma.siteAudit.updateMany({
       where: { id: audit.id, notifyCompleteSentAt: null },

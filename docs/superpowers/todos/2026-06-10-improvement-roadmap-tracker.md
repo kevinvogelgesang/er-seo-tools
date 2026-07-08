@@ -657,35 +657,55 @@ Interleave as needed (not blockers):
 - [ ] D4. Client-attached robots/sitemap checks + history (2–3 days)
 - [ ] D5. Scheduled robots/sitemap monitoring with change-only alerts (3–4 days) — needs A1.
 - [ ] D6. RankMath redirect generator + dry-run + post-deploy verifier (1–1.5 wks) — or explicitly freeze as a doc; decide, don't drift.
-- [~] **D7. Scan-completion email notifications — UNSHELVED 2026-07-08 PM
-  (build starting in a parallel session); design in
-  `../nyi/specs/2026-07-08-scan-email-notifications-design.md` (the build
-  session git-mv's it to active `specs/`).** Transport UNBLOCKED: Kevin staged
-  `MAILGUN_API_KEY` (domain-scoped sending key) + `MAILGUN_DOMAIN` in the
-  server `.env` 2026-07-08 and applied `chmod 600` to `.env` (closing the
-  world-readable gap found the same day). Residual pre-build check: confirm
-  the Mailgun sending domain shows VERIFIED (a 2026-07-08 dig found no Mailgun
-  DNS on the obvious subdomains — the build session's step 0).
-  History: added 2026-07-07 (Slack v1) → reprioritized 2026-07-08 AM (per-user
-  email v1 via Gmail API + domain-wide delegation, Slack dropped) → full design
-  brainstormed + Kevin-approved 2026-07-08 → **SHELVED same day: the Workspace
-  admin rejected the DWD approach and wants SendGrid or Mailjet; no account/API
-  key exists yet.** All product decisions are SETTLED in the parked design doc
-  (site audits only · requester email from the OAuth session, server-stamped ·
-  failures email Kevin not the requester · send after the SEO-analysis pass ·
-  per-scan checkbox on SiteAuditForm + SeoScanForm, never sticky · schedules
-  silent · durable `notify-email` job, dedupKeyed · dark-by-default env gate).
-  The transport is isolated in `lib/notify/` by design, so the provider swap
-  invalidates only that section. **Provider DECIDED 2026-07-08 PM (Kevin):
-  MAILGUN** (initial "Mailjet" slip corrected minutes later); sender stays
-  kevin@enrollmentresources.com (decision 7). Mailgun has NO single-sender
-  verification → a verified sending domain is MANDATORY: recommended
-  `mg.enrollmentresources.com` subdomain (2 TXT records, SPF+DKIM, subdomain
-  only — root SPF untouched; From=kevin@ then passes DMARC via relaxed DKIM
-  alignment; root DMARC dig-verified `p=none`). §Transport rewritten for
-  Mailgun same day. **Unblock = Mailgun account (US region) + verified
-  `mg.` sending domain (2 DNS records) + a domain-scoped sending API key**,
-  then: Codex review (never done) → plan → build (~2 days).
+- [x] **D7. Scan-completion email notifications — SHIPPED 2026-07-08**
+  (merged PR #132, deployed 2026-07-08, migration `20260708120000` applied +
+  health-verified; real-send smoke BLOCKED on a Kevin-authenticated action —
+  see below). Spec + plan Codex-reviewed (first review; both accept-with-fixes,
+  all named fixes applied) in `../archive/specs/2026-07-08-scan-email-notifications-design.md`
+  + `../archive/plans/2026-07-08-scan-email-notifications.md`. Opt-in per
+  site-audit request (checkbox on `SiteAuditForm` + `SeoScanForm`, always
+  unchecked, hidden without a session email); recipient resolved server-side
+  from `getAuthSession().email` (client address ignored) → `SiteAudit.notifyEmail`;
+  send seams = end of `runBrokenLinkVerify` + `onExhausted` (complete) and
+  `failSiteAudit` (failed → `NOTIFY_ADMIN_EMAIL`); durable `notify-email` job
+  (concurrency 1, 3 attempts) idempotent via `notify{Complete,Failed}SentAt`
+  markers (dedupKey is active-window only); schedules + bulk-queue silent.
+  Dark-by-default (`MAILGUN_API_KEY`/`MAILGUN_DOMAIN` gate; not in fail-fast).
+  Transport = plain-`fetch` Mailgun Messages API in `lib/notify/` (no SDK,
+  key-safe logging). **DNS reality vs spec (verified dig 2026-07-08):** the
+  staged domain is `mg.enrollment.email` (SPF ✓ / DKIM `pic` ✓ / MX ✓) — a
+  DIFFERENT org domain than the spec's assumed `mg.enrollmentresources.com`, so
+  `From: kevin@enrollmentresources.com` does NOT DMARC-align (`enrollmentresources.com`
+  is `p=none` → no hard reject; Gmail may tag "via"). Mitigation shipped:
+  `NOTIFY_FROM` env-flippable to an aligned `@enrollment.email` sender post-smoke,
+  no redeploy.
+  History: 2026-07-07 Slack v1 → 2026-07-08 AM per-user email (Gmail API/DWD) →
+  brainstormed/approved → SHELVED (admin rejected DWD) → provider Mailgun →
+  built + shipped same day.
+  *Status log:*
+  - 2026-07-08 — **REAL-SEND SMOKE DONE (Kevin).** Email delivered + rendered.
+    Kevin's own `@enrollmentresources.com` inbox flagged "Be careful with this
+    message" (DMARC non-alignment) → **RESOLVED, env-only, no redeploy:** set
+    `NOTIFY_FROM="Enrollment Resources SEO <seo-tools@enrollment.email>"` +
+    `pm2 restart`. DKIM (`d=mg.enrollment.email`) now relaxed-aligns with the
+    `enrollment.email` From org domain (`p=reject`) → DMARC passes, banner gone.
+    Mailgun Events API confirmed `DELIVERED` (Gmail `2.0.0 OK gsmtp`); a fresh
+    external recipient inboxed first try (Kevin's own inbox was a cousin-domain
+    false-flag). Spam training / Workspace allowlist noted for internal recipients.
+  - 2026-07-08 — **EMAIL ENRICHMENT SHIPPED** (branded, info-rich complete + failed
+    emails). Navy-header/score-card HTML (email-client-safe tables), pages scanned
+    (X of Y), issue counts (broken links & images / on-page / ADA violations),
+    change-vs-last-scan (SEO + ADA deltas, new/resolved), incomplete-scan qualifier.
+    Pure builder `lib/notify/content.ts` + new best-effort loader `lib/notify/enrichment.ts`
+    (counts null=unknown≠0; version-gated deltas via `parseScoreVersion`; deterministic
+    previous-live-scan selection); handler wires it inside a 5s-deadline try/catch —
+    send + `notifyCompleteSentAt` marker stay OUTSIDE (idempotency byte-for-byte
+    unchanged). Spec+plan Codex-reviewed (both accept-with-fixes; 6 plan fixes applied:
+    newCount-only, per-delta baseline dates, enrichment deadline, previous-run-by-id,
+    version-gate tests, test-cleanup orphan fix). Gates green (3777 tests). PR #TBD.
+    Spec/plan: `../archive/specs/2026-07-08-scan-email-enrichment-design.md` +
+    `../archive/plans/2026-07-08-scan-email-enrichment.md`. Prod visual confirmation =
+    Kevin's next real scan.
 
 ## Gated decisions (block specific items; decide, then unblock)
 
@@ -694,6 +714,8 @@ Interleave as needed (not blockers):
 - [~] **Sitemap miss-rate measurement** — quantifies whether hybrid discovery (SF-retirement Phase 2) needs to move earlier. **Measurement MECHANISM SHIPPED 2026-07-04** (hybrid discovery Increment 1, PR #101): every completed live-scan run now stores `CrawlRun.discoveryCoverageJson` with the off-baseline count + miss-rate (headline valid only for `mode:'sitemap'` non-capped audits). The DECISION stays open until the number is collected across real seoIntent audits (inert-until-first-case; seed-url clients are "not applicable"). Then decide: build Increment 2 (the actual capped BFS crawler) or keep SF for discovery. **DATA COLLECTION BEGUN 2026-07-05** (SF-retirement Phase 1): prod inventory shows **0 `discoveryCoverageJson` data points so far** — no site audit has run since Increment 1 deployed 2026-07-04. First data point needs a seoIntent audit of an indexable client site (with a sitemap) triggered after 2026-07-04 (Kevin/analyst action; prod is OAuth-only). Tracking in `2026-07-05-sf-live-parity-log.md`. **DECISION RESOLVED 2026-07-06: BUILD Increment 2.** Data collected (7 clients, miss-rate 7.7%–42.2%, median ~21%, 3/7 ≥37%) → sitemaps routinely omit reachable content → **hybrid-discovery Increment 2 (the crawler) BUILT + MERGED (PR #109) + DEPLOYED 2026-07-06** (see the C6 entry above + the status log). SF stays the discovery fallback; the live crawler now expands seoIntent-audit discovery beyond the sitemap.
 
 ## Status log
+
+- 2026-07-08 (**D7 scan-completion email notifications — SHIPPED**) — Built the shelved-then-unshelved D7 feature end to end in one session. **Spec's FIRST-EVER Codex review** (accept-with-fixes): caught a real design bug — the `dedupKey notify:<id>:<kind>` idempotency claim was FALSE (the `jobs_active_dedup` index is active-window only over `queued`/`running`, so recovery replay after a *completed* notify job would double-send) → replaced with durable `SiteAudit.notify{Complete,Failed}SentAt` sent-markers (read-marker → send → conditional stamp = at-least-once, narrow dup window). 9 more spec fixes + 9 plan fixes (both accept-with-fixes) applied in place. **Architecture:** opt-in checkbox on `SiteAuditForm`+`SeoScanForm` (always unchecked, session-gated via server-derived `notifyAvailable`); recipient stamped server-side from `getAuthSession().email` (client address ignored) threaded through `queueSiteAuditRequest`→`enqueueAudit`; send seams at end of `runBrokenLinkVerify` (awaited-in-try/catch, never fails the builder) + its `onExhausted` (complete) and `failSiteAudit` (failed → admin, after the flip + `cancelJobsByGroup`, notify job carries NO `site-audit:<id>` group); durable `notify-email` handler (concurrency 1, 3 attempts, no-op on dark/deleted/null-recipient/marker-set/no-app-url); Mailgun HTTP transport in `lib/notify/` (plain `fetch`, injectable deps, key never logged). Schedules + bulk-queue stay silent (default-null + tests). Additive migration `20260708120000_scan_email_notifications` (3 nullable columns). **Gates:** tsc ✓ / **3764 tests ✓ (430 files)** / build ✓. 8 TDD commits, PR #132, merged + deployed 2026-07-08; post-deploy verified: health ok, columns applied, `MAILGUN_DOMAIN` loaded, 1 restart, no boot/notify errors. **Step-0 DNS finding:** staged sending domain is `mg.enrollment.email` (SPF/DKIM-`pic`/MX all present) — NOT the spec's assumed `mg.enrollmentresources.com`; `From: kevin@enrollmentresources.com` is DMARC-*unaligned* against it (org `p=none` → no reject, possible Gmail "via" tag). Mitigation: `NOTIFY_FROM` env-flippable to an aligned `@enrollment.email` sender, no redeploy. **Real-send smoke BLOCKED on a Kevin action** (the recipient comes from HIS logged-in session; Claude can't authenticate as Kevin or forge the cookie without the prod `APP_AUTH_SECRET`) — flagged with exact steps, NOT faked. **Next: roadmap menu** — D7 smoke (Kevin) + optional `NOTIFY_FROM` alignment flip; then hybrid-discovery further increments / parity cycles 2–3 / Track A infra (A5 SSE / A6 UI primitives / A7 auth+Playwright) / Track D polish.
 
 - 2026-07-08 (**D7 UNSHELVED — transport staged, build handed to a parallel session**) — Kevin
   obtained the Mailgun domain-scoped sending key, added `MAILGUN_API_KEY` + `MAILGUN_DOMAIN` to
