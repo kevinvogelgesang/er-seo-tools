@@ -23,6 +23,7 @@ export async function GET(
       pdfAudits: {
         select: { url: true, fileSize: true, pageCount: true, issues: true, scanError: true },
       },
+      crawlRuns: { where: { tool: 'seo-parser' }, select: { id: true } },
     },
   })
 
@@ -124,8 +125,14 @@ export async function GET(
     completedAt: audit.completedAt?.toISOString() ?? null,
     queuePosition,
     activeAudit,
+    seoOnly: audit.seoOnly,
+    liveScanRunId: audit.crawlRuns[0]?.id ?? null,
     ...(liveChildren ? { liveChildren } : {}),
-  } satisfies SiteAuditDetail & { queuePosition: number | null; activeAudit: typeof activeAudit })
+  } satisfies SiteAuditDetail & {
+    queuePosition: number | null
+    activeAudit: typeof activeAudit
+    liveScanRunId: string | null
+  })
 }
 
 export async function DELETE(

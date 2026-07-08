@@ -246,6 +246,8 @@ export interface SiteAuditDetail {
   completedAt: string | null
   /** Optional — present only when the audit is in a running state. */
   liveChildren?: LiveAuditChild[]
+  /** C11: render-only SEO scan mode (skips axe/screenshots/PDF/PSI). */
+  seoOnly: boolean
 }
 
 // ── Pagination ─────────────────────────────────────────────────────────────

@@ -127,6 +127,7 @@ export async function GET(request: NextRequest) {
       requestedBy: a.requestedBy ?? null,
       startedAt: a.startedAt?.toISOString() ?? null,
       completedAt: a.completedAt?.toISOString() ?? null,
+      seoOnly: a.seoOnly,
     } satisfies SiteAuditDetail & { score: number | null; wcagLevel: string }
   })
 

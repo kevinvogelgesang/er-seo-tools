@@ -116,3 +116,43 @@ describe('GET /api/site-audit/[id] — archived fallback', () => {
     expect(body.summary.aggregate.critical).toBe(9)
   })
 })
+
+describe('GET /api/site-audit/[id] — C11 seoOnly + liveScanRunId', () => {
+  beforeEach(clearState)
+  afterEach(clearState)
+
+  it('C11: detail returns seoOnly + liveScanRunId (null before, id after)', async () => {
+    const site = await prisma.siteAudit.create({
+      data: {
+        domain: DOMAIN,
+        status: 'complete',
+        wcagLevel: 'wcag21aa',
+        seoOnly: true,
+        pagesTotal: 1,
+        pagesComplete: 1,
+        summary: null,
+        startedAt: new Date('2026-06-12T00:00:00Z'),
+        completedAt: new Date('2026-06-12T00:10:00Z'),
+      },
+    })
+
+    let res = await GET({} as never, makeParams(site.id))
+    let body = await res.json()
+    expect(body.seoOnly).toBe(true)
+    expect(body.liveScanRunId).toBeNull()
+
+    const run = await prisma.crawlRun.create({
+      data: {
+        siteAuditId: site.id,
+        tool: 'seo-parser',
+        source: 'live-scan',
+        domain: DOMAIN,
+        status: 'complete',
+      },
+    })
+
+    res = await GET({} as never, makeParams(site.id))
+    body = await res.json()
+    expect(body.liveScanRunId).toBe(run.id)
+  })
+})
