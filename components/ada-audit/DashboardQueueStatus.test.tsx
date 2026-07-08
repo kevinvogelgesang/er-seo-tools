@@ -20,6 +20,19 @@ describe('DashboardQueueStatus (C11 PR 2a IntentChip)', () => {
     expect(screen.getAllByText('SEO').length).toBe(1)
   })
 
+  it('queued list renders an all-ADA domain without a stray SEO chip', () => {
+    const queueStatus: QueueStatusWithBatch = {
+      active: null,
+      queued: [
+        { id: 'q1', domain: 'ada-only.com', position: 1, clientId: null, seoOnly: false },
+      ],
+      batch: null,
+    }
+    render(<DashboardQueueStatus queueStatus={queueStatus} />)
+    expect(screen.getByText('ada-only.com')).toBeTruthy()
+    expect(screen.queryByText('SEO')).toBeNull()
+  })
+
   it('active card shows the SEO chip for a seoOnly active audit', () => {
     const queueStatus: QueueStatusWithBatch = {
       active: {

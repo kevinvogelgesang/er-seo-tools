@@ -54,6 +54,15 @@ describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
     expect(sessionStorage.getItem('seo-scan-id')).toBe('NEW')
   })
 
+  it('strips ?scan= from the URL after adoption', async () => {
+    window.history.pushState({}, '', '/seo-parser?scan=NEW')
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ status: 'running' }) } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<SeoScanForm />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/site-audit/NEW'))
+    expect(window.location.search).toBe('')
+  })
+
   it('shows a terminal error on status:error and stops polling + clears storage', async () => {
     sessionStorage.setItem('seo-scan-id', 'X')
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ status: 'error' }) } as Response)))

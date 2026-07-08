@@ -30,6 +30,14 @@ export function SeoScanForm() {
         } catch {
           // ignore
         }
+        try {
+          // Strip ?scan= so a later refresh doesn't re-adopt this stale id
+          // and clobber sessionStorage if the operator has since started a
+          // new scan.
+          window.history.replaceState({}, '', '/seo-parser');
+        } catch {
+          // ignore
+        }
       } else {
         id = sessionStorage.getItem(STORAGE_KEY);
       }

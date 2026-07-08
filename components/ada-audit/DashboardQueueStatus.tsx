@@ -204,7 +204,10 @@ function QueueListContent({ queued }: { queued: QueueStatusWithBatch['queued'] }
         {visible.map((q, i) => (
           <Fragment key={q.id}>
             {i > 0 && ', '}
-            <IntentChip seoOnly={q.seoOnly} /> {q.domain}
+            <span className="inline-flex items-center gap-1">
+              <IntentChip seoOnly={q.seoOnly} />
+              {q.domain}
+            </span>
           </Fragment>
         ))}
         {overflow > 0 && ` …and ${overflow} more`}
