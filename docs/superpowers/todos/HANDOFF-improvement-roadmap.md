@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-08 (**GATED DECISION RESOLVED: NO AI API** — Kevin ruled there are no plans to use any AI API (Anthropic or otherwise) at the moment. Tracker Gated-decisions entry checked off with verdict; C12 data-correctness half OFF (zero-AI Tier-0 only); 03 Phase 3 direct memo generation off the roadmap (skill-handoff clipboard flow stays); CLAUDE.md "Do not" rule strengthened. SEMRush ingestion (a data API, not an AI API) stays a separate open question. Earlier same day: **A8 PR 5 — ada-audit visual polish SHIPPED + DEPLOYED + PROD-VERIFIED** (PR #130, main `ccd98b3`). **Next action = unchanged: decide WITH Kevin — another A8 per-tool polish pass (PR 6 — clients / reports / robots-validator / quarter-grid) OR call the A8 per-tool arc done and mark A8 `[x]`.**) · **Updated by:** the gate-decision recording session.
+**Last updated:** 2026-07-08 (**D7 provider decided: MAILGUN** — sender kevin@; Mailgun requires a verified sending domain (recommended `mg.enrollmentresources.com`, 2 TXT records) — no single-sender shortcut; design doc §Transport rewritten; D7 stays shelved pending account + DNS + sending key. Also today: **GATED DECISION RESOLVED: NO AI API** — Kevin ruled there are no plans to use any AI API (Anthropic or otherwise) at the moment. Tracker Gated-decisions entry checked off with verdict; C12 data-correctness half OFF (zero-AI Tier-0 only); 03 Phase 3 direct memo generation off the roadmap (skill-handoff clipboard flow stays); CLAUDE.md "Do not" rule strengthened. SEMRush ingestion (a data API, not an AI API) stays a separate open question. Earlier same day: **A8 PR 5 — ada-audit visual polish SHIPPED + DEPLOYED + PROD-VERIFIED** (PR #130, main `ccd98b3`). **Next action = unchanged: decide WITH Kevin — another A8 per-tool polish pass (PR 6 — clients / reports / robots-validator / quarter-grid) OR call the A8 per-tool arc done and mark A8 `[x]`.**) · **Updated by:** the gate-decision recording session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -91,6 +91,14 @@ PR-5-proven recipe (reuse it):
 ```
 
 ## Current state (2026-07-08)
+
+- **D7 (shelved) — provider decided: MAILGUN (2026-07-08 PM).** Sender = kevin@enrollmentresources.com.
+  Mailgun has NO single-sender verification → unblock needs: Mailgun account (US region) +
+  verified sending domain `mg.enrollmentresources.com` (2 TXT records, SPF+DKIM, subdomain only —
+  root SPF untouched; From=kevin@ passes DMARC via relaxed alignment) + a domain-scoped sending
+  API key (`MAILGUN_API_KEY` + `MAILGUN_DOMAIN`, dark-by-default). Design doc §Transport rewritten
+  (`nyi/specs/2026-07-08-scan-email-notifications-design.md`); then Codex review → plan → build
+  (~2 days). NB: an initial "Mailjet" slip was corrected same session — Mailgun is authoritative.
 
 - **GATED DECISION RESOLVED (2026-07-08): NO AI API.** Kevin ruled there are no plans to use
   any AI API at the moment (Anthropic or otherwise). Recorded in: tracker Gated-decisions

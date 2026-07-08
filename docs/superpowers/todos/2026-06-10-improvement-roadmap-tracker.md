@@ -669,9 +669,16 @@ Interleave as needed (not blockers):
   per-scan checkbox on SiteAuditForm + SeoScanForm, never sticky · schedules
   silent · durable `notify-email` job, dedupKeyed · dark-by-default env gate).
   The transport is isolated in `lib/notify/` by design, so the provider swap
-  invalidates only that section. **Unblock = SendGrid/Mailjet account + API key
-  + domain-auth (SPF/DKIM) decision from the admin**, then: rewrite the design
-  doc's §Transport → Codex review (never done) → plan → build (~2 days).
+  invalidates only that section. **Provider DECIDED 2026-07-08 PM (Kevin):
+  MAILGUN** (initial "Mailjet" slip corrected minutes later); sender stays
+  kevin@enrollmentresources.com (decision 7). Mailgun has NO single-sender
+  verification → a verified sending domain is MANDATORY: recommended
+  `mg.enrollmentresources.com` subdomain (2 TXT records, SPF+DKIM, subdomain
+  only — root SPF untouched; From=kevin@ then passes DMARC via relaxed DKIM
+  alignment; root DMARC dig-verified `p=none`). §Transport rewritten for
+  Mailgun same day. **Unblock = Mailgun account (US region) + verified
+  `mg.` sending domain (2 DNS records) + a domain-scoped sending API key**,
+  then: Codex review (never done) → plan → build (~2 days).
 
 ## Gated decisions (block specific items; decide, then unblock)
 
@@ -681,6 +688,18 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-08 (**D7 provider decided: MAILGUN**) — Kevin picked the email transport for the
+  shelved D7 scan-completion notifications: **Mailgun** (an initial "Mailjet" slip was corrected
+  in-session minutes later — Mailgun is authoritative). Sender stays kevin@enrollmentresources.com
+  (design decision 7). Key consequence researched + recorded: Mailgun has NO single-sender
+  verification, so a verified sending domain is mandatory — recommended `mg.enrollmentresources.com`
+  subdomain (2 TXT records SPF+DKIM on the subdomain only; root SPF, already at 3 includes
+  google/hubspot/mailchimp per dig, stays untouched; From=kevin@ then passes DMARC via relaxed
+  DKIM alignment; root DMARC is `p=none`). Parked design doc's §Transport + Open-items rewritten
+  for Mailgun (`nyi/specs/2026-07-08-scan-email-notifications-design.md`); env shape
+  `MAILGUN_API_KEY` (domain-scoped sending key) + `MAILGUN_DOMAIN`, dark-by-default when unset.
+  D7 stays SHELVED `[ ]` — unblock = account + verified mg. domain + sending key, then Codex
+  review → plan → build (~2 days). Docs-only. **Next: unchanged — the A8 decision.**
 - 2026-07-08 (**GATED DECISION RESOLVED: no AI API**) — Kevin ruled the "Anthropic API
   billing" gated decision **NO: at the moment there are no plans to use any AI API**
   (Anthropic or any other LLM provider). Recorded across the docs of record: gated-decisions

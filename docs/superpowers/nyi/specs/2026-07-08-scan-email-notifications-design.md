@@ -1,11 +1,13 @@
 # D7 — Scan-completion email notifications (design, SHELVED)
 
 **Status:** SHELVED 2026-07-08 — design approved by Kevin, NOT Codex-reviewed,
-NOT built. **Blocker:** transport. The original Gmail-API/domain-wide-delegation
-plan was rejected by the Workspace admin, who wants **SendGrid or Mailjet**
-instead; no account exists yet. Everything below EXCEPT §Transport survives the
-provider swap unchanged. Resume by: getting the SendGrid/Mailjet account +
-API key, updating §Transport, then Codex review → plan → build per the ritual.
+NOT built. **Blocker:** transport account. **Provider DECIDED 2026-07-08 (PM,
+Kevin): MAILGUN** (Kevin initially said Mailjet, corrected to Mailgun minutes
+later — Mailgun is authoritative). The original Gmail-API/domain-wide-delegation
+plan was rejected by the Workspace admin. Everything below EXCEPT §Transport
+survives the provider swap unchanged. Resume by: Mailgun account + a VERIFIED
+SENDING DOMAIN (DNS — mandatory with Mailgun, see §Transport) + a
+domain-scoped sending API key, then Codex review → plan → build per the ritual.
 
 ## Decisions (all Kevin, 2026-07-07/08 — settled, do not re-litigate)
 
@@ -68,19 +70,36 @@ Historical detail if ever revisited: SA `er-seo-reports@seo-apps-485618`,
 client ID `112324513447926498495`, Gmail API already enabled on project
 `seo-apps-485618`; DWD grant was never made.
 
-**SendGrid/Mailjet shape (either):** HTTP API + API-key env var (e.g.
-`SENDGRID_API_KEY` / Mailjet key+secret) — the dark-by-default gate becomes
-"key unset". One-time provider setup: **domain authentication for
-enrollmentresources.com (SPF/DKIM DNS records)** so mail can be sent as
-`kevin@enrollmentresources.com` without spoofing flags — or single-sender
-verification of kevin@ as the minimal start. Prefer the plain HTTP API over an
-SMTP client lib (no new heavy dependency; `safeFetch`-style POST from the job
-handler). Everything else in this doc is transport-agnostic.
+**MAILGUN (decided 2026-07-08 PM, Kevin — corrected from an initial "Mailjet"
+slip):** Messages API `POST https://api.mailgun.net/v3/<MAILGUN_DOMAIN>/messages`
+(Basic auth `api:<key>`, form-encoded) — plain HTTP POST from the job handler,
+no SDK/SMTP lib. Env: `MAILGUN_API_KEY` (a domain-scoped **sending key**, not
+the account-wide private key) + `MAILGUN_DOMAIN`; the dark-by-default gate =
+"either unset". Pick the US endpoint at account creation (EU accounts use
+`api.eu.mailgun.net` — if the admin creates an EU account, the base URL needs
+an env override).
+**Sender identity (decision 7 — From = `kevin@enrollmentresources.com` —
+CONFIRMED, and it works cleanly):** unlike SendGrid/Mailjet, Mailgun has NO
+single-sender verification — production sending REQUIRES a verified sending
+domain (DNS records; Mailgun enforces this itself, independent of DMARC).
+Recommended: subdomain **`mg.enrollmentresources.com`** (Mailgun's default
+recommendation): 2 TXT records (SPF + DKIM) **on the subdomain only** — the
+root SPF (already at 3 includes: google/hubspot/mailchimp, dig-verified
+2026-07-08) is never touched. With the subdomain verified, From =
+kevin@enrollmentresources.com passes DMARC via relaxed DKIM alignment
+(`mg.enrollmentresources.com` shares the org domain). Root DMARC is `p=none`
+(dig-verified) so nothing hard-rejects meanwhile, but the DNS step is
+non-optional with Mailgun anyway.
+**Sandbox caveat:** Mailgun's sandbox domain delivers ONLY to pre-authorized
+recipients (each must accept an invite) — fine for an initial QA smoke to
+Kevin's own inbox, NOT for the real requester-notification feature.
 
 ## Open items on resume
 
-1. Which provider (SendGrid vs Mailjet) + account/API key from the admin.
-2. Domain authentication (DNS) vs single-sender verification — affects whether
-   From can be kevin@ cleanly.
-3. Then: Codex review of this spec (never done), plan, build. Rebase caution:
+1. Mailgun account (US region) + verified sending domain
+   `mg.enrollmentresources.com` (2 TXT records — SPF + DKIM — added by whoever
+   controls DNS; Mailgun generates them at domain setup) + a domain-scoped
+   sending API key. (Provider decision: DONE — Mailgun, 2026-07-08. DNS is
+   MANDATORY with Mailgun, not a deliverability nice-to-have.)
+2. Then: Codex review of this spec (never done), plan, build. Rebase caution:
    the two form files are under active A8/C11 development.
