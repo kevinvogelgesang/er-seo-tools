@@ -91,8 +91,12 @@ ad-hoc `'SEO'`/`'ADA'` strings exist in findings panels — no shared source.
   export const SCAN_INTENT_LABEL: Record<ScanIntent, string>  // { ada: 'Accessibility', seo: 'SEO' }
   ```
 - `components/ada-audit/IntentChip.tsx` — a tiny presentational badge
-  `<IntentChip seoOnly={boolean} />` (dark-mode-safe; orange for SEO, neutral/navy for
-  ADA), consumed by every queue/history row in §4.4.
+  `<IntentChip seoOnly={boolean} />` (dark-mode-safe), consumed by every queue/history
+  row in §4.4. **Renders the orange "SEO" chip only; returns `null` for ADA** (Codex
+  plan-review #10): ADA is the 99% default and a chip on every historical row is visual
+  noise — the chip's job is to flag the *non-default*. The explicit two-way choice lives
+  in the form/schedule **toggles** (§4.2/§4.5), not the row chip. (Kevin can flip this to
+  two-way labeling in PR review; the helper already supports it.)
 
 Rationale: a single source of truth for the label text + row→intent derivation prevents
 drift and is unit-testable. Derive intent from **`seoOnly`** (the execution mode), not

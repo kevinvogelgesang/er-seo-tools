@@ -1,5 +1,7 @@
 # SEO-Scan Intent Toggles + Labeling (C11 PR 2a) Implementation Plan
 
+Status: **reviewed** (Codex plan review "ACCEPT-WITH-NAMED-FIXES" — all 10 fixes applied 2026-07-08).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make scan *intent* (Accessibility vs SEO) a first-class, visible choice on every scan-trigger surface and queue view, wire SEO schedules to render-only `seoOnly` runs, and fix the `SeoScanForm` infinite-"running" bug — all with no schema migration.
@@ -17,6 +19,19 @@
 - **SEO intent default is off** — every toggle defaults to ADA; SEO is opt-in (preserves current behavior).
 - Gate before PR: `npx tsc --noEmit` + `DATABASE_URL="file:./local-dev.db" npm test` + `NODE_OPTIONS='--max-old-space-size=3072' npm run build`.
 - Spec: `docs/superpowers/specs/2026-07-08-seo-scan-toggles-design.md`.
+
+### Test conventions (READ FIRST — Codex plan-review fixes)
+
+This repo does **not** use jest-dom. Every snippet below obeys these house rules:
+- **No `toBeInTheDocument()` / `toHaveAttribute()`.** Use `expect(screen.getByText('X')).toBeTruthy()`, `expect(screen.queryByText('X')).toBeNull()`, and `expect(el.getAttribute('href')).toBe('…')`.
+- Component tests start with a `// @vitest-environment jsdom` header line (line 1 or 2).
+- Mock `next/navigation` with the **`vi.hoisted`** pattern (see `QuickSiteAuditWidget.test.tsx`): `const pushMock = vi.hoisted(() => vi.fn()); vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }))`. For components that also call `useSearchParams` (**`SiteAuditForm`** does — `prefillDomain`), add `useSearchParams: () => new URLSearchParams('')` to the same mock.
+- `afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); pushMock.mockReset() })`.
+- All `import` statements go at the **top** of the file (ESM) — never after an `it(...)`.
+- To set the URL in a jsdom test, use `window.history.pushState({}, '', '/seo-parser?scan=NEW')` — do **not** redefine `window.location`.
+- **DB-backed route/service tests** reuse the target file's existing harness (its `PREFIX`, `jsonReq`/`p(...)` helpers, and `beforeEach`/`afterEach` cleanup) — do not invent bare `prisma.create` calls with fixed names (they collide across runs).
+- When a task adds a payload/response field, **update the existing exact-shape assertions** in that file's older tests (they will otherwise fail on the new `seoOnly:false` / `seoIntent:false` keys).
+- **`WidgetSize`** is `'sm' | 'wide' | 'lg' | 'xl'` — use `size="wide"` (there is no `'md'`).
 
 ---
 
@@ -79,20 +94,25 @@ export const SCAN_INTENT_LABEL: Record<ScanIntent, string> = {
 
 - [ ] **Step 5: Write the failing chip test**
 
+Decision (Codex plan-review #10, Kevin to confirm in PR): in **dense queue/list rows** the chip flags only the **non-default** intent — it renders "SEO" for a seoOnly row and **nothing** for an ADA row (ADA is the 99% case; a chip on every row is visual noise). The explicit two-way choice lives in the form/schedule **toggles** (Tasks 3/4/8), not the row chip.
+
 ```tsx
 // components/ada-audit/IntentChip.test.tsx
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+// @vitest-environment jsdom
+import { describe, it, expect, afterEach } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
 import { IntentChip } from './IntentChip'
+
+afterEach(() => cleanup())
 
 describe('IntentChip', () => {
   it('renders SEO for seoOnly', () => {
     render(<IntentChip seoOnly />)
-    expect(screen.getByText('SEO')).toBeInTheDocument()
+    expect(screen.getByText('SEO')).toBeTruthy()
   })
-  it('renders Accessibility for ada', () => {
-    render(<IntentChip seoOnly={false} />)
-    expect(screen.getByText('Accessibility')).toBeInTheDocument()
+  it('renders nothing for an ADA row (no noise)', () => {
+    const { container } = render(<IntentChip seoOnly={false} />)
+    expect(container.firstChild).toBeNull()
   })
 })
 ```
@@ -101,22 +121,20 @@ describe('IntentChip', () => {
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/ada-audit/IntentChip.test.tsx`
 
-- [ ] **Step 7: Implement the chip**
+- [ ] **Step 7: Implement the chip (SEO-only)**
 
 ```tsx
 // components/ada-audit/IntentChip.tsx
 import { scanIntentOf, SCAN_INTENT_LABEL } from '@/lib/ada-audit/scan-intent'
 
-/** ADA-vs-SEO scan-intent badge. SEO = orange; ADA = muted navy/slate. */
+/** Scan-intent badge for dense rows: renders the SEO label only; ADA (the
+ *  default) renders nothing to avoid labeling every historical row. Explicit
+ *  two-way intent lives in the form/schedule toggles, not here. */
 export function IntentChip({ seoOnly }: { seoOnly?: boolean | null }) {
-  const intent = scanIntentOf({ seoOnly })
-  const cls =
-    intent === 'seo'
-      ? 'bg-orange/10 text-orange dark:bg-orange/15'
-      : 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-white/60'
+  if (scanIntentOf({ seoOnly }) !== 'seo') return null
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
-      {SCAN_INTENT_LABEL[intent]}
+    <span className="rounded bg-orange/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange dark:bg-orange/15">
+      {SCAN_INTENT_LABEL.seo}
     </span>
   )
 }
@@ -145,29 +163,23 @@ git commit -m "feat(c11): shared scan-intent helper + IntentChip"
 
 **Context — current bug:** `poll()` handles only `status === 'complete'`; `error`/`cancelled` fall to the `else` → `phase='running'` forever. Submit-409 currently sets `phase='error'`. There is no `?scan=` pickup.
 
-- [ ] **Step 1: Write the failing tests** (append to `SeoScanForm.test.tsx`)
+- [ ] **Step 1: Write the failing tests** — merge these `import`s into the file's existing top-of-file import block (do not add imports after an `it`). If the file lacks the `// @vitest-environment jsdom` header, add it as line 1. Then add this `describe`:
 
 ```tsx
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { SeoScanForm } from './SeoScanForm'
-
-function stubSearch(search: string) {
-  Object.defineProperty(window, 'location', {
-    value: { ...window.location, search }, writable: true, configurable: true,
-  })
-}
+// top-of-file imports (merge, don't duplicate):
+// import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+// import { render, screen, waitFor, cleanup } from '@testing-library/react'
+// import { SeoScanForm } from './SeoScanForm'
 
 describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
-  beforeEach(() => { sessionStorage.clear(); stubSearch('') })
-  afterEach(() => { vi.restoreAllMocks() })
+  beforeEach(() => { sessionStorage.clear(); window.history.pushState({}, '', '/seo-parser') })
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('adopts ?scan= and polls it, overriding stale sessionStorage', async () => {
     sessionStorage.setItem('seo-scan-id', 'OLD')
-    stubSearch('?scan=NEW')
+    window.history.pushState({}, '', '/seo-parser?scan=NEW')
     const fetchMock = vi.fn(async (url: string) => {
-      // must poll NEW, never OLD
-      expect(url).toBe('/api/site-audit/NEW')
+      expect(url).toBe('/api/site-audit/NEW')   // must poll NEW, never OLD
       return { ok: true, json: async () => ({ status: 'running' }) } as Response
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -178,10 +190,9 @@ describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
 
   it('shows a terminal error on status:error and stops polling + clears storage', async () => {
     sessionStorage.setItem('seo-scan-id', 'X')
-    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ status: 'error' }) } as Response))
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ status: 'error' }) } as Response)))
     render(<SeoScanForm />)
-    await waitFor(() => expect(screen.getByText(/SEO scan failed/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/SEO scan failed/i)).toBeTruthy())
     expect(sessionStorage.getItem('seo-scan-id')).toBeNull()
   })
 
@@ -189,14 +200,14 @@ describe('SeoScanForm terminal + handoff (C11 PR 2a)', () => {
     sessionStorage.setItem('seo-scan-id', 'X')
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ status: 'cancelled' }) } as Response)))
     render(<SeoScanForm />)
-    await waitFor(() => expect(screen.getByText(/SEO scan failed/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/SEO scan failed/i)).toBeTruthy())
   })
 
   it('treats a 404 poll as terminal error', async () => {
     sessionStorage.setItem('seo-scan-id', 'X')
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) } as Response)))
     render(<SeoScanForm />)
-    await waitFor(() => expect(screen.getByText(/SEO scan failed/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/SEO scan failed/i)).toBeTruthy())
   })
 })
 ```
@@ -325,19 +336,21 @@ git commit -m "fix(c11): SeoScanForm terminal error + ?scan= handoff (precedence
 
 ```tsx
 // components/ada-audit/SiteAuditForm.test.tsx
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import SiteAuditForm from './SiteAuditForm'
+// @vitest-environment jsdom
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 
-const push = vi.fn()
+const pushMock = vi.hoisted(() => vi.fn())
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push }),
-  useSearchParams: () => new URLSearchParams(''),
+  useRouter: () => ({ push: pushMock }),
+  useSearchParams: () => new URLSearchParams(''),   // SiteAuditForm uses this (prefillDomain)
 }))
 
-describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
-  beforeEach(() => { push.mockClear() })
+import SiteAuditForm from './SiteAuditForm'
 
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); pushMock.mockReset() })
+
+describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
   it('SEO intent sends seoOnly:true and routes to /seo-parser?scan=', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/clients') return { json: async () => [] } as Response
@@ -346,8 +359,7 @@ describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
         expect(body.seoOnly).toBe(true)
         return { ok: true, status: 202, json: async () => ({ id: 'A1', status: 'queued' }) } as Response
       }
-      // discovery
-      return { ok: true, json: async () => ({ urls: ['https://x.edu/'], domain: 'x.edu' }) } as Response
+      return { ok: true, json: async () => ({ urls: ['https://x.edu/'], domain: 'x.edu' }) } as Response // discovery
     })
     vi.stubGlobal('fetch', fetchMock)
     render(<SiteAuditForm queueStatus={null} />)
@@ -356,7 +368,7 @@ describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Discover|Scan/i }))
     await waitFor(() => screen.getByRole('button', { name: /Audit|Scan .*page/i }))
     fireEvent.click(screen.getByRole('button', { name: /Audit|Scan .*page/i }))
-    await waitFor(() => expect(push).toHaveBeenCalledWith('/seo-parser?scan=A1'))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser?scan=A1'))
   })
 })
 ```
@@ -457,24 +469,27 @@ git commit -m "feat(c11): SiteAuditForm scan-intent toggle + SEO routing to /seo
 
 **Context:** the widget currently routes on `data.seoOnly`, which is absent on 202 → a new SEO scan wrongly hits `/ada-audit/site/:id`. Route by **local** intent.
 
-- [ ] **Step 1: Write the failing test** (append)
+- [ ] **Step 1: Write the failing test** (append inside the existing `describe`; the file already imports `fireEvent`, uses `pushMock` via `vi.hoisted`, and `size="wide"`)
 
 ```tsx
-it('new SEO 202 (no seoOnly in body) routes by local intent to /seo-parser?scan=', async () => {
+it('C11: new SEO 202 (no seoOnly in body) routes by local intent to /seo-parser?scan=', async () => {
   vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
     const body = JSON.parse(String(init!.body))
     expect(body.seoOnly).toBe(true)
-    return { status: 202, json: async () => ({ id: 'Q1', status: 'queued' }) } as Response
+    return { status: 202, ok: true, json: async () => ({ id: 'Q1', status: 'queued' }) } as Response
   }))
-  render(<QuickSiteAuditWidget size="md" />)
+  render(<QuickSiteAuditWidget size="wide" />)
   fireEvent.click(screen.getByRole('button', { name: /SEO/i }))
-  fireEvent.change(screen.getByPlaceholderText('example.com'), { target: { value: 'x.edu' } })
-  fireEvent.click(screen.getByRole('button', { name: /Start audit|Start scan/i }))
-  await waitFor(() => expect(push).toHaveBeenCalledWith('/seo-parser?scan=Q1'))
+  fireEvent.change(screen.getByPlaceholderText(/example\.com/i), { target: { value: 'x.edu' } })
+  fireEvent.click(screen.getByRole('button', { name: /start/i }))
+  await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-parser?scan=Q1'))
 })
 ```
 
-(Reuse the existing `push`/`next/navigation` mock in that test file; add `import { fireEvent } from '@testing-library/react'` if missing.)
+- [ ] **Step 1b: Update the existing seoOnly-409 test** — the current case
+  `'C11: routes a seoOnly 409 duplicate to /seo-parser'` expects `push('/seo-parser')`.
+  After this task the widget appends `?scan=`, so change its expectation to
+  `expect(pushMock).toHaveBeenCalledWith('/seo-parser?scan=dup')`.
 
 - [ ] **Step 2: Run — expect FAIL**
 
@@ -550,42 +565,31 @@ git commit -m "feat(c11): QuickSiteAuditWidget scan-intent toggle + local-intent
 **Interfaces:**
 - Produces: Schedule rows whose payload is `{clientId, domain, wcagLevel, seoIntent, seoOnly}`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests** — **reuse the file's existing harness** (its `PREFIX` for unique client names, its request helper — call it `jsonReq`/`p(...)` per the file — and its `beforeEach`/`afterEach` cleanup). Do not seed bare fixed-name clients. Add two cases (illustrative bodies; adapt to the file's helpers):
 
 ```ts
-// app/api/clients/[id]/schedules/route.test.ts  (add cases; DB-backed)
-import { describe, it, expect } from 'vitest'
-import { POST } from './route'
-import { prisma } from '@/lib/db'
-// (Follow the existing DB-test harness in the repo — seed a client with a domain.)
-
-it('seoOnly:true without seoIntent coerces to seoIntent:true and persists both', async () => {
-  const client = await prisma.client.create({ data: { name: 'T', domains: JSON.stringify(['t.edu']) } })
-  const req = new Request('http://x/api/clients/' + client.id + '/schedules', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ domain: 't.edu', cadence: 'weekly:1@06:00', seoOnly: true }),
-  })
-  const res = await POST(req as never, { params: Promise.resolve({ id: String(client.id) }) })
+// seoOnly without seoIntent coerces to seoIntent:true, persists both
+it('coerces seoOnly⇒seoIntent before uniqueness and persists both', async () => {
+  const client = await seedClient(['t.edu'])                          // via the file's helper
+  const res = await postSchedule(client.id, { domain: 't.edu', cadence: 'weekly:1@06:00', seoOnly: true })
   expect(res.status).toBe(201)
-  const { id } = await res.json()
-  const row = await prisma.schedule.findUnique({ where: { id } })
-  const p = JSON.parse(row!.payload)
-  expect(p.seoOnly).toBe(true)
-  expect(p.seoIntent).toBe(true)
+  const row = await prisma.schedule.findUnique({ where: { id: (await res.json()).id } })
+  const pl = JSON.parse(row!.payload)
+  expect(pl.seoOnly).toBe(true)
+  expect(pl.seoIntent).toBe(true)
 })
 
-it('coexists an ADA and an SEO schedule for the same domain', async () => {
-  const client = await prisma.client.create({ data: { name: 'T2', domains: JSON.stringify(['t2.edu']) } })
-  const mk = (extra: object) => POST(
-    new Request('http://x', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ domain: 't2.edu', cadence: 'weekly:1@06:00', ...extra }) }) as never,
-    { params: Promise.resolve({ id: String(client.id) }) })
+// an ADA and an SEO schedule coexist for the same domain; a same-intent dup 409s
+it('coexists ADA + SEO schedules for one domain', async () => {
+  const client = await seedClient(['t2.edu'])
+  const mk = (extra: object) => postSchedule(client.id, { domain: 't2.edu', cadence: 'weekly:1@06:00', ...extra })
   expect((await mk({})).status).toBe(201)                 // ADA
-  expect((await mk({ seoOnly: true })).status).toBe(201)  // SEO — different seoIntent, not a dup
+  expect((await mk({ seoOnly: true })).status).toBe(201)  // SEO — different seoIntent
   expect((await mk({})).status).toBe(409)                 // duplicate ADA
 })
 ```
+
+- [ ] **Step 1b: Update older exact-payload assertions** — any existing test asserting the created payload equals exactly `{clientId, domain, wcagLevel, seoIntent}` must be updated to include `seoOnly:false` (and the ADA default `seoIntent:false`), or switched to `expect.objectContaining`.
 
 - [ ] **Step 2: Run — expect FAIL**
 
@@ -640,6 +644,8 @@ it('forwards seoOnly:true from the payload to queueSiteAuditRequest', async () =
 ```
 
 (Write the concrete arrange/act using the file's existing test harness — it already mocks `queueSiteAuditRequest`; add a `seoOnly:true` payload variant and assert `expect(queueSiteAuditRequest).toHaveBeenCalledWith(expect.objectContaining({ seoOnly: true }))`, and a control asserting absent payload → `seoOnly: false`.)
+
+- [ ] **Step 1b: Update the existing full-call assertion** — the file's current "enqueues via queueSiteAuditRequest" case asserts the **entire** call object. Adding `seoOnly` forwarding means that object now includes `seoOnly: false`; update that assertion (add the key, or relax to `expect.objectContaining`).
 
 - [ ] **Step 2: Run — expect FAIL**
 
@@ -703,11 +709,12 @@ In the `siteAudit.findMany` select, broaden `crawlRuns` to include the live-scan
       },
 ```
 
-Parse `seoOnly` in the payload try-block (`if (p?.seoOnly === true) seoOnly = true`, with `let seoOnly = false` initialised). Then compute the last-run score/diff **by intent**:
+Parse `seoOnly` in the payload try-block (`if (p?.seoOnly === true) seoOnly = true`, with `let seoOnly = false` initialised). Then compute the last-run score/diff **by intent**. **Type the finders** off the query result to satisfy `noImplicitAny` (do not use bare `(a) =>`):
 
 ```ts
-    const adaRun = (a) => a?.crawlRuns.find((r) => r.tool === 'ada-audit') ?? null
-    const liveRun = (a) => a?.crawlRuns.find((r) => r.tool === 'seo-parser') ?? null
+    type AuditRow = typeof audits[number]
+    const adaRun = (a: AuditRow | null) => a?.crawlRuns.find((r) => r.tool === 'ada-audit') ?? null
+    const liveRun = (a: AuditRow | null) => a?.crawlRuns.find((r) => r.tool === 'seo-parser') ?? null
 
     const mine = audits.filter((a) => a.scheduleId === s.id)
     const last = mine[0] ?? null
@@ -728,7 +735,14 @@ Parse `seoOnly` in the payload try-block (`if (p?.seoOnly === true) seoOnly = tr
     }
 ```
 
-Keep the existing ADA path below this branch **unchanged**, but (a) swap its `last?.crawlRuns[0]` reads to `adaRun(last)` / `adaRun(prevAudit)` so the added live-scan run in the array can't be mistaken for the ADA run, and (b) add `seoOnly: false, liveRunId: null,` to its returned object.
+Keep the existing ADA path below this branch, but **exhaustively** swap every index-`0` crawlRuns read to the typed finder so the newly-included live-scan run can never be mistaken for the ADA run (Codex plan-review #7). The complete list of reads to change from `X.crawlRuns[0]` → `adaRun(X)`:
+- `lastScore` = `adaRun(last)?.score ?? null`
+- the `prevAudit` predicate = `a.status === 'complete' && typeof adaRun(a)?.score === 'number'`
+- `prevScore` = `adaRun(prevAudit)?.score ?? null`
+- the `getRunPairInstanceDiff(adaRun(last)!.id, adaRun(prevAudit)!.id)` args (and the `last.crawlRuns[0] && prevAudit.crawlRuns[0]` guard → `adaRun(last) && adaRun(prevAudit)`)
+- both `parseScoreVersion(adaRun(last)?.scoreBreakdown)` / `parseScoreVersion(adaRun(prevAudit)?.scoreBreakdown)`
+
+Then add `seoOnly: false, liveRunId: null,` to the ADA path's returned object. (Adding a second run to the `crawlRuns` array is safe **only** because none of these still use index `0`.)
 
 - [ ] **Step 4: Add the two fields to `ClientScheduleRow`**
 
@@ -758,11 +772,11 @@ git commit -m "feat(c11): getClientSchedules SEO last-run (live-scan score/link,
 **Interfaces:**
 - Consumes: `IntentChip` (Task 1); `ClientScheduleRow.seoOnly`/`liveRunId` (Task 7); `POST /api/clients/[id]/schedules` (Task 5).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests** (this file has a `// @vitest-environment jsdom` header and helpers already; add `waitFor`/`cleanup` to its imports if missing)
 
 ```tsx
 it('creating an SEO schedule posts seoOnly:true + seoIntent:true', async () => {
-  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     if (init?.method === 'POST') {
       const b = JSON.parse(String(init.body))
       expect(b.seoOnly).toBe(true); expect(b.seoIntent).toBe(true)
@@ -778,17 +792,19 @@ it('creating an SEO schedule posts seoOnly:true + seoIntent:true', async () => {
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/clients/1/schedules', expect.objectContaining({ method: 'POST' })))
 })
 
-it('an SEO schedule row shows the SEO chip and links last run to /seo-parser', () => {
+it('an SEO schedule row shows the SEO chip and links last run to the live run', () => {
   render(<ScheduledScansCard clientId={1} domains={['t.edu']} archived={false} initial={[{
     id: 's1', domain: 't.edu', wcagLevel: 'wcag21aa', cadence: 'weekly:1@06:00', enabled: true,
     nextRunAt: new Date().toISOString(), seoIntent: true, seoOnly: true, liveRunId: 'R1',
     lastRun: { id: 'A1', status: 'complete', completedAt: null, score: 80, newCount: null, resolvedCount: null },
     lastDelta: null,
   }]} />)
-  expect(screen.getByText('SEO')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /complete/i })).toHaveAttribute('href', '/seo-parser/results/run/R1')
+  expect(screen.getByText('SEO')).toBeTruthy()
+  expect(screen.getByRole('link', { name: /complete/i }).getAttribute('href')).toBe('/seo-parser/results/run/R1')
 })
 ```
+
+- [ ] **Step 1b: Update the file's shared fixtures/assertions** — the existing shared `row`/`initial` `ClientScheduleRow` constant(s) must gain `seoOnly: false` and `liveRunId: null` (new required fields from Task 7) or `tsc` fails. Any existing create-flow test asserting the POST body equals exactly `{domain, cadence, wcagLevel}` must be updated to include `seoIntent:false, seoOnly:false` (or use `expect.objectContaining`).
 
 - [ ] **Step 2: Run — expect FAIL**
 
@@ -867,16 +883,22 @@ git commit -m "feat(c11): ScheduledScansCard intent select + SEO chip + SEO last
 **Interfaces:**
 - Consumes: `IntentChip` (Task 1). All rows already carry `seoOnly` (`AuditBatchMember`, `QueueStatusWithBatch.active`/`.queued[]`).
 
-- [ ] **Step 1: Write a failing render test** (one per component; example for QueueMemberRow)
+- [ ] **Step 1: Write failing render tests on currently-unlabeled surfaces.** `QueueMemberRow` already shows an inline "SEO" today (PR 1), so asserting "SEO" there is **not** red — instead assert the **currently-unlabeled** surfaces (`DashboardQueueStatus` queued list, `SiteAuditForm` queued banner, `LiveNowWidget`), plus a consistency check that ADA rows show no chip. Example (matchers per house rules, `// @vitest-environment jsdom`):
 
 ```tsx
-it('QueueMemberRow shows the SEO chip for a seoOnly member', () => {
-  render(<table><tbody><QueueMemberRow member={{ id: 'a', domain: 'x.edu', seoOnly: true, status: 'queued', pagesComplete: 0, pagesTotal: 0, pagesError: 0, clientName: null, startedAt: null, completedAt: null } as never} /></tbody></table>)
-  expect(screen.getByText('SEO')).toBeInTheDocument()
+it('DashboardQueueStatus queued list shows the SEO chip for a seoOnly item', () => {
+  // render DashboardQueueStatus with a queueStatus whose queued[] has a seoOnly:true item
+  // (build the minimal QueueStatusWithBatch the component consumes)
+  render(/* <DashboardQueueStatus …/> with one seoOnly queued item + one ADA queued item */)
+  expect(screen.getByText('SEO')).toBeTruthy()          // seoOnly item labeled
+  // ADA item shows NO chip (SEO-only chip); assert exactly one 'SEO' in the queued list
+  expect(screen.getAllByText('SEO').length).toBe(1)
 })
 ```
 
-- [ ] **Step 2: Run — expect FAIL** (chip not present / inconsistent)
+  For `QueueMemberRow`, assert the **shared** chip replaced the inline badge by checking an ADA member renders no "SEO" text (`expect(screen.queryByText('SEO')).toBeNull()`) and a seoOnly member renders exactly one — this locks the SEO-only behavior in.
+
+- [ ] **Step 2: Run — expect FAIL** (unlabeled surfaces have no chip yet)
 
 - [ ] **Step 3: `QueueMemberRow`** — replace the inline PR-1 `member.seoOnly && <span…>SEO</span>` marker with `<IntentChip seoOnly={member.seoOnly} />` (import it). Keep the `member.seoOnly ? '/seo-parser' : …` link target.
 
