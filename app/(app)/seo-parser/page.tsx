@@ -7,6 +7,7 @@ import { FileDropzone } from '@/components/seo-parser/FileDropzone';
 import { UploadChecklist } from '@/components/seo-parser/UploadChecklist';
 import { Spinner } from '@/components/Spinner';
 import { HistoryList } from '@/components/seo-parser/HistoryList';
+import { SeoScanForm } from '@/components/seo-parser/SeoScanForm';
 import { missingCoreExports } from '@/lib/parsers/expected-exports';
 
 export default function SEOParserPage() {
@@ -116,6 +117,9 @@ export default function SEOParserPage() {
             actionable recommendations.
           </p>
         </div>
+
+        {/* URL scan card */}
+        <SeoScanForm />
 
         {/* Upload card */}
         <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6 mb-6">
