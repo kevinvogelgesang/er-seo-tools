@@ -42,3 +42,27 @@ describe('AuditScorecard — archivedCounts render contract', () => {
     expect(container.textContent).not.toContain('need review')
   })
 })
+
+describe('AuditScorecard — ScoreRing + compliance pill (PR5)', () => {
+  it('renders a ScoreRing and a compliant StatusPill when score + compliant are provided', () => {
+    const { container } = render(
+      <AuditScorecard scorecard={scorecard} score={87} compliant={true} wcagLevel="wcag21aa" />,
+    )
+    const ring = container.querySelector('svg[role="img"]')
+    expect(ring).toBeTruthy()
+    expect(ring?.getAttribute('aria-label')).toContain('score 87')
+    expect(container.textContent).toContain('Compliant')
+  })
+
+  it('renders a non-compliant label when compliant is false', () => {
+    const { container } = render(
+      <AuditScorecard scorecard={scorecard} score={30} compliant={false} wcagLevel="wcag21aa" />,
+    )
+    expect(container.textContent).toContain('Non-compliant')
+  })
+
+  it('renders no score ring when score is omitted (the score != null guard is unchanged)', () => {
+    const { container } = render(<AuditScorecard scorecard={scorecard} />)
+    expect(container.querySelector('svg[role="img"]')).toBeNull()
+  })
+})

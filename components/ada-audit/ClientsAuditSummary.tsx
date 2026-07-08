@@ -8,6 +8,9 @@ import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
 import type { ClientAuditSummary, QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import BulkQueueModal from './BulkQueueModal'
 import { ClientDate } from '@/components/ClientDate'
+import { StatusPill } from '@/components/ui/StatusPill'
+import { ScoreRing } from '@/components/ui/ScoreRing'
+import { auditStatusTone } from './status-tone'
 
 type SortKey = 'name-asc' | 'name-desc' | 'date-asc' | 'date-desc' | 'score-asc' | 'score-desc'
 const DEFAULT_SORT: SortKey = 'date-desc'
@@ -30,25 +33,16 @@ function parseSort(value: string | null): SortKey {
 }
 
 function ScoreBadge({ score }: { score: number | null }) {
-  if (score == null) return <span className="text-navy/25 dark:text-white/25">—</span>
-  const color = score >= 80
-    ? 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400'
-    : score >= 50
-      ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400'
-      : 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400'
-  return <span className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded ${color}`}>{score}</span>
+  // ScoreRing handles null (dashed em-dash ring); bands (≥80/≥50) already match.
+  return <ScoreRing score={score} size={32} />
 }
 
 function ChipForStatus({ status }: { status: string | undefined }) {
   if (!status) return null
   const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : status === 'pdfs-running' ? 'Scanning PDFs' : status === 'lighthouse-running' ? 'Running Lighthouse' : status
-  const color =
-    status === 'queued'
-      ? 'bg-gray-100 dark:bg-gray-500/15 text-gray-700 dark:text-gray-300'
-      : 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400'
   return (
-    <span className={`text-[11px] font-body font-semibold px-2 py-0.5 rounded ml-2 ${color}`}>
-      {label}
+    <span className="ml-2">
+      <StatusPill label={label} tone={auditStatusTone(status)} />
     </span>
   )
 }

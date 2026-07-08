@@ -1,6 +1,8 @@
 import type { AuditScorecard, ArchivedCounts } from '@/lib/ada-audit/types'
 import type { ImpactFilter } from './useSiteAuditPages'
 import { ScoreVersionBadge } from './ScoreVersionBadge'
+import { ScoreRing } from '@/components/ui/ScoreRing'
+import { StatusPill } from '@/components/ui/StatusPill'
 
 type ImpactKey = 'critical' | 'serious' | 'moderate' | 'minor'
 
@@ -35,12 +37,6 @@ interface StatBox {
   border: string
 }
 
-function scoreColor(score: number): string {
-  if (score >= 80) return 'text-green-600 dark:text-green-400'
-  if (score >= 50) return 'text-amber-500 dark:text-amber-400'
-  return 'text-red-600 dark:text-red-400'
-}
-
 export default function AuditScorecard({ scorecard, score, compliant, wcagLevel, archivedCounts, onImpactClick, activeImpact, scoreMeta }: Props) {
   const boxes: StatBox[] = [
     { label: 'Critical',  count: scorecard.critical,  impact: 'critical', bg: 'bg-red-50 dark:bg-red-500/10',      text: 'text-red-700 dark:text-red-400',      border: 'border-red-200 dark:border-red-500/30' },
@@ -53,9 +49,7 @@ export default function AuditScorecard({ scorecard, score, compliant, wcagLevel,
     <div className="space-y-3">
       {score != null && (
         <div className="flex items-center gap-3 mb-1">
-          <span className={`text-5xl font-display font-bold leading-none ${scoreColor(score)}`}>
-            {score}
-          </span>
+          <ScoreRing score={score} size={72} />
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-body font-semibold text-navy/40 dark:text-white/40 uppercase tracking-wider">Score</span>
             {scoreMeta && (
@@ -67,14 +61,10 @@ export default function AuditScorecard({ scorecard, score, compliant, wcagLevel,
               />
             )}
             {compliant != null && (
-              <span className={`inline-flex items-center gap-1 text-[11px] font-body font-semibold px-2 py-0.5 rounded border ${
-                compliant
-                  ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30'
-                  : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30'
-              }`}>
-                {wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'}
-                {compliant ? ': Compliant ✓' : ': Non-compliant ✗'}
-              </span>
+              <StatusPill
+                tone={compliant ? 'success' : 'error'}
+                label={`${wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'}${compliant ? ': Compliant ✓' : ': Non-compliant ✗'}`}
+              />
             )}
           </div>
         </div>
