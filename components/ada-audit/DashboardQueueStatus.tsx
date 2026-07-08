@@ -124,8 +124,10 @@ export default function DashboardQueueStatus({ queueStatus }: Props) {
       {active ? (
         <CardShell>
           <CardHeader
-            href={`/ada-audit/site/${active.id}`}
-            title="Current Scan"
+            // C11: seoOnly audits carry no ADA data — route to /seo-parser
+            // (the ADA site page redirects it away).
+            href={active.seoOnly ? '/seo-parser' : `/ada-audit/site/${active.id}`}
+            title={active.seoOnly ? 'Current Scan · SEO' : 'Current Scan'}
           />
           <CardBody>
             <CurrentScanContent active={active} />

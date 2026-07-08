@@ -59,6 +59,7 @@ export async function GET(
       startedAt: m.startedAt?.toISOString() ?? null,
       completedAt: m.completedAt?.toISOString() ?? null,
       requestedBy: m.requestedBy ?? null,
+      seoOnly: m.seoOnly,
     }
   })
 

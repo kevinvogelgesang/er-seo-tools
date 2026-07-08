@@ -159,7 +159,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
       pagesTotal: true, pagesComplete: true, pagesError: true,
       pdfsTotal: true, pdfsComplete: true, pdfsError: true, pdfsSkipped: true,
       lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
-      clientId: true,
+      clientId: true, seoOnly: true,
     },
     orderBy: { createdAt: 'asc' },
   })
@@ -167,7 +167,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
   const queuedRows = await prisma.siteAudit.findMany({
     where: { status: 'queued' },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, domain: true, clientId: true },
+    select: { id: true, domain: true, clientId: true, seoOnly: true },
   })
 
   const openBatch = await prisma.auditBatch.findFirst({
@@ -192,6 +192,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
           lighthouseComplete: active.lighthouseComplete,
           lighthouseError: active.lighthouseError,
           clientId: active.clientId ?? null,
+          seoOnly: active.seoOnly,
         }
       : null,
     queued: queuedRows.map((q, i) => ({
@@ -199,6 +200,7 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
       domain: q.domain,
       position: i + 1,
       clientId: q.clientId ?? null,
+      seoOnly: q.seoOnly,
     })),
     batch: openBatch
       ? {
