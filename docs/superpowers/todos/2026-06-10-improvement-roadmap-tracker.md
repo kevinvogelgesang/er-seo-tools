@@ -191,10 +191,39 @@ Interleave as needed (not blockers):
   results page **ScoreRing 80×80, aria-label "score 90", dial "90"**, breakdown
   table intact, root reconciled; 0 console errors, 0 hydration warnings (the 2
   warnings are pre-existing CSP-beacon + Recharts container-measure). Spec +
-  plan → `../archive/`. **Next: A8 PR 5 — ada-audit polish** (same visual-only
-  contract). A8 stays `[~]` — PR 4+ is open-ended per-tool; umbrella spec
-  stays in `../specs/`.
-  **Next: PR 5+** per-tool polish passes (spec §8 PR 4+).
+  plan → `../archive/`.
+  **PR 5 (ada-audit) SHIPPED 2026-07-08 (PR #130, main `ccd98b3`) + DEPLOYED +
+  PROD-VERIFIED (server-side + CSS-bundle; authed visual eyeball flagged for
+  Kevin)** — second per-tool polish pass. VISUAL-ONLY, pure primitive adoption
+  (ada-audit was already shell-clean + token-based, so NO wrapper/hex work,
+  unlike PR 4). `ScoreRing` adopted on `AuditScorecard` (flat `text-5xl` number →
+  dial, size 72) + `ClientsAuditSummary` score badge (compact, size 32).
+  `StatusPill` adopted on every hand-rolled lifecycle/severity/compliance pill
+  (`AuditScorecard` compliant badge, `ScoreVersionBadge`, `SiteAuditDiffPanel`
+  severity + count chips, `QueueMemberRow`, `LiveAuditTable` — its local dupe
+  StatusPill deleted, `ClientsAuditSummary` ChipForStatus) via a new
+  color-preserving `auditStatusTone()` helper (`lib`-free, in
+  `components/ada-audit/status-tone.ts`: running→amber `warning`, redirected→blue
+  `running`; `pending`/`cancelled`→`neutral` — `pending` canonicalized to the gray
+  it already had in Queue/Live). `StatusPill` gained a **type-only `export`** of
+  its `Tone` union (no runtime change). **Excluded (spec §2):** impact-severity
+  tiles/filter chips/badges (interactive toggles + 4-level palette StatusPill
+  doesn't model → future `SeverityBadge`), `LighthouseSection` (bands ≥90 ≠
+  ScoreRing ≥80), plain-text/dense-numeric columns. Spec + plan Codex-reviewed
+  (accept-with-fixes: ×4 spec, ×3 plan, applied). Gates: tsc · **3732 tests /
+  427 files** (new `status-tone.test.ts` + `AuditScorecard` ScoreRing/compliance
+  cases; all existing ada-audit tests stay green) · build. **Prod verify:**
+  `/api/health` ok (fresh restart), `/`+`/ada-audit`→`/login` gate intact, Tailwind
+  applied on login (no global purge), and **all ScoreRing/StatusPill tone classes
+  (`text-amber-300`/`text-blue-300`/`bg-amber-100`/`bg-blue-100`/`fill-navy`/
+  `stroke-gray-200`/…) confirmed present in the shipped prod CSS bundle** → PR2
+  purge-collapse mode ruled out (primitives already shipped via dashboard widgets;
+  this PR adds no new class literals). Authed *visual* spot-check (ScoreRing in the
+  scorecard, StatusPills in queue/clients/diff) is the one residual manual check —
+  MCP Playwright isn't authed (Google-OAuth-only). Spec + plan → `../archive/`.
+  A8 stays `[~]` — PR 4+ is open-ended per-tool; umbrella spec stays in `../specs/`.
+  **Next: PR 6+** per-tool polish passes (spec §8 PR 4+), OR Kevin calls the A8
+  per-tool arc done → mark A8 `[x]`.
 
 ## Track B — Client command center (unlocks after nothing; richer after A2) → `04-clients-and-quarter-grid.md`
 
@@ -651,6 +680,27 @@ Interleave as needed (not blockers):
 
 ## Status log
 
+- 2026-07-08 (**A8 PR 5 — ada-audit visual polish SHIPPED + DEPLOYED + PROD-VERIFIED**) —
+  Second per-tool polish pass (Kevin picked seo-parser + ada-audit back-to-back). Brainstorm →
+  spec → plan → build, all in-session; spec + plan Codex-reviewed (accept-with-fixes ×4 / ×3,
+  applied). VISUAL-ONLY, pure primitive adoption — ada-audit page roots were already shell-clean
+  and token-based, so unlike PR 4 there was NO wrapper reconciliation and NO hex→token swap.
+  Scope (Kevin chose the broad "full status-pill unification" option): `ScoreRing` on
+  `AuditScorecard` headline (flat `text-5xl` → dial 72) + `ClientsAuditSummary` score badge
+  (compact 32); `StatusPill` on every hand-rolled lifecycle/severity/compliance pill
+  (`AuditScorecard` compliant, `ScoreVersionBadge`, `SiteAuditDiffPanel` severity + count chips,
+  `QueueMemberRow`, `LiveAuditTable` [local dupe deleted], `ClientsAuditSummary` ChipForStatus)
+  via a new color-preserving `auditStatusTone()` helper; `StatusPill` gained a type-only `Tone`
+  export. **Excluded (documented, Codex-endorsed):** impact-severity tiles/chips/badges
+  (interactive toggles + 4-level palette → behavior change; future `SeverityBadge`),
+  `LighthouseSection` (bands ≥90 ≠ ScoreRing ≥80), plain-text/dense columns. 8-task TDD plan,
+  commit-per-task. Gates: tsc · **3732 tests / 427 files** · build. Deploy = `~/deploy.sh`
+  (no pending migrations). **Prod verify:** `/api/health` ok, auth gate intact, no global purge,
+  and ALL ScoreRing/StatusPill tone classes confirmed present in the shipped prod CSS bundle
+  (PR2 purge-collapse ruled out; primitives already shipped via dashboard widgets, no new class
+  literals). MCP Playwright isn't authed (Google-OAuth-only) → authed *visual* eyeball of the
+  scorecard ring + queue/clients/diff pills is the one residual check, flagged for Kevin. Spec +
+  plan → `archive/`. **A8 stays `[~]`** (PR 4+ open-ended per-tool). PR #130, main `ccd98b3`.
 - 2026-07-08 (**C11 PR 2b — SEO-phase visibility + fine-grained progress SHIPPED + DEPLOYED + PROD-VERIFIED**) —
   The two items PR 2a deferred (the post-terminal `broken-link-verify` "SEO analysis" phase was
   INVISIBLE — audit read `complete` while the verifier ran, and the SEO sections rendered a flat
