@@ -238,6 +238,21 @@ Rationale:
   the intended, deliberate (minor) visual change of the pass.
 - `StatusPill` is left untouched, so the Home widgets are unaffected.
 
+**Two deliberate, documented shifts (Codex plan-review fix):** the single global
+helper cannot preserve every status's color where the current surfaces already
+*disagree*, so two statuses are canonicalized to `neutral`:
+- **`pending` → `neutral` (gray).** It is *already* gray in the two authoritative
+  operational tables (`QueueMemberRow`'s `STATUS_COLOR`, `LiveAuditTable`); only
+  `ClientsAuditSummary` rendered it amber, via a coarse "everything-but-`queued`
+  is amber" shortcut (`ChipForStatus`). Mapping `pending`→`neutral`
+  **canonicalizes** it to the queue's existing gray and removes that
+  inconsistency — a net consistency gain, not a regression.
+- **`cancelled` → `neutral` (gray).** Currently slate in `QueueMemberRow`; slate
+  and gray are near-identical, so this is a negligible shift (accepted rather than
+  re-fragmenting the unified pill with a slate special-case). If Kevin wants the
+  slate preserved exactly, keep `cancelled` hand-rolled in `QueueMemberRow` — a
+  one-line exception — but the default is `neutral`.
+
 **Alternative Kevin may prefer (flag for spec review):** *semantic/deck-standard*
 mapping — running→`running` (blue), to match how the Home widgets already color a
 running item. This would flip running-audit pills from amber to blue across the
