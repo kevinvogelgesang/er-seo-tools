@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 15 App Router route handlers, Vitest (DB-backed for `route.test.ts`, mock-based for `bulk-queue/route.test.ts`), `lib/auth.ts` helpers.
 
-**Spec:** `../specs/2026-07-08-audit-consolidation-batch-design.md` (PR0 section — Codex-reviewed ×12; fix #1 shapes the test matrix below).
+**Spec:** `../specs/2026-07-08-audit-consolidation-batch-design.md` (PR0 section — Codex-reviewed ×12; fix #1 shapes the test matrix below). **Plan Codex-reviewed:** accept-with-named-fixes ×4, applied in place (tagged "(Codex plan #N)").
 
 ## Resolved decisions
 
@@ -29,7 +29,10 @@
 
 - Modify: `app/api/site-audit/route.ts` (import swap + `requestedBy` derivation, lines 6 + 34)
 - Modify: `app/api/site-audit/bulk-queue/route.ts` (import swap + `requestedBy` derivation, lines 12 + 17)
-- Modify (tests): `app/api/site-audit/route.test.ts` (new describe block, DB-backed)
+- Create (tests): `app/api/site-audit/route.requested-by.test.ts` (mock-based — NOT DB-backed;
+  Codex plan #1: real `queueSiteAuditRequest` calls create `AuditBatch` rows and fire-and-forget
+  `processNext()` that can promote unrelated queued audits and leave durable `Job` rows the
+  cleanup can't deterministically await)
 - Modify (tests): `app/api/site-audit/bulk-queue/route.test.ts` (new tests, mock-based)
 
 ---
@@ -49,75 +52,114 @@ git checkout main && git pull && git checkout -b fix/c15-mine-filter-sso
 
 **Files:**
 - Modify: `app/api/site-audit/route.ts:6,34`
-- Test: `app/api/site-audit/route.test.ts` (append a describe block)
+- Create: `app/api/site-audit/route.requested-by.test.ts` (mock-based; Codex plan #1 — do NOT
+  append DB-backed tests that call the real queue)
 
 **Interfaces:**
 - Consumes: `getOperatorLabel(authCookieValue, operatorCookieValue): Promise<string | null>` from `@/lib/auth` (existing).
-- Produces: `SiteAudit.requestedBy` = session name → session email → sanitized legacy cookie → null. Task 2 mirrors the same derivation.
+- Produces: the route passes `requestedBy` = session name → session email → sanitized legacy cookie → null into `queueSiteAuditRequest`. Task 2 mirrors the same derivation.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `app/api/site-audit/route.test.ts` (alongside the existing D7 describe block; reuse its conventions — the file already imports `createAuthCookieValue`, `AUTH_COOKIE_NAME`, `prisma`, `POST`, `NextRequest`). Add `OPERATOR_NAME_COOKIE_NAME` to the existing `@/lib/auth` import line.
+Create `app/api/site-audit/route.requested-by.test.ts`. Mock `@/lib/db` and
+`@/lib/ada-audit/queue-request` BEFORE importing the route (the bulk-queue test file's pattern);
+`@/lib/auth` stays REAL. Set `APP_AUTH_SECRET` explicitly so signing is hermetic (Codex plan #3).
+This test verifies route DERIVATION only — persistence/pass-through is the queue layers' covered
+job (Codex plan #1).
 
 ```ts
+// app/api/site-audit/route.requested-by.test.ts
+//
+// C15: POST /api/site-audit derives requestedBy via the SSO-aware
+// getOperatorLabel (verified session first, legacy cookie fallback) instead of
+// the legacy er-operator-name cookie alone. Mock-based: queueSiteAuditRequest
+// is mocked (real calls create AuditBatch rows + fire-and-forget processNext);
+// lib/auth runs real against an explicit test secret.
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest'
+import { NextRequest } from 'next/server'
+
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    client: { findFirst: vi.fn() },
+    siteAudit: { findUnique: vi.fn() },
+  },
+}))
+vi.mock('@/lib/ada-audit/queue-request', () => ({
+  queueSiteAuditRequest: vi.fn(),
+}))
+
+const { queueSiteAuditRequest } = await import('@/lib/ada-audit/queue-request')
+const { createAuthCookieValue, AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME } = await import('@/lib/auth')
+const { POST } = await import('./route')
+
+const ORIG_SECRET = process.env.APP_AUTH_SECRET
+beforeAll(() => { process.env.APP_AUTH_SECRET = 'test-auth-secret' })
+afterAll(() => {
+  if (ORIG_SECRET === undefined) delete process.env.APP_AUTH_SECRET
+  else process.env.APP_AUTH_SECRET = ORIG_SECRET
+})
+
+beforeEach(() => {
+  vi.mocked(queueSiteAuditRequest).mockReset()
+  vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
+})
+
+function req(opts: { session?: string; operator?: string }) {
+  const headers = new Headers({ 'content-type': 'application/json' })
+  const cookies: string[] = []
+  if (opts.session) cookies.push(`${AUTH_COOKIE_NAME}=${opts.session}`)
+  if (opts.operator) cookies.push(`${OPERATOR_NAME_COOKIE_NAME}=${opts.operator}`)
+  if (cookies.length) headers.set('cookie', cookies.join('; '))
+  return new NextRequest('http://localhost/api/site-audit', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ domain: 'c15rb.example' }),
+  })
+}
+
 describe('POST /api/site-audit — requestedBy attribution (C15)', () => {
-  const RB_PREFIX = 'c15rb-'
-
-  async function clearRb() {
-    await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: RB_PREFIX } } })
-    await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: RB_PREFIX } } })
-  }
-  beforeAll(clearRb)
-  afterAll(clearRb)
-
-  async function postWithCookies(domain: string, opts: { session?: string; operator?: string }): Promise<Response> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const cookies: string[] = []
-    if (opts.session) cookies.push(`${AUTH_COOKIE_NAME}=${opts.session}`)
-    if (opts.operator) cookies.push(`${OPERATOR_NAME_COOKIE_NAME}=${opts.operator}`)
-    if (cookies.length) headers.cookie = cookies.join('; ')
-    return POST(new NextRequest('http://localhost/api/site-audit', { method: 'POST', headers, body: JSON.stringify({ domain }) }))
-  }
-
-  it('stamps the verified session name — even when a stale legacy cookie disagrees', async () => {
+  it('passes the verified session name — even when a stale legacy cookie disagrees', async () => {
     const session = await createAuthCookieValue({ sub: 'google:1', email: 'kevin@enrollmentresources.com', hd: 'enrollmentresources.com', name: 'Kevin Vogelgesang' })
-    const res = await postWithCookies(`${RB_PREFIX}name.example`, { session, operator: 'Stale Old Name' })
+    const res = await POST(req({ session, operator: 'Stale Old Name' }))
     expect(res.status).toBe(202)
-    const { id } = await res.json()
-    const row = await prisma.siteAudit.findUnique({ where: { id } })
-    expect(row?.requestedBy).toBe('Kevin Vogelgesang')
+    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedBy: 'Kevin Vogelgesang' }),
+    )
   })
 
   it('falls back to the session email when the session has no name', async () => {
     const session = await createAuthCookieValue({ sub: 'google:2', email: 'op@enrollmentresources.com', hd: 'enrollmentresources.com', name: null })
-    const res = await postWithCookies(`${RB_PREFIX}email.example`, { session })
-    const { id } = await res.json()
-    const row = await prisma.siteAudit.findUnique({ where: { id } })
-    expect(row?.requestedBy).toBe('op@enrollmentresources.com')
+    const res = await POST(req({ session }))
+    expect(res.status).toBe(202)
+    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedBy: 'op@enrollmentresources.com' }),
+    )
   })
 
   it('falls back to the sanitized legacy cookie when there is no session', async () => {
-    const res = await postWithCookies(`${RB_PREFIX}legacy.example`, { operator: '  Kevin  ' })
-    const { id } = await res.json()
-    const row = await prisma.siteAudit.findUnique({ where: { id } })
-    expect(row?.requestedBy).toBe('Kevin')
+    const res = await POST(req({ operator: '  Kevin  ' }))
+    expect(res.status).toBe(202)
+    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedBy: 'Kevin' }),
+    )
   })
 
-  it('stores null when neither cookie is present', async () => {
-    const res = await postWithCookies(`${RB_PREFIX}anon.example`, {})
-    const { id } = await res.json()
-    const row = await prisma.siteAudit.findUnique({ where: { id } })
-    expect(row?.requestedBy).toBeNull()
+  it('passes null when neither cookie is present', async () => {
+    const res = await POST(req({}))
+    expect(res.status).toBe(202)
+    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedBy: null }),
+    )
   })
 })
 ```
 
-Note: `beforeAll`/`afterAll` are already imported in this file. If the queue rejects same-domain duplicates across tests, the distinct `RB_PREFIX` domains per test avoid it (mirrors the D7 block).
+(Every case asserts `res.status` before inspecting the mock — Codex plan #4.)
 
 - [ ] **Step 2: Run tests to verify the first one fails**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/site-audit/route.test.ts`
-Expected: the "stamps the verified session name" and "falls back to the session email" tests FAIL (`requestedBy` is `'Stale Old Name'` / `null` under the current legacy-cookie derivation); the legacy-cookie and null tests may already pass.
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/site-audit/route.requested-by.test.ts`
+Expected: the "verified session name" and "session email" tests FAIL (`requestedBy` is `'Stale Old Name'` / `null` under the current legacy-cookie derivation); the legacy-cookie and null tests already pass.
 
 - [ ] **Step 3: Implement the derivation swap**
 
@@ -140,13 +182,13 @@ and the derivation (line 34):
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/site-audit/route.test.ts`
-Expected: PASS (all pre-existing tests in the file stay green).
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run app/api/site-audit/route.requested-by.test.ts app/api/site-audit/route.test.ts`
+Expected: PASS (the new file all green; the pre-existing DB-backed file stays green).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/api/site-audit/route.ts app/api/site-audit/route.test.ts
+git add app/api/site-audit/route.ts app/api/site-audit/route.requested-by.test.ts
 git commit -m "fix(site-audit): derive requestedBy via SSO-aware getOperatorLabel (C15)"
 ```
 
@@ -164,13 +206,13 @@ git commit -m "fix(site-audit): derive requestedBy via SSO-aware getOperatorLabe
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `app/api/site-audit/bulk-queue/route.test.ts`. This file is mock-based (`prisma` + `queueSiteAuditRequest` mocked; `@/lib/auth` runs REAL — do not mock it). Extend the imports at the top of the file:
+Append to `app/api/site-audit/bulk-queue/route.test.ts`. This file is mock-based (`prisma` + `queueSiteAuditRequest` mocked; `@/lib/auth` runs REAL — do not mock it). Extend the imports at the top of the file (via the file's existing `await import` style, after the mocks):
 
 ```ts
-import { createAuthCookieValue, AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME } from '@/lib/auth'
+const { createAuthCookieValue, AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME } = await import('@/lib/auth')
 ```
 
-and add a request builder + tests:
+add the hermetic secret (Codex plan #3 — same pattern as Task 1, `beforeAll` set / `afterAll` restore of `process.env.APP_AUTH_SECRET = 'test-auth-secret'`), and add a request builder + tests:
 
 ```ts
 function reqWithCookies(opts: { session?: string; operator?: string }) {
@@ -203,12 +245,14 @@ describe('POST /api/site-audit/bulk-queue — requestedBy attribution (C15)', ()
     ] as never)
     vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
 
-    await POST(reqWithCookies({ operator: '  Kevin  ' }))
+    const legacyRes = await POST(reqWithCookies({ operator: '  Kevin  ' }))
+    expect(legacyRes.status).toBe(200)
     expect(queueSiteAuditRequest).toHaveBeenLastCalledWith(
       expect.objectContaining({ requestedBy: 'Kevin' }),
     )
 
-    await POST(reqWithCookies({}))
+    const anonRes = await POST(reqWithCookies({}))
+    expect(anonRes.status).toBe(200)
     expect(queueSiteAuditRequest).toHaveBeenLastCalledWith(
       expect.objectContaining({ requestedBy: null }),
     )
@@ -257,7 +301,11 @@ git commit -m "fix(site-audit): bulk-queue requestedBy via SSO-aware getOperator
 - [ ] **Step 1: Confirm no other writer remains on the legacy-only path**
 
 Run: `grep -rn "sanitizeOperatorName" app lib --include="*.ts" | grep -v test | grep -v "lib/auth.ts"`
-Expected: only `app/api/auth/login/route.ts` (the password login that WRITES the cookie) remains. Any other hit is an unconverted writer — stop and convert it the same way.
+Expected (Codex plan #2): exactly TWO remaining call sites, both correct as-is —
+`app/api/auth/login/route.ts` (the password login that WRITES the cookie) and
+`app/api/site-audit/[id]/checks/route.ts` (triage `checkedBy` attribution — a different field,
+out of PR0's scope; do NOT convert it here). Any OTHER hit is an unconverted `requestedBy`
+writer — stop and convert it the same way.
 
 - [ ] **Step 2: Full gates**
 
