@@ -72,6 +72,9 @@ async function seedCompleteSite(completedAt: Date) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// C18: recurse EVERY prop value, not just `children` — the results page now
+// passes SiteAuditResultsView / SiteAuditDiffPanel as slot props
+// (accessibility / diffPanel) on SiteAuditResultsShell, not as children.
 function findByType(node: unknown, type: unknown): any | null {
   if (!node || typeof node !== 'object') return null
   if (Array.isArray(node)) {
@@ -81,9 +84,15 @@ function findByType(node: unknown, type: unknown): any | null {
     }
     return null
   }
-  const el = node as { type?: unknown; props?: { children?: unknown } }
+  const el = node as { type?: unknown; props?: Record<string, unknown> }
   if (el.type === type) return el
-  return el.props ? findByType(el.props.children, type) : null
+  if (el.props) {
+    for (const key of Object.keys(el.props)) {
+      const found = findByType(el.props[key], type)
+      if (found) return found
+    }
+  }
+  return null
 }
 
 async function renderPage(id: string) {
