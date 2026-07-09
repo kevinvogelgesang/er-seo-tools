@@ -140,7 +140,11 @@ export default async function SiteAuditResultPage({ params }: Props) {
     })
     const view = resolveSeoOnlyView(audit, liveRun?.id ?? null)
     if (view.kind === 'redirect') redirect(view.href)
-    const seoPhase = classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
+    const seoPhase = classifySeoPhase({
+      liveScanRunId: null,
+      job: await getLatestSeoVerifyJob(audit.id),
+      completedAt: audit.completedAt,
+    })
     // SeoPhaseBanner owns the phase-specific copy — the heading must not
     // promise "building" when the verifier failed.
     const building = seoPhase.state === 'queued' || seoPhase.state === 'running'
@@ -223,7 +227,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
   // a single status banner instead of six silent "not verified" blocks.
   const seoPhase = liveScanRun
     ? ({ state: 'done', progress: null, message: null } as const)
-    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
+    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id), completedAt: audit.completedAt })
 
   // Report button starts 'ready' only when the stamp AND the file agree
   // (Codex fix: never trust the column alone — retention may have deleted the PDF).

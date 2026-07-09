@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '@/lib/db'
 import { BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
-import { classifySeoPhase, getLatestSeoVerifyJob, getSeoPhase } from './seo-phase'
+import { classifySeoPhase, getLatestSeoVerifyJob, getSeoPhase, SEO_PHASE_ENQUEUE_GRACE_MS } from './seo-phase'
 
 describe('classifySeoPhase', () => {
   it('done wins over any job', () => {
@@ -32,6 +32,37 @@ describe('classifySeoPhase', () => {
   it('no run + no job -> unavailable', () => {
     expect(classifySeoPhase({ liveScanRunId: null, job: null }))
       .toEqual({ state: 'unavailable', progress: null, message: null })
+  })
+
+  // C17 (plan Codex fix #1): flip→enqueue race + crash-recovery window.
+  it('no job within the enqueue grace window classifies as queued', () => {
+    const completedAt = new Date('2026-07-08T10:00:00Z')
+    const now = new Date(completedAt.getTime() + 60_000) // 1 min later
+    expect(classifySeoPhase({ liveScanRunId: null, job: null, completedAt, now }))
+      .toEqual({ state: 'queued', progress: null, message: null })
+  })
+
+  it('no job past the grace window classifies as unavailable', () => {
+    const completedAt = new Date('2026-07-08T10:00:00Z')
+    const now = new Date(completedAt.getTime() + SEO_PHASE_ENQUEUE_GRACE_MS + 1)
+    expect(classifySeoPhase({ liveScanRunId: null, job: null, completedAt, now }).state)
+      .toBe('unavailable')
+  })
+
+  it('no job with no completedAt stays unavailable (legacy rows)', () => {
+    expect(classifySeoPhase({ liveScanRunId: null, job: null, completedAt: null }).state).toBe('unavailable')
+  })
+
+  it('a run or a job wins over the grace window', () => {
+    const completedAt = new Date()
+    expect(classifySeoPhase({ liveScanRunId: 'r1', job: null, completedAt }).state).toBe('done')
+    expect(
+      classifySeoPhase({
+        liveScanRunId: null,
+        job: { status: 'error', progress: null, progressMessage: null },
+        completedAt,
+      }).state,
+    ).toBe('failed')
   })
 })
 
