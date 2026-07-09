@@ -41,12 +41,12 @@ describe('useHomeLayout', () => {
 
   it('hydrates to a pre-seeded valid stored layout (reordered/resized)', async () => {
     const custom: LayoutItem[] = [
-      { id: 'quick-robots', size: 'sm' },
+      { id: 'needs-attention', size: 'sm' },
       { id: 'live-now', size: 'wide' },
       { id: 'quick-site-audit', size: 'wide' },
       { id: 'quick-parser', size: 'wide' },
       { id: 'quick-report', size: 'wide' },
-      { id: 'quarter-week', size: 'wide' },
+      { id: 'kpi-strip', size: 'wide' },
       { id: 'recent-parses', size: 'sm' },
     ]
     lsStore.set(LAYOUT_STORAGE_KEY, JSON.stringify({ version: LAYOUT_VERSION, items: custom }))
@@ -120,7 +120,7 @@ describe('useHomeLayout', () => {
     await waitFor(() => expect(result.current.hydrated).toBe(true))
 
     act(() => {
-      result.current.dispatch({ type: 'reorder', draggedId: 'quick-robots', targetId: null })
+      result.current.dispatch({ type: 'reorder', draggedId: 'needs-attention', targetId: null })
     })
 
     await waitFor(() => {
@@ -128,17 +128,17 @@ describe('useHomeLayout', () => {
       const parsed = JSON.parse(stored as string)
       expect(parsed.items).toEqual(result.current.layout)
     })
-    expect(result.current.layout[result.current.layout.length - 1].id).toBe('quick-robots')
+    expect(result.current.layout[result.current.layout.length - 1].id).toBe('needs-attention')
   })
 
   it('persists a reset dispatch to localStorage after hydration', async () => {
     const custom: LayoutItem[] = [
-      { id: 'quick-robots', size: 'sm' },
+      { id: 'needs-attention', size: 'sm' },
       { id: 'live-now', size: 'wide' },
       { id: 'quick-site-audit', size: 'wide' },
       { id: 'quick-parser', size: 'wide' },
       { id: 'quick-report', size: 'wide' },
-      { id: 'quarter-week', size: 'wide' },
+      { id: 'kpi-strip', size: 'wide' },
       { id: 'recent-parses', size: 'sm' },
     ]
     lsStore.set(LAYOUT_STORAGE_KEY, JSON.stringify({ version: LAYOUT_VERSION, items: custom }))
@@ -181,12 +181,12 @@ describe('useHomeLayout', () => {
 
   it('never overwrites a seeded stored layout with the default before/around hydration', async () => {
     const custom: LayoutItem[] = [
-      { id: 'quick-robots', size: 'sm' },
+      { id: 'needs-attention', size: 'sm' },
       { id: 'live-now', size: 'wide' },
       { id: 'quick-site-audit', size: 'wide' },
       { id: 'quick-parser', size: 'wide' },
       { id: 'quick-report', size: 'wide' },
-      { id: 'quarter-week', size: 'wide' },
+      { id: 'kpi-strip', size: 'wide' },
       { id: 'recent-parses', size: 'sm' },
     ]
     const seeded = JSON.stringify({ version: LAYOUT_VERSION, items: custom })
@@ -233,12 +233,12 @@ describe('useHomeLayout', () => {
 
   it('hydrates to the seeded custom layout under React StrictMode (double-invoked effects)', async () => {
     const custom: LayoutItem[] = [
-      { id: 'quick-robots', size: 'sm' },
+      { id: 'needs-attention', size: 'sm' },
       { id: 'live-now', size: 'wide' },
       { id: 'quick-site-audit', size: 'wide' },
       { id: 'quick-parser', size: 'wide' },
       { id: 'quick-report', size: 'wide' },
-      { id: 'quarter-week', size: 'wide' },
+      { id: 'kpi-strip', size: 'wide' },
       { id: 'recent-parses', size: 'sm' },
     ]
     lsStore.set(LAYOUT_STORAGE_KEY, JSON.stringify({ version: LAYOUT_VERSION, items: custom }))

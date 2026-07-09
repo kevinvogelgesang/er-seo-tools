@@ -9,11 +9,9 @@
 import type { WidgetDef, LayoutItem } from './types'
 import { LiveNowWidget } from '@/components/widgets/LiveNowWidget'
 import { RecentParsesWidget } from '@/components/widgets/RecentParsesWidget'
-import { QuarterWeekWidget } from '@/components/widgets/QuarterWeekWidget'
 import { QuickSiteAuditWidget } from '@/components/widgets/QuickSiteAuditWidget'
 import { QuickParserWidget } from '@/components/widgets/QuickParserWidget'
 import { QuickReportWidget } from '@/components/widgets/QuickReportWidget'
-import { QuickRobotsWidget } from '@/components/widgets/QuickRobotsWidget'
 import { KpiStripWidget } from '@/components/widgets/KpiStripWidget'
 import { NeedsAttentionWidget } from '@/components/widgets/NeedsAttentionWidget'
 
@@ -24,9 +22,7 @@ export const WIDGETS: WidgetDef[] = [
   { id: 'quick-site-audit', title: 'Start a site audit', sizes: ['sm', 'wide'], defaultSize: 'wide', Component: QuickSiteAuditWidget },
   { id: 'quick-parser', title: 'Parse a Screaming Frog export', sizes: ['sm', 'wide'], defaultSize: 'wide', Component: QuickParserWidget },
   { id: 'quick-report', title: 'Generate a performance report', sizes: ['sm', 'wide'], defaultSize: 'wide', Component: QuickReportWidget },
-  { id: 'quarter-week', title: 'Quarter Grid — this week', sizes: ['sm', 'wide'], defaultSize: 'wide', Component: QuarterWeekWidget },
   { id: 'recent-parses', title: 'Recent parses', sizes: ['sm', 'lg'], defaultSize: 'lg', Component: RecentParsesWidget },
-  { id: 'quick-robots', title: 'Check robots.txt', sizes: ['sm'], defaultSize: 'sm', Component: QuickRobotsWidget },
 ]
 
 // Default display order. KPI strip is the full-width banner up top, then the
@@ -39,7 +35,5 @@ export const DEFAULT_LAYOUT: LayoutItem[] = [
   { id: 'quick-site-audit', size: 'wide' },
   { id: 'quick-parser', size: 'wide' },
   { id: 'quick-report', size: 'wide' },
-  { id: 'quarter-week', size: 'wide' },
   { id: 'recent-parses', size: 'lg' },
-  { id: 'quick-robots', size: 'sm' },
 ]

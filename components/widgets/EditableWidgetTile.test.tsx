@@ -18,8 +18,8 @@ const multiSizeWidget: WidgetDef = {
 }
 
 const singleSizeWidget: WidgetDef = {
-  id: 'quick-robots',
-  title: 'Check robots.txt',
+  id: 'solo-widget',
+  title: 'Solo widget',
   sizes: ['sm'],
   defaultSize: 'sm',
   Component: QuickSiteAuditWidget, // body irrelevant — it's always suppressed
@@ -91,7 +91,7 @@ describe('EditableWidgetTile', () => {
   })
 
   it('hides the size stepper when the widget has only one size', () => {
-    renderTile({ widget: singleSizeWidget, item: { id: 'quick-robots', size: 'sm' } })
+    renderTile({ widget: singleSizeWidget, item: { id: 'solo-widget', size: 'sm' } })
     expect(screen.queryByLabelText(/^Size:/)).toBeNull()
   })
 
