@@ -7,11 +7,9 @@ import { safeExternalHref } from '@/lib/safe-external-href'
 
 interface Props {
   issues: CommonIssue[]
-  /** Invoked with the ruleId when "View affected pages" is clicked. Wires up
-   *  to setViewMode('by-violation') + setSelectedViolationId(ruleId) in the
-   *  parent so the by-violation tab opens with that rule expanded + scrolled.
-   *  Omit (public share view) to hide the CTA entirely. */
-  onViewAffectedPages?: (ruleId: string) => void
+  siteAuditId: string
+  /** Public share view: cards are not expandable (the sample route is cookie-gated). */
+  shareMode?: boolean
 }
 
 const IMPACT_ACCENT: Record<ImpactLevel, { border: string; bg: string; chip: string; dot: string }> = {
@@ -81,10 +79,43 @@ function ancestorSentence(issue: CommonIssue): string {
   return `Appears on ${hits} of ${n} scanned pages — may point to a recurring element or page-type pattern.`
 }
 
-function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; onViewAffectedPages?: (ruleId: string) => void }) {
+/** One node's screenshot — hides itself on error (mirrors AuditIssueCard's
+ *  NodeScreenshot). Screenshots have a 24h on-disk retention and are cookie-
+ *  gated, so absence is expected and must degrade silently. */
+function SampleScreenshot({ src }: { src: string }) {
+  const [ok, setOk] = useState(true)
+  if (!ok) return null
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" onError={() => setOk(false)} className="rounded border border-gray-200 dark:border-navy-border max-h-40" />
+}
+
+type SampleNode = { html: string; target: string[]; screenshotPath: string | null }
+type SampleState = { loading: boolean; error: boolean; archived: boolean; childAuditId: string | null; nodes: SampleNode[] } | null
+
+function CommonIssueCard({ issue, siteAuditId, expandable }: { issue: CommonIssue; siteAuditId: string; expandable: boolean }) {
   const accent = IMPACT_ACCENT[issue.impact]
   const helpHref = safeExternalHref(issue.helpUrl)
   const tier: CommonIssueTier = issue.tier ?? 'template'
+
+  const [open, setOpen] = useState(false)
+  const [sample, setSample] = useState<SampleState>(null)
+
+  const loadSample = async () => {
+    if (sample) return
+    setSample({ loading: true, error: false, archived: false, childAuditId: null, nodes: [] })
+    try {
+      const url = `/api/site-audit/${siteAuditId}/pattern-sample?rule=${encodeURIComponent(issue.ruleId)}&page=${encodeURIComponent(issue.examplePageUrl ?? '')}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as { childAuditId: string | null; archived: boolean; nodes: SampleNode[] }
+      setSample({ loading: false, error: false, archived: data.archived, childAuditId: data.childAuditId, nodes: data.nodes })
+    } catch {
+      setSample({ loading: false, error: true, archived: false, childAuditId: null, nodes: [] })
+    }
+  }
+  const toggle = () => { const next = !open; setOpen(next); if (next) void loadSample() }
+
+  const exampleLabel = (issue.examplePageUrl ?? '').replace(/^https?:\/\//, '').replace(/\/$/, '')
 
   return (
     <div
@@ -120,7 +151,7 @@ function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; o
                       rel="noopener noreferrer"
                       className="text-orange hover:underline"
                     >
-                      View on {issue.examplePageUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                      View on {exampleLabel}
                     </a>
                   </>
                 )}
@@ -128,13 +159,14 @@ function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; o
             )
           })()}
           <div className="flex items-center gap-3 mt-2">
-            {onViewAffectedPages && (
+            {expandable && issue.examplePageUrl && (
               <button
                 type="button"
-                onClick={() => onViewAffectedPages(issue.ruleId)}
+                onClick={toggle}
+                aria-expanded={open}
                 className="text-[11px] font-body font-semibold text-orange hover:text-orange-light transition-colors"
               >
-                View affected pages →
+                {open ? 'Hide affected elements' : 'Show affected elements'}
               </button>
             )}
             {helpHref && (
@@ -148,13 +180,40 @@ function CommonIssueCard({ issue, onViewAffectedPages }: { issue: CommonIssue; o
               </a>
             )}
           </div>
+          {open && (
+            <div className="mt-3 space-y-3">
+              {sample?.loading && <p className="text-[11px] font-body text-navy/40 dark:text-white/40">Loading sample…</p>}
+              {sample?.error && <p className="text-[11px] font-body text-red-500">Couldn’t load the element sample.</p>}
+              {sample && !sample.loading && !sample.error && sample.nodes.length === 0 && (
+                <p className="text-[11px] font-body text-navy/40 dark:text-white/40">No stored elements for this pattern.</p>
+              )}
+              {sample && sample.nodes.length > 0 && (
+                <>
+                  <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
+                    {sample.archived
+                      ? 'Showing a capped element sample (the full element list was pruned after 90 days; no screenshots).'
+                      : `Sample of affected elements from ${exampleLabel}.`}
+                  </p>
+                  {sample.nodes.map((n, i) => (
+                    <div key={i} className="space-y-1.5">
+                      {!sample.archived && n.screenshotPath && sample.childAuditId && (
+                        <SampleScreenshot src={`/api/ada-audit/screenshots/${sample.childAuditId}/${n.screenshotPath}`} />
+                      )}
+                      <pre className="text-[11px] font-mono bg-navy/[0.04] dark:bg-white/[0.04] rounded p-2 overflow-x-auto text-navy/80 dark:text-white/80">{n.html}</pre>
+                      {n.target.length > 0 && <code className="text-[10px] font-mono text-orange">{n.target.join(' ')}</code>}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-export default function CommonIssueCallout({ issues, onViewAffectedPages }: Props) {
+export default function CommonIssueCallout({ issues, siteAuditId, shareMode = false }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   if (issues.length === 0) return null
@@ -175,7 +234,8 @@ export default function CommonIssueCallout({ issues, onViewAffectedPages }: Prop
           <CommonIssueCard
             key={issue.ruleId}
             issue={issue}
-            onViewAffectedPages={onViewAffectedPages}
+            siteAuditId={siteAuditId}
+            expandable={!shareMode}
           />
         ))}
       </div>
