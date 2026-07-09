@@ -1,6 +1,6 @@
 import type { SeoPhase } from '@/lib/ada-audit/seo-phase'
 
-export function SeoPhaseBanner({ phase }: { phase: SeoPhase }) {
+export function SeoPhaseBanner({ phase, live = false }: { phase: SeoPhase; live?: boolean }) {
   if (phase.state === 'done') return null
 
   const isActive = phase.state === 'running' || phase.state === 'queued'
@@ -35,7 +35,9 @@ export function SeoPhaseBanner({ phase }: { phase: SeoPhase }) {
       )}
       {isActive && (
         <p className="mt-3 text-[12px] font-body text-navy/40 dark:text-white/40">
-          This runs after the audit completes. Refresh this page to see the latest status.
+          {live
+            ? 'This updates automatically — results will open when they’re ready.'
+            : 'This runs after the audit completes. Refresh this page to see the latest status.'}
         </p>
       )}
     </section>
