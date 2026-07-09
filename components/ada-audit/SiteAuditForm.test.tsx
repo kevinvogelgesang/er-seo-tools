@@ -128,3 +128,35 @@ describe('SiteAuditForm D7 notify checkbox', () => {
     expect(cb.checked).toBe(false)
   })
 })
+
+describe('SiteAuditForm — SEO inclusion copy + compact WCAG (C18)', () => {
+  function stubClientsFetch() {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/clients') return { json: async () => [] } as Response
+      return { ok: true, json: async () => ({}) } as Response
+    }))
+  }
+
+  it('states that Accessibility scans also run a live SEO scan (default intent)', async () => {
+    stubClientsFetch()
+    render(<SiteAuditForm queueStatus={null} />)
+    expect(await screen.findByText(/also run a full live SEO scan/i)).toBeTruthy()
+  })
+
+  it('keeps both WCAG levels selectable as a compact control', async () => {
+    stubClientsFetch()
+    render(<SiteAuditForm queueStatus={null} />)
+    const aspirational = await screen.findByRole('button', { name: /Best Practices/i })
+    expect(aspirational.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(aspirational)
+    expect(aspirational.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('hides the SEO-inclusion copy and WCAG control under SEO intent', async () => {
+    stubClientsFetch()
+    render(<SiteAuditForm queueStatus={null} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^SEO/i }))
+    expect(screen.queryByText(/also run a full live SEO scan/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /Best Practices/i })).toBeNull()
+  })
+})

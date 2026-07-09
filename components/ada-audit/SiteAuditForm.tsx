@@ -482,6 +482,41 @@ export default function SiteAuditForm({ queueStatus, notifyAvailable = false }: 
         </div>
       </div>
 
+      {/* C18: make it explicit that an Accessibility scan also runs the live SEO
+          scan, and shrink the WCAG level to a compact control under it. */}
+      {intent === 'ada' && (
+        <div className="space-y-2">
+          <p className="text-[12px] font-body text-navy/50 dark:text-white/50">
+            Accessibility scans also run a full live SEO scan (broken links + on-page SEO) — you get both reports.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span id="site-wcag-level-label" className="text-[12px] font-body text-navy/50 dark:text-white/50">WCAG level</span>
+            <div role="group" aria-labelledby="site-wcag-level-label" className="inline-flex rounded-lg border border-gray-300 dark:border-navy-border overflow-hidden">
+              {([
+                { value: 'wcag21aa', label: 'WCAG 2.1 AA', title: 'Required' },
+                { value: 'wcag22aa', label: '+ Best Practices', title: 'Aspirational' },
+              ] as const).map(({ value, label, title }) => (
+                <button
+                  key={value}
+                  type="button"
+                  title={title}
+                  aria-pressed={wcagLevel === value}
+                  onClick={() => setWcagLevel(value)}
+                  disabled={isBusy}
+                  className={`px-2.5 py-1 text-[12px] font-body transition-colors disabled:opacity-50 ${
+                    wcagLevel === value
+                      ? 'bg-orange/10 text-orange font-semibold'
+                      : 'text-navy/60 dark:text-white/60 hover:bg-gray-50 dark:hover:bg-navy-light'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* C16: optional SF-export path — the old /seo-audits upload card, collapsed */}
       {intent === 'seo' && (
         <div className="rounded-xl border border-gray-200 dark:border-navy-border">
@@ -500,37 +535,6 @@ export default function SiteAuditForm({ queueStatus, notifyAvailable = false }: 
             </div>
           )}
         </div>
-      )}
-
-      {/* WCAG level selector */}
-      {intent === 'ada' && (
-      <div>
-        <p id="site-wcag-level-label" className="block text-[13px] font-body font-semibold text-navy/70 dark:text-white/70 mb-1.5">
-          WCAG Level
-        </p>
-        <div role="group" aria-labelledby="site-wcag-level-label" className="flex gap-2">
-          {([
-            { value: 'wcag21aa', label: 'WCAG 2.1 AA', badge: 'Required' },
-            { value: 'wcag22aa', label: '+ Best Practices', badge: 'Aspirational' },
-          ] as const).map(({ value, label, badge }) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={wcagLevel === value}
-              onClick={() => setWcagLevel(value)}
-              disabled={isBusy}
-              className={`flex-1 flex flex-col items-center px-3 py-2 rounded-lg border text-[13px] font-body transition-colors disabled:opacity-50 ${
-                wcagLevel === value
-                  ? 'border-orange bg-orange/5 text-orange font-semibold'
-                  : 'border-gray-300 dark:border-navy-border text-navy dark:text-white hover:border-gray-400'
-              }`}
-            >
-              <span>{label}</span>
-              <span className={`text-[11px] font-normal mt-0.5 ${wcagLevel === value ? 'text-orange/70' : 'text-navy/40 dark:text-white/40'}`}>{badge}</span>
-            </button>
-          ))}
-        </div>
-      </div>
       )}
 
       {/* D7: opt-in scan-completion email (hidden without a session email) */}
