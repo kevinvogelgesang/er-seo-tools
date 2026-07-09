@@ -38,7 +38,7 @@ interface Props {
   scoreMeta?: { version: number; fromFallback: boolean; passCount: number | null; incompleteCount: number | null }
 }
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 25
 
 function paginationRange(current: number, total: number): (number | '...')[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
