@@ -19,7 +19,7 @@ describe('SidebarNav', () => {
     for (const label of ['Overview', 'Run', 'Plan', 'Reference']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
-    expect(screen.getByText('Site Audits')).toBeTruthy()
+    expect(screen.getByText('Audits')).toBeTruthy()
     expect(screen.getByText('Settings')).toBeTruthy()
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeTruthy()
   })
@@ -27,17 +27,26 @@ describe('SidebarNav', () => {
   it('marks the active tool via aria-current and shows its children', () => {
     pathnameMock.value = '/ada-audit/queue'
     render(<SidebarNav collapsed={false} onToggleCollapse={noop} />)
-    const active = screen.getByText('Site Audits').closest('a')!
+    const active = screen.getByText('Audits').closest('a')!
     expect(active.getAttribute('aria-current')).toBe('page')
     expect(screen.getByText('Audit queue')).toBeTruthy() // sub-links visible for active tool
-    expect(screen.queryByText('Compare crawls')).toBeNull() // inactive tool's children hidden
+    expect(screen.queryByText('Manage clients')).toBeNull() // inactive tool's children hidden
+  })
+
+  it('C16: aliased path activates the Audits entry and shows its children', () => {
+    pathnameMock.value = '/seo-audits/diff'
+    render(<SidebarNav collapsed={false} onToggleCollapse={noop} />)
+    const active = screen.getByText('Audits').closest('a')!
+    expect(active.getAttribute('aria-current')).toBe('page')
+    const compare = screen.getByText('Compare crawls').closest('a')!
+    expect(compare.getAttribute('href')).toBe('/seo-audits/diff')
   })
 
   it('collapsed mode hides text labels but keeps links with accessible names', () => {
     pathnameMock.value = '/'
     render(<SidebarNav collapsed onToggleCollapse={noop} />)
     expect(screen.queryByText('Overview')).toBeNull()
-    expect(screen.getByLabelText('Site Audits')).toBeTruthy()
+    expect(screen.getByLabelText('Audits')).toBeTruthy()
     expect(screen.queryByText('Audit queue')).toBeNull() // no sub-links when collapsed
   })
 
@@ -46,7 +55,7 @@ describe('SidebarNav', () => {
     const onNavigate = vi.fn()
     const onToggle = vi.fn()
     render(<SidebarNav collapsed={false} onToggleCollapse={onToggle} onNavigate={onNavigate} />)
-    fireEvent.click(screen.getByText('SEO Audits'))
+    fireEvent.click(screen.getByText('Audits'))
     expect(onNavigate).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(onToggle).toHaveBeenCalledOnce()

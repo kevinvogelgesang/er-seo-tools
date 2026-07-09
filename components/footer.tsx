@@ -4,8 +4,7 @@ import Link from 'next/link'
 import packageJson from '@/package.json'
 
 const toolLinks = [
-  { name: 'SEO Audits', href: '/seo-audits' },
-  { name: 'ADA Audit', href: '/ada-audit' },
+  { name: 'Audits', href: '/ada-audit' },
   { name: 'Robots Validator', href: '/robots-validator' },
   { name: 'Quarter Grid', href: '/quarter-grid' },
   { name: 'E-E-A-T Checklist', href: '/eat-checklist' },
