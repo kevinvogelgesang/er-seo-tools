@@ -39,7 +39,10 @@ export async function GET() {
           pagesError: true,
           wcagLevel: true,
           summary: true,
-          crawlRuns: { where: { tool: 'ada-audit' }, select: { score: true } },
+          // C18: load ADA + live-scan runs so the clients view can show both
+          // the accessibility score and the live SEO score (both coexist on the
+          // same SiteAudit via the C6 compound unique).
+          crawlRuns: { select: { tool: true, source: true, score: true } },
         },
       })
 
@@ -50,7 +53,11 @@ export async function GET() {
       // computed); the summary blob is only the pre-A2 fallback and may be
       // pruned (null) — consumers must tolerate a null summary.
       let parsedSummary: SiteAuditSummary | null = null
-      let score: number | null = latest?.crawlRuns[0]?.score ?? null
+      const adaRun = latest?.crawlRuns.find((r) => r.tool === 'ada-audit')
+      // C18 (Codex #5): match BOTH tool and source, not source alone.
+      const liveRun = latest?.crawlRuns.find((r) => r.tool === 'seo-parser' && r.source === 'live-scan')
+      let score: number | null = adaRun?.score ?? null
+      const seoScore: number | null = liveRun?.score ?? null
       if (latest?.summary) {
         try {
           parsedSummary = JSON.parse(latest.summary) as SiteAuditSummary
@@ -67,6 +74,7 @@ export async function GET() {
           id: latest.id,
           createdAt: latest.createdAt.toISOString(),
           score,
+          seoScore,
           pagesTotal: latest.pagesTotal,
           pagesError: latest.pagesError,
           summary: parsedSummary,
