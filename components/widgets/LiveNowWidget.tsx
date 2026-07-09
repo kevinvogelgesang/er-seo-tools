@@ -37,7 +37,7 @@ export function LiveNowWidget({ size }: { size: WidgetSize }) {
         const p = computeActivePhaseSummary(active)
         // C11: a seoOnly audit has no ADA results — route to /seo-audits
         // (the ADA site page redirects it away) and flag it as an SEO scan.
-        const href = active.seoOnly ? '/seo-audits' : `/ada-audit/site/${active.id}`
+        const href = `/ada-audit/site/${active.id}`
         return (
           <Link href={href} className="block rounded-lg border border-gray-100 p-2 hover:border-orange/50 dark:border-navy-border">
             <div className="mb-1 flex items-center justify-between gap-2">

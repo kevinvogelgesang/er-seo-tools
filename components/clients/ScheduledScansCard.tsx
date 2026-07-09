@@ -195,7 +195,7 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
                   last:{' '}
                   <a
                     href={s.seoOnly
-                      ? (s.liveRunId ? `/seo-audits/results/run/${s.liveRunId}` : `/seo-audits?scan=${s.lastRun.id}`)
+                      ? (s.liveRunId ? `/seo-audits/results/run/${s.liveRunId}` : `/ada-audit/site/${s.lastRun.id}`)
                       : `/ada-audit/site/${s.lastRun.id}`}
                     className="text-blue-600 dark:text-blue-400 hover:underline"
                   >

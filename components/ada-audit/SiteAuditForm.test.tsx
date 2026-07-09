@@ -56,7 +56,7 @@ describe('SiteAuditForm queue banner IntentChip (C11 PR 2a)', () => {
 })
 
 describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
-  it('SEO intent sends seoOnly:true and routes to /seo-audits?scan=', async () => {
+  it('SEO intent sends seoOnly:true and routes to the site page (C16)', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/clients') return { json: async () => [] } as Response
       if (url === '/api/site-audit') {
@@ -73,7 +73,7 @@ describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Discover Pages$/i }))
     await waitFor(() => screen.getByRole('button', { name: /^Audit \d/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Audit \d/i }))
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-audits?scan=A1'))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/ada-audit/site/A1'))
   })
 })
 

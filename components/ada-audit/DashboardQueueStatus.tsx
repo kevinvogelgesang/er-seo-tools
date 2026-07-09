@@ -128,7 +128,7 @@ export default function DashboardQueueStatus({ queueStatus }: Props) {
           <CardHeader
             // C11: seoOnly audits carry no ADA data — route to /seo-audits
             // (the ADA site page redirects it away).
-            href={active.seoOnly ? '/seo-audits' : `/ada-audit/site/${active.id}`}
+            href={`/ada-audit/site/${active.id}`}
             title="Current Scan"
             trailing={<IntentChip seoOnly={active.seoOnly} />}
           />

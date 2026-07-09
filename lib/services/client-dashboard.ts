@@ -192,9 +192,9 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
     }
   }
   for (const a of siteAudits) {
-    // C11: seoOnly audits have no ADA results — the /ada-audit/site page
-    // redirects them to /seo-audits (Task 7). Point the timeline link there
-    // directly and tag the title so it doesn't read as an accessibility audit.
+    // C16: seoOnly audits now live on /ada-audit/site/[id] (poller while
+    // transient; server redirect to the SEO run page when complete) — one
+    // link target for every site audit. Title keeps the SEO tag.
     const scheduledSuffix = a.scheduleId ? ' · scheduled' : ''
     timeline.push({
       // C2: schedule-originated audits are tagged in the timeline title.
@@ -202,7 +202,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
       title: `${a.domain}${a.seoOnly ? ' · SEO scan' : ''}${scheduledSuffix}`,
       status: a.status,
       date: a.createdAt.toISOString(),
-      href: a.seoOnly ? '/seo-audits' : `/ada-audit/site/${a.id}`,
+      href: `/ada-audit/site/${a.id}`,
       stat: a.pagesTotal > 0 ? `${a.pagesTotal} pages` : null,
     })
   }
