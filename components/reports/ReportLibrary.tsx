@@ -5,6 +5,8 @@
 // badges, download links, and inline manual-prospects entry.
 
 import { useState, useEffect, useCallback } from 'react'
+import { StatusPill } from '@/components/ui/StatusPill'
+import { reportStatusTone } from './status-tone'
 
 interface ReportRow {
   id: string
@@ -32,12 +34,9 @@ const TRANSIENT_STATUSES = new Set(['queued', 'fetching', 'rendering'])
 
 // ── Style helpers ─────────────────────────────────────────────────────────────
 
-function statusChipCls(status: string): string {
-  if (status === 'ready') return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-  if (status === 'error') return 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
-  return 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-}
-
+// Per-source badges keep their bespoke styling: they are a smaller (10px)
+// scale, their label is the source name (GA4/GSC/Pros) not the status, and the
+// `manual` (teal) state has no StatusPill tone — excluded from the A8 pass.
 function sourceBadgeCls(s: string): string {
   if (s === 'ok') return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
   if (s === 'skipped') return 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/40'
@@ -266,11 +265,7 @@ export function ReportLibrary() {
 
                 {/* Status chip */}
                 <td className="px-4 py-3">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${statusChipCls(r.status)}`}
-                  >
-                    {r.status}
-                  </span>
+                  <StatusPill label={r.status} tone={reportStatusTone(r.status)} />
                 </td>
 
                 {/* Per-source badges */}
