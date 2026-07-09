@@ -3,6 +3,11 @@
 import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
+/** Returned by onTerminal to make the hook navigate instead of refresh.
+ *  Void → the historical behavior (one router.refresh()). Exactly one of
+ *  replace/refresh ever fires per instance (C17 single navigation owner). */
+export type TerminalOutcome = { redirect: string } | void
+
 export interface UseAuditPollerArgs<T> {
   /** Endpoint to poll. */
   url: string
@@ -15,8 +20,9 @@ export interface UseAuditPollerArgs<T> {
   getStatus: (data: T) => string
   isTerminal: (status: string) => boolean
   onData: (data: T) => void
-  /** Called once, on the terminal poll, before router.refresh(). */
-  onTerminal?: (data: T) => void
+  /** Called once, on the terminal poll. Return { redirect } to router.replace()
+   *  there INSTEAD of the default router.refresh(). */
+  onTerminal?: (data: T) => TerminalOutcome
 }
 
 /**
@@ -72,8 +78,12 @@ export function useAuditPoller<T>({
           clearInterval(timer)
           if (!refreshedRef.current) {
             refreshedRef.current = true
-            onTerminalRef.current?.(data)
-            router.refresh()
+            const outcome = onTerminalRef.current?.(data)
+            if (outcome && typeof outcome === 'object' && 'redirect' in outcome) {
+              router.replace(outcome.redirect)
+            } else {
+              router.refresh()
+            }
           }
         }
       } catch {

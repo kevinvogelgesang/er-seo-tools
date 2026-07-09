@@ -6,7 +6,11 @@ import { useAuditPoller } from './useAuditPoller'
 import type { UseAuditPollerArgs } from './useAuditPoller'
 
 const refresh = vi.fn()
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
+const replace = vi.fn()
+// One STABLE router object — a fresh object per useRouter() call would churn
+// the hook's `router` effect dependency and restart the interval every render.
+const router = { refresh, replace }
+vi.mock('next/navigation', () => ({ useRouter: () => router }))
 
 type Poll = { status: string }
 
@@ -64,6 +68,7 @@ describe('useAuditPoller', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     refresh.mockClear()
+    replace.mockClear()
   })
   afterEach(() => {
     cleanup()
@@ -155,6 +160,34 @@ describe('useAuditPoller', () => {
     await flushAsync()
     await vi.advanceTimersByTimeAsync(1000)
     expect(f.fn).toHaveBeenCalledTimes(2)
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('onTerminal returning {redirect} calls router.replace once and suppresses refresh', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    const onTerminal = vi.fn(() => ({ redirect: '/seo-audits/results/run/r1' }))
+    renderHook(() => useAuditPoller(args({ onTerminal })))
+    await vi.advanceTimersByTimeAsync(1000)
+    f.resolveNext({ ok: true, body: { status: 'complete' } })
+    await flushAsync()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenCalledWith('/seo-audits/results/run/r1')
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('overlapping terminal responses with redirect navigate once', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    const onTerminal = vi.fn(() => ({ redirect: '/seo-audits/results/run/r1' }))
+    renderHook(() => useAuditPoller(args({ onTerminal })))
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    f.resolveNext({ ok: true, body: { status: 'complete' } })
+    await flushAsync()
+    f.resolveNext({ ok: true, body: { status: 'complete' } })
+    await flushAsync()
+    expect(replace).toHaveBeenCalledTimes(1)
     expect(refresh).not.toHaveBeenCalled()
   })
 
