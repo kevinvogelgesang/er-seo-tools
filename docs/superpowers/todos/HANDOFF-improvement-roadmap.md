@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-08 (Re-prioritization session: Kevin defined the **audit-consolidation batch C15–C18** (umbrella spec written + Codex-reviewed ×12 fixes applied, committed) and set the priority order **C15 → C16 → C17 → C18 → C14**. C13's UI one-liners redistributed into the batch; A8 per-tool arc parked `[~]` behind it. NO code shipped this session — docs only.) · **Updated by:** the re-prioritization/brainstorm session.
+**Last updated:** 2026-07-08 (Re-prioritization session, part 2: after defining the **audit-consolidation batch C15–C18** (umbrella spec Codex-reviewed ×12), the same session BUILT AND SHIPPED **C15** — the Mine-filter SSO fix (PR #136, merged + deployed + prod-verified; plan Codex-reviewed ×4, archived). Next item: **C16** (full merge). A8 stays parked `[~]`.) · **Updated by:** the re-prioritization + C15 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -11,27 +11,32 @@ single next action.
 
 ```
 Continue the er-seo-tools improvement roadmap. The next item is PRE-DECIDED (Kevin, 2026-07-08):
-**C15 — fix the "Mine" recents filter (SSO regression)**, an hours-scale bugfix PR. It is PR0 of
-the audit-consolidation batch C15→C16→C17→C18 (then C14). Read the umbrella spec FIRST:
-docs/superpowers/specs/2026-07-08-audit-consolidation-batch-design.md (Codex-reviewed ×12, all
-fixes applied — batch decisions are SETTLED, do not re-litigate them).
+**C16 — audit consolidation, full merge of SEO Audits into Site Audits** (P1 of the
+audit-consolidation batch; C15 already SHIPPED — PR #136). Read the umbrella spec FIRST:
+docs/superpowers/specs/2026-07-08-audit-consolidation-batch-design.md §P1 (Codex-reviewed ×12,
+all fixes applied — batch decisions are SETTLED, do not re-litigate them). Then write C16's
+implementation plan (writing-plans skill → route to Codex → apply fixes → build; don't wait for
+Kevin between phases).
 
-C15 facts (verified 2026-07-08): app/api/site-audit/route.ts (~line 34) + bulk-queue/route.ts
-still derive requestedBy via sanitizeOperatorName(er-operator-name cookie) — Google SSO never
-sets that cookie, so every site audit since SSO has requestedBy = null and can never match
-"Mine" (lib/ada-audit/recents-query.ts compares against getOperatorLabel = session.name ??
-email). A stale legacy cookie can also MISattribute. Fix = both routes use
-getOperatorLabel(authCookie, operatorCookie) exactly like app/api/ada-audit/route.ts:56-59.
-Scheduled audits keep 'scheduled'. NO backfill. Tests: all four operator-resolution branches
-(session name / session email / legacy-cookie fallback — "no session" does NOT mean null / null
-when both absent). No migration, no UI change. Write the plan (writing-plans skill, route to
-Codex, apply fixes, don't wait for Kevin), then build per ritual.
+C16 scope (settled): one sidebar group "Audits" at /ada-audit replacing both nav entries (keep
+HIDDEN registry ownership of /seo-audits/* so toolForPathname() still resolves the retained
+result/compare routes; update components/footer.tsx too); AuditIndexTabs → Site Audit tab first
++ default; SF CSV upload (SeoUploadCard) becomes a collapsed optional section when Scan Type =
+SEO; unified recents (Site ADA · Site SEO · Single Page · SF Upload badges + All/Mine —
+Session.workflow='technical' only, stable cursor order (createdAt DESC, type, id), page-two
+correctness tested, keeps session delete/search/client-filter); additive Session.requestedBy
+migration stamped ONLY at session creation (the /api/upload append path must NOT overwrite);
+/seo-audits index → permanentRedirect() (308) with /seo-audits/results/* + share/compare URLs
+untouched; seoOnly audits stop redirecting off /ada-audit/site/[id] (transient → SiteAuditPoller,
+complete → SEO results run page — branch BEFORE the ADA summary resolution or seoOnly dead-ends
+at "Result data unavailable"); update ALL 8 enumerated ?scan=/seoOnly link producers
+(SiteAuditForm, QuickSiteAuditWidget, LiveNowWidget, QueueMemberRow, DashboardQueueStatus,
+ScheduledScansCard, client-dashboard link-builders, footer), then retire SeoScanForm.
 
-After C15 ships: C16 (full merge of SEO Audits into Site Audits — one "Audits" section, unified
-recents + Session.requestedBy migration, /seo-audits index 308, seoOnly audits adopt
-/ada-audit/site/[id] as progress page), then C17 (progress maturation), C18 (results-page
-Accessibility|SEO tabs + pattern dropdowns), then C14 (prospect sales audit view). Each gets its
-own plan via the ritual; the umbrella spec §s carry the settled design + Codex catches.
+After C16: C17 (progress maturation), C18 (results-page Accessibility|SEO tabs + pattern
+dropdowns; also fold in the triage checkedBy legacy-cookie derivation flagged in C15's tracker
+entry), then C14 (prospect sales audit view). One leftover Kevin eyeball from C15: run a fresh
+authed site audit and confirm it appears under "Mine" on /ada-audit recents.
 
 STANDING GATE (decided 2026-07-08): NO AI API — Kevin ruled there are no plans to use any AI API
 (Anthropic or any LLM provider). Never propose or build AI-API features. All AI stays the
@@ -66,9 +71,16 @@ classes reachable by the content globs (incl. ./lib/**).
 
 ## Current state (2026-07-08)
 
-- **NEW: audit-consolidation batch C15–C18 (Kevin's re-prioritization, this session).**
+- **C15 — SHIPPED 2026-07-08 (PR #136, main `348d46e`, deployed + prod-verified).**
+  Both `POST /api/site-audit` + `bulk-queue` now derive `requestedBy` via SSO-aware
+  `getOperatorLabel`. No backfill (nulls unattributable). New mock-based
+  `app/api/site-audit/route.requested-by.test.ts` (do NOT convert it to DB-backed —
+  real `queueSiteAuditRequest` fires unawaited `processNext()`). ⚠ Sibling bug left
+  by design: triage `checkedBy` (`app/api/site-audit/[id]/checks/route.ts:38`) still
+  uses the legacy cookie — fold into C18. Kevin eyeball pending: fresh audit under "Mine".
+- **Audit-consolidation batch C15–C18 (Kevin's re-prioritization, this session).**
   Umbrella spec `../specs/2026-07-08-audit-consolidation-batch-design.md` — Codex
-  accept-with-named-fixes ×12, all applied. Priority: **C15 → C16 → C17 → C18 → C14**.
+  accept-with-named-fixes ×12, all applied. Priority: **C15 ✅ → C16 → C17 → C18 → C14**.
   Kevin-locked decisions: FULL merge (SEO Audits folds into one "Audits" section at
   `/ada-audit`; SF CSV upload becomes an optional section under Scan Type = SEO); ONE
   unified recents list (4 type badges + All/Mine); results page gets Accessibility|SEO
