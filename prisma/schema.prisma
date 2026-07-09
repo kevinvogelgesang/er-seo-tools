@@ -51,6 +51,7 @@ model Session {
   seoRoadmap      SeoRoadmap?
   keywordResearch KeywordResearchSession? @relation("KeywordResearchForSession")
   workflow        String   @default("technical") // 'technical' | 'keyword-research'
+  requestedBy     String?  // C16: operator label at session creation (SSO-aware); null pre-C16
   siteHost        String?
   totalUrls       Int?
   criticalCount   Int?
@@ -63,6 +64,7 @@ model Session {
   @@index([status])
   @@index([clientId])
   @@index([workflow])
+  @@index([requestedBy, createdAt])
 }
 
 model ShareLink {
