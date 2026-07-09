@@ -7,6 +7,8 @@
 //   - Single-report status still polled when a single reportId is available
 
 import { useState, useEffect } from 'react'
+import { StatusPill } from '@/components/ui/StatusPill'
+import { reportStatusTone } from './status-tone'
 
 interface ClientItem { id: number; name: string }
 interface ReportStatus {
@@ -240,12 +242,6 @@ export function GenerateReportForm() {
     error: 'Error',
   }
 
-  const batchStatusCls: Record<string, string> = {
-    running: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400',
-    complete: 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400',
-    error: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400',
-  }
-
   return (
     <div className="space-y-6">
       {/* Generate form */}
@@ -369,11 +365,10 @@ export function GenerateReportForm() {
         <div className="bg-white dark:bg-navy-card rounded-xl border border-gray-200 dark:border-navy-border p-6">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80 mb-3">Batch Progress</h2>
           <div className="flex items-center gap-3 mb-2">
-            <span
-              className={`text-xs font-semibold px-2 py-0.5 rounded ${batchStatusCls[batchStatus.status] ?? 'bg-gray-100 text-gray-500'}`}
-            >
-              {batchStatusLabel[batchStatus.status] ?? batchStatus.status}
-            </span>
+            <StatusPill
+              label={batchStatusLabel[batchStatus.status] ?? batchStatus.status}
+              tone={reportStatusTone(batchStatus.status)}
+            />
             <span className="text-xs text-gray-500 dark:text-white/40">
               {batchStatus.counts.ready} ready · {batchStatus.counts.rendering} rendering · {batchStatus.counts.queued} queued · {batchStatus.counts.error} error
             </span>
@@ -393,17 +388,10 @@ export function GenerateReportForm() {
             <div className="space-y-2">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-gray-500 dark:text-white/50 text-xs w-16 flex-shrink-0">Status</span>
-                <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                    reportStatus.status === 'ready'
-                      ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                      : reportStatus.status === 'error'
-                      ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
-                      : 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-                  }`}
-                >
-                  {statusLabel[reportStatus.status] ?? reportStatus.status}
-                </span>
+                <StatusPill
+                  label={statusLabel[reportStatus.status] ?? reportStatus.status}
+                  tone={reportStatusTone(reportStatus.status)}
+                />
               </div>
 
               <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-white/40">
