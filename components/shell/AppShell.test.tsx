@@ -43,7 +43,7 @@ describe('AppShell', () => {
     // icon-only state is observable here.
     document.documentElement.setAttribute('data-sidebar', 'collapsed')
     render(<AppShell><p>x</p></AppShell>)
-    expect(screen.getByLabelText('Site Audits')).toBeTruthy()
+    expect(screen.getByLabelText('Audits')).toBeTruthy()
   })
 
   it('toggling collapse persists to localStorage and stamps the html attribute', () => {
@@ -62,7 +62,7 @@ describe('AppShell', () => {
     const drawer = screen.getByRole('dialog', { name: 'Navigation' })
     expect(drawer).toBeTruthy()
     // clicking a nav link inside the drawer closes it
-    fireEvent.click(screen.getAllByText('SEO Audits')[1] ?? screen.getAllByText('SEO Audits')[0])
+    fireEvent.click(screen.getAllByText('Audits')[1] ?? screen.getAllByText('Audits')[0])
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
   })
 

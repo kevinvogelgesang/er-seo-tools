@@ -4,6 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/db';
 import { isValidSessionId, getUploadDir, getClientIp } from '@/lib/upload-helpers';
+import { AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME, getOperatorLabel } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -219,12 +220,19 @@ export async function POST(request: NextRequest) {
         data: { files: JSON.stringify(updatedFiles), ...(workflow === 'keyword-research' ? { workflow } : {}) },
       });
     } else {
+      // C16: stamp attribution at session creation only — appends to an
+      // existing pending session must never overwrite the original creator.
+      const requestedBy = await getOperatorLabel(
+        request.cookies.get(AUTH_COOKIE_NAME)?.value,
+        request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value,
+      );
       await prisma.session.create({
         data: {
           id: sessionId,
           files: JSON.stringify(fileNames),
           status: 'pending',
           workflow,
+          requestedBy,
         },
       });
     }

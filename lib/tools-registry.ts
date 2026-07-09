@@ -13,6 +13,10 @@ export interface ToolDef {
   id: string
   name: string
   href: string
+  // C16: additional path prefixes owned by this tool — toolForPathname treats
+  // them like href so retained routes (/seo-audits/results/*, /seo-audits/diff)
+  // resolve to the merged entry for Topbar titles + sidebar active state.
+  aliases?: string[]
   group: NavGroupId | 'footer'
   icon: ComponentType<{ className?: string }>
   description: string
@@ -40,19 +44,12 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
-    id: 'site-audit', name: 'Site Audits', href: '/ada-audit', group: 'run', icon: IconSiteAudit,
-    description: 'ADA + live SEO scans, schedules & queue',
+    id: 'audits', name: 'Audits', href: '/ada-audit', aliases: ['/seo-audits'], group: 'run', icon: IconSiteAudit,
+    description: 'Site, single-page & SF-upload audits — ADA + SEO',
     children: [
       { name: 'Run an audit', href: '/ada-audit' },
       { name: 'Audit queue', href: '/ada-audit/queue' },
       { name: 'Recents', href: '/ada-audit/recents' },
-    ],
-  },
-  {
-    id: 'seo-parser', name: 'SEO Audits', href: '/seo-audits', group: 'run', icon: IconParser,
-    description: 'Screaming Frog uploads & crawl diffs',
-    children: [
-      { name: 'All sessions', href: '/seo-audits' },
       { name: 'Compare crawls', href: '/seo-audits/diff' },
     ],
   },
@@ -76,16 +73,21 @@ export const TOOLS: ToolDef[] = [
   { id: 'admin', name: 'Ops', href: '/admin', group: 'footer', icon: IconSettings, description: 'System health & operations', hidden: true },
 ]
 
-// Longest-prefix match so /ada-audit/queue → site-audit; '/' is exact-only.
+// Longest-prefix match over href + aliases so /ada-audit/queue AND
+// /seo-audits/diff both → 'audits'; '/' is exact-only.
 export function toolForPathname(pathname: string): ToolDef | undefined {
   let best: ToolDef | undefined
+  let bestLen = -1
   for (const t of TOOLS) {
-    if (t.href === '/') {
-      if (pathname === '/') return t
-      continue
-    }
-    if (pathname === t.href || pathname.startsWith(t.href + '/')) {
-      if (!best || t.href.length > best.href.length) best = t
+    for (const prefix of [t.href, ...(t.aliases ?? [])]) {
+      if (prefix === '/') {
+        if (pathname === '/') return t
+        continue
+      }
+      if ((pathname === prefix || pathname.startsWith(prefix + '/')) && prefix.length > bestLen) {
+        best = t
+        bestLen = prefix.length
+      }
     }
   }
   return best

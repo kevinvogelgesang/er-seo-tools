@@ -14,8 +14,9 @@ const QUEUE_POLL_INTERVAL_MS = 5000
 
 type Tab = 'single' | 'site'
 
+// C16: Site Audit is the primary surface — default tab, first in order.
 function parseTab(value: string | null): Tab {
-  return value === 'site' ? 'site' : 'single'
+  return value === 'single' ? 'single' : 'site'
 }
 
 interface Props {
@@ -29,15 +30,10 @@ interface Props {
 export default function AuditIndexTabs({ recentItems, operator, initialScope, notifyAvailable = false }: Props) {
   const searchParams = useSearchParams()
 
-  // Initial tab derived from URL so SSR + first paint match. Infer 'site'
-  // when ?prefillDomain= is present without an explicit ?auditTab= (a
-  // prefill is only meaningful on the Full Site form).
-  const [tab, setTab] = useState<Tab>(() => {
-    const explicit = searchParams.get('auditTab')
-    if (explicit) return parseTab(explicit)
-    if (searchParams.get('prefillDomain')) return 'site'
-    return 'single'
-  })
+  // Initial tab derived from URL so SSR + first paint match. Site is the
+  // default (C16), so the old ?prefillDomain= inference is redundant —
+  // an explicit ?auditTab= still wins.
+  const [tab, setTab] = useState<Tab>(() => parseTab(searchParams.get('auditTab')))
 
   // Honor URL changes while the page is mounted (e.g., clicking a Clients
   // "Run audit" link from elsewhere on the same page). We only react to the
@@ -45,7 +41,6 @@ export default function AuditIndexTabs({ recentItems, operator, initialScope, no
   useEffect(() => {
     const explicit = searchParams.get('auditTab')
     if (explicit) setTab(parseTab(explicit))
-    else if (searchParams.get('prefillDomain')) setTab('site')
   }, [searchParams])
 
   // Lifted queue poll — single 5s interval feeds DashboardQueueStatus,
@@ -86,6 +81,19 @@ export default function AuditIndexTabs({ recentItems, operator, initialScope, no
             <button
               type="button"
               role="tab"
+              aria-selected={tab === 'site'}
+              onClick={() => setTab('site')}
+              className={`px-3 py-1.5 text-[12px] font-body font-semibold rounded-md transition-colors ${
+                tab === 'site'
+                  ? 'bg-white dark:bg-navy-card text-navy dark:text-white shadow-sm'
+                  : 'text-navy/50 dark:text-white/50 hover:text-navy dark:hover:text-white'
+              }`}
+            >
+              Site Audit
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tab === 'single'}
               onClick={() => setTab('single')}
               className={`px-3 py-1.5 text-[12px] font-body font-semibold rounded-md transition-colors ${
@@ -95,19 +103,6 @@ export default function AuditIndexTabs({ recentItems, operator, initialScope, no
               }`}
             >
               Single Page
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'site'}
-              onClick={() => setTab('site')}
-              className={`px-3 py-1.5 text-[12px] font-body font-semibold rounded-md transition-colors ${
-                tab === 'site'
-                  ? 'bg-white dark:bg-navy-card text-navy dark:text-white shadow-sm'
-                  : 'text-navy/50 dark:text-white/50 hover:text-navy dark:hover:text-white'
-              }`}
-            >
-              Full Site
             </button>
           </div>
         </div>
@@ -122,8 +117,9 @@ export default function AuditIndexTabs({ recentItems, operator, initialScope, no
       {/* Clients section */}
       <ClientsAuditSummary />
 
-      {/* Recents — filtered by operator on home, all on full page */}
-      <RecentsTable initialItems={recentItems} initialScope={initialScope} operator={operator} variant="home" />
+      {/* Recents — filtered by operator on home, all on full page. The home
+          variant never pages, so no cursor is threaded through. */}
+      <RecentsTable initialItems={recentItems} initialNextCursor={null} initialScope={initialScope} operator={operator} variant="home" />
     </div>
   )
 }

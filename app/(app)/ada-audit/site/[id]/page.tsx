@@ -20,7 +20,7 @@ import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
-import { seoOnlyRedirectTarget } from './seo-only-redirect'
+import { resolveSeoOnlyView } from './seo-only-view'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,11 +42,6 @@ export default async function SiteAuditResultPage({ params }: Props) {
   })
 
   if (!audit) notFound()
-
-  // C11: seoOnly audits have no ADA data — send them to the SEO parser
-  // instead of rendering the ADA "Result data unavailable" fallback.
-  const seoOnlyTarget = seoOnlyRedirectTarget(audit)
-  if (seoOnlyTarget) redirect(seoOnlyTarget)
 
   const breadcrumb = (
     <div className="flex items-center gap-2 text-[13px] font-body text-navy/50 dark:text-white/50">
@@ -128,6 +123,37 @@ export default async function SiteAuditResultPage({ params }: Props) {
             Try again
           </Link>
         </div>
+      </main>
+    )
+  }
+
+  // ── Complete: seoOnly (C16) ──────────────────────────────────────────────────
+  // Codex fix #4: this branch runs BEFORE the ADA summary resolution — a
+  // seoOnly audit has neither an ADA summary nor an ada-audit CrawlRun, so
+  // the flow below would dead-end at "Result data unavailable". Transient
+  // seoOnly audits already rendered the poller above; error/cancelled used
+  // the shared terminal branches.
+  if (audit.seoOnly) {
+    const liveRun = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'seo-parser' } },
+      select: { id: true },
+    })
+    const view = resolveSeoOnlyView(audit, liveRun?.id ?? null)
+    if (view.kind === 'redirect') redirect(view.href)
+    const seoPhase = classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
+    // SeoPhaseBanner owns the phase-specific copy — the heading must not
+    // promise "building" when the verifier failed.
+    const building = seoPhase.state === 'queued' || seoPhase.state === 'running'
+    return (
+      <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
+        {breadcrumb}
+        <div>
+          <h1 className="font-display font-bold text-[24px] text-navy dark:text-white">{audit.domain}</h1>
+          <p className="text-[13px] font-body text-navy/60 dark:text-white/60 mt-1">
+            {building ? 'SEO scan complete — verifying links and building results. Reload to check progress.' : 'SEO scan'}
+          </p>
+        </div>
+        <SeoPhaseBanner phase={seoPhase} />
       </main>
     )
   }

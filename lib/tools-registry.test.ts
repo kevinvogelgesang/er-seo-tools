@@ -31,10 +31,30 @@ describe('tools registry', () => {
 
   it('toolForPathname matches longest prefix, exact for home', () => {
     expect(toolForPathname('/')!.id).toBe('home')
-    expect(toolForPathname('/ada-audit/queue')!.id).toBe('site-audit')
-    expect(toolForPathname('/seo-audits/results/abc')!.id).toBe('seo-parser')
+    expect(toolForPathname('/ada-audit/queue')!.id).toBe('audits')
+    expect(toolForPathname('/seo-audits/results/abc')!.id).toBe('audits')
+    expect(toolForPathname('/seo-audits/diff')!.id).toBe('audits')
     expect(toolForPathname('/clients/12')!.id).toBe('clients')
     expect(toolForPathname('/nonexistent')).toBeUndefined()
+  })
+
+  it('C16: one merged Audits entry owns both path trees; no seo-parser entry remains', () => {
+    expect(TOOLS.find((t) => t.id === 'seo-parser')).toBeUndefined()
+    expect(TOOLS.find((t) => t.id === 'site-audit')).toBeUndefined()
+    const audits = TOOLS.find((t) => t.id === 'audits')!
+    expect(audits.name).toBe('Audits')
+    expect(audits.hidden).toBeFalsy()
+    expect(audits.aliases).toEqual(['/seo-audits'])
+    expect(audits.children?.map((c) => c.name)).toEqual(['Run an audit', 'Audit queue', 'Recents', 'Compare crawls'])
+  })
+
+  it('C16: aliases are internal, non-public paths', () => {
+    for (const t of TOOLS) {
+      for (const a of t.aliases ?? []) {
+        expect(a.startsWith('/')).toBe(true)
+        expect(isPublicPath(a), a).toBe(false)
+      }
+    }
   })
 
   it('hidden tools resolve for titles but are flagged out of the nav', () => {

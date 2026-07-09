@@ -15,7 +15,7 @@ describe('Topbar', () => {
   it('shows the active tool name as the page title', () => {
     pathnameMock.value = '/seo-audits/diff'
     render(<Topbar onMenuClick={() => {}} />)
-    expect(screen.getByRole('heading', { name: 'SEO Audits' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Audits' })).toBeTruthy()
   })
 
   it('falls back to Home on the root path', () => {
