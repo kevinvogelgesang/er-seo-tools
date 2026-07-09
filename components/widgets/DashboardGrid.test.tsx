@@ -39,8 +39,9 @@ describe('DashboardGrid', () => {
     for (const title of ['Live now', 'Start a site audit', 'Recent parses']) {
       expect(screen.getAllByText(title).length).toBeGreaterThan(0)
     }
-    // Sanity: registry has the 7 PR-2 widgets + the 2 PR-3.5 aggregates.
-    expect(WIDGETS.length).toBe(9)
+    // Sanity: 5 quick-start/live widgets + the 2 PR-3.5 aggregates (the
+    // quick-robots + quarter-week dashboard widgets were removed 2026-07-08).
+    expect(WIDGETS.length).toBe(7)
   })
 
   it('view mode shows a Customize button (aria-pressed=false) and live frames', () => {
@@ -48,7 +49,7 @@ describe('DashboardGrid', () => {
     const customize = screen.getByRole('button', { name: 'Customize' })
     expect(customize.getAttribute('aria-pressed')).toBe('false')
     // A live widget body (not the edit-mode placeholder).
-    expect(screen.getByRole('button', { name: 'Check robots.txt' })).toBeTruthy()
+    expect(screen.getByPlaceholderText('example.com')).toBeTruthy()
     expect(screen.queryByLabelText(/Move .* later/)).toBeNull()
   })
 
@@ -57,7 +58,7 @@ describe('DashboardGrid', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Customize' }))
 
     // Live bodies are gone (edit-mode tile renders a placeholder instead).
-    expect(screen.queryByRole('button', { name: 'Check robots.txt' })).toBeNull()
+    expect(screen.queryByPlaceholderText('example.com')).toBeNull()
 
     // Size steppers + move buttons visible for every widget.
     for (const widget of WIDGETS) {
@@ -115,10 +116,12 @@ describe('DashboardGrid', () => {
   it('Done returns to view mode (live frames return)', () => {
     render(<DashboardGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'Customize' }))
-    expect(screen.queryByRole('button', { name: 'Check robots.txt' })).toBeNull()
+    // Edit mode suppresses live bodies — the quick-site-audit input is gone.
+    expect(screen.queryByPlaceholderText('example.com')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
-    expect(screen.getByRole('button', { name: 'Check robots.txt' })).toBeTruthy()
+    // View mode remounts live bodies — the input is back.
+    expect(screen.getByPlaceholderText('example.com')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Customize' })).toBeTruthy()
   })
 
