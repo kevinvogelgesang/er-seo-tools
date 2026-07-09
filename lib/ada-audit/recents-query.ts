@@ -1,6 +1,19 @@
 import { prisma } from '@/lib/db'
 import { computeScore, computeScoreFromCounts } from '@/lib/ada-audit/scoring'
+import { BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
+import { SEO_PHASE_ENQUEUE_GRACE_MS } from './seo-phase'
 import type { AxeViolation } from '@/lib/ada-audit/types'
+
+// C17: statuses during which a SiteAudit row is worth live-polling.
+export const TRANSIENT_SITE_STATUSES = ['queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running'] as const
+const transientSite = (s: string) => (TRANSIENT_SITE_STATUSES as readonly string[]).includes(s)
+
+// C16 href rule for seoOnly rows, shared with the C17 compact status endpoint:
+// run-ready rows link straight to the run page; everything else lands on the
+// site page, which owns seoOnly routing.
+export function seoSiteHref(id: string, status: string, runId: string | null | undefined): string {
+  return status === 'complete' && runId ? `/seo-audits/results/run/${runId}` : `/ada-audit/site/${id}`
+}
 
 // C16 unified recents: five sources under ONE stable total order
 // (createdAt DESC, type ASC, id ASC):
@@ -30,6 +43,8 @@ export interface RecentItem {
   clientName: string | null
   requestedBy: string | null
   deletable: boolean
+  /** C17: row is worth live-polling via the compact status endpoint. */
+  inFlight: boolean
 }
 
 export interface RecentsCursor { createdAt: number; type: RecentType; id: string }
@@ -187,6 +202,26 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
     orphanRunsPromise,
   ])
 
+  // C17: a seoOnly parent flips 'complete' when the verifier STARTS — those
+  // rows stay live while the verify job is queued/running, or (no job yet)
+  // within the enqueue grace window. One batched lookup over the candidates.
+  const nowMs = Date.now()
+  const withinGrace = (completedAt: Date | null) =>
+    completedAt != null && nowMs - completedAt.getTime() < SEO_PHASE_ENQUEUE_GRACE_MS
+  const seoPending = seoSites.filter((s) => s.status === 'complete' && !s.crawlRuns[0]?.id)
+  const aliveVerifyGroups = seoPending.length
+    ? new Set(
+        (await prisma.job.findMany({
+          where: {
+            type: BROKEN_LINK_VERIFY_JOB_TYPE,
+            groupKey: { in: seoPending.map((s) => `site-audit:${s.id}`) },
+            status: { in: ['queued', 'running'] },
+          },
+          select: { groupKey: true },
+        })).map((j) => j.groupKey),
+      )
+    : new Set<string | null>()
+
   const merged: RecentItem[] = [
     ...pages.map((p): RecentItem => ({
       type: 'page', id: p.id, createdAt: p.createdAt.toISOString(),
@@ -195,6 +230,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
       startedAt: p.startedAt?.toISOString() ?? null,
       completedAt: p.completedAt?.toISOString() ?? null,
       clientName: p.client?.name ?? null, requestedBy: p.requestedBy, deletable: false,
+      inFlight: p.status === 'pending' || p.status === 'running',
     })),
     ...sessions.map((s): RecentItem => ({
       type: 'sf-upload', id: s.id, createdAt: s.createdAt.toISOString(),
@@ -203,6 +239,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
       score: s.crawlRun?.score ?? null,
       startedAt: null, completedAt: null,
       clientName: s.client?.name ?? null, requestedBy: s.requestedBy, deletable: true,
+      inFlight: false,
     })),
     ...adaSites.map((s): RecentItem => ({
       type: 'site-ada', id: s.id, createdAt: s.createdAt.toISOString(),
@@ -211,6 +248,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
       startedAt: s.startedAt?.toISOString() ?? null,
       completedAt: s.completedAt?.toISOString() ?? null,
       clientName: s.client?.name ?? null, requestedBy: s.requestedBy, deletable: false,
+      inFlight: transientSite(s.status),
     })),
     ...seoSites.map((s): RecentItem => ({
       type: 'site-seo', id: s.id, createdAt: s.createdAt.toISOString(),
@@ -218,13 +256,16 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
       // Complete + run-ready → straight to SEO results (the spec's rule:
       // completed rows with a live-scan run link to the run page); otherwise
       // the site page hosts the poller/banner (C16 seoOnly behavior).
-      href: s.status === 'complete' && s.crawlRuns[0]?.id
-        ? `/seo-audits/results/run/${s.crawlRuns[0].id}`
-        : `/ada-audit/site/${s.id}`,
+      href: seoSiteHref(s.id, s.status, s.crawlRuns[0]?.id),
       status: s.status, score: s.crawlRuns[0]?.score ?? null,
       startedAt: s.startedAt?.toISOString() ?? null,
       completedAt: s.completedAt?.toISOString() ?? null,
       clientName: s.client?.name ?? null, requestedBy: s.requestedBy, deletable: false,
+      inFlight:
+        transientSite(s.status) ||
+        (s.status === 'complete' &&
+          !s.crawlRuns[0]?.id &&
+          (aliveVerifyGroups.has(`site-audit:${s.id}`) || withinGrace(s.completedAt))),
     })),
     ...orphans.map((r): RecentItem => ({
       type: 'site-seo', id: r.id, createdAt: r.createdAt.toISOString(),
@@ -232,6 +273,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
       status: r.status, score: r.score,
       startedAt: null, completedAt: null,
       clientName: r.client?.name ?? null, requestedBy: null, deletable: false,
+      inFlight: false,
     })),
   ].sort(compareItems)
 
