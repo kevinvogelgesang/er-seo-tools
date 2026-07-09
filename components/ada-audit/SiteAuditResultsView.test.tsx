@@ -29,10 +29,6 @@ function makeSummary(overrides: Partial<SiteAuditSummary> = {}): SiteAuditSummar
 
 const baseProps = {
   domain: 'x.example',
-  clientName: null,
-  createdAt: '2026-06-12T00:00:00.000Z',
-  pagesTotal: 3,
-  pagesError: 0,
   siteAuditId: 'site-1',
 }
 
@@ -119,6 +115,7 @@ function makeCommonIssue(overrides: Partial<CommonIssue> = {}): CommonIssue {
     totalPagesScanned: 2,
     sharedAncestor: null,
     ancestorConfidence: null,
+    examplePageUrl: 'https://x.example/a',
     ...overrides,
   }
 }
@@ -188,7 +185,9 @@ describe('SiteAuditResultsView — shareMode', () => {
 
     expect(screen.getByText(/Triage (on|off)/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /^Violations/ })).toBeTruthy()
-    expect(screen.getByText('View affected pages →')).toBeTruthy()
+    // C18: the old "View affected pages" CTA is replaced by an expandable
+    // "Show affected elements" control on each pattern card.
+    expect(screen.getByRole('button', { name: /show affected elements/i })).toBeTruthy()
 
     const row = screen.getByText('x.example/a').closest('tr')!
     expect(row.className).toContain('cursor-pointer')

@@ -13,17 +13,14 @@ import { useGroupedViolations } from './useGroupedViolations'
 import GroupedViolationsView from './GroupedViolationsView'
 import CommonIssueCallout from './CommonIssueCallout'
 import { useChecks } from './useChecks'
-import { ClientDate } from '@/components/ClientDate'
 import PageRow from './PageRow'
 import { useTriageMode } from './useTriageMode'
 import { ArchivedAuditBanner } from './ArchivedAuditBanner'
 
 interface Props {
+  // C18: the domain/client/date/pages header + scores moved to
+  // SiteAuditResultsShell; this view is the Accessibility tab body only.
   domain: string
-  clientName: string | null
-  createdAt: string
-  pagesTotal: number
-  pagesError: number
   summary: SiteAuditSummary
   wcagLevel?: string
   score?: number
@@ -53,11 +50,9 @@ function paginationRange(current: number, total: number): (number | '...')[] {
 }
 
 export default function SiteAuditResultsView({
-  domain, clientName, createdAt, pagesTotal, pagesError, summary, wcagLevel, score, compliant, pdfs = [], siteAuditId,
+  domain, summary, wcagLevel, score, compliant, pdfs = [], siteAuditId,
   shareMode = false, scoreMeta,
 }: Props) {
-  const wcagLabel = wcagLevel === 'wcag22aa' ? 'WCAG 2.1 AA + Best Practices' : 'WCAG 2.1 AA'
-
   const [sortKey, setSortKey] = useState<SortKey>('total')
   const [filterImpact, setFilterImpact] = useState<ImpactFilter>('all')
   const [viewMode, setViewMode] = useState<'table' | 'by-violation'>('table')
@@ -69,16 +64,7 @@ export default function SiteAuditResultsView({
     endpoint: `/api/site-audit/${siteAuditId}/checks`,
     enabled: triageMode && !shareMode,
   })
-  /** Rule id to auto-expand/scroll-to inside the by-violation view.
-   *  Set by the CommonIssueCallout's "View affected pages" CTA. */
-  const [selectedViolationId, setSelectedViolationId] = useState<string | undefined>(undefined)
-
   const commonIssues = summary.commonIssues ?? []
-
-  const handleViewAffectedPages = (ruleId: string) => {
-    setSelectedViolationId(ruleId)
-    setViewMode('by-violation')
-  }
 
   const { issuePages, cleanPages, redirectedPages, counts } = useSiteAuditPages(summary.pages, {
     sortKey,
@@ -125,54 +111,18 @@ export default function SiteAuditResultsView({
       {summary.archived && <ArchivedAuditBanner variant="site" />}
       <ComplianceBanner />
 
-      {/* Header */}
-      <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl overflow-hidden shadow-sm">
-        <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100 dark:border-navy-border bg-gray-50 dark:bg-navy-deep">
-          <div className="w-8 h-8 rounded-lg bg-orange/15 flex items-center justify-center flex-shrink-0">
-            <svg className="w-4 h-4 text-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">Site Audit — {domain}</h2>
-              <span className="text-[10px] font-body font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-navy/10 dark:bg-white/10 text-navy/50 dark:text-white/50">
-                {wcagLabel}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-              {clientName && <span className="text-[12px] font-body text-navy/40 dark:text-white/40">{clientName}</span>}
-              <span className="text-[12px] font-body text-navy/40 dark:text-white/40"><ClientDate iso={createdAt} variant="dateTime" /></span>
-              <span className="text-[12px] font-body text-navy/40 dark:text-white/40">
-                {pagesTotal} pages
-                {pagesError > 0 && ` · ${pagesError} error${pagesError !== 1 ? 's' : ''}`}
-              </span>
-            </div>
-          </div>
-          {!shareMode && (
-            <div className="flex-shrink-0">
-              <button
-                type="button"
-                onClick={toggleTriage}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
-              >
-                {triageMode ? 'Triage on' : 'Triage off'}
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="p-6">
-          <AuditScorecardComponent
-            scorecard={summary.aggregate}
-            score={score}
-            compliant={compliant}
-            wcagLevel={wcagLevel}
-            archivedCounts={summary.archived ? summary.archivedCounts ?? { passed: null, incomplete: null } : undefined}
-            onImpactClick={handleScorecardImpactClick}
-            activeImpact={filterImpact}
-            scoreMeta={scoreMeta}
-          />
-        </div>
+      {/* Scorecard (C18: domain/scores header lives in SiteAuditResultsShell) */}
+      <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-6">
+        <AuditScorecardComponent
+          scorecard={summary.aggregate}
+          score={score}
+          compliant={compliant}
+          wcagLevel={wcagLevel}
+          archivedCounts={summary.archived ? summary.archivedCounts ?? { passed: null, incomplete: null } : undefined}
+          onImpactClick={handleScorecardImpactClick}
+          activeImpact={filterImpact}
+          scoreMeta={scoreMeta}
+        />
       </div>
 
       <KnownLimitationsNotice variant="site" />
@@ -190,13 +140,24 @@ export default function SiteAuditResultsView({
             Pages with Issues
             <span className="text-navy/40 dark:text-white/40 font-normal text-[14px] ml-2">{issuePages.length}</span>
           </h2>
+          {/* C18: triage toggle moved here from the header card. */}
+          {!shareMode && (
+            <button
+              type="button"
+              onClick={toggleTriage}
+              className={`ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body font-semibold border rounded-lg transition-colors ${triageMode ? 'bg-orange/10 border-orange text-orange' : 'border-gray-300 dark:border-navy-border text-navy/60 dark:text-white/60 hover:border-orange hover:text-orange'}`}
+            >
+              {triageMode ? 'Triage on' : 'Triage off'}
+            </button>
+          )}
         </div>
 
         {/* Site-wide common issues — renders only when at least one rule hits the threshold */}
         {commonIssues.length > 0 && (
           <CommonIssueCallout
             issues={commonIssues}
-            onViewAffectedPages={shareMode ? undefined : handleViewAffectedPages}
+            siteAuditId={siteAuditId}
+            shareMode={shareMode}
           />
         )}
 
@@ -304,7 +265,7 @@ export default function SiteAuditResultsView({
             groupedViolations={groupedViolations}
             loading={groupedLoading}
             error={groupedError}
-            selectedViolationId={selectedViolationId}
+            selectedViolationId={undefined}
           />
         )}
       </div>
