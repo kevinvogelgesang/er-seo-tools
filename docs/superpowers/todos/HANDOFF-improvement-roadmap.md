@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-08 (**A8 PR 6 shipped — `/reports` StatusPill adoption.** Sixth per-tool visual-polish pass: adopted `components/ui/StatusPill` at the three hand-rolled lifecycle-status chips in `/reports` via a new color-preserving `components/reports/status-tone.ts`, dropped the in-shell `min-h-screen bg-*` wrapper. Visual/primitive-only, gates green (3780 tests), PR #134 merged + deployed + prod-verified. D7 email arc remains fully COMPLETE. A8 stays `[~]` — open-ended.) · **Updated by:** the A8-reports session.
+**Last updated:** 2026-07-08 (Two ships this session. (1) **A8 PR 6** — `/reports` StatusPill adoption (PR #134, prod-verified). (2) **Dashboard widget removal** — Kevin-directed: dropped the `quick-robots` + `quarter-week` homepage widgets (PR #135, merged + deployed + prod-verified); both tools stay nav-only + fully usable. D7 email arc remains fully COMPLETE. A8 stays `[~]` — open-ended.) · **Updated by:** the A8-reports / dashboard-widgets session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates
 this file *and* the tracker in the same commit. This doc always reflects the
 single next action.
@@ -11,9 +11,11 @@ single next action.
 
 ```
 Continue the er-seo-tools improvement roadmap. There is NO in-flight work — the last session
-shipped A8 PR 6 (the /reports StatusPill polish, PR #134, merged + deployed + prod-verified) and
-the D7 scan-completion email arc is fully COMPLETE (notifications PR #132 + enrichment PR #133,
-smoke passed, DMARC banner resolved env-only). So this session STARTS at the roadmap menu.
+shipped two things (both merged + deployed + prod-verified): A8 PR 6 (the /reports StatusPill
+polish, PR #134) and a Kevin-directed dashboard tweak removing the Robots + Quarter-Grid homepage
+widgets (PR #135; both tools stay nav-only + fully usable). The D7 scan-completion email arc is
+fully COMPLETE (notifications PR #132 + enrichment PR #133, smoke passed, DMARC resolved env-only).
+So this session STARTS at the roadmap menu.
 
 STANDING GATE (decided 2026-07-08): NO AI API — Kevin ruled there are no plans to use any AI API
 (Anthropic or any LLM provider). Never propose or build AI-API features: direct memo generation
@@ -67,6 +69,8 @@ classes reachable by the content globs (incl. ./lib/**).
 ```
 
 ## Current state (2026-07-08)
+
+- **Homepage dashboard widget set (2026-07-08 change):** the `quick-robots` + `quarter-week` widgets were removed from `lib/widgets/registry.tsx` (Kevin-directed; no prior written note existed — the A8 spec had included them). Registry is now **7 widgets** (kpi-strip, live-now, needs-attention, quick-site-audit, quick-parser, quick-report, recent-parses). Both tools remain in the left-nav (`tools-registry.ts`) and at their routes — only the dashboard tiles are gone. If re-adding a homepage widget later, `normalizeLayout` appends newly-registered ids at defaultSize (no version bump); removals rely on drop-unknown.
 
 - **A8 per-tool visual polish arc — OPEN-ENDED (`[~]`, spec §8).** Shell/dashboard/widgets (PR 1–3.5) + PR 4 (seo-parser, #120) + PR 5 (ada-audit, #130) + **PR 6 (/reports StatusPill, #134, deployed + prod-verified 2026-07-08)** shipped. No pre-decided next tool — decide with Kevin: another per-tool pass or mark A8 `[x]`. Remaining candidates and why each is trickier than /reports was:
   - `/clients` — the only remaining tool with a ScoreRing surface, BUT `components/clients/Scorecard.tsx` uses ≥90/≥70 (max 100) and ≥8/≥5 (max 10) bands ≠ ScoreRing's ≥80/≥50 → those scores must be EXCLUDED; also purple `regression`/teal type-tags/inline-hex priority chips don't map to StatusPill tones. Bigger, messier slice.
