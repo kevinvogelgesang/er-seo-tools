@@ -1,7 +1,8 @@
 # Prospect Sales Audit View (C14) — Design
 
 **Date:** 2026-07-09
-**Status:** Approved by Kevin (brainstorm 2026-07-09); pending Codex review
+**Status:** Approved by Kevin (brainstorm 2026-07-09); Codex-reviewed
+(accept-with-named-fixes ×9, all applied)
 **Tracker:** C14 in `../todos/2026-06-10-improvement-roadmap-tracker.md`
 **Relation to C18:** designed to land after C18 (results-page reorg); file
 footprints are disjoint except one shared seam (see §10).
@@ -53,8 +54,21 @@ model Prospect {
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
   siteAudits          SiteAudit[]
+
+  @@index([domain])
+  @@index([salesTokenExpiresAt])
 }
 ```
+
+`SiteAudit.prospectId` gets `@@index([prospectId])` (Codex fix #6 — the
+cleanup sweep, prospect list, and latest-audit queries must not table-scan).
+
+**Prospect dedupe (Codex fix #7):** one Prospect per normalized domain,
+best-effort app-level (the client-schedules precedent, no DB unique). The
+create route checks for an existing prospect with the same normalized
+domain and returns it (409-style `{existing}` payload); the intake UI then
+offers "Re-scan existing prospect" instead of silently creating a duplicate
+whose stable link would fragment.
 
 `SiteAudit` gains nullable `prospectId Int?` + `prospect Prospect?`
 relation (`onDelete: SetNull` — mirrors `clientId`). A prospect scan is a
@@ -66,12 +80,24 @@ Additive migration also adds nullable `CrawlRun.schemaTypesJson String?`
 (see §6 GEO).
 
 **Token semantics:** one stable link per prospect. The public page resolves
-`salesToken` → Prospect → **latest completed** (`status='complete'`) audit
-for that prospect. Re-scan before a meeting → same link shows fresher data.
+`salesToken` → Prospect → **latest reportable** audit for that prospect.
+"Reportable" (Codex fix #4) = `status='complete'` **AND the live-scan
+`seo-parser` CrawlRun exists** — the finalizer flips the parent to
+`complete` BEFORE the broken-link-verify builder writes the SEO run, so a
+plain latest-complete rule would render a report with empty SEO/GEO
+sections during the verifier window (exactly when sales copies the link).
+If a newer audit is complete but not yet reportable, the previous
+reportable audit keeps serving. Re-scan before a meeting → same link shows
+fresher data once reportable. (Accepted trade-off, Kevin to confirm: a
+leave-behind's content changes silently after a re-scan — the stable-link
+semantics are intentional; §5's rendered-audit pinning keeps any single
+page-load internally consistent.)
 TTL 30 days (`SALES_TTL_MS`, same shape as C4's `SHARE_TTL_MS`); "Copy
-sales link" extends-or-rotates exactly like
-`app/api/site-audit/[id]/share/route.ts` (extend `salesTokenExpiresAt` if
-valid, rotate `crypto.randomUUID()` if missing/expired). The cleanup sweep
+sales link" **POSTs** to the share route, which extends-or-rotates exactly
+like `app/api/site-audit/[id]/share/route.ts` (extend
+`salesTokenExpiresAt` if valid, rotate `crypto.randomUUID()` if
+missing/expired); **GET is read-only** (returns the current token or null,
+never mutates expiry — Codex fix #9). The cleanup sweep
 (`lib/cleanup.ts` expired-share block) gains a Prospect clause nulling
 expired `salesToken`/`salesTokenExpiresAt`.
 
@@ -113,7 +139,7 @@ audit yet → friendly "your report is being prepared" page (NOT 404).
 
 1. **Hero** — ER branding; "Website Opportunity Report — prepared for
    *{prospect.name}*"; domain; scan date; pages scanned. Four headline
-   tiles: Accessibility score · SEO score · Core Web Vitals grade ·
+   tiles: Accessibility score · SEO score · Performance grade ·
    Structured Data coverage — color-graded (red/amber/green) for
    across-the-table readability.
 2. **Four section cards** — progressive disclosure:
@@ -137,7 +163,7 @@ Responsive + print-friendly (projector in meeting, phone for leave-behind).
 |---|---|---|
 | Accessibility | ADA score, compliance statement, top site-wide patterns w/ ONE representative screenshot + bounded affected-element sample each | `SiteAudit.summary` blob or `buildSummaryFromFindings` fallback; canonical score from ada-audit `CrawlRun.score`; representative-page loader (C18 seam, §10) |
 | SEO | live SEO score, broken links/images w/ example URLs, on-page issues w/ example pages, duplicate-content groups, sitemap coverage gap | live-scan `CrawlRun` (`siteAuditId_tool`): findings + `scoreBreakdown` + `contentSimilarityJson` + `discoveryCoverageJson` |
-| Core Web Vitals | p75 LCP/CLS/TBT, % pages passing, perf-score distribution, worst-page examples ("how long your applicants wait") | per-page child `AdaAudit.lighthouseSummary` rows (survive 90-d pruning); NEW pure aggregation (§6). No INP — PSI summary doesn't capture it |
+| Performance | p75 LCP/CLS + TBT, % pages passing, perf-score distribution, worst-page examples ("how long your applicants wait") | per-page child `AdaAudit.lighthouseSummary` rows (survive 90-d pruning); NEW pure aggregation (§6). **Honest labeling (Codex fix #8):** this is Lighthouse *lab* data — TBT is a proxy, not a Core Web Vital, INP isn't captured, and it's not CrUX field data. Section title "Performance", copy says "Lighthouse-measured"; never claim "Core Web Vitals pass/fail" |
 | GEO (schema slice) | schema coverage %, schema-type histogram ("no Course or FAQPage structured data — AI search can't recommend your programs"), hreflang/canonical findings if present | `scoreBreakdown` schema factor + NEW `CrawlRun.schemaTypesJson` (§6) + validation findings |
 
 **Evidence curation rule (the safety boundary):** all selection happens
@@ -147,12 +173,21 @@ never fan out across child audits). The token grants access ONLY to what
 the loader chose — never the full pages-with-issues dataset, arbitrary
 screenshots, or any internal API. No internal links anywhere on the page.
 
+**Rendered-audit pinning (Codex fix #3):** the page embeds the resolved
+audit identity in every screenshot URL it renders. If a re-scan completes
+between the HTML render and the image requests, the screenshot route must
+NOT re-resolve "latest reportable" independently — it authorizes the
+`{adaAuditId, file}` in the URL against the token's prospect (ownership
+chain), so an already-open report keeps loading its own images.
+
 ## 6. New server pieces (all pure/testable)
 
 - **`lib/sales/sales-report-data.ts`** — `loadSalesReportData(token)`:
-  token+expiry validation → prospect → latest complete audit → all four
-  sections' data in one pass, including curated-example selection. The
-  single loader the page and the screenshot route share for authorization.
+  token+expiry validation → prospect → latest **reportable** audit (§3) →
+  all four sections' data in one pass, including curated-example
+  selection. The screenshot route shares the token/prospect validation
+  helper but does its own ownership-chain check against the URL's pinned
+  audit id (§5) — it never re-resolves "latest".
 - **`lib/sales/cwv-aggregate.ts`** — pure `LighthouseSummary[]` → site
   roll-up: p75 LCP/CLS/TBT, pass %, perf-score distribution, worst pages.
   Degrades below a floor (< 3 measured pages → "measured on N pages" copy
@@ -161,16 +196,29 @@ screenshots, or any internal API. No internal links anywhere on the page.
   consequence one-liners keyed by issue type/axe rule family, CTA text) in
   one editable module; components stay copy-free.
 - **Builder addition** (`lib/jobs/handlers/broken-link-verify.ts`):
-  aggregate schema-type histogram (`{type: pageCount}`, bounded to top ~20
-  types) from `HarvestedPageSeo.detailsJson.schemaTypes`, computed BEFORE
-  transient deletion (same seam as Phase 5 content similarity), written to
-  new nullable `CrawlRun.schemaTypesJson`. Fail-to-null; never fails the
+  aggregate schema-type histogram from
+  `HarvestedPageSeo.detailsJson.schemaTypes`, computed BEFORE transient
+  deletion (same seam as Phase 5 content similarity), written to new
+  nullable `CrawlRun.schemaTypesJson`. **Versioned shape with denominators
+  (Codex fix #5):** `{v: 1, observedPages, pagesWithSchema, types:
+  [{type, pages}]}` (types bounded to top ~20) — coverage % is computed
+  from these raw counts, NOT from `scoreBreakdown`'s schema factor (that's
+  weighted score data, not a denominator). Fail-to-null; never fails the
   run write. Benefits all future audits, not just prospects.
-- **`app/api/sales/[token]/screenshot/[file]/route.ts`** — token-validated
-  streaming of screenshot artifacts: validates token → prospect → file
-  belongs to that prospect's latest-complete audit's curated set;
-  path-traversal-guarded. The internal cookie-gated screenshot route is
-  untouched (C18's rule: audit IDs and filenames are not authorization).
+- **`app/api/sales/[token]/screenshot/[adaAuditId]/[file]/route.ts`** —
+  token-validated streaming of screenshot artifacts. Filenames like
+  `color-contrast-0.png` are only unique per child audit
+  (`SCREENSHOTS_DIR/<adaAuditId>/<file>`), so the public URL carries the
+  child audit id (Codex fix #2). Authorization = ownership chain: token
+  valid+unexpired → prospect → `adaAuditId`'s parent SiteAudit belongs to
+  that prospect (any of its complete audits, per the pinning rule above) →
+  filename allowlist pattern + traversal guard → stream. Curated-set
+  membership is NOT re-checked per image: every artifact under an owned
+  audit is a screenshot of the prospect's own site, so ownership is the
+  security boundary; curation bounds what the page *renders*, not a
+  secret. The internal cookie-gated screenshot route is untouched (C18's
+  rule: audit IDs and filenames are not authorization — here the TOKEN is
+  the authorization; ids only scope it).
 
 New UI in **`components/sales/`** only (hero tiles, section cards,
 disclosure groups, example cards, CTA block) — no changes to
@@ -178,25 +226,29 @@ disclosure groups, example cards, CTA block) — no changes to
 
 ## 7. Security
 
-- `middleware.ts` `PUBLIC_PATH_PREFIXES` gains `/sales/` (public view) —
-  the `/api/sales/[token]/` screenshot prefix is public; the intake API
-  routes (`/api/sales/prospects…`) stay cookie-gated.
-  (Note: `/sales/` prefix must not collide with the cookie-gated intake —
-  intake lives at exactly `/sales` inside `(app)`; the public route is
-  `/sales/[token]`. Middleware match must be exact-path-aware: `/sales`
-  gated, `/sales/<token>` public.)
+- `middleware.ts`: public matching for the sales surface is
+  **regex-based, NOT prefix-based** (Codex fix #1). A `/api/sales/`
+  prefix would make the cookie-gated intake routes
+  (`/api/sales/prospects…`) public. Public matchers (the skill-handoff
+  regex precedent already in `middleware.ts`):
+  `^/sales/[^/]+$` (public view) and
+  `^/api/sales/[^/]+/screenshot/[^/]+/[^/]+$` (screenshot streaming).
+  Exact `/sales` (intake page) and everything under `/api/sales/prospects`
+  stay cookie-gated.
 - Tokens: `crypto.randomUUID()`, unique, 30-d TTL, swept by cleanup.
-- Screenshot route authorizes per-file against the curated set, not just
-  the token.
+- Screenshot route authorizes the full ownership chain (token → prospect →
+  child audit → allowlisted filename), pinned to the rendered audit (§5).
 - Prospect scans use the existing SSRF-guarded fetch paths unchanged.
 - Public page renders NO internal affordances/links; share-view precedent
   (zero cookie-gated fetches) applies.
 
 ## 8. Edge cases / degradation
 
-- Token valid, no completed audit → "report being prepared" page.
+- Token valid, no reportable audit → "report being prepared" page (this
+  also covers the complete-but-verifier-still-building window).
 - Latest scan failed → intake page surfaces the failure; public page keeps
-  serving the previous complete audit if one exists, else "being prepared".
+  serving the previous reportable audit if one exists, else "being
+  prepared".
 - PSI partial/failed pages → CWV aggregates over measured pages with an
   "N of M pages measured" line; section hides below a minimum sample.
 - Blob-pruned audit (> 90 d) → findings-fallback data; screenshots absent →
