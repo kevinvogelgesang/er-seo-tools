@@ -1,46 +1,140 @@
 'use client'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import type { RecentItem } from '@/lib/ada-audit/recents-query'
+import type { RecentItem, RecentType } from '@/lib/ada-audit/recents-query'
 import { ClientDate } from '@/components/ClientDate'
 import { formatDuration, formatDurationHover } from '@/lib/ada-audit/duration'
 
 type Scope = 'all' | 'mine'
 interface Props {
   initialItems: RecentItem[]
+  initialNextCursor: string | null
   initialScope: Scope
   operator: string | null
   variant: 'home' | 'full'
 }
 
 const HOME_LIMIT = 10
+const PAGE_LIMIT = 50
+const SEARCH_DEBOUNCE_MS = 300
 
-export default function RecentsTable({ initialItems, initialScope, operator, variant }: Props) {
+// C16 unified feed badges — one per source type.
+const TYPE_BADGES: Record<RecentType, { label: string; className: string }> = {
+  'site-ada': { label: 'Site ADA', className: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300' },
+  'site-seo': { label: 'Site SEO', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' },
+  page: { label: 'Single Page', className: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' },
+  'sf-upload': { label: 'SF Upload', className: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60' },
+}
+
+export default function RecentsTable({ initialItems, initialNextCursor, initialScope, operator, variant }: Props) {
   const [items, setItems] = useState(initialItems)
+  const [nextCursor, setNextCursor] = useState(initialNextCursor)
   const [scope, setScope] = useState<Scope>(initialScope)
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  // Full-variant filters (C16 — HistoryList parity: search + client filter).
+  const [qInput, setQInput] = useState('')
+  const [q, setQ] = useState('')
+  const [clientFilter, setClientFilter] = useState('')
+  const [clients, setClients] = useState<{ id: number; name: string }[]>([])
+  // Two-step session delete (C16 — HistoryList parity).
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const seqRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
+  const mountedRef = useRef(true)
 
-  const changeScope = useCallback(async (next: Scope) => {
-    if (next === scope) return
-    setScope(next)
+  const limit = variant === 'home' ? HOME_LIMIT : PAGE_LIMIT
+
+  const buildParams = useCallback((s: Scope, cursor?: string | null) => {
+    const p = new URLSearchParams({ scope: s, limit: String(limit) })
+    if (q) p.set('q', q)
+    if (clientFilter) p.set('clientId', clientFilter)
+    if (cursor) p.set('cursor', cursor)
+    return p
+  }, [limit, q, clientFilter])
+
+  // Debounce the search input into the applied q.
+  useEffect(() => {
+    const t = setTimeout(() => setQ(qInput.trim()), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [qInput])
+
+  // Client list for the filter dropdown — full variant only.
+  useEffect(() => {
+    if (variant !== 'full') return
+    const controller = new AbortController()
+    fetch('/api/clients', { signal: controller.signal })
+      .then((r) => r.json())
+      .then((data: { id: number; name: string }[]) => {
+        if (Array.isArray(data)) setClients(data)
+      })
+      .catch(() => { /* dropdown stays clients-less */ })
+    return () => controller.abort()
+  }, [variant])
+
+  const refetch = useCallback(async (s: Scope) => {
     setLoading(true)
     abortRef.current?.abort()
     const ac = new AbortController()
     abortRef.current = ac
     const seq = ++seqRef.current
-    const limit = variant === 'home' ? HOME_LIMIT : 100
     try {
-      const res = await fetch(`/api/ada-audit/recents?scope=${next}&limit=${limit}`, { signal: ac.signal })
-      const json = await res.json() as { items: RecentItem[] }
-      if (seq === seqRef.current) setItems(json.items)
+      const res = await fetch(`/api/ada-audit/recents?${buildParams(s)}`, { signal: ac.signal })
+      const json = await res.json() as { items: RecentItem[]; nextCursor: string | null }
+      if (seq === seqRef.current) { setItems(json.items); setNextCursor(json.nextCursor) }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') console.warn('[RecentsTable] fetch failed:', e)
     } finally {
       if (seq === seqRef.current) setLoading(false)
     }
-  }, [scope, variant])
+  }, [buildParams])
+
+  const changeScope = useCallback(async (next: Scope) => {
+    if (next === scope) return
+    setScope(next)
+    await refetch(next)
+  }, [scope, refetch])
+
+  // Refetch when the applied filters change (skip the initial mount — the
+  // server already seeded initialItems for the empty-filter state).
+  const firstFilterRun = useRef(true)
+  useEffect(() => {
+    if (firstFilterRun.current) { firstFilterRun.current = false; return }
+    void refetch(scope)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, clientFilter])
+
+  useEffect(() => () => { mountedRef.current = false }, [])
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor) return
+    setLoadingMore(true)
+    try {
+      const res = await fetch(`/api/ada-audit/recents?${buildParams(scope, nextCursor)}`)
+      const json = await res.json() as { items: RecentItem[]; nextCursor: string | null }
+      if (!mountedRef.current) return
+      setItems((prev) => [...prev, ...json.items])
+      setNextCursor(json.nextCursor)
+    } catch (e) {
+      console.warn('[RecentsTable] load more failed:', e)
+    } finally {
+      if (mountedRef.current) setLoadingMore(false)
+    }
+  }, [nextCursor, buildParams, scope])
+
+  const doDelete = useCallback(async (id: string) => {
+    setDeletingId(id)
+    try {
+      const res = await fetch(`/api/parse/${id}`, { method: 'DELETE' })
+      if (res.ok) setItems((prev) => prev.filter((i) => !(i.type === 'sf-upload' && i.id === id)))
+    } catch (e) {
+      console.warn('[RecentsTable] delete failed:', e)
+    } finally {
+      setDeletingId(null)
+      setConfirmDeleteId(null)
+    }
+  }, [])
 
   const rows = variant === 'home' ? items.slice(0, HOME_LIMIT) : items
   const mineDisabled = !operator
@@ -59,6 +153,24 @@ export default function RecentsTable({ initialItems, initialScope, operator, var
           <Link href="/ada-audit/recents" className="text-[12px] font-body text-orange hover:underline">See all recents →</Link>
         )}
       </div>
+      {variant === 'full' && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <input
+            type="search" value={qInput} onChange={(e) => setQInput(e.target.value)}
+            placeholder="Search domain, URL or file…"
+            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card text-[12px] font-body text-navy dark:text-white placeholder:text-navy/40 dark:placeholder:text-white/40 w-64"
+          />
+          <select
+            value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}
+            aria-label="Filter by client"
+            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card text-[12px] font-body text-navy dark:text-white"
+          >
+            <option value="">All clients</option>
+            <option value="unassigned">Unassigned</option>
+            {clients.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
       {rows.length === 0 ? (
         <p className="text-[12px] font-body text-navy/50 dark:text-white/50">{loading ? 'Loading…' : 'No recents yet.'}</p>
       ) : (
@@ -69,29 +181,54 @@ export default function RecentsTable({ initialItems, initialScope, operator, var
               <th className="pb-2 pr-4">Client</th><th className="pb-2 pr-4">Operator</th>
               <th className="pb-2 pr-4">Status</th><th className="pb-2 pr-4">Score</th>
               <th className="pb-2 pr-4">Duration</th><th className="pb-2 pr-4">Date</th>
+              {variant === 'full' && <th className="pb-2 pr-0" />}
             </tr>
           </thead>
           <tbody>
             {rows.map((it) => {
-              const href = it.type === 'page' ? `/ada-audit/${it.id}` : `/ada-audit/site/${it.id}`
-              const label = it.type === 'page' ? it.url : it.domain
+              const badge = TYPE_BADGES[it.type]
               return (
                 <tr key={`${it.type}-${it.id}`} className="border-b border-gray-100 dark:border-navy-border">
-                  <td className="py-2.5 pr-4">
-                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${it.type === 'page' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300'}`}>{it.type}</span>
+                  <td className="py-2.5 pr-4 whitespace-nowrap">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${badge.className}`}>{badge.label}</span>
                   </td>
-                  <td className="py-2.5 pr-4 max-w-[280px] truncate"><Link href={href} className="text-orange hover:underline">{label}</Link></td>
+                  <td className="py-2.5 pr-4 max-w-[280px] truncate"><Link href={it.href} className="text-orange hover:underline">{it.label}</Link></td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.clientName ?? '—'}</td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.requestedBy ?? '—'}</td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.status}</td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.score ?? '—'}</td>
                   <td className="py-2.5 pr-4 text-navy/40 dark:text-white/40 whitespace-nowrap" title={formatDurationHover(it.startedAt, it.completedAt) ?? ''}>{formatDuration(it.startedAt, it.completedAt) ?? '—'}</td>
                   <td className="py-2.5 pr-4 text-navy/40 dark:text-white/40 whitespace-nowrap"><ClientDate iso={it.createdAt} variant="date" /></td>
+                  {variant === 'full' && (
+                    <td className="py-2.5 pr-0 text-right whitespace-nowrap">
+                      {it.deletable && (confirmDeleteId === it.id ? (
+                        <span className="inline-flex gap-1">
+                          <button type="button" onClick={() => void doDelete(it.id)} disabled={deletingId === it.id}
+                            className="px-2 py-0.5 rounded text-[11px] font-semibold bg-red-600 text-white disabled:opacity-50">
+                            {deletingId === it.id ? '…' : 'Confirm'}
+                          </button>
+                          <button type="button" onClick={() => setConfirmDeleteId(null)}
+                            className="px-2 py-0.5 rounded text-[11px] text-navy/60 dark:text-white/60 border border-gray-200 dark:border-navy-border">Cancel</button>
+                        </span>
+                      ) : (
+                        <button type="button" onClick={() => setConfirmDeleteId(it.id)} aria-label={`Delete ${it.label}`}
+                          className="px-2 py-0.5 rounded text-[11px] text-red-600 dark:text-red-400 hover:underline">Delete</button>
+                      ))}
+                    </td>
+                  )}
                 </tr>
               )
             })}
           </tbody>
         </table>
+      )}
+      {variant === 'full' && nextCursor && (
+        <div className="mt-3 text-center">
+          <button type="button" onClick={() => void loadMore()} disabled={loadingMore}
+            className="px-4 py-1.5 rounded-lg border border-gray-200 dark:border-navy-border text-[12px] font-body text-navy/70 dark:text-white/70 disabled:opacity-50">
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
       )}
     </section>
   )

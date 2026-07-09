@@ -117,8 +117,9 @@ export default function AuditIndexTabs({ recentItems, operator, initialScope, no
       {/* Clients section */}
       <ClientsAuditSummary />
 
-      {/* Recents — filtered by operator on home, all on full page */}
-      <RecentsTable initialItems={recentItems} initialScope={initialScope} operator={operator} variant="home" />
+      {/* Recents — filtered by operator on home, all on full page. The home
+          variant never pages, so no cursor is threaded through. */}
+      <RecentsTable initialItems={recentItems} initialNextCursor={null} initialScope={initialScope} operator={operator} variant="home" />
     </div>
   )
 }

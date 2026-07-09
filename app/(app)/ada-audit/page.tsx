@@ -12,7 +12,7 @@ export default async function AdaAuditPage() {
   const authCookie = c.get(AUTH_COOKIE_NAME)?.value
   const operator = await getOperatorLabel(authCookie, c.get(OPERATOR_NAME_COOKIE_NAME)?.value)
   const initialScope = operator ? 'mine' : 'all'
-  const recentItems = await fetchAllRecents(10, operator ?? undefined)
+  const { items: recentItems } = await fetchAllRecents({ limit: 10, operator: operator ?? undefined })
   // D7: only offer the notify checkbox when a verified session email exists.
   const notifyAvailable = Boolean((await getAuthSession(authCookie))?.email)
 
