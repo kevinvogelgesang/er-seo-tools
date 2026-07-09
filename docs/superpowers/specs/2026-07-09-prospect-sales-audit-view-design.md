@@ -209,16 +209,17 @@ chain), so an already-open report keeps loading its own images.
   token-validated streaming of screenshot artifacts. Filenames like
   `color-contrast-0.png` are only unique per child audit
   (`SCREENSHOTS_DIR/<adaAuditId>/<file>`), so the public URL carries the
-  child audit id (Codex fix #2). Authorization = ownership chain: token
-  valid+unexpired → prospect → `adaAuditId`'s parent SiteAudit belongs to
-  that prospect (any of its complete audits, per the pinning rule above) →
-  filename allowlist pattern + traversal guard → stream. Curated-set
-  membership is NOT re-checked per image: every artifact under an owned
-  audit is a screenshot of the prospect's own site, so ownership is the
-  security boundary; curation bounds what the page *renders*, not a
-  secret. The internal cookie-gated screenshot route is untouched (C18's
-  rule: audit IDs and filenames are not authorization — here the TOKEN is
-  the authorization; ids only scope it).
+  child audit id (Codex fix #2). Authorization = ownership chain PLUS
+  curated-set membership (Codex plan-review fix #2, 2026-07-09 — this
+  replaces an earlier ownership-only stance): token valid+unexpired →
+  prospect → `adaAuditId`'s parent SiteAudit belongs to that prospect →
+  filename allowlist pattern + traversal guard → `${adaAuditId}/${file}`
+  must be in `curatedScreenshotSet(prospectId, adaAuditId)` — the same
+  pattern-selection rule the loader uses, computed against the URL's
+  PINNED audit (so open reports keep working after a re-scan). A guessed
+  filename under an owned audit still 404s; the token authorizes only
+  what the report renders. The internal cookie-gated screenshot route is
+  untouched.
 
 New UI in **`components/sales/`** only (hero tiles, section cards,
 disclosure groups, example cards, CTA block) — no changes to
@@ -236,8 +237,9 @@ disclosure groups, example cards, CTA block) — no changes to
   Exact `/sales` (intake page) and everything under `/api/sales/prospects`
   stay cookie-gated.
 - Tokens: `crypto.randomUUID()`, unique, 30-d TTL, swept by cleanup.
-- Screenshot route authorizes the full ownership chain (token → prospect →
-  child audit → allowlisted filename), pinned to the rendered audit (§5).
+- Screenshot route authorizes the full ownership chain AND curated-set
+  membership (token → prospect → child audit → filename in the pinned
+  audit's curated set), per §6.
 - Prospect scans use the existing SSRF-guarded fetch paths unchanged.
 - Public page renders NO internal affordances/links; share-view precedent
   (zero cookie-gated fetches) applies.

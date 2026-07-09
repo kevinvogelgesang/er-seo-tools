@@ -117,8 +117,9 @@ git commit -m "feat(c14): Prospect model + SiteAudit.prospectId + CrawlRun.schem
 
 ```ts
 // lib/ada-audit/queue-manager.prospect.test.ts
-// DB-backed: real local SQLite. enqueueAudit creates the row; we clean the
-// SiteAudit + any discover Job it may have spawned.
+// DB-backed: real local SQLite. enqueueAudit creates the row; it may also
+// fire-and-forget the promoter, so discover Jobs can appear AFTER row
+// creation — afterAll cleans them by dedupKey once all ids are known.
 import { afterAll, describe, expect, it } from 'vitest'
 import { prisma } from '@/lib/db'
 import { enqueueAudit } from './queue-manager'
@@ -336,7 +337,7 @@ Add to the `bundle.run` object literal, next to `contentSimilarityJson`:
 
 - [ ] **Step 6: Extend the builder test**
 
-In `lib/jobs/handlers/broken-link-verify.test.ts`, find the happy-path test that seeds `HarvestedPageSeo` rows and asserts the written live-scan `CrawlRun`. Ensure at least one seeded row's `detailsJson` is `JSON.stringify({ schemaTypes: ['Organization'], hreflang: [] })` (with `schemaCount: 1`), then extend the run assertion:
+In `lib/jobs/handlers/broken-link-verify.test.ts`, the target is the existing test **"writes ONE live-scan run carrying on-page + broken-link findings"** (the file has multiple happy paths — use this one, per Codex plan-review fix #5). Ensure at least one seeded `HarvestedPageSeo` row's `detailsJson` is `JSON.stringify({ schemaTypes: ['Organization'], hreflang: [] })` (with `schemaCount: 1`), then extend the run assertion:
 
 ```ts
 const run = await prisma.crawlRun.findUnique({
@@ -1211,7 +1212,7 @@ type SalesReportResult =
   | { kind: 'ready'; data: SalesReportData }
 loadSalesReportData(token: string): Promise<SalesReportResult>
 validateSalesToken(token: string): Promise<{ id: number; name: string; domain: string } | null>
-prospectOwnsChildAudit(prospectId: number, adaAuditId: string): Promise<boolean>   // Task 10 uses
+curatedScreenshotSet(prospectId: number, adaAuditId: string): Promise<Set<string>> // Task 10 uses; keys are `${adaAuditId}/${filename}`
 // SalesReportData shape — see Step 3 code.
 ```
 
@@ -1285,7 +1286,7 @@ const future = () => new Date(Date.now() + 86_400_000)
 function summaryBlob(domain: string) {
   return JSON.stringify({
     aggregate: { critical: 4, serious: 10, moderate: 2, minor: 1, total: 17, passed: 40, incomplete: 0 },
-    pdfsAggregate: { total: 0, failed: 0, issues: 0 },
+    pdfsAggregate: { total: 0, complete: 0, errored: 0, skipped: 0, withIssues: 0 },
     pages: [],
     commonIssues: [{
       ruleId: 'color-contrast', impact: 'serious', help: 'Contrast', description: 'd', helpUrl: 'u',
@@ -1330,9 +1331,9 @@ async function seedReady() {
       schemaTypesJson: JSON.stringify({ v: 1, observedPages: 5, pagesWithSchema: 2, types: [{ type: 'Organization', pages: 2 }] }),
       findings: {
         create: [
-          { scope: 'run', type: 'broken_internal_links', count: 7, dedupKey: `${PREFIX}f1` },
-          { scope: 'page', type: 'broken_internal_links', count: 3, url: `https://${domain}/0`, dedupKey: `${PREFIX}f2` },
-          { scope: 'run', type: 'missing_title', count: 2, dedupKey: `${PREFIX}f3` },
+          { scope: 'run', type: 'broken_internal_links', severity: 'critical', count: 7, dedupKey: `${PREFIX}f1` },
+          { scope: 'page', type: 'broken_internal_links', severity: 'critical', count: 3, url: `https://${domain}/0`, dedupKey: `${PREFIX}f2` },
+          { scope: 'run', type: 'missing_title', severity: 'warning', count: 2, dedupKey: `${PREFIX}f3` },
         ],
       },
     },
@@ -1480,13 +1481,37 @@ export async function validateSalesToken(
   return { id: prospect.id, name: prospect.name, domain: prospect.domain, createdBy: prospect.createdBy }
 }
 
-/** Task 10's screenshot route: does this child audit belong to one of the prospect's audits? */
-export async function prospectOwnsChildAudit(prospectId: number, adaAuditId: string): Promise<boolean> {
+/**
+ * Task 10's screenshot route: the set of `${adaAuditId}/${filename}` keys the
+ * curated report for the URL's PINNED audit actually renders (Codex plan-review
+ * fix #2 — ownership alone would expose any guessed screenshot under the
+ * prospect's child audits; the token authorizes ONLY what the loader curated).
+ * Pinned: resolved from the URL's child audit → its parent SiteAudit, NOT
+ * re-resolved to "latest", so an open report keeps loading after a re-scan.
+ */
+export async function curatedScreenshotSet(prospectId: number, adaAuditId: string): Promise<Set<string>> {
   const child = await prisma.adaAudit.findUnique({
     where: { id: adaAuditId },
-    select: { siteAudit: { select: { prospectId: true } } },
+    select: { siteAudit: { select: { id: true, prospectId: true, summary: true } } },
   })
-  return child?.siteAudit?.prospectId === prospectId
+  if (!child?.siteAudit || child.siteAudit.prospectId !== prospectId) return new Set()
+
+  let summary = parseJson<SiteAuditSummary>(child.siteAudit.summary)
+  if (!summary) summary = await buildSummaryFromFindings(child.siteAudit.id)
+  const set = new Set<string>()
+  for (const issue of topPatternIssues(summary)) {
+    for (const ex of await loadRepresentativeExamples(child.siteAudit.id, issue)) {
+      if (ex.screenshotFile && ex.adaAuditId) set.add(`${ex.adaAuditId}/${ex.screenshotFile}`)
+    }
+  }
+  return set
+}
+
+/** Shared pattern-selection rule: loader and screenshot allowlist MUST agree. */
+function topPatternIssues(summary: SiteAuditSummary | null): CommonIssue[] {
+  return [...(summary?.commonIssues ?? [])]
+    .sort((a, b) => IMPACT_RANK[b.impact] - IMPACT_RANK[a.impact] || b.affectedPagesCount - a.affectedPagesCount)
+    .slice(0, MAX_PATTERNS)
 }
 
 function parseJson<T>(raw: string | null): T | null {
@@ -1506,7 +1531,7 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
   // the finalizer flips complete before the verifier writes the SEO run).
   const audits = await prisma.siteAudit.findMany({
     where: { prospectId: prospect.id, status: 'complete', seoOnly: false },
-    orderBy: { completedAt: 'desc' },
+    orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
     select: {
       id: true, completedAt: true, pagesTotal: true, wcagLevel: true, summary: true,
       crawlRuns: {
@@ -1538,11 +1563,9 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       }
     : { critical: 0, serious: 0, moderate: 0, minor: 0, total: 0 }
 
-  const topIssues = [...(summary?.commonIssues ?? [])]
-    .sort((a, b) => IMPACT_RANK[b.impact] - IMPACT_RANK[a.impact] || b.affectedPagesCount - a.affectedPagesCount)
-    .slice(0, MAX_PATTERNS)
+  const topIssues = topPatternIssues(summary)
   const patterns: SalesPattern[] = []
-  for (const issue of topIssues as CommonIssue[]) {
+  for (const issue of topIssues) {
     patterns.push({
       ruleId: issue.ruleId, impact: issue.impact, help: issue.help, description: issue.description,
       affectedPagesCount: issue.affectedPagesCount, totalPagesScanned: issue.totalPagesScanned,
@@ -1565,7 +1588,13 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
         .map((f) => f.url as string),
     })
   }
-  const similarity = parseJson<{ groups?: unknown[] }>(seoRun.contentSimilarityJson)
+  // Real shape (Codex plan-review fix #3): { v, exactDuplicateGroups, nearDuplicateGroups }
+  const similarity = parseJson<{ exactDuplicateGroups?: unknown[]; nearDuplicateGroups?: unknown[] }>(
+    seoRun.contentSimilarityJson,
+  )
+  const duplicateContentGroups = similarity
+    ? (similarity.exactDuplicateGroups?.length ?? 0) + (similarity.nearDuplicateGroups?.length ?? 0)
+    : null
   const coverage = parseJson<{ applicable?: boolean; missRate?: number }>(seoRun.discoveryCoverageJson)
 
   // Performance: per-page Lighthouse summaries off the child rows.
@@ -1606,7 +1635,7 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       seo: {
         score: seoRun.score,
         issueGroups,
-        duplicateContentGroups: similarity?.groups?.length ?? null,
+        duplicateContentGroups,
         sitemapMissRatePct: coverage?.applicable && typeof coverage.missRate === 'number'
           ? Math.round(coverage.missRate * 100)
           : null,
@@ -2125,7 +2154,7 @@ git commit -m "feat(c14): public sales report view — hero tiles, disclosure se
 - Test: `app/api/sales/[token]/screenshot/screenshot-route.test.ts`, extend `middleware.test.ts`
 
 **Interfaces:**
-- Consumes: `validateSalesToken`, `prospectOwnsChildAudit` (Task 8); `SCREENSHOTS_DIR` from `@/lib/ada-audit/screenshot-helpers`.
+- Consumes: `validateSalesToken`, `curatedScreenshotSet` (Task 8); `SCREENSHOTS_DIR` from `@/lib/ada-audit/screenshot-helpers`.
 - Produces: public GET `/api/sales/{token}/screenshot/{adaAuditId}/{filename}` → PNG stream or 404.
 
 - [ ] **Step 1: Write the failing tests**
@@ -2160,10 +2189,36 @@ beforeAll(async () => {
   const prospect = await prisma.prospect.create({
     data: { name: 'Shot', domain: `${PREFIX}x.test`, salesToken: token, salesTokenExpiresAt: new Date(Date.now() + 86_400_000) },
   })
+  // Curated-set membership requires: parent summary names the pattern +
+  // example page; the child's result blob carries the screenshot node.
   const site = await prisma.siteAudit.create({
-    data: { domain: `${PREFIX}x.test`, wcagLevel: 'wcag21aa', status: 'complete', prospectId: prospect.id },
+    data: {
+      domain: `${PREFIX}x.test`, wcagLevel: 'wcag21aa', status: 'complete', prospectId: prospect.id,
+      summary: JSON.stringify({
+        aggregate: { critical: 0, serious: 1, moderate: 0, minor: 0, total: 1, passed: 10, incomplete: 0 },
+        pdfsAggregate: { total: 0, complete: 0, errored: 0, skipped: 0, withIssues: 0 },
+        pages: [],
+        commonIssues: [{
+          ruleId: 'color-contrast', impact: 'serious', help: 'Contrast', description: 'd', helpUrl: 'u',
+          affectedPagesCount: 1, totalPagesScanned: 1, sharedAncestor: null, ancestorConfidence: null,
+          examplePageUrl: `https://${PREFIX}x.test/a`,
+        }],
+      }),
+    },
   })
-  const child = await prisma.adaAudit.create({ data: { url: `https://${PREFIX}x.test/a`, status: 'complete', siteAuditId: site.id } })
+  const child = await prisma.adaAudit.create({
+    data: {
+      url: `https://${PREFIX}x.test/a`, status: 'complete', siteAuditId: site.id,
+      result: JSON.stringify({
+        violations: [{
+          id: 'color-contrast', impact: 'serious', help: 'h', description: 'd', helpUrl: 'u', tags: [],
+          nodes: [{ html: '<a>x</a>', target: ['a'], screenshotPath: 'color-contrast-0.png' }],
+        }],
+        passes: [], incomplete: [], inapplicable: [], timestamp: 't',
+        url: `https://${PREFIX}x.test/a`, testEngine: { name: 'axe', version: '4' }, testRunner: { name: 'axe' },
+      }),
+    },
+  })
   childId = child.id
   const strangerSite = await prisma.siteAudit.create({ data: { domain: `${PREFIX}other.test`, wcagLevel: 'wcag21aa', status: 'complete' } })
   const strangerChild = await prisma.adaAudit.create({ data: { url: `https://${PREFIX}other.test/a`, status: 'complete', siteAuditId: strangerSite.id } })
@@ -2182,13 +2237,18 @@ const call = (tok: string, aid: string, file: string) =>
   })
 
 describe('GET /api/sales/[token]/screenshot/[adaAuditId]/[filename]', () => {
-  it('streams an owned screenshot', async () => {
+  it('streams a curated screenshot', async () => {
     const res = await call(token, childId, 'color-contrast-0.png')
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('image/png')
   })
   it('404s on a child audit the prospect does not own', async () => {
     expect((await call(token, strangerChildId, 'color-contrast-0.png')).status).toBe(404)
+  })
+  it('404s on an owned file that is NOT in the curated set', async () => {
+    // File exists on disk under the owned audit, but no curated node references it.
+    await fs.writeFile(path.join(SCREENSHOTS_DIR, childId, 'color-contrast-9.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    expect((await call(token, childId, 'color-contrast-9.png')).status).toBe(404)
   })
   it('404s on invalid token / bad filename / traversal', async () => {
     expect((await call('bad-token', childId, 'color-contrast-0.png')).status).toBe(404)
@@ -2229,7 +2289,7 @@ import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers'
-import { prospectOwnsChildAudit, validateSalesToken } from '@/lib/sales/sales-report-data'
+import { curatedScreenshotSet, validateSalesToken } from '@/lib/sales/sales-report-data'
 
 const AUDIT_ID_RE = /^[a-z0-9]+$/i
 const FILENAME_RE = /^[a-z0-9_-]+\.png$/i
@@ -2242,7 +2302,11 @@ export const GET = withRoute(
     if (!AUDIT_ID_RE.test(adaAuditId) || !FILENAME_RE.test(filename)) return notFoundRes()
     const prospect = await validateSalesToken(token)
     if (!prospect) return notFoundRes()
-    if (!(await prospectOwnsChildAudit(prospect.id, adaAuditId))) return notFoundRes()
+    // Curated-set enforcement (spec + Codex): the token authorizes ONLY the
+    // screenshots the pinned audit's report actually renders — ownership plus
+    // membership, so a guessed filename under an owned audit still 404s.
+    const allowed = await curatedScreenshotSet(prospect.id, adaAuditId)
+    if (!allowed.has(`${adaAuditId}/${filename}`)) return notFoundRes()
 
     try {
       const buffer = await fs.readFile(path.join(SCREENSHOTS_DIR, adaAuditId, filename))
@@ -2317,7 +2381,13 @@ const rows: ProspectRow[] = [
     salesTokenActive: false,
     latestAudit: { id: 'a2', status: 'running', completedAt: null, adaScore: null, reportable: false },
   },
-  { id: 3, name: 'Fresh', domain: 'fresh.test', createdAt: '2026-07-09T00:00:00.000Z', salesTokenActive: false, latestAudit: null },
+  {
+    id: 3, name: 'Verifying U', domain: 'verifying.test', createdAt: '2026-07-09T00:00:00.000Z',
+    salesTokenActive: false,
+    // parent complete but live-scan run not written yet → "Report building…"
+    latestAudit: { id: 'a3', status: 'complete', completedAt: '2026-07-09T01:00:00.000Z', adaScore: null, reportable: false },
+  },
+  { id: 4, name: 'Fresh', domain: 'fresh.test', createdAt: '2026-07-09T00:00:00.000Z', salesTokenActive: false, latestAudit: null },
 ]
 
 describe('ProspectDashboard', () => {
@@ -2327,9 +2397,10 @@ describe('ProspectDashboard', () => {
     expect(screen.getByLabelText(/domain/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: /scan/i })).toBeTruthy()
     expect(screen.getByText('Acme College')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /copy sales link/i })).toBeTruthy() // reportable row
+    expect(screen.getByRole('button', { name: /copy sales link/i })).toBeTruthy() // reportable row only
     expect(screen.getByText(/scanning/i)).toBeTruthy() // running row
-    expect(screen.getByText(/report building/i) || true).toBeTruthy()
+    expect(screen.getByText(/report building/i)).toBeTruthy() // complete-but-not-reportable row
+    expect(screen.getByText(/not scanned yet/i)).toBeTruthy() // fresh row
     expect(screen.getAllByRole('button', { name: /re-scan|scan now/i }).length).toBeGreaterThan(0)
   })
 })
@@ -2638,7 +2709,7 @@ async function main() {
       completedAt: new Date(), pagesTotal: 4,
       summary: JSON.stringify({
         aggregate: { critical: 3, serious: 8, moderate: 4, minor: 2, total: 17, passed: 41, incomplete: 1 },
-        pdfsAggregate: { total: 0, failed: 0, issues: 0 },
+        pdfsAggregate: { total: 0, complete: 0, errored: 0, skipped: 0, withIssues: 0 },
         pages: [],
         commonIssues: [{
           ruleId: 'color-contrast', impact: 'serious', help: 'Elements must have sufficient color contrast',
@@ -2684,12 +2755,16 @@ async function main() {
       id: `seed-seo-${audit.id}`, tool: 'seo-parser', source: 'live-scan', domain, siteAuditId: audit.id,
       status: 'complete', score: 66, pagesTotal: 4, startedAt: new Date(), completedAt: new Date(),
       schemaTypesJson: JSON.stringify({ v: 1, observedPages: 4, pagesWithSchema: 1, types: [{ type: 'WebPage', pages: 1 }] }),
-      contentSimilarityJson: JSON.stringify({ v: 1, groups: [{ urls: [`https://${domain}/a`, `https://${domain}/b`], similarity: 0.94 }] }),
+      contentSimilarityJson: JSON.stringify({
+        v: 1,
+        exactDuplicateGroups: [],
+        nearDuplicateGroups: [{ urls: [`https://${domain}/a`, `https://${domain}/b`], similarity: 0.94 }],
+      }),
       findings: {
         create: [
-          { scope: 'run', type: 'broken_internal_links', count: 5, dedupKey: `seed-${audit.id}-1` },
-          { scope: 'page', type: 'broken_internal_links', count: 2, url: `https://${domain}/programs`, dedupKey: `seed-${audit.id}-2` },
-          { scope: 'run', type: 'missing_meta_description', count: 3, dedupKey: `seed-${audit.id}-3` },
+          { scope: 'run', type: 'broken_internal_links', severity: 'critical', count: 5, dedupKey: `seed-${audit.id}-1` },
+          { scope: 'page', type: 'broken_internal_links', severity: 'critical', count: 2, url: `https://${domain}/programs`, dedupKey: `seed-${audit.id}-2` },
+          { scope: 'run', type: 'missing_meta_description', severity: 'warning', count: 3, dedupKey: `seed-${audit.id}-3` },
         ],
       },
     },
