@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientCombobox } from '@/lib/hooks/useClientCombobox'
 import { computeActivePhaseSummary } from '@/lib/ada-audit/queue-ui-helpers'
 import { IntentChip } from '@/components/ada-audit/IntentChip'
+import { SeoUploadCard } from '@/components/seo-parser/SeoUploadCard'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
 import { parseManualUrls } from '@/lib/ada-audit/manual-urls'
 import { formatInBrowserTZ } from '@/lib/ada-audit/format-date'
@@ -66,6 +67,8 @@ export default function SiteAuditForm({ queueStatus, notifyAvailable = false }: 
   const [error, setError] = useState<string | null>(null)
   const [wcagLevel, setWcagLevel] = useState<'wcag21aa' | 'wcag22aa'>('wcag21aa')
   const [intent, setIntent] = useState<'ada' | 'seo'>('ada')
+  // C16: collapsed-by-default SF-export upload section, shown for SEO intent.
+  const [showSfUpload, setShowSfUpload] = useState(false)
   // D7: opt-in email notification — ALWAYS unchecked on mount, never persisted.
   const [notify, setNotify] = useState(false)
 
@@ -478,6 +481,26 @@ export default function SiteAuditForm({ queueStatus, notifyAvailable = false }: 
           ))}
         </div>
       </div>
+
+      {/* C16: optional SF-export path — the old /seo-audits upload card, collapsed */}
+      {intent === 'seo' && (
+        <div className="rounded-xl border border-gray-200 dark:border-navy-border">
+          <button
+            type="button"
+            onClick={() => setShowSfUpload((v) => !v)}
+            aria-expanded={showSfUpload}
+            className="w-full flex items-center justify-between px-4 py-3 text-[13px] font-body font-semibold text-navy/70 dark:text-white/70"
+          >
+            <span>Have Screaming Frog exports? Upload CSVs instead</span>
+            <span aria-hidden className="text-navy/40 dark:text-white/40">{showSfUpload ? '\u2212' : '+'}</span>
+          </button>
+          {showSfUpload && (
+            <div className="px-4 pb-4 border-t border-gray-100 dark:border-navy-border">
+              <SeoUploadCard />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* WCAG level selector */}
       {intent === 'ada' && (

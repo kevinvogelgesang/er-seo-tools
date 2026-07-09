@@ -7,6 +7,8 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
   useSearchParams: () => new URLSearchParams(''),   // SiteAuditForm uses this (prefillDomain)
 }))
+// C16: the SF-upload card is a heavy client component (uploads, router) — stub it.
+vi.mock('@/components/seo-parser/SeoUploadCard', () => ({ SeoUploadCard: () => <div data-testid="sf-upload-card" /> }))
 
 import SiteAuditForm from './SiteAuditForm'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
@@ -72,6 +74,25 @@ describe('SiteAuditForm SEO intent (C11 PR 2a)', () => {
     await waitFor(() => screen.getByRole('button', { name: /^Audit \d/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Audit \d/i }))
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/seo-audits?scan=A1'))
+  })
+})
+
+describe('SiteAuditForm SF upload section (C16)', () => {
+  it('SEO intent reveals a collapsed SF-upload section; expanding shows the card', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/clients') return { json: async () => [] } as Response
+      return { ok: true, json: async () => ({}) } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<SiteAuditForm queueStatus={null} />)
+    // default intent is ada — no SF section
+    expect(screen.queryByText(/Screaming Frog exports/i)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /SEO/i }))
+    const toggle = screen.getByRole('button', { name: /Screaming Frog exports/i })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByTestId('sf-upload-card')).toBeNull() // collapsed by default
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('sf-upload-card')).toBeTruthy()
   })
 })
 
