@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const req = () =>
@@ -17,12 +17,31 @@ vi.mock('@/lib/ada-audit/queue-request', () => ({
 
 const { prisma } = await import('@/lib/db')
 const { queueSiteAuditRequest } = await import('@/lib/ada-audit/queue-request')
+const { createAuthCookieValue, AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME } = await import('@/lib/auth')
 const { POST } = await import('./route')
+
+// C15: signed-cookie tests run against an explicit secret so signing and
+// verification are hermetic regardless of the invoking shell's env.
+const ORIG_SECRET = process.env.APP_AUTH_SECRET
+beforeAll(() => { process.env.APP_AUTH_SECRET = 'test-auth-secret' })
+afterAll(() => {
+  if (ORIG_SECRET === undefined) delete process.env.APP_AUTH_SECRET
+  else process.env.APP_AUTH_SECRET = ORIG_SECRET
+})
 
 beforeEach(() => {
   vi.mocked(prisma.client.findMany).mockReset()
   vi.mocked(queueSiteAuditRequest).mockReset()
 })
+
+function reqWithCookies(opts: { session?: string; operator?: string }) {
+  const headers = new Headers()
+  const cookies: string[] = []
+  if (opts.session) cookies.push(`${AUTH_COOKIE_NAME}=${opts.session}`)
+  if (opts.operator) cookies.push(`${OPERATOR_NAME_COOKIE_NAME}=${opts.operator}`)
+  if (cookies.length) headers.set('cookie', cookies.join('; '))
+  return new NextRequest('http://localhost/api/site-audit/bulk-queue', { method: 'POST', headers })
+}
 
 describe('POST /api/site-audit/bulk-queue', () => {
   it('returns 400 missing_domains when at least one client has no domain', async () => {
@@ -114,5 +133,40 @@ describe('POST /api/site-audit/bulk-queue', () => {
     expect(res.status).toBe(400)
     const json = await res.json() as { clientsWithoutDomains: { id: number }[] }
     expect(json.clientsWithoutDomains.map((c) => c.id)).toEqual([1])
+  })
+})
+
+describe('POST /api/site-audit/bulk-queue — requestedBy attribution (C15)', () => {
+  it('passes the verified session name to every queue request, beating a stale legacy cookie', async () => {
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
+    ] as never)
+    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
+
+    const session = await createAuthCookieValue({ sub: 'google:1', email: 'kevin@enrollmentresources.com', hd: 'enrollmentresources.com', name: 'Kevin Vogelgesang' })
+    const res = await POST(reqWithCookies({ session, operator: 'Stale Old Name' }))
+    expect(res.status).toBe(200)
+    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedBy: 'Kevin Vogelgesang' }),
+    )
+  })
+
+  it('falls back to the sanitized legacy cookie without a session, and null with neither', async () => {
+    vi.mocked(prisma.client.findMany).mockResolvedValue([
+      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
+    ] as never)
+    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
+
+    const legacyRes = await POST(reqWithCookies({ operator: '  Kevin  ' }))
+    expect(legacyRes.status).toBe(200)
+    expect(queueSiteAuditRequest).toHaveBeenLastCalledWith(
+      expect.objectContaining({ requestedBy: 'Kevin' }),
+    )
+
+    const anonRes = await POST(reqWithCookies({}))
+    expect(anonRes.status).toBe(200)
+    expect(queueSiteAuditRequest).toHaveBeenLastCalledWith(
+      expect.objectContaining({ requestedBy: null }),
+    )
   })
 })
