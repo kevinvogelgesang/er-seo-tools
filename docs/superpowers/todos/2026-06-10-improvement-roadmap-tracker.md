@@ -609,20 +609,10 @@ Interleave as needed (not blockers):
   half is OFF; only the zero-AI Tier-0 increments remain candidates.** No spec yet;
   do not start without the ritual.
 - [ ] **C13. Site-audit results UI polish batch** (small fixes, Kevin 2026-07-07) —
-  mostly independent one-liners; the last item is an INVESTIGATION first:
-  - [ ] "Pages are audited one at a time" (`components/ada-audit/SiteAuditPoller.tsx:204`)
-    is inaccurate — concurrency is `SITE_AUDIT_CONCURRENCY` (prod 2); reword.
-  - [ ] "Known limitations" disclaimer (`components/ada-audit/KnownLimitationsNotice.tsx`)
-    too in-your-face on the site-audit results page — collapse/soften (e.g. small
-    footnote link or collapsed-by-default).
-  - [ ] Paginate "Pages with Issues" at 25 rows (currently `PAGE_SIZE` 50 in
-    `components/ada-audit/SiteAuditResultsView.tsx`).
-  - [ ] Develop "Site-Wide Patterns" (`components/ada-audit/CommonIssueCallout.tsx`):
-    per-pattern dropdown with (a) a screenshot of ONE representative element,
-    (b) the list of unique affected elements, (c) REMOVE the "view affected
-    pages" link.
-  - [ ] Tab order in the ADA audit view (`components/ada-audit/AuditIndexTabs.tsx`):
-    Site Audit tab first, Single Page second.
+  **REDISTRIBUTED 2026-07-08 into the audit-consolidation batch** (spec
+  `../specs/2026-07-08-audit-consolidation-batch-design.md`): tab-order → C16 (P1);
+  concurrency reword, Known-limitations soften, 25-row pagination, Site-Wide
+  Patterns dropdown → C18 (P3). C13 retains ONLY the investigation below:
   - [ ] **INVESTIGATE: scoring-v2 scorecard shows "0 rules passed – 0 needs
     review" on the Bellus audit** (`components/ada-audit/AuditScorecard.tsx` —
     `scorecard.passed`/needs-review render 0). Possible v2-mapper or
@@ -649,6 +639,52 @@ Interleave as needed (not blockers):
   owner-sanctioned business use (Kevin 2026-07-07); the "never scan third-party
   sites" rule stays for dev/testing. Needs spec (scan intake for prospects,
   token/expiry model, which findings are safe to show a prospect).
+  **Priority (Kevin 2026-07-08): C14 is NEXT after the C15–C18 batch below.**
+
+**Audit-consolidation batch (Kevin 2026-07-08)** — umbrella spec
+`../specs/2026-07-08-audit-consolidation-batch-design.md` (Codex
+accept-with-named-fixes ×12, applied). Priority order:
+**C15 → C16 → C17 → C18 → C14.** Each of C16–C18 still gets its own plan
+(+ deeper spec where needed) via the normal ritual when it starts; the batch
+decisions in the umbrella spec are settled — don't re-litigate.
+
+- [ ] **C15. Fix the "Mine" recents filter (SSO regression — PR0)** (hours) —
+  `app/api/site-audit/route.ts` + `bulk-queue` still derive `requestedBy` from
+  the legacy `er-operator-name` cookie (never set by Google SSO → every site
+  audit since SSO has `requestedBy = null`; a stale legacy cookie can also
+  MISattribute). Fix = `getOperatorLabel(authCookie, operatorCookie)` on both
+  routes, identical to the ada-audit route; scheduled audits keep
+  `'scheduled'`; NO backfill (nulls carry no identity). Tests cover all four
+  operator-resolution branches. No migration, no UI change.
+- [ ] **C16. Audit consolidation — full merge, Site Audits wins (P1)** —
+  one sidebar group **"Audits"** at `/ada-audit` (hidden registry ownership of
+  `/seo-audits/*` retained for breadcrumbs); Site Audit tab first + default
+  (absorbs the C13 tab-order item); SF CSV upload becomes a collapsed optional
+  section when Scan Type = SEO; **unified recents** (Site ADA · Site SEO ·
+  Single Page · SF Upload badges, All/Mine, `workflow='technical'` sessions
+  only, stable global cursor order, keeps session delete/search/client-filter)
+  + additive `Session.requestedBy` migration (stamped at creation only);
+  `/seo-audits` index `permanentRedirect()` → `/ada-audit` with
+  `/seo-audits/results/*` + share/compare URLs untouched; seoOnly audits stop
+  redirecting off `/ada-audit/site/[id]` (transient → `SiteAuditPoller`;
+  complete → SEO results run page, branch placed BEFORE ADA summary
+  resolution); all 8 enumerated `?scan=`/seoOnly link producers updated;
+  `SeoScanForm` retired.
+- [ ] **C17. Scan-progress maturation (P2)** — `SiteAuditPoller` surfaces the
+  seoOnly verifier `seoPhase` (parent `complete` stays non-terminal until
+  run-ready/failed/unavailable); auto-navigate to results on completion via a
+  single navigation owner (no `router.replace` vs `router.refresh` race);
+  unified-recents in-flight rows live-update via a compact status poll for
+  visible IDs only (never re-fetch the whole merged history every 8s).
+- [ ] **C18. Results-page reorganization (P3)** — shared header (scores,
+  export bar, diff panel) + **Accessibility | SEO tabs** on full-audit results
+  (shareMode: server-side token-validated SEO data, screenshots/element
+  dropdowns omitted); triage toggle moves into Pages with Issues; site-wide
+  patterns get per-pattern dropdowns (ONE representative screenshot + bounded
+  unique-element HTML via a representative-page server loader — never fan out;
+  archived audits degrade to the capped no-image sample) + "view affected
+  pages" link removed; C13 ride-alongs (concurrency reword, Known-limitations
+  soften, 25-row pagination). Bellus scorecard investigation stays in C13.
 
 ## Track D — Workflow polish (mostly independent) → `03-ai-memo-tools.md`, `05-small-tools.md`
 
@@ -723,6 +759,7 @@ Interleave as needed (not blockers):
 
 - 2026-07-08 (**Dashboard: Robots + Quarter-Grid widgets removed — SHIPPED**) — Kevin-directed homepage tweak (asked "didn't I have notes to remove robots + the quarter grid from the dashboard?"; searched tracker/all docs/memory/git — **no written note existed**, the A8 spec had deliberately *included* both; Kevin confirmed the removal now, scope = homepage widgets only). Removed the `quick-robots` + `quarter-week` widgets from `lib/widgets/registry.tsx` (`WIDGETS` + `DEFAULT_LAYOUT`), deleted the orphaned `QuickRobotsWidget`/`QuarterWeekWidget` components + tests. **Both tools stay fully usable and remain in the left-nav** (`tools-registry.ts` unchanged) — routes `/robots-validator` + `/quarter-grid` untouched. Persisted per-browser layouts referencing the removed ids degrade gracefully (`normalizeLayout` drops unknown ids — already covered by `layout.test.ts`); no `LAYOUT_VERSION` bump. Test upkeep: `DashboardGrid` live-body probe → surviving `quick-site-audit` `example.com` input; `WIDGETS.length` 9→7; `use-home-layout` fixtures use still-registered widgets; `EditableWidgetTile` single-size fixture decoupled. Behavior change (homepage only), no data/API/scoring change. **Gates:** tsc ✓ / **3775 tests ✓ (430 files)** / build ✓. PR #135, merged + deployed 2026-07-08; post-deploy verified: health ok (fresh restart), `/` → 307 auth redirect, clean boot, no errors. Residual check = authed glance at the homepage (two tiles gone).
 
+- 2026-07-08 (**RE-PRIORITIZATION: audit-consolidation batch C15–C18 added; C13 redistributed; C14 queued after**) — Kevin re-shuffled priorities in a brainstorm session. New batch (umbrella spec `../specs/2026-07-08-audit-consolidation-batch-design.md`, Codex **accept-with-named-fixes ×12**, all applied): **C15** Mine-filter SSO fix (root cause VERIFIED: `app/api/site-audit/route.ts` + bulk-queue still use `sanitizeOperatorName(er-operator-name cookie)` — Google SSO never sets it → every site audit since SSO has `requestedBy=null`; ada-audit route already uses SSO-aware `getOperatorLabel`); **C16** full merge of SEO Audits into Site Audits → one "Audits" section at `/ada-audit` (Site Audit tab default, SF upload as optional section under Scan Type=SEO, unified 4-type recents + `Session.requestedBy` migration, `/seo-audits` index 308, seoOnly audits adopt `/ada-audit/site/[id]` as progress page); **C17** progress maturation (seoPhase in `SiteAuditPoller`, non-terminal seoOnly complete, auto-navigate on run-ready, compact live polling of in-flight history rows); **C18** results-page reorg (Accessibility|SEO tabs, triage into Pages-with-issues, site-wide-pattern dropdowns w/ representative screenshot + bounded element HTML). Decisions locked by Kevin: full merge (not nav-only), one unified list, tabs on results, 4-project packaging w/ bug first, section name "Audits". Notable Codex catches folded into the spec: seoOnly complete-branch must precede ADA summary resolution; share-view SEO data must load server-side token-validated (screenshot route stays cookie-gated); pattern dropdown needs a bounded representative-page loader (`CommonIssue` lacks node HTML/screenshots); unified-recents cursor pagination + `workflow='technical'` filter; `Session.requestedBy` stamped at creation only (append path must not overwrite); poller terminal semantics. C13's five UI one-liners redistributed (tab order → C16; rest → C18); C13 keeps only the Bellus scorecard investigation. **Priority order: C15 → C16 → C17 → C18 → C14 (prospect sales audit view).** A8 per-tool arc stays `[~]`/open-ended behind this batch. **Next: C15** (hours-scale bugfix PR — plan + build per ritual).
 - 2026-07-08 (**A8 per-tool polish — /reports StatusPill adoption — SHIPPED**) — Sixth A8 per-tool pass (after PR 4 seo-parser #120 + PR 5 ada-audit #130). Kevin picked "another per-tool pass"; scouted all four candidate tools (`/clients`, `/reports`, `/robots-validator`, `/quarter-grid`) for hand-rolled status/score chrome and picked **`/reports`** as the tightest slice: 4 hand-rolled lifecycle-status chips across 2 self-contained components, all keyed off real status strings mapping 1:1 to StatusPill tones, zero score-band complications, no off-shell `/share` reuse. Adopted `components/ui/StatusPill` at the three lifecycle sites (ReportLibrary report-status chip + GenerateReportForm batch-status + single-report-status chips) via new color-preserving `components/reports/status-tone.ts` (`reportStatusTone`, mirrors PR-5 `ada-audit/status-tone.ts`); dropped the reports page's own `min-h-screen bg-*` wrapper (AppShell `<main>` supplies it). **Excluded (documented in code):** the smaller per-source GA4/GSC/Pros badges (10px scale, label is source-name not status, `manual`=teal has no tone) → future `SeverityBadge`. VISUAL/primitive-adoption only — no behavior/data/API/scoring change; color mapping preserved (transient queued/fetching/rendering stay blue via `running`). **Gates:** tsc ✓ / **3780 tests ✓ (432 files)** incl. new `reportStatusTone` unit coverage / build ✓. PR #134, merged + deployed 2026-07-08; post-deploy verified: health ok (fresh restart), `/reports` → 307 auth redirect (not 500), clean boot, no errors. Residual manual check = authed visual glance at the pill-shaped chips (route is cookie-gated). A8 stays `[~]` (open-ended). **Next: roadmap menu** — A8 PR 7+ (another per-tool pass: `/clients` — both primitives but messier ≥90/≥70 score bands; `/robots-validator`; `/quarter-grid` non-Tailwind) OR mark A8 `[x]`; else SF-retirement hybrid-discovery / parity cycles 2–3 / Track A infra (A5 SSE / A6 / A7) / Track D polish.
 
 - 2026-07-08 (**D7 scan-completion email notifications — SHIPPED**) — Built the shelved-then-unshelved D7 feature end to end in one session. **Spec's FIRST-EVER Codex review** (accept-with-fixes): caught a real design bug — the `dedupKey notify:<id>:<kind>` idempotency claim was FALSE (the `jobs_active_dedup` index is active-window only over `queued`/`running`, so recovery replay after a *completed* notify job would double-send) → replaced with durable `SiteAudit.notify{Complete,Failed}SentAt` sent-markers (read-marker → send → conditional stamp = at-least-once, narrow dup window). 9 more spec fixes + 9 plan fixes (both accept-with-fixes) applied in place. **Architecture:** opt-in checkbox on `SiteAuditForm`+`SeoScanForm` (always unchecked, session-gated via server-derived `notifyAvailable`); recipient stamped server-side from `getAuthSession().email` (client address ignored) threaded through `queueSiteAuditRequest`→`enqueueAudit`; send seams at end of `runBrokenLinkVerify` (awaited-in-try/catch, never fails the builder) + its `onExhausted` (complete) and `failSiteAudit` (failed → admin, after the flip + `cancelJobsByGroup`, notify job carries NO `site-audit:<id>` group); durable `notify-email` handler (concurrency 1, 3 attempts, no-op on dark/deleted/null-recipient/marker-set/no-app-url); Mailgun HTTP transport in `lib/notify/` (plain `fetch`, injectable deps, key never logged). Schedules + bulk-queue stay silent (default-null + tests). Additive migration `20260708120000_scan_email_notifications` (3 nullable columns). **Gates:** tsc ✓ / **3764 tests ✓ (430 files)** / build ✓. 8 TDD commits, PR #132, merged + deployed 2026-07-08; post-deploy verified: health ok, columns applied, `MAILGUN_DOMAIN` loaded, 1 restart, no boot/notify errors. **Step-0 DNS finding:** staged sending domain is `mg.enrollment.email` (SPF/DKIM-`pic`/MX all present) — NOT the spec's assumed `mg.enrollmentresources.com`; `From: kevin@enrollmentresources.com` is DMARC-*unaligned* against it (org `p=none` → no reject, possible Gmail "via" tag). Mitigation: `NOTIFY_FROM` env-flippable to an aligned `@enrollment.email` sender, no redeploy. **Real-send smoke BLOCKED on a Kevin action** (the recipient comes from HIS logged-in session; Claude can't authenticate as Kevin or forge the cookie without the prod `APP_AUTH_SECRET`) — flagged with exact steps, NOT faked. **Next: roadmap menu** — D7 smoke (Kevin) + optional `NOTIFY_FROM` alignment flip; then hybrid-discovery further increments / parity cycles 2–3 / Track A infra (A5 SSE / A6 UI primitives / A7 auth+Playwright) / Track D polish.
