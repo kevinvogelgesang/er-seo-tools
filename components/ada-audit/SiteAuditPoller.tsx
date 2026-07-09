@@ -3,8 +3,11 @@
 import { useState } from 'react'
 import { Spinner } from '@/components/Spinner'
 import type { LiveAuditChild } from '@/lib/ada-audit/types'
+import type { SeoPhase } from '@/lib/ada-audit/seo-phase'
+import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
 import LiveAuditTable from './LiveAuditTable'
 import { useAuditPoller } from './useAuditPoller'
+import { deriveSeoOnlyStatus, isSeoOnlyTerminal } from './seo-poll-status'
 
 interface PollData {
   status: string
@@ -27,6 +30,9 @@ interface PollData {
     pagesError: number
   } | null
   liveChildren?: LiveAuditChild[]
+  seoOnly?: boolean
+  liveScanRunId?: string | null
+  seoPhase?: SeoPhase
 }
 
 interface Props {
@@ -35,6 +41,9 @@ interface Props {
   initialPagesTotal: number
   initialPagesComplete: number
   initialPagesError: number
+  seoOnly?: boolean
+  initialLiveScanRunId?: string | null
+  initialSeoPhase?: SeoPhase | null
 }
 
 export default function SiteAuditPoller({
@@ -43,6 +52,9 @@ export default function SiteAuditPoller({
   initialPagesTotal,
   initialPagesComplete,
   initialPagesError,
+  seoOnly = false,
+  initialLiveScanRunId = null,
+  initialSeoPhase = null,
 }: Props) {
   const [pagesTotal, setPagesTotal] = useState(initialPagesTotal)
   const [pagesComplete, setPagesComplete] = useState(initialPagesComplete)
@@ -58,14 +70,35 @@ export default function SiteAuditPoller({
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
   const [activeAudit, setActiveAudit] = useState<PollData['activeAudit']>(null)
   const [liveChildren, setLiveChildren] = useState<LiveAuditChild[]>([])
+  const [liveScanRunId, setLiveScanRunId] = useState<string | null>(initialLiveScanRunId)
+  const [seoPhase, setSeoPhase] = useState<SeoPhase | null>(initialSeoPhase)
+
+  // C17: seoOnly audits keep polling through parent 'complete' — the verifier
+  // sub-phase runs after the crawl (spec Codex fix #8). The synthetic status
+  // makes 'complete' non-terminal until run-ready/failed/unavailable.
+  const initialSynthetic = seoOnly
+    ? deriveSeoOnlyStatus(initialStatus, initialLiveScanRunId, initialSeoPhase?.state ?? null)
+    : initialStatus
 
   useAuditPoller<PollData>({
     url: `/api/site-audit/${id}`,
     intervalMs: 3000,
-    initialStatus,
-    getStatus: (d) => d.status,
-    isTerminal: (s) => s === 'complete' || s === 'error' || s === 'cancelled',
+    initialStatus: initialSynthetic,
+    getStatus: (d) =>
+      seoOnly ? deriveSeoOnlyStatus(d.status, d.liveScanRunId ?? null, d.seoPhase?.state ?? null) : d.status,
+    isTerminal: (s) =>
+      seoOnly ? isSeoOnlyTerminal(s) : s === 'complete' || s === 'error' || s === 'cancelled',
+    onTerminal: (data) => {
+      // Single navigation owner: run-ready redirects (replace), every other
+      // terminal falls through to the hook's refresh (server re-renders the
+      // static failed/unavailable banner or the error/cancelled card).
+      if (seoOnly && data.liveScanRunId) {
+        return { redirect: `/seo-audits/results/run/${data.liveScanRunId}` }
+      }
+    },
     onData: (data) => {
+      setLiveScanRunId(data.liveScanRunId ?? null)
+      setSeoPhase(data.seoPhase ?? null)
       setPagesTotal(data.pagesTotal)
       setPagesComplete(data.pagesComplete)
       setPagesError(data.pagesError)
@@ -82,6 +115,29 @@ export default function SiteAuditPoller({
       setLiveChildren(data.liveChildren ?? [])
     },
   })
+
+  const synthetic = seoOnly
+    ? deriveSeoOnlyStatus(status, liveScanRunId, seoPhase?.state ?? null)
+    : status
+
+  // C17: seoOnly post-crawl states own the whole card. 'seo-ready' shows a
+  // brief opening notice while router.replace() lands.
+  if (seoOnly && synthetic.startsWith('seo-')) {
+    if (synthetic === 'seo-ready') {
+      return (
+        <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-8 flex items-center gap-3">
+          <Spinner className="w-5 h-5 text-orange flex-shrink-0" />
+          <p className="font-display font-bold text-[17px] text-navy dark:text-white">Opening SEO results…</p>
+        </div>
+      )
+    }
+    return (
+      <SeoPhaseBanner
+        phase={seoPhase ?? { state: 'queued', progress: null, message: null }}
+        live={synthetic === 'seo-verifying'}
+      />
+    )
+  }
 
   const scanned = pagesComplete + pagesError
   const progress = pagesTotal > 0 ? Math.round((scanned / pagesTotal) * 100) : 0
