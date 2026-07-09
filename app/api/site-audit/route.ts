@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db'
 import type { SiteAuditDetail } from '@/lib/ada-audit/types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { queueSiteAuditRequest } from '@/lib/ada-audit/queue-request'
-import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName, AUTH_COOKIE_NAME, getAuthSession } from '@/lib/auth'
+import { OPERATOR_NAME_COOKIE_NAME, AUTH_COOKIE_NAME, getAuthSession, getOperatorLabel } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,7 +31,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+  // C15: SSO-aware attribution — the verified session identity wins over the
+  // legacy er-operator-name cookie (which Google SSO never sets).
+  const requestedBy = await getOperatorLabel(
+    request.cookies.get(AUTH_COOKIE_NAME)?.value,
+    request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value,
+  )
 
   const seoIntent = raw?.seoIntent === true
   const seoOnly = raw?.seoOnly === true

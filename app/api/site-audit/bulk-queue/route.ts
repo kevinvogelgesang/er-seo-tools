@@ -9,12 +9,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { queueSiteAuditRequest } from '@/lib/ada-audit/queue-request'
-import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
+import { OPERATOR_NAME_COOKIE_NAME, AUTH_COOKIE_NAME, getOperatorLabel } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
-  const requestedBy = sanitizeOperatorName(request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+  // C15: SSO-aware attribution — the verified session identity wins over the
+  // legacy er-operator-name cookie (which Google SSO never sets).
+  const requestedBy = await getOperatorLabel(
+    request.cookies.get(AUTH_COOKIE_NAME)?.value,
+    request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value,
+  )
 
   const clients = await prisma.client.findMany({
     where: { archivedAt: null },
