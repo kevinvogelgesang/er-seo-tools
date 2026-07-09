@@ -103,7 +103,7 @@ export async function GET(
   const liveScanRunId = audit.crawlRuns[0]?.id ?? null
   const seoPhase: SeoPhase = liveScanRunId
     ? { state: 'done', progress: null, message: null }
-    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
+    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id), completedAt: audit.completedAt })
 
   return NextResponse.json({
     id: audit.id,

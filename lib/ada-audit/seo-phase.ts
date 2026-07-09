@@ -11,11 +11,30 @@ export interface SeoPhase {
 
 type VerifyJob = { status: string; progress: number | null; progressMessage: string | null }
 
+// C17 (plan Codex fix #1): the finalizer enqueues broken-link-verify
+// fire-and-forget AFTER the complete flip, and a crashed enqueue is
+// re-created by recoverBrokenLinkVerifies (boot + the 10-min
+// stale-audit-reset tick). Within this window a missing job means
+// "not enqueued yet", not "never ran" — classify queued, keep pollers alive.
+export const SEO_PHASE_ENQUEUE_GRACE_MS = 12 * 60_000
+
 /** Pure. liveScanRunId present == SEO phase done, regardless of any Job row. */
-export function classifySeoPhase(input: { liveScanRunId: string | null; job: VerifyJob | null }): SeoPhase {
+export function classifySeoPhase(input: {
+  liveScanRunId: string | null
+  job: VerifyJob | null
+  completedAt?: Date | null
+  now?: Date
+}): SeoPhase {
   if (input.liveScanRunId) return { state: 'done', progress: null, message: null }
   const job = input.job
-  if (!job) return { state: 'unavailable', progress: null, message: null }
+  if (!job) {
+    const completedAt = input.completedAt ?? null
+    const now = input.now ?? new Date()
+    if (completedAt && now.getTime() - completedAt.getTime() < SEO_PHASE_ENQUEUE_GRACE_MS) {
+      return { state: 'queued', progress: null, message: null }
+    }
+    return { state: 'unavailable', progress: null, message: null }
+  }
   switch (job.status) {
     case 'running':
       return { state: 'running', progress: job.progress, message: job.progressMessage }
@@ -41,11 +60,11 @@ export async function getLatestSeoVerifyJob(siteAuditId: string): Promise<Verify
 }
 
 /** Convenience for callers without a preloaded run id. */
-export async function getSeoPhase(siteAuditId: string): Promise<SeoPhase> {
+export async function getSeoPhase(siteAuditId: string, completedAt?: Date | null): Promise<SeoPhase> {
   const run = await prisma.crawlRun.findUnique({
     where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
     select: { id: true },
   })
   if (run) return { state: 'done', progress: null, message: null }
-  return classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(siteAuditId) })
+  return classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(siteAuditId), completedAt })
 }

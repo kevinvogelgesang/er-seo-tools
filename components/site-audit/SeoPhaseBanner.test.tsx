@@ -24,6 +24,16 @@ describe('SeoPhaseBanner', () => {
     render(<SeoPhaseBanner phase={{ state: 'unavailable', progress: null, message: null }} />)
     expect(screen.getByText(/not available/i)).toBeTruthy()
   })
+  // C17: live variant — rendered by the poller, no manual refresh needed.
+  it('live active state says it updates automatically', () => {
+    render(<SeoPhaseBanner phase={{ state: 'running', progress: 40, message: 'Checking links…' }} live />)
+    expect(screen.getByText(/updates automatically/i)).toBeTruthy()
+    expect(screen.queryByText(/Refresh this page/i)).toBeNull()
+  })
+  it('live done renders nothing', () => {
+    const { container } = render(<SeoPhaseBanner phase={{ state: 'done', progress: null, message: null }} live />)
+    expect(container.firstChild).toBeNull()
+  })
   it('done renders nothing', () => {
     const { container } = render(<SeoPhaseBanner phase={{ state: 'done', progress: null, message: null }} />)
     expect(container.firstChild).toBeNull()

@@ -2,8 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { RecentItem, RecentType } from '@/lib/ada-audit/recents-query'
+import type { RecentStatusItem } from '@/lib/ada-audit/recents-status-shared'
 import { ClientDate } from '@/components/ClientDate'
 import { formatDuration, formatDurationHover } from '@/lib/ada-audit/duration'
+import { useRecentsLivePoll } from './useRecentsLivePoll'
 
 type Scope = 'all' | 'mine'
 interface Props {
@@ -136,8 +138,36 @@ export default function RecentsTable({ initialItems, initialNextCursor, initialS
     }
   }, [])
 
+  // C17 (plan Codex fix #2): per-row live progress detail from the compact
+  // endpoint, keyed `type:id`. Kept OUTSIDE RecentItem — the merged query
+  // stays cheap; this map only ever holds currently-polled rows.
+  const [liveMeta, setLiveMeta] = useState<Record<string, RecentStatusItem>>({})
+
   const rows = variant === 'home' ? items.slice(0, HOME_LIMIT) : items
   const mineDisabled = !operator
+
+  // C17: live-update the visible in-flight rows via the compact status
+  // endpoint; refetch the merged list once when one settles. Stops when
+  // nothing visible is in flight.
+  useRecentsLivePoll({
+    items: rows,
+    onUpdate: (updates) => {
+      setLiveMeta((prev) => {
+        const next = { ...prev }
+        for (const u of updates) next[`${u.type}:${u.id}`] = u
+        return next
+      })
+      setItems((prev) =>
+        prev.map((it) => {
+          const u = updates.find((x) => x.type === it.type && x.id === it.id)
+          return u
+            ? { ...it, status: u.status, score: u.score, href: u.href, startedAt: u.startedAt, completedAt: u.completedAt, inFlight: u.inFlight }
+            : it
+        }),
+      )
+    },
+    onSettled: () => void refetch(scope),
+  })
 
   return (
     <section className={variant === 'home' ? 'rounded-2xl border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card p-5' : ''}>
@@ -195,7 +225,31 @@ export default function RecentsTable({ initialItems, initialNextCursor, initialS
                   <td className="py-2.5 pr-4 max-w-[280px] truncate"><Link href={it.href} className="text-orange hover:underline">{it.label}</Link></td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.clientName ?? '—'}</td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.requestedBy ?? '—'}</td>
-                  <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.status}</td>
+                  <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">
+                    {(() => {
+                      const meta = it.inFlight ? liveMeta[`${it.type}:${it.id}`] : undefined
+                      const pct = meta
+                        ? meta.progressPct ?? (meta.pagesTotal ? Math.round(((meta.pagesDone ?? 0) / meta.pagesTotal) * 100) : null)
+                        : null
+                      const label = meta
+                        ? meta.pagesTotal ? `${meta.pagesDone ?? 0}/${meta.pagesTotal} pages` : meta.phaseLabel
+                        : null
+                      return (
+                        <>
+                          <span className="inline-flex items-center gap-1.5">
+                            {it.inFlight && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 dark:bg-blue-400 animate-pulse" aria-hidden />}
+                            {it.status}
+                          </span>
+                          {label && <span className="block text-[10px] text-navy/40 dark:text-white/40 mt-0.5 truncate max-w-[160px]">{label}</span>}
+                          {pct != null && (
+                            <span className="block w-24 h-1 mt-1 rounded-full bg-gray-100 dark:bg-navy-light overflow-hidden">
+                              <span className="block h-1 rounded-full bg-blue-500 dark:bg-blue-400 transition-all duration-500" style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+                            </span>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.score ?? '—'}</td>
                   <td className="py-2.5 pr-4 text-navy/40 dark:text-white/40 whitespace-nowrap" title={formatDurationHover(it.startedAt, it.completedAt) ?? ''}>{formatDuration(it.startedAt, it.completedAt) ?? '—'}</td>
                   <td className="py-2.5 pr-4 text-navy/40 dark:text-white/40 whitespace-nowrap"><ClientDate iso={it.createdAt} variant="date" /></td>

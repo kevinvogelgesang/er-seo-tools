@@ -68,6 +68,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
           initialPagesTotal={audit.pagesTotal}
           initialPagesComplete={audit.pagesComplete}
           initialPagesError={audit.pagesError}
+          seoOnly={audit.seoOnly}
         />
       </main>
     )
@@ -140,9 +141,15 @@ export default async function SiteAuditResultPage({ params }: Props) {
     })
     const view = resolveSeoOnlyView(audit, liveRun?.id ?? null)
     if (view.kind === 'redirect') redirect(view.href)
-    const seoPhase = classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
-    // SeoPhaseBanner owns the phase-specific copy — the heading must not
-    // promise "building" when the verifier failed.
+    const seoPhase = classifySeoPhase({
+      liveScanRunId: null,
+      job: await getLatestSeoVerifyJob(audit.id),
+      completedAt: audit.completedAt,
+    })
+    // C17: the poller renders the live phase banner and auto-navigates to the
+    // run page when the verifier lands; with a failed/unavailable initial
+    // phase it mounts inert and renders the static banner. The heading must
+    // not promise "building" when the verifier failed.
     const building = seoPhase.state === 'queued' || seoPhase.state === 'running'
     return (
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
@@ -150,10 +157,19 @@ export default async function SiteAuditResultPage({ params }: Props) {
         <div>
           <h1 className="font-display font-bold text-[24px] text-navy dark:text-white">{audit.domain}</h1>
           <p className="text-[13px] font-body text-navy/60 dark:text-white/60 mt-1">
-            {building ? 'SEO scan complete — verifying links and building results. Reload to check progress.' : 'SEO scan'}
+            {building ? 'SEO scan complete — verifying links and building results.' : 'SEO scan'}
           </p>
         </div>
-        <SeoPhaseBanner phase={seoPhase} />
+        <SiteAuditPoller
+          id={id}
+          initialStatus={audit.status}
+          initialPagesTotal={audit.pagesTotal}
+          initialPagesComplete={audit.pagesComplete}
+          initialPagesError={audit.pagesError}
+          seoOnly
+          initialLiveScanRunId={null}
+          initialSeoPhase={seoPhase}
+        />
       </main>
     )
   }
@@ -223,7 +239,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
   // a single status banner instead of six silent "not verified" blocks.
   const seoPhase = liveScanRun
     ? ({ state: 'done', progress: null, message: null } as const)
-    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id) })
+    : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id), completedAt: audit.completedAt })
 
   // Report button starts 'ready' only when the stamp AND the file agree
   // (Codex fix: never trust the column alone — retention may have deleted the PDF).

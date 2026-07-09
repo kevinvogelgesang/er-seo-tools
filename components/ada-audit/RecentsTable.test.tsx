@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import RecentsTable from './RecentsTable'
 import type { RecentItem } from '@/lib/ada-audit/recents-query'
@@ -7,14 +7,16 @@ import type { RecentItem } from '@/lib/ada-audit/recents-query'
 const item = (over: Partial<RecentItem> = {}): RecentItem => ({
   type: 'site-ada', id: 'a1', createdAt: '2026-07-08T10:00:00.000Z', label: 'client-a.example',
   href: '/ada-audit/site/a1', status: 'complete', score: 92, startedAt: null, completedAt: null,
-  clientName: 'Client A', requestedBy: 'Alice', deletable: false, ...over,
+  clientName: 'Client A', requestedBy: 'Alice', deletable: false, inFlight: false, ...over,
 })
 
 beforeEach(() => {
   // Full-variant mounts fetch /api/clients for the filter dropdown.
   vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify([])))
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+// useRealTimers here (not per-test) so an assertion failure can't leak fake
+// timers into later tests (plan Codex fix #6).
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('RecentsTable', () => {
   it('renders an Operator column with the requestedBy value', () => {
@@ -72,6 +74,65 @@ describe('RecentsTable', () => {
     expect(screen.queryByRole('button', { name: /load more/i })).toBeNull() // nextCursor null → hidden
     const loadMoreCall = fetchMock.mock.calls.map((c) => String(c[0])).find((u) => u.includes('cursor='))
     expect(decodeURIComponent(loadMoreCall ?? '')).toContain('cursor=123~site-ada~a1')
+  })
+
+  // C17: live in-flight rows.
+  it('polls the compact status endpoint for in-flight rows, merges updates, shows mini progress', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/api/ada-audit/recents/status')) {
+        return new Response(JSON.stringify({ items: [{
+          type: 'site-ada', id: 'a1', status: 'running', score: null,
+          href: '/ada-audit/site/a1', startedAt: null, completedAt: null, inFlight: true,
+          pagesDone: 12, pagesTotal: 40, progressPct: null, phaseLabel: null,
+        }] }))
+      }
+      return new Response(JSON.stringify([]))
+    })
+    render(<RecentsTable initialItems={[item({ status: 'queued', inFlight: true, score: null })]}
+      initialNextCursor={null} initialScope="all" operator={null} variant="full" />)
+    // waitFor's internal interval never fires under vitest fake timers —
+    // advance inside act() and assert directly (house pattern).
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000) })
+    expect(screen.getByText('running')).toBeTruthy()
+    expect(screen.getByText('12/40 pages')).toBeTruthy()
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/api/ada-audit/recents/status'))).toBe(true)
+  })
+
+  it('refetches the merged list once when an in-flight row settles', async () => {
+    vi.useFakeTimers()
+    let recentsFetches = 0
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/api/ada-audit/recents/status')) {
+        return new Response(JSON.stringify({ items: [{
+          type: 'site-ada', id: 'a1', status: 'complete', score: 88,
+          href: '/ada-audit/site/a1', startedAt: null, completedAt: null, inFlight: false,
+          pagesDone: null, pagesTotal: null, progressPct: null, phaseLabel: null,
+        }] }))
+      }
+      if (url.includes('/api/ada-audit/recents?')) {
+        recentsFetches++
+        return new Response(JSON.stringify({ items: [item({ status: 'complete', score: 88 })], nextCursor: null }))
+      }
+      return new Response(JSON.stringify([]))
+    })
+    render(<RecentsTable initialItems={[item({ status: 'running', inFlight: true, score: null })]}
+      initialNextCursor={null} initialScope="all" operator={null} variant="full" />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000) })
+    expect(recentsFetches).toBe(1)
+    // next tick: same settled key must not re-trigger the merged refetch
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000) })
+    expect(recentsFetches).toBe(1)
+  })
+
+  it('does not hit the status endpoint when nothing is in flight', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify([])))
+    render(<RecentsTable initialItems={[item()]} initialNextCursor={null} initialScope="all" operator={null} variant="full" />)
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).includes('/recents/status'))).toBe(true)
   })
 
   it('C16: home variant hides search/filter/delete/load-more', () => {
