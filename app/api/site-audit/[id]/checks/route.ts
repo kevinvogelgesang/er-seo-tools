@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { OPERATOR_NAME_COOKIE_NAME, sanitizeOperatorName } from '@/lib/auth'
+import { AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME, getOperatorLabel } from '@/lib/auth'
 import { getSiteAuditChecks, setSiteAuditCheck } from '@/lib/ada-audit/checks-store'
 import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
@@ -35,7 +35,12 @@ export const PUT = withRoute(async (req: NextRequest, { params }: { params: Prom
     return NextResponse.json({ error: 'key must be a 64-char lowercase hex string' }, { status: 400 })
   }
 
-  const operator = sanitizeOperatorName(req.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value)
+  // C18: SSO-aware attribution — the verified session identity wins over the
+  // legacy er-operator-name cookie (which Google SSO never sets). Same fix as C15's.
+  const operator = await getOperatorLabel(
+    req.cookies.get(AUTH_COOKIE_NAME)?.value,
+    req.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value,
+  )
   const checks = await setSiteAuditCheck({ siteAuditId: id, scope, key, checked, operator })
   return NextResponse.json({ checks })
 })

@@ -1,8 +1,10 @@
+import { Suspense } from 'react'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { prisma } from '@/lib/db'
 import SiteAuditPoller from '@/components/ada-audit/SiteAuditPoller'
 import SiteAuditResultsView from '@/components/ada-audit/SiteAuditResultsView'
+import SiteAuditResultsShell from '@/components/ada-audit/SiteAuditResultsShell'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
@@ -267,49 +269,65 @@ export default async function SiteAuditResultPage({ params }: Props) {
     }
   })
 
+  const seoContent = liveScanRun ? (
+    <>
+      <BrokenLinksSection run={liveScanRun} />
+      <OnPageSeoSection
+        run={liveScanRun}
+        analyzed={onPageAnalyzed}
+        score={liveScanRun?.score ?? null}
+        observed={observedPages}
+        indexable={indexablePages}
+        attempted={audit.pagesTotal}
+        breakdown={liveScanRun?.scoreBreakdown ?? null}
+      />
+      <TechnicalSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
+      <DiscoveryCoverageSection run={liveScanRun} />
+      <ReachabilitySection run={liveScanRun} />
+      <ContentSimilaritySection run={liveScanRun} />
+    </>
+  ) : (
+    <SeoPhaseBanner phase={seoPhase} />
+  )
+
+  const accessibilityContent = (
+    <SiteAuditResultsView
+      domain={audit.domain}
+      summary={summary}
+      wcagLevel={audit.wcagLevel}
+      score={score}
+      compliant={compliant}
+      pdfs={pdfs}
+      siteAuditId={audit.id}
+      scoreMeta={{ version: scoreVersion, fromFallback: scoreFromFallback, passCount: sitePassCount, incompleteCount: siteIncompleteCount }}
+    />
+  )
+
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
       {breadcrumb}
-      <SiteAuditExportBar
-        siteAuditId={audit.id}
-        hasPrevious={instanceDiff !== null}
-        initialReportGeneratedAt={initialReportGeneratedAt}
-      />
-      {instanceDiff && <SiteAuditDiffPanel diff={instanceDiff.diff} previous={instanceDiff.previous} />}
-      {liveScanRun ? (
-        <>
-          <BrokenLinksSection run={liveScanRun} />
-          <OnPageSeoSection
-            run={liveScanRun}
-            analyzed={onPageAnalyzed}
-            score={liveScanRun?.score ?? null}
-            observed={observedPages}
-            indexable={indexablePages}
-            attempted={audit.pagesTotal}
-            breakdown={liveScanRun?.scoreBreakdown ?? null}
-          />
-          <TechnicalSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
-          <DiscoveryCoverageSection run={liveScanRun} />
-          <ReachabilitySection run={liveScanRun} />
-          <ContentSimilaritySection run={liveScanRun} />
-        </>
-      ) : (
-        <SeoPhaseBanner phase={seoPhase} />
-      )}
-      <SiteAuditResultsView
-        domain={audit.domain}
-        clientName={audit.client?.name ?? null}
-        createdAt={audit.createdAt.toISOString()}
-        pagesTotal={audit.pagesTotal}
-        pagesError={audit.pagesError}
-        summary={summary}
-        wcagLevel={audit.wcagLevel}
-        score={score}
-        compliant={compliant}
-        pdfs={pdfs}
-        siteAuditId={audit.id}
-        scoreMeta={{ version: scoreVersion, fromFallback: scoreFromFallback, passCount: sitePassCount, incompleteCount: siteIncompleteCount }}
-      />
+      <Suspense fallback={null}>
+        <SiteAuditResultsShell
+          domain={audit.domain}
+          clientName={audit.client?.name ?? null}
+          createdAt={audit.createdAt.toISOString()}
+          pagesTotal={audit.pagesTotal}
+          pagesError={audit.pagesError}
+          wcagLevel={audit.wcagLevel}
+          adaScore={score}
+          seoScore={liveScanRun?.score ?? null}
+          exportBar={
+            <SiteAuditExportBar
+              siteAuditId={audit.id}
+              hasPrevious={instanceDiff !== null}
+              initialReportGeneratedAt={initialReportGeneratedAt}
+            />
+          }
+          diffPanel={instanceDiff ? <SiteAuditDiffPanel diff={instanceDiff.diff} previous={instanceDiff.previous} /> : null}
+          accessibility={accessibilityContent}
+          seo={seoContent}
+        />
+      </Suspense>
     </main>
   )
 }

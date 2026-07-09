@@ -30,13 +30,24 @@ beforeAll(async () => {
   const mk = async (suffix: string) => (await prisma.client.create({
     data: { name: `${PREFIX}${suffix}`, domains: JSON.stringify([`${PREFIX}${suffix}.example`]) },
   })).id
-  clientIds = { withRun: await mk('a'), legacy: await mk('b'), pruned: await mk('c') }
+  clientIds = { withRun: await mk('a'), legacy: await mk('b'), pruned: await mk('c'), seo: await mk('d') }
 
   const withRun = await prisma.siteAudit.create({
     data: { domain: `${PREFIX}a.example`, status: 'complete', summary: SITE_BLOB, wcagLevel: 'wcag21aa', clientId: clientIds.withRun, completedAt: new Date() },
   })
   await prisma.crawlRun.create({
     data: { tool: 'ada-audit', source: 'site-audit', domain: `${PREFIX}a.example`, siteAuditId: withRun.id, status: 'complete', score: 42, wcagLevel: 'wcag21aa' },
+  })
+
+  // C18: an audit carrying BOTH an ada-audit run and a live-scan SEO run.
+  const withSeo = await prisma.siteAudit.create({
+    data: { domain: `${PREFIX}d.example`, status: 'complete', summary: SITE_BLOB, wcagLevel: 'wcag21aa', clientId: clientIds.seo, completedAt: new Date() },
+  })
+  await prisma.crawlRun.create({
+    data: { tool: 'ada-audit', source: 'site-audit', domain: `${PREFIX}d.example`, siteAuditId: withSeo.id, status: 'complete', score: 55, wcagLevel: 'wcag21aa' },
+  })
+  await prisma.crawlRun.create({
+    data: { tool: 'seo-parser', source: 'live-scan', domain: `${PREFIX}d.example`, siteAuditId: withSeo.id, status: 'complete', score: 91, wcagLevel: 'wcag21aa' },
   })
   await prisma.siteAudit.create({
     data: { domain: `${PREFIX}b.example`, status: 'complete', summary: SITE_BLOB, wcagLevel: 'wcag21aa', clientId: clientIds.legacy, completedAt: new Date() },
@@ -74,5 +85,16 @@ describe('GET /api/clients/audit-summary — C3 score source', () => {
     const row = await fetchRow(clientIds.pruned)
     expect(row?.latestSiteAudit?.score).toBe(37)
     expect(row?.latestSiteAudit?.summary).toBeNull()
+  })
+
+  it('C18: surfaces the live-scan SEO score alongside the ADA score', async () => {
+    const row = await fetchRow(clientIds.seo)
+    expect(row?.latestSiteAudit?.score).toBe(55)     // ada-audit run
+    expect(row?.latestSiteAudit?.seoScore).toBe(91)  // live-scan run
+  })
+
+  it('C18: seoScore is null when the audit has no live-scan run', async () => {
+    const row = await fetchRow(clientIds.withRun)
+    expect(row?.latestSiteAudit?.seoScore).toBeNull()
   })
 })

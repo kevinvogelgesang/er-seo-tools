@@ -1,12 +1,20 @@
 // A3 Task 7 — characterization tests for GET/PUT /api/site-audit/[id]/checks.
 // Pins CURRENT behavior; do not "fix" anything found here in Phase 1.
-import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
+import { createAuthCookieValue, AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME } from '@/lib/auth'
 import { GET, PUT } from './route'
 
 const PREFIX = '__a3sa__'
 const VALID_KEY = '0'.repeat(64)
+
+const ORIG_SECRET = process.env.APP_AUTH_SECRET
+beforeAll(() => { process.env.APP_AUTH_SECRET = 'test-auth-secret' })
+afterAll(() => {
+  if (ORIG_SECRET === undefined) delete process.env.APP_AUTH_SECRET
+  else process.env.APP_AUTH_SECRET = ORIG_SECRET
+})
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
@@ -126,5 +134,45 @@ describe('PUT /api/site-audit/[id]/checks', () => {
     )
     expect(res.status).toBe(200)
     expect((await res.json()).checks).toHaveLength(0)
+  })
+})
+
+// C18: checkedBy is derived via the SSO-aware getOperatorLabel (verified
+// session first, legacy cookie fallback) instead of the legacy cookie alone.
+describe('PUT /api/site-audit/[id]/checks — checkedBy attribution (C18)', () => {
+  function putReq(cookies: { session?: string; operator?: string }, body: unknown): NextRequest {
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    const jar: string[] = []
+    if (cookies.session) jar.push(`${AUTH_COOKIE_NAME}=${cookies.session}`)
+    if (cookies.operator) jar.push(`${OPERATOR_NAME_COOKIE_NAME}=${cookies.operator}`)
+    if (jar.length) headers.set('cookie', jar.join('; '))
+    return new NextRequest('http://localhost/api/site-audit/1/checks', {
+      method: 'PUT', headers, body: JSON.stringify(body),
+    })
+  }
+
+  it('uses the verified session name over a stale legacy cookie', async () => {
+    const audit = await makeAudit('c18-session')
+    const session = await createAuthCookieValue({ sub: 'google:1', email: 'kevin@enrollmentresources.com', hd: 'enrollmentresources.com', name: 'Kevin Vogelgesang' })
+    const res = await PUT(putReq({ session, operator: 'Stale Old Name' }, { scope: 'page', key: VALID_KEY, checked: true }), params(audit.id))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.checks[0].checkedBy).toBe('Kevin Vogelgesang')
+  })
+
+  it('falls back to the sanitized legacy cookie when there is no session', async () => {
+    const audit = await makeAudit('c18-legacy')
+    const res = await PUT(putReq({ operator: '  Kevin  ' }, { scope: 'page', key: VALID_KEY, checked: true }), params(audit.id))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.checks[0].checkedBy).toBe('Kevin')
+  })
+
+  it('writes null when neither cookie is present', async () => {
+    const audit = await makeAudit('c18-none')
+    const res = await PUT(putReq({}, { scope: 'page', key: VALID_KEY, checked: true }), params(audit.id))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.checks[0].checkedBy).toBeNull()
   })
 })

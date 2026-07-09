@@ -257,7 +257,7 @@ export default function SiteAuditPoller({
           )}
 
           <p className="text-[12px] font-body text-navy/40 dark:text-white/40">
-            Pages are audited one at a time. Large sites may take several minutes.
+            Each page is scanned individually for accessibility and SEO. Large sites can take several minutes.
           </p>
         </div>
       )}

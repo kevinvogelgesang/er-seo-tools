@@ -242,12 +242,6 @@ export default function ClientsAuditSummary() {
       >
         Queue all
       </button>
-      <Link
-        href="/ada-audit/queue"
-        className="text-[12px] font-body font-semibold text-orange hover:underline"
-      >
-        View queue →
-      </Link>
     </div>
   )
 
@@ -279,12 +273,13 @@ export default function ClientsAuditSummary() {
           <tr className="border-b border-gray-100 dark:border-navy-border">
             <th className="text-left px-6 py-2"><SortHeader label="Client"     ascKey="name-asc" descKey="name-desc" currentSort={sort} /></th>
             <th className="text-left px-6 py-2"><SortHeader label="Last audit" ascKey="date-asc" descKey="date-desc" currentSort={sort} /></th>
-            <th className="text-left px-6 py-2"><SortHeader label="Score"      ascKey="score-asc" descKey="score-desc" currentSort={sort} /></th>
+            <th className="text-left px-6 py-2"><SortHeader label="Accessibility" ascKey="score-asc" descKey="score-desc" currentSort={sort} /></th>
+            <th className="text-left px-6 py-2 text-[11px] uppercase tracking-wider font-body font-semibold text-navy/50 dark:text-white/50">SEO</th>
             <th className="text-right px-6 py-2 text-[11px] uppercase tracking-wider font-body font-semibold text-navy/50 dark:text-white/50">Action</th>
           </tr>
           {filtered && (
             <tr>
-              <td colSpan={4} className="px-6 py-1 text-[11px] font-body text-navy/40 dark:text-white/40">{filterCount}</td>
+              <td colSpan={5} className="px-6 py-1 text-[11px] font-body text-navy/40 dark:text-white/40">{filterCount}</td>
             </tr>
           )}
         </thead>
@@ -306,6 +301,9 @@ export default function ClientsAuditSummary() {
                 <td className="px-6 py-3">
                   <ScoreBadge score={la?.score ?? null} />
                   <ChipForStatus status={inFlightByClient.get(c.clientId)} />
+                </td>
+                <td className="px-6 py-3">
+                  <ScoreBadge score={la?.seoScore ?? null} />
                 </td>
                 <td className="px-6 py-3 text-right whitespace-nowrap">
                   {la && (

@@ -269,6 +269,7 @@ export interface ClientAuditSummary {
     id: string
     createdAt: string                 // ISO
     score: number | null
+    seoScore: number | null           // live-scan CrawlRun.score (null = unscoreable / no live run)
     pagesTotal: number
     pagesError: number
     summary: SiteAuditSummary | null
