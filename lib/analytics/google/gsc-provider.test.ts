@@ -26,7 +26,7 @@ vi.mock('./auth', () => ({
   getAuthClient: mockGetAuthClient,
 }));
 
-import { fetchGsc } from './gsc-provider';
+import { fetchGsc, fetchGscQueryPage } from './gsc-provider';
 import type { DateWindow } from '../dates';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -461,5 +461,251 @@ describe('empty / missing rows', () => {
     expect(result.data.positionSeries).toEqual([]);
     expect(result.data.positionSeriesPrev).toEqual([]);
     expect(result.data.queries).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// fetchGscQueryPage
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** GSC API response for a query- or query+page-dimension query used by fetchGscQueryPage */
+function makeGscQueryRowsResponse(
+  rows: Array<{
+    keys: Array<string | null | undefined> | null | undefined;
+    clicks?: number;
+    impressions?: number;
+    ctr?: number;
+    position?: number;
+  }>,
+) {
+  return {
+    data: {
+      rows: rows.map(r => ({
+        keys: r.keys,
+        clicks: r.clicks ?? 10,
+        impressions: r.impressions ?? 100,
+        ctr: r.ctr ?? 0.1,
+        position: r.position ?? 5,
+      })),
+    },
+  };
+}
+
+const snapshotWindow = makeWindow('2026-06-01', '2026-06-30');
+
+describe('fetchGscQueryPage', () => {
+  describe('null siteUrl', () => {
+    it('returns {ok:false, reason:"not_mapped"} immediately and never calls query or auth', async () => {
+      const result = await fetchGscQueryPage(null, snapshotWindow);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('not_mapped');
+      }
+      expect(mockQuery).not.toHaveBeenCalled();
+      expect(mockGetAuthClient).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('auth propagation', () => {
+    it('propagates {ok:false, reason:"auth"} when getAuthClient fails', async () => {
+      mockGetAuthClient.mockResolvedValue({
+        ok: false,
+        reason: 'auth',
+        message: 'key file missing',
+      });
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('auth');
+      }
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('happy path', () => {
+    it('issues 2 query calls with correct dimensions, rowLimits, dates, siteUrl, and 30s timeout', async () => {
+      const queryRows = makeGscQueryRowsResponse([
+        { keys: ['seo audit tool'], clicks: 50, impressions: 500, ctr: 0.1, position: 4.2 },
+      ]);
+      const queryPageRows = makeGscQueryRowsResponse([
+        { keys: ['seo audit tool', 'https://example.com/tools'], clicks: 30, impressions: 300, position: 3.1 },
+      ]);
+      mockQuery
+        .mockResolvedValueOnce(queryRows)
+        .mockResolvedValueOnce(queryPageRows);
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+      const calls = mockQuery.mock.calls;
+
+      // call 0 — query dimension, rowLimit 2500
+      expect(calls[0][0].siteUrl).toBe('sc-domain:example.com');
+      expect(calls[0][0].requestBody.dimensions).toEqual(['query']);
+      expect(calls[0][0].requestBody.rowLimit).toBe(2500);
+      expect(calls[0][0].requestBody.startDate).toBe('2026-06-01');
+      expect(calls[0][0].requestBody.endDate).toBe('2026-06-30');
+      expect(calls[0][1]).toEqual({ timeout: 30_000 });
+
+      // call 1 — query+page dimension, rowLimit 5000
+      expect(calls[1][0].siteUrl).toBe('sc-domain:example.com');
+      expect(calls[1][0].requestBody.dimensions).toEqual(['query', 'page']);
+      expect(calls[1][0].requestBody.rowLimit).toBe(5000);
+      expect(calls[1][0].requestBody.startDate).toBe('2026-06-01');
+      expect(calls[1][0].requestBody.endDate).toBe('2026-06-30');
+      expect(calls[1][1]).toEqual({ timeout: 30_000 });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.queryRows).toEqual([
+        { query: 'seo audit tool', clicks: 50, impressions: 500, ctr: 0.1, position: 4.2 },
+      ]);
+      expect(result.data.queryPageRows).toEqual([
+        { query: 'seo audit tool', page: 'https://example.com/tools', clicks: 30, impressions: 300, position: 3.1 },
+      ]);
+      expect(result.data.queryAtLimit).toBe(false);
+      expect(result.data.queryPageAtLimit).toBe(false);
+    });
+  });
+
+  describe('at-limit flags', () => {
+    it('sets queryAtLimit true when the query response returns exactly 2500 rows', async () => {
+      const rows = Array.from({ length: 2500 }, (_, i) => ({ keys: [`kw ${i}`] }));
+      mockQuery
+        .mockResolvedValueOnce(makeGscQueryRowsResponse(rows))
+        .mockResolvedValueOnce(makeGscQueryRowsResponse([]));
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.queryAtLimit).toBe(true);
+      expect(result.data.queryPageAtLimit).toBe(false);
+    });
+
+    it('sets queryAtLimit false when the query response returns one row less than the limit', async () => {
+      const rows = Array.from({ length: 2499 }, (_, i) => ({ keys: [`kw ${i}`] }));
+      mockQuery
+        .mockResolvedValueOnce(makeGscQueryRowsResponse(rows))
+        .mockResolvedValueOnce(makeGscQueryRowsResponse([]));
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.queryAtLimit).toBe(false);
+    });
+
+    it('sets queryPageAtLimit true when the query+page response returns exactly 5000 rows', async () => {
+      const rows = Array.from({ length: 5000 }, (_, i) => ({ keys: [`kw ${i}`, `https://example.com/${i}`] }));
+      mockQuery
+        .mockResolvedValueOnce(makeGscQueryRowsResponse([]))
+        .mockResolvedValueOnce(makeGscQueryRowsResponse(rows));
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.queryPageAtLimit).toBe(true);
+      expect(result.data.queryAtLimit).toBe(false);
+    });
+
+    it('sets queryPageAtLimit false when the query+page response returns one row less than the limit', async () => {
+      const rows = Array.from({ length: 4999 }, (_, i) => ({ keys: [`kw ${i}`, `https://example.com/${i}`] }));
+      mockQuery
+        .mockResolvedValueOnce(makeGscQueryRowsResponse([]))
+        .mockResolvedValueOnce(makeGscQueryRowsResponse(rows));
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.queryPageAtLimit).toBe(false);
+    });
+  });
+
+  describe('null/undefined keys discarded', () => {
+    it('discards query rows with null/undefined keys, and query+page rows missing the page key', async () => {
+      const queryRows = makeGscQueryRowsResponse([
+        { keys: ['good query'] },
+        { keys: null },
+        { keys: undefined },
+      ]);
+      const queryPageRows = makeGscQueryRowsResponse([
+        { keys: ['good query', 'https://example.com/'] },
+        { keys: ['no page key here'] },
+        { keys: null },
+      ]);
+      mockQuery
+        .mockResolvedValueOnce(queryRows)
+        .mockResolvedValueOnce(queryPageRows);
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.queryRows).toHaveLength(1);
+      expect(result.data.queryRows[0].query).toBe('good query');
+      expect(result.data.queryPageRows).toHaveLength(1);
+      expect(result.data.queryPageRows[0]).toMatchObject({
+        query: 'good query',
+        page: 'https://example.com/',
+      });
+    });
+  });
+
+  describe('error taxonomy', () => {
+    it('maps 403/PERMISSION_DENIED to reason:"access_denied" (property is configured, SA lacks access)', async () => {
+      const err = Object.assign(new Error('Forbidden'), {
+        code: 403,
+        errors: [{ status: 'PERMISSION_DENIED' }],
+      });
+      mockQuery.mockRejectedValue(err);
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('access_denied');
+      }
+    });
+
+    it('maps a 429 error to reason:"quota"', async () => {
+      const err = Object.assign(new Error('Too many requests'), { code: 429 });
+      mockQuery.mockRejectedValue(err);
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('quota');
+      }
+    });
+
+    it('maps a 401 error to reason:"auth"', async () => {
+      const err = Object.assign(new Error('Unauthorized'), { code: 401 });
+      mockQuery.mockRejectedValue(err);
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('auth');
+      }
+    });
+
+    it('maps a generic unknown error to reason:"error"', async () => {
+      mockQuery.mockRejectedValue(new Error('Something went wrong'));
+
+      const result = await fetchGscQueryPage('sc-domain:example.com', snapshotWindow);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('error');
+      }
+    });
   });
 });

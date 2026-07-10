@@ -270,3 +270,163 @@ export async function fetchGsc(
     return classifyApiError(err);
   }
 }
+
+// ─── Query × page snapshot (KS-1) ──────────────────────────────────────────────
+
+/** Row limit for the `['query']`-dimensioned searchanalytics.query call. */
+const QUERY_ROW_LIMIT = 2500;
+
+/** Row limit for the `['query', 'page']`-dimensioned searchanalytics.query call. */
+const QUERY_PAGE_ROW_LIMIT = 5000;
+
+export type GscQueryRow = {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GscQueryPageRow = {
+  query: string;
+  page: string;
+  clicks: number;
+  impressions: number;
+  position: number;
+};
+
+export type GscQueryPageResult =
+  | {
+      ok: true;
+      data: {
+        queryRows: GscQueryRow[];
+        queryPageRows: GscQueryPageRow[];
+        queryAtLimit: boolean;
+        queryPageAtLimit: boolean;
+      };
+    }
+  | {
+      ok: false;
+      reason: 'not_mapped' | 'access_denied' | 'auth' | 'quota' | 'error';
+      message?: string;
+    };
+
+function mapQueryRows(rows: GscRow[]): GscQueryRow[] {
+  const out: GscQueryRow[] = [];
+  for (const row of rows) {
+    const query = row.keys?.[0];
+    if (query === null || query === undefined) continue;
+    out.push({
+      query,
+      clicks: numField(row, 'clicks'),
+      impressions: numField(row, 'impressions'),
+      ctr: numField(row, 'ctr'),
+      position: numField(row, 'position'),
+    });
+  }
+  return out;
+}
+
+function mapQueryPageRows(rows: GscRow[]): GscQueryPageRow[] {
+  const out: GscQueryPageRow[] = [];
+  for (const row of rows) {
+    const query = row.keys?.[0];
+    const page = row.keys?.[1];
+    if (query === null || query === undefined || page === null || page === undefined) continue;
+    out.push({
+      query,
+      page,
+      clicks: numField(row, 'clicks'),
+      impressions: numField(row, 'impressions'),
+      position: numField(row, 'position'),
+    });
+  }
+  return out;
+}
+
+/**
+ * Fetch a query×page keyword snapshot for a single date window.
+ *
+ * Issues 2 searchanalytics.query calls (in parallel via Promise.all):
+ *   1. dimensions:['query'], rowLimit:2500
+ *   2. dimensions:['query','page'], rowLimit:5000
+ * Each call passes `{ timeout: 30_000 }` as the request-options argument.
+ *
+ * The siteUrl is passed VERBATIM — never normalized (same doctrine as fetchGsc).
+ *
+ * Own result union (NOT the shared SourceResult): the shared 'unmapped' reason
+ * conflates local-null-siteUrl with an API 403. Here they are distinct facts:
+ *   - {ok:false, reason:'not_mapped'}   siteUrl is null — checked before auth, zero API calls
+ *   - {ok:false, reason:'access_denied'} classifyApiError → 'unmapped' (403/PERMISSION_DENIED
+ *     or generic 403) on what IS a configured property — the service account just lacks access
+ *   - {ok:false, reason:'auth'|'quota'|'error'} pass through classifyApiError/getAuthClient unchanged
+ */
+export async function fetchGscQueryPage(
+  siteUrl: string | null,
+  window: DateWindow,
+): Promise<GscQueryPageResult> {
+  // ── 1. null-siteUrl short-circuit (before auth) ──────────────────────────
+  if (siteUrl === null) {
+    return { ok: false, reason: 'not_mapped', message: 'No GSC site URL mapped for this client' };
+  }
+
+  const site: string = siteUrl;
+
+  // ── 2. Auth ──────────────────────────────────────────────────────────────
+  const a = await getAuthClient();
+  if (!a.ok) return a; // {ok:false, reason:'auth', message} — same shape, passes through
+
+  // ── 3. API client ────────────────────────────────────────────────────────
+  const sc = google.searchconsole({ version: 'v1', auth: a.auth });
+
+  async function runQuery(dimensions: string[], rowLimit: number) {
+    return sc.searchanalytics.query(
+      {
+        siteUrl: site,
+        requestBody: {
+          startDate: formatYmd(window.start),
+          endDate: formatYmd(window.end),
+          dimensions,
+          rowLimit,
+        },
+      },
+      { timeout: 30_000 },
+    );
+  }
+
+  // ── 4. Fetch both dimensions in parallel ─────────────────────────────────
+  try {
+    const [queryRes, queryPageRes] = await Promise.all([
+      runQuery(['query'], QUERY_ROW_LIMIT),
+      runQuery(['query', 'page'], QUERY_PAGE_ROW_LIMIT),
+    ]);
+
+    const rawQueryRows = rowsFrom(queryRes);
+    const rawQueryPageRows = rowsFrom(queryPageRes);
+
+    return {
+      ok: true,
+      data: {
+        queryRows: mapQueryRows(rawQueryRows),
+        queryPageRows: mapQueryPageRows(rawQueryPageRows),
+        // "At limit" means the raw API response hit the row cap — computed from
+        // the raw row count BEFORE null-key rows are discarded, since that raw
+        // count is what "the API stopped here" actually measures.
+        queryAtLimit: rawQueryRows.length === QUERY_ROW_LIMIT,
+        queryPageAtLimit: rawQueryPageRows.length === QUERY_PAGE_ROW_LIMIT,
+      },
+    };
+  } catch (err) {
+    const classified = classifyApiError(err);
+    // classifyApiError always returns the ok:false branch; narrow explicitly
+    // so TS knows `reason`/`message` are present.
+    if (!classified.ok) {
+      if (classified.reason === 'unmapped') {
+        return { ok: false, reason: 'access_denied', message: classified.message };
+      }
+      return { ok: false, reason: classified.reason, message: classified.message };
+    }
+    // Unreachable: classifyApiError never returns ok:true.
+    return { ok: false, reason: 'error', message: 'unexpected classifier result' };
+  }
+}

@@ -5,6 +5,7 @@ import { getClientSeoHistory } from '@/lib/services/client-seo-history'
 import { getClientFindings } from '@/lib/services/client-findings'
 import { getClientQuarterContext } from '@/lib/services/client-quarter'
 import { getClientSchedules } from '@/lib/services/client-schedules'
+import { getLatestGscSnapshot } from '@/lib/keywords/gsc-snapshot'
 import { ClientHeader } from '@/components/clients/ClientHeader'
 import { Scorecard } from '@/components/clients/Scorecard'
 import { ActivityTimeline } from '@/components/clients/ActivityTimeline'
@@ -13,6 +14,7 @@ import { FindingsPanel } from '@/components/clients/FindingsPanel'
 import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
 import { ScheduledScansCard } from '@/components/clients/ScheduledScansCard'
 import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
+import { GscKeywordCard } from '@/components/clients/GscKeywordCard'
 import { SeverityBadge } from '@/components/ui/SeverityBadge'
 
 type Props = { params: Promise<{ id: string }> }
@@ -30,12 +32,13 @@ export default async function ClientDashboardPage({ params }: Props) {
   const clientId = Number(id)
   if (!Number.isInteger(clientId) || clientId <= 0) notFound()
 
-  const [dash, history, findings, quarter, scanSchedules] = await Promise.all([
+  const [dash, history, findings, quarter, scanSchedules, gscSnapshot] = await Promise.all([
     getClientDashboard(clientId),
     getClientSeoHistory(clientId),
     getClientFindings(clientId),
     getClientQuarterContext(clientId),
     getClientSchedules(clientId),
+    getLatestGscSnapshot(clientId),
   ])
   if (!dash.client) notFound()
 
@@ -98,6 +101,8 @@ export default async function ClientDashboardPage({ params }: Props) {
         />
 
         <AnalyticsIdsPanel clientId={clientId} />
+
+        <GscKeywordCard clientId={clientId} initial={gscSnapshot} />
 
         <div className="space-y-6">
           <FindingsPanel rows={findings.rows} seo={findings.seo} ada={findings.ada} />
