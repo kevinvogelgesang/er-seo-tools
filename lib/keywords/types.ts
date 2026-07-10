@@ -80,3 +80,24 @@ export type KeywordSignals = {
   counts: KeywordSignalCounts
   thresholds: KeywordSignalThresholds
 }
+
+/**
+ * The read/refresh service's summary payload (spec §5.2/§5.4). Defined here,
+ * not in `gsc-snapshot.ts`, so client components (e.g. `GscKeywordCard`) can
+ * `import type` it with zero transitive reliance on that module staying free
+ * of runtime/server-only imports — `gsc-snapshot.ts` re-exports it below for
+ * existing importers (route handlers, tests).
+ */
+export type GscSnapshotSummary = {
+  fetchedAt: string
+  gscSiteUrl: string
+  window: { start: string; end: string }
+  thresholds: KeywordSignalThresholds
+  counts: KeywordSignalCounts
+  queryAtLimit: boolean
+  queryPageAtLimit: boolean
+  wins: KeywordBandEntry[]
+  opportunities: KeywordBandEntry[]
+  quickWins: KeywordBandEntry[]
+  cannibalization: CannibalizationEntry[]
+}

@@ -12,32 +12,22 @@ import {
   GSC_QUERY_ROW_LIMIT,
   GSC_QUERY_PAGE_ROW_LIMIT,
   GSC_MIN_IMPRESSIONS,
-  type KeywordBandEntry,
-  type CannibalizationEntry,
-  type KeywordSignalCounts,
-  type KeywordSignalThresholds,
   type KeywordSignals,
+  type GscSnapshotSummary,
 } from './types'
 import { computeSnapshotWindow } from './window'
 import { deriveKeywordSignals } from './derive'
 
+// Re-exported so existing importers (route handlers, tests) keep working;
+// the type is DEFINED in ./types (client-safe: no runtime/server-only
+// imports in its chain) so `GscKeywordCard` can `import type` it directly
+// from there without any transitive dependency on this module, which does
+// import the (server-only) GSC provider.
+export type { GscSnapshotSummary } from './types'
+
 /** List caps applied at THIS boundary (never in derive.ts) — card/route payload bound. */
 const SUMMARY_LIST_CAP = 50
 const CANNIBALIZATION_LIST_CAP = 20
-
-export type GscSnapshotSummary = {
-  fetchedAt: string
-  gscSiteUrl: string
-  window: { start: string; end: string }
-  thresholds: KeywordSignalThresholds
-  counts: KeywordSignalCounts
-  queryAtLimit: boolean
-  queryPageAtLimit: boolean
-  wins: KeywordBandEntry[]
-  opportunities: KeywordBandEntry[]
-  quickWins: KeywordBandEntry[]
-  cannibalization: CannibalizationEntry[]
-}
 
 export type RefreshGscSnapshotResult =
   | { ok: true; summary: GscSnapshotSummary }
