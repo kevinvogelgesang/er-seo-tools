@@ -189,8 +189,15 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
   const compliant = version >= 2
     ? computeComplianceV2(results.violations)
     : (results.archived ? results.violations.length === 0 : computeScore(results.violations, audit.wcagLevel).compliant)
-  const passCount = results.passes?.length ?? results.archivedCounts?.passed ?? null
-  const incompleteCount = results.incomplete?.length ?? results.archivedCounts?.incomplete ?? null
+  // C13: archived results synthesize passes/incomplete as [] — archivedCounts
+  // is the truth there (an empty array must not shadow it as a literal 0).
+  // Live results prefer the passCount scalar (post-C13 trimmed blobs).
+  const passCount = results.archived
+    ? results.archivedCounts?.passed ?? null
+    : results.passCount ?? results.passes?.length ?? null
+  const incompleteCount = results.archived
+    ? results.archivedCounts?.incomplete ?? null
+    : results.incomplete?.length ?? null
 
   // Parse Lighthouse summary (tolerant of malformed JSON)
   let lighthouseSummary: LighthouseSummary | null = null

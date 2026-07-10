@@ -101,7 +101,10 @@ function parseAxe(result: string | null): ParsedAxe | null {
     if (!Array.isArray(r?.violations)) return null
     return {
       violations: r.violations,
-      passCount: Array.isArray(r.passes) ? r.passes.length : 0,
+      // C13: post-fix blobs store the passCount scalar (passes trimmed
+      // in-page); pre-fix full-array blobs count the array; stripped legacy
+      // blobs have neither → 0 (matches their already-stored relational rows).
+      passCount: typeof r.passCount === 'number' ? r.passCount : (Array.isArray(r.passes) ? r.passes.length : 0),
       incompleteCount: Array.isArray(r.incomplete) ? r.incomplete.length : 0,
       domElementCount: typeof r.domElementCount === 'number' ? r.domElementCount : null,
     }

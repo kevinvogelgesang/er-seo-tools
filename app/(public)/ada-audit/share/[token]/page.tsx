@@ -97,8 +97,15 @@ export default async function SharedAuditPage({ params }: Props) {
   const compliant = version >= 2
     ? computeComplianceV2(results.violations)
     : (results.archived ? results.violations.length === 0 : computeScore(results.violations, audit.wcagLevel).compliant)
-  const passCount = results.passes?.length ?? results.archivedCounts?.passed ?? null
-  const incompleteCount = results.incomplete?.length ?? results.archivedCounts?.incomplete ?? null
+  // C13: archived results synthesize passes/incomplete as [] — archivedCounts
+  // is the truth there (an empty array must not shadow it as a literal 0).
+  // Live results prefer the passCount scalar (post-C13 trimmed blobs).
+  const passCount = results.archived
+    ? results.archivedCounts?.passed ?? null
+    : results.passCount ?? results.passes?.length ?? null
+  const incompleteCount = results.archived
+    ? results.archivedCounts?.incomplete ?? null
+    : results.incomplete?.length ?? null
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">

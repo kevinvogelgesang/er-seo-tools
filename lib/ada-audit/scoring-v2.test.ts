@@ -64,8 +64,9 @@ describe('computeScoreV2', () => {
     expect(r.score).toBeGreaterThanOrEqual(0)
     expect(r.score).toBeLessThanOrEqual(100)
   })
-  it('emits a version-2 breakdown', () => {
+  it('emits a version-3 breakdown (C13: version boundary for the repaired incomplete input)', () => {
     const r = computeScoreV2({ ...base, violations: [], domElementCount: 500 })
+    expect(ADA_SCORE_VERSION).toBe(3)
     expect(r.breakdown.version).toBe(ADA_SCORE_VERSION)
     expect(r.breakdown.scorer).toBe('ada-v2')
   })
@@ -75,6 +76,21 @@ describe('computeScoreV2', () => {
   })
   it('compliance: a best-practice-only violation does NOT break compliance', () => {
     expect(computeScoreV2({ ...base, violations: [viol({ id: 'a', nodeCount: 5, tags: ['best-practice'] })], domElementCount: 500 }).compliant).toBe(true)
+  })
+})
+
+describe('C13 low-DOM incomplete magnitude (documents the v3 boundary rationale)', () => {
+  // At the DOM floor, incomplete rules move the score dramatically: 6 rules
+  // over a 50-element DOM is density 0.06 → 100/(1+14·0.06) ≈ 54. This is why
+  // repairing the (previously always-zero) incomplete input is a version
+  // boundary, not a silent within-version change (Codex C13 fix #3/#4).
+  it('6 incomplete rules on a floor-sized DOM score ≈54, not 100', () => {
+    const r = computeScoreV2({ violations: [], incompleteCount: 6, domElementCount: 50, wcagLevel: 'wcag21aa' })
+    expect(r.score).toBe(54)
+  })
+  it('the same 6 incomplete rules on a large DOM barely move the score', () => {
+    const r = computeScoreV2({ violations: [], incompleteCount: 6, domElementCount: 8000, wcagLevel: 'wcag21aa' })
+    expect(r.score).toBeGreaterThanOrEqual(99)
   })
 })
 

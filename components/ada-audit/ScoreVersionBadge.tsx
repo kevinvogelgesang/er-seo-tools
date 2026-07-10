@@ -6,9 +6,9 @@ export function ScoreVersionBadge({ version, fromFallback, passCount, incomplete
   passCount: number | null
   incompleteCount: number | null
 }) {
-  const label = version >= 2 ? 'v2' : 'v1'
+  const label = version >= 2 ? `v${version}` : 'v1'
   const title = version >= 2
-    ? 'Score v2 — size-normalized, WCAG-aware; passes & needs-review shown'
+    ? `Score v${version} — size-normalized, WCAG-aware; passes & needs-review shown`
     : fromFallback
       ? 'Score v1 (formula label unavailable for this run)'
       : 'Score v1 (legacy formula)'

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   addScorecards,
+  parseAxeScorecardFromResult,
   ZERO_SCORECARD,
   buildSiteAuditSummary,
   isAllowedSiteAuditUrl,
@@ -320,5 +321,44 @@ describe('normaliseDiscoveredSiteAuditUrls', () => {
       'https://example.edu/page',
       'https://www.example.edu/other',
     ])
+  })
+})
+
+describe('parseAxeScorecardFromResult (C13 blob shapes)', () => {
+  it('reads the passCount scalar + incomplete array from a trimmed (post-C13) blob', () => {
+    const blob = JSON.stringify({
+      violations: [
+        { id: 'a', impact: 'critical', nodes: [] },
+        { id: 'b', impact: 'minor', nodes: [] },
+      ],
+      incomplete: [{ id: 'c', nodes: [] }, { id: 'd', nodes: [] }],
+      passCount: 42,
+    })
+    const sc = parseAxeScorecardFromResult(blob)
+    expect(sc).not.toBeNull()
+    expect(sc!.passed).toBe(42)
+    expect(sc!.incomplete).toBe(2)
+    expect(sc!.critical).toBe(1)
+    expect(sc!.minor).toBe(1)
+    expect(sc!.total).toBe(2)
+  })
+
+  it('legacy stripped blob (no passes/incomplete/passCount) yields 0s, not a crash', () => {
+    const blob = JSON.stringify({ violations: [{ id: 'a', impact: 'serious', nodes: [] }] })
+    const sc = parseAxeScorecardFromResult(blob)
+    expect(sc).not.toBeNull()
+    expect(sc!.passed).toBe(0)
+    expect(sc!.incomplete).toBe(0)
+  })
+
+  it('pre-C13 full-arrays blob still counts passes by array length', () => {
+    const blob = JSON.stringify({
+      violations: [],
+      passes: [{ id: 'a' }, { id: 'b' }],
+      incomplete: [{ id: 'c' }],
+    })
+    const sc = parseAxeScorecardFromResult(blob)
+    expect(sc!.passed).toBe(2)
+    expect(sc!.incomplete).toBe(1)
   })
 })

@@ -22,7 +22,13 @@
 // rather than exact-value checks.
 import type { AxeViolation, ImpactLevel } from './types'
 
-export const ADA_SCORE_VERSION = 2 as const
+// Version 3 (C13, 2026-07-09): SAME formula as v2, but the incomplete input is
+// repaired — the axe `no-passes` reporter had silently stripped `incomplete`
+// from every stored result, so incompletePenalty was ALWAYS 0 in production
+// v2 scores. Scores computed after the fix are not comparable to v2 points
+// (at DOM_FLOOR, 6 incomplete rules move 100 → ≈54), so this is a version
+// boundary: buildSeries suppresses cross-version sparkline deltas.
+export const ADA_SCORE_VERSION = 3 as const
 
 export const IMPACT_WEIGHT: Record<Exclude<ImpactLevel, null> | 'null', number> = {
   critical: 10, serious: 6, moderate: 3, minor: 1, null: 1,

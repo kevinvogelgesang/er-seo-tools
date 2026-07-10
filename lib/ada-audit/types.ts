@@ -46,12 +46,20 @@ export interface AxeViolation {
   nodeCount?: number
 }
 
-/** Subset of axe-core AxeResults stored in the DB (nodes truncated to 20 per violation) */
+/** Subset of axe-core AxeResults stored in the DB (nodes truncated to 20 per violation).
+ *  Blob-shape history (C13): legacy blobs (pre-fix `no-passes` reporter) carry
+ *  ONLY `violations` — no passes/incomplete/inapplicable keys. Post-C13 blobs
+ *  carry `violations`, `incomplete` (node-capped), and the `passCount` scalar;
+ *  the full passes/inapplicable arrays are trimmed in-page and never stored. */
 export interface StoredAxeResults {
   violations: AxeViolation[]
-  passes: { id: string; help: string; nodes: { html: string }[] }[]
-  incomplete: { id: string; help: string; impact: ImpactLevel | null; nodes: AxeNode[] }[]
-  inapplicable: { id: string; help: string }[]
+  passes?: { id: string; help: string; nodes: { html: string }[] }[]
+  incomplete?: { id: string; help: string; impact: ImpactLevel | null; nodes: AxeNode[] }[]
+  inapplicable?: { id: string; help: string }[]
+  /** Count of passed rules, computed in-page before the passes array is
+   *  trimmed (C13). Absent on legacy blobs — readers fall back to
+   *  `passes?.length`, then 0. */
+  passCount?: number
   timestamp: string
   url: string
   testEngine: { name: string; version: string }

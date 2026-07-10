@@ -12,6 +12,7 @@ import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
 import { isTransientRunnerError } from './runner-retry'
 import { detectRedirect } from './redirect-detect'
+import { trimAxeResultsForStorage } from './axe-trim'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 import { capViolationNodesForStorage, STORED_NODE_LIMIT } from './node-cap'
@@ -341,16 +342,24 @@ export async function runAxeAudit(
         ? ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
         : ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawResults = await page.evaluate(async (axeOpts: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return await (window as any).axe.run(document, axeOpts)
-      }, {
+      // C13: reporter 'v2', NOT 'no-passes' — axe's no-passes reporter silently
+      // forces resultTypes to ['violations'], stripping incomplete too (which
+      // zeroed every pass/needs-review count and killed the v2 incomplete
+      // penalty fleet-wide). 'v2' honors resultTypes: violations + incomplete
+      // come back with full nodes; passes/inapplicable truncated to one node
+      // each. trimAxeResultsForStorage runs IN-PAGE (string-injected, see its
+      // header) so the discarded arrays never cross the CDP wire.
+      const axeOpts = {
         runOnly: { type: 'tag', values: wcagTags },
         resultTypes: ['violations', 'incomplete'],
-        reporter: 'no-passes',
+        reporter: 'v2',
         iframes: false,
-      })
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawResults: any = await page.evaluate(`(async () => {
+        const results = await window.axe.run(document, ${JSON.stringify(axeOpts)});
+        return (${trimAxeResultsForStorage.toString()})(results);
+      })()`)
 
       await progress(90, 'Processing results…')
       rawResults.violations = capViolationNodesForStorage(rawResults.violations)
