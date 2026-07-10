@@ -3,9 +3,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { prisma } from '@/lib/db'
 
-export const SALES_TTL_MS = 30 * 24 * 60 * 60 * 1000
+// Not exported: Next.js App Router route files may only export HTTP handlers
+// and route config — any other named export fails `next build`. Nothing
+// outside this route consumes these, so they stay module-private.
+const SALES_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-export function buildSalesUrl(token: string): string {
+function buildSalesUrl(token: string): string {
   const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   return `${base}/sales/${token}`
 }
