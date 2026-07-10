@@ -88,4 +88,19 @@ describe('loadCompleteEnrichment', () => {
     const e = await loadCompleteEnrichment(input)
     expect(e.change.seoDelta).toBeNull() // version 2 vs 1 → suppressed
   })
+
+  it('suppresses seoDelta on a same-version weights-hash mismatch (C19)', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: DOM, status: 'complete', wcagLevel: 'wcag21aa', pagesComplete: 1, pagesTotal: 1 } })
+    const cur = await mkRun({ siteAuditId: audit.id, score: 90, completedAt: new Date('2026-07-08'),
+      scoreBreakdown: JSON.stringify({ version: 2, weightsHash: 'hash-b', scorer: 'live-seo', score: 90, factors: [] }) })
+    await mkRun({ score: 70, completedAt: new Date('2026-07-01'),
+      scoreBreakdown: JSON.stringify({ version: 2, weightsHash: 'hash-a', scorer: 'live-seo', score: 70, factors: [] }) })
+    const input = { id: audit.id, domain: DOM, seoOnly: true, pagesComplete: 1, pagesTotal: 1,
+      crawlRuns: [{ id: cur.id, tool: 'seo-parser', source: 'live-scan', status: 'complete', score: 90,
+        scoreBreakdown: JSON.stringify({ version: 2, weightsHash: 'hash-b', scorer: 'live-seo', score: 90, factors: [] }),
+        domain: DOM, completedAt: new Date('2026-07-08'), createdAt: cur.createdAt }] }
+    const e = await loadCompleteEnrichment(input)
+    // Numeric delta would be 20 (90 - 70), but same-version differing weightsHash suppresses it.
+    expect(e.change.seoDelta).toBeNull()
+  })
 })

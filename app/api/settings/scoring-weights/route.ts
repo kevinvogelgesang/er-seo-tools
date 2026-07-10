@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { validateWeights } from '@/lib/scoring/weights'
+import { PERSISTABLE_WEIGHT_KEYS, validateWeights } from '@/lib/scoring/weights'
 import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
 
 export async function GET() {
@@ -11,6 +11,11 @@ export async function PUT(request: Request) {
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 }) }
   const v = validateWeights(body ?? {})
   if ('error' in v) return NextResponse.json({ error: v.error }, { status: 400 })
-  await prisma.scoringWeights.upsert({ where: { id: 1 }, create: { id: 1, ...v }, update: { ...v } })
+  // Explicit pick of ONLY the 8 columns that exist on the ScoringWeights row — a spread of `v`
+  // would hit Prisma's unknown-argument error at runtime once brokenLinks exists (tsc can't catch it).
+  const persisted = Object.fromEntries(PERSISTABLE_WEIGHT_KEYS.map((k) => [k, v[k]])) as Pick<
+    typeof v, (typeof PERSISTABLE_WEIGHT_KEYS)[number]
+  >
+  await prisma.scoringWeights.upsert({ where: { id: 1 }, create: { id: 1, ...persisted }, update: { ...persisted } })
   return NextResponse.json({ weights: v })
 }

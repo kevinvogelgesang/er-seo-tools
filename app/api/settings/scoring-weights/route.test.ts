@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { DEFAULT_WEIGHTS } from '@/lib/scoring/weights'
+import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
 import { GET, PUT } from './route'
 
 afterEach(async () => {
@@ -91,5 +92,26 @@ describe('PUT /api/settings/scoring-weights', () => {
     const getRes = await GET()
     const getJson = await getRes.json() as { weights: typeof DEFAULT_WEIGHTS }
     expect(getJson.weights.indexability).toBe(40)
+  })
+
+  it('ignores a submitted brokenLinks: the 8 columns persist, brokenLinks stays the code default', async () => {
+    const res = await PUT(new NextRequest('http://localhost', {
+      method: 'PUT',
+      body: JSON.stringify({ indexability: 33, errorRate: 12, brokenLinks: 25 }),
+    }))
+    expect(res.status).toBe(200)
+    const json = await res.json() as { weights: typeof DEFAULT_WEIGHTS }
+    expect(json.weights.indexability).toBe(33)
+    expect(json.weights.errorRate).toBe(12)
+    expect(json.weights.brokenLinks).toBe(10) // never the submitted 25
+
+    // The 8 persistable columns actually landed in the DB row.
+    const getRes = await GET()
+    const getJson = await getRes.json() as { weights: typeof DEFAULT_WEIGHTS }
+    expect(getJson.weights.indexability).toBe(33)
+    expect(getJson.weights.errorRate).toBe(12)
+
+    // resolveScoringWeights() (the shared read path) still yields the code default too.
+    expect((await resolveScoringWeights()).brokenLinks).toBe(10)
   })
 })

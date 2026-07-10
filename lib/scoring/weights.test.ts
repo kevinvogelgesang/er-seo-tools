@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_WEIGHTS, LIVE_ELIGIBLE_KEYS, validateWeights, serializeBreakdown } from './weights'
+import { DEFAULT_WEIGHTS, WEIGHT_LABELS, LIVE_ELIGIBLE_KEYS, PERSISTABLE_WEIGHT_KEYS, validateWeights, serializeBreakdown } from './weights'
 
 describe('validateWeights', () => {
   it('accepts a full valid set', () => expect(validateWeights({ ...DEFAULT_WEIGHTS })).toMatchObject(DEFAULT_WEIGHTS))
@@ -17,6 +17,17 @@ describe('validateWeights', () => {
     const w = { ...Object.fromEntries(Object.keys(DEFAULT_WEIGHTS).map(k => [k, 0])), indexability: 5 }
     expect(validateWeights(w)).toMatchObject({ indexability: 5, crawlDepth: 0 })
   })
+  it('ignores a submitted brokenLinks and always returns the code default', () => {
+    const r = validateWeights({ ...DEFAULT_WEIGHTS, brokenLinks: 999 }) as typeof DEFAULT_WEIGHTS
+    expect(r.brokenLinks).toBe(DEFAULT_WEIGHTS.brokenLinks)
+  })
+})
+
+describe('brokenLinks weight key', () => {
+  it('defaults to 10', () => expect(DEFAULT_WEIGHTS.brokenLinks).toBe(10))
+  it('has a label', () => expect(WEIGHT_LABELS.brokenLinks).toBe('Broken links'))
+  it('is live-eligible', () => expect(LIVE_ELIGIBLE_KEYS).toContain('brokenLinks'))
+  it('is not persistable (no DB column until PR3)', () => expect(PERSISTABLE_WEIGHT_KEYS).not.toContain('brokenLinks'))
 })
 describe('serializeBreakdown', () => {
   it('wraps with version/scorer/score', () => {

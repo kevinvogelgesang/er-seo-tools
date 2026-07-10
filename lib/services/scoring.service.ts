@@ -1,6 +1,10 @@
 import { AggregatedResult } from '../types';
 import type { ScoreBreakdownFactor, ScoreResult, ScoringWeights } from '../scoring/weights';
 import { WEIGHT_LABELS } from '../scoring/weights';
+import {
+  indexabilityPoints, errorRatePoints, missingElementPoints, crawlDepthPoints,
+  thinContentPoints, schemaPoints, type SfInputsSnapshot,
+} from '../scoring/seo-core';
 
 /**
  * Clamp a value between min and max.
@@ -13,12 +17,21 @@ function clamp(value: number, min: number, max: number): number {
  * Compute an SEO health score from 0–100 based on weighted factors.
  * If data is unavailable for a factor, or its weight is 0, that factor is
  * skipped and the remaining weights are normalized to still sum to 100.
- * Returns both the score and the per-factor breakdown that produced it.
+ * Curve shapes/knees live in the shared core (lib/scoring/seo-core.ts) —
+ * this adapter only decides factor AVAILABILITY (unchanged since v1) and
+ * derives the ratios/counts those curves are fed.
+ * Returns the score, the per-factor breakdown, and a snapshot of the raw
+ * inputs actually used (for persistence/re-scoring — additive, v2).
  */
-export function computeHealthScore(result: AggregatedResult, weights: ScoringWeights): ScoreResult {
+export function computeHealthScore(
+  result: AggregatedResult,
+  weights: ScoringWeights,
+): ScoreResult & { inputsSnapshot: SfInputsSnapshot } {
   const summary = result.crawl_summary;
   const totalUrls = summary.total_urls ?? 0;
   const indexableUrls = summary.indexable_urls ?? 0;
+  const clientErrors = summary.client_errors ?? 0;
+  const serverErrors = summary.server_errors ?? 0;
 
   // We accumulate (earned points, max possible points) for each factor.
   let earned = 0;
@@ -36,9 +49,7 @@ export function computeHealthScore(result: AggregatedResult, weights: ScoringWei
   // ── 1. Indexability ratio ────────────────────────────────────────────────
   if (totalUrls > 0 && summary.indexable_urls !== undefined && weights.indexability > 0) {
     const ratio = indexableUrls / totalUrls;
-    // Full pts if >= 95%, linear scale down to 0 at 0%
-    const pts = ratio >= 0.95 ? weights.indexability : (ratio / 0.95) * weights.indexability;
-    addFactor('indexability', pts);
+    addFactor('indexability', indexabilityPoints(ratio, weights.indexability));
   }
 
   // ── 2. Error rate ────────────────────────────────────────────────────────
@@ -48,11 +59,9 @@ export function computeHealthScore(result: AggregatedResult, weights: ScoringWei
     summary.server_errors !== undefined &&
     weights.errorRate > 0
   ) {
-    const errors = (summary.client_errors ?? 0) + (summary.server_errors ?? 0);
+    const errors = clientErrors + serverErrors;
     const errorRate = errors / totalUrls;
-    // Full points if < 1% errors; linear to 0 at 100% errors
-    const pts = errorRate < 0.01 ? weights.errorRate : Math.max(0, weights.errorRate - (errorRate / 1.0) * weights.errorRate);
-    addFactor('errorRate', pts);
+    addFactor('errorRate', errorRatePoints(errorRate, weights.errorRate));
   }
 
   // ── 3. Missing critical SEO elements ─────────────────────────────────────
@@ -74,72 +83,62 @@ export function computeHealthScore(result: AggregatedResult, weights: ScoringWei
   if (base > 0) {
     // Missing titles
     if (weights.missingTitle > 0) {
-      const count = missingTitleIssue?.count ?? 0;
-      const pct = count / base;
-      const pts = pct === 0 ? weights.missingTitle : Math.max(0, weights.missingTitle - pct * weights.missingTitle);
-      addFactor('missingTitle', pts);
+      const pct = (missingTitleIssue?.count ?? 0) / base;
+      addFactor('missingTitle', missingElementPoints(pct, weights.missingTitle));
     }
 
     // Missing meta
     if (weights.missingMeta > 0) {
-      const count = missingMetaIssue?.count ?? 0;
-      const pct = count / base;
-      const pts = pct === 0 ? weights.missingMeta : Math.max(0, weights.missingMeta - pct * weights.missingMeta);
-      addFactor('missingMeta', pts);
+      const pct = (missingMetaIssue?.count ?? 0) / base;
+      addFactor('missingMeta', missingElementPoints(pct, weights.missingMeta));
     }
 
     // Missing H1
     if (weights.missingH1 > 0) {
-      const count = missingH1Issue?.count ?? 0;
-      const pct = count / base;
-      const pts = pct === 0 ? weights.missingH1 : Math.max(0, weights.missingH1 - pct * weights.missingH1);
-      addFactor('missingH1', pts);
+      const pct = (missingH1Issue?.count ?? 0) / base;
+      addFactor('missingH1', missingElementPoints(pct, weights.missingH1));
     }
   }
 
   // ── 4. Crawl depth efficiency ────────────────────────────────────────────
-  // Full pts if avg_crawl_depth <= 3.0, zero if >= 6.0, linear between
   if (summary.avg_crawl_depth !== undefined && weights.crawlDepth > 0) {
-    const depth = summary.avg_crawl_depth;
-    let pts: number;
-    if (depth <= 3.0) {
-      pts = weights.crawlDepth;
-    } else if (depth >= 6.0) {
-      pts = 0;
-    } else {
-      pts = weights.crawlDepth * (1 - (depth - 3.0) / 3.0);
-    }
-    addFactor('crawlDepth', pts);
+    addFactor('crawlDepth', crawlDepthPoints(summary.avg_crawl_depth, weights.crawlDepth));
   }
 
   // ── 5. Thin content ratio ────────────────────────────────────────────────
-  // Full pts if thin_content / indexable < 5%, zero if > 40%
   const thinIssue = allIssues.find((i) => i.type === 'thin_content');
   if (thinIssue !== undefined && indexableUrls > 0 && weights.thinContent > 0) {
-    const thinCount = thinIssue.count ?? 0;
-    const ratio = thinCount / indexableUrls;
-    let pts: number;
-    if (ratio < 0.05) {
-      pts = weights.thinContent;
-    } else if (ratio > 0.40) {
-      pts = 0;
-    } else {
-      pts = weights.thinContent * (1 - (ratio - 0.05) / 0.35);
-    }
-    addFactor('thinContent', pts);
+    const ratio = (thinIssue.count ?? 0) / indexableUrls;
+    addFactor('thinContent', thinContentPoints(ratio, weights.thinContent));
   }
 
   // ── 6. Schema coverage ────────────────────────────────────────────────────
-  // Full pts if pages_with_schema / total_urls > 30%
   const structuredData = result.technical_seo?.structured_data;
   if (structuredData !== undefined && totalUrls > 0 && weights.schema > 0) {
-    const pagesWithSchema = structuredData.pages_with_schema ?? 0;
-    const ratio = pagesWithSchema / totalUrls;
-    const pts = ratio >= 0.30 ? weights.schema : (ratio / 0.30) * weights.schema;
-    addFactor('schema', pts);
+    const ratio = (structuredData.pages_with_schema ?? 0) / totalUrls;
+    addFactor('schema', schemaPoints(ratio, weights.schema));
   }
+
+  // ── Inputs snapshot (raw values actually derived above) ──────────────────
+  // Nullable fields are null exactly when the underlying data was absent
+  // from the blob (not merely when a factor's weight was 0) — this is a
+  // record of what COULD be recomputed, independent of today's weight profile.
+  const inputsSnapshot: SfInputsSnapshot = {
+    source: 'sf',
+    totalUrls,
+    indexableUrls,
+    clientErrors,
+    serverErrors,
+    base,
+    missingTitle: missingTitleIssue?.count ?? 0,
+    missingMeta: missingMetaIssue?.count ?? 0,
+    missingH1: missingH1Issue?.count ?? 0,
+    avgCrawlDepth: summary.avg_crawl_depth ?? null,
+    thinCount: thinIssue !== undefined ? (thinIssue.count ?? 0) : null,
+    pagesWithSchema: structuredData !== undefined ? (structuredData.pages_with_schema ?? 0) : null,
+  };
 
   // ── Normalize and return ─────────────────────────────────────────────────
   const score = possible === 0 ? 0 : clamp(Math.round((earned / possible) * 100), 0, 100);
-  return { score, factors };
+  return { score, factors, inputsSnapshot };
 }

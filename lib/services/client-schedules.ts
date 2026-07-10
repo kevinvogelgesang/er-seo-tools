@@ -8,7 +8,7 @@
 import { prisma } from '@/lib/db'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
 import { getRunPairInstanceDiff } from './site-audit-diff'
-import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
+import { parseScoreMeta } from '@/lib/scoring/breakdown-version'
 
 export interface ClientScheduleRow {
   id: string
@@ -114,6 +114,11 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
       (a) => a.status === 'complete' && typeof adaRun(a)?.score === 'number',
     ) ?? null
     const prevScore = adaRun(prevAudit)?.score ?? null
+    // C19: comparable iff BOTH the formula version AND the weights hash match —
+    // a same-version reweight is just as incomparable as a version bump.
+    const lastMeta = parseScoreMeta(adaRun(last)?.scoreBreakdown)
+    const prevMeta = parseScoreMeta(adaRun(prevAudit)?.scoreBreakdown)
+    const scoreComparable = lastMeta.version === prevMeta.version && (lastMeta.weightsHash ?? null) === (prevMeta.weightsHash ?? null)
     let newCount: number | null = null
     let resolvedCount: number | null = null
     if (last?.status === 'complete' && adaRun(last) && adaRun(prevAudit)) {
@@ -142,12 +147,12 @@ export async function getClientSchedules(clientId: number): Promise<ClientSchedu
             resolvedCount,
           }
         : null,
-      // C9-A: never diff a score across a formula-version boundary (absent
-      // scoreBreakdown = v1). A v1↔v2 pair suppresses the delta entirely —
-      // the UI already treats null as "no delta shown."
+      // C9-A/C19: never diff a score across a formula-version OR weights
+      // boundary (absent scoreBreakdown = v1, no hash). An incomparable pair
+      // suppresses the delta entirely — the UI already treats null as "no
+      // delta shown."
       lastDelta:
-        last?.status === 'complete' && lastScore !== null && prevScore !== null &&
-        parseScoreVersion(adaRun(last)?.scoreBreakdown) === parseScoreVersion(adaRun(prevAudit)?.scoreBreakdown)
+        last?.status === 'complete' && lastScore !== null && prevScore !== null && scoreComparable
           ? lastScore - prevScore
           : null,
     }

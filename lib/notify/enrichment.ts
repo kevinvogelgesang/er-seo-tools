@@ -6,7 +6,7 @@
 // never blocks the send.
 
 import { prisma } from '@/lib/db'
-import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
+import { parseScoreMeta } from '@/lib/scoring/breakdown-version'
 import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 
 const ON_PAGE_TYPES = ['missing_title', 'missing_h1', 'missing_meta_description', 'thin_content',
@@ -74,8 +74,14 @@ export async function loadCompleteEnrichment(audit: EnrichAuditInput): Promise<C
         where: { id: diff.previous.runId },
         select: { score: true, scoreBreakdown: true },
       })
-      if (prevAda?.score != null && parseScoreVersion(ada.scoreBreakdown) === parseScoreVersion(prevAda.scoreBreakdown)) {
-        adaDelta = ada.score - prevAda.score
+      if (prevAda?.score != null) {
+        // C19: comparable iff BOTH version AND weights hash match — a
+        // same-version reweight is just as incomparable as a version bump.
+        const curMeta = parseScoreMeta(ada.scoreBreakdown)
+        const prevMeta = parseScoreMeta(prevAda.scoreBreakdown)
+        if (curMeta.version === prevMeta.version && (curMeta.weightsHash ?? null) === (prevMeta.weightsHash ?? null)) {
+          adaDelta = ada.score - prevAda.score
+        }
       }
     }
   }
@@ -91,9 +97,13 @@ export async function loadCompleteEnrichment(audit: EnrichAuditInput): Promise<C
     const prev = cands
       .filter((c) => stamp(c) < stamp(cur) || (stamp(c) === stamp(cur) && c.id.localeCompare(cur.id) < 0))
       .sort((a, b) => stamp(b) - stamp(a) || b.id.localeCompare(a.id))[0] ?? null
-    if (prev?.score != null && parseScoreVersion(live.scoreBreakdown) === parseScoreVersion(prev.scoreBreakdown)) {
-      seoDelta = live.score - prev.score
-      seoDate = (prev.completedAt ?? prev.createdAt).toISOString().slice(0, 10)
+    if (prev?.score != null) {
+      const curMeta = parseScoreMeta(live.scoreBreakdown)
+      const prevMeta = parseScoreMeta(prev.scoreBreakdown)
+      if (curMeta.version === prevMeta.version && (curMeta.weightsHash ?? null) === (prevMeta.weightsHash ?? null)) {
+        seoDelta = live.score - prev.score
+        seoDate = (prev.completedAt ?? prev.createdAt).toISOString().slice(0, 10)
+      }
     }
   }
 

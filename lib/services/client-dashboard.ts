@@ -135,6 +135,7 @@ export async function getClientDashboard(clientId: number, _now: Date = new Date
       sessionId: r.sessionId,
       crawlRunId: r.id,
       source: r.source,
+      scoreBreakdown: r.scoreBreakdown,
     })),
   )
   const adaResult = buildAdaSeries(crawlRuns.filter((r) => r.tool === 'ada-audit'), standaloneAda)

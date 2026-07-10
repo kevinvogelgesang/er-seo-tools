@@ -5,7 +5,7 @@
 // PillarAnalysis.score, Session issue counts) — NEVER blob-derived. Adding a
 // blob reader here would block the A2 PRUNE_ACTIVATED flips.
 
-import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
+import { parseScoreMeta } from '@/lib/scoring/breakdown-version'
 
 export const SPARKLINE_POINTS = 12
 export const SCORE_DROP_THRESHOLD = 10
@@ -16,24 +16,34 @@ export interface ScorePoint {
   score: number
   /** Score-formula version (C9-A). Absent/undefined means v1 (pre-versioning). */
   scoreVersion?: number
+  /** Weights-hash of the formula that produced this point (C19). Absent/null
+   *  means no hash (pre-versioning, or a version that doesn't stamp one). */
+  weightsHash?: string | null
 }
+
+export type ComparabilityBreak = 'version' | 'weights' | null
 
 export interface ScoreSeries {
   latest: number | null
   previous: number | null
   /** latest - previous; null when fewer than 2 points, or when the latest two
-   *  points were computed under different score formulas (see formulaChanged). */
+   *  points were computed under different score formulas/weights (see
+   *  comparabilityBreak). */
   delta: number | null
-  /** True when the latest two points differ in scoreVersion — the delta is
-   *  suppressed because a numeric comparison across formulas is meaningless. */
+  /** True when comparabilityBreak !== null — kept as a derived alias; zero UI
+   *  consumers read it directly (C19), comparabilityBreak is the source of truth. */
   formulaChanged: boolean
+  /** Why (if at all) the delta between the latest two points was suppressed:
+   *  'version' — differing scoreVersion; 'weights' — same version, differing
+   *  weightsHash; null — comparable (or fewer than 2 points). */
+  comparabilityBreak: ComparabilityBreak
   latestAt: string | null
   /** Ascending by date, capped at SPARKLINE_POINTS (most recent kept). */
   points: ScorePoint[]
 }
 
 export const EMPTY_SERIES: ScoreSeries = {
-  latest: null, previous: null, delta: null, formulaChanged: false, latestAt: null, points: [],
+  latest: null, previous: null, delta: null, formulaChanged: false, comparabilityBreak: null, latestAt: null, points: [],
 }
 
 export function buildSeries(points: ScorePoint[]): ScoreSeries {
@@ -41,12 +51,20 @@ export function buildSeries(points: ScorePoint[]): ScoreSeries {
   const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date))
   const latest = sorted[sorted.length - 1]
   const previous = sorted.length >= 2 ? sorted[sorted.length - 2] : null
-  const changed = !!previous && (latest.scoreVersion ?? 1) !== (previous.scoreVersion ?? 1)
+  let comparabilityBreak: ComparabilityBreak = null
+  if (previous) {
+    if ((latest.scoreVersion ?? 1) !== (previous.scoreVersion ?? 1)) {
+      comparabilityBreak = 'version'
+    } else if ((latest.weightsHash ?? null) !== (previous.weightsHash ?? null)) {
+      comparabilityBreak = 'weights'
+    }
+  }
   return {
     latest: latest.score,
     previous: previous ? previous.score : null,
-    delta: previous && !changed ? latest.score - previous.score : null,
-    formulaChanged: changed,
+    delta: previous && comparabilityBreak === null ? latest.score - previous.score : null,
+    formulaChanged: comparabilityBreak !== null,
+    comparabilityBreak,
     latestAt: latest.date,
     points: sorted.slice(-SPARKLINE_POINTS),
   }
@@ -65,6 +83,8 @@ export interface SeoRunRow {
   crawlRunId?: string | null
   /** 'sf-upload' | 'live-scan' | undefined — used to build the correct href. */
   source?: string | null
+  /** JSON breakdown; version + weightsHash read via parseScoreMeta (C19). */
+  scoreBreakdown?: string | null
 }
 
 /** Resolve the deep-link href for a SEO sparkline / scorecard point.
@@ -78,7 +98,14 @@ function seoHref(r: SeoRunRow): string | null {
 export function buildSeoSeries(runs: SeoRunRow[]): { series: ScoreSeries; latestHref: string | null } {
   const scored = runs
     .filter((r): r is SeoRunRow & { score: number } => r.score !== null)
-    .map((r) => ({ date: pointDate(r.completedAt, r.createdAt), score: r.score, href: seoHref(r) }))
+    .map((r) => {
+      const meta = parseScoreMeta(r.scoreBreakdown)
+      return {
+        date: pointDate(r.completedAt, r.createdAt), score: r.score,
+        scoreVersion: meta.version, weightsHash: meta.weightsHash,
+        href: seoHref(r),
+      }
+    })
     .sort((a, b) => a.date.localeCompare(b.date))
   return {
     series: buildSeries(scored),
@@ -93,7 +120,7 @@ export interface AdaRunRow {
   createdAt: Date
   siteAuditId: string | null
   adaAuditId: string | null
-  /** JSON breakdown; version read via parseScoreVersion (C9-A). */
+  /** JSON breakdown; version + weightsHash read via parseScoreMeta (C9-A / C19). */
   scoreBreakdown?: string | null
 }
 
@@ -119,11 +146,14 @@ export function buildAdaSeries(
 ): { series: ScoreSeries; source: AdaSeriesSource; latestHref: string | null } {
   const sitePoints = runs
     .filter((r): r is AdaRunRow & { score: number } => r.source === 'site-audit' && r.score !== null)
-    .map((r) => ({
-      date: pointDate(r.completedAt, r.createdAt), score: r.score,
-      scoreVersion: parseScoreVersion(r.scoreBreakdown),
-      href: r.siteAuditId ? `/ada-audit/site/${r.siteAuditId}` : null,
-    }))
+    .map((r) => {
+      const meta = parseScoreMeta(r.scoreBreakdown)
+      return {
+        date: pointDate(r.completedAt, r.createdAt), score: r.score,
+        scoreVersion: meta.version, weightsHash: meta.weightsHash,
+        href: r.siteAuditId ? `/ada-audit/site/${r.siteAuditId}` : null,
+      }
+    })
   if (sitePoints.length) {
     const sorted = sitePoints.sort((a, b) => a.date.localeCompare(b.date))
     return { series: buildSeries(sorted), source: 'site', latestHref: sorted[sorted.length - 1].href }
@@ -132,15 +162,21 @@ export function buildAdaSeries(
   const pageRuns = runs.filter((r): r is AdaRunRow & { score: number } => r.source === 'page-audit' && r.score !== null)
   const covered = new Set(pageRuns.map((r) => r.adaAuditId).filter(Boolean))
   const pagePoints = [
-    ...pageRuns.map((r) => ({
-      date: pointDate(r.completedAt, r.createdAt), score: r.score,
-      scoreVersion: parseScoreVersion(r.scoreBreakdown),
-      href: r.adaAuditId ? `/ada-audit/${r.adaAuditId}` : null,
-    })),
-    // Legacy AdaAudit rows predate score versioning — always v1.
+    ...pageRuns.map((r) => {
+      const meta = parseScoreMeta(r.scoreBreakdown)
+      return {
+        date: pointDate(r.completedAt, r.createdAt), score: r.score,
+        scoreVersion: meta.version, weightsHash: meta.weightsHash,
+        href: r.adaAuditId ? `/ada-audit/${r.adaAuditId}` : null,
+      }
+    }),
+    // Legacy AdaAudit rows predate score versioning — always v1, no hash.
     ...legacy
       .filter((l): l is LegacyAdaRow & { score: number } => l.status === 'complete' && l.score !== null && !covered.has(l.id))
-      .map((l) => ({ date: pointDate(l.completedAt, l.createdAt), score: l.score, scoreVersion: 1, href: `/ada-audit/${l.id}` })),
+      .map((l) => ({
+        date: pointDate(l.completedAt, l.createdAt), score: l.score,
+        scoreVersion: 1, weightsHash: null as string | null, href: `/ada-audit/${l.id}`,
+      })),
   ].sort((a, b) => a.date.localeCompare(b.date))
   if (pagePoints.length) {
     return { series: buildSeries(pagePoints), source: 'page', latestHref: pagePoints[pagePoints.length - 1].href }

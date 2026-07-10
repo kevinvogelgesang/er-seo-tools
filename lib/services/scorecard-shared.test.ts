@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildSeries, buildSeoSeries, buildAdaSeries, computeAlerts, latestRunStatus, maxIso,
   EMPTY_SERIES, SPARKLINE_POINTS, SCORE_DROP_THRESHOLD, STALE_DAYS,
+  type ScorePoint,
 } from './scorecard-shared'
 
 const D = (s: string) => new Date(s)
@@ -67,6 +68,60 @@ describe('buildSeries version awareness', () => {
   })
 })
 
+describe('buildSeries comparabilityBreak (weightsHash awareness)', () => {
+  it('EMPTY_SERIES has comparabilityBreak: null', () => {
+    expect(EMPTY_SERIES.comparabilityBreak).toBeNull()
+  })
+  it('two v1 points (no breakdown at all) produce a real delta and no break — regression guard', () => {
+    const s = buildSeries([
+      { date: '2026-06-01T00:00:00Z', score: 70 },
+      { date: '2026-07-01T00:00:00Z', score: 80 },
+    ])
+    expect(s.delta).toBe(10)
+    expect(s.comparabilityBreak).toBeNull()
+    expect(s.formulaChanged).toBe(false)
+  })
+  it('v1 -> v2 adjacent points break on version, delta null', () => {
+    const s = buildSeries([
+      { date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 1, weightsHash: null },
+      { date: '2026-07-01T00:00:00Z', score: 90, scoreVersion: 2, weightsHash: 'hash-a' },
+    ])
+    expect(s.delta).toBeNull()
+    expect(s.comparabilityBreak).toBe('version')
+    expect(s.formulaChanged).toBe(true)
+  })
+  it('two v2 points with the same weightsHash produce a real delta, no break', () => {
+    const s = buildSeries([
+      { date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 2, weightsHash: 'hash-a' },
+      { date: '2026-07-01T00:00:00Z', score: 90, scoreVersion: 2, weightsHash: 'hash-a' },
+    ])
+    expect(s.delta).toBe(20)
+    expect(s.comparabilityBreak).toBeNull()
+    expect(s.formulaChanged).toBe(false)
+  })
+  it('two v2 points with different weightsHash break on weights, delta null', () => {
+    const s = buildSeries([
+      { date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 2, weightsHash: 'hash-a' },
+      { date: '2026-07-01T00:00:00Z', score: 90, scoreVersion: 2, weightsHash: 'hash-b' },
+    ])
+    expect(s.delta).toBeNull()
+    expect(s.comparabilityBreak).toBe('weights')
+    expect(s.formulaChanged).toBe(true)
+  })
+  it('formulaChanged === (comparabilityBreak !== null) invariant', () => {
+    const cases: Array<[ScorePoint, ScorePoint]> = [
+      [{ date: '2026-06-01T00:00:00Z', score: 70 }, { date: '2026-07-01T00:00:00Z', score: 80 }],
+      [{ date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 1 }, { date: '2026-07-01T00:00:00Z', score: 90, scoreVersion: 2 }],
+      [{ date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 2, weightsHash: 'h1' }, { date: '2026-07-01T00:00:00Z', score: 90, scoreVersion: 2, weightsHash: 'h1' }],
+      [{ date: '2026-06-01T00:00:00Z', score: 70, scoreVersion: 2, weightsHash: 'h1' }, { date: '2026-07-01T00:00:00Z', score: 90, scoreVersion: 2, weightsHash: 'h2' }],
+    ]
+    for (const [a, b] of cases) {
+      const s = buildSeries([a, b])
+      expect(s.formulaChanged).toBe(s.comparabilityBreak !== null)
+    }
+  })
+})
+
 describe('buildSeoSeries', () => {
   it('uses completedAt ?? createdAt, skips null scores, builds latestHref from sessionId', () => {
     const { series, latestHref } = buildSeoSeries([
@@ -83,6 +138,22 @@ describe('buildSeoSeries', () => {
       { score: 90, completedAt: D('2026-06-10T00:00:00.000Z'), createdAt: D('2026-06-10T00:00:00.000Z'), sessionId: null },
     ])
     expect(latestHref).toBeNull()
+  })
+
+  it('reads scoreVersion + weightsHash from scoreBreakdown (C19) and suppresses the delta on a weights change', () => {
+    const { series } = buildSeoSeries([
+      {
+        score: 70, completedAt: D('2026-06-01T00:00:00.000Z'), createdAt: D('2026-06-01T00:00:00.000Z'),
+        sessionId: 'sess-a', scoreBreakdown: JSON.stringify({ version: 2, weightsHash: 'hash-a' }),
+      },
+      {
+        score: 90, completedAt: D('2026-06-10T00:00:00.000Z'), createdAt: D('2026-06-10T00:00:00.000Z'),
+        sessionId: 'sess-b', scoreBreakdown: JSON.stringify({ version: 2, weightsHash: 'hash-b' }),
+      },
+    ])
+    expect(series.points.map((p) => p.scoreVersion)).toEqual([2, 2])
+    expect(series.delta).toBeNull()
+    expect(series.comparabilityBreak).toBe('weights')
   })
 })
 
@@ -134,6 +205,16 @@ describe('buildAdaSeries', () => {
     const { series } = buildAdaSeries([v1Run, v2Run], [])
     expect(series.points.map((p) => p.scoreVersion)).toEqual([1, 2])
     expect(series.delta).toBeNull()
+    expect(series.formulaChanged).toBe(true)
+  })
+
+  it('ADA v4 pair with the same scoreVersion but differing weightsHash breaks on weights (C19)', () => {
+    const a = { ...siteRun, score: 60, completedAt: D('2026-05-01T00:00:00.000Z'), createdAt: D('2026-05-01T00:00:00.000Z'), scoreBreakdown: JSON.stringify({ version: 4, weightsHash: 'hash-a' }) }
+    const b = { ...siteRun, score: 85, completedAt: D('2026-06-10T00:00:00.000Z'), createdAt: D('2026-06-10T00:00:00.000Z'), scoreBreakdown: JSON.stringify({ version: 4, weightsHash: 'hash-b' }) }
+    const { series } = buildAdaSeries([a, b], [])
+    expect(series.points.map((p) => p.scoreVersion)).toEqual([4, 4])
+    expect(series.delta).toBeNull()
+    expect(series.comparabilityBreak).toBe('weights')
     expect(series.formulaChanged).toBe(true)
   })
 

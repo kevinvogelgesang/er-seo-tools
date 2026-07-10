@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { computeHealthScore } from './scoring.service';
 import { DEFAULT_WEIGHTS, type ScoringWeights } from '../scoring/weights';
 import type { AggregatedResult } from '../types';
+import {
+  indexabilityPoints, errorRatePoints, missingElementPoints, crawlDepthPoints,
+  thinContentPoints, schemaPoints,
+} from '../scoring/seo-core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,7 +72,8 @@ describe('computeHealthScore — zero total URLs', () => {
 
 /**
  * A result where every factor is maxed out, regardless of weight profile:
- * - 100% indexable (≥95% → full pts)
+ * - 100% indexable (≥98% → full pts — the default fixture's 95% is no
+ *   longer full under the new knee, so this override is required)
  * - 0 errors → full pts
  * - 0 missing titles/meta/H1 → full pts
  * - avg_crawl_depth ≤ 3 → full pts
@@ -77,6 +82,7 @@ describe('computeHealthScore — zero total URLs', () => {
  */
 function makePerfectResult(): AggregatedResult {
   return makeResult({
+    crawl_summary: { indexable_urls: 100 },
     issues: {
       critical: [
         { type: 'thin_content', severity: 'critical', count: 0, description: '' },
@@ -339,9 +345,32 @@ describe('computeHealthScore — schema coverage', () => {
 });
 
 // ── Threshold boundaries ──────────────────────────────────────────────────────
+// C19 PR2 Task 3: knees now live in lib/scoring/seo-core.ts (SEO_KNEES). This
+// describe pins the SF adapter to the NEW knee values.
 
 describe('computeHealthScore — threshold boundaries', () => {
-  // ── Crawl depth boundary: <= 3.0 → full 15 pts; >= 6.0 → 0 pts ────────────
+  // ── Indexability boundary: new full knee is >= 98% (was 95%) ─────────────
+  it('indexability of 98% (new full knee) scores the same as 100%', () => {
+    const atBoundary = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 98, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    const perfect = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 100, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    expect(computeHealthScore(atBoundary, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(perfect, DEFAULT_WEIGHTS).score);
+  });
+
+  it('indexability of 95% (the OLD full knee) now scores below the 98% boundary', () => {
+    const oldKnee = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    const newKnee = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 98, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    expect(computeHealthScore(oldKnee, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(newKnee, DEFAULT_WEIGHTS).score);
+  });
+
+  // ── Crawl depth boundary: <= 3.0 → full 15 pts; >= 6.0 → 0 pts (UNCHANGED) ──
   it('avg_crawl_depth exactly 3.0 receives full crawl depth points (same as depth 1)', () => {
     const atBoundary = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 3.0 },
@@ -384,9 +413,8 @@ describe('computeHealthScore — threshold boundaries', () => {
     expect(computeHealthScore(partialDepth, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(atMax, DEFAULT_WEIGHTS).score);
   });
 
-  // ── Error rate boundary: < 1% → full 20 pts; >= 1% → reduced ─────────────
+  // ── Error rate boundary: full < 1% (unchanged); zero >= 20% (was 100%) ───
   it('error rate of 0% and error rate of 10% produce different scores', () => {
-    // 0 errors → 20/20 pts; 10 errors on 100 URLs (10%) → 20 - (0.1/1.0)*20 = 18 pts → ~2pt gap after rounding
     const noErrors = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
     });
@@ -397,7 +425,7 @@ describe('computeHealthScore — threshold boundaries', () => {
   });
 
   it('error rate of 0.9% (just under 1%) earns full error points (same as 0%)', () => {
-    // < 1% → full 20 pts in both cases
+    // < 1% → full 20 pts in both cases (full knee unchanged)
     const noErrors = makeResult({
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
     });
@@ -406,13 +434,31 @@ describe('computeHealthScore — threshold boundaries', () => {
       // 9/1000 = 0.9%
       crawl_summary: { total_urls: 1000, indexable_urls: 950, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 },
     });
-    // Both have < 1% error rate → both earn full error points; scores may differ on other factors
-    // Assert: underOnePercent earns full error points, so reducing errors further doesn't help
     const alsoUnder = makeResult({
       crawl_summary: { total_urls: 1000, indexable_urls: 950, client_errors: 9, server_errors: 0, avg_crawl_depth: 2 },
     });
     // 0/1000 = 0% and 9/1000 = 0.9% — both < 1% → both earn full error points → same score
     expect(computeHealthScore(underOnePercent, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(alsoUnder, DEFAULT_WEIGHTS).score);
+  });
+
+  it('error rate of 19% (just under the new 20% zero knee) still earns some points, 20% earns zero', () => {
+    const justUnder = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 19, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    const atZero = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 20, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    expect(computeHealthScore(justUnder, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(atZero, DEFAULT_WEIGHTS).score);
+  });
+
+  it('error rate of 50% and error rate of 100% score the same (both >= the new 20% zero knee, was 1.0)', () => {
+    const fiftyPct = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 50, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    const hundredPct = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 100, server_errors: 0, avg_crawl_depth: 2 },
+    });
+    expect(computeHealthScore(fiftyPct, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(hundredPct, DEFAULT_WEIGHTS).score);
   });
 
   it('error rate of 50% earns less than error rate of 10%', () => {
@@ -424,6 +470,86 @@ describe('computeHealthScore — threshold boundaries', () => {
       crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 50, server_errors: 0, avg_crawl_depth: 2 },
     });
     expect(computeHealthScore(tenPct, DEFAULT_WEIGHTS).score).toBeGreaterThan(computeHealthScore(fiftyPct, DEFAULT_WEIGHTS).score);
+  });
+
+  // ── Missing elements boundary: full <= 2% (was 0%); zero >= 30% (was 100%) ──
+  it('missing-title pct of exactly 2% (new full knee) scores the same as 0%', () => {
+    const cfg = { total_urls: 100, indexable_urls: 100, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 };
+    const zero = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'missing_title', severity: 'critical' as const, count: 0, description: '' }], warnings: [], notices: [] },
+    });
+    const twoPct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'missing_title', severity: 'critical' as const, count: 2, description: '' }], warnings: [], notices: [] },
+    });
+    expect(computeHealthScore(zero, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(twoPct, DEFAULT_WEIGHTS).score);
+  });
+
+  it('missing-title pct of 16% (interior) scores less than 2% (full knee)', () => {
+    const cfg = { total_urls: 100, indexable_urls: 100, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 };
+    const twoPct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'missing_title', severity: 'critical' as const, count: 2, description: '' }], warnings: [], notices: [] },
+    });
+    const sixteenPct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'missing_title', severity: 'critical' as const, count: 16, description: '' }], warnings: [], notices: [] },
+    });
+    expect(computeHealthScore(sixteenPct, DEFAULT_WEIGHTS).score).toBeLessThan(computeHealthScore(twoPct, DEFAULT_WEIGHTS).score);
+  });
+
+  it('missing-title pct of exactly 30% (new zero knee) scores the same as 100% (was 100% previously too, but now reached much earlier)', () => {
+    const cfg = { total_urls: 100, indexable_urls: 100, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 };
+    const thirtyPct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'missing_title', severity: 'critical' as const, count: 30, description: '' }], warnings: [], notices: [] },
+    });
+    const hundredPct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'missing_title', severity: 'critical' as const, count: 100, description: '' }], warnings: [], notices: [] },
+    });
+    expect(computeHealthScore(thirtyPct, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(hundredPct, DEFAULT_WEIGHTS).score);
+  });
+
+  // ── Thin content boundary: full <= 5% (unchanged); zero >= 25% (was 40%) ──
+  it('thin-content ratio of exactly 5% (full knee, unchanged) scores the same as 0%', () => {
+    const cfg = { total_urls: 100, indexable_urls: 100, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 };
+    const zero = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'thin_content', severity: 'critical' as const, count: 0, description: '' }], warnings: [], notices: [] },
+    });
+    const fivePct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'thin_content', severity: 'critical' as const, count: 5, description: '' }], warnings: [], notices: [] },
+    });
+    expect(computeHealthScore(zero, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(fivePct, DEFAULT_WEIGHTS).score);
+  });
+
+  it('thin-content ratio of exactly 25% (new zero knee) scores the same as 100%', () => {
+    const cfg = { total_urls: 100, indexable_urls: 100, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 };
+    const twentyFivePct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'thin_content', severity: 'critical' as const, count: 25, description: '' }], warnings: [], notices: [] },
+    });
+    const hundredPct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'thin_content', severity: 'critical' as const, count: 100, description: '' }], warnings: [], notices: [] },
+    });
+    expect(computeHealthScore(twentyFivePct, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(hundredPct, DEFAULT_WEIGHTS).score);
+  });
+
+  it('thin-content ratio of 30% (the OLD zero knee) now scores the same as 25% (both zero)', () => {
+    const cfg = { total_urls: 100, indexable_urls: 100, client_errors: 0, server_errors: 0, avg_crawl_depth: 2 };
+    const twentyFivePct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'thin_content', severity: 'critical' as const, count: 25, description: '' }], warnings: [], notices: [] },
+    });
+    const thirtyPct = makeResult({
+      crawl_summary: cfg,
+      issues: { critical: [{ type: 'thin_content', severity: 'critical' as const, count: 30, description: '' }], warnings: [], notices: [] },
+    });
+    expect(computeHealthScore(thirtyPct, DEFAULT_WEIGHTS).score).toBe(computeHealthScore(twentyFivePct, DEFAULT_WEIGHTS).score);
   });
 
   // ── Schema coverage boundary: >= 30% → full 10 pts ───────────────────────
@@ -522,5 +648,132 @@ describe('computeHealthScore — score boundaries', () => {
     const result = makeResult();
     const score = computeHealthScore(result, DEFAULT_WEIGHTS).score;
     expect(score).toBe(Math.round(score));
+  });
+});
+
+// ── Contract: SF adapter curves === shared core (Codex #4 requirement) ────────
+// For each factor, feed computeHealthScore a synthetic result at both knees
+// plus two interior points, isolating the factor under test by zeroing every
+// other weight. The earned points must match calling the core fn directly,
+// within 1e-9 — proving the adapter delegates rather than reimplements.
+
+const ZERO_WEIGHTS: ScoringWeights = {
+  indexability: 0, errorRate: 0, missingTitle: 0, missingMeta: 0, missingH1: 0,
+  crawlDepth: 0, thinContent: 0, schema: 0, brokenLinks: 0,
+};
+
+function earnedFor(result: AggregatedResult, weights: ScoringWeights, key: string): number {
+  const factor = computeHealthScore(result, weights).factors.find((f) => f.key === key);
+  if (!factor) throw new Error(`factor "${key}" was not present in the breakdown`);
+  return factor.earned;
+}
+
+describe('computeHealthScore — contract: adapter curves match the shared core exactly', () => {
+  const WEIGHT = 20;
+
+  it('indexability: 0, interior, knee, and 100% all match indexabilityPoints', () => {
+    const weights: ScoringWeights = { ...ZERO_WEIGHTS, indexability: WEIGHT };
+    for (const ratio of [0, 0.49, 0.98, 1]) {
+      const result = makeResult({
+        crawl_summary: { total_urls: 1000, indexable_urls: Math.round(ratio * 1000), client_errors: 0, server_errors: 0 },
+      });
+      expect(earnedFor(result, weights, 'indexability')).toBeCloseTo(indexabilityPoints(ratio, WEIGHT), 9);
+    }
+  });
+
+  it('errorRate: full knee, interior, zero knee, and beyond all match errorRatePoints', () => {
+    const weights: ScoringWeights = { ...ZERO_WEIGHTS, errorRate: WEIGHT };
+    for (const rate of [0, 0.01, 0.105, 0.20, 0.5]) {
+      const result = makeResult({
+        crawl_summary: { total_urls: 1000, indexable_urls: 1000, client_errors: Math.round(rate * 1000), server_errors: 0 },
+      });
+      expect(earnedFor(result, weights, 'errorRate')).toBeCloseTo(errorRatePoints(rate, WEIGHT), 9);
+    }
+  });
+
+  it('missingTitle: full knee, interior, zero knee, and beyond all match missingElementPoints', () => {
+    const weights: ScoringWeights = { ...ZERO_WEIGHTS, missingTitle: WEIGHT };
+    for (const pct of [0, 0.02, 0.16, 0.30, 0.9]) {
+      const result = makeResult({
+        crawl_summary: { total_urls: 1000, indexable_urls: 1000, client_errors: 0, server_errors: 0 },
+        issues: {
+          critical: [{ type: 'missing_title', severity: 'critical', count: Math.round(pct * 1000), description: '' }],
+          warnings: [], notices: [],
+        },
+      });
+      expect(earnedFor(result, weights, 'missingTitle')).toBeCloseTo(missingElementPoints(pct, WEIGHT), 9);
+    }
+  });
+
+  it('crawlDepth: full knee, interior, zero knee, and beyond all match crawlDepthPoints', () => {
+    const weights: ScoringWeights = { ...ZERO_WEIGHTS, crawlDepth: WEIGHT };
+    for (const depth of [0, 3.0, 4.5, 6.0, 10]) {
+      const result = makeResult({ crawl_summary: { avg_crawl_depth: depth } });
+      expect(earnedFor(result, weights, 'crawlDepth')).toBeCloseTo(crawlDepthPoints(depth, WEIGHT), 9);
+    }
+  });
+
+  it('thinContent: full knee, interior, zero knee, and beyond all match thinContentPoints', () => {
+    const weights: ScoringWeights = { ...ZERO_WEIGHTS, thinContent: WEIGHT };
+    for (const ratio of [0, 0.05, 0.15, 0.25, 0.9]) {
+      const result = makeResult({
+        crawl_summary: { total_urls: 1000, indexable_urls: 1000, client_errors: 0, server_errors: 0 },
+        issues: {
+          critical: [{ type: 'thin_content', severity: 'critical', count: Math.round(ratio * 1000), description: '' }],
+          warnings: [], notices: [],
+        },
+      });
+      expect(earnedFor(result, weights, 'thinContent')).toBeCloseTo(thinContentPoints(ratio, WEIGHT), 9);
+    }
+  });
+
+  it('schema: 0, interior, knee, and 100% all match schemaPoints', () => {
+    const weights: ScoringWeights = { ...ZERO_WEIGHTS, schema: WEIGHT };
+    for (const ratio of [0, 0.15, 0.30, 1]) {
+      const result = makeResult({
+        crawl_summary: { total_urls: 1000 },
+        technical_seo: { structured_data: { pages_with_schema: Math.round(ratio * 1000), schema_types: {} } },
+      });
+      expect(earnedFor(result, weights, 'schema')).toBeCloseTo(schemaPoints(ratio, WEIGHT), 9);
+    }
+  });
+});
+
+// ── inputsSnapshot (additive, C19 PR2 Task 3) ─────────────────────────────────
+
+describe('computeHealthScore — inputsSnapshot', () => {
+  it('carries source "sf" and the raw inputs used, nulling data-unavailable factors', () => {
+    const result = makeResult({
+      crawl_summary: { total_urls: 100, indexable_urls: 95, client_errors: 2, server_errors: 1, avg_crawl_depth: undefined },
+      technical_seo: {},
+      issues: {
+        critical: [{ type: 'missing_title', severity: 'critical', count: 3, description: '' }],
+        warnings: [{ type: 'missing_meta_description', severity: 'warning', count: 4, description: '' }],
+        notices: [],
+      },
+    });
+    const { inputsSnapshot } = computeHealthScore(result, DEFAULT_WEIGHTS);
+    expect(inputsSnapshot).toEqual({
+      source: 'sf',
+      totalUrls: 100,
+      indexableUrls: 95,
+      clientErrors: 2,
+      serverErrors: 1,
+      base: 95,
+      missingTitle: 3,
+      missingMeta: 4,
+      missingH1: 0,
+      avgCrawlDepth: null,
+      thinCount: null,
+      pagesWithSchema: null,
+    });
+  });
+
+  it('carries non-null avgCrawlDepth/thinCount/pagesWithSchema when the underlying data is present', () => {
+    const result = makePerfectResult();
+    const { inputsSnapshot } = computeHealthScore(result, DEFAULT_WEIGHTS);
+    expect(inputsSnapshot.avgCrawlDepth).toBe(2);
+    expect(inputsSnapshot.thinCount).toBe(0);
+    expect(inputsSnapshot.pagesWithSchema).toBe(40);
   });
 });

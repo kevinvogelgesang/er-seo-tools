@@ -9,5 +9,6 @@ export async function resolveScoringWeights(): Promise<ScoringWeights> {
     indexability: row.indexability, errorRate: row.errorRate, missingTitle: row.missingTitle,
     missingMeta: row.missingMeta, missingH1: row.missingH1, crawlDepth: row.crawlDepth,
     thinContent: row.thinContent, schema: row.schema,
+    brokenLinks: DEFAULT_WEIGHTS.brokenLinks, // PR3: brokenLinks becomes a real column
   }
 }
