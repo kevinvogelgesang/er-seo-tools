@@ -4,6 +4,7 @@
 import type { QuarterContext } from '@/lib/services/client-quarter'
 import { ACTIVITY_LABELS } from '@/lib/quarter-grid/state'
 import { PCOLORS, STATUS_COLORS, STATUS_LABELS } from '@/components/quarter-grid/theme'
+import { StatusPill } from '@/components/ui/StatusPill'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -14,7 +15,7 @@ export function QuarterContextCard({ context }: { context: QuarterContext | null
     <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-5">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-white/40">Quarter Plan</h3>
-        <a href="/quarter-grid" className="text-[11px] text-[#f5a623] hover:text-[#e09415] font-semibold">View grid →</a>
+        <a href="/quarter-grid" className="text-[11px] text-orange hover:text-orange-dark font-semibold">View grid →</a>
       </div>
 
       {context === null ? (
@@ -25,15 +26,13 @@ export function QuarterContextCard({ context }: { context: QuarterContext | null
             {context.week == null ? (
               <span className="text-lg font-display font-bold text-gray-500 dark:text-white/60">In pool — not scheduled</span>
             ) : (
-              <span className="text-2xl font-display font-bold text-[#1c2d4a] dark:text-white">
+              <span className="text-2xl font-display font-bold text-navy dark:text-white">
                 Week {context.week}
                 {context.weekRange && <span className="text-sm font-normal text-gray-400 dark:text-white/40"> ({context.weekRange})</span>}
               </span>
             )}
             {context.completed && (
-              <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400">
-                ✓ Done{context.completedAt ? ` ${fmtDate(context.completedAt)}` : ''}
-              </span>
+              <StatusPill label={`✓ Done${context.completedAt ? ` ${fmtDate(context.completedAt)}` : ''}`} tone="success" />
             )}
           </div>
 

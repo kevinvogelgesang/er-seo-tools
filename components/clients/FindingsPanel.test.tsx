@@ -108,4 +108,34 @@ describe('FindingsPanel', () => {
     )
     expect(screen.queryByText(/violations/)).toBeNull()
   })
+
+  it('renders severity chips via SeverityBadge tones (critical red, warning orange, notice blue)', () => {
+    render(
+      <FindingsPanel
+        rows={[row(), row({ type: 'b_warn', severity: 'warning' }), row({ type: 'c_notice', severity: 'notice' })]}
+        seo={meta()}
+        ada={null}
+      />,
+    )
+    expect(screen.getByText('critical').className).toContain('bg-red-50')
+    expect(screen.getByText('critical').className).toContain('px-1.5')
+    expect(screen.getByText('warning').className).toContain('bg-orange-50')
+    expect(screen.getByText('notice').className).toContain('bg-blue-50')
+  })
+
+  it('sample badge is gray-600 with the explanatory title', () => {
+    render(<FindingsPanel rows={[row({ isSample: true, urls: [], totalUrls: 0 })]} seo={meta()} ada={null} />)
+    const sample = screen.getByText('sample')
+    expect(sample.className).toContain('text-gray-600')
+    expect(sample.getAttribute('title')).toContain('sample/partial')
+  })
+
+  it('tool badge is a gray-600 uppercase SeverityBadge', () => {
+    render(<FindingsPanel rows={[row()]} seo={meta()} ada={null} />)
+    // "SEO" appears in the source-meta line too — pick the badge by its bg class.
+    const badge = screen.getAllByText('SEO').find((el) => el.className.includes('bg-gray-100'))
+    expect(badge).toBeTruthy()
+    expect(badge!.className).toContain('text-gray-600')
+    expect(badge!.className).toContain('uppercase')
+  })
 })

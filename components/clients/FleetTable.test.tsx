@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 // components/clients/FleetTable.test.tsx
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach } from 'vitest'
 import { FleetTable, type FleetTableRow } from './FleetTable'
+
+// globals:false → testing-library auto-cleanup is off; clean explicitly.
+afterEach(cleanup)
 
 const series = (latest: number | null, delta: number | null) => ({
   latest, previous: null, delta, latestAt: latest !== null ? '2026-06-10T00:00:00.000Z' : null, points: [],
@@ -52,5 +55,22 @@ describe('FleetTable', () => {
   it('renders regression alert chip', () => {
     render(<FleetTable rows={[row({ id: 5, alerts: [{ kind: 'regression', detail: '1 new critical issue type' }] })]} />)
     expect(screen.getByText('regression')).toBeTruthy()
+  })
+  it('renders alert chips via SeverityBadge tones (color-preserving)', () => {
+    render(<FleetTable rows={[row({ id: 5, name: 'Tone Co', alerts: [{ kind: 'error', detail: 'x' }, { kind: 'regression', detail: 'y' }] })]} />)
+    expect(screen.getByText('error').className).toContain('bg-red-50')
+    expect(screen.getByText('regression').className).toContain('bg-purple-50')
+  })
+  it('renders open-issue count pills with red/orange when non-zero, gray when zero', () => {
+    render(<FleetTable rows={[row({ id: 6, name: 'Issues Co', openCritical: 3, openWarning: 0 })]} />)
+    expect(screen.getByText('3C').className).toContain('text-red-700')
+    expect(screen.getByText('0W').className).toContain('text-gray-600')
+  })
+  it('renders the page-audit suffix as a gray uppercase SeverityBadge', () => {
+    render(<FleetTable rows={[row({ id: 7, name: 'Suffix Co', adaSource: 'page', ada: series(75, null) })]} />)
+    const el = screen.getByText('page')
+    expect(el.className).toContain('px-1.5')
+    expect(el.className).toContain('uppercase')
+    expect(el.className).toContain('text-gray-600')
   })
 })

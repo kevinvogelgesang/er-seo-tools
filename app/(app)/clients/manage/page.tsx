@@ -285,18 +285,18 @@ export default function ClientsPage() {
         <div>
           <a
             href="/clients"
-            className="text-xs text-gray-400 dark:text-white/40 hover:text-[#f5a623] transition-colors"
+            className="text-xs text-gray-400 dark:text-white/40 hover:text-orange transition-colors"
           >
             ← Fleet
           </a>
-          <h1 className="text-3xl font-display font-bold text-[#1c2d4a] dark:text-white mb-1 mt-1">Manage Clients</h1>
+          <h1 className="text-3xl font-display font-bold text-navy dark:text-white mb-1 mt-1">Manage Clients</h1>
           <p className="text-sm text-gray-500 dark:text-white/60">
             Shared across the Quarter Grid and SEO Parser. Add domains to enable automatic client matching when uploading crawl files.
           </p>
         </div>
         <button
           onClick={() => setAddForm({ open: true, name: '', error: '', loading: false })}
-          className="flex items-center gap-1.5 px-4 py-2 bg-[#f5a623] hover:bg-[#e09415] text-white text-sm font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0 ml-6"
+          className="flex items-center gap-1.5 px-4 py-2 bg-orange hover:bg-orange-dark text-white text-sm font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0 ml-6"
         >
           <PlusIcon />
           Add Client
@@ -307,7 +307,7 @@ export default function ClientsPage() {
       {addForm.open && (
         <form
           onSubmit={handleAdd}
-          className="mb-6 p-4 bg-[#f5a623]/8 border border-[#f5a623]/30 rounded-xl flex items-start gap-3"
+          className="mb-6 p-4 bg-orange/8 border border-orange/30 rounded-xl flex items-start gap-3"
         >
           <div className="flex-1">
             <input
@@ -316,14 +316,14 @@ export default function ClientsPage() {
               placeholder="Client name…"
               value={addForm.name}
               onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value, error: '' }))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 bg-white dark:bg-navy-card dark:text-white"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 bg-white dark:bg-navy-card dark:text-white"
             />
             {addForm.error && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{addForm.error}</p>}
           </div>
           <button
             type="submit"
             disabled={!addForm.name.trim() || addForm.loading}
-            className="px-4 py-2 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 dark:disabled:bg-navy-light disabled:text-gray-400 dark:disabled:text-white/40 text-white text-sm font-semibold rounded-lg transition-colors"
+            className="px-4 py-2 bg-orange hover:bg-orange-dark disabled:bg-gray-200 dark:disabled:bg-navy-light disabled:text-gray-400 dark:disabled:text-white/40 text-white text-sm font-semibold rounded-lg transition-colors"
           >
             {addForm.loading ? 'Adding…' : 'Add'}
           </button>
@@ -381,12 +381,12 @@ export default function ClientsPage() {
                           if (e.key === 'Enter') saveEdit(client.id);
                           if (e.key === 'Escape') setEditForm({ id: null, name: '', error: '', loading: false });
                         }}
-                        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 dark:bg-navy-card dark:text-white"
+                        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 dark:bg-navy-card dark:text-white"
                       />
                       <button
                         onClick={() => saveEdit(client.id)}
                         disabled={!editForm.name.trim() || editForm.loading}
-                        className="px-3 py-1.5 bg-[#f5a623] hover:bg-[#e09415] disabled:bg-gray-200 dark:disabled:bg-navy-light text-white text-xs font-semibold rounded-lg transition-colors"
+                        className="px-3 py-1.5 bg-orange hover:bg-orange-dark disabled:bg-gray-200 dark:disabled:bg-navy-light text-white text-xs font-semibold rounded-lg transition-colors"
                       >
                         {editForm.loading ? 'Saving…' : 'Save'}
                       </button>
@@ -402,7 +402,7 @@ export default function ClientsPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <a
                         href={`/clients/${client.id}`}
-                        className="font-semibold text-[#1c2d4a] dark:text-white text-sm hover:text-[#f5a623] dark:hover:text-[#f5a623] transition-colors"
+                        className="font-semibold text-navy dark:text-white text-sm hover:text-orange dark:hover:text-orange transition-colors"
                       >
                         {client.name}
                       </a>
@@ -414,13 +414,13 @@ export default function ClientsPage() {
                       <button
                         onClick={() => startEdit(client)}
                         aria-label="Rename client"
-                        className="p-1 text-gray-400 dark:text-white/40 hover:text-[#1c2d4a] dark:hover:text-white rounded transition-colors"
+                        className="p-1 text-gray-400 dark:text-white/40 hover:text-navy dark:hover:text-white rounded transition-colors"
                       >
                         <PencilIcon />
                       </button>
                       <a
                         href={`/clients/${client.id}`}
-                        className="text-xs text-gray-400 dark:text-white/40 hover:text-[#f5a623] transition-colors"
+                        className="text-xs text-gray-400 dark:text-white/40 hover:text-orange transition-colors"
                       >
                         SEO history →
                       </a>
@@ -432,7 +432,7 @@ export default function ClientsPage() {
                     {client.domains.map((domain) => (
                       <span
                         key={domain}
-                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-[#1c2d4a]/8 dark:bg-white/10 text-[#1c2d4a] dark:text-white/80 rounded-full font-mono"
+                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-navy/8 dark:bg-white/10 text-navy dark:text-white/80 rounded-full font-mono"
                       >
                         {domain}
                         <button
@@ -458,13 +458,13 @@ export default function ClientsPage() {
                         onChange={(e) =>
                           setDomainInput((prev) => ({ ...prev, [client.id]: e.target.value }))
                         }
-                        className="w-36 px-2 py-0.5 text-xs border border-dashed border-gray-300 dark:border-navy-border rounded-full focus:outline-none focus:border-[#f5a623] bg-transparent dark:text-white font-mono placeholder:text-gray-400 dark:placeholder:text-white/40"
+                        className="w-36 px-2 py-0.5 text-xs border border-dashed border-gray-300 dark:border-navy-border rounded-full focus:outline-none focus:border-orange bg-transparent dark:text-white font-mono placeholder:text-gray-400 dark:placeholder:text-white/40"
                       />
                       {(domainInput[client.id] ?? '').trim() && (
                         <button
                           type="submit"
                           disabled={domainLoading[client.id]}
-                          className="text-xs px-2 py-0.5 bg-[#1c2d4a] text-white rounded-full hover:bg-[#0f1e30] transition-colors"
+                          className="text-xs px-2 py-0.5 bg-navy text-white rounded-full hover:bg-navy-deep transition-colors"
                         >
                           +
                         </button>
@@ -480,10 +480,10 @@ export default function ClientsPage() {
 
                   {/* Seed URLs */}
                   <details className="mt-3">
-                    <summary className="cursor-pointer text-[12px] font-body font-semibold text-[#1c2d4a]/70 dark:text-white/70 hover:text-[#f5a623] select-none">
+                    <summary className="cursor-pointer text-[12px] font-body font-semibold text-navy/70 dark:text-white/70 hover:text-orange select-none">
                       Manual seed URLs
                       {client.seedUrls && client.seedUrls.length > 0 && (
-                        <span className="font-normal text-[#1c2d4a]/40 dark:text-white/40">
+                        <span className="font-normal text-navy/40 dark:text-white/40">
                           {' '}· {client.seedUrls.length} saved
                         </span>
                       )}
@@ -494,10 +494,10 @@ export default function ClientsPage() {
                         onChange={(e) => setLocalSeedUrlsText((prev) => ({ ...prev, [client.id]: e.target.value }))}
                         rows={6}
                         placeholder={'https://example.edu/\nhttps://example.edu/about/'}
-                        className="w-full px-3 py-2 text-[12px] font-mono text-[#1c2d4a] dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 focus:border-[#f5a623] bg-white dark:bg-navy-card transition-colors resize-y"
+                        className="w-full px-3 py-2 text-[12px] font-mono text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange bg-white dark:bg-navy-card transition-colors resize-y"
                       />
                       <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-body text-[#1c2d4a]/50 dark:text-white/50">
+                        <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
                           {client.seedUrlsUpdatedAt
                             ? `Saved · ${client.seedUrls?.length ?? 0} URLs · updated ${formatDate(client.seedUrlsUpdatedAt)}`
                             : 'Not saved'}
@@ -506,7 +506,7 @@ export default function ClientsPage() {
                           type="button"
                           disabled={seedUrlsLoading[client.id]}
                           onClick={() => handleSaveSeedUrls(client.id, localSeedUrlsText[client.id] ?? (client.seedUrls?.join('\n') ?? ''))}
-                          className="text-[12px] font-body font-semibold text-[#f5a623] hover:text-[#e09415] disabled:opacity-50 transition-colors"
+                          className="text-[12px] font-body font-semibold text-orange hover:text-orange-dark disabled:opacity-50 transition-colors"
                         >
                           {seedUrlsLoading[client.id] ? 'Saving…' : 'Save'}
                         </button>
@@ -516,10 +516,10 @@ export default function ClientsPage() {
 
                   {/* Teamwork tasklist ID */}
                   <details className="mt-3">
-                    <summary className="cursor-pointer text-[12px] font-body font-semibold text-[#1c2d4a]/70 dark:text-white/70 hover:text-[#f5a623] select-none">
+                    <summary className="cursor-pointer text-[12px] font-body font-semibold text-navy/70 dark:text-white/70 hover:text-orange select-none">
                       Teamwork tasklist ID
                       {client.teamworkTasklistId && (
-                        <span className="font-normal font-mono text-[#1c2d4a]/40 dark:text-white/40">
+                        <span className="font-normal font-mono text-navy/40 dark:text-white/40">
                           {' '}· {client.teamworkTasklistId}
                         </span>
                       )}
@@ -530,17 +530,17 @@ export default function ClientsPage() {
                         value={localTasklistId[client.id] ?? (client.teamworkTasklistId ?? '')}
                         onChange={(e) => setLocalTasklistId((prev) => ({ ...prev, [client.id]: e.target.value }))}
                         placeholder="e.g. 12345678"
-                        className="w-full px-3 py-2 text-[12px] font-mono text-[#1c2d4a] dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f5a623]/40 focus:border-[#f5a623] bg-white dark:bg-navy-card transition-colors"
+                        className="w-full px-3 py-2 text-[12px] font-mono text-navy dark:text-white border border-gray-300 dark:border-navy-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange bg-white dark:bg-navy-card transition-colors"
                       />
                       <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-body text-[#1c2d4a]/50 dark:text-white/50">
+                        <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
                           {client.teamworkTasklistId ? `Saved · ${client.teamworkTasklistId}` : 'Not set'}
                         </p>
                         <button
                           type="button"
                           disabled={tasklistIdLoading[client.id]}
                           onClick={() => handleSaveTasklistId(client.id, localTasklistId[client.id] ?? (client.teamworkTasklistId ?? ''))}
-                          className="text-[12px] font-body font-semibold text-[#f5a623] hover:text-[#e09415] disabled:opacity-50 transition-colors"
+                          className="text-[12px] font-body font-semibold text-orange hover:text-orange-dark disabled:opacity-50 transition-colors"
                         >
                           {tasklistIdLoading[client.id] ? 'Saving…' : 'Save'}
                         </button>
@@ -588,7 +588,7 @@ export default function ClientsPage() {
                       <button
                         onClick={() => setArchived(client.id, false)}
                         aria-label="Restore client"
-                        className="text-[#f5a623] font-semibold hover:text-[#e09415]"
+                        className="text-orange font-semibold hover:text-orange-dark"
                       >
                         Restore
                       </button>
@@ -633,7 +633,7 @@ export default function ClientsPage() {
             {' · '}
             <button
               onClick={() => setShowArchived((v) => !v)}
-              className="underline hover:text-[#f5a623] transition-colors"
+              className="underline hover:text-orange transition-colors"
             >
               {showArchived ? 'Hide' : 'Show'} {archivedCount} archived
             </button>

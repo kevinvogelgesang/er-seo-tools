@@ -8,6 +8,7 @@
 
 import dynamic from 'next/dynamic'
 import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
+import { SeverityBadge } from '@/components/ui/SeverityBadge'
 import type { ReactNode } from 'react'
 
 const Sparkline = dynamic(() => import('./Sparkline').then((m) => ({ default: m.Sparkline })), { ssr: false })
@@ -36,11 +37,7 @@ export function Scorecard({ label, score, max, delta, asOf, href, points, source
     <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-5">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-white/40">{label}</h3>
-        {sourceNote && (
-          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60">
-            {sourceNote}
-          </span>
-        )}
+        {sourceNote && <SeverityBadge tone="gray" uppercase label={sourceNote} />}
       </div>
       {score === null ? (
         <p className="mt-4 text-sm text-gray-400 dark:text-white/40">No runs yet</p>
@@ -68,7 +65,7 @@ export function Scorecard({ label, score, max, delta, asOf, href, points, source
               {href && (
                 <>
                   {' · '}
-                  <a href={href} className="text-[#f5a623] hover:text-[#e09415] font-semibold">View →</a>
+                  <a href={href} className="text-orange hover:text-orange-dark font-semibold">View →</a>
                 </>
               )}
             </p>

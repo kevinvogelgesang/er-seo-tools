@@ -9,6 +9,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
+import { SeverityBadge, type BadgeTone } from '@/components/ui/SeverityBadge'
 
 export interface FindingRowProp {
   tool: 'seo' | 'ada'
@@ -38,10 +39,10 @@ export interface SourceMetaProp {
   sourceClass?: 'site' | 'page'
 }
 
-const SEV_CHIP: Record<FindingRowProp['severity'], string> = {
-  critical: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400',
-  warning: 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400',
-  notice: 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400',
+const SEV_TONE: Record<FindingRowProp['severity'], BadgeTone> = {
+  critical: 'red',
+  warning: 'orange',
+  notice: 'blue',
 }
 
 function humanize(type: string): string {
@@ -73,7 +74,7 @@ function SourceLine({ label, m }: { label: string; m: SourceMetaProp }) {
         </span>
       )}
       {m.href && (
-        <Link href={m.href} className="text-[#f5a623] hover:text-[#e09415] font-semibold">
+        <Link href={m.href} className="text-orange hover:text-orange-dark font-semibold">
           full report →
         </Link>
       )}
@@ -110,14 +111,10 @@ function FindingRow({ row }: { row: FindingRowProp }) {
         <span className={`shrink-0 text-gray-400 dark:text-white/40 text-xs w-3 ${expandable ? '' : 'invisible'}`}>
           {open ? '▾' : '▸'}
         </span>
-        <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold ${SEV_CHIP[row.severity]}`}>
-          {row.severity}
-        </span>
-        <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50">
-          {row.tool === 'seo' ? 'SEO' : 'ADA'}
-        </span>
+        <SeverityBadge tone={SEV_TONE[row.severity]} label={row.severity} />
+        <SeverityBadge tone="gray" uppercase label={row.tool === 'seo' ? 'SEO' : 'ADA'} />
         <span className="min-w-0 flex-1">
-          <span className="text-sm font-medium text-[#1c2d4a] dark:text-white">{humanize(row.type)}</span>
+          <span className="text-sm font-medium text-navy dark:text-white">{humanize(row.type)}</span>
           {row.description && (
             <span className="block text-xs text-gray-500 dark:text-white/50 truncate">{row.description}</span>
           )}
@@ -128,12 +125,11 @@ function FindingRow({ row }: { row: FindingRowProp }) {
         {/* Sample badge lives on the COLLAPSED row — a sampled, zero-URL
             finding is not expandable and must not look complete. */}
         {row.isSample && (
-          <span
-            className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50"
+          <SeverityBadge
+            tone="gray"
+            label="sample"
             title="URL list is a sample/partial — the count is authoritative"
-          >
-            sample
-          </span>
+          />
         )}
         <DeltaBadge delta={row.countDelta} />
         <span className="shrink-0 text-xs text-gray-400 dark:text-white/40 tabular-nums">
@@ -155,13 +151,13 @@ function FindingRow({ row }: { row: FindingRowProp }) {
                 {row.href && (
                   <>
                     {' — '}
-                    <Link href={row.href} className="text-[#f5a623] hover:text-[#e09415] font-semibold">view full report →</Link>
+                    <Link href={row.href} className="text-orange hover:text-orange-dark font-semibold">view full report →</Link>
                   </>
                 )}
               </span>
             )}
             {row.helpUrl && (
-              <a href={row.helpUrl} target="_blank" rel="noopener noreferrer" className="text-[#f5a623] hover:text-[#e09415] font-semibold">
+              <a href={row.helpUrl} target="_blank" rel="noopener noreferrer" className="text-orange hover:text-orange-dark font-semibold">
                 how to fix →
               </a>
             )}
@@ -181,7 +177,7 @@ export function FindingsPanel({ rows, seo, ada }: {
   return (
     <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-6">
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
-        <h2 className="text-sm font-semibold text-[#1c2d4a] dark:text-white uppercase tracking-wide">Open Findings</h2>
+        <h2 className="text-sm font-semibold text-navy dark:text-white uppercase tracking-wide">Open Findings</h2>
         <div className="space-y-0.5 text-right">
           {seo && <SourceLine label="SEO" m={seo} />}
           {ada && <SourceLine label="ADA" m={ada} />}

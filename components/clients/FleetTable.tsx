@@ -9,6 +9,8 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
+import { SeverityBadge } from '@/components/ui/SeverityBadge'
+import { alertTone } from './alert-tone'
 
 interface SeriesProp {
   latest: number | null
@@ -35,13 +37,6 @@ export interface FleetTableRow {
 
 type SortKey = 'default' | 'name' | 'seo' | 'ada' | 'pillar' | 'issues' | 'activity'
 
-const ALERT_CLASSES: Record<FleetTableRow['alerts'][number]['kind'], string> = {
-  error: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
-  'score-drop': 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-  stale: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60',
-  regression: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
-}
-
 function DeltaChip({ delta }: { delta: number | null }) {
   if (delta === null || delta === 0) return null
   return (
@@ -61,11 +56,9 @@ function ScoreCell({ series, suffix }: { series: SeriesProp; suffix?: string }) 
   if (series.latest === null) return <span className="text-gray-300 dark:text-white/20">—</span>
   return (
     <span className="tabular-nums">
-      <span className="font-semibold text-[#1c2d4a] dark:text-white">{series.latest}</span>
+      <span className="font-semibold text-navy dark:text-white">{series.latest}</span>
       {suffix && (
-        <span className="ml-1 px-1 py-0.5 rounded text-[10px] font-semibold uppercase bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50">
-          {suffix}
-        </span>
+        <span className="ml-1 inline-flex"><SeverityBadge tone="gray" uppercase label={suffix} /></span>
       )}
       <DeltaChip delta={series.delta} />
     </span>
@@ -120,7 +113,7 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
       <div className="bg-white dark:bg-navy-card rounded-xl shadow-sm border border-gray-100 dark:border-navy-border p-10 text-center">
         <p className="text-sm text-gray-500 dark:text-white/60">
           No clients yet —{' '}
-          <Link href="/clients/manage" className="text-[#f5a623] hover:text-[#e09415] font-semibold">add one →</Link>
+          <Link href="/clients/manage" className="text-orange hover:text-orange-dark font-semibold">add one →</Link>
         </p>
       </div>
     )
@@ -132,7 +125,7 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
       <button
         type="button"
         onClick={() => clickSort(key)}
-        className={`uppercase tracking-wide text-xs ${sortKey === key ? 'text-[#f5a623]' : 'text-gray-400 dark:text-white/40'} hover:text-[#f5a623]`}
+        className={`uppercase tracking-wide text-xs ${sortKey === key ? 'text-orange' : 'text-gray-400 dark:text-white/40'} hover:text-orange`}
       >
         {label}{sortKey === key ? (asc ? ' ↑' : ' ↓') : ''}
       </button>
@@ -158,7 +151,7 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
             {sorted.map((r) => (
               <tr key={r.id} className="border-b border-gray-50 dark:border-navy-border/50 last:border-0 hover:bg-gray-50 dark:hover:bg-navy-light/40 transition-colors">
                 <td className="px-5 py-3">
-                  <Link href={`/clients/${r.id}`} className="font-semibold text-[#1c2d4a] dark:text-white hover:text-[#f5a623] dark:hover:text-[#f5a623] transition-colors">
+                  <Link href={`/clients/${r.id}`} className="font-semibold text-navy dark:text-white hover:text-orange dark:hover:text-orange transition-colors">
                     {r.name}
                   </Link>
                   {r.firstDomain && <div className="text-[11px] text-gray-400 dark:text-white/40">{r.firstDomain}</div>}
@@ -168,19 +161,15 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
                 <td className="px-5 py-3 text-right tabular-nums">
                   {r.pillarScore === null
                     ? <span className="text-gray-300 dark:text-white/20">—</span>
-                    : <span className="font-semibold text-[#1c2d4a] dark:text-white">{r.pillarScore}<span className="text-gray-400 dark:text-white/40 font-normal">/10</span></span>}
+                    : <span className="font-semibold text-navy dark:text-white">{r.pillarScore}<span className="text-gray-400 dark:text-white/40 font-normal">/10</span></span>}
                 </td>
                 <td className="px-5 py-3 text-right">
                   {r.openCritical === null ? (
                     <span className="text-gray-300 dark:text-white/20">—</span>
                   ) : (
                     <span className="inline-flex gap-1 tabular-nums">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${r.openCritical > 0 ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50'}`} title="open critical issue types">
-                        {r.openCritical}C
-                      </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(r.openWarning ?? 0) > 0 ? 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-white/50'}`} title="open warning issue types">
-                        {r.openWarning ?? 0}W
-                      </span>
+                      <SeverityBadge tone={r.openCritical > 0 ? 'red' : 'gray'} label={`${r.openCritical}C`} title="open critical issue types" />
+                      <SeverityBadge tone={(r.openWarning ?? 0) > 0 ? 'orange' : 'gray'} label={`${r.openWarning ?? 0}W`} title="open warning issue types" />
                     </span>
                   )}
                 </td>
@@ -190,9 +179,7 @@ export function FleetTable({ rows }: { rows: FleetTableRow[] }) {
                 <td className="px-5 py-3">
                   <div className="flex flex-wrap gap-1">
                     {r.alerts.map((a, i) => (
-                      <span key={i} title={a.detail} className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${ALERT_CLASSES[a.kind]}`}>
-                        {a.kind === 'score-drop' ? 'drop' : a.kind}
-                      </span>
+                      <SeverityBadge key={i} title={a.detail} uppercase tone={alertTone(a.kind)} label={a.kind === 'score-drop' ? 'drop' : a.kind} />
                     ))}
                   </div>
                 </td>
