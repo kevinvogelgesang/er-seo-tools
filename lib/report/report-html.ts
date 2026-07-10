@@ -96,12 +96,15 @@ function sparklineSvg(points: ScorePoint[]): string {
   let segments = ''
   let markers = ''
   for (let i = 1; i < points.length; i++) {
-    const changed = pointVersion(points[i]) !== pointVersion(points[i - 1])
+    const versionChanged = pointVersion(points[i]) !== pointVersion(points[i - 1])
+    const weightsChanged = !versionChanged && (points[i].weightsHash ?? null) !== (points[i - 1].weightsHash ?? null)
+    const changed = versionChanged || weightsChanged
     const dash = changed ? ' stroke-dasharray="4 3"' : ''
     segments += `<polyline fill="none" stroke="${BRAND.orange}" stroke-width="2"${dash} points="${coords[i - 1]} ${coords[i]}"/>`
     if (changed) {
       const mx = ((x(i - 1) + x(i)) / 2).toFixed(1)
-      markers += `<text x="${mx}" y="${TOP + 6}" font-size="7" fill="#dc2626" text-anchor="middle">${escapeHtml('formula changed')}</text>`
+      const label = versionChanged ? 'formula changed' : 'weights changed'
+      markers += `<text x="${mx}" y="${TOP + 6}" font-size="7" fill="#dc2626" text-anchor="middle">${escapeHtml(label)}</text>`
     }
   }
   const circles = points

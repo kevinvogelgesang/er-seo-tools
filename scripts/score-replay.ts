@@ -225,7 +225,13 @@ async function main() {
 
     let newScore: number | null
     try {
-      newScore = computeHealthScore(JSON.parse(blob), DEFAULT_WEIGHTS).score
+      const parsed = JSON.parse(blob)
+      try {
+        newScore = computeHealthScore(parsed, DEFAULT_WEIGHTS).score
+      } catch (err) {
+        seoSkipped.push({ id: r.id, domain, reason: `scorer failed: ${(err as Error).message}`, source: 'sf-upload' })
+        continue
+      }
     } catch {
       seoSkipped.push({ id: r.id, domain, reason: 'blob unparseable', source: 'sf-upload' })
       continue
