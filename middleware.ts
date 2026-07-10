@@ -49,6 +49,11 @@ export function isPublicPath(pathname: string): boolean {
   // mint-token stays cookie-gated (triggered from the authenticated grid).
   if (/^\/api\/quarter-plan\/push\/\d+$/.test(pathname)) return true
   if (/^\/api\/quarter-plan\/push\/\d+\/receipt$/.test(pathname)) return true
+  // C14 sales surface: public report page + token-scoped screenshots ONLY.
+  // NEVER add an '/api/sales/' or '/sales/' PREFIX — that would expose the
+  // cookie-gated intake page (/sales) and prospect APIs (/api/sales/prospects…).
+  if (/^\/sales\/[^/]+$/.test(pathname)) return true
+  if (/^\/api\/sales\/[^/]+\/screenshot\/[^/]+\/[^/]+$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 
