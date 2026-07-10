@@ -15,7 +15,7 @@ export async function writeAdaSiteFindings(siteAuditId: string): Promise<void> {
     where: { id: siteAuditId },
     select: {
       id: true, domain: true, clientId: true, wcagLevel: true, status: true,
-      pagesError: true, startedAt: true, completedAt: true,
+      pagesError: true, startedAt: true, completedAt: true, pagesTotal: true,
     },
   })
   if (!parent) throw new Error(`site audit ${siteAuditId} not found`)
