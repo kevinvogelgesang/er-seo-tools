@@ -75,10 +75,25 @@ describe('mapSeoResult', () => {
     expect(b.run.pagesTotal).toBe(2)
   })
 
-  it('persists a scoreBreakdown that parses back to the run score', () => {
+  it('persists a v2 scoreBreakdown with a weightsHash and the SF inputsSnapshot', () => {
     const b = mapSeoResult(fixture(), CTX)
     const parsed = JSON.parse(b.run.scoreBreakdown!)
-    expect(parsed).toMatchObject({ scorer: 'health', score: b.run.score })
+    expect(parsed).toMatchObject({ version: 2, scorer: 'health', score: b.run.score })
+    expect(parsed.weightsHash).toMatch(/^[0-9a-f]{12}$/)
+    expect(parsed.inputsSnapshot).toEqual({
+      source: 'sf',
+      totalUrls: 2,
+      indexableUrls: 0,
+      clientErrors: 0,
+      serverErrors: 0,
+      base: 2,
+      missingTitle: 0,
+      missingMeta: 2,
+      missingH1: 0,
+      avgCrawlDepth: null,
+      thinCount: null,
+      pagesWithSchema: null,
+    })
   })
 
   it('builds one CrawlPage per page_index entry with normalized urls', () => {

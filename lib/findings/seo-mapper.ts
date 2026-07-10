@@ -7,7 +7,9 @@ import type { AggregatedResult, Issue } from '@/lib/types'
 import { rehydrate } from '@/lib/services/url-registry'
 import { normalizeHost } from '@/lib/services/normalize-host'
 import { computeHealthScore } from '@/lib/services/scoring.service'
-import { serializeBreakdown, type ScoringWeights } from '@/lib/scoring/weights'
+import type { ScoringWeights } from '@/lib/scoring/weights'
+import { serializeBreakdownV2 } from '@/lib/scoring/seo-core'
+import { hashWeights } from '@/lib/scoring/weights-hash'
 import { normalizeFindingUrl, runFindingKey, pageFindingKey } from './keys'
 import type { CrawlPageInput, FindingInput, FindingsBundle } from './types'
 
@@ -128,7 +130,9 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
       adaAuditId: null,
       status: 'complete',
       score: healthResult.score,
-      scoreBreakdown: serializeBreakdown('health', healthResult),
+      scoreBreakdown: serializeBreakdownV2(
+        'health', healthResult, hashWeights(ctx.weights as unknown as Record<string, number>), healthResult.inputsSnapshot,
+      ),
       wcagLevel: null,
       pagesTotal: pages.length,
       startedAt: ctx.startedAt,
