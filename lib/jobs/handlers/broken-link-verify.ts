@@ -32,6 +32,7 @@ import { serializeBreakdown } from '@/lib/scoring/weights'
 import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/seo/discovery-coverage'
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
+import { aggregateSchemaTypes } from '@/lib/ada-audit/seo/schema-types'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import { enqueueNotifyEmail } from './notify-email'
@@ -475,6 +476,15 @@ export async function runBrokenLinkVerify(
     sitemapCapped,
   })
 
+  // C14: JSON-LD @type histogram across harvested pages. Fail-to-null — never
+  // fails the live-scan write.
+  let schemaTypesJson: string | null = null
+  try {
+    schemaTypesJson = JSON.stringify(aggregateSchemaTypes(seoRows))
+  } catch (e) {
+    console.error('[live-seo] schema-type aggregation failed', e)
+  }
+
   // C6 Phase 5: content similarity. Best-effort + time-budget-guarded — a similarity
   // failure or overrun must NEVER fail the live-scan write (mirrors the graph fail-to-null).
   let contentSimilarityJson: string | null = null
@@ -502,6 +512,7 @@ export async function runBrokenLinkVerify(
       discoveryCoverageJson: JSON.stringify(coverage),
       reachabilityJson: graph ? JSON.stringify({ v: 1, ...graph.summary }) : null,
       contentSimilarityJson,
+      schemaTypesJson,
     },
     pages, findings, violations: [],
   }

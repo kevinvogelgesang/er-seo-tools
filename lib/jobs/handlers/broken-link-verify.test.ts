@@ -162,7 +162,8 @@ describe('runBrokenLinkVerify', () => {
     await prisma.harvestedPageSeo.createMany({
       data: [
         { siteAuditId, url: `https://${DOMAIN}/a`, statusCode: 200, isHtml: true, title: 'Same Title',
-          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+          schemaCount: 1, detailsJson: JSON.stringify({ schemaTypes: ['Organization'], hreflang: [] }) },
         { siteAuditId, url: `https://${DOMAIN}/b`, statusCode: 200, isHtml: true, title: 'Same Title',
           h1: 'H2', metaDescription: 'M2', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
       ],
@@ -179,6 +180,11 @@ describe('runBrokenLinkVerify', () => {
     // CrawlPage scalars populated from on-page rows
     const pageWithScalars = run!.pages.find((p) => p.statusCode !== null)
     expect(pageWithScalars).not.toBeUndefined()
+    // C14: schema-type histogram aggregated onto the same run
+    const schema = JSON.parse(run!.schemaTypesJson!)
+    expect(schema.v).toBe(1)
+    expect(schema.pagesWithSchema).toBeGreaterThanOrEqual(1)
+    expect(schema.types).toContainEqual({ type: 'Organization', pages: 1 })
     // Both transient tables cleaned up
     expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBe(0)
     expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
