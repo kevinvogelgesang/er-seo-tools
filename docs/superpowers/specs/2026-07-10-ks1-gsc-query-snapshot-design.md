@@ -128,22 +128,28 @@ sub-threshold queries rather than treating them as signal.
 New exported function alongside `fetchGsc` (existing function untouched):
 
 ```ts
-fetchGscQueryPage(siteUrl: string | null, window: DateWindow):
-  Promise<SourceResult<{
-    queryRows: GscQueryRow[];        // { query, clicks, impressions, ctr, position }
-    queryPageRows: GscQueryPageRow[]; // { query, page, clicks, impressions, position }
-    queryAtLimit: boolean;           // rows.length === rowLimit — "possibly truncated"
-    queryPageAtLimit: boolean;
-  }>>
+export type GscQueryPageResult =
+  | { ok: true; data: {
+      queryRows: GscQueryRow[];        // { query, clicks, impressions, ctr, position }
+      queryPageRows: GscQueryPageRow[]; // { query, page, clicks, impressions, position }
+      queryAtLimit: boolean;           // rows.length === rowLimit — "possibly truncated"
+      queryPageAtLimit: boolean;
+    } }
+  | { ok: false; reason: 'not_mapped' | 'access_denied' | 'auth' | 'quota' | 'error'; message?: string };
+
+fetchGscQueryPage(siteUrl: string | null, window: DateWindow): Promise<GscQueryPageResult>
 ```
 
-Reuses `getAuthClient`, `classifyApiError`, verbatim-siteUrl rule, and the
-null-siteUrl→`unmapped` short-circuit. Two `Promise.all`'d
-`searchanalytics.query` calls with `{ timeout: 30_000 }` request options.
-**The local-null `unmapped` and the API-403 `unmapped` are different facts
-(Codex #5):** the function distinguishes them for the caller (e.g. a
-`detail: 'not_mapped' | 'access_denied'` alongside the reason) so the route
-never tells the operator to configure a property that is already configured.
+Reuses `getAuthClient`, `classifyApiError`, and the verbatim-siteUrl rule.
+Two `Promise.all`'d `searchanalytics.query` calls with `{ timeout: 30_000 }`
+request options. **Its own result union, NOT the shared `SourceResult`
+(Codex #5, plan-review #1):** the shared `unmapped` reason conflates two
+different facts — here `not_mapped` (siteUrl null, short-circuit before
+auth) and `access_denied` (`classifyApiError`'s `unmapped` on a
+**configured** property) are distinct, so the route never tells the operator
+to configure a property that is already configured. `fetchGsc` and the
+shared union are untouched. The provider owns and exports
+`GscQueryRow`/`GscQueryPageRow`; `lib/keywords/` imports them.
 
 ### 5.2 Snapshot service — `lib/keywords/gsc-snapshot.ts`
 
