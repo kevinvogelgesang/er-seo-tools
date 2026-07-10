@@ -79,7 +79,10 @@ export function parseAxeScorecardFromResult(result: string | null): AuditScoreca
       moderate:   violations.filter((v: { impact: string }) => v.impact === 'moderate').length,
       minor:      violations.filter((v: { impact: string }) => v.impact === 'minor').length,
       total:      violations.length,
-      passed:     Array.isArray(r?.passes) ? r.passes.length : 0,
+      // C13 blob shapes: post-fix blobs carry the passCount scalar (passes
+      // array trimmed in-page); pre-fix full-array blobs count passes.length;
+      // legacy stripped blobs (no-passes era) have neither → 0.
+      passed:     typeof r?.passCount === 'number' ? r.passCount : (Array.isArray(r?.passes) ? r.passes.length : 0),
       incomplete: Array.isArray(r?.incomplete) ? r.incomplete.length : 0,
     }
   } catch {

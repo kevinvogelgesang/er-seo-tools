@@ -166,7 +166,8 @@ export async function GET(request: NextRequest) {
           moderate: violations.filter((v: { impact: string }) => v.impact === 'moderate').length,
           minor:    violations.filter((v: { impact: string }) => v.impact === 'minor').length,
           total:    violations.length,
-          passed:   Array.isArray(r?.passes) ? r.passes.length : 0,
+          // C13: passCount scalar on trimmed blobs; passes array pre-fix.
+          passed:   typeof r?.passCount === 'number' ? r.passCount : (Array.isArray(r?.passes) ? r.passes.length : 0),
           incomplete: Array.isArray(r?.incomplete) ? r.incomplete.length : 0,
         }
         if (score === null) score = computeScore(violations, wcagLevel).score

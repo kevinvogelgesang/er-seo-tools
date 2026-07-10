@@ -47,7 +47,8 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
     moderate:   v.filter((x) => x.impact === 'moderate').length,
     minor:      v.filter((x) => x.impact === 'minor').length,
     total:      v.length,
-    passed:     results.passes?.length ?? 0,
+    // C13: passCount scalar on trimmed blobs; passes array on pre-fix blobs.
+    passed:     results.passCount ?? results.passes?.length ?? 0,
     incomplete: results.incomplete?.length ?? 0,
   }
 }

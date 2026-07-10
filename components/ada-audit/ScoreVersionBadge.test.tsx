@@ -12,6 +12,12 @@ describe('ScoreVersionBadge', () => {
     expect(screen.getByText(/40/)).toBeTruthy()
     expect(screen.getByText(/3/)).toBeTruthy()
   })
+  it('C13: renders the numeric version for v3 (repaired incomplete input)', () => {
+    render(<ScoreVersionBadge version={3} fromFallback={false} passCount={38} incompleteCount={4} />)
+    expect(screen.getByText(/v3/i)).toBeTruthy()
+    expect(screen.getByText(/38 passed/)).toBeTruthy()
+    expect(screen.getByText(/4 needs review/)).toBeTruthy()
+  })
   it('labels a fallback score as v1 / unavailable', () => {
     render(<ScoreVersionBadge version={1} fromFallback={true} passCount={null} incompleteCount={null} />)
     expect(screen.getByText(/v1/i)).toBeTruthy()

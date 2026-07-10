@@ -98,7 +98,7 @@ describe('mapAdaChildren', () => {
     }).score
     expect(b.run.score).toBe(expected)
     expect(b.pages[0].score).toBe(expected)
-    expect(JSON.parse(b.run.scoreBreakdown as string).version).toBe(2)
+    expect(JSON.parse(b.run.scoreBreakdown as string).version).toBe(3)
   })
 
   it('builds one CrawlPage per child with status, error, finalUrl, adaAuditId', () => {
@@ -257,7 +257,7 @@ describe('mapAdaSingle', () => {
     expect(b.findings).toHaveLength(1)
     expect(b.violations).toHaveLength(1)
     expect(b.run.scoreBreakdown).toBeTruthy()
-    expect(JSON.parse(b.run.scoreBreakdown as string).version).toBe(2)
+    expect(JSON.parse(b.run.scoreBreakdown as string).version).toBe(3)
   })
 
   it('a redirected standalone gets a run + one redirected page, no findings, null scores', () => {
@@ -318,6 +318,32 @@ describe('passCount/incompleteCount (C3)', () => {
     expect(b.pages[0].incompleteCount).toBe(0)
   })
 
+  it('C13: prefers the passCount scalar over a passes array (trimmed blobs)', () => {
+    const b = mapAdaChildren(PARENT, [
+      child({ id: 'c1', url: 'https://mapper.test/trimmed', result: JSON.stringify({
+        violations: [],
+        incomplete: [{ id: 'i0', help: '', impact: null, nodes: [] }],
+        passCount: 7,
+      }) }),
+    ])
+    expect(b.pages[0].passCount).toBe(7)
+    expect(b.pages[0].incompleteCount).toBe(1)
+  })
+
+  it('C13: incomplete entries produce a nonzero v2 incomplete penalty in the page score', () => {
+    const mkBlob = (incomplete: number) => JSON.stringify({
+      violations: [], domElementCount: 100, passCount: 0,
+      incomplete: Array.from({ length: incomplete }, (_, i) => ({ id: `i${i}`, help: '', impact: null, nodes: [] })),
+    })
+    const clean = mapAdaChildren(PARENT, [child({ id: 'c1', url: 'https://mapper.test/clean', result: mkBlob(0) })])
+    const dirty = mapAdaChildren(PARENT, [child({ id: 'c1', url: 'https://mapper.test/dirty', result: mkBlob(6) })])
+    expect(clean.pages[0].score).toBe(100)
+    expect(dirty.pages[0].score!).toBeLessThan(100)
+    expect(dirty.pages[0].score).toBe(
+      computeScoreV2({ violations: [], incompleteCount: 6, domElementCount: 100, wcagLevel: 'wcag21aa' }).score,
+    )
+  })
+
   it('mapAdaSingle stamps counts', () => {
     const b = mapAdaSingle({
       id: 'ada-c3', url: 'https://single.test/counts', status: 'complete',
@@ -330,7 +356,7 @@ describe('passCount/incompleteCount (C3)', () => {
 })
 
 describe('ada-mapper v2 scoring', () => {
-  it('writes a version-2 scoreBreakdown on the standalone run', () => {
+  it('writes a version-3 scoreBreakdown on the standalone run', () => {
     const result = JSON.stringify({
       violations: [{ id: 'image-alt', impact: 'serious', help: '', description: '', helpUrl: '',
         tags: ['wcag2a'], nodes: [{ html: '<img>' }], nodeCount: 12 }],
@@ -341,7 +367,7 @@ describe('ada-mapper v2 scoring', () => {
       finalUrl: null, wcagLevel: 'wcag21aa', clientId: null, startedAt: null, completedAt: null })
     expect(bundle.run.scoreBreakdown).toBeTruthy()
     const b = JSON.parse(bundle.run.scoreBreakdown as string)
-    expect(b.version).toBe(2)
+    expect(b.version).toBe(3)
     expect(b.scorer).toBe('ada-v2')
     expect(bundle.run.score).toBe(bundle.pages[0].score)
   })
@@ -360,6 +386,6 @@ describe('ada-mapper v2 scoring', () => {
     const pageScores = bundle.pages.map((p) => p.score!).filter((s) => s != null)
     const mean = Math.round(pageScores.reduce((a, b) => a + b, 0) / pageScores.length)
     expect(bundle.run.score).toBe(mean)
-    expect(JSON.parse(bundle.run.scoreBreakdown as string).version).toBe(2)
+    expect(JSON.parse(bundle.run.scoreBreakdown as string).version).toBe(3)
   })
 })

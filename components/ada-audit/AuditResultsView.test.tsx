@@ -50,6 +50,20 @@ describe('AuditResultsView — archived render contract', () => {
     expect(screen.getByText(/rules passed/).textContent).toContain('1 rules passed')
   })
 
+  it('C13: trimmed blob (passCount scalar, no passes array) renders the scalar and real incomplete', () => {
+    const trimmed = makeResults({ domElementCount: 500 })
+    delete (trimmed as Record<string, unknown>).passes
+    delete (trimmed as Record<string, unknown>).inapplicable
+    trimmed.passCount = 42
+    trimmed.incomplete = [
+      { id: 'i1', help: 'check me', impact: null, nodes: [] },
+      { id: 'i2', help: 'me too', impact: null, nodes: [] },
+    ]
+    render(<AuditResultsView {...baseProps} results={trimmed} />)
+    expect(screen.getByText(/rules passed/).textContent).toContain('42 rules passed')
+    expect(screen.getByText(/need review/).textContent).toContain('2 need review')
+  })
+
   it('archived results: banner rendered, archived counts shown — never the literal 0 from empty passes', () => {
     const { container } = render(
       <AuditResultsView
