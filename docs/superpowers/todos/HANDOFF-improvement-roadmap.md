@@ -41,6 +41,54 @@ via superpowers:subagent-driven-development):
     replay catch-label granularity; report-html sparkline dash marker hash-awareness; hashWeights
     cast wart (shared typed wrapper); broken-image-branch test.
 
+PR3 RECON (verified 2026-07-10, fresh — trust over memory):
+  • app/api/settings/scoring-weights/route.ts: GET + PUT (no withRoute — own JSON-parse guard);
+    PUT: validateWeights → explicit PERSISTABLE_WEIGHT_KEYS pick → upsert({where:{id:1}}) →
+    responds {weights: v} (the full 9-key validated object). PR3: add brokenLinks to
+    PERSISTABLE_WEIGHT_KEYS + drop validateWeights' forced brokenLinks default + new ADA route
+    (mirror this file; consider withRoute for the NEW route per house A3 rule).
+  • components/settings/ScoringWeightsCard.tsx: 'use client', useState + fetch-on-mount GET,
+    save() PUTs the whole weights object, keys = PERSISTABLE_WEIGHT_KEYS (the PR2 filter hiding
+    brokenLinks — REMOVE the filter comment/line once persistable). Mirror its exact classNames
+    for the ADA card (card: "mt-6 bg-white dark:bg-navy-card border border-gray-200
+    dark:border-navy-border rounded-2xl shadow-sm p-6"; input: "mt-1 w-full rounded-lg border
+    border-gray-300 dark:border-navy-border bg-white dark:bg-navy-deep px-3 py-2 text-navy
+    dark:text-white"; save btn: "rounded-lg bg-navy text-white dark:bg-white dark:text-navy
+    px-4 py-2 text-[13px] font-heading font-semibold").
+  • app/(app)/settings/page.tsx: server component; cards in order ServiceAccountCard →
+    ScheduleControls → ScoringWeightsCard; ADA card slots 4th; Score Lab link slots next to the
+    existing <a href="/admin/ops"> line (text-blue-600 dark:text-blue-400 hover:underline).
+  • Migration pattern to copy: prisma/migrations/20260703120000_configurable_scoring_weights/
+    migration.sql (CREATE TABLE with INTEGER PK DEFAULT 1, REAL NOT NULL DEFAULT per weight,
+    "updatedAt" DATETIME NOT NULL with NO default — Prisma @updatedAt fills it). PR3 migration =
+    new AdaScoringWeights table (critical 40/serious 30/moderate 15/minor 5/needsReview 10 REAL
+    + advisoryDiscount REAL DEFAULT 0.4) + ALTER TABLE "ScoringWeights" ADD COLUMN "brokenLinks"
+    REAL NOT NULL DEFAULT 10.
+  • ⚠ KEY GAP (recon item 5): NO ADA weight resolution exists in the write path — lib/findings/
+    ada-write.ts calls mapAdaChildren(parent, children) / mapAdaSingle(audit) WITHOUT the weights
+    param (both default to DEFAULT_ADA_V4_WEIGHTS). PR3 must create resolveAdaScoringWeights()
+    (mirror resolve-weights.ts) and thread it through BOTH ada-write call sites (they're async —
+    await the resolve before mapping). ada-v4-inputs.server.ts exists tested:
+    loadAdaV4InputsForRun(runId) → AdaV4Inputs | null (null only when zero scored pages).
+  • resolve-weights.ts line ~12 has the exact `brokenLinks: DEFAULT_WEIGHTS.brokenLinks // PR3`
+    line to replace with `row.brokenLinks`.
+  • Nav precedent for the Lab: tools-registry TOOLS entry with hidden: true (exactly how /admin
+    is handled — addressable, not in sidebar) + the manual settings-page link. Lab page path
+    suggestion: /score-lab under app/(app)/ (cookie-gated by default, NO middleware change).
+  • "Pick a run" for the Lab: no dedicated endpoint exists; recents machinery is overkill —
+    add a small query in the lab-inputs route file's sibling loader or a `?list=1` mode:
+    prisma.crawlRun.findMany({ where: { status: 'complete' }, orderBy: { createdAt: 'desc' },
+    take: 25, select: { id, domain, tool, source, score, createdAt } }).
+  • Lab SEO inputs: post-C19 runs carry breakdown.inputsSnapshot (source 'sf'|'live'); pre-C19
+    SEO runs → "what-if unavailable". ADA: any run via loadAdaV4InputsForRun. Client recompute:
+    computeAdaScoreV4 + the seo-core curve fns are all client-safe; rebuild the SEO factor sum
+    client-side mirroring the adapters' availability rules (factors present in the stored
+    breakdown tell you which were available — recompute earned per factor from inputsSnapshot).
+  • validateAdaWeights (new, client-safe in lib/scoring/): each cap 0..100, sum(caps) ≤ 100,
+    advisoryDiscount 0..1, at least one cap > 0 (spec Part 4 / Codex spec-fix #2).
+  • Keep archetype suites green: changing DEFAULTS is NOT in PR3 scope (defaults stay
+    40/30/15/5/10/0.4 and SEO knees stay) — the Lab/levers change RUNTIME weights, not defaults.
+
 CONTEXT YOU NEED:
   • Kevin's rulings (recorded): v4 calibration ACCEPTED (Bellus-class = D-grade 68; node-volume
     dial stays FUTURE); school-grade anchor; internal-first explanations.
