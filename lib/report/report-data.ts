@@ -16,7 +16,7 @@ import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 import { buildSeries, type ScorePoint } from '@/lib/services/scorecard-shared'
-import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
+import { parseScoreMeta } from '@/lib/scoring/breakdown-version'
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers'
 import type { SiteAuditSummary, StoredAxeResults } from '@/lib/ada-audit/types'
 import type { SiteReportData, ReportTopIssue, ReportWorstPage } from './report-html'
@@ -194,11 +194,17 @@ export async function loadSiteReportData(siteAuditId: string): Promise<SiteRepor
     },
     select: { score: true, completedAt: true, createdAt: true, scoreBreakdown: true },
   })
-  const points: ScorePoint[] = trendRuns.map((r) => ({
-    date: (r.completedAt ?? r.createdAt).toISOString(),
-    score: r.score as number,
-    scoreVersion: parseScoreVersion(r.scoreBreakdown),
-  }))
+  const points: ScorePoint[] = trendRuns.map((r) => {
+    const meta = parseScoreMeta(r.scoreBreakdown)
+    return {
+      date: (r.completedAt ?? r.createdAt).toISOString(),
+      score: r.score as number,
+      scoreVersion: meta.version,
+      weightsHash: meta.weightsHash,
+    }
+  })
+  // C19: buildSeries treats a same-version weights-hash mismatch between
+  // adjacent points exactly like a version mismatch (comparabilityBreak).
   const trend = buildSeries(points).points
 
   // 7. Changes since previous audit (C3 selection — null when no comparable run).

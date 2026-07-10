@@ -392,4 +392,32 @@ describe('loadSiteReportData', () => {
     expect(data!.trend.map((p) => p.score)).toEqual([50, 70])
     expect(data!.trend.map((p) => p.scoreVersion)).toEqual([1, 2])
   })
+
+  it('trend points carry weightsHash parsed from scoreBreakdown; a same-version hash change suppresses delta comparability (C19)', async () => {
+    const domain = `${PREFIX}weights.example`
+    const base = `https://${domain}`
+    await seedAudit({
+      domain, completedAt: new Date('2026-05-01T00:00:00Z'),
+      runScore: 60, runScoreBreakdown: JSON.stringify({ version: 4, weightsHash: 'hash-a' }),
+      summary: summaryBlob([{ url: `${base}/a` }]),
+      pages: [{ url: `${base}/a` }],
+    })
+    const current = await seedAudit({
+      domain, completedAt: new Date('2026-06-01T00:00:00Z'),
+      runScore: 85, runScoreBreakdown: JSON.stringify({ version: 4, weightsHash: 'hash-b' }),
+      summary: summaryBlob([{ url: `${base}/a` }]),
+      pages: [{ url: `${base}/a` }],
+    })
+
+    const data = await loadSiteReportData(current.auditId)
+    expect(data!.trend.map((p) => p.score)).toEqual([60, 85])
+    expect(data!.trend.map((p) => p.scoreVersion)).toEqual([4, 4])
+    expect(data!.trend.map((p) => p.weightsHash)).toEqual(['hash-a', 'hash-b'])
+    // buildSeries (used internally to build trend) treats this same-version,
+    // differing-weightsHash pair as an incomparable boundary — verified directly.
+    const { buildSeries } = await import('@/lib/services/scorecard-shared')
+    const series = buildSeries(data!.trend)
+    expect(series.delta).toBeNull()
+    expect(series.comparabilityBreak).toBe('weights')
+  })
 })

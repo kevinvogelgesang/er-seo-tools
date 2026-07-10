@@ -106,6 +106,23 @@ describe('getClientSchedules', () => {
     expect(row.lastDelta).toBeNull()
   })
 
+  it('suppresses lastDelta on a same-version weights-hash change (C19)', async () => {
+    const sched = await prisma.schedule.create({
+      data: {
+        jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, clientId, cadence: 'weekly:2@06:00',
+        payload: JSON.stringify({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag21aa' }),
+        nextRunAt: new Date('2099-01-01T00:00:00Z'),
+      },
+    })
+    // Both v4, but different weightsHash: numeric delta would be 25, but a
+    // reweight makes the comparison meaningless just like a version bump.
+    await makeScheduledAudit(sched.id, new Date('2026-04-01T00:00:00Z'), 'complete', 60, JSON.stringify({ version: 4, weightsHash: 'hash-a' }))
+    await makeScheduledAudit(sched.id, new Date('2026-05-01T00:00:00Z'), 'complete', 85, JSON.stringify({ version: 4, weightsHash: 'hash-b' }))
+    const row = (await getClientSchedules(clientId)).find((r) => r.id === sched.id)!
+    expect(row.lastRun?.score).toBe(85)
+    expect(row.lastDelta).toBeNull()
+  })
+
   it('does not surface non-scan schedules attached to the client', async () => {
     await prisma.schedule.create({
       data: { jobType: 'cleanup', clientId, cadence: 'daily@09:00', payload: '{}', nextRunAt: new Date('2099-01-01T00:00:00Z') },

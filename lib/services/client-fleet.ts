@@ -144,6 +144,7 @@ export async function getClientFleet(now: Date = new Date()): Promise<FleetRow[]
         sessionId: r.sessionId,
         crawlRunId: r.id,
         source: r.source,
+        scoreBreakdown: r.scoreBreakdown,
       })),
     )
     const { series: ada, source: adaSource } = buildAdaSeries(
