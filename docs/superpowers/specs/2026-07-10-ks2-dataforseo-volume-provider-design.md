@@ -146,7 +146,8 @@ pattern). AbortController timeout. Response handling:
 
 ```ts
 type VolumeAccounting = { fromCache: number; fetched: number; skipped: SkippedKeyword[];
-                          attemptedChunks: number; successfulChunks: number };
+                          attemptedChunks: number; successfulChunks: number;
+                          providerCost: number | null };  // sum of provider-reported task costs; null = a successful chunk lacked one (unknown ≠ 0) (Codex plan #3)
 getKeywordVolumes(keywords: string[], locale: { locationCode: number; languageCode: string }):
   Promise<
     | ({ ok: true; volumes: KeywordVolume[] } & VolumeAccounting)   // volumes carry outcome 'returned'|'not_returned' (Codex #1)
@@ -220,9 +221,10 @@ the same market share hits; that is the point of the cache).
   single-flight-free concurrent case — last writer wins, both writers wrote
   the same provider data).
 - All monetary/count metadata (`fromCache`, `fetched`, `attemptedChunks`,
-  `successfulChunks`, `skipped`) is returned on BOTH ok and error results
-  (Codex #3) so KS-5's ledger can account spend precisely (successful
-  chunks × $0.09 — the ledger charges REQUESTS, not keywords).
+  `successfulChunks`, `skipped`, `providerCost`) is returned on BOTH ok and
+  error results (Codex #3, plan #3) so KS-5's ledger can account spend
+  precisely — preferring the provider-reported `cost` over any hardcoded
+  price, with successful-chunk count as the fallback basis.
 - A `spell`/similar-grouped response item is never remapped onto the
   requested keyword; omitted keywords persist as `not_returned` rows —
   null volume is never ambiguous (Codex #1).
