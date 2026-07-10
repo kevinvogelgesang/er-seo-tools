@@ -247,6 +247,7 @@ export default async function AdaAuditResultPage({ params, searchParams }: Props
         lighthouseError={audit.lighthouseError ?? null}
         pdfs={pdfs}
         scoreMeta={{ version, fromFallback, passCount, incompleteCount }}
+        scoreBreakdown={audit.crawlRun?.scoreBreakdown ?? null}
       />
     </main>
   )
