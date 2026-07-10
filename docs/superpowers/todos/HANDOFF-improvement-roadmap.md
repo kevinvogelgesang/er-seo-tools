@@ -1,6 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-10 (C19 CLOSED — PR3 levers + Score Lab shipped as PR #144; all three C19 increments deployed + prod-verified. Next: pick the post-C19 item, default A8 continuation.) · **Updated by:** the C19 PR3 session.
+**Last updated:** 2026-07-10 (A8 PR 7 shipped — /clients visual polish + the SeverityBadge primitive, PR #145, deployed + prod-verified. A8's per-tool candidate list is now nearly exhausted; next is the A8-done decision or a different roadmap item.) · **Updated by:** the A8 PR 7 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -8,43 +8,40 @@
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. LAST COMPLETED: C19 — ADA+SEO scoring overhaul
-is CLOSED (PR1 ADA v4 #142, PR2 SEO recalibration #143, PR3 levers + Score Lab #144 — all
-shipped + deployed + prod-verified 2026-07-10; migration 20260710120000_ada_scoring_weights
-applied; v4 calibration Kevin-ACCEPTED, Bellus-class = D-grade 68).
+Continue the er-seo-tools improvement roadmap. LAST COMPLETED: A8 PR 7 — /clients visual
+polish (PR #145, merged c54e7e2, deployed + prod-verified 2026-07-10). It extracted the
+twice-punted components/ui/SeverityBadge primitive (color-named tones red/orange/amber/blue/
+purple/gray; semantics→tone maps live in adopters — see clients/alert-tone.ts), adopted it +
+StatusPill across /clients, swept ~81 hex classes to tokens, and dropped the two redundant
+page wrappers. Visual-only; 4128 tests green.
 
-NEXT ITEM (default): continue the A8 app-shell/visual-polish arc — PRs 1, 2, 3, 3.5 and the
-seo-parser polish PR are shipped; read the tracker's A8 entry (item [~] A8 near the top) +
-spec docs/superpowers/specs/2026-07-07-app-shell-redesign-design.md §8 to scope the next
-per-tool polish increment. ALTERNATES Kevin may redirect to: C12 content auditing (zero-AI
-Tier-0) · SF-retirement parity cycles 2–3 · Track A infra (A5/A7) · Track D. If Kevin's first
-message names a different item, that wins.
+NEXT ITEM (decision first): the A8 per-tool arc is nearly exhausted — remaining candidates
+are LOW-VALUE (/robots-validator: already tokenized, pill swaps would be visible restyles;
+/quarter-grid: inline-hex non-Tailwind, a standalone Tailwind-ization project, not a polish
+slice). Default = ask Kevin whether to mark A8 [x] and pick the next item. ALTERNATES Kevin
+may redirect to: C12 content auditing (zero-AI Tier-0) · SF-retirement parity cycles 2–3 ·
+Track A infra (A5 SSE / A7 auth+Playwright) · Track D. If Kevin's first message names an
+item, that wins — build it.
 
 READ FIRST: docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md — the top
-status-log entry (2026-07-10 C19 PR3) records what just shipped, the A8 entry records that
-arc's exact sub-state. Trust ranking: code > plan/spec > tracker/handoff.
+status-log entry (2026-07-10 A8 PR 7) records what just shipped; the A8 entry near the top
+records the arc's exact state. Trust ranking: code > plan/spec > tracker/handoff.
 
-NEW SCORING SURFACES NOW LIVE (context for any scoring work):
-  • AdaScoringWeights DB singleton (id=1; caps critical/serious/moderate/minor/needsReview +
-    advisoryDiscount; validateAdaWeights enforces caps 0..100, sum≤100, ≥1>0, advisory 0..1).
-    resolveAdaScoringWeights() threads into ALL ADA scoring writes (ada-write ×2 + the live
-    finalizer with a defaults fallback). NO prod row exists yet → defaults 40/30/15/5/10/0.4.
-  • ScoringWeights.brokenLinks is a real column (default 10); PERSISTABLE_WEIGHT_KEYS ×9.
-  • /score-lab (hidden nav, cookie-gated; linked from /settings): pick a recent run →
-    GET /api/scoring/lab-inputs → in-browser what-if recompute via the pure scorers
-    (computeAdaScoreV4 / recomputeSeoScore over the v2 breakdown inputsSnapshot; ADA works
-    on ANY run incl. 90-d-archived, SEO only post-C19 runs). Save-as-defaults → settings PUTs.
-  • Weights saves change weightsHash → comparabilityBreak:'weights' suppression (PR2 wiring).
-    FIRST real weights save: verify the next scan stamps a new hash + the trend delta
-    suppresses (observe only, nothing to build).
-  • Parity score diffs are version+default-hash gated (both comparators) — a custom weights
-    profile or pre-C19 stored score no longer produces parity noise; structural diffs still
-    unconditional.
+UI-PRIMITIVES STATE (context for any visual work): components/ui/ = StatusPill (rounded-full
+LIFECYCLE pill, 5 tones incl. warning=amber) + SeverityBadge (compact square-rounded PALETTE
+badge, 6 color-named tones, shrink-0 contract, uppercase/title props) + ScoreRing (bands
+≥80 green / ≥50 amber — NOT the same as Scorecard's ≥90/≥70; that band reconciliation is a
+deliberately-deferred product decision, see A8 PR 7 spec §6) + DropZone. Adoption pattern:
+per-tool tone helpers (ada-audit/status-tone.ts, reports/status-tone.ts, clients/alert-tone.ts).
+Known future SeverityBadge consumers (NOT yet migrated, one tool per pass): ada-audit impact
+chips (4-level), reports GA4/GSC source badges.
 
 Kevin eyeballs outstanding (authed-UI): C15 Mine-filter · C16 Audits page · C17 seoOnly
 auto-flip · C18 results tabs · C14 /sales + real /sales/[token] report · re-scan Bellus
-(v4 badge + deduction invoice; expect ≈68, Kevin-accepted) · post-PR3: /settings SEO card
-(brokenLinks now visible) + ADA card + /score-lab.
+(v4 badge + deduction invoice; expect ≈68, Kevin-accepted) · post-C19: /settings SEO card
+(brokenLinks visible) + ADA card + /score-lab · NEW post-PR7: /clients fleet + client
+dashboard (5 documented canonicalizations listed in PR #145's body; first real
+ScoringWeights save should also verify weightsHash suppression — observe only).
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/qct_ clipboard flow.
 
@@ -59,40 +56,46 @@ line + path, don't wait). Docs ritual in the same commit as any ship.
 ENV NOTE: gates = npx tsc --noEmit + DATABASE_URL="file:./local-dev.db" npm test + npm run build.
 Migrations: hand-author SQL (migrate dev is interactive-only here), apply with
 DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && … generate; SQLite: no ALTER
-COLUMN nullability (PRAGMA rebuild). Dev e2e: DATABASE_URL="file:./local-dev.db"
-NEXT_PUBLIC_APP_URL="http://localhost:3000" APP_AUTH_PASSWORD="" npm run dev +
-CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome". Never
-git add -A. Test gotchas: act() not waitFor under fake timers; getAllBy* for repeated copy;
-route files export only handlers+config. lib/scoring/ stays pure+client-safe except
-*.server.ts/weights-hash.ts. SDD ledger: .superpowers/sdd/progress.md (PR1+PR2+PR3 sections
-complete — do not re-dispatch). ⚠ DEPLOY RECIPE: git push && ssh seo@144.126.213.242
-"pm2 stop seo-tools && ~/deploy.sh" then verify .next/BUILD_ID + health + boot log. Prod
-replay (read-only): ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools &&
-DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite?mode=ro' npx tsx scripts/score-replay.ts"
+COLUMN nullability (PRAGMA rebuild). Never git add -A. Test gotchas: repo runs vitest with
+globals:false → testing-library auto-cleanup is OFF; add afterEach(cleanup) to any component
+test that renders repeated text (bit 3 files in PR 7); act() not waitFor under fake timers;
+getAllBy* for repeated copy; route files export only handlers+config. ⚠ DEPLOY RECIPE:
+git push && ssh seo@144.126.213.242 "pm2 stop seo-tools && ~/deploy.sh" then verify
+.next/BUILD_ID + health + boot log + (for CSS work) tone classes present in
+.next/static/css/*.css.
 ```
 
 ---
 
-## Current state (2026-07-10, post-C19)
+## Current state (2026-07-10, post-A8-PR7)
 
-- **Shipped + deployed this arc:** C13 (#141), C19 PR1 (#142), PR2 (#143), PR3 (#144). Prod
-  healthy; migration applied; no AdaScoringWeights prod row (defaults active).
-- **Evidence on file (tracker status log):** ADA replay (165 runs, Kevin-accepted redistribution);
-  SEO SF replay (15 baselines, Δ 0..−11); live v2 dev evidence; PR3 dev e2e (snapshot contract
-  proven live: SEO run 67→67 under scored weights, 67→73 after a weight change).
-- **Next:** A8 continuation (default) or Kevin redirects — see paste-in prompt.
+- **Shipped + deployed this session:** A8 PR 7 (#145) — /clients visual polish. Prod on
+  `c54e7e2`, healthy, clean boot, new tone classes confirmed in shipped CSS.
+- **A8 arc state:** PRs 1/2/3/3.5 (shell + dashboard + editor + aggregates) and per-tool
+  passes 4 (seo-parser #120), 5 (ada-audit #130), 6 (/reports #134), 7 (/clients #145) all
+  shipped. Remaining per-tool candidates are low-value (robots) or a separate project
+  (quarter-grid) — the tracker's A8 entry now says it's likely time to mark A8 `[x]`;
+  that call is Kevin's.
+- **C19 (scoring overhaul) is CLOSED** — see the 2026-07-10 C19 status-log entries; no
+  AdaScoringWeights prod row yet (defaults 40/30/15/5/10/0.4 active).
+- **Next:** the A8-done decision, then C12 / SF parity cycles / A5 / A7 / Track D.
 
 ## Gotchas carried forward
 
 - `pentest-results/`, `googlefc472dc61896519a.html`, `SEO_Report_1st_Draft.pdf` untracked at repo
   root — NEVER `git add -A`. Deleted `.playwright-mcp/*` working-tree deletions are harmless.
+- vitest `globals:false` → NO testing-library auto-cleanup; component tests rendering the same
+  text twice need explicit `afterEach(cleanup)` (FleetTable/Scorecard/ActivityTimeline got it
+  in PR 7; other older files may still lack it).
 - Every new public/token route: middleware `isPublicPath` + `middleware.test.ts` case. Score Lab
   + lab-inputs + ada-scoring-weights are cookie-gated — NO middleware entries, do not add any.
 - Share/redirect URLs: `NEXT_PUBLIC_APP_URL`, never request origin.
 - Array-form `$transaction([...])` only; raw SQL sets `updatedAt` manually.
 - Codex consults: session UUID in `~/.claude/state/codex-consultations.json`; budget-check first;
-  run `codex exec` in background (10-min foreground timeout).
+  the er-seo-tools session is at turn ~51 and healthy.
+- Recharts/SVG colors are props, not classes — `Sparkline.tsx:10` keeps its `#f5a623` default by
+  design; the PR 7 hex-guard grep expects exactly that one residual in clients scope.
+- ScoreRing bands (≥80/≥50) ≠ Scorecard bands (≥90/≥70) — do NOT "unify" them in a polish pass;
+  it's a product decision (A8 PR 7 spec §6).
 - A stale `running` example.com SiteAudit can linger in local-dev.db from DB-backed test runs —
   recovery drains it on next dev boot; harmless.
-- Lab cosmetic note (triaged ship-as-is): all 9 SEO sliders render regardless of per-source
-  factor availability — recomputeSeoScore ignores unavailable factors so the score stays right.
