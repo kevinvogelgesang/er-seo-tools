@@ -113,6 +113,44 @@ describe('createThrottle', () => {
     expect(clock.t).toBe(60_000)
   })
 
+  it('multi-waiter FIFO: staggered priming frees slots one at a time; 3 concurrent acquires grant in call order with sequenced sleeps', async () => {
+    const clock = makeClock()
+    const throttle = createThrottle({ maxRequests: 12, windowMs: 60_000, now: clock.now, sleep: clock.sleep })
+
+    // Prime 12 grants at t = 0, 5_000, ..., 55_000 — the window slots free
+    // one at a time (t=60_000, 65_000, 70_000), NOT all at once. This is
+    // what makes the probe discriminating: with the promise chain stripped
+    // (acquire = () => acquireOnce()), waiter 0's synchronous fake sleep
+    // advances the clock past the oldest grant's expiry BEFORE waiter 1
+    // even checks it, so waiter 1 steals the freed slot and grants FIRST —
+    // breaking the FIFO order asserted below.
+    for (let i = 0; i < 12; i++) {
+      clock.t = i * 5_000
+      await throttle.acquire()
+    }
+    expect(clock.sleep).not.toHaveBeenCalled()
+    expect(clock.t).toBe(55_000)
+
+    const order: number[] = []
+    const grantTimes: number[] = []
+    const waiters = [0, 1, 2].map((i) =>
+      throttle.acquire().then(() => {
+        order.push(i)
+        grantTimes.push(clock.now())
+      }),
+    )
+    await Promise.all(waiters)
+
+    // FIFO grant order — the unchained mutant resolves waiter 1 first.
+    expect(order).toEqual([0, 1, 2])
+    // Each waiter grants exactly when "its" slot frees: one per 5s step.
+    expect(grantTimes).toEqual([60_000, 65_000, 70_000])
+    // Per-waiter sleep sequencing: each waiter waits only for the oldest
+    // grant AT ITS TURN (5_000ms each), never a full-window reset.
+    expect(clock.sleep.mock.calls.map((c) => c[0])).toEqual([5_000, 5_000, 5_000])
+    expect(clock.t).toBe(70_000)
+  })
+
   it('tail recovery: a rejected sleep fails only ITS acquire; the next acquire resolves fine with no unhandledRejection', async () => {
     const clock = makeClock()
     const unhandled: unknown[] = []
