@@ -13,6 +13,7 @@ import { FindingsPanel } from '@/components/clients/FindingsPanel'
 import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
 import { ScheduledScansCard } from '@/components/clients/ScheduledScansCard'
 import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
+import { SeverityBadge } from '@/components/ui/SeverityBadge'
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -39,8 +40,7 @@ export default async function ClientDashboardPage({ params }: Props) {
   if (!dash.client) notFound()
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep">
-      <div className="max-w-6xl mx-auto px-6 py-10">
+    <div className="max-w-6xl mx-auto px-6 py-10">
         <ClientHeader
           name={dash.client.name}
           domains={dash.client.domains}
@@ -61,16 +61,10 @@ export default async function ClientDashboardPage({ params }: Props) {
             points={dash.seo.series.points}
           >
             {dash.seoCounts && (
-              <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold tabular-nums">
-                <span className="px-2 py-0.5 rounded bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400">
-                  {dash.seoCounts.criticalCount} critical
-                </span>
-                <span className="px-2 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400">
-                  {dash.seoCounts.warningCount} warnings
-                </span>
-                <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">
-                  {dash.seoCounts.noticeCount} notices
-                </span>
+              <div className="mt-2 flex flex-wrap gap-1.5 tabular-nums">
+                <SeverityBadge tone="red" label={`${dash.seoCounts.criticalCount} critical`} />
+                <SeverityBadge tone="orange" label={`${dash.seoCounts.warningCount} warnings`} />
+                <SeverityBadge tone="blue" label={`${dash.seoCounts.noticeCount} notices`} />
               </div>
             )}
           </Scorecard>
@@ -109,13 +103,12 @@ export default async function ClientDashboardPage({ params }: Props) {
           <FindingsPanel rows={findings.rows} seo={findings.seo} ada={findings.ada} />
           <IssueTrendCard sessions={history.sessions} latestTwo={history.latestTwo} />
           <div>
-            <h2 className="text-sm font-semibold text-[#1c2d4a] dark:text-white uppercase tracking-wide mb-3">
+            <h2 className="text-sm font-semibold text-navy dark:text-white uppercase tracking-wide mb-3">
               Activity
             </h2>
             <ActivityTimeline items={dash.timeline} />
           </div>
         </div>
       </div>
-    </div>
   )
 }

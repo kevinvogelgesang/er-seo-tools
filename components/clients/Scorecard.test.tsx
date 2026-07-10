@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 // components/clients/Scorecard.test.tsx
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach } from 'vitest'
 import { Scorecard } from './Scorecard'
+
+// globals:false → testing-library auto-cleanup is off; clean explicitly.
+afterEach(cleanup)
 
 describe('Scorecard', () => {
   it('renders the score, max and an up-delta', () => {
@@ -22,5 +25,12 @@ describe('Scorecard', () => {
   it('shows the source note when provided', () => {
     render(<Scorecard label="ADA" score={75} max={100} delta={null} asOf={null} href={null} points={[]} sourceNote="page audits" />)
     expect(screen.getByText('page audits')).toBeTruthy()
+  })
+  it('renders sourceNote as a gray uppercase SeverityBadge', () => {
+    render(<Scorecard label="ADA" score={75} max={100} delta={null} asOf={null} href={null} points={[]} sourceNote="page audits" />)
+    const el = screen.getByText('page audits')
+    expect(el.className).toContain('text-gray-600')
+    expect(el.className).toContain('uppercase')
+    expect(el.className).toContain('px-1.5')
   })
 })
