@@ -79,7 +79,7 @@ afterEach(() => {
 })
 
 describe('getKeywordVolumes', () => {
-  it('disabled gate: no DB/network, zeroed accounting', async () => {
+  it('disabled gate: no DB/network, zeroed accounting (providerCost 0 — spend is KNOWN zero)', async () => {
     stubDisabled()
     const result = await getKeywordVolumes([`${PREFIX}disabled-kw`], locale)
     expect(result).toEqual({
@@ -90,7 +90,7 @@ describe('getKeywordVolumes', () => {
       skipped: [],
       attemptedChunks: 0,
       successfulChunks: 0,
-      providerCost: null,
+      providerCost: 0,
     })
     expect(mockFetchSearchVolume).not.toHaveBeenCalled()
   })
@@ -106,7 +106,7 @@ describe('getKeywordVolumes', () => {
     expect(result.skipped).toEqual([])
     expect(result.attemptedChunks).toBe(0)
     expect(result.successfulChunks).toBe(0)
-    expect(result.providerCost).toBeNull()
+    expect(result.providerCost).toBe(0) // nothing sent → spend KNOWN zero
     expect(mockFetchSearchVolume).not.toHaveBeenCalled()
   })
 
@@ -171,6 +171,10 @@ describe('getKeywordVolumes', () => {
     ])
     expect(result.fromCache).toBe(1)
     expect(result.fetched).toBe(0)
+    // All-cache-hit: no request ever went out → providerCost is KNOWN zero,
+    // never null (null is reserved for genuinely-unresolved spend).
+    expect(result.attemptedChunks).toBe(0)
+    expect(result.providerCost).toBe(0)
     expect(mockFetchSearchVolume).not.toHaveBeenCalled()
   })
 
@@ -316,7 +320,10 @@ describe('getKeywordVolumes', () => {
       for (const call of calls) {
         const where = (call as { where?: { keyword?: { in?: string[] } } })?.where
         const inList = where?.keyword?.in
-        if (inList) expect(inList.length).toBeLessThanOrEqual(500)
+        // Hard assertion: dropping the `keyword.in` predicate must FAIL,
+        // not silently skip the length check.
+        expect(inList).toBeDefined()
+        expect(inList!.length).toBeLessThanOrEqual(500)
       }
     } finally {
       // Reassign (not delete) — deleting the shadow leaves Prisma's
@@ -366,6 +373,9 @@ describe('getKeywordVolumes', () => {
     expect(first.reason).toBe('rate_limited')
     expect(first.attemptedChunks).toBe(2)
     expect(first.successfulChunks).toBe(1)
+    // Chunk 1's cost is known and reported; only an all-chunks-failed call
+    // (successfulChunks === 0) resolves to null.
+    expect(first.providerCost).toBeCloseTo(0.4)
 
     const persisted = await prisma.keywordVolumeCache.findMany({
       where: { keyword: { in: chunk1 }, locationCode: locale.locationCode, languageCode: locale.languageCode, providerVersion: PROVIDER_VERSION },
@@ -401,6 +411,8 @@ describe('getKeywordVolumes', () => {
     expect(result.message).toBe('unparseable_response')
     expect(result.attemptedChunks).toBe(1)
     expect(result.successfulChunks).toBe(0)
+    // A request went out and no chunk succeeded → spend genuinely unresolved.
+    expect(result.providerCost).toBeNull()
 
     const rows = await prisma.keywordVolumeCache.findMany({ where: { keyword: { in: keywords } } })
     expect(rows).toHaveLength(0)

@@ -55,7 +55,11 @@ export type VolumeAccounting = {
   skipped: SkippedKeyword[]
   attemptedChunks: number
   successfulChunks: number
-  // Sum of provider-reported task costs from successful chunks; null when a
+  // Sum of provider-reported task costs from successful chunks. 0 when no
+  // request was ever sent (attemptedChunks === 0: disabled, invalid_locale,
+  // all-cache-hit — spend is KNOWN zero, the common production case). null
+  // ONLY when spend is genuinely unresolved: a request went out but no chunk
+  // succeeded (attemptedChunks > 0 && successfulChunks === 0), or a
   // successful chunk lacked a cost field (unknown ≠ 0, Codex plan #3).
   providerCost: number | null
 }
@@ -69,7 +73,8 @@ export type GetKeywordVolumesResult =
     } & VolumeAccounting)
 
 function zeroAccounting(): VolumeAccounting {
-  return { fromCache: 0, fetched: 0, skipped: [], attemptedChunks: 0, successfulChunks: 0, providerCost: null }
+  // providerCost 0, not null: nothing was ever sent, spend is KNOWN zero.
+  return { fromCache: 0, fetched: 0, skipped: [], attemptedChunks: 0, successfulChunks: 0, providerCost: 0 }
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -217,7 +222,7 @@ export async function getKeywordVolumes(
     skipped,
     attemptedChunks: 0,
     successfulChunks: 0,
-    providerCost: null,
+    providerCost: 0, // known zero until a chunk is attempted
   }
 
   const fetched = new Map<string, KeywordVolume>()
@@ -232,6 +237,10 @@ export async function getKeywordVolumes(
 
     if (!result.ok) {
       // STOP — no further chunks. Earlier chunks' rows stay persisted.
+      // Zero successful chunks means a request went out but its spend is
+      // genuinely unresolved → null; otherwise the successful chunks' sum
+      // (or poison-null) already in accounting stands.
+      if (accounting.successfulChunks === 0) accounting.providerCost = null
       return { ok: false, reason: result.reason, message: result.message, ...accounting }
     }
 
