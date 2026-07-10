@@ -1,7 +1,7 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-10 (C20 **KS-1 SHIPPED + DEPLOYED + PROD-VERIFIED** — PR #146,
-`40b6a45`. Next: KS-2 spec.) · **Updated by:** the KS-1 build session.
+**Last updated:** 2026-07-10 (KS-1 shipped; **KS-2 spec + plan Codex-reviewed** — spec ×5,
+plan ×6, applied. Next: KS-2 TDD build.) · **Updated by:** the KS-1/KS-2 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -17,24 +17,31 @@ provider + GET/POST /api/clients/[id]/gsc-snapshot + GscKeywordCard on the clien
 dashboard + keep-latest-3 retention. Spec/plan archived. C20 stays [~] (KS-1 of 5 MVP
 increments done).
 
-NEXT ITEM: KS-2 SPEC — DataForSEO volume provider + durable cache. Scope per the
-umbrella (docs/superpowers/specs/2026-07-10-keyword-strategy-capability-design.md, KS-2
-section): provider + durable volume cache ONLY — the token-authed billable
-volume-lookup endpoint is KS-5's (it must bind to the client-scoped strategy session
-for budget accounting). Dark behind DATAFORSEO_LOGIN/DATAFORSEO_PASSWORD (missing env →
-feature hidden, never a boot failure; config-and-flags recipe). VERIFY DataForSEO
-pricing/endpoints/location-code model/retry semantics at spec time via web research —
-NEVER from memory (umbrella Codex #1 wording). Cache rows keyed by normalized keyword +
-location code + language + provider version, 30-d TTL (locale codes arrive with KS-3's
-client profile — KS-2 can take locale as an explicit function arg for now). In-repo
-consumer now: optional pre-enrichment of KS-1's GSC query set in the export. SSRF
-posture: fixed allowlisted API host, never user-supplied URLs. Kevin decision §5 Q1
-(spend envelope) drives KS-5's ledger caps, NOT KS-2 — don't block on it.
-
-RITUAL: spec in docs/superpowers/specs/ → notify Kevin one line + path → Codex review
-(consulting-codex skill; session UUID in ~/.claude/state/codex-consultations.json,
-budget-check first) → apply named fixes → plan → Codex → TDD build (subagent-driven) →
-gates → PR → merge → deploy → prod-verify → tracker+handoff same commit.
+NEXT ITEM: KS-2 TDD BUILD, branch feat/ks2-volume-provider, from plan
+docs/superpowers/plans/2026-07-10-ks2-dataforseo-volume-provider.md (Codex ×6 applied;
+spec docs/superpowers/specs/2026-07-10-ks2-dataforseo-volume-provider-design.md, Codex
+×5 applied). 7 tasks in order: 1 schema KeywordVolumeCache + hand-authored migration
+20260710200000_keyword_volume_cache (unique [keyword,locationCode,languageCode,
+providerVersion], resultStatus column, NO FKs) · 2 volume-config env gate
+(DATAFORSEO_LOGIN/PASSWORD read at CALL time; empty string = unset) + SHARED
+volume-normalize.ts (normalizeKeyword + normalizeLocale; EN≡en) · 3 volume-throttle
+(module-scoped rolling 12/60s; entry recorded at grant; re-check clock after wake;
+tail recovers from rejected sleeps; injected now/sleep, NO vi.useFakeTimers) · 4
+dataforseo-client transport (POST /v3/keywords_data/google_ads/search_volume/live,
+Basic auth built in-call, ≤200-char sanitized messages; per-request-key outcomes
+returned|not_returned — spell/similar items NEVER remapped; empty result array = all
+not_returned ok; missing/null result = unparseable_response; (year,month)-sort then
+12-month slice; ok carries task cost verbatim; abort-aware timeout mock in tests,
+never a real 30s wait) · 5 volume.ts service (disabled gate → normalizeLocale →
+dedupe first-seen order → validate → cache read in ≤500-key IN batches → chunk ≤1000
+cap 3 → attemptedChunks++ BEFORE transport → throttle.acquire per chunk → per-key
+upsert (never negative-cache unparseable chunks) → providerCost accumulation →
+accounting {fromCache,fetched,skipped,attemptedChunks,successfulChunks,providerCost}
+on OK AND ERROR results; output first-seen order; PREFIX ks2test- hygiene beforeAll+
+afterAll) · 6 retention pruneKeywordVolumeCache 30-d in runCleanup · 7 gates → PR →
+merge → deploy → prod-verify (dark posture: clean boot with zero volume-module
+output; read-only Prisma probe of the new table) → ritual + archive. NOTHING calls
+the service in production — ships dark, tests are the only exerciser (KS-5 consumes).
 
 AFTER KS-2: KS-3 (client institution profile + structured program roster + locale
 codes) · KS-4 (FAQ tri-state + page inventory; parse-seo-dom is string-injected —
@@ -96,16 +103,18 @@ then verify .next/BUILD_ID + health + boot log.
   designed to embed in KS-5's export verbatim; the snapshot's derived signals
   (wins/opportunities/quickWins/cannibalization) are the §2/§3/§4 memo inputs;
   `GscKeywordCard` is the dashboard surface KS-5's "mint memo" action will sit beside.
+- **KS-2 spec + plan done (2026-07-10, same session):** spec Codex ×5, plan Codex ×6,
+  all applied; DataForSEO facts researched live (Google Ads search_volume/live,
+  $0.09/request ≤1000 keywords, 12 req/min, location_code ints, status 20000; Labs
+  rejected for KS-2). Committed `559a1df` + `f0edbbf`.
 - All other tracker state unchanged.
 
 ## The single next item
 
-**KS-2 spec** — DataForSEO volume provider + durable cache (provider+cache ONLY; the
-billable lookup endpoint is KS-5). Key spec decisions: endpoint choice (Keywords Data
-vs Labs — verify current pricing/quotas via web research at spec time), cache model
-shape (normalized keyword + location + language + provider version, 30-d TTL),
-env-dark posture (DATAFORSEO_LOGIN/PASSWORD, hidden not fatal), and the KS-1
-pre-enrichment consumer seam.
+**KS-2 TDD build** — `../plans/2026-07-10-ks2-dataforseo-volume-provider.md` (7 tasks,
+exact test assertions + commit commands inline). Branch `feat/ks2-volume-provider`.
+Additive migration; NEW OPTIONAL env vars (dark — no `.env` prerequisite to deploy);
+no routes/middleware/UI; nothing calls the service until KS-5.
 
 ## Gotchas for the next session
 
