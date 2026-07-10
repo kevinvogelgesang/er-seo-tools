@@ -1,8 +1,7 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-10 (A8 closed `[x]` by Kevin at 7 shipped PRs; **C20 Keyword
-Strategy capability opened** — umbrella gap analysis written + Codex-reviewed
-(accept-with-named-fixes ×7, applied). Next: KS-1 spec.) · **Updated by:** the C20-opening session.
+**Last updated:** 2026-07-10 (C20 KS-1 **spec + plan Codex-reviewed** — spec ×7, plan ×4,
+all applied, committed to main. Next: KS-1 TDD build.) · **Updated by:** the KS-1 spec/plan session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -10,111 +9,133 @@ Strategy capability opened** — umbrella gap analysis written + Codex-reviewed
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. LAST COMPLETED: A8 marked [x] (Kevin,
-2026-07-10 — 7 shipped PRs; /robots-validator + /quarter-grid declined-for-now) and C20
-Keyword Strategy capability OPENED: umbrella gap analysis
-docs/superpowers/specs/2026-07-10-keyword-strategy-capability-design.md written from a
-code-verified recon and Codex-reviewed (ACCEPT-WITH-NAMED-FIXES ×7, all applied). Docs-only
-session — no code shipped.
+Continue the er-seo-tools improvement roadmap. LAST COMPLETED: C20/KS-1 spec + plan,
+both Codex-reviewed and committed to main (docs-only; no code shipped yet):
+spec docs/superpowers/specs/2026-07-10-ks1-gsc-query-snapshot-design.md
+(ACCEPT-WITH-NAMED-FIXES ×7, applied) + plan
+docs/superpowers/plans/2026-07-10-ks1-gsc-query-snapshot.md (ACCEPT-WITH-NAMED-FIXES ×4,
+applied). C20 is [~].
 
-C20 IN ONE PARAGRAPH: make Kevin's Claude-project "Keyword Research for Educational
-Institutions" workflow (8-section per-client strategy memo) runnable from the app.
-Generation STAYS the krt_ clipboard flow (NO-AI-API gate) — the app assembles the data
-package. 6 increments; MVP = KS-1..5 (~2 wks): KS-1 GSC query×page client snapshot
-(wins 1-10 / opportunities 11-30 / quick wins 11-20 + cannibalization — doubles as C12
-Tier-0 Increment A; hedged "not observed in this GSC window ≠ not ranking" semantics +
-window/truncation/threshold metadata) · KS-2 DataForSEO volume provider + durable cache
-(dark behind DATAFORSEO_LOGIN/PASSWORD; Kevin confirmed access exists; verify
-pricing/endpoints at spec time, never from memory) · KS-3 client institution profile +
-STRUCTURED program roster ({name,url?,aliases?,credentialLevel?,confirmed},
-auto-suggest from pillar page-typing, operator-confirm) + keyword locale codes · KS-4
-FAQ tri-state detection (present|not-detected|unknown; parse-seo-dom is
-string-injected — SWC-helper-free, no typeof) + page inventory in export · KS-5
-client-scoped krt_-v2 export + volume-lookup endpoint (BILLABLE capability: dedicated
-volume-lookup scope, anchored single-route middleware regex + middleware.test.ts case,
-persisted per-session usage ledger via conditional array-form update) + er-handoff-memo
-skill upgrade (~/.claude/skills/er-handoff-memo gets Kevin's instructions + 4 reference
-docs). KS-6 later/optional.
+NEXT ITEM: KS-1 TDD BUILD from that plan, branch feat/ks1-gsc-snapshot, 8 tasks in
+order: 1 schema (GscSnapshot model + hand-authored migration 20260710150000_gsc_snapshot)
+· 2 provider fetchGscQueryPage in lib/analytics/google/gsc-provider.ts (OWN
+GscQueryPageResult union — not_mapped ≠ access_denied; provider owns+exports the row
+types, lib/keywords re-exports; assert the 30s timeout as the 2nd query() arg in tests)
+· 3 lib/keywords/ pure window + derive (raw-decimal bands, position ≤0 discarded in
+derive only; cannibalization share denominator = OBSERVED query×page impressions;
+queryImpressions/observedPageCoverage nullable, NOT clamped ≤1) · 4 service
+(single-flight Map installed SYNCHRONOUSLY before first await — deferred-promise test;
+parse→validate→derive BEFORE create; reads filtered to current gscSiteUrl stamp,
+fetchedAt DESC id DESC, corrupt-newest fallback; summary caps 50/50/50/20 at the
+service boundary, counts stay full) · 5 routes GET/POST /api/clients/[id]/gsc-snapshot
+(cookie-gated, NO middleware change) · 6 retention keep-latest-3 via tagged $executeRaw
+correlated subquery, wired into runCleanup · 7 GscKeywordCard + dashboard wiring
+(dark-mode variants, afterEach(cleanup)) · 8 gates → PR → merge → deploy → prod-verify
+→ ritual + git mv spec/plan to archive/.
 
-NEXT ITEM: KS-1 spec (docs/superpowers/specs/, then Codex, then plan, then TDD build per
-ritual). Key code seams for KS-1: lib/analytics/google/gsc-provider.ts (fetches
-totals/date/query-only today, report-scoped, only caller is seo-report-render),
-Client.gscSiteUrl exists, C10 service-account auth prod-verified. Spec must decide the
-snapshot home (new model vs JSON), carry window/rowLimit/truncation/min-impression/
-fetchedAt metadata, and name the refresh owner. Kevin's §5 decisions (spend envelope,
-roster UX, token family, SEMRush role, profile shape, GSC cadence, FAQ phrasing) —
-none block KS-1; ask only if he engages.
+KS-1 IN ONE PARAGRAPH: durable client-scoped GSC keyword snapshot — raw [query]
+(rowLimit 2500) + [query,page] (rowLimit 5000) rows over a trailing 91-day window
+ending 3 days back, stored on a new GscSnapshot model (verbatim gscSiteUrl stamped;
+at-limit flags mean "possibly truncated", never definite), derivations pure at read
+time (wins ≤10 / opportunities >10–≤30 / quick wins >10–≤20 / cannibalization ≥2 pages
+each ≥20% share + ≥10 impressions), operator-on-demand inline refresh (errors
+ephemeral, prior snapshot never mutated), keep-latest-3 retention, dashboard card.
+Hedged semantics everywhere: absence = "not observed in this GSC window", never "not
+ranking". Zero site fetches (GSC API only), zero public surface, no new env vars.
+Doubles as C12 Tier-0 Increment A.
 
-READ FIRST: the C20 umbrella doc + the tracker's top status-log entry (2026-07-10 A8
-closed + C20 opened). Trust ranking: code > plan/spec > tracker/handoff.
+AFTER KS-1 SHIPS: KS-2 spec (DataForSEO volume provider + durable cache — verify
+pricing/endpoints at spec time, never from memory; dark behind
+DATAFORSEO_LOGIN/PASSWORD). Umbrella:
+docs/superpowers/specs/2026-07-10-keyword-strategy-capability-design.md (KS-1..6,
+MVP = KS-1..5). Kevin §5 decisions (spend envelope, roster UX, token family, SEMRush
+role, profile shape, GSC cadence, FAQ phrasing) — none block KS-1 build or KS-2 spec;
+ask only if he engages.
+
+READ FIRST: the KS-1 plan (it restates the invariants + exact commands), then the
+spec. Trust ranking: code > plan/spec > tracker/handoff.
 
 Kevin eyeballs outstanding (authed-UI): C15 Mine-filter · C16 Audits page · C17 seoOnly
 auto-flip · C18 results tabs · C14 /sales + real /sales/[token] report · re-scan Bellus
 (v4 badge + deduction invoice; expect ≈68, Kevin-accepted) · post-C19: /settings SEO card
 (brokenLinks visible) + ADA card + /score-lab · post-A8-PR7: /clients fleet + client
 dashboard (5 canonicalizations in PR #145's body; first real ScoringWeights save should
-verify weightsHash suppression — observe only).
+verify weightsHash suppression — observe only). NEW after KS-1 ships: GscKeywordCard on
+a GSC-mapped client dashboard.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/qct_ clipboard flow.
 
-FIRST STEP — confirm main clean + prod healthy (git log origin/main; ssh seo@144.126.213.242
-"curl -s localhost:3000/api/health").
+FIRST STEP — confirm main clean + prod healthy (git log origin/main; ssh
+seo@144.126.213.242 "curl -s localhost:3000/api/health").
 
-Load skill er-seo-tools-change-control FIRST. Gate policy (rules 1 & 4): standing authorization
-to merge gate-green roadmap PRs (re-run gates in-session) + deploy with post-deploy verify;
-destructive server ops Kevin-gated; spec→plan ungated (Codex each artifact, notify Kevin one
-line + path, don't wait). Docs ritual in the same commit as any ship.
+Load skill er-seo-tools-change-control FIRST. Gate policy (rules 1 & 4): standing
+authorization to merge gate-green roadmap PRs (re-run gates in-session) + deploy with
+post-deploy verify; destructive server ops Kevin-gated; spec→plan ungated (Codex each
+artifact, notify Kevin one line + path, don't wait). Docs ritual in the same commit as
+any ship.
 
-ENV NOTE: gates = npx tsc --noEmit + DATABASE_URL="file:./local-dev.db" npm test + npm run build.
-Migrations: hand-author SQL (migrate dev is interactive-only here), apply with
-DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && … generate; SQLite: no ALTER
-COLUMN nullability (PRAGMA rebuild). Never git add -A. Test gotchas: vitest globals:false →
-add afterEach(cleanup) to component tests rendering repeated text; act() not waitFor under
-fake timers; getAllBy* for repeated copy; route files export only handlers+config.
+ENV NOTE: gates = npx tsc --noEmit + DATABASE_URL="file:./local-dev.db" npm test + npm
+run build. Migrations: hand-author SQL (migrate dev is interactive-only here), apply
+with DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && … generate;
+SQLite: no ALTER COLUMN nullability (PRAGMA rebuild). Never git add -A. Test gotchas:
+vitest globals:false → add afterEach(cleanup) to component tests rendering repeated
+text; act() not waitFor under fake timers; getAllBy* for repeated copy; route files
+export only handlers+config.
 ⚠ DEPLOY RECIPE: git push && ssh seo@144.126.213.242 "pm2 stop seo-tools && ~/deploy.sh"
 then verify .next/BUILD_ID + health + boot log.
 ```
 
 ---
 
-## Current state (2026-07-10, post-A8-close / C20-open)
+## Current state (2026-07-10, post-KS-1-spec/plan)
 
-- **This session (docs-only):** A8 marked `[x]` (Kevin's call; 7 shipped PRs — shell,
-  dashboard, widget editor, aggregates, and per-tool passes over seo-parser/ada-audit/
-  reports/clients). C20 opened with the Codex-reviewed umbrella doc
-  `../specs/2026-07-10-keyword-strategy-capability-design.md`. A8 umbrella spec +
-  app-shell PR 2 plan moved to `../archive/`.
-- **C20 source material:** Kevin pasted his full Claude-project instructions + 4 reference
-  docs (program categories, BOFU patterns, intent definitions I/C/T/N, compliance
-  exclusions) in the 2026-07-10 session — reproduced in condensed form in the umbrella
-  doc §1; the full text lives in that chat and moves into the er-handoff-memo skill at
-  KS-5. DataForSEO API access confirmed by Kevin (access half of the tracker's
-  third-party data-API question resolved; spend envelope still open).
-- **Current keyword-research code (verified):** krt_ flow = session-bound, SEMRush-CSV-fed
-  (`lib/parsers/keyword-research-export.ts`, `app/api/keyword-memo/`); volumes ONLY from
-  SEMRush CSV columns; GSC provider report-scoped, no query×page anywhere; CrawlPage
-  already stores url/title/h1/wordCount/indexable (the §7 inventory); no client
-  program/vertical metadata; `HarvestedPageSeo.contentText` transient (1-h retention
-  direction approved but unbuilt); no DataForSEO client.
-- **Prod:** healthy on `c54e7e2` + this session's docs commit; no code deployed since A8 PR 7.
+- **Main** @ `4bad3b6` (KS-1 spec `da26742` + plan/fixes `4bad3b6` on top of the
+  C20-open commit `2a0a1b4`). Prod healthy on the A8-PR7 deploy (`c54e7e2`) — docs-only
+  since; no deploy owed.
+- **C20 `[~]`** — umbrella (Codex ×7) + KS-1 spec (Codex ×7) + KS-1 plan (Codex ×4),
+  all 2026-07-10. KS-1 build next; then KS-2..5 each run spec→Codex→plan→Codex→build.
+- **KS-1 design essence:** new `GscSnapshot` model (raw rows JSON + metadata columns,
+  derivations pure at read time — never persisted); `fetchGscQueryPage` provider fn
+  with its OWN result union; inline single-flight refresh; mapping-stamped reads;
+  keep-latest-3 retention; `GscKeywordCard`. The Codex tags in spec/plan mark every
+  load-bearing subtlety.
+- All other tracker state unchanged from the 2026-07-10 A8-close entry.
 
-## Gotchas carried forward
+## The single next item
 
-- `pentest-results/`, `googlefc472dc61896519a.html`, `SEO_Report_1st_Draft.pdf` untracked at repo
-  root — NEVER `git add -A`. Deleted `.playwright-mcp/*` working-tree deletions are harmless.
-- vitest `globals:false` → NO testing-library auto-cleanup; component tests rendering the same
-  text twice need explicit `afterEach(cleanup)`.
-- Every new public/token route: middleware `isPublicPath` + `middleware.test.ts` case — this
-  bit prod THREE times; KS-5's volume-lookup route will need exactly one anchored regex.
-- Share/redirect URLs: `NEXT_PUBLIC_APP_URL`, never request origin.
-- Array-form `$transaction([...])` only; raw SQL sets `updatedAt` manually. The KS-5 usage
-  ledger MUST be a conditional update / EXISTS predicate, never an interactive transaction.
-- `parse-seo-dom.ts` is `.toString()`-injected: KS-4's FAQ detection must be self-contained,
-  no module scope, no `typeof` (SWC helper escape → in-page ReferenceError; `cc8d1c1` class).
-- GSC data is sampled/row-limited; never phrase absence as "not ranking" — "not observed in
-  this GSC window". Codex flagged this as memo-integrity-critical.
-- Codex consults: session UUID in `~/.claude/state/codex-consultations.json`; budget-check
-  first; the er-seo-tools session is at turn ~52 and healthy.
+**KS-1 TDD build** — `../plans/2026-07-10-ks1-gsc-query-snapshot.md` (8 tasks, exact
+failing-test assertions + commit commands inline). Branch `feat/ks1-gsc-snapshot`.
+Additive migration only; no new env vars; no middleware change; no public surface.
+Prod verification = Refresh on a GSC-mapped client dashboard (GSC API only — gate 3
+satisfied, no site fetch).
+
+## Gotchas (builder-facing first, then carried forward)
+
+- `gscSiteUrl` is VERBATIM everywhere — never normalize; stamp the exact fetch string
+  on the snapshot row; reads filter on the CURRENT client mapping (Codex #1).
+- Position-0 rows are the provider's numeric fallback — validator KEEPS them at
+  storage, `derive` discards them (Codex #2 / plan #3). Bands are raw-decimal
+  comparisons, no rounding.
+- Single-flight Map entry installed before the first `await` or the deferred-promise
+  test correctly fails (plan #4). Summary caps live in the service, never in derive.
+- Retention delete: tagged `$executeRaw` template, never `$executeRawUnsafe`.
+- GSC data is sampled/row-limited; never phrase absence as "not ranking" — "not
+  observed in this GSC window". Codex flagged this as memo-integrity-critical.
+- `pentest-results/`, `googlefc472dc61896519a.html`, `SEO_Report_1st_Draft.pdf`
+  untracked at repo root — NEVER `git add -A`. Deleted `.playwright-mcp/*`
+  working-tree deletions are harmless.
+- vitest `globals:false` → NO testing-library auto-cleanup; component tests rendering
+  the same text twice need explicit `afterEach(cleanup)`.
+- Every new public/token route: middleware `isPublicPath` + `middleware.test.ts` case —
+  bit prod THREE times. KS-1 adds NO public route; KS-5's volume-lookup will need
+  exactly one anchored regex.
+- Array-form `$transaction([...])` only; raw SQL sets `updatedAt` manually (GscSnapshot
+  has none). The KS-5 usage ledger MUST be a conditional update / EXISTS predicate.
+- `parse-seo-dom.ts` is `.toString()`-injected: KS-4's FAQ detection must be
+  self-contained, no module scope, no `typeof` (`cc8d1c1` class).
+- Codex consults: session UUID in `~/.claude/state/codex-consultations.json`;
+  budget-check first; the er-seo-tools session is at turn ~54 and healthy.
 - ScoreRing bands (≥80/≥50) ≠ Scorecard bands (≥90/≥70) — product decision, do not unify.
-- A stale `running` example.com SiteAudit can linger in local-dev.db from DB-backed test
-  runs — recovery drains it on next dev boot; harmless.
+- A stale `running` example.com SiteAudit can linger in local-dev.db from DB-backed
+  test runs — recovery drains it on next dev boot; harmless.
+- Prod deploy uses the interim OOM recipe (`pm2 stop seo-tools && ~/deploy.sh`).
