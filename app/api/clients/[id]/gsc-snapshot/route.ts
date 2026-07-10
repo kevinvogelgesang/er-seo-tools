@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withRoute } from '@/lib/api/with-route';
 import { refreshGscSnapshot, getLatestGscSnapshot } from '@/lib/keywords/gsc-snapshot';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,7 @@ type RouteParams = { params: Promise<{ id: string }> };
  * consistent with getLatestGscSnapshot (spec §5.4).
  * Cookie-gated by global middleware.
  */
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export const GET = withRoute(async (_request: NextRequest, { params }: RouteParams) => {
   const { id } = await params;
   const clientId = parseInt(id, 10);
   if (isNaN(clientId)) {
@@ -23,7 +24,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
   const { gscMapped, summary } = await getLatestGscSnapshot(clientId);
   return NextResponse.json({ gscMapped, summary });
-}
+});
 
 /**
  * POST /api/clients/:id/gsc-snapshot
@@ -40,7 +41,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
  * The service's `message`, when present, rides along as a `message` field.
  * Cookie-gated by global middleware.
  */
-export async function POST(_request: NextRequest, { params }: RouteParams) {
+export const POST = withRoute(async (_request: NextRequest, { params }: RouteParams) => {
   const { id } = await params;
   const clientId = parseInt(id, 10);
   if (isNaN(clientId)) {
@@ -77,4 +78,4 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
   }
 
   return NextResponse.json(body, { status: STATUS_BY_REASON[result.reason] });
-}
+});

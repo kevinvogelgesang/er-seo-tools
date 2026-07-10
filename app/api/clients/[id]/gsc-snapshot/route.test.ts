@@ -166,4 +166,13 @@ describe('POST /api/clients/[id]/gsc-snapshot', () => {
     const json = await res.json();
     expect(json).toEqual({ error: 'gsc_error', message: 'boom' });
   });
+
+  it('returns 500 { error: "internal_error" } when the service throws (withRoute net)', async () => {
+    mockRefreshGscSnapshot.mockRejectedValueOnce(new Error('unexpected'));
+
+    const res = await callPOST('7');
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json).toEqual({ error: 'internal_error' });
+  });
 });
