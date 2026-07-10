@@ -7,7 +7,7 @@ import { cleanOldTerminalJobs } from '@/lib/jobs/retention';
 import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo } from '@/lib/findings/retention';
 import { pruneScheduledSiteAudits } from '@/lib/ada-audit/scheduled-retention'
 import { pruneSeoReports } from '@/lib/seo-report-retention';
-import { pruneGscSnapshots } from '@/lib/keywords/retention';
+import { pruneGscSnapshots, pruneKeywordVolumeCache } from '@/lib/keywords/retention';
 
 /** Parsed sessions and their data are kept for 180 days. */
 const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -38,6 +38,7 @@ export async function runCleanup(): Promise<void> {
     pruneHarvestedPageSeo(),
     pruneSeoReports(),
     pruneGscSnapshots(),
+    pruneKeywordVolumeCache(),
   ]);
   logSettledFailures('[cleanup] Cleanup task failed', results);
 }
