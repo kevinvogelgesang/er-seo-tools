@@ -22,6 +22,8 @@ import { carryForwardSiteAuditChecks } from './carry-forward-checks'
 import { mapAdaChildren } from '@/lib/findings/ada-mapper'
 import { writeFindingsRun } from '@/lib/findings/writer'
 import { enqueueBrokenLinkVerify } from '@/lib/jobs/handlers/broken-link-verify'
+import { resolveAdaScoringWeights } from '@/lib/scoring/resolve-ada-weights'
+import { DEFAULT_ADA_V4_WEIGHTS } from '@/lib/scoring/ada-v4'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   // Scalar-first: page settles call finalize once per page; loading every
@@ -128,6 +130,12 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     // Skipped for seoOnly: no ADA results, and an empty ada-audit run would
     // make ADA export routes (which gate purely on the run existing) look valid.
     try {
+      // C19 PR3: score with the operator profile; fall back to defaults rather
+      // than lose the findings run to a transient weights-read failure.
+      const adaWeights = await resolveAdaScoringWeights().catch((e) => {
+        console.warn('[findings] ADA weights resolve failed — scoring with defaults:', (e as Error).message)
+        return { ...DEFAULT_ADA_V4_WEIGHTS }
+      })
       const bundle = mapAdaChildren(
         {
           id,
@@ -140,6 +148,7 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
           pagesTotal: audit.pagesTotal,
         },
         pageAudits,
+        adaWeights,
       )
       void writeFindingsRun(bundle).catch((e) => {
         console.error('[findings] ADA dual-write failed for site audit', id, e)

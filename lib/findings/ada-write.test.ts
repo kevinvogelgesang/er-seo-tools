@@ -84,6 +84,24 @@ describe('writeAdaSiteFindings', () => {
     await expect(writeAdaSiteFindings('nope')).rejects.toThrow(/not found/i)
   })
 
+  it('writeAdaSiteFindings scores with the DB AdaScoringWeights profile (C19 PR3)', async () => {
+    await prisma.adaScoringWeights.upsert({
+      where: { id: 1 }, create: { id: 1, critical: 80, serious: 10, moderate: 5, minor: 0, needsReview: 5 },
+      update: { critical: 80, serious: 10, moderate: 5, minor: 0, needsReview: 5 },
+    })
+    try {
+      const site = await makeCompleteSiteAudit()
+      await writeAdaSiteFindings(site.id)
+      const run = await prisma.crawlRun.findUnique({
+        where: { siteAuditId_tool: { siteAuditId: site.id, tool: 'ada-audit' } },
+      })
+      const breakdown = JSON.parse(run!.scoreBreakdown!) as { deductions: { category: string; cap: number }[] }
+      expect(breakdown.deductions.find((d) => d.category === 'critical')!.cap).toBe(80)
+    } finally {
+      await prisma.adaScoringWeights.deleteMany({ where: { id: 1 } })
+    }
+  })
+
   it('refuses a pruned site audit (complete children, null blobs) without clobbering findings', async () => {
     const site = await makeCompleteSiteAudit()
     await writeAdaSiteFindings(site.id) // canonical run: 1 violation
@@ -160,6 +178,27 @@ describe('writeAdaSingleFindings', () => {
       data: { url: `https://${DOMAIN}/run`, status: 'running', wcagLevel: 'wcag21aa' },
     })
     await expect(writeAdaSingleFindings(audit.id)).rejects.toThrow(/complete|redirected/i)
+  })
+
+  it('writeAdaSingleFindings scores with the DB AdaScoringWeights profile (C19 PR3)', async () => {
+    await prisma.adaScoringWeights.upsert({
+      where: { id: 1 }, create: { id: 1, critical: 80, serious: 10, moderate: 5, minor: 0, needsReview: 5 },
+      update: { critical: 80, serious: 10, moderate: 5, minor: 0, needsReview: 5 },
+    })
+    try {
+      const audit = await prisma.adaAudit.create({
+        data: {
+          url: `https://${DOMAIN}/weighted`, status: 'complete', result: AXE_BLOB,
+          wcagLevel: 'wcag21aa', startedAt: new Date(), completedAt: new Date(),
+        },
+      })
+      await writeAdaSingleFindings(audit.id)
+      const run = await prisma.crawlRun.findUnique({ where: { adaAuditId: audit.id } })
+      const breakdown = JSON.parse(run!.scoreBreakdown!) as { deductions: { category: string; cap: number }[] }
+      expect(breakdown.deductions.find((d) => d.category === 'critical')!.cap).toBe(80)
+    } finally {
+      await prisma.adaScoringWeights.deleteMany({ where: { id: 1 } })
+    }
   })
 
   it('refuses a pruned complete standalone audit (null blob) without clobbering findings', async () => {

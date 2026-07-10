@@ -539,7 +539,7 @@ export async function runBrokenLinkVerify(
       status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated || internalBudgetHit ? 'partial' : 'complete',
       score: scoreResult.score,
       scoreBreakdown: serializeBreakdownV2(
-        'live-seo', scoreResult, hashWeights(weights as unknown as Record<string, number>), scoreResult.inputsSnapshot,
+        'live-seo', scoreResult, hashWeights(weights), scoreResult.inputsSnapshot,
       ),
       wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),

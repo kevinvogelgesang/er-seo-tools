@@ -293,7 +293,7 @@ export function mapAdaChildren(
       rules,
     }, weights)
     runScore = score
-    runBreakdown = serializeAdaV4Breakdown(breakdown, hashWeights(weights as unknown as Record<string, number>))
+    runBreakdown = serializeAdaV4Breakdown(breakdown, hashWeights(weights))
   }
 
   return {
@@ -343,7 +343,7 @@ export function mapAdaSingle(
       rules: pageV4Rules(axe.violations),
     }, weights)
     score = s
-    scoreBreakdown = serializeAdaV4Breakdown(breakdown, hashWeights(weights as unknown as Record<string, number>))
+    scoreBreakdown = serializeAdaV4Breakdown(breakdown, hashWeights(weights))
   }
 
   const page: CrawlPageInput = {

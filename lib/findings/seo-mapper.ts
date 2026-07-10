@@ -131,7 +131,7 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
       status: 'complete',
       score: healthResult.score,
       scoreBreakdown: serializeBreakdownV2(
-        'health', healthResult, hashWeights(ctx.weights as unknown as Record<string, number>), healthResult.inputsSnapshot,
+        'health', healthResult, hashWeights(ctx.weights), healthResult.inputsSnapshot,
       ),
       wcagLevel: null,
       pagesTotal: pages.length,
