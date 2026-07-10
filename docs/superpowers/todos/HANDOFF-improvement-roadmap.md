@@ -24,11 +24,8 @@ STATE:
   • PROD REPLAY (165 runs): 95+ band 94→127, <50 band 31→4. Mix of v1-artifact corrections
     (old v1 zeros → 90s for few-rule pages) and the intended prevalence-over-node-density shift
     (breadth-sites drop: innovatesalon 89→30; node-heavy few-rule sites rise: bellus 25→68).
-  • ⚠ OPEN KEVIN RULING (do not resolve without him): is Bellus-class (critical+serious on most
-    pages, FEW distinct rules) correctly a 68 under v4, or should it stay ≤50? Options:
-    (a) accept + watch first real v4 scans (recommended), (b) recalibrate caps/saturations,
-    (c) pull the spec's FUTURE node-volume intensity multiplier into PR2/PR3. If Kevin already
-    ruled in chat, apply it; else ask before touching weights.
+  • KEVIN RULING (2026-07-10, in-session): ACCEPT v4 as calibrated — Bellus-class = D-grade 68,
+    not broken; watch first real v4 scans; node-volume dial stays FUTURE. No recalibration.
   • NEXT BUILD: PR2 — SEO recalibration (write its plan first via writing-plans + Codex): shared
     curve core lib/scoring/seo-core.ts + typed SF/live adapters + contract tests; steeper curves;
     live broken-links factor (builder persists linkVerification snapshot {internalChecked,
@@ -53,7 +50,7 @@ then verify .next/BUILD_ID + health + boot log + schedules.
 Kevin eyeballs outstanding (authed-UI): C15 Mine-filter · C16 Audits page · C17 seoOnly auto-flip ·
 C18 results tabs · C14 /sales + real /sales/[token] report · NEW: re-scan Bellus (or any client) —
 scorecard now shows real "rules passed"/"needs review", the v4 badge, AND the deduction-invoice
-"How this score was calculated" panel; expect Bellus ≈68 not 25 (see the open ruling above).
+"How this score was calculated" panel; expect Bellus ≈68 not 25 (Kevin-accepted calibration).
 
 STANDING GATE (2026-07-08): NO AI API — all AI stays the pat_/srt_/krt_/qct_ clipboard flow.
 
@@ -86,7 +83,7 @@ seo-tools/db.sqlite?mode=ro' npx tsx scripts/score-replay.ts"
 ## Current state (2026-07-10, post-C19-PR1)
 
 - **Shipped + deployed through:** C13 (PR #141) + C19 PR1 (PR #142). Prod healthy.
-- **Open:** the v4 calibration ruling (above) — Kevin's; PR2 (SEO recalibration) and PR3
+- **Open:** PR2 (SEO recalibration) and PR3
   (levers + Score Lab) — each needs its own plan via writing-plans + Codex before build.
 - **Menu after C19:** A8 visual-polish arc · C12 content auditing (zero-AI Tier-0) ·
   SF-retirement parity cycles 2–3 · Track A infra (A5/A7) · Track D.
