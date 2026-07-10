@@ -12,6 +12,9 @@ export default async function SalesReportPage({ params }: { params: Promise<{ to
   if (result.kind === 'pending') {
     return (
       <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep flex items-center justify-center px-6">
+        {/* Makes the "updates automatically" copy truthful: reloads until the
+            audit becomes reportable (short verifier window). */}
+        <meta httpEquiv="refresh" content="20" />
         <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-8 max-w-md text-center space-y-2">
           <h1 className="text-xl font-heading font-bold text-navy dark:text-white">Your report is being prepared</h1>
           <p className="text-[13px] font-body text-navy/60 dark:text-white/60">
