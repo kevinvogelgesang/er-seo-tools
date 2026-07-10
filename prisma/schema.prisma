@@ -35,6 +35,22 @@ model Client {
   prospectsEntries      ProspectsEntry[]
 }
 
+model Prospect {
+  id                  Int         @id @default(autoincrement())
+  name                String
+  domain              String
+  notes               String?
+  createdBy           String?
+  salesToken          String?     @unique
+  salesTokenExpiresAt DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  siteAudits          SiteAudit[]
+
+  @@index([domain])
+  @@index([salesTokenExpiresAt])
+}
+
 model Session {
   id              String            @id
   createdAt       DateTime          @default(now())
@@ -157,6 +173,8 @@ model SiteAudit {
   pagesRedirected  Int       @default(0)
   scheduleId    String?    // C2: non-null = created by a Schedule row (attribution + retention marker)
   schedule      Schedule?  @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  prospectId    Int?
+  prospect      Prospect?  @relation(fields: [prospectId], references: [id], onDelete: SetNull)
   shareToken        String?   @unique // C4: public read-only share link (mirror of AdaAudit)
   shareExpiresAt    DateTime?
   reportGeneratedAt DateTime? // C4: last successful report-render stamp (file under REPORTS_DIR)
@@ -174,6 +192,7 @@ model SiteAudit {
   @@index([batchId])
   @@index([requestedBy, createdAt])
   @@index([scheduleId])
+  @@index([prospectId])
 }
 
 model PillarAnalysis {
@@ -381,6 +400,7 @@ model CrawlRun {
   discoveryCoverageJson String?   // C6 hybrid-discovery Increment 1: sitemap miss-rate metrics (live-scan runs only)
   reachabilityJson String?   // roadmap 3b: internal-link reachability metrics (orphans/depth/clicks-from-home); live-scan runs only; NOT a finding
   contentSimilarityJson String? // C6 Phase 5: near/exact-duplicate content groups (live-scan runs only); measurement, NOT a finding
+  schemaTypesJson       String? // C14: aggregate schema-type histogram (live-scan runs only)
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]
