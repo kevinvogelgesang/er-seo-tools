@@ -693,6 +693,89 @@ describe('runBrokenLinkVerify — content similarity', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// C19 PR2 Task 4: linkVerification snapshot -> brokenLinks score factor
+// ---------------------------------------------------------------------------
+
+describe('runBrokenLinkVerify — linkVerification snapshot (C19 PR2 Task 4)', () => {
+  const LV_DOMAIN = 'c19linkverif.example.com'
+  const ORIG_MAX = process.env.BROKEN_LINK_MAX_CHECKS
+
+  async function cleanLv() {
+    await prisma.crawlRun.deleteMany({ where: { domain: LV_DOMAIN } })
+    await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: LV_DOMAIN } } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: LV_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: LV_DOMAIN } })
+  }
+  beforeEach(cleanLv)
+  afterAll(cleanLv)
+  afterEach(async () => {
+    await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
+    if (ORIG_MAX === undefined) delete process.env.BROKEN_LINK_MAX_CHECKS
+    else process.env.BROKEN_LINK_MAX_CHECKS = ORIG_MAX
+  })
+
+  // Indexable, schema-covered pages — same shape as the C6 Phase 3 score-persistence
+  // tests above, just enough to clear the >=50%-observed / indexable-content null-gates.
+  const seoRows = (siteAuditId: string) => ([
+    { siteAuditId, url: `https://${LV_DOMAIN}/a`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't1', h1: 'h1', metaDescription: 'm1', wordCount: 800, schemaCount: 1 },
+    { siteAuditId, url: `https://${LV_DOMAIN}/b`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't2', h1: 'h2', metaDescription: 'm2', wordCount: 800, schemaCount: 1 },
+    { siteAuditId, url: `https://${LV_DOMAIN}/c`, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, title: 't3', h1: 'h3', metaDescription: 'm3', wordCount: 800, schemaCount: 1 },
+  ])
+
+  it('clean run: persists a v2 breakdown with a complete linkVerification snapshot + brokenLinks factor', async () => {
+    const sa = await prisma.siteAudit.create({
+      data: { domain: LV_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 },
+    })
+    await prisma.harvestedPageSeo.createMany({ data: seoRows(sa.id) })
+    await prisma.harvestedLink.createMany({
+      data: [
+        { siteAuditId: sa.id, targetUrl: `https://${LV_DOMAIN}/x`, kind: 'internal-link', sourcePageUrl: `https://${LV_DOMAIN}/a` },
+        { siteAuditId: sa.id, targetUrl: `https://${LV_DOMAIN}/y`, kind: 'internal-link', sourcePageUrl: `https://${LV_DOMAIN}/a` },
+        { siteAuditId: sa.id, targetUrl: `https://${LV_DOMAIN}/img.png`, kind: 'image', sourcePageUrl: `https://${LV_DOMAIN}/a` },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: LV_DOMAIN }, stubDeps) // stubDeps: every target resolves 'ok'
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } },
+      select: { status: true, scoreBreakdown: true },
+    })
+    expect(run!.status).toBe('complete')
+    const parsed = JSON.parse(run!.scoreBreakdown!)
+    expect(parsed.version).toBe(2)
+    expect(parsed.scorer).toBe('live-seo')
+    expect(parsed.weightsHash).toMatch(/^[0-9a-f]{12}$/)
+    expect(parsed.inputsSnapshot.source).toBe('live')
+    expect(parsed.inputsSnapshot.linkVerification).toEqual({
+      internalChecked: 2, internalBroken: 0, imagesChecked: 1, imagesBroken: 0, passComplete: true,
+    })
+    expect(parsed.factors.some((f: { key: string }) => f.key === 'brokenLinks')).toBe(true)
+  })
+
+  it('capped scenario: linkVerification.passComplete is false, brokenLinks factor absent, run stays partial', async () => {
+    process.env.BROKEN_LINK_MAX_CHECKS = '1' // forces `capped` with 2 unique targets seeded below
+    const sa = await prisma.siteAudit.create({
+      data: { domain: LV_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 },
+    })
+    await prisma.harvestedPageSeo.createMany({ data: seoRows(sa.id) })
+    await prisma.harvestedLink.createMany({
+      data: [
+        { siteAuditId: sa.id, targetUrl: `https://${LV_DOMAIN}/x`, kind: 'internal-link', sourcePageUrl: `https://${LV_DOMAIN}/a` },
+        { siteAuditId: sa.id, targetUrl: `https://${LV_DOMAIN}/y`, kind: 'internal-link', sourcePageUrl: `https://${LV_DOMAIN}/a` },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: LV_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } },
+      select: { status: true, scoreBreakdown: true },
+    })
+    expect(run!.status).toBe('partial') // capped semantics unchanged (C6 Phase 1)
+    const parsed = JSON.parse(run!.scoreBreakdown!)
+    expect(parsed.inputsSnapshot.linkVerification.passComplete).toBe(false)
+    expect(parsed.factors.some((f: { key: string }) => f.key === 'brokenLinks')).toBe(false)
+  })
+})
+
 // ─── D7: completion-notify seam ───────────────────────────────────────────────
 describe('runBrokenLinkVerify — D7 completion notify', () => {
   const D7_DOMAIN = 'c6blv-d7.example.com'

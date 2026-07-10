@@ -28,7 +28,8 @@ import { normalizeLinkTarget, sameDomain } from '@/lib/ada-audit/link-harvest'
 import { parsePositiveInt, parseNonNegativeInt } from '../config'
 import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
 import { resolveScoringWeights } from '@/lib/scoring/resolve-weights'
-import { serializeBreakdown } from '@/lib/scoring/weights'
+import { serializeBreakdownV2, type LinkVerificationSnapshot } from '@/lib/scoring/seo-core'
+import { hashWeights } from '@/lib/scoring/weights-hash'
 import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/seo/discovery-coverage'
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
@@ -285,15 +286,44 @@ export async function runBrokenLinkVerify(
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY(), allToResolve.length || 1) }, () => cacheWorker()))
 
   // Derive broken targets from the cache for mapBrokenLinkFindings (mapper unchanged).
+  // C19 PR2 Task 4: ALSO derive the broken-links score factor's snapshot here, by
+  // target kind. Unlike `checked`/`unconfirmed` above (which count any cache hit,
+  // including unconfirmed, for confidence reporting), the score snapshot's
+  // <kind>Checked/<kind>Broken counters EXCLUDE unconfirmed outcomes entirely —
+  // they must never appear in either the numerator or the denominator.
   let checked = 0
   let unconfirmed = 0
   const broken: BrokenTarget[] = []
+  let internalChecked = 0
+  let internalBroken = 0
+  let imagesChecked = 0
+  let imagesBroken = 0
   for (const t of toCheck) {
     const r = cache.get(normalizeFindingUrl(t.targetUrl))
-    if (!r) continue
+    if (!r) continue // budget-stranded target -> neither counter, either pass
     checked++
-    if (r.result === 'broken') broken.push({ targetUrl: t.targetUrl, kind: t.kind, sourcePageUrls: [...t.sources] })
-    else if (r.result === 'unconfirmed') unconfirmed++
+    if (r.result === 'broken') {
+      broken.push({ targetUrl: t.targetUrl, kind: t.kind, sourcePageUrls: [...t.sources] })
+      if (t.kind === 'internal-link') { internalChecked++; internalBroken++ }
+      else { imagesChecked++; imagesBroken++ }
+    } else if (r.result === 'unconfirmed') {
+      unconfirmed++ // excluded from the score snapshot entirely
+    } else {
+      if (t.kind === 'internal-link') internalChecked++
+      else imagesChecked++
+    }
+  }
+  // passComplete is factor-specific (Codex plan-fix #2): cappedValidation is
+  // EXCLUDED (canonical/hreflang validation is unrelated to broken-links scoring),
+  // and internalBudgetHit matters only insofar as it left a toCheck target
+  // unresolved — checked directly rather than inferred from the flag, since a
+  // budget trip while draining validation-only targets (which come after all
+  // legacy targets in resolution order) can still leave every toCheck target resolved.
+  const linkVerificationPassComplete =
+    !capped && !harvestTruncated && toCheck.every((t) => cache.has(normalizeFindingUrl(t.targetUrl)))
+  const linkVerification: LinkVerificationSnapshot = {
+    internalChecked, internalBroken, imagesChecked, imagesBroken,
+    passComplete: linkVerificationPassComplete,
   }
 
   // ---- External-link verification (HEAD-only; separate cap + remaining-time soft budget) ----
@@ -459,6 +489,7 @@ export async function runBrokenLinkVerify(
     missingH1: runCounts.get('missing_h1') ?? 0,
     thin: runCounts.get('thin_content') ?? 0,
     pagesWithSchema: seoRows.filter((r) => (r.schemaCount ?? 0) > 0).length,
+    linkVerification,
   }, weights)
 
   // C6 hybrid-discovery Increment 1: sitemap miss-rate from already-harvested
@@ -506,7 +537,11 @@ export async function runBrokenLinkVerify(
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
       status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated || internalBudgetHit ? 'partial' : 'complete',
-      score: scoreResult.score, scoreBreakdown: serializeBreakdown('live-seo', scoreResult), wcagLevel: null,
+      score: scoreResult.score,
+      scoreBreakdown: serializeBreakdownV2(
+        'live-seo', scoreResult, hashWeights(weights as unknown as Record<string, number>), scoreResult.inputsSnapshot,
+      ),
+      wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
       discoveryCoverageJson: JSON.stringify(coverage),
