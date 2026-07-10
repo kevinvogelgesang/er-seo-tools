@@ -77,11 +77,21 @@ export function brokenLinksPoints(ratio: number, weight: number): number    // r
 // v2 persisted breakdown (spec Part 3). factors keep the v1 row shape so
 // ScoreExplanation renders v2 unchanged; inputsSnapshot carries the raw
 // ratios (Codex spec-fix #5 — the Score Lab's SEO data source).
-export interface SeoInputsSnapshot {
-  totalUrls?: number; indexableUrls?: number; clientErrors?: number; serverErrors?: number
-  base?: number; missingTitle?: number; missingMeta?: number; missingH1?: number
-  avgCrawlDepth?: number; thinCount?: number; pagesWithSchema?: number
-  linkVerification?: LinkVerificationSnapshot
+// Discriminated by source (Codex plan-fix #4) — an SF snapshot and a live
+// snapshot carry different raw inputs; each must be able to re-score its run.
+export type SeoInputsSnapshot = SfInputsSnapshot | LiveInputsSnapshot
+export interface SfInputsSnapshot {
+  source: 'sf'
+  totalUrls: number; indexableUrls: number; clientErrors: number; serverErrors: number
+  base: number; missingTitle: number; missingMeta: number; missingH1: number
+  avgCrawlDepth: number | null; thinCount: number | null; pagesWithSchema: number | null
+}
+export interface LiveInputsSnapshot {
+  source: 'live'
+  attempted: number; observed: number; indexableScored: number; pagesError: number
+  missingTitle: number; missingMeta: number; missingH1: number; thin: number
+  pagesWithSchema: number
+  linkVerification: LinkVerificationSnapshot | null
 }
 export interface LinkVerificationSnapshot {
   internalChecked: number; internalBroken: number
@@ -116,14 +126,19 @@ Curve semantics (tests pin these exactly):
 
 ```ts
 // Bands (Kevin 2026-07-09 anchor, SEO edition). Score = round(100 × earned/possible)
-// over the 8 SF factors. Never widen a band.
-// CLEAN: 100% indexable, 0 errors, 0 missing, depth 2.5, 2% thin, 40% schema → ≥95
-// LIGHTLY FLAWED: 96% indexable, 2% errors, 5% missing meta+h1, depth 3.5, 8% thin, 25% schema → 85–92
-// VISIBLY FLAWED: 90% indexable, 6% errors, 12% missing title+meta+h1, depth 4.5, 18% thin, 10% schema → 70–80
-// BROKEN: 70% indexable, 25% errors, 35% missing all, depth 6.5, 30% thin, 0% schema → ≤50
+// over the 8 SF factors. Never widen a band. Arithmetic pre-verified under the
+// stated knees + DEFAULT weights (Codex plan-fix #3 — fixtures are committed,
+// not "adjust if needed"):
+// CLEAN: 100% indexable, 0 errors, 0 missing, depth 2.5, 2% thin, 40% schema → 100 (≥95)
+// LIGHTLY FLAWED: 96% indexable, 2% errors, 5% missing meta+h1 (title 0), depth 3.5,
+//   8% thin, 25% schema → 19.59+18.95+10+7.14+6.25+12.5+8.5+8.33 ≈ 91 (85–92)
+// VISIBLY FLAWED: 93% indexable, 4% errors, 8% missing title+meta+h1, depth 4.0,
+//   12% thin, 15% schema → 18.98+16.84+7.86+6.29+5.5+10+6.5+5 ≈ 77 (70–80)
+// BROKEN: 70% indexable, 25% errors, 35% missing all, depth 6.5, 30% thin, 0% schema
+//   → 14.29+0+0+0+0+0+0+0 ≈ 14 (≤50)
 ```
 
-Compose these via the core fns summed/normalized exactly as `computeHealthScore` does (earned/possible). If a band fails, adjust `SEO_KNEES` (never the band) and re-verify the boundary tests.
+Compose these via the core fns summed/normalized exactly as `computeHealthScore` does (earned/possible). If a band fails after implementation, the CODE is wrong (the arithmetic above is the contract) — do not adjust fixtures or knees without escalating.
 
 - [ ] **Step 2: Verify fail → implement `seo-core.ts` + `parseScoreMeta` → all pass.** `npx tsc --noEmit` clean.
 - [ ] **Step 3: Commit** — `git add lib/scoring/seo-core.ts lib/scoring/seo-core.test.ts lib/scoring/seo-calibration.test.ts lib/scoring/breakdown-version.ts lib/scoring/breakdown-version.test.ts` → `feat(c19-pr2): shared SEO curve core, v2 breakdown types, band contract`
@@ -138,9 +153,9 @@ Compose these via the core fns summed/normalized exactly as `computeHealthScore`
 
 **Interfaces:**
 - Produces: `ScoringWeights` gains `brokenLinks: number`; `DEFAULT_WEIGHTS.brokenLinks = 10`; `WEIGHT_LABELS.brokenLinks = 'Broken links'`; `LIVE_ELIGIBLE_KEYS` includes it (crawlDepth stays the only exclusion). `resolveScoringWeights()` returns `brokenLinks: DEFAULT_WEIGHTS.brokenLinks` unconditionally (NO DB column until PR3 — document with a `// PR3` comment).
-- CRITICAL (recon): the settings route must persist ONLY the 8 existing row columns — write an explicit pick of `{indexability, errorRate, missingTitle, missingMeta, missingH1, crawlDepth, thinContent, schema}` from the validated object (a spread would hit Prisma's unknown-arg at RUNTIME, invisible to tsc). `validateWeights` accepts `brokenLinks` like any key (finite ≥ 0).
+- CRITICAL (recon + Codex plan-fix #5): the settings route must persist ONLY the 8 existing row columns — explicit pick of `{indexability, errorRate, missingTitle, missingMeta, missingH1, crawlDepth, thinContent, schema}` (a spread hits Prisma's unknown-arg at RUNTIME, invisible to tsc). AND `validateWeights` must NOT silently accept-then-drop a submitted `brokenLinks`: introduce `PERSISTABLE_WEIGHT_KEYS` (the 8) and have `validateWeights` iterate THAT list (a submitted `brokenLinks` is ignored exactly like any unknown key today, and the returned object carries `brokenLinks: DEFAULT_WEIGHTS.brokenLinks` — the true effective weight, never an un-persistable user value). The `LIVE_ELIGIBLE` validation rule keeps its current meaning over the persistable keys. NOTE: the route's handler is **PUT**, not PATCH — write the test against the actual handler.
 
-- [ ] **Step 1: Failing tests** — weights: DEFAULT sums to 110 pre-normalization is FINE (the scorers normalize earned/possible; assert `DEFAULT_WEIGHTS.brokenLinks === 10` + label + live-eligible membership + validateWeights accepts/rejects it like others). resolve-weights: DB row present → still returns `brokenLinks: 10`. Settings route: PATCH with a body including `brokenLinks: 25` → 200, row updated for the 8 columns, and a follow-up `resolveScoringWeights()` still yields `brokenLinks: 10` (not persisted, documented behavior until PR3).
+- [ ] **Step 1: Failing tests** — weights: DEFAULT sums to 110 pre-normalization is FINE (the scorers normalize earned/possible; assert `DEFAULT_WEIGHTS.brokenLinks === 10` + label + live-eligible membership + validateWeights accepts/rejects it like others). resolve-weights: DB row present → still returns `brokenLinks: 10`. Settings route: **PUT** with a body including `brokenLinks: 25` → 200, row updated for the 8 columns, response/effective weights carry `brokenLinks: 10` (submitted value ignored, never echoed as accepted), and `resolveScoringWeights()` still yields `brokenLinks: 10`.
 - [ ] **Step 2: Verify fail → implement → pass; tsc clean.**
 - [ ] **Step 3: Commit** — `feat(c19-pr2): brokenLinks weight key (code default; DB column lands in PR3)`
 
@@ -176,9 +191,9 @@ Behavior contract:
 
 **Interfaces:**
 - Produces: `LiveScoreInputs` gains `linkVerification?: LinkVerificationSnapshot | null` (absent/null or `passComplete: false` or zero checked → factor unavailable → renormalizes). `scoreLiveSeo` — same null-gates, curves via the core, returns `ScoreResult & { inputsSnapshot: SeoInputsSnapshot }` (snapshot includes `linkVerification` when provided).
-- Builder (`broken-link-verify.ts` around `:452-509`): constructs `linkVerification` from in-scope values —
-  - `passComplete = !(capped || harvestTruncated || cappedValidation || internalBudgetHit)` (EXTERNAL flags deliberately excluded: the external pass never feeds this factor),
-  - internal/images checked + broken counts split by target kind: broken from the existing `runCounts.get('broken_internal_links'|'broken_images')`; checked split derived from the internal pass's per-kind outcome counts — derive from existing structures (`toCheck`/cache kinds); if a per-kind confirmed-checked split isn't cleanly available, count outcomes by kind at the same place `checked`/`unconfirmed` are derived. INVARIANT: `unconfirmed` outcomes are excluded from BOTH numerator and denominator.
+- Builder (`broken-link-verify.ts` around `:452-509`): constructs `linkVerification` from the INTERNAL pass's per-target resolution results —
+  - **NOT from `runCounts`** (Codex plan-fix #1: `runCounts` is populated exclusively from on-page findings — `broken_internal_links`/`broken_images` are never in it; reading it would silently score every link category zero). Derive all four counts (`internalChecked`/`internalBroken`/`imagesChecked`/`imagesBroken`) by kind while iterating `toCheck` against the resolution cache — the same place `checked`/`unconfirmed` are computed today. A target with an `unconfirmed` outcome is excluded from BOTH numerator and denominator; a target with no cache result at all (budget-stranded) is likewise excluded and flips completeness (below).
+  - **`passComplete` is factor-specific** (Codex plan-fix #2): `!capped && !harvestTruncated && every toCheck target has a resolution result`. `cappedValidation` is deliberately EXCLUDED (canonical/hreflang validation is unrelated to this denominator); `internalBudgetHit` matters only through its effect (unresolved targets), not as a flag. External flags excluded. The run-level `status: 'partial'` predicate at `:508` is UNCHANGED.
   - Threads `linkVerification` into the `scoreLiveSeo` call; persists `serializeBreakdownV2('live-seo', scoreResult, hashWeights(weights), scoreResult.inputsSnapshot)` at `:509`.
 - Factor math: ratio = (internalBroken + imagesBroken) / (internalChecked + imagesChecked); points via `brokenLinksPoints(ratio, weights.brokenLinks)`.
 
@@ -202,6 +217,7 @@ Tests:
 - `buildSeries`: version mismatch → break 'version'; same version but `(a.weightsHash ?? null) !== (b.weightsHash ?? null)` → break 'weights'; either → `delta: null`.
 - `SeoRunRow` gains `scoreBreakdown?: string | null`; `buildSeoSeries` maps points with `...parseScoreMeta(r.scoreBreakdown)` (version + weightsHash). `buildAdaSeries` point mappers ALSO switch `parseScoreVersion` → `parseScoreMeta` so ADA v4 hash changes suppress (PR1 breakdowns already carry weightsHash).
 - Both call sites pass `scoreBreakdown: r.scoreBreakdown` through their existing `.map()` (the select already fetches it — recon fact 5).
+- **Parallel delta consumers (Codex plan-fix #6)** — these compute their own deltas via `parseScoreVersion` equality and would show misleading deltas after a weights change: `lib/services/client-schedules.ts:150` and `lib/notify/enrichment.ts:77` + `:94` switch to `parseScoreMeta` equality (version AND weightsHash both equal → comparable); `lib/report/report-data.ts:200`'s trend points carry `weightsHash` alongside `scoreVersion` and its level-matched-trend comparison treats a hash mismatch like a version mismatch. Add one test per consumer (suppressed delta on hash change).
 
 Tests: two v1 SEO points (no breakdown) → no break, real delta (regression guard); v1 → v2 adjacent → break 'version', delta null; two v2 same hash → real delta; two v2 different hash → break 'weights'; ADA v4 pair with differing hash → 'weights'; `formulaChanged === (comparabilityBreak !== null)` invariant test.
 
@@ -218,7 +234,7 @@ Tests: two v1 SEO points (no breakdown) → no break, real delta (regression gua
 - Consumes: `computeHealthScore` (new curves) + Session blobs; existing script structure (mode=ro guard, dynamic db import, --json).
 - Produces: after the ADA section, an SEO section:
   - **SF runs** (`tool:'seo-parser'`, `source:'sf-upload'`): old = stamped `run.score`; new = `computeHealthScore(JSON.parse(session.result), DEFAULT_WEIGHTS).score` for sessions with an unpruned blob (read-only allowed per spec); pruned/missing blob → skipped with reason.
-  - **Live runs** (`source:'live-scan'`): reported as SKIPPED with reason 'inputs not reconstructible pre-C19' — the observed/attempted coverage inputs and verification denominators do not exist for historical runs, and a partial reconstruction would misstate the flip (spec Codex-fix #5's honesty rule). Post-C19 runs list under 'already-v2'.
+  - **Live runs** (`source:'live-scan'`): baseline filter is EXPLICIT — stamped breakdown version < 2 (or null) = 'skipped: inputs not reconstructible pre-C19' (coverage inputs + verification denominators don't exist historically; partial reconstruction would misstate the flip); stamped version ≥ 2 = listed under 'already-v2', never mixed into the distribution. Same version filter applies to SF runs (v1 = baseline, v2 = already-v2).
   - Same band histogram + skipped-vs-scored separation; `--json` extended with an `seo` key.
 
 - [ ] Steps: implement → dry-run `DATABASE_URL="file:./local-dev.db?mode=ro" npx tsx scripts/score-replay.ts` (ADA section unchanged, SEO section prints; refusal path still exits 1) → tsc → **Commit** `feat(c19-pr2): replay script SEO section (SF blob replay; live runs honestly skipped)`
@@ -230,4 +246,4 @@ Tests: two v1 SEO points (no breakdown) → no break, real delta (regression gua
 - [ ] Full gates (tsc / DATABASE_URL-prefixed npm test / build) — all green.
 - [ ] PR `feat(c19-pr2): SEO recalibration — shared curve core, broken-links factor, v2 breakdowns, series comparability`; merge when gate-green (rule 1); deploy with the OOM-safe recipe; post-deploy checklist.
 - [ ] Prod replay (read-only) → SEO distribution table → tracker entry. If the SF distribution violates Kevin's bands fleet-wide, STOP and present to Kevin (same protocol as PR1's calibration ruling).
-- [ ] Prod behavioral verify: next live-scan run (or a triggered one) persists a v2 breakdown with linkVerification; docs ritual (tracker + handoff same commit).
+- [ ] Prod behavioral verify (Codex plan-fix #7 — REQUIRED evidence, not optional): at least ONE controlled post-deploy live scan persisting a v2 breakdown with a real `linkVerification` snapshot, AND one partial/incomplete-verification case (dev is fine for the partial case: seeded harvest with a forced cap) demonstrating the factor renormalizes away. Both recorded in the tracker entry. Docs ritual (tracker + handoff same commit).
