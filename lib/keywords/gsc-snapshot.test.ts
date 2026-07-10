@@ -53,7 +53,9 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000) {
 }
 
 beforeAll(async () => {
-  await prisma.gscSnapshot.deleteMany({}).catch(() => {})
+  // Scoped to THIS suite's rows only (house convention: prefix-named test
+  // clients). The client delete cascades this suite's GscSnapshot rows.
+  await prisma.gscSnapshot.deleteMany({ where: { client: { name: { startsWith: PREFIX } } } })
   await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
 })
 
@@ -313,6 +315,52 @@ describe('refreshGscSnapshot', () => {
     expect(result.summary.opportunities).toHaveLength(50)
     expect(result.summary.quickWins).toHaveLength(50)
     expect(result.summary.cannibalization).toHaveLength(20)
+  })
+
+  it('a rejected refresh rejects into its caller, fires NO unhandledRejection, and clears the in-flight entry', async () => {
+    const client = await makeClient('sc-domain:reject.example.edu')
+
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+
+    // Reject the flight via the already-mocked provider. (vi.spyOn on
+    // prisma.client.findUnique was tried first, but mockRestore() on the
+    // Prisma proxy delegate leaves `findUnique` undefined and breaks every
+    // later test — the provider rejection exercises the identical
+    // rejected-IIFE → .finally() cleanup path without touching prisma.)
+    mockFetchGscQueryPage.mockRejectedValueOnce(new Error('provider boom'))
+
+    try {
+      // The ORIGINAL promise must still reject into its caller (errors are
+      // never swallowed on the caller-facing promise)...
+      await expect(refreshGscSnapshot(client.id)).rejects.toThrow('provider boom')
+
+      // ...but the DERIVED .finally() cleanup chain must not surface an
+      // unhandledRejection. Yield through timers so Node would have emitted
+      // the event by now if the derived promise were unhandled.
+      await new Promise((r) => setTimeout(r, 20))
+      expect(unhandled).toEqual([])
+
+      // The in-flight Map entry was cleaned up in .finally(): a second call
+      // is a FRESH flight that reaches the provider again (not a cached
+      // rejected promise).
+      mockFetchGscQueryPage.mockResolvedValueOnce(
+        okResult({
+          queryRows: [queryRow('after-reject', { position: 5 })],
+          queryPageRows: [],
+          queryAtLimit: false,
+          queryPageAtLimit: false,
+        }),
+      )
+      const second = await refreshGscSnapshot(client.id)
+      expect(second.ok).toBe(true)
+      expect(mockFetchGscQueryPage).toHaveBeenCalledTimes(2)
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
   })
 })
 

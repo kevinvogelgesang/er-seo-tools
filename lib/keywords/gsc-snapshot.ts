@@ -176,13 +176,24 @@ export function refreshGscSnapshot(clientId: number): Promise<RefreshGscSnapshot
   })()
 
   inFlight.set(clientId, promise)
-  promise.finally(() => {
-    // Only clear the entry if it's still ours (a defensive no-op guard —
-    // in practice nothing else ever replaces it while in flight).
-    if (inFlight.get(clientId) === promise) {
-      inFlight.delete(clientId)
-    }
-  })
+  // Cleanup rides a DERIVED promise: `.finally()` returns a NEW promise that
+  // re-rejects with the original reason, and that derived promise is
+  // discarded here. It therefore needs its own no-op catch — without it a
+  // rejected refresh becomes an unhandledRejection and crashes this
+  // single-PM2-process app, even though every caller handles the ORIGINAL
+  // `promise`. The catch is attached to the derived chain only; the original
+  // promise (cached above, returned below) still rejects into its callers.
+  promise
+    .finally(() => {
+      // Only clear the entry if it's still ours (a defensive no-op guard —
+      // in practice nothing else ever replaces it while in flight).
+      if (inFlight.get(clientId) === promise) {
+        inFlight.delete(clientId)
+      }
+    })
+    .catch(() => {
+      /* rejection observed by callers of the original promise */
+    })
 
   return promise
 }
