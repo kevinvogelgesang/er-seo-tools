@@ -40,4 +40,14 @@ describe('AdaScoreExplanation', () => {
     render(<AdaScoreExplanation breakdown={JSON.stringify(low)} />)
     expect(screen.getByText(/partial coverage — 80 of 204 pages scored/i)).toBeTruthy()
   })
+  it('renders nothing (no throw) for a v4-tagged blob missing inputsSummary/contributions', () => {
+    const malformed = JSON.stringify({
+      version: 4, scorer: 'ada-v4',
+      deductions: [{ category: 'critical' }],
+    })
+    expect(() => {
+      const { container } = render(<AdaScoreExplanation breakdown={malformed} />)
+      expect(container.textContent).toBe('')
+    }).not.toThrow()
+  })
 })

@@ -94,7 +94,9 @@ export default function SiteAuditResultsShell({
             </div>
           </div>
         </div>
-        <AdaScoreExplanation breakdown={adaScoreBreakdown ?? null} />
+        {/* Internal-only panel — never render in shareMode, even if a caller
+            (mis)passes adaScoreBreakdown to a share-mode render. */}
+        {!shareMode && <AdaScoreExplanation breakdown={adaScoreBreakdown ?? null} />}
         {/* Codex #1: export/diff hit cookie-gated routes — NEVER render in shareMode. */}
         {!shareMode && (exportBar || diffPanel) && (
           <div className="mt-4 space-y-4">

@@ -77,4 +77,18 @@ describe('SiteAuditResultsShell (C18)', () => {
     render(<SiteAuditResultsShell {...base} />)
     expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
   })
+
+  it('omits the ADA score explanation in shareMode even if adaScoreBreakdown is (mis)provided', () => {
+    const breakdown = JSON.stringify({
+      version: 4, scorer: 'ada-v4', score: 76, weightsHash: 'abc123', lowCoverage: false,
+      deductions: [
+        { category: 'critical', cap: 40, points: 12, contributions: [
+          { ruleId: 'image-alt', impact: 'critical', prevalence: 0.3, pagesAffected: 61, advisory: false },
+        ] },
+      ],
+      inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
+    })
+    render(<SiteAuditResultsShell {...base} shareMode adaScoreBreakdown={breakdown} />)
+    expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
+  })
 })

@@ -3,7 +3,7 @@
 // nothing unless the run was scored by ada-v4 — older/malformed breakdowns
 // (v1/v2/v3, or blobs that predate this scorer) fall through to `null` so
 // this component is a strict no-op on legacy runs.
-import type { AdaV4Breakdown, AdaV4Category, AdaV4Contribution } from '@/lib/scoring/ada-v4'
+import type { AdaV4Breakdown, AdaV4Category, AdaV4Contribution, AdaV4DeductionLine } from '@/lib/scoring/ada-v4'
 
 const CATEGORY_LABEL: Record<AdaV4Category, string> = {
   critical: 'Critical',
@@ -23,10 +23,24 @@ const CATEGORY_CLASS: Record<AdaV4Category, string> = {
   needsReview: 'text-gray-600 dark:text-white/50',
 }
 
+function isAdaV4DeductionLine(v: unknown): v is AdaV4DeductionLine {
+  if (!v || typeof v !== 'object') return false
+  const d = v as Record<string, unknown>
+  return (
+    typeof d.points === 'number' &&
+    typeof d.cap === 'number' &&
+    Array.isArray(d.contributions)
+  )
+}
+
 function isAdaV4Breakdown(v: unknown): v is AdaV4Breakdown {
   if (!v || typeof v !== 'object') return false
   const b = v as Record<string, unknown>
-  return b.version === 4 && b.scorer === 'ada-v4' && Array.isArray(b.deductions)
+  if (b.version !== 4 || b.scorer !== 'ada-v4' || !Array.isArray(b.deductions)) return false
+  if (!b.deductions.every(isAdaV4DeductionLine)) return false
+  const inputsSummary = b.inputsSummary as Record<string, unknown> | undefined
+  if (!inputsSummary || typeof inputsSummary !== 'object') return false
+  return typeof inputsSummary.pagesAudited === 'number'
 }
 
 function contributionLine(c: AdaV4Contribution, pagesAudited: number): string {
