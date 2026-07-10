@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { WEIGHT_LABELS, DEFAULT_WEIGHTS, type ScoringWeights } from '@/lib/scoring/weights'
+import { WEIGHT_LABELS, DEFAULT_WEIGHTS, PERSISTABLE_WEIGHT_KEYS, type ScoringWeights } from '@/lib/scoring/weights'
 
 export function ScoringWeightsCard() {
   const [weights, setWeights] = useState<ScoringWeights | null>(null)
@@ -8,7 +8,8 @@ export function ScoringWeightsCard() {
   const [saved, setSaved] = useState(false)
   useEffect(() => { fetch('/api/settings/scoring-weights').then(r => r.json()).then(d => setWeights(d.weights)).catch(() => {}) }, [])
   if (!weights) return null
-  const keys = Object.keys(WEIGHT_LABELS) as (keyof ScoringWeights)[]
+  // PR3 will surface brokenLinks once it persists.
+  const keys = PERSISTABLE_WEIGHT_KEYS
   async function save() {
     setError(null); setSaved(false)
     const res = await fetch('/api/settings/scoring-weights', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(weights) })
