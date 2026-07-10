@@ -162,6 +162,43 @@ describe('fetchAllRecents', () => {
     expect(items.every((i) => i.inFlight === false)).toBe(true)
   })
 
+  // C14: additive badge — SiteAudit-origin rows carry prospectLinked.
+  it('marks SiteAudit-origin rows prospectLinked from prospectId, both seoOnly branches', async () => {
+    findManySite.mockImplementation((q: { where: { AND: Array<Record<string, unknown>> } }) => {
+      const seoOnly = q.where.AND.some((c) => (c as { seoOnly?: boolean }).seoOnly === true)
+      return seoOnly ? [{
+        id: 'seo5', createdAt: new Date('2026-07-08T00:00:03Z'), domain: 'h.com',
+        status: 'complete', startedAt: null, completedAt: new Date(),
+        client: null, requestedBy: null, crawlRuns: [], prospectId: 7,
+      }] : [{
+        id: 'ada5', createdAt: new Date('2026-07-08T00:00:04Z'), domain: 'i.com',
+        status: 'complete', wcagLevel: 'wcag21aa', summary: null,
+        startedAt: null, completedAt: null, client: null, requestedBy: null,
+        crawlRuns: [], prospectId: null,
+      }]
+    })
+    const { items } = await fetchAllRecents({ limit: 10 })
+    const byId = Object.fromEntries(items.map((i) => [i.id, i]))
+    expect(byId.seo5.prospectLinked).toBe(true)
+    expect(byId.ada5.prospectLinked).toBe(false)
+  })
+
+  it('non-SiteAudit-origin rows leave prospectLinked undefined', async () => {
+    findManyAda.mockResolvedValue([{
+      id: 'a9', createdAt: new Date('2026-07-08T00:00:00Z'), url: 'https://x.com',
+      status: 'complete', wcagLevel: 'wcag21aa', result: null,
+      startedAt: null, completedAt: null, client: null, requestedBy: null,
+    }])
+    findManyRun.mockResolvedValue([{
+      id: 'orph9', createdAt: new Date('2026-07-08T00:00:01Z'), status: 'complete',
+      domain: 'j.com', score: null, client: null,
+    }])
+    const { items } = await fetchAllRecents({ limit: 10 })
+    const byId = Object.fromEntries(items.map((i) => [i.id, i]))
+    expect(byId.a9.prospectLinked).toBeUndefined()
+    expect(byId.orph9.prospectLinked).toBeUndefined()
+  })
+
   it('cursor codec round-trips and rejects malformed input', () => {
     const c = { createdAt: 1751990400000, type: 'site-ada' as const, id: 'abc' }
     expect(decodeRecentsCursor(encodeRecentsCursor(c))).toEqual(c)
