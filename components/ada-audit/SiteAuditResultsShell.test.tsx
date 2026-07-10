@@ -55,4 +55,40 @@ describe('SiteAuditResultsShell (C18)', () => {
     render(<SiteAuditResultsShell {...base} adaScore={null} seoScore={null} exportBar={<div>EXPORT</div>} shareMode />)
     expect(screen.queryByText('EXPORT')).toBeNull()
   })
+
+  // C19 PR1 Task 5: the explanation panel is internal-only — the share page
+  // never passes adaScoreBreakdown, so it must render nothing there.
+  it('renders the ADA score explanation invoice when adaScoreBreakdown is provided', () => {
+    const breakdown = JSON.stringify({
+      version: 4, scorer: 'ada-v4', score: 76, weightsHash: 'abc123', lowCoverage: false,
+      deductions: [
+        { category: 'critical', cap: 40, points: 12, contributions: [
+          { ruleId: 'image-alt', impact: 'critical', prevalence: 0.3, pagesAffected: 61, advisory: false },
+        ] },
+      ],
+      inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
+    })
+    render(<SiteAuditResultsShell {...base} adaScoreBreakdown={breakdown} />)
+    expect(screen.getByText(/How this score was calculated/i)).toBeTruthy()
+    expect(screen.getByText(/image-alt/)).toBeTruthy()
+  })
+
+  it('omits the ADA score explanation when adaScoreBreakdown is not provided (share mode)', () => {
+    render(<SiteAuditResultsShell {...base} />)
+    expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
+  })
+
+  it('omits the ADA score explanation in shareMode even if adaScoreBreakdown is (mis)provided', () => {
+    const breakdown = JSON.stringify({
+      version: 4, scorer: 'ada-v4', score: 76, weightsHash: 'abc123', lowCoverage: false,
+      deductions: [
+        { category: 'critical', cap: 40, points: 12, contributions: [
+          { ruleId: 'image-alt', impact: 'critical', prevalence: 0.3, pagesAffected: 61, advisory: false },
+        ] },
+      ],
+      inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
+    })
+    render(<SiteAuditResultsShell {...base} shareMode adaScoreBreakdown={breakdown} />)
+    expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
+  })
 })

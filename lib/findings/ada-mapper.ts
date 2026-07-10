@@ -3,18 +3,24 @@
 // Pure mappers: ADA audit rows (+ their axe result blobs) → FindingsBundle.
 // No DB access. Scores are COMPUTED here, never read from scalar columns —
 // AdaAudit.score / SiteAudit.score are not reliably persisted (the list and
-// detail routes compute them dynamically from blobs today). Scoring is v2
-// (C9-A, see lib/ada-audit/scoring-v2.ts — v1 scoring.ts is frozen and used
-// elsewhere, e.g. recents/list routes, but no longer by this mapper):
-//   - page + standalone-run score: computeScoreV2 (density-based, per page)
-//   - site-run score: computeSiteScoreV2 (mean of per-page v2 scores)
-//   - run.scoreBreakdown: serialized AdaScoreV2Breakdown (version 2)
+// detail routes compute them dynamically from blobs today). Scoring is v4
+// (C19, see lib/scoring/ada-v4.ts — v2/v3 density model in
+// lib/ada-audit/scoring-v2.ts is frozen for history, `isAdvisory` still
+// shared from there):
+//   - page score: computeAdaScoreV4 with pagesAudited:1, prevalence-1 rules
+//     built from that page's own violations
+//   - site-run score: computeAdaScoreV4 over the SITE-WIDE per-rule
+//     prevalence aggregated across all scored pages (NOT a mean of page
+//     scores)
+//   - run.scoreBreakdown: serialized AdaV4Breakdown (version 4) + weightsHash
 import { randomUUID } from 'crypto'
 import type { AxeNode, AxeViolation, ImpactLevel, StoredAxeResults } from '@/lib/ada-audit/types'
+import { isAdvisory } from '@/lib/ada-audit/scoring-v2'
 import {
-  computeScoreV2, computeSiteScoreV2, serializeAdaBreakdown, ADA_SCORE_VERSION,
-  type AdaScoreV2Breakdown,
-} from '@/lib/ada-audit/scoring-v2'
+  computeAdaScoreV4, DEFAULT_ADA_V4_WEIGHTS, serializeAdaV4Breakdown,
+  type AdaV4Weights, type AdaV4RuleInput,
+} from '@/lib/scoring/ada-v4'
+import { hashWeights } from '@/lib/scoring/weights-hash'
 import { normalizeHost } from '@/lib/services/normalize-host'
 import { normalizeFindingUrl, pageFindingKey } from './keys'
 import type { CrawlPageInput, FindingInput, FindingsBundle, ViolationInput } from './types'
@@ -28,6 +34,12 @@ export interface AdaSiteParent {
   pagesError: number
   startedAt: Date | null
   completedAt: Date | null
+  /** The ORIGIN SiteAudit.pagesTotal (the audit universe) — used as the v4
+   *  site-score `pagesTotal` input so low-coverage audits (missing/errored/
+   *  duplicate rows) surface `lowCoverage` correctly. Optional/nullable:
+   *  falls back to the deduped `pages.length` when absent. NOT the same
+   *  thing as `CrawlRun.pagesTotal`, which always keeps pages.length. */
+  pagesTotal?: number | null
 }
 
 /** Child fields the site mapper needs — a structural subset of the
@@ -164,13 +176,41 @@ function emitPageViolations(
   }
 }
 
-export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[]): FindingsBundle {
+/** Per-ruleId site-wide aggregation, built across the whole child walk. */
+interface RuleAgg {
+  impact: AdaV4RuleInput['impact']
+  advisory: boolean
+  pages: Set<string>
+}
+
+/** Dedupes a page's own violations by ruleId (one prevalence-1 rule input
+ *  per distinct rule on that page — a defensively-duplicated axe entry for
+ *  the same rule must not double-count in that page's own score). */
+function pageV4Rules(violations: AxeViolation[]): AdaV4RuleInput[] {
+  const byRule = new Map<string, { impact: AdaV4RuleInput['impact']; advisory: boolean }>()
+  for (const v of violations) {
+    if (byRule.has(v.id)) continue
+    byRule.set(v.id, { impact: v.impact ?? 'unknown', advisory: isAdvisory(v.tags ?? []) })
+  }
+  return [...byRule.entries()].map(([ruleId, r]) => (
+    { ruleId, impact: r.impact, advisory: r.advisory, pagesAffected: 1 }
+  ))
+}
+
+export function mapAdaChildren(
+  parent: AdaSiteParent,
+  children: AdaChildInput[],
+  weights: AdaV4Weights = DEFAULT_ADA_V4_WEIGHTS,
+): FindingsBundle {
   const runId = randomUUID()
   const pages: CrawlPageInput[] = []
   const findings: FindingInput[] = []
   const violations: ViolationInput[] = []
   const seenUrls = new Set<string>()
   const seenKeys = new Set<string>()
+  const ruleAgg = new Map<string, RuleAgg>()
+  const scoredPageIds: string[] = []
+  let incompleteSum = 0
 
   for (const child of children) {
     const url = normalizeFindingUrl(child.url)
@@ -179,9 +219,38 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
     if (seenUrls.has(url)) continue
     seenUrls.add(url)
 
+    const pageId = randomUUID()
+    // parseAxe returns null for a missing/malformed blob (≠ a valid empty
+    // violations array) — those pages are excluded from pagesAudited, not
+    // silently scored as clean.
     const axe = child.status === 'complete' ? parseAxe(child.result) : null
+
+    let pageScore: number | null = null
+    if (axe) {
+      for (const v of axe.violations) {
+        const impact = v.impact ?? 'unknown'
+        const agg = ruleAgg.get(v.id)
+        if (agg) {
+          agg.pages.add(pageId)
+          // "first non-null seen" — an early null-impact occurrence must not
+          // permanently pin the rule to 'unknown' once a real impact shows up.
+          if (agg.impact === 'unknown' && impact !== 'unknown') agg.impact = impact
+        } else {
+          ruleAgg.set(v.id, { impact, advisory: isAdvisory(v.tags ?? []), pages: new Set([pageId]) })
+        }
+      }
+      pageScore = computeAdaScoreV4({
+        pagesAudited: 1,
+        pagesTotal: null,
+        meanIncomplete: axe.incompleteCount,
+        rules: pageV4Rules(axe.violations),
+      }, weights).score
+      scoredPageIds.push(pageId)
+      incompleteSum += axe.incompleteCount
+    }
+
     const page: CrawlPageInput = {
-      id: randomUUID(),
+      id: pageId,
       runId,
       url,
       status: child.status,
@@ -194,10 +263,7 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
       wordCount: null,
       crawlDepth: null,
       indexable: null,
-      score: axe
-        ? computeScoreV2({ violations: axe.violations, incompleteCount: axe.incompleteCount,
-            domElementCount: axe.domElementCount, wcagLevel: parent.wcagLevel }).score
-        : null,
+      score: pageScore,
       passCount: axe?.passCount ?? null,
       incompleteCount: axe?.incompleteCount ?? null,
       adaAuditId: child.id,
@@ -209,12 +275,25 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
     }
   }
 
-  const pageScores = pages.map((p) => p.score).filter((s): s is number => s != null)
-  const siteScore = computeSiteScoreV2(pageScores)
-  const siteBreakdown: AdaScoreV2Breakdown = {
-    version: ADA_SCORE_VERSION, scorer: 'ada-v2', score: siteScore,
-    factors: { weightedFailNodes: 0, incompletePenalty: 0,
-      domElementCount: 0, density: 0, k: 0, pagesScored: pageScores.length },
+  // Zero scored pages (all children errored/redirected/malformed) → never
+  // call the scorer (it throws on pagesAudited <= 0); the run is unscored.
+  let runScore: number | null = null
+  let runBreakdown: string | null = null
+  if (scoredPageIds.length > 0) {
+    const rules: AdaV4RuleInput[] = [...ruleAgg.entries()].map(([ruleId, a]) => (
+      { ruleId, impact: a.impact, advisory: a.advisory, pagesAffected: a.pages.size }
+    ))
+    const { score, breakdown } = computeAdaScoreV4({
+      pagesAudited: scoredPageIds.length,
+      // The audit UNIVERSE (origin SiteAudit.pagesTotal), not the deduped
+      // row count — a missing/duplicate/error-heavy audit must show as
+      // low-coverage even though every surviving row scored cleanly.
+      pagesTotal: parent.pagesTotal ?? pages.length,
+      meanIncomplete: incompleteSum / scoredPageIds.length,
+      rules,
+    }, weights)
+    runScore = score
+    runBreakdown = serializeAdaV4Breakdown(breakdown, hashWeights(weights as unknown as Record<string, number>))
   }
 
   return {
@@ -228,10 +307,11 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
       siteAuditId: parent.id,
       adaAuditId: null,
       status: parent.pagesError > 0 ? 'partial' : 'complete',
-      // Site-level score = mean of per-page v2 scores (computeSiteScoreV2),
-      // not a violation-count derivation — see scoring-v2.ts.
-      score: siteScore,
-      scoreBreakdown: siteScore != null ? serializeAdaBreakdown(siteBreakdown) : null,
+      // Site-level score = v4 prevalence-weighted deductions over the
+      // SITE-WIDE rule aggregation (NOT a mean of per-page scores) — see
+      // lib/scoring/ada-v4.ts.
+      score: runScore,
+      scoreBreakdown: runBreakdown,
       wcagLevel: parent.wcagLevel,
       pagesTotal: pages.length,
       startedAt: parent.startedAt,
@@ -243,18 +323,28 @@ export function mapAdaChildren(parent: AdaSiteParent, children: AdaChildInput[])
   }
 }
 
-export function mapAdaSingle(audit: AdaSingleInput): FindingsBundle {
+export function mapAdaSingle(
+  audit: AdaSingleInput,
+  weights: AdaV4Weights = DEFAULT_ADA_V4_WEIGHTS,
+): FindingsBundle {
   const runId = randomUUID()
   const url = normalizeFindingUrl(audit.url)
   const findings: FindingInput[] = []
   const violations: ViolationInput[] = []
 
   const axe = audit.status === 'complete' ? parseAxe(audit.result) : null
-  const v2 = axe
-    ? computeScoreV2({ violations: axe.violations, incompleteCount: axe.incompleteCount,
-        domElementCount: axe.domElementCount, wcagLevel: audit.wcagLevel })
-    : null
-  const score = v2?.score ?? null
+  let score: number | null = null
+  let scoreBreakdown: string | null = null
+  if (axe) {
+    const { score: s, breakdown } = computeAdaScoreV4({
+      pagesAudited: 1,
+      pagesTotal: null,
+      meanIncomplete: axe.incompleteCount,
+      rules: pageV4Rules(axe.violations),
+    }, weights)
+    score = s
+    scoreBreakdown = serializeAdaV4Breakdown(breakdown, hashWeights(weights as unknown as Record<string, number>))
+  }
 
   const page: CrawlPageInput = {
     id: randomUUID(),
@@ -294,7 +384,7 @@ export function mapAdaSingle(audit: AdaSingleInput): FindingsBundle {
       // audits with errored pages.
       status: 'complete',
       score,
-      scoreBreakdown: v2 ? serializeAdaBreakdown(v2.breakdown) : null,
+      scoreBreakdown,
       wcagLevel: audit.wcagLevel,
       pagesTotal: 1,
       startedAt: audit.startedAt,

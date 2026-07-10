@@ -209,6 +209,7 @@ export async function compareAdaParity(siteAuditId: string): Promise<ParityRepor
     select: {
       id: true, domain: true, clientId: true, wcagLevel: true, status: true,
       pagesError: true, startedAt: true, completedAt: true, summary: true,
+      pagesTotal: true,
     },
   })
   if (!parent) return { ok: false, diffs: ['site audit missing'] }

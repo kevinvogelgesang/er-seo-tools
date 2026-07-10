@@ -137,6 +137,7 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
           pagesError: audit.pagesError,
           startedAt: audit.startedAt,
           completedAt,
+          pagesTotal: audit.pagesTotal,
         },
         pageAudits,
       )

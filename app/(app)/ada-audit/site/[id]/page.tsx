@@ -316,6 +316,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
           wcagLevel={audit.wcagLevel}
           adaScore={score}
           seoScore={liveScanRun?.score ?? null}
+          adaScoreBreakdown={crawlRun?.scoreBreakdown ?? null}
           exportBar={
             <SiteAuditExportBar
               siteAuditId={audit.id}

@@ -16,6 +16,7 @@ import { useChecks } from './useChecks'
 import { useTriageMode } from './useTriageMode'
 import { ArchivedAuditBanner } from './ArchivedAuditBanner'
 import { ClientDate } from '@/components/ClientDate'
+import { AdaScoreExplanation } from '@/components/scoring/AdaScoreExplanation'
 
 interface Props {
   results: StoredAxeResults
@@ -37,6 +38,10 @@ interface Props {
   /** Optional. Threaded into the scorecard's v1/v2 badge (C9-A). Omitted =
    *  no badge, identical render to before this prop existed. */
   scoreMeta?: { version: number; fromFallback: boolean; passCount: number | null; incompleteCount: number | null }
+  /** Optional. The origin CrawlRun's serialized v4 breakdown (C19 PR1 Task 5).
+   *  Rendered only when `!readOnly` — the explanation panel is internal-only;
+   *  the share page never passes this prop. */
+  scoreBreakdown?: string | null
 }
 
 function buildScorecard(results: StoredAxeResults): AuditScorecard {
@@ -53,7 +58,7 @@ function buildScorecard(results: StoredAxeResults): AuditScorecard {
   }
 }
 
-export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, shareToken, lighthouseSummary = null, lighthouseError = null, pdfs = [], scoreMeta }: Props) {
+export default function AuditResultsView({ results, url, clientName, createdAt, auditId, wcagLevel, score, compliant, previousScore, fromAuditId, showRescan, readOnly = false, shareToken, lighthouseSummary = null, lighthouseError = null, pdfs = [], scoreMeta, scoreBreakdown }: Props) {
   const scorecard = buildScorecard(results)
   // Archived results synthesize passes/incomplete as [] — archivedCounts is
   // the truth there; empty arrays must never render as a literal 0 (Codex #3).
@@ -147,6 +152,7 @@ export default function AuditResultsView({ results, url, clientName, createdAt, 
             archivedCounts={results.archived ? results.archivedCounts ?? { passed: null, incomplete: null } : undefined}
             scoreMeta={scoreMeta}
           />
+          {!readOnly && <AdaScoreExplanation breakdown={scoreBreakdown ?? null} />}
         </div>
       </div>
 

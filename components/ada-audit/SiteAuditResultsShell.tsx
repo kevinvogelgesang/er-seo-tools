@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { ScoreRing } from '@/components/ui/ScoreRing'
 import { ClientDate } from '@/components/ClientDate'
+import { AdaScoreExplanation } from '@/components/scoring/AdaScoreExplanation'
 
 type ResultTab = 'accessibility' | 'seo'
 function parseTab(v: string | null): ResultTab { return v === 'seo' ? 'seo' : 'accessibility' }
@@ -22,11 +23,16 @@ interface Props {
   accessibility: React.ReactNode
   seo: React.ReactNode
   shareMode?: boolean
+  /** Optional. The origin ada-audit CrawlRun's serialized v4 breakdown
+   *  (C19 PR1 Task 5). Internal pages pass it; the share page omits it by
+   *  construction — the explanation panel is internal-only. */
+  adaScoreBreakdown?: string | null
 }
 
 export default function SiteAuditResultsShell({
   domain, clientName, createdAt, pagesTotal, pagesError, wcagLevel,
   adaScore, seoScore, exportBar, diffPanel, accessibility, seo, shareMode = false,
+  adaScoreBreakdown,
 }: Props) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -88,6 +94,9 @@ export default function SiteAuditResultsShell({
             </div>
           </div>
         </div>
+        {/* Internal-only panel — never render in shareMode, even if a caller
+            (mis)passes adaScoreBreakdown to a share-mode render. */}
+        {!shareMode && <AdaScoreExplanation breakdown={adaScoreBreakdown ?? null} />}
         {/* Codex #1: export/diff hit cookie-gated routes — NEVER render in shareMode. */}
         {!shareMode && (exportBar || diffPanel) && (
           <div className="mt-4 space-y-4">

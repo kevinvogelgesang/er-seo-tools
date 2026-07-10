@@ -130,6 +130,35 @@ describe('AuditResultsView — archived render contract', () => {
     expect(screen.getByText(/3 needs review/)).toBeTruthy()
   })
 
+  // C19 PR1 Task 5: the explanation panel is internal-only.
+  it('renders the ADA score explanation invoice when scoreBreakdown is provided and not readOnly', () => {
+    const breakdown = JSON.stringify({
+      version: 4, scorer: 'ada-v4', score: 76, weightsHash: 'abc123', lowCoverage: false,
+      deductions: [
+        { category: 'critical', cap: 40, points: 12, contributions: [
+          { ruleId: 'image-alt', impact: 'critical', prevalence: 0.3, pagesAffected: 61, advisory: false },
+        ] },
+      ],
+      inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
+    })
+    render(<AuditResultsView {...baseProps} results={makeResults()} scoreBreakdown={breakdown} />)
+    expect(screen.getByText(/How this score was calculated/i)).toBeTruthy()
+  })
+
+  it('does NOT render the ADA score explanation when readOnly, even with scoreBreakdown', () => {
+    const breakdown = JSON.stringify({
+      version: 4, scorer: 'ada-v4', score: 76, weightsHash: 'abc123', lowCoverage: false,
+      deductions: [
+        { category: 'critical', cap: 40, points: 12, contributions: [
+          { ruleId: 'image-alt', impact: 'critical', prevalence: 0.3, pagesAffected: 61, advisory: false },
+        ] },
+      ],
+      inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
+    })
+    render(<AuditResultsView {...baseProps} results={makeResults()} scoreBreakdown={breakdown} readOnly />)
+    expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
+  })
+
   it('renders read-only without a localStorage global and does not throw', () => {
     vi.stubGlobal('localStorage', undefined)
     expect(() =>
