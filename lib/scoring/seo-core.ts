@@ -79,6 +79,12 @@ export interface SfInputsSnapshot {
   totalUrls: number; indexableUrls: number; clientErrors: number; serverErrors: number
   base: number; missingTitle: number; missingMeta: number; missingH1: number
   avgCrawlDepth: number | null; thinCount: number | null; pagesWithSchema: number | null
+  /** C19 PR3 (Codex #3): whether the blob actually carried indexable_urls /
+   *  client+server error counts — absent fields are NOT a literal 0 for factor
+   *  availability. Optional: pre-PR3 v2 snapshots lack them, and the recompute
+   *  falls back to the documented lossy assumption (present ⇒ available). */
+  indexableKnown?: boolean
+  errorsKnown?: boolean
 }
 export interface LiveInputsSnapshot {
   source: 'live'
