@@ -7,6 +7,7 @@
 import { useCallback, useState } from 'react'
 import type { ClientScheduleRow } from '@/lib/services/client-schedules'
 import { IntentChip } from '@/components/ada-audit/IntentChip'
+import { StatusPill } from '@/components/ui/StatusPill'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -188,7 +189,7 @@ export function ScheduledScansCard({ clientId, domains, archived, initial }: Pro
               {s.enabled ? (
                 <span className="text-gray-400 dark:text-white/40">next {new Date(s.nextRunAt).toLocaleString()}</span>
               ) : (
-                <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/50 font-semibold">Paused</span>
+                <StatusPill label="Paused" tone="neutral" />
               )}
               {s.lastRun && (
                 <span className="text-gray-500 dark:text-white/50">

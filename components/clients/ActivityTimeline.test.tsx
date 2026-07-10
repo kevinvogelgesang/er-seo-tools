@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 // components/clients/ActivityTimeline.test.tsx
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach } from 'vitest'
 import { ActivityTimeline, type ActivityTimelineItem } from './ActivityTimeline'
+
+// globals:false → testing-library auto-cleanup is off; clean explicitly.
+afterEach(cleanup)
 
 const item = (over: Partial<ActivityTimelineItem>): ActivityTimelineItem => ({
   type: 'seo-parse', id: 'x1', title: 'acme.example', status: 'complete',
@@ -24,5 +27,11 @@ describe('ActivityTimeline', () => {
   it('renders the empty state', () => {
     render(<ActivityTimeline items={[]} />)
     expect(screen.getByText(/No activity yet/)).toBeTruthy()
+  })
+  it('renders the status chip as a StatusPill (lifecycle tones)', () => {
+    render(<ActivityTimeline items={[item({}), item({ id: 'x3', status: 'error' })]} />)
+    expect(screen.getByText('complete').className).toContain('rounded-full')
+    expect(screen.getByText('complete').className).toContain('bg-green-100')
+    expect(screen.getByText('error').className).toContain('bg-red-100')
   })
 })

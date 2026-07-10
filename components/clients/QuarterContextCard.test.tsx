@@ -37,5 +37,7 @@ describe('QuarterContextCard', () => {
   it('renders the done chip when completed', () => {
     render(<QuarterContextCard context={ctx({ completed: true, completedAt: '2026-07-24T10:00:00Z' })} />)
     expect(screen.getByText(/✓ Done/)).toBeTruthy()
+    expect(screen.getByText(/✓ Done/).className).toContain('rounded-full')
+    expect(screen.getByText(/✓ Done/).className).toContain('bg-green-100')
   })
 })

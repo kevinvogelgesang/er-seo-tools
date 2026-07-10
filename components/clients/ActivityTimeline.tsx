@@ -4,6 +4,7 @@
 // is the only client leaf. Local item interface (repo convention).
 
 import { RelativeTime } from '@/app/(app)/pillar-analysis/[id]/components/RelativeTime'
+import { StatusPill, type Tone } from '@/components/ui/StatusPill'
 
 export interface ActivityTimelineItem {
   type: 'seo-parse' | 'keyword-research' | 'site-audit' | 'ada-audit' | 'pillar-analysis' | 'seo-roadmap'
@@ -33,11 +34,11 @@ const TYPE_CLASSES: Record<ActivityTimelineItem['type'], string> = {
   'seo-roadmap': 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
 }
 
-function statusClasses(status: string): string {
-  if (status === 'complete') return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300'
-  if (status === 'error') return 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300'
-  if (status === 'cancelled') return 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60'
-  return 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' // in-flight
+function timelineStatusTone(status: string): Tone {
+  if (status === 'complete') return 'success'
+  if (status === 'error') return 'error'
+  if (status === 'cancelled') return 'neutral'
+  return 'running' // in-flight
 }
 
 export function ActivityTimeline({ items }: { items: ActivityTimelineItem[] }) {
@@ -56,10 +57,10 @@ export function ActivityTimeline({ items }: { items: ActivityTimelineItem[] }) {
             <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase whitespace-nowrap ${TYPE_CLASSES[it.type]}`}>
               {TYPE_LABELS[it.type]}
             </span>
-            <a href={it.href} className="font-semibold text-sm text-[#1c2d4a] dark:text-white hover:text-[#f5a623] dark:hover:text-[#f5a623] transition-colors truncate max-w-[280px]">
+            <a href={it.href} className="font-semibold text-sm text-navy dark:text-white hover:text-orange dark:hover:text-orange transition-colors truncate max-w-[280px]">
               {it.title}
             </a>
-            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${statusClasses(it.status)}`}>{it.status}</span>
+            <StatusPill label={it.status} tone={timelineStatusTone(it.status)} />
             {it.stat && <span className="text-xs text-gray-500 dark:text-white/60 tabular-nums">{it.stat}</span>}
             <span className="ml-auto text-xs text-gray-400 dark:text-white/40 whitespace-nowrap">
               <RelativeTime value={it.date} />

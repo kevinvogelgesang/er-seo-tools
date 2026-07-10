@@ -102,6 +102,7 @@ describe('ScheduledScansCard', () => {
       />,
     )
     expect(screen.getByText('Paused')).toBeTruthy()
+    expect(screen.getByText('Paused').className).toContain('rounded-full')
     expect(screen.getByText('Resume')).toBeTruthy()
   })
 

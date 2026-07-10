@@ -4,6 +4,8 @@
 // scheduled-scan line, Edit link. Read-only (Phase 1a) — editing lives at
 // /clients/manage.
 
+import { StatusPill } from '@/components/ui/StatusPill'
+
 const JOB_TYPE_LABELS: Record<string, string> = { 'scheduled-site-audit': 'site audit' }
 
 export interface ClientHeaderProps {
@@ -18,21 +20,17 @@ export interface ClientHeaderProps {
 export function ClientHeader({ name, domains, seedUrls, teamworkTasklistId, schedules, archivedAt }: ClientHeaderProps) {
   return (
     <div className="mb-8">
-      <a href="/clients" className="text-xs text-gray-400 dark:text-white/40 hover:text-[#f5a623] transition-colors">
+      <a href="/clients" className="text-xs text-gray-400 dark:text-white/40 hover:text-orange transition-colors">
         ← Clients
       </a>
       <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
-        <h1 className="text-3xl font-display font-bold text-[#1c2d4a] dark:text-white flex items-center gap-3">
+        <h1 className="text-3xl font-display font-bold text-navy dark:text-white flex items-center gap-3">
           {name}
-          {archivedAt && (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wide bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-white/50">
-              Archived
-            </span>
-          )}
+          {archivedAt && <StatusPill label="ARCHIVED" tone="neutral" />}
         </h1>
         <a
           href="/clients/manage"
-          className="text-sm font-semibold text-[#f5a623] hover:text-[#e09415] transition-colors"
+          className="text-sm font-semibold text-orange hover:text-orange-dark transition-colors"
         >
           Edit client →
         </a>
@@ -53,7 +51,7 @@ export function ClientHeader({ name, domains, seedUrls, teamworkTasklistId, sche
             href={`https://enrollmentresources.teamwork.com/app/tasklists/${teamworkTasklistId}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs font-semibold text-[#f5a623] hover:text-[#e09415]"
+            className="text-xs font-semibold text-orange hover:text-orange-dark"
           >
             Teamwork ↗
           </a>
