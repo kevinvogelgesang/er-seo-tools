@@ -34,6 +34,8 @@ export interface QueueRequestInput {
   seoOnly?: boolean
   /** D7: verified session email to notify on completion. null/absent = silent. */
   notifyEmail?: string | null
+  /** C14: prospect-sales-view attribution — mutually exclusive with clientId in practice. */
+  prospectId?: number | null
 }
 
 export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<QueueRequestResult> {
@@ -85,6 +87,7 @@ export async function queueSiteAuditRequest(input: QueueRequestInput): Promise<Q
     seoIntent: (input.seoIntent ?? false) || seoOnly,
     seoOnly,
     notifyEmail: input.notifyEmail ?? null,
+    prospectId: input.prospectId ?? null,
   })
   return { kind: 'queued', id }
 }

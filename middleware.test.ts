@@ -72,6 +72,17 @@ describe('isPublicPath — auth-gate allowlist', () => {
   });
 });
 
+describe('isPublicPath — C14 sales public matchers', () => {
+  it('C14: sales public matchers', () => {
+    expect(isPublicPath('/sales/3f9c2f4e-aaaa-bbbb-cccc-000000000000')).toBe(true);
+    expect(isPublicPath('/api/sales/tok/screenshot/child1/color-contrast-0.png')).toBe(true);
+    // the intake page + APIs stay gated
+    expect(isPublicPath('/sales')).toBe(false);
+    expect(isPublicPath('/api/sales/prospects')).toBe(false);
+    expect(isPublicPath('/api/sales/prospects/3/scan')).toBe(false);
+  });
+});
+
 describe('isPublicPath — A4 health endpoint', () => {
   it('exempts exactly /api/health', () => {
     expect(isPublicPath('/api/health')).toBe(true);

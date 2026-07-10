@@ -45,6 +45,9 @@ export interface RecentItem {
   deletable: boolean
   /** C17: row is worth live-polling via the compact status endpoint. */
   inFlight: boolean
+  /** C14: additive badge — row's SiteAudit has a linked Prospect. Undefined for
+   * non-SiteAudit-origin sources (page/sf-upload/orphaned live-scan runs). */
+  prospectLinked?: boolean
 }
 
 export interface RecentsCursor { createdAt: number; type: RecentType; id: string }
@@ -187,6 +190,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
         summary: true, startedAt: true, completedAt: true, requestedBy: true,
         client: { select: { name: true } },
         crawlRuns: { where: { tool: 'ada-audit' }, select: { score: true } },
+        prospectId: true,
       },
     }),
     prisma.siteAudit.findMany({
@@ -197,6 +201,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
         startedAt: true, completedAt: true, requestedBy: true,
         client: { select: { name: true } },
         crawlRuns: { where: { tool: 'seo-parser' }, select: { id: true, score: true } },
+        prospectId: true,
       },
     }),
     orphanRunsPromise,
@@ -249,6 +254,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
       completedAt: s.completedAt?.toISOString() ?? null,
       clientName: s.client?.name ?? null, requestedBy: s.requestedBy, deletable: false,
       inFlight: transientSite(s.status),
+      prospectLinked: s.prospectId != null,
     })),
     ...seoSites.map((s): RecentItem => ({
       type: 'site-seo', id: s.id, createdAt: s.createdAt.toISOString(),
@@ -266,6 +272,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
         (s.status === 'complete' &&
           !s.crawlRuns[0]?.id &&
           (aliveVerifyGroups.has(`site-audit:${s.id}`) || withinGrace(s.completedAt))),
+      prospectLinked: s.prospectId != null,
     })),
     ...orphans.map((r): RecentItem => ({
       type: 'site-seo', id: r.id, createdAt: r.createdAt.toISOString(),

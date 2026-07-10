@@ -41,7 +41,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-fresh.example',
       42,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false, notifyEmail: null },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false, notifyEmail: null, prospectId: null },
     )
   })
 
@@ -83,7 +83,7 @@ describe('queueSiteAuditRequest', () => {
       'qr-test-norm.example',
       null,
       'wcag21aa',
-      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false, notifyEmail: null },
+      { preDiscoveredUrls: undefined, requestedBy: null, scheduleId: null, seoIntent: false, seoOnly: false, notifyEmail: null, prospectId: null },
     )
   })
 

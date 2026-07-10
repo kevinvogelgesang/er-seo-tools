@@ -142,4 +142,16 @@ describe('RecentsTable', () => {
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /load more/i })).toBeNull()
   })
+
+  it('C14: renders a Prospect badge on prospect-linked rows', () => {
+    render(<RecentsTable initialItems={[item({ type: 'site-ada', prospectLinked: true })]}
+      initialNextCursor={null} initialScope="all" operator={null} variant="full" />)
+    expect(screen.getByText('Prospect')).toBeTruthy()
+  })
+
+  it('C14: does not render a Prospect badge on non-prospect rows', () => {
+    render(<RecentsTable initialItems={[item({ type: 'site-ada' })]}
+      initialNextCursor={null} initialScope="all" operator={null} variant="full" />)
+    expect(screen.queryByText('Prospect')).toBeNull()
+  })
 })

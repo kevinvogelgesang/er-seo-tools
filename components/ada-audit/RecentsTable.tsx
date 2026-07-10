@@ -221,6 +221,11 @@ export default function RecentsTable({ initialItems, initialNextCursor, initialS
                 <tr key={`${it.type}-${it.id}`} className="border-b border-gray-100 dark:border-navy-border">
                   <td className="py-2.5 pr-4 whitespace-nowrap">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${badge.className}`}>{badge.label}</span>
+                    {it.prospectLinked && (
+                      <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-heading font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                        Prospect
+                      </span>
+                    )}
                   </td>
                   <td className="py-2.5 pr-4 max-w-[280px] truncate"><Link href={it.href} className="text-orange hover:underline">{it.label}</Link></td>
                   <td className="py-2.5 pr-4 text-navy/60 dark:text-white/60">{it.clientName ?? '—'}</td>
