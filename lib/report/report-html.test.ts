@@ -127,6 +127,28 @@ describe('buildSiteReportHtml', () => {
       expect(html).not.toContain('stroke-dasharray')
       expect(html).not.toContain('formula changed')
     })
+    it('marks a same-version weights-hash change with a dashed segment and a weights-changed annotation', () => {
+      const html = buildSiteReportHtml(fixture({
+        trend: [
+          { date: '2026-05-01T00:00:00.000Z', score: 50, scoreVersion: 2, weightsHash: 'hash-a' },
+          { date: '2026-06-01T00:00:00.000Z', score: 70, scoreVersion: 2, weightsHash: 'hash-b' },
+        ],
+      }))
+      expect(html).toContain('stroke-dasharray')
+      expect(html).toContain('weights changed')
+      expect(html).not.toContain('formula changed')
+    })
+    it('draws a plain solid polyline when the weights hash is unchanged', () => {
+      const html = buildSiteReportHtml(fixture({
+        trend: [
+          { date: '2026-05-01T00:00:00.000Z', score: 50, scoreVersion: 2, weightsHash: 'hash-a' },
+          { date: '2026-06-01T00:00:00.000Z', score: 70, scoreVersion: 2, weightsHash: 'hash-a' },
+        ],
+      }))
+      expect(html).not.toContain('stroke-dasharray')
+      expect(html).not.toContain('weights changed')
+      expect(html).not.toContain('formula changed')
+    })
   })
 
   describe('changes since previous audit', () => {

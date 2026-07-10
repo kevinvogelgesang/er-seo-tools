@@ -7,6 +7,7 @@
 // (no second load) and calls writeFindingsRun directly. Callers wrap these
 // in try/catch — a findings failure must never affect the legacy path.
 import { prisma } from '@/lib/db'
+import { resolveAdaScoringWeights } from '@/lib/scoring/resolve-ada-weights'
 import { mapAdaChildren, mapAdaSingle } from './ada-mapper'
 import { writeFindingsRun } from './writer'
 
@@ -38,7 +39,8 @@ export async function writeAdaSiteFindings(siteAuditId: string): Promise<void> {
   if (children.some((c) => c.status === 'complete' && !c.result)) {
     throw new Error(`site audit ${siteAuditId}: child result blobs were pruned (90-d archive) — cannot rebuild. Findings rows are the canonical record now.`)
   }
-  await writeFindingsRun(mapAdaChildren(parent, children))
+  const weights = await resolveAdaScoringWeights()
+  await writeFindingsRun(mapAdaChildren(parent, children, weights))
 }
 
 export async function writeAdaSingleFindings(adaAuditId: string): Promise<void> {
@@ -66,5 +68,6 @@ export async function writeAdaSingleFindings(adaAuditId: string): Promise<void> 
   if (audit.status === 'complete' && !audit.result) {
     throw new Error(`ada audit ${adaAuditId}: result blob was pruned (90-d archive) — cannot rebuild. Findings rows are the canonical record now.`)
   }
-  await writeFindingsRun(mapAdaSingle(audit))
+  const weights = await resolveAdaScoringWeights()
+  await writeFindingsRun(mapAdaSingle(audit, weights))
 }

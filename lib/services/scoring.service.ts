@@ -136,6 +136,8 @@ export function computeHealthScore(
     avgCrawlDepth: summary.avg_crawl_depth ?? null,
     thinCount: thinIssue !== undefined ? (thinIssue.count ?? 0) : null,
     pagesWithSchema: structuredData !== undefined ? (structuredData.pages_with_schema ?? 0) : null,
+    indexableKnown: summary.indexable_urls !== undefined,
+    errorsKnown: summary.client_errors !== undefined && summary.server_errors !== undefined,
   };
 
   // ── Normalize and return ─────────────────────────────────────────────────

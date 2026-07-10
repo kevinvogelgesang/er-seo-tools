@@ -93,6 +93,8 @@ describe('mapSeoResult', () => {
       avgCrawlDepth: null,
       thinCount: null,
       pagesWithSchema: null,
+      indexableKnown: false,
+      errorsKnown: false,
     })
   })
 

@@ -10,9 +10,10 @@ async function clearTestState() {
   // CrawlPage/Finding/Violation cascade from CrawlRun; SiteAudit is separate.
   await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
   await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
+  await prisma.adaAudit.deleteMany({ where: { url: { contains: DOMAIN } } })
 }
 
-interface PageSpec { score: number | null; incompleteCount: number | null }
+interface PageSpec { score: number | null; incompleteCount: number | null; adaAuditId?: string | null }
 
 async function makeRun(opts: {
   source: 'site-audit' | 'page-audit'
@@ -35,9 +36,20 @@ async function makeRun(opts: {
       url: `https://${DOMAIN}/${randomUUID()}`,
       score: p.score,
       incompleteCount: p.incompleteCount,
+      adaAuditId: p.adaAuditId ?? null,
     },
   })))
   return { run, pages }
+}
+
+async function makeAdaAuditChild(createdAt: Date) {
+  return prisma.adaAudit.create({
+    data: {
+      url: `https://${DOMAIN}/child-${randomUUID()}`,
+      status: 'complete',
+      createdAt,
+    },
+  })
 }
 
 async function addViolation(
@@ -155,5 +167,50 @@ describe('loadAdaV4InputsForRun', () => {
     })
     const standaloneInputs = await loadAdaV4InputsForRun(standaloneRun.id)
     expect(standaloneInputs!.pagesTotal).toBeNull()
+  })
+
+  it('resolves conflicting per-page impacts in source-child order, matching the mapper', async () => {
+    // Two children: the one created FIRST carries the rule at impact 'moderate',
+    // the one created SECOND at 'serious'. Insert the Violation rows in REVERSED
+    // order so a naive row-order walk would land on 'serious'. The mapper's
+    // first-seen-non-unknown across CHILD order must land on 'moderate'.
+    const firstChild = await makeAdaAuditChild(new Date('2026-01-01T00:00:00Z'))
+    const secondChild = await makeAdaAuditChild(new Date('2026-01-02T00:00:00Z'))
+    const { run, pages } = await makeRun({
+      source: 'page-audit',
+      pages: [
+        { score: 90, incompleteCount: 0, adaAuditId: firstChild.id },
+        { score: 90, incompleteCount: 0, adaAuditId: secondChild.id },
+      ],
+    })
+    // Row-insertion order is REVERSED relative to child order.
+    await addViolation(run.id, pages[1].id, 'conflicted-rule', { impact: 'serious', dedupKey: 'k1' })
+    await addViolation(run.id, pages[0].id, 'conflicted-rule', { impact: 'moderate', dedupKey: 'k2' })
+
+    const inputs = await loadAdaV4InputsForRun(run.id)
+    expect(inputs!.rules.find((r) => r.ruleId === 'conflicted-rule')!.impact).toBe('moderate')
+  })
+
+  it('treats malformed wcagTags JSON as no tags — never advisory', async () => {
+    const { run, pages } = await makeRun({
+      source: 'page-audit',
+      pages: [{ score: 90, incompleteCount: 0 }],
+    })
+    await prisma.finding.create({
+      data: {
+        id: randomUUID(), runId: run.id, pageId: pages[0].id, scope: 'page', type: 'malformed-tags-rule',
+        severity: 'critical', dedupKey: 'malformed-tags',
+      },
+    })
+    const finding = await prisma.finding.findFirstOrThrow({ where: { runId: run.id, dedupKey: 'malformed-tags' } })
+    await prisma.violation.create({
+      data: {
+        findingId: finding.id, runId: run.id, pageId: pages[0].id, ruleId: 'malformed-tags-rule',
+        impact: 'critical', wcagTags: 'not-json',
+      },
+    })
+
+    const inputs = await loadAdaV4InputsForRun(run.id)
+    expect(inputs!.rules[0].advisory).toBe(false)
   })
 })

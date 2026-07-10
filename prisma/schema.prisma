@@ -574,7 +574,19 @@ model ScoringWeights {
   crawlDepth   Float    @default(15)      // health-score only; live SEO ignores it
   thinContent  Float    @default(10)
   schema       Float    @default(10)
+  brokenLinks  Float    @default(10)      // live SEO only; SF health renormalizes it away (C19 PR3)
   updatedAt    DateTime @updatedAt
+}
+
+model AdaScoringWeights {
+  id               Int      @id @default(1) // singleton — all writes use upsert({ where: { id: 1 } })
+  critical         Float    @default(40)    // caps are ABSOLUTE deductions (sum ≤ 100 enforced app-side)
+  serious          Float    @default(30)
+  moderate         Float    @default(15)
+  minor            Float    @default(5)
+  needsReview      Float    @default(10)
+  advisoryDiscount Float    @default(0.4)   // 0..1 multiplier for best-practice-only rules
+  updatedAt        DateTime @updatedAt
 }
 
 model QuarterPlan {

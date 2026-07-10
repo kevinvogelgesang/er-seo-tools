@@ -766,6 +766,8 @@ describe('computeHealthScore — inputsSnapshot', () => {
       avgCrawlDepth: null,
       thinCount: null,
       pagesWithSchema: null,
+      indexableKnown: true,
+      errorsKnown: true,
     });
   });
 

@@ -752,6 +752,33 @@ describe('runBrokenLinkVerify — linkVerification snapshot (C19 PR2 Task 4)', (
     expect(parsed.factors.some((f: { key: string }) => f.key === 'brokenLinks')).toBe(true)
   })
 
+  it('image branch: two same-domain images (one broken) tally imagesChecked/imagesBroken, internalChecked stays 0', async () => {
+    const sa = await prisma.siteAudit.create({
+      data: { domain: LV_DOMAIN, status: 'complete', pagesTotal: 3, pagesComplete: 3, pagesError: 0 },
+    })
+    await prisma.harvestedPageSeo.createMany({ data: seoRows(sa.id) })
+    await prisma.harvestedLink.createMany({
+      data: [
+        { siteAuditId: sa.id, targetUrl: `https://${LV_DOMAIN}/broken.png`, kind: 'image', sourcePageUrl: `https://${LV_DOMAIN}/a` },
+        { siteAuditId: sa.id, targetUrl: `https://${LV_DOMAIN}/ok.png`, kind: 'image', sourcePageUrl: `https://${LV_DOMAIN}/a` },
+      ],
+    })
+    await runBrokenLinkVerify(
+      { siteAuditId: sa.id, domain: LV_DOMAIN },
+      depsFor(new Set([`https://${LV_DOMAIN}/broken.png`])),
+    )
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } },
+      select: { scoreBreakdown: true, findings: { select: { scope: true, type: true, count: true } } },
+    })
+    const parsed = JSON.parse(run!.scoreBreakdown!)
+    expect(parsed.inputsSnapshot.linkVerification).toEqual({
+      internalChecked: 0, internalBroken: 0, imagesChecked: 2, imagesBroken: 1, passComplete: true,
+    })
+    const imgs = run!.findings.find((f) => f.scope === 'run' && f.type === 'broken_images')
+    expect(imgs?.count).toBe(1)
+  })
+
   it('capped scenario: linkVerification.passComplete is false, brokenLinks factor absent, run stays partial', async () => {
     process.env.BROKEN_LINK_MAX_CHECKS = '1' // forces `capped` with 2 unique targets seeded below
     const sa = await prisma.siteAudit.create({

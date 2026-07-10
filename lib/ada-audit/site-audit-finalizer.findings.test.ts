@@ -15,7 +15,19 @@ vi.mock('@/lib/ada-audit/queue-manager', () => ({
 // vi.mock factories are hoisted above module scope — a plain `let` would be
 // in the temporal dead zone when the factory runs. vi.hoisted is the
 // sanctioned escape hatch for mutable mock state.
-const state = vi.hoisted(() => ({ failWrites: false, failCarryForward: false }))
+const state = vi.hoisted(() => ({ failWrites: false, failCarryForward: false, failWeightsResolve: false }))
+// C19 PR3: the resolver is mocked failure-injectable so the finalizer's
+// resolve→defaults fallback (never lose the findings run to a transient
+// weights-read failure) can be pinned without touching a real DB row.
+vi.mock('@/lib/scoring/resolve-ada-weights', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/scoring/resolve-ada-weights')>()
+  return {
+    resolveAdaScoringWeights: vi.fn(async () => {
+      if (state.failWeightsResolve) throw new Error('injected weights resolve failure')
+      return real.resolveAdaScoringWeights()
+    }),
+  }
+})
 vi.mock('@/lib/findings/writer', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/lib/findings/writer')>()
   return {
@@ -81,6 +93,7 @@ describe('finalizeSiteAudit — findings dual-write hook', () => {
   beforeEach(async () => {
     state.failWrites = false
     state.failCarryForward = false
+    state.failWeightsResolve = false
     vi.mocked(processNext).mockClear()
     vi.mocked(carryForwardSiteAuditChecks).mockClear()
     vi.mocked(writeFindingsRun).mockClear()
@@ -104,6 +117,41 @@ describe('finalizeSiteAudit — findings dual-write hook', () => {
       expect(run!.findings).toHaveLength(1)
       expect(run!.violations).toHaveLength(1)
       expect(run!.completedAt).not.toBeNull()
+    })
+  })
+
+  it('scores with the DB AdaScoringWeights profile (C19 PR3)', async () => {
+    await prisma.adaScoringWeights.upsert({
+      where: { id: 1 }, create: { id: 1, critical: 80, serious: 10, moderate: 5, minor: 0, needsReview: 5 },
+      update: { critical: 80, serious: 10, moderate: 5, minor: 0, needsReview: 5 },
+    })
+    try {
+      const site = await makeDrainedAudit()
+      await finalizeSiteAudit(site.id)
+      await vi.waitFor(async () => {
+        const run = await prisma.crawlRun.findUnique({
+          where: { siteAuditId_tool: { siteAuditId: site.id, tool: 'ada-audit' } },
+        })
+        expect(run).not.toBeNull()
+        const breakdown = JSON.parse(run!.scoreBreakdown!) as { deductions: { category: string; cap: number }[] }
+        expect(breakdown.deductions.find((d) => d.category === 'serious')!.cap).toBe(10)
+      })
+    } finally {
+      await prisma.adaScoringWeights.deleteMany({ where: { id: 1 } })
+    }
+  })
+
+  it('falls back to default caps when the weights resolve rejects (C19 PR3)', async () => {
+    state.failWeightsResolve = true
+    const site = await makeDrainedAudit()
+    await finalizeSiteAudit(site.id)
+    await vi.waitFor(async () => {
+      const run = await prisma.crawlRun.findUnique({
+        where: { siteAuditId_tool: { siteAuditId: site.id, tool: 'ada-audit' } },
+      })
+      expect(run).not.toBeNull()
+      const breakdown = JSON.parse(run!.scoreBreakdown!) as { deductions: { category: string; cap: number }[] }
+      expect(breakdown.deductions.find((d) => d.category === 'serious')!.cap).toBe(30) // DEFAULT_ADA_V4_WEIGHTS.serious
     })
   })
 

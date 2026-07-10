@@ -9,6 +9,9 @@ import { prisma } from '@/lib/db'
 import type { AggregatedResult } from '@/lib/types'
 import type { SiteAuditSummary } from '@/lib/ada-audit/types'
 import { DEFAULT_WEIGHTS } from '@/lib/scoring/weights'
+import { parseScoreMeta } from '@/lib/scoring/breakdown-version'
+import { ADA_SCORE_VERSION, DEFAULT_ADA_V4_WEIGHTS } from '@/lib/scoring/ada-v4'
+import { hashWeights } from '@/lib/scoring/weights-hash'
 import { mapSeoResult } from './seo-mapper'
 import { mapAdaChildren, mapAdaSingle } from './ada-mapper'
 import type { FindingsBundle } from './types'
@@ -50,12 +53,16 @@ export async function compareSeoParity(sessionId: string): Promise<ParityReport>
   })
   if (!run) return { ok: false, diffs: ['no CrawlRun for session'] }
 
-  // Score diff is only meaningful when the site's active ScoringWeights
-  // profile is the default — a custom profile makes this a false positive.
+  // Score diff is only meaningful when the stored run was scored by the
+  // CURRENT formula version AT DEFAULT weights — parity always recomputes at
+  // DEFAULT_WEIGHTS, so a pre-v2 stored score OR a custom-profile stored
+  // score vs the recompute is expected drift, not a parity failure.
   // Structural parity (pages/findings/violations below) is authoritative
-  // regardless of weight profile. Weight-sensitivity is a documented
-  // follow-up (spec §9).
-  if (run.score !== expected.run.score) diffs.push(`score: tables=${run.score} blob=${expected.run.score}`)
+  // regardless of version/weight profile.
+  const seoMeta = parseScoreMeta(run.scoreBreakdown)
+  const seoScoreComparable = seoMeta.version === 2 // PersistedBreakdownV2.version
+    && seoMeta.weightsHash === hashWeights(DEFAULT_WEIGHTS)
+  if (seoScoreComparable && run.score !== expected.run.score) diffs.push(`score: tables=${run.score} blob=${expected.run.score}`)
   if (run.pagesTotal !== expected.run.pagesTotal) diffs.push(`pagesTotal: tables=${run.pagesTotal} blob=${expected.run.pagesTotal}`)
   if (run.pages.length !== expected.pages.length) diffs.push(`pages: tables=${run.pages.length} blob=${expected.pages.length}`)
 
@@ -120,6 +127,7 @@ interface StoredRun {
   id: string
   status: string
   score: number | null
+  scoreBreakdown: string | null
   wcagLevel: string | null
   pagesTotal: number
   pages: CrawlPage[]
@@ -128,8 +136,16 @@ interface StoredRun {
 }
 
 function diffAdaRun(run: StoredRun, expected: FindingsBundle, diffs: string[]): void {
+  // Score comparisons are only meaningful when the stored run was scored by the
+  // CURRENT formula version AT DEFAULT weights — parity always recomputes at
+  // DEFAULT_ADA_V4_WEIGHTS, so a pre-v4 stored score OR a custom-profile stored
+  // score vs the recompute is expected drift, not a parity failure. Structural
+  // parity below is authoritative regardless of version/weights.
+  const meta = parseScoreMeta(run.scoreBreakdown)
+  const scoreComparable =
+    meta.version === ADA_SCORE_VERSION && meta.weightsHash === hashWeights(DEFAULT_ADA_V4_WEIGHTS)
   if (run.status !== expected.run.status) diffs.push(`run status: tables=${run.status} blob=${expected.run.status}`)
-  if (run.score !== expected.run.score) diffs.push(`score: tables=${run.score} blob=${expected.run.score}`)
+  if (scoreComparable && run.score !== expected.run.score) diffs.push(`score: tables=${run.score} blob=${expected.run.score}`)
   if (run.wcagLevel !== expected.run.wcagLevel) diffs.push(`wcagLevel: tables=${run.wcagLevel} blob=${expected.run.wcagLevel}`)
   if (run.pagesTotal !== expected.run.pagesTotal) diffs.push(`pagesTotal: tables=${run.pagesTotal} blob=${expected.run.pagesTotal}`)
   if (run.pages.length !== expected.pages.length) diffs.push(`pages: tables=${run.pages.length} blob=${expected.pages.length}`)
@@ -147,6 +163,7 @@ function diffAdaRun(run: StoredRun, expected: FindingsBundle, diffs: string[]): 
     // parity needs the blob, so a rebuild always populates them — stored null
     // is a stale pre-C3 row, never noise.
     for (const field of ['status', 'error', 'finalUrl', 'score', 'passCount', 'incompleteCount', 'adaAuditId'] as const) {
+      if (field === 'score' && !scoreComparable) continue
       if (stored[field] !== p[field]) {
         diffs.push(`CrawlPage ${p.url} ${field}: tables=${stored[field]} blob=${p[field]}`)
       }

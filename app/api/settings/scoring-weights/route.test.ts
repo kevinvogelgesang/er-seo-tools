@@ -61,6 +61,7 @@ describe('PUT /api/settings/scoring-weights', () => {
         crawlDepth: 15,
         thinContent: 0,
         schema: 0,
+        brokenLinks: 0, // brokenLinks is persistable (C19 PR3) — must be explicitly zeroed too, else it defaults non-zero
       }),
     }))
     expect(res.status).toBe(400)
@@ -94,7 +95,7 @@ describe('PUT /api/settings/scoring-weights', () => {
     expect(getJson.weights.indexability).toBe(40)
   })
 
-  it('ignores a submitted brokenLinks: the 8 columns persist, brokenLinks stays the code default', async () => {
+  it('persists a submitted brokenLinks: the 9 columns all land (C19 PR3 — real column)', async () => {
     const res = await PUT(new NextRequest('http://localhost', {
       method: 'PUT',
       body: JSON.stringify({ indexability: 33, errorRate: 12, brokenLinks: 25 }),
@@ -103,15 +104,31 @@ describe('PUT /api/settings/scoring-weights', () => {
     const json = await res.json() as { weights: typeof DEFAULT_WEIGHTS }
     expect(json.weights.indexability).toBe(33)
     expect(json.weights.errorRate).toBe(12)
-    expect(json.weights.brokenLinks).toBe(10) // never the submitted 25
+    expect(json.weights.brokenLinks).toBe(25)
 
-    // The 8 persistable columns actually landed in the DB row.
+    // The 9 persistable columns actually landed in the DB row.
     const getRes = await GET()
     const getJson = await getRes.json() as { weights: typeof DEFAULT_WEIGHTS }
     expect(getJson.weights.indexability).toBe(33)
     expect(getJson.weights.errorRate).toBe(12)
+    expect(getJson.weights.brokenLinks).toBe(25)
 
-    // resolveScoringWeights() (the shared read path) still yields the code default too.
-    expect((await resolveScoringWeights()).brokenLinks).toBe(10)
+    // resolveScoringWeights() (the shared read path) round-trips the stored value too.
+    expect((await resolveScoringWeights()).brokenLinks).toBe(25)
+  })
+
+  it('PUT { brokenLinks: 22 } round-trips through GET', async () => {
+    const putRes = await PUT(new NextRequest('http://localhost', {
+      method: 'PUT',
+      body: JSON.stringify({ brokenLinks: 22 }),
+    }))
+    expect(putRes.status).toBe(200)
+    const putJson = await putRes.json() as { weights: typeof DEFAULT_WEIGHTS }
+    expect(putJson.weights.brokenLinks).toBe(22)
+
+    const getRes = await GET()
+    expect(getRes.status).toBe(200)
+    const getJson = await getRes.json() as { weights: typeof DEFAULT_WEIGHTS }
+    expect(getJson.weights.brokenLinks).toBe(22)
   })
 })

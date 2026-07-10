@@ -2,6 +2,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '@/lib/db'
 import type { AggregatedResult } from '@/lib/types'
+import { DEFAULT_ADA_V4_WEIGHTS } from '@/lib/scoring/ada-v4'
+import { hashWeights } from '@/lib/scoring/weights-hash'
 import { writeSeoFindings } from './seo-write'
 import { writeAdaSiteFindings, writeAdaSingleFindings } from './ada-write'
 import { compareSeoParity, compareAdaParity, compareAdaSingleParity } from './parity'
@@ -251,5 +253,38 @@ describe('compareAdaSingleParity', () => {
     const report = await compareAdaSingleParity(auditId)
     expect(report.ok).toBe(false)
     expect(report.diffs.join('\n')).toMatch(/no CrawlRun/i)
+  })
+
+  // C19 PR3: score comparisons are gated on version + default-weights hash —
+  // a stored score that can't have been recomputed at DEFAULT_ADA_V4_WEIGHTS
+  // must never surface as parity noise. Structural (non-score) parity stays
+  // unconditional throughout.
+  it('suppresses score diffs when the stored breakdown is null (pre-v4 legacy row)', async () => {
+    await writeAdaSingleFindings(auditId)
+    await prisma.crawlRun.update({ where: { adaAuditId: auditId }, data: { score: 1, scoreBreakdown: null } })
+    await prisma.crawlPage.updateMany({ where: { adaAuditId: auditId }, data: { score: 1 } })
+    const report = await compareAdaSingleParity(auditId)
+    expect(report.diffs.join('\n')).not.toMatch(/score:/)
+  })
+
+  it('reports a score diff for a v4 breakdown stamped at the default weights hash', async () => {
+    await writeAdaSingleFindings(auditId)
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { adaAuditId: auditId } })
+    const breakdown = JSON.parse(run.scoreBreakdown!) as Record<string, unknown>
+    breakdown.weightsHash = hashWeights(DEFAULT_ADA_V4_WEIGHTS)
+    await prisma.crawlRun.update({ where: { adaAuditId: auditId }, data: { score: 1, scoreBreakdown: JSON.stringify(breakdown) } })
+    const report = await compareAdaSingleParity(auditId)
+    expect(report.diffs.join('\n')).toMatch(/score: tables=1/)
+  })
+
+  it('suppresses a score diff for a v4 breakdown stamped with a NON-default weights hash', async () => {
+    await writeAdaSingleFindings(auditId)
+    const run = await prisma.crawlRun.findUniqueOrThrow({ where: { adaAuditId: auditId } })
+    const breakdown = JSON.parse(run.scoreBreakdown!) as Record<string, unknown>
+    breakdown.weightsHash = 'nondefaulthash999'
+    await prisma.crawlRun.update({ where: { adaAuditId: auditId }, data: { score: 1, scoreBreakdown: JSON.stringify(breakdown) } })
+    await prisma.crawlPage.updateMany({ where: { adaAuditId: auditId }, data: { score: 1 } })
+    const report = await compareAdaSingleParity(auditId)
+    expect(report.diffs.join('\n')).not.toMatch(/score:/)
   })
 })

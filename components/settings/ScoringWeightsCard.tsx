@@ -8,7 +8,6 @@ export function ScoringWeightsCard() {
   const [saved, setSaved] = useState(false)
   useEffect(() => { fetch('/api/settings/scoring-weights').then(r => r.json()).then(d => setWeights(d.weights)).catch(() => {}) }, [])
   if (!weights) return null
-  // PR3 will surface brokenLinks once it persists.
   const keys = PERSISTABLE_WEIGHT_KEYS
   async function save() {
     setError(null); setSaved(false)

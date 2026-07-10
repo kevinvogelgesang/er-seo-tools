@@ -37,7 +37,7 @@ export async function loadAdaV4InputsForRun(runId: string): Promise<AdaV4Inputs 
 
   const pages = await prisma.crawlPage.findMany({
     where: { runId },
-    select: { id: true, score: true, incompleteCount: true },
+    select: { id: true, score: true, incompleteCount: true, adaAuditId: true },
   })
   const scoredPages = pages.filter((p) => p.score !== null)
   if (scoredPages.length === 0) return null
@@ -52,6 +52,28 @@ export async function loadAdaV4InputsForRun(runId: string): Promise<AdaV4Inputs 
     where: { runId, finding: { scope: 'page' } },
     select: { pageId: true, ruleId: true, impact: true, wcagTags: true },
   })
+
+  // Mirror mapAdaChildren's first-seen semantics: children are walked in
+  // (createdAt asc, id asc) order, so rank each page by its source AdaAudit
+  // rather than by Violation.id (a mapper-generated randomUUID with no
+  // relationship to source order). Pages whose child row is gone (SetNull
+  // after audit deletion) sort last, deterministically by page id.
+  const childIds = [...new Set(pages.map((p) => p.adaAuditId).filter((x): x is string => x !== null))]
+  const children = childIds.length
+    ? await prisma.adaAudit.findMany({
+        where: { id: { in: childIds } },
+        select: { id: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      })
+    : []
+  const childRank = new Map(children.map((c, i) => [c.id, i]))
+  const pageRank = new Map(pages.map((p) => [
+    p.id,
+    p.adaAuditId !== null && childRank.has(p.adaAuditId) ? childRank.get(p.adaAuditId)! : Number.MAX_SAFE_INTEGER,
+  ]))
+  violations.sort((a, b) =>
+    (pageRank.get(a.pageId) ?? Number.MAX_SAFE_INTEGER) - (pageRank.get(b.pageId) ?? Number.MAX_SAFE_INTEGER) ||
+    a.pageId.localeCompare(b.pageId) || a.ruleId.localeCompare(b.ruleId))
 
   const byRule = new Map<string, RuleAgg>()
   for (const v of violations) {
