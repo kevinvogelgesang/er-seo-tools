@@ -33,6 +33,7 @@ model Client {
   quarterAssignments    QuarterAssignment[]
   seoReports            SeoReport[]
   prospectsEntries      ProspectsEntry[]
+  gscSnapshots          GscSnapshot[]
 }
 
 model Prospect {
@@ -691,6 +692,28 @@ model ProspectsEntry {
   enteredAt   DateTime @default(now())
 
   @@unique([clientId, periodStart, periodEnd])
+}
+
+// KS-1: durable client-scoped GSC query/query×page keyword snapshot. Raw rows
+// stored as JSON text columns; derivations (wins/opportunities/cannibalization)
+// are computed at read time by lib/keywords/derive.ts, never persisted.
+model GscSnapshot {
+  id                Int      @id @default(autoincrement())
+  clientId          Int
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  gscSiteUrl        String   // verbatim property this snapshot was fetched from (Codex #1)
+  fetchedAt         DateTime @default(now())
+  windowStart       DateTime
+  windowEnd         DateTime
+  queryRowLimit     Int
+  queryPageRowLimit Int
+  queryAtLimit      Boolean  // rows hit the limit — "possibly truncated" (Codex #7)
+  queryPageAtLimit  Boolean
+  minImpressions    Int
+  queryRowsJson     String   // JSON: GscQueryRow[]
+  queryPageRowsJson String   // JSON: GscQueryPageRow[]
+
+  @@index([clientId, fetchedAt])
 }
 
 // Operator identity for Google OAuth login. One row per Google account that has
