@@ -11,8 +11,10 @@ export async function PUT(request: Request) {
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 }) }
   const v = validateWeights(body ?? {})
   if ('error' in v) return NextResponse.json({ error: v.error }, { status: 400 })
-  // Explicit pick of ONLY the 8 columns that exist on the ScoringWeights row — a spread of `v`
-  // would hit Prisma's unknown-argument error at runtime once brokenLinks exists (tsc can't catch it).
+  // Explicit pick of ONLY the columns that exist on the ScoringWeights row — a spread of `v`
+  // would hit Prisma's unknown-argument error at runtime if ScoringWeights ever gained a
+  // client-only field tsc can't catch (PERSISTABLE_WEIGHT_KEYS now covers all 9 columns,
+  // including brokenLinks since C19 PR3).
   const persisted = Object.fromEntries(PERSISTABLE_WEIGHT_KEYS.map((k) => [k, v[k]])) as Pick<
     typeof v, (typeof PERSISTABLE_WEIGHT_KEYS)[number]
   >

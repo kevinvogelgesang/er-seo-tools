@@ -11,15 +11,12 @@ export const WEIGHT_LABELS: Record<keyof ScoringWeights, string> = {
   missingMeta: 'Missing meta description', missingH1: 'Missing H1', crawlDepth: 'Crawl depth',
   thinContent: 'Thin content', schema: 'Schema coverage', brokenLinks: 'Broken links',
 }
-// The 8 columns that exist on the ScoringWeights DB row (brokenLinks has no column until PR3).
-export const PERSISTABLE_WEIGHT_KEYS: readonly Exclude<keyof ScoringWeights, 'brokenLinks'>[] = [
-  'indexability', 'errorRate', 'missingTitle', 'missingMeta', 'missingH1', 'crawlDepth', 'thinContent', 'schema',
+// The 9 columns on the ScoringWeights DB row (brokenLinks persistable since C19 PR3).
+export const PERSISTABLE_WEIGHT_KEYS: readonly (keyof ScoringWeights)[] = [
+  'indexability', 'errorRate', 'missingTitle', 'missingMeta', 'missingH1', 'crawlDepth', 'thinContent', 'schema', 'brokenLinks',
 ]
 const ALL_KEYS = Object.keys(DEFAULT_WEIGHTS) as (keyof ScoringWeights)[]
 export const LIVE_ELIGIBLE_KEYS = ALL_KEYS.filter((k) => k !== 'crawlDepth')
-// Persistable-only subset used by validateWeights's "at least one non-zero" guard (see below) —
-// distinct from LIVE_ELIGIBLE_KEYS, which also includes the non-persistable brokenLinks.
-const PERSISTABLE_LIVE_ELIGIBLE_KEYS = PERSISTABLE_WEIGHT_KEYS.filter((k) => k !== 'crawlDepth')
 
 export interface ScoreBreakdownFactor { key: string; label: string; weight: number; earned: number; possible: number }
 export interface ScoreResult { score: number | null; factors: ScoreBreakdownFactor[] }
@@ -37,12 +34,8 @@ export function validateWeights(input: Record<string, unknown>): ScoringWeights 
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return { error: `Weight "${key}" must be a finite number ≥ 0.` }
     out[key] = v
   }
-  // brokenLinks has no DB column yet (PR3) — never accept a submitted value, always the code default.
-  out.brokenLinks = DEFAULT_WEIGHTS.brokenLinks
-  // The "at least one non-crawl-depth weight > 0" rule keeps its PRE-brokenLinks meaning: it
-  // guards against a submission with every persistable weight at 0 (crawlDepth aside). It must
-  // NOT check over LIVE_ELIGIBLE_KEYS here — brokenLinks is always 10 (non-persistable, never
-  // user-settable), which would make the guard vacuously true and defeat its purpose.
-  if (!PERSISTABLE_LIVE_ELIGIBLE_KEYS.some((k) => out[k] > 0)) return { error: 'At least one non-crawl-depth weight must be greater than 0.' }
+  // At least one non-crawl-depth weight must be > 0 — a submission zeroing every
+  // score-bearing factor would make both scorers vacuous.
+  if (!LIVE_ELIGIBLE_KEYS.some((k) => out[k] > 0)) return { error: 'At least one non-crawl-depth weight must be greater than 0.' }
   return out
 }
