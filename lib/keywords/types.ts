@@ -101,3 +101,26 @@ export type GscSnapshotSummary = {
   quickWins: KeywordBandEntry[]
   cannibalization: CannibalizationEntry[]
 }
+
+/** Payload bound for the full cannibalization report (Increment A). Applied at the
+ *  service boundary only — never in derive.ts. Full count is still reported via
+ *  totalCannibalizedQueries. */
+export const CANNIBALIZATION_REPORT_CAP = 200
+
+/** The read-time cannibalization report (Increment A). `report: null` = no usable
+ *  snapshot yet; `clientExists:false` is the ONLY thing the route 404s on. */
+export type CannibalizationReport = {
+  clientExists: boolean
+  gscMapped: boolean
+  report: {
+    fetchedAt: string
+    windowStart: string
+    windowEnd: string
+    queryAtLimit: boolean
+    queryPageAtLimit: boolean
+    thresholds: KeywordSignalThresholds
+    totalCannibalizedQueries: number
+    capped: boolean
+    entries: CannibalizationEntry[]
+  } | null
+}
