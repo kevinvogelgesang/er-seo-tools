@@ -644,8 +644,7 @@ describe('C12 Tier-1 topic overlap', () => {
   }
 
   it('writes topicOverlapJson clustering two same-topic pages (indexable, non-login)', async () => {
-    const spy = vi.spyOn(embeddings, 'embedTexts').mockResolvedValue([]) // placeholder; overridden below
-    spy.mockImplementation(async (texts: string[]) => texts.map(() => [1, 0])) // every text → identical unit vector
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) => texts.map(() => [1, 0])) // every text → identical unit vector
     const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
     await seedTwoTopicPages(sa.id)
     await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
