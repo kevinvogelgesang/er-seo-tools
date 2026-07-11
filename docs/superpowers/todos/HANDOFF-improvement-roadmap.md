@@ -1,7 +1,7 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
 **Last updated:** 2026-07-11 (**C12 Tier-0 content auditing (Increments A+B)
-SHIPPED + DEPLOYED + PROD-VERIFIED** — PR #<PR>, `<MERGE>`; zero-AI,
+SHIPPED + DEPLOYED + PROD-VERIFIED** — PR #152, `16e56bb`; zero-AI,
 measurement-first. C12 → `[~]` (Tier-1 remains future scope). Next: **roadmap
 menu**.) · **Updated by:** the C12-Tier-0 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
@@ -17,8 +17,8 @@ content auditing (Increments A+B) — SHIPPED + DEPLOYED + PROD-VERIFIED, C12 �
 own specs later). Zero-AI, zero-new-fetch, measurement-first (NOT Findings, NO
 score change). Built subagent-driven from the pre-written spec (Codex ×6) + plan
 (Codex ×5), 11 TDD tasks, one Task-6 fix loop, opus whole-branch review clean.
-PR #<PR> merged (<MERGE>), deployed via plain ~/deploy.sh (app resident) +
-prod-verified <HEAD> (fresh BUILD_ID, health ok, CrawlRun.contentSignalsJson
+PR #152 merged (16e56bb), deployed via plain ~/deploy.sh (app resident) +
+prod-verified 16e56bb (fresh BUILD_ID, health ok, CrawlRun.contentSignalsJson
 readable via read-only Prisma probe).
 
 WHAT SHIPPED:
@@ -109,7 +109,7 @@ ritual in the same commit as any ship.
 
 ## Current state (2026-07-11, post-C12-Tier-0)
 
-- **Main** @ `<MERGE>` (PR #<PR> merge) + this ritual commit. **Prod on `<HEAD>`**,
+- **Main** @ `16e56bb` (PR #152 merge) + this ritual commit. **Prod on `16e56bb`**,
   deployed via a plain `~/deploy.sh` with the app resident (restored recipe);
   fresh BUILD_ID, health ok, migration `20260712000000` applied,
   `CrawlRun.contentSignalsJson` readable via a read-only Prisma probe.
