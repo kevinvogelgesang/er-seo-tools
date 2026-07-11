@@ -7,17 +7,7 @@
 // not evaluated this phase).
 import type { BrokenLinksRun } from './BrokenLinksSection'
 import { ScoreExplanation } from '@/components/scoring/ScoreExplanation'
-
-const ONPAGE_LABEL: Record<string, string> = {
-  missing_title: 'Missing title',
-  duplicate_title: 'Duplicate title',
-  missing_meta_description: 'Missing meta description',
-  duplicate_meta_description: 'Duplicate meta description',
-  missing_h1: 'Missing H1',
-  duplicate_h1: 'Duplicate H1',
-  thin_content: 'Thin content (< 300 words)',
-}
-const ONPAGE_TYPES = new Set(Object.keys(ONPAGE_LABEL))
+import { ONPAGE_FINDING_LABELS as ONPAGE_LABEL, ONPAGE_FINDING_TYPE_SET as ONPAGE_TYPES } from '@/lib/findings/finding-type-sets'
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
