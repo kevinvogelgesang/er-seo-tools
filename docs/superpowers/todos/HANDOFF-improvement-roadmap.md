@@ -147,9 +147,11 @@ ritual in the same commit as any ship.
 
 ## Current state (2026-07-11, post-C12-Tier-1)
 
-- **Main** @ `f5add41` (pre-merge) → **PR #153** carries C12 Tier-1 + this ritual
-  commit; merge SHA + prod-verify recorded in a finalize commit on main after
-  deploy. **Prod on `16e56bb`** (C12 Tier-0) until this deploys.
+- **Main** @ `0ee8a04` (PR #153 merge) + this finalize commit. **Prod on
+  `0ee8a04`**, deployed via a plain `~/deploy.sh` (app resident); fresh BUILD_ID,
+  health ok, migration `20260712120000` applied, `CrawlRun.topicOverlapJson`
+  readable (null — no live-scan since deploy), the `@xenova/all-MiniLM-L6-v2`
+  ONNX artifact confirmed on disk (no scan-time download), 0 unstable restarts.
 - **C12 → `[~]`:** Tier-0 (A+B) + Tier-1 Increment C (MiniLM semantic
   topic-overlap) shipped. The `cat_` handoff family (Increment-D bridge) + Tier-2
   AI data-correctness remain future scope (own specs; Tier-2 OFF per the gate).
