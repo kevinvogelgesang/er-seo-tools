@@ -93,68 +93,94 @@ const COPYRIGHT_RE = /(?:©|\(c\)|Copyright)\s*(\d{4})(?:\s*(?:[-–—]|to)\s*(
 const TERM_RE = /\b(Fall|Spring|Summer|Winter|Autumn)\b\s*(\d{4})/gi
 const DEADLINE_KEYWORD_RE = /\b(apply|enroll(?:ment)?|deadline|registration|starts?|start date|class of)\b/gi
 const YEAR_RE = /\b(\d{4})\b/g
-const SENTENCE_SPLIT_RE = /[.!?]+/
+// Capturing group so String.split keeps the terminator runs interleaved with
+// sentence bodies — lets the deadline pass advance its offset by the ACTUAL
+// matched terminator length instead of assuming 1 char.
+const SENTENCE_SPLIT_RE = /([.!?]+)/
 
-function staleDatesForLine(line: string, currentYear: number, hits: StaleDateHit[]): void {
-  // copyright — reset lastIndex-bearing regexes per line (fresh RegExp objects
-  // are cheap and avoid stateful-lastIndex bugs across lines).
+// A candidate stale-date hit carries its start index WITHIN the line so all
+// three rule passes can be interleaved by textual position before capping —
+// the pinned contract requires the per-page cap to keep hits in document
+// order, not by rule-class priority.
+type LineCandidate = StaleDateHit & { start: number }
+
+function staleDatesForLine(line: string, currentYear: number): LineCandidate[] {
+  const candidates: LineCandidate[] = []
+
+  // copyright — fresh RegExp per line avoids stateful-lastIndex bugs across lines.
   const copyrightRe = new RegExp(COPYRIGHT_RE.source, COPYRIGHT_RE.flags)
   let m: RegExpExecArray | null
   while ((m = copyrightRe.exec(line))) {
-    if (hits.length >= STALE_HITS_PER_PAGE_CAP) return
     const first = parseInt(m[1], 10)
     const second = m[2] ? parseInt(m[2], 10) : null
     const latest = second !== null ? Math.max(first, second) : first
     if (latest <= currentYear - 2) {
-      hits.push({ kind: 'copyright', year: latest, excerpt: makeExcerpt(line, m.index, m.index + m[0].length) })
+      candidates.push({ kind: 'copyright', year: latest, excerpt: makeExcerpt(line, m.index, m.index + m[0].length), start: m.index })
     }
   }
-  if (hits.length >= STALE_HITS_PER_PAGE_CAP) return
 
   // term — season word + year in the same match window
   const termRe = new RegExp(TERM_RE.source, TERM_RE.flags)
   while ((m = termRe.exec(line))) {
-    if (hits.length >= STALE_HITS_PER_PAGE_CAP) return
     const year = parseInt(m[2], 10)
     if (year < currentYear) {
-      hits.push({ kind: 'term', year, excerpt: makeExcerpt(line, m.index, m.index + m[0].length) })
+      candidates.push({ kind: 'term', year, excerpt: makeExcerpt(line, m.index, m.index + m[0].length), start: m.index })
     }
   }
-  if (hits.length >= STALE_HITS_PER_PAGE_CAP) return
 
-  // deadline — enrollment keyword + year within the same SENTENCE (not just line)
-  const sentences = line.split(SENTENCE_SPLIT_RE)
+  // deadline — enrollment keyword + year within the same SENTENCE (not just line).
+  // Split with a capturing group so we advance the offset by the ACTUAL matched
+  // terminator length (multi-char terminators like "?!" / "..." must not shift
+  // the reconstructed line offset used for the excerpt).
+  const parts = line.split(SENTENCE_SPLIT_RE)
   let offset = 0
-  for (const sentence of sentences) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (i % 2 === 1) {
+      // captured terminator run — not a sentence body, just advance the offset
+      offset += part.length
+      continue
+    }
+    const sentence = part
     const sentenceStart = offset
-    offset += sentence.length + 1 // account for the stripped terminator char(s), approximate
+    offset += sentence.length
     const keywordRe = new RegExp(DEADLINE_KEYWORD_RE.source, DEADLINE_KEYWORD_RE.flags)
-    const hasKeyword = keywordRe.test(sentence)
-    if (!hasKeyword) continue
+    if (!keywordRe.test(sentence)) continue
     const yearRe = new RegExp(YEAR_RE.source, YEAR_RE.flags)
     let ym: RegExpExecArray | null
     while ((ym = yearRe.exec(sentence))) {
-      if (hits.length >= STALE_HITS_PER_PAGE_CAP) return
       const year = parseInt(ym[1], 10)
       if (year < currentYear) {
-        hits.push({
+        const absStart = sentenceStart + ym.index
+        candidates.push({
           kind: 'deadline',
           year,
-          excerpt: makeExcerpt(line, sentenceStart + ym.index, sentenceStart + ym.index + ym[0].length),
+          excerpt: makeExcerpt(line, absStart, absStart + ym[0].length),
+          start: absStart,
         })
       }
     }
   }
+
+  // Interleave all three rule passes by textual position (stable for ties).
+  candidates.sort((a, b) => a.start - b.start)
+  return candidates
 }
 
 function staleDatesForPage(text: string, currentYear: number): StaleDateHit[] {
   const hits: StaleDateHit[] = []
   const lines = text.split('\n')
+  // Cross-line order is preserved by the outer loop; within-line order is
+  // preserved by the position sort in staleDatesForLine. The per-page cap of 5
+  // then keeps the first 5 hits in document order.
   for (const line of lines) {
     if (hits.length >= STALE_HITS_PER_PAGE_CAP) break
-    staleDatesForLine(line, currentYear, hits)
+    for (const c of staleDatesForLine(line, currentYear)) {
+      if (hits.length >= STALE_HITS_PER_PAGE_CAP) break
+      hits.push({ kind: c.kind, year: c.year, excerpt: c.excerpt })
+    }
   }
-  return hits.slice(0, STALE_HITS_PER_PAGE_CAP)
+  return hits
 }
 
 export function computeContentSignals(

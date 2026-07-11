@@ -44,6 +44,20 @@ describe('computeContentSignals — stale dates', () => {
     const r = computeContentSignals([page('/a', text)], { currentYear: YEAR })
     expect(r!.staleDates.pages[0].hits.length).toBeLessThanOrEqual(5)
   })
+  it('preserves document order across rule kinds when capping (early term survives 6 copyrights)', () => {
+    // One line: an early `term` reference, then 6 old copyright mentions.
+    // The 5-hit cap must keep the FIRST 5 hits in textual position — so the
+    // leading term hit survives and copyrights fill the rest.
+    const text = 'Fall 2023 semester ' + Array.from({ length: 6 }, (_, i) => `© ${2010 + i} note`).join(' ')
+    const r = computeContentSignals([page('/a', text)], { currentYear: YEAR })
+    const hits = r!.staleDates.pages[0].hits
+    expect(hits.length).toBe(5)
+    expect(hits[0].kind).toBe('term')
+    expect(hits[0].year).toBe(2023)
+    expect(hits.slice(1).every(h => h.kind === 'copyright')).toBe(true)
+    // years appear in document order (2010, 2011, 2012, 2013 after the term)
+    expect(hits.slice(1).map(h => h.year)).toEqual([2010, 2011, 2012, 2013])
+  })
 })
 
 describe('computeContentSignals — readability', () => {
