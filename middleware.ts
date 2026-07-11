@@ -45,6 +45,12 @@ export function isPublicPath(pathname: string): boolean {
   // keyword-memo: GET payload + PATCH memo write-back
   if (/^\/api\/keyword-memo\/[^/]+$/.test(pathname)) return true
   if (/^\/api\/keyword-memo\/[^/]+\/memo$/.test(pathname)) return true
+  // keyword-strategy (kst_): GET export + PATCH memo + POST volumes (billable —
+  // volume-lookup scope). mint-token + by-session poll stay cookie-gated
+  // (triggered from the authenticated dashboard).
+  if (/^\/api\/keyword-strategy\/[^/]+$/.test(pathname)) return true
+  if (/^\/api\/keyword-strategy\/[^/]+\/memo$/.test(pathname)) return true
+  if (/^\/api\/keyword-strategy\/[^/]+\/volumes$/.test(pathname)) return true
   // quarter push (qct_): GET cycle export + POST receipt write-back.
   // mint-token stays cookie-gated (triggered from the authenticated grid).
   if (/^\/api\/quarter-plan\/push\/\d+$/.test(pathname)) return true
