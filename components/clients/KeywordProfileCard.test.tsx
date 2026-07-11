@@ -128,6 +128,20 @@ describe('KeywordProfileCard', () => {
     expect(await screen.findByText(/no completed site seo scan/i)).toBeTruthy()
   })
 
+  it('keeps the typed add-form input when the PATCH fails', async () => {
+    mockFetch((url, init) =>
+      init?.method === 'PATCH'
+        ? { status: 400, body: { error: 'invalid_programs' } }
+        : { status: 200, body: scannedProfile },
+    )
+    render(<KeywordProfileCard clientId={1} initialProfile={scannedProfile} archived={false} />)
+    const nameInput = screen.getByLabelText(/program name/i) as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'Welding' } })
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }))
+    expect(await screen.findByText(/could not save that program roster change/i)).toBeTruthy()
+    expect(nameInput.value).toBe('Welding')
+  })
+
   it('disables all controls when archived', () => {
     render(<KeywordProfileCard clientId={1} initialProfile={emptyProfile} archived={true} />)
     for (const b of screen.getAllByRole('button')) expect((b as HTMLButtonElement).disabled).toBe(true)

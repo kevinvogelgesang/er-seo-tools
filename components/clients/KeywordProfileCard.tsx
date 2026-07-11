@@ -80,7 +80,10 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
     if (res.ok) setProfile(await res.json())
   }, [clientId])
 
-  const mutate = useCallback(async (body: Record<string, unknown>) => {
+  // Returns true only after a successful PATCH + refetch — callers that
+  // reset local form state (handleAddSubmit) must gate on it so a failure
+  // never wipes the user's typed input out from under the error message.
+  const mutate = useCallback(async (body: Record<string, unknown>): Promise<boolean> => {
     setBusy(true)
     setError(null)
     try {
@@ -90,9 +93,13 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
       if (!res.ok) {
         const body2 = await res.json().catch(() => ({}))
         setError(errorCopy(body2.error))
-        return
+        return false
       }
       await refetch() // LWW mitigation — ALWAYS refetch after a mutation (spec §6)
+      return true
+    } catch {
+      setError('Request failed — check your connection.')
+      return false
     } finally {
       setBusy(false)
     }
@@ -105,10 +112,12 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
       const res = await fetch(`/api/clients/${clientId}/keyword-profile/suggest`, { method: 'POST' })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        setError(body.error === 'no_live_scan_run' ? ERROR_COPY.no_live_scan_run : errorCopy(body.error))
+        setError(errorCopy(body.error))
         return
       }
       await refetch()
+    } catch {
+      setError('Request failed — check your connection.')
     } finally {
       setBusy(false)
     }
@@ -127,7 +136,8 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
       ...(newUrl.trim() ? { url: newUrl.trim() } : {}),
       ...(newCredential.trim() ? { credentialLevel: newCredential.trim() } : {}),
     }
-    void mutate({ programs: [...profile.programs, entry] }).then(() => {
+    void mutate({ programs: [...profile.programs, entry] }).then((ok) => {
+      if (!ok) return // keep the typed input alongside the error message
       setNewName('')
       setNewUrl('')
       setNewCredential('')
@@ -293,6 +303,7 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
                     <td className="py-1 text-right">
                       <button
                         type="button"
+                        aria-label={`Remove ${p.name}`}
                         className={removeBtnCls}
                         disabled={disabled}
                         onClick={() => handleRemove(p.name)}
@@ -382,6 +393,7 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
                   <div className="flex items-center gap-3 shrink-0">
                     <button
                       type="button"
+                      aria-label={`Confirm ${s.name}`}
                       className={confirmBtnCls}
                       disabled={disabled}
                       onClick={() => void mutate({ confirmSuggestion: s.name })}
@@ -390,6 +402,7 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
                     </button>
                     <button
                       type="button"
+                      aria-label={`Dismiss ${s.name}`}
                       className={removeBtnCls}
                       disabled={disabled}
                       onClick={() => void mutate({ dismissSuggestion: s.name })}
