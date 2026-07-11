@@ -23,6 +23,14 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   // Don't advertise the framework to every visitor (removes `X-Powered-By`).
   poweredByHeader: false,
+  // The prod box has 3.9 GB total and builds while PM2 keeps the app resident;
+  // next build's separate type-check/lint workers pushed it past the ceiling
+  // twice (2026-06-22 C10 build OOM, 2026-07-09 type-check worker SIGKILL →
+  // partial .next). Both checks already gate every merge locally
+  // (`npm run lint` = tsc --noEmit, plus the vitest suite), so the in-build
+  // repeats are redundant — disabled to keep the build inside server memory.
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
   async redirects() {
     // C11 PR3: /seo-parser renamed to /seo-audits. Permanent 308s so old
     // bookmarks and already-shipped srt_ handoff "Webapp:" links survive.
