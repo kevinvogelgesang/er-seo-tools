@@ -6,6 +6,8 @@
 // url = the harvested (audited) page URL — JSON-LD Course.url is NOT captured
 // in v1 (KS3-Codex #3).
 
+import { normalizeProgramName } from '@/lib/keywords/program-roster'
+
 export interface ProgramEntity {
   name: string
   url: string
@@ -36,13 +38,18 @@ export function aggregateProgramEntities(
     }
   }
   if (pairs.length === 0) return null
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
   // Deterministic winner: sort by (normalized name, url), keep-first per name.
-  pairs.sort((a, b) => norm(a.name).localeCompare(norm(b.name)) || a.url.localeCompare(b.url))
+  // Normalization is the SHARED roster canonicalizer (drift here would desync
+  // aggregation dedupe from roster dedupe).
+  pairs.sort(
+    (a, b) =>
+      normalizeProgramName(a.name).localeCompare(normalizeProgramName(b.name)) ||
+      a.url.localeCompare(b.url),
+  )
   const seen = new Set<string>()
   const entities: ProgramEntity[] = []
   for (const p of pairs) {
-    const k = norm(p.name)
+    const k = normalizeProgramName(p.name)
     if (seen.has(k)) continue
     seen.add(k)
     entities.push(p)

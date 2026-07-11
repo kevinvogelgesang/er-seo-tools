@@ -27,8 +27,35 @@ describe('aggregateProgramEntities', () => {
       entities: [{ name: 'dental assisting', url: 'https://x.edu/a' }],
     })
   })
-  it('caps at 100 entities', () => {
-    const rows = Array.from({ length: 120 }, (_, i) => row(`https://x.edu/p${i}`, [`Program ${String(i).padStart(3, '0')}`]))
-    expect(aggregateProgramEntities(rows)!.entities).toHaveLength(100)
+  it('sorts by name FIRST, url second — full output order pinned (catches a swapped primary sort key)', () => {
+    // url order and name order deliberately DISAGREE: sorting url-first would
+    // put 'zz prog' (at /a) before 'aa prog' (at /z).
+    const out = aggregateProgramEntities([
+      row('https://x.edu/a', ['zz prog']),
+      row('https://x.edu/z', ['aa prog']),
+      row('https://x.edu/m', ['mm prog']),
+    ])
+    expect(out).toEqual({
+      v: 1,
+      entities: [
+        { name: 'aa prog', url: 'https://x.edu/z' },
+        { name: 'mm prog', url: 'https://x.edu/m' },
+        { name: 'zz prog', url: 'https://x.edu/a' },
+      ],
+    })
+  })
+  it('caps at 100 entities AFTER sorting — the name-smallest 100 survive (catches cap-before-sort)', () => {
+    // Name order is the REVERSE of url/input order: Program 119..000 at p0..p119.
+    // A cap applied before sorting would keep Program 119..020 instead.
+    const rows = Array.from({ length: 120 }, (_, i) =>
+      row(`https://x.edu/p${i}`, [`Program ${String(119 - i).padStart(3, '0')}`]),
+    )
+    const entities = aggregateProgramEntities(rows)!.entities
+    expect(entities).toHaveLength(100)
+    expect(entities[0]).toEqual({ name: 'Program 000', url: 'https://x.edu/p119' })
+    expect(entities[99]).toEqual({ name: 'Program 099', url: 'https://x.edu/p20' })
+    expect(entities.map((e) => e.name)).toEqual(
+      Array.from({ length: 100 }, (_, i) => `Program ${String(i).padStart(3, '0')}`),
+    )
   })
 })
