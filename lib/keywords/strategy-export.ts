@@ -226,6 +226,31 @@ async function loadSemrushBlock(clientId: number): Promise<KeywordResearchExport
   }
 }
 
+/**
+ * KS-5 §9 — the client dashboard's initial-load read of the latest
+ * KeywordStrategySession for a client. Same shape as the cookie-gated poll
+ * route (GET /api/clients/[id]/keyword-strategy) so the card seeds and polls
+ * against one contract. Dates are returned as Date objects; the page serializes
+ * them to ISO strings across the server→client boundary.
+ */
+export interface LatestStrategySession {
+  id: string
+  status: string
+  tokenMintedAt: Date
+  memoMarkdown: string | null
+  memoUpdatedAt: Date | null
+}
+
+export async function getLatestKeywordStrategySession(
+  clientId: number,
+): Promise<LatestStrategySession | null> {
+  return prisma.keywordStrategySession.findFirst({
+    where: { clientId },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true, status: true, tokenMintedAt: true, memoMarkdown: true, memoUpdatedAt: true },
+  })
+}
+
 export async function loadStrategyExport(sessionId: string): Promise<StrategyExport | null> {
   const row = await prisma.keywordStrategySession.findUnique({
     where: { id: sessionId },
