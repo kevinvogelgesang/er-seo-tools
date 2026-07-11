@@ -20,6 +20,7 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - **DB:** `/home/seo/data/seo-tools/db.sqlite`
 - **Uploads:** `/home/seo/data/seo-tools/uploads`
 - **Logs:** `/home/seo/logs/`
+- **In-build type-check/lint are DISABLED** (`next.config.ts` `typescript.ignoreBuildErrors` + `eslint.ignoreDuringBuilds`, 2026-07-11 deploy-OOM fix — the extra build workers OOM'd the 3.9 GB box twice while the app was resident). Local gates (`tsc --noEmit` + vitest) are the ONLY type-check gate: never merge without them, and never re-enable the in-build checks "for safety" without solving server build memory first.
 
 ## Improvement-roadmap handoff protocol
 
