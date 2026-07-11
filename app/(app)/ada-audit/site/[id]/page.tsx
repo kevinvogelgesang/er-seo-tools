@@ -14,6 +14,7 @@ import { DiscoveryCoverageSection } from '@/components/site-audit/DiscoveryCover
 import { ReachabilitySection } from '@/components/site-audit/ReachabilitySection'
 import { ContentSimilaritySection } from '@/components/site-audit/ContentSimilaritySection'
 import { ContentSignalsSection } from '@/components/site-audit/ContentSignalsSection'
+import { TopicOverlapSection } from '@/components/site-audit/TopicOverlapSection'
 import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
 import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
 import { classifySeoPhase, getLatestSeoVerifyJob } from '@/lib/ada-audit/seo-phase'
@@ -228,6 +229,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
       reachabilityJson: true,
       contentSimilarityJson: true,
       contentSignalsJson: true,
+      topicOverlapJson: true,
       findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
       // C6 Phase 3: page scalars drive the analyzed marker + the coverage line.
       pages: { select: { statusCode: true, indexable: true } },
@@ -288,6 +290,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
       <ReachabilitySection run={liveScanRun} />
       <ContentSimilaritySection run={liveScanRun} />
       <ContentSignalsSection run={liveScanRun} />
+      <TopicOverlapSection run={liveScanRun} />
     </>
   ) : (
     <SeoPhaseBanner phase={seoPhase} />
