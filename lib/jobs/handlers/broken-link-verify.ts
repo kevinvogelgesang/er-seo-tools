@@ -35,6 +35,7 @@ import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/se
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
 import { aggregateSchemaTypes } from '@/lib/ada-audit/seo/schema-types'
 import { aggregateProgramEntities } from '@/lib/ada-audit/seo/program-entities'
+import { deriveFaqEvidence } from '@/lib/ada-audit/seo/faq-evidence'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import { enqueueNotifyEmail } from './notify-email'
@@ -454,6 +455,7 @@ export async function runBrokenLinkVerify(
       inlinks: g?.inlinks ?? null,
       outlinks: g?.outlinks ?? null,
       crawlDepth: g?.crawlDepth ?? null,
+      faqEvidence: deriveFaqEvidence(r.detailsJson),
     })
   }
 
