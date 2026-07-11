@@ -24,6 +24,12 @@ model Client {
   ga4PropertyId         String?      // GA4 property bare numeric id for this client (e.g. "123456789")
   gscSiteUrl            String?      // GSC site URL verbatim (e.g. "sc-domain:example.com" or "https://example.com/")
   crmClientRef          String?      // CRM client identifier for Prospects lookup
+  institutionType        String?  // KS-3: 'trade' | 'bootcamp' | 'university' | 'k12' | 'other'
+  programsJson           String?  // KS-3: confirmed roster — JSON ProgramEntry[]
+  programSuggestionsJson String?  // KS-3: suggestions + provenance — JSON ProgramSuggestions
+  kwLocationCode         Int?     // KS-3: DataForSEO location_code (e.g. 2840 = US)
+  kwLanguageCode         String?  // KS-3: DataForSEO language_code, canonical lowercase bare two-letter
+  kwMarketLabel          String?  // KS-3: display label (e.g. 'United States — English')
   createdAt             DateTime     @default(now())
   sessions              Session[]
   adaAudits             AdaAudit[]
@@ -402,6 +408,7 @@ model CrawlRun {
   reachabilityJson String?   // roadmap 3b: internal-link reachability metrics (orphans/depth/clicks-from-home); live-scan runs only; NOT a finding
   contentSimilarityJson String? // C6 Phase 5: near/exact-duplicate content groups (live-scan runs only); measurement, NOT a finding
   schemaTypesJson       String? // C14: aggregate schema-type histogram (live-scan runs only)
+  programEntitiesJson   String? // KS-3: JSON-LD Course/EducationalOccupationalProgram {name,url} pairs (live-scan runs only)
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]
