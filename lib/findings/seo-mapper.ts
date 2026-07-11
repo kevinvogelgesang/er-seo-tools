@@ -60,6 +60,7 @@ export function mapSeoResult(result: AggregatedResult, ctx: SeoMapContext): Find
         score: null,
         passCount: null,
         incompleteCount: null,
+        faqEvidence: null,
         adaAuditId: null,
       }
       pages.push(page)

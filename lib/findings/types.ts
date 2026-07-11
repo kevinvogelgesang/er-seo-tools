@@ -73,6 +73,7 @@ export interface CrawlPageInput {
   score: number | null
   passCount: number | null
   incompleteCount: number | null
+  faqEvidence: string | null // KS-4 tri-state grammar; null = unknown. REQUIRED so every producer takes a position.
   adaAuditId: string | null
 }
 

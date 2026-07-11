@@ -9,7 +9,7 @@ function harness() {
     let p = byUrl.get(url)
     if (!p) { p = { id: `p-${byUrl.size}`, runId: 'R', url, status: null, error: null, finalUrl: null,
       statusCode: null, title: null, h1: null, metaDescription: null, wordCount: null, crawlDepth: null,
-      indexable: null, score: null, passCount: null, incompleteCount: null, adaAuditId: null }
+      indexable: null, score: null, passCount: null, incompleteCount: null, faqEvidence: null, adaAuditId: null }
       pages.push(p); byUrl.set(url, p) }
     return p
   }

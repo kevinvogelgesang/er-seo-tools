@@ -20,7 +20,7 @@ function makeDeps() {
   const ensurePage = (url: string): CrawlPageInput => {
     const u = normalizeFindingUrl(url)
     let p = byUrl.get(u)
-    if (!p) { p = { id: randomUUID(), runId: 'R', url: u, status: null, error: null, finalUrl: null, statusCode: null, title: null, h1: null, metaDescription: null, wordCount: null, crawlDepth: null, indexable: null, score: null, passCount: null, incompleteCount: null, adaAuditId: null }; pages.push(p); byUrl.set(u, p) }
+    if (!p) { p = { id: randomUUID(), runId: 'R', url: u, status: null, error: null, finalUrl: null, statusCode: null, title: null, h1: null, metaDescription: null, wordCount: null, crawlDepth: null, indexable: null, score: null, passCount: null, incompleteCount: null, faqEvidence: null, adaAuditId: null }; pages.push(p); byUrl.set(u, p) }
     return p
   }
   return { runId: 'R', ensurePage, auditedHost: 'x.com', affectedComplete: true, pages }

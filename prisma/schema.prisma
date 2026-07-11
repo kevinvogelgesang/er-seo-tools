@@ -495,6 +495,7 @@ model CrawlPage {
   score           Int?     // ada page score (mapper-computed)
   passCount       Int?     // axe passes.length at write time; null = unknown (pre-C3 run)
   incompleteCount Int?     // axe incomplete.length at write time; null = unknown (pre-C3 run)
+  faqEvidence     String?  // KS-4: 'present:<sig,list>' | 'not-detected'; NULL = unknown (no successful parse / pre-KS-4 run)
   adaAuditId      String?  // drill-through to the child AdaAudit (no FK)
   findings        Finding[]
   violations      Violation[]

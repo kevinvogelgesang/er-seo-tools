@@ -270,6 +270,33 @@ describe('runBrokenLinkVerify', () => {
   })
 })
 
+describe('faqEvidence on live-scan CrawlPage rows (KS-4)', () => {
+  it('derives present / not-detected / unknown from detailsJson', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    const siteAuditId = sa.id
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        // /a: faqSignals with heading:true -> 'present:heading'
+        { siteAuditId, url: `https://${DOMAIN}/a`, statusCode: 200, isHtml: true, title: 'A',
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+          detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [], programNames: [], faqSignals: { heading: true, container: false, questionHeadings: 0 } }) },
+        // /b: all-false faqSignals -> 'not-detected'
+        { siteAuditId, url: `https://${DOMAIN}/b`, statusCode: 200, isHtml: true, title: 'B',
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+          detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [], programNames: [], faqSignals: { heading: false, container: false, questionHeadings: 0 } }) },
+        // /c: legacy detailsJson without faqSignals key -> null (unknown)
+        { siteAuditId, url: `https://${DOMAIN}/c`, statusCode: 200, isHtml: true, title: 'C',
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+          detailsJson: JSON.stringify({ schemaTypes: [], hreflang: [] }) },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findFirst({ where: { siteAuditId, tool: 'seo-parser' } })
+    const pages = await prisma.crawlPage.findMany({ where: { runId: run!.id }, orderBy: { url: 'asc' } })
+    expect(pages.map((p) => p.faqEvidence)).toEqual(['present:heading', 'not-detected', null])
+  })
+})
+
 // ---------------------------------------------------------------------------
 // C6 Phase 3: live SEO score persistence tests
 // ---------------------------------------------------------------------------

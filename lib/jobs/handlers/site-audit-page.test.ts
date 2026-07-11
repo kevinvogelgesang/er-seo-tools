@@ -213,7 +213,8 @@ describe('persistPageSeo — content similarity fields', () => {
     title: 't', metaDescription: undefined, robotsNoindex: false, canonicalUrl: undefined,
     h1: 'h', h1Count: 1, h2Count: 0, wordCount: 120, schemaTypes: [], programNames: [], hreflang: [],
     imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, loginLike: false,
-    contentText: undefined, contentTruncated: false, ...over,
+    contentText: undefined, contentTruncated: false,
+    faqSignals: { heading: false, container: false, questionHeadings: 0 }, ...over,
   })
 
   it('persists contentText + contentTruncated on the harvested row', async () => {
@@ -222,6 +223,17 @@ describe('persistPageSeo — content similarity fields', () => {
     const row = await prisma.harvestedPageSeo.findFirst({ where: { siteAuditId: audit.id } })
     expect(row?.contentText).toBe('the nursing program prepares students')
     expect(row?.contentTruncated).toBe(true)
+    await prisma.siteAudit.delete({ where: { id: audit.id } })
+  })
+
+  it('writes faqSignals into detailsJson', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: 'faq.test', status: 'complete' } })
+    await persistPageSeo(audit.id, 'https://faq.test/p', seo({
+      faqSignals: { heading: true, container: false, questionHeadings: 4 },
+    }))
+    const row = await prisma.harvestedPageSeo.findFirst({ where: { siteAuditId: audit.id } })
+    const details = JSON.parse(row!.detailsJson!)
+    expect(details.faqSignals).toEqual({ heading: true, container: false, questionHeadings: 4 })
     await prisma.siteAudit.delete({ where: { id: audit.id } })
   })
 })

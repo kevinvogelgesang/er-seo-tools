@@ -266,6 +266,7 @@ export function mapAdaChildren(
       score: pageScore,
       passCount: axe?.passCount ?? null,
       incompleteCount: axe?.incompleteCount ?? null,
+      faqEvidence: null,
       adaAuditId: child.id,
     }
     pages.push(page)
@@ -363,6 +364,7 @@ export function mapAdaSingle(
     score,
     passCount: axe?.passCount ?? null,
     incompleteCount: axe?.incompleteCount ?? null,
+    faqEvidence: null,
     adaAuditId: audit.id,
   }
   if (axe) {
