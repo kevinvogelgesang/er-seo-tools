@@ -436,7 +436,7 @@ export async function runBrokenLinkVerify(
       p = { id: randomUUID(), runId, url: u, status: null, error: null, finalUrl: null,
         statusCode: null, title: null, h1: null, metaDescription: null, wordCount: null,
         crawlDepth: null, inlinks: null, outlinks: null,
-        indexable: null, score: null, passCount: null, incompleteCount: null, adaAuditId: null }
+        indexable: null, score: null, passCount: null, incompleteCount: null, faqEvidence: null, adaAuditId: null }
       pages.push(p); pageByUrl.set(u, p)
     }
     if (scalars) for (const [k, v] of Object.entries(scalars)) if (v != null) (p as unknown as Record<string, unknown>)[k] = v

@@ -116,4 +116,37 @@ describe('writeFindingsRun', () => {
     expect(runs).toHaveLength(1)
     expect(runs[0].sessionId).toBeNull() // clearTestState reaches it by domain
   })
+
+  it('persists CrawlPage.faqEvidence verbatim — writer intentionally needs no change (KS-4)', async () => {
+    const runId = randomUUID()
+    const b: FindingsBundle = {
+      run: {
+        id: runId, tool: 'seo-parser', source: 'sf-upload', domain: 'w.test',
+        clientId: null, sessionId: SESSION_ID, siteAuditId: null, adaAuditId: null,
+        status: 'complete', score: 50, wcagLevel: null, pagesTotal: 2,
+        startedAt: null, completedAt: new Date(),
+      },
+      pages: [
+        {
+          id: randomUUID(), runId, url: 'https://w.test/a',
+          status: null, error: null, finalUrl: null, statusCode: null,
+          title: 'a', h1: null, metaDescription: null,
+          wordCount: null, crawlDepth: null, indexable: true, score: null,
+          passCount: null, incompleteCount: null, faqEvidence: 'present:schema', adaAuditId: null,
+        },
+        {
+          id: randomUUID(), runId, url: 'https://w.test/b',
+          status: null, error: null, finalUrl: null, statusCode: null,
+          title: 'b', h1: null, metaDescription: null,
+          wordCount: null, crawlDepth: null, indexable: true, score: null,
+          passCount: null, incompleteCount: null, faqEvidence: null, adaAuditId: null,
+        },
+      ],
+      findings: [],
+      violations: [],
+    }
+    await writeFindingsRun(b)
+    const rows = await prisma.crawlPage.findMany({ where: { runId }, orderBy: { url: 'asc' } })
+    expect(rows.map((r) => r.faqEvidence)).toEqual(['present:schema', null])
+  })
 })
