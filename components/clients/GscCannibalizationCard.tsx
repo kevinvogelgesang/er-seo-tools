@@ -26,7 +26,7 @@ function formatDate(iso: string): string {
 }
 
 export function GscCannibalizationCard({ clientId, initial }: Props) {
-  const [gscMapped] = useState(initial.gscMapped)
+  const gscMapped = initial.gscMapped
   const [report, setReport] = useState<Report>(initial.report)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
