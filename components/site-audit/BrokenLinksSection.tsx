@@ -6,6 +6,12 @@
 // broken findings), and findings present. Pure presentational — the page loads
 // the run.
 
+import {
+  BROKEN_INTERNAL_FINDING_TYPE_SET as BROKEN_TYPES,
+  BROKEN_EXTERNAL_FINDING_TYPE as EXTERNAL_TYPE,
+  BROKEN_FINDING_LABELS as TYPE_LABEL,
+} from '@/lib/findings/finding-type-sets'
+
 interface FindingLite {
   scope: string
   type: string
@@ -17,15 +23,6 @@ interface FindingLite {
 export interface BrokenLinksRun {
   status: string
   findings: FindingLite[]
-}
-
-const BROKEN_TYPES = new Set(['broken_internal_links', 'broken_images']) // critical tier
-const EXTERNAL_TYPE = 'broken_external_links'
-
-const TYPE_LABEL: Record<string, string> = {
-  broken_internal_links: 'Broken internal links',
-  broken_images: 'Broken images',
-  broken_external_links: 'Broken external links',
 }
 
 function parseDetail(detail: string | null): Record<string, unknown> {

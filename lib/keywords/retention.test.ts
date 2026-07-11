@@ -6,7 +6,8 @@
 // delete from Client removes GscSnapshot rows.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
-import { pruneGscSnapshots, pruneKeywordVolumeCache } from './retention'
+import { pruneGscSnapshots, pruneKeywordVolumeCache, pruneKeywordStrategySessions } from './retention'
+import { reserveVolumeBudget, monthlyUsedKeywords } from './strategy-volume-ledger'
 
 const PREFIX = 'ks1retention-'
 let counter = 0
@@ -144,5 +145,120 @@ describe('pruneKeywordVolumeCache', () => {
     })
     expect(survivors.map((r) => r.id)).toEqual([fresh.id])
     expect(survivors.some((r) => r.id === old.id)).toBe(false)
+  })
+})
+
+// ─── KS-5 Task 9: tiered KeywordStrategySession prune ────────────────────────
+const STRATEGY_PREFIX = 'ks5ret-'
+
+function daysAgo(days: number): Date {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+}
+
+async function makeStrategyClient() {
+  return prisma.client.create({
+    data: { name: `${STRATEGY_PREFIX}${Date.now()}-${counter++}` },
+  })
+}
+
+async function makeStrategySession(opts: {
+  clientId: number
+  tokenMintedAt: Date
+  memoMarkdown?: string | null
+}) {
+  return prisma.keywordStrategySession.create({
+    data: {
+      clientId: opts.clientId,
+      tokenMintedAt: opts.tokenMintedAt,
+      memoMarkdown: opts.memoMarkdown ?? null,
+      volumeKeywordCap: 1500,
+    },
+  })
+}
+
+describe('pruneKeywordStrategySessions', () => {
+  beforeAll(async () => {
+    await prisma.client.deleteMany({ where: { name: { startsWith: STRATEGY_PREFIX } } })
+  })
+
+  afterAll(async () => {
+    await prisma.client.deleteMany({ where: { name: { startsWith: STRATEGY_PREFIX } } }) // cascades sessions + requests
+  })
+
+  it('prunes a memo-less session with no request rows at 8 days old', async () => {
+    const client = await makeStrategyClient()
+    const session = await makeStrategySession({ clientId: client.id, tokenMintedAt: daysAgo(8) })
+
+    await pruneKeywordStrategySessions()
+
+    const survivor = await prisma.keywordStrategySession.findUnique({ where: { id: session.id } })
+    expect(survivor).toBeNull()
+  })
+
+  it('keeps a memo-less session with no request rows at 6 days old', async () => {
+    const client = await makeStrategyClient()
+    const session = await makeStrategySession({ clientId: client.id, tokenMintedAt: daysAgo(6) })
+
+    await pruneKeywordStrategySessions()
+
+    const survivor = await prisma.keywordStrategySession.findUnique({ where: { id: session.id } })
+    expect(survivor).not.toBeNull()
+  })
+
+  it('keeps a memo-less session WITH a request row at 8 days old; monthlyUsedKeywords still counts its spend', async () => {
+    const client = await makeStrategyClient()
+    const session = await makeStrategySession({ clientId: client.id, tokenMintedAt: daysAgo(8) })
+    const reserve = await reserveVolumeBudget({
+      sessionId: session.id,
+      idempotencyKey: 'k1',
+      keywordCount: 10,
+    })
+    expect(reserve.ok).toBe(true)
+
+    const usedBefore = await monthlyUsedKeywords(new Date())
+    await pruneKeywordStrategySessions()
+    const usedAfter = await monthlyUsedKeywords(new Date())
+
+    expect(usedAfter).toBe(usedBefore)
+    const survivor = await prisma.keywordStrategySession.findUnique({ where: { id: session.id } })
+    expect(survivor).not.toBeNull()
+    const requestCount = await prisma.keywordStrategyVolumeRequest.count({
+      where: { strategySessionId: session.id },
+    })
+    expect(requestCount).toBe(1)
+  })
+
+  it('prunes a memo-less session WITH request rows at 46 days old, cascading the request rows', async () => {
+    const client = await makeStrategyClient()
+    const session = await makeStrategySession({ clientId: client.id, tokenMintedAt: daysAgo(46) })
+    const reserve = await reserveVolumeBudget({
+      sessionId: session.id,
+      idempotencyKey: 'k1',
+      keywordCount: 10,
+    })
+    expect(reserve.ok).toBe(true)
+
+    await pruneKeywordStrategySessions()
+
+    const survivor = await prisma.keywordStrategySession.findUnique({ where: { id: session.id } })
+    expect(survivor).toBeNull()
+    const requestCount = await prisma.keywordStrategyVolumeRequest.count({
+      where: { strategySessionId: session.id },
+    })
+    expect(requestCount).toBe(0)
+  })
+
+  it('never prunes a memo-bearing session, even at 46 days old', async () => {
+    const client = await makeStrategyClient()
+    const session = await makeStrategySession({
+      clientId: client.id,
+      tokenMintedAt: daysAgo(46),
+      memoMarkdown: '# Strategy',
+    })
+
+    await pruneKeywordStrategySessions()
+
+    const survivor = await prisma.keywordStrategySession.findUnique({ where: { id: session.id } })
+    expect(survivor).not.toBeNull()
   })
 })

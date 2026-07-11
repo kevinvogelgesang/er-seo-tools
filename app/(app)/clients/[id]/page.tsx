@@ -7,6 +7,7 @@ import { getClientQuarterContext } from '@/lib/services/client-quarter'
 import { getClientSchedules } from '@/lib/services/client-schedules'
 import { getLatestGscSnapshot } from '@/lib/keywords/gsc-snapshot'
 import { getKeywordProfile } from '@/lib/services/keyword-profile'
+import { getLatestKeywordStrategySession } from '@/lib/keywords/strategy-export'
 import { ClientHeader } from '@/components/clients/ClientHeader'
 import { Scorecard } from '@/components/clients/Scorecard'
 import { ActivityTimeline } from '@/components/clients/ActivityTimeline'
@@ -17,6 +18,7 @@ import { ScheduledScansCard } from '@/components/clients/ScheduledScansCard'
 import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
 import { GscKeywordCard } from '@/components/clients/GscKeywordCard'
 import { KeywordProfileCard } from '@/components/clients/KeywordProfileCard'
+import { KeywordStrategyCard } from '@/components/clients/KeywordStrategyCard'
 import { SeverityBadge } from '@/components/ui/SeverityBadge'
 
 type Props = { params: Promise<{ id: string }> }
@@ -34,16 +36,33 @@ export default async function ClientDashboardPage({ params }: Props) {
   const clientId = Number(id)
   if (!Number.isInteger(clientId) || clientId <= 0) notFound()
 
-  const [dash, history, findings, quarter, scanSchedules, gscSnapshot, keywordProfile] = await Promise.all([
-    getClientDashboard(clientId),
-    getClientSeoHistory(clientId),
-    getClientFindings(clientId),
-    getClientQuarterContext(clientId),
-    getClientSchedules(clientId),
-    getLatestGscSnapshot(clientId),
-    getKeywordProfile(clientId),
-  ])
+  const [dash, history, findings, quarter, scanSchedules, gscSnapshot, keywordProfile, strategySession] =
+    await Promise.all([
+      getClientDashboard(clientId),
+      getClientSeoHistory(clientId),
+      getClientFindings(clientId),
+      getClientQuarterContext(clientId),
+      getClientSchedules(clientId),
+      getLatestGscSnapshot(clientId),
+      getKeywordProfile(clientId),
+      getLatestKeywordStrategySession(clientId),
+    ])
   if (!dash.client) notFound()
+
+  const strategyReadiness = {
+    gscMapped: gscSnapshot.gscMapped,
+    hasLiveScan: keywordProfile?.hasLiveScan ?? false,
+    hasLocale: keywordProfile?.locale != null,
+  }
+  const initialStrategySession = strategySession
+    ? {
+        id: strategySession.id,
+        status: strategySession.status,
+        tokenMintedAt: strategySession.tokenMintedAt.toISOString(),
+        memoMarkdown: strategySession.memoMarkdown,
+        memoUpdatedAt: strategySession.memoUpdatedAt?.toISOString() ?? null,
+      }
+    : null
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
@@ -114,6 +133,13 @@ export default async function ClientDashboardPage({ params }: Props) {
             archived={dash.client.archivedAt != null}
           />
         )}
+
+        <KeywordStrategyCard
+          clientId={clientId}
+          initialSession={initialStrategySession}
+          readiness={strategyReadiness}
+          archived={dash.client.archivedAt != null}
+        />
 
         <div className="space-y-6">
           <FindingsPanel rows={findings.rows} seo={findings.seo} ada={findings.ada} />

@@ -15,6 +15,9 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/keyword-memo/abc123/memo',
     '/api/quarter-plan/push/42',
     '/api/quarter-plan/push/42/receipt',
+    '/api/keyword-strategy/abc123',
+    '/api/keyword-strategy/abc123/memo',
+    '/api/keyword-strategy/abc123/volumes',
   ])('exempts token-authed handoff route %s', (p) => {
     expect(isPublicPath(p)).toBe(true);
   });
@@ -67,6 +70,11 @@ describe('isPublicPath — auth-gate allowlist', () => {
     // C11 PR3: the renamed SEO tool surface is authed exactly like /seo-parser was.
     '/seo-audits',
     '/seo-audits/results/run/abc',
+    // KS-5: mint-token + by-session poll are dashboard-triggered → stay cookie-gated
+    '/api/clients/1/keyword-strategy',
+    '/api/clients/1/keyword-strategy/mint-token',
+    // anchoring proof: a deeper path than the volumes route must not match
+    '/api/keyword-strategy/abc123/volumes/extra',
   ])('keeps non-handoff route %s gated', (p) => {
     expect(isPublicPath(p)).toBe(false);
   });
