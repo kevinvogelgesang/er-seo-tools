@@ -78,18 +78,39 @@ describe('KeywordProfileCard', () => {
 
   it('dismiss, roster remove, and locale select send their exact payloads', async () => {
     const bodies: unknown[] = []
-    mockFetch((url, init) => {
-      if (init?.method === 'PATCH') bodies.push(JSON.parse(String(init.body)))
-      return { status: 200, body: scannedProfile }
-    })
-    render(<KeywordProfileCard clientId={7} archived={false} initialProfile={{
+    // Stateful mock server: PATCH applies the received ops to a mutable
+    // serverProfile and GET returns its CURRENT state, mirroring the real
+    // route. The component's full-profile refetch-and-replace (the spec's
+    // LWW posture) then keeps the untouched roster row visible for the
+    // subsequent Remove click — a fixed GET body would contradict what a
+    // real server returns mid-sequence.
+    const serverProfile = {
       ...scannedProfile,
-      programs: [{ name: 'Old Prog', confirmed: true }],
+      programs: [{ name: 'Old Prog', confirmed: true }] as unknown,
       suggestions: {
         v: 1, derivedFromRunId: 'r', derivedAt: '2026-07-10T00:00:00Z',
-        suggestions: [{ name: 'Cosmetology', evidence: ['slug'] }], dismissedNames: [],
-      },
-    }} />)
+        suggestions: [{ name: 'Cosmetology', evidence: ['slug'] }], dismissedNames: [] as string[],
+      } as { suggestions: { name: string }[]; dismissedNames: string[] } | null,
+      locale: null as unknown,
+    }
+    mockFetch((url, init) => {
+      if (init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        bodies.push(body)
+        if (typeof body.dismissSuggestion === 'string' && serverProfile.suggestions) {
+          serverProfile.suggestions = {
+            ...serverProfile.suggestions,
+            suggestions: serverProfile.suggestions.suggestions.filter((s) => s.name !== body.dismissSuggestion),
+            dismissedNames: [...serverProfile.suggestions.dismissedNames, body.dismissSuggestion.toLowerCase()],
+          }
+        }
+        if ('programs' in body) serverProfile.programs = body.programs
+        if ('locale' in body) serverProfile.locale = body.locale
+      }
+      return { status: 200, body: serverProfile }
+    })
+    render(<KeywordProfileCard clientId={7} archived={false}
+      initialProfile={JSON.parse(JSON.stringify(serverProfile))} />)
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }))
     await waitFor(() => expect(bodies).toContainEqual({ dismissSuggestion: 'Cosmetology' }))
     fireEvent.click(screen.getByRole('button', { name: /remove/i }))

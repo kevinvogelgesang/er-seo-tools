@@ -71,12 +71,13 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
   const [advLocationCode, setAdvLocationCode] = useState('')
   const [advLanguageCode, setAdvLanguageCode] = useState('')
 
-  // Returns the fresh profile without touching state — callers decide which
-  // field(s) to apply (see mergeRefetchedFields below).
-  const refetch = useCallback(async (): Promise<KeywordProfile | null> => {
+  // Full-profile refetch-and-replace: the documented LWW concurrency posture
+  // (spec §6, Codex-reviewed) — after every mutation the UI must display
+  // SERVER truth wholesale, never a client-side merge that could mask a
+  // concurrent writer's lost update.
+  const refetch = useCallback(async () => {
     const res = await fetch(`/api/clients/${clientId}/keyword-profile`)
-    if (!res.ok) return null
-    return (await res.json()) as KeywordProfile
+    if (res.ok) setProfile(await res.json())
   }, [clientId])
 
   const mutate = useCallback(async (body: Record<string, unknown>) => {
@@ -91,24 +92,7 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
         setError(errorCopy(body2.error))
         return
       }
-      // LWW mitigation — ALWAYS refetch after a mutation (spec §6). Apply
-      // only the field(s) THIS op touched (per lib/services/keyword-profile
-      // — confirm/dismiss only ever write programSuggestionsJson, plus
-      // programsJson on confirm): a blind full-profile replace would let an
-      // unrelated column's refetched snapshot clobber a field this op never
-      // wrote, e.g. resetting the roster on a dismiss.
-      const fresh = await refetch()
-      if (fresh) {
-        setProfile((prev) => ({
-          ...prev,
-          hasLiveScan: fresh.hasLiveScan,
-          ...('institutionType' in body ? { institutionType: fresh.institutionType } : {}),
-          ...('programs' in body ? { programs: fresh.programs } : {}),
-          ...('locale' in body ? { locale: fresh.locale } : {}),
-          ...(body.confirmSuggestion != null ? { programs: fresh.programs, suggestions: fresh.suggestions } : {}),
-          ...(body.dismissSuggestion != null ? { suggestions: fresh.suggestions } : {}),
-        }))
-      }
+      await refetch() // LWW mitigation — ALWAYS refetch after a mutation (spec §6)
     } finally {
       setBusy(false)
     }
@@ -124,12 +108,7 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
         setError(body.error === 'no_live_scan_run' ? ERROR_COPY.no_live_scan_run : errorCopy(body.error))
         return
       }
-      // suggestPrograms only ever writes programSuggestionsJson — same
-      // targeted-merge rationale as mutate() above.
-      const fresh = await refetch()
-      if (fresh) {
-        setProfile((prev) => ({ ...prev, suggestions: fresh.suggestions, hasLiveScan: fresh.hasLiveScan }))
-      }
+      await refetch()
     } finally {
       setBusy(false)
     }
