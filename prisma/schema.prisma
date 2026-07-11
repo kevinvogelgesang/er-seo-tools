@@ -40,6 +40,7 @@ model Client {
   seoReports            SeoReport[]
   prospectsEntries      ProspectsEntry[]
   gscSnapshots          GscSnapshot[]
+  keywordStrategySessions KeywordStrategySession[]
 }
 
 model Prospect {
@@ -744,6 +745,54 @@ model KeywordVolumeCache {
 
   @@unique([keyword, locationCode, languageCode, providerVersion])
   @@index([fetchedAt])
+}
+
+// KS-5: client-scoped keyword-strategy export session. One row per dashboard
+// mint (clean provenance; the per-session budget counter resets per mint by
+// design). Client linkage is a REAL FK (unlike KeywordResearchSession.clientId)
+// — onDelete: Cascade both hops: deleting a client deletes its strategy
+// sessions and their request rows.
+model KeywordStrategySession {
+  id                 String    @id @default(cuid())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  clientId           Int
+  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  status             String    @default("processing") // processing | complete
+  tokenMintedAt      DateTime
+  gscRefreshed       Boolean   @default(false) // mint-time refresh succeeded
+  memoMarkdown       String?
+  structured         String?
+  memoUpdatedAt      DateTime?
+  volumeKeywordCap   Int                        // stamped at mint from env default
+  volumeKeywordsUsed Int       @default(0)      // budget counter (fast cap check; request rows are the audit trail)
+  volumeRequests     KeywordStrategyVolumeRequest[]
+
+  @@index([clientId, createdAt])
+}
+
+// KS-5: exactly-once seam for the billable volume-lookup endpoint. Aggregate
+// counters alone cannot distinguish retry / partial success / crash /
+// duplicate settlement on a billable endpoint fronted by stateless JWTs —
+// these rows are the audit trail.
+model KeywordStrategyVolumeRequest {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())            // spend-time — monthly aggregation keys on THIS
+  updatedAt         DateTime @updatedAt
+  strategySessionId String
+  strategySession   KeywordStrategySession @relation(fields: [strategySessionId], references: [id], onDelete: Cascade)
+  idempotencyKey    String
+  state             String   // 'reserved' | 'settled' | 'unresolved'
+  keywordCount      Int      // reserved: validated, normalized, deduped count
+  settledKeywords   Int?     // settled: retained count (fetched work); null while reserved/unresolved
+  fetched           Int?
+  fromCache         Int?
+  providerCost      Float?   // real spend as KS-2 reported it; null = unresolved
+  responseJson      String?  // settled: bounded stored response for idempotent replay
+
+  @@unique([strategySessionId, idempotencyKey])
+  @@index([createdAt])
+  @@index([strategySessionId])
 }
 
 // Operator identity for Google OAuth login. One row per Google account that has
