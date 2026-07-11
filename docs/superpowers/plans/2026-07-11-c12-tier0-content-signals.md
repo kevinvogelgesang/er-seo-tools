@@ -129,49 +129,91 @@ git add lib/keywords/types.ts lib/keywords/types.test.ts && git commit -m "feat(
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `lib/keywords/gsc-snapshot.test.ts` (follow the file's existing prisma-mock setup — read it first for the mock helpers):
+**This file is DB-backed (real `prisma`, mocked provider) — NOT a Prisma mock (Codex #2).** Use the file's existing `makeClient(gscSiteUrl)` helper and create real `gscSnapshot` rows with `prisma.gscSnapshot.create`. Do NOT `vi.mock` prisma. Add a small local helper for snapshot rows (mirroring the row columns — `gscSiteUrl`, `fetchedAt`, `windowStart`, `windowEnd`, `queryRowLimit`, `queryPageRowLimit`, `queryAtLimit`, `queryPageAtLimit`, `minImpressions`, `queryRowsJson`, `queryPageRowsJson`), and import `getCannibalizationReport` + `CANNIBALIZATION_REPORT_CAP`:
 
 ```ts
+async function makeSnapshot(clientId: number, gscSiteUrl: string, opts: {
+  queryRows?: unknown; queryPageRows?: unknown; queryRowsJson?: string; queryPageRowsJson?: string
+  queryAtLimit?: boolean; queryPageAtLimit?: boolean; fetchedAt?: Date
+}) {
+  return prisma.gscSnapshot.create({ data: {
+    clientId, gscSiteUrl,
+    fetchedAt: opts.fetchedAt ?? new Date(),
+    windowStart: new Date('2026-04-01T00:00:00Z'), windowEnd: new Date('2026-06-28T00:00:00Z'),
+    queryRowLimit: 2500, queryPageRowLimit: 5000,
+    queryAtLimit: opts.queryAtLimit ?? false, queryPageAtLimit: opts.queryPageAtLimit ?? false,
+    minImpressions: GSC_MIN_IMPRESSIONS,
+    queryRowsJson: opts.queryRowsJson ?? JSON.stringify(opts.queryRows ?? []),
+    queryPageRowsJson: opts.queryPageRowsJson ?? JSON.stringify(opts.queryPageRows ?? []),
+  } })
+}
+
 describe('getCannibalizationReport', () => {
   it('returns clientExists:false for an unknown client', async () => {
-    // arrange: client.findUnique -> null
-    const r = await getCannibalizationReport(999999)
+    const r = await getCannibalizationReport(999999999)
     expect(r).toEqual({ clientExists: false, gscMapped: false, report: null })
   })
 
   it('returns gscMapped:false for a client with no mapped property', async () => {
-    // arrange: client.findUnique -> { id, gscSiteUrl: null }
-    const r = await getCannibalizationReport(clientId)
+    const c = await makeClient(null)
+    const r = await getCannibalizationReport(c.id)
     expect(r).toEqual({ clientExists: true, gscMapped: false, report: null })
   })
 
-  it('returns report:null when mapped but no usable snapshot exists', async () => {
-    // arrange: client mapped, gscSnapshot.findMany -> []
-    const r = await getCannibalizationReport(clientId)
+  it('returns report:null when mapped but no snapshot exists', async () => {
+    const c = await makeClient('sc-domain:x.edu')
+    const r = await getCannibalizationReport(c.id)
     expect(r).toEqual({ clientExists: true, gscMapped: true, report: null })
   })
 
   it('reports the FULL cannibalized count and caps entries at the report cap', async () => {
-    // arrange: a stored snapshot whose derived cannibalization list exceeds the cap.
-    // Build queryPageRows for N>200 distinct queries, each with 2 pages splitting
-    // impressions >= threshold; queryRows carrying matching query impressions.
-    const r = await getCannibalizationReport(clientId)
-    expect(r.report!.totalCannibalizedQueries).toBeGreaterThan(CANNIBALIZATION_REPORT_CAP)
+    const c = await makeClient('sc-domain:x.edu')
+    const N = CANNIBALIZATION_REPORT_CAP + 20
+    const queryRows: GscQueryRow[] = []
+    const queryPageRows: GscQueryPageRow[] = []
+    for (let i = 0; i < N; i++) {
+      const q = `q${i}`
+      queryRows.push(queryRow(q, { impressions: 100 }))
+      queryPageRows.push(queryPageRow(q, `https://x.edu/${i}-a`, { impressions: 50 }))
+      queryPageRows.push(queryPageRow(q, `https://x.edu/${i}-b`, { impressions: 50 }))
+    }
+    await makeSnapshot(c.id, 'sc-domain:x.edu', { queryRows, queryPageRows })
+    const r = await getCannibalizationReport(c.id)
+    expect(r.report!.totalCannibalizedQueries).toBe(N)
     expect(r.report!.entries.length).toBe(CANNIBALIZATION_REPORT_CAP)
     expect(r.report!.capped).toBe(true)
     expect(r.report!.queryAtLimit).toBe(false)
     expect(r.report!.queryPageAtLimit).toBe(false)
   })
 
-  it('falls back past a corrupt newest snapshot to the next valid one', async () => {
-    // arrange: findMany -> [ {..queryRowsJson:'{bad'}, {..valid..} ]
-    const r = await getCannibalizationReport(clientId)
+  it('carries both truncation flags onto the report', async () => {
+    const c = await makeClient('sc-domain:x.edu')
+    await makeSnapshot(c.id, 'sc-domain:x.edu', { queryRows: [], queryPageRows: [], queryAtLimit: true, queryPageAtLimit: true })
+    const r = await getCannibalizationReport(c.id)
+    expect(r.report!.queryAtLimit).toBe(true)
+    expect(r.report!.queryPageAtLimit).toBe(true)
+  })
+
+  it('falls back past a corrupt NEWEST snapshot to the next valid one', async () => {
+    const c = await makeClient('sc-domain:x.edu')
+    // older valid
+    await makeSnapshot(c.id, 'sc-domain:x.edu', {
+      queryRows: [queryRow('q0', { impressions: 100 })],
+      queryPageRows: [queryPageRow('q0', 'https://x.edu/a', { impressions: 50 }), queryPageRow('q0', 'https://x.edu/b', { impressions: 50 })],
+      fetchedAt: new Date('2026-06-01T00:00:00Z'),
+    })
+    // newer corrupt (wins ordering, must be skipped)
+    await makeSnapshot(c.id, 'sc-domain:x.edu', { queryRowsJson: '{bad', queryPageRowsJson: '[]', fetchedAt: new Date('2026-06-20T00:00:00Z') })
+    const r = await getCannibalizationReport(c.id)
     expect(r.report).not.toBeNull()
+    expect(r.report!.totalCannibalizedQueries).toBe(1)
   })
 })
 
-// existing getLatestGscSnapshot describe block stays UNCHANGED and must pass.
+// the existing getLatestGscSnapshot describe block stays UNCHANGED and must pass.
 ```
+
+Add cleanup for the created rows in the existing `afterAll`/`afterEach` teardown the file already uses for the `PREFIX`-named clients (cascade delete removes their snapshots).
 
 - [ ] **Step 2: Run tests, verify the new ones fail**
 
@@ -309,8 +351,8 @@ const makeCtx = (id: string) => ({ params: Promise.resolve({ id }) })
 describe('GET /api/clients/[id]/gsc-cannibalization', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('400s on a non-numeric id', async () => {
-    const res = await GET({} as any, makeCtx('abc'))
+  it.each(['abc', '5junk', '1.2', '-1', '0'])('400s on a non-strict id (%s)', async (bad) => {
+    const res = await GET({} as any, makeCtx(bad))
     expect(res.status).toBe(400)
   })
 
@@ -368,10 +410,11 @@ type RouteParams = { params: Promise<{ id: string }> }
  */
 export const GET = withRoute(async (_request: NextRequest, { params }: RouteParams) => {
   const { id } = await params
-  const clientId = parseInt(id, 10)
-  if (isNaN(clientId)) {
+  // Strict positive-integer parse (Codex #1 — parseInt would let "5junk"/"1.2"/"-1" through).
+  if (!/^[1-9][0-9]*$/.test(id)) {
     return NextResponse.json({ error: 'Invalid client ID' }, { status: 400 })
   }
+  const clientId = Number(id)
   const { clientExists, gscMapped, report } = await getCannibalizationReport(clientId)
   if (!clientExists) {
     return NextResponse.json({ error: 'Client not found' }, { status: 404 })
@@ -521,15 +564,17 @@ git add "app/(app)/clients/[id]/page.tsx" && git commit -m "feat(c12): render Gs
 **Interfaces:**
 - Produces: `computeContentSignals(pages: ContentSignalsInput[], opts: { currentYear: number }): ContentSignalsResult | null` and the exported types `ContentSignalsInput`, `StaleDateHit`, `ContentSignalsResult` (shapes verbatim from spec §4.2). Constants `READABILITY_MIN_WORDS = 100`, per-page hit cap 5, per-list page cap 50.
 
-**Algorithm contract (spec §4.2, Codex #3/#4 — implement EXACTLY):**
-- Words = maximal `[A-Za-z]` runs (intra-word `'` kept); number/URL tokens are not words, not syllable-counted.
-- Sentences = split on `[.!?]+`; zero terminators → 1 sentence.
-- Syllables = `[aeiouy]+` group count per lowercased word, min 1; subtract 1 for a trailing silent `e` (not preceded by another vowel forming `le`... use: if word ends in `e`, not `le`, and syllable count > 1, subtract 1).
-- FRE = `206.835 - 1.015*(W/S) - 84.6*(Syl/W)`; FK = `0.39*(W/S) + 11.8*(Syl/W) - 15.59`; both rounded to 1 decimal. Even-count median = average of the two middle values, rounded to 1 decimal.
-- Stale-date `copyright`: `©`/`(c)`/`Copyright` token then a year or year-RANGE; evaluate the LATEST year of a range; flag when that year ≤ `currentYear - 2`.
-- `term`: season word + year `< currentYear` in the same match window.
-- `deadline`: an enrollment keyword (`apply|enroll|enrollment|deadline|registration|starts?|start date|class of`) + year `< currentYear` in the same sentence.
-- Bare years never flag. Excerpt ≤ ~120 chars around the match. Regexes: no nested quantifiers; scan per-line/per-sentence, not whole-document multiline backtracking.
+**Algorithm contract (spec §4.2, Codex #3/#4 — implement EXACTLY; every constant here is load-bearing for the fixture values):**
+- *Words:* match with `/[A-Za-z]+(?:'[A-Za-z]+)*/g` (a letter run, optionally with intra-word apostrophes — "don't" is ONE word). Number tokens and URL tokens never match (no leading letter run inside `http://…` past the scheme, and pure digits have no letters), so they are neither words nor syllable-counted. `words` = match count.
+- *Sentences:* `sentences = (text.match(/[.!?]+/g) ?? []).length; if (sentences === 0) sentences = 1`.
+- *Syllables per word:* lowercase the word; `groups = (word.match(/[aeiouy]+/g) ?? []).length`; `syl = max(1, groups)`; then if the word ends in `e`, does NOT end in `le`, and `syl > 1`, `syl -= 1`. Sum over words.
+- *Formulas:* `FRE = 206.835 - 1.015*(words/sentences) - 84.6*(syllables/words)`; `FK = 0.39*(words/sentences) + 11.8*(syllables/words) - 15.59`. Round each to 1 decimal with `Math.round(x*10)/10`.
+- *Median:* sort the per-page values ascending; odd count → middle; even count → `Math.round(((a+b)/2)*10)/10` of the two middle values.
+- *Per-page list sort + tie-break:* readability pages sorted by `fleschReadingEase` ASC, ties broken by `url` lexicographic ASC (Codex #3 — `seoRows` has no guaranteed order, so an explicit tie-break is required for determinism); stale-date pages sorted by `hits.length` DESC, ties by `url` ASC. Both capped at 50.
+- *Stale-date `copyright`:* a `©`/`(c)`/`Copyright` token then a year, OR a year RANGE (`YYYY` `[-–—]`/`to` `YYYY`, whitespace-tolerant); evaluate the LATEST year present; flag when that year ≤ `currentYear - 2`.
+- *`term`:* a season word (`Fall|Spring|Summer|Winter|Autumn`, case-insensitive) + a year `< currentYear` within the same match window.
+- *`deadline`:* an enrollment keyword (`apply|enroll|enrollment|deadline|registration|starts?|start date|class of`) + a year `< currentYear` in the same sentence.
+- Bare years never flag. Per-page hit cap 5 (kept in document order). Excerpt ≤ ~120 chars around the match. Regexes: no nested quantifiers; scan per-line (split on `\n`), not whole-document multiline backtracking.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -548,9 +593,16 @@ describe('computeContentSignals — stale dates', () => {
     expect(r!.staleDates.pages[0].hits[0].kind).toBe('copyright')
     expect(r!.staleDates.pages[0].hits[0].year).toBe(2021)
   })
-  it('does NOT flag a current copyright RANGE (uses the latest year)', () => {
-    const r = computeContentSignals([page('/a', '© 2018–2026 Example College.')], { currentYear: YEAR })
-    expect(r!.staleDates.pagesWithHits).toBe(0)
+  it('does NOT flag a current copyright RANGE (en-dash, hyphen, or "to")', () => {
+    for (const t of ['© 2018–2026 Example', '© 2018-2026 Example', 'Copyright 2018 to 2026 Example']) {
+      const r = computeContentSignals([page('/a', t)], { currentYear: YEAR })
+      expect(r!.staleDates.pagesWithHits).toBe(0)
+    }
+  })
+  it('flags a plain current-minus-3 copyright and NOT a current one', () => {
+    expect(computeContentSignals([page('/a', '© 2023 Example')], { currentYear: YEAR })!.staleDates.pagesWithHits).toBe(1)
+    expect(computeContentSignals([page('/a', '© 2026 Example')], { currentYear: YEAR })!.staleDates.pagesWithHits).toBe(0)
+    expect(computeContentSignals([page('/a', '© 2025 Example')], { currentYear: YEAR })!.staleDates.pagesWithHits).toBe(0) // 1-year lag allowed
   })
   it('flags a stale term reference', () => {
     const r = computeContentSignals([page('/a', 'Fall 2023 enrollment is now open.')], { currentYear: YEAR })
@@ -587,6 +639,31 @@ describe('computeContentSignals — readability', () => {
     const noPunct = page('/n', Array.from({ length: 110 }, () => 'word').join(' '))
     const r = computeContentSignals([noPunct], { currentYear: YEAR })
     expect(Number.isNaN(r!.readability.pages[0].fleschReadingEase)).toBe(false)
+  })
+  it('computes exact FRE/FK for a pinned passage', () => {
+    // 110 words of "cat" (1 syllable each), no terminators → sentences=1.
+    // W=110, S=1, Syl=110. FRE = 206.835 - 1.015*110 - 84.6*1 = 206.835 - 111.65 - 84.6 = 10.585 → 10.6
+    // FK = 0.39*110 + 11.8*1 - 15.59 = 42.9 + 11.8 - 15.59 = 39.11 → 39.1
+    const r = computeContentSignals([page('/p', Array.from({ length: 110 }, () => 'cat').join(' '))], { currentYear: YEAR })
+    expect(r!.readability.pages[0].fleschReadingEase).toBe(10.6)
+    expect(r!.readability.pages[0].gradeLevel).toBe(39.1)
+  })
+  it('averages the two middle values for an even scored-page count', () => {
+    // Two scoreable pages with distinct FRE → median = rounded average.
+    const a = page('/a', Array.from({ length: 110 }, () => 'cat').join(' '))          // 1 syllable → FRE 10.6
+    const b = page('/b', Array.from({ length: 110 }, () => 'water').join(' '))        // 2 syllables → distinct FRE
+    const r = computeContentSignals([a, b], { currentYear: YEAR })
+    const [x, y] = r!.readability.pages.map(p => p.fleschReadingEase)
+    expect(r!.readability.medianFleschReadingEase).toBe(Math.round(((x + y) / 2) * 10) / 10)
+  })
+  it('caps the per-page readability list at 50 and breaks FRE ties by url', () => {
+    const pages = Array.from({ length: 60 }, (_, i) =>
+      page(`/p${String(i).padStart(2, '0')}`, Array.from({ length: 110 }, () => 'cat').join(' ')))
+    const r = computeContentSignals(pages, { currentYear: YEAR })
+    expect(r!.readability.scoredPages).toBe(60)
+    expect(r!.readability.pages.length).toBe(50)
+    // identical FRE across all → url-ascending order
+    expect(r!.readability.pages[0].url < r!.readability.pages[1].url).toBe(true)
   })
 })
 
@@ -693,23 +770,39 @@ git add prisma/schema.prisma prisma/migrations/20260712000000_content_signals/mi
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `lib/jobs/handlers/broken-link-verify.test.ts` (follow the file's harness for constructing a completed audit with `HarvestedPageSeo` rows; find the existing similarity assertion and mirror it):
+Add to `lib/jobs/handlers/broken-link-verify.test.ts` (follow the file's harness for constructing a completed audit with `HarvestedPageSeo` rows; find the existing `contentSimilarityJson` assertion and mirror its setup exactly). To spy on the pure module, mock it at the top of the file: `vi.mock('@/lib/ada-audit/seo/content-signals', async (orig) => ({ ...(await orig()), computeContentSignals: vi.fn((...a) => (realImpl)(...a)) }))` — i.e. pass-through by default, overridable per test with `vi.mocked(computeContentSignals).mockImplementationOnce(...)`. The under-reserve skip is exercised by mocking `deps.now()` (the harness already injects `deps`) to return a value near `jobStartedAt + JOB_TIMEOUT_MS` so `sigRemaining < CONTENT_SIGNALS_RESERVE_MS + CONTENT_SIM_RESERVE_MS`.
 
 ```ts
-it('writes contentSignalsJson from harvested page text', async () => {
-  // arrange a completed audit with an indexable HTML page whose contentText has an old copyright.
-  await runBrokenLinkVerify(/* job for that audit */)
+it('writes contentSignalsJson from harvested page text (indexable pages only)', async () => {
+  // arrange: a completed audit with an indexable HTML page whose contentText has "© 2021 Example",
+  // PLUS a login-like/non-indexable page whose contentText has "© 2019 Secret" that must be excluded.
+  await runBrokenLinkVerify(job, deps, ctx)
   const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } } })
-  expect(run!.contentSignalsJson).toBeTruthy()
   const parsed = JSON.parse(run!.contentSignalsJson!)
   expect(parsed.v).toBe(1)
-  expect(parsed.staleDates.pagesWithHits).toBeGreaterThanOrEqual(1)
+  expect(parsed.staleDates.pagesWithHits).toBe(1)               // only the indexable page
+  expect(parsed.observedPages).toBe(1)                          // login-like row filtered out
 })
 
-it('writes the run with contentSignalsJson null when the compute throws', async () => {
-  // spy computeContentSignals -> throw; assert run still written, contentSignalsJson null.
+it('writes the run with contentSignalsJson null when compute throws', async () => {
+  vi.mocked(computeContentSignals).mockImplementationOnce(() => { throw new Error('boom') })
+  await runBrokenLinkVerify(job, deps, ctx)
+  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } } })
+  expect(run).not.toBeNull()                                    // run STILL written
+  expect(run!.contentSignalsJson).toBeNull()
+})
+
+it('skips content signals (null) when under the combined time reserve', async () => {
+  // deps.now stubbed so sigRemaining < CONTENT_SIGNALS_RESERVE_MS + CONTENT_SIM_RESERVE_MS
+  const nowSpy = /* advance deps.now to jobStartedAt + JOB_TIMEOUT_MS - SAFETY_RESERVE_MS - 5_000 */
+  await runBrokenLinkVerify(job, deps, ctx)
+  const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } } })
+  expect(run!.contentSignalsJson).toBeNull()
+  expect(vi.mocked(computeContentSignals)).not.toHaveBeenCalled()
 })
 ```
+
+Match the exact `runBrokenLinkVerify(job, deps, ctx)` call signature the existing tests use (read one).
 
 - [ ] **Step 2: Run tests, verify they fail**
 
@@ -772,7 +865,7 @@ git add lib/jobs/handlers/broken-link-verify.ts lib/jobs/handlers/broken-link-ve
 - Consumes: a `run` prop shaped `{ contentSignalsJson: string | null }` (mirror `ContentSimilaritySection`'s prop contract — read it first).
 - Produces: `export function ContentSignalsSection({ run }: { run: { contentSignalsJson: string | null } | null })`.
 
-**States + copy:** null column → "Content signals were not analyzed for this audit." (never "no issues"). Parsed with hits → stale-date list grouped by page (kind + year + excerpt) and readability medians + worst-pages list. Clean (parsed, zero stale hits) → "No stale date references detected." plus, when `truncatedPages > 0`, "Some page text was truncated at 30k characters, so this is not a full-content guarantee." Readability block always labels "English-calibrated (Flesch)". JSON.parse wrapped in try/catch → treat as not-analyzed on failure.
+**States + copy:** null column → "Content signals were not analyzed for this audit." (never "no issues"). Parsed with hits → stale-date list grouped by page (kind + year + excerpt) and readability medians + worst-pages list. When a displayed list is capped (`pagesWithHits > pages.length` for stale, `scoredPages > pages.length` for readability), show the TOTAL count with a "showing top N of M" note so the visible rows are not read as exhaustive (Codex verify note). Clean (parsed, zero stale hits) → "No stale date references detected." plus, when `truncatedPages > 0`, "Some page text was truncated at 30k characters, so this is not a full-content guarantee." Readability block always labels "English-calibrated (Flesch)". JSON.parse wrapped in try/catch → treat as not-analyzed on failure.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -888,3 +981,5 @@ Expected: all green.
 **Placeholder scan:** every code step has literal code or a precise contract; the two "mirror the existing test harness" notes (Task 8) point at a named existing assertion to copy, not a vague TODO.
 
 **Type consistency:** `CannibalizationReport` (Task 1) → returned by `getCannibalizationReport` (Task 2) → consumed by route (Task 3) and card (Task 4, via `CannibalizationReport['report']`). `ContentSignalsResult` (Task 6) → `{v:1,...}`-wrapped in builder (Task 8) → parsed in section (Task 9). `contentSignalsJson` field name identical across Task 7/8/10.
+
+**Plan-review fixes applied (Codex ×5):** #1 strict `/^[1-9][0-9]*$/` route parser + it.each 400 cases (Task 3); #2 Task 2 tests rewritten DB-backed (real `prisma.gscSnapshot.create` + `makeClient`, no Prisma mock) with both-truncation-flag + full/capped + corrupt-newest fallback cases; #3 readability contract pinned with exact word/sentence/syllable regexes + `url` tie-breaks + a numeric FRE/FK fixture; #4 added plain-current-copyright, hyphen/`to`-range, 50-page list-cap, and even-median fixtures; #5 Task 8 failure-path tests made executable (module `vi.mock` pass-through + `mockImplementationOnce` throw, `deps.now` under-reserve skip, login-like eligibility exclusion). Codex verify note (capped-list total counts) folded into Task 9 copy rules.
