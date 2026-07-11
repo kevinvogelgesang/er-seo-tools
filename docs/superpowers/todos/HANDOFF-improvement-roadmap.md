@@ -88,13 +88,14 @@ GOTCHAS FOR THE NEXT SESSION:
   real SWC gate). gsc-snapshot/volume-throttle derived-promise .catch patterns
   are crash guards — never simplify away.
 
-Kevin eyeballs outstanding (authed-UI): NEW — KeywordStrategyCard end-to-end run
-(step 1 above) · KeywordProfileCard suggest (KS-3) · GscKeywordCard refresh (KS-1)
-· C15 Mine-filter · C16 Audits page · C17 seoOnly auto-flip · C18 results tabs ·
-C14 /sales + real /sales/[token] report · re-scan Bellus (v4 badge + invoice;
-expect ≈68) · post-C19: /settings SEO+ADA cards + /score-lab · post-A8-PR7:
-/clients fleet + client dashboard (weightsHash suppression on first real
-ScoringWeights save — observe only).
+Kevin eyeballs outstanding (authed-UI): CANONICAL LIST now lives in
+docs/superpowers/todos/2026-07-11-kevin-manual-checks-tracker.md (checkboxes +
+steps + a completed log — when Kevin reports an item done, tick it THERE and
+log it dated). Summary: KeywordStrategyCard end-to-end run (step 1 above) ·
+KeywordProfileCard suggest (KS-3) · GscKeywordCard refresh (KS-1) · C15
+Mine-filter · C16 Audits page · C17 seoOnly auto-flip · C18 results tabs · C14
+/sales + real /sales/[token] report · re-scan Bellus (expect ≈68) · post-C19
+/settings cards + /score-lab · post-A8-PR7 /clients fleet + dashboard.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/qct_ clipboard
 flow. (DataForSEO is a DATA API — does not touch this gate.)
@@ -139,7 +140,9 @@ BigInt — Number() them before printing).
 - **Skill:** er-handoff-memo v2.2.0 (kst_ routing + volumes subcommand +
   8-section template) — landed BEFORE deploy per the release-prerequisite rule.
 - **Open Kevin steps:** end-to-end run · 4 reference docs · optional DataForSEO
-  prod creds · §5 default overrides if any.
+  prod creds · §5 default overrides if any. Canonical checklist (these + all
+  outstanding authed-UI eyeballs, with steps + completed log):
+  `docs/superpowers/todos/2026-07-11-kevin-manual-checks-tracker.md`.
 
 ## The single next item
 
