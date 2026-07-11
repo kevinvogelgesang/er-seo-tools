@@ -215,6 +215,22 @@ describe('clusterByTopicOverlap', () => {
     expect(r.inputCapped).toBe(true)
     expect(r.bodyPrefixTruncatedPages).toBe(1)
   })
+
+  it('sets clustersCapped when more than maxClusters disconnected networks exist', () => {
+    // three disconnected 2-page networks at 0°, 90°, 180° (cross-group cos = 0 < 0.78)
+    const pages = [
+      page('a0', 0, 0), page('b0', 0, 0),
+      page('a9', 90, 90), page('b9', 90, 90),
+      page('a1', 180, 180), page('b1', 180, 180),
+    ]
+    const capped = clusterByTopicOverlap(pages, { maxClusters: 2 })!
+    expect(capped.clusters).toHaveLength(2)      // only the largest/first 2 retained
+    expect(capped.clustersCapped).toBe(true)
+    // no false cap when exactly at the limit
+    const exact = clusterByTopicOverlap(pages, { maxClusters: 3 })!
+    expect(exact.clusters).toHaveLength(3)
+    expect(exact.clustersCapped).toBe(false)
+  })
 })
 ```
 
@@ -552,8 +568,14 @@ to:
         const vecs = await embedChunked([...sigTexts, ...bodyTexts], {
           embed: embedTexts,
           chunkSize: TOPIC_OVERLAP_EMBED_CHUNK,
+          // Abort when embedding would eat into the DOWNSTREAM similarity reserve
+          // (Codex plan-fix #1): topic-overlap may consume its own budget down to
+          // CONTENT_SIM_RESERVE_MS remaining, but no further. A single final chunk
+          // that overruns is backstopped by the similarity block's own entry guard
+          // (`simRemaining >= CONTENT_SIM_RESERVE_MS`), which simply skips similarity
+          // to null rather than corrupting anything.
           shouldAbort: () =>
-            JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS < TOPIC_OVERLAP_RESERVE_MS,
+            JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS < CONTENT_SIM_RESERVE_MS,
         })
         if (vecs) {
           const m = kept.length
@@ -585,41 +607,110 @@ to:
       topicOverlapJson,
 ```
 
-- [ ] **Step 6: Add builder integration tests**
+- [ ] **Step 6: Add builder integration tests (concrete — Codex plan-fix #2)**
 
-In `lib/jobs/handlers/broken-link-verify.test.ts`, add a `describe('topic overlap', ...)` block. Use `vi.spyOn` on the embeddings module (this file's convention — NO `vi.mock`). Stub `embedTexts` to return deterministic unit vectors sized to its input so two same-topic pages cluster:
+There is NO "run-to-completion helper" in this file; each test seeds a `SiteAudit`
++ `HarvestedPageSeo` rows directly and calls `runBrokenLinkVerify({ siteAuditId,
+domain: DOMAIN }, depsFor(new Set()))` (existing helpers, verified at
+`broken-link-verify.test.ts:157-172`). Add these imports at the top (the file
+already spies on the content-signals module the same way):
 
 ```ts
 import * as embeddings from '@/lib/services/pillarAnalysis/embeddings'
+import * as embedChunkedMod from '@/lib/ada-audit/seo/embed-chunked'
+```
 
-// inside the topic-overlap describe:
-it('writes topicOverlapJson clustering two same-topic pages; fail-to-null on embed throw', async () => {
-  // Arrange: two indexable, non-login HarvestedPageSeo rows with identical topical
-  // signature + body text (see existing helpers in this file for row/audit setup).
-  // Stub embedTexts: every text → the SAME unit vector so both pages are identical.
-  const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) =>
-    texts.map(() => [1, 0]),
-  )
+Add this `describe` block. Every case restores its spy; the throw/abandon cases
+re-seed rows because the first run deletes the transient tables. `contentText` must
+be long enough that both pages are candidates (both vectors); the stub `embedTexts`
+returns one identical unit vector per text so the two pages cluster:
 
-  // Act: run the verifier to terminal (reuse this file's run-to-completion helper).
-  // Assert: the live-scan CrawlRun has non-null topicOverlapJson with one cluster.
-  //   const run = await prisma.crawlRun.findFirst({ where: { source: 'live-scan' }, select: { topicOverlapJson: true } })
-  //   const d = JSON.parse(run!.topicOverlapJson!)
-  //   expect(d.v).toBe(1)
-  //   expect(d.clusters).toHaveLength(1)
+```ts
+describe('C12 Tier-1 topic overlap', () => {
+  // helper: two indexable, non-login pages that ARE clustering candidates
+  async function seedTwoTopicPages(siteAuditId: string) {
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${DOMAIN}/nursing-diploma`, statusCode: 200, isHtml: true,
+          title: 'Nursing Diploma', h1: 'Nursing Diploma Program', metaDescription: 'Become a nurse',
+          contentText: 'Our nursing diploma program prepares registered nurses for clinical practice.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId, url: `https://${DOMAIN}/rn-program`, statusCode: 200, isHtml: true,
+          title: 'RN Program', h1: 'Registered Nurse Program', metaDescription: 'Train as an RN',
+          contentText: 'The registered nurse program trains students for careers in clinical nursing.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+      ],
+    })
+  }
 
-  // Then: embed throw → topicOverlapJson null AND the run still writes.
-  spy.mockRejectedValueOnce(new Error('model boom'))
-  // re-run; assert run persists with topicOverlapJson === null.
-  spy.mockRestore()
+  it('writes topicOverlapJson clustering two same-topic pages (indexable, non-login)', async () => {
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockResolvedValue([]) // placeholder; overridden below
+    spy.mockImplementation(async (texts: string[]) => texts.map(() => [1, 0])) // every text → identical unit vector
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { topicOverlapJson: true },
+    })
+    const d = JSON.parse(run!.topicOverlapJson!)
+    expect(d.v).toBe(1)
+    expect(d.observedPages).toBe(2)
+    expect(d.clusteredCandidates).toBe(2)
+    expect(d.clusters).toHaveLength(1)
+    expect(d.clusters[0].urls.sort()).toEqual([`https://${DOMAIN}/nursing-diploma`, `https://${DOMAIN}/rn-program`])
+    spy.mockRestore()
+  })
+
+  it('excludes noindex + login-like pages from observedPages', async () => {
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (t: string[]) => t.map(() => [1, 0]))
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId: sa.id, url: `https://${DOMAIN}/noindex`, statusCode: 200, isHtml: true, title: 'N', h1: 'N',
+          metaDescription: 'N', contentText: 'text here', wordCount: 500, robotsNoindex: true, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId: sa.id, url: `https://${DOMAIN}/walled`, statusCode: 200, isHtml: true, title: 'W', h1: 'W',
+          metaDescription: 'W', contentText: 'text here', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: true },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { topicOverlapJson: true },
+    })
+    expect(JSON.parse(run!.topicOverlapJson!).observedPages).toBe(2) // only the 2 indexable non-login pages
+    spy.mockRestore()
+  })
+
+  it('fail-to-null on embed throw — topicOverlapJson null but the run still writes', async () => {
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockRejectedValue(new Error('model boom'))
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { source: true, topicOverlapJson: true },
+    })
+    expect(run).not.toBeNull()          // writeFindingsRun still succeeded
+    expect(run!.topicOverlapJson).toBeNull()
+    spy.mockRestore()
+  })
+
+  it('deadline-abandon: embedChunked → null yields topicOverlapJson null, run still writes', async () => {
+    const spy = vi.spyOn(embedChunkedMod, 'embedChunked').mockResolvedValue(null) // simulate deadline abandon
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { topicOverlapJson: true },
+    })
+    expect(run!.topicOverlapJson).toBeNull()
+    spy.mockRestore()
+  })
 })
 ```
 
-> Implementer note: wire the assertions to this test file's existing fixtures
-> (audit/site/`HarvestedPageSeo` builders + the run-to-terminal helper). The two
-> behaviors to prove: (1) a non-null `{v:1,...}` cluster on identical-topic pages,
-> (2) `embedTexts` rejection → `topicOverlapJson: null` while `writeFindingsRun`
-> still succeeds (mirror the existing content-similarity fail-to-null test).
+> `inputCapped` (the >1000-candidate slice) is NOT given a builder DB test — seeding
+> 1001 rows is disproportionate and the builder's slice is trivial; its echo into the
+> result is locked by the Task 2 pure test (`echoes inputCapped`). Documented scope call.
 
 - [ ] **Step 7: Run the builder tests + typecheck**
 
@@ -678,15 +769,27 @@ describe('TopicOverlapSection', () => {
     expect(screen.getAllByText(/no topic-overlap/i).length).toBeGreaterThan(0)
   })
 
-  it('lists networks with member urls, true size, and truncation notice', () => {
+  it('lists networks with member urls as links (href set)', () => {
     const json = JSON.stringify({
       v: 1, observedPages: 60, clusteredCandidates: 42, threshold: 0.78, weights: { sig: 0.6, body: 0.4 },
       bodyPrefixTruncatedPages: 0, inputCapped: false, clustersCapped: false,
       clusters: [{ urls: ['https://x/nursing-diploma', 'https://x/rn-program'], size: 2, membersTruncated: false, minEdgeSimilarity: 0.81 }],
     })
     render(<TopicOverlapSection run={{ topicOverlapJson: json }} />)
-    expect(screen.getAllByText(/nursing-diploma/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/rn-program/).length).toBeGreaterThan(0)
+    const link = screen.getByRole('link', { name: 'https://x/nursing-diploma' })
+    expect(link.getAttribute('href')).toBe('https://x/nursing-diploma')
+    expect(screen.getByRole('link', { name: 'https://x/rn-program' }).getAttribute('href')).toBe('https://x/rn-program')
+  })
+
+  it('shows both the member-truncation ("and N more") and clustersCapped notices when flagged', () => {
+    const json = JSON.stringify({
+      v: 1, observedPages: 200, clusteredCandidates: 150, threshold: 0.78, weights: { sig: 0.6, body: 0.4 },
+      bodyPrefixTruncatedPages: 0, inputCapped: false, clustersCapped: true,
+      clusters: [{ urls: ['https://x/a', 'https://x/b'], size: 5, membersTruncated: true, minEdgeSimilarity: 0.95 }],
+    })
+    render(<TopicOverlapSection run={{ topicOverlapJson: json }} />)
+    expect(screen.getAllByText(/and 3 more/i).length).toBeGreaterThan(0)          // size 5 − 2 shown
+    expect(screen.getAllByText(/showing the largest/i).length).toBeGreaterThan(0) // clustersCapped notice
   })
 })
 ```
@@ -769,7 +872,12 @@ export function TopicOverlapSection({ run }: { run: { topicOverlapJson: string |
                   {tierLabel(c.minEdgeSimilarity)} overlap ({c.size} pages)
                 </span>
                 <span className="text-gray-700 dark:text-white/70">
-                  {c.urls.join('  ·  ')}
+                  {c.urls.map((u, j) => (
+                    <span key={j}>
+                      {j > 0 ? '  ·  ' : ''}
+                      <a href={u} className="underline hover:text-navy dark:hover:text-white">{u}</a>
+                    </span>
+                  ))}
                   {c.membersTruncated ? `  · and ${c.size - c.urls.length} more` : ''}
                 </span>
               </li>
@@ -885,11 +993,17 @@ Verify CI (security-audit) is green and the three local gates were re-run in-ses
 - §8 testing (pure clusterer incl. bridge, chunked embedder, builder integration, component) → Tasks 2/3/4/5. ✓
 - §10 acceptance (fail-to-null, eligible-set parity, chunked+deadline, gates, pinned constants, prod model-cache verify) → covered across tasks + Task 6 + PR note. ✓
 
-**Placeholder scan:** the only prose-guided step is Task 4 Step 6's test, which wires
-assertions to this test file's existing fixtures/helpers (audit/site/`HarvestedPageSeo`
-builders + run-to-terminal helper) rather than duplicating ~100 lines of setup verbatim;
-the two required behaviors and the assertion shape are spelled out. Acceptable — the exact
-fixture calls are file-local and reused, not novel.
+**Placeholder scan:** clean after the Codex plan review. Task 4 Step 6 now contains four
+concrete, independent DB-backed tests (cluster-write, noindex/login exclusion, embed-throw
+fail-to-null, deadline-abandon-via-`embedChunked`-null) with a real `seedTwoTopicPages`
+helper and verified `runBrokenLinkVerify` invocation — no invented helpers. The one
+documented scope call is skipping a 1001-row `inputCapped` builder DB test (disproportionate;
+echo covered by the Task 2 pure test).
+
+**Codex plan-review fixes applied (ACCEPT-WITH-NAMED-FIXES):** #1 deadline predicate protects
+the downstream `CONTENT_SIM_RESERVE_MS`, backstopped by the similarity entry guard; #2 concrete
+builder tests replacing the pseudo-test; #3 `clustersCapped` test (>maxClusters + no-false-cap);
+#4 component renders linked URLs (href asserted) + a real both-notices truncation test.
 
 **Type consistency:** `clusterByTopicOverlap` / `TopicOverlapPageVectors` /
 `TopicOverlapResult` / `TopicOverlapCluster` / `TOPIC_OVERLAP_DEFAULTS` names match across
