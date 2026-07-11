@@ -94,14 +94,17 @@ describe('loadStrategyExport — framing + full assembly', () => {
       pagesTotal: 3,
       programEntitiesJson: JSON.stringify({
         v: 1,
-        entities: [{ name: 'Welding', url: 'https://example.edu/programs/welding' }],
+        // Deliberately a NON-slug URL: '/welding' matches no SLUG_RULES pattern
+        // in pageType.ts, so read-time classification is nav@0.4 (crawlDepth 2)
+        // — the ONLY way this page becomes 'program' is the entityUrls upgrade.
+        entities: [{ name: 'Welding', url: 'https://example.edu/welding' }],
       }),
     })
     // Two indexable pages + one non-indexable
     await prisma.crawlPage.createMany({
       data: [
         { runId, url: 'https://example.edu/a', indexable: true, title: 'A', wordCount: 500, crawlDepth: 1, faqEvidence: 'not-detected' },
-        { runId, url: 'https://example.edu/programs/welding', indexable: true, title: 'Welding', wordCount: 900, crawlDepth: 2, faqEvidence: null },
+        { runId, url: 'https://example.edu/welding', indexable: true, title: 'Welding', wordCount: 900, crawlDepth: 2, faqEvidence: null },
         { runId, url: 'https://example.edu/hidden', indexable: false, title: 'Hidden', wordCount: 10, crawlDepth: 3, faqEvidence: null },
       ],
     })
@@ -164,8 +167,12 @@ describe('loadStrategyExport — framing + full assembly', () => {
     expect(out.inventory?.indexablePages).toBe(2)
     expect(out.inventory?.domain).toBe('example.edu')
     expect(out.inventory?.pages).toHaveLength(2)
-    const welding = out.inventory?.pages.find((p) => p.url === 'https://example.edu/programs/welding')
-    expect(welding?.pageType).toBe('program') // programEntityUrls upgrade
+    // The upgrade branch must have FIRED: a bare '/welding' path classifies
+    // nav@0.4 from the slug/depth rules alone; program@0.7 proves the
+    // programEntityUrls upgrade in buildPageInventory ran.
+    const welding = out.inventory?.pages.find((p) => p.url === 'https://example.edu/welding')
+    expect(welding?.pageType).toBe('program')
+    expect(welding?.pageTypeConfidence).toBe(0.7)
 
     // Findings split (run-scope only)
     expect(out.findings?.onPage.map((f) => f.type)).toEqual(['missing_title'])
@@ -228,15 +235,22 @@ describe('loadStrategyExport — independent degradation', () => {
   it('corrupt programEntitiesJson still yields inventory without the program upgrade', async () => {
     const clientId = await makeClient()
     const sessionId = await makeSession(clientId)
-    const runId = await makeLiveScanRun(clientId, { programEntitiesJson: '{bad json' })
+    // Corrupt JSON that TEXTUALLY contains the page URL: had the fail-soft
+    // parse not degraded, the entity upgrade would have fired for this page.
+    const runId = await makeLiveScanRun(clientId, {
+      programEntitiesJson: '{v:1, entities:[{name:"Nursing",url:"https://example.edu/nursing"}]',
+    })
     await prisma.crawlPage.create({
-      data: { runId, url: 'https://example.edu/programs/nursing', indexable: true, title: 'Nursing', wordCount: 800, crawlDepth: 2, faqEvidence: null },
+      data: { runId, url: 'https://example.edu/nursing', indexable: true, title: 'Nursing', wordCount: 800, crawlDepth: 2, faqEvidence: null },
     })
     const out = await loadStrategyExport(sessionId)
     expect(out?.inventory?.pages).toHaveLength(1)
-    // Without a valid entity upgrade, a /programs/ slug still classifies via slug rules,
-    // but crucially the load did not throw and inventory is present.
-    expect(out?.inventory?.pages[0].url).toBe('https://example.edu/programs/nursing')
+    expect(out?.inventory?.pages[0].url).toBe('https://example.edu/nursing')
+    // NON-upgraded classification pinned: '/nursing' is no slug match, crawlDepth
+    // 2 → the classifier's nav@0.4 fallback. 'program' here would mean the
+    // corrupt JSON was trusted.
+    expect(out?.inventory?.pages[0].pageType).toBe('nav')
+    expect(out?.inventory?.pages[0].pageTypeConfidence).toBe(0.4)
   })
 })
 
