@@ -97,6 +97,7 @@ describe('clusterByTopicOverlap', () => {
     const capped = clusterByTopicOverlap(pages, { maxClusters: 2 })!
     expect(capped.clusters).toHaveLength(2)      // only the largest/first 2 retained
     expect(capped.clustersCapped).toBe(true)
+    expect(capped.clusters.map((c) => c.urls[0])).toEqual(['a0', 'a1']) // survivors chosen by url tie-break, in order
     // no false cap when exactly at the limit
     const exact = clusterByTopicOverlap(pages, { maxClusters: 3 })!
     expect(exact.clusters).toHaveLength(3)
