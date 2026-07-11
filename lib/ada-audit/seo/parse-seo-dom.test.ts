@@ -98,3 +98,44 @@ describe('contentText capture (C6 Phase 5)', () => {
     expect(src).not.toMatch(/\btypeof\b/) // typeof compiles to a module-scope helper at es2017
   })
 })
+
+describe('programNames extraction (KS-3)', () => {
+  it('extracts Course and EducationalOccupationalProgram names, incl. @graph nesting and array @type', () => {
+    const seo = dom(`
+      <script type="application/ld+json">{"@type":"Course","name":"Dental Assisting"}</script>
+      <script type="application/ld+json">{"@graph":[{"@type":["EducationalOccupationalProgram","Thing"],"name":"HVAC Technician"}]}</script>
+    `)
+    expect(seo.programNames).toEqual(['Dental Assisting', 'HVAC Technician'])
+  })
+  it('ignores non-program types, missing names, and non-string names (object/array/number)', () => {
+    const seo = dom(`
+      <script type="application/ld+json">{"@type":"Article","name":"Not a program"}</script>
+      <script type="application/ld+json">{"@type":"Course"}</script>
+      <script type="application/ld+json">{"@type":"Course","name":{"@value":"Localized"}}</script>
+      <script type="application/ld+json">{"@type":"Course","name":["A","B"]}</script>
+      <script type="application/ld+json">{"@type":"Course","name":42}</script>
+    `)
+    expect(seo.programNames).toEqual([])
+  })
+  it('tolerates malformed JSON-LD, dedupes, caps names at 120 chars and 20 per page', () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      `<script type="application/ld+json">{"@type":"Course","name":"P${i} ${'x'.repeat(150)}"}</script>`,
+    ).join('')
+    const seo = dom(`
+      <script type="application/ld+json">{broken</script>
+      <script type="application/ld+json">{"@type":"Course","name":"Dup"}</script>
+      <script type="application/ld+json">{"@type":"Course","name":"Dup"}</script>
+      ${many}
+    `)
+    expect(seo.programNames.filter((n) => n === 'Dup')).toHaveLength(1)
+    expect(seo.programNames.length).toBeLessThanOrEqual(20)
+    expect(Math.max(...seo.programNames.map((n) => n.length))).toBeLessThanOrEqual(120)
+  })
+  it('duplicates never crowd out later unique names — the cap counts UNIQUE values (plan-Codex #1)', () => {
+    const dups = Array.from({ length: 20 }, () =>
+      '<script type="application/ld+json">{"@type":"Course","name":"Same"}</script>',
+    ).join('')
+    const seo = dom(`${dups}<script type="application/ld+json">{"@type":"Course","name":"Unique Late Program"}</script>`)
+    expect(seo.programNames).toEqual(['Same', 'Unique Late Program'])
+  })
+})

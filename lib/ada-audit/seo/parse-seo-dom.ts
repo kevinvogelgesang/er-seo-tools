@@ -16,6 +16,7 @@ export interface RawPageSeo {
   h2Count: number
   wordCount: number
   schemaTypes: string[]
+  programNames: string[] // KS-3: JSON-LD Course/EducationalOccupationalProgram names, ≤20, each ≤120 chars
   hreflang: { lang: string; href: string }[]
   imageCount: number
   imagesMissingAlt: number
@@ -86,14 +87,30 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
   }
 
   // schema @type set — JSON-LD only, with @graph recursion.
+  // KS-3: also collect Course/EducationalOccupationalProgram names.
   const schemaTypes: string[] = []
+  const programNames: string[] = []
   for (const s of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
     try {
       const collect = (o: unknown): void => {
         if (!o) return
         if (Array.isArray(o)) { o.forEach(collect); return }
         const rec = o as Record<string, unknown>
-        if (rec['@type']) ([] as unknown[]).concat(rec['@type']).forEach((t) => schemaTypes.push(String(t)))
+        if (rec['@type']) {
+          const types = ([] as unknown[]).concat(rec['@type'])
+          types.forEach((t) => schemaTypes.push(String(t)))
+          // String-primitive check without typeof (injected-code contract):
+          // String(v) === v is true only for string primitives.
+          // Dedupe at insert so the 20-cap counts UNIQUE names (plan-Codex #1).
+          const nameVal = rec['name']
+          if (
+            nameVal != null && String(nameVal) === nameVal && programNames.length < 20 &&
+            types.some((t) => String(t) === 'Course' || String(t) === 'EducationalOccupationalProgram')
+          ) {
+            const nm = (nameVal as string).slice(0, 120)
+            if (programNames.indexOf(nm) === -1) programNames.push(nm)
+          }
+        }
         if (rec['@graph']) collect(rec['@graph'])
       }
       collect(JSON.parse(s.textContent || ''))
@@ -126,7 +143,7 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
 
   return {
     title, metaDescription, robotsNoindex, canonicalUrl, h1, h1Count, h2Count,
-    wordCount: words, schemaTypes: boundedSchema, hreflang,
+    wordCount: words, schemaTypes: boundedSchema, programNames, hreflang,
     imageCount: imgs.length, imagesMissingAlt, imagesMissingDimensions, loginLike,
     contentText: content || undefined, contentTruncated,
   }
