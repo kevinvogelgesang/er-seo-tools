@@ -34,6 +34,9 @@ import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/seo/discovery-coverage'
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
 import { computeContentSignals } from '@/lib/ada-audit/seo/content-signals'
+import { clusterByTopicOverlap } from '@/lib/ada-audit/seo/topic-overlap'
+import { embedChunked } from '@/lib/ada-audit/seo/embed-chunked'
+import { embedTexts } from '@/lib/services/pillarAnalysis/embeddings'
 import { aggregateSchemaTypes } from '@/lib/ada-audit/seo/schema-types'
 import { aggregateProgramEntities } from '@/lib/ada-audit/seo/program-entities'
 import { deriveFaqEvidence } from '@/lib/ada-audit/seo/faq-evidence'
@@ -94,6 +97,10 @@ const JOB_TIMEOUT_MS = 900_000 // 15-min queue ceiling (single source; used at r
 const SAFETY_RESERVE_MS = 180_000
 const CONTENT_SIM_RESERVE_MS = 30_000 // skip similarity if less than this remains before the job ceiling
 const CONTENT_SIGNALS_RESERVE_MS = 10_000 // skip content signals if under this + the similarity reserve
+const TOPIC_OVERLAP_RESERVE_MS = 45_000 // skip topic-overlap if under this + the similarity reserve
+const TOPIC_OVERLAP_EMBED_CHUNK = 32    // embed in bounded chunks; yield between them
+const TOPIC_OVERLAP_BODY_CHARS = 2000   // body-intro prefix (MiniLM reads ~256 tokens anyway)
+const TOPIC_OVERLAP_MAX_PAGES = 1000    // backstop candidate cap (crawl is page-capped upstream)
 const EXTERNAL_MAX_CHECKS = () => parseNonNegativeInt(process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS, 300)
 const EXTERNAL_TIMEOUT = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIMEOUT_MS, 8_000)
 const EXTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, 300_000)
@@ -538,7 +545,7 @@ export async function runBrokenLinkVerify(
   // its reserve accounts for both). Never fails the live-scan write (fail-to-null).
   let contentSignalsJson: string | null = null
   const sigRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
-  if (sigRemaining >= CONTENT_SIGNALS_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
+  if (sigRemaining >= CONTENT_SIGNALS_RESERVE_MS + TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
     try {
       const sigInputs = seoRows
         .filter((r) => indexableOf(r) && !r.loginLike)
@@ -547,6 +554,64 @@ export async function runBrokenLinkVerify(
       if (signals) contentSignalsJson = JSON.stringify({ v: 1, ...signals })
     } catch (e) {
       console.error('[live-seo] content signals failed', e)
+    }
+  }
+
+  // C12 Tier-1: semantic topic-overlap networks over MiniLM embeddings, over the
+  // SAME indexable ∧ ¬login-like set. Runs BEFORE similarity, so its reserve
+  // accounts for both remaining blocks. Cooperative chunked embedding keeps the
+  // synchronous ONNX pass off the event-loop critical path. Fail-to-null: a throw,
+  // model failure, or deadline-abandon must NEVER fail the live-scan write.
+  let topicOverlapJson: string | null = null
+  const topicRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
+  if (topicRemaining >= TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
+    try {
+      const eligible = seoRows.filter((r) => indexableOf(r) && !r.loginLike)
+      const withText = eligible.map((r) => ({
+        url: r.url,
+        sigText: [r.title, r.h1, r.metaDescription].map((s) => (s ?? '').trim()).filter(Boolean).join('\n'),
+        bodyFull: (r.contentText ?? '').trim(),
+      }))
+      const candidates = withText.filter((c) => c.sigText.length > 0 && c.bodyFull.length > 0)
+      const inputCapped = candidates.length > TOPIC_OVERLAP_MAX_PAGES
+      const kept = inputCapped
+        ? [...candidates].sort((a, b) => (a.url < b.url ? -1 : a.url > b.url ? 1 : 0)).slice(0, TOPIC_OVERLAP_MAX_PAGES)
+        : candidates
+      if (kept.length >= 2) {
+        const sigTexts = kept.map((c) => c.sigText)
+        const bodyTexts = kept.map((c) => c.bodyFull.slice(0, TOPIC_OVERLAP_BODY_CHARS))
+        const vecs = await embedChunked([...sigTexts, ...bodyTexts], {
+          embed: embedTexts,
+          chunkSize: TOPIC_OVERLAP_EMBED_CHUNK,
+          // Abort when embedding would eat into the DOWNSTREAM similarity reserve
+          // (Codex plan-fix #1): topic-overlap may consume its own budget down to
+          // CONTENT_SIM_RESERVE_MS remaining, but no further. A single final chunk
+          // that overruns is backstopped by the similarity block's own entry guard
+          // (`simRemaining >= CONTENT_SIM_RESERVE_MS`), which simply skips similarity
+          // to null rather than corrupting anything.
+          shouldAbort: () =>
+            JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS < CONTENT_SIM_RESERVE_MS,
+        })
+        if (vecs) {
+          const m = kept.length
+          const vecByUrl = new Map(
+            kept.map((c, i) => [
+              c.url,
+              { sigVec: vecs[i], bodyVec: vecs[m + i], bodyPrefixTruncated: c.bodyFull.length > TOPIC_OVERLAP_BODY_CHARS },
+            ]),
+          )
+          const pageVecs = eligible.map((r) => {
+            const v = vecByUrl.get(r.url)
+            return v
+              ? { url: r.url, sigVec: v.sigVec, bodyVec: v.bodyVec, bodyPrefixTruncated: v.bodyPrefixTruncated }
+              : { url: r.url, sigVec: null, bodyVec: null, bodyPrefixTruncated: false }
+          })
+          const result = clusterByTopicOverlap(pageVecs, { inputCapped })
+          if (result) topicOverlapJson = JSON.stringify({ v: 1, ...result })
+        }
+      }
+    } catch (e) {
+      console.error('[live-seo] topic overlap failed', e)
     }
   }
 
@@ -582,6 +647,7 @@ export async function runBrokenLinkVerify(
       reachabilityJson: graph ? JSON.stringify({ v: 1, ...graph.summary }) : null,
       contentSimilarityJson,
       contentSignalsJson,
+      topicOverlapJson,
       schemaTypesJson,
       programEntitiesJson,
     },

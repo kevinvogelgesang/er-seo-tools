@@ -47,6 +47,7 @@ export interface CrawlRunInput {
   schemaTypesJson?: string | null       // C14: aggregate schema-type histogram (live-scan runs only)
   programEntitiesJson?: string | null   // KS-3: JSON-LD program {name,url} pairs (live-scan runs only)
   contentSignalsJson?: string | null   // C12: stale-date + readability signals; live-scan runs only
+  topicOverlapJson?: string | null   // C12 Tier-1: semantic topic-overlap networks; live-scan runs only
   wcagLevel: string | null
   pagesTotal: number
   startedAt: Date | null
