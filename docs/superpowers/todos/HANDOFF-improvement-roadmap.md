@@ -1,8 +1,9 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-11 (C20 **KS-4 SHIPPED + DEPLOYED + PROD-VERIFIED, dark** —
-PR #149, `b9d693e`. C20 = 4 of 5 MVP increments. Next: KS-5 spec, the capstone.) ·
-**Updated by:** the KS-4 session.
+**Last updated:** 2026-07-11 (C20 **KS-5 SHIPPED + DEPLOYED + PROD-VERIFIED — C20
+MVP COMPLETE `[x]`** — PR #150, `f490b4c`. KS-1..5 all live. Next: Kevin's
+end-to-end run + eyeball list, then KS-6 (optional) or the main tracker queue.) ·
+**Updated by:** the KS-5 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -10,71 +11,93 @@ PR #149, `b9d693e`. C20 = 4 of 5 MVP increments. Next: KS-5 spec, the capstone.)
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. LAST COMPLETED: C20/KS-4 (FAQ
-tri-state detection + page inventory) SHIPPED DARK — PR #149 merged (b9d693e),
-deployed + prod-verified 2026-07-11 (migration 20260711000000_crawl_page_faq_evidence
-applied, CrawlPage.faqEvidence TEXT nullable live via read-only Prisma probe, clean
-boot, 4360 tests / 489 files green). The chain: parse-seo-dom faqSignals (bounded,
-injection-contract-safe) → detailsJson → deriveFaqEvidence (lib/ada-audit/seo/
-faq-evidence.ts — present:<sigs>|not-detected|NULL=unknown; a malformed/legacy shape
-NEVER reads as not-detected) → live-scan builder ensurePage scalar →
-CrawlPage.faqEvidence → lib/keywords/page-inventory.ts (parseFaqEvidence strict
-decode + pure buildPageInventory: indexable filter, read-time classifyPageType,
-programEntityUrls upgrade only at confidence<=0.4). NOTHING consumes it until KS-5.
-C20 is [~] — 4 of 5 MVP increments done (KS-1 #146, KS-2 #147 dark, KS-3 #148,
-KS-4 #149 dark). Spec/plan pairs all archived.
+Continue the er-seo-tools improvement roadmap. LAST COMPLETED: C20/KS-5 (client-scoped
+keyword-strategy export + kst_ token + billable volume endpoint) SHIPPED — PR #150
+merged (f490b4c), skill kst_ routing landed BEFORE deploy (release prerequisite),
+deployed + prod-verified 2026-07-11 (migration 20260711120000_keyword_strategy_sessions
+applied, KeywordStrategySession + KeywordStrategyVolumeRequest live via read-only
+Prisma probe, export 401 / volumes 400-body-first / mint 401-gated, clean boot,
+4469 tests / 501 files green). C20 = [x] — MVP KS-1..5 COMPLETE (KS-1 #146, KS-2
+#147, KS-3 #148, KS-4 #149, KS-5 #150). All spec/plan pairs + the umbrella doc
+archived. What KS-5 is: NEW kst_ token family (audience keyword-strategy-client,
+scopes read/memo-write/volume-lookup, SAME KEYWORD_MEMO_TOKEN_SECRET — the AUDIENCE
+is the wall); KeywordStrategyCard on /clients/[id] mints a "Strategy ID:" clipboard
+prompt; GET /api/keyword-strategy/[id] assembles five independently-degradable
+blocks (KS-3 profile/roster · KS-1 GSC summary · KS-4 buildPageInventory over the
+newest live-scan run · run-scope findings via lib/findings/finding-type-sets.ts ·
+optional semrush); PATCH …/memo renders back on the card; POST …/volumes is the
+BILLABLE lookup (locale fixed server-side, idempotent reserve→call→finally-settle
+ledger in lib/keywords/strategy-volume-ledger.ts, duplicate-settled replays stored
+responseJson, monthly ceiling on request-row spend time, tiered retention
+7d/45d/keep). Skill side: er-handoff-memo v2.2.0 has the kst_ row + handoff.py
+volumes subcommand + templates/keyword_strategy_structure.md (8 sections, GSC
+hedging, FAQ tri-state phrasing verbatim).
 
-NEXT ITEM: KS-5 SPEC — the CAPSTONE (umbrella docs/superpowers/specs/
-2026-07-10-keyword-strategy-capability-design.md §4 KS-5 + Codex #1/#2). Client-scoped
-keyword-strategy export (lean krt_-v2 over a new prefix unless scopes must differ)
-minted from the client dashboard, assembling: KS-3 institution profile + confirmed
-roster + locale · KS-1 GSC wins/opportunities/quick-wins/cannibalization (freshness:
-Kevin Q6 — refresh-on-mint recommended) · KS-4 page inventory (buildPageInventory
-over the newest seoIntent live-scan run's CrawlPage rows + programEntitiesJson;
-FAQ phrasing per KS-4 spec §7: not-detected = "no FAQ detected — verify before
-recommending", NEVER "confirmed no FAQ") · latest live-scan on-page findings. Memo
-PATCHes back to the client dashboard (KeywordResearchSession pattern, client-linked).
-PLUS the BILLABLE volume-lookup endpoint (Codex: binds to the client-scoped strategy
-session for budget accounting — that's why it's KS-5 not KS-2): dedicated
-volume-lookup token scope NEVER granted to plain memo tokens; anchored SINGLE-ROUTE
-middleware regex + middleware.test.ts case (the 3x-bitten trap); strict request
-validation (keyword count/length caps; locale fixed SERVER-SIDE from the client
-profile — client input never picks the locale); AbortController timeout + honest
-error envelope; persisted per-session usage ledger enforcing the spend cap via
-conditional array-form update / EXISTS predicate (stateless JWTs can't count).
-Volume calls go through the existing KS-2 layer (getKeywordVolumes — dark until
-DATAFORSEO_LOGIN/PASSWORD set in prod .env, a Kevin step, NOT a deploy prereq).
-SKILL SIDE (external to repo): fold Kevin's instructions into
-~/.claude/skills/er-handoff-memo's krt_ branch + move the 4 reference docs into its
-references/. SEMRush CSVs stay an optional additive input. Kevin §5 decisions
-pending — spend envelope (drives ledger caps) + token family (krt_-v2 recommended)
-+ GSC cadence + FAQ phrasing acceptance; propose defaults in the spec, ask only if
-he engages.
+KEVIN STEPS OUTSTANDING (none block other work):
+1. Run the 8-section workflow end-to-end once: /clients/[id] → Keyword Strategy
+   card → Generate strategy prompt → paste into a chat with the er-handoff-memo
+   skill → verify the doc posts back to the card. (Best on a client with GSC
+   mapped + a live-scan run + a confirmed roster + locale set.)
+2. Provide the 4 reference docs (program categories, BOFU patterns, intent
+   definitions, compliance exclusions) → into
+   ~/.claude/skills/er-handoff-memo/references/ (the template applies its
+   When-to-Ask fallbacks until then).
+3. Optional: set DATAFORSEO_LOGIN/DATAFORSEO_PASSWORD in the prod .env to light
+   up the volume endpoint (dark-honest 409 volume_disabled until then). Server
+   .env is Kevin-only (change-control rule 1).
+4. §5 defaults shipped as proposed (1,500 kw/session + 25,000 kw/month caps ·
+   kst_ prefix — Codex reversed the krt_-v2 lean · refresh-on-mint · hedged FAQ
+   phrasing) — override any by saying so.
 
-RITUAL: spec in docs/superpowers/specs/ → notify Kevin one line + path → Codex review
-(consulting-codex skill; session UUID in ~/.claude/state/codex-consultations.json,
-budget-check first; er-seo-tools session at turn ~60) → apply named fixes → plan →
-Codex → TDD build (subagent-driven) → gates → PR → merge → deploy → prod-verify →
-tracker+handoff same commit → archive docs.
+NEXT ITEM (pick one):
+- KS-6 (optional, later): SEMRush retirement via DataForSEO Labs
+  (ranked-keywords/domain-intersection replacing the manual CSV uploads — ties
+  into SF-retirement Phase 6) + the already-approved 1-h contentText retention +
+  per-page content endpoint (shared with C12 Option C). Umbrella §4 KS-6, now at
+  docs/superpowers/archive/specs/2026-07-10-keyword-strategy-capability-design.md.
+- OR the main tracker queue: read the unchecked items at the top of
+  docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md (e.g. the
+  scoring-spec successor items, C12 content auditing) and pick, or ask Kevin.
 
-AFTER KS-5: MVP COMPLETE (KS-1..5) — Kevin runs the 8-section workflow end-to-end.
-Then: KS-6 (optional, SEMRush retirement via DataForSEO Labs + 1-h contentText
-export) or back to the main tracker queue.
+GOTCHAS FOR THE NEXT SESSION:
+- kst_/krt_ share KEYWORD_MEMO_TOKEN_SECRET ON PURPOSE — never "fix" with a new
+  env var; the AUDIENCE claim is the isolation wall, test-pinned both directions
+  incl. prefix-swap attacks.
+- The ledger's settle derives refunds from the STORED row keywordCount clamped
+  in SQL — caller numbers never enter refund arithmetic. Reserve = INSERT..SELECT
+  + EXISTS-fenced UPDATE with a (1,1) affected-count contract; mismatch throws,
+  never success. Array-form $transaction only; raw SQL sets updatedAt (int ms).
+- Retention is TIERED because the monthly ceiling sums request rows: memo-less
+  sessions WITH request rows live 45 d (a 7-d prune would corrupt the month
+  sum). The 45-d proof leans on token TTL 3600s — if TTL ever grows, revisit
+  lib/keywords/retention.ts.
+- KS-5 datetime columns store INTEGER unix-ms (probe-verified). prisma migrate
+  diff --to-url needs an ABSOLUTE path locally (real dev DB = prisma/local-dev.db;
+  a stray empty local-dev.db sits at repo root).
+- lib/findings/finding-type-sets.ts is now the ONE home of on-page/broken type
+  lists (export + both results-page sections import it); the mappers stay the
+  write-side truth, drift-tripwire test pins the ids.
+- OnPageSeoSection.tsx has NO test file (Task-3 refactor verified by diff-read).
+- Rolled-up ship-as-is minors (future polish, none load-bearing): settle EXISTS
+  fence could also bind strategySessionId; readBudget sits between provider call
+  and outcome assignment in volumes/route.ts (throw there → unresolved hold —
+  safe direction); regenerating flag persists if a poll expires with no
+  write-back; reload-mid-regeneration shows the empty state until write-back.
+- tsconfig excludes **/*.test.ts — tsc never flags test fixtures; sweep via
+  grep + vitest. parse-seo-dom injection contract unchanged (no typeof; build =
+  real SWC gate). gsc-snapshot/volume-throttle derived-promise .catch patterns
+  are crash guards — never simplify away.
 
-READ FIRST: the umbrella doc's KS-5 section + KS-4 spec §6/§7 (the inventory seam
-KS-5 consumes) + the tracker's top status-log entry (2026-07-11 KS-4). Trust
-ranking: code > plan/spec > tracker/handoff.
+Kevin eyeballs outstanding (authed-UI): NEW — KeywordStrategyCard end-to-end run
+(step 1 above) · KeywordProfileCard suggest (KS-3) · GscKeywordCard refresh (KS-1)
+· C15 Mine-filter · C16 Audits page · C17 seoOnly auto-flip · C18 results tabs ·
+C14 /sales + real /sales/[token] report · re-scan Bellus (v4 badge + invoice;
+expect ≈68) · post-C19: /settings SEO+ADA cards + /score-lab · post-A8-PR7:
+/clients fleet + client dashboard (weightsHash suppression on first real
+ScoringWeights save — observe only).
 
-Kevin eyeballs outstanding (authed-UI): KeywordProfileCard on a client dashboard
-(set institution/locale, add a program, hit Suggest on a client WITH a live-scan
-run — KS-3) · GscKeywordCard Refresh once (KS-1) · C15 Mine-filter · C16 Audits
-page · C17 seoOnly auto-flip · C18 results tabs · C14 /sales + real /sales/[token]
-report · re-scan Bellus (v4 badge + invoice; expect ≈68) · post-C19: /settings
-SEO+ADA cards + /score-lab · post-A8-PR7: /clients fleet + client dashboard
-(weightsHash suppression on first real ScoringWeights save — observe only).
-
-STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/qct_ clipboard flow.
-(DataForSEO is a DATA API — does not touch this gate.)
+STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/qct_ clipboard
+flow. (DataForSEO is a DATA API — does not touch this gate.)
 
 FIRST STEP — confirm main clean + prod healthy (git log origin/main; ssh
 seo@144.126.213.242 "curl -s localhost:3000/api/health").
@@ -88,12 +111,12 @@ as any ship.
 ENV NOTE: gates = npx tsc --noEmit + DATABASE_URL="file:./local-dev.db" npm test + npm
 run build. Migrations: hand-author SQL (migrate dev is interactive-only here), apply
 with DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && … generate;
-SQLite: no ALTER COLUMN nullability (PRAGMA rebuild). Never git add -A. tsconfig
-EXCLUDES **/*.test.ts — tsc never flags test fixtures; sweep via grep + vitest. Test
-gotchas: vitest globals:false → afterEach(cleanup) in component tests rendering
-repeated text; act() not waitFor under fake timers; getAllBy* for repeated copy;
-route files export only handlers+config; Prisma client is a proxy — vi.spyOn on
-model methods breaks on mockRestore (use shadow-and-restore or mock the module).
+SQLite: no ALTER COLUMN nullability (PRAGMA rebuild). Never git add -A (or -u at
+repo root — pentest-results/ etc. untracked). Test gotchas: vitest globals:false →
+afterEach(cleanup) in component tests rendering repeated text; act() not waitFor
+under fake timers; getAllBy* for repeated copy; route files export only
+handlers+config; Prisma client is a proxy — vi.spyOn on model methods breaks on
+mockRestore (use shadow-and-restore or mock the module).
 ⚠ DEPLOY RECIPE: git push && ssh seo@144.126.213.242 "pm2 stop seo-tools && ~/deploy.sh"
 then verify .next/BUILD_ID + health + boot log. sqlite3 is NOT on the server — verify
 schema via a read-only Prisma probe (node - < script.js over ssh; PRAGMA rows return
@@ -102,71 +125,31 @@ BigInt — Number() them before printing).
 
 ---
 
-## Current state (2026-07-11, post-KS-4-ship)
+## Current state (2026-07-11, post-KS-5-ship)
 
-- **Main** @ `b9d693e` (PR #149 merge) + this ritual commit. **Prod on `b9d693e`**,
-  deployed + verified (fresh BUILD_ID, health ok, migration `20260711000000`
-  applied, `faqEvidence TEXT` nullable probed read-only, 0 unstable restarts,
-  clean boot).
-- **C20 `[~]`** — KS-1..KS-4 SHIPPED (4 of 5 MVP increments). KS-4 Codex trail:
-  spec ×5, plan ×4, 6 build tasks all Spec ✅ 0 Critical/Important (several
-  mutation-verified), final whole-branch review (Fable) READY-TO-MERGE, all
-  minors ship-as-is. 28 new tests.
-- **What KS-4 gives KS-5:** per-page `CrawlPage.faqEvidence` on every future
-  live-scan run + the pure assembly seam `lib/keywords/page-inventory.ts`
-  (`buildPageInventory(pages, { programEntityUrls })` → url/title/h1/pageType/
-  wordCount/faqEvidence for indexable pages; `parseFaqEvidence` for consistent
-  decode anywhere). Historical runs are honestly `unknown` — never backfill.
-- All other tracker state unchanged.
+- **Main** @ `f490b4c` (PR #150 merge) + this ritual commit. **Prod on `f490b4c`**,
+  deployed + verified (fresh BUILD_ID, health ok, migration `20260711120000`
+  applied, both tables + all columns probed read-only, route gates correct,
+  Ready in 673ms, 0 unstable restarts).
+- **C20 `[x]` — MVP COMPLETE** (KS-1..5 in 2 days). KS-5 Codex trail: spec ×6,
+  plan ×7, 10 build tasks (2 fix loops: T5 non-discriminating tests, T10 a real
+  Critical — regenerate-over-memo killed polling), final whole-branch review
+  (Fable) READY-TO-MERGE, 0 Critical/Important, 19 minors triaged ship-as-is.
+  109 new tests.
+- **Skill:** er-handoff-memo v2.2.0 (kst_ routing + volumes subcommand +
+  8-section template) — landed BEFORE deploy per the release-prerequisite rule.
+- **Open Kevin steps:** end-to-end run · 4 reference docs · optional DataForSEO
+  prod creds · §5 default overrides if any.
 
 ## The single next item
 
-**KS-5 spec** — the capstone: client-scoped krt_-v2 export + billable
-volume-lookup endpoint + er-handoff-memo skill upgrade (umbrella §4 KS-5,
-Codex #1/#2). Completes the MVP; Kevin's 8-section workflow becomes runnable
-end-to-end with near-zero manual data gathering.
+**Kevin's call:** KS-6 (optional SEMRush retirement + contentText export) or
+back to the main tracker queue. Nothing is in-flight; the ledger and tracker
+are consistent with code.
 
 ## Gotchas for the next session
 
-- **KS-5 touches middleware** — the ONE change class that bit prod 3×: the
-  volume-lookup route needs an anchored single-route public regex +
-  `middleware.test.ts` case. Never a prefix matcher.
-- **Usage ledger:** array-form `$transaction([...])` / conditional-update-with-
-  EXISTS only — the cap check is a conditional DB write, never an interactive
-  transaction; raw SQL sets `updatedAt` manually (integer ms).
-- **faqEvidence semantics are load-bearing:** NULL=unknown ≠ not-detected.
-  Export/memo wording for `not-detected` is the hedged §7 default ("no FAQ
-  detected — verify before recommending"). `parseFaqEvidence` (page-inventory)
-  is the ONLY decoder — never string-match the column ad hoc.
-- **page-inventory upgrade rule:** programEntityUrls upgrades pageType only when
-  read-time confidence ≤0.4 (unknown/depth-nav) — do not "improve" it to
-  override slug classifications; probed against the real classifier.
-- **`deriveFaqEvidence` negative gate:** `not-detected` requires EVERY field
-  well-formed (heading/container booleans, questionHeadings finite non-negative
-  integer, schemaTypes array). Do not simplify the validity checks away.
-- **tsconfig excludes `**/*.test.ts`** — `tsc --noEmit` never sees test files;
-  required-field sweeps need grep + the vitest run (learned in KS-4 T1).
-- **parse-seo-dom injection contract** (any future touch): no module scope, no
-  `typeof` (`String(v)===v` for string checks), toString() test is only a keyword
-  grep — `next build` is the real SWC gate; sweep `rg -l 'RawPageSeo'` fixtures
-  after required-field additions.
-- **KS-2 volume layer is env-dark in prod** — enabling = Kevin adds
-  `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` to the server `.env` + restart. KS-5
-  must degrade honestly when dark (volume columns absent/labelled, never zeros).
-- **`normalizeLocale` is the Google Ads provider seam** — untouched by design;
-  profile locale is already bare-two-letter canonical; volume-lookup takes locale
-  from the client profile server-side, never from the request body.
-- `lib/keywords/gsc-snapshot.ts` + `volume-throttle.ts` derived-promise `.catch`
-  pattern — do not "simplify" away (unhandled rejection = process crash).
-- Latent KS-3 minors (fix on next touch): roster >100 confirm silently drops on
-  refetch; Advanced-set locale shows "Not set" in the curated dropdown.
-- Rolled-up test debts for KS-5's fixture pass: transport top-level non-20000
-  status case; per-entry missing `search_volume` monthly case; route test lacks
-  the programs+dismiss `conflicting_ops` row.
-- `pentest-results/`, `googlefc472dc61896519a.html`, `SEO_Report_1st_Draft.pdf`
-  untracked at repo root — NEVER `git add -A` (or `-u` at repo root).
-- Prod deploy uses the interim OOM recipe (`pm2 stop seo-tools && ~/deploy.sh`);
-  sqlite3 absent on the server — schema checks via read-only Prisma probe
-  (PRAGMA rows return BigInt — Number() before printing).
-- A stale `running` example.com SiteAudit can linger in local-dev.db from
-  DB-backed test runs — recovery drains it on next dev boot; harmless.
+See the paste-in prompt's GOTCHAS block above — it is the authoritative list
+this cycle (kst_ secret sharing, ledger SQL contracts, tiered-retention month
+proof, absolute-path migrate diff, finding-type-sets ownership, rolled-up
+minors).
