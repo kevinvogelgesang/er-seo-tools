@@ -5,7 +5,7 @@ import { getClientSeoHistory } from '@/lib/services/client-seo-history'
 import { getClientFindings } from '@/lib/services/client-findings'
 import { getClientQuarterContext } from '@/lib/services/client-quarter'
 import { getClientSchedules } from '@/lib/services/client-schedules'
-import { getLatestGscSnapshot } from '@/lib/keywords/gsc-snapshot'
+import { getLatestGscSnapshot, getCannibalizationReport } from '@/lib/keywords/gsc-snapshot'
 import { getKeywordProfile } from '@/lib/services/keyword-profile'
 import { getLatestKeywordStrategySession } from '@/lib/keywords/strategy-export'
 import { ClientHeader } from '@/components/clients/ClientHeader'
@@ -17,6 +17,7 @@ import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
 import { ScheduledScansCard } from '@/components/clients/ScheduledScansCard'
 import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
 import { GscKeywordCard } from '@/components/clients/GscKeywordCard'
+import { GscCannibalizationCard } from '@/components/clients/GscCannibalizationCard'
 import { KeywordProfileCard } from '@/components/clients/KeywordProfileCard'
 import { KeywordStrategyCard } from '@/components/clients/KeywordStrategyCard'
 import { SeverityBadge } from '@/components/ui/SeverityBadge'
@@ -36,7 +37,7 @@ export default async function ClientDashboardPage({ params }: Props) {
   const clientId = Number(id)
   if (!Number.isInteger(clientId) || clientId <= 0) notFound()
 
-  const [dash, history, findings, quarter, scanSchedules, gscSnapshot, keywordProfile, strategySession] =
+  const [dash, history, findings, quarter, scanSchedules, gscSnapshot, keywordProfile, strategySession, cannibalization] =
     await Promise.all([
       getClientDashboard(clientId),
       getClientSeoHistory(clientId),
@@ -46,6 +47,7 @@ export default async function ClientDashboardPage({ params }: Props) {
       getLatestGscSnapshot(clientId),
       getKeywordProfile(clientId),
       getLatestKeywordStrategySession(clientId),
+      getCannibalizationReport(clientId),
     ])
   if (!dash.client) notFound()
 
@@ -125,6 +127,8 @@ export default async function ClientDashboardPage({ params }: Props) {
         <AnalyticsIdsPanel clientId={clientId} />
 
         <GscKeywordCard clientId={clientId} initial={gscSnapshot} />
+
+        <GscCannibalizationCard clientId={clientId} initial={{ gscMapped: cannibalization.gscMapped, report: cannibalization.report }} />
 
         {keywordProfile && (
           <KeywordProfileCard
