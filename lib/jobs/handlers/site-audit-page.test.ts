@@ -225,4 +225,15 @@ describe('persistPageSeo — content similarity fields', () => {
     expect(row?.contentTruncated).toBe(true)
     await prisma.siteAudit.delete({ where: { id: audit.id } })
   })
+
+  it('writes faqSignals into detailsJson', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: 'faq.test', status: 'complete' } })
+    await persistPageSeo(audit.id, 'https://faq.test/p', seo({
+      faqSignals: { heading: true, container: false, questionHeadings: 4 },
+    }))
+    const row = await prisma.harvestedPageSeo.findFirst({ where: { siteAuditId: audit.id } })
+    const details = JSON.parse(row!.detailsJson!)
+    expect(details.faqSignals).toEqual({ heading: true, container: false, questionHeadings: 4 })
+    await prisma.siteAudit.delete({ where: { id: audit.id } })
+  })
 })
