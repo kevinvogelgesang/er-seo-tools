@@ -213,7 +213,8 @@ describe('persistPageSeo — content similarity fields', () => {
     title: 't', metaDescription: undefined, robotsNoindex: false, canonicalUrl: undefined,
     h1: 'h', h1Count: 1, h2Count: 0, wordCount: 120, schemaTypes: [], programNames: [], hreflang: [],
     imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, loginLike: false,
-    contentText: undefined, contentTruncated: false, ...over,
+    contentText: undefined, contentTruncated: false,
+    faqSignals: { heading: false, container: false, questionHeadings: 0 }, ...over,
   })
 
   it('persists contentText + contentTruncated on the harvested row', async () => {

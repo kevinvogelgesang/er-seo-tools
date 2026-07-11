@@ -24,6 +24,9 @@ export interface RawPageSeo {
   loginLike: boolean
   contentText?: string
   contentTruncated: boolean
+  // KS-4: raw FAQ signals (tri-state evidence is derived Node-side in
+  // lib/ada-audit/seo/faq-evidence.ts — detection proves presence, never absence)
+  faqSignals: { heading: boolean; container: boolean; questionHeadings: number }
 }
 
 export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
@@ -141,10 +144,37 @@ export function parseSeoFromDocument(doc: Document, win: Window): RawPageSeo {
     LOGIN_RE.test(h1 || '') ||
     (LOGIN_RE.test(bodyText) && words < 80) // body match supporting-only (short page)
 
+  // KS-4: bounded FAQ signals. Heading pass: inspect up to 300 ELIGIBLE
+  // (non-boilerplate, non-hidden) h2/h3/h4, walking at most 600 raw — an
+  // eligible-only cap would let a heading-heavy mega-nav starve the content
+  // headings this signal depends on (spec Codex #3).
+  const FAQ_HEADING_RE = /\bfaqs?\b|frequently asked/i
+  let faqHeading = false
+  let questionHeadings = 0
+  const faqHs = Array.from(doc.querySelectorAll('h2,h3,h4'))
+  let faqEligible = 0
+  for (let i = 0; i < faqHs.length && i < 600 && faqEligible < 300; i++) {
+    const el = faqHs[i]
+    if (hiddenAncestor(el) || inBoilerplateRegion(el)) continue
+    faqEligible++
+    const t = (el.textContent || '').trim()
+    if (FAQ_HEADING_RE.test(t)) faqHeading = true
+    if (t.endsWith('?')) questionHeadings++
+  }
+  // Container pass: first 50 faq-ish id/class elements; counts when outside
+  // boilerplate/hidden AND (is itself a <details> — querySelector never
+  // matches the element itself — or contains a heading/<details> descendant).
+  let faqContainer = false
+  for (const el of Array.from(doc.querySelectorAll('[id*="faq" i],[class*="faq" i]')).slice(0, 50)) {
+    if (hiddenAncestor(el) || inBoilerplateRegion(el)) continue
+    if (el.tagName === 'DETAILS' || el.querySelector('h2,h3,h4,h5,h6,details')) { faqContainer = true; break }
+  }
+
   return {
     title, metaDescription, robotsNoindex, canonicalUrl, h1, h1Count, h2Count,
     wordCount: words, schemaTypes: boundedSchema, programNames, hreflang,
     imageCount: imgs.length, imagesMissingAlt, imagesMissingDimensions, loginLike,
     contentText: content || undefined, contentTruncated,
+    faqSignals: { heading: faqHeading, container: faqContainer, questionHeadings },
   }
 }

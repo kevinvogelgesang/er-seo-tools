@@ -139,3 +139,59 @@ describe('programNames extraction (KS-3)', () => {
     expect(seo.programNames).toEqual(['Same', 'Unique Late Program'])
   })
 })
+
+describe('faqSignals extraction (KS-4)', () => {
+  it('fires heading on a main-content FAQ heading, and counts question headings', () => {
+    const r = dom(`
+      <main>
+        <h2>Frequently Asked Questions</h2>
+        <h3>How long is the program?</h3>
+        <h3>What does tuition cost?</h3>
+      </main>`)
+    expect(r.faqSignals.heading).toBe(true)
+    expect(r.faqSignals.questionHeadings).toBe(2)
+  })
+
+  it('does NOT fire heading for a footer FAQs nav heading (boilerplate guard)', () => {
+    const r = dom(`<main><h2>Programs</h2></main><footer><h3>FAQs</h3></footer>`)
+    expect(r.faqSignals.heading).toBe(false)
+  })
+
+  it('does NOT fire heading inside a hidden block', () => {
+    const r = dom(`<main><div style="display:none"><h2>FAQ</h2></div></main>`)
+    expect(r.faqSignals.heading).toBe(false)
+  })
+
+  it('fires container for a faq-classed section containing a heading', () => {
+    const r = dom(`<main><section class="faq-block"><h3>Questions</h3><p>…</p></section></main>`)
+    expect(r.faqSignals.container).toBe(true)
+  })
+
+  it('fires container when the faq element IS a <details> (self-match, Codex #3)', () => {
+    const r = dom(`<main><details class="faq"><summary>How do I apply?</summary><p>…</p></details></main>`)
+    expect(r.faqSignals.container).toBe(true)
+  })
+
+  it('does NOT fire container for a bare nav faq link', () => {
+    const r = dom(`<nav><a class="faq-link" href="/faq">FAQ</a></nav><main><p>Hello</p></main>`)
+    expect(r.faqSignals.container).toBe(false)
+  })
+
+  it('does NOT fire container for a faq-classed div with no heading or details', () => {
+    const r = dom(`<main><div class="faq-teaser"><a href="/faq">See our FAQ</a></div></main>`)
+    expect(r.faqSignals.container).toBe(false)
+  })
+
+  it('respects the eligible/raw heading caps: a heading-stuffed nav cannot starve content headings', () => {
+    const navHeadings = Array.from({ length: 400 }, (_, i) => `<h3>Nav ${i}</h3>`).join('')
+    const r = dom(`<nav>${navHeadings}</nav><main><h2>Frequently Asked Questions</h2></main>`)
+    expect(r.faqSignals.heading).toBe(true) // nav headings are raw-walked but not eligible
+  })
+
+  it('stops at the raw cap of 600 headings', () => {
+    // 600 hidden headings exhaust the raw budget before the visible FAQ heading
+    const hidden = Array.from({ length: 600 }, (_, i) => `<h3 style="display:none">H ${i}</h3>`).join('')
+    const r = dom(`<main>${hidden}<h2>Frequently Asked Questions</h2></main>`)
+    expect(r.faqSignals.heading).toBe(false)
+  })
+})
