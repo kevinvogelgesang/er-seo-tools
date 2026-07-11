@@ -175,8 +175,13 @@ describe('clusterByTopicOverlap', () => {
   it('thresholds the weighted 2-component metric (0.6*sig + 0.4*body)', () => {
     // sig identical (cos=1), body 60° apart (cos=0.5): combined = 0.6*1 + 0.4*0.5 = 0.8 ≥ 0.78 → cluster
     expect(clusterByTopicOverlap([page('a', 0, 0), page('b', 0, 60)])!.clusters).toHaveLength(1)
-    // body 90° apart (cos=0): combined = 0.6*1 + 0.4*0 = 0.6 < 0.78 → no cluster
-    expect(clusterByTopicOverlap([page('a', 0, 0), page('b', 0, 90)])).toBeNull()
+    // body 90° apart (cos=0): combined = 0.6*1 + 0.4*0 = 0.6 < 0.78 → no edge.
+    // 2 candidates (≥2) so NOT null — returns the "analyzed, clean" result with zero clusters
+    // (null is reserved for <2 candidates; the builder stores this so the UI shows "no overlap",
+    // never "not analyzed").
+    const clean = clusterByTopicOverlap([page('a', 0, 0), page('b', 0, 90)])!
+    expect(clean.clusters).toHaveLength(0)
+    expect(clean.clusteredCandidates).toBe(2)
   })
 
   it('BRIDGE FIXTURE: single-linkage connects A-B-C even when A-C is below threshold', () => {
