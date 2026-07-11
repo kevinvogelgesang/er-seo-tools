@@ -20,7 +20,8 @@ vi.mock('@/lib/analytics/google/gsc-provider', () => ({
 
 vi.mock('@/lib/log', () => ({ logError: vi.fn() }))
 
-import { refreshGscSnapshot, getLatestGscSnapshot } from './gsc-snapshot'
+import { refreshGscSnapshot, getLatestGscSnapshot, getCannibalizationReport } from './gsc-snapshot'
+import { CANNIBALIZATION_REPORT_CAP } from './types'
 
 const PREFIX = 'ks1gsc-'
 let counter = 0
@@ -38,6 +39,37 @@ function queryRow(query: string, overrides: Partial<GscQueryRow> = {}): GscQuery
 
 function queryPageRow(query: string, page: string, overrides: Partial<GscQueryPageRow> = {}): GscQueryPageRow {
   return { query, page, clicks: 2, impressions: 50, position: 8, ...overrides }
+}
+
+async function makeSnapshot(
+  clientId: number,
+  gscSiteUrl: string,
+  opts: {
+    queryRows?: unknown
+    queryPageRows?: unknown
+    queryRowsJson?: string
+    queryPageRowsJson?: string
+    queryAtLimit?: boolean
+    queryPageAtLimit?: boolean
+    fetchedAt?: Date
+  },
+) {
+  return prisma.gscSnapshot.create({
+    data: {
+      clientId,
+      gscSiteUrl,
+      fetchedAt: opts.fetchedAt ?? new Date(),
+      windowStart: new Date('2026-04-01T00:00:00Z'),
+      windowEnd: new Date('2026-06-28T00:00:00Z'),
+      queryRowLimit: 2500,
+      queryPageRowLimit: 5000,
+      queryAtLimit: opts.queryAtLimit ?? false,
+      queryPageAtLimit: opts.queryPageAtLimit ?? false,
+      minImpressions: GSC_MIN_IMPRESSIONS,
+      queryRowsJson: opts.queryRowsJson ?? JSON.stringify(opts.queryRows ?? []),
+      queryPageRowsJson: opts.queryPageRowsJson ?? JSON.stringify(opts.queryPageRows ?? []),
+    },
+  })
 }
 
 function okResult(data: GscQueryPageResult extends { ok: true; data: infer D } ? D : never): GscQueryPageResult {
@@ -534,5 +566,81 @@ describe('getLatestGscSnapshot', () => {
     const missingId = (maxClient?.id ?? 0) + 5_000_000
     const latest = await getLatestGscSnapshot(missingId)
     expect(latest).toEqual({ gscMapped: false, summary: null })
+  })
+})
+
+describe('getCannibalizationReport', () => {
+  it('returns clientExists:false for an unknown client', async () => {
+    const maxClient = await prisma.client.findFirst({ orderBy: { id: 'desc' } })
+    const missingId = (maxClient?.id ?? 0) + 5_000_000
+    const r = await getCannibalizationReport(missingId)
+    expect(r).toEqual({ clientExists: false, gscMapped: false, report: null })
+  })
+
+  it('returns gscMapped:false for a client with no mapped property', async () => {
+    const c = await makeClient(null)
+    const r = await getCannibalizationReport(c.id)
+    expect(r).toEqual({ clientExists: true, gscMapped: false, report: null })
+  })
+
+  it('returns report:null when mapped but no snapshot exists', async () => {
+    const c = await makeClient(`sc-domain:${PREFIX}no-snapshot.example.edu`)
+    const r = await getCannibalizationReport(c.id)
+    expect(r).toEqual({ clientExists: true, gscMapped: true, report: null })
+  })
+
+  it('reports the FULL cannibalized count and caps entries at the report cap', async () => {
+    const c = await makeClient(`sc-domain:${PREFIX}cap.example.edu`)
+    const N = CANNIBALIZATION_REPORT_CAP + 20
+    const queryRows: GscQueryRow[] = []
+    const queryPageRows: GscQueryPageRow[] = []
+    for (let i = 0; i < N; i++) {
+      const q = `q${i}`
+      queryRows.push(queryRow(q, { impressions: 100 }))
+      queryPageRows.push(queryPageRow(q, `https://${PREFIX}cap.example.edu/${i}-a`, { impressions: 50 }))
+      queryPageRows.push(queryPageRow(q, `https://${PREFIX}cap.example.edu/${i}-b`, { impressions: 50 }))
+    }
+    await makeSnapshot(c.id, c.gscSiteUrl!, { queryRows, queryPageRows })
+    const r = await getCannibalizationReport(c.id)
+    expect(r.report!.totalCannibalizedQueries).toBe(N)
+    expect(r.report!.entries.length).toBe(CANNIBALIZATION_REPORT_CAP)
+    expect(r.report!.capped).toBe(true)
+    expect(r.report!.queryAtLimit).toBe(false)
+    expect(r.report!.queryPageAtLimit).toBe(false)
+  })
+
+  it('carries both truncation flags onto the report', async () => {
+    const c = await makeClient(`sc-domain:${PREFIX}flags.example.edu`)
+    await makeSnapshot(c.id, c.gscSiteUrl!, {
+      queryRows: [],
+      queryPageRows: [],
+      queryAtLimit: true,
+      queryPageAtLimit: true,
+    })
+    const r = await getCannibalizationReport(c.id)
+    expect(r.report!.queryAtLimit).toBe(true)
+    expect(r.report!.queryPageAtLimit).toBe(true)
+  })
+
+  it('falls back past a corrupt NEWEST snapshot to the next valid one', async () => {
+    const c = await makeClient(`sc-domain:${PREFIX}corrupt.example.edu`)
+    // older valid
+    await makeSnapshot(c.id, c.gscSiteUrl!, {
+      queryRows: [queryRow('q0', { impressions: 100 })],
+      queryPageRows: [
+        queryPageRow('q0', `https://${PREFIX}corrupt.example.edu/a`, { impressions: 50 }),
+        queryPageRow('q0', `https://${PREFIX}corrupt.example.edu/b`, { impressions: 50 }),
+      ],
+      fetchedAt: new Date('2026-06-01T00:00:00Z'),
+    })
+    // newer corrupt (wins ordering, must be skipped)
+    await makeSnapshot(c.id, c.gscSiteUrl!, {
+      queryRowsJson: '{bad',
+      queryPageRowsJson: '[]',
+      fetchedAt: new Date('2026-06-20T00:00:00Z'),
+    })
+    const r = await getCannibalizationReport(c.id)
+    expect(r.report).not.toBeNull()
+    expect(r.report!.totalCannibalizedQueries).toBe(1)
   })
 })
