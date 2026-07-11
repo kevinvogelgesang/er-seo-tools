@@ -211,7 +211,7 @@ describe('jobs/handlers/site-audit-page', () => {
 describe('persistPageSeo — content similarity fields', () => {
   const seo = (over: Partial<RawPageSeo>): RawPageSeo => ({
     title: 't', metaDescription: undefined, robotsNoindex: false, canonicalUrl: undefined,
-    h1: 'h', h1Count: 1, h2Count: 0, wordCount: 120, schemaTypes: [], hreflang: [],
+    h1: 'h', h1Count: 1, h2Count: 0, wordCount: 120, schemaTypes: [], programNames: [], hreflang: [],
     imageCount: 0, imagesMissingAlt: 0, imagesMissingDimensions: 0, loginLike: false,
     contentText: undefined, contentTruncated: false, ...over,
   })

@@ -121,7 +121,7 @@ export async function persistPageSeo(
         // present), so this is ALWAYS false — never the LINK truncation flag,
         // which would falsely mark on-page findings incomplete (Codex fix #2).
         harvestTruncated: false,
-        detailsJson: JSON.stringify({ schemaTypes: seo.schemaTypes, hreflang: seo.hreflang }),
+        detailsJson: JSON.stringify({ schemaTypes: seo.schemaTypes, hreflang: seo.hreflang, programNames: seo.programNames }),
         contentText: seo.contentText ?? null,
         contentTruncated: seo.contentTruncated,
       },

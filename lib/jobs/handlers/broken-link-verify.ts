@@ -34,6 +34,7 @@ import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/seo/discovery-coverage'
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
 import { aggregateSchemaTypes } from '@/lib/ada-audit/seo/schema-types'
+import { aggregateProgramEntities } from '@/lib/ada-audit/seo/program-entities'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import { enqueueNotifyEmail } from './notify-email'
@@ -516,6 +517,18 @@ export async function runBrokenLinkVerify(
     console.error('[live-seo] schema-type aggregation failed', e)
   }
 
+  // KS-3: durable JSON-LD program entities. Caller-side eligibility filter
+  // (indexable ∧ ¬login-like — content-similarity precedent). Fail-to-null.
+  let programEntitiesJson: string | null = null
+  try {
+    const agg = aggregateProgramEntities(
+      seoRows.filter((r) => indexableOf(r) && !r.loginLike).map((r) => ({ url: r.url, detailsJson: r.detailsJson })),
+    )
+    if (agg) programEntitiesJson = JSON.stringify(agg)
+  } catch (e) {
+    console.error('[live-seo] program-entity aggregation failed', e)
+  }
+
   // C6 Phase 5: content similarity. Best-effort + time-budget-guarded — a similarity
   // failure or overrun must NEVER fail the live-scan write (mirrors the graph fail-to-null).
   let contentSimilarityJson: string | null = null
@@ -548,6 +561,7 @@ export async function runBrokenLinkVerify(
       reachabilityJson: graph ? JSON.stringify({ v: 1, ...graph.summary }) : null,
       contentSimilarityJson,
       schemaTypesJson,
+      programEntitiesJson,
     },
     pages, findings, violations: [],
   }

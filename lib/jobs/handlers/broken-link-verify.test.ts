@@ -190,6 +190,42 @@ describe('runBrokenLinkVerify', () => {
     expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
   })
 
+  it('KS-3: writes programEntitiesJson from harvested programNames, excluding noindex/login-like rows', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    const siteAuditId = sa.id
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${DOMAIN}/dental`, statusCode: 200, isHtml: true, title: 'Dental',
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+          detailsJson: JSON.stringify({ schemaTypes: ['Course'], hreflang: [], programNames: ['Dental Assisting'] }) },
+        { siteAuditId, url: `https://${DOMAIN}/hidden`, statusCode: 200, isHtml: true, title: 'Hidden',
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: true, xRobotsNoindex: false, loginLike: false,
+          detailsJson: JSON.stringify({ schemaTypes: ['Course'], hreflang: [], programNames: ['Hidden Program'] }) },
+        { siteAuditId, url: `https://${DOMAIN}/walled`, statusCode: 200, isHtml: true, title: 'Walled',
+          h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: true,
+          detailsJson: JSON.stringify({ schemaTypes: ['Course'], hreflang: [], programNames: ['Walled Program'] }) },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } } })
+    const parsed = JSON.parse(run!.programEntitiesJson!)
+    expect(parsed.v).toBe(1)
+    expect(parsed.entities).toEqual([{ name: 'Dental Assisting', url: expect.any(String) }])
+  })
+
+  it('KS-3: programEntitiesJson is null when no harvested row carries program names', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    const siteAuditId = sa.id
+    await prisma.harvestedPageSeo.create({
+      data: { siteAuditId, url: `https://${DOMAIN}/a`, statusCode: 200, isHtml: true, title: 'A',
+        h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+        detailsJson: JSON.stringify({ schemaTypes: ['Organization'], hreflang: [] }) },
+    })
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } } })
+    expect(run!.programEntitiesJson).toBeNull()
+  })
+
   it('is idempotent — second run replaces, exactly one live-scan run, findings from both sources', async () => {
     const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
     const siteAuditId = sa.id
