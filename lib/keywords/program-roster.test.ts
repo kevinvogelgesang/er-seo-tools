@@ -64,6 +64,51 @@ describe('defensive parsing', () => {
     ])
     expect(parsePrograms(json)).toEqual([{ name: 'Good', confirmed: true }])
   })
+  it('parsePrograms is as strict as validatePrograms: drops every axis the write side rejects', () => {
+    const wrap = (entry: Record<string, unknown>) =>
+      parsePrograms(JSON.stringify([{ name: 'Keep', confirmed: true }, entry]))
+    const onlyKeep = [{ name: 'Keep', confirmed: true }]
+    // bad url scheme
+    expect(wrap({ name: 'A', confirmed: true, url: 'javascript:alert(1)' })).toEqual(onlyKeep)
+    expect(wrap({ name: 'A', confirmed: true, url: 'ftp://x' })).toEqual(onlyKeep)
+    // oversized url (>500)
+    expect(wrap({ name: 'A', confirmed: true, url: 'https://x.edu/' + 'p'.repeat(500) })).toEqual(onlyKeep)
+    // over-cap aliases (>10)
+    expect(wrap({ name: 'A', confirmed: true, aliases: Array(50).fill('a') })).toEqual(onlyKeep)
+    // empty alias
+    expect(wrap({ name: 'A', confirmed: true, aliases: [''] })).toEqual(onlyKeep)
+    // oversized alias (>100)
+    expect(wrap({ name: 'A', confirmed: true, aliases: ['x'.repeat(101)] })).toEqual(onlyKeep)
+    // oversized credentialLevel (>100)
+    expect(wrap({ name: 'A', confirmed: true, credentialLevel: 'x'.repeat(101) })).toEqual(onlyKeep)
+    // invalid source
+    expect(wrap({ name: 'A', confirmed: true, source: 'robot' })).toEqual(onlyKeep)
+    // non-string addedAt
+    expect(wrap({ name: 'A', confirmed: true, addedAt: 12345 })).toEqual(onlyKeep)
+    // oversized name (>200 trimmed)
+    expect(wrap({ name: 'x'.repeat(201), confirmed: true })).toEqual(onlyKeep)
+  })
+  it('parsePrograms: drops entries without a literal confirmed:true stamp', () => {
+    const json = JSON.stringify([
+      { name: 'NotConfirmed', confirmed: false },
+      { name: 'NoStamp' },
+      { name: 'Truthy', confirmed: 1 },
+      { name: 'Good', confirmed: true },
+    ])
+    expect(parsePrograms(json)).toEqual([{ name: 'Good', confirmed: true }])
+  })
+  it('parsePrograms: returns fresh sanitized entries — extra properties are stripped, name/aliases trimmed', () => {
+    const json = JSON.stringify([
+      { name: '  Good  ', confirmed: true, aliases: [' a1 '], evil: 'payload', extra: { deep: true } },
+    ])
+    expect(parsePrograms(json)).toEqual([{ name: 'Good', confirmed: true, aliases: ['a1'] }])
+  })
+  it('parsePrograms: name length limit uses trimmed length (consistent with write side)', () => {
+    const name = '  ' + 'x'.repeat(200) + '  ' // untrimmed 204, trimmed exactly 200
+    expect(parsePrograms(JSON.stringify([{ name, confirmed: true }]))).toEqual([
+      { name: 'x'.repeat(200), confirmed: true },
+    ])
+  })
   it('parseSuggestions: null on garbage or wrong version; drops malformed suggestion entries and non-string dismissed names', () => {
     expect(parseSuggestions(null)).toBeNull()
     expect(parseSuggestions('{oops')).toBeNull()

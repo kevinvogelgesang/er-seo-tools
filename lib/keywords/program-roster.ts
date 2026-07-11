@@ -50,6 +50,54 @@ function isHttpUrl(s: string): boolean {
   }
 }
 
+// The SINGLE per-entry field gate, shared by the write path (validatePrograms,
+// reason-returning) and the read path (parsePrograms, filter-not-throw) so the
+// two gates cannot drift: read-side validation is as strict as write-side
+// (plan-Codex #3) — corrupt persisted JSON must never reach
+// normalizeProgramName or the UI. Returns a FRESH sanitized ProgramEntry so
+// unknown extra properties on the input never pass through.
+function checkEntryFields(
+  e: unknown,
+): { ok: true; entry: ProgramEntry } | { ok: false; reason: string } {
+  const fail = (reason: string) => ({ ok: false as const, reason })
+  if (!e || typeof e !== 'object' || Array.isArray(e)) return fail('not an object')
+  const p = e as Record<string, unknown>
+  if (typeof p.name !== 'string' || !p.name.trim() || p.name.trim().length > MAX_NAME) {
+    return fail(`name must be a 1–${MAX_NAME} char string`)
+  }
+  const entry: ProgramEntry = { name: p.name.trim(), confirmed: true }
+  if (p.url != null) {
+    if (typeof p.url !== 'string' || p.url.length > MAX_URL || !isHttpUrl(p.url)) {
+      return fail('url must be an absolute http(s) URL')
+    }
+    entry.url = p.url
+  }
+  if (p.aliases != null) {
+    if (
+      !Array.isArray(p.aliases) || p.aliases.length > MAX_ALIASES ||
+      p.aliases.some((a) => typeof a !== 'string' || !a.trim() || a.length > MAX_ALIAS)
+    ) {
+      return fail(`aliases must be ≤${MAX_ALIASES} non-empty strings of ≤${MAX_ALIAS} chars`)
+    }
+    entry.aliases = p.aliases.map((a) => (a as string).trim())
+  }
+  if (p.credentialLevel != null) {
+    if (typeof p.credentialLevel !== 'string' || p.credentialLevel.length > MAX_CREDENTIAL) {
+      return fail('credentialLevel too long')
+    }
+    entry.credentialLevel = p.credentialLevel
+  }
+  if (p.source != null) {
+    if (p.source !== 'manual' && p.source !== 'suggested') return fail('invalid source')
+    entry.source = p.source
+  }
+  if (p.addedAt != null) {
+    if (typeof p.addedAt !== 'string') return fail('invalid addedAt')
+    entry.addedAt = p.addedAt
+  }
+  return { ok: true, entry }
+}
+
 export function validatePrograms(
   input: unknown,
 ): { ok: true; programs: ProgramEntry[] } | { ok: false; reason: string } {
@@ -57,43 +105,9 @@ export function validatePrograms(
   if (input.length > MAX_PROGRAMS) return { ok: false, reason: `max ${MAX_PROGRAMS} programs` }
   const out: ProgramEntry[] = []
   for (let i = 0; i < input.length; i++) {
-    const e = input[i] as Record<string, unknown> | null
-    const fail = (why: string) => ({ ok: false as const, reason: `entry ${i}: ${why}` })
-    if (!e || typeof e !== 'object' || Array.isArray(e)) return fail('not an object')
-    if (typeof e.name !== 'string' || !e.name.trim() || e.name.trim().length > MAX_NAME) {
-      return fail(`name must be a 1–${MAX_NAME} char string`)
-    }
-    const entry: ProgramEntry = { name: e.name.trim(), confirmed: true }
-    if (e.url != null) {
-      if (typeof e.url !== 'string' || e.url.length > MAX_URL || !isHttpUrl(e.url)) {
-        return fail('url must be an absolute http(s) URL')
-      }
-      entry.url = e.url
-    }
-    if (e.aliases != null) {
-      if (
-        !Array.isArray(e.aliases) || e.aliases.length > MAX_ALIASES ||
-        e.aliases.some((a) => typeof a !== 'string' || !a.trim() || a.length > MAX_ALIAS)
-      ) {
-        return fail(`aliases must be ≤${MAX_ALIASES} non-empty strings of ≤${MAX_ALIAS} chars`)
-      }
-      entry.aliases = e.aliases.map((a) => (a as string).trim())
-    }
-    if (e.credentialLevel != null) {
-      if (typeof e.credentialLevel !== 'string' || e.credentialLevel.length > MAX_CREDENTIAL) {
-        return fail('credentialLevel too long')
-      }
-      entry.credentialLevel = e.credentialLevel
-    }
-    if (e.source != null) {
-      if (e.source !== 'manual' && e.source !== 'suggested') return fail('invalid source')
-      entry.source = e.source
-    }
-    if (e.addedAt != null) {
-      if (typeof e.addedAt !== 'string') return fail('invalid addedAt')
-      entry.addedAt = e.addedAt
-    }
-    out.push(entry)
+    const r = checkEntryFields(input[i])
+    if (!r.ok) return { ok: false, reason: `entry ${i}: ${r.reason}` }
+    out.push(r.entry)
   }
   const seen = new Set<string>()
   for (let i = 0; i < out.length; i++) {
@@ -102,18 +116,6 @@ export function validatePrograms(
     seen.add(k)
   }
   return { ok: true, programs: out }
-}
-
-// Read-side validation is as strict as write-side (plan-Codex #3): corrupt
-// persisted JSON must never reach normalizeProgramName or the UI.
-function isValidEntry(e: unknown): e is ProgramEntry {
-  if (!e || typeof e !== 'object' || Array.isArray(e)) return false
-  const p = e as Record<string, unknown>
-  if (typeof p.name !== 'string' || !p.name.trim() || p.name.length > MAX_NAME) return false
-  if (p.url != null && typeof p.url !== 'string') return false
-  if (p.aliases != null && (!Array.isArray(p.aliases) || p.aliases.some((a) => typeof a !== 'string'))) return false
-  if (p.credentialLevel != null && typeof p.credentialLevel !== 'string') return false
-  return true
 }
 
 const EVIDENCE_KINDS = ['slug', 'schema', 'heading']
@@ -132,7 +134,18 @@ export function parsePrograms(json: string | null): ProgramEntry[] {
   try {
     const arr: unknown = JSON.parse(json)
     if (!Array.isArray(arr)) return []
-    return arr.filter(isValidEntry).slice(0, MAX_PROGRAMS)
+    const out: ProgramEntry[] = []
+    for (const raw of arr) {
+      if (out.length >= MAX_PROGRAMS) break
+      // Read is filter-not-throw: an entry failing ANY write-side check is
+      // dropped. Persisted entries must also carry the literal confirmed:true
+      // stamp that validatePrograms writes.
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+      if ((raw as Record<string, unknown>).confirmed !== true) continue
+      const r = checkEntryFields(raw)
+      if (r.ok) out.push(r.entry)
+    }
+    return out
   } catch {
     return []
   }
