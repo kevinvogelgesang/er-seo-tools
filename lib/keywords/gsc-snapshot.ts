@@ -8,12 +8,15 @@ import { prisma } from '@/lib/db'
 import { logError } from '@/lib/log'
 import { fetchGscQueryPage } from '@/lib/analytics/google/gsc-provider'
 import type { GscQueryRow, GscQueryPageRow } from '@/lib/analytics/google/gsc-provider'
+import type { GscSnapshot } from '@prisma/client'
 import {
   GSC_QUERY_ROW_LIMIT,
   GSC_QUERY_PAGE_ROW_LIMIT,
   GSC_MIN_IMPRESSIONS,
+  CANNIBALIZATION_REPORT_CAP,
   type KeywordSignals,
   type GscSnapshotSummary,
+  type CannibalizationReport,
 } from './types'
 import { computeSnapshotWindow } from './window'
 import { deriveKeywordSignals } from './derive'
@@ -190,13 +193,20 @@ export function refreshGscSnapshot(clientId: number): Promise<RefreshGscSnapshot
 
 // ─── Reads (Codex #1 / #4 / #6) ────────────────────────────────────────────
 
-export async function getLatestGscSnapshot(
-  clientId: number,
-): Promise<{ gscMapped: boolean; summary: GscSnapshotSummary | null }> {
+type LoadedSnapshot = {
+  clientExists: boolean
+  gscMapped: boolean
+  row: GscSnapshot | null
+  payload: { queryRows: GscQueryRow[]; queryPageRows: GscQueryPageRow[] } | null
+}
+
+/** Shared newest-valid-snapshot resolver. Distinguishes unknown client
+ *  (clientExists:false) from unmapped (gscMapped:false) from no-usable-snapshot
+ *  (both true, row/payload null). Corrupt-newest falls through to the next valid. */
+async function loadLatestValidSnapshot(clientId: number): Promise<LoadedSnapshot> {
   const client = await prisma.client.findUnique({ where: { id: clientId } })
-  if (!client || client.gscSiteUrl === null) {
-    return { gscMapped: false, summary: null }
-  }
+  if (!client) return { clientExists: false, gscMapped: false, row: null, payload: null }
+  if (client.gscSiteUrl === null) return { clientExists: true, gscMapped: false, row: null, payload: null }
 
   const rows = await prisma.gscSnapshot.findMany({
     where: { clientId, gscSiteUrl: client.gscSiteUrl },
@@ -214,16 +224,50 @@ export async function getLatestGscSnapshot(
       logError({ clientId, gscSnapshotId: row.id }, err)
       continue
     }
-
     const payload = { queryRows, queryPageRows }
     if (!isValidPayload(payload)) {
       logError({ clientId, gscSnapshotId: row.id }, new Error('gsc_snapshot_invalid_stored_payload'))
       continue
     }
-
-    const signals = deriveKeywordSignals(payload.queryRows, payload.queryPageRows, { minImpressions: row.minImpressions })
-    return { gscMapped: true, summary: buildSummary(row, signals) }
+    return { clientExists: true, gscMapped: true, row, payload }
   }
+  return { clientExists: true, gscMapped: true, row: null, payload: null }
+}
 
-  return { gscMapped: true, summary: null }
+export async function getLatestGscSnapshot(
+  clientId: number,
+): Promise<{ gscMapped: boolean; summary: GscSnapshotSummary | null }> {
+  const loaded = await loadLatestValidSnapshot(clientId)
+  if (!loaded.gscMapped || !loaded.row || !loaded.payload) return { gscMapped: loaded.gscMapped, summary: null }
+  const signals = deriveKeywordSignals(loaded.payload.queryRows, loaded.payload.queryPageRows, {
+    minImpressions: loaded.row.minImpressions,
+  })
+  return { gscMapped: true, summary: buildSummary(loaded.row, signals) }
+}
+
+export async function getCannibalizationReport(clientId: number): Promise<CannibalizationReport> {
+  const loaded = await loadLatestValidSnapshot(clientId)
+  if (!loaded.clientExists) return { clientExists: false, gscMapped: false, report: null }
+  if (!loaded.gscMapped || !loaded.row || !loaded.payload) {
+    return { clientExists: true, gscMapped: loaded.gscMapped, report: null }
+  }
+  const signals = deriveKeywordSignals(loaded.payload.queryRows, loaded.payload.queryPageRows, {
+    minImpressions: loaded.row.minImpressions,
+  })
+  const all = signals.cannibalization
+  return {
+    clientExists: true,
+    gscMapped: true,
+    report: {
+      fetchedAt: loaded.row.fetchedAt.toISOString(),
+      windowStart: loaded.row.windowStart.toISOString(),
+      windowEnd: loaded.row.windowEnd.toISOString(),
+      queryAtLimit: loaded.row.queryAtLimit,
+      queryPageAtLimit: loaded.row.queryPageAtLimit,
+      thresholds: signals.thresholds,
+      totalCannibalizedQueries: all.length,
+      capped: all.length > CANNIBALIZATION_REPORT_CAP,
+      entries: all.slice(0, CANNIBALIZATION_REPORT_CAP),
+    },
+  }
 }

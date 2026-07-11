@@ -410,6 +410,7 @@ model CrawlRun {
   contentSimilarityJson String? // C6 Phase 5: near/exact-duplicate content groups (live-scan runs only); measurement, NOT a finding
   schemaTypesJson       String? // C14: aggregate schema-type histogram (live-scan runs only)
   programEntitiesJson   String? // KS-3: JSON-LD Course/EducationalOccupationalProgram {name,url} pairs (live-scan runs only)
+  contentSignalsJson    String? // C12: stale-date + readability signals (live-scan runs only); measurement, NOT a finding
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]

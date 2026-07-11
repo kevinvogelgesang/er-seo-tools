@@ -46,6 +46,7 @@ export interface CrawlRunInput {
   contentSimilarityJson?: string | null   // C6 Phase 5: near/exact-duplicate groups; live-scan runs only
   schemaTypesJson?: string | null       // C14: aggregate schema-type histogram (live-scan runs only)
   programEntitiesJson?: string | null   // KS-3: JSON-LD program {name,url} pairs (live-scan runs only)
+  contentSignalsJson?: string | null   // C12: stale-date + readability signals; live-scan runs only
   wcagLevel: string | null
   pagesTotal: number
   startedAt: Date | null

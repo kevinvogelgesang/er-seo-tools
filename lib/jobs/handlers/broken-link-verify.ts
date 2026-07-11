@@ -33,6 +33,7 @@ import { hashWeights } from '@/lib/scoring/weights-hash'
 import { computeLinkGraph } from '@/lib/ada-audit/seo/link-graph'
 import { computeDiscoveryCoverage, type DiscoveryMode } from '@/lib/ada-audit/seo/discovery-coverage'
 import { computeContentSimilarity, type SimilarityPageInput } from '@/lib/ada-audit/seo/content-similarity'
+import { computeContentSignals } from '@/lib/ada-audit/seo/content-signals'
 import { aggregateSchemaTypes } from '@/lib/ada-audit/seo/schema-types'
 import { aggregateProgramEntities } from '@/lib/ada-audit/seo/program-entities'
 import { deriveFaqEvidence } from '@/lib/ada-audit/seo/faq-evidence'
@@ -92,6 +93,7 @@ const JOB_TIMEOUT_MS = 900_000 // 15-min queue ceiling (single source; used at r
 // the two capped passes ~11-12m combined and a comfortable margin for the rest.
 const SAFETY_RESERVE_MS = 180_000
 const CONTENT_SIM_RESERVE_MS = 30_000 // skip similarity if less than this remains before the job ceiling
+const CONTENT_SIGNALS_RESERVE_MS = 10_000 // skip content signals if under this + the similarity reserve
 const EXTERNAL_MAX_CHECKS = () => parseNonNegativeInt(process.env.BROKEN_LINK_EXTERNAL_MAX_CHECKS, 300)
 const EXTERNAL_TIMEOUT = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIMEOUT_MS, 8_000)
 const EXTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, 300_000)
@@ -531,6 +533,23 @@ export async function runBrokenLinkVerify(
     console.error('[live-seo] program-entity aggregation failed', e)
   }
 
+  // C12: stale-date + readability signals over the SAME indexable ∧ ¬login-like
+  // aggregation set. Best-effort + time-budget-guarded (runs before similarity, so
+  // its reserve accounts for both). Never fails the live-scan write (fail-to-null).
+  let contentSignalsJson: string | null = null
+  const sigRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
+  if (sigRemaining >= CONTENT_SIGNALS_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
+    try {
+      const sigInputs = seoRows
+        .filter((r) => indexableOf(r) && !r.loginLike)
+        .map((r) => ({ url: r.url, contentText: r.contentText, contentTruncated: r.contentTruncated }))
+      const signals = computeContentSignals(sigInputs, { currentYear: new Date().getUTCFullYear() })
+      if (signals) contentSignalsJson = JSON.stringify({ v: 1, ...signals })
+    } catch (e) {
+      console.error('[live-seo] content signals failed', e)
+    }
+  }
+
   // C6 Phase 5: content similarity. Best-effort + time-budget-guarded — a similarity
   // failure or overrun must NEVER fail the live-scan write (mirrors the graph fail-to-null).
   let contentSimilarityJson: string | null = null
@@ -562,6 +581,7 @@ export async function runBrokenLinkVerify(
       discoveryCoverageJson: JSON.stringify(coverage),
       reachabilityJson: graph ? JSON.stringify({ v: 1, ...graph.summary }) : null,
       contentSimilarityJson,
+      contentSignalsJson,
       schemaTypesJson,
       programEntitiesJson,
     },

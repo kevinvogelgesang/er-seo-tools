@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vites
 import { prisma } from '@/lib/db'
 import { runBrokenLinkVerify, deriveSitemapBaseline, type VerifyDeps } from './broken-link-verify'
 import * as notifyMod from './notify-email'
+import * as contentSignalsMod from '@/lib/ada-audit/seo/content-signals'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 
 const DOMAIN = 'c6blv.example.com'
@@ -753,6 +754,64 @@ describe('runBrokenLinkVerify — content similarity', () => {
     const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
     expect(run).not.toBeNull()
     expect(run!.contentSimilarityJson).toBeNull()
+  })
+})
+
+describe('runBrokenLinkVerify — content signals', () => {
+  const SIG_DOMAIN = 'contentsig.test'
+  const cleanSig = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: SIG_DOMAIN } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: SIG_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: SIG_DOMAIN } })
+  }
+  beforeEach(cleanSig); afterAll(cleanSig)
+  afterEach(() => vi.restoreAllMocks())
+
+  const sigRow = (siteAuditId: string, path: string, contentText: string, opts: { loginLike?: boolean } = {}) => ({
+    siteAuditId, url: `https://${SIG_DOMAIN}${path}`, statusCode: 200, isHtml: true,
+    robotsNoindex: false, xRobotsNoindex: false, loginLike: opts.loginLike ?? false,
+    title: 't', h1: 'h', metaDescription: 'm', wordCount: 800, schemaCount: 1, contentText, contentTruncated: false,
+  })
+
+  it('writes contentSignalsJson from harvested page text (indexable pages only)', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIG_DOMAIN, status: 'complete', pagesTotal: 2, pagesComplete: 2, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        sigRow(sa.id, '/a', '© 2021 Example. All rights reserved.'),
+        sigRow(sa.id, '/login', '© 2019 Secret.', { loginLike: true }),
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIG_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSignalsJson: true } })
+    const parsed = JSON.parse(run!.contentSignalsJson!)
+    expect(parsed.v).toBe(1)
+    expect(parsed.staleDates.pagesWithHits).toBe(1) // only the indexable page
+    expect(parsed.observedPages).toBe(1) // login-like row filtered out
+  })
+
+  it('writes the run with contentSignalsJson null when compute throws', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIG_DOMAIN, status: 'complete', pagesTotal: 1, pagesComplete: 1, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [sigRow(sa.id, '/a', '© 2021 Example.')] })
+    vi.spyOn(contentSignalsMod, 'computeContentSignals').mockImplementationOnce(() => { throw new Error('boom') })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIG_DOMAIN }, stubDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSignalsJson: true } })
+    expect(run).not.toBeNull() // run STILL written
+    expect(run!.contentSignalsJson).toBeNull()
+  })
+
+  it('skips content signals (null) when under the combined time reserve', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: SIG_DOMAIN, status: 'complete', pagesTotal: 1, pagesComplete: 1, pagesError: 0 } })
+    await prisma.harvestedPageSeo.createMany({ data: [sigRow(sa.id, '/a', '© 2021 Example.')] })
+    const spy = vi.spyOn(contentSignalsMod, 'computeContentSignals')
+    let first = true
+    // jobStartedAt (first deps.now() call) = 0; every later call = jobStartedAt + JOB_TIMEOUT_MS
+    // - SAFETY_RESERVE_MS - 5_000 = 900_000 - 180_000 - 5_000 = 715_000, so
+    // sigRemaining = 900_000 - 715_000 - 180_000 = 5_000 < 10_000 + 30_000.
+    const lateDeps: VerifyDeps = { ...stubDeps, now: () => { if (first) { first = false; return 0 } return 715_000 } }
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIG_DOMAIN }, lateDeps)
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSignalsJson: true } })
+    expect(run!.contentSignalsJson).toBeNull()
+    expect(spy).not.toHaveBeenCalled()
   })
 })
 
