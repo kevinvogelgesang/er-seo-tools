@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db'
 import { runBrokenLinkVerify, deriveSitemapBaseline, type VerifyDeps } from './broken-link-verify'
 import * as notifyMod from './notify-email'
 import * as contentSignalsMod from '@/lib/ada-audit/seo/content-signals'
+import * as embeddings from '@/lib/services/pillarAnalysis/embeddings'
+import * as embedChunkedMod from '@/lib/ada-audit/seo/embed-chunked'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 
 const DOMAIN = 'c6blv.example.com'
@@ -963,5 +965,85 @@ describe('runBrokenLinkVerify — D7 completion notify', () => {
     const sa = await prisma.siteAudit.create({ data: { domain: D7_DOMAIN, status: 'complete', notifyEmail: 'r@example.com', notifyCompleteSentAt: new Date() } })
     await runBrokenLinkVerify({ siteAuditId: sa.id, domain: D7_DOMAIN }, deps)
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('C12 Tier-1 topic overlap', () => {
+  // helper: two indexable, non-login pages that ARE clustering candidates
+  async function seedTwoTopicPages(siteAuditId: string) {
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${DOMAIN}/nursing-diploma`, statusCode: 200, isHtml: true,
+          title: 'Nursing Diploma', h1: 'Nursing Diploma Program', metaDescription: 'Become a nurse',
+          contentText: 'Our nursing diploma program prepares registered nurses for clinical practice.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId, url: `https://${DOMAIN}/rn-program`, statusCode: 200, isHtml: true,
+          title: 'RN Program', h1: 'Registered Nurse Program', metaDescription: 'Train as an RN',
+          contentText: 'The registered nurse program trains students for careers in clinical nursing.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+      ],
+    })
+  }
+
+  it('writes topicOverlapJson clustering two same-topic pages (indexable, non-login)', async () => {
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) => texts.map(() => [1, 0])) // every text → identical unit vector
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { topicOverlapJson: true },
+    })
+    const d = JSON.parse(run!.topicOverlapJson!)
+    expect(d.v).toBe(1)
+    expect(d.observedPages).toBe(2)
+    expect(d.clusteredCandidates).toBe(2)
+    expect(d.clusters).toHaveLength(1)
+    expect(d.clusters[0].urls.sort()).toEqual([`https://${DOMAIN}/nursing-diploma`, `https://${DOMAIN}/rn-program`])
+    spy.mockRestore()
+  })
+
+  it('excludes noindex + login-like pages from observedPages', async () => {
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (t: string[]) => t.map(() => [1, 0]))
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId: sa.id, url: `https://${DOMAIN}/noindex`, statusCode: 200, isHtml: true, title: 'N', h1: 'N',
+          metaDescription: 'N', contentText: 'text here', wordCount: 500, robotsNoindex: true, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId: sa.id, url: `https://${DOMAIN}/walled`, statusCode: 200, isHtml: true, title: 'W', h1: 'W',
+          metaDescription: 'W', contentText: 'text here', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: true },
+      ],
+    })
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { topicOverlapJson: true },
+    })
+    expect(JSON.parse(run!.topicOverlapJson!).observedPages).toBe(2) // only the 2 indexable non-login pages
+    spy.mockRestore()
+  })
+
+  it('fail-to-null on embed throw — topicOverlapJson null but the run still writes', async () => {
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockRejectedValue(new Error('model boom'))
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { source: true, topicOverlapJson: true },
+    })
+    expect(run).not.toBeNull()          // writeFindingsRun still succeeded
+    expect(run!.topicOverlapJson).toBeNull()
+    spy.mockRestore()
+  })
+
+  it('deadline-abandon: embedChunked → null yields topicOverlapJson null, run still writes', async () => {
+    const spy = vi.spyOn(embedChunkedMod, 'embedChunked').mockResolvedValue(null) // simulate deadline abandon
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    await seedTwoTopicPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { topicOverlapJson: true },
+    })
+    expect(run!.topicOverlapJson).toBeNull()
+    spy.mockRestore()
   })
 })
