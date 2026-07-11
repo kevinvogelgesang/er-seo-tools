@@ -716,6 +716,28 @@ model GscSnapshot {
   @@index([clientId, fetchedAt])
 }
 
+// KS-2: client-agnostic shared search-volume cache (DataForSEO Google Ads
+// search-volume endpoint). No FKs — two clients in the same market share
+// hits; that is the point of the cache. 30-d TTL enforced at read time +
+// pruned by pruneKeywordVolumeCache() in runCleanup.
+model KeywordVolumeCache {
+  id                  Int      @id @default(autoincrement())
+  keyword             String // normalized: trim, lowercase, collapsed whitespace
+  locationCode        Int
+  languageCode        String
+  providerVersion     String // 'google_ads_v3' — bump invalidates
+  resultStatus        String // 'returned' | 'not_returned' — omitted-from-response != null volume (Codex #1)
+  searchVolume        Int? // null = provider explicitly returned no volume (only meaningful when resultStatus='returned')
+  cpc                 Float?
+  competitionIndex    Int?
+  monthlySearchesJson String? // JSON: {year,month,searchVolume}[] — capped at the 12 most recent months (Codex #5)
+  spell               String? // provider spell-correction, display-only, never remapped (Codex #1)
+  fetchedAt           DateTime @default(now())
+
+  @@unique([keyword, locationCode, languageCode, providerVersion])
+  @@index([fetchedAt])
+}
+
 // Operator identity for Google OAuth login. One row per Google account that has
 // signed in. Keyed by the Google `sub` (stable id; email is display/audit only).
 // `active` gates access — deactivating revokes a person without deleting history.

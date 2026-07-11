@@ -147,7 +147,12 @@ pattern). AbortController timeout. Response handling:
 ```ts
 type VolumeAccounting = { fromCache: number; fetched: number; skipped: SkippedKeyword[];
                           attemptedChunks: number; successfulChunks: number;
-                          providerCost: number | null };  // sum of provider-reported task costs; null = a successful chunk lacked one (unknown ≠ 0) (Codex plan #3)
+                          providerCost: number | null };
+// providerCost (Codex plan #3, refined in build review): 0 when attemptedChunks === 0
+// (nothing sent — disabled / invalid locale / all-cache-hit: spend is KNOWN zero, the
+// common production case); null ONLY when a request actually went out and its cost is
+// genuinely unresolved (attempted > 0 with zero successes, or a successful chunk
+// lacked the cost field). unknown ≠ 0 — but never-sent IS known 0.
 getKeywordVolumes(keywords: string[], locale: { locationCode: number; languageCode: string }):
   Promise<
     | ({ ok: true; volumes: KeywordVolume[] } & VolumeAccounting)   // volumes carry outcome 'returned'|'not_returned' (Codex #1)
