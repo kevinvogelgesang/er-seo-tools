@@ -3,7 +3,7 @@
 // and polling read of the latest KeywordStrategySession for a client.
 import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
-import { prisma } from '@/lib/db'
+import { getLatestKeywordStrategySession } from '@/lib/keywords/strategy-export'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,11 +27,10 @@ export const GET = withRoute(async (_request: NextRequest, { params }: RoutePara
   const clientId = parseClientId(id)
   if (clientId === null) return NextResponse.json({ error: 'invalid_client_id' }, { status: 400 })
 
-  const session = await prisma.keywordStrategySession.findFirst({
-    where: { clientId },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    select: { id: true, status: true, tokenMintedAt: true, memoMarkdown: true, memoUpdatedAt: true },
-  })
+  // Single query definition shared with the dashboard page's initial load
+  // (lib/keywords/strategy-export.ts). NextResponse.json serializes the
+  // helper's Date fields to the same ISO strings the inline query produced.
+  const session = await getLatestKeywordStrategySession(clientId)
 
   return NextResponse.json({ session: session ?? null })
 })

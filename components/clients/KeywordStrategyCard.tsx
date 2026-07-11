@@ -59,6 +59,9 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
   const [state, setState] = useState<ButtonState>('idle');
   const [memoMarkdown, setMemoMarkdown] = useState<string | null>(initialSession?.memoMarkdown ?? null);
   const [memoUpdatedAt, setMemoUpdatedAt] = useState<string | null>(initialSession?.memoUpdatedAt ?? null);
+  // True between a successful mint and the skill's write-back: the old memo
+  // stays visible with a "waiting" affordance while the new one is generated.
+  const [regenerating, setRegenerating] = useState(false);
 
   const webappUrl =
     process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -77,6 +80,7 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
         setMemoMarkdown(s.memoMarkdown);
         setMemoUpdatedAt(s.memoUpdatedAt);
         baselineRef.current = s.memoUpdatedAt;
+        setRegenerating(false);
       },
       lifetimeMs: LIFETIME_MS,
     });
@@ -142,7 +146,15 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
         window.prompt('Copy this prompt for the er-handoff-memo skill:', payload);
         setState('idle');
       }
-      machine.start({ baseline: baselineRef.current, now: Date.now() });
+      // Anchor the new poll cycle to the FRESH session row the mint just
+      // created. That row has memoUpdatedAt null; starting from the OLD memo's
+      // memoUpdatedAt would make the first tick's `null !== oldDate` read as a
+      // change — wiping the displayed memo and killing the poll before the
+      // skill writes anything. Baseline null means the cycle completes only
+      // when a real write-back stamps a non-null memoUpdatedAt.
+      baselineRef.current = null;
+      machine.start({ baseline: null, now: Date.now() });
+      setRegenerating(true);
     } catch {
       setState('error');
       setTimeout(() => setState('idle'), 3000);
@@ -185,6 +197,13 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
             <li key={h}>· {h}</li>
           ))}
         </ul>
+      )}
+
+      {regenerating && (
+        <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">
+          Waiting for the new strategy document to be posted back…
+          {hasMemo ? ' The document below is the previous version.' : ''}
+        </p>
       )}
 
       {hasMemo ? (

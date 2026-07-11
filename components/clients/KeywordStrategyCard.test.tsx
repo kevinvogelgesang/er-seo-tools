@@ -106,6 +106,57 @@ describe('KeywordStrategyCard', () => {
     expect(screen.getByText('Fresh memo body')).toBeTruthy();
   });
 
+  it('regenerate over an EXISTING memo: first poll returns the new empty row without wiping the memo or killing the poll; the new memo renders when posted back', async () => {
+    vi.useFakeTimers();
+    let phase = 0;
+    mockFetch((url, init) => {
+      if (url.endsWith('/mint-token') && init?.method === 'POST') {
+        return { status: 200, body: { token: 'kst_re', strategyId: 'sid-new' } };
+      }
+      // GET poll: the mint created a NEW latest session row with null memo
+      // fields; the old memo lives on the previous row and is no longer
+      // returned by latest-session resolution.
+      if (phase === 0) {
+        return { status: 200, body: { session: session({ id: 's2', status: 'processing', memoMarkdown: null, memoUpdatedAt: null }) } };
+      }
+      return {
+        status: 200,
+        body: { session: session({ id: 's2', status: 'complete', memoMarkdown: '# Regenerated memo body', memoUpdatedAt: '2026-07-11T02:00:00Z' }) },
+      };
+    });
+
+    render(
+      <KeywordStrategyCard
+        clientId={5}
+        initialSession={session({ id: 's1', memoMarkdown: '# Old memo body', memoUpdatedAt: '2026-07-10T00:00:00Z' })}
+        readiness={readiness}
+        archived={false}
+      />,
+    );
+    expect(screen.getByText('Old memo body')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /generate strategy prompt/i }));
+    });
+
+    // First tick fetches the fresh empty row: the poll must SURVIVE (baseline
+    // anchored to the new row, not the old memo's date) and the old memo must
+    // still be displayed — not wiped to the empty state.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(screen.getByText('Old memo body')).toBeTruthy();
+    expect(screen.queryByText(/No keyword strategy yet/i)).toBeNull();
+
+    // The skill posts back; the next tick must pick up the NEW memo.
+    phase = 1;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(screen.getByText('Regenerated memo body')).toBeTruthy();
+    expect(screen.queryByText('Old memo body')).toBeNull();
+  });
+
   it('shows readiness hints when flags are false and hides them when true', () => {
     const { unmount } = render(
       <KeywordStrategyCard
