@@ -1,6 +1,37 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+
+// SiteAuditExportBar imports @/lib/events/client at module scope (subscribeTopic/
+// subscribeHealth), so it MUST be mocked before the component is imported — same
+// idiom as useAuditPoller.test.ts / lib/widgets/queue-poll.test.ts.
+vi.mock('@/lib/events/client', () => {
+  let invalidate: () => void = () => {}
+  let health: (h: boolean) => void = () => {}
+  let lastTopic: string | undefined
+  return {
+    subscribeTopic: (topic: string, cb: () => void) => {
+      lastTopic = topic
+      invalidate = cb
+      return () => {}
+    },
+    subscribeHealth: (cb: (h: boolean) => void) => {
+      health = cb
+      cb(false)
+      return () => {}
+    },
+    __fire: () => invalidate(),
+    __setHealth: (h: boolean) => health(h),
+    __lastTopic: () => lastTopic,
+  }
+})
+import * as eventsClient from '@/lib/events/client'
+const { __fire, __setHealth, __lastTopic } = eventsClient as unknown as {
+  __fire: () => void
+  __setHealth: (h: boolean) => void
+  __lastTopic: () => string | undefined
+}
+
 import SiteAuditExportBar from './SiteAuditExportBar'
 
 const ID = 'site-1'
@@ -175,5 +206,91 @@ describe('SiteAuditExportBar', () => {
       await vi.advanceTimersByTimeAsync(10_000)
     })
     expect(fetchMock.mock.calls.length).toBe(callsBefore)
+  })
+
+  // ── A5 Task 18: SSE-aware poll ──────────────────────────────────────────
+
+  it('subscribes to report:<siteAuditId> while rendering', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse({ queued: true })
+      return jsonResponse({ state: 'rendering', generatedAt: null })
+    })
+    render(<SiteAuditExportBar siteAuditId={ID} hasPrevious={false} initialReportGeneratedAt={null} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('PDF report'))
+    })
+    expect(__lastTopic()).toBe(`report:${ID}`)
+  })
+
+  it('SSE invalidate triggers an immediate status refetch', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse({ queued: true })
+      return jsonResponse({ state: 'ready', generatedAt: '2026-06-12T12:00:00.000Z' })
+    })
+    render(<SiteAuditExportBar siteAuditId={ID} hasPrevious={false} initialReportGeneratedAt={null} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('PDF report'))
+    })
+    const callsBefore = fetchMock.mock.calls.length
+
+    await act(async () => {
+      __fire()
+    })
+
+    expect(fetchMock.mock.calls.length).toBe(callsBefore + 1)
+    expect(screen.getByText('Download report')).toBeTruthy()
+  })
+
+  it('while unhealthy, cadence stays at the original 2s interval', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse({ queued: true })
+      return jsonResponse({ state: 'rendering', generatedAt: null })
+    })
+    render(<SiteAuditExportBar siteAuditId={ID} hasPrevious={false} initialReportGeneratedAt={null} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('PDF report'))
+    })
+    const callsBefore = fetchMock.mock.calls.length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(fetchMock.mock.calls.length).toBe(callsBefore + 1)
+  })
+
+  it('demotes to the 30s safety cadence once SSE is healthy, and re-arms fast when it drops', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse({ queued: true })
+      return jsonResponse({ state: 'rendering', generatedAt: null })
+    })
+    render(<SiteAuditExportBar siteAuditId={ID} hasPrevious={false} initialReportGeneratedAt={null} />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('PDF report'))
+    })
+    const callsAfterPost = fetchMock.mock.calls.length
+
+    // Health flips true: an immediate refetch fires, and the cadence demotes.
+    await act(async () => {
+      __setHealth(true)
+    })
+    expect(fetchMock.mock.calls.length).toBe(callsAfterPost + 1)
+
+    // Well under the 30s safety cadence — no new fetch.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(fetchMock.mock.calls.length).toBe(callsAfterPost + 1)
+
+    // Health drops: re-arm fast (2000ms).
+    await act(async () => {
+      __setHealth(false)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(fetchMock.mock.calls.length).toBe(callsAfterPost + 2)
   })
 })

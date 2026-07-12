@@ -9,6 +9,16 @@
 import { useState, useEffect } from 'react'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { reportStatusTone } from './status-tone'
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
+import { reportTopic, reportListTopic } from '@/lib/events/topics'
+
+// A5: original cadences kept as-is whenever SSE is absent/unhealthy — never
+// slower than pre-A5. Demotes to a shared 60s safety cadence once SSE is
+// confirmed healthy, and an invalidate on the matching topic triggers an
+// immediate refetch — same idiom as useAuditPoller.ts / queue-poll.ts.
+const REPORT_FAST_MS = 2000
+const BATCH_FAST_MS = 3000
+const SAFETY_MS = 60_000
 
 interface ClientItem { id: number; name: string }
 interface ReportStatus {
@@ -76,46 +86,94 @@ export function GenerateReportForm() {
       .catch(() => {})
   }, [])
 
-  // Poll single report status
+  // Poll single report status — SSE-aware (A5): report:<reportId> invalidate
+  // triggers an immediate refetch; cadence demotes to the shared safety
+  // interval once SSE is confirmed healthy, and re-arms fast on health drop.
   useEffect(() => {
     if (!reportId) return
-    const poll = setInterval(async () => {
+    let cancelled = false
+    let timer: ReturnType<typeof setInterval> | null = null
+
+    const poll = async () => {
       try {
         const res = await fetch(`/api/reports/${reportId}`)
         if (!res.ok) {
-          clearInterval(poll)
-          setGenError('Report not found')
+          if (timer) clearInterval(timer)
+          if (!cancelled) setGenError('Report not found')
           return
         }
         const data = await res.json() as ReportStatus
+        if (cancelled) return
         setReportStatus(data)
         if (data.status === 'ready' || data.status === 'error') {
-          clearInterval(poll)
+          if (timer) clearInterval(timer)
         }
       } catch {
         // ignore transient poll errors
       }
-    }, 2000)
-    return () => clearInterval(poll)
+    }
+
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(() => void poll(), healthy ? SAFETY_MS : REPORT_FAST_MS)
+    }
+
+    restartTimer(false)
+    const unsubTopic = subscribeTopic(reportTopic(reportId), () => void poll())
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h)
+      if (h) void poll()
+    })
+
+    return () => {
+      cancelled = true
+      if (timer) clearInterval(timer)
+      unsubTopic()
+      unsubHealth()
+    }
   }, [reportId])
 
-  // Poll batch status every 3s
+  // Poll batch status — SSE-aware (A5): report-list invalidate triggers an
+  // immediate refetch (children's status writes emit report-list); cadence
+  // demotes to the shared safety interval once SSE is confirmed healthy.
   useEffect(() => {
     if (!batchId) return
-    const poll = setInterval(async () => {
+    let cancelled = false
+    let timer: ReturnType<typeof setInterval> | null = null
+
+    const poll = async () => {
       try {
         const res = await fetch(`/api/reports/batch/${batchId}`)
-        if (!res.ok) { clearInterval(poll); return }
+        if (!res.ok) { if (timer) clearInterval(timer); return }
         const data = await res.json() as BatchStatus
+        if (cancelled) return
         setBatchStatus(data)
         if (data.status === 'complete' || data.status === 'error') {
-          clearInterval(poll)
+          if (timer) clearInterval(timer)
         }
       } catch {
         // ignore transient errors
       }
-    }, 3000)
-    return () => clearInterval(poll)
+    }
+
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(() => void poll(), healthy ? SAFETY_MS : BATCH_FAST_MS)
+    }
+
+    restartTimer(false)
+    const unsubTopic = subscribeTopic(reportListTopic(), () => void poll())
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h)
+      if (h) void poll()
+    })
+
+    return () => {
+      cancelled = true
+      if (timer) clearInterval(timer)
+      unsubTopic()
+      unsubHealth()
+    }
   }, [batchId])
 
   // Build POST body from current selection
