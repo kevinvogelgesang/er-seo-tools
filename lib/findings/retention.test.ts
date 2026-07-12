@@ -353,14 +353,19 @@ describe('pruneHarvestedPageSeo', () => {
 describe('sweepExpiredContentAudit', () => {
   const DOMAIN = 'sweep-cat.example.com'
   beforeEach(async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
     await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
     await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
   })
-  it('DELETEs rows for expired non-null retainUntil, keeps in-window and null', async () => {
+  it('DELETEs rows for expired non-null retainUntil with a live-scan run, keeps in-window and null', async () => {
     const now = new Date('2026-07-13T12:00:00Z')
     const expired = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(now.getTime() - 1000) } })
     const inWindow = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(now.getTime() + 60000) } })
     const stranded = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: null } })
+    // The expired case is only sweepable once its live-scan run actually exists.
+    await prisma.crawlRun.create({
+      data: { tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, siteAuditId: expired.id, status: 'complete', score: null, pagesTotal: 1 },
+    })
     for (const sa of [expired, inWindow, stranded]) {
       await prisma.harvestedPageSeo.create({ data: { siteAuditId: sa.id, url: 'https://x/a', contentText: 'body' } })
     }
@@ -368,5 +373,16 @@ describe('sweepExpiredContentAudit', () => {
     expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: expired.id } })).toBe(0)
     expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: inWindow.id } })).toBe(1)
     expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: stranded.id } })).toBe(1)
+  })
+
+  it('keeps rows for an expired retainUntil with NO seo-parser live-scan run yet (crash-window stranded case)', async () => {
+    const now = new Date('2026-07-13T12:00:00Z')
+    // Builder stamped contentAuditRetainUntil BEFORE writeFindingsRun, then crashed:
+    // non-null + expired, but no CrawlRun exists. The EXISTS guard must retain these
+    // rows so a later rebuild can still read the source HarvestedPageSeo data.
+    const crashed = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(now.getTime() - 1000) } })
+    await prisma.harvestedPageSeo.create({ data: { siteAuditId: crashed.id, url: 'https://x/a', contentText: 'body' } })
+    await sweepExpiredContentAudit(now)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: crashed.id } })).toBe(1)
   })
 })

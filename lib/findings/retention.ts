@@ -152,6 +152,15 @@ export async function pruneHarvestedPageSeo(now: Date = new Date()): Promise<voi
  * (null) rows are left for recoverBrokenLinkVerifies + the 7-d backstop. The
  * table has no updatedAt; a DELETE needs none. Hosted in runCleanup + the
  * every-10-min stale-audit-reset job.
+ *
+ * The builder stamps contentAuditRetainUntil BEFORE writeFindingsRun (for
+ * crash-safety), so there is a narrow window where a non-null retainUntil
+ * exists with no seo-parser live-scan CrawlRun yet (crash between the stamp
+ * and the run write). Without a guard, a sweep landing >2h into that window
+ * would delete the source HarvestedPageSeo rows before the eventual rebuild
+ * can read them, degrading the rebuilt run (lost on-page findings). The
+ * EXISTS predicate makes "non-null retainUntil" mean what the design intends:
+ * the live-scan run actually exists, so the retained rows are disposable.
  */
 export async function sweepExpiredContentAudit(now: Date = new Date()): Promise<void> {
   // DateTime columns are stored as INTEGER ms in this SQLite setup (CLAUDE.md:
@@ -164,6 +173,10 @@ export async function sweepExpiredContentAudit(now: Date = new Date()): Promise<
     WHERE "siteAuditId" IN (
       SELECT "id" FROM "SiteAudit"
       WHERE "contentAuditRetainUntil" IS NOT NULL AND "contentAuditRetainUntil" < ${now.getTime()}
+        AND EXISTS (
+          SELECT 1 FROM "CrawlRun"
+          WHERE "CrawlRun"."siteAuditId" = "SiteAudit"."id" AND "CrawlRun"."tool" = 'seo-parser'
+        )
     )`
   if (count > 0) console.log(`[findings] content-audit sweep deleted ${count} expired HarvestedPageSeo row(s)`)
 }
