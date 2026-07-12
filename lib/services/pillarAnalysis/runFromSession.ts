@@ -14,6 +14,8 @@ import {
 import type { RawUrlData } from '@/lib/services/pillarAnalysis/joinRecords';
 import { getCanonicalPageFacts } from '@/lib/services/canonical-page-facts';
 import { selectCanonicalSeoRun } from '@/lib/services/seo-canonical';
+import { publishInvalidation } from '@/lib/events/bus';
+import { pillarAnalysisTopic } from '@/lib/events/topics';
 
 export class PillarAnalysisRunError extends Error {
   constructor(
@@ -48,6 +50,14 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
   if (pa.alreadyComplete) {
     return { id: pa.id, status: 'complete' };
   }
+  // A5 Task 24: PillarAnalysisButtonClient subscribes to
+  // pillarAnalysisTopic(sessionId) — the same sessionId this function is
+  // always called with (the session path never needs a row lookup for the
+  // topic id). `alreadyComplete === false` here means acquirePillarAnalysisRow
+  // just wrote a real state change (created a new running row, or reset an
+  // existing pending/error row to running) — the 'already_running' 409 case
+  // always throws before reaching here, so no spurious emit on that path.
+  publishInvalidation(pillarAnalysisTopic(sessionId));
 
   let files: string[];
   try {
@@ -63,6 +73,7 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
       where: { id: pa.id },
       data: { status: 'error', error: 'internal_all.csv not found in session uploads' },
     });
+    publishInvalidation(pillarAnalysisTopic(sessionId));
     throw new PillarAnalysisRunError('internal_all_missing', 'internal_all.csv not found in session uploads', 422);
   }
 
@@ -92,6 +103,7 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
         urlVerdicts: JSON.stringify(result.urlVerdicts),
       },
     });
+    publishInvalidation(pillarAnalysisTopic(sessionId));
 
     // Only clean up upload dir on the success path. On failure we leave the
     // raw CSVs in place so the user can retry without re-uploading.
@@ -104,6 +116,7 @@ export async function runPillarAnalysisForSession(sessionId: string): Promise<{ 
       where: { id: pa.id },
       data: { status: 'error', error: message.slice(0, 500) },
     });
+    publishInvalidation(pillarAnalysisTopic(sessionId));
     throw new PillarAnalysisRunError('analysis_failed', message, 500);
   }
 }

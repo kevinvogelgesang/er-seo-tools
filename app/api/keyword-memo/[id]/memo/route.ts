@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyKeywordMemoToken, KeywordMemoTokenError } from '@/lib/keyword-memo-token';
+import { publishInvalidation } from '@/lib/events/bus';
+import { memoTopic } from '@/lib/events/topics';
 
 const REQUIRED_SCOPE = 'memo-write';
 const MAX_MEMO_CHARS = 50_000;
@@ -89,6 +91,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       memoUpdatedAt: now,
     },
   });
+
+  // A5 Task 24: KeywordMemoCard subscribes to memo:<Session.id> (the id it
+  // polls by via /api/keyword-memo/by-session/[sessionId]) — NOT the route's
+  // own `id` param, which is this KeywordResearchSession row's own (different)
+  // primary key. Emitted AFTER the awaited update resolves (a resolved
+  // update() always succeeded — P2025 on a missing row throws first).
+  publishInvalidation(memoTopic(updated.sessionId));
 
   return NextResponse.json({
     ok: true,
