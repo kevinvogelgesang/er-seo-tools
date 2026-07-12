@@ -1,8 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
-import { prisma } from '@/lib/db'
-import { PATCH } from './route'
-import { mintContentAuditToken } from '@/lib/content-audit-token'
+
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
+
+const { prisma } = await import('@/lib/db')
+const { PATCH } = await import('./route')
+const { mintContentAuditToken } = await import('@/lib/content-audit-token')
+const { publishInvalidation } = await import('@/lib/events/bus')
 
 const DOMAIN = 'patch-cat.example.com'
 const params = (id: string) => ({ params: Promise.resolve({ siteAuditId: id }) })
@@ -25,6 +29,7 @@ describe('PATCH content-audit findings', () => {
     await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
     await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
     await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
+    vi.mocked(publishInvalidation).mockClear()
   })
   it('stores validated findings on the live-scan run', async () => {
     const sa = await seed(); const { token } = await mintContentAuditToken(sa.id)
@@ -66,5 +71,33 @@ describe('PATCH content-audit findings', () => {
     const r = new NextRequest('https://app.test/x', { method: 'PATCH', headers: { authorization: `Bearer ${token}` }, body: stream, duplex: 'half' } as RequestInit & { duplex: 'half' })
     const res = await PATCH(r, params(sa.id))
     expect(res.status).toBe(413)
+  })
+
+  describe('A5 Task 20: content-audit invalidation emit', () => {
+    it('emits content-audit:<siteAuditId> after a successful PATCH', async () => {
+      const sa = await seed(); const { token } = await mintContentAuditToken(sa.id)
+      const res = await PATCH(req(sa.id, token, { findings: [finding('https://x/a')] }), params(sa.id))
+      expect(res.status).toBe(200)
+      expect(vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])).toContain(`content-audit:${sa.id}`)
+    })
+    it('does NOT emit on a 400 (evidence url not in audit)', async () => {
+      const sa = await seed(); const { token } = await mintContentAuditToken(sa.id)
+      const res = await PATCH(req(sa.id, token, { findings: [finding('https://evil/x')] }), params(sa.id))
+      expect(res.status).toBe(400)
+      expect(publishInvalidation).not.toHaveBeenCalled()
+    })
+    it('does NOT emit on a 401 (missing token)', async () => {
+      const sa = await seed()
+      const res = await PATCH(new NextRequest('https://app.test/x', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: '{"findings":[]}' }), params(sa.id))
+      expect(res.status).toBe(401)
+      expect(publishInvalidation).not.toHaveBeenCalled()
+    })
+    it('does NOT emit on a 409 (no live-scan run)', async () => {
+      const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(Date.now() + 60000) } })
+      const { token } = await mintContentAuditToken(sa.id)
+      const res = await PATCH(req(sa.id, token, { findings: [] }), params(sa.id))
+      expect(res.status).toBe(409)
+      expect(publishInvalidation).not.toHaveBeenCalled()
+    })
   })
 })
