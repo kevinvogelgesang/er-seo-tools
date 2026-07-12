@@ -7,11 +7,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
-    // Tests share the dev SQLite DB. The AuditBatch partial unique index
-    // (`audit_batches_one_open`) means parallel test files writing open
-    // batches collide on the singleton invariant. Serialize file execution
-    // so cross-file DB state stays predictable. ~1-2s slower; reliable.
-    fileParallelism: false,
+    pool: 'forks',
+    poolOptions: { forks: { minForks: 1, maxForks: 4 } },
+    globalSetup: ['./test/global-setup.ts'],
+    setupFiles: ['./test/setup-worker.ts'],
     include: ['**/*.test.ts', '**/*.test.tsx'],
     exclude: [
       ...configDefaults.exclude,
@@ -19,6 +18,7 @@ export default defineConfig({
       '.claude/worktrees/**',
       'local-uploads/**',
       'prisma/local-dev.db*',
+      '.test-dbs/**',
     ],
     coverage: {
       provider: 'v8',
