@@ -169,8 +169,14 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
           // A5 Task 14: the CrawlRun.score didn't exist at the parent-completion
           // flip above — this is the actual data-ready moment for client/recents
           // consumers of this audit's score. Post-commit, outside any tx.
-          publishInvalidation(clientSummaryTopic())
-          publishInvalidation(recentsTopic())
+          // Guarded locally so a throw here can never fall into the .catch
+          // below and mislabel a successful write as a dual-write failure.
+          try {
+            publishInvalidation(clientSummaryTopic())
+            publishInvalidation(recentsTopic())
+          } catch (e) {
+            console.error('[findings] ADA post-commit emit failed for site audit', id, e)
+          }
         })
         .catch((e) => {
           console.error('[findings] ADA dual-write failed for site audit', id, e)

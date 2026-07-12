@@ -36,9 +36,10 @@ vi.mock('@/lib/events/client', () => {
   }
 })
 import * as eventsClient from '@/lib/events/client'
-const { __fire, __setHealth } = eventsClient as unknown as {
+const { __fire, __setHealth, __lastTopic } = eventsClient as unknown as {
   __fire: () => void
   __setHealth: (h: boolean) => void
+  __lastTopic: () => string | undefined
 }
 
 type Poll = { status: string }
@@ -243,6 +244,8 @@ describe('useAuditPoller', () => {
     )
     // Mount fires no fetch by itself (only the interval/invalidate do).
     expect(f.fn).not.toHaveBeenCalled()
+    // The exact topic string reaches subscribeTopic (not just "some string").
+    expect(__lastTopic()).toBe('ada-audit:1')
 
     __fire()
     await flushAsync()

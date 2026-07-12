@@ -25,6 +25,8 @@ import { prisma } from '@/lib/db'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
 import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { writeAdaSingleFindings } from '@/lib/findings/ada-write'
+import { publishInvalidation } from '@/lib/events/bus'
+import { adaAuditTopic, recentsTopic } from '@/lib/events/topics'
 import { parsePositiveInt } from '../config'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
@@ -68,11 +70,26 @@ export async function runAdaAuditJob(payload: unknown): Promise<void> {
   })
   if (claimed.count !== 1) return
 
+  // A5 PR2 Task 17 fix: this handler owns its own progress column writes
+  // (AdaAudit.progress/progressMessage) instead of going through Job.progress,
+  // so the durable-queue worker's heartbeat delta emit (flushJobHeartbeat in
+  // lib/jobs/worker.ts) never fires for standalone audits. Emit here mirrors
+  // that pair, gated on the fenced write actually taking effect (count === 1)
+  // so a zombie write after recovery/retry flips the row never emits a stale
+  // "still running" frame. publishInvalidation never throws, but the whole
+  // callback stays best-effort (.catch below) — progress emission must never
+  // fail the audit itself.
   const onProgress = async (progress: number, progressMessage: string) => {
-    await prisma.adaAudit.updateMany({
-      where: { id: job.adaAuditId, status: 'running' },
-      data: { progress, progressMessage },
-    }).catch(() => {})
+    const written = await prisma.adaAudit
+      .updateMany({
+        where: { id: job.adaAuditId, status: 'running' },
+        data: { progress, progressMessage },
+      })
+      .catch(() => ({ count: 0 }))
+    if (written.count === 1) {
+      publishInvalidation(adaAuditTopic(job.adaAuditId))
+      publishInvalidation(recentsTopic())
+    }
   }
 
   let result: Awaited<ReturnType<typeof runAxeAudit>>
