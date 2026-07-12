@@ -46,4 +46,17 @@ describe('bus', () => {
     expect(closed.v).toBe(true)       // evicted after MAX_CONSECUTIVE_DROPS
     expect(getBusStats().subscribers).toBe(0)
   })
+
+  it('evicts a subscriber whose desiredSize throws, without throwing out of writeToAll', async () => {
+    const closed = { v: false }
+    subscribeBus({
+      write: () => {},
+      close: () => { closed.v = true },
+      desiredSize: () => { throw new Error('controller errored') },
+    })
+    expect(() => { publishInvalidation('queue') }).not.toThrow()
+    await expect(vi.advanceTimersByTimeAsync(200)).resolves.not.toThrow()
+    expect(closed.v).toBe(true)
+    expect(getBusStats().subscribers).toBe(0)
+  })
 })

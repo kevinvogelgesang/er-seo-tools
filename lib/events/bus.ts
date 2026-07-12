@@ -26,7 +26,8 @@ function frame(event: string, data: unknown): string {
 
 function writeToAll(f: string): void {
   for (const sub of [...state.subscribers]) {
-    const ds = sub.desiredSize?.()
+    let ds: number | null | undefined
+    try { ds = sub.desiredSize?.() } catch { safeDrop(sub); continue }
     if (ds != null && ds <= 0) {
       const n = (drops.get(sub) ?? 0) + 1
       if (n >= MAX_CONSECUTIVE_DROPS) safeDrop(sub); else drops.set(sub, n)
