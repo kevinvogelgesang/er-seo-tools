@@ -2,7 +2,9 @@
 
 **Date:** 2026-07-12 · **Tracker item:** D1 (Track D) · **Source:**
 `../nyi/improvement-roadmaps/03-ai-memo-tools.md` Phase 1 (written when there
-were 3 token families; there are now 6).
+were 3 token families; there are now 6). **Codex review 2026-07-12:
+ACCEPT WITH NAMED FIXES ×8 — all applied in this revision** (the original
+draft's scope-enforcement premise was factually wrong; corrected throughout).
 
 ## Problem
 
@@ -10,17 +12,26 @@ Six skill-handoff token families exist — pat_ (pillar), srt_ (seo-roadmap),
 krt_ (keyword-memo), kst_ (keyword-strategy), cat_ (content-audit), qct_
 (quarter-push) — and each was built by cloning the previous one: a token
 module (`lib/<x>-token.ts`), a prompt composer (`lib/<x>-prompt.ts`), 2–3
-public routes with hand-rolled auth, and a UI card. The clones have already
-drifted:
+public routes with per-route auth, and a UI card. The clones have drifted in
+*implementation*, and every behavior — including the drift — is wire contract
+for the deployed er-handoff-memo skill:
 
-- **Scope is minted but never enforced** in 4 of 6 families (pat/srt/krt/qct
-  verify issuer/audience/sub only; only kst_/cat_ route-auth helpers check
-  scope). A `read`-scoped token wouldn't exist today (mint always grants all
-  scopes), but the enforcement seam the scopes were designed for is absent.
-- **Two divergent shared helpers**: `lib/keyword-strategy-route-auth.ts`
-  (Bearer-only, rich `tokenErrorCode` taxonomy) and
-  `lib/content-audit/route-auth.ts` (Bearer-or-`?token=`, flat 401). The
-  other four families inline Bearer parsing per route.
+- **Auth is hand-cloned per route with divergent error taxonomies.** All six
+  families enforce scope, but each spells its rejections differently:
+  srt/krt return `auth_missing` / `auth_malformed` / `token_missing_scope` /
+  `token_service_unavailable`; qct collapses to `auth_missing_or_malformed`;
+  pat_ message-sniffs `PillarTokenError` into `token_expired` /
+  `token_wrong_analysis_id` / `token_invalid_signature` / `token_invalid`;
+  kst_ has its own rich `tokenErrorCode` taxonomy; cat_ deliberately
+  collapses everything to `auth_required` / `insufficient_scope` and is the
+  only family accepting `?token=` as a Bearer fallback. Six hand-rolled
+  copies of "the same" check is a drift/regression risk every time one is
+  touched — the fix is centralizing the *mechanism* while preserving each
+  family's response contract byte-for-byte.
+- **Two divergent shared helpers already exist**:
+  `lib/keyword-strategy-route-auth.ts` (Bearer-only) and
+  `lib/content-audit/route-auth.ts` (Bearer-or-`?token=`); the other four
+  families inline.
 - **Style drift**: `content-audit-token.ts` is no-semicolon condensed; kst_
   and cat_ use `withRoute`, the older four hand-roll try/catch; prompt
   composer names/params differ (`composePayload` vs `buildContentAuditPrompt`,
@@ -31,7 +42,8 @@ drifted:
   PillarAnalysisButtonClient. Every future fix (like A5 PR4's SSE migration)
   is applied 4×.
 - The superseded `skills/pillar-analysis-narrative/` directory still sits in
-  the repo although `er-handoff-memo` replaced it.
+  the repo (with live build wiring: `scripts/build-skill.sh` +
+  `npm run build:skill`) although `er-handoff-memo` replaced it.
 
 A seventh family (they keep appearing — cat_ and kst_ both landed in the last
 month) costs ~a week of plumbing and re-introduces every drift class above.
@@ -39,34 +51,39 @@ month) costs ~a week of plumbing and re-introduces every drift class above.
 ## Goals
 
 1. One **token factory** — a family is a config entry, not a module.
-2. One **route-auth helper** — every public handoff route authenticates the
-   same way, *with scope enforcement everywhere* (closing the 4-family gap).
-3. One **HANDOFF_TYPES registry** as the single home of per-family config
-   (prefix, audience, secret env, scopes, TTL, id label, prompt text parts).
+2. One **route-auth helper** that centralizes the existing verification +
+   scope enforcement mechanism with **zero behavioral change** — each
+   family's error codes, statuses, and transport rules are preserved exactly
+   via per-family response policy.
+3. One **HANDOFF_TYPES registry**, split into a server-only token registry
+   and a client-safe metadata registry.
 4. One **`<MemoHandoffCard>`** for the four machine-based markdown flows.
-5. Delete `skills/pillar-analysis-narrative/`.
-6. Net effect: family #7 = registry entry + a GET-export payload builder + a
-   PATCH write-back delegate + one card instantiation.
+5. Delete `skills/pillar-analysis-narrative/` + its build wiring.
+6. Net effect: family #7 = registry entries + a GET-export payload builder +
+   a PATCH write-back delegate + one card instantiation.
 
 ## Non-goals (explicitly out)
 
 - **No wire-contract changes.** Route URLs, middleware `isPublicPath`
   matchers, JWT claims (iss/aud/sub/scope/exp), token prefixes, clipboard
-  payload text, and response shapes stay **byte-identical**. The deployed
-  er-handoff-memo skill (v2.3.0) is an uncontrolled consumer; its
-  `handoff.py` ROUTES table pins all of these.
-- **No secret unification.** Per the roadmap doc: unify the code, not the
-  keys. kst_/cat_ keep deliberately sharing `KEYWORD_MEMO_TOKEN_SECRET`
-  (audience is the isolation wall); the other four keep their own env vars.
-  No new env vars, no prod `.env` change.
+  payload text, **per-family auth error codes/statuses**, and success
+  response shapes stay **byte-identical**. The deployed er-handoff-memo
+  skill (v2.3.0) is an uncontrolled consumer; its `handoff.py` ROUTES table
+  and error diagnostics pin all of these. Explicitly rejected: normalizing
+  the six error taxonomies into one (cleaner internally, but a frozen-wire
+  violation).
+- **No secret unification.** kst_/cat_ keep deliberately sharing
+  `KEYWORD_MEMO_TOKEN_SECRET` (audience is the isolation wall); the other
+  four keep their own env vars. No new env vars, no prod `.env` change.
+- **No security-behavior deltas.** Scope enforcement already exists on all
+  six families; this work centralizes it, it does not add or remove checks.
+  `?token=` acceptance stays cat_-only.
 - **No cat_/qct_ card unification.** ContentAuditCard renders structured
   findings-by-type with a bespoke bounded post-mint poller (A5 PR3 design);
-  PushToTeamworkButton is a 63-line fire-and-forget mint button. Forcing
-  either into MemoHandoffCard adds modes for negative value. They adopt the
-  server-side factory/auth only.
+  PushToTeamworkButton is a 63-line fire-and-forget mint button. They adopt
+  the server-side factory/auth only.
 - **No memo-topic re-keying.** `memo:<id>` keying stays exactly as A5 PR4
   shipped it (srt/krt = Session FK, kst = own PK, pat = `sessionId ?? id`).
-  The shared-topic cross-family behavior is plan-level accepted design.
 - **No changes to `lib/memo-poller-machine.ts`** or `lib/events/*`.
 - **No schema migration.**
 
@@ -75,143 +92,165 @@ month) costs ~a week of plumbing and re-introduces every drift class above.
 **A. Full unification** — one generic engine absorbing all six families
 end-to-end, including cat_'s manifest/page/findings trio, qct_'s receipt
 flow, and both outlier cards as render modes. Rejected: the outliers diverge
-in *semantics*, not implementation accident (findings JSON vs markdown doc vs
-no document at all); a card with three render modes and a route layer with
-per-family escape hatches is more code than today, harder to reason about,
-and churns surfaces A5 just stabilized.
+in *semantics*, not implementation accident.
 
 **B. Layered consolidation (chosen)** — unify the four genuinely-cloned
-layers (token, route-auth, prompt composer, markdown-memo card) behind a
-registry; keep per-family facade modules so import sites, tests, and wire
-contracts don't move; leave family-specific semantics (GET payload builders,
-cat_ manifest trio, qct_ receipt, volumes billing) where they are. Full dedup
-where the clones are real clones, zero forced abstraction where they aren't.
+layers (token, route-auth mechanism, prompt composer, markdown-memo card)
+behind a registry; keep per-family facade modules so import sites, tests,
+and wire contracts don't move; represent family differences **explicitly as
+registry policy** rather than treating them as incidental; leave
+family-specific semantics (GET payload builders, cat_ manifest trio, qct_
+receipt, volumes billing) where they are.
 
 **C. Server-side only** — factory + route-auth, no card work. Rejected: the
-three markdown cards are the highest-drift surface (A5 PR4 had to patch each
-one), and the roadmap item names the card explicitly. Halves the value.
+markdown cards are the highest-drift surface (A5 PR4 had to patch each one),
+and the roadmap item names the card explicitly.
 
 ## Design (approach B)
 
-### 1. `lib/handoff/registry.ts` — HANDOFF_TYPES
+### 1. Registries — server/client split
+
+**`lib/handoff/registry.ts` (server-only):** per-family token + auth policy.
 
 ```ts
 export type HandoffFamilyKey = 'pat' | 'srt' | 'krt' | 'kst' | 'cat' | 'qct'
 
-export interface HandoffFamilyConfig {
-  prefix: string            // 'pat_' … literal, never derived
-  audience: string          // existing literal, e.g. 'pillar-analysis-narrative'
-  secretEnv: string         // 'PILLAR_TOKEN_SECRET' | … | 'KEYWORD_MEMO_TOKEN_SECRET' (shared ×2)
-  scopes: readonly string[] // full grant minted on every token (unchanged)
-  ttlSeconds: number        // 3600 for all six today
-  idLabel: string           // 'Analysis ID' | 'Roadmap ID' | … (clipboard contract)
+export interface HandoffTokenConfig {
+  prefix: string             // 'pat_' … literal, never derived
+  audience: string           // existing literal, e.g. 'pillar-analysis-narrative'
+  secretEnv: string          // may repeat: kst/cat both name KEYWORD_MEMO_TOKEN_SECRET
+  devFallbackSecret: string  // each family's CURRENT fallback material, verbatim
+  devFallbackWarning: string // each family's CURRENT warn-once text, verbatim
+  scopes: readonly string[]
+  ttlSeconds: number         // 3600 for all six today
+  makeError(message: string): Error   // constructs the family's legacy error class,
+                                      // preserving .name and exact message wording
+  transport: 'bearer-strict' | 'bearer-or-query'  // 'bearer-or-query' = cat_ ONLY
+  errorPolicy: HandoffAuthErrorPolicy // see §3
 }
-
-export const HANDOFF_TYPES: Record<HandoffFamilyKey, HandoffFamilyConfig>
 ```
 
-All values are copied **literally** from the six existing modules (registry
-values are wire contract; a test pins each against the legacy literals).
-Client-safe: no secrets, no node imports — cards may import `idLabel` etc.
+**`lib/handoff/meta.ts` (client-safe):** `{ prefix, idLabel, … }` per family —
+no secrets, no node imports, importable by cards. A test pins every registry
+value against the current per-module literals.
 
 ### 2. `lib/handoff/token.ts` — the factory
 
-`createHandoffTokenFamily(config: HandoffFamilyConfig)` returns
+`createHandoffTokenFamily(config: HandoffTokenConfig)` returns
 `{ mint(id): Promise<MintedToken>, verify(token, expectedId): Promise<JWTPayload> }`
-implementing exactly the shared behavior of the six current modules:
+implementing the shared mechanism of the six current modules:
 
 - jose HS256, `iss 'er-seo-tools'`, `aud config.audience`, `sub id`,
   `scope: config.scopes`, expiry `config.ttlSeconds`.
 - Secret resolution from `process.env[config.secretEnv]`; production throw
-  when unset; dev fallback secret with a **per-family warn-once** flag
-  (current behavior, preserved).
-- One shared `HandoffTokenError` class. The existing per-family error classes
-  become subclasses re-exported from the facades, so any `instanceof` checks
-  and error-name expectations in routes/tests keep passing.
-- Verify checks signature/iss/aud/exp and `sub === expectedId` — same checks
-  as today, no more, no fewer (scope stays a route-layer concern).
+  when unset; the family's own dev fallback secret + warn-once text
+  (verbatim from config — NOT a shared string).
+- **Errors are thrown through `config.makeError`**, so `instanceof
+  PillarTokenError` (etc.) checks in routes/tests keep passing and error
+  `.name`/message wording is preserved exactly — a shared base class alone
+  cannot satisfy the existing `instanceof` checks. Subject-mismatch and
+  expiry message wording per family is characterization-pinned (pat_'s route
+  message-sniffs `err.message` — wording is load-bearing wire behavior).
 
 **Facades:** the six existing modules (`lib/pillar-token.ts` etc.) shrink to
 config lookup + re-export with their current exported names
 (`mintPillarToken`, `verifySeoRoadmapToken`, `KEYWORD_STRATEGY_TOKEN_SCOPES`,
-`CONTENT_AUDIT_TOKEN_TTL_MS`, pat_'s `parsePillarPrompt` + regexes, …). No
-import site anywhere else changes. Existing per-module tests keep running
-against the facades — they become the byte-compat regression net.
+`CONTENT_AUDIT_TOKEN_TTL_MS`, pat_'s `parsePillarPrompt` + regexes, the
+legacy error classes, …). No import site anywhere else changes. Existing
+per-module tests keep running against the facades.
 
-### 3. `lib/handoff/route-auth.ts` — one auth helper
+### 3. `lib/handoff/route-auth.ts` — one auth mechanism, per-family policy
 
-`requireHandoffToken(req, family, expectedId, requiredScope, opts?)` →
-`{ ok: true, payload } | { ok: false, response: 401 }` — fail-closed, never
-throws raw (cat_ helper's contract, generalized):
+`requireHandoffToken(req, family, expectedId, requiredScope)` →
+`{ ok: true, payload } | { ok: false, response }` — fail-closed, never
+throws raw. The *mechanism* is shared; every family-visible behavior comes
+from its registry policy:
 
-- Token extraction: `Authorization: Bearer <prefix_…>` for all families;
-  `opts.allowQueryToken` adds cat_'s `?token=` fallback (cat_ only).
-- Verifies via the factory family, then **enforces `requiredScope` for every
-  family** — new enforcement for pat/srt/krt/qct. Strictly tightening and
-  runtime-safe: mint has always granted the full scope set and TTL is 1 h, so
-  no live token lacks the scopes.
-- Error taxonomy: kst_'s rich `tokenErrorCode` mapping becomes the shared
-  behavior **only where kst_ already returns it**; the other five keep their
-  current (flat 401) response bodies. Response-shape parity per family is
-  test-pinned before the switch (characterization tests first, then adopt).
+- **Transport is registry-owned, not caller-selectable**: `bearer-strict`
+  (five families) vs `bearer-or-query` (cat_ only). cat_'s current
+  precedence is pinned exactly: a missing or non-Bearer-shaped
+  `Authorization` header falls back to `?token=`; a well-formed `Bearer`
+  token that fails verification does NOT fall back to query.
+- **Error policy per family** maps each failure stage — missing header,
+  malformed header, wrong prefix, verification failure (expired / bad
+  signature / wrong sub / other), missing scope, unexpected/verifier error —
+  to that family's CURRENT `{ error: code, status }` body: srt/krt's
+  `auth_missing`/`auth_malformed`/…/500 `token_service_unavailable`; qct's
+  combined `auth_missing_or_malformed`; pat_'s message-sniffed
+  `token_expired`/`token_wrong_analysis_id`/`token_invalid_signature`/
+  `token_invalid`; kst_'s `tokenErrorCode` taxonomy; cat_'s flat
+  `auth_required`/`insufficient_scope`. No response body changes, ever.
+- Scope enforcement: same checks as today, centralized (all six already
+  enforce; this moves the code, not the behavior).
 
 The two existing helpers (`keyword-strategy-route-auth.ts`,
 `content-audit/route-auth.ts`) become facades delegating here (signatures
-unchanged), so kst_/cat_ routes don't churn.
-
-Adoption: the 8 inline-auth public routes (pat/srt/krt GET+PATCH, qct
-GET+POST) switch to the helper via their family facade. Route URLs, methods,
-success bodies: untouched. `middleware.ts`: untouched (drift test already
-pins the matcher set).
+unchanged). The 8 inline-auth public routes (pat/srt/krt GET+PATCH, qct
+GET+POST) adopt the helper. Route URLs, methods, success bodies, and each
+family's body-vs-auth ordering: untouched. `middleware.ts`: untouched.
 
 ### 4. Prompt composer consolidation
 
-`lib/handoff/prompt.ts` — `composeHandoffPayload(family, { webappUrl, id,
-token, … })` produces the 3-line contract (`Webapp:` / `<idLabel>:` /
-`Access token:`) + per-family instruction lines sourced from the registry.
-The six existing composer functions become facades with **byte-identical
-output** — each facade's existing test (they're already string-pinned) is the
-gate. cat_'s `buildContentAuditPrompt({appUrl,…})` and qct_'s numeric-id
-signature are preserved at the facade.
+`lib/handoff/prompt.ts` — `composeHandoffPayload(family, parts)` produces
+the 3-line contract (`Webapp:` / `<idLabel>:` / `Access token:`) +
+per-family instruction lines sourced from the metadata registry. The six
+existing composer functions become facades with **byte-identical output**,
+including whitespace and trailing-newline behavior. Because today's prompt
+tests are mostly `toContain` fragments (and cat_/qct_ have none), **exact
+full-string characterization tests for all six composers land BEFORE the
+facade switch** (see Testing). cat_'s `buildContentAuditPrompt({appUrl,…})`
+and qct_'s numeric-id signature are preserved at the facade.
 
-### 5. Markdown write-back delegate (server)
+### 5. Write-back emit orchestration (narrow, server)
 
 The four document PATCH routes (pat narrative, srt roadmap, krt memo, kst
-memo) share a shape: validate body (markdown + optional structured) → update
-one row (columns differ) → stamp updatedAt → emit `memoTopic(<row key>)` off
-the **returned row**. Extract `lib/handoff/document-writeback.ts`:
+memo) differ in body-before-auth ordering, parsing/limits, structured
+sidecars, error bodies, update column sets, and timestamp fields
+(`narrativeUpdatedAt` / `roadmapUpdatedAt` / `memoUpdatedAt` ×2). Those
+stay family-owned in the route files. What is genuinely shared — and what A5
+made invariant-critical — is the **post-update emit orchestration**:
 
 ```ts
-handleDocumentWriteBack(req, {
-  family, id,
-  update(body): Promise<{ topicId: string }>,   // family-owned prisma update, returns row-derived topic id
-  // validation limits per family stay as today (characterization-pinned)
-})
+// lib/handoff/memo-emit.ts
+emitMemoTopicAfterWrite(updatedRow: { topicId: string }): void
+// post-resolve, outside any tx, effect-gated, keyed off the RETURNED row
 ```
 
-Route files remain (App Router filesystem requirement) as thin delegations:
-auth via §3, then the family's `update` closure. **Emit stays post-resolve,
-outside any tx, keyed off the returned row's FK — the A5 invariants — now
-encoded once instead of four times.** The A5 emit-identity tests
-(`not.toHaveBeenCalledWith(<wrongId>)`) keep passing unchanged.
+Each PATCH route keeps its own validation + prisma update and calls the
+shared emit with its row-derived topic id. The A5 emit-identity tests
+(`not.toHaveBeenCalledWith(<wrongId>)`) keep passing unchanged. A broader
+`handleDocumentWriteBack` mega-helper is explicitly rejected — with parsing,
+auth ordering, limits, and response bodies all family-owned, it would be
+configuration-passing theater.
 
-GET export routes are *not* genericized beyond auth: their payload builders
-are the actual per-family product surface. cat_'s manifest/page/findings and
-kst_'s volumes route keep their current handlers (auth facade only).
+GET export routes are *not* genericized beyond auth. cat_'s
+manifest/page/findings and kst_'s volumes route keep their current handlers
+(auth facade only).
 
-### 6. `components/handoff/MemoHandoffCard.tsx` — one card
+### 6. `components/handoff/MemoHandoffCard.tsx` — one card, concrete contract
 
-Generalizes the three clone cards + MemoPoller. Props (approximate):
+Generalizes SeoRoadmapCard / KeywordMemoCard / KeywordStrategyCard /
+MemoPoller. The shared card owns *how to mint/poll/render*; a thin
+per-family wrapper owns *what* (fetch URLs, response normalization, extra
+side effects). Contract (pinned here, not "approximate"):
 
 ```ts
-{
-  family: HandoffFamilyKey            // idLabel + prompt text from registry
-  mintUrl: string                     // cookie-gated mint endpoint
-  pollUrl: string                     // cookie-gated poll endpoint
-  topicId: string                     // memoTopic key (family-correct id, caller-supplied)
-  initial: { status, memoMarkdown, updatedAt, … }
-  renderMemo: (markdown: string) => ReactNode   // RoadmapMarkdown / KeywordMemoMarkdown / pillar markdown
-  labels?: { title, buttonIdle, … }
+interface MemoHandoffAdapter {
+  family: HandoffFamilyKey                  // idLabel/prefix from meta registry
+  mint(): Promise<{ id: string; token: string; expiresAt: string; clipboardText: string }>
+  poll(): Promise<MemoPollResult>           // normalized by the WRAPPER from its route's shape
+  topicId: string                           // memoTopic key (family-correct id)
+  renderMemo(markdown: string, structured?: unknown): ReactNode
+  onMemoArrived?(result: MemoPollResult): void   // kst_: profile refetch hook
+  baseline: { memoUpdatedAt: string | null }     // regenerate anchors baseline to null
+  labels: { title: string; buttonIdle: string; /* … full set enumerated in plan */ }
+}
+interface MemoPollResult {
+  status: 'none' | 'pending' | 'complete' | 'error'
+  memoMarkdown: string | null
+  structured: unknown | null
+  updatedAt: string | null
+  error: string | null
 }
 ```
 
@@ -219,88 +258,110 @@ Internals: exactly the shipped A5 PR4 topology — `createPollingMachine` with
 `lifetimeMs` cap, SSE via `subscribeTopic(memoTopic(topicId))` routed through
 `machine.invalidate()` (never bypassing cap/visibility/backoff), health-gated
 cadence (fast until SSE connected+healthy, then `SAFETY_POLL_MEMO_MS` 20 s,
-re-arm fast on error/watchdog), clipboard mint flow, expired-never-resurrected.
-The A5 component-test suites for the three cards are ported to the shared
-card once + a thin per-adoption smoke each (renders, correct poll URL, correct
-topic).
+re-arm fast on error/watchdog), clipboard mint flow, expired-never-
+resurrected, dirty-while-hidden consumed on resume. The A5 component-test
+suites for the three cards are ported to the shared card once + a per-
+adoption smoke each (renders, correct poll URL, correct topic, wrapper
+normalization).
 
-Adoptions (behavior-preserving, one card at a time):
-- `SeoRoadmapCard` → instance with `renderMemo={RoadmapMarkdown}`.
-- `KeywordMemoCard` → instance with `renderMemo={KeywordMemoMarkdown}`.
-- `KeywordStrategyCard` → instance (keeps `KeywordMemoMarkdown` reuse,
-  regenerate-anchors-baseline-to-null behavior, `Strategy ID:` label). Its
-  vestigial SSE-handler pre-fetch (recorded A5 follow-up) dies here.
-- Pillar `MemoPoller` → instance. `PillarAnalysisButtonClient` is NOT a memo
-  card (it tracks analysis status on `pillarAnalysisTopic`) — untouched.
+Adoptions (behavior-preserving, one card at a time): SeoRoadmapCard,
+KeywordMemoCard, KeywordStrategyCard (keeps `KeywordMemoMarkdown` reuse,
+regenerate-baseline-null, profile refetch via `onMemoArrived`; its vestigial
+SSE-handler pre-fetch — recorded A5 follow-up — dies here), pillar
+`MemoPoller`. `PillarAnalysisButtonClient` is NOT a memo card (analysis
+status on `pillarAnalysisTopic`) — untouched.
 
-Divergences between the cards (kst_'s profile-refetch on change, per-card
-titles/CTAs, srt/krt structured sidecars) ride the props; anything that
-doesn't fit a prop cleanly stays in the family wrapper component — the
-wrapper owns *what*, the shared card owns *how to mint/poll/render*.
+UI-class gates apply: dark-mode variants on every element; no hydration-
+mismatch patterns (client components fed serialized initial state, as today).
 
-UI-class gates apply: every element keeps its dark-mode variants; no
-hydration-mismatch patterns (cards are client components fed serialized
-initial state — same as today).
+### 7. Legacy skill deletion (mechanical, last)
 
-### 7. Legacy skill deletion
-
-`git rm -r skills/pillar-analysis-narrative/` after verifying nothing
-imports/references the *directory* (the audience string literal
-`'pillar-analysis-narrative'` is a frozen wire value that stays). The
-er-handoff-memo skill's pat_ branch is the replacement and has been in
-production use.
+- `git rm -r skills/pillar-analysis-narrative/`
+- Remove `scripts/build-skill.sh` and the `package.json` `"build:skill"`
+  script (both hardcode the legacy skill; er-handoff-memo has no build
+  wiring and needs none).
+- Update stale references in `docs/pillar-analysis-handoff.md` and
+  `docs/pillar-prompt-contract.md` (point at `skills/er-handoff-memo/`).
+- The audience string literal `'pillar-analysis-narrative'` is frozen wire
+  value and stays everywhere it appears.
+- Pre-deletion sweep: `rg "pillar-analysis-narrative|build-skill|build:skill"`
+  excluding the frozen audience-literal sites.
 
 ## Security notes (security-sensitive class)
 
-- Token verification changes are behavior-preserving by construction
-  (characterization tests pin per-family verify semantics before the swap).
-- Scope enforcement is added, never removed — strictly fail-closed tightening.
-- `middleware.ts` is not modified; the existing matcher drift test plus
-  `middleware.test.ts` stay the gate.
-- No secret material moves; no new env vars; `?token=` acceptance stays
-  cat_-only (never generalized).
-- audit-ci gate must stay green.
+- Zero intended auth-behavior change; the risk class is *regression during
+  centralization*, countered by the characterization matrix below landing
+  before any route switches.
+- Scope enforcement, transport rules, and error taxonomies are preserved
+  per family; `?token=` stays cat_-only and registry-owned.
+- Cross-family isolation for the shared-secret trio (krt/kst/cat — audience
+  is the wall) gets explicit rejection tests: a krt_ token must fail kst_
+  and cat_ verification and vice versa.
+- `middleware.ts` is not modified; existing matcher drift test +
+  `middleware.test.ts` stay the gate. audit-ci stays green.
 
 ## Testing strategy
 
-1. **Characterization first**: before any route/module switches, pin current
-   behavior — per-family token claims (existing tests already do), prompt
-   composer exact strings (existing), and public-route auth responses
-   (200/401 bodies per family; add where missing).
-2. Factory/registry/route-auth unit tests (shared behavior + per-family
-   config-literal pinning + scope-enforcement cases).
+1. **Characterization matrix FIRST (own PR-1 tasks, before any behavior
+   moves):**
+   - Exact full-string tests for all six prompt composers (cat_/qct_ have
+     none today; the other four mostly `toContain` — insufficient).
+   - Per public route: missing auth, malformed header, wrong prefix, bad
+     signature, expired, wrong subject, missing scope, verifier-failure
+     (500) where applicable, and the success body — pinning each family's
+     exact `{ error: code, status }`.
+   - cat_ header/query precedence cases (non-Bearer header → query fallback;
+     invalid Bearer → no fallback).
+   - Cross-family rejection for the shared-secret trio.
+2. Factory/registry unit tests: per-family config-literal pinning, error
+   class identity (`instanceof` + `.name` + message wording), dev-fallback
+   warn-once.
 3. Card: port the A5 SSE behavior suites onto MemoHandoffCard (invalidate
-   while visible/hidden, 20 s safety cadence, expired-no-resurrect, machine
-   never bypassed) + per-adoption smokes.
-4. Gates: `tsc --noEmit` + full vitest + build; **`npm run smoke`** for the
-   PR touching pillar surfaces (PillarAnalysisButtonClient/MemoPoller render
-   on the smoke-walked results page — PR4 precedent) — and it walks auth.
+   visible/hidden, 20 s safety cadence, expired-no-resurrect, machine never
+   bypassed) + per-adoption smokes.
+4. Gates: `tsc --noEmit` + full vitest + build per PR; **`npm run smoke`**
+   for any PR touching auth or pillar surfaces (route-auth adoption PR and
+   the card PR both qualify — PillarAnalysisButtonClient/MemoPoller render
+   on the smoke-walked results page).
 
-## PR structure
+## PR structure (blast radius reduced per Codex fix 8)
 
-- **PR 1 (server):** registry + token factory + route-auth + prompt facades +
-  document-writeback delegate + 8-route adoption + legacy skill deletion.
-  No UI changes. Gate-green + smoke.
-- **PR 2 (client):** MemoHandoffCard + 4 adoptions (SeoRoadmap, KeywordMemo,
-  KeywordStrategy, MemoPoller). Gate-green + smoke.
+- **PR 1 — characterization + foundations:** the full characterization
+  matrix (against CURRENT code, must pass before and after every later PR);
+  registries + token factory + prompt facades + token-module facades. No
+  route file, no auth behavior, no UI touched.
+- **PR 2 — route-auth adoption:** `lib/handoff/route-auth.ts` + policy
+  tables; kst_/cat_ helpers become facades; 8 inline-auth routes adopt;
+  memo-emit orchestration extracted. Characterization matrix green
+  unchanged. Smoke run (auth-touching).
+- **PR 3 — card consolidation + legacy deletion:** MemoHandoffCard + 4
+  adoptions; legacy skill dir + build wiring removed; docs updated. Smoke
+  run (pillar surfaces).
 
 Deploys per rule 1 (autonomous when gate-green, post-deploy verify: health,
-one public GET 401s cookie-less without a token, prompt payload unchanged on
-a real mint, prefix/topic literals intact in minified chunks).
+one public GET per family 401s with the family's exact error code, prompt
+payload unchanged on a real mint, prefix/topic literals intact in minified
+chunks).
 
-Note on A5: Kevin's live watches are still pending. PR 2 rewrites the memo
+Note on A5: Kevin's live watches are still pending. PR 3 rewrites the memo
 cards' internals while preserving the A5 topology; if the watches haven't
-happened by PR 2 merge time, prod behavior stays equivalent (the watches
-verify the *topology*, which is unchanged), but the session will call this
-out so Kevin can sequence his watch before or after at his choice.
+happened by PR 3 merge time, prod behavior stays equivalent, but the session
+will call this out so Kevin can sequence his watch before or after at his
+choice.
 
 ## Success criteria
 
 - All six families mint/verify/compose through `lib/handoff/` with zero wire
-  drift (facade tests green untouched).
-- Scope enforced on all public handoff routes.
+  drift (characterization matrix green across all three PRs, untouched).
 - 3 clone cards + MemoPoller replaced by one tested card + thin wrappers.
-- `skills/pillar-analysis-narrative/` gone.
-- A dry-run doc section: "adding family #7" enumerating the (short) checklist
-  it now takes — registry entry, mint/poll routes, GET builder, PATCH
-  delegate closure, card instance, middleware matchers + tests.
+- `skills/pillar-analysis-narrative/` + `build:skill` wiring gone.
+- A dry-run doc section: "adding family #7" enumerating the checklist —
+  registry entries (token + meta + error policy), mint/poll routes, GET
+  builder, PATCH route with shared emit, card wrapper, middleware matchers
+  + tests.
+
+## Things Kevin should verify (from Codex review)
+
+- No consumer besides er-handoff-memo relies on cat_'s query-token fallback
+  or its header/query precedence.
+- Complete the pending A5 live watches before or immediately after PR 3.
