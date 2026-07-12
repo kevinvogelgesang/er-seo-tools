@@ -1,8 +1,9 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-11 (**A5 (SSE push layer) — SPEC + PLAN READY**, Codex/Sol
-reviewed each (×10 / ×14), all fixes applied. A5 → `[~]`. Next: **implement PR1**.)
-· **Updated by:** the A5 spec+plan session.
+**Last updated:** 2026-07-12 (**A5 PR1 (SSE infra + queue canary) — SHIPPED + DEPLOYED**
+PR #158/`55ae1d7`; autonomous prod-checks pass; **streaming-through-edge prod-verify
+PENDING** an authenticated curl (Kevin's `er_auth` cookie — prod is OAuth-only).
+A5 → `[~]`. Next: finish PR1 prod-verify, then PR2.) · **Updated by:** the A5 PR1 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -11,12 +12,36 @@ reviewed each (×10 / ×14), all fixes applied. A5 → `[~]`. Next: **implement 
 
 ```
 Continue the er-seo-tools improvement roadmap. IN PROGRESS: A5 (shared status hook
-→ SSE push layer). Spec + plan are WRITTEN, Codex/Sol-reviewed (accept-with-fixes
-×10 spec / ×14 plan), all fixes applied and committed. A5 → [~]. NEXT: implement
-PR1 via subagent-driven-development (or Kevin's chosen execution mode).
+→ SSE push layer), 4-PR feature. PR1 (SSE infra + queue canary) is SHIPPED + DEPLOYED
+(PR #158, merge 55ae1d7). Autonomous post-deploy checks PASS (health ok; /api/events
+cookie-less→401; Cloudflare confirmed in front). A5 → [~].
+
+IMMEDIATE NEXT — finish PR1's make-or-break prod-verify: confirm SSE actually STREAMS
+un-buffered through the Cloudflare/NGINX edge. It needs an authenticated session
+(prod is OAuth-only, cookie name er_auth, host https://seo.erstaging.site). Ask Kevin
+to run (with ! prefix, after pasting his er_auth cookie from browser devtools):
+  curl -N --no-buffer -m 40 -H 'Cookie: er_auth=PASTE' https://seo.erstaging.site/api/events | while IFS= read -r l; do echo "[$(date +%H:%M:%S)] $l"; done
+PASS = 'event: connected' arrives immediately + 'event: heartbeat' frames at ~+15s and
+~+30s INDIVIDUALLY (not all dumped at ~+40s when -m kills it). Individual-timing =
+un-buffered = gate passed → proceed to PR2. If everything batches at +40s = the edge
+buffers → escalate an NGINX/Cloudflare proxy change to Kevin (server config = his
+domain; the code already sends X-Accel-Buffering:no + no-transform), and DEFER PR2-4.
+(The layer is inert-but-safe if buffered — the health-gated safety poll holds
+correctness, so nothing is broken meanwhile.)
+
+THEN PR2 (audit progress): worker groupKey→topic emit (per-executeJob flush chain
+AWAITED before terminal settle; ClaimedJob is private in worker.ts ~line26, add
+groupKey there + groupKey:true in claimNext's select; the fake-timer heartbeat test
+is KNOWN-IMPOSSIBLE per worker.progress.test.ts:36 — extract a testable
+flushJobHeartbeat helper) + useAuditPoller & useRecentsLivePoll SSE-aware + the
+seoOnly readiness re-emit after the live-scan CrawlRun commits (broken-link-verify
+builder; add prospectId to its SiteAudit select) + ADA writeFindingsRun dual-write
+emit in site-audit-finalizer.ts. Plan Tasks 12-17. Then PR3 (reports/prospects/
+content-audit/batch/client-summary), PR4 (memos: memo-poller-machine.invalidate()).
 
 - Spec: docs/superpowers/specs/2026-07-11-a5-sse-push-layer-design.md
 - Plan: docs/superpowers/plans/2026-07-11-a5-sse-push-layer.md (25 tasks / 4 PRs)
+- PR1 SDD ledger (recovery map): .superpowers/sdd/progress.md (gitignored)
 
 SCOPE (reshaped by discovery): the "shared status hook" half of A5 is ALREADY
 built (useAuditPoller [C9-B/C17], lib/memo-poller-machine.ts, useRecentsLivePoll),
@@ -118,15 +143,18 @@ the same commit as any ship.
 
 ---
 
-## Current state (2026-07-11, A5 spec+plan ready)
+## Current state (2026-07-12, A5 PR1 shipped + deployed)
 
-- **Main** @ `0e10706` (A7 COMPLETE) + the A5 spec/plan/tracker/handoff commits (no
-  code shipped yet). **Prod on `4a03c82`** (A7 PR3), healthy (`status:ok`,
-  version 0.2.0).
-- **A5 → `[~]`:** spec + plan written and Codex/Sol-reviewed (×10 / ×14), all fixes
-  applied. NO code yet. Next = implement PR1 (the SSE infra + queue canary +
-  prod-verify gate). Spec/plan in the ACTIVE folders (`specs/`, `plans/`) — move to
-  `archive/` only when A5 ships.
+- **Main** @ `55ae1d7` (A5 PR1 merge) + tracker/handoff commits. **Prod deployed on
+  PR1**, healthy (`status:ok`, version 0.2.0, no crash-loop). Cloudflare fronts
+  `https://seo.erstaging.site`.
+- **A5 → `[~]`:** PR1 (SSE infra + queue canary) SHIPPED + DEPLOYED (PR #158). All 4
+  layers live: `lib/events/{bus,client,topics}.ts`, `app/api/events/route.ts`,
+  SSE-aware `queue-poll.ts` + `AuditIndexTabs`, and queue-emit seams across the
+  production pipeline. Gates green (4627 tests), opus whole-branch review clean.
+  **Streaming-through-edge prod-verify PENDING** (needs Kevin's `er_auth` cookie — see
+  the paste-in prompt's curl). Spec/plan stay in ACTIVE folders until all 4 PRs ship.
+- PR1 SDD ledger: `.superpowers/sdd/progress.md` (gitignored recovery map).
 - **A7 → `[x]` COMPLETE.** Spec/plan archived.
 - **C12 `[~]`:** Tier-0 (A+B) + Tier-1 (MiniLM topic-overlap) + D1 (`cat_` bridge)
   shipped. Tier-2 AI data-correctness = future scope, OFF per the no-AI-API gate.
@@ -138,11 +166,12 @@ the same commit as any ship.
 
 ## The single next item
 
-**A5 PR1** — the SSE infrastructure (`lib/events/bus.ts` + `app/api/events/route.ts`
-+ `lib/events/client.ts`) + the queue canary + the **prod-verify SSE-streams-through-
-the-edge gate**. Execute the plan task-by-task from Task 1. If PR1's prod-verify
-shows the edge buffers SSE and headers don't fix it, STOP and escalate the proxy
-change to Kevin before investing in PR2–4.
+**Finish A5 PR1's prod-verify**, then **A5 PR2**. PR1 code is shipped + deployed; the
+one remaining PR1 step is the authenticated `curl -N` streaming test through the
+Cloudflare edge (paste-in prompt has the exact command + pass/fail reading). If it
+streams un-buffered → start PR2 (audit-progress topics, plan Tasks 12–17) via
+subagent-driven-development. If it buffers → escalate an NGINX/Cloudflare proxy
+change to Kevin and defer PR2–4 (the layer is inert-but-safe meanwhile).
 
 ## Gotchas for the next session
 
