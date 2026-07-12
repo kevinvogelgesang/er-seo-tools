@@ -9,6 +9,7 @@ import {
   fetchWithPinnedAddress,
   isConstructibleResponseStatus,
   isPrivateOrInternalAddress,
+  parseSafeHttpUrl,
   readResponseTextWithLimit,
   safeFetch,
 } from './safe-url'
@@ -281,5 +282,57 @@ describe('readResponseTextWithLimit', () => {
   it('stops reading after the configured byte limit', async () => {
     const result = await readResponseTextWithLimit(new Response('abcdef'), 3)
     expect(result).toEqual({ text: 'abc', truncated: true })
+  })
+})
+
+describe('SMOKE_LOOPBACK_TARGET allowlist', () => {
+  const enableSmoke = () => {
+    process.env.SMOKE_MODE = 'true'
+    process.env.NEXT_PUBLIC_APP_URL = 'http://127.0.0.1:41300'
+    process.env.SMOKE_LOOPBACK_TARGET = '127.0.0.1:41234'
+  }
+  afterEach(() => {
+    delete process.env.SMOKE_MODE
+    delete process.env.NEXT_PUBLIC_APP_URL
+    delete process.env.SMOKE_LOOPBACK_TARGET
+  })
+
+  it('unset: loopback is still rejected (default-off, no behavior change)', async () => {
+    await expect(assertSafeHttpUrl('http://127.0.0.1:41234/')).rejects.toBeInstanceOf(SafeUrlError)
+  })
+  it('set + smoke mode: the EXACT authority is permitted', async () => {
+    enableSmoke()
+    const url = await assertSafeHttpUrl('http://127.0.0.1:41234/audit-target')
+    expect(url.host).toBe('127.0.0.1:41234')
+  })
+  it('set but NOT smoke mode: still rejected (fail closed)', async () => {
+    process.env.SMOKE_LOOPBACK_TARGET = '127.0.0.1:41234'
+    await expect(assertSafeHttpUrl('http://127.0.0.1:41234/')).rejects.toBeInstanceOf(SafeUrlError)
+  })
+  it('smoke mode but NON-loopback app base URL: rejected', async () => {
+    process.env.SMOKE_MODE = 'true'
+    process.env.NEXT_PUBLIC_APP_URL = 'https://seo.example.com'
+    process.env.SMOKE_LOOPBACK_TARGET = '127.0.0.1:41234'
+    await expect(assertSafeHttpUrl('http://127.0.0.1:41234/')).rejects.toBeInstanceOf(SafeUrlError)
+  })
+  it('set: a DIFFERENT loopback port is still rejected', async () => {
+    enableSmoke()
+    await expect(assertSafeHttpUrl('http://127.0.0.1:9999/')).rejects.toBeInstanceOf(SafeUrlError)
+  })
+  it('set: private (non-loopback) and link-local hosts still rejected', async () => {
+    enableSmoke()
+    await expect(assertSafeHttpUrl('http://10.0.0.5:41234/')).rejects.toBeInstanceOf(SafeUrlError)
+    await expect(assertSafeHttpUrl('http://169.254.169.254:41234/')).rejects.toBeInstanceOf(SafeUrlError)
+  })
+  it('portless target env is refused (no implicit port 80)', async () => {
+    process.env.SMOKE_MODE = 'true'
+    process.env.NEXT_PUBLIC_APP_URL = 'http://127.0.0.1:41300'
+    process.env.SMOKE_LOOPBACK_TARGET = '127.0.0.1'
+    await expect(assertSafeHttpUrl('http://127.0.0.1/')).rejects.toBeInstanceOf(SafeUrlError)
+  })
+  it('parseSafeHttpUrl honors the same exact-authority allowance', () => {
+    enableSmoke()
+    const u = parseSafeHttpUrl('http://127.0.0.1:41234/x')
+    expect(u.host).toBe('127.0.0.1:41234')
   })
 })

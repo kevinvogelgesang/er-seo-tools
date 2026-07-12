@@ -61,6 +61,36 @@ export async function register() {
       )
     }
 
+    // Smoke-only loopback audit allowance (fail CLOSED outside smoke mode). If
+    // SMOKE_LOOPBACK_TARGET is set, the app must be unambiguously in smoke mode:
+    // SMOKE_MODE=true + loopback NEXT_PUBLIC_APP_URL + a loopback host:port target
+    // with an explicit port. Any other combination (e.g. a real deploy with a
+    // public base URL) is refused so a stray var can never widen SSRF in prod.
+    if (process.env.NODE_ENV === 'production' && process.env.SMOKE_LOOPBACK_TARGET) {
+      const isLoopback = (h?: string) => h === 'localhost' || h === '127.0.0.1' || h === '::1'
+      let targetOk = false
+      try {
+        const u = new URL('http://' + process.env.SMOKE_LOOPBACK_TARGET)
+        targetOk = Boolean(u.port) && isLoopback(u.hostname.toLowerCase())
+      } catch { targetOk = false }
+      let baseOk = false
+      try {
+        baseOk = isLoopback(new URL(process.env.NEXT_PUBLIC_APP_URL ?? '').hostname.toLowerCase())
+      } catch { baseOk = false }
+      const smokeMode = process.env.SMOKE_MODE === 'true'
+      if (!(smokeMode && baseOk && targetOk)) {
+        // eslint-disable-next-line no-console
+        console.error(
+          '[startup] SMOKE_LOOPBACK_TARGET is set outside smoke mode (needs SMOKE_MODE=true + loopback NEXT_PUBLIC_APP_URL + loopback host:port target). Refusing to start.'
+        )
+        process.exit(1)
+      }
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[startup] SMOKE MODE - loopback audit target ${process.env.SMOKE_LOOPBACK_TARGET} allowlisted. Never set these in a real deployment.`
+      )
+    }
+
     // Initialize SQLite PRAGMAs before any audit writes so the first write doesn't
     // race with PRAGMA setup. Idempotent, safe to call multiple times.
     const { initPragmas } = await import('@/lib/db')

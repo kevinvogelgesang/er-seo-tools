@@ -65,3 +65,11 @@ dist/
 
 # A7 PR2: per-worker test DB template-copy (built fresh by test/global-setup.ts)
 .test-dbs/
+
+# A7 PR3: Playwright smoke harness runtime output (DB/uploads/reports for the
+# smoke webServer instance + Playwright's own run artifacts)
+.smoke-db/
+.smoke-uploads/
+.smoke-reports/
+test-results/
+playwright-report/

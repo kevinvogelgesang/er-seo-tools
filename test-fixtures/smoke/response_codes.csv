@@ -1,0 +1,4 @@
+Address,Content Type,Status Code,Status,Indexability
+https://smoke.example.com/,text/html; charset=utf-8,200,OK,Indexable
+https://smoke.example.com/about,text/html; charset=utf-8,200,OK,Indexable
+https://smoke.example.com/contact,text/html; charset=utf-8,200,OK,Indexable
