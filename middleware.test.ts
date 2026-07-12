@@ -102,3 +102,19 @@ describe('isPublicPath — A4 health endpoint', () => {
     expect(isPublicPath('/admin/ops')).toBe(false);
   });
 });
+
+describe('content-audit (cat_) public paths', () => {
+  it('the three public routes are public', () => {
+    expect(isPublicPath('/api/content-audit/audit_1/manifest')).toBe(true)
+    expect(isPublicPath('/api/content-audit/audit_1/page')).toBe(true)
+    expect(isPublicPath('/api/content-audit/audit_1/findings')).toBe(true)
+  })
+  it('a deeper path is NOT public', () => {
+    expect(isPublicPath('/api/content-audit/audit_1/manifest/extra')).toBe(false)
+    expect(isPublicPath('/api/content-audit')).toBe(false)
+  })
+  it('the mint + poll routes stay cookie-gated (not public)', () => {
+    expect(isPublicPath('/api/site-audit/audit_1/content-audit')).toBe(false)
+    expect(isPublicPath('/api/site-audit/audit_1/content-audit/mint-token')).toBe(false)
+  })
+});

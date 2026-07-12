@@ -51,6 +51,13 @@ export function isPublicPath(pathname: string): boolean {
   if (/^\/api\/keyword-strategy\/[^/]+$/.test(pathname)) return true
   if (/^\/api\/keyword-strategy\/[^/]+\/memo$/.test(pathname)) return true
   if (/^\/api\/keyword-strategy\/[^/]+\/volumes$/.test(pathname)) return true
+  // content-audit (cat_): GET manifest + GET page + PATCH findings. mint-token +
+  // the cookie-gated poll (/api/site-audit/[id]/content-audit) stay gated —
+  // they run from the authenticated dashboard. NEVER an /api/content-audit/
+  // prefix (that would expose future gated sub-routes).
+  if (/^\/api\/content-audit\/[^/]+\/manifest$/.test(pathname)) return true
+  if (/^\/api\/content-audit\/[^/]+\/page$/.test(pathname)) return true
+  if (/^\/api\/content-audit\/[^/]+\/findings$/.test(pathname)) return true
   // quarter push (qct_): GET cycle export + POST receipt write-back.
   // mint-token stays cookie-gated (triggered from the authenticated grid).
   if (/^\/api\/quarter-plan\/push\/\d+$/.test(pathname)) return true
