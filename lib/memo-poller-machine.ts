@@ -110,23 +110,32 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
 
     setVisible(visible) {
       tabVisible = visible;
-      if (status === 'idle' || status === 'expired') return;
-      if (visible && status === 'paused') {
+      if (visible) {
+        // An expired machine stays dead: never fire onChange from expired.
+        // The caller must restart explicitly via start() (which also clears
+        // any dirty flag set while hidden).
+        if (status === 'expired') return;
         if (dirty) {
-          // An invalidate() arrived while hidden — refetch immediately
-          // instead of resuming the poll loop, and clear dirty.
+          // An invalidate() arrived while hidden — refetch immediately and
+          // clear dirty. This runs regardless of prior status ('paused' OR
+          // 'idle'): a dirty flag set while hidden-and-idle would otherwise
+          // be silently dropped on resume.
           fireChangeAndReset();
           return;
         }
-        status = 'polling';
-        // Resume: set the active-window start to the last known tick time
-        // (the most recent tick that fired while we were paused, or before).
-        // This way, the gap from that tick to the first active tick counts
-        // toward the lifetime budget, but the time between setVisible(false)
-        // and that last paused tick is also excluded.
-        lastResumedAt = -1; // sentinel: "rebase on next tick using lastTickNow"
-      } else if (!visible && status === 'polling') {
-        // Bank what's elapsed so far is handled lazily in tick(). Since we
+        if (status === 'paused') {
+          status = 'polling';
+          // Resume: set the active-window start to the last known tick time
+          // (the most recent tick that fired while we were paused, or before).
+          // This way, the gap from that tick to the first active tick counts
+          // toward the lifetime budget, but the time between setVisible(false)
+          // and that last paused tick is also excluded.
+          lastResumedAt = -1; // sentinel: "rebase on next tick using lastTickNow"
+        }
+        return;
+      }
+      if (status === 'polling') {
+        // Banking what's elapsed so far is handled lazily in tick(). Since we
         // don't have `now` here, we accept up to one tick interval of rounding
         // loss (~3s on a 15-min budget = ~0.3% drift, acceptable).
         status = 'paused';

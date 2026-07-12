@@ -224,10 +224,50 @@ describe('createPollingMachine', () => {
       m.tick({ latestUpdatedAt: null, now: 5 * 60 * 1000 }); // 5 min active
       m.setVisible(false);
       m.invalidate();
-      // Hidden for far longer than the remaining budget would allow if this
-      // time were counted — invalidate() must not touch the accumulator.
       expect(m.status()).toBe('paused');
       expect(onChange).not.toHaveBeenCalled();
+      // Paused tick 25 min in — had the hidden interval counted toward the
+      // budget, 5 + 20 hidden minutes would have blown the 15-min cap.
+      m.tick({ latestUpdatedAt: null, now: 25 * 60 * 1000 });
+      expect(m.status()).toBe('paused');
+      expect(onChange).not.toHaveBeenCalled();
+      // Resume: the machine must still be alive — the dirty refetch fires
+      // instead of a bogus expiry computed from hidden wall-clock time.
+      m.setVisible(true);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(m.status()).not.toBe('expired');
+      // A tick far past the cap after the consume stays inert — never expired.
+      m.tick({ latestUpdatedAt: null, now: 60 * 60 * 1000 });
+      expect(m.status()).not.toBe('expired');
+    });
+
+    it('consumes dirty on visibility-resume even when idle (change landed before hiding)', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      // A write-back is observed: onChange fires and the machine resets to idle.
+      m.tick({ latestUpdatedAt: 'wrote-back', now: 3000 });
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(m.status()).toBe('idle');
+      // Tab hides while idle, then an invalidate arrives.
+      m.setVisible(false);
+      m.invalidate();
+      expect(onChange).toHaveBeenCalledTimes(1); // dirty only — no fetch yet
+      // Visibility-resume must consume dirty even though status is 'idle'.
+      m.setVisible(true);
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(m.status()).toBe('idle');
+    });
+
+    it('an expired machine never fires on resume, even if invalidated while hidden', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.tick({ latestUpdatedAt: null, now: FIFTEEN_MIN_MS + 1000 });
+      expect(m.status()).toBe('expired');
+      m.setVisible(false);
+      m.invalidate(); // hidden → dirty only
+      m.setVisible(true);
+      expect(onChange).not.toHaveBeenCalled();
+      expect(m.status()).toBe('expired');
     });
 
     it('while expired and visible does nothing (must restart explicitly via start())', () => {
