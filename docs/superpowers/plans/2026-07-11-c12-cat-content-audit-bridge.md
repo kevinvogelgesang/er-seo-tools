@@ -90,6 +90,12 @@ Create `prisma/migrations/20260713000000_content_audit_bridge/migration.sql`:
 -- C12 D1: mint-extendable contentText retention + measurement-first content-audit findings.
 ALTER TABLE "SiteAudit" ADD COLUMN "contentAuditRetainUntil" DATETIME;
 ALTER TABLE "CrawlRun" ADD COLUMN "contentAuditJson" TEXT;
+-- Codex plan #1: the every-10-min sweep filters on this column; index it.
+CREATE INDEX "SiteAudit_contentAuditRetainUntil_idx" ON "SiteAudit"("contentAuditRetainUntil");
+```
+Also add the matching index directive to `model SiteAudit` in `prisma/schema.prisma`:
+```prisma
+  @@index([contentAuditRetainUntil])
 ```
 
 - [ ] **Step 3: Apply + regenerate**
@@ -604,15 +610,27 @@ Add to `lib/findings/retention.ts`:
  * every-10-min stale-audit-reset job.
  */
 export async function sweepExpiredContentAudit(now: Date = new Date()): Promise<void> {
+  // DateTime columns are stored as INTEGER ms in this SQLite setup (CLAUDE.md:
+  // "storage is integer ms"; every raw-SQL DateTime comparison in the repo binds
+  // ${x.getTime()}, e.g. lib/ops/health-check.collect.test.ts). Bind integer ms
+  // — NOT a bare Date — so the comparison is integer-vs-integer and can't silently
+  // never-match on a serialization mismatch.
   const count = await prisma.$executeRaw`
     DELETE FROM "HarvestedPageSeo"
     WHERE "siteAuditId" IN (
       SELECT "id" FROM "SiteAudit"
-      WHERE "contentAuditRetainUntil" IS NOT NULL AND "contentAuditRetainUntil" < ${now}
+      WHERE "contentAuditRetainUntil" IS NOT NULL AND "contentAuditRetainUntil" < ${now.getTime()}
     )`
   if (count > 0) console.log(`[findings] content-audit sweep deleted ${count} expired HarvestedPageSeo row(s)`)
 }
 ```
+
+**Codex plan-review note (deliberate deviation):** Codex asserted a bare `Date`
+param binds correctly for the SQLite DATETIME comparison. The whole repo says
+otherwise (integer-ms storage; every DateTime raw comparison uses `.getTime()`),
+and a mismatch here fails *silently* (sweep never fires). `.getTime()` is safe
+under both readings — use it. Verify once during implementation with a real prod-
+shaped row that the DELETE actually removes an expired row (the Step-4 test does).
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -667,9 +685,13 @@ with (stamp BEFORE the run write for crash-safety, keep HarvestedPageSeo):
   // expiry by sweepExpiredContentAudit (retention.ts).
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
 ```
-Add near the top-of-file constants:
+Add near the top-of-file constants (Codex plan #2 — safe parse; a negative/NaN/
+Infinity env value must NOT produce a bad window):
 ```ts
-const CONTENT_AUDIT_BASE_TTL_MS = Number(process.env.CONTENT_AUDIT_BASE_TTL_MS) || 2 * 3600 * 1000 // 2h
+const CONTENT_AUDIT_BASE_TTL_MS = ((): number => {
+  const raw = Number(process.env.CONTENT_AUDIT_BASE_TTL_MS)
+  return Number.isInteger(raw) && raw > 0 ? raw : 2 * 3600 * 1000 // 2h default
+})()
 ```
 
 - [ ] **Step 8: Update the pre-existing retention assertions**
@@ -697,16 +719,50 @@ In `lib/jobs/handlers/stale-audit-reset.ts`, after the broken-link recovery bloc
         .catch((err) => console.warn('[stale-audit-reset] content-audit sweep failed:', (err as Error).message))
 ```
 
-- [ ] **Step 11: Run gates**
+- [ ] **Step 11: Bound the recovery scan to genuinely-stranded audits (Codex plan #1)**
 
-Run: `npx tsc --noEmit && DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/retention.test.ts lib/jobs/handlers/broken-link-verify.test.ts`
+Retaining `HarvestedPageSeo` pollutes `recoverBrokenLinkVerifies`'s "populated
+transient rows ⇒ maybe-missing run" signal: it would now scan every completed
+audit within the retention window every 10 min. The `if (liveRun) continue` guard
+keeps it *correct* but not *cheap*. Filter the `harvestedPageSeo` distinct scan at
+the DB level to audits with **no** `seo-parser` live-scan run.
+
+First **verify the reverse relation name** — `grep -n "CrawlRun\[\]\|crawlRuns\|crawlRun " prisma/schema.prisma` inside `model SiteAudit`. If SiteAudit has no reverse `CrawlRun[]` relation, add one (`crawlRuns CrawlRun[]`) in a tiny schema edit + `prisma generate` (no migration — it's a virtual relation). Then in `lib/ada-audit/broken-link-recovery.ts`, change the `harvestedPageSeo.findMany` to:
+```ts
+    prisma.harvestedPageSeo.findMany({
+      where: { siteAudit: { crawlRuns: { none: { tool: 'seo-parser' } } } },
+      distinct: ['siteAuditId'], select: { siteAuditId: true },
+    }),
+```
+(`HarvestedLink` scan is unchanged — a populated link row still means "builder didn't finish".) The existing `if (liveRun) continue` guard stays as belt-and-suspenders.
+
+- [ ] **Step 12: Recovery regression test**
+
+Add to `lib/ada-audit/broken-link-recovery.test.ts`: an audit that is `complete`,
+HAS a `seo-parser` live-scan run, AND has retained `HarvestedPageSeo` rows is NOT
+re-enqueued (the run-bearing retention case); the pre-existing "only
+HarvestedPageSeo rows, no run" stranded case still IS re-enqueued.
+```ts
+it('does NOT re-enqueue a completed audit that already has a live-scan run + retained pageSeo', async () => {
+  const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(Date.now() + 3600_000) } })
+  await prisma.crawlRun.create({ data: { siteAuditId: sa.id, tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, status: 'complete', pagesTotal: 1 } })
+  await prisma.harvestedPageSeo.create({ data: { siteAuditId: sa.id, url: 'https://x/a', contentText: 'body' } })
+  const n = await recoverBrokenLinkVerifies()
+  const jobs = await prisma.job.count({ where: { groupKey: `site-audit:${sa.id}` } })
+  expect(jobs).toBe(0)
+})
+```
+
+- [ ] **Step 13: Run gates**
+
+Run: `npx tsc --noEmit && DATABASE_URL="file:./local-dev.db" npx vitest run lib/findings/retention.test.ts lib/jobs/handlers/broken-link-verify.test.ts lib/ada-audit/broken-link-recovery.test.ts`
 Expected: PASS.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 14: Commit**
 
 ```bash
-git add lib/jobs/handlers/broken-link-verify.ts lib/findings/retention.ts lib/findings/retention.test.ts lib/jobs/handlers/broken-link-verify.test.ts lib/cleanup.ts lib/jobs/handlers/stale-audit-reset.ts
-git commit -m "feat(c12): mint-extendable contentText retention — stamp-before-write + DELETE-at-expiry sweep"
+git add lib/jobs/handlers/broken-link-verify.ts lib/findings/retention.ts lib/findings/retention.test.ts lib/jobs/handlers/broken-link-verify.test.ts lib/cleanup.ts lib/jobs/handlers/stale-audit-reset.ts lib/ada-audit/broken-link-recovery.ts lib/ada-audit/broken-link-recovery.test.ts prisma/schema.prisma
+git commit -m "feat(c12): mint-extendable contentText retention — stamp-before-write + DELETE-at-expiry sweep + bounded recovery scan"
 ```
 
 ---
@@ -799,12 +855,22 @@ export const POST = withRoute(async (_req: NextRequest, { params }: RouteParams)
   })
   if (!run) return NextResponse.json({ error: 'no_live_scan_run' }, { status: 409 })
 
-  const now = Date.now()
-  const extended = new Date(Math.max(audit.contentAuditRetainUntil?.getTime() ?? 0, now + CONTENT_AUDIT_TOKEN_TTL_MS))
-  await prisma.siteAudit.update({ where: { id }, data: { contentAuditRetainUntil: extended } })
+  // Codex plan #2: atomic MONOTONIC extension. `now + TTL` is always >= any
+  // earlier extension, so a conditional raw UPDATE that only RAISES the column
+  // can't shorten a concurrently-extended window (no read-modify-write race).
+  // Integer-ms bind (DateTime storage is integer ms — see the sweep note).
+  const extendedMs = Date.now() + CONTENT_AUDIT_TOKEN_TTL_MS
+  await prisma.$executeRaw`
+    UPDATE "SiteAudit" SET "contentAuditRetainUntil" = ${extendedMs}
+    WHERE "id" = ${id}
+      AND ("contentAuditRetainUntil" IS NULL OR "contentAuditRetainUntil" < ${extendedMs})`
 
+  // Re-read the effective window (a concurrent mint may have set it higher) +
+  // whether any retained text remains, to report an honest textAvailable.
+  const fresh = await prisma.siteAudit.findUnique({ where: { id }, select: { contentAuditRetainUntil: true } })
   const textRows = await prisma.harvestedPageSeo.count({ where: { siteAuditId: id, contentText: { not: null } } })
-  const textAvailable = textRows > 0 && extended.getTime() > now
+  const windowOpen = (fresh?.contentAuditRetainUntil?.getTime() ?? 0) > Date.now()
+  const textAvailable = textRows > 0 && windowOpen
 
   const minted = await mintContentAuditToken(id)
   return NextResponse.json({ token: minted.token, expiresAt: minted.expiresAt, textAvailable })
@@ -835,16 +901,61 @@ export const GET = withRoute(async (_req: NextRequest, { params }: RouteParams) 
 })
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [ ] **Step 5: Add the textAvailable-false mint case + a poll-route test (Codex plan #5)**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/site-audit/[id]/content-audit/mint-token/route.test.ts"`
-Expected: PASS (2 tests).
+Extend the mint test file with an expired-window case, and add a poll-route test
+file `app/api/site-audit/[id]/content-audit/route.test.ts`:
+```ts
+// in mint-token/route.test.ts — expired window ⇒ still mints, textAvailable:false
+it('mints but reports textAvailable:false when text is already gone', async () => {
+  const sa = await seedComplete(true, new Date(Date.now() - 1000)) // window already closed
+  // no HarvestedPageSeo rows (swept)
+  const res = await POST(new NextRequest('https://app.test/x', { method: 'POST' }), params(sa.id))
+  expect(res.status).toBe(200)
+  const body = await res.json()
+  expect(body.token.startsWith('cat_')).toBe(true)
+  // mint RAISES the window to now+TTL, so text would be available IF rows existed;
+  // with zero text rows textAvailable must be false.
+  expect(body.textAvailable).toBe(false)
+})
+```
+```ts
+// content-audit/route.test.ts — the cookie-gated poll
+import { describe, it, expect, beforeEach } from 'vitest'
+import { NextRequest } from 'next/server'
+import { prisma } from '@/lib/db'
+import { GET } from './route'
+const params = (id: string) => ({ params: Promise.resolve({ id }) })
+const DOMAIN = 'poll-cat.example.com'
+describe('GET content-audit (poll)', () => {
+  beforeEach(async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
+    await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
+  })
+  it('reports minted:false when no contentAuditJson, minted:true after it is set', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    await prisma.crawlRun.create({ data: { siteAuditId: sa.id, tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, status: 'complete', pagesTotal: 1 } })
+    let res = await GET(new NextRequest('https://app.test/x'), params(sa.id))
+    expect((await res.json()).minted).toBe(false)
+    await prisma.crawlRun.update({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, data: { contentAuditJson: '{"v":1,"generatedAt":"x","findings":[]}' } })
+    res = await GET(new NextRequest('https://app.test/x'), params(sa.id))
+    const body = await res.json()
+    expect(body.minted).toBe(true)
+    expect(body.contentAuditJson).toContain('"v":1')
+  })
+})
+```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Run to verify all Task-6 tests pass**
+
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/site-audit/[id]/content-audit"`
+Expected: PASS (mint: 3 tests; poll: 1 test).
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add "app/api/site-audit/[id]/content-audit"
-git commit -m "feat(c12): cookie-gated cat_ mint + poll routes"
+git commit -m "feat(c12): cookie-gated cat_ mint (atomic monotonic extend) + poll routes"
 ```
 
 ---
@@ -1036,16 +1147,62 @@ export const GET = withRoute(async (req: NextRequest, { params }: RouteParams) =
 })
 ```
 
-- [ ] **Step 7: Run gates on the new files**
+- [ ] **Step 7: Route-handler tests — token/sub enforcement + 410 (Codex plan #5)**
+
+Add `app/api/content-audit/[siteAuditId]/manifest/route.test.ts` (and mirror for `page`):
+```ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { NextRequest } from 'next/server'
+import { prisma } from '@/lib/db'
+import { GET as MANIFEST } from './route'
+import { GET as PAGE } from '../page/route'
+import { mintContentAuditToken } from '@/lib/content-audit-token'
+const DOMAIN = 'exproute-cat.example.com'
+const p = (id: string) => ({ params: Promise.resolve({ siteAuditId: id }) })
+const authed = (id: string, token: string, qs = '') =>
+  new NextRequest(`https://app.test/api/content-audit/${id}/manifest${qs}`, { headers: { authorization: `Bearer ${token}` } })
+async function seed(retainUntil: Date | null) {
+  const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', completedAt: new Date(), contentAuditRetainUntil: retainUntil } })
+  await prisma.harvestedPageSeo.create({ data: { siteAuditId: sa.id, url: 'https://x/a', statusCode: 200, isHtml: true, contentText: 'body' } })
+  return sa
+}
+describe('cat_ export route handlers', () => {
+  beforeEach(async () => {
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
+  })
+  it('manifest 401s a missing token', async () => {
+    const sa = await seed(new Date(Date.now() + 60000))
+    const res = await MANIFEST(new NextRequest(`https://app.test/api/content-audit/${sa.id}/manifest`), p(sa.id))
+    expect(res.status).toBe(401)
+  })
+  it('manifest 401s a token bound to a different audit', async () => {
+    const sa = await seed(new Date(Date.now() + 60000))
+    const { token } = await mintContentAuditToken('other_audit')
+    const res = await MANIFEST(authed(sa.id, token), p(sa.id))
+    expect(res.status).toBe(401)
+  })
+  it('page 410s an expired in-set page', async () => {
+    const sa = await seed(new Date(Date.now() - 1000))
+    const { token } = await mintContentAuditToken(sa.id)
+    const res = await PAGE(authed(sa.id, token, '?url=https://x/a'), p(sa.id))
+    expect(res.status).toBe(410)
+  })
+})
+```
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/content-audit/[siteAuditId]/manifest/route.test.ts"`
+Expected: PASS (3 tests).
+
+- [ ] **Step 8: Run gates on the new files**
 
 Run: `npx tsc --noEmit`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add lib/content-audit/manifest.ts lib/content-audit/manifest.test.ts "app/api/content-audit/[siteAuditId]/manifest" "app/api/content-audit/[siteAuditId]/page"
-git commit -m "feat(c12): cat_ export routes (manifest + per-page text) + loaders"
+git commit -m "feat(c12): cat_ export routes (manifest + per-page text) + loaders + route tests"
 ```
 
 ---
@@ -1110,6 +1267,29 @@ describe('PATCH content-audit findings', () => {
     const res = await PATCH(new NextRequest('https://app.test/x', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: '{"findings":[]}' }), params(sa.id))
     expect(res.status).toBe(401)
   })
+  it('last-writer-wins: a second PATCH overwrites the first (Codex #5)', async () => {
+    const sa = await seed(); const { token } = await mintContentAuditToken(sa.id)
+    await PATCH(req(sa.id, token, { findings: [finding('https://x/a')] }), params(sa.id))
+    await PATCH(req(sa.id, token, { findings: [] }), params(sa.id))
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentAuditJson: true } })
+    expect(JSON.parse(run!.contentAuditJson!).findings.length).toBe(0)
+  })
+  it('409s no_live_scan_run when the audit has no seo-parser run', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(Date.now() + 60000) } })
+    const { token } = await mintContentAuditToken(sa.id)
+    const res = await PATCH(req(sa.id, token, { findings: [] }), params(sa.id))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('no_live_scan_run')
+  })
+  it('413s an oversized body even with NO Content-Length header (Codex #3)', async () => {
+    const sa = await seed(); const { token } = await mintContentAuditToken(sa.id)
+    // Build a >300KB body via a ReadableStream so Content-Length is absent.
+    const big = 'x'.repeat(320 * 1024)
+    const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(`{"pad":"${big}","findings":[]}`)); c.close() } })
+    const r = new NextRequest('https://app.test/x', { method: 'PATCH', headers: { authorization: `Bearer ${token}` }, body: stream, duplex: 'half' } as RequestInit & { duplex: 'half' })
+    const res = await PATCH(r, params(sa.id))
+    expect(res.status).toBe(413)
+  })
 })
 ```
 
@@ -1118,31 +1298,66 @@ describe('PATCH content-audit findings', () => {
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/content-audit/[siteAuditId]/findings/route.test.ts"`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Write the route**
+- [ ] **Step 3: Write the bounded body reader (Codex plan #3)**
+
+`Content-Length` is absent for chunked/streamed bodies and `parseJsonBody` has no
+byte cap, so a header-only guard is bypassable. Create
+`lib/content-audit/read-bounded-json.ts`:
+```ts
+// Reads a request body while counting streamed bytes; returns null once the cap
+// is exceeded (regardless of Content-Length). Parses JSON only after the whole
+// (bounded) body is in hand. Used by the cat_ PATCH route BEFORE token auth so an
+// unauthenticated caller can't stream an unbounded body.
+export async function readBoundedText(req: Request, maxBytes: number): Promise<string | null> {
+  const reader = req.body?.getReader()
+  if (!reader) {
+    const t = await req.text()
+    return Buffer.byteLength(t, 'utf8') > maxBytes ? null : t
+  }
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) {
+      total += value.byteLength
+      if (total > maxBytes) { await reader.cancel().catch(() => {}); return null }
+      chunks.push(value)
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+```
+
+- [ ] **Step 4: Write the route**
 
 Create `app/api/content-audit/[siteAuditId]/findings/route.ts`:
 ```ts
-// PATCH ingest for the cat_ bridge. Order (Codex #3): raw-body size guard ->
-// parse -> requireContentAuditToken(findings-write) -> validate (caps +
-// evidence-URL binding) -> store on the live-scan CrawlRun. Last-writer-wins.
+// PATCH ingest for the cat_ bridge. Order (Codex #3): bounded-body read (byte cap
+// regardless of Content-Length) -> parse -> requireContentAuditToken(findings-write)
+// -> validate (caps + evidence-URL binding) -> store on the live-scan CrawlRun.
+// Last-writer-wins.
 import { NextRequest, NextResponse } from 'next/server'
+import { HttpError } from '@/lib/api/errors'
 import { withRoute } from '@/lib/api/with-route'
-import { parseJsonBody } from '@/lib/api/body'
 import { prisma } from '@/lib/db'
+import { readBoundedText } from '@/lib/content-audit/read-bounded-json'
 import { requireContentAuditToken } from '@/lib/content-audit/route-auth'
 import { validateContentAuditFindings } from '@/lib/content-audit/ingest-schema'
 import { contentAuditEligibleUrls } from '@/lib/content-audit/manifest'
 
 export const dynamic = 'force-dynamic'
 type RouteParams = { params: Promise<{ siteAuditId: string }> }
-const MAX_BODY_BYTES = 300 * 1024 // edge guard, > the 256K aggregate cap to leave envelope room
+const MAX_BODY_BYTES = 300 * 1024 // > the 256K aggregate cap, leaves envelope room
 
 export const PATCH = withRoute(async (req: NextRequest, { params }: RouteParams) => {
   const { siteAuditId } = await params
-  const len = Number(req.headers.get('content-length') ?? '0')
-  if (len > MAX_BODY_BYTES) return NextResponse.json({ error: 'body_too_large' }, { status: 413 })
 
-  const body = await parseJsonBody(req)
+  const raw = await readBoundedText(req, MAX_BODY_BYTES)
+  if (raw === null) return NextResponse.json({ error: 'body_too_large' }, { status: 413 })
+  let body: unknown
+  try { body = JSON.parse(raw) } catch { throw new HttpError(400, 'invalid_json') }
+
   const auth = await requireContentAuditToken(req, siteAuditId, 'findings-write')
   if (!auth.ok) return auth.res
 
@@ -1159,17 +1374,23 @@ export const PATCH = withRoute(async (req: NextRequest, { params }: RouteParams)
   return NextResponse.json({ ok: true, count: result.payload.findings.length })
 })
 ```
+Note: `req.body` reading consumes the stream once — read the bounded body BEFORE
+any other body access. The token comes from the `Authorization` header (not the
+body), so body-before-auth holds.
 
-- [ ] **Step 4: Run to verify it passes**
+- [ ] **Step 5: Run to verify it passes**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run "app/api/content-audit/[siteAuditId]/findings/route.test.ts"`
-Expected: PASS (3 tests).
+Expected: PASS (6 tests). If the streamed-body test hits a Node/undici `duplex`
+requirement, the cast in the test already sets `duplex: 'half'`; if the runtime
+still rejects it, assert the bounded reader directly in a `read-bounded-json.test.ts`
+unit test (feed a >cap stream, expect null) and keep a header-based 413 case here.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add "app/api/content-audit/[siteAuditId]/findings"
-git commit -m "feat(c12): cat_ PATCH-ingest route (size guard + validate + store)"
+git add "app/api/content-audit/[siteAuditId]/findings" lib/content-audit/read-bounded-json.ts
+git commit -m "feat(c12): cat_ PATCH-ingest route (bounded body reader + validate + store)"
 ```
 
 ---
@@ -1314,23 +1535,51 @@ const TYPE_LABEL: Record<string, string> = {
   data_inconsistency: 'Data inconsistency', stale_claim: 'Stale claim', quality_issue: 'Content quality',
 }
 
+// NEXT_PUBLIC_APP_URL is inlined at build (client-safe). Repo rule: share/handoff
+// URLs use NEXT_PUBLIC_APP_URL, never window.location.origin (reverse-proxy trap).
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? ''
+
 export function ContentAuditCard({ siteAuditId, hasLiveScanRun, initialContentAuditJson }: CardProps) {
   const [prompt, setPrompt] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
-  const [json] = useState<string | null>(initialContentAuditJson)
+  const [copied, setCopied] = useState(false)
+  const [json, setJson] = useState<string | null>(initialContentAuditJson)
+  const [polling, setPolling] = useState(false)
+
+  const findings: Finding[] = (() => {
+    if (!json) return []
+    try { return JSON.parse(json).findings ?? [] } catch { return [] }
+  })()
+
+  // Codex plan #4: bounded poll after mint until findings arrive (surfaces the
+  // skill's PATCH without a reload). Mirrors the kst_ memo poller.
+  useEffect(() => {
+    if (!polling || findings.length > 0) return
+    let stop = false
+    const iv = setInterval(async () => {
+      if (stop) return
+      const res = await fetch(`/api/site-audit/${siteAuditId}/content-audit`)
+      if (!res.ok) return
+      const body = await res.json()
+      if (body.minted && body.contentAuditJson) { setJson(body.contentAuditJson); setPolling(false) }
+    }, 8000)
+    return () => { stop = true; clearInterval(iv) }
+  }, [polling, siteAuditId, findings.length])
 
   if (!hasLiveScanRun) return null
-
-  let findings: Finding[] = []
-  if (json) { try { findings = JSON.parse(json).findings ?? [] } catch { /* ignore */ } }
 
   async function mint() {
     const res = await fetch(`/api/site-audit/${siteAuditId}/content-audit/mint-token`, { method: 'POST' })
     if (!res.ok) { setNote('Could not start a content audit.'); return }
     const body = await res.json()
-    const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
-    setPrompt(buildContentAuditPrompt({ siteAuditId, token: body.token, appUrl }))
+    setPrompt(buildContentAuditPrompt({ siteAuditId, token: body.token, appUrl: APP_URL }))
     setNote(body.textAvailable === false ? 'Retained page text expired — the analysis will fetch pages live.' : null)
+    setPolling(true)
+  }
+
+  async function copy() {
+    if (!prompt) return
+    try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { /* ignore */ }
   }
 
   return (
@@ -1344,7 +1593,12 @@ export function ContentAuditCard({ siteAuditId, hasLiveScanRun, initialContentAu
       </button>
       {note && <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">{note}</p>}
       {prompt && (
-        <pre className="mt-3 overflow-x-auto rounded bg-gray-50 p-3 text-xs text-gray-800 dark:bg-navy-950 dark:text-white/80">{prompt}</pre>
+        <div className="mt-3">
+          <button onClick={copy} className="mb-2 rounded border border-gray-300 px-2 py-1 text-xs dark:border-navy-border dark:text-white/80">
+            {copied ? 'Copied' : 'Copy prompt'}
+          </button>
+          <pre className="overflow-x-auto rounded bg-gray-50 p-3 text-xs text-gray-800 dark:bg-navy-950 dark:text-white/80">{prompt}</pre>
+        </div>
       )}
       {findings.length > 0 && (
         <div className="mt-4 space-y-3">
@@ -1368,12 +1622,14 @@ export function ContentAuditCard({ siteAuditId, hasLiveScanRun, initialContentAu
   )
 }
 ```
-(Optional: add a `useEffect` poll of `GET /api/site-audit/${siteAuditId}/content-audit` every ~8s while `prompt` is set and `findings.length===0`, mirroring the kst_ memo poller, to surface a PATCH without reload. Keep it simple; the on-load `initialContentAuditJson` already covers the reload case.)
+Add `useEffect` to the React import: `import { useEffect, useState } from 'react'`.
 
 - [ ] **Step 5: Run to verify it passes**
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/site-audit/ContentAuditCard.test.tsx`
-Expected: PASS (3 tests).
+Expected: PASS (3 tests). The mint/poll fetches use the global `fetch`; the three
+render tests don't trigger them. If jsdom lacks `navigator.clipboard`, the `copy`
+handler's try/catch swallows it — the render assertions still pass.
 
 - [ ] **Step 6: Wire into the SEO tab**
 
