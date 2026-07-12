@@ -29,6 +29,7 @@ interface ClaimedJob {
   payload: string
   attempts: number // post-claim value = the fencing token
   maxAttempts: number
+  groupKey: string | null
 }
 
 const activeByType = new Map<string, Map<string, number>>()
@@ -90,7 +91,14 @@ async function claimNext(type: string): Promise<ClaimedJob | null> {
     const candidate = await prisma.job.findFirst({
       where: { type, status: 'queued', runAfter: { lte: new Date() } },
       orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-      select: { id: true, type: true, payload: true, attempts: true, maxAttempts: true },
+      select: {
+        id: true,
+        type: true,
+        payload: true,
+        attempts: true,
+        maxAttempts: true,
+        groupKey: true,
+      },
     })
     if (!candidate) return null
     const res = await prisma.job.updateMany({
