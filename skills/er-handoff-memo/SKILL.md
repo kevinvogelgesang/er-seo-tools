@@ -6,13 +6,17 @@ description: |
   Research. The payload always has a "Webapp:" line, an "<X> ID:" line, and an
   "Access token: <prefix>_..." line where the prefix is pat_ (pillar strategic
   memo), srt_ (technical-SEO roadmap, with optional Teamwork push), krt_
-  (keyword strategy memo), or qct_ (quarter-cycle Teamwork push). Fetches the
-  structured export, writes the right document (or, for qct_, creates the
-  planned-week Teamwork tasks), and posts the result back to the dashboard.
-  Internal use only at Enrollment Resources. Replaces the separate
+  (keyword strategy memo), kst_ (client-scoped 8-section keyword strategy
+  document, with mid-conversation volume lookups), cat_ (content audit of a
+  completed site audit's page content — cross-page consistency, stale claims,
+  quality — written back as structured findings), or qct_ (quarter-cycle
+  Teamwork push). Fetches the structured export, writes the right document
+  (or, for qct_, creates the planned-week Teamwork tasks; for cat_, PATCHes
+  structured findings), and posts the result back to the dashboard. Internal
+  use only at Enrollment Resources. Replaces the separate
   pillar-analysis-narrative, seo-audit-roadmap, and keyword-strategy-memo
   skills.
-version: 2.1.0
+version: 2.3.0
 ---
 
 # ER Handoff Memo (unified)
@@ -25,8 +29,8 @@ you write is workflow-specific.
 
 Activate only when the message contains ALL of:
 - a `Webapp:` line with a URL,
-- an `<X> ID:` line (`Analysis ID:` / `Roadmap ID:` / `Memo ID:` / `Plan ID:`),
-- an `Access token:` line whose value starts with `pat_`, `srt_`, `krt_`, or `qct_`.
+- an `<X> ID:` line (`Analysis ID:` / `Roadmap ID:` / `Memo ID:` / `Strategy ID:` / `Content Audit ID:` / `Plan ID:`),
+- an `Access token:` line whose value starts with `pat_`, `srt_`, `krt_`, `kst_`, `cat_`, or `qct_`.
 
 If any field is missing, ask the user to re-copy a fresh prompt from the
 dashboard. Do not run the flow with partial fields.
@@ -39,6 +43,8 @@ workflow this is:
 | `pat_` | Pillar Analysis | `Analysis ID:` | strategic memo | `templates/memo_structure.md` | no |
 | `srt_` | SEO Audit Roadmap | `Roadmap ID:` | technical-SEO roadmap | `templates/roadmap_structure.md` | yes (opt-in) |
 | `krt_` | Keyword Research | `Memo ID:` | keyword strategy memo | `templates/keyword_memo_structure.md` | no |
+| `kst_` | Keyword Strategy (client-scoped) | `Strategy ID:` | 8-section keyword strategy document | `templates/keyword_strategy_structure.md` | no |
+| `cat_` | Content Audit (of a site audit) | `Content Audit ID:` | none — structured findings PATCH | `references/content-audit.md` | no |
 | `qct_` | Quarter Grid cycle | `Plan ID:` | none — Teamwork tasks | `references/quarter-push.md` | yes (the push IS the task) |
 
 The ID-label wording is a hint only — if the prefix and label ever disagree,
@@ -172,6 +178,42 @@ Reply with a one-screen summary table: per-client result (created W{n} task /
 skipped + reason) and the four totals. Execute via the
 `mcp__claude_ai_Teamwork__*` tools.
 
+## 9. (cat_ only) Content audit — manifest → pages → findings PATCH
+
+A `cat_` payload is NOT a write-a-document workflow. You audit a completed site
+audit's actual page **content** and write back **structured findings**. Full
+contract (schema, honest-phrasing rules, the evidence-URL constraint) is in
+`references/content-audit.md` — follow it exactly. The shape:
+
+1. **Manifest** (`fetch` subcommand → `GET .../manifest`): the client/domain +
+   the eligible page index (`{url, title, wordCount, contentAvailable}`, indexable
+   non-login pages only) + `textAvailable`.
+2. **Pages** (`page` subcommand, once per URL you need):
+   ```bash
+   python3 scripts/handoff.py page --webapp "<W>" --token "<tok>" --id "<id>" --url "<page-url>"
+   ```
+   Returns `{url, contentText, contentTruncated}`. A `410`/`text_unavailable`
+   means the retention window closed (`textAvailable:false`) — fall back to
+   **web-fetching** that URL. A `404` means the URL isn't in this audit's set.
+3. **Analyze** across the pages: cross-page fact consistency (tuition, program
+   length, start dates, contact, accreditation stated differently on different
+   pages), stale claims (old years / past seasons / expired deadlines), and
+   content-quality issues.
+4. **Write back** (`findings` subcommand — NOT `post`): pipe a JSON findings
+   array to stdin:
+   ```bash
+   printf '%s' "$FINDINGS_JSON" | python3 scripts/handoff.py findings \
+     --webapp "<W>" --token "<tok>" --id "<id>"
+   ```
+   Each finding: `{ type, severity, title, detail, evidence:[{url,snippet}],
+   recommendation }` — `type ∈ {data_inconsistency, stale_claim, quality_issue}`,
+   `severity ∈ {info, warning, critical}`. **Every `evidence.url` MUST be a URL
+   from the manifest page set** (the server rejects any other with 400
+   `evidence_url_not_in_audit`). Last-writer-wins; a re-PATCH replaces the set.
+
+Dashboard link: `{Webapp}/ada-audit/site/{siteAuditId}` (the SEO tab shows the
+ingested findings on the Content Audit card).
+
 ## Workflow notes
 
 - **pat_ (pillar):** the fetched body is `{ …, analysis }`; write the strategic
@@ -179,6 +221,27 @@ skipped + reason) and the four totals. Execute via the
 - **krt_ (keyword):** the body carries keyword research export data; write per
   `templates/keyword_memo_structure.md`. The keyword results page is not
   workflow-gated, so a memo can be produced for any session with keyword data.
+- **kst_ (keyword strategy, client-scoped):** the body carries a five-block
+  export (profile/roster · GSC signals · page inventory with FAQ tri-state ·
+  live-scan findings · optional SEMRush block) — each block can be null;
+  degrade per the template's "When a block is absent" rules, never invent
+  data. Write per `templates/keyword_strategy_structure.md`. Mid-conversation
+  **volume lookups** are available via
+  `python3 scripts/handoff.py volumes --webapp <W> --token <tok> --id <id> --keywords '<json array>'`
+  ONLY when the payload's `volumeLookup.enabled` is true (a 409
+  `volume_disabled` means the provider is dark — write §5 without volumes and
+  say so). The command prints the `idempotencyKey` it used: on a TRANSPORT
+  retry of the same request pass it back via `--idempotency-key`; a fresh
+  keyword set gets a fresh call (no key reuse). `volume_budget_exhausted` /
+  `volume_monthly_ceiling` (429) mean the spend cap is hit — stop looking up,
+  write with what you have, and note it. Dashboard link:
+  `{Webapp}/clients/{clientId}` (the export carries `clientId`).
+- **cat_ (content audit):** no document; §9 + `references/content-audit.md` are
+  the whole flow. Manifest → per-page text (`page` subcommand; web-fetch fallback
+  when `textAvailable:false`) → structured findings via the `findings` subcommand
+  (NOT `post`, which errors for cat_). Detection proves presence, never absence —
+  a not-found fact is "verify", never "confirmed wrong". Evidence URLs must come
+  from the manifest set.
 - **qct_ (quarter push):** no document; §8 + `references/quarter-push.md` are
   the whole flow. `handoff.py post` intentionally errors for qct_ tokens —
   the write-back is the `receipt` subcommand.

@@ -48,6 +48,7 @@ export interface CrawlRunInput {
   programEntitiesJson?: string | null   // KS-3: JSON-LD program {name,url} pairs (live-scan runs only)
   contentSignalsJson?: string | null   // C12: stale-date + readability signals; live-scan runs only
   topicOverlapJson?: string | null   // C12 Tier-1: semantic topic-overlap networks; live-scan runs only
+  contentAuditJson?: string | null   // C12 D1: content-audit findings and retention metadata
   wcagLevel: string | null
   pagesTotal: number
   startedAt: Date | null

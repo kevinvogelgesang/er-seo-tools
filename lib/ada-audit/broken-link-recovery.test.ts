@@ -87,4 +87,14 @@ describe('recoverBrokenLinkVerifies', () => {
     expect(n).toBe(1)
     expect(await prisma.job.count({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })).toBe(1)
   })
+
+  it('C12 D1: does NOT re-enqueue a completed audit that already has a live-scan run + retained pageSeo', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(Date.now() + 3600_000) } })
+    await prisma.crawlRun.create({ data: { siteAuditId: sa.id, tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, status: 'complete', pagesTotal: 1 } })
+    await prisma.harvestedPageSeo.create({ data: { siteAuditId: sa.id, url: 'https://x/a', contentText: 'body' } })
+    const n = await recoverBrokenLinkVerifies()
+    expect(n).toBe(0)
+    const jobs = await prisma.job.count({ where: { groupKey: `site-audit:${sa.id}` } })
+    expect(jobs).toBe(0)
+  })
 })

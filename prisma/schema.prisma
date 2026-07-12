@@ -189,6 +189,7 @@ model SiteAudit {
   notifyEmail          String?    // D7: recipient (verified session email), stamped at creation when opt-in ticked; null = silent
   notifyCompleteSentAt DateTime?  // D7: durable at-least-once guard for the 'complete' email
   notifyFailedSentAt   DateTime?  // D7: durable at-least-once guard for the 'failed' email
+  contentAuditRetainUntil DateTime?  // C12 D1: mint-extendable contentText retention deadline
   checks           SiteAuditCheck[]
   crawlRuns        CrawlRun[]
   harvestedLinks   HarvestedLink[]
@@ -201,6 +202,7 @@ model SiteAudit {
   @@index([requestedBy, createdAt])
   @@index([scheduleId])
   @@index([prospectId])
+  @@index([contentAuditRetainUntil])
 }
 
 model PillarAnalysis {
@@ -412,6 +414,7 @@ model CrawlRun {
   programEntitiesJson   String? // KS-3: JSON-LD Course/EducationalOccupationalProgram {name,url} pairs (live-scan runs only)
   contentSignalsJson    String? // C12: stale-date + readability signals (live-scan runs only); measurement, NOT a finding
   topicOverlapJson      String? // C12 Tier-1: semantic topic-overlap networks (live-scan runs only); measurement, NOT a finding
+  contentAuditJson      String? // C12 D1: content-audit findings and retention metadata
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]

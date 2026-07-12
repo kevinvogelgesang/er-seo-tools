@@ -14,7 +14,16 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
   // (the verifier/builder deletes both only on success).
   const [links, seo] = await Promise.all([
     prisma.harvestedLink.findMany({ distinct: ['siteAuditId'], select: { siteAuditId: true } }),
-    prisma.harvestedPageSeo.findMany({ distinct: ['siteAuditId'], select: { siteAuditId: true } }),
+    // C12 D1: HarvestedPageSeo now survives past a successful build (retained
+    // for the content-audit window), so a populated row no longer means "the
+    // builder never finished" on its own. Bound this scan at the DB level to
+    // audits with NO seo-parser live-scan run yet -- otherwise every completed
+    // audit within its retention window gets re-scanned every 10 min. The
+    // per-id `if (liveRun) continue` guard below stays as belt-and-suspenders.
+    prisma.harvestedPageSeo.findMany({
+      where: { siteAudit: { crawlRuns: { none: { tool: 'seo-parser' } } } },
+      distinct: ['siteAuditId'], select: { siteAuditId: true },
+    }),
   ])
   const pending = [...new Set([...links, ...seo].map((r) => r.siteAuditId))].map((siteAuditId) => ({ siteAuditId }))
   // C11: complete seoOnly audits can strand with ZERO transient rows — if every

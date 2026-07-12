@@ -9,13 +9,21 @@ which made a Cloudflare WAF 403 look like an "egress allowlist" problem and sent
 an analyst down the wrong path.
 
 Usage:
-  python3 handoff.py fetch --webapp <url> --token <tok> --id <id>
-  python3 handoff.py post  --webapp <url> --token <tok> --id <id> [--structured <json>] < doc.md
+  python3 handoff.py fetch    --webapp <url> --token <tok> --id <id>
+  python3 handoff.py post     --webapp <url> --token <tok> --id <id> [--structured <json>] < doc.md
+  python3 handoff.py volumes  --webapp <url> --token <tok> --id <id> --keywords '<json array>' [--idempotency-key <key>]
+  python3 handoff.py page     --webapp <url> --token <tok> --id <id> --url <page-url>   (cat_ only)
+  python3 handoff.py findings --webapp <url> --token <tok> --id <id> < findings.json    (cat_ only)
 
 Routing is by token prefix:
-  pat_ -> pillar-analysis  GET /api/pillar-analysis/{id}   PATCH .../narrative  field "narrative"
-  srt_ -> seo-roadmap      GET /api/seo-roadmap/{id}        PATCH .../roadmap    field "roadmap"
-  krt_ -> keyword-memo     GET /api/keyword-memo/{id}       PATCH .../memo       field "memo"
+  pat_ -> pillar-analysis   GET /api/pillar-analysis/{id}    PATCH .../narrative  field "narrative"
+  srt_ -> seo-roadmap       GET /api/seo-roadmap/{id}        PATCH .../roadmap    field "roadmap"
+  krt_ -> keyword-memo      GET /api/keyword-memo/{id}       PATCH .../memo       field "memo"
+  kst_ -> keyword-strategy  GET /api/keyword-strategy/{id}   PATCH .../memo       field "memo"
+                            POST .../volumes (billable volume lookup — `volumes` subcommand)
+  cat_ -> content-audit     GET /api/content-audit/{id}/manifest  (`fetch`)
+                            GET /api/content-audit/{id}/page?url=  (`page`, one page's stripped text)
+                            PATCH /api/content-audit/{id}/findings (`findings`, structured — NOT a doc)
 
 Always prints ONE JSON object to stdout and never raises to the caller. On
 success: the API body. On failure: {"ok": false, "error_kind": "...", ...}
@@ -26,6 +34,8 @@ import json
 import sys
 import urllib.request
 import urllib.error
+import urllib.parse
+import uuid
 
 # A real browser-ish UA. urllib's default ("Python-urllib/3.x") is 403'd by the
 # Cloudflare WAF in front of the staging origin. Do not remove this.
@@ -41,10 +51,26 @@ ROUTES = {
     "krt_": {"workflow": "keyword-memo",
              "get": "/api/keyword-memo/{id}",
              "patch": "/api/keyword-memo/{id}/memo", "field": "memo"},
+    # kst_ MUST precede any future prefix that shares its first chars; the
+    # volumes endpoint is BILLABLE (DataForSEO) — only kst_ tokens carry the
+    # volume-lookup scope, and the server enforces it regardless.
+    "kst_": {"workflow": "keyword-strategy",
+             "get": "/api/keyword-strategy/{id}",
+             "patch": "/api/keyword-strategy/{id}/memo", "field": "memo",
+             "volumes": "/api/keyword-strategy/{id}/volumes"},
     # qct_ has no markdown post-back; its write-back is the `receipt` subcommand.
     "qct_": {"workflow": "quarter-push",
              "get": "/api/quarter-plan/push/{id}",
              "receipt": "/api/quarter-plan/push/{id}/receipt"},
+    # cat_ (content audit) is manifest→pages→structured-findings, NOT a document.
+    # `get` = the manifest (the `fetch` subcommand); `page` fetches one page's
+    # stripped text; `findings` PATCHes the structured typed findings. No `field`
+    # (the body is {findings:[...]}, not a single markdown string), so `post`
+    # intentionally errors for cat_ — use the `findings` subcommand.
+    "cat_": {"workflow": "content-audit",
+             "get": "/api/content-audit/{id}/manifest",
+             "page": "/api/content-audit/{id}/page",
+             "findings": "/api/content-audit/{id}/findings"},
 }
 
 
@@ -130,7 +156,7 @@ def _classify_http_error(e, url):
 
 def _unknown_prefix():
     return {"ok": False, "error_kind": "unknown_token_prefix", "status": 0,
-            "detail": "Token does not start with pat_/srt_/krt_ — cannot route. Re-copy the prompt."}
+            "detail": "Token does not start with pat_/srt_/krt_/kst_/qct_/cat_ — cannot route. Re-copy the prompt."}
 
 
 def cmd_fetch(args):
@@ -147,7 +173,8 @@ def cmd_post(args):
         return _unknown_prefix()
     if "patch" not in cfg:
         return {"ok": False, "error_kind": "wrong_command", "status": 0,
-                "detail": "qct_ tokens have no document post-back — use the `receipt` subcommand."}
+                "detail": ("This token has no document post-back — qct_ uses the `receipt` "
+                           "subcommand; cat_ (content audit) uses the `findings` subcommand.")}
     payload = {cfg["field"]: sys.stdin.read()}
     if args.structured:
         try:
@@ -157,6 +184,75 @@ def cmd_post(args):
                     "detail": "--structured was not valid JSON."}
     url = args.webapp.rstrip("/") + cfg["patch"].format(id=args.id)
     return _request(url, "PATCH", args.token, data=json.dumps(payload).encode())
+
+
+def cmd_volumes(args):
+    cfg = route_for(args.token)
+    if not cfg:
+        return _unknown_prefix()
+    if "volumes" not in cfg:
+        return {"ok": False, "error_kind": "wrong_command", "status": 0,
+                "detail": "`volumes` is only valid for kst_ (keyword strategy) tokens — "
+                          "the volume-lookup scope exists only on that family."}
+    try:
+        keywords = json.loads(args.keywords)
+    except ValueError:
+        return {"ok": False, "error_kind": "bad_keywords_arg", "status": 0,
+                "detail": "--keywords was not valid JSON."}
+    if not isinstance(keywords, list) or not all(isinstance(k, str) for k in keywords):
+        return {"ok": False, "error_kind": "bad_keywords_arg", "status": 0,
+                "detail": "--keywords must be a JSON array of strings."}
+    # One idempotency key per LOGICAL call. On a transport retry of the SAME
+    # logical call, pass the printed key back via --idempotency-key: a settled
+    # duplicate replays the stored result; a fresh ask uses a fresh key.
+    key = args.idempotency_key or str(uuid.uuid4())
+    payload = {"idempotencyKey": key, "keywords": keywords}
+    url = args.webapp.rstrip("/") + cfg["volumes"].format(id=args.id)
+    result = _request(url, "POST", args.token, data=json.dumps(payload).encode())
+    if isinstance(result, dict):
+        result.setdefault("idempotencyKey", key)
+    return result
+
+
+def cmd_page(args):
+    """cat_ only: fetch ONE page's stripped main-content text from the manifest set.
+    A 410 (text_unavailable) means the retention window closed — fall back to
+    web-fetching the URL. A 404 means the URL isn't in this audit's eligible set."""
+    cfg = route_for(args.token)
+    if not cfg:
+        return _unknown_prefix()
+    if "page" not in cfg:
+        return {"ok": False, "error_kind": "wrong_command", "status": 0,
+                "detail": "`page` is only valid for cat_ (content audit) tokens."}
+    qs = urllib.parse.urlencode({"url": args.url})
+    url = args.webapp.rstrip("/") + cfg["page"].format(id=args.id) + "?" + qs
+    return _request(url, "GET", args.token)
+
+
+def cmd_findings(args):
+    """cat_ only: PATCH the structured content-audit findings. Reads the findings
+    from stdin — either a bare JSON array or an object {"findings":[...]}. The
+    body sent is always {"findings":[...]} (last-writer-wins on the server)."""
+    cfg = route_for(args.token)
+    if not cfg:
+        return _unknown_prefix()
+    if "findings" not in cfg:
+        return {"ok": False, "error_kind": "wrong_command", "status": 0,
+                "detail": "`findings` is only valid for cat_ (content audit) tokens."}
+    try:
+        parsed = json.loads(sys.stdin.read())
+    except ValueError:
+        return {"ok": False, "error_kind": "bad_findings_body", "status": 0,
+                "detail": "stdin was not valid JSON (expected a findings array or {\"findings\":[...]})."}
+    if isinstance(parsed, dict) and "findings" in parsed:
+        findings = parsed["findings"]
+    else:
+        findings = parsed
+    if not isinstance(findings, list):
+        return {"ok": False, "error_kind": "bad_findings_body", "status": 0,
+                "detail": "findings must be a JSON array."}
+    url = args.webapp.rstrip("/") + cfg["findings"].format(id=args.id)
+    return _request(url, "PATCH", args.token, data=json.dumps({"findings": findings}).encode())
 
 
 def cmd_receipt(args):
@@ -176,7 +272,7 @@ def cmd_receipt(args):
 def main():
     p = argparse.ArgumentParser(description="er-seo-tools unified handoff transport")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("fetch", "post", "receipt"):
+    for name in ("fetch", "post", "receipt", "volumes", "page", "findings"):
         sp = sub.add_parser(name)
         sp.add_argument("--webapp", required=True)
         sp.add_argument("--token", required=True)
@@ -185,8 +281,14 @@ def main():
             sp.add_argument("--structured", default=None)
         if name == "receipt":
             sp.add_argument("--counts", required=True)
+        if name == "volumes":
+            sp.add_argument("--keywords", required=True)
+            sp.add_argument("--idempotency-key", dest="idempotency_key", default=None)
+        if name == "page":
+            sp.add_argument("--url", required=True)
     args = p.parse_args()
-    result = {"fetch": cmd_fetch, "post": cmd_post, "receipt": cmd_receipt}[args.cmd](args)
+    result = {"fetch": cmd_fetch, "post": cmd_post, "receipt": cmd_receipt,
+              "volumes": cmd_volumes, "page": cmd_page, "findings": cmd_findings}[args.cmd](args)
     print(json.dumps(result, indent=2))
 
 
