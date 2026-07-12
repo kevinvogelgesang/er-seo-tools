@@ -5,6 +5,37 @@ import { useRecentsLivePoll } from './useRecentsLivePoll'
 import { RECENTS_STATUS_MAX_IDS } from '@/lib/ada-audit/recents-status-shared'
 import type { RecentItem } from '@/lib/ada-audit/recents-query'
 
+// useRecentsLivePoll imports @/lib/events/client at module scope — mock it
+// the same way useAuditPoller.test.ts / lib/widgets/queue-poll.test.ts do:
+// controllable subscribeTopic/subscribeHealth fakes plus __fire()/__setHealth()
+// test helpers.
+vi.mock('@/lib/events/client', () => {
+  let invalidate: () => void = () => {}
+  let health: (h: boolean) => void = () => {}
+  let lastTopic: string | undefined
+  return {
+    subscribeTopic: (topic: string, cb: () => void) => {
+      lastTopic = topic
+      invalidate = cb
+      return () => {}
+    },
+    subscribeHealth: (cb: (h: boolean) => void) => {
+      health = cb
+      cb(false)
+      return () => {}
+    },
+    __fire: () => invalidate(),
+    __setHealth: (h: boolean) => health(h),
+    __lastTopic: () => lastTopic,
+  }
+})
+import * as eventsClient from '@/lib/events/client'
+const { __fire, __setHealth, __lastTopic } = eventsClient as unknown as {
+  __fire: () => void
+  __setHealth: (h: boolean) => void
+  __lastTopic: () => string | undefined
+}
+
 const item = (over: Partial<RecentItem> = {}): RecentItem => ({
   type: 'site-ada', id: 's1', createdAt: '2026-07-08T10:00:00.000Z', label: 'a.com',
   href: '/ada-audit/site/s1', status: 'running', score: null, startedAt: null, completedAt: null,
@@ -138,5 +169,81 @@ describe('useRecentsLivePoll', () => {
     await flushAsync()
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(onSettled).not.toHaveBeenCalled()
+  })
+
+  it('subscribes to the recents topic', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [statusItem()] })))
+    global.fetch = fetchMock as unknown as typeof fetch
+    renderHook(() => useRecentsLivePoll({ items: [item()], onUpdate: vi.fn(), onSettled: vi.fn() }))
+    expect(__lastTopic()).toBe('recents')
+  })
+
+  it('SSE invalidate triggers an immediate status refetch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [statusItem()] })))
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onUpdate = vi.fn()
+    renderHook(() => useRecentsLivePoll({ items: [item()], onUpdate, onSettled: vi.fn() }))
+    // Mount fires no fetch by itself (only the interval/invalidate do).
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    __fire()
+    await flushAsync()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onUpdate).toHaveBeenCalledWith([statusItem()])
+  })
+
+  it('demotes to the 60s safety cadence once SSE is healthy, and re-arms the 8s fast cadence when it drops', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [statusItem()] })))
+    global.fetch = fetchMock as unknown as typeof fetch
+    renderHook(() => useRecentsLivePoll({ items: [item()], onUpdate: vi.fn(), onSettled: vi.fn() }))
+
+    // Health flips true: an immediate refetch fires, and the cadence demotes.
+    __setHealth(true)
+    await flushAsync()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Well under the 60s safety cadence — no new fetch.
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    await flushAsync()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    // Health drops: re-arm fast (8s).
+    __setHealth(false)
+    await flushAsync()
+    fetchMock.mockClear()
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a settled key notified via an SSE-triggered refetch is still notified exactly once', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [statusItem({ status: 'complete', inFlight: false })] })),
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+    const onSettled = vi.fn()
+    renderHook(() => useRecentsLivePoll({ items: [item()], onUpdate: vi.fn(), onSettled }))
+
+    __fire()
+    await flushAsync()
+    expect(onSettled).toHaveBeenCalledTimes(1)
+
+    // A second invalidate for the same still-settled key must not re-notify.
+    __fire()
+    await flushAsync()
+    expect(onSettled).toHaveBeenCalledTimes(1)
+  })
+
+  it('SSE-absent keeps the original 8s cadence unchanged', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [statusItem()] })))
+    global.fetch = fetchMock as unknown as typeof fetch
+    renderHook(() => useRecentsLivePoll({ items: [item()], onUpdate: vi.fn(), onSettled: vi.fn() }))
+    // subscribeHealth's fake calls back with false synchronously on subscribe.
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })
