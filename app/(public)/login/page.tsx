@@ -16,6 +16,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   oauth_failed: 'Google sign-in failed. Please try again.',
   oauth_unavailable: 'Google sign-in is not available right now.',
   password_login_disabled: 'Password sign-in is disabled — use Google.',
+  too_many_attempts: 'Too many attempts. Please wait a few minutes and try again.',
 }
 
 export default async function LoginPage({ searchParams }: Props) {
