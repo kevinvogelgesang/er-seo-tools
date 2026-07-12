@@ -15,6 +15,7 @@ import { ReachabilitySection } from '@/components/site-audit/ReachabilitySection
 import { ContentSimilaritySection } from '@/components/site-audit/ContentSimilaritySection'
 import { ContentSignalsSection } from '@/components/site-audit/ContentSignalsSection'
 import { TopicOverlapSection } from '@/components/site-audit/TopicOverlapSection'
+import { ContentAuditCard } from '@/components/site-audit/ContentAuditCard'
 import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
 import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
 import { classifySeoPhase, getLatestSeoVerifyJob } from '@/lib/ada-audit/seo-phase'
@@ -230,6 +231,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
       contentSimilarityJson: true,
       contentSignalsJson: true,
       topicOverlapJson: true,
+      contentAuditJson: true,
       findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
       // C6 Phase 3: page scalars drive the analyzed marker + the coverage line.
       pages: { select: { statusCode: true, indexable: true } },
@@ -291,6 +293,11 @@ export default async function SiteAuditResultPage({ params }: Props) {
       <ContentSimilaritySection run={liveScanRun} />
       <ContentSignalsSection run={liveScanRun} />
       <TopicOverlapSection run={liveScanRun} />
+      <ContentAuditCard
+        siteAuditId={audit.id}
+        hasLiveScanRun={liveScanRun != null}
+        initialContentAuditJson={liveScanRun?.contentAuditJson ?? null}
+      />
     </>
   ) : (
     <SeoPhaseBanner phase={seoPhase} />
