@@ -10,6 +10,8 @@ import { parseJsonBody } from '@/lib/api/body'
 import { HttpError } from '@/lib/api/errors'
 import { prisma } from '@/lib/db'
 import { authenticateStrategyRequest } from '@/lib/keyword-strategy-route-auth'
+import { publishInvalidation } from '@/lib/events/bus'
+import { memoTopic } from '@/lib/events/topics'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,6 +64,13 @@ export const PATCH = withRoute(async (req: NextRequest, { params }: RouteParams)
       memoUpdatedAt: now,
     },
   })
+
+  // A5 Task 24: KeywordStrategyCard subscribes to memo:<id> using THIS
+  // model's own id (there's no separate sessionId FK here — the strategy
+  // session IS the identity the card tracks/re-subscribes to across mints).
+  // Emitted AFTER the awaited update resolves (a resolved update() always
+  // succeeded — P2025 on a missing row throws first, never reaching here).
+  publishInvalidation(memoTopic(id))
 
   return NextResponse.json({ ok: true, updatedAt: (updated.memoUpdatedAt ?? now).toISOString() })
 })

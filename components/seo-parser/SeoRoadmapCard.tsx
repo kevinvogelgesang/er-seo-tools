@@ -17,11 +17,19 @@ import { useRouter } from 'next/navigation';
 import { createPollingMachine } from '@/lib/memo-poller-machine';
 import { onMemoPollerTrigger } from '@/lib/memo-poller-events';
 import { formatRelativeTime, formatAbsoluteTime } from '@/lib/relative-time';
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client';
+import { memoTopic } from '@/lib/events/topics';
 import { GenerateRoadmapButton } from './GenerateRoadmapButton';
 import { RoadmapMarkdown } from './RoadmapMarkdown';
 
 const POLL_INTERVAL_MS = 3000;
 const LIFETIME_MS = 15 * 60 * 1000;
+// A5 Task 24: original 3s cadence kept until SSE is confirmed healthy, then
+// demoted to a 20s memo-safety cadence (re-armed fast on drop). The poll
+// loop itself keeps running for the component's lifetime regardless of
+// health — only the interval delay changes; `machine.status() !== 'polling'`
+// still no-ops each tick when there's nothing to check.
+const SAFETY_POLL_MEMO_MS = 20_000;
 
 interface Props {
   sessionId: string;
@@ -116,6 +124,15 @@ export function SeoRoadmapCard({
     });
   }, [machine]);
 
+  // A5 Task 24: SSE push on memo:<sessionId> routes through machine.invalidate()
+  // — never bypassed — so the 15-min cap + visibility/dirty semantics stay
+  // exactly as the machine defines them. onChange (router.refresh()) always
+  // refetches fresh server props at the moment it fires, whether that's
+  // immediate (visible) or deferred to visibility-resume (was hidden).
+  useEffect(() => {
+    return subscribeTopic(memoTopic(sessionId), () => machine.invalidate());
+  }, [sessionId, machine]);
+
   const hasAutoStartedRef = useRef(false);
 
   // Auto-start on mount ONLY when a generation is already in flight. Anchor the
@@ -135,9 +152,11 @@ export function SeoRoadmapCard({
     }
   }, [initialStatus, initialRoadmapUpdatedAt, initialTokenMintedAt, machine]);
 
-  // Polling loop
+  // Polling loop. Cadence is health-gated: the original 3s cadence while SSE
+  // is absent/unhealthy, demoting to the 20s safety cadence once healthy,
+  // re-arming fast on drop (same pattern as ReportLibrary/queue-poll.ts).
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const doTick = async () => {
       if (machine.status() !== 'polling') return;
       try {
         const res = await fetch(`/api/seo-roadmap/by-session/${sessionId}`);
@@ -150,8 +169,21 @@ export function SeoRoadmapCard({
       } catch {
         // Network errors are silent — next tick will retry.
       }
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    };
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer);
+      timer = setInterval(() => void doTick(), healthy ? SAFETY_POLL_MEMO_MS : POLL_INTERVAL_MS);
+    };
+    restartTimer(false);
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h);
+      if (h) void doTick();
+    });
+    return () => {
+      if (timer) clearInterval(timer);
+      unsubHealth();
+    };
   }, [sessionId, machine]);
 
   return (

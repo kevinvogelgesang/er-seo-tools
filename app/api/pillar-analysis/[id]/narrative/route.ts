@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyPillarToken, PillarTokenError } from '@/lib/pillar-token';
+import { publishInvalidation } from '@/lib/events/bus';
+import { memoTopic } from '@/lib/events/topics';
 
 const REQUIRED_SCOPE = 'narrative-write';
 const MAX_NARRATIVE_CHARS = 50_000;
@@ -79,6 +81,18 @@ export async function PATCH(
       narrativeUpdatedAt: now,
     },
   });
+
+  // A5 Task 24: MemoPoller polls by Session.id when present, else falls back
+  // to PillarAnalysis.id (analysisId) for live-scan/crawlRun-keyed analyses
+  // that have no session — mirror that same fallback here so the topic
+  // always matches what MemoPoller subscribed to. Deliberately does NOT
+  // also emit pillarAnalysisTopic: PillarAnalysisButtonClient only tracks
+  // id/status/error and stops polling once status is complete/error, and a
+  // narrative write always happens after the analysis is already complete —
+  // that subscriber has nothing to react to here. Emitted AFTER the awaited
+  // update resolves (a resolved update() always succeeded — P2025 on a
+  // missing row throws first, never reaching here).
+  publishInvalidation(memoTopic(updated.sessionId ?? id));
 
   return NextResponse.json({
     ok: true,

@@ -1,6 +1,40 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+
+vi.mock('@/lib/events/client', () => {
+  let invalidate: () => void = () => {};
+  let health: (h: boolean) => void = () => {};
+  let lastTopic: string | undefined;
+  return {
+    subscribeTopic: (topic: string, cb: () => void) => {
+      lastTopic = topic;
+      invalidate = cb;
+      return () => {};
+    },
+    subscribeHealth: (cb: (h: boolean) => void) => {
+      health = cb;
+      cb(false);
+      return () => {};
+    },
+    __fire: () => invalidate(),
+    __setHealth: (h: boolean) => health(h),
+    __lastTopic: () => lastTopic,
+    __reset: () => {
+      invalidate = () => {};
+      health = () => {};
+      lastTopic = undefined;
+    },
+  };
+});
+import * as eventsClient from '@/lib/events/client';
+const { __fire, __setHealth, __lastTopic, __reset } = eventsClient as unknown as {
+  __fire: () => void;
+  __setHealth: (h: boolean) => void;
+  __lastTopic: () => string | undefined;
+  __reset: () => void;
+};
+
 import { KeywordStrategyCard } from './KeywordStrategyCard';
 
 const readiness = { gscMapped: true, hasLiveScan: true, hasLocale: true };
@@ -11,6 +45,7 @@ beforeEach(() => {
   writeText = vi.fn(async () => {});
   vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
   vi.stubGlobal('fetch', vi.fn());
+  __reset();
 });
 
 afterEach(() => {
@@ -196,5 +231,129 @@ describe('KeywordStrategyCard', () => {
 
     expect(writeText).not.toHaveBeenCalled();
     expect(screen.getAllByRole('button', { name: /failed|error|retry/i }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('KeywordStrategyCard — SSE-aware poll (A5 Task 24)', () => {
+  it('subscribes to memo:<initialSession.id> when a session exists on mount', () => {
+    render(
+      <KeywordStrategyCard
+        clientId={1}
+        initialSession={session({ id: 's1' })}
+        readiness={readiness}
+        archived={false}
+      />,
+    );
+    expect(__lastTopic()).toBe('memo:s1');
+  });
+
+  it('does not subscribe to any topic when there is no session yet', () => {
+    render(<KeywordStrategyCard clientId={1} initialSession={null} readiness={readiness} archived={false} />);
+    expect(__lastTopic()).toBeUndefined();
+  });
+
+  it('re-subscribes to memo:<strategyId> (the NEW session id) after a mint', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/mint-token')) {
+        return new Response(JSON.stringify({ token: 'kst_x', strategyId: 'sid-new' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ session: null }), { status: 200 });
+    });
+    render(<KeywordStrategyCard clientId={1} initialSession={null} readiness={readiness} archived={false} />);
+    expect(__lastTopic()).toBeUndefined();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /generate strategy prompt/i }));
+    });
+
+    expect(__lastTopic()).toBe('memo:sid-new');
+  });
+
+  it('an invalidate push while visible refetches and applies the fresh memo (not a stale ref)', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/keyword-strategy')) {
+        return new Response(
+          JSON.stringify({
+            session: session({ id: 's1', memoMarkdown: '# Pushed via SSE', memoUpdatedAt: '2026-07-12T00:00:00Z' }),
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    render(
+      <KeywordStrategyCard
+        clientId={9}
+        initialSession={session({ id: 's1', memoMarkdown: null, memoUpdatedAt: null })}
+        readiness={readiness}
+        archived={false}
+      />,
+    );
+    expect(screen.queryByText('Pushed via SSE')).toBeNull();
+
+    await act(async () => {
+      __fire();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('Pushed via SSE')).toBeTruthy();
+  });
+
+  it('polls at the original 3s cadence while SSE is unhealthy', async () => {
+    vi.useFakeTimers();
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ session: session({ id: 's1', status: 'processing' }) }), { status: 200 }),
+    );
+    render(
+      <KeywordStrategyCard
+        clientId={1}
+        initialSession={session({ id: 's1', status: 'processing', tokenMintedAt: new Date().toISOString() })}
+        readiness={readiness}
+        archived={false}
+      />,
+    );
+    const callsBefore = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+
+  it('demotes to the 20s safety cadence once SSE is healthy, and re-arms fast on drop', async () => {
+    vi.useFakeTimers();
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ session: session({ id: 's1', status: 'processing' }) }), { status: 200 }),
+    );
+    render(
+      <KeywordStrategyCard
+        clientId={1}
+        initialSession={session({ id: 's1', status: 'processing', tokenMintedAt: new Date().toISOString() })}
+        readiness={readiness}
+        archived={false}
+      />,
+    );
+
+    await act(async () => {
+      __setHealth(true);
+      await Promise.resolve();
+    });
+    const callsAtHealthy = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAtHealthy);
+
+    await act(async () => {
+      __setHealth(false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(callsAtHealthy);
   });
 });

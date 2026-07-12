@@ -15,13 +15,18 @@
 // dashboard page is a big server component, so a targeted local update is
 // cheaper and keeps the change-detection self-contained.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPollingMachine } from '@/lib/memo-poller-machine';
 import { composeKeywordStrategyPayload } from '@/lib/keyword-strategy-prompt';
 import { KeywordMemoMarkdown } from '@/components/keyword-research/KeywordMemoMarkdown';
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client';
+import { memoTopic } from '@/lib/events/topics';
 
 const POLL_INTERVAL_MS = 3000;
 const LIFETIME_MS = 15 * 60 * 1000;
+// A5 Task 24: original 3s cadence kept until SSE is confirmed healthy, then
+// demoted to a 20s memo-safety cadence (re-armed fast on drop).
+const SAFETY_POLL_MEMO_MS = 20_000;
 
 export interface KeywordStrategySessionInit {
   id: string;
@@ -71,16 +76,54 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
   const baselineRef = useRef<string | null>(initialSession?.memoUpdatedAt ?? null);
   const latestSessionRef = useRef<KeywordStrategySessionInit | null>(initialSession);
 
+  // A5 Task 24: the topic this card subscribes to is THIS model's own id
+  // (there's no separate parser-Session FK — the strategy session IS the
+  // identity), and that identity changes on every regenerate (a new
+  // KeywordStrategySession row per mint). Tracked in state so the SSE
+  // subscription effect re-subscribes to the new id after each mint.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSession?.id ?? null);
+
+  // clientId rarely changes for a mounted card, but kept in a ref (rather
+  // than captured directly) so fetchLatestSession can stay referentially
+  // stable (empty deps) — safe to close over once in the lazily-created
+  // machine below.
+  const clientIdRef = useRef(clientId);
+  useEffect(() => {
+    clientIdRef.current = clientId;
+  });
+
+  // undefined = the fetch failed (network/HTTP error) — caller should leave
+  // state as-is and let the next tick/invalidate retry.
+  const fetchLatestSession = useCallback(async (): Promise<KeywordStrategySessionInit | null | undefined> => {
+    try {
+      const res = await fetch(`/api/clients/${clientIdRef.current}/keyword-strategy`);
+      if (!res.ok) return undefined;
+      const body = await res.json();
+      return (body?.session ?? null) as KeywordStrategySessionInit | null;
+    } catch {
+      return undefined;
+    }
+  }, []);
+
   const machineRef = useRef<ReturnType<typeof createPollingMachine> | null>(null);
   if (machineRef.current === null) {
     machineRef.current = createPollingMachine({
+      // Unlike the router.refresh()-based memo cards, this card owns its
+      // memo in local state rather than server-rendered props, so onChange
+      // must fetch fresh data itself AT CALL TIME — whether that's immediate
+      // (tab visible) or deferred to visibility-resume (was hidden when an
+      // SSE push arrived). Reading a pre-fetched ref here would risk applying
+      // stale data on the invalidate() path.
       onChange: () => {
-        const s = latestSessionRef.current;
-        if (!s) return;
-        setMemoMarkdown(s.memoMarkdown);
-        setMemoUpdatedAt(s.memoUpdatedAt);
-        baselineRef.current = s.memoUpdatedAt;
-        setRegenerating(false);
+        void (async () => {
+          const s = await fetchLatestSession();
+          if (s === undefined) return; // couldn't refresh; next tick/invalidate retries
+          latestSessionRef.current = s;
+          setMemoMarkdown(s?.memoMarkdown ?? null);
+          setMemoUpdatedAt(s?.memoUpdatedAt ?? null);
+          baselineRef.current = s?.memoUpdatedAt ?? null;
+          setRegenerating(false);
+        })();
       },
       lifetimeMs: LIFETIME_MS,
     });
@@ -107,24 +150,49 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
     }
   }, [initialSession, machine]);
 
-  // Polling loop.
+  // A5 Task 24: SSE push on memo:<activeSessionId> routes through
+  // machine.invalidate() — never bypassed. This card re-subscribes whenever
+  // activeSessionId changes (a regenerate mints a NEW KeywordStrategySession
+  // row/id). A fresh fetch runs BEFORE invalidate() so onChange (above) sees
+  // current data whether it fires immediately or later on visibility-resume.
   useEffect(() => {
-    const interval = setInterval(async () => {
+    if (!activeSessionId) return;
+    return subscribeTopic(memoTopic(activeSessionId), () => {
+      void (async () => {
+        const s = await fetchLatestSession();
+        if (s !== undefined) latestSessionRef.current = s;
+        machine.invalidate();
+      })();
+    });
+  }, [activeSessionId, machine, fetchLatestSession]);
+
+  // Polling loop. Cadence is health-gated: the original 3s cadence while SSE
+  // is absent/unhealthy, demoting to the 20s safety cadence once healthy,
+  // re-arming fast on drop.
+  useEffect(() => {
+    const doTick = async () => {
       if (machine.status() !== 'polling') return;
-      try {
-        const res = await fetch(`/api/clients/${clientId}/keyword-strategy`);
-        if (!res.ok) return;
-        const body = await res.json();
-        const s = (body?.session ?? null) as KeywordStrategySessionInit | null;
-        latestSessionRef.current = s;
-        const latest: string | null = s?.memoUpdatedAt ?? null;
-        machine.tick({ latestUpdatedAt: latest, now: Date.now() });
-      } catch {
-        // Network errors are silent — the next tick retries.
-      }
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [clientId, machine]);
+      const s = await fetchLatestSession();
+      if (s === undefined) return;
+      latestSessionRef.current = s;
+      const latest: string | null = s?.memoUpdatedAt ?? null;
+      machine.tick({ latestUpdatedAt: latest, now: Date.now() });
+    };
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer);
+      timer = setInterval(() => void doTick(), healthy ? SAFETY_POLL_MEMO_MS : POLL_INTERVAL_MS);
+    };
+    restartTimer(false);
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h);
+      if (h) void doTick();
+    });
+    return () => {
+      if (timer) clearInterval(timer);
+      unsubHealth();
+    };
+  }, [machine, fetchLatestSession]);
 
   const onGenerate = async () => {
     if (state === 'minting' || archived) return;
@@ -155,6 +223,10 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
       baselineRef.current = null;
       machine.start({ baseline: null, now: Date.now() });
       setRegenerating(true);
+      // Re-subscribe the SSE topic to the NEW session id (a regenerate mints
+      // a fresh KeywordStrategySession row — the old topic will never fire
+      // for this cycle's write-back).
+      setActiveSessionId(strategyId);
     } catch {
       setState('error');
       setTimeout(() => setState('idle'), 3000);
