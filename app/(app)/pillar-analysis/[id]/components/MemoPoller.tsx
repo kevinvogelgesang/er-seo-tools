@@ -14,9 +14,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPollingMachine } from '@/lib/memo-poller-machine';
 import { onMemoPollerTrigger } from '@/lib/memo-poller-events';
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client';
+import { memoTopic } from '@/lib/events/topics';
 
 const POLL_INTERVAL_MS = 3000;
 const LIFETIME_MS = 15 * 60 * 1000;
+// A5 Task 24: original 3s cadence kept until SSE is confirmed healthy, then
+// demoted to a 20s memo-safety cadence (re-armed fast on drop).
+const SAFETY_POLL_MEMO_MS = 20_000;
 
 interface Props {
   /**
@@ -86,6 +91,14 @@ export function MemoPoller({ analysisId, sessionId, initialNarrativeUpdatedAt, a
     });
   }, [machine]);
 
+  // A5 Task 24: SSE push on memo:<sessionId ?? analysisId> routes through
+  // machine.invalidate() — never bypassed — mirroring the same fallback the
+  // narrative PATCH route emits under (a live-scan/crawlRun-keyed
+  // PillarAnalysis has no session).
+  useEffect(() => {
+    return subscribeTopic(memoTopic(sessionId ?? analysisId), () => machine.invalidate());
+  }, [sessionId, analysisId, machine]);
+
   const hasAutoStartedRef = useRef(false);
 
   // Auto-start on mount when there's no memo
@@ -97,13 +110,15 @@ export function MemoPoller({ analysisId, sessionId, initialNarrativeUpdatedAt, a
     }
   }, [autoStartOnMount, initialNarrativeUpdatedAt, machine]);
 
-  // Polling loop
+  // Polling loop. Cadence is health-gated: the original 3s cadence while SSE
+  // is absent/unhealthy, demoting to the 20s safety cadence once healthy,
+  // re-arming fast on drop.
   useEffect(() => {
     // Use by-analysis when sessionId is absent (live-scan analyses), else by-session.
     const pollUrl = sessionId
       ? `/api/pillar-analysis/by-session/${sessionId}`
       : `/api/pillar-analysis/by-analysis/${analysisId}`;
-    const interval = setInterval(async () => {
+    const doTick = async () => {
       if (machine.status() !== 'polling') return;
       try {
         const res = await fetch(pollUrl);
@@ -116,8 +131,21 @@ export function MemoPoller({ analysisId, sessionId, initialNarrativeUpdatedAt, a
       } catch {
         // Network errors are silent — next tick will retry.
       }
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    };
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer);
+      timer = setInterval(() => void doTick(), healthy ? SAFETY_POLL_MEMO_MS : POLL_INTERVAL_MS);
+    };
+    restartTimer(false);
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h);
+      if (h) void doTick();
+    });
+    return () => {
+      if (timer) clearInterval(timer);
+      unsubHealth();
+    };
   }, [analysisId, sessionId, machine]);
 
   if (!expired) return null;
