@@ -7,10 +7,12 @@ vi.mock('@/lib/ada-audit/pdf-runner', () => ({
 vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({
   finalizeSiteAudit: vi.fn(async () => undefined),
 }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { scanPdfUrl } = await import('@/lib/ada-audit/pdf-runner')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { runPdfScanJob, onPdfScanExhausted, settlePdfFailure } = await import('./pdf-scan')
 
 async function clearTestState() {
@@ -35,6 +37,7 @@ describe('jobs/handlers/pdf-scan', () => {
     vi.mocked(scanPdfUrl).mockReset()
     vi.mocked(finalizeSiteAudit).mockReset()
     vi.mocked(finalizeSiteAudit).mockResolvedValue(undefined)
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -191,5 +194,35 @@ describe('jobs/handlers/pdf-scan', () => {
   it('rejects a malformed payload', async () => {
     await expect(runPdfScanJob({ nope: true } as never)).rejects.toThrow(/payload/i)
     await expect(runPdfScanJob({ url: 'https://x/doc.pdf' } as never)).rejects.toThrow(/payload/i)
+  })
+
+  it('A5: emits site-audit + queue after a winning site-audit settle', async () => {
+    vi.mocked(scanPdfUrl).mockResolvedValue({
+      url: 'x', fileSize: 10, pageCount: 1, issues: [],
+    } as never)
+    const { site, url } = await seedSite('emit.example')
+    await runPdfScanJob({ url, siteAuditId: site.id })
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain(`site-audit:${site.id}`)
+    expect(calls).toContain('queue')
+  })
+
+  it('A5: does NOT emit for a standalone (no siteAuditId) settle', async () => {
+    vi.mocked(scanPdfUrl).mockResolvedValue({
+      url: 'x', fileSize: 10, pageCount: 1, issues: [],
+    } as never)
+    const ada = await prisma.adaAudit.create({
+      data: { url: 'https://pdf-handler-test-emit-solo.example/page', status: 'complete', wcagLevel: 'wcag21aa' },
+    })
+    const url = 'https://pdf-handler-test-emit-solo.example/doc.pdf'
+    await prisma.pdfAudit.create({ data: { adaAuditId: ada.id, url, status: 'pending' } })
+    await runPdfScanJob({ url, adaAuditId: ada.id })
+    expect(publishInvalidation).not.toHaveBeenCalled()
+  })
+
+  it('A5: does NOT emit on a lost fence (terminal row, no settle)', async () => {
+    const { site, url } = await seedSite('emit-noop.example', 'error')
+    await runPdfScanJob({ url, siteAuditId: site.id })
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 })

@@ -7,10 +7,12 @@ vi.mock('@/lib/ada-audit/lighthouse-pagespeed', () => ({
 vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({
   finalizeSiteAudit: vi.fn(async () => undefined),
 }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { runPageSpeedInsights } = await import('@/lib/ada-audit/lighthouse-pagespeed')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { runPsiJob, onPsiExhausted } = await import('./psi')
 
 async function clearTestState() {
@@ -33,6 +35,7 @@ describe('jobs/handlers/psi', () => {
     vi.mocked(runPageSpeedInsights).mockReset()
     vi.mocked(finalizeSiteAudit).mockReset()
     vi.mocked(finalizeSiteAudit).mockResolvedValue(undefined)
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -80,6 +83,23 @@ describe('jobs/handlers/psi', () => {
     expect(siteFinal?.lighthouseComplete).toBe(0)
     expect(siteFinal?.lighthouseError).toBe(0)
     expect(finalizeSiteAudit).not.toHaveBeenCalled()
+  })
+
+  it('A5: emits site-audit + queue after a winning settle', async () => {
+    vi.mocked(runPageSpeedInsights).mockResolvedValue({ summary: { performance: 90 } as never, error: null })
+    const { site, row } = await seed('emit.example')
+    await runPsiJob({ adaAuditId: row.id, siteAuditId: site.id, url: row.url, wcagLevel: 'wcag21aa' })
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain(`site-audit:${site.id}`)
+    expect(calls).toContain('queue')
+  })
+
+  it('A5: does NOT emit on a lost fence (terminal row, no settle)', async () => {
+    vi.mocked(runPageSpeedInsights).mockResolvedValue({ summary: null, error: 'x' })
+    const { site, row } = await seed('emit-noop.example')
+    await prisma.adaAudit.update({ where: { id: row.id }, data: { status: 'error' } })
+    await runPsiJob({ adaAuditId: row.id, siteAuditId: site.id, url: row.url, wcagLevel: 'wcag21aa' })
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('onPsiExhausted: settles the axe-complete row, bumps lighthouseError, finalizes', async () => {

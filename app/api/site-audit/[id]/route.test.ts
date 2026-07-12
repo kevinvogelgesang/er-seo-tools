@@ -31,6 +31,11 @@ vi.mock('@/lib/report/report-file', () => ({
   deleteReportFile: (...args: unknown[]) => deleteReportFileMock(...args),
 }));
 
+const publishInvalidationMock = vi.fn();
+vi.mock('@/lib/events/bus', () => ({
+  publishInvalidation: (...args: unknown[]) => publishInvalidationMock(...args),
+}));
+
 import { DELETE } from './route';
 
 function makeParams(id: string) {
@@ -47,6 +52,7 @@ describe('DELETE /api/site-audit/[id]', () => {
       .mockRejectedValueOnce(new Error('disk cleanup failed'));
     cancelJobsByGroupMock.mockReset().mockResolvedValue(0);
     deleteReportFileMock.mockReset().mockResolvedValue(undefined);
+    publishInvalidationMock.mockReset();
   });
 
   it('returns ok after cascade deleting the DB row even when a child artifact cleanup fails', async () => {
@@ -95,5 +101,22 @@ describe('DELETE /api/site-audit/[id]', () => {
     );
 
     warn.mockRestore();
+  });
+
+  it('A5: emits site-audit + recents + queue after the delete commits', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await DELETE({} as never, makeParams('site-1'));
+    const calls = publishInvalidationMock.mock.calls.map((c) => c[0]);
+    expect(calls).toContain('site-audit:site-1');
+    expect(calls).toContain('recents');
+    expect(calls).toContain('queue');
+    warn.mockRestore();
+  });
+
+  it('A5: does NOT emit on a 404 (audit not found — no delete)', async () => {
+    siteFindUniqueMock.mockReset().mockResolvedValue(null);
+    const res = await DELETE({} as never, makeParams('missing'));
+    expect(res.status).toBe(404);
+    expect(publishInvalidationMock).not.toHaveBeenCalled();
   });
 });

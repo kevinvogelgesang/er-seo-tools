@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
+
 import { prisma } from '@/lib/db'
+import { publishInvalidation } from '@/lib/events/bus'
 import { closeBatchIfDrained, ensureOpenBatch, resolveBatchLabel, summarizeOperators } from './audit-batch-helpers'
 
 async function clearTestState() {
@@ -60,10 +64,15 @@ describe('closeBatchIfDrained', () => {
       data: { domain: 'test-batch-1.example', status: 'complete', wcagLevel: 'wcag21aa', batchId: batch.id },
     })
 
+    vi.mocked(publishInvalidation).mockClear()
     await closeBatchIfDrained(batch.id)
 
     const after = await prisma.auditBatch.findUnique({ where: { id: batch.id } })
     expect(after?.closedAt).toBeTruthy()
+    // A5: an actual close emits audit-batch + queue.
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain(`audit-batch:${batch.id}`)
+    expect(calls).toContain('queue')
   })
 
   it('does NOT close the batch when at least one member is queued/running/pdfs-running', async () => {
@@ -75,20 +84,26 @@ describe('closeBatchIfDrained', () => {
       data: { domain: 'test-batch-3.example', status: 'pdfs-running', wcagLevel: 'wcag21aa', batchId: batch.id },
     })
 
+    vi.mocked(publishInvalidation).mockClear()
     await closeBatchIfDrained(batch.id)
 
     const after = await prisma.auditBatch.findUnique({ where: { id: batch.id } })
     expect(after?.closedAt).toBeNull()
+    // A5: a no-op close (in-flight member) emits nothing.
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('is idempotent — calling on an already-closed batch is a no-op', async () => {
     const closedAt = new Date('2026-05-12T00:00:00Z')
     const batch = await prisma.auditBatch.create({ data: { label: '__test__already_closed', closedAt } })
 
+    vi.mocked(publishInvalidation).mockClear()
     await closeBatchIfDrained(batch.id)
 
     const after = await prisma.auditBatch.findUnique({ where: { id: batch.id } })
     expect(after?.closedAt?.toISOString()).toBe(closedAt.toISOString())
+    // A5: a no-op close (already closed) emits nothing.
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('does nothing when batchId is null', async () => {
@@ -104,16 +119,24 @@ describe('ensureOpenBatch', () => {
   beforeEach(clearTestState)
 
   it('creates a new open batch when none exists', async () => {
+    vi.mocked(publishInvalidation).mockClear()
     const id = await ensureOpenBatch()
     expect(typeof id).toBe('string')
     const batch = await prisma.auditBatch.findUnique({ where: { id } })
     expect(batch?.closedAt).toBeNull()
+    // A5: an actual create emits audit-batch + queue.
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain(`audit-batch:${id}`)
+    expect(calls).toContain('queue')
   })
 
   it('returns the existing open batch when one exists', async () => {
     const first = await ensureOpenBatch()
+    vi.mocked(publishInvalidation).mockClear()
     const second = await ensureOpenBatch()
     expect(second).toBe(first)
+    // A5: returning an existing batch is not a create — emits nothing.
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('opens a new batch after the previous one closes', async () => {

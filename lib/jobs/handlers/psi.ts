@@ -28,6 +28,8 @@ import type { PsiJob } from '@/lib/ada-audit/lighthouse-queue'
 import { parsePositiveInt } from '../config'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
+import { publishInvalidation } from '@/lib/events/bus'
+import { queueTopic, siteAuditTopic } from '@/lib/events/topics'
 
 export const PSI_JOB_TYPE = 'psi'
 
@@ -95,6 +97,11 @@ export async function runPsiJob(payload: unknown): Promise<void> {
   const settled = await settlePsiOutcome(job, { lighthouseSummary, lighthouseError })
   if (!settled) return // row already terminal — recovery beat us
 
+  // A5: the lighthouse* counter bump changed the queue view + detail. Emit
+  // AFTER the settle tx committed, gated on the winning fence above.
+  publishInvalidation(siteAuditTopic(job.siteAuditId))
+  publishInvalidation(queueTopic())
+
   try {
     await finalizeSiteAudit(job.siteAuditId)
   } catch (err) {
@@ -113,6 +120,9 @@ export async function settlePsiFailure(payload: unknown, message: string): Promi
   const job = assertPsiPayload(payload)
   const settled = await settlePsiOutcome(job, { lighthouseSummary: null, lighthouseError: message })
   if (!settled) return
+  // A5: lighthouseError bump changed the queue + detail view (post-commit, fenced).
+  publishInvalidation(siteAuditTopic(job.siteAuditId))
+  publishInvalidation(queueTopic())
   try {
     await finalizeSiteAudit(job.siteAuditId)
   } catch (err) {

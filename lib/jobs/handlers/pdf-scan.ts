@@ -31,6 +31,8 @@ import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { parsePositiveInt } from '../config'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
+import { publishInvalidation } from '@/lib/events/bus'
+import { queueTopic, siteAuditTopic } from '@/lib/events/topics'
 
 export const PDF_SCAN_JOB_TYPE = 'pdf-scan'
 
@@ -148,6 +150,11 @@ export async function runPdfScanJob(payload: unknown): Promise<void> {
   )
   if (!settled || !job.siteAuditId) return
 
+  // A5: the pdfs* counter bump changed the queue view + this audit's detail.
+  // Emit AFTER the settle tx committed, gated on the winning fence above.
+  publishInvalidation(siteAuditTopic(job.siteAuditId))
+  publishInvalidation(queueTopic())
+
   try {
     await finalizeSiteAudit(job.siteAuditId)
   } catch (err) {
@@ -169,6 +176,9 @@ export async function settlePdfFailure(payload: unknown, message: string): Promi
     ['pending', 'scanning'],
   )
   if (!settled || !job.siteAuditId) return
+  // A5: pdfsError bump changed the queue + detail view (post-commit, fenced).
+  publishInvalidation(siteAuditTopic(job.siteAuditId))
+  publishInvalidation(queueTopic())
   try {
     await finalizeSiteAudit(job.siteAuditId)
   } catch (err) {

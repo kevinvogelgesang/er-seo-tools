@@ -32,6 +32,8 @@ import {
   settlePageFailure,
   type SiteAuditPageJob,
 } from './site-audit-page'
+import { publishInvalidation } from '@/lib/events/bus'
+import { queueTopic, siteAuditTopic } from '@/lib/events/topics'
 
 export const SITE_AUDIT_DISCOVER_JOB_TYPE = 'site-audit-discover'
 
@@ -105,6 +107,15 @@ export async function runSiteAuditDiscoverJob(payload: unknown): Promise<void> {
     },
   })
   if (!audit) return
+
+  if (claimed === 1) {
+    // A5: this invocation flipped queued→running — the audit left the queue's
+    // pending list and became the active row. Emit AFTER the claim committed,
+    // gated on the winning claim (a crash-resume with claimed!==1 does NOT
+    // re-emit — the row was already running). publishInvalidation never throws.
+    publishInvalidation(queueTopic())
+    publishInvalidation(siteAuditTopic(siteAuditId))
+  }
 
   if (claimed !== 1) {
     if (audit.status === 'queued') {
