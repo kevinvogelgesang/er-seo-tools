@@ -62,3 +62,6 @@ dist/
 
 # C4 report PDFs (local dev default REPORTS_DIR)
 /data/
+
+# A7 PR2: per-worker test DB template-copy (built fresh by test/global-setup.ts)
+.test-dbs/
