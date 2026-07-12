@@ -1,8 +1,9 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-11 (**A7 PR1 — login rate-limiting — SHIPPED + DEPLOYED
-+ PROD-VERIFIED** — PR #155 / merge `9740478`. A7 stays `[~]`. Next: **A7 PR2 —
-per-worker vitest DBs**.) · **Updated by:** the A7-PR1 session.
+**Last updated:** 2026-07-11 (**A7 PR1 (login rate-limiting) SHIPPED+DEPLOYED+
+PROD-VERIFIED (PR #155/`9740478`); A7 PR2 (per-worker vitest DBs) SHIPPED (PR
+#156/`d87036a`, test-infra/no deploy).** A7 stays `[~]`. Next: **A7 PR3 —
+Playwright smoke — NEEDS KEVIN SSRF SIGN-OFF**.) · **Updated by:** the A7-PR1/PR2 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -10,14 +11,20 @@ per-worker vitest DBs**.) · **Updated by:** the A7-PR1 session.
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. LAST COMPLETED: A7 PR1 (login
-rate-limiting) — SHIPPED + DEPLOYED + PROD-VERIFIED (PR #155, merge 9740478).
-A7 stays [~]. A7 was scoped with Kevin into THREE sequential, independently
-gate-green PRs; PR1 is done, PR2 is NEXT, PR3 needs a Kevin sign-off:
+Continue the er-seo-tools improvement roadmap. LAST COMPLETED: A7 PR2 (per-worker
+vitest DBs) — SHIPPED (PR #156, merge d87036a; test-infra, no deploy needed).
+A7 PR1 (login rate-limiting) shipped+deployed+prod-verified earlier (PR #155,
+9740478). A7 stays [~]. A7 was scoped with Kevin into THREE sequential,
+independently gate-green PRs:
 - PR1 (DONE): login rate-limiting on the break-glass password POST.
-- PR2 (NEXT): per-worker vitest SQLite DBs to restore fileParallelism.
-- PR3 (needs Kevin SSRF sign-off): one Playwright smoke suite as a LOCAL
-  pre-merge gate.
+- PR2 (DONE): per-worker vitest SQLite DBs restored fileParallelism (4588 tests
+  ~36s vs ~115s serial, ~3.2x). Test-infra only — zero runtime surface.
+- PR3 (NEXT — NEEDS KEVIN SSRF SIGN-OFF before Task 3.1): one Playwright smoke
+  suite as a LOCAL pre-merge gate.
+THE REMAINING WORK IS PR3 ONLY. Before building Task 3.1, get Kevin's explicit
+sign-off on the SSRF approach (spec §5.1b) — it modifies lib/security/safe-url.ts,
+a never-weaken file. If Kevin declines, use the fallback: drop the ADA-audit leg
+(login->upload->parse->report only) and skip Task 3.1 (no safe-url change).
 Auth hardening was narrowed to login rate-limiting ONLY — OAuth domain-restriction
 + per-operator attribution already shipped in the pentest work. Spec + plan for
 all three PRs are written and Codex-reviewed (accept-with-fixes ×6 / ×7, applied):
@@ -50,7 +57,7 @@ password_login_disabled ABOVE the limiter (this confirmed the ordering invariant
 in prod). The limiter activates only if break-glass password login is ever
 re-enabled. Nothing to brute-force = nothing to throttle; safest posture.
 
-PR2 — per-worker vitest DBs (the plan's PR2 section is the source of truth):
+PR2 — per-worker vitest DBs (SHIPPED PR #156 — reference for how the harness works):
 - globalSetup builds ONE migrated template DB at an ABSOLUTE file: path (Prisma
   resolves relative SQLite URLs against prisma/, NOT repo root — that's why the
   dev DB is prisma/local-dev.db). Assert the migrate subprocess left NO
@@ -129,8 +136,10 @@ clipboard flow. (DataForSEO is a DATA API. The LOCAL MiniLM embedding model is
 on-box, zero network — not an AI API.)
 
 FIRST STEP — confirm main clean + prod healthy (git log origin/main; ssh
-seo@144.126.213.242 "curl -s localhost:3000/api/health"). Then branch
-feat/a7-pr2-per-worker-test-dbs from main and build PR2 from the plan.
+seo@144.126.213.242 "curl -s localhost:3000/api/health"). Then GET KEVIN'S SSRF
+SIGN-OFF for PR3 (spec §5.1b) before building; on sign-off, branch
+feat/a7-pr3-playwright-smoke from main and build PR3 from the plan. On PR3 ship,
+A7 -> [x] and move spec+plan to docs/superpowers/archive/.
 
 Load skill er-seo-tools-change-control FIRST. Gate policy (rules 1 & 4): standing
 authorization to merge gate-green roadmap PRs (re-run gates in-session) + deploy
@@ -141,16 +150,18 @@ the same commit as any ship.
 
 ---
 
-## Current state (2026-07-11, post-A7-PR1)
+## Current state (2026-07-11, post-A7-PR2)
 
-- **Main** @ `9740478` (PR #155 merge) + this finalize commit. **Prod on
-  `9740478`**, deployed via a plain `~/deploy.sh` (no migration, no new env var);
-  health ok, 0 unstable restarts. Login endpoint verified (303; prod is
-  OAuth-only so the password path short-circuits `password_login_disabled` above
-  the dormant limiter).
-- **A7 → `[~]`:** PR1 (login rate-limiting) shipped. PR2 (per-worker vitest DBs)
-  is the single next item; PR3 (Playwright smoke) is written but gated on Kevin's
-  SSRF sign-off (spec §5.1b). Spec + plan cover all three and are Codex-reviewed.
+- **Main** @ `d87036a` (PR #156 merge) + this finalize commit. **Prod on the PR1
+  state (`9740478`)** — PR2 is test-infra with zero runtime surface, so it was
+  NOT deployed (rides a future deploy; functionally identical prod). Prod health
+  ok, login endpoint verified (303; OAuth-only → password path short-circuits
+  above the dormant limiter).
+- **A7 → `[~]`:** PR1 (login rate-limiting) shipped+deployed+prod-verified; PR2
+  (per-worker vitest DBs, 4588 tests ~36s vs ~115s serial) shipped. **PR3
+  (Playwright smoke) is the single remaining item — gated on Kevin's SSRF
+  sign-off (spec §5.1b).** Spec + plan cover all three and are Codex-reviewed
+  (×6/×7).
 - **C12 `[~]`:** Tier-0 (A+B) + Tier-1 (MiniLM topic-overlap) + D1 (`cat_` bridge)
   shipped. Tier-2 AI data-correctness = future scope, OFF per the no-AI-API gate.
   D2 (claim filter + recall eval) + D3 (incremental exports) deferred.
@@ -163,11 +174,13 @@ the same commit as any ship.
 
 ## The single next item
 
-**A7 PR2 — per-worker vitest SQLite DBs to restore `fileParallelism`.** Build from
-the plan's PR2 section (branch `feat/a7-pr2-per-worker-test-dbs` from `main`). The
-empirical gate is the full suite (4587 tests / 519 files) staying green under
-parallelism, verified by the binding canary + the shared-resource audit. Then PR3
-(needs Kevin's SSRF sign-off).
+**A7 PR3 — Playwright smoke suite (local pre-merge gate).** GATED: get Kevin's
+explicit SSRF sign-off (spec §5.1b — the default-off exact-loopback allowlist in
+`lib/security/safe-url.ts`, a never-weaken file) BEFORE building Task 3.1. On
+sign-off, branch `feat/a7-pr3-playwright-smoke` from `main` and build from the
+plan's PR3 section. Fallback if Kevin declines the safe-url change: drop the
+ADA-audit leg (login→upload→parse→report only), skip Task 3.1. On PR3 ship, A7 →
+`[x]` and `git mv` spec+plan to `docs/superpowers/archive/`.
 
 ## Gotchas for the next session
 
