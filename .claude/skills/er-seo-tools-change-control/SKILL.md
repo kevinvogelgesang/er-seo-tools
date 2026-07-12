@@ -77,6 +77,20 @@ Green gates are necessary, not sufficient: every major incident in this repo's
 history passed local tests. Prod verification after deploy is part of the change,
 and the tracker logs it explicitly per PR.
 
+**Additional local pre-merge gate — `npm run smoke` (auth / SF upload-parse / ADA
+audit changes):** for PRs touching auth, the SF upload/parse flow, or the ADA
+audit pipeline, also run `npm run smoke` before merging. It runs a Playwright
+happy-path E2E (login → SF upload → parse → report → single-page ADA audit →
+complete) against a local loopback fixture. This is a LOCAL gate only — it is
+NOT wired into `~/deploy.sh` (the prod box is OOM-sensitive) and it is NOT a CI
+job. On macOS, set `CHROME_EXECUTABLE` to your local Chrome path first (e.g.
+`export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`),
+because the app's ADA audit drives system Chrome and the config default is the
+Linux path. The script requires the smoke-mode env the Playwright config sets
+(`SMOKE_MODE` + a loopback `NEXT_PUBLIC_APP_URL` + `SMOKE_LOOPBACK_TARGET`),
+which the default-off SSRF allowlist honors — these must NEVER be set in a real
+deployment.
+
 ### Schema-change procedure
 
 1. Edit `prisma/schema.prisma`.

@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "smoke": "rm -rf .smoke-db .smoke-uploads .smoke-reports test-results playwright-report && mkdir -p .smoke-db && NEXT_PUBLIC_APP_URL=http://127.0.0.1:41300 npm run build && playwright test --config=playwright.config.ts",
     "audit:ci": "audit-ci --config ./audit-ci.jsonc",
     "postinstall": "tsx scripts/prewarm-embedding-model.ts || true"
   },
