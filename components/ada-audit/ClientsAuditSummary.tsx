@@ -11,6 +11,8 @@ import { ClientDate } from '@/components/ClientDate'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { ScoreRing } from '@/components/ui/ScoreRing'
 import { auditStatusTone } from './status-tone'
+import { subscribeTopic } from '@/lib/events/client'
+import { clientSummaryTopic, queueTopic } from '@/lib/events/topics'
 
 type SortKey = 'name-asc' | 'name-desc' | 'date-asc' | 'date-desc' | 'score-asc' | 'score-desc'
 const DEFAULT_SORT: SortKey = 'date-desc'
@@ -144,22 +146,31 @@ export default function ClientsAuditSummary() {
   }, [data])
 
   useEffect(() => { void fetchClients(false) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // A5 Task 21: cadence is unchanged (30s) — the SSE win is the immediate
+  // invalidate-triggered refetch below, not a faster/slower poll.
   useEffect(() => {
     const id = setInterval(() => void fetchClients(true), 30_000)
     return () => clearInterval(id)
   }, [fetchClients])
+  useEffect(() => {
+    return subscribeTopic(clientSummaryTopic(), () => void fetchClients(true))
+  }, [fetchClients])
+
+  const fetchQueue = useCallback(async () => {
+    try {
+      const res = await fetch('/api/site-audit/queue')
+      if (res.ok) setQueueStatus(await res.json() as QueueStatusWithBatch)
+    } catch { /* silent — polling is fail-tolerant */ }
+  }, [])
 
   useEffect(() => {
-    const fetchQueue = async () => {
-      try {
-        const res = await fetch('/api/site-audit/queue')
-        if (res.ok) setQueueStatus(await res.json() as QueueStatusWithBatch)
-      } catch { /* silent — polling is fail-tolerant */ }
-    }
     void fetchQueue()
-    const id = setInterval(fetchQueue, 30_000)
+    const id = setInterval(() => void fetchQueue(), 30_000)
     return () => clearInterval(id)
-  }, [])
+  }, [fetchQueue])
+  useEffect(() => {
+    return subscribeTopic(queueTopic(), () => void fetchQueue())
+  }, [fetchQueue])
 
   // Build a clientId -> status map for chip lookup. The active row carries the
   // literal SiteAudit.status (running | pdfs-running | lighthouse-running | pending) — the chip
