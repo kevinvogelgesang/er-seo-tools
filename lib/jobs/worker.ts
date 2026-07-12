@@ -19,7 +19,10 @@
 
 import { prisma } from '@/lib/db'
 import { logError } from '@/lib/log'
+import { publishInvalidation } from '@/lib/events/bus'
+import { recentsTopic } from '@/lib/events/topics'
 import { BACKOFF_CAP_MS, HEARTBEAT_MS, jobPollMs, jobStaleSweepMs } from './config'
+import { topicForGroup } from './job-topics'
 import { getJobHandler, listJobTypes, runOnExhausted } from './registry'
 import type { JobHandlerContext, ResolvedJobHandlerConfig } from './types'
 
@@ -119,14 +122,82 @@ async function claimNext(type: string): Promise<ClaimedJob | null> {
   }
 }
 
+interface HeartbeatFence { id: string; status: string; attempts: number }
+type ProgressSnapshot = { progress: number | null; message: string | null }
+
+/**
+ * One fenced heartbeat write + an effect-gated, delta-gated emit. Extracted so
+ * it is unit-testable WITHOUT fake timers (see worker.heartbeat-emit.test.ts;
+ * worker.progress.test.ts:36 documents why the real interval can't be driven by
+ * fake timers).
+ *
+ * Contract:
+ * - Always attempts the fenced `updateMany` (this is the liveness heartbeat).
+ * - `emit` fires ONLY when the write took effect (`count === 1`) AND the
+ *   snapshot's progress/message differ from `lastEmitted.current`. On emit,
+ *   `lastEmitted.current` advances to the snapshot. A lost fence (count === 0)
+ *   or an unchanged snapshot emits nothing and leaves `lastEmitted` untouched.
+ * - NEVER rejects: the DB write is wrapped, and `emit` (publishInvalidation)
+ *   owns its own try/catch — so an appended `flushChain` link can never poison
+ *   later awaits.
+ *
+ * `lastEmitted` is a mutable per-execution cell (a 4th arg beyond the plan's
+ * `(fence, snapshot, emit)` sketch — the cross-tick dedup state has to live
+ * somewhere the caller owns; a pure 3-arg helper could not dedupe across calls).
+ */
+export async function flushJobHeartbeat(
+  fence: HeartbeatFence,
+  snapshot: ProgressSnapshot,
+  emit: () => void,
+  lastEmitted: { current: ProgressSnapshot | null },
+): Promise<void> {
+  let res: { count: number }
+  try {
+    res = await prisma.job.updateMany({
+      where: fence,
+      data: { heartbeatAt: new Date(), progress: snapshot.progress, progressMessage: snapshot.message },
+    })
+  } catch {
+    return // stale heartbeat write failed (e.g. SQLITE_BUSY); never reject the chain
+  }
+  if (res.count !== 1) return // fence lost — no delta emit
+  const prev = lastEmitted.current
+  if (prev && prev.progress === snapshot.progress && prev.message === snapshot.message) return
+  lastEmitted.current = { progress: snapshot.progress, message: snapshot.message }
+  emit()
+}
+
 async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promise<void> {
   const fence = { id: job.id, status: 'running', attempts: job.attempts }
   const abort = new AbortController()
+
+  // A5 SSE: this job's group maps to at most one progress topic. When null
+  // (system jobs, unmapped types) emitProgress is a no-op — no spurious frames.
+  const topic = topicForGroup(job.groupKey)
+  const emitProgress = topic
+    ? () => { publishInvalidation(topic); publishInvalidation(recentsTopic()) }
+    : () => {}
+  // Delta-dedup state for the heartbeat flush (see flushJobHeartbeat). Seeded to
+  // the claim's just-written {null,null} so the first no-progress heartbeat is
+  // not treated as a change.
+  const lastEmitted: { current: ProgressSnapshot | null } = { current: { progress: null, message: null } }
+  // Per-execution flush chain (NOT module-level — that would serialize all
+  // concurrent jobs). Each link catches its own errors so a rejection can never
+  // poison a later `await flushChain`.
+  let flushChain: Promise<void> = Promise.resolve()
+
+  // Claim already committed (claimNext returns only on count===1) → the row is
+  // now 'running'. Emit once so watchers see the flip.
+  emitProgress()
+
   // Per-execution progress cell; the heartbeat is the only DB writer.
-  let progressCell: { progress: number | null; message: string | null } = { progress: null, message: null }
+  let progressCell: ProgressSnapshot = { progress: null, message: null }
   const heartbeat = setInterval(() => {
-    void prisma.job
-      .updateMany({ where: fence, data: { heartbeatAt: new Date(), progress: progressCell.progress, progressMessage: progressCell.message } })
+    // Capture an immutable snapshot at tick time — the async flush must not read
+    // a progressCell the handler mutates mid-write.
+    const snapshot: ProgressSnapshot = { progress: progressCell.progress, message: progressCell.message }
+    flushChain = flushChain
+      .then(() => flushJobHeartbeat(fence, snapshot, emitProgress, lastEmitted))
       .catch(() => {})
   }, HEARTBEAT_MS)
 
@@ -166,23 +237,30 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
       clearInterval(heartbeat)
     }
 
+    // Drain any in-flight heartbeat flush BEFORE the terminal/requeue write, so
+    // a late heartbeat continuation can't emit stale progress AFTER the final
+    // state has been settled + emitted below.
+    await flushChain
+
     try {
       if (error === null) {
-        await prisma.job.updateMany({
+        const res = await prisma.job.updateMany({
           where: fence,
           data: { status: 'complete', completedAt: new Date(), progress: 100, progressMessage: null },
         })
+        if (res.count === 1) emitProgress()
       } else if (job.attempts >= job.maxAttempts) {
         const res = await prisma.job.updateMany({
           where: fence,
           data: { status: 'error', lastError: error, completedAt: new Date(), progress: null, progressMessage: null },
         })
         if (res.count === 1) {
+          emitProgress()
           logError({ subsystem: '[jobs]', jobId: job.id, type: job.type, attempt: job.attempts }, caughtErr ?? error)
           await runOnExhausted(job.type, job.payload, job.id, job.attempts, error)
         }
       } else {
-        await prisma.job.updateMany({
+        const res = await prisma.job.updateMany({
           where: fence,
           data: {
             status: 'queued',
@@ -193,6 +271,7 @@ async function executeJob(cfg: ResolvedJobHandlerConfig, job: ClaimedJob): Promi
             progressMessage: null,
           },
         })
+        if (res.count === 1) emitProgress()
       }
     } catch (err) {
       // Settle write failed (e.g. transient SQLITE_BUSY). The row stays
