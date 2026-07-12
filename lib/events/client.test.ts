@@ -37,4 +37,35 @@ describe('client', () => {
     d(); d()
     expect(es.closed).toBe(true)
   })
+
+  it('does not collapse two subscriptions sharing the same callback (Set<Token>, not Set<Handler>)', () => {
+    const cb = vi.fn()
+    const d1 = subscribeTopic('queue', cb)
+    const d2 = subscribeTopic('queue', cb)
+    FakeES.last!.fire('connected', {})   // reconnect catch-up refetch for both registrations
+    cb.mockClear()
+    FakeES.last!.fire('invalidate', { topic: 'queue' })
+    expect(cb).toHaveBeenCalledTimes(2)  // both distinct tokens fire
+
+    d1()                                  // dispose one of the two; the other survives
+    cb.mockClear()
+    FakeES.last!.fire('invalidate', { topic: 'queue' })
+    expect(cb).toHaveBeenCalledTimes(1)
+
+    d2()
+  })
+
+  it('guards frames from a superseded generation after reconnect', () => {
+    const cb = vi.fn()
+    const d = subscribeTopic('queue', cb)
+    const es1 = FakeES.last!
+    es1.fire('server-restart', {})       // triggers reconnect: generation bumps, new source born
+    expect(FakeES.last).not.toBe(es1)
+
+    cb.mockClear()
+    es1.fire('invalidate', { topic: 'queue' }) // stale frame on the OLD (closed) generation
+    expect(cb).not.toHaveBeenCalled()
+
+    d()
+  })
 })

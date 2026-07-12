@@ -39,7 +39,7 @@ function connect() {
   const gen = ++generation
   const source = esFactory('/api/events')
   es = source
-  source.addEventListener('connected', guard(gen, () => { onFrame(); setHealth(true); refetchAll() }))
+  source.addEventListener('connected', guard(gen, () => { onFrame(); refetchAll(); setHealth(true) }))
   source.addEventListener('heartbeat', guard(gen, onFrame))
   source.addEventListener('invalidate', guard(gen, (e: MessageEvent) => {
     onFrame()
@@ -104,4 +104,5 @@ export function __resetClientForTest() {
   if (es) { try { es.close() } catch { /* ignore */ } es = null }
   if (watchdog) { clearTimeout(watchdog); watchdog = null }
   tokens.clear(); healthListeners.clear(); teardownVisibility(); healthy = false
+  factoryInjected = false
 }
