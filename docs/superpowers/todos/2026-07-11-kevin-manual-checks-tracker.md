@@ -83,6 +83,25 @@ Prod: https://tools.enrollmentresources.com (paths below are relative).
   `ScoringWeights` save, sparkline deltas across the weightsHash change should
   be suppressed rather than showing a fake jump.
 
+## 6. C12 content-audit SEO-tab (Tier-1 C + Increment D1)
+
+- [ ] **6.1 TopicOverlapSection eyeball (Tier-1 C)** — on a fresh live-scan
+  SEO-tab result for a site with related/competing pages: `/ada-audit/site/[id]`
+  → SEO tab → *Topic overlap* section shows "topic-overlap networks" (or an
+  honest "no overlap detected" when clean, vs "not analyzed" when the run has
+  no data).
+- [ ] **6.2 ContentAuditCard mint + prompt (D1)** — same SEO tab → *Content
+  audit* card (only appears once the live-scan run exists): click *Start content
+  audit* → a `cat_` clipboard prompt appears with a Copy button; the `Webapp:`
+  line should be the prod dashboard URL (not a literal). If the retained text
+  already expired (>~2h after the scan), the card shows the honest
+  "text expired — will fetch live" note.
+- [ ] **6.3 cat_ end-to-end handoff run (D1)** — paste that prompt into a fresh
+  chat (the `er-handoff-memo` skill triggers on the `cat_` token / `Content
+  Audit ID:` line) → it fetches the manifest, reviews pages, and PATCHes
+  findings back → the card's poll surfaces the findings (grouped by type) without
+  a reload. Confirms the whole bridge + the v2.3.0 skill routing.
+
 ---
 
 ## Completed log
