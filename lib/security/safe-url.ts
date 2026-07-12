@@ -30,6 +30,38 @@ export class SafeUrlError extends Error {
   }
 }
 
+// Test-only, default-OFF loopback allowance for the Playwright smoke suite.
+// Honored ONLY in smoke mode (SMOKE_MODE=true + loopback NEXT_PUBLIC_APP_URL) so
+// a normal deployed app (public base URL, no SMOKE_MODE) never honors it; and
+// instrumentation.ts refuses to boot if it is set outside smoke mode. It can
+// never widen SSRF in production; the worst a misconfig reaches is one
+// self-loopback port during a smoke run. Unset -> byte-identical behavior.
+function isLoopbackHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+}
+function parseLoopbackAuthority(value: string): { host: string } | null {
+  let u: URL
+  try { u = new URL('http://' + value) } catch { return null }
+  if (!u.port) return null
+  if (!isLoopbackHostname(u.hostname)) return null
+  if (u.pathname !== '/' && u.pathname !== '') return null
+  return { host: u.host }
+}
+function smokeModeActive(): boolean {
+  if (process.env.SMOKE_MODE !== 'true') return false
+  const base = process.env.NEXT_PUBLIC_APP_URL
+  if (!base) return false
+  try { return isLoopbackHostname(new URL(base).hostname) } catch { return false }
+}
+export function allowlistedSmokeAuthority(parsed: URL): boolean {
+  if (!smokeModeActive()) return false
+  const target = process.env.SMOKE_LOOPBACK_TARGET
+  if (!target) return false
+  const allowed = parseLoopbackAuthority(target)
+  return allowed !== null && parsed.host === allowed.host
+}
+
 export type DnsLookup = (
   hostname: string,
   options: { all: true; verbatim: true }
@@ -180,6 +212,8 @@ export function parseSafeHttpUrl(input: string | URL): URL {
     throw new SafeUrlError('URL credentials are not allowed')
   }
 
+  if (allowlistedSmokeAuthority(parsed)) return parsed
+
   assertPublicHostname(parsed.hostname)
   return parsed
 }
@@ -190,6 +224,11 @@ export async function assertSafeHttpUrl(input: string | URL, options?: SafeUrlOp
 
 async function resolveSafeHttpUrl(input: string | URL, options?: SafeUrlOptions): Promise<ResolvedSafeHttpUrl> {
   const parsed = parseSafeHttpUrl(input)
+
+  if (allowlistedSmokeAuthority(parsed)) {
+    return { url: parsed, addresses: [{ address: '127.0.0.1', family: 4 }] }
+  }
+
   const hostname = assertPublicHostname(parsed.hostname)
 
   if (isIP(hostname)) {
