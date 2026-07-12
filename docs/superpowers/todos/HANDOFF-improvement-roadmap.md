@@ -1,11 +1,12 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-12 (**A5 PR3 (reports/prospects/content-audit/batch/client-summary
-SSE consumers) — SHIPPED + DEPLOYED** PR #160/`65b9417`; report/prospect/content-audit
-emit seams + 7 poller migrations; opus whole-branch review clean; review loop caught +
-fixed a batch freeze-frame regression. PR2+PR3 live push-update watches still want
-Kevin's `er_auth` cookie. A5 → `[~]`. Next: **PR4 (memos, Tasks 23–25) + A5 CLOSE**.)
-· **Updated by:** the A5 PR3 session.
+**Last updated:** 2026-07-12 (**A5 PR4 (memos) — SHIPPED + DEPLOYED** PR #161/`be2d1b9`;
+`memo-poller-machine.invalidate()` + dirty-while-hidden, 4 memo write-back emit seams +
+`runFromSession` pillar emits, 4 memo cards + `PillarAnalysisButtonClient` migrated;
+opus whole-branch review clean. **A5 CODE-COMPLETE — all 4 PRs shipped.** `[x]` flip
+gated only on Kevin's live watches (one `er_auth` session covers PR2+PR3+PR4).
+Spec+plan archived. Next build item: **A6**.)
+· **Updated by:** the A5 PR4 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -13,159 +14,131 @@ Kevin's `er_auth` cookie. A5 → `[~]`. Next: **PR4 (memos, Tasks 23–25) + A5 
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. IN PROGRESS: A5 (SSE push layer),
-4-PR feature — PR1-PR3 of 4 SHIPPED + DEPLOYED (PR #158 55ae1d7, PR #159 65dce3f,
-PR #160 65b9417). PR1 prod-verified end-to-end (SSE streams un-buffered through
-Cloudflare). PR3 shipped: report emits (seo-report-render child/rollup,
-report-render PDF stamp, create/delete/regenerate routes) + prospect-list emits
-(finalizer both terminal branches + failSiteAudit gated on prospectId,
-create/delete routes) + content-audit ingest PATCH emit; migrated
-SiteAuditExportBar (2s→report:<id>+30s), GenerateReportForm (2s+3s→60s),
-ReportLibrary (5s→report-list+60s), ProspectDashboard (8s→prospect-list+60s),
-ContentAuditCard (8s→content-audit:<id>+60s, bounded mint→poll kept),
-QueueActiveView (5s→audit-batch:<id>+60s + shared useQueueStatus store),
-ClientsAuditSummary (topics added, 30s kept). Gates were green (534 files/4708
-tests + build + smoke 11.8s).
+Continue the er-seo-tools improvement roadmap. STATE: A5 (SSE push layer) is
+CODE-COMPLETE — all 4 PRs shipped + deployed (PR #158 55ae1d7, PR #159 65dce3f,
+PR #160 65b9417, PR #161 be2d1b9). PR1 prod-verified end-to-end (SSE streams
+un-buffered through Cloudflare); PR2-PR4 autonomous prod checks pass (health,
+401 gate, topic literals intact in minified chunks, quiet error log). Spec+plan
+archived to docs/superpowers/archive/. A5 stays [~] pending ONLY Kevin's live
+watches; when they pass, flip A5 to [x] AND mark D2 (memo arrival via SSE —
+PR4 is its substance) with a dated status-log line + handoff rewrite in the
+same commit.
 
-KEVIN STEPS OUTSTANDING (PR2+PR3, one authenticated browser session covers both):
+KEVIN STEPS OUTSTANDING (one authenticated browser session covers all three):
 with an er_auth session on https://seo.erstaging.site (Network tab showing the
-/api/events stream), confirm (a) a live single-page ADA audit + site audit
-progress-update via ada-audit:<id>/site-audit:<id>/recents frames (PR2), and
-(b) a report render / prospect scan / content-audit ingest each push-update
-their UI without the old fast poll (PR3). Not load-bearing for PR4; do before
-A5 CLOSE.
+/api/events stream), confirm (a) PR2 — a live single-page ADA audit + site
+audit progress-update via ada-audit:<id>/site-audit:<id>/recents frames;
+(b) PR3 — a report render / prospect scan / content-audit ingest each
+push-update their UI without the old fast poll; (c) PR4 — an er-handoff-memo
+write-back (any of pat_/srt_/krt_/kst_) pushes the memo into its card via
+memo:<sid> at the 20s safety cadence, arriving immediately on the SSE frame.
 
-IMMEDIATE NEXT — PR4 memos (plan Tasks 23-25):
-- Task 23: memo-poller-machine.invalidate() seam + dirty-while-hidden (queue a
-  refetch for hidden tabs, flush on visibility) + SAFETY_POLL_MEMO_MS=20s active
-  cadence.
-- Task 24: emit memoTopic(sessionId)/pillarAnalysisTopic(sessionId) at the memo
-  write-back seams (srt_/krt_/kst_/pat_ PATCH routes + pillar-analysis writes);
-  migrate the 4 memo cards + PillarAnalysisButtonClient onto the invalidate seam.
-- Task 25: gates + deploy + prod-verify + docs ritual + A5 CLOSE (archive
-  spec/plan to docs/superpowers/archive/, final tracker flip to [x] after
-  Kevin's live watches).
+IMMEDIATE NEXT (build): A6 — shared UI primitives in components/ui/ +
+data-driven nav (1 wk). Full pipeline: brainstorm -> spec -> Codex review ->
+plan -> Codex review -> subagent-driven TDD. UI-class change: dark-mode
+variants on every element + no hydration-mismatch patterns.
 
-- Spec: docs/superpowers/specs/2026-07-11-a5-sse-push-layer-design.md
-- Plan: docs/superpowers/plans/2026-07-11-a5-sse-push-layer.md (25 tasks / 4 PRs)
-- SDD ledger (recovery map): .superpowers/sdd/progress.md (gitignored)
-
-ARCHITECTURE: one process-global in-memory bus (lib/events/bus.ts;
-publishInvalidation(topic) called POST-COMMIT, outside the tx, gated on count===1,
-synchronous + never-throws) → cookie-gated /api/events SSE route → one shared
-per-tab EventSource (lib/events/client.ts; subscribeTopic/subscribeHealth,
-generation-token reconnect + 45s watchdog) fanning {topic} invalidations to hooks
-that REFETCH FROM THE DB. SSE is invalidation-only; DB stays source of truth;
+A5 REFERENCE (shipped architecture): one process-global in-memory bus
+(lib/events/bus.ts; publishInvalidation(topic) POST-COMMIT, outside the tx,
+gated on count===1 or the resolved write — a .update() P2025-throw counts as
+the fence; synchronous + never-throws) -> cookie-gated /api/events SSE route ->
+one shared per-tab EventSource (lib/events/client.ts; subscribeTopic/
+subscribeHealth, generation-token reconnect + 45s watchdog) fanning {topic}
+invalidations to hooks that REFETCH FROM THE DB. SSE is invalidation-only;
 cadence is transport-health-gated (ORIGINAL fast interval until SSE
-connected+healthy, then safety cadence, re-arm fast on error/watchdog) so "SSE
-never connects" degrades to the original polling, never slower. Established
-migration pattern: lib/widgets/queue-poll.ts (store), useAuditPoller.ts (hook),
-and PR3's components/reports/ReportLibrary.tsx (mount-scoped list sub + bounded
-transient poll — the cleanest recent exemplar).
+connected+healthy, then safety cadence 60s / 30s export-bar / 20s memo flows,
+re-arm fast on error/watchdog) so "SSE never connects" degrades to the
+original polling, never slower. Topics: lib/events/topics.ts (LITERAL strings).
+Memo flows route SSE through memo-poller-machine.invalidate() (visible+polling/
+idle -> immediate refetch; hidden -> dirty, consumed on resume from any
+non-expired status; expired -> no-op — the 15-min cap is never resurrected).
+Emit topic IDs come off the RETURNED ROW's sessionId FK, never the route PK.
 
-EMIT LEDGER (who publishes what, as of PR3 — everything below is now SUBSCRIBED
-except memo/pillar):
-- queue: settlePage/discover/finalizer/enqueueAudit/failSiteAudit/pdf/psi/batch/
-  cancel (PR1).
-- site-audit:<id> + recents: worker claim/heartbeat-delta/terminal/requeue;
-  site-audit-page settle; finalizer; broken-link-verify builder post-
-  writeFindingsRun (PR2).
-- ada-audit:<id> + recents: worker + standalone ada-audit onProgress (PR2).
-- report:<id> + report-list: worker groupKey report:/seo-report:; seo-report-render
-  child status + batch rollup; report-render PDF stamp; report create/delete/
-  regenerate routes (PR3 Task 18).
-- prospect-list: builder (PR2) + finalizer terminals/failSiteAudit/create/delete
-  routes (PR3 Task 19).
-- content-audit:<siteAuditId>: cat_ ingest PATCH (PR3 Task 20).
-- audit-batch:<id> (PR1) + client-audit-summary (PR2): subscribed by
-  QueueActiveView/ClientsAuditSummary (PR3 Task 21).
-- memo:<sid> / pillar-analysis:<sid>: nothing yet (PR4).
-
-RECORDED FOLLOW-UP (Kevin's call, non-blocking): report-render.ts (ADA site-audit
-PDFs) also emits report-list, whose only subscribers are the C10 /reports UIs —
-runtime-harmless cross-feature invalidation noise. PLAN-MANDATED as written, so
-left as-specced; dropping it is a one-line cleanup if Kevin prefers.
+RECORDED FOLLOW-UPS (Kevin's call, non-blocking): (1) report-render.ts (ADA
+site-audit PDFs) also emits report-list — only C10 /reports UIs subscribe;
+plan-mandated, runtime-harmless, one-line cleanup if preferred. (2)
+KeywordStrategyCard's SSE-handler pre-fetch is vestigial (its onChange now
+refetches at call time) — one-line cleanup. (3) memo:<sessionId> is shared
+across 3 memo families: cross-TAB extra idempotent refetch only, plan-level
+design, no same-page double-fire.
 
 CODEX MODEL: budget-gated — gpt-5.6-sol when 5h window >25% remaining, else
 gpt-5.6-terra; both high effort. Encoded in the consulting-codex skill.
 
 GOTCHAS FOR THE NEXT SESSION:
-- Local gates are the ONLY type-check gate: npx tsc --noEmit + npm test + npm run
-  build before EVERY merge. npm run smoke is mandatory only if the PR touches
-  auth/SF-upload/ADA-pipeline (PR4 memo routes/cards mostly don't; judge per diff.
-  PR3 needed it because Task 19 touched finalizer + queue-manager).
-- Array-form $transaction ONLY. publishInvalidation fires AFTER the awaited write
-  resolves, OUTSIDE the tx, gated on count===1 (or write-resolved for plain
-  update/create; a .update() P2025-throw counts as the fence — PR3 Task 20
-  precedent). Emit can never fail the write.
+- Local gates are the ONLY type-check gate: npx tsc --noEmit + npm test + npm
+  run build before EVERY merge. npm run smoke mandatory if the PR touches
+  auth/SF-upload/ADA-pipeline; also run it when a touched component renders on
+  a page the smoke walks (PR4 precedent: PillarAnalysisButtonClient on the
+  results page — 11.3s, cheap insurance).
+- Array-form $transaction ONLY. publishInvalidation fires AFTER the awaited
+  write resolves, OUTSIDE the tx, effect-gated. Emit can never fail the write.
 - Topics are LITERAL strings (lib/events/topics.ts) — no Class.name deps.
-- Component tests: // @vitest-environment jsdom + afterEach(cleanup), no jest-dom.
-  vi.mock('@/lib/events/client') BEFORE importing a module-level store.
-- Effects keyed on useQueueStatus()/useSyncExternalStore snapshots re-run on EVERY
-  store tick (new ref, same content) — guard any timer/freeze-frame state against
-  spurious re-runs (PR3 Task 21 fix a2e0933 is the cautionary tale + test recipe).
-- The memo-poller-machine has its own bounded/backoff semantics — PR4 must add
-  invalidate() WITHOUT breaking them (same "SSE only adds immediacy" rule as
-  ContentAuditCard's mint→poll).
-- Tests self-provision per-worker SQLite DBs, run PARALLEL. Absolute file: URLs
-  for tooling DBs (Prisma resolves relative against prisma/).
+  Emit/subscribe identity per family is test-pinned with
+  not.toHaveBeenCalledWith(<wrongId>) — keep that pattern for new topics.
+- Component tests: // @vitest-environment jsdom + afterEach(cleanup), no
+  jest-dom. vi.mock('@/lib/events/client') BEFORE importing module-level stores.
+- Effects keyed on store snapshots re-run on EVERY tick (new ref, same
+  content) — guard timer state (a2e0933 freeze-frame fix + PR4's samePa button
+  fix are the recipes).
+- Tests self-provision per-worker SQLite DBs, run PARALLEL. Absolute file:
+  URLs for tooling DBs (Prisma resolves relative against prisma/).
 - DateTime columns are INTEGER ms — raw SQL binds ${x.getTime()}.
 - Never git add -A/-u at repo root (pentest-results/ etc untracked) — stage
   explicit paths. No backticks in Bash -m commit messages.
 - .superpowers/sdd/task-N-*.md files are REUSED across PR series — a stale
-  same-numbered brief/report from an old feature may exist; overwrite, don't trust
-  (bit again in PR3: task-18-brief.md + base-pr3.txt were stale).
+  same-numbered brief/report may exist; overwrite, don't trust.
+- UI-class changes (A6): dark: variants on every element (bg-white ->
+  dark:bg-navy-card etc.) + the ThemeToggle mounted-guard hydration pattern.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/cat_/qct_
 clipboard flow.
 
 FIRST STEP — confirm main clean + prod healthy. Load skill
-er-seo-tools-change-control FIRST. Gate policy rules 1 & 4: merge gate-green PRs
-(re-run gates in-session) + deploy with post-deploy verify autonomously;
-destructive server ops Kevin-gated; spec→plan ungated. Docs ritual in the same
-commit as any ship. Then execute A5 PR4 via subagent-driven-development from plan
-Task 23.
+er-seo-tools-change-control FIRST. Gate policy rules 1 & 4: merge gate-green
+PRs (re-run gates in-session) + deploy with post-deploy verify autonomously;
+destructive server ops Kevin-gated; brainstorm->spec->plan ungated. Docs
+ritual in the same commit as any ship. Then: if Kevin reports the live watches
+passed, do the A5 [x] + D2 flip ritual; otherwise start A6 with
+superpowers:brainstorming.
 ```
 
 ---
 
-## Current state (2026-07-12, A5 PR3 shipped + deployed)
+## Current state (2026-07-12, A5 PR4 shipped + deployed — A5 code-complete)
 
-- **Main** @ `65b9417` (A5 PR3 merge) + this docs commit. **Prod deployed on PR3**,
-  healthy (`status:ok`, no crash-loop, no migration, no new env).
-- **A5 → `[~]`:** PR1–PR3 of 4 shipped. PR3 completes the non-memo consumer
-  topology: report/prospect/content-audit emit seams + all 7 remaining non-memo
-  poller migrations (see the tracker's 2026-07-12 PR3 status line for the full
-  inventory). Per-task reviews + opus whole-branch review clean; the Task-21
-  review loop caught a real freeze-frame regression (fixed `a2e0933`,
-  regression-tested). Gates: tsc · 4708 tests/534 files · build · smoke, all
-  green in the merging session.
-- **PR3 prod-verify:** autonomous checks pass (health, quiet error log,
-  `/api/events` 401 gate, all five new topic literals intact in the minified
-  prod client chunks). The live push-update watch needs Kevin's `er_auth`
-  cookie — combined with PR2's outstanding watch, one browser session covers
-  both. Not load-bearing for PR4.
-- SDD ledger: `.superpowers/sdd/progress.md` (gitignored recovery map, PR1–PR3).
-- **A7 `[x]`**, **C20 `[x]`** (volume dark pending DataForSEO creds), **C12 `[~]`**
-  (Tier-2 future scope; D2/D3 deferred).
+- **Main** @ `be2d1b9` (A5 PR4 merge) + this docs commit. **Prod deployed on
+  PR4**, healthy (`status:ok`, no crash-loop, no migration, no new env).
+- **A5 → `[~]`, code-complete:** all 4 PRs shipped + deployed. PR4 delivered
+  the memo topology: `invalidate()` seam (review loop caught + fixed a real
+  dirty-drop on idle-resume, `ddea203`), 4 write-back emit seams keyed off the
+  returned row's sessionId FK, `runFromSession` pillar emits, 4 memo cards +
+  `PillarAnalysisButtonClient` migrated onto health-gated 20s safety cadence.
+  Gates: tsc · 4764 tests/543 files · build · smoke 11.3s, all green in the
+  merging session. Opus whole-branch review: READY TO MERGE (emit/subscribe
+  topology grep-swept complete; zero schema/middleware/env changes).
+- **The ONLY thing between A5 and `[x]`:** Kevin's live authenticated watches
+  (PR2+PR3+PR4, one browser session — see the paste-in prompt). When they
+  pass: flip A5 `[x]` AND mark D2 (PR4 is D2's substance), status-log +
+  handoff rewrite in the same commit.
+- SDD ledger: `.superpowers/sdd/progress.md` (gitignored recovery map, PR1–PR4).
+- **A7 `[x]`**, **C20 `[x]`** (volume dark pending DataForSEO creds), **C12
+  `[~]`** (Tier-2 future scope; D2 flips with A5; D3 deferred).
 - **Kevin manual checks:** `todos/2026-07-11-kevin-manual-checks-tracker.md`.
 
 ## The single next item
 
-**A5 PR4 (memos)** — plan Tasks 23–25, same SDD rhythm. Task 23:
-`memo-poller-machine.invalidate()` + dirty-while-hidden + 20s active memo safety
-cadence, WITHOUT breaking the machine's bounded/backoff semantics. Task 24: emit
-`memo:<sid>`/`pillar-analysis:<sid>` at the memo write-back seams; migrate the 4
-memo cards + `PillarAnalysisButtonClient`. Task 25: gates + deploy + prod-verify
-+ docs ritual + **A5 CLOSE** (archive spec/plan; final `[x]` flip after Kevin's
-live watches land).
+**A6 — shared UI primitives in `components/ui/` + data-driven nav (1 wk).**
+Full pipeline from brainstorming (UI-class change: dark-mode variants +
+hydration-mismatch discipline). No dependency on A5's pending watches.
 
 ## Gotchas for the next session
 
 See the paste-in prompt's GOTCHAS block above — authoritative this cycle.
-Headline additions from PR3: store-snapshot effect re-runs vs timer state
-(freeze-frame fix `a2e0933`); P2025-throw counts as an emit fence; stale SDD
-scratch files bit again.
+Headline additions from PR4: smoke is cheap insurance when a touched component
+renders on a smoke-walked page; emit-vs-subscribe identity is test-pinned via
+`not.toHaveBeenCalledWith(<wrongId>)`; the memo machine's expired state is
+never resurrected by SSE.
 
 ## C12 D1 follow-ups (still non-blocking)
 
