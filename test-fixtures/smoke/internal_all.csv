@@ -1,0 +1,4 @@
+Address,Content Type,Status Code,Indexability,Title 1,Meta Description 1,H1-1,Word Count,Crawl Depth,Inlinks,Outlinks
+https://smoke.example.com/,text/html; charset=utf-8,200,Indexable,Smoke Fixture Home,Homepage for the Playwright smoke fixture site,Smoke audit target,420,0,5,8
+https://smoke.example.com/about,text/html; charset=utf-8,200,Indexable,About the Smoke Fixture,About page for the Playwright smoke fixture site,About the smoke fixture,360,1,3,6
+https://smoke.example.com/contact,text/html; charset=utf-8,200,Indexable,Contact the Smoke Fixture,Contact page for the Playwright smoke fixture site,Contact us,310,1,2,4
