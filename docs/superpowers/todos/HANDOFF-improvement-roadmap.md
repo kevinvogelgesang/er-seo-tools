@@ -1,9 +1,10 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-12 (**A5 PR1 (SSE infra + queue canary) — SHIPPED + DEPLOYED**
-PR #158/`55ae1d7`; autonomous prod-checks pass; **streaming-through-edge prod-verify
-PENDING** an authenticated curl (Kevin's `er_auth` cookie — prod is OAuth-only).
-A5 → `[~]`. Next: finish PR1 prod-verify, then PR2.) · **Updated by:** the A5 PR1 session.
+**Last updated:** 2026-07-12 (**A5 PR1 (SSE infra + queue canary) — SHIPPED + DEPLOYED
++ PROD-VERIFIED** PR #158/`55ae1d7`; SSE confirmed streaming un-buffered through
+Cloudflare (connected immediate + heartbeats individually at +13s/+15s) — gate PASSED,
+no proxy change needed. A5 → `[~]`. Next: **PR2 (audit-progress topics)**.)
+· **Updated by:** the A5 PR1 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -13,23 +14,13 @@ A5 → `[~]`. Next: finish PR1 prod-verify, then PR2.) · **Updated by:** the A5
 ```
 Continue the er-seo-tools improvement roadmap. IN PROGRESS: A5 (shared status hook
 → SSE push layer), 4-PR feature. PR1 (SSE infra + queue canary) is SHIPPED + DEPLOYED
-(PR #158, merge 55ae1d7). Autonomous post-deploy checks PASS (health ok; /api/events
-cookie-less→401; Cloudflare confirmed in front). A5 → [~].
++ PROD-VERIFIED (PR #158, merge 55ae1d7). The make-or-break gate PASSED: an
+authenticated curl -N of https://seo.erstaging.site/api/events (Cloudflare-fronted)
+showed connected immediately + heartbeats individually at +13s/+15s (not batched) =
+SSE streams un-buffered end-to-end; X-Accel-Buffering:no + no-transform sufficed, no
+proxy change needed. A5 → [~]. PR1 done.
 
-IMMEDIATE NEXT — finish PR1's make-or-break prod-verify: confirm SSE actually STREAMS
-un-buffered through the Cloudflare/NGINX edge. It needs an authenticated session
-(prod is OAuth-only, cookie name er_auth, host https://seo.erstaging.site). Ask Kevin
-to run (with ! prefix, after pasting his er_auth cookie from browser devtools):
-  curl -N --no-buffer -m 40 -H 'Cookie: er_auth=PASTE' https://seo.erstaging.site/api/events | while IFS= read -r l; do echo "[$(date +%H:%M:%S)] $l"; done
-PASS = 'event: connected' arrives immediately + 'event: heartbeat' frames at ~+15s and
-~+30s INDIVIDUALLY (not all dumped at ~+40s when -m kills it). Individual-timing =
-un-buffered = gate passed → proceed to PR2. If everything batches at +40s = the edge
-buffers → escalate an NGINX/Cloudflare proxy change to Kevin (server config = his
-domain; the code already sends X-Accel-Buffering:no + no-transform), and DEFER PR2-4.
-(The layer is inert-but-safe if buffered — the health-gated safety poll holds
-correctness, so nothing is broken meanwhile.)
-
-THEN PR2 (audit progress): worker groupKey→topic emit (per-executeJob flush chain
+IMMEDIATE NEXT — PR2 (audit progress): worker groupKey→topic emit (per-executeJob flush chain
 AWAITED before terminal settle; ClaimedJob is private in worker.ts ~line26, add
 groupKey there + groupKey:true in claimNext's select; the fake-timer heartbeat test
 is KNOWN-IMPOSSIBLE per worker.progress.test.ts:36 — extract a testable
@@ -166,12 +157,17 @@ the same commit as any ship.
 
 ## The single next item
 
-**Finish A5 PR1's prod-verify**, then **A5 PR2**. PR1 code is shipped + deployed; the
-one remaining PR1 step is the authenticated `curl -N` streaming test through the
-Cloudflare edge (paste-in prompt has the exact command + pass/fail reading). If it
-streams un-buffered → start PR2 (audit-progress topics, plan Tasks 12–17) via
-subagent-driven-development. If it buffers → escalate an NGINX/Cloudflare proxy
-change to Kevin and defer PR2–4 (the layer is inert-but-safe meanwhile).
+**A5 PR2 (audit-progress topics)** — PR1 is fully shipped + prod-verified (streaming
+gate passed). Execute plan Tasks 12–17 via subagent-driven-development: `ClaimedJob`
+`groupKey` + `topicForGroup` helper; worker per-`executeJob` flush chain (awaited
+before terminal settle) emitting `site-audit:<id>`/`ada-audit:<id>`/`recents` on
+committed progress delta; seoOnly readiness re-emit after the live-scan `CrawlRun`
+commits (broken-link-verify builder — add `prospectId` to its select) + ADA
+`writeFindingsRun` dual-write emit in `site-audit-finalizer.ts`; `useAuditPoller` +
+`useRecentsLivePoll` SSE-aware. Watch the known traps: fake-timer heartbeat test is
+impossible (extract `flushJobHeartbeat`); `ClaimedJob` is private in `worker.ts`.
+PR2 prod-verify (a live audit pushing via SSE) will again want Kevin's `er_auth`
+cookie. Then PR3 (reports/prospects/content-audit/batch/client-summary), PR4 (memos).
 
 ## Gotchas for the next session
 
