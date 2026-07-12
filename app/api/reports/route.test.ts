@@ -32,9 +32,11 @@ vi.mock('@/lib/jobs/handlers/seo-report-render', async (importActual) => {
     enqueueSeoReportRender: vi.fn(),
   }
 })
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { enqueueSeoReportRender } = await import('@/lib/jobs/handlers/seo-report-render')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { POST, GET } = await import('./route')
 
 const PREFIX = 't16post-'
@@ -89,6 +91,7 @@ beforeEach(async () => {
   vi.stubEnv('REPORTS_DIR', tmpDir)
   vi.mocked(enqueueSeoReportRender).mockReset()
   vi.mocked(enqueueSeoReportRender).mockResolvedValue({ id: 'job-1', deduped: false })
+  vi.mocked(publishInvalidation).mockClear()
 })
 
 afterEach(async () => {
@@ -137,6 +140,9 @@ describe('POST /api/reports (Task 16 — single-client)', () => {
     // Verify enqueue was called
     expect(enqueueSeoReportRender).toHaveBeenCalledTimes(1)
     expect(enqueueSeoReportRender).toHaveBeenCalledWith(body.reportIds[0])
+
+    // A5 Task 18: creating a report invalidates the shared list.
+    expect(publishInvalidation).toHaveBeenCalledWith('report-list')
   })
 
   it('also accepts clientIds array with one element', async () => {

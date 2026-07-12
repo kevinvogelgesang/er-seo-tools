@@ -34,6 +34,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createBatchWithReports, isClientEligible, recomputeSeoReportBatchStatus } from '@/lib/services/seo-reports'
 import { enqueueSeoReportRender } from '@/lib/jobs/handlers/seo-report-render'
+import { publishInvalidation } from '@/lib/events/bus'
+import { reportListTopic } from '@/lib/events/topics'
 
 export const dynamic = 'force-dynamic'
 
@@ -214,6 +216,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     period,
     comparisonMode,
   })
+  // A5: new SeoReport rows exist — the shared library list changed.
+  publishInvalidation(reportListTopic())
 
   // ── Enqueue each report; on failure flip that report to error and continue
   for (const reportId of reportIds) {

@@ -12,6 +12,8 @@ import { promises as fs } from 'fs'
 import { prisma } from '@/lib/db'
 import { cancelJobsByGroup } from '@/lib/jobs/queue'
 import { seoReportPath, seoReportFileExists, deleteSeoReportFile } from '@/lib/report/seo/seo-report-file'
+import { publishInvalidation } from '@/lib/events/bus'
+import { reportListTopic } from '@/lib/events/topics'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,10 +91,15 @@ export async function DELETE(
   await cancelJobsByGroup(`seo-report:${id}`)
 
   // Delete the DB row (cascade removes nothing external here)
-  await prisma.seoReport.deleteMany({ where: { id } })
+  const deleted = await prisma.seoReport.deleteMany({ where: { id } })
 
   // Best-effort unlink the PDF file
   await deleteSeoReportFile(id)
+
+  // A5: emit AFTER the write resolved, gated on the write taking effect.
+  if (deleted.count === 1) {
+    publishInvalidation(reportListTopic())
+  }
 
   return NextResponse.json({ deleted: true })
 }

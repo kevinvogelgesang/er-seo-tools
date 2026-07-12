@@ -15,6 +15,8 @@ import { acquirePage, releasePage } from '@/lib/ada-audit/browser-pool'
 import { loadSiteReportData } from '@/lib/report/report-data'
 import { buildSiteReportHtml } from '@/lib/report/report-html'
 import { writeReportFile, deleteReportFile } from '@/lib/report/report-file'
+import { publishInvalidation } from '@/lib/events/bus'
+import { reportTopic, reportListTopic } from '@/lib/events/topics'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
 
@@ -72,7 +74,12 @@ export async function runReportRenderJob(payload: unknown): Promise<void> {
   if (stamped.count === 0) {
     // Audit deleted mid-render — don't leave an orphan file.
     await deleteReportFile(siteAuditId)
+    return
   }
+
+  // A5: emit AFTER the write resolved, gated on the write taking effect.
+  publishInvalidation(reportTopic(siteAuditId))
+  publishInvalidation(reportListTopic())
 }
 
 export async function onReportRenderExhausted(payload: unknown, ctx: JobExhaustedContext): Promise<void> {

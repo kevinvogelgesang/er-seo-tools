@@ -19,9 +19,11 @@ vi.mock('@/lib/jobs/queue', async (importActual) => {
     countActiveJobsByGroup: vi.fn(),
   }
 })
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { cancelJobsByGroup } = await import('@/lib/jobs/queue')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { seoReportPath } = await import('@/lib/report/seo/seo-report-file')
 const { GET, DELETE } = await import('./route')
 
@@ -107,6 +109,7 @@ beforeEach(async () => {
   vi.stubEnv('REPORTS_DIR', tmpDir)
   vi.mocked(cancelJobsByGroup).mockReset()
   vi.mocked(cancelJobsByGroup).mockResolvedValue(0)
+  vi.mocked(publishInvalidation).mockClear()
 })
 
 afterEach(async () => {
@@ -214,6 +217,9 @@ describe('DELETE /api/reports/[id]', () => {
     // File deleted
     const fileExists = await fs.access(filePath).then(() => true, () => false)
     expect(fileExists).toBe(false)
+
+    // A5 Task 18: deleting a report invalidates the shared list.
+    expect(publishInvalidation).toHaveBeenCalledWith('report-list')
   })
 
   it('returns 200 even when file does not exist (best-effort unlink)', async () => {
@@ -227,8 +233,9 @@ describe('DELETE /api/reports/[id]', () => {
     expect(gone).toBeNull()
   })
 
-  it('returns 404 for an unknown report id', async () => {
+  it('returns 404 for an unknown report id and does not emit', async () => {
     const res = await del('t16-no-such-id-del')
     expect(res.status).toBe(404)
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 })

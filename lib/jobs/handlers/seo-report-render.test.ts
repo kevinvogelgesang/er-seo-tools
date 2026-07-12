@@ -21,8 +21,10 @@ vi.mock('@/lib/analytics/google/gsc-provider', () => ({
 vi.mock('@/lib/analytics/prospects/prospects-provider', () => ({
   fetchProspects: vi.fn(),
 }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { acquirePage, releasePage } = await import('@/lib/ada-audit/browser-pool')
 const { fetchGa4 } = await import('@/lib/analytics/google/ga4-provider')
 const { fetchGsc } = await import('@/lib/analytics/google/gsc-provider')
@@ -174,6 +176,7 @@ beforeEach(async () => {
   vi.mocked(fetchGa4).mockReset()
   vi.mocked(fetchGsc).mockReset()
   vi.mocked(fetchProspects).mockReset()
+  vi.mocked(publishInvalidation).mockClear()
 })
 
 afterEach(async () => {
@@ -393,6 +396,74 @@ describe('jobs/handlers/seo-report-render', () => {
     clearJobRegistryForTests()
     registerBuiltInJobHandlers()
     expect(getJobHandler(SEO_REPORT_RENDER_JOB_TYPE)).toBeDefined()
+  })
+
+  // ── A5 Task 18: report invalidations ──────────────────────────────────────
+
+  it('happy path emits report:<id> + report-list after the rendering write, the ready stamp, and the batch rollup', async () => {
+    const client = await seedClient('sse-happy')
+    const batch = await seedBatch('sse-happy', 'manual')
+    const report = await seedReport(client.id, batch.id)
+
+    const page = makePage()
+    vi.mocked(acquirePage).mockResolvedValue(page as never)
+    vi.mocked(fetchGa4).mockResolvedValue(okGa4())
+    vi.mocked(fetchGsc).mockResolvedValue(okGsc())
+    vi.mocked(fetchProspects).mockResolvedValue(okProspects())
+
+    await runSeoReportRenderJob({ seoReportId: report.id })
+
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    // At least one emit for the rendering write + one for the ready stamp +
+    // one for the batch rollup — all targeting this report + the shared list.
+    expect(calls.filter((t) => t === `report:${report.id}`).length).toBeGreaterThanOrEqual(3)
+    expect(calls.filter((t) => t === 'report-list').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('total failure emits report:<id> + report-list (from the error write + the rollup)', async () => {
+    const client = await seedClient('sse-totalfail')
+    const batch = await seedBatch('sse-totalfail', 'manual')
+    const report = await seedReport(client.id, batch.id)
+
+    vi.mocked(fetchGa4).mockResolvedValue(errGa4())
+    vi.mocked(fetchGsc).mockResolvedValue(errGsc())
+    vi.mocked(fetchProspects).mockResolvedValue(errProspects())
+
+    await runSeoReportRenderJob({ seoReportId: report.id })
+
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls.filter((t) => t === `report:${report.id}`).length).toBeGreaterThanOrEqual(2)
+    expect(calls.filter((t) => t === 'report-list').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('row deleted mid-render (stamp loses the fence) emits nothing for the ready stamp', async () => {
+    const client = await seedClient('sse-deleted')
+    const batch = await seedBatch('sse-deleted', 'manual')
+    const report = await seedReport(client.id, batch.id)
+
+    const page = makePage(async () => {
+      await prisma.seoReport.delete({ where: { id: report.id } })
+      const idx = reportIds.indexOf(report.id)
+      if (idx !== -1) reportIds.splice(idx, 1)
+      return Buffer.from('%PDF-fake')
+    })
+    vi.mocked(acquirePage).mockResolvedValue(page as never)
+    vi.mocked(fetchGa4).mockResolvedValue(okGa4())
+    vi.mocked(fetchGsc).mockResolvedValue(okGsc())
+    vi.mocked(fetchProspects).mockResolvedValue(okProspects())
+
+    await runSeoReportRenderJob({ seoReportId: report.id })
+
+    // Only the earlier "rendering" write's emit should have fired — the ready
+    // stamp lost its fence (count===0) and the rollup is never reached.
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls.filter((t) => t === `report:${report.id}`).length).toBe(1)
+    expect(calls.filter((t) => t === 'report-list').length).toBe(1)
+  })
+
+  it('row missing on entry emits nothing', async () => {
+    await runSeoReportRenderJob({ seoReportId: 'seo-rj-sse-does-not-exist' })
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('enqueueSeoReportRender guards group/dedup key to seo-report:<id>', async () => {
