@@ -8,6 +8,7 @@ import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
 import LiveAuditTable from './LiveAuditTable'
 import { useAuditPoller } from './useAuditPoller'
 import { deriveSeoOnlyStatus, isSeoOnlyTerminal } from './seo-poll-status'
+import { siteAuditTopic } from '@/lib/events/topics'
 
 interface PollData {
   status: string
@@ -83,6 +84,8 @@ export default function SiteAuditPoller({
   useAuditPoller<PollData>({
     url: `/api/site-audit/${id}`,
     intervalMs: 3000,
+    topic: siteAuditTopic(id),
+    safetyIntervalMs: 60_000,
     initialStatus: initialSynthetic,
     getStatus: (d) =>
       seoOnly ? deriveSeoOnlyStatus(d.status, d.liveScanRunId ?? null, d.seoPhase?.state ?? null) : d.status,

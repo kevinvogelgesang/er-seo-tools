@@ -12,6 +12,36 @@ const replace = vi.fn()
 const router = { refresh, replace }
 vi.mock('next/navigation', () => ({ useRouter: () => router }))
 
+// useAuditPoller imports @/lib/events/client at module scope — mock it the
+// same way lib/widgets/queue-poll.test.ts does: controllable subscribeTopic/
+// subscribeHealth fakes plus __fire()/__setHealth() test helpers.
+vi.mock('@/lib/events/client', () => {
+  let invalidate: () => void = () => {}
+  let health: (h: boolean) => void = () => {}
+  let lastTopic: string | undefined
+  return {
+    subscribeTopic: (topic: string, cb: () => void) => {
+      lastTopic = topic
+      invalidate = cb
+      return () => {}
+    },
+    subscribeHealth: (cb: (h: boolean) => void) => {
+      health = cb
+      cb(false)
+      return () => {}
+    },
+    __fire: () => invalidate(),
+    __setHealth: (h: boolean) => health(h),
+    __lastTopic: () => lastTopic,
+  }
+})
+import * as eventsClient from '@/lib/events/client'
+const { __fire, __setHealth, __lastTopic } = eventsClient as unknown as {
+  __fire: () => void
+  __setHealth: (h: boolean) => void
+  __lastTopic: () => string | undefined
+}
+
 type Poll = { status: string }
 
 // Flush the two awaited microtasks (fetch() then res.json()) the hook performs.
@@ -203,5 +233,99 @@ describe('useAuditPoller', () => {
     expect(f.fn).toHaveBeenCalledTimes(2)
     expect(onData).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('SSE invalidate triggers an immediate fetch', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    const onData = vi.fn()
+    renderHook(() =>
+      useAuditPoller(args({ topic: 'ada-audit:1', safetyIntervalMs: 30_000, onData })),
+    )
+    // Mount fires no fetch by itself (only the interval/invalidate do).
+    expect(f.fn).not.toHaveBeenCalled()
+    // The exact topic string reaches subscribeTopic (not just "some string").
+    expect(__lastTopic()).toBe('ada-audit:1')
+
+    __fire()
+    await flushAsync()
+    expect(f.fn).toHaveBeenCalledTimes(1)
+    f.resolveNext({ ok: true, body: { status: 'running' } })
+    await flushAsync()
+    expect(onData).toHaveBeenCalledWith({ status: 'running' })
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('terminal via an SSE-triggered fetch still fires exactly one router.refresh()', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    const onTerminal = vi.fn()
+    renderHook(() =>
+      useAuditPoller(args({ topic: 'ada-audit:1', safetyIntervalMs: 30_000, onTerminal })),
+    )
+    __fire()
+    await flushAsync()
+    f.resolveNext({ ok: true, body: { status: 'complete' } })
+    await flushAsync()
+    expect(onTerminal).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    // A second invalidate after terminal must not fire another fetch/refresh.
+    __fire()
+    await flushAsync()
+    expect(f.fn).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('SSE-absent (no topic) still polls at the fast interval and converges on terminal', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    const onTerminal = vi.fn()
+    renderHook(() => useAuditPoller(args({ onTerminal }))) // no topic, no safetyIntervalMs
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.fn).toHaveBeenCalledTimes(1)
+    f.resolveNext({ ok: true, body: { status: 'complete' } })
+    await flushAsync()
+    expect(onTerminal).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('while unhealthy, cadence stays at the fast interval even with a topic + safetyIntervalMs', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    renderHook(() =>
+      useAuditPoller(args({ topic: 'ada-audit:1', safetyIntervalMs: 30_000 })),
+    )
+    // subscribeHealth's fake calls back with false synchronously on subscribe.
+    await vi.advanceTimersByTimeAsync(1000) // fast (1000ms) cadence from `args()`
+    expect(f.fn).toHaveBeenCalledTimes(1)
+    f.resolveNext({ ok: true, body: { status: 'running' } })
+    await flushAsync()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.fn).toHaveBeenCalledTimes(2)
+  })
+
+  it('demotes to the safety cadence once SSE is healthy, and re-arms fast when it drops', async () => {
+    const f = makeFetch()
+    global.fetch = f.fn as unknown as typeof fetch
+    renderHook(() =>
+      useAuditPoller(args({ topic: 'ada-audit:1', safetyIntervalMs: 30_000 })),
+    )
+    // Health flips true: an immediate refetch fires, and the cadence demotes.
+    __setHealth(true)
+    await flushAsync()
+    expect(f.fn).toHaveBeenCalledTimes(1)
+    f.resolveNext({ ok: true, body: { status: 'running' } })
+    await flushAsync()
+
+    // Well under the 30s safety cadence — no new fetch.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(f.fn).toHaveBeenCalledTimes(1)
+
+    // Health drops: re-arm fast (1000ms from `args()`).
+    __setHealth(false)
+    await flushAsync()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.fn).toHaveBeenCalledTimes(2)
   })
 })
