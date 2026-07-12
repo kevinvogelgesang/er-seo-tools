@@ -67,6 +67,15 @@ Stateless JWT, structural clone of `lib/keyword-strategy-token.ts`:
   `SiteAudit`, the ingested findings on the live-scan `CrawlRun`. (kst_ needed a
   session only for its volume ledger; cat_ has no budget.)
 
+### Shared route-auth helper (Codex #5)
+`lib/content-audit/route-auth.ts` — one helper the three public routes call:
+`requireContentAuditToken(req, siteAuditId, requiredScope)` → verified payload or a
+**controlled `401`** (`auth_required` / `insufficient_scope`), never a raw throw
+that leaks to a 500. It rejects: missing/`cat_`-less token, a **cross-family
+re-prefixed JWT** (a `kst_` body relabeled `cat_` fails the audience check), `sub`
+mismatch, expiry, and a scope the route doesn't grant. This centralizes the
+fail-closed mapping so no route hand-rolls it.
+
 ---
 
 ## 3. Retention (mint-extended) — the deliberate-decision reversal
@@ -84,43 +93,70 @@ await prisma.harvestedLink.deleteMany({ where: { siteAuditId } })
 await prisma.harvestedPageSeo.deleteMany({ where: { siteAuditId } })
 ```
 New behavior:
-- `harvestedLink.deleteMany` — **unchanged** (links stay transient).
-- **Do NOT delete `HarvestedPageSeo`.** Keep the rows (they carry `url` +
-  `contentText`). Stamp `SiteAudit.contentAuditRetainUntil = now + BASE_TTL`
-  (`CONTENT_AUDIT_BASE_TTL_MS`, default **2h**) in the same settle.
-- `recoverBrokenLinkVerifies` is unaffected: its precondition requires "**no**
-  live-scan run", which is false by the time this stamp is written.
+- `harvestedLink.deleteMany` — **unchanged** (links stay transient; a populated
+  `HarvestedLink` therefore still means "builder didn't finish", which recovery
+  relies on).
+- **Stamp `SiteAudit.contentAuditRetainUntil = now + BASE_TTL`
+  (`CONTENT_AUDIT_BASE_TTL_MS`, default **2h**) BEFORE `writeFindingsRun`
+  (Codex #1, crash-safety).** If the process dies between the stamp and the run
+  write, there is a stamp but **no** live-scan run → `recoverBrokenLinkVerifies`
+  re-enqueues (its `if (liveRun) continue` guard is false) and the builder
+  rebuilds idempotently, re-stamping. The reverse order (stamp after) could leave
+  a run with retained rows but `retainUntil=null` — recovery skips it (has a run)
+  and the export can't reach the text — so stamp-first is the invariant.
+- **Do NOT delete `HarvestedPageSeo` in the builder.** Keep the rows (they carry
+  `url` + `contentText`) for the retention window.
 
-### Mint extension
-On `POST …/mint-token`: `contentAuditRetainUntil = new Date(max(current ?? 0,
-now + CONTENT_AUDIT_TOKEN_TTL_MS))` (≈ now + 1h) — the human is analyzing now, so
-keep the text alive for the token's life even if the base window elapsed.
+### Mint extension (atomic, non-shortening)
+On `POST …/mint-token`: extend with a `max()` so a concurrent/earlier mint is
+never shortened — `contentAuditRetainUntil = new Date(Math.max(current?.getTime()
+?? 0, now + CONTENT_AUDIT_TOKEN_TTL_MS))` (≈ now + 1h). Guard against the
+already-swept case (Codex #2): if no `HarvestedPageSeo` row with non-null
+`contentText` remains, still mint the token but return `textAvailable:false` — the
+token is **not** useless (the skill web-fetches the manifest URLs), the human is
+just told the retained text is gone.
 
-### Sweeps
-- **New `sweepContentAuditText(now)`** (in `lib/findings/retention.ts` or a
-  sibling), run on a ≤30-min cadence — host it in the existing every-10-min
-  `stale-audit-reset` scheduled job (tight bounding) **and** in `runCleanup`:
-  ```sql
-  UPDATE HarvestedPageSeo
-  SET contentText = NULL, contentTruncated = 0, updatedAt = <now ms>
-  WHERE contentText IS NOT NULL
-    AND siteAuditId IN (
-      SELECT id FROM SiteAudit
-      WHERE contentAuditRetainUntil IS NULL OR contentAuditRetainUntil < <now>
-    )
-  ```
-  (raw SQL sets `updatedAt` manually; array-form / tagged `$executeRaw` — never an
-  interactive transaction.) This nulls the raw text once the window elapses;
-  scalar rows survive to the 7-d backstop.
-- **Existing `pruneHarvestedPageSeo` (7-d)** — unchanged; deletes whole rows as
-  the backstop (was the primary lifecycle, now the backstop since the builder no
-  longer deletes).
+### Sweep — DELETE at expiry, not null-update (Codex #1 + #2)
+`HarvestedPageSeo` has **no `updatedAt` column** (only `createdAt`) — the original
+`SET updatedAt=…` SQL would fail, and null-updating leaves the now-useless scalar
+rows around to bloat `recoverBrokenLinkVerifies`'s scan set. Instead the new
+**`sweepExpiredContentAudit(now)`** DELETEs whole rows once the run exists and the
+window has elapsed (`CrawlPage` already holds the durable scalars, so nothing of
+value is lost):
+```sql
+DELETE FROM HarvestedPageSeo
+WHERE siteAuditId IN (
+  SELECT id FROM SiteAudit
+  WHERE contentAuditRetainUntil IS NOT NULL AND contentAuditRetainUntil < <now ms>
+)
+```
+- **Non-null `retainUntil`** is the "run exists, retention set" signal — only those
+  rows are swept. **Stranded** audits (crash before the stamp → `retainUntil` null,
+  no run) are left untouched for `recoverBrokenLinkVerifies` + the 7-d backstop,
+  exactly as today.
+- Tagged `$executeRaw` (never an interactive transaction); DELETE has no
+  `updatedAt` concern.
+- Hosted in the every-10-min `stale-audit-reset` job (tight bounding) **and** in
+  `runCleanup`.
+- **Existing `pruneHarvestedPageSeo` (7-d)** — unchanged backstop for stranded
+  (`retainUntil`-null) rows.
+
+### Recovery efficiency (Codex #1)
+Because the sweep DELETEs retained rows at expiry, the retained-`HarvestedPageSeo`
+population is bounded to the **~2h retention window**, not 7 days — so
+`recoverBrokenLinkVerifies`'s `distinct: ['siteAuditId']` scan stays small and its
+`if (liveRun) continue` guard cheaply skips the in-window (run-bearing) audits. No
+change to recovery *correctness*; the DELETE-at-expiry design is what keeps it
+*cheap*.
 
 ### Net privacy delta
 Raw stripped text lives **~2h by default** (was ~seconds), extendable to token
-life (~1h from mint) on an explicit dashboard mint. Bounded and swept. Scalar
-`HarvestedPageSeo` rows without text now persist up to 7 d (previously deleted
-immediately) — low-weight (title/word-count/status), covered by the existing prune.
+life (~1h from mint) on an explicit dashboard mint, and is **DELETEd** (row and
+all) at expiry — never null-updated-and-lingering. Read paths independently treat
+`retainUntil <= now` as unavailable (below), so text is unreachable the instant the
+window closes even before the sweep runs. Pre-change completed audits already had
+their `HarvestedPageSeo` deleted by the old builder and carry `retainUntil=null` →
+never exportable (Kevin-verify item, §13).
 
 ---
 
@@ -128,44 +164,58 @@ immediately) — low-weight (title/word-count/status), covered by the existing p
 
 | Route | Auth | Purpose |
 |---|---|---|
-| `POST /api/site-audit/[id]/content-audit/mint-token` | cookie-gated | mint `cat_`; guards: audit `complete` + has a `seo-parser` live-scan run + client not archived; extend `retainUntil`; return `{token, expiresAt}` |
+| `POST /api/site-audit/[id]/content-audit/mint-token` | cookie-gated | mint `cat_`; guards: audit `complete` + has a `seo-parser` live-scan run + client not archived; extend `retainUntil` (atomic `max()`); return `{token, expiresAt, textAvailable}` |
+| `GET /api/site-audit/[id]/content-audit` | **cookie-gated** | **the dashboard card's poll/refetch (Codex #4)** — returns `{minted:boolean, contentAuditJson}` for the audit's live-scan run so the card sees a later public PATCH without reusing the token routes |
 | `GET /api/content-audit/[siteAuditId]/manifest` | `cat_` read | context + page index (see §5) |
 | `GET /api/content-audit/[siteAuditId]/page` | `cat_` read | one page's stripped `contentText` (pagination unit / per-page full text) |
 | `PATCH /api/content-audit/[siteAuditId]/findings` | `cat_` findings-write | strict-validated findings → `CrawlRun.contentAuditJson` |
 
-- All wrap the handler in `withRoute`; bodies parsed with `parseJsonBody`.
+- All wrap the handler in `withRoute`; the three public routes authenticate via the
+  shared `requireContentAuditToken` helper (§2); PATCH parses the body with
+  `parseJsonBody` **after** a raw-body size guard (below).
 - **Middleware:** exactly **3 anchored single-segment public matchers**
   (`^/api/content-audit/[^/]+/manifest$`, `^/api/content-audit/[^/]+/page$`,
-  `^/api/content-audit/[^/]+/findings$`) added to `isPublicPath` + a
-  `middleware.test.ts` case for each (and a case proving the mint route stays
-  gated). The mint route is under the already-gated `/api/site-audit/` tree — no
-  matcher needed.
-- **Body-before-auth** on PATCH (mirror the kst_ `…/volumes` order): parse body →
-  verify token → scope check → validate → store.
+  `^/api/content-audit/[^/]+/findings$`) added to `isPublicPath`. The two
+  cookie-gated routes are under the already-gated `/api/site-audit/` tree — no
+  matcher. `middleware.test.ts` (Codex #5): a **positive** case per public route,
+  plus **negative** cases — a deeper path (`…/manifest/x`) is NOT public, and the
+  mint + poll routes 401 unauthenticated.
+- **Body-before-auth** on PATCH (mirror the kst_ `…/volumes` order): **raw-body /
+  `Content-Length` size guard (Codex #3)** → parse body → `requireContentAuditToken`
+  (findings-write) → validate → store. `parseJsonBody` has no size limit of its own,
+  so the guard (reject `Content-Length` > the aggregate cap, and cap the read) runs
+  first so an unauthenticated caller can't stream an unbounded body.
 
 ### Endpoint details
 
-**manifest** — resolve `siteAuditId` from the URL, `verifyContentAuditToken(token,
-siteAuditId)`. Load the live-scan `CrawlRun` and its `HarvestedPageSeo` rows.
-Return:
+**Read-time expiry enforcement (Codex #2):** both manifest and page treat
+`retainUntil == null || retainUntil <= now` as **text-unavailable**, independent of
+the sweep cadence — text is unreachable the instant the window closes, not "until
+the next 10-min sweep." (The row may still physically exist for a few minutes; the
+read path gates on the timestamp, not row presence.)
+
+**manifest** — `requireContentAuditToken(req, siteAuditId, 'read')`. Load the
+live-scan `CrawlRun` and its `HarvestedPageSeo` rows. Return:
 ```
 {
   client: { id, name } | null,
   domain, completedAt,
-  textAvailable: boolean,          // false once swept
+  textAvailable: boolean,          // false when retainUntil <= now OR no text rows remain
   retainUntil: string | null,
   pages: [{ url, title, wordCount, contentAvailable: boolean }]  // indexable ∧ ¬loginLike only
 }
 ```
 The **indexable ∧ ¬loginLike** aggregation set is the SAME filter the builder uses
 for similarity/signals/on-page/program-entity (`statusCode` 2xx ∧ `isHtml` ∧
-¬`robotsNoindex`/`xRobotsNoindex` ∧ ¬`loginLike`). `contentAvailable=false` for a
-page whose `contentText` was already nulled.
+¬`robotsNoindex`/`xRobotsNoindex` ∧ ¬`loginLike`). `contentAvailable=false` when the
+window has closed or that page's text is gone. This page set is also the
+**allowlist** the PATCH evidence-URL binding checks against (§5).
 
-**page** — `?url=<exact normalized page url>`; verify token; return
-`{ url, contentText, contentTruncated }` for that page if it is in the audit's
-indexable set and text still present, else `404`/`410` (`text_unavailable`). No
-enumeration beyond the audit's own pages (token sub-match is the wall).
+**page** — `?url=<exact normalized page url>`; `requireContentAuditToken(…,'read')`;
+return `{ url, contentText, contentTruncated }` only if the URL is in the audit's
+indexable set **and** the window is open **and** text is present — else `410`
+(`text_unavailable`) for an in-set expired/swept page, `404` for a URL not in the
+audit. No enumeration beyond the audit's own pages (token sub-match is the wall).
 
 **findings (PATCH)** — see §5.
 
@@ -198,7 +248,18 @@ enumeration beyond the audit's own pages (token sub-match is the wall).
   reject unknown `type`/`severity`; cap `findings.length` (e.g. ≤200), each
   `evidence.length` (e.g. ≤20), and every string field length (title/detail/
   snippet/recommendation, e.g. ≤2k each) — reject (400 `invalid_findings`) rather
-  than silently truncate. Store `{v:1, generatedAt: server now, findings}`.
+  than silently truncate.
+- **Aggregate byte cap (Codex #3):** per-field caps alone still permit ~MB-scale
+  JSON (200 × 20 × 2k). Enforce a **total serialized-byte cap** on the normalized
+  `findings` (e.g. ≤256 KB) before persistence → 400 `findings_too_large`. This is
+  in addition to the raw-body `Content-Length` guard at the route edge (§4).
+- **Evidence-URL binding (Codex #3):** every `evidence[].url` is `normalizeFindingUrl`-
+  normalized and **must be a member of this audit's eligible page set** (the same
+  indexable∧¬loginLike manifest allowlist). Reject (400 `evidence_url_not_in_audit`)
+  any URL that isn't — otherwise the external session could store arbitrary URLs as
+  purported audit evidence. (Findings whose `type` is inherently cross-page still
+  reference only in-audit URLs.)
+- Store `{v:1, generatedAt: server now, findings}` (server clock, not the client's).
 - **Last-writer-wins**: a re-PATCH overwrites `contentAuditJson` (idempotent
   enough for a human-driven re-analysis; matches the memo write-back pattern).
 - Written to the **live-scan `CrawlRun`** resolved from the siteAudit
@@ -216,9 +277,13 @@ enumeration beyond the audit's own pages (token sub-match is the wall).
   - eligible — a **Mint** button → shows `Content Audit ID: <siteAuditId>` + the
     `cat_` clipboard payload built by `lib/content-audit-prompt.ts` (mirror
     `lib/keyword-strategy-prompt.ts`), with `expiresAt`.
+  - eligible — mint response also carries `textAvailable`; when false the card
+    shows an honest "retained text expired — analysis will fetch pages live" note.
   - ingested — renders the `contentAuditJson` findings (grouped by type, severity
-    chips, evidence URLs + snippets, recommendation). Light poll / on-load fetch
-    so a PATCH from the skill surfaces without a manual reload.
+    chips, evidence URLs + snippets, recommendation). The card polls the
+    **cookie-gated `GET /api/site-audit/[id]/content-audit`** (Codex #4) — NOT the
+    public token routes — so a PATCH from the skill surfaces without a manual
+    reload.
   - Full dark-mode variants; no hydration-mismatch patterns.
 - **`ContentAuditSection`** read-time renderer may be folded into the card's
   ingested state (one component) to avoid a needless split.
@@ -256,23 +321,33 @@ precedent — a card that mints a token no skill understands is a dead end).
 ## 9. Testing
 
 - **Token** (`content-audit-token.test.ts`): sign/verify round-trip; `cat_`
-  prefix guard; `sub` mismatch guard; **audience isolation** — a `cat_` token
-  fails `verifyKeywordStrategyToken` and a `kst_` token fails
-  `verifyContentAuditToken`; prod-unset-secret throws, dev fallback warns once.
-- **Retention**: builder stamps `retainUntil` and **no longer deletes**
-  `HarvestedPageSeo` (but still deletes `HarvestedLink`); `sweepContentAuditText`
-  nulls text past `retainUntil`, leaves in-window text, is idempotent, sets
-  `updatedAt`; mint extends `retainUntil`.
-- **Export**: manifest returns indexable-only pages + correct `textAvailable`;
-  page endpoint returns text in-window, `410` post-sweep, `404` for a URL not in
-  the audit; token sub-match enforced.
-- **PATCH**: rejects unknown type/severity, over-cap lengths/counts (400); stores
-  `{v:1,...}`; last-writer-wins overwrites; `no_live_scan_run` 409.
-- **Middleware**: the 3 public routes pass unauthenticated; the mint route 401s
+  prefix guard; `sub` mismatch guard; **audience isolation both directions** — a
+  `cat_` token fails `verifyKeywordStrategyToken` AND a `kst_` body re-prefixed
+  `cat_` fails `verifyContentAuditToken` (cross-family JWT); prod-unset-secret
+  throws, dev fallback warns once.
+- **Retention** (Codex #1/#2): builder stamps `retainUntil` **before**
+  `writeFindingsRun` and **no longer deletes** `HarvestedPageSeo` (still deletes
+  `HarvestedLink`); `sweepExpiredContentAudit` **DELETEs** rows whose audit has a
+  non-null `retainUntil < now`, **leaves** stranded (`retainUntil`-null) and
+  in-window rows, is idempotent (no `updatedAt` write — the column doesn't exist);
+  mint extends via `max()` and never shortens a later window; a crash-simulated
+  "stamp but no run" row is re-enqueued by `recoverBrokenLinkVerifies`.
+- **Export**: manifest returns indexable-only pages + `textAvailable=false` when
+  `retainUntil<=now`; page returns text in-window, `410` for an in-set expired
+  page, `404` for a URL not in the audit; token sub-match enforced.
+- **PATCH** (Codex #3): rejects unknown type/severity + over-cap lengths/counts
+  (400 `invalid_findings`); rejects a payload over the aggregate byte cap (400
+  `findings_too_large`); rejects an `evidence.url` not in the audit's page set
+  (400 `evidence_url_not_in_audit`); rejects an over-`Content-Length` body at the
+  edge before parse; stores `{v:1,...}` with server `generatedAt`;
+  last-writer-wins overwrites; `no_live_scan_run` 409.
+- **Middleware** (Codex #5): the 3 public routes pass unauthenticated; a **deeper
+  path** (`…/manifest/x`) is NOT public; the mint + cookie-gated poll routes 401
   unauthenticated.
 - **Component** (`// @vitest-environment jsdom`, `afterEach(cleanup)`, no
   jest-dom — `getByRole`/`getAllByText`, `.toBeTruthy()`/`.getAttribute()`): mint
-  button renders when eligible, hidden when not; ingested findings render by type.
+  button renders when eligible, hidden when not; `textAvailable:false` note
+  renders; ingested findings render by type.
 - Gates: `npx tsc --noEmit`, `DATABASE_URL="file:./local-dev.db" npm test`,
   `npm run build` — all green before PR.
 
@@ -295,15 +370,20 @@ automatically on deploy via `prisma migrate deploy`.
 ## 11. Security & invariants checklist
 
 - `cat_` shares the memo secret; **audience** is the only isolation — tested both
-  directions.
+  directions incl. a cross-family re-prefixed JWT; all three public routes go
+  through the one `requireContentAuditToken` fail-closed helper.
 - Export serves **only** the token's own `siteAuditId`, **only** indexable pages,
-  **only** within the retention window; no cross-audit enumeration.
-- PATCH is strictly validated + size-capped; body-before-auth; findings are
-  metadata JSON, never executed, HTML-escaped at render.
+  **only** within the retention window (read-time `retainUntil` gate, not sweep
+  cadence); no cross-audit enumeration.
+- PATCH: raw-body/`Content-Length` guard **before** parse → body-before-auth →
+  per-field caps + **aggregate byte cap** + **evidence-URL-in-audit binding**;
+  findings are metadata JSON, never executed, HTML-escaped at render.
 - 3 anchored single-segment middleware matchers — never a `/api/content-audit/`
-  prefix; mint stays cookie-gated; `middleware.test.ts` cases added.
-- Array-form `$transaction` / tagged raw SQL only; `updatedAt` set manually in raw
-  statements.
+  prefix; mint + poll stay cookie-gated; positive + negative `middleware.test.ts`
+  cases added.
+- Retention stamp written **before** the run write (crash-safe); sweep **DELETEs**
+  at expiry (no `updatedAt` — column absent), keeping the recovery scan set bounded
+  to the window; tagged raw SQL, never an interactive transaction.
 - Measurement-first: no `Finding` promotion, no score change.
 - Share view unchanged.
 - Never scan third-party sites — this feature does zero fetching (the skill may
@@ -318,3 +398,17 @@ automatically on deploy via `prisma migrate deploy`.
 - **Option A** (Anthropic API extraction job) if the billing gate opens — same
   ingest contract, queue-job transport.
 - Promotion of `contentAuditJson` to `Finding`/score — separate gated step.
+
+---
+
+## 13. Kevin-verify at deploy (from Codex review)
+
+- **Cold deploy / pre-change audits:** existing completed audits already had their
+  `HarvestedPageSeo` deleted by the old builder and carry `contentAuditRetainUntil
+  = null` → manifest/page treat them as text-unavailable, so no pre-change audit
+  becomes exportable without a fresh (post-change) run + stamp. Confirm on prod.
+- **Skill-before-UI:** the er-handoff-memo `cat_` branch must be released before the
+  deploy that exposes the mint card (kst_ precedent).
+- **Retention volume canary:** on a busy 2-hour window, observe retained stripped-
+  text row count + DB size delta + `sweepExpiredContentAudit` duration. Bounded by
+  the ~2h window × concurrent-audit rate; the promotion/tuning gate for BASE_TTL.
