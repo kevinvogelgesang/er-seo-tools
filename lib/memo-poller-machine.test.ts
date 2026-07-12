@@ -153,4 +153,91 @@ describe('createPollingMachine', () => {
     m.stop();
     expect(m.status()).toBe('idle');
   });
+
+  describe('invalidate()', () => {
+    it('while visible and polling calls onChange immediately and returns to idle', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.invalidate();
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(m.status()).toBe('idle');
+    });
+
+    it('while visible and idle calls onChange immediately', () => {
+      const { m, onChange } = setup();
+      expect(m.status()).toBe('idle');
+      m.invalidate();
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(m.status()).toBe('idle');
+    });
+
+    it('while hidden sets dirty only — no onChange, no status change', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.setVisible(false);
+      expect(m.status()).toBe('paused');
+      m.invalidate();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(m.status()).toBe('paused');
+    });
+
+    it('visibility-resume after a hidden invalidate() fires onChange once and clears dirty', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.setVisible(false);
+      m.invalidate();
+      m.setVisible(true);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(m.status()).toBe('idle');
+    });
+
+    it('a plain visibility-resume without invalidate() does not fire onChange (dirty stays false by default)', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.setVisible(false);
+      m.setVisible(true);
+      expect(onChange).not.toHaveBeenCalled();
+      expect(m.status()).toBe('polling');
+    });
+
+    it('dirty does not leak into the next polling cycle once consumed', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.setVisible(false);
+      m.invalidate();
+      m.setVisible(true);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(m.status()).toBe('idle');
+
+      // Fresh cycle; pause/resume with no new invalidate() — must not
+      // spuriously refire onChange from a leftover dirty flag.
+      m.start({ baseline: 'new-baseline', now: 1000 });
+      m.setVisible(false);
+      m.setVisible(true);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(m.status()).toBe('polling');
+    });
+
+    it('while hidden does not advance the active-time budget (invalidate() itself never accumulates time)', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.tick({ latestUpdatedAt: null, now: 5 * 60 * 1000 }); // 5 min active
+      m.setVisible(false);
+      m.invalidate();
+      // Hidden for far longer than the remaining budget would allow if this
+      // time were counted — invalidate() must not touch the accumulator.
+      expect(m.status()).toBe('paused');
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('while expired and visible does nothing (must restart explicitly via start())', () => {
+      const { m, onChange } = setup();
+      m.start({ baseline: null, now: 0 });
+      m.tick({ latestUpdatedAt: null, now: FIFTEEN_MIN_MS + 1000 });
+      expect(m.status()).toBe('expired');
+      m.invalidate();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(m.status()).toBe('expired');
+    });
+  });
 });

@@ -31,6 +31,17 @@ export interface PollingMachine {
    * `onChange` once and returns to idle. Also handles lifetime accounting.
    */
   tick(args: { latestUpdatedAt: string | null; now: number }): void;
+  /**
+   * External signal (e.g. an SSE push) that the underlying data changed,
+   * bypassing the poll interval. While the tab is visible and the machine
+   * is 'polling' or 'idle', this fires `onChange` immediately (same effect
+   * as `tick()` observing a baseline change) and returns to idle. While
+   * hidden, it only records `dirty = true` — no fetch, no effect on the
+   * active-time budget — until the next visibility-resume, which then
+   * fires `onChange` immediately and clears `dirty`. While 'expired', this
+   * is a no-op; the caller must restart explicitly via `start()`.
+   */
+  invalidate(): void;
 }
 
 export function createPollingMachine(opts: PollingMachineOptions): PollingMachine {
@@ -46,6 +57,17 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
    * the last tick and setVisible(true) is excluded from the active budget.
    */
   let lastTickNow = 0;
+  /**
+   * Tracks the tab's visibility independent of `status`, so `invalidate()`
+   * can decide immediate-vs-dirty even when idle/expired (states where
+   * `setVisible` otherwise no-ops on `status` itself).
+   */
+  let tabVisible = true;
+  /**
+   * Set when `invalidate()` arrives while hidden; consumed (and cleared)
+   * on the next visibility-resume, which fires `onChange` immediately.
+   */
+  let dirty = false;
 
   function reset() {
     status = 'idle';
@@ -53,6 +75,7 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
     lastResumedAt = 0;
     activeAccumulatedMs = 0;
     lastTickNow = 0;
+    dirty = false;
   }
 
   function accumulateActiveTime(now: number) {
@@ -60,6 +83,12 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
       activeAccumulatedMs += now - lastResumedAt;
       lastResumedAt = now;
     }
+  }
+
+  /** Shared by invalidate()'s immediate path and the dirty-resume path. */
+  function fireChangeAndReset() {
+    opts.onChange();
+    reset();
   }
 
   return {
@@ -72,6 +101,7 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
       lastResumedAt = now;
       activeAccumulatedMs = 0;
       lastTickNow = now;
+      dirty = false;
     },
 
     stop() {
@@ -79,8 +109,15 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
     },
 
     setVisible(visible) {
+      tabVisible = visible;
       if (status === 'idle' || status === 'expired') return;
       if (visible && status === 'paused') {
+        if (dirty) {
+          // An invalidate() arrived while hidden — refetch immediately
+          // instead of resuming the poll loop, and clear dirty.
+          fireChangeAndReset();
+          return;
+        }
         status = 'polling';
         // Resume: set the active-window start to the last known tick time
         // (the most recent tick that fired while we were paused, or before).
@@ -133,6 +170,21 @@ export function createPollingMachine(opts: PollingMachineOptions): PollingMachin
         status = 'expired';
         return;
       }
+    },
+
+    invalidate() {
+      if (!tabVisible) {
+        // Hidden: record the pending change only. No fetch, and no effect
+        // on activeAccumulatedMs/lastResumedAt — hidden time stays excluded.
+        dirty = true;
+        return;
+      }
+      if (status === 'polling' || status === 'idle') {
+        fireChangeAndReset();
+      }
+      // 'expired' while visible: no-op by design — the caller must restart
+      // explicitly via start() rather than have invalidate() silently
+      // resurrect an expired cycle.
     },
   };
 }
