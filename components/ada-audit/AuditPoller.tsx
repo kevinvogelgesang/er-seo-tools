@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { AuditDetail } from '@/lib/ada-audit/types'
 import { useAuditPoller } from './useAuditPoller'
+import { adaAuditTopic } from '@/lib/events/topics'
 
 interface Props {
   id: string
@@ -48,6 +49,8 @@ export default function AuditPoller({
   useAuditPoller<AuditDetail>({
     url: `/api/ada-audit/${id}`,
     intervalMs: 1000,
+    topic: adaAuditTopic(id),
+    safetyIntervalMs: 30_000,
     initialStatus,
     getStatus: (d) => d.status,
     isTerminal,
