@@ -34,4 +34,16 @@ describe('bus', () => {
     d(); d()
     expect(getBusStats().subscribers).toBe(0)
   })
+
+  it('drops frames under backpressure and evicts a persistently slow subscriber', async () => {
+    __resetBusForTest(); vi.useFakeTimers()
+    const frames: string[] = []
+    let slow = true
+    const closed = { v: false }
+    subscribeBus({ write: (f) => frames.push(f), close: () => { closed.v = true }, desiredSize: () => (slow ? 0 : 10) })
+    for (let i = 0; i < 21; i++) { publishInvalidation('t' + i); await vi.advanceTimersByTimeAsync(200) }
+    expect(frames.length).toBe(0)     // all dropped
+    expect(closed.v).toBe(true)       // evicted after MAX_CONSECUTIVE_DROPS
+    expect(getBusStats().subscribers).toBe(0)
+  })
 })

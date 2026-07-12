@@ -1,11 +1,13 @@
 // lib/events/bus.ts — process-global SSE invalidation bus (single fork process).
 import { HEARTBEAT_MS } from '@/lib/jobs/config'
 
-export type Subscriber = { write(frame: string): void; close(): void }
+export type Subscriber = { write(frame: string): void; close(): void; desiredSize?: () => number | null }
 
 const MAX_CONNECTIONS = 100
 const MAX_PENDING_TOPICS = 256
 const COALESCE_MS = 150
+const MAX_CONSECUTIVE_DROPS = 20
+const drops = new WeakMap<Subscriber, number>()
 
 export class BusFullError extends Error { constructor() { super('bus_full'); this.name = 'BusFullError' } }
 
@@ -23,7 +25,14 @@ function frame(event: string, data: unknown): string {
 }
 
 function writeToAll(f: string): void {
-  for (const sub of state.subscribers) {
+  for (const sub of [...state.subscribers]) {
+    const ds = sub.desiredSize?.()
+    if (ds != null && ds <= 0) {
+      const n = (drops.get(sub) ?? 0) + 1
+      if (n >= MAX_CONSECUTIVE_DROPS) safeDrop(sub); else drops.set(sub, n)
+      continue
+    }
+    drops.set(sub, 0)
     try { sub.write(f) } catch { safeDrop(sub) }
   }
 }
