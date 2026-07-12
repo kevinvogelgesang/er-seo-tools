@@ -5,6 +5,10 @@
 were 3 token families; there are now 6). **Codex review 2026-07-12:
 ACCEPT WITH NAMED FIXES ×8 — all applied in this revision** (the original
 draft's scope-enforcement premise was factually wrong; corrected throughout).
+**Revision 2 (same day, pre-plan code reading):** §5 emit-wrapper dropped
+(the emit is already a one-line shared call; nothing to extract) and §6
+recast as poller-hook + one shared card (the four cards split into two
+data-flow shapes; the quadruplicated unit is the wiring, not the render).
 
 ## Problem
 
@@ -201,75 +205,89 @@ full-string characterization tests for all six composers land BEFORE the
 facade switch** (see Testing). cat_'s `buildContentAuditPrompt({appUrl,…})`
 and qct_'s numeric-id signature are preserved at the facade.
 
-### 5. Write-back emit orchestration (narrow, server)
+### 5. Write-back routes: auth adoption only (revision 2)
 
 The four document PATCH routes (pat narrative, srt roadmap, krt memo, kst
 memo) differ in body-before-auth ordering, parsing/limits, structured
 sidecars, error bodies, update column sets, and timestamp fields
 (`narrativeUpdatedAt` / `roadmapUpdatedAt` / `memoUpdatedAt` ×2). Those
-stay family-owned in the route files. What is genuinely shared — and what A5
-made invariant-critical — is the **post-update emit orchestration**:
+stay family-owned in the route files; the only shared piece they adopt is
+`requireHandoffToken` (§3), which replaces each route's ~25-line inline auth
+block (header parse → verify → error-code mapping → scope check).
 
-```ts
-// lib/handoff/memo-emit.ts
-emitMemoTopicAfterWrite(updatedRow: { topicId: string }): void
-// post-resolve, outside any tx, effect-gated, keyed off the RETURNED row
-```
-
-Each PATCH route keeps its own validation + prisma update and calls the
-shared emit with its row-derived topic id. The A5 emit-identity tests
-(`not.toHaveBeenCalledWith(<wrongId>)`) keep passing unchanged. A broader
-`handleDocumentWriteBack` mega-helper is explicitly rejected — with parsing,
-auth ordering, limits, and response bodies all family-owned, it would be
-configuration-passing theater.
+**Revision 2 (code-reading finding, supersedes the earlier `memo-emit.ts`
+proposal):** the post-update emit is ALREADY a single shared-function call —
+`publishInvalidation(memoTopic(<row-derived id>))` — one line per route with
+the A5 invariants (post-resolve, outside tx, returned-row key) documented at
+each call site. There is nothing left to extract; a wrapper would be
+indirection without dedup. The emit lines and the A5 emit-identity tests
+(`not.toHaveBeenCalledWith(<wrongId>)`) stay verbatim.
 
 GET export routes are *not* genericized beyond auth. cat_'s
 manifest/page/findings and kst_'s volumes route keep their current handlers
-(auth facade only).
+(auth facade only). A broader `handleDocumentWriteBack` mega-helper stays
+rejected — with parsing, auth ordering, limits, and response bodies all
+family-owned, it would be configuration-passing theater.
 
-### 6. `components/handoff/MemoHandoffCard.tsx` — one card, concrete contract
+### 6. Client consolidation: one poller hook + one card (revision 2)
 
-Generalizes SeoRoadmapCard / KeywordMemoCard / KeywordStrategyCard /
-MemoPoller. The shared card owns *how to mint/poll/render*; a thin
-per-family wrapper owns *what* (fetch URLs, response normalization, extra
-side effects). Contract (pinned here, not "approximate"):
+**Revision 2 (code-reading finding):** the four "clone cards" split into two
+genuinely different data-flow shapes — SeoRoadmapCard / KeywordMemoCard /
+MemoPoller are **server-props driven** (`onChange: router.refresh()`; the
+poll tick only extracts a timestamp), while KeywordStrategyCard is
+**local-state driven** (onChange fetches at call time; topic re-subscribes
+per regenerate because each mint creates a new session row). What is
+byte-for-byte quadruplicated — and what A5 PR4 had to patch 4× — is the
+~100-line **poller wiring block**: lazily-created `createPollingMachine`,
+visibilitychange → `setVisible`, SSE `subscribeTopic(memoTopic(topicId))` →
+`machine.invalidate()`, auto-start-anchored-to-mint-time, the health-gated
+interval loop (3 s → `SAFETY_POLL_MEMO_MS` 20 s, re-arm fast on drop), and
+expired-state handling. So the consolidation unit is a **hook**, plus one
+shared card for the two structurally-identical instances:
 
 ```ts
-interface MemoHandoffAdapter {
-  family: HandoffFamilyKey                  // idLabel/prefix from meta registry
-  mint(): Promise<{ id: string; token: string; expiresAt: string; clipboardText: string }>
-  poll(): Promise<MemoPollResult>           // normalized by the WRAPPER from its route's shape
-  topicId: string                           // memoTopic key (family-correct id)
-  renderMemo(markdown: string, structured?: unknown): ReactNode
-  onMemoArrived?(result: MemoPollResult): void   // kst_: profile refetch hook
-  baseline: { memoUpdatedAt: string | null }     // regenerate anchors baseline to null
-  labels: { title: string; buttonIdle: string; /* … full set enumerated in plan */ }
+// components/handoff/useMemoPoller.ts — the quadruplicated wiring, once.
+interface UseMemoPollerOpts {
+  topicId: string                    // reactive: kst re-subscribes on change
+  onChange: () => void               // router.refresh() OR call-time fetch
+  fetchLatestUpdatedAt: () => Promise<string | null | undefined>
+                                     // undefined = fetch failed (skip tick)
+  initialBaseline: string | null
+  syncBaselineWhenIdle?: string | null  // props-driven cards only
+  autoStart?: { active: boolean; mintedAt: string | null }
+  subscribePollerTrigger?: boolean   // onMemoPollerTrigger wiring (srt, pat)
+  lifetimeMs?: number                // default 15 min
 }
-interface MemoPollResult {
-  status: 'none' | 'pending' | 'complete' | 'error'
-  memoMarkdown: string | null
-  structured: unknown | null
-  updatedAt: string | null
-  error: string | null
+interface UseMemoPollerResult {
+  expired: boolean
+  restart: (opts?: { baselineNull?: boolean }) => void  // kst regenerate + expired-retry
 }
 ```
 
-Internals: exactly the shipped A5 PR4 topology — `createPollingMachine` with
-`lifetimeMs` cap, SSE via `subscribeTopic(memoTopic(topicId))` routed through
-`machine.invalidate()` (never bypassing cap/visibility/backoff), health-gated
-cadence (fast until SSE connected+healthy, then `SAFETY_POLL_MEMO_MS` 20 s,
-re-arm fast on error/watchdog), clipboard mint flow, expired-never-
-resurrected, dirty-while-hidden consumed on resume. The A5 component-test
-suites for the three cards are ported to the shared card once + a per-
-adoption smoke each (renders, correct poll URL, correct topic, wrapper
-normalization).
+Constants (`POLL_INTERVAL_MS` 3 000, `LIFETIME_MS` 15 min,
+`SAFETY_POLL_MEMO_MS` 20 000) move into the hook — one home. Machine
+semantics untouched: the hook calls the SAME `createPollingMachine` /
+`invalidate()` / `tick()` sequence the four components inline today, and the
+A5 behavior suites (invalidate visible/hidden, 20 s cadence suppression,
+expired-never-resurrected, machine-never-bypassed) are ported to hook tests
+once + per-adoption smokes.
 
-Adoptions (behavior-preserving, one card at a time): SeoRoadmapCard,
-KeywordMemoCard, KeywordStrategyCard (keeps `KeywordMemoMarkdown` reuse,
-regenerate-baseline-null, profile refetch via `onMemoArrived`; its vestigial
-SSE-handler pre-fetch — recorded A5 follow-up — dies here), pillar
-`MemoPoller`. `PillarAnalysisButtonClient` is NOT a memo card (analysis
-status on `pillarAnalysisTopic`) — untouched.
+**`components/handoff/MemoHandoffCard.tsx`** — shared card for the two
+structurally-identical server-props cards (SeoRoadmapCard, KeywordMemoCard):
+props `{ sessionId, pollUrl, extractUpdatedAt, title, headerButton,
+renderMemo, emptyState, initialStatus, initialMarkdown, initialUpdatedAt,
+initialTokenMintedAt }`, internals = the hook + the shared hydration-safe
+UpdatedAt + expired banner. The legacy card files become thin wrappers
+supplying their markdown renderer (`RoadmapMarkdown` / `KeywordMemoMarkdown`)
+and buttons — public component names/props unchanged for their pages.
+
+**Adoptions that keep their own shells:** pillar `MemoPoller` (renders only
+the expired banner — becomes the hook + banner, file/props unchanged) and
+`KeywordStrategyCard` (local-state shell, `onMemoArrived`-style state updates
+stay in the card; adopts the hook with `restart({baselineNull: true})` on
+regenerate and reactive `topicId`; its vestigial SSE-handler pre-fetch —
+recorded A5 follow-up — dies here). `PillarAnalysisButtonClient` is NOT a
+memo card (analysis status on `pillarAnalysisTopic`) — untouched.
 
 UI-class gates apply: dark-mode variants on every element; no hydration-
 mismatch patterns (client components fed serialized initial state, as today).
@@ -331,12 +349,13 @@ mismatch patterns (client components fed serialized initial state, as today).
   registries + token factory + prompt facades + token-module facades. No
   route file, no auth behavior, no UI touched.
 - **PR 2 — route-auth adoption:** `lib/handoff/route-auth.ts` + policy
-  tables; kst_/cat_ helpers become facades; 8 inline-auth routes adopt;
-  memo-emit orchestration extracted. Characterization matrix green
-  unchanged. Smoke run (auth-touching).
-- **PR 3 — card consolidation + legacy deletion:** MemoHandoffCard + 4
-  adoptions; legacy skill dir + build wiring removed; docs updated. Smoke
-  run (pillar surfaces).
+  tables; kst_/cat_ helpers become facades; 8 inline-auth routes adopt
+  (emit lines untouched). Characterization matrix green unchanged. Smoke
+  run (auth-touching).
+- **PR 3 — card consolidation + legacy deletion:** `useMemoPoller` hook +
+  `MemoHandoffCard` + 4 adoptions (srt/krt via the card; pillar MemoPoller +
+  kst via the hook); legacy skill dir + build wiring removed; docs updated.
+  Smoke run (pillar surfaces).
 
 Deploys per rule 1 (autonomous when gate-green, post-deploy verify: health,
 one public GET per family 401s with the family's exact error code, prompt
@@ -353,7 +372,8 @@ choice.
 
 - All six families mint/verify/compose through `lib/handoff/` with zero wire
   drift (characterization matrix green across all three PRs, untouched).
-- 3 clone cards + MemoPoller replaced by one tested card + thin wrappers.
+- The quadruplicated poller wiring lives once in `useMemoPoller` (tested
+  with the ported A5 suites); srt/krt render through one shared card.
 - `skills/pillar-analysis-narrative/` + `build:skill` wiring gone.
 - A dry-run doc section: "adding family #7" enumerating the checklist —
   registry entries (token + meta + error policy), mint/poll routes, GET
