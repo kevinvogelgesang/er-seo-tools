@@ -23,6 +23,10 @@ export function registerStaleAuditResetHandler(): void {
       await import('@/lib/ada-audit/broken-link-recovery')
         .then((m) => m.recoverBrokenLinkVerifies())
         .catch((err) => console.warn('[stale-audit-reset] broken-link verify recovery failed:', (err as Error).message))
+      // C12 D1: sweep expired content-audit retention windows (tight bounding).
+      await import('@/lib/findings/retention')
+        .then((m) => m.sweepExpiredContentAudit(new Date()))
+        .catch((err) => console.warn('[stale-audit-reset] content-audit sweep failed:', (err as Error).message))
       // C10: global stranded SEO-report recovery — re-enqueue seo-report-render jobs
       // for any non-terminal SeoReport whose heartbeat has gone cold. Guarded.
       await import('@/lib/seo-report-recovery')

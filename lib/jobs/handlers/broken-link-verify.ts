@@ -84,6 +84,13 @@ const MAX_CHECKS = () => parsePositiveInt(process.env.BROKEN_LINK_MAX_CHECKS, 20
 const HOST_DELAY = () => parsePositiveInt(process.env.BROKEN_LINK_HOST_DELAY_MS, 250)
 const CONCURRENCY = () => parsePositiveInt(process.env.BROKEN_LINK_CONCURRENCY, 4)
 const URLS_PER_FINDING = 25
+// C12 D1: retention window for HarvestedPageSeo.contentText, stamped on
+// SiteAudit.contentAuditRetainUntil at the end of a successful build. Safe
+// parse — a negative/NaN/Infinity env value must NOT produce a bad window.
+const CONTENT_AUDIT_BASE_TTL_MS = ((): number => {
+  const raw = Number(process.env.CONTENT_AUDIT_BASE_TTL_MS)
+  return Number.isInteger(raw) && raw > 0 ? raw : 2 * 3600 * 1000 // 2h default
+})()
 const JOB_TIMEOUT_MS = 900_000 // 15-min queue ceiling (single source; used at registration + external budget)
 // Reserve subtracted from BOTH the internal and external deadlines: it must cover
 // in-flight-request overshoot on both passes (each stops STARTING work at its
@@ -653,9 +660,22 @@ export async function runBrokenLinkVerify(
     },
     pages, findings, violations: [],
   }
+  // C12 D1: stamp the content-audit retention window BEFORE writing the run.
+  // If we crash between here and writeFindingsRun, there is a stamp but no
+  // live-scan run -> recoverBrokenLinkVerifies re-enqueues (its liveRun guard
+  // is false) and the builder rebuilds idempotently. Stamp-after could leave a
+  // run with retained rows but retainUntil=null (recovery skips it; export
+  // can't reach the text) -- so stamp-first is the invariant.
+  await prisma.siteAudit.update({
+    where: { id: job.siteAuditId },
+    data: { contentAuditRetainUntil: new Date(deps.now() + CONTENT_AUDIT_BASE_TTL_MS) },
+  })
   await writeFindingsRun(bundle)
+  // HarvestedLink stays transient (a populated row still means "builder didn't
+  // finish", which recovery relies on). HarvestedPageSeo is NO LONGER deleted
+  // here -- it carries contentText for the retention window and is DELETEd at
+  // expiry by sweepExpiredContentAudit (retention.ts).
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
-  await prisma.harvestedPageSeo.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   console.log(
     `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, external checked ${externalChecked}, external broken ${externalBroken.length}, external unconfirmed ${externalUnconfirmed}, on-page rows ${seoRows.length}, internalBudgetHit ${internalBudgetHit} (${cache.size}/${allToResolve.length} resolved)`,
   )

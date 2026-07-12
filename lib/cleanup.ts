@@ -4,7 +4,7 @@ import path from 'path';
 import { getUploadDir, isValidSessionId, UPLOADS_DIR } from '@/lib/upload-helpers';
 import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers';
 import { cleanOldTerminalJobs } from '@/lib/jobs/retention';
-import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo } from '@/lib/findings/retention';
+import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo, sweepExpiredContentAudit } from '@/lib/findings/retention';
 import { pruneScheduledSiteAudits } from '@/lib/ada-audit/scheduled-retention'
 import { pruneSeoReports } from '@/lib/seo-report-retention';
 import { pruneGscSnapshots, pruneKeywordVolumeCache, pruneKeywordStrategySessions } from '@/lib/keywords/retention';
@@ -37,6 +37,7 @@ export async function runCleanup(): Promise<void> {
     pruneScheduledSiteAudits(),
     pruneHarvestedLinks(),
     pruneHarvestedPageSeo(),
+    sweepExpiredContentAudit(new Date()),
     pruneSeoReports(),
     pruneGscSnapshots(),
     pruneKeywordVolumeCache(),

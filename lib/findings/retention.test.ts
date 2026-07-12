@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
-import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
+import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo, sweepExpiredContentAudit, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
 
 // Artifact deletion is mocked — retention tests must never touch the
 // uploads/screenshots filesystem.
@@ -347,5 +347,26 @@ describe('pruneHarvestedPageSeo', () => {
       select: { id: true },
     })
     expect(remaining.map((r) => r.id)).toEqual([freshRow.id])
+  })
+})
+
+describe('sweepExpiredContentAudit', () => {
+  const DOMAIN = 'sweep-cat.example.com'
+  beforeEach(async () => {
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
+  })
+  it('DELETEs rows for expired non-null retainUntil, keeps in-window and null', async () => {
+    const now = new Date('2026-07-13T12:00:00Z')
+    const expired = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(now.getTime() - 1000) } })
+    const inWindow = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: new Date(now.getTime() + 60000) } })
+    const stranded = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', contentAuditRetainUntil: null } })
+    for (const sa of [expired, inWindow, stranded]) {
+      await prisma.harvestedPageSeo.create({ data: { siteAuditId: sa.id, url: 'https://x/a', contentText: 'body' } })
+    }
+    await sweepExpiredContentAudit(now)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: expired.id } })).toBe(0)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: inWindow.id } })).toBe(1)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: stranded.id } })).toBe(1)
   })
 })

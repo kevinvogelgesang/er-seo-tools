@@ -144,3 +144,26 @@ export async function pruneHarvestedPageSeo(now: Date = new Date()): Promise<voi
   const { count } = await prisma.harvestedPageSeo.deleteMany({ where: { createdAt: { lt: cutoff } } })
   if (count > 0) console.log(`[findings] pruned ${count} stale HarvestedPageSeo row(s)`)
 }
+
+/**
+ * C12 D1: DELETE retained HarvestedPageSeo rows once their audit's retention
+ * window has elapsed. Only non-null contentAuditRetainUntil rows are swept
+ * (the stamp is written only after a successful live-scan run), so stranded
+ * (null) rows are left for recoverBrokenLinkVerifies + the 7-d backstop. The
+ * table has no updatedAt; a DELETE needs none. Hosted in runCleanup + the
+ * every-10-min stale-audit-reset job.
+ */
+export async function sweepExpiredContentAudit(now: Date = new Date()): Promise<void> {
+  // DateTime columns are stored as INTEGER ms in this SQLite setup (CLAUDE.md:
+  // "storage is integer ms"; every raw-SQL DateTime comparison in the repo binds
+  // ${x.getTime()}, e.g. lib/ops/health-check.collect.test.ts). Bind integer ms
+  // — NOT a bare Date — so the comparison is integer-vs-integer and can't silently
+  // never-match on a serialization mismatch.
+  const count = await prisma.$executeRaw`
+    DELETE FROM "HarvestedPageSeo"
+    WHERE "siteAuditId" IN (
+      SELECT "id" FROM "SiteAudit"
+      WHERE "contentAuditRetainUntil" IS NOT NULL AND "contentAuditRetainUntil" < ${now.getTime()}
+    )`
+  if (count > 0) console.log(`[findings] content-audit sweep deleted ${count} expired HarvestedPageSeo row(s)`)
+}

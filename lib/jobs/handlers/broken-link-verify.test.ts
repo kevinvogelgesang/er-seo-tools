@@ -188,9 +188,27 @@ describe('runBrokenLinkVerify', () => {
     expect(schema.v).toBe(1)
     expect(schema.pagesWithSchema).toBeGreaterThanOrEqual(1)
     expect(schema.types).toContainEqual({ type: 'Organization', pages: 1 })
-    // Both transient tables cleaned up
-    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBe(0)
+    // HarvestedLink cleaned up; HarvestedPageSeo RETAINED (C12 D1 content-audit
+    // retention window — no longer deleted here, swept at expiry instead).
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBeGreaterThan(0)
     expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
+  })
+
+  it('retains HarvestedPageSeo + stamps contentAuditRetainUntil (no longer deletes)', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete', clientId: null } })
+    const siteAuditId = sa.id
+    await prisma.harvestedPageSeo.create({
+      data: { siteAuditId, url: `https://${DOMAIN}/a`, statusCode: 200, isHtml: true, title: 'A',
+        h1: 'H', metaDescription: 'M', wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+    })
+    // depsFor's stub `now` returns 0 (epoch) — use real wall-clock time here so
+    // the retention stamp is meaningfully comparable against Date.now() below.
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, { ...depsFor(new Set()), now: () => Date.now() })
+    const after = await prisma.siteAudit.findUnique({ where: { id: siteAuditId }, select: { contentAuditRetainUntil: true } })
+    expect(after?.contentAuditRetainUntil).toBeTruthy()
+    expect(after!.contentAuditRetainUntil!.getTime()).toBeGreaterThan(Date.now())
+    // HarvestedLink still deleted; HarvestedPageSeo retained:
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBeGreaterThan(0)
   })
 
   it('KS-3: writes programEntitiesJson from harvested programNames, excluding noindex/login-like rows', async () => {
@@ -472,7 +490,7 @@ describe('runBrokenLinkVerify — canonical/redirect/hreflang validation', () =>
     expect(types.has('canonical_redirect')).toBe(true)
     expect(types.has('hreflang_broken')).toBe(true)
     expect(await prisma.harvestedLink.count({ where: { siteAuditId } })).toBe(0)
-    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBe(0)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId } })).toBeGreaterThan(0)
   })
 
   it('resolves a shared link+canonical target ONCE yet maps to both applicable findings', async () => {
@@ -734,17 +752,17 @@ describe('runBrokenLinkVerify — content similarity', () => {
     const data = JSON.parse(run!.contentSimilarityJson!)
     expect(data.v).toBe(1)
     expect(data.exactDuplicateGroups[0].urls.sort()).toEqual([`https://${SIM_DOMAIN}/a`, `https://${SIM_DOMAIN}/b`])
-    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBe(0)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBeGreaterThan(0)
   })
 
-  it('leaves contentSimilarityJson null when fewer than 2 eligible pages (run still written + transient deleted)', async () => {
+  it('leaves contentSimilarityJson null when fewer than 2 eligible pages (run still written + transient retained)', async () => {
     const sa = await prisma.siteAudit.create({ data: { domain: SIM_DOMAIN, status: 'complete', pagesTotal: 1, pagesComplete: 1, pagesError: 0 } })
     await prisma.harvestedPageSeo.createMany({ data: [row(sa.id, '/only', 'short text')] })
     await runBrokenLinkVerify({ siteAuditId: sa.id, domain: SIM_DOMAIN }, stubDeps)
     const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } }, select: { contentSimilarityJson: true } })
     expect(run).not.toBeNull()
     expect(run!.contentSimilarityJson).toBeNull()
-    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBe(0)
+    expect(await prisma.harvestedPageSeo.count({ where: { siteAuditId: sa.id } })).toBeGreaterThan(0)
   })
 
   it('skips similarity when little job time remains but still writes the run', async () => {
