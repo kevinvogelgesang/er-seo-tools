@@ -29,7 +29,7 @@ import { cancelJobsByGroup, countActiveJobsByGroup, enqueueJob } from '@/lib/job
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 import type { QueueStatusWithBatch } from './types'
 import { publishInvalidation } from '@/lib/events/bus'
-import { queueTopic, recentsTopic, siteAuditTopic } from '@/lib/events/topics'
+import { queueTopic, recentsTopic, siteAuditTopic, prospectListTopic } from '@/lib/events/topics'
 
 const TRANSIENT_STATUSES = ['running', 'pdfs-running', 'lighthouse-running'] as const
 
@@ -313,13 +313,16 @@ export async function failSiteAudit(id: string, message: string): Promise<void> 
   // recents list changed. Emit AFTER the flip, gated on flipped>0 above.
   publishInvalidation(siteAuditTopic(id))
   publishInvalidation(recentsTopic())
+  const row = await prisma.siteAudit.findUnique({
+    where: { id },
+    select: { batchId: true, notifyEmail: true, prospectId: true },
+  }).catch(() => null)
+  // A5 Task 19: a prospect-owned scan failing changes the /sales dashboard
+  // list (status). Gated on prospectId so client-owned audits never touch it.
+  if (row?.prospectId != null) publishInvalidation(prospectListTopic())
   await failOrphanAdaAudits(id).catch(() => {})
   await failOrphanPdfAudits(id).catch(() => {})
   await cancelJobsByGroup(`site-audit:${id}`).catch(() => {})
-  const row = await prisma.siteAudit.findUnique({
-    where: { id },
-    select: { batchId: true, notifyEmail: true },
-  }).catch(() => null)
   // D7: notify the admin of a failed audit that had opted in. Enqueued AFTER
   // cancelJobsByGroup (the notify job carries NO site-audit:<id> group, so it is
   // not cancelled), and only reached in the flipped>0 branch (one notify per
