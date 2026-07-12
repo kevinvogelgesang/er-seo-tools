@@ -1,13 +1,22 @@
 'use client'
 // Module-level, ref-counted shared poller for /api/site-audit/queue so that
-// multiple homepage widgets share ONE 5s interval + one in-flight fetch
-// (spec §9 — don't multiply queue-poll load). Cadence matches AuditIndexTabs.
-// Exposed via useSyncExternalStore — the React-correct external-store contract
-// (Codex fix 1). An inFlight guard drops ticks while a fetch is still pending.
+// multiple homepage widgets share ONE interval + one in-flight fetch (spec
+// §9 — don't multiply queue-poll load). Exposed via useSyncExternalStore —
+// the React-correct external-store contract (Codex fix 1). An inFlight guard
+// drops ticks while a fetch is still pending.
+//
+// SSE-aware (A5): subscribes to the `queue` invalidate topic for immediate
+// refetches, and health-gates the safety-poll cadence via subscribeHealth —
+// FAST_MS (5s) while SSE is not confirmed healthy, SAFETY_MS (60s) once it
+// is. No visibilitychange listener here — the client manager (lib/events/
+// client.ts) owns visibility and forces its own refetch-on-visible.
 import { useSyncExternalStore } from 'react'
 import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
+import { queueTopic } from '@/lib/events/topics'
 
-const POLL_MS = 5000
+const FAST_MS = 5000
+const SAFETY_MS = 60_000
 
 type Snapshot = { data: QueueStatusWithBatch | null; error: boolean; loading: boolean }
 
@@ -15,6 +24,9 @@ let current: Snapshot = { data: null, error: false, loading: true }
 let timer: ReturnType<typeof setInterval> | null = null
 let refCount = 0
 let inFlight = false
+let healthy = false
+let unsubTopic: (() => void) | null = null
+let unsubHealth: (() => void) | null = null
 const listeners = new Set<() => void>()
 
 function emit() {
@@ -38,17 +50,33 @@ async function tick() {
   emit()
 }
 
+function restartTimer() {
+  if (timer) { clearInterval(timer); timer = null }
+  timer = setInterval(() => void tick(), healthy ? SAFETY_MS : FAST_MS)
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener)
   refCount++
-  if (refCount === 1 && !timer) {
+  if (refCount === 1) {
     void tick()
-    timer = setInterval(() => void tick(), POLL_MS)
+    restartTimer()
+    unsubTopic = subscribeTopic(queueTopic(), () => void tick())
+    unsubHealth = subscribeHealth((h) => {
+      healthy = h
+      restartTimer()
+      if (h) void tick()
+    })
   }
   return () => {
     listeners.delete(listener)
     refCount--
-    if (refCount === 0 && timer) { clearInterval(timer); timer = null }
+    if (refCount === 0) {
+      if (timer) { clearInterval(timer); timer = null }
+      if (unsubTopic) { unsubTopic(); unsubTopic = null }
+      if (unsubHealth) { unsubHealth(); unsubHealth = null }
+      healthy = false
+    }
   }
 }
 

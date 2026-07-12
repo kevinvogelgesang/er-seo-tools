@@ -1,7 +1,25 @@
 // @vitest-environment jsdom
 import { renderHook, waitFor, cleanup } from '@testing-library/react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+
+// queue-poll.ts imports @/lib/events/client at module scope, so it MUST be
+// mocked before the store is imported (else jsdom hits a native EventSource
+// that doesn't exist). The mock exposes controllable subscribeTopic/
+// subscribeHealth fakes plus __fire()/__setHealth() test helpers.
+vi.mock('@/lib/events/client', () => {
+  let invalidate: () => void = () => {}
+  let health: (h: boolean) => void = () => {}
+  return {
+    subscribeTopic: (_topic: string, cb: () => void) => { invalidate = cb; return () => {} },
+    subscribeHealth: (cb: (h: boolean) => void) => { health = cb; cb(false); return () => {} },
+    __fire: () => invalidate(),
+    __setHealth: (h: boolean) => health(h),
+  }
+})
+
 import { useQueueStatus } from './queue-poll'
+import * as eventsClient from '@/lib/events/client'
+const { __fire, __setHealth } = eventsClient as unknown as { __fire: () => void; __setHealth: (h: boolean) => void }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 beforeEach(() => { vi.restoreAllMocks() })
@@ -46,6 +64,49 @@ describe('useQueueStatus', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1) // inFlight guard dropped both ticks
 
     resolveFetch({ ok: true, json: async () => snapshot })
+    unmount()
+  })
+
+  it('refetches when the queue topic invalidate handler fires', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { unmount } = renderHook(() => useQueueStatus())
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    __fire()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+
+    unmount()
+  })
+
+  it('polls at 5s while unhealthy, then demotes to a 60s safety poll once healthy', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { unmount } = renderHook(() => useQueueStatus())
+    // Initial fetch on mount.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Unhealthy cadence: 5s interval.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    // Health flips true: the health callback itself fires an immediate tick,
+    // and the interval demotes to 60s.
+    __setHealth(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    // 5s later (well under the new 60s cadence) — no new fetch.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    // Advance to the full 60s safety interval — exactly one more fetch.
+    await vi.advanceTimersByTimeAsync(55000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+
     unmount()
   })
 })
