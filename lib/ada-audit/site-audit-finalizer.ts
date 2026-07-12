@@ -25,7 +25,7 @@ import { enqueueBrokenLinkVerify } from '@/lib/jobs/handlers/broken-link-verify'
 import { resolveAdaScoringWeights } from '@/lib/scoring/resolve-ada-weights'
 import { DEFAULT_ADA_V4_WEIGHTS } from '@/lib/scoring/ada-v4'
 import { publishInvalidation } from '@/lib/events/bus'
-import { queueTopic, siteAuditTopic } from '@/lib/events/topics'
+import { queueTopic, siteAuditTopic, clientSummaryTopic, recentsTopic } from '@/lib/events/topics'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   // Scalar-first: page settles call finalize once per page; loading every
@@ -164,9 +164,17 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
         pageAudits,
         adaWeights,
       )
-      void writeFindingsRun(bundle).catch((e) => {
-        console.error('[findings] ADA dual-write failed for site audit', id, e)
-      })
+      void writeFindingsRun(bundle)
+        .then(() => {
+          // A5 Task 14: the CrawlRun.score didn't exist at the parent-completion
+          // flip above — this is the actual data-ready moment for client/recents
+          // consumers of this audit's score. Post-commit, outside any tx.
+          publishInvalidation(clientSummaryTopic())
+          publishInvalidation(recentsTopic())
+        })
+        .catch((e) => {
+          console.error('[findings] ADA dual-write failed for site audit', id, e)
+        })
     } catch (e) {
       console.error('[findings] ADA bundle mapping failed for site audit', id, e)
     }

@@ -44,12 +44,17 @@ vi.mock('@/lib/ada-audit/carry-forward-checks', () => ({
     if (state.failCarryForward) throw new Error('injected carry-forward failure')
   }),
 }))
+// A5 Task 14: the dual-write-success emit is asserted here (the failure-
+// injectable writer lives in this file) rather than in site-audit-finalizer.test.ts.
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('./site-audit-finalizer')
 const { processNext } = await import('@/lib/ada-audit/queue-manager')
 const { carryForwardSiteAuditChecks } = await import('./carry-forward-checks')
 const { writeFindingsRun } = await import('@/lib/findings/writer')
+const { publishInvalidation } = await import('@/lib/events/bus')
+const { clientSummaryTopic, recentsTopic } = await import('@/lib/events/topics')
 
 const DOMAIN_PREFIX = 'finalize-findings-'
 
@@ -97,6 +102,7 @@ describe('finalizeSiteAudit — findings dual-write hook', () => {
     vi.mocked(processNext).mockClear()
     vi.mocked(carryForwardSiteAuditChecks).mockClear()
     vi.mocked(writeFindingsRun).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -200,5 +206,38 @@ describe('finalizeSiteAudit — findings dual-write hook', () => {
     await finalizeSiteAudit(site.id)
     await new Promise((r) => setTimeout(r, 50))
     expect(await prisma.crawlRun.count({ where: { siteAuditId: site.id } })).toBe(0)
+  })
+
+  // A5 Task 14: the CrawlRun.score doesn't exist yet at the parent-completion
+  // flip — client-audit-summary/recents must fire only once the dual-write
+  // resolves, from writeFindingsRun(...).then(...), not from the flip.
+  it('emits client-audit-summary + recents only after the dual-write commits, not at the parent flip', async () => {
+    const site = await makeDrainedAudit()
+    await finalizeSiteAudit(site.id)
+
+    // Immediately after finalizeSiteAudit resolves, the parent flip's own
+    // emits (queue/site-audit — Task 10) may have fired, but the dual-write
+    // is still in flight (fire-and-forget real DB write) — the dual-write's
+    // emits must not have landed yet.
+    const immediateCalls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(immediateCalls).not.toContain(clientSummaryTopic())
+    expect(immediateCalls).not.toContain(recentsTopic())
+
+    await vi.waitFor(async () => {
+      const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+      expect(calls).toContain(clientSummaryTopic())
+      expect(calls).toContain(recentsTopic())
+    })
+  })
+
+  it('a findings write failure never emits client-audit-summary or recents', async () => {
+    state.failWrites = true
+    const site = await makeDrainedAudit()
+    await finalizeSiteAudit(site.id)
+    // give the rejected write a tick to surface if it were going to emit
+    await new Promise((r) => setTimeout(r, 50))
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).not.toContain(clientSummaryTopic())
+    expect(calls).not.toContain(recentsTopic())
   })
 })

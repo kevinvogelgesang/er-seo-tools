@@ -44,6 +44,8 @@ import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import { enqueueNotifyEmail } from './notify-email'
 import type { JobExhaustedContext, JobHandlerContext } from '../types'
+import { publishInvalidation } from '@/lib/events/bus'
+import { siteAuditTopic, prospectListTopic, clientSummaryTopic, recentsTopic } from '@/lib/events/topics'
 
 // parseUrlList is private to site-audit-discover.ts — define a local parser
 // here instead of importing it.
@@ -152,7 +154,7 @@ export async function runBrokenLinkVerify(
   const site = await prisma.siteAudit.findUnique({
     where: { id: job.siteAuditId },
     select: {
-      id: true, domain: true, clientId: true, pagesTotal: true, pagesError: true, seoIntent: true,
+      id: true, domain: true, clientId: true, prospectId: true, pagesTotal: true, pagesError: true, seoIntent: true,
       discoveredUrls: true, discoveryMode: true, discoveryCapped: true, discoverySourcesJson: true,
       notifyEmail: true, notifyCompleteSentAt: true,
     },
@@ -671,6 +673,14 @@ export async function runBrokenLinkVerify(
     data: { contentAuditRetainUntil: new Date(deps.now() + CONTENT_AUDIT_BASE_TTL_MS) },
   })
   await writeFindingsRun(bundle)
+  // A5 Task 14: the live-scan CrawlRun just committed — this is the moment a
+  // seoOnly audit's results page actually becomes ready (the parent flipped
+  // 'complete' earlier, before this run existed). Post-commit, outside any
+  // tx, and unreachable if the await above threw.
+  publishInvalidation(siteAuditTopic(job.siteAuditId))
+  if (site.prospectId != null) publishInvalidation(prospectListTopic())
+  publishInvalidation(clientSummaryTopic())
+  publishInvalidation(recentsTopic())
   // HarvestedLink stays transient (a populated row still means "builder didn't
   // finish", which recovery relies on). HarvestedPageSeo is NO LONGER deleted
   // here -- it carries contentText for the retention window and is DELETEd at
