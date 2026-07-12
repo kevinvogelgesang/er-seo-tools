@@ -6,6 +6,7 @@ vi.mock('@/lib/ada-audit/pdf-orchestrator', () => ({ dispatchPdfScans: vi.fn(asy
 vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({ finalizeSiteAudit: vi.fn(async () => undefined) }))
 vi.mock('@/lib/ada-audit/lighthouse-queue', () => ({ enqueuePsiJob: vi.fn() }))
 vi.mock('@/lib/ada-audit/lighthouse-provider', () => ({ getLighthouseProvider: vi.fn(() => 'pagespeed') }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { runAxeAudit } = await import('@/lib/ada-audit/runner')
@@ -13,6 +14,7 @@ const { dispatchPdfScans } = await import('@/lib/ada-audit/pdf-orchestrator')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
 const { enqueuePsiJob } = await import('@/lib/ada-audit/lighthouse-queue')
 const { getLighthouseProvider } = await import('@/lib/ada-audit/lighthouse-provider')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { runSiteAuditPageJob, onSiteAuditPageExhausted, persistPageSeo } = await import('./site-audit-page')
 import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
 
@@ -57,6 +59,7 @@ describe('jobs/handlers/site-audit-page', () => {
     vi.mocked(finalizeSiteAudit).mockClear()
     vi.mocked(enqueuePsiJob).mockClear()
     vi.mocked(getLighthouseProvider).mockReturnValue('pagespeed')
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -149,6 +152,23 @@ describe('jobs/handlers/site-audit-page', () => {
     expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
     // C6 (fix #3): an attempt that never freshly audited/settled persists no harvest.
     expect(await prisma.harvestedLink.count({ where: { siteAuditId: site.id } })).toBe(0)
+  })
+
+  it('A5: emits site-audit/recents/queue after a winning settle', async () => {
+    vi.mocked(runAxeAudit).mockResolvedValue(AXE_OK)
+    const { site, payload } = await seed('emit-ok')
+    await runSiteAuditPageJob(payload)
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain(`site-audit:${site.id}`)
+    expect(calls).toContain('recents')
+    expect(calls).toContain('queue')
+  })
+
+  it('A5: does NOT emit on a lost fence (claim-0, no settle)', async () => {
+    // Terminal child → settlePage never runs (claim-0 path), so no emit.
+    const { payload } = await seed('emit-noop', 'complete')
+    await runSiteAuditPageJob(payload)
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('onExhausted settles the child as error + pagesError + finalize; no-ops on terminal', async () => {

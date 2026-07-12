@@ -39,6 +39,8 @@ import type { JobExhaustedContext } from '../types'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 import type { HarvestedTarget } from '@/lib/ada-audit/link-harvest'
 import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
+import { publishInvalidation } from '@/lib/events/bus'
+import { queueTopic, recentsTopic, siteAuditTopic } from '@/lib/events/topics'
 
 // C6: chunk size for HarvestedLink inserts. 300 targets/page x 5 cols > SQLite's
 // 999-variable limit, so chunk at 50 (matches the findings writer).
@@ -185,7 +187,17 @@ async function settlePage(
       data: childData,
     }),
   ])
-  return flipped.count === 1
+  const won = flipped.count === 1
+  if (won) {
+    // A5: this attempt won the child flip + counter bump — the site-audit
+    // detail, the recents list, and the queue view all changed. Emit AFTER
+    // the tx resolved; publishInvalidation is synchronous + never throws.
+    // Gated on the winning fence so a lost re-run (count===0) emits nothing.
+    publishInvalidation(siteAuditTopic(job.siteAuditId))
+    publishInvalidation(recentsTopic())
+    publishInvalidation(queueTopic())
+  }
+  return won
 }
 
 async function finalizeWarn(siteAuditId: string, context: string): Promise<void> {

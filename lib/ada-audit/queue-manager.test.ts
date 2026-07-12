@@ -14,10 +14,12 @@ vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({
 vi.mock('@/lib/ada-audit/standalone-recovery', () => ({
   recoverStandaloneAudits: vi.fn(async () => undefined),
 }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
 const { recoverStandaloneAudits } = await import('./standalone-recovery')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { processNext, recoverQueue, resetStaleAudits, failSiteAudit } = await import('./queue-manager')
 
 const PREFIX = 'qm3-test-'
@@ -183,6 +185,7 @@ describe('recovery — generic transient treatment', () => {
 describe('failSiteAudit', () => {
   beforeEach(async () => {
     vi.mocked(finalizeSiteAudit).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -202,6 +205,11 @@ describe('failSiteAudit', () => {
     expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('error')
     expect((await prisma.pdfAudit.findFirst({ where: { siteAuditId: site.id } }))?.status).toBe('error')
     expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('cancelled')
+    // A5: the flip emits site-audit + recents, and the final queue after close.
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain(`site-audit:${site.id}`)
+    expect(calls).toContain('recents')
+    expect(calls).toContain('queue')
   })
 
   it('never clobbers a terminal parent — and does not cascade its children or jobs', async () => {
@@ -216,6 +224,8 @@ describe('failSiteAudit', () => {
     expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.status).toBe('complete')
     expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('complete')
     expect((await prisma.job.findUnique({ where: { id: job.id } }))?.status).toBe('queued')
+    // A5: a lost fence (parent already terminal) emits nothing.
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('D7: enqueues a failed notify job when the audit opted in', async () => {
@@ -285,6 +295,16 @@ describe('enqueueAudit seoOnly persistence (C11)', () => {
     const { id } = await enqueueAudit(`${PREFIX}seoonly3.example.edu`, null, 'wcag21aa', {})
     const row = await prisma.siteAudit.findUnique({ where: { id }, select: { seoOnly: true } })
     expect(row).toEqual({ seoOnly: false })
+    await prisma.siteAudit.delete({ where: { id } })
+  })
+})
+
+describe('enqueueAudit A5 queue emit', () => {
+  it('emits queue after the create + batch verification settles', async () => {
+    const { enqueueAudit } = await import('./queue-manager')
+    vi.mocked(publishInvalidation).mockClear()
+    const { id } = await enqueueAudit(`${PREFIX}emit.example.edu`, null, 'wcag21aa', {})
+    expect(publishInvalidation).toHaveBeenCalledWith('queue')
     await prisma.siteAudit.delete({ where: { id } })
   })
 })

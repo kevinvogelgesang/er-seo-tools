@@ -24,6 +24,7 @@ vi.mock('@/lib/findings/writer', () => ({
 vi.mock('@/lib/jobs/handlers/broken-link-verify', () => ({
   enqueueBrokenLinkVerify: vi.fn(async () => undefined),
 }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('./site-audit-finalizer')
@@ -31,6 +32,7 @@ const { processNext } = await import('@/lib/ada-audit/queue-manager')
 const { carryForwardSiteAuditChecks } = await import('@/lib/ada-audit/carry-forward-checks')
 const { writeFindingsRun } = await import('@/lib/findings/writer')
 const { enqueueBrokenLinkVerify } = await import('@/lib/jobs/handlers/broken-link-verify')
+const { publishInvalidation } = await import('@/lib/events/bus')
 
 async function clearTestState() {
   await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: 'finalize-test-' } } })
@@ -73,6 +75,7 @@ async function makeAudit(overrides: Partial<{
 describe('finalizeSiteAudit — centralized drain predicate', () => {
   beforeEach(async () => {
     vi.mocked(processNext).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -86,6 +89,8 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     expect(after?.status).toBe('lighthouse-running')
     expect(after?.summary).toBeNull()
     expect(processNext).not.toHaveBeenCalled()
+    // A5: a transient status flip emits `queue` (not site-audit — not terminal).
+    expect(publishInvalidation).toHaveBeenCalledWith('queue')
   })
 
   it('does NOT finalize when PDFs are still draining (pages done, pdfs pending, lh done)', async () => {
@@ -124,6 +129,10 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     expect(after?.status).toBe('complete')
     expect(after?.summary).not.toBeNull()
     expect(processNext).toHaveBeenCalled()
+    // A5: non-seoOnly complete emits both queue + site-audit.
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain('queue')
+    expect(calls).toContain(`site-audit:${audit.id}`)
   })
 
   it('is idempotent — calling on an already-complete audit is a no-op', async () => {
@@ -138,6 +147,8 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
     const after = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(after?.summary).toBe('{"sentinel":true}')
     expect(processNext).not.toHaveBeenCalled()
+    // A5: an already-terminal no-op writes nothing, so it emits nothing.
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('returns without changing status when pages are not done', async () => {
@@ -176,6 +187,7 @@ describe('finalizeSiteAudit — centralized drain predicate', () => {
 describe('finalizeSiteAudit — phase 3 guards', () => {
   beforeEach(async () => {
     vi.mocked(processNext).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -210,6 +222,7 @@ describe('finalizeSiteAudit — phase 3 guards', () => {
 describe('finalizeSiteAudit — C11 seoOnly guard', () => {
   beforeEach(async () => {
     vi.mocked(processNext).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
     vi.mocked(carryForwardSiteAuditChecks).mockClear()
     vi.mocked(writeFindingsRun).mockClear()
     vi.mocked(enqueueBrokenLinkVerify).mockClear()
@@ -248,6 +261,11 @@ describe('finalizeSiteAudit — C11 seoOnly guard', () => {
     expect(enqueueBrokenLinkVerify).toHaveBeenCalledWith(parent.id, parent.domain)
     // And the queue is still kicked.
     expect(processNext).toHaveBeenCalled()
+    // A5: seoOnly complete emits `queue` only — the site-audit:<id> readiness
+    // re-emit is deferred to Task 14 (the live-scan run isn't ready yet).
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain('queue')
+    expect(calls).not.toContain(`site-audit:${parent.id}`)
   })
 
   it('C11: a full (non-seoOnly) audit still builds a summary, dual-writes, carries forward, and enqueues verify', async () => {

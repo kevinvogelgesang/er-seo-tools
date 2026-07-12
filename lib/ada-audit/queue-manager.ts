@@ -28,6 +28,8 @@ import { recoverStandaloneAudits } from '@/lib/ada-audit/standalone-recovery'
 import { cancelJobsByGroup, countActiveJobsByGroup, enqueueJob } from '@/lib/jobs/queue'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 import type { QueueStatusWithBatch } from './types'
+import { publishInvalidation } from '@/lib/events/bus'
+import { queueTopic, recentsTopic, siteAuditTopic } from '@/lib/events/topics'
 
 const TRANSIENT_STATUSES = ['running', 'pdfs-running', 'lighthouse-running'] as const
 
@@ -147,6 +149,13 @@ export async function enqueueAudit(
       data: { batchId: newBatchId },
     })
   }
+
+  // A5: the new queued audit is now settled onto its final batch — the queue
+  // view (pending list) changed. Emit AFTER batch verification/reassignment
+  // (Codex plan-fix 5: NOT right after the bare create, which could point the
+  // consumer at a batch that's about to be reassigned). publishInvalidation
+  // is synchronous + never throws.
+  publishInvalidation(queueTopic())
 
   void processNext()
 
@@ -296,9 +305,14 @@ export async function failSiteAudit(id: string, message: string): Promise<void> 
   if (flipped === 0) {
     // Parent already terminal (or flip failed) — do not cascade-fail the
     // children/jobs of an audit that completed or was cancelled cleanly.
+    // Lost fence: emit nothing (no state changed).
     void processNext()
     return
   }
+  // A5: this call flipped the parent to `error` — its detail view + the
+  // recents list changed. Emit AFTER the flip, gated on flipped>0 above.
+  publishInvalidation(siteAuditTopic(id))
+  publishInvalidation(recentsTopic())
   await failOrphanAdaAudits(id).catch(() => {})
   await failOrphanPdfAudits(id).catch(() => {})
   await cancelJobsByGroup(`site-audit:${id}`).catch(() => {})
@@ -318,6 +332,9 @@ export async function failSiteAudit(id: string, message: string): Promise<void> 
   if (row?.batchId) {
     await closeBatchIfDrained(row.batchId).catch(() => {})
   }
+  // A5: the failed audit released the queue slot. Emit the final `queue`
+  // AFTER closeBatchIfDrained so any batch-close is reflected too.
+  publishInvalidation(queueTopic())
   void processNext()
 }
 

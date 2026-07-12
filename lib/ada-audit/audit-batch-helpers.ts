@@ -12,6 +12,8 @@
 //    string (auto-generates from startedAt when label is null).
 
 import { prisma } from '@/lib/db'
+import { publishInvalidation } from '@/lib/events/bus'
+import { auditBatchTopic, queueTopic } from '@/lib/events/topics'
 
 /** Statuses that count as "in flight" — a batch with any such member stays open. */
 const IN_FLIGHT_STATUSES = ['queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running']
@@ -38,6 +40,11 @@ export async function ensureOpenBatch(): Promise<string> {
 
   try {
     const created = await prisma.auditBatch.create({ data: {} })
+    // A5: a brand-new open batch changed the batch header + the queue view.
+    // Emit only on an ACTUAL create (this try branch); the P2002-loser path
+    // below re-reads a batch another caller created (which already emitted).
+    publishInvalidation(auditBatchTopic(created.id))
+    publishInvalidation(queueTopic())
     return created.id
   } catch (err) {
     const code = (err as { code?: string }).code
@@ -71,7 +78,7 @@ export async function closeBatchIfDrained(batchId: string | null | undefined): P
   // SQLite-compatible: parameterized $executeRaw. Prisma's updateMany doesn't
   // support correlated subqueries, so we drop to raw. Returns 0 when nothing
   // matched (already closed, or has in-flight members).
-  await prisma.$executeRaw`
+  const closed = await prisma.$executeRaw`
     UPDATE "AuditBatch"
     SET "closedAt" = ${new Date()}
     WHERE "id" = ${batchId}
@@ -82,6 +89,12 @@ export async function closeBatchIfDrained(batchId: string | null | undefined): P
           AND "SiteAudit"."status" IN ('queued', 'pending', 'running', 'pdfs-running', 'lighthouse-running')
       )
   `
+  // A5: emit only when THIS call actually closed the batch (affected count > 0)
+  // — a no-op close (already closed / still has in-flight members) emits nothing.
+  if (closed > 0) {
+    publishInvalidation(auditBatchTopic(batchId))
+    publishInvalidation(queueTopic())
+  }
 }
 
 /**

@@ -8,6 +8,8 @@ import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-children-helpers'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { classifySeoPhase, getLatestSeoVerifyJob, type SeoPhase } from '@/lib/ada-audit/seo-phase'
+import { publishInvalidation } from '@/lib/events/bus'
+import { queueTopic, recentsTopic, siteAuditTopic } from '@/lib/events/topics'
 
 export const dynamic = 'force-dynamic'
 
@@ -165,6 +167,13 @@ export async function DELETE(
 
   // Cascade deletes all child AdaAudit rows (defined in schema)
   await prisma.siteAudit.delete({ where: { id } })
+
+  // A5: the audit is gone — its detail view, the recents list, and the queue
+  // view all changed. Emit AFTER the delete committed (existence was verified
+  // above, so this is not a no-op). publishInvalidation is sync + never throws.
+  publishInvalidation(siteAuditTopic(id))
+  publishInvalidation(recentsTopic())
+  publishInvalidation(queueTopic())
 
   const artifactCleanup = await Promise.allSettled(
     children.map((child) => deleteAuditArtifacts(child.id)),

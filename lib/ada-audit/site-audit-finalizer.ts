@@ -24,6 +24,8 @@ import { writeFindingsRun } from '@/lib/findings/writer'
 import { enqueueBrokenLinkVerify } from '@/lib/jobs/handlers/broken-link-verify'
 import { resolveAdaScoringWeights } from '@/lib/scoring/resolve-ada-weights'
 import { DEFAULT_ADA_V4_WEIGHTS } from '@/lib/scoring/ada-v4'
+import { publishInvalidation } from '@/lib/events/bus'
+import { queueTopic, siteAuditTopic } from '@/lib/events/topics'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   // Scalar-first: page settles call finalize once per page; loading every
@@ -66,6 +68,10 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     const next = !pdfsDone ? 'pdfs-running' : 'lighthouse-running'
     if (audit.status !== next) {
       await prisma.siteAudit.update({ where: { id }, data: { status: next } })
+      // A5: the transient status flip changed the queue view (which phase the
+      // active audit is in). Emit AFTER the write, only when we actually
+      // transitioned (guarded on audit.status !== next above).
+      publishInvalidation(queueTopic())
     }
     return
   }
@@ -84,6 +90,10 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
       where: { id },
       data: { status: 'complete', summary: null, completedAt },
     })
+    // A5: the terminal flip released the queue slot. Emit `queue` only —
+    // seoOnly `site-audit:<id>` readiness re-emit is deferred to Task 14
+    // (the live-scan run isn't ready at this point).
+    publishInvalidation(queueTopic())
   } else {
     pageAudits = await prisma.adaAudit.findMany({
       where: { siteAuditId: id },
@@ -99,6 +109,10 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
         completedAt,
       },
     })
+    // A5: the terminal flip released the queue slot AND the audit's detail
+    // view is now complete (summary written). Emit AFTER the write.
+    publishInvalidation(queueTopic())
+    publishInvalidation(siteAuditTopic(id))
   }
 
   // Order below is IDENTICAL to the full-audit path today: closeBatch →

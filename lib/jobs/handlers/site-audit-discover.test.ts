@@ -3,10 +3,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 vi.mock('@/lib/ada-audit/sitemap-crawler', () => ({ discoverPages: vi.fn() }))
 vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({ finalizeSiteAudit: vi.fn(async () => undefined) }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { discoverPages } = await import('@/lib/ada-audit/sitemap-crawler')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { runSiteAuditDiscoverJob, onSiteAuditDiscoverExhausted } = await import('./site-audit-discover')
 
 const PREFIX = 'sad-handler-test-'
@@ -45,6 +47,7 @@ describe('jobs/handlers/site-audit-discover', () => {
   beforeEach(async () => {
     vi.mocked(discoverPages).mockReset()
     vi.mocked(finalizeSiteAudit).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 
@@ -76,6 +79,17 @@ describe('jobs/handlers/site-audit-discover', () => {
     expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.status).toBe('queued')
     expect(discoverPages).not.toHaveBeenCalled()
     expect(await prisma.job.count({ where: { groupKey: `site-audit:${site.id}` } })).toBe(0)
+    // A5: a lost claim (another audit holds the slot) emits nothing.
+    expect(publishInvalidation).not.toHaveBeenCalledWith(`site-audit:${site.id}`)
+  })
+
+  it('A5: emits queue + site-audit after a winning queued→running claim', async () => {
+    const site = await seedQueued('emit')
+    vi.mocked(discoverPages).mockResolvedValue({ urls: [], mode: 'sitemap', capped: false })
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain('queue')
+    expect(calls).toContain(`site-audit:${site.id}`)
   })
 
   it('resume: running row with partial children/jobs gets topped up without duplicates', async () => {
@@ -188,6 +202,7 @@ describe('jobs/handlers/site-audit-discover — hybrid discovery wiring (Task 6)
   beforeEach(async () => {
     vi.mocked(discoverPages).mockReset()
     vi.mocked(finalizeSiteAudit).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
     await clearTestState()
   })
 

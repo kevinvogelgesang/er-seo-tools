@@ -75,6 +75,8 @@ describe('isPublicPath — auth-gate allowlist', () => {
     '/api/clients/1/keyword-strategy/mint-token',
     // anchoring proof: a deeper path than the volumes route must not match
     '/api/keyword-strategy/abc123/volumes/extra',
+    // A5 SSE stream — cookie-gated, must NOT be public
+    '/api/events',
   ])('keeps non-handoff route %s gated', (p) => {
     expect(isPublicPath(p)).toBe(false);
   });

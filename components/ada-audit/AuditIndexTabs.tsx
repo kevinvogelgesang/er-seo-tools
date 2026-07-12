@@ -7,10 +7,8 @@ import SiteAuditForm from './SiteAuditForm'
 import ClientsAuditSummary from './ClientsAuditSummary'
 import DashboardQueueStatus from './DashboardQueueStatus'
 import RecentsTable from './RecentsTable'
-import type { QueueStatusWithBatch } from '@/lib/ada-audit/types'
+import { useQueueStatus } from '@/lib/widgets/queue-poll'
 import type { RecentItem } from '@/lib/ada-audit/recents-query'
-
-const QUEUE_POLL_INTERVAL_MS = 5000
 
 type Tab = 'single' | 'site'
 
@@ -43,26 +41,10 @@ export default function AuditIndexTabs({ recentItems, operator, initialScope, no
     if (explicit) setTab(parseTab(explicit))
   }, [searchParams])
 
-  // Lifted queue poll — single 5s interval feeds DashboardQueueStatus,
-  // SiteAuditForm (banner), and SiteAuditHistory (in-flight row merge).
-  // Replaces the duplicate polls that used to live in SiteAuditForm and
-  // SiteAuditHistory.
-  const [queueStatus, setQueueStatus] = useState<QueueStatusWithBatch | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const tick = async () => {
-      try {
-        const res = await fetch('/api/site-audit/queue')
-        if (!res.ok) return
-        const data = (await res.json()) as QueueStatusWithBatch
-        if (!cancelled) setQueueStatus(data)
-      } catch { /* swallow; cards hold last-known state */ }
-    }
-    void tick()
-    const timer = setInterval(tick, QUEUE_POLL_INTERVAL_MS)
-    return () => { cancelled = true; clearInterval(timer) }
-  }, [])
+  // Shared SSE-aware queue store (A5) — feeds DashboardQueueStatus,
+  // SiteAuditForm (banner), and SiteAuditHistory (in-flight row merge) from
+  // the ONE module-level poller shared with the other homepage widgets.
+  const { data: queueStatus } = useQueueStatus()
 
   return (
     <div className="space-y-8">

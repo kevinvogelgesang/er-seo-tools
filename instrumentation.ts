@@ -144,6 +144,13 @@ export async function register() {
         console.error('[shutdown] Failed to stop job worker:', err)
       }
       try {
+        const { shutdownBus } = await import('@/lib/events/bus')
+        shutdownBus()
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[shutdown] Failed to close SSE bus:', err)
+      }
+      try {
         await closeBrowser()
       } catch (err) {
         // eslint-disable-next-line no-console
