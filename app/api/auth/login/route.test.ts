@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { __resetLoginLimiter } from '@/lib/login-rate-limiter'
 
 // Force a stable password for the test environment so verifyPassword passes.
 process.env.APP_AUTH_PASSWORD = 'pw'
 process.env.APP_AUTH_SECRET = 'test-secret'
+process.env.LOGIN_RATE_LIMIT_MAX = '3'
+process.env.LOGIN_RATE_LIMIT_WINDOW_MS = '60000'
 
 const { POST } = await import('./route')
 
@@ -17,12 +20,25 @@ function formRequest(body: Record<string, string>): NextRequest {
   })
 }
 
+function formRequestFromIp(body: Record<string, string>, ip: string): NextRequest {
+  const fd = new URLSearchParams()
+  for (const [k, v] of Object.entries(body)) fd.set(k, v)
+  return new NextRequest('http://localhost/api/auth/login', {
+    method: 'POST',
+    body: fd,
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'cf-connecting-ip': ip,
+    },
+  })
+}
+
 function setCookieHeader(res: Response): string {
   return res.headers.get('set-cookie') ?? ''
 }
 
 describe('POST /api/auth/login — er-operator-name cookie', () => {
-  beforeEach(() => { vi.clearAllMocks() })
+  beforeEach(() => { vi.clearAllMocks(); __resetLoginLimiter() })
 
   it('does NOT set er_auth or operator-name cookies on wrong password', async () => {
     const res = await POST(formRequest({ password: 'wrong', operatorName: 'Kevin' }))
@@ -76,6 +92,46 @@ describe('POST /api/auth/login — er-operator-name cookie', () => {
     } finally {
       delete process.env.ALLOW_PASSWORD_LOGIN
     }
+  })
+})
+
+describe('POST /api/auth/login — rate limiting', () => {
+  beforeEach(() => { __resetLoginLimiter() })
+
+  it('blocks with too_many_attempts after max failures from one IP', async () => {
+    const ip = '203.0.113.7'
+    for (let i = 0; i < 3; i++) await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    const res = await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    expect(res.headers.get('location') ?? '').toContain('error=too_many_attempts')
+    expect(res.headers.get('retry-after')).toBeTruthy()
+  })
+
+  it('does not block a different IP', async () => {
+    for (let i = 0; i < 5; i++) await POST(formRequestFromIp({ password: 'wrong' }, '203.0.113.7'))
+    const res = await POST(formRequestFromIp({ password: 'wrong' }, '198.51.100.9'))
+    expect(res.headers.get('location') ?? '').toContain('error=invalid')
+    expect(res.headers.get('location') ?? '').not.toContain('too_many_attempts')
+  })
+
+  it('successful login resets the IP counter', async () => {
+    const ip = '203.0.113.7'
+    await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    await POST(formRequestFromIp({ password: 'pw' }, ip))
+    await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    const res = await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    expect(res.headers.get('location') ?? '').toContain('error=invalid')
+  })
+
+  it('ALLOW_PASSWORD_LOGIN=false short-circuits WITHOUT consuming limiter budget', async () => {
+    const ip = '203.0.113.7'
+    process.env.ALLOW_PASSWORD_LOGIN = 'false'
+    try {
+      for (let i = 0; i < 5; i++) await POST(formRequestFromIp({ password: 'pw' }, ip))
+    } finally { delete process.env.ALLOW_PASSWORD_LOGIN }
+    const res = await POST(formRequestFromIp({ password: 'wrong' }, ip))
+    expect(res.headers.get('location') ?? '').toContain('error=invalid')
   })
 })
 

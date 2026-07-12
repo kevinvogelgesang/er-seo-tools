@@ -10,6 +10,8 @@ import {
   sanitizeOperatorName,
   verifyPassword,
 } from '@/lib/auth'
+import { hitLoginLimiter, resetLoginLimiter } from '@/lib/login-rate-limiter'
+import { getClientIp } from '@/lib/upload-helpers'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +31,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(loginUrl, { status: 303 })
   }
 
+  const ip = getClientIp(request)
+  const rl = hitLoginLimiter(ip)
+  if (!rl.allowed) {
+    const loginUrl = new URL('/login', base)
+    loginUrl.searchParams.set('error', 'too_many_attempts')
+    loginUrl.searchParams.set('next', nextPath)
+    const blocked = NextResponse.redirect(loginUrl, { status: 303 })
+    blocked.headers.set('Retry-After', String(rl.retryAfterSeconds))
+    return blocked
+  }
+
   if (typeof password !== 'string' || !verifyPassword(password)) {
     const loginUrl = new URL('/login', base)
     loginUrl.searchParams.set('error', 'invalid')
@@ -39,6 +52,7 @@ export async function POST(request: NextRequest) {
   // Operator-name cookie (optional, non-credential): set when provided,
   // delete when empty/whitespace so a stale value doesn't survive.
   const operatorName = sanitizeOperatorName(formData.get('operatorName'))
+  resetLoginLimiter(ip)
 
   const response = NextResponse.redirect(new URL(nextPath, base), { status: 303 })
   response.cookies.set({
