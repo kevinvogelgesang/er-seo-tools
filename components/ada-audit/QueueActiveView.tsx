@@ -88,7 +88,12 @@ export default function QueueActiveView() {
       setBatchId(incomingId)
     } else {
       setBatchId(null)
-      setDetail(null)
+      // The shared queue store yields a NEW snapshot object on every tick /
+      // queue invalidate even when content is unchanged, so this effect can
+      // re-run (incomingId still null) INSIDE the 5s freeze window armed by
+      // the close edge above. Don't wipe the frozen detail early — the
+      // pending timer callback owns the clear.
+      if (!closedTimerRef.current) setDetail(null)
     }
     lastSeenBatchId.current = incomingId
   }, [queueData, fetchDetail])
@@ -112,6 +117,13 @@ export default function QueueActiveView() {
     }
     restartTimer(false)
     const unsubTopic = subscribeTopic(auditBatchTopic(batchId), () => void doFetch())
+    // subscribeHealth invokes the callback synchronously with the current
+    // health state — when SSE is already healthy at mount this fires a second
+    // doFetch() right after the unconditional initial one. Tolerated, matching
+    // the established migrations (ReportLibrary / ProspectDashboard /
+    // ContentAuditCard all pair an unconditional initial fetch with an
+    // `if (h) refetch` health handler): one duplicate GET at mount, and the
+    // healthy-flip refetch is load-bearing after a reconnect.
     const unsubHealth = subscribeHealth((h) => {
       restartTimer(h)
       if (h) void doFetch()
@@ -129,7 +141,7 @@ export default function QueueActiveView() {
   const handleCancelled = useCallback(() => {
     if (!batchId) return
     void fetchDetail(batchId).then((json) => {
-      if (json) setDetail(json)
+      if (json && isMountedRef.current) setDetail(json)
     })
   }, [batchId, fetchDetail])
 

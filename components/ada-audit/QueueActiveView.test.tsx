@@ -161,6 +161,37 @@ describe('QueueActiveView — SSE-aware batch detail poll (A5 Task 21)', () => {
     expect(screen.getByText(/no audits in flight/i)).toBeTruthy()
   })
 
+  it('freeze-frame detail survives a store re-tick (new snapshot ref, still-null batch) until the 5s timer expires', async () => {
+    routeFetch()
+    queueMock.value = { data: openBatchQueueData(), error: false, loading: false }
+    const { rerender } = render(<QueueActiveView />)
+    await act(async () => { await flushAsync() })
+    expect(screen.getByText('example.com')).toBeTruthy()
+
+    // Batch closes → freeze frame armed (toast + final detail held for 5s).
+    queueMock.value = { data: { active: null, queued: [], batch: null }, error: false, loading: false }
+    rerender(<QueueActiveView />)
+    await act(async () => { await flushAsync() })
+    expect(screen.getByText(/batch complete/i)).toBeTruthy()
+    expect(screen.getByText('example.com')).toBeTruthy()
+
+    // The shared queue store produces a NEW snapshot object on every tick /
+    // queue invalidate even when content is unchanged. A re-run of the
+    // "which batch is open" effect INSIDE the freeze window (incomingId
+    // still null) must NOT wipe the frozen detail early.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    queueMock.value = { data: { active: null, queued: [], batch: null }, error: false, loading: false }
+    rerender(<QueueActiveView />)
+    await act(async () => { await flushAsync() })
+    expect(screen.getByText(/batch complete/i)).toBeTruthy()
+    expect(screen.getByText('example.com')).toBeTruthy()
+
+    // Once the 5s freeze expires, the timer callback clears to the empty state.
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(screen.queryByText(/batch complete/i)).toBeNull()
+    expect(screen.getByText(/no audits in flight/i)).toBeTruthy()
+  })
+
   it('shows a freeze-frame toast with final detail when the store batch closes', async () => {
     routeFetch()
     queueMock.value = { data: openBatchQueueData(), error: false, loading: false }
