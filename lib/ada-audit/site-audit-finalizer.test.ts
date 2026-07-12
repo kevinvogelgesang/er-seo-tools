@@ -38,12 +38,14 @@ async function clearTestState() {
   await prisma.crawlRun.deleteMany({ where: { domain: { startsWith: 'finalize-test-' } } })
   await prisma.adaAudit.deleteMany({ where: { url: { startsWith: 'https://finalize-test-' } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: 'finalize-test-' } } })
+  await prisma.prospect.deleteMany({ where: { domain: { startsWith: 'finalize-test-' } } })
 }
 
 async function makeAudit(overrides: Partial<{
   status: string
   discoveredUrls: string | null
   seoOnly: boolean
+  prospectId: number | null
   pagesTotal: number; pagesComplete: number; pagesError: number
   pdfsTotal: number; pdfsComplete: number; pdfsError: number; pdfsSkipped: number
   lighthouseTotal: number; lighthouseComplete: number; lighthouseError: number
@@ -53,6 +55,7 @@ async function makeAudit(overrides: Partial<{
       domain: `finalize-test-${Math.random().toString(36).slice(2, 8)}.example`,
       status: overrides.status ?? 'running',
       seoOnly: overrides.seoOnly ?? false,
+      prospectId: overrides.prospectId ?? null,
       // Discovery-done marker: a running audit with null discoveredUrls is
       // owned by the discover handler and the finalizer must not touch it.
       // Default to '[]' so the drain-predicate tests exercise what they mean.
@@ -268,6 +271,20 @@ describe('finalizeSiteAudit — C11 seoOnly guard', () => {
     expect(calls).not.toContain(`site-audit:${parent.id}`)
   })
 
+  it('A5 Task 19: seoOnly completion of a prospect-owned audit also emits prospect-list', async () => {
+    const prospect = await prisma.prospect.create({ data: { name: 'Acme', domain: 'finalize-test-prospect-seo.example' } })
+    const parent = await makeAudit({
+      seoOnly: true,
+      prospectId: prospect.id,
+      pagesTotal: 2, pagesComplete: 2,
+    })
+
+    await finalizeSiteAudit(parent.id)
+
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain('prospect-list')
+  })
+
   it('C11: a full (non-seoOnly) audit still builds a summary, dual-writes, carries forward, and enqueues verify', async () => {
     const parent = await makeAudit({
       seoOnly: false,
@@ -287,5 +304,35 @@ describe('finalizeSiteAudit — C11 seoOnly guard', () => {
     expect(writeFindingsRun).toHaveBeenCalled()
     expect(carryForwardSiteAuditChecks).toHaveBeenCalledWith(parent.id)
     expect(enqueueBrokenLinkVerify).toHaveBeenCalledWith(parent.id, parent.domain)
+  })
+
+  it('A5 Task 19: full completion of a prospect-owned audit also emits prospect-list; no prospectId emits nothing extra', async () => {
+    const prospect = await prisma.prospect.create({ data: { name: 'Acme', domain: 'finalize-test-prospect-full.example' } })
+    const parent = await makeAudit({
+      seoOnly: false,
+      prospectId: prospect.id,
+      pagesTotal: 2, pagesComplete: 2,
+      pdfsTotal: 1, pdfsComplete: 1,
+      lighthouseTotal: 2, lighthouseComplete: 2,
+    })
+
+    await finalizeSiteAudit(parent.id)
+
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain('prospect-list')
+  })
+
+  it('A5 Task 19: full completion without a prospectId does NOT emit prospect-list', async () => {
+    const parent = await makeAudit({
+      seoOnly: false,
+      pagesTotal: 2, pagesComplete: 2,
+      pdfsTotal: 1, pdfsComplete: 1,
+      lighthouseTotal: 2, lighthouseComplete: 2,
+    })
+
+    await finalizeSiteAudit(parent.id)
+
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).not.toContain('prospect-list')
   })
 })

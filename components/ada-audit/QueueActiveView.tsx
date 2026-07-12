@@ -3,9 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import QueueMemberRow from './QueueMemberRow'
-import type { AuditBatchDetail, QueueStatusWithBatch } from '@/lib/ada-audit/types'
+import type { AuditBatchDetail } from '@/lib/ada-audit/types'
+import { useQueueStatus } from '@/lib/widgets/queue-poll'
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
+import { auditBatchTopic } from '@/lib/events/topics'
 
-const POLL_MS = 5_000
+// A5 Task 21: "which batch is open" no longer runs its own inline poll of
+// /api/site-audit/queue — it reads the shared queue store (lib/widgets/
+// queue-poll.ts), which is already SSE-aware (queue topic + health). The
+// batch-DETAIL fetch keeps its original 5s cadence whenever SSE is absent/
+// unhealthy, demoting to a 60s safety cadence once healthy (re-arming fast on
+// a health drop), plus an immediate refetch on `audit-batch:<id>` invalidate
+// — same idiom as the report/prospect/content-audit migrations.
+const FAST_MS = 5_000
+const SAFETY_MS = 60_000
 
 const STATUS_RANK: Record<string, number> = {
   running: 0,
@@ -19,6 +30,7 @@ const STATUS_RANK: Record<string, number> = {
 }
 
 export default function QueueActiveView() {
+  const { data: queueData } = useQueueStatus()
   const [batchId, setBatchId] = useState<string | null>(null)
   const [detail, setDetail] = useState<AuditBatchDetail | null>(null)
   const [closedToast, setClosedToast] = useState<string | null>(null)
@@ -39,71 +51,99 @@ export default function QueueActiveView() {
     }
   }, [])
 
-  // Poll /api/site-audit/queue — the open batch field is the trigger.
-  const tick = useCallback(async () => {
+  const fetchDetail = useCallback(async (id: string): Promise<AuditBatchDetail | null> => {
     try {
-      const res = await fetch('/api/site-audit/queue')
-      if (!res.ok) return
-      const status = await res.json() as QueueStatusWithBatch
-      const incomingId = status.batch?.id ?? null
-
-      if (lastSeenBatchId.current && !incomingId) {
-        // Edge: open → null. Batch just closed.
-        if (!isMountedRef.current) return
-        setClosedToast(`Batch complete`)
-        // Briefly freeze the final state so the operator can see it, then
-        // transition to the empty state. Tracked in a ref so unmount cancels.
-        if (closedTimerRef.current) clearTimeout(closedTimerRef.current)
-        closedTimerRef.current = setTimeout(() => {
-          if (!isMountedRef.current) return
-          setClosedToast(null)
-          setDetail(null)
-          closedTimerRef.current = null
-        }, 5000)
-        // Fetch one last detail (now closed) so the freeze frame is accurate.
-        const closedBatchId = lastSeenBatchId.current
-        const finalRes = await fetch(`/api/audit-batches/${closedBatchId}`)
-        if (finalRes.ok) {
-          const finalJson = await finalRes.json() as AuditBatchDetail
-          // Re-check mount after the JSON parse — an unmount during the
-          // parse would otherwise still call setDetail.
-          if (isMountedRef.current) setDetail(finalJson)
-        }
-        if (isMountedRef.current) setBatchId(null)
-      } else if (incomingId) {
-        if (isMountedRef.current) setBatchId(incomingId)
-      } else {
-        if (isMountedRef.current) {
-          setBatchId(null)
-          setDetail(null)
-        }
-      }
-      lastSeenBatchId.current = incomingId
-    } catch { /* silent — polling is best-effort */ }
+      const res = await fetch(`/api/audit-batches/${id}`)
+      if (!res.ok) return null
+      return await res.json() as AuditBatchDetail
+    } catch {
+      return null
+    }
   }, [])
 
-  useEffect(() => { void tick() }, [tick])
+  // The shared queue store (SSE-aware) is the trigger for "which batch is
+  // open" — no inline polling of /api/site-audit/queue here anymore.
   useEffect(() => {
-    const id = setInterval(() => void tick(), POLL_MS)
-    return () => clearInterval(id)
-  }, [tick])
+    const incomingId = queueData?.batch?.id ?? null
 
-  // Fetch batch detail whenever the open batch id is set
+    if (lastSeenBatchId.current && !incomingId) {
+      // Edge: open → null. Batch just closed.
+      const closedBatchId = lastSeenBatchId.current
+      setClosedToast('Batch complete')
+      // Briefly freeze the final state so the operator can see it, then
+      // transition to the empty state. Tracked in a ref so unmount cancels.
+      if (closedTimerRef.current) clearTimeout(closedTimerRef.current)
+      closedTimerRef.current = setTimeout(() => {
+        if (!isMountedRef.current) return
+        setClosedToast(null)
+        setDetail(null)
+        closedTimerRef.current = null
+      }, 5000)
+      // Fetch one last detail (now closed) so the freeze frame is accurate.
+      void fetchDetail(closedBatchId).then((json) => {
+        if (json && isMountedRef.current) setDetail(json)
+      })
+      setBatchId(null)
+    } else if (incomingId) {
+      setBatchId(incomingId)
+    } else {
+      setBatchId(null)
+      // The shared queue store yields a NEW snapshot object on every tick /
+      // queue invalidate even when content is unchanged, so this effect can
+      // re-run (incomingId still null) INSIDE the 5s freeze window armed by
+      // the close edge above. Don't wipe the frozen detail early — the
+      // pending timer callback owns the clear.
+      if (!closedTimerRef.current) setDetail(null)
+    }
+    lastSeenBatchId.current = incomingId
+  }, [queueData, fetchDetail])
+
+  // Batch detail: SSE-aware poll, bounded to while a batch is open. Original
+  // 5s cadence while SSE is absent/unhealthy, demoting to the 60s safety
+  // cadence once healthy; re-arms fast on a health drop; immediate refetch
+  // on `audit-batch:<id>` invalidate.
   useEffect(() => {
     if (!batchId) return
     let cancelled = false
-    const fetchDetail = async () => {
-      try {
-        const res = await fetch(`/api/audit-batches/${batchId}`)
-        if (!res.ok) return
-        const json = await res.json() as AuditBatchDetail
-        if (!cancelled) setDetail(json)
-      } catch { /* ignore */ }
+    const doFetch = async () => {
+      const json = await fetchDetail(batchId)
+      if (json && !cancelled) setDetail(json)
     }
-    void fetchDetail()
-    const id = setInterval(fetchDetail, POLL_MS)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [batchId])
+    void doFetch()
+    let timer: ReturnType<typeof setInterval> | null = null
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(() => void doFetch(), healthy ? SAFETY_MS : FAST_MS)
+    }
+    restartTimer(false)
+    const unsubTopic = subscribeTopic(auditBatchTopic(batchId), () => void doFetch())
+    // subscribeHealth invokes the callback synchronously with the current
+    // health state — when SSE is already healthy at mount this fires a second
+    // doFetch() right after the unconditional initial one. Tolerated, matching
+    // the established migrations (ReportLibrary / ProspectDashboard /
+    // ContentAuditCard all pair an unconditional initial fetch with an
+    // `if (h) refetch` health handler): one duplicate GET at mount, and the
+    // healthy-flip refetch is load-bearing after a reconnect.
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h)
+      if (h) void doFetch()
+    })
+    return () => {
+      cancelled = true
+      if (timer) clearInterval(timer)
+      unsubTopic()
+      unsubHealth()
+    }
+  }, [batchId, fetchDetail])
+
+  // Manual refresh after a cancel action — the detail table should not wait
+  // for the next scheduled poll to reflect a just-cancelled member.
+  const handleCancelled = useCallback(() => {
+    if (!batchId) return
+    void fetchDetail(batchId).then((json) => {
+      if (json && isMountedRef.current) setDetail(json)
+    })
+  }, [batchId, fetchDetail])
 
   if (!batchId && !detail) {
     return (
@@ -162,7 +202,7 @@ export default function QueueActiveView() {
           </thead>
           <tbody>
             {sortedMembers.map((m) => (
-              <QueueMemberRow key={m.id} member={m} onCancelled={() => void tick()} />
+              <QueueMemberRow key={m.id} member={m} onCancelled={handleCancelled} />
             ))}
           </tbody>
         </table>

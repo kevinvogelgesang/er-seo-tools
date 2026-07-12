@@ -15,8 +15,10 @@ vi.mock('@/lib/ada-audit/browser-pool', () => ({
 vi.mock('@/lib/report/report-data', () => ({
   loadSiteReportData: vi.fn(),
 }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { acquirePage, releasePage } = await import('@/lib/ada-audit/browser-pool')
 const { loadSiteReportData } = await import('@/lib/report/report-data')
 const { reportPath } = await import('@/lib/report/report-file')
@@ -91,6 +93,7 @@ beforeEach(async () => {
   vi.mocked(releasePage).mockClear()
   vi.mocked(releasePage).mockResolvedValue(undefined)
   vi.mocked(loadSiteReportData).mockReset()
+  vi.mocked(publishInvalidation).mockClear()
 })
 
 afterEach(async () => {
@@ -119,6 +122,11 @@ describe('jobs/handlers/report-render', () => {
     expect(releasePage).toHaveBeenCalledTimes(1)
     const row = await prisma.siteAudit.findUnique({ where: { id: audit.id } })
     expect(row?.reportGeneratedAt).not.toBeNull()
+
+    // A5 Task 18: emits report:<id> + report-list after the PDF-ready stamp.
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain(`report:${audit.id}`)
+    expect(calls).toContain('report-list')
   })
 
   it('audit missing: returns cleanly without acquiring a page', async () => {
@@ -155,6 +163,9 @@ describe('jobs/handlers/report-render', () => {
     await expect(runReportRenderJob({ siteAuditId: audit.id })).resolves.toBeUndefined()
     expect(releasePage).toHaveBeenCalledTimes(1)
     await expect(fs.access(reportPath(audit.id))).rejects.toThrow()
+
+    // A5 Task 18: the stamp lost its fence (count===0) — no emit.
+    expect(publishInvalidation).not.toHaveBeenCalled()
   })
 
   it('pdf() throwing: releasePage still runs (finally) and the error propagates', async () => {

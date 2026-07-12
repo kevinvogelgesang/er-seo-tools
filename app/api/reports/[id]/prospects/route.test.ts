@@ -9,9 +9,11 @@ import { NextRequest } from 'next/server'
 vi.mock('@/lib/jobs/handlers/seo-report-render', () => ({
   enqueueSeoReportRender: vi.fn().mockResolvedValue({ jobId: 'mocked' }),
 }))
+vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
 const { prisma } = await import('@/lib/db')
 const { enqueueSeoReportRender } = await import('@/lib/jobs/handlers/seo-report-render')
+const { publishInvalidation } = await import('@/lib/events/bus')
 const { PUT } = await import('./route')
 
 const PREFIX = 't24pros-'
@@ -85,6 +87,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   vi.mocked(enqueueSeoReportRender).mockReset()
   vi.mocked(enqueueSeoReportRender).mockResolvedValue({ jobId: 'mocked' } as Awaited<ReturnType<typeof enqueueSeoReportRender>>)
+  vi.mocked(publishInvalidation).mockClear()
 })
 
 afterEach(async () => {
@@ -140,6 +143,9 @@ describe('PUT /api/reports/[id]/prospects', () => {
 
     // enqueueSeoReportRender must have been called with the report id
     expect(enqueueSeoReportRender).toHaveBeenCalledWith(report.id)
+
+    // A5 Task 18: a regenerate (via manual prospects) invalidates the shared list.
+    expect(publishInvalidation).toHaveBeenCalledWith('report-list')
   })
 
   it('is per-report: editing one report does NOT affect a sibling report for the same client+period', async () => {

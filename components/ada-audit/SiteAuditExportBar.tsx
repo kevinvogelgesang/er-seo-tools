@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Spinner } from '@/components/Spinner'
 import ShareAuditButton from './ShareAuditButton'
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
+import { reportTopic } from '@/lib/events/topics'
 
 interface Props {
   siteAuditId: string
@@ -12,6 +14,13 @@ interface Props {
 }
 
 type ReportState = 'none' | 'queueing' | 'rendering' | 'ready' | 'error'
+
+// A5: original 2s cadence kept as-is whenever SSE is absent/unhealthy — never
+// slower than pre-A5. Demotes to the 30s safety cadence once SSE is confirmed
+// healthy (subscribeHealth), and an invalidate on report:<siteAuditId> triggers
+// an immediate poll — same idiom as useAuditPoller.ts / queue-poll.ts.
+const FAST_MS = 2000
+const SAFETY_MS = 30_000
 
 // Toolbar idiom — mirrors ShareAuditButton's colorClass.idle.
 const CONTROL_BASE =
@@ -31,12 +40,30 @@ export default function SiteAuditExportBar({ siteAuditId, hasPrevious, initialRe
   const generatedAtRef = useRef<string | null>(initialReportGeneratedAt)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const revertRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const unsubTopicRef = useRef<(() => void) | null>(null)
+  const unsubHealthRef = useRef<(() => void) | null>(null)
 
   function clearPoll() {
     if (pollRef.current !== null) {
       clearInterval(pollRef.current)
       pollRef.current = null
     }
+    if (unsubTopicRef.current) {
+      unsubTopicRef.current()
+      unsubTopicRef.current = null
+    }
+    if (unsubHealthRef.current) {
+      unsubHealthRef.current()
+      unsubHealthRef.current = null
+    }
+  }
+
+  function restartTimer(healthy: boolean) {
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    pollRef.current = setInterval(() => { void pollStatus() }, healthy ? SAFETY_MS : FAST_MS)
   }
 
   useEffect(() => {
@@ -87,7 +114,12 @@ export default function SiteAuditExportBar({ siteAuditId, hasPrevious, initialRe
       }
       setReportState('rendering')
       clearPoll()
-      pollRef.current = setInterval(() => { void pollStatus() }, 2000)
+      restartTimer(false)
+      unsubTopicRef.current = subscribeTopic(reportTopic(siteAuditId), () => void pollStatus())
+      unsubHealthRef.current = subscribeHealth((h) => {
+        restartTimer(h)
+        if (h) void pollStatus()
+      })
     } catch {
       fail()
     }

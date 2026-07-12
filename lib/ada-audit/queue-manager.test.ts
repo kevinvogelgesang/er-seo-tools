@@ -44,6 +44,7 @@ async function clearTestState() {
   await prisma.adaAudit.deleteMany({ where: { url: { contains: PREFIX } } })
   await prisma.auditBatch.updateMany({ where: { closedAt: null }, data: { closedAt: new Date() } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
+  await prisma.prospect.deleteMany({ where: { domain: { startsWith: PREFIX } } })
   // The promoter bails whenever ANY audit is transient — neutralize stray
   // transient rows left behind by other test files in the shared dev DB.
   await prisma.siteAudit.updateMany({
@@ -240,6 +241,21 @@ describe('failSiteAudit', () => {
     await failSiteAudit(site.id, 'boom')
     const notifyJob = await prisma.job.findFirst({ where: { type: 'notify-email', dedupKey: `notify-email:${site.id}:failed` } })
     expect(notifyJob).toBeNull()
+  })
+
+  it('A5 Task 19: also emits prospect-list when the failed audit is prospect-owned', async () => {
+    const prospect = await prisma.prospect.create({ data: { name: 'Acme', domain: `${PREFIX}fail-prospect` } })
+    const site = await seedSite('fail-prospect', 'running', { discoveredUrls: '[]', pagesTotal: 1, prospectId: prospect.id })
+    await failSiteAudit(site.id, 'boom')
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).toContain('prospect-list')
+  })
+
+  it('A5 Task 19: does NOT emit prospect-list for a client-owned (non-prospect) failed audit', async () => {
+    const site = await seedSite('fail-no-prospect', 'running', { discoveredUrls: '[]', pagesTotal: 1 })
+    await failSiteAudit(site.id, 'boom')
+    const calls = vi.mocked(publishInvalidation).mock.calls.map((c) => c[0])
+    expect(calls).not.toContain('prospect-list')
   })
 })
 

@@ -7,6 +7,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { reportStatusTone } from './status-tone'
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
+import { reportListTopic } from '@/lib/events/topics'
+
+// A5: original 5s cadence kept as-is whenever SSE is absent/unhealthy — never
+// slower than pre-A5. Demotes to the 60s safety cadence once SSE is confirmed
+// healthy. The periodic interval still only runs while some report is
+// transient (bounded-poll semantics preserved) — the report-list subscription
+// itself is unconditional (mount-scoped) so a report created/deleted
+// elsewhere on the page (GenerateReportForm) is picked up immediately even
+// when nothing in this component's own list is currently transient.
+const FAST_MS = 5000
+const SAFETY_MS = 60_000
 
 interface ReportRow {
   id: string
@@ -203,12 +215,33 @@ export function ReportLibrary() {
     void fetchAll()
   }, [fetchAll])
 
-  // Poll every 5s while any report is transient
+  // SSE (A5): report-list invalidate → immediate refetch, unconditionally —
+  // a report created/deleted elsewhere on the page must be picked up even
+  // when nothing in the currently-rendered list is transient.
+  useEffect(() => {
+    return subscribeTopic(reportListTopic(), () => void fetchAll())
+  }, [fetchAll])
+
+  // Poll while any report is transient (bounded-poll semantics preserved);
+  // cadence is health-gated: 5s fast while SSE is absent/unhealthy, demoting
+  // to the 60s safety cadence once SSE is confirmed healthy.
   useEffect(() => {
     const hasTransient = reports.some((r) => TRANSIENT_STATUSES.has(r.status))
     if (!hasTransient) return
-    const interval = setInterval(() => void fetchAll(), 5000)
-    return () => clearInterval(interval)
+    let timer: ReturnType<typeof setInterval> | null = null
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(() => void fetchAll(), healthy ? SAFETY_MS : FAST_MS)
+    }
+    restartTimer(false)
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h)
+      if (h) void fetchAll()
+    })
+    return () => {
+      if (timer) clearInterval(timer)
+      unsubHealth()
+    }
   }, [reports, fetchAll])
 
   if (loading) {

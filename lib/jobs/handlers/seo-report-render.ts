@@ -39,6 +39,8 @@ import { buildSeoReportHtml } from '@/lib/report/seo/seo-report-html'
 import { writeSeoReportFile, deleteSeoReportFile } from '@/lib/report/seo/seo-report-file'
 import { enqueueJob } from '@/lib/jobs/queue'
 import type { EnqueueJobResult } from '@/lib/jobs/types'
+import { publishInvalidation } from '@/lib/events/bus'
+import { reportTopic, reportListTopic } from '@/lib/events/topics'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
 
@@ -185,7 +187,7 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
     // Check for total failure (all three sources not-ok)
     const anyOk = ga4Result.ok || gscResult.ok || prospectsResult.ok
     if (!anyOk) {
-      await prisma.seoReport.updateMany({
+      const errorUpdate = await prisma.seoReport.updateMany({
         where: { id: seoReportId },
         data: {
           status: 'error',
@@ -195,8 +197,13 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
           error: 'All analytics sources failed to fetch',
         },
       })
+      // A5: emit AFTER the write resolved, gated on the write taking effect.
+      if (errorUpdate.count === 1) {
+        publishInvalidation(reportTopic(seoReportId))
+        publishInvalidation(reportListTopic())
+      }
       // Trigger batch rollup even on total failure
-      await rollupBatchStatus(batch.id)
+      await rollupBatchStatus(batch.id, seoReportId)
       return
     }
 
@@ -211,7 +218,7 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
     }
 
     // Persist metricsJson + per-source statuses (before acquiring page)
-    await prisma.seoReport.updateMany({
+    const renderingUpdate = await prisma.seoReport.updateMany({
       where: { id: seoReportId },
       data: {
         status: 'rendering',
@@ -221,6 +228,11 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
         metricsJson: JSON.stringify(bundle),
       },
     })
+    // A5: emit AFTER the write resolved, gated on the write taking effect.
+    if (renderingUpdate.count === 1) {
+      publishInvalidation(reportTopic(seoReportId))
+      publishInvalidation(reportListTopic())
+    }
   }
 
   // ── Step 3: Build data + HTML (ALL data work before acquirePage) ─────────
@@ -291,16 +303,20 @@ export async function runSeoReportRenderJob(payload: unknown): Promise<void> {
     return
   }
 
+  // A5: emit AFTER the write resolved, gated on the write taking effect.
+  publishInvalidation(reportTopic(seoReportId))
+  publishInvalidation(reportListTopic())
+
   // ── Step 6: Batch rollup (after child settles) ───────────────────────────
 
-  await rollupBatchStatus(batch.id)
+  await rollupBatchStatus(batch.id, seoReportId)
 }
 
 // ---------------------------------------------------------------------------
 // Batch rollup helper
 // ---------------------------------------------------------------------------
 
-async function rollupBatchStatus(batchId: string): Promise<void> {
+async function rollupBatchStatus(batchId: string, seoReportId: string): Promise<void> {
   const children = await prisma.seoReport.findMany({
     where: { batchId },
     select: { status: true },
@@ -323,12 +339,20 @@ async function rollupBatchStatus(batchId: string): Promise<void> {
     batchStatus = 'complete'
   }
 
-  await prisma.$transaction([
+  const [rollup] = await prisma.$transaction([
     prisma.seoReportBatch.updateMany({
       where: { id: batchId },
       data: { status: batchStatus },
     }),
   ])
+
+  // A5: emit AFTER the write resolved, gated on the write taking effect.
+  // seoReportId identifies the child whose settle triggered this rollup —
+  // its own detail view + the shared list both changed.
+  if (rollup.count === 1) {
+    publishInvalidation(reportTopic(seoReportId))
+    publishInvalidation(reportListTopic())
+  }
 }
 
 // ---------------------------------------------------------------------------

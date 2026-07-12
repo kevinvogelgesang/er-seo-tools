@@ -10,6 +10,8 @@ import { readBoundedText } from '@/lib/content-audit/read-bounded-json'
 import { requireContentAuditToken } from '@/lib/content-audit/route-auth'
 import { validateContentAuditFindings } from '@/lib/content-audit/ingest-schema'
 import { contentAuditEligibleUrls } from '@/lib/content-audit/manifest'
+import { publishInvalidation } from '@/lib/events/bus'
+import { contentAuditTopic } from '@/lib/events/topics'
 
 export const dynamic = 'force-dynamic'
 type RouteParams = { params: Promise<{ siteAuditId: string }> }
@@ -36,5 +38,10 @@ export const PATCH = withRoute(async (req: NextRequest, { params }: RouteParams)
   if (!result.ok) return NextResponse.json({ error: result.code }, { status: 400 })
 
   await prisma.crawlRun.update({ where: { id: run.id }, data: { contentAuditJson: JSON.stringify(result.payload) } })
+  // A5 Task 20: the ContentAuditCard subscribes to this topic to refetch
+  // immediately once the skill's PATCH lands ingested findings. Emitted AFTER
+  // the awaited update resolves (a resolved update() always succeeded — P2025
+  // on a missing row throws and never reaches here).
+  publishInvalidation(contentAuditTopic(siteAuditId))
   return NextResponse.json({ ok: true, count: result.payload.findings.length })
 })

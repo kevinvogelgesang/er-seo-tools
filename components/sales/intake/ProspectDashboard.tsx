@@ -1,12 +1,24 @@
 'use client'
 // C14 intake: deliberately minimal — one form + one list. Polls the list
-// endpoint every 8s while any prospect has a transient scan (C17-style
-// smart polling, list endpoint reused instead of a bespoke status route).
+// endpoint while any prospect has a transient scan (C17-style smart polling,
+// list endpoint reused instead of a bespoke status route).
+//
+// A5 Task 19: mount-scoped `prospect-list` subscription (unconditional — a
+// prospect created/deleted/settled elsewhere must be picked up even when
+// nothing in THIS component's last-fetched list is currently transient) +
+// health-gated cadence on the existing bounded poll: original 8s fast cadence
+// while SSE is absent/unhealthy, demoting to a 60s safety cadence once SSE is
+// confirmed healthy, re-arming fast on drop. Bounded-poll semantics (only
+// polls at all while some prospect is transient/not-yet-reportable) unchanged
+// — see the ReportLibrary migration (Task 18) for the same pattern.
 import { useCallback, useEffect, useState } from 'react'
 import type { ProspectRow } from '@/lib/services/prospects'
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
+import { prospectListTopic } from '@/lib/events/topics'
 
 const TRANSIENT = new Set(['queued', 'running', 'pdfs-running', 'lighthouse-running'])
-const POLL_MS = 8000
+const FAST_MS = 8000
+const SAFETY_MS = 60_000
 
 export function ProspectDashboard(props: { initialProspects: ProspectRow[] }) {
   const [prospects, setProspects] = useState(props.initialProspects)
@@ -25,10 +37,34 @@ export function ProspectDashboard(props: { initialProspects: ProspectRow[] }) {
   const anyInFlight = prospects.some(
     (p) => p.latestAudit && (TRANSIENT.has(p.latestAudit.status) || (p.latestAudit.status === 'complete' && !p.latestAudit.reportable)),
   )
+
+  // SSE: prospect-list invalidate → immediate refetch, unconditionally — a
+  // prospect created/deleted/settled elsewhere must be picked up even when
+  // nothing in this component's currently-rendered list is transient.
+  useEffect(() => {
+    return subscribeTopic(prospectListTopic(), () => void refresh())
+  }, [refresh])
+
+  // Poll while any prospect is transient/not-yet-reportable (bounded-poll
+  // semantics preserved); cadence is health-gated: 8s fast while SSE is
+  // absent/unhealthy, demoting to the 60s safety cadence once SSE is
+  // confirmed healthy.
   useEffect(() => {
     if (!anyInFlight) return
-    const t = setInterval(refresh, POLL_MS)
-    return () => clearInterval(t)
+    let timer: ReturnType<typeof setInterval> | null = null
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(() => void refresh(), healthy ? SAFETY_MS : FAST_MS)
+    }
+    restartTimer(false)
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h)
+      if (h) void refresh()
+    })
+    return () => {
+      if (timer) clearInterval(timer)
+      unsubHealth()
+    }
   }, [anyInFlight, refresh])
 
   async function submitNewScan(e: React.FormEvent) {

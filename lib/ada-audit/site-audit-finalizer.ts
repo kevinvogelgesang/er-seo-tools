@@ -25,7 +25,7 @@ import { enqueueBrokenLinkVerify } from '@/lib/jobs/handlers/broken-link-verify'
 import { resolveAdaScoringWeights } from '@/lib/scoring/resolve-ada-weights'
 import { DEFAULT_ADA_V4_WEIGHTS } from '@/lib/scoring/ada-v4'
 import { publishInvalidation } from '@/lib/events/bus'
-import { queueTopic, siteAuditTopic, clientSummaryTopic, recentsTopic } from '@/lib/events/topics'
+import { queueTopic, siteAuditTopic, clientSummaryTopic, recentsTopic, prospectListTopic } from '@/lib/events/topics'
 
 export async function finalizeSiteAudit(id: string): Promise<void> {
   // Scalar-first: page settles call finalize once per page; loading every
@@ -35,7 +35,7 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     where: { id },
     select: {
       status: true, batchId: true, discoveredUrls: true, seoOnly: true,
-      domain: true, clientId: true, wcagLevel: true, startedAt: true,
+      domain: true, clientId: true, prospectId: true, wcagLevel: true, startedAt: true,
       pagesTotal: true, pagesComplete: true, pagesError: true, pagesRedirected: true,
       pdfsTotal: true, pdfsComplete: true, pdfsError: true, pdfsSkipped: true,
       lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
@@ -94,6 +94,10 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     // seoOnly `site-audit:<id>` readiness re-emit is deferred to Task 14
     // (the live-scan run isn't ready at this point).
     publishInvalidation(queueTopic())
+    // A5 Task 19: a prospect-owned scan settling changes the /sales dashboard
+    // list (status/reportable). Gated on prospectId so client-owned audits
+    // never touch this topic.
+    if (audit.prospectId != null) publishInvalidation(prospectListTopic())
   } else {
     pageAudits = await prisma.adaAudit.findMany({
       where: { siteAuditId: id },
@@ -113,6 +117,8 @@ export async function finalizeSiteAudit(id: string): Promise<void> {
     // view is now complete (summary written). Emit AFTER the write.
     publishInvalidation(queueTopic())
     publishInvalidation(siteAuditTopic(id))
+    // A5 Task 19: same prospect-list gate as the seoOnly branch above.
+    if (audit.prospectId != null) publishInvalidation(prospectListTopic())
   }
 
   // Order below is IDENTICAL to the full-audit path today: closeBatch →

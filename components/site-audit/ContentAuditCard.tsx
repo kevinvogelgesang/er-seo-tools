@@ -8,8 +8,21 @@
 // ingested findings (mirrors the kst_ card's poller, simplified — no
 // visibilitychange machine needed since this poll is short-lived and stops on
 // arrival).
-import { useEffect, useState } from 'react'
+//
+// A5 Task 20: mount-scoped `content-audit:<id>` subscription (unconditional —
+// the skill's PATCH can land from a different tab/session before this tab has
+// minted a token, or after findings already loaded since a later PATCH can
+// replace them, last-writer-wins) for an immediate refetch, plus health-gated
+// cadence on the existing bounded mint→poll: original 8s fast cadence while
+// SSE is absent/unhealthy, demoting to a 60s safety cadence once SSE is
+// confirmed healthy, re-arming fast on drop. The mint→poll bounded semantics
+// (only polls at all while a mint is outstanding and findings haven't landed)
+// are unchanged — see the ProspectDashboard migration (Task 19) for the same
+// pattern.
+import { useCallback, useEffect, useState } from 'react'
 import { buildContentAuditPrompt } from '@/lib/content-audit-prompt'
+import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
+import { contentAuditTopic } from '@/lib/events/topics'
 
 interface CardProps {
   siteAuditId: string
@@ -36,7 +49,8 @@ const TYPE_LABEL: Record<string, string> = {
 // URLs use NEXT_PUBLIC_APP_URL, never window.location.origin (reverse-proxy trap).
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? ''
 
-const POLL_INTERVAL_MS = 8000
+const FAST_MS = 8000
+const SAFETY_MS = 60_000
 
 export function ContentAuditCard({ siteAuditId, hasLiveScanRun, initialContentAuditJson }: CardProps) {
   const [prompt, setPrompt] = useState<string | null>(null)
@@ -56,31 +70,52 @@ export function ContentAuditCard({ siteAuditId, hasLiveScanRun, initialContentAu
     }
   })()
 
+  const refetch = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/site-audit/${siteAuditId}/content-audit`)
+      if (!res.ok) return
+      const body = await res.json()
+      if (body.minted && body.contentAuditJson) {
+        setJson(body.contentAuditJson)
+        setPolling(false)
+      }
+    } catch {
+      // Network errors are silent — the next tick/invalidate retries.
+    }
+  }, [siteAuditId])
+
+  // SSE: content-audit invalidate → immediate refetch, unconditionally — the
+  // skill's PATCH can land before this tab has minted a token, or after
+  // findings already loaded (last-writer-wins on a second PATCH).
+  useEffect(() => {
+    return subscribeTopic(contentAuditTopic(siteAuditId), () => void refetch())
+  }, [siteAuditId, refetch])
+
   // Bounded poll after mint until findings arrive (surfaces the skill's PATCH
-  // without a reload). Stops as soon as findings land; the interval is torn
-  // down on unmount or when polling flips off.
+  // without a reload; mint→poll bounded semantics unchanged — stops as soon
+  // as findings land, torn down on unmount or when polling flips off).
+  // Cadence is health-gated: 8s fast while SSE is absent/unhealthy, demoting
+  // to the 60s safety cadence once SSE is confirmed healthy, re-arming fast
+  // on drop.
   useEffect(() => {
     if (!polling || findings.length > 0) return
     let cancelled = false
-    const iv = setInterval(async () => {
-      if (cancelled) return
-      try {
-        const res = await fetch(`/api/site-audit/${siteAuditId}/content-audit`)
-        if (!res.ok) return
-        const body = await res.json()
-        if (!cancelled && body.minted && body.contentAuditJson) {
-          setJson(body.contentAuditJson)
-          setPolling(false)
-        }
-      } catch {
-        // Network errors are silent — the next tick retries.
-      }
-    }, POLL_INTERVAL_MS)
+    let timer: ReturnType<typeof setInterval> | null = null
+    const restartTimer = (healthy: boolean) => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(() => { if (!cancelled) void refetch() }, healthy ? SAFETY_MS : FAST_MS)
+    }
+    restartTimer(false)
+    const unsubHealth = subscribeHealth((h) => {
+      restartTimer(h)
+      if (h) void refetch()
+    })
     return () => {
       cancelled = true
-      clearInterval(iv)
+      if (timer) clearInterval(timer)
+      unsubHealth()
     }
-  }, [polling, siteAuditId, findings.length])
+  }, [polling, findings.length, refetch])
 
   if (!hasLiveScanRun) return null
 

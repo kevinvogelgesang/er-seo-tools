@@ -21,6 +21,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { enqueueSeoReportRender } from '@/lib/jobs/handlers/seo-report-render'
+import { publishInvalidation } from '@/lib/events/bus'
+import { reportListTopic } from '@/lib/events/topics'
 
 export const dynamic = 'force-dynamic'
 
@@ -85,6 +87,9 @@ export async function PUT(
       prospectsStatus: 'pending',
     },
   })
+
+  // A5: a plain resolved update counts as effect — emit AFTER it resolved.
+  publishInvalidation(reportListTopic())
 
   await enqueueSeoReportRender(id)
 
