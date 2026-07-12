@@ -51,11 +51,21 @@ One **process-global** singleton (module-scope, like the browser pool / job work
   one entry per open SSE connection. **Not** an `EventEmitter`-per-entity (Codex/Sol):
   one broadcast set is simpler and safer for a single-trust-level app with modest
   event volume; the client filters by topic.
-- `publishInvalidation(topic: string): void` — **synchronous, never throws.** Wraps
-  every `subscriber.write` in try/catch and drops a subscriber whose write throws.
-  A dead/backpressured controller must never surface into the caller (it runs at
-  post-commit write seams — see §3.3). Coalesces bursts **per topic** over a short
-  window (~150 ms) so a 2000-page audit doesn't emit 2000 immediate frames.
+- `publishInvalidation(topic: string): void` — **synchronous, never throws.** Adds
+  `topic` to a single bounded `pendingTopics: Set<string>` (cap `MAX_PENDING_TOPICS`,
+  ~256; over-cap → drop the *new* topic and log once — the safety poll still covers
+  it) and arms **one** shared coalescing timer (~150 ms), NOT a timer per topic. On
+  flush, each pending topic is written to every subscriber. A dead/backpressured
+  controller must never surface into the caller (it runs at post-commit write seams —
+  see §3.3).
+- **Mechanical backpressure (Codex/Sol fix 5).** `Subscriber` wraps the route's
+  `ReadableStreamDefaultController`. `write(frame)` inspects `controller.desiredSize`:
+  if `<= 0`, **drop the frame** (don't buffer) and increment a per-subscriber
+  `consecutiveDrops` counter; if `desiredSize > 0`, enqueue and reset the counter.
+  When `consecutiveDrops` exceeds `MAX_CONSECUTIVE_DROPS` (~20), close and remove
+  that subscriber — **and run its idempotent route cleanup** (§3.2) so it can't leak.
+  Backpressure is never an error to the publisher; correctness is held by the
+  client's refetch-on-reconnect + safety poll.
 - `subscribe(sub) / unsubscribe(sub)` — idempotent; enforces `MAX_CONNECTIONS` (~100).
 - One **global heartbeat timer** (`HEARTBEAT_MS` = 15 s, reused from `lib/jobs/config.ts`)
   that exists only while `subscribers.size > 0`; on each tick writes a `heartbeat`
@@ -78,11 +88,18 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 ```
 
-- **Cookie-gated** by the existing auth middleware. `/api/events` is NOT added to
-  `isPublicPath` (it must require auth). **Verify the middleware `matcher` actually
-  covers `/api/events`** so the gate runs; add a `middleware.test.ts` case asserting
-  401 without the auth cookie (the repo's recurring "new route 401s / or worse,
-  isn't gated" trap — from the opposite direction).
+- **Wrapped in `withRoute`** (repo invariant — the returned streaming `Response`
+  passes through `withRoute` untouched; `withRoute` only catches *setup* errors
+  before streaming begins). Same-origin `EventSource` automatically carries the auth
+  cookie, and the current middleware `matcher` already covers `/api/:path*`
+  (Codex/Sol verified — resolves §8 open item 3), so the route **is** cookie-gated
+  and NOT added to `isPublicPath`. Add a `middleware.test.ts` case asserting 401
+  without the auth cookie.
+- **`MAX_CONNECTIONS` rejection is checked BEFORE returning the stream** — over cap →
+  503 (plain JSON, no stream opened), never a half-open subscriber.
+- **Finite connection lifetime (~30 min)** — a server-side timer closes the stream
+  so the client's native reconnect re-runs middleware auth after cookie
+  expiry/logout (an SSE stream otherwise outlives its auth cookie indefinitely).
 - Returns `new Response(stream, { headers })` with:
   - `Content-Type: text/event-stream; charset=utf-8`
   - `Cache-Control: no-cache, no-store, no-transform`
@@ -99,36 +116,86 @@ export const revalidate = 0
 
 `publishInvalidation` is called **after** the awaited mutation/transaction resolves
 (outside the tx — array-form `$transaction` only; emit reflects committed state),
-**gated on the write actually taking effect** (e.g. `flipped.count === 1`):
+**gated on the write actually taking effect** (e.g. `flipped.count === 1`). A crash
+between commit and publish is acceptable **by design** — the safety poll catches it.
+Emit helpers must never be able to fail the completed write.
 
-| Seam (file) | Topics emitted |
+**Ordering rule for readiness-gated topics (Codex/Sol fix 1).** Some readers poll
+*past* a status flip: `SiteAuditPoller` keeps polling a **seoOnly** audit past parent
+`complete` until the live-scan `CrawlRun` exists (`deriveSeoOnlyStatus`). Emitting
+`site-audit:<id>` right after the status flip would make the poller observe
+`complete + no run + no verify job` → classify *unavailable* and stop. So:
+- Publish `queue` **independently** after the parent status transition.
+- For seoOnly audits, **await + catch** `enqueueBrokenLinkVerify` before publishing
+  `site-audit:<id>` (so a verify job exists when the client refetches), and
+- Publish `site-audit:<id>` **again** only after `writeFindingsRun` commits the
+  live-scan run (readiness is real). The same "emit after the run exists" rule
+  applies to `prospect-list` (a prospect audit is reportable only once its live-scan
+  `CrawlRun` exists) and to ADA `client-audit-summary`/`recents` (see below).
+
+**Worker heartbeat emission, precisely (Codex/Sol fix 4).** The worker heartbeat
+fires an unawaited fenced `updateMany`. Emit in **that promise's success
+continuation, only when `count === 1`**, and update `lastEmittedProgress` **only
+after** the write succeeds. A **chained-flush guard** (one in-flight write at a time
+per job, next chained) prevents overlapping heartbeat writes from publishing stale
+progress out of order. Emit only when `progress`/`progressMessage` changed vs
+`lastEmittedProgress`. Always emit on claim, retry/backoff, cancel, and terminal
+settle. The claimed-job shape must include `groupKey`; map **only allowlisted group
+prefixes** (`site-audit:` / `ada-audit:` / `report:` / `seo-report:`) to topics —
+unknown groups emit nothing.
+
+### Emit-seam inventory (complete)
+
+| Seam (file/function) | Topics |
 |---|---|
-| Job worker (`lib/jobs/worker.ts`): claim, terminal settle, retry/backoff, cancel; heartbeat **only on `progress`/`progressMessage` delta** vs last-flushed | derive from the job's group/domain (`site-audit:<id>`, `ada-audit:<id>`, `report:<id>`) + `queue` on lifecycle transitions |
-| `settlePage` (`lib/jobs/handlers/site-audit-page.ts:167`) after the counter/child tx flips | `site-audit:<id>`, `recents`, `queue` |
-| Standalone ADA progress + terminal (`lib/jobs/handlers/ada-audit.ts:71/98/133`) | `ada-audit:<id>`, `recents` |
-| Site finalize / fail (`site-audit-finalizer.ts`, `queue-manager.ts`) + live-scan `CrawlRun` create (broken-link-verify builder) | `site-audit:<id>`, `queue`, `recents` |
-| Report render start + file/stamp ready (`report-render` handler) | `report:<id>`, `report-list` |
-| Prospect scan settle | `prospect-list` |
+| Worker claim / terminal settle / retry / cancel + heartbeat delta (`lib/jobs/worker.ts`) | mapped from `groupKey` prefix → `site-audit:<id>` / `ada-audit:<id>` / `report:<id>` / `seo-report:<id>` |
+| `enqueueAudit` incl. batch reassignment (`queue-manager.ts`) | `queue` |
+| Discover claim/persist parent→`running` (`site-audit-discover`) | `queue`, `site-audit:<id>` |
+| `settlePage` after counter/child tx flip (`site-audit-page.ts:167`) | `site-audit:<id>`, `recents`, `queue` |
+| `finalizeSiteAudit` transient/terminal changes (`site-audit-finalizer.ts`) | `site-audit:<id>` (readiness-gated per rule above), `queue`, `recents` |
+| Live-scan `CrawlRun` create in the broken-link-verify builder | `site-audit:<id>`, `prospect-list` (if `prospectId`), `recents` |
+| `failSiteAudit` + cancel route (`cancelJobsByGroup` lives in `lib/jobs/queue.ts`, NOT the worker) | `site-audit:<id>`, `queue`, `recents` |
+| `ensureOpenBatch` / `closeBatchIfDrained` on change | `queue`, `audit-batch:<id>` |
+| Standalone ADA progress + terminal (`ada-audit.ts:71/98/133`) | `ada-audit:<id>`, `recents` |
+| ADA **`writeFindingsRun`** success (after CrawlRun score exists — the finalizer emits *before* this fire-and-forget write) | `client-audit-summary`, `recents` |
+| `seo-report-render` child status + batch rollup; report create/delete/regenerate routes | `report:<id>`, `report-list` |
+| Report-render PDF file/stamp ready (`report-render` handler) | `report:<id>`, `report-list` |
+| Prospect scan settle (parent complete) | `prospect-list` |
 | Content-audit ingest PATCH | `content-audit:<id>` |
+| `PillarAnalysis` pending/running/complete/error writes (for `PillarAnalysisButtonClient` — memo PATCH does NOT cover this) | `pillar-analysis:<sessionId>` |
 | Memo write-backs (pillar/roadmap/keyword/keyword-strategy PATCH) | `memo:<sessionId>` |
-
-A crash between commit and publish is acceptable **by design** — the safety poll
-catches it. Emit helpers must never be able to fail the completed write.
+| Recovery / stale-reset terminal writes (`recovery.ts`, `resetStaleAudits`) — subscribers may already exist | `site-audit:<id>`, `ada-audit:<id>`, `queue`, `recents` |
 
 ### 3.4 Client — `lib/events/client.ts` (one EventSource per tab)
 
 - A single shared `EventSource('/api/events')` per browser tab, lazily created on
   first subscription, torn down when the last subscriber leaves.
-- `subscribe(topic, cb): () => void` — topic→callback registry with **refcounts**;
-  the returned disposer decrements and removes at zero. Multiple hooks subscribing
-  to the same topic share one registration.
-- **Heartbeat watchdog:** if no frame (`connected`/`heartbeat`/`invalidate`) arrives
-  for ~40–45 s → treat the stream as silently buffered/dead → mark stale, resume
-  fast polling on affected hooks, and let `EventSource` reconnect (native 5 s
-  `retry` is sufficient; no custom backoff in v1).
-- **On `connected` / reconnect:** immediately refetch all currently-subscribed
-  topics from the DB, and only *after* that fetch succeeds stand down fast polling.
+- `subscribe(topic, cb): () => void` — topic→callback registry with **refcounts**.
+  Callbacks are **async-capable** (`cb` may return a Promise). The returned disposer
+  carries a **`disposed` flag and is idempotent** — a double React cleanup (StrictMode /
+  fast refresh) must NOT underflow the connection refcount (Codex/Sol fix 7).
+  Multiple hooks on the same topic share one registration.
+- **Per-subscription health, not global (Codex/Sol fix 7).** There is no global
+  "stand down fast polling" flag — after a reconnect, one topic's refetch may succeed
+  while another fails. Each hook disables its **own** fast fallback only after its
+  **own** refetch succeeds; a failed refetch keeps that hook polling.
+- **Heartbeat watchdog + explicit reconnect (Codex/Sol fix 6).** If no frame
+  (`connected`/`heartbeat`/`invalidate`) arrives for ~40–45 s, native `EventSource`
+  will NOT recover a silently half-open connection on its own. So on watchdog expiry:
+  **explicitly `close()` the current source**, mark transport unhealthy, enable fast
+  fallback on all subscribed hooks, then create a **new** `EventSource` after the
+  retry delay. A **generation token** guards the swap so a stale source's
+  `onopen`/`onerror` can't mutate the new connection's state.
+- **On `connected` / reconnect:** each subscribed hook refetches its own topic from
+  the DB; each stands down its own fast fallback only after its own refetch succeeds.
   Always keep the coarse safety interval.
+- **Visibility semantics (Codex/Sol fix 8).** On returning to a **visible** tab
+  (timers were throttled while hidden), **reset the watchdog baseline** and **force a
+  DB refetch before declaring SSE healthy** (a hidden tab can't trust the stream). For
+  **memo** flows specifically: hidden time stays **excluded** from the memo machine's
+  existing 15-min active cap; an `invalidate` received while hidden marks the memo
+  **dirty** (does NOT fetch or advance the machine); on visibility resume it refetches
+  immediately.
 - `invalidate` event → look up topic callbacks → each hook refetches its own
   endpoint. Shared endpoint stores (e.g. `lib/widgets/queue-poll.ts`) refetch ONCE
   per event even though three consumers read them — avoid triple-refetch.
@@ -148,12 +215,17 @@ Follows Codex/Sol's incremental gate: prove SSE streams through the **real prod
 edge** before migrating everything.
 
 - **PR1 — Infra + queue canary + prod-verify (the gate).** `lib/events/bus.ts`,
-  `app/api/events/route.ts` (+ middleware coverage + test), `lib/events/client.ts`,
-  and convert **only** the highest-fanout poller: the `AuditIndexTabs` queue poll
-  (via the existing `lib/widgets/queue-poll.ts` store) + emit `queue` at its seams.
-  Existing polling elsewhere unchanged. **Prod-verify = the make-or-break step**
-  (§5). If the edge buffers SSE and it can't be fixed, STOP: the layer is inert
-  (safety poll covers correctness) and PR2–4 are deferred pending a proxy fix.
+  `app/api/events/route.ts` (+ middleware test), `lib/events/client.ts`, and convert
+  **only** the highest-fanout poller: the `AuditIndexTabs` queue poll (via the
+  existing `lib/widgets/queue-poll.ts` store). **PR1 MUST include the
+  worker-originated `queue` emissions** (`settlePage`, finalizer, `enqueueAudit`),
+  not just the enqueue/finalizer ones — so the prod-verify exercises the riskier
+  fenced-worker/heartbeat emit path, not only route-handler emits (Codex/Sol fix 9).
+  Prod-verify (§5) MUST observe a `queue` `invalidate` frame **caused by a real job
+  claim or `settlePage`**, not merely a synthetic ping. Existing polling elsewhere
+  unchanged. **Prod-verify = the make-or-break step.** If the edge buffers SSE and it
+  can't be fixed, STOP: the layer is inert (safety poll covers correctness) and PR2–4
+  are deferred pending a proxy fix.
 - **PR2 — Audit progress.** `useAuditPoller` (single + site) + `useRecentsLivePoll`;
   emit `site-audit:<id>` / `ada-audit:<id>` / `recents`.
 - **PR3 — Reports + prospects + content-audit + batch + client-summary.** The
@@ -194,11 +266,20 @@ Pass criteria:
 - **Bus:** publish reaches all subscribers, filters correctly; `publishInvalidation`
   never throws even with a dead controller; **listener/subscriber count returns to
   zero** after disconnect + reconnect (leak guard); `MAX_CONNECTIONS` enforced;
-  per-topic burst coalescing.
-- **Route:** 401 without cookie (middleware); correct headers; `connected` frame
-  first; cleanup fires on abort AND on cancel; double-cleanup is a no-op.
-- **Client:** watchdog trips on heartbeat gap → resumes polling; `connected`/reconnect
-  → refetch-then-stand-down; refcount teardown; shared-store single refetch per event.
+  single coalescing timer drains `pendingTopics`; `MAX_PENDING_TOPICS` over-cap drops
+  the new topic; **backpressure**: `desiredSize <= 0` drops the frame, and
+  `MAX_CONSECUTIVE_DROPS` closes + cleans up a persistently slow subscriber.
+- **Route:** 401 without cookie (middleware); `withRoute` passthrough of the stream;
+  correct headers; `connected` frame first; `MAX_CONNECTIONS` over-cap → 503 with no
+  stream opened; finite-lifetime timer closes the stream; cleanup fires on abort AND
+  on cancel; double-cleanup is a no-op.
+- **Client:** watchdog trips on heartbeat gap → `close()` + new source under a
+  generation token (stale handlers can't mutate new state) → resumes polling;
+  **per-subscription** stand-down (one topic's refetch failing keeps that hook
+  polling while others stand down); disposer `disposed` flag prevents refcount
+  underflow on double cleanup; visibility-resume forces refetch before healthy;
+  memo dirty-while-hidden (no fetch/advance while hidden); shared-store single
+  refetch per event.
 - **Emit seams:** each seam calls `publishInvalidation` with the right topic only
   after the flip; emit failure can't fail the write (inject a throwing bus, assert
   the domain write still succeeds).
@@ -218,7 +299,9 @@ Pass criteria:
 ## 8. Open items (resolve in plan / PR1)
 
 1. Confirm Cloudflare fronts the real prod host; target prod-verify accordingly.
-2. Exact heartbeat-watchdog timeout (40 vs 45 s) and safety-poll intervals per hook —
-   pin in the plan.
-3. Whether the middleware `matcher` currently matches `/api/events` (if `/api/*` is
-   excluded, the route would be unauthenticated — must gate it).
+2. Exact heartbeat-watchdog timeout (40 vs 45 s), safety-poll intervals per hook,
+   and the bound constants (`MAX_CONNECTIONS` ~100, `MAX_PENDING_TOPICS` ~256,
+   `MAX_CONSECUTIVE_DROPS` ~20, connection lifetime ~30 min) — pin in the plan.
+3. ~~Middleware matcher coverage~~ **RESOLVED** (Codex/Sol): the matcher already
+   covers `/api/:path*`, so `/api/events` is cookie-gated; `EventSource` carries the
+   cookie same-origin. Still add the `middleware.test.ts` 401 case.
