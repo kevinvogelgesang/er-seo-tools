@@ -1,12 +1,11 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-12 (**A5 PR4 (memos) — SHIPPED + DEPLOYED** PR #161/`be2d1b9`;
-`memo-poller-machine.invalidate()` + dirty-while-hidden, 4 memo write-back emit seams +
-`runFromSession` pillar emits, 4 memo cards + `PillarAnalysisButtonClient` migrated;
-opus whole-branch review clean. **A5 CODE-COMPLETE — all 4 PRs shipped.** `[x]` flip
-gated only on Kevin's live watches (one `er_auth` session covers PR2+PR3+PR4).
-Spec+plan archived. Next build item: **A6**.)
-· **Updated by:** the A5 PR4 session.
+**Last updated:** 2026-07-12 (**A6 CLOSED AS ABSORBED — docs-only.** The A5-PR4
+handoff's "next: A6" was stale: A6 was absorbed into A8 Phase 1 on 2026-07-07 and
+its substance shipped there (`lib/tools-registry.ts` nav, A8 PR #112; `components/ui/`
+primitives, A8 PR #113). A6 `[ ]`→`[x]`, zero new code. A5 unchanged: code-complete,
+`[x]` flip still gated only on Kevin's live watches. Next build item: **D1**.)
+· **Updated by:** the A6-closure / D1 kickoff session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -33,10 +32,22 @@ push-update their UI without the old fast poll; (c) PR4 — an er-handoff-memo
 write-back (any of pat_/srt_/krt_/kst_) pushes the memo into its card via
 memo:<sid> at the 20s safety cadence, arriving immediately on the SSE frame.
 
-IMMEDIATE NEXT (build): A6 — shared UI primitives in components/ui/ +
-data-driven nav (1 wk). Full pipeline: brainstorm -> spec -> Codex review ->
-plan -> Codex review -> subagent-driven TDD. UI-class change: dark-mode
-variants on every element + no hydration-mismatch patterns.
+IMMEDIATE NEXT (build): D1 — handoff engine consolidation (1 wk). One
+lib/handoff/ token factory ({prefix, audience, scopes, envVar} config) +
+HANDOFF_TYPES registry driving mint/verify/route handlers/prompt composers +
+one <MemoHandoffCard> (button + poller + markdown render). Reality check vs
+the roadmap doc (03-ai-memo-tools.md Phase 1, written at 3 families): there
+are now SIX hand-cloned token families — pat_/srt_/krt_/kst_/cat_/qct_ —
+each with its own lib/<x>-token.ts + lib/<x>-prompt.ts + routes + card.
+Constraints: unify the CODE, never the per-family secrets/audiences
+(audience is the isolation wall — cat_/kst_ deliberately share
+KEYWORD_MEMO_TOKEN_SECRET); preserve A5's memo-poller-machine SSE topology
+exactly. Full pipeline: brainstorm -> spec -> Codex review -> plan -> Codex
+review -> subagent-driven TDD.
+
+DO NOT BUILD A6: closed 2026-07-12 as absorbed into A8 (tracker had said
+"do not build separately" since 2026-07-07). Its substance shipped in A8:
+lib/tools-registry.ts nav (PR #112) + components/ui/ primitives (PR #113).
 
 A5 REFERENCE (shipped architecture): one process-global in-memory bus
 (lib/events/bus.ts; publishInvalidation(topic) POST-COMMIT, outside the tx,
@@ -88,7 +99,7 @@ GOTCHAS FOR THE NEXT SESSION:
   explicit paths. No backticks in Bash -m commit messages.
 - .superpowers/sdd/task-N-*.md files are REUSED across PR series — a stale
   same-numbered brief/report may exist; overwrite, don't trust.
-- UI-class changes (A6): dark: variants on every element (bg-white ->
+- UI-class changes (any): dark: variants on every element (bg-white ->
   dark:bg-navy-card etc.) + the ThemeToggle mounted-guard hydration pattern.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/cat_/qct_
@@ -99,8 +110,9 @@ er-seo-tools-change-control FIRST. Gate policy rules 1 & 4: merge gate-green
 PRs (re-run gates in-session) + deploy with post-deploy verify autonomously;
 destructive server ops Kevin-gated; brainstorm->spec->plan ungated. Docs
 ritual in the same commit as any ship. Then: if Kevin reports the live watches
-passed, do the A5 [x] + D2 flip ritual; otherwise start A6 with
-superpowers:brainstorming.
+passed, do the A5 [x] + D2 flip ritual; otherwise start (or continue) D1 with
+superpowers:brainstorming, picking up any existing D1 spec/plan in
+docs/superpowers/specs|plans first.
 ```
 
 ---
@@ -128,9 +140,18 @@ superpowers:brainstorming.
 
 ## The single next item
 
-**A6 — shared UI primitives in `components/ui/` + data-driven nav (1 wk).**
-Full pipeline from brainstorming (UI-class change: dark-mode variants +
-hydration-mismatch discipline). No dependency on A5's pending watches.
+**D1 — handoff engine consolidation (1 wk).** Token factory (`lib/handoff/`)
++ `HANDOFF_TYPES` registry + one `<MemoHandoffCard>` across the six token
+families (pat_/srt_/krt_/kst_/cat_/qct_); retire anything the unified
+er-handoff-memo skill already replaced. Source: `nyi/improvement-roadmaps/
+03-ai-memo-tools.md` Phase 1 (its Phase 2 = A5/D2, shipped; Phase 3 gated
+OFF by the no-AI-API ruling; Phase 4 largely landed as KS-1/KS-2/KS-5).
+Unify code, never per-family secrets/audiences; preserve the A5 SSE memo
+topology. No dependency on A5's pending watches.
+
+**A6 was closed 2026-07-12 as absorbed into A8** (nav registry + `components/ui/`
+primitives shipped in A8 PR1/PR2) — the previous handoff's "next: A6" line was
+stale; do not build it.
 
 ## Gotchas for the next session
 
