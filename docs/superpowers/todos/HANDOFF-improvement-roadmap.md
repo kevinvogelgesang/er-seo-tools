@@ -1,11 +1,15 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-12 (**A6 CLOSED AS ABSORBED — docs-only.** The A5-PR4
-handoff's "next: A6" was stale: A6 was absorbed into A8 Phase 1 on 2026-07-07 and
-its substance shipped there (`lib/tools-registry.ts` nav, A8 PR #112; `components/ui/`
-primitives, A8 PR #113). A6 `[ ]`→`[x]`, zero new code. A5 unchanged: code-complete,
-`[x]` flip still gated only on Kevin's live watches. Next build item: **D1**.)
-· **Updated by:** the A6-closure / D1 kickoff session.
+**Last updated:** 2026-07-12 (**D1 IN PROGRESS — PR1 (foundations) SHIPPED +
+DEPLOYED + PROD-VERIFIED**, PR #162 / main `6c18848`: characterization net
+(exact prompts ×6, 173-cell auth matrix, cat_ precedence + trio audience
+walls) + `lib/handoff/` engine (registry/meta/errors/token factory/prompt) +
+12 module facades, wire-invisible, opus branch review clean. Same session
+earlier: **A6 closed as absorbed into A8** (stale handoff pointer corrected).
+A5 unchanged: `[x]` flip still gated only on Kevin's live watches. Next:
+**D1 PR2** (route-auth adoption, plan Tasks 8–11), then PR3 (cards + legacy
+skill deletion, Tasks 12–17).)
+· **Updated by:** the D1 session (A6 closure → spec → plan → PR1).
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -32,18 +36,28 @@ push-update their UI without the old fast poll; (c) PR4 — an er-handoff-memo
 write-back (any of pat_/srt_/krt_/kst_) pushes the memo into its card via
 memo:<sid> at the 20s safety cadence, arriving immediately on the SSE frame.
 
-IMMEDIATE NEXT (build): D1 — handoff engine consolidation (1 wk). One
-lib/handoff/ token factory ({prefix, audience, scopes, envVar} config) +
-HANDOFF_TYPES registry driving mint/verify/route handlers/prompt composers +
-one <MemoHandoffCard> (button + poller + markdown render). Reality check vs
-the roadmap doc (03-ai-memo-tools.md Phase 1, written at 3 families): there
-are now SIX hand-cloned token families — pat_/srt_/krt_/kst_/cat_/qct_ —
-each with its own lib/<x>-token.ts + lib/<x>-prompt.ts + routes + card.
-Constraints: unify the CODE, never the per-family secrets/audiences
-(audience is the isolation wall — cat_/kst_ deliberately share
-KEYWORD_MEMO_TOKEN_SECRET); preserve A5's memo-poller-machine SSE topology
-exactly. Full pipeline: brainstorm -> spec -> Codex review -> plan -> Codex
-review -> subagent-driven TDD.
+IMMEDIATE NEXT (build): D1 PR2+PR3. D1 (handoff engine consolidation) is IN
+PROGRESS: spec + plan Codex-reviewed (accept-with-fixes, applied) and PR1
+(foundations) SHIPPED + DEPLOYED + PROD-VERIFIED (PR #162, main 6c18848) —
+characterization net (exact-string prompts x6; 173-cell route-auth matrix;
+cat_ transport precedence + shared-secret-trio audience walls) + lib/handoff/
+(registry/meta/errors/token factory/prompt engine) + six token facades + six
+composer facades, wire-invisible. Remaining: PR2 = route-auth adoption (plan
+Tasks 8-11: requireHandoffToken w/ per-family transport+error policy,
+VERIFIERS table importing the FACADE verify fns to keep route-test mocks
+alive, kst/cat helper facades, 8 route adoptions; smoke mandatory) and PR3 =
+client consolidation (Tasks 12-17: useMemoPoller hook w/ 13 enumerated
+contract tests + MemoHandoffCard for srt/krt, MemoPoller + KeywordStrategyCard
+adopt the hook, kst tests FROZEN, legacy skills/pillar-analysis-narrative +
+scripts/build-skill.sh + package.json build:skill deletion, docs + family-7
+checklist, tracker D1 [x] ritual). Plan:
+docs/superpowers/plans/2026-07-12-d1-handoff-engine-consolidation.md ·
+Spec: docs/superpowers/specs/2026-07-12-d1-handoff-engine-consolidation-design.md ·
+SDD ledger: .superpowers/sdd/progress.md (D1 PR1 section = per-task history).
+Execute via superpowers:subagent-driven-development. Wire contracts FROZEN
+(deployed er-handoff-memo skill consumes them); characterization suite must
+stay green UNTOUCHED through PR2/PR3. Pinned wart: token_expired is dead code
+(jose expiry msg lacks 'expired') — preserved, never "fix" it.
 
 DO NOT BUILD A6: closed 2026-07-12 as absorbed into A8 (tracker had said
 "do not build separately" since 2026-07-07). Its substance shipped in A8:

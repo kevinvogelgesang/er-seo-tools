@@ -124,7 +124,8 @@ export interface HandoffTokenConfig {
   audience: string           // existing literal, e.g. 'pillar-analysis-narrative'
   secretEnv: string          // may repeat: kst/cat both name KEYWORD_MEMO_TOKEN_SECRET
   devFallbackSecret: string  // each family's CURRENT fallback material, verbatim
-  devFallbackWarning: string // each family's CURRENT warn-once text, verbatim
+  devFallbackWarnPrefix: string // the family's warn [tag]; factory reconstructs the
+                                // full warn line (template verified identical ×6)
   scopes: readonly string[]
   ttlSeconds: number         // 3600 for all six today
   makeError(message: string): Error   // constructs the family's legacy error class,
