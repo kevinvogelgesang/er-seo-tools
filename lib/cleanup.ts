@@ -9,6 +9,7 @@ import { pruneScheduledSiteAudits } from '@/lib/ada-audit/scheduled-retention'
 import { pruneSeoReports } from '@/lib/seo-report-retention';
 import { pruneGscSnapshots, pruneKeywordVolumeCache, pruneKeywordStrategySessions } from '@/lib/keywords/retention';
 import { sweepStaleReservations } from '@/lib/keywords/strategy-volume-ledger';
+import { pruneRobotsChecks } from '@/lib/robots-check/retention';
 
 /** Parsed sessions and their data are kept for 180 days. */
 const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -43,6 +44,7 @@ export async function runCleanup(): Promise<void> {
     pruneKeywordVolumeCache(),
     pruneKeywordStrategySessions(),
     sweepStaleReservations(new Date()),
+    pruneRobotsChecks(),
   ]);
   logSettledFailures('[cleanup] Cleanup task failed', results);
 }
