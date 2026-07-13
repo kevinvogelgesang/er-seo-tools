@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-12-d4-client-robots-checks-design.md` (Codex-reviewed, fixes #1–#8 applied — task steps cite them).
 
+**Plan Codex review:** ACCEPT WITH NAMED FIXES ×6, all applied in place — marked "plan-Codex #N" below (1: per-domain predecessor fallback + per-domain card preload + exact total-order predicate; 2: structural detail guard + JSON.stringify evidence; 3: convention recognition = `parsed.valid` only; 4: strict `^[1-9][0-9]*$` ids + GET domain membership + body-as-unknown null safety; 5: card AbortController deadline + full reconciliation + domain-switch generation token + surfaced GET errors + UTC formatDate; 6: test strengthening incl. `vi.unstubAllGlobals()`).
+
 ## Global Constraints
 
 - Branch: `feat/d4-robots-checks` off current `main`. Never `git add -A` (untracked `pentest-results/` etc.) — stage explicit paths. No backticks in `-m` commit messages.
@@ -489,6 +491,27 @@ describe('runRobotsCheck — convention fallback', () => {
     expect(detail.totals.sitemapUrlTotal).toBeNull()
   })
 
+  it('malformed XML with a usable loc does NOT win; a later valid path does (plan-Codex #3)', async () => {
+    // Mismatched root tag but contains a <loc> — parseSitemapXml must report
+    // it invalid, so the probe loop continues to the next convention path.
+    const malformed = `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/p1</loc></url></wrongclose>`
+    const deps = makeDeps({
+      robots: httpError(404),
+      sitemaps: {
+        'https://example.com/sitemap.xml': okResult(malformed, 'https://example.com/sitemap.xml'),
+        'https://example.com/sitemap_index.xml': okResult(URLSET(3), 'https://example.com/sitemap_index.xml'),
+      },
+    })
+    const { detail } = await runRobotsCheck('example.com', deps)
+    expect(detail.sitemaps).toHaveLength(1)
+    expect(detail.sitemaps[0].url).toBe('https://example.com/sitemap_index.xml')
+    expect(detail.sitemaps[0].urlCount).toBe(3)
+    // NOTE for implementer: if parseSitemapXml judges this exact fixture
+    // valid, pick any fixture parseSitemapXml reports invalid (check its 13
+    // rules) — the pinned behavior is "invalid parse does not win", not this
+    // particular XML string.
+  })
+
   it('all probes fail: last probe failure recorded as the single honest entry', async () => {
     const deps = makeDeps({ robots: httpError(404) }) // every sitemap fetch -> network fail
     const { detail } = await runRobotsCheck('example.com', deps)
@@ -767,7 +790,10 @@ export async function runRobotsCheck(
         continue
       }
       const parsed = parseSitemapXml(res.text)
-      const recognized = parsed.isSitemapIndex || parsed.urlCount > 0 || parsed.valid
+      // Recognition = parsed.valid ONLY (plan-Codex #3): malformed XML that
+      // happens to contain a usable <loc> must NOT win a convention probe.
+      // Valid empty sitemap documents remain valid and DO win.
+      const recognized = parsed.valid
       if (recognized) {
         sitemaps.push(await buildEntry(url, 'convention', res))
         lastOkUnrecognized = null
@@ -987,7 +1013,30 @@ describe('changed flag', () => {
     expect(e.summary.changed).toBe(true)
   })
 
-  it('corrupt predecessor detailJson -> changed null, never a throw', async () => {
+  it('robotsStatus change flips changed even with identical hashes (plan-Codex #6)', async () => {
+    const client = await makeClient()
+    arm(detailFixture({ robotsHash: null, robotsStatus: 'missing' }))
+    await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    arm(detailFixture({ robotsHash: null, robotsStatus: 'unreachable' }))
+    const b = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    expect(b.summary.changed).toBe(true)
+  })
+
+  it('sitemap-set change (url added) flips changed (plan-Codex #6)', async () => {
+    const client = await makeClient()
+    arm(detailFixture({ sitemaps: [{ url: 'https://x.com/a.xml', contentHash: 'h1', childrenHash: null }] }))
+    await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    arm(detailFixture({
+      sitemaps: [
+        { url: 'https://x.com/a.xml', contentHash: 'h1', childrenHash: null },
+        { url: 'https://x.com/b.xml', contentHash: 'h2', childrenHash: null },
+      ],
+    }))
+    const b = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    expect(b.summary.changed).toBe(true)
+  })
+
+  it('corrupt predecessor detailJson -> changed null, never a throw (both syntactic and structural corruption)', async () => {
     const client = await makeClient()
     arm(detailFixture())
     const first = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
@@ -995,6 +1044,11 @@ describe('changed flag', () => {
     arm(detailFixture())
     const second = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
     expect(second.summary.changed).toBeNull()
+    // Structural corruption: valid JSON, malformed shape (plan-Codex #2)
+    await prisma.robotsCheck.update({ where: { id: second.summary.id }, data: { detailJson: '{"v":1,"sitemaps":[null]}' } })
+    arm(detailFixture())
+    const third = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    expect(third.summary.changed).toBeNull()
   })
 
   it('changed is per (client,domain): another domain does not become the predecessor', async () => {
@@ -1024,6 +1078,25 @@ describe('listRobotsChecks / getRobotsCheck', () => {
     expect(list[0].source).toBe('scheduled')
   })
 
+  it('interleaved domains: predecessor outside the fetched window is still found (plan-Codex #1)', async () => {
+    const client = await makeClient()
+    // Domain y.com gets ONE old check, then x.com fills the whole window.
+    arm(detailFixture({ robotsHash: 'y-old' }))
+    await runAndStoreRobotsCheck(client.id, 'y.com', { source: 'manual' })
+    const { ROBOTS_CHECK_HISTORY_LIMIT } = await import('./types')
+    for (let i = 0; i < ROBOTS_CHECK_HISTORY_LIMIT; i++) {
+      arm(detailFixture({ robotsHash: 'x' }))
+      await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    }
+    arm(detailFixture({ robotsHash: 'y-new' }))
+    await runAndStoreRobotsCheck(client.id, 'y.com', { source: 'manual' })
+    // Unfiltered list: newest row is y.com; its y.com predecessor sits beyond
+    // the LIMIT+1 window behind the x.com rows — must still resolve changed.
+    const list = await listRobotsChecks(client.id)
+    expect(list[0].domain).toBe('y.com')
+    expect(list[0].changed).toBe(true) // y-old vs y-new — NOT null
+  })
+
   it('getRobotsCheck enforces ownership and returns null on corrupt detail', async () => {
     const clientA = await makeClient()
     const clientB = await makeClient()
@@ -1051,6 +1124,7 @@ Create `lib/robots-check/retention.test.ts`:
 import { describe, it, expect, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { pruneRobotsChecks } from './retention'
+import { listRobotsChecks } from './service'
 import { ROBOTS_CHECK_HISTORY_LIMIT } from './types'
 
 const PREFIX = 'd4ret-'
@@ -1064,13 +1138,23 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
 })
 
-function makeCheck(clientId: number, domain: string, createdAt: Date) {
+/** Structurally valid minimal detail (passes the service's parseDetail guard). */
+function validDetailJson(hash: string): string {
+  return JSON.stringify({
+    v: 1, domain: 'x.com',
+    robots: { status: 'ok', httpStatus: 200, failure: null, contentHash: hash, issues: [], blockedBots: [], sitemapUrls: [] },
+    sitemaps: [], sitemapsSkipped: 0, timeBudgetExhausted: false,
+    totals: { sitemapUrlTotal: null, errors: 0, warnings: 0 },
+  })
+}
+
+function makeCheck(clientId: number, domain: string, createdAt: Date, hash = 'h') {
   return prisma.robotsCheck.create({
     data: {
       clientId, domain, source: 'manual', robotsStatus: 'ok',
-      robotsContentHash: 'h', robotsContent: 'User-agent: *\n',
+      robotsContentHash: hash, robotsContent: 'User-agent: *\n',
       sitemapUrlTotal: 1, errorCount: 0, warningCount: 0,
-      detailJson: '{"v":1}', createdAt,
+      detailJson: validDetailJson(hash), createdAt,
     },
   })
 }
@@ -1098,6 +1182,20 @@ describe('pruneRobotsChecks', () => {
     expect(aX[0].createdAt.getTime()).toBe(base + (n - 1) * 1000)
     expect(await prisma.robotsCheck.count({ where: { clientId: clientA.id, domain: 'y.com' } })).toBe(1)
     expect(await prisma.robotsCheck.count({ where: { clientId: clientB.id } })).toBe(1)
+  })
+
+  it('oldest VISIBLE row keeps a non-null changed after pruning (the +1 hidden predecessor — Codex #3, plan-Codex #6)', async () => {
+    const client = await makeClient()
+    const base = Date.now() - 10_000_000
+    // LIMIT+3 rows, alternating hashes so every pair is changed:true
+    for (let i = 0; i < ROBOTS_CHECK_HISTORY_LIMIT + 3; i++) {
+      await makeCheck(client.id, 'x.com', new Date(base + i * 1000), i % 2 === 0 ? 'ha' : 'hb')
+    }
+    await pruneRobotsChecks()
+    const list = await listRobotsChecks(client.id, 'x.com')
+    expect(list).toHaveLength(ROBOTS_CHECK_HISTORY_LIMIT)
+    const oldestVisible = list[list.length - 1]
+    expect(oldestVisible.changed).toBe(true) // predecessor survived as the hidden +1 row
   })
 })
 ```
@@ -1142,22 +1240,40 @@ export interface StoredRobotsCheck {
   detail: RobotsCheckDetail
 }
 
+/** Structural guard for the fields the service and card actually read
+ *  (plan-Codex #2): syntactically valid but malformed JSON (e.g.
+ *  {"v":1,"sitemaps":[null]}) must decode to null, never throw downstream. */
 function parseDetail(json: string): RobotsCheckDetail | null {
   try {
     const parsed = JSON.parse(json) as RobotsCheckDetail
-    if (!parsed || typeof parsed !== 'object' || parsed.v !== 1 || !Array.isArray(parsed.sitemaps)) return null
+    if (!parsed || typeof parsed !== 'object' || parsed.v !== 1) return null
+    const r = parsed.robots
+    if (!r || typeof r !== 'object' || typeof r.status !== 'string') return null
+    if (!Array.isArray(r.issues) || !Array.isArray(r.blockedBots) || !Array.isArray(r.sitemapUrls)) return null
+    if (!Array.isArray(parsed.sitemaps)) return null
+    for (const s of parsed.sitemaps) {
+      if (!s || typeof s !== 'object' || typeof s.url !== 'string' || typeof s.ok !== 'boolean') return null
+      if (s.contentHash !== null && typeof s.contentHash !== 'string') return null
+      if (s.childrenHash !== null && typeof s.childrenHash !== 'string') return null
+      if (!Array.isArray(s.issues)) return null
+    }
+    if (!parsed.totals || typeof parsed.totals !== 'object') return null
     return parsed
   } catch {
     return null
   }
 }
 
-/** Comparison evidence string; null when the detail is unreadable. */
+/** Comparison evidence; JSON.stringify avoids delimiter ambiguity in URLs
+ *  (plan-Codex #2). Null when the detail is unreadable. */
 function evidenceOf(row: Pick<RobotsCheck, 'robotsStatus' | 'robotsContentHash' | 'detailJson'>): string | null {
   const detail = parseDetail(row.detailJson)
   if (!detail) return null
-  const sitemapTriples = detail.sitemaps.map((s) => `${s.url}|${s.contentHash ?? ''}|${s.childrenHash ?? ''}`)
-  return [row.robotsStatus, row.robotsContentHash ?? '', ...sitemapTriples].join('\n')
+  return JSON.stringify([
+    row.robotsStatus,
+    row.robotsContentHash,
+    detail.sitemaps.map((s) => [s.url, s.contentHash, s.childrenHash]),
+  ])
 }
 
 function changedVs(prev: RobotsCheck | null | undefined, row: RobotsCheck): boolean | null {
@@ -1218,7 +1334,16 @@ export function runAndStoreRobotsCheck(
       },
     })
     const prev = await prisma.robotsCheck.findFirst({
-      where: { clientId, domain, id: { not: row.id }, createdAt: { lte: row.createdAt } },
+      // Exact total-order predecessor predicate — identical to
+      // getRobotsCheck's (plan-Codex #1).
+      where: {
+        clientId,
+        domain,
+        OR: [
+          { createdAt: { lt: row.createdAt } },
+          { createdAt: row.createdAt, id: { lt: row.id } },
+        ],
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     })
     return { summary: toSummary(row, changedVs(prev, row)), detail }
@@ -1232,20 +1357,39 @@ export function runAndStoreRobotsCheck(
   return promise
 }
 
-/** Newest-first summaries, capped at the history limit, pairwise changed.
- *  Fetches LIMIT+1 rows per queried scope so the oldest VISIBLE row still
- *  has its predecessor available for comparison (retention retains +1). */
+/** Newest-first summaries, capped at the history limit, pairwise changed
+ *  within the SAME domain. When a row's predecessor is not inside the
+ *  fetched window (interleaved multi-domain lists), it is fetched with a
+ *  targeted exact total-order query — at most one extra query per domain
+ *  present in the window (plan-Codex #1). Retention retains +1 per
+ *  (client, domain) so the true oldest row's predecessor exists in the DB. */
 export async function listRobotsChecks(clientId: number, domain?: string): Promise<RobotsCheckSummary[]> {
   const rows = await prisma.robotsCheck.findMany({
     where: { clientId, ...(domain ? { domain } : {}) },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: ROBOTS_CHECK_HISTORY_LIMIT + 1,
   })
-  // Pairwise within the SAME domain (an unfiltered list interleaves domains).
-  return rows.slice(0, ROBOTS_CHECK_HISTORY_LIMIT).map((row, i) => {
-    const prev = rows.slice(i + 1).find((r) => r.domain === row.domain)
-    return toSummary(row, changedVs(prev, row))
-  })
+  const visible = rows.slice(0, ROBOTS_CHECK_HISTORY_LIMIT)
+  const summaries: RobotsCheckSummary[] = []
+  for (let i = 0; i < visible.length; i++) {
+    const row = visible[i]
+    let prev: RobotsCheck | null = rows.slice(i + 1).find((r) => r.domain === row.domain) ?? null
+    if (!prev) {
+      prev = await prisma.robotsCheck.findFirst({
+        where: {
+          clientId,
+          domain: row.domain,
+          OR: [
+            { createdAt: { lt: row.createdAt } },
+            { createdAt: row.createdAt, id: { lt: row.id } },
+          ],
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      })
+    }
+    summaries.push(toSummary(row, changedVs(prev, row)))
+  }
+  return summaries
 }
 
 export async function getRobotsCheck(clientId: number, checkId: number): Promise<StoredRobotsCheck | null> {
@@ -1385,13 +1529,22 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 const detailParams = (id: string, checkId: string) => ({ params: Promise.resolve({ id, checkId }) })
 
 describe('POST /api/clients/[id]/robots-checks', () => {
-  it('400 invalid id / 404 unknown client / 409 archived', async () => {
-    expect((await POST(postReq({ domain: 'example.com' }), params('abc'))).status).toBe(400)
+  it('400 invalid id (strict: abc, 01, 1.0, +1, 1e2) / 404 unknown client / 409 archived', async () => {
+    for (const bad of ['abc', '01', '1.0', '+1', '1e2', '0', '-1']) {
+      expect((await POST(postReq({ domain: 'example.com' }), params(bad))).status).toBe(400)
+    }
     expect((await POST(postReq({ domain: 'example.com' }), params('999999'))).status).toBe(404)
     const archived = await makeClient(['example.com'], new Date())
     const res = await POST(postReq({ domain: 'example.com' }), params(String(archived.id)))
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe('client_archived')
+  })
+
+  it('JSON null body -> 400 invalid_domain, never a 500 (plan-Codex #4)', async () => {
+    const client = await makeClient(['example.com'])
+    const res = await POST(postReq(null), params(String(client.id)))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('invalid_domain')
   })
 
   it('400 invalid_domain and 400 domain_not_listed', async () => {
@@ -1427,7 +1580,7 @@ describe('POST /api/clients/[id]/robots-checks', () => {
 })
 
 describe('GET /api/clients/[id]/robots-checks', () => {
-  it('400 invalid id / 404 unknown / 200 list; optional domain filter validated', async () => {
+  it('400 invalid id / 404 unknown / 200 list; domain filter: syntax AND membership validated (plan-Codex #4)', async () => {
     expect((await GET(new NextRequest('http://localhost/x'), params('0'))).status).toBe(400)
     expect((await GET(new NextRequest('http://localhost/x'), params('999999'))).status).toBe(404)
     const client = await makeClient(['example.com'])
@@ -1436,6 +1589,10 @@ describe('GET /api/clients/[id]/robots-checks', () => {
     expect((await ok.json()).checks).toEqual([])
     const badDomain = await GET(new NextRequest('http://localhost/x?domain=..bad..'), params(String(client.id)))
     expect(badDomain.status).toBe(400)
+    expect((await badDomain.json()).error).toBe('invalid_domain')
+    const notListed = await GET(new NextRequest('http://localhost/x?domain=other.com'), params(String(client.id)))
+    expect(notListed.status).toBe(400)
+    expect((await notListed.json()).error).toBe('domain_not_listed')
   })
 })
 
@@ -1484,9 +1641,9 @@ import { listRobotsChecks, runAndStoreRobotsCheck } from '@/lib/robots-check/ser
 
 type Params = { params: Promise<{ id: string }> }
 
+// Strict id parser (plan-Codex #4): '01', '1.0', '+1', '1e2' all rejected.
 function parseClientId(raw: string): number | null {
-  const id = Number(raw)
-  return Number.isInteger(id) && id > 0 ? id : null
+  return /^[1-9][0-9]*$/.test(raw) ? Number(raw) : null
 }
 
 function parseClientDomains(raw: string): string[] {
@@ -1498,23 +1655,37 @@ function parseClientDomains(raw: string): string[] {
   }
 }
 
+/** Normalize + membership-check a submitted domain against the client's
+ *  registered domains. Returns the normalized domain or an error Response —
+ *  GET and POST validate identically (plan-Codex #4). */
+function resolveListedDomain(rawDomain: unknown, clientDomains: string): string | NextResponse {
+  let domain: string
+  try {
+    domain = normalizeClientDomain(rawDomain)
+  } catch (err) {
+    if (err instanceof InvalidDomainError) {
+      return NextResponse.json({ error: 'invalid_domain' }, { status: 400 })
+    }
+    throw err
+  }
+  if (!parseClientDomains(clientDomains).includes(domain)) {
+    return NextResponse.json({ error: 'domain_not_listed' }, { status: 400 })
+  }
+  return domain
+}
+
 export const GET = withRoute(async (request: NextRequest, { params }: Params) => {
   const clientId = parseClientId((await params).id)
   if (clientId === null) return NextResponse.json({ error: 'invalid_client' }, { status: 400 })
-  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } })
+  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { domains: true } })
   if (!client) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
   const rawDomain = request.nextUrl.searchParams.get('domain')
   let domain: string | undefined
   if (rawDomain !== null) {
-    try {
-      domain = normalizeClientDomain(rawDomain)
-    } catch (err) {
-      if (err instanceof InvalidDomainError) {
-        return NextResponse.json({ error: 'invalid_domain' }, { status: 400 })
-      }
-      throw err
-    }
+    const resolved = resolveListedDomain(rawDomain, client.domains)
+    if (resolved instanceof NextResponse) return resolved
+    domain = resolved
   }
   return NextResponse.json({ checks: await listRobotsChecks(clientId, domain) })
 })
@@ -1523,7 +1694,10 @@ export const POST = withRoute(async (request: NextRequest, { params }: Params) =
   const clientId = parseClientId((await params).id)
   if (clientId === null) return NextResponse.json({ error: 'invalid_client' }, { status: 400 })
 
-  const body = await parseJsonBody<Record<string, unknown>>(request)
+  // unknown, not Record: a JSON `null` body must fall through to
+  // invalid_domain, not throw into a 500 (plan-Codex #4).
+  const body = await parseJsonBody<unknown>(request)
+  const rawDomain = body && typeof body === 'object' ? (body as Record<string, unknown>).domain : undefined
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },
@@ -1532,20 +1706,10 @@ export const POST = withRoute(async (request: NextRequest, { params }: Params) =
   if (!client) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   if (client.archivedAt) return NextResponse.json({ error: 'client_archived' }, { status: 409 })
 
-  let domain: string
-  try {
-    domain = normalizeClientDomain(body.domain)
-  } catch (err) {
-    if (err instanceof InvalidDomainError) {
-      return NextResponse.json({ error: 'invalid_domain' }, { status: 400 })
-    }
-    throw err
-  }
-  if (!parseClientDomains(client.domains).includes(domain)) {
-    return NextResponse.json({ error: 'domain_not_listed' }, { status: 400 })
-  }
+  const resolved = resolveListedDomain(rawDomain, client.domains)
+  if (resolved instanceof NextResponse) return resolved
 
-  const stored = await runAndStoreRobotsCheck(clientId, domain, { source: 'manual' })
+  const stored = await runAndStoreRobotsCheck(clientId, resolved, { source: 'manual' })
   return NextResponse.json(stored)
 })
 ```
@@ -1565,9 +1729,9 @@ import { getRobotsCheck } from '@/lib/robots-check/service'
 
 type Params = { params: Promise<{ id: string; checkId: string }> }
 
+// Strict id parser (plan-Codex #4) — same contract as the list route.
 function parsePositiveInt(raw: string): number | null {
-  const n = Number(raw)
-  return Number.isInteger(n) && n > 0 ? n : null
+  return /^[1-9][0-9]*$/.test(raw) ? Number(raw) : null
 }
 
 export const GET = withRoute(async (_request: NextRequest, { params }: Params) => {
@@ -1615,7 +1779,7 @@ git commit -m "feat(d4): robots-checks routes (run/list/detail) under the cookie
     domains: string[]                       // client's registered domains (may be empty)
     archived: boolean
     initial: {
-      checks: RobotsCheckSummary[]          // listRobotsChecks(clientId)
+      checks: RobotsCheckSummary[]          // listRobotsChecks(clientId, firstDomain) — PER-DOMAIN (plan-Codex #1)
       latest: { summary: RobotsCheckSummary; detail: RobotsCheckDetail } | null // first domain's latest
     }
   }
@@ -1636,7 +1800,7 @@ import type { RobotsCheckDetail, RobotsCheckSummary } from '@/lib/robots-check/t
 
 afterEach(() => {
   cleanup()
-  vi.restoreAllMocks()
+  vi.unstubAllGlobals() // fetch-stub cleanup convention (plan-Codex #6)
 })
 
 function summaryFixture(over: Partial<RobotsCheckSummary> = {}): RobotsCheckSummary {
@@ -1676,8 +1840,52 @@ describe('RobotsCheckCard', () => {
       />,
     )
     expect(screen.getByText(/robots ok/i)).toBeTruthy()
-    expect(screen.getByText(/42/)).toBeTruthy()
+    expect(screen.getByText('42 sitemap URLs')).toBeTruthy() // exact (plan-Codex #6)
     expect(screen.getByText(/1 AI bot blocked/i)).toBeTruthy()
+  })
+
+  it('run check success: POSTs, renders the new latest, prepends history', async () => {
+    const newLatest = {
+      summary: summaryFixture({ id: 7, changed: true }),
+      detail: detailFixture(),
+    }
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => newLatest })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <RobotsCheckCard clientId={1} domains={['example.com']} archived={false} initial={{ checks: [], latest: null }} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /run check/i }))
+    await waitFor(() => expect(screen.getByText(/robots ok/i)).toBeTruthy())
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/clients/1/robots-checks')
+  })
+
+  it('domain switch fetches the new domain history + latest detail lazily', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ checks: [summaryFixture({ id: 3, domain: 'two.com' })] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: summaryFixture({ id: 3, domain: 'two.com' }), detail: detailFixture() }) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <RobotsCheckCard clientId={1} domains={['one.com', 'two.com']} archived={false} initial={{ checks: [], latest: null }} />,
+    )
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'two.com' } })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/clients/1/robots-checks?domain=two.com')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/clients/1/robots-checks/3')
+  })
+
+  it('expanding a history row lazily fetches its detail; fetch failure surfaces inline error', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: false, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <RobotsCheckCard
+        clientId={1} domains={['example.com']} archived={false}
+        initial={{ checks: [summaryFixture({ id: 11 })], latest: null }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Jul/ }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/clients/1/robots-checks/11'))
+    await waitFor(() => expect(screen.getByText(/could not load/i)).toBeTruthy())
   })
 
   it('changed null renders an em dash, never "unchanged"', () => {
@@ -1690,20 +1898,26 @@ describe('RobotsCheckCard', () => {
     expect(screen.queryByText(/unchanged/i)).toBeNull()
   })
 
-  it('run check POSTs and prepends the new row; POST failure refetches history', async () => {
+  it('POST failure reconciles: refetches history AND the newest detail, updates latest (plan-Codex #5)', async () => {
     const fetchMock = vi.fn()
-      // POST fails
+      // POST fails (also covers the AbortController-timeout path — both land
+      // in the same catch/!ok reconciliation)
       .mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'internal_error' }) })
-      // reconciliation GET
+      // reconciliation: history GET
       .mockResolvedValueOnce({ ok: true, json: async () => ({ checks: [summaryFixture({ id: 9 })] }) })
+      // reconciliation: newest detail GET
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: summaryFixture({ id: 9 }), detail: detailFixture() }) })
     vi.stubGlobal('fetch', fetchMock)
     render(
       <RobotsCheckCard clientId={1} domains={['example.com']} archived={false} initial={{ checks: [], latest: null }} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /run check/i }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock.mock.calls[0][0]).toBe('/api/clients/1/robots-checks')
     expect(fetchMock.mock.calls[1][0]).toContain('/api/clients/1/robots-checks?domain=')
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/clients/1/robots-checks/9')
+    // latest was reconciled from the server, not left stale
+    await waitFor(() => expect(screen.getByText(/robots ok/i)).toBeTruthy())
   })
 
   it('honest truncation line when flags set', () => {
@@ -1734,13 +1948,15 @@ Create `components/clients/RobotsCheckCard.tsx`. Follow `GscKeywordCard` convent
 'use client'
 
 // D4 — client-page card for robots/sitemap checks + history.
-// Server preloads summaries (all domains) + the FIRST domain's latest
-// detail; switching domains or expanding history fetches lazily.
-// POST failure/client timeout refetches history — the row may still have
-// committed server-side (spec / Codex #5).
+// Server preloads the FIRST domain's summaries + latest detail; switching
+// domains or expanding history fetches lazily.
+// POST failure OR client-side timeout reconciles: refetch history AND the
+// newest row's detail — the row may still have committed server-side
+// (Codex #5 / plan-Codex #5). A generation token guards domain switches so
+// a slow response never overwrites the newly selected domain.
 // changed:null renders an em dash, never "unchanged" (absence != sameness).
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { RobotsCheckDetail, RobotsCheckSummary } from '@/lib/robots-check/types'
 
 interface Latest {
@@ -1755,14 +1971,20 @@ interface Props {
   initial: { checks: RobotsCheckSummary[]; latest: Latest | null }
 }
 
+// Client deadline sits ABOVE the documented server hard bound (~75s =
+// 60s budget + one 15s in-flight fetch window) so the server finishes first.
+const POST_DEADLINE_MS = 90_000
+
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   ok: { label: 'Robots OK', cls: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30' },
   missing: { label: 'Robots missing', cls: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/30' },
   unreachable: { label: 'Unreachable', cls: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30' },
 }
 
+// UTC-pinned: server-rendered initial data must format identically in the
+// browser or hydration mismatches appear (plan-Codex #5).
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
 function ChangedBadge({ changed }: { changed: boolean | null }) {
@@ -1782,57 +2004,80 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
   const [error, setError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [expandedDetail, setExpandedDetail] = useState<RobotsCheckDetail | null>(null)
+  // Generation token: bumped on every domain switch; stale async flows
+  // check it before every setState (plan-Codex #5).
+  const genRef = useRef(0)
 
-  const refetchHistory = async () => {
+  /** Refetch history + newest detail for `forDomain`; applies state only if
+   *  the generation still matches. Failures surface inline. */
+  const reconcile = async (forDomain: string, gen: number) => {
     try {
-      const res = await fetch(`/api/clients/${clientId}/robots-checks?domain=${encodeURIComponent(domain)}`)
-      if (!res.ok) return
+      const res = await fetch(`/api/clients/${clientId}/robots-checks?domain=${encodeURIComponent(forDomain)}`)
+      if (!res.ok) {
+        if (genRef.current === gen) setError('Could not load check history.')
+        return
+      }
       const body = await res.json()
-      setChecks(body.checks as RobotsCheckSummary[])
-    } catch { /* keep prior state */ }
+      const list = body.checks as RobotsCheckSummary[]
+      if (genRef.current !== gen) return
+      setChecks(list)
+      if (list.length > 0) {
+        const dRes = await fetch(`/api/clients/${clientId}/robots-checks/${list[0].id}`)
+        if (genRef.current !== gen) return
+        if (dRes.ok) {
+          setLatest((await dRes.json()) as Latest)
+        } else {
+          setError('Could not load the latest check detail.')
+        }
+      } else {
+        setLatest(null)
+      }
+    } catch {
+      if (genRef.current === gen) setError('Could not load check history.')
+    }
   }
 
   const runCheck = async () => {
+    const gen = genRef.current
     setRunning(true)
     setError(null)
+    const controller = new AbortController()
+    const deadline = setTimeout(() => controller.abort(), POST_DEADLINE_MS)
     try {
       const res = await fetch(`/api/clients/${clientId}/robots-checks`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ domain }),
+        signal: controller.signal,
       })
       if (!res.ok) {
-        setError('Check failed. The result may still have been recorded; refreshing history.')
-        await refetchHistory()
+        if (genRef.current === gen) setError('Check failed. The result may still have been recorded; refreshing history.')
+        await reconcile(domain, gen)
         return
       }
       const body = (await res.json()) as Latest
+      if (genRef.current !== gen) return
       setLatest(body)
       setChecks((prev) => [body.summary, ...prev])
     } catch {
-      setError('Check failed. The result may still have been recorded; refreshing history.')
-      await refetchHistory()
+      // Includes the AbortController deadline: the server may still commit
+      // the row after our timeout — reconcile instead of trusting local state.
+      if (genRef.current === gen) setError('Check failed. The result may still have been recorded; refreshing history.')
+      await reconcile(domain, gen)
     } finally {
-      setRunning(false)
+      clearTimeout(deadline)
+      if (genRef.current === gen) setRunning(false)
     }
   }
 
   const switchDomain = async (next: string) => {
+    genRef.current += 1
+    const gen = genRef.current
     setDomain(next)
     setLatest(null)
     setExpandedId(null)
-    try {
-      const res = await fetch(`/api/clients/${clientId}/robots-checks?domain=${encodeURIComponent(next)}`)
-      if (res.ok) {
-        const body = await res.json()
-        setChecks(body.checks as RobotsCheckSummary[])
-        const first = (body.checks as RobotsCheckSummary[])[0]
-        if (first) {
-          const dRes = await fetch(`/api/clients/${clientId}/robots-checks/${first.id}`)
-          if (dRes.ok) setLatest((await dRes.json()) as Latest)
-        }
-      }
-    } catch { /* ephemeral */ }
+    setError(null)
+    await reconcile(next, gen)
   }
 
   const toggleExpand = async (id: number) => {
@@ -1840,12 +2085,20 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
       setExpandedId(null)
       return
     }
+    const gen = genRef.current
     setExpandedId(id)
     setExpandedDetail(null)
     try {
       const res = await fetch(`/api/clients/${clientId}/robots-checks/${id}`)
-      if (res.ok) setExpandedDetail(((await res.json()) as Latest).detail)
-    } catch { /* ephemeral */ }
+      if (genRef.current !== gen) return
+      if (res.ok) {
+        setExpandedDetail(((await res.json()) as Latest).detail)
+      } else {
+        setError('Could not load that check.')
+      }
+    } catch {
+      if (genRef.current === gen) setError('Could not load that check.')
+    }
   }
 
   if (domains.length === 0) {
@@ -2011,13 +2264,13 @@ import { RobotsCheckCard } from '@/components/clients/RobotsCheckCard'
 Where the page loads its data (alongside the other service calls), add:
 
 ```ts
-  const robotsChecks = await listRobotsChecks(clientId)
+  // Per-domain preload (plan-Codex #1): the card's history is ALWAYS scoped
+  // to its selected domain, so the initial load uses the same filtered path
+  // the domain switcher uses — never the unfiltered interleaved list.
   const firstDomain: string | undefined = dash.client.domains[0]
-  const latestForFirstDomain = firstDomain
-    ? robotsChecks.find((c) => c.domain === firstDomain)
-    : undefined
-  const robotsLatest = latestForFirstDomain
-    ? await getRobotsCheck(clientId, latestForFirstDomain.id)
+  const robotsChecks = firstDomain ? await listRobotsChecks(clientId, firstDomain) : []
+  const robotsLatest = robotsChecks.length > 0
+    ? await getRobotsCheck(clientId, robotsChecks[0].id)
     : null
 ```
 
