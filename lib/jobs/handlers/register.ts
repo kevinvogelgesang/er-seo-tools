@@ -21,6 +21,8 @@ import { registerSeoReportMonthlyRunHandler } from './seo-report-monthly-run'
 import { registerDbBackupHandler } from './db-backup'
 import { registerHealthAlertHandler } from './health-alert'
 import { registerNotifyEmailHandler } from './notify-email'
+import { registerRobotsMonitorHandler } from './robots-monitor'
+import { registerRobotsMonitorSweepHandler } from './robots-monitor-sweep'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
@@ -39,4 +41,6 @@ export function registerBuiltInJobHandlers(): void {
   registerDbBackupHandler()
   registerHealthAlertHandler()
   registerNotifyEmailHandler()
+  registerRobotsMonitorHandler()
+  registerRobotsMonitorSweepHandler()
 }

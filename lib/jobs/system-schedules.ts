@@ -18,6 +18,7 @@ import { SCREENSHOT_SWEEP_JOB_TYPE } from './handlers/screenshot-sweep'
 import { STALE_AUDIT_RESET_JOB_TYPE } from './handlers/stale-audit-reset'
 import { DB_BACKUP_JOB_TYPE } from './handlers/db-backup'
 import { HEALTH_ALERT_JOB_TYPE } from './handlers/health-alert'
+import { ROBOTS_MONITOR_SWEEP_JOB_TYPE } from './handlers/robots-monitor-sweep'
 import { nextRun } from './scheduler'
 
 interface SystemScheduleDef {
@@ -41,6 +42,9 @@ export const SYSTEM_SCHEDULES: SystemScheduleDef[] = [
   // soon enough, and a post-deploy manual backup covers the initial window.
   { name: 'system-db-backup', jobType: DB_BACKUP_JOB_TYPE, cadence: 'daily@08:00', immediate: false },
   { name: 'system-health-alert', jobType: HEALTH_ALERT_JOB_TYPE, cadence: 'every:15m', immediate: true },
+  // D5: weekly robots/sitemap monitoring sweep — Monday 06:30 server-local
+  // (prod host runs UTC), clear of db-backup 08:00 and cleanup 09:00.
+  { name: 'system-robots-monitor', jobType: ROBOTS_MONITOR_SWEEP_JOB_TYPE, cadence: 'weekly:1@06:30', immediate: false },
 ]
 
 export async function seedSystemSchedules(now: Date = new Date()): Promise<void> {

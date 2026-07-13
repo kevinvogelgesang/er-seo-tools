@@ -229,3 +229,41 @@ describe('listRobotsChecks / getRobotsCheck', () => {
     expect(await getRobotsCheck(clientA.id, summary.id)).toBeNull()
   })
 })
+
+describe('changeSummary (D5)', () => {
+  it('first check ever -> changeSummary null', async () => {
+    const client = await makeClient()
+    arm(detailFixture())
+    const stored = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    expect(stored.changeSummary).toBeNull()
+  })
+
+  it('second check computes the summary against the exact predecessor, on both paths', async () => {
+    const client = await makeClient()
+    arm(detailFixture({ robotsHash: 'a' }), 'Allow: /')
+    await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    arm(detailFixture({ robotsHash: 'b' }), 'Disallow: /x')
+    const second = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+
+    expect(second.summary.changed).toBe(true)
+    expect(second.changeSummary).not.toBeNull()
+    expect(second.changeSummary!.robotsContentChanged).toBe(true)
+    expect(second.changeSummary!.robotsDiff!.added).toEqual(['Disallow: /x'])
+    expect(second.changeSummary!.robotsDiff!.removed).toEqual(['Allow: /'])
+
+    // GET path returns the identical summary shape.
+    const got = await getRobotsCheck(client.id, second.summary.id)
+    expect(got!.changeSummary).toEqual(second.changeSummary)
+  })
+
+  it('corrupt predecessor detail -> changeSummary null (matches changed:null)', async () => {
+    const client = await makeClient()
+    arm(detailFixture())
+    const first = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    await prisma.robotsCheck.update({ where: { id: first.summary.id }, data: { detailJson: '{"v":2}' } })
+    arm(detailFixture({ robotsHash: 'zz' }))
+    const second = await runAndStoreRobotsCheck(client.id, 'x.com', { source: 'manual' })
+    expect(second.summary.changed).toBeNull()
+    expect(second.changeSummary).toBeNull()
+  })
+})

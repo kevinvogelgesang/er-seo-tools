@@ -15,6 +15,7 @@
 import { prisma } from '@/lib/db'
 import type { RobotsCheck } from '@prisma/client'
 import { runRobotsCheck } from './runner'
+import { buildChangeSummary, type RobotsChangeSide, type RobotsChangeSummary } from './change-summary'
 import {
   ROBOTS_CHECK_HISTORY_LIMIT,
   type RobotsCheckDetail,
@@ -26,6 +27,9 @@ import {
 export interface StoredRobotsCheck {
   summary: RobotsCheckSummary
   detail: RobotsCheckDetail
+  /** D5: diff vs the exact total-order predecessor; null on first check or
+   *  when the predecessor's detail is unreadable (mirrors changed:null). */
+  changeSummary: RobotsChangeSummary | null
 }
 
 /** Structural guard for the fields the service and card actually read
@@ -70,6 +74,13 @@ function changedVs(prev: RobotsCheck | null | undefined, row: RobotsCheck): bool
   const b = evidenceOf(row)
   if (a === null || b === null) return null
   return a !== b
+}
+
+function changeSummaryVs(prev: RobotsCheck | null, curr: RobotsChangeSide): RobotsChangeSummary | null {
+  if (!prev) return null
+  const prevDetail = parseDetail(prev.detailJson)
+  if (!prevDetail) return null
+  return buildChangeSummary({ detail: prevDetail, robotsContent: prev.robotsContent }, curr)
 }
 
 function toSummary(row: RobotsCheck, changed: boolean | null): RobotsCheckSummary {
@@ -134,7 +145,11 @@ export function runAndStoreRobotsCheck(
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     })
-    return { summary: toSummary(row, changedVs(prev, row)), detail }
+    return {
+      summary: toSummary(row, changedVs(prev, row)),
+      detail,
+      changeSummary: changeSummaryVs(prev, { detail, robotsContent }),
+    }
   })()
 
   inFlight.set(key, promise)
@@ -194,5 +209,9 @@ export async function getRobotsCheck(clientId: number, checkId: number): Promise
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   })
-  return { summary: toSummary(row, changedVs(prev, row)), detail }
+  return {
+    summary: toSummary(row, changedVs(prev, row)),
+    detail,
+    changeSummary: changeSummaryVs(prev, { detail, robotsContent: row.robotsContent }),
+  }
 }

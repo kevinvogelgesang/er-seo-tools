@@ -4,6 +4,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { RobotsCheckCard } from './RobotsCheckCard'
 import type { RobotsCheckDetail, RobotsCheckSummary } from '@/lib/robots-check/types'
+import type { RobotsChangeSummary } from '@/lib/robots-check/change-summary'
 
 afterEach(() => {
   cleanup()
@@ -30,6 +31,30 @@ function detailFixture(over: Partial<RobotsCheckDetail> = {}): RobotsCheckDetail
     sitemapsSkipped: 0, timeBudgetExhausted: false,
     totals: { sitemapUrlTotal: 42, errors: 0, warnings: 1 }, ...over,
   }
+}
+
+function changeSummaryFixture(over: Partial<RobotsChangeSummary> = {}): RobotsChangeSummary {
+  return {
+    robotsStatus: null, robotsContentChanged: false, robotsDiff: null,
+    blockedBots: null, sitemaps: null, sitemapUrlTotal: null, counts: null, ...over,
+  }
+}
+
+/** Render one changed history row and stub its detail GET. */
+function renderExpandable(changeSummary: RobotsChangeSummary | null, changed: boolean | null = true) {
+  const stored = {
+    summary: summaryFixture({ id: 11, changed }),
+    detail: detailFixture(),
+    changeSummary,
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({ ok: true, json: async () => stored }))
+  render(
+    <RobotsCheckCard
+      clientId={1} domains={['example.com']} archived={false}
+      initial={{ checks: [summaryFixture({ id: 11, changed })], latest: null }}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /Jul/ }))
 }
 
 describe('RobotsCheckCard', () => {
@@ -191,5 +216,60 @@ describe('RobotsCheckCard', () => {
       />,
     )
     expect(screen.getByText(/possibly incomplete/i)).toBeTruthy()
+  })
+})
+
+describe('changed-vs-previous section (D5)', () => {
+  it('renders added/removed robots lines when the expanded row changed', async () => {
+    renderExpandable(changeSummaryFixture({
+      robotsContentChanged: true,
+      robotsDiff: { added: ['Disallow: /x'], removed: ['Allow: /'], truncated: false },
+    }))
+    await waitFor(() => expect(screen.getByText('Changed vs previous')).toBeTruthy())
+    expect(screen.getByText('+ Disallow: /x')).toBeTruthy()
+    expect(screen.getByText('- Allow: /')).toBeTruthy()
+  })
+
+  it('reorder-only (non-null EMPTY diff) renders the formatting-only notice', async () => {
+    renderExpandable(changeSummaryFixture({
+      robotsContentChanged: true,
+      robotsDiff: { added: [], removed: [], truncated: false },
+    }))
+    await waitFor(() => expect(screen.getByText(/reordering or formatting only/)).toBeTruthy())
+  })
+
+  it('null diff with changed content renders line-diff-unavailable, never formatting-only (plan-Codex #3)', async () => {
+    renderExpandable(changeSummaryFixture({ robotsContentChanged: true, robotsDiff: null }))
+    await waitFor(() => expect(screen.getByText(/line diff unavailable/)).toBeTruthy())
+    expect(screen.queryByText(/formatting only/)).toBeNull()
+  })
+
+  it('renders error/warning count movement (plan-Codex #4)', async () => {
+    renderExpandable(changeSummaryFixture({
+      robotsContentChanged: true,
+      robotsDiff: { added: [], removed: [], truncated: false },
+      counts: { errorsPrev: 0, errorsCurr: 2, warningsPrev: 1, warningsCurr: 1 },
+    }))
+    await waitFor(() => expect(screen.getByText(/Errors 0 → 2/)).toBeTruthy())
+  })
+
+  it('no section when the row did not change', async () => {
+    renderExpandable(changeSummaryFixture({ robotsContentChanged: true }), false)
+    await waitFor(() => expect(screen.getByText(/issue\(s\) recorded/)).toBeTruthy())
+    expect(screen.queryByText('Changed vs previous')).toBeNull()
+  })
+})
+
+describe('childrenExcluded line (D4 follow-up #2)', () => {
+  it('renders the excluded count for index sitemaps that filtered children', () => {
+    const detail = detailFixture()
+    detail.sitemaps[0] = { ...detail.sitemaps[0], isIndex: true, childrenTotal: 5, childrenExcluded: 3 }
+    render(
+      <RobotsCheckCard
+        clientId={1} domains={['example.com']} archived={false}
+        initial={{ checks: [summaryFixture()], latest: { summary: summaryFixture(), detail } }}
+      />,
+    )
+    expect(screen.getByText(/3 excluded/)).toBeTruthy()
   })
 })

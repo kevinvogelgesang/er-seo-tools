@@ -13,7 +13,7 @@ describe('jobs/handlers/register', () => {
     for (const type of [
       'psi', 'pdf-scan', 'site-audit-page', 'site-audit-discover',
       'cleanup', 'screenshot-sweep', 'stale-audit-reset', 'ada-audit',
-      'scheduled-site-audit',
+      'scheduled-site-audit', 'robots-monitor', 'robots-monitor-sweep',
     ]) {
       const h = getJobHandler(type)
       expect(h, `handler for ${type}`).toBeDefined()
