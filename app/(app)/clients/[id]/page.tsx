@@ -8,6 +8,7 @@ import { getClientSchedules } from '@/lib/services/client-schedules'
 import { getLatestGscSnapshot, getCannibalizationReport } from '@/lib/keywords/gsc-snapshot'
 import { getKeywordProfile } from '@/lib/services/keyword-profile'
 import { getLatestKeywordStrategySession } from '@/lib/keywords/strategy-export'
+import { listRobotsChecks, getRobotsCheck } from '@/lib/robots-check/service'
 import { ClientHeader } from '@/components/clients/ClientHeader'
 import { Scorecard } from '@/components/clients/Scorecard'
 import { ActivityTimeline } from '@/components/clients/ActivityTimeline'
@@ -15,6 +16,7 @@ import { IssueTrendCard } from '@/components/clients/IssueTrendCard'
 import { FindingsPanel } from '@/components/clients/FindingsPanel'
 import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
 import { ScheduledScansCard } from '@/components/clients/ScheduledScansCard'
+import { RobotsCheckCard } from '@/components/clients/RobotsCheckCard'
 import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
 import { GscKeywordCard } from '@/components/clients/GscKeywordCard'
 import { GscCannibalizationCard } from '@/components/clients/GscCannibalizationCard'
@@ -50,6 +52,15 @@ export default async function ClientDashboardPage({ params }: Props) {
       getCannibalizationReport(clientId),
     ])
   if (!dash.client) notFound()
+
+  // Per-domain preload (plan-Codex #1): the card's history is ALWAYS scoped
+  // to its selected domain, so the initial load uses the same filtered path
+  // the domain switcher uses — never the unfiltered interleaved list.
+  const firstDomain: string | undefined = dash.client.domains[0]
+  const robotsChecks = firstDomain ? await listRobotsChecks(clientId, firstDomain) : []
+  const robotsLatest = robotsChecks.length > 0
+    ? await getRobotsCheck(clientId, robotsChecks[0].id)
+    : null
 
   const strategyReadiness = {
     gscMapped: gscSnapshot.gscMapped,
@@ -122,6 +133,13 @@ export default async function ClientDashboardPage({ params }: Props) {
           domains={dash.client.domains}
           archived={dash.client.archivedAt !== null}
           initial={scanSchedules}
+        />
+
+        <RobotsCheckCard
+          clientId={clientId}
+          domains={dash.client.domains}
+          archived={dash.client.archivedAt !== null}
+          initial={{ checks: robotsChecks, latest: robotsLatest }}
         />
 
         <AnalyticsIdsPanel clientId={clientId} />
