@@ -41,6 +41,7 @@ model Client {
   prospectsEntries      ProspectsEntry[]
   gscSnapshots          GscSnapshot[]
   keywordStrategySessions KeywordStrategySession[]
+  robotsChecks          RobotsCheck[]
 }
 
 model Prospect {
@@ -728,6 +729,27 @@ model GscSnapshot {
   queryPageRowsJson String   // JSON: GscQueryPageRow[]
 
   @@index([clientId, fetchedAt])
+}
+
+// D4: client-attached robots/sitemap check snapshots. One row per run.
+// Raw robots body stored (small, fetch-capped 500KB, retention-capped rows)
+// for D5 diff rendering; sitemap XML is NEVER stored (hash+counts only).
+model RobotsCheck {
+  id                Int      @id @default(autoincrement())
+  clientId          Int
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  domain            String   // normalized bare domain the check ran against
+  source            String   @default("manual") // 'manual' | 'scheduled' (D5)
+  robotsStatus      String   // 'ok' | 'missing' | 'unreachable'
+  robotsContentHash String?  // sha256 hex, null unless robots ok
+  robotsContent     String?  // raw robots.txt body, null unless robots ok
+  sitemapUrlTotal   Int?     // null = no sitemap observed (absence != 0)
+  errorCount        Int
+  warningCount      Int
+  detailJson        String   // {v:1,...} RobotsCheckDetail
+  createdAt         DateTime @default(now())
+
+  @@index([clientId, domain, createdAt])
 }
 
 // KS-2: client-agnostic shared search-volume cache (DataForSEO Google Ads
