@@ -5,7 +5,7 @@
 > handoff-engine consolidation. It is superseded by `skills/er-handoff-memo/`,
 > which activates on the same clipboard payload (`pat_` token audience is
 > unchanged — see "Frozen wire value" in
-> `docs/superpowers/specs/2026-07-12-d1-handoff-engine-consolidation-design.md`).
+> `docs/superpowers/archive/specs/2026-07-12-d1-handoff-engine-consolidation-design.md`).
 > The prompt format contract below is otherwise unchanged and still governs
 > `lib/pillar-prompt.ts` + `lib/handoff/registry.ts`'s pat_ entry.
 

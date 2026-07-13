@@ -9,7 +9,7 @@
 > throughout this doc were retired as part of the D1 handoff-engine
 > consolidation. `skills/er-handoff-memo/` now covers this surface (and five
 > other handoff families) with no local build step — see
-> `docs/superpowers/specs/2026-07-12-d1-handoff-engine-consolidation-design.md`.
+> `docs/superpowers/archive/specs/2026-07-12-d1-handoff-engine-consolidation-design.md`.
 > The narrative below is kept as the historical record of Phases 1–2.3 and is
 > otherwise unchanged.
 
