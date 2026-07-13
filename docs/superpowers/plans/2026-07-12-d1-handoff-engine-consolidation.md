@@ -30,7 +30,7 @@
 | Scopes | `['read','narrative-write']` | `['read','roadmap-write']` | `['read','memo-write']` | `['read','memo-write','volume-lookup']` | `['read','findings-write']` | `['read','receipt-write']` |
 | Error class | `PillarTokenError` | `SeoRoadmapTokenError` | `KeywordMemoTokenError` | `KeywordStrategyTokenError` | `ContentAuditTokenError` | `QuarterPushTokenError` |
 | Wrong-sub route code | `token_wrong_analysis_id` | `token_wrong_roadmap_id` | `token_wrong_memo_id` | `token_wrong_session_id` | (collapsed: `auth_required`) | `token_wrong_plan_id` |
-| Missing/malformed header | (per-route, see routes) | `auth_missing` / `auth_malformed` | `auth_missing` / `auth_malformed` | `auth_missing` / `auth_malformed` | `auth_required` | `auth_missing_or_malformed` (combined) |
+| Missing/malformed header | `auth_missing` / `auth_malformed` (verified `app/api/pillar-analysis/[id]/route.ts:12-19`) | `auth_missing` / `auth_malformed` | `auth_missing` / `auth_malformed` | `auth_missing` / `auth_malformed` | `auth_required` | `auth_missing_or_malformed` (combined) |
 | Transport | bearer-strict | bearer-strict | bearer-strict | bearer-strict | bearer-or-query | bearer-strict |
 | Verifier-throw (non-family error) | 500 `token_service_unavailable` | 500 `token_service_unavailable` | 500 `token_service_unavailable` | 500 `token_service_unavailable` | 401 `auth_required` (collapsed) | 500 `token_service_unavailable` |
 
@@ -130,7 +130,7 @@ List which of the matrix cells below are already covered; the new file adds ONLY
 
 - [ ] **Step 2: Write the missing matrix cells**
 
-Matrix per public route (14 routes): `no Authorization header`, `non-Bearer header`, `wrong prefix (Bearer krt_… on an srt_ route etc.)`, `expired token`, `bad signature (token signed with a different secret)`, `wrong sub (valid token for another id)`, `missing scope (hand-signed token with scope: ['read'] on a write route / [] on a read route)`, `success`. Expected codes/statuses per family are in the Reference table; **read each route file and copy its literal codes** (e.g. pillar collapses missing/malformed handling differently from srt — pin what the code does, not what the table approximates). Token forging helper (copy the pattern already used in `app/api/pillar-analysis/[id]/route.test.ts:69` — hand-built `SignJWT` with `.setAudience(...)`):
+Matrix per public route (14 routes) — Codex plan-review fix 1+2 expanded set: `no Authorization header`, `non-Bearer header`, `wrong prefix (Bearer krt_… on an srt_ route etc.)`, `malformed JWT with the CORRECT family prefix (e.g. Bearer srt_notajwt)`, `validly-signed token with wrong iss`, `validly-signed token with wrong aud`, `expired token`, `bad signature (signed with a different secret)`, `wrong sub (valid token for another id)`, `missing scope (hand-signed with scope: ['read'] on a write route / [] on a read route)`, `non-array scope claim (scope: 'read')`, `missing scope claim entirely`, `success`. For every WRITE route additionally pin **body-before-auth ordering**: invalid body + absent token → the body-validation 400 for pat/srt/krt/kst/cat (they parse before auth) but qct receipt's 401 (it authenticates first) — pin what each route actually does. Assert complete response bodies with `toEqual({ error: … })` (not just `.error`) so field additions/removals can't drift silently. Expected codes/statuses per family are in the Reference table; **read each route file and copy its literal codes** — pin what the code does, not what the table approximates. Token forging helper (copy the pattern already used in `app/api/pillar-analysis/[id]/route.test.ts:69` — hand-built `SignJWT` with `.setAudience(...)`; parameterize `iss` too for the wrong-iss cases):
 
 ```ts
 import { SignJWT } from 'jose';
@@ -260,6 +260,11 @@ export class SeoRoadmapTokenError extends Error { /* same shape, name 'SeoRoadma
 
 `registry.ts` then: `makeError: (m) => new PillarTokenError(m)` per family. `meta.ts` holds `{prefix, idLabel}` only (`Analysis ID`/`Roadmap ID`/`Memo ID`/`Strategy ID`/`Content Audit ID`/`Plan ID` — verify each against its prompt module before writing).
 
+Codex plan-review fix 4 requirements:
+- `import 'server-only'` at the top of `registry.ts` and (Task 5) `token.ts` — house pattern, already a dep (`lib/analytics/google/*` precedent). `meta.ts` must NOT import it (client-safe).
+- **Literal tuple types preserved**: type the registry per-family (e.g. a mapped/generic type or per-family `as const` entries), NOT a homogenizing `Record<K, { scopes: readonly string[] }>` — `KEYWORD_STRATEGY_TOKEN_SCOPES` and `CONTENT_AUDIT_TOKEN_SCOPES` are exported with `typeof X[number]` consumers; erasing to `string` breaks their type surface. After Task 6, `npm run lint` (tsc) is the gate for this, not runtime grep.
+- Tests pin the EXACT production-unset-secret error text and the EXACT dev-fallback warning text per family (copied from each module), not merely warn-once behavior.
+
 - [ ] **Step 4: Run tests to verify pass** — `npx vitest run lib/handoff/registry.test.ts` → PASS.
 
 - [ ] **Step 5: Commit**
@@ -299,7 +304,7 @@ git commit -m "feat(d1): HANDOFF_TOKEN_CONFIGS registry + client-safe meta + sin
 
 - [ ] **Step 2: Run to verify fail** — `npx vitest run lib/handoff/token.test.ts` → FAIL.
 
-- [ ] **Step 3: Implement `lib/handoff/token.ts`** — transcribe `lib/pillar-token.ts`'s logic parameterized by config; per-family `didWarn` flag lives in a `Map<string, boolean>` keyed by config.prefix; every `throw new PillarTokenError(...)` becomes `throw config.makeError(...)` with the SAME message templates (messages are sniffed by routes: keep `token missing ${prefix} prefix`, `token verification failed: ${…}`, `token sub (${sub}) does not match expected … (${expected})` — check each legacy module for its exact sub-mismatch noun phrase and preserve per family via a config `subNoun`? READ all six first: if wording differs per family (pillar says 'expected analysis id'), add `wrongSubMessage(sub, expected): string` to the config instead of a shared template).
+- [ ] **Step 3: Implement `lib/handoff/token.ts`** — transcribe `lib/pillar-token.ts`'s logic parameterized by config; per-family `didWarn` flag lives in a `Map<string, boolean>` keyed by config.prefix; every `throw new PillarTokenError(...)` becomes `throw config.makeError(...)` with the SAME message templates. Verified 2026-07-12: the six modules differ ONLY in the sub-mismatch noun phrase — add `subNoun` to `HandoffTokenConfig` (pat `'analysis id'` · srt `'roadmap id'` · krt `'memo id'` · kst `'session id'` · cat `'site audit id'` · qct `'plan id'`) and use the shared templates verbatim: `token missing ${prefix} prefix`, `token verification failed: ${err.message | 'unknown'}`, ``token sub (${payload.sub}) does not match expected ${subNoun} (${expectedId})``. These messages are sniffed by routes (`expired` / `does not match` / `signature` substrings) — never reword.
 
 - [ ] **Step 4: Run tests** — PASS. Also `npx vitest run lib` (registry+token green).
 
@@ -421,7 +426,7 @@ authErrors: {
 
 - [ ] **Step 2: Run to verify fail.** `npx vitest run lib/handoff/route-auth.test.ts` → FAIL.
 
-- [ ] **Step 3: Implement** — extraction per transport policy (Bearer regex `^Bearer\s+(<prefix>\S+)$` for bearer-strict, replicating each route's CURRENT regex; cat_'s `bearer()` header-startsWith + query fallback verbatim from `lib/content-audit/route-auth.ts:12-16`), verify via factory, map errors through `config.authErrors`, scope check last. Never throws: outermost try/catch → `verifierUnavailable` policy.
+- [ ] **Step 3: Implement** — extraction per transport policy (Bearer regex `^Bearer\s+(<prefix>\S+)$` for bearer-strict, replicating each route's CURRENT regex; cat_'s `bearer()` header-startsWith + query fallback verbatim from `lib/content-audit/route-auth.ts:12-16`), verify, map errors through `config.authErrors`, scope check last. Never throws: outermost try/catch → `verifierUnavailable` policy. **Verifier seam (Codex plan-review fix 3): route-auth must call the FACADE verify functions, not instantiate factory families itself** — a `VERIFIERS: Record<HandoffFamilyKey, (token: string, expectedId: string) => Promise<JWTPayload>>` table importing `verifyPillarToken`/`verifySeoRoadmapToken`/…/`verifyQuarterPushToken` from the six legacy modules. This keeps every existing route test's `vi.mock('@/lib/<x>-token')` seam working after adoption; a characterization test whose mock is silently bypassed proves nothing.
 
 - [ ] **Step 4: Run tests** → PASS.
 
@@ -532,11 +537,24 @@ export interface UseMemoPollerResult {
 export function useMemoPoller(opts: UseMemoPollerOpts): UseMemoPollerResult
 ```
 
-- [ ] **Step 1: Write failing behavior tests** (`// @vitest-environment jsdom`, `afterEach(cleanup)`, `vi.mock('@/lib/events/client')` BEFORE imports; render the hook via a probe component; fake timers). Port the A5 suites — copy the concrete test bodies from `components/seo-parser/SeoRoadmapCard.test.tsx` and `components/clients/KeywordStrategyCard.test.tsx` (the invalidate-visible/hidden, 20 s-cadence-suppression, expired-no-resurrect, stale-processing-no-restart cases), re-targeted at the hook probe. Additional hook-specific cases: `restart({baselineNull:true})` starts with null baseline; reactive `topicId` re-subscribes (assert `subscribeTopic` called with the new topic and unsubscribed from the old — the A5 `not.toHaveBeenCalledWith(<wrongId>)` pattern).
+- [ ] **Step 1: Write failing behavior tests** (`// @vitest-environment jsdom`, `afterEach(cleanup)`, `vi.mock('@/lib/events/client')` BEFORE imports; render the hook via a probe component; fake timers). Start from the A5 cases that DO exist in `components/seo-parser/SeoRoadmapCard.test.tsx` / `components/clients/KeywordStrategyCard.test.tsx` and **write the rest fresh** (Codex plan-review fix 6 — do not assume the card suites already contain them all). Required semantic-contract cases, each an explicit test:
+  1. invalidate while visible+polling → immediate onChange; while hidden → dirty, consumed on visibility-resume
+  2. healthy SSE → 20 s cadence suppression; unhealthy/drop → re-armed 3 s
+  3. expired never resurrected by SSE invalidate
+  4. pillar-shape unanchored auto-start: `autoStart: { active: true, mintedAt: null }` → starts anchored at now, NO expiry pre-check
+  5. card-shape anchored auto-start: stale mint (`mintedAt` older than lifetime) → expired WITHOUT starting
+  6. `baselineRef ?? latest` first-response backfill on tick
+  7. `syncBaselineWhenIdle` updates baseline ONLY while machine is idle (never mid-cycle)
+  8. `fetchLatestUpdatedAt` returning `undefined` skips `machine.tick` entirely
+  9. `subscribePollerTrigger: true` → `onMemoPollerTrigger` starts a cycle from the current baseline
+  10. empty `topicId` (`''`) → NO subscription created
+  11. reactive `topicId` change → old topic unsubscribed, new subscribed (`not.toHaveBeenCalledWith(<oldTopic>)` pattern for emissions after switch)
+  12. `restart({baselineNull: true})` starts a cycle with null baseline (first non-null write-back completes it) and does NOT clear any displayed memo (hook owns no memo state)
+  13. onChange/fetchLatestUpdatedAt freshness: pass a callback that changes identity every render — the machine (created once) must invoke the LATEST callback (Codex fix 5: route both through refs updated every render), and the interval effect must NOT tear down/restart on callback-identity changes (assert `setInterval` not re-created across re-renders with inline callbacks).
 
 - [ ] **Step 2: Run to verify fail.** `npx vitest run components/handoff/useMemoPoller.test.tsx` → FAIL.
 
-- [ ] **Step 3: Implement the hook** — transcribe the wiring from `components/seo-parser/SeoRoadmapCard.tsx:85-187` + KeywordStrategyCard's reactive-topic effect, parameterized per the opts. The SSE effect body is exactly `subscribeTopic(memoTopic(topicId), () => machine.invalidate())` — the kst_ pre-invalidate fetch is intentionally DROPPED (vestigial per A5 review: its onChange fetches at call time).
+- [ ] **Step 3: Implement the hook** — transcribe the wiring from `components/seo-parser/SeoRoadmapCard.tsx:85-187` + KeywordStrategyCard's reactive-topic effect, parameterized per the opts. The SSE effect body is exactly `subscribeTopic(memoTopic(topicId), () => machine.invalidate())` — the kst_ pre-invalidate fetch is intentionally DROPPED (vestigial per A5 review: its onChange fetches at call time). **Callback freshness (Codex fix 5): `onChange` and `fetchLatestUpdatedAt` are stored in refs updated on every render** (the `routerRef` pattern already in SeoRoadmapCard:85-88); the once-created machine and the interval effect close over the refs, never the raw props — so wrapper components may pass inline callbacks without stale-closure bugs or timer restarts.
 
 - [ ] **Step 4: Run tests** → PASS.
 
@@ -616,7 +634,7 @@ git commit -m "refactor(d1): pillar MemoPoller adopts useMemoPoller (props + beh
 
 - [ ] **Step 1: Rewrite the poller wiring onto the hook**, keeping the local-state shell: `useMemoPoller({ topicId: activeSessionId ?? '', onChange: <the current call-time fetchLatestSession + setState block>, fetchLatestUpdatedAt: fetchLatestSession()→s?.memoUpdatedAt (undefined on failure), initialBaseline: initialSession?.memoUpdatedAt ?? null, autoStart: { active: initialSession?.status === 'processing', mintedAt: initialSession?.tokenMintedAt ?? null } })`; onGenerate calls `restart({ baselineNull: true })` + `setActiveSessionId(strategyId)`. Guard: when `activeSessionId` is null, skip subscription (hook accepts empty topicId → no subscribe; add that case to Task 12 tests if missed). The old SSE-handler pre-fetch block (`KeywordStrategyCard.tsx:158-167`) is deleted — SSE goes straight to `machine.invalidate()` via the hook.
 
-- [ ] **Step 2: Run** — `npx vitest run components/clients/KeywordStrategyCard.test.tsx components/handoff` → PASS (A5 suite gates the migration; if a test pinned the pre-fetch behavior, verify it asserts USER-VISIBLE outcome and update only with justification in the commit message).
+- [ ] **Step 2: Run** — `npx vitest run components/clients/KeywordStrategyCard.test.tsx components/handoff` → PASS. **The existing kst tests are FROZEN (Codex plan-review fix 7)**: the regeneration sequencing (`setRegenerating(true)` → old memo stays visible → `restart({baselineNull:true})` → re-subscribe new `strategyId`), the "empty new row must not wipe the old memo or stop polling" case, and the fresh-fetch-on-invalidate case must all pass UNCHANGED. If one fails, the migration is wrong — fix the card/hook, never the test.
 
 - [ ] **Step 3: Commit**
 
