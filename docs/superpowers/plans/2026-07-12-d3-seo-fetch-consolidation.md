@@ -4,7 +4,7 @@
 
 **Goal:** Consolidate the repo's three robots parsers and two sitemap parsers into one shared `lib/seo-fetch/` module (client-safe parse + server-only fetch through `safeFetch`), behavior-preserving except one named micro-delta, as the foundation for D4/D5.
 
-**Architecture:** Move-not-rewrite: `lib/validators/*` and `lib/ada-audit/seo/robots-rules.ts` are `git mv`'d into `lib/seo-fetch/`; the fetch helpers private to `lib/ada-audit/sitemap-crawler.ts` are extracted into `lib/seo-fetch/fetch.ts` with a discriminated-union result taxonomy (backed by a new additive typed `reason` on `SafeUrlError`); the crawler keeps discovery orchestration and adapts the structured results back to its `''`/`null`-on-failure semantics. Spec: `docs/superpowers/specs/2026-07-12-d3-seo-fetch-consolidation-design.md` (Codex-reviewed ×1, fixes #1–#9 applied).
+**Architecture:** Move-not-rewrite: `lib/validators/*` and `lib/ada-audit/seo/robots-rules.ts` are `git mv`'d into `lib/seo-fetch/`; the fetch helpers private to `lib/ada-audit/sitemap-crawler.ts` are extracted into `lib/seo-fetch/fetch.ts` with a discriminated-union result taxonomy (backed by a new additive typed `reason` on `SafeUrlError`); the crawler keeps discovery orchestration and adapts the structured results back to its `''`/`null`-on-failure semantics. Spec: `docs/superpowers/specs/2026-07-12-d3-seo-fetch-consolidation-design.md` (Codex spec review ×1 fixes #1–#9 applied; Codex plan review ×1 fixes tagged "Codex plan #N" below).
 
 **Tech Stack:** TypeScript, vitest, existing `lib/security/safe-url.ts` (`safeFetch`), `node:zlib`. No new dependencies, no schema change, no new routes.
 
@@ -459,6 +459,22 @@ describe('SafeUrlError.reason', () => {
 
 (If `assertSafeHttpUrl` with an injected `lookup` is exercised differently in the existing suite, mirror that existing pattern — the assertions on `reason` are the contract; do not change any existing test.)
 
+Also add reason assertions at the REAL transport throw sites (Codex plan #6) —
+constructor-only tests don't prove the eight sites were tagged. Locate the
+existing `safe-url.test.ts` tests that exercise (a) the redirect limit /
+missing-Location paths and (b) the unsupported-status / missing-status paths,
+and add NEW sibling tests reusing their exact setup (mock server / mocked
+`node:http` layer — whatever the existing tests use) asserting:
+
+```ts
+await expect(/* same call the existing redirect-limit test makes */)
+  .rejects.toMatchObject({ name: 'SafeUrlError', reason: 'redirect' })
+await expect(/* same call the existing unsupported-status test makes */)
+  .rejects.toMatchObject({ name: 'SafeUrlError', reason: 'invalid-response' })
+```
+
+Existing tests stay byte-identical; only new tests are added.
+
 - [ ] **Step 2: Run to verify failure**
 
 Run: `npx vitest run lib/security/safe-url.test.ts`
@@ -647,6 +663,19 @@ describe('fetchRobotsTxt', () => {
     expect(r).toMatchObject({ ok: false, status: null, finalUrl: null, failure: 'network' })
   })
 
+  it('body-read failure AFTER acquisition retains status + finalUrl (Codex plan #2)', async () => {
+    const stream = new ReadableStream({ pull() { throw new Error('stream reset') } })
+    safeFetchMock.mockImplementation(async () => ({
+      response: new Response(stream, { status: 200 }),
+      url: 'https://example.com/robots.txt',
+      redirects: [],
+    }))
+    const r = await fetchRobotsTxt('https://example.com')
+    expect(r).toMatchObject({
+      ok: false, status: 200, finalUrl: 'https://example.com/robots.txt', failure: 'network',
+    })
+  })
+
   it('invalid baseUrl → unsafe-url without a network call', async () => {
     const r = await fetchRobotsTxt('not a url')
     expect(r).toMatchObject({ ok: false, failure: 'unsafe-url' })
@@ -693,10 +722,61 @@ describe('fetchSitemapXml', () => {
     expect(r).toMatchObject({ ok: false, status: 200, failure: 'invalid-response', truncated: false })
   })
 
+  it('gz: decompressed output over the cap → too-large (real zlib size branch, Codex plan #4)', async () => {
+    // Highly compressible: tiny wire size, >5 MB decompressed → gunzipSync
+    // throws (maxOutputLength) → too-large. Pins the runtime error-code path.
+    const big = '<urlset>' + '<url><loc>https://x.com/a</loc></url>'.repeat(160_000) + '</urlset>'
+    expect(big.length).toBeGreaterThan(5_000_000)
+    respond(new Uint8Array(gzipSync(big)), { status: 200, url: 'https://example.com/sitemap.xml.gz' })
+    const r = await fetchSitemapXml('https://example.com/sitemap.xml.gz')
+    expect(r).toMatchObject({ ok: false, status: 200, failure: 'too-large', truncated: true })
+  })
+
+  it('gz: compressed payload over the read cap → too-large (Codex plan #4)', async () => {
+    const { randomBytes } = await import('node:crypto')
+    respond(new Uint8Array(gzipSync(randomBytes(6_000_000))), {
+      status: 200, url: 'https://example.com/sitemap.xml.gz',
+    })
+    const r = await fetchSitemapXml('https://example.com/sitemap.xml.gz')
+    expect(r).toMatchObject({ ok: false, status: 200, failure: 'too-large', truncated: true })
+  })
+
   it('http-error carries status + finalUrl', async () => {
     respond('gone', { status: 410 })
     const r = await fetchSitemapXml('https://example.com/sitemap.xml')
     expect(r).toMatchObject({ ok: false, status: 410, failure: 'http-error' })
+  })
+
+  // Content-type edges inherited from the crawler — load-bearing for
+  // "behavior-preserving" (Codex plan #5):
+  it('accepts application/xhtml+xml (contains both html and xml)', async () => {
+    respond('<urlset><url><loc>https://x.com/a</loc></url></urlset>', {
+      status: 200, headers: { 'content-type': 'application/xhtml+xml' },
+    })
+    const r = await fetchSitemapXml('https://example.com/sitemap.xml')
+    expect(r).toMatchObject({ ok: true })
+  })
+
+  it('accepts a missing content-type', async () => {
+    respond('<urlset><url><loc>https://x.com/a</loc></url></urlset>', { status: 200 })
+    const r = await fetchSitemapXml('https://example.com/sitemap.xml')
+    expect(r).toMatchObject({ ok: true })
+  })
+
+  it('accepts text/plain', async () => {
+    respond('<urlset><url><loc>https://x.com/a</loc></url></urlset>', {
+      status: 200, headers: { 'content-type': 'text/plain' },
+    })
+    const r = await fetchSitemapXml('https://example.com/sitemap.xml')
+    expect(r).toMatchObject({ ok: true })
+  })
+
+  it('gzip content-type triggers decompression even without a .gz suffix', async () => {
+    respond(new Uint8Array(gzipSync('<urlset><url><loc>https://x.com/a</loc></url></urlset>')), {
+      status: 200, headers: { 'content-type': 'application/gzip' },
+    })
+    const r = await fetchSitemapXml('https://example.com/sitemap.xml')
+    expect(r).toMatchObject({ ok: true, text: expect.stringContaining('https://x.com/a') })
   })
 })
 
@@ -727,6 +807,12 @@ describe('collectSitemapPageUrls', () => {
       u.endsWith('a.xml') ? '<urlset><url><loc>https://x.com/p1</loc></url></urlset>' : null,
     )
     expect(r).toEqual({ urls: ['https://x.com/p1'], childrenTotal: 2, childrenFailed: 1 })
+  })
+
+  it('an empty-string child body counts as failed, matching the crawler falsy check (Codex plan #3)', async () => {
+    const xml = '<sitemapindex><sitemap><loc>https://x.com/a.xml</loc></sitemap></sitemapindex>'
+    const r = await collectSitemapPageUrls(xml, same, async () => '')
+    expect(r).toEqual({ urls: [], childrenTotal: 1, childrenFailed: 1 })
   })
 
   it('nested index child yields no pages — one level only, frozen (Codex #5)', async () => {
@@ -803,6 +889,30 @@ async function cancelBody(response: Response): Promise<void> {
   try { await response.body?.cancel() } catch { /* already consumed/closed */ }
 }
 
+// Acquisition is split from body processing (Codex plan #2): a throw BEFORE a
+// response exists yields null status/finalUrl; a throw while READING an
+// acquired response retains the response's status + finalUrl.
+async function acquire(
+  url: string,
+  accept?: string,
+): Promise<{ response: Response; finalUrl: string } | SeoFetchResult> {
+  try {
+    const { response, url: finalUrl } = await safeFetch(url, {
+      headers: accept
+        ? { 'User-Agent': SEO_FETCH_USER_AGENT, Accept: accept }
+        : { 'User-Agent': SEO_FETCH_USER_AGENT },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+    return { response, finalUrl }
+  } catch (err) {
+    return thrownFailure(err)
+  }
+}
+
+function isFailure(a: { response: Response; finalUrl: string } | SeoFetchResult): a is SeoFetchResult {
+  return 'ok' in a
+}
+
 /**
  * GET robots.txt via safeFetch. Input contract: `new URL('/robots.txt', baseUrl)`
  * — accepts an origin with or without trailing slash; any path on baseUrl is
@@ -815,11 +925,10 @@ export async function fetchRobotsTxt(baseUrl: string): Promise<SeoFetchResult> {
   } catch {
     return { ok: false, status: null, text: null, finalUrl: null, failure: 'unsafe-url', truncated: false }
   }
+  const acquired = await acquire(target)
+  if (isFailure(acquired)) return acquired
+  const { response, finalUrl } = acquired
   try {
-    const { response, url: finalUrl } = await safeFetch(target, {
-      headers: { 'User-Agent': SEO_FETCH_USER_AGENT },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
     if (!response.ok) {
       await cancelBody(response)
       return { ok: false, status: response.status, text: null, finalUrl, failure: 'http-error', truncated: false }
@@ -830,7 +939,7 @@ export async function fetchRobotsTxt(baseUrl: string): Promise<SeoFetchResult> {
     }
     return { ok: true, status: response.status, text, finalUrl, failure: null, truncated: false }
   } catch (err) {
-    return thrownFailure(err)
+    return { ok: false, status: response.status, text: null, finalUrl, failure: classifyThrown(err), truncated: false }
   }
 }
 
@@ -839,17 +948,18 @@ export async function fetchRobotsTxt(baseUrl: string): Promise<SeoFetchResult> {
  * rejects HTML content-types (login redirects, soft 404s), 5 MB cap.
  */
 export async function fetchSitemapXml(url: string): Promise<SeoFetchResult> {
+  const acquired = await acquire(url, 'text/xml,application/xml,*/*')
+  if (isFailure(acquired)) return acquired
+  const { response, finalUrl } = acquired
   try {
-    const { response, url: finalUrl } = await safeFetch(url, {
-      headers: { 'User-Agent': SEO_FETCH_USER_AGENT, Accept: 'text/xml,application/xml,*/*' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
     if (!response.ok) {
       await cancelBody(response)
       return { ok: false, status: response.status, text: null, finalUrl, failure: 'http-error', truncated: false }
     }
     const ct = response.headers.get('content-type') ?? ''
-    // Reject HTML responses (login redirects, 404 pages served as 200, etc.)
+    // Reject HTML responses (login redirects, 404 pages served as 200, etc.).
+    // NOTE application/xhtml+xml contains BOTH substrings and is accepted —
+    // inherited crawler behavior, test-pinned (Codex plan #5).
     if (ct.includes('html') && !ct.includes('xml')) {
       await cancelBody(response)
       return { ok: false, status: response.status, text: null, finalUrl, failure: 'not-xml', truncated: false }
@@ -884,7 +994,7 @@ export async function fetchSitemapXml(url: string): Promise<SeoFetchResult> {
     }
     return { ok: true, status: response.status, text, finalUrl, failure: null, truncated: false }
   } catch (err) {
-    return thrownFailure(err)
+    return { ok: false, status: response.status, text: null, finalUrl, failure: classifyThrown(err), truncated: false }
   }
 }
 
@@ -922,7 +1032,9 @@ export async function collectSitemapPageUrls(
     const batch = childUrls.slice(i, i + BATCH)
     const childXmls = await Promise.all(batch.map((u) => fetchXml(u)))
     for (const childXml of childXmls) {
-      if (childXml == null) {
+      // Falsy check on purpose: an empty-string body counts as a failed child,
+      // matching the crawler's historical `if (!childXml) continue` (Codex plan #3).
+      if (!childXml) {
         childrenFailed++
         continue
       }
@@ -995,11 +1107,13 @@ async function fetchRobotsRaw(base: string): Promise<string> {
 /**
  * Try direct fetch first, fall back to a Puppeteer-driven fetch when direct
  * fails (CDN/WAF blocking). The browser path is expensive (~1 s warmup, up
- * to 20 s navigation) but only fires when needed.
+ * to 20 s navigation) but only fires when needed. A successful-but-EMPTY
+ * direct body also falls back — historical `if (direct)` was falsy on ''
+ * (Codex plan #1, blocker).
  */
 async function fetchSitemapXml(url: string): Promise<string | null> {
   const direct = await fetchSitemapXmlDirect(url)
-  if (direct.ok) return direct.text
+  if (direct.ok && direct.text.length > 0) return direct.text
   return await fetchSitemapViaBrowser(url)
 }
 ```
@@ -1018,17 +1132,64 @@ async function fetchSitemapXml(url: string): Promise<string | null> {
 (The crawler ignores `childrenTotal`/`childrenFailed` — spec D7.)
 5. `extractSitemapUrls` (the private `Sitemap:` regex scan) **stays untouched in this task** — the D6 behavior change is Task 7's isolated commit.
 
-- [ ] **Step 3: Run the frozen gate**
+- [ ] **Step 3: Add the empty-direct-body fallback test + mock-seam canary (new tests only)**
+
+Append to the `discoverPages` describe block (same harness as siblings):
+
+```ts
+  it('falls back to the browser fetch when direct sitemap fetch is 200 but EMPTY (Codex plan #1)', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('Sitemap: https://example.com/sitemap.xml', {
+          status: 200, headers: { 'content-type': 'text/plain' },
+        })
+      }
+      if (url === 'https://example.com/sitemap.xml') {
+        return new Response('', { status: 200, headers: { 'content-type': 'application/xml' } })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+    vi.mocked(fetchSitemapViaBrowser).mockResolvedValue(
+      '<urlset><url><loc>https://example.com/page</loc></url></urlset>'
+    )
+
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/page'],
+      mode: 'sitemap',
+      capped: false,
+    })
+    expect(fetchSitemapViaBrowser).toHaveBeenCalledWith('https://example.com/sitemap.xml')
+  })
+
+  it('mock-seam canary: delegated fetches still route through the safeFetch mock (Codex plan #7)', async () => {
+    safeFetchMock.mockImplementation(async (url: string | URL) => ({
+      response: new Response('not found', { status: 404 }),
+      url: url.toString(),
+      redirects: [],
+    }))
+    await discoverPages('example.com').catch(() => {})
+    const requested = safeFetchMock.mock.calls.map((c) => String(c[0]))
+    expect(requested).toContain('https://example.com/robots.txt')
+  })
+```
+
+(Reset/clear the `fetchSitemapViaBrowser` mock per the file's existing `afterEach` conventions so these don't leak into sibling tests.)
+
+- [ ] **Step 4: Run the frozen gate**
 
 Run: `npx vitest run lib/ada-audit/sitemap-crawler.test.ts && npx tsc --noEmit`
-Expected: PASS with zero behavioral-assertion edits, tsc clean. If any `discoverPages*` test fails, the refactor changed behavior — fix the crawler code, never the test.
+Expected: PASS — pre-existing behavioral assertions zero-edit, the two new tests green, tsc clean. If any pre-existing `discoverPages*` test fails, the refactor changed behavior — fix the crawler code, never the test.
 
-- [ ] **Step 4: Run the wider affected suites**
+- [ ] **Step 5: Run the wider affected suites**
 
 Run: `npx vitest run lib/ada-audit lib/seo-fetch`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/ada-audit/sitemap-crawler.ts lib/ada-audit/sitemap-crawler.test.ts
