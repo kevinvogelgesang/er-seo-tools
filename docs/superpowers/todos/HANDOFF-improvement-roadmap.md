@@ -1,17 +1,18 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-13 (**D4 COMPLETE — client-attached robots/sitemap
-checks + history shipped + deployed + prod-verified in one session**: PR #166,
-full pipeline brainstorm → spec (Codex ×8 fixes) → plan (Codex ×6 fixes) →
-6-task subagent TDD (Task 5 fix loop: 2 race-guard Importants fixed +
-regression-tested) → opus final review READY-TO-MERGE → gates 5197 tests/build
-→ merge `f56f045` → deploy → prod-verify. `RobotsCheck` snapshots now persist
-per (client, domain) with read-time changed flags; D5's hooks are in place
-(`source:'scheduled'` entry point, stored robots bodies for diffs, childrenHash
-change evidence). A5 unchanged: code-complete, `[x]` flip still gated only on
-Kevin's live watches (D2 flips with it). Next build item: **D5** (or D6 if
-Kevin decides build-vs-freeze).)
-· **Updated by:** the D4 session.
+**Last updated:** 2026-07-13 (**D5 COMPLETE — scheduled robots/sitemap
+monitoring with change-only alerts shipped + deployed + prod-verified in one
+session**: PR #167, full pipeline brainstorm → spec (Codex ×8 fixes) → plan
+(Codex ×6 fixes, incl. the slot-boundary idempotency hole) → 8-task subagent
+TDD (zero fix loops — every task review-clean first pass) → fable final
+review READY-TO-MERGE → gates 5243 tests/build → merge `025729b` → deploy →
+prod-verify incl. one real robots-monitor job exercised end-to-end on
+beal.edu. The weekly `system-robots-monitor` schedule is live, first sweep
+2026-07-20 06:30 UTC. A5 unchanged: code-complete, `[x]` flip still gated
+only on Kevin's live watches (D2 flips with it). **No ungated build item
+remains** — next is Kevin's unblocks (A5 watches, D6 decision) and then the
+SF-parity campaign.)
+· **Updated by:** the D5 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -19,84 +20,92 @@ Kevin decides build-vs-freeze).)
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. STATE: D4 (client-attached
-robots/sitemap checks + history) is COMPLETE — PR #166 merged (main f56f045),
-deployed, prod-verified 2026-07-13; tracker status log 2026-07-13 has the
-full entry; spec+plan archived. A5 (SSE push layer) remains [~]
-CODE-COMPLETE, gated ONLY on Kevin's live authenticated watches; when they
-pass, flip A5 to [x] AND mark D2 (memo arrival via SSE — A5 PR4 is its
-substance) with a dated status-log line + handoff rewrite in the same
-commit. A6 closed as absorbed into A8 — never build it.
+Continue the er-seo-tools improvement roadmap. STATE: D5 (scheduled
+robots/sitemap monitoring with change-only alerts) is COMPLETE — PR #167
+merged (main 025729b), deployed, prod-verified 2026-07-13; tracker status
+log 2026-07-13 has the full entry; spec+plan archived. The weekly
+system-robots-monitor schedule is live (weekly:1@06:30 server-local=UTC,
+immediate:false) — FIRST SWEEP FIRES 2026-07-20 ~06:30 UTC. A5 (SSE push
+layer) remains [~] CODE-COMPLETE, gated ONLY on Kevin's live authenticated
+watches; when they pass, flip A5 to [x] AND mark D2 (memo arrival via SSE —
+A5 PR4 is its substance) with a dated status-log line + handoff rewrite in
+the same commit. A6 closed as absorbed into A8 — never build it. D4+D5 are
+both [x].
+
+NO UNGATED BUILD ITEM REMAINS on the roadmap. Everything left is either
+Kevin-gated or campaign work: D6 (RankMath redirect generator) needs Kevin's
+build-or-freeze decision ("decide, don't drift"); C6 hybrid-discovery
+Increment 2 + C12 Tier promotions stay [~] pending campaign
+data/sign-offs; the standing direction after Kevin's unblocks is the SF
+parity campaign (Kevin, 2026-07-13: "I'll be unblocking the remaining, then
+we'll move onto the SF parity") — load skill
+er-seo-tools-sf-retirement-campaign for that work (parity measurement on
+real client crawls, sf-upload vs live-scan comparison; the Manhattan SF
+crawl export memory is the reusable fixture).
 
 KEVIN STEPS OUTSTANDING (one er_auth browser session on
 https://seo.erstaging.site): (a) A5 live watches (Network tab on
 /api/events): PR2 audit-progress frames, PR3 report/prospect/content-audit
-push updates, PR4 memo write-back into its card via memo:<sid>; (b) NEW from
-D4 — open any client page, run one Robots & Sitemap check, glance that the
-card populates and a history row lands (routes/table prod-verified, first
-live authenticated run not yet exercised); (c) D4 flagged in PR #166: the
-worst-case check POST is ~75s (60s budget + one 15s in-flight fetch) — if a
-long check 502s at the RunCloud/NGINX proxy, lower
-ROBOTS_CHECK_TIME_BUDGET_MS; (d) still pending from D3: glance page-count
-sanity of the next site audit (first prod exercise of lib/seo-fetch
-discovery).
+push updates, PR4 memo write-back into its card via memo:<sid>; (b) from
+D4 — open any client page, run one Robots & Sitemap check, glance card +
+history row (Beal University already has one SCHEDULED row from the D5
+prod-verify — a manual run on beal.edu will show a changed/no-change badge
+against it); (c) D6 build-or-freeze decision; (d) still pending from D3:
+glance page-count sanity of the next site audit; (e) NEW from D5 — after
+Monday 2026-07-20, glance that scheduled rows appeared for all client
+domains, and if a real change happened, that ONE alert email landed at
+NOTIFY_ADMIN_EMAIL (dark env = no email by design; in-app changed badge
+still shows).
 
-IMMEDIATE NEXT (build): D5 — scheduled robots/sitemap monitoring with
-change-only alerts (3-4 days, roadmap 05-small-tools.md step 3): a weekly
-job per client diffs robots.txt + sitemaps against the previous RobotsCheck
-snapshot and raises alerts ONLY on state CHANGES (byte-identical fetch =
-silence; re-observing a known issue = silence). A1 (job queue) done. D4
-built its hooks: runAndStoreRobotsCheck(clientId, domain,
-{source:'scheduled'}) is the entry point; read-time changed already compares
-robotsStatus + robots contentHash + ordered sitemap
-(url,contentHash,childrenHash) triples (childrenHash catches child-sitemap
-churn under a byte-identical index); RobotsCheck.robotsContent stores the
-raw body for "what changed" diff rendering (MUST be HTML-escaped when
-rendered); retention keeps HISTORY_LIMIT+1 per (client,domain) so the
-oldest visible changed flag never flips. Design questions D5 must settle:
-alert channel (D7's Mailgun notify layer exists + is dark-gated), cadence
-string (weekly: — Schedule rows precedent = C2 client scan schedules),
-whether parser-upgrade issue-set changes (hashes unchanged) alert (Codex
-flagged, deferred), and the two D4 accepted quirks if they matter to alert
-counts: an 'unrecognized' convention probe double-counts one error in
-totals; childrenExcluded is stored but not rendered. D6 (RankMath redirect
-generator) still needs Kevin's build-or-freeze decision first — "decide,
-don't drift". C6/C12 stay [~] for campaign-data/gated reasons, not build
-work. Full pipeline for D5: brainstorm -> spec -> Codex review -> plan ->
-Codex review -> subagent-driven TDD.
+D5 REFERENCE (shipped architecture): weekly system-robots-monitor Schedule
+(SYSTEM_SCHEDULES, immediate:false) -> lib/jobs/handlers/
+robots-monitor-sweep.ts (fan-out: active clients, normalizeClientDomain-
+normalized + Set-deduped domains, dedupKey robots-monitor:<clientId>:
+<domain>, payload carries slotStartedAt = the SWEEP job's createdAt — the
+durable reuse boundary that survives child re-enqueues after terminal
+siblings) -> lib/jobs/handlers/robots-monitor.ts per-domain handler,
+ORDER IS LOAD-BEARING: revalidate FIRST every path (archived/delisted
+silent; membership over the NORMALIZED stored domains list) -> slot-scoped
+reuse (createdAt >= slotStartedAt, newest scheduled row; retries never
+refetch; prior week never reuses; fallback boundary = own Job.createdAt) ->
+fresh run source-fence (manual single-flight winner absorbs silently —
+manual checks NEVER alert) -> resolve via getRobotsCheck (StoredRobotsCheck
+now carries changeSummary on BOTH service paths, computed by client-safe
+pure lib/robots-check/change-summary.ts: multiset robots diff capped
+50 lines/200 chars, (url,ordinal)-paired sitemap deltas, robotsContentChanged/
+orderChanged honesty flags, NULL diff = "line diff unavailable" vs non-null
+EMPTY = "reordering or formatting only" — never conflate) -> alert ONLY on
+changed === true: alertSentAt marker read (migration 20260713120000) ->
+dark gate (isNotifyEnabled() false = PERMANENT suppression, no stamp, no
+catch-up) -> buildRobotsChangeEmail (lib/notify/robots-change-content.ts,
+escaped, transport-honest: "could not be fetched (timeout)" never
+"removed") to notifyAdminEmail() -> conditional stamp updateMany({id,
+alertSentAt: null}) (at-least-once). Change-only semantics: byte-identical =
+silence; re-observed broken state = silence; parser-upgrade issue-set
+changes = silence (deferred by design); changed:null = silence. Card:
+expanded history rows render changeSummary as "Changed vs previous" +
+childrenExcluded line (D4 follow-up #2 closed). Handler config: monitor
+concurrency 1 / maxAttempts 2 / timeout 120s, sweep 1/3/30s.
 
-D4 REFERENCE (shipped architecture): lib/robots-check/ = types.ts
-(client-safe; caps MAX_SITEMAPS 5 / MAX_CHILDREN 20 / HISTORY_LIMIT 20 /
-TIME_BUDGET_MS 60s) + runner.ts (server-side, DI fetchers over FROZEN
-lib/seo-fetch — zero new fetch paths; robots ok|missing(404/410)|unreachable;
-declared-sitemap cap or convention probing where ONLY parseSitemapXml().valid
-wins; budget-capped wrapper over the frozen collectSitemapPageUrls with
-per-child (url,hash) observations + aggregate childrenHash + childrenExcluded
-from the parent-final-host www-insensitive filter; honest flags
-sitemapsSkipped/childrenSkipped/timeBudgetExhausted; returns {detail,
-robotsContent}) + service.ts (single-flight per client:domain incl. the
-derived-.finally() no-op-catch crash lesson; changed computed at READ time
-only — never persisted, D5 can refine semantics without backfill; exact
-total-order (createdAt,id) predecessor predicate at all three lookup sites +
-per-domain out-of-window fallback; getRobotsCheck = the ONE {summary,detail}
-shape) + retention.ts (keep LIMIT+1 per (client,domain), tagged $executeRaw,
-in runCleanup). Routes GET/POST /api/clients/[id]/robots-checks +
-GET .../[checkId] (cookie-gated, NO middleware change, strict ^[1-9][0-9]*$
-ids, GET domain filter validates membership like POST).
-components/clients/RobotsCheckCard.tsx on /clients/[id] (per-domain preload;
-90s client deadline; POST-failure reconciliation refetches history AND
-newest detail; genRef domain-switch token + expandedReqRef expand-race
-guard; changed:null renders em dash NEVER "unchanged"). Migration
-20260713100000. Sitemap XML is NEVER stored (hash+counts only) — D5 sitemap
-alerts are hash/count/issue-diff based, by design.
+ACCEPTED v1 TRADE-OFFS (spec "Flags for Kevin"): one-observation
+transient-fetch alerts (a single timeout emails with honest wording,
+recovery emails again — confirmation-refetch is the recorded follow-up if
+flapping proves noisy); manual checks absorb changes silently; a change
+whose email exhausts both attempts is lost AS EMAIL (in-app badge remains).
 
-RECORDED FOLLOW-UPS (non-blocking): (1) 'unrecognized' probe double-counts
-one error in totals (measurement quirk). (2) childrenExcluded stored but
-unrendered — D5 detail-view candidate. (3) route error-code drift
-invalid_client vs invalid_id. (4) some fetch.test.ts failure branches use
-toMatchObject not toEqual — cheap tightening. (5) kst latestSessionRef
-vestigial write-only cache. (6) jose-version-coupled substring assertions in
-token tests — check on any jose upgrade.
+RECORDED FOLLOW-UPS (non-blocking): (1) NEW from D5 final review:
+resolveListedDomain (D4 routes) compares normalized submitted domain vs RAW
+stored Client.domains list — a legacy non-normalized stored entry could be
+monitored+alerted under a domain the card 400s history for; API-written
+data is always normalized so likely zero rows affected; one-line fix =
+normalize the stored list inside resolveListedDomain (exact parity with the
+monitor). (2) changed-alert email path not yet prod-exercised (unit-covered;
+first natural exercise = a real change under a weekly sweep). (3) email
+esc() omits &#39; vs content.ts sibling (inert — double-quoted attrs only).
+(4) carried from D4: 'unrecognized' probe double-counts one error in totals;
+route error-code drift invalid_client vs invalid_id; fetch.test.ts
+toMatchObject tightening; kst latestSessionRef vestigial; jose-version-
+coupled substring assertions in token tests.
 
 CODEX MODEL: budget-gated — gpt-5.6-sol when 5h window >25% remaining, else
 gpt-5.6-terra; both high effort. Encoded in the consulting-codex skill.
@@ -107,21 +116,22 @@ GOTCHAS FOR THE NEXT SESSION:
   touches auth/SF-upload/ADA-pipeline or a component on a smoke-walked page
   (export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/
   Google Chrome" first on macOS).
-- D5 likely needs a Schedule-row + job-handler pattern — follow C2's
-  scheduled-site-audit precedent (lib/jobs/handlers/scheduled-site-audit.ts)
-  and the extension-recipes skill for new job types; schema changes are
-  hand-authored migration SQL (migrate dev is interactive-only), applied
-  with DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy;
-  array-form $transaction ONLY; DateTime columns are INTEGER ms — raw SQL
-  binds ${x.getTime()}.
+- Schema changes are hand-authored migration SQL (migrate dev is
+  interactive-only), applied with DATABASE_URL="file:./local-dev.db" npx
+  prisma migrate deploy; array-form $transaction ONLY; DateTime columns are
+  INTEGER ms — raw SQL binds ${x.getTime()}.
 - New cookie-gated client routes need NO middleware change; anything public
   needs anchored middleware matchers + middleware.test.ts cases.
 - Never weaken safeFetch/SSRF guards. Only scan client sites already in the
   system. lib/seo-fetch is FROZEN (51-test characterization gate) — consume,
-  never modify.
+  never modify. The D4 runner (lib/robots-check/runner.ts) is likewise
+  settled — D5 consumed it without edits.
+- Prod box has NO sqlite3 CLI — prod DB probes go through node + the app's
+  generated Prisma client from /home/seo/webapps/seo-tools (D5 precedent).
 - Tests self-provision per-worker SQLite DBs, run PARALLEL. Component
   tests: // @vitest-environment jsdom + afterEach(cleanup) +
-  vi.unstubAllGlobals(), no jest-dom.
+  vi.unstubAllGlobals(), no jest-dom. Suite cleanup deletes ONLY owned rows
+  (recorded ids / PREFIX-scoped / dedupKey-prefix) — never type-wide.
 - Never git add -A/-u at repo root (pentest-results/ etc untracked) — stage
   explicit paths. No backticks in Bash -m commit messages.
 - .superpowers/sdd/task-N-*.md files are REUSED across PR series — a stale
@@ -138,45 +148,23 @@ PRs (re-run gates in-session) + deploy with post-deploy verify autonomously;
 destructive server ops Kevin-gated; brainstorm->spec->plan ungated. Docs
 ritual in the same commit as any ship. Then: if Kevin reports the live
 watches passed, do the A5 [x] + D2 flip ritual; if Kevin has decided D6,
-follow that; otherwise start D5 with superpowers:brainstorming.
+follow that (build = full pipeline; freeze = docs-only tracker close-out);
+otherwise begin the SF-parity campaign via
+er-seo-tools-sf-retirement-campaign (measurement-first: pick a client with
+a fresh SF upload + run a seoOnly live scan on the same domain, compare
+findings/scores, record parity gaps in the campaign doc).
 ```
 
 ---
 
-## Current state (2026-07-13, D4 complete)
+## Current state (one paragraph)
 
-- **Main** @ `f56f045` (D4 PR #166 merge) + this docs commit. Prod deployed,
-  healthy (health ok, migration `20260713100000` applied, `RobotsCheck`
-  table live, new routes 401-gated, error log quiet).
-- **D4 `[x]`** — see the tracker's 2026-07-13 status-log entry for the full
-  record (Codex passes, review loop, gates, prod verification, Kevin steps).
-- **A5 `[~]` code-complete** — Kevin's live watches are the only gate; D2
-  flips with it.
-- SDD ledger: `.superpowers/sdd/progress.md` (gitignored recovery map — the
-  D4 section holds per-task commits + review outcomes).
-- **Kevin manual checks:** `todos/2026-07-11-kevin-manual-checks-tracker.md`.
-
-## The single next item
-
-**D5 — scheduled robots/sitemap monitoring with change-only alerts
-(3–4 days).** Weekly per-client job diffs the new `RobotsCheck` snapshots and
-alerts ONLY on state changes (roadmap `05-small-tools.md` step 3; noise
-controls are first-class: hash-identical = silence, re-observed known issue
-= silence). Hooks already shipped in D4: `runAndStoreRobotsCheck(...,
-{source:'scheduled'})`, read-time changed evidence incl. `childrenHash`,
-raw `robotsContent` for diff rendering (escape it!), LIMIT+1 retention.
-Design questions: alert channel (D7 Mailgun layer exists), cadence
-mechanics (C2 Schedule-row precedent), parser-upgrade alert semantics.
-
-**D6 needs a Kevin decision** (build the RankMath redirect generator or
-freeze it as a doc) before any session picks it up — "decide, don't drift".
-
-## Loose ends (small, non-blocking)
-
-- D4 quirks accepted by the final review: `'unrecognized'` probe
-  double-counts one error; `childrenExcluded` unrendered; route error-code
-  drift (`invalid_client` vs `invalid_id`).
-- Tighten the `toMatchObject` fetch.test.ts failure branches to `toEqual`
-  (D3 accepted Minor).
-- C12 D1 follow-ups (retention canary, findings-rebuild wipe edge) — see the
-  C12 tracker entry.
+Roadmap spine complete: A1 job queue, A2 findings layer, A3 route kit, A4
+logging/observability, A7 (via D0/D7), B-series, C-series through C20, D0,
+D1 (handoff engine), D3 (seo-fetch), D4 (client robots checks), D5
+(scheduled robots monitoring), D7 (scan emails) are all [x]. A5 is
+code-complete awaiting Kevin's live watches (D2 rides on it). A6 absorbed
+into A8. D6 awaits a build-or-freeze decision. C6 hybrid-discovery
+Increment 2 and C12 tier promotions are campaign-gated (SF-parity
+evidence + Kevin sign-offs). The next substantive work after Kevin's
+unblocks is the SF-retirement parity campaign.
