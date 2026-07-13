@@ -8,25 +8,19 @@
 //   • mints a `kst_` token, composes the clipboard prompt, and polls the
 //     cookie-gated GET route for the skill's memo write-back.
 //
-// The poller reuses the shared memo-poller-machine (3s interval, 15-min active
-// lifetime, visibilitychange pause) exactly like KeywordMemoCard. Unlike that
-// card (which router.refresh()es a server-rendered page), this one owns its
-// memo in local state and updates it from the poll response on change — the
-// dashboard page is a big server component, so a targeted local update is
-// cheaper and keeps the change-detection self-contained.
+// D1 PR3 Task 15: the poller wiring (timers, visibilitychange, SSE
+// subscription, auto-start/restart) now lives in useMemoPoller (Task 12) —
+// this card keeps only its local-state shell (it owns its memo in local
+// state and updates it from the poll response on change, unlike the
+// router.refresh()-based MemoHandoffCard cards; the dashboard page is a big
+// server component, so a targeted local update is cheaper and keeps the
+// change-detection self-contained). The card ignores the hook's `expired`
+// flag by design — it has never had an expired banner and must not grow one.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPollingMachine } from '@/lib/memo-poller-machine';
+import { useCallback, useRef, useState, useEffect } from 'react';
+import { useMemoPoller } from '@/components/handoff/useMemoPoller';
 import { composeKeywordStrategyPayload } from '@/lib/keyword-strategy-prompt';
 import { KeywordMemoMarkdown } from '@/components/keyword-research/KeywordMemoMarkdown';
-import { subscribeTopic, subscribeHealth } from '@/lib/events/client';
-import { memoTopic } from '@/lib/events/topics';
-
-const POLL_INTERVAL_MS = 3000;
-const LIFETIME_MS = 15 * 60 * 1000;
-// A5 Task 24: original 3s cadence kept until SSE is confirmed healthy, then
-// demoted to a 20s memo-safety cadence (re-armed fast on drop).
-const SAFETY_POLL_MEMO_MS = 20_000;
 
 export interface KeywordStrategySessionInit {
   id: string;
@@ -71,9 +65,8 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
   const webappUrl =
     process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
 
-  // Baseline (last-known memoUpdatedAt) and the freshest fetched session live in
-  // refs so the machine's onChange closure (created once) reads current values.
-  const baselineRef = useRef<string | null>(initialSession?.memoUpdatedAt ?? null);
+  // The freshest fetched session lives in a ref purely as a call-time cache
+  // for the hook's onChange/fetchLatestUpdatedAt closures.
   const latestSessionRef = useRef<KeywordStrategySessionInit | null>(initialSession);
 
   // A5 Task 24: the topic this card subscribes to is THIS model's own id
@@ -85,8 +78,8 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
 
   // clientId rarely changes for a mounted card, but kept in a ref (rather
   // than captured directly) so fetchLatestSession can stay referentially
-  // stable (empty deps) — safe to close over once in the lazily-created
-  // machine below.
+  // stable (empty deps) — safe to close over once in the hook's lazily-created
+  // machine.
   const clientIdRef = useRef(clientId);
   useEffect(() => {
     clientIdRef.current = clientId;
@@ -105,94 +98,42 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
     }
   }, []);
 
-  const machineRef = useRef<ReturnType<typeof createPollingMachine> | null>(null);
-  if (machineRef.current === null) {
-    machineRef.current = createPollingMachine({
-      // Unlike the router.refresh()-based memo cards, this card owns its
-      // memo in local state rather than server-rendered props, so onChange
-      // must fetch fresh data itself AT CALL TIME — whether that's immediate
-      // (tab visible) or deferred to visibility-resume (was hidden when an
-      // SSE push arrived). Reading a pre-fetched ref here would risk applying
-      // stale data on the invalidate() path.
-      onChange: () => {
-        void (async () => {
-          const s = await fetchLatestSession();
-          if (s === undefined) return; // couldn't refresh; next tick/invalidate retries
-          latestSessionRef.current = s;
-          setMemoMarkdown(s?.memoMarkdown ?? null);
-          setMemoUpdatedAt(s?.memoUpdatedAt ?? null);
-          baselineRef.current = s?.memoUpdatedAt ?? null;
-          setRegenerating(false);
-        })();
-      },
-      lifetimeMs: LIFETIME_MS,
-    });
-  }
-  const machine = machineRef.current;
-
-  // Visibility pause/resume.
-  useEffect(() => {
-    const onVisibility = () => machine.setVisible(document.visibilityState === 'visible');
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [machine]);
-
-  // Auto-start on mount only when a generation is already in flight, anchored to
-  // mint time so a stale 'processing' row doesn't restart a fresh 15-min cycle.
-  const hasAutoStartedRef = useRef(false);
-  useEffect(() => {
-    if (initialSession?.status === 'processing' && !hasAutoStartedRef.current) {
-      hasAutoStartedRef.current = true;
-      const mintedMs = initialSession.tokenMintedAt ? new Date(initialSession.tokenMintedAt).getTime() : null;
-      if (mintedMs == null || Date.now() - mintedMs < LIFETIME_MS) {
-        machine.start({ baseline: baselineRef.current, now: mintedMs ?? Date.now() });
-      }
-    }
-  }, [initialSession, machine]);
-
-  // A5 Task 24: SSE push on memo:<activeSessionId> routes through
-  // machine.invalidate() — never bypassed. This card re-subscribes whenever
-  // activeSessionId changes (a regenerate mints a NEW KeywordStrategySession
-  // row/id). A fresh fetch runs BEFORE invalidate() so onChange (above) sees
-  // current data whether it fires immediately or later on visibility-resume.
-  useEffect(() => {
-    if (!activeSessionId) return;
-    return subscribeTopic(memoTopic(activeSessionId), () => {
+  // The hook owns the machine, timers, visibilitychange, and SSE subscription
+  // (topicId '' subscribes to nothing, before the first mint). onChange and
+  // fetchLatestUpdatedAt both fetch AT CALL TIME — whether that's immediate
+  // (tab visible) or deferred to visibility-resume (was hidden when an SSE
+  // push arrived) — reading a pre-fetched ref would risk applying stale data
+  // on the invalidate() path. Unlike the router.refresh()-based memo cards,
+  // this card manages its memo in local state, so onChange applies the fetch
+  // result directly rather than reaching into the hook's baseline (that's
+  // the hook's job now — see restart({ baselineNull: true }) below).
+  const { restart } = useMemoPoller({
+    topicId: activeSessionId ?? '',
+    onChange: () => {
       void (async () => {
         const s = await fetchLatestSession();
-        if (s !== undefined) latestSessionRef.current = s;
-        machine.invalidate();
+        if (s === undefined) return; // couldn't refresh; next tick/invalidate retries
+        latestSessionRef.current = s;
+        setMemoMarkdown(s?.memoMarkdown ?? null);
+        setMemoUpdatedAt(s?.memoUpdatedAt ?? null);
+        setRegenerating(false);
       })();
-    });
-  }, [activeSessionId, machine, fetchLatestSession]);
-
-  // Polling loop. Cadence is health-gated: the original 3s cadence while SSE
-  // is absent/unhealthy, demoting to the 20s safety cadence once healthy,
-  // re-arming fast on drop.
-  useEffect(() => {
-    const doTick = async () => {
-      if (machine.status() !== 'polling') return;
+    },
+    fetchLatestUpdatedAt: async () => {
       const s = await fetchLatestSession();
-      if (s === undefined) return;
+      if (s === undefined) return undefined; // couldn't refresh; the tick is skipped
       latestSessionRef.current = s;
-      const latest: string | null = s?.memoUpdatedAt ?? null;
-      machine.tick({ latestUpdatedAt: latest, now: Date.now() });
-    };
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const restartTimer = (healthy: boolean) => {
-      if (timer) clearInterval(timer);
-      timer = setInterval(() => void doTick(), healthy ? SAFETY_POLL_MEMO_MS : POLL_INTERVAL_MS);
-    };
-    restartTimer(false);
-    const unsubHealth = subscribeHealth((h) => {
-      restartTimer(h);
-      if (h) void doTick();
-    });
-    return () => {
-      if (timer) clearInterval(timer);
-      unsubHealth();
-    };
-  }, [machine, fetchLatestSession]);
+      return s?.memoUpdatedAt ?? null;
+    },
+    initialBaseline: initialSession?.memoUpdatedAt ?? null,
+    // Auto-start on mount only when a generation is already in flight,
+    // anchored to mint time so a stale 'processing' row doesn't restart a
+    // fresh 15-min cycle.
+    autoStart: {
+      active: initialSession?.status === 'processing',
+      mintedAt: initialSession?.tokenMintedAt ?? null,
+    },
+  });
 
   const onGenerate = async () => {
     if (state === 'minting' || archived) return;
@@ -220,8 +161,7 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
       // change — wiping the displayed memo and killing the poll before the
       // skill writes anything. Baseline null means the cycle completes only
       // when a real write-back stamps a non-null memoUpdatedAt.
-      baselineRef.current = null;
-      machine.start({ baseline: null, now: Date.now() });
+      restart({ baselineNull: true });
       setRegenerating(true);
       // Re-subscribe the SSE topic to the NEW session id (a regenerate mints
       // a fresh KeywordStrategySession row — the old topic will never fire

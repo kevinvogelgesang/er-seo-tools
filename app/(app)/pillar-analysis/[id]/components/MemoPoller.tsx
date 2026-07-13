@@ -9,19 +9,16 @@
 // regenerate button. Stops on narrativeUpdatedAt change → router.refresh()
 // → server re-renders the page. Hard 15-min cumulative-active cap.
 // Pauses while the tab is hidden.
+//
+// D1 PR3 Task 14: the poller wiring itself now lives in
+// components/handoff/useMemoPoller.ts (Task 12) — this component only
+// supplies the by-session/by-analysis poll URL + extractor and renders the
+// expired banner. `autoStart.mintedAt: null` reproduces the pillar-specific
+// "unanchored" auto-start (no expiry pre-check, anchored to `now`) exactly.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createPollingMachine } from '@/lib/memo-poller-machine';
-import { onMemoPollerTrigger } from '@/lib/memo-poller-events';
-import { subscribeTopic, subscribeHealth } from '@/lib/events/client';
-import { memoTopic } from '@/lib/events/topics';
-
-const POLL_INTERVAL_MS = 3000;
-const LIFETIME_MS = 15 * 60 * 1000;
-// A5 Task 24: original 3s cadence kept until SSE is confirmed healthy, then
-// demoted to a 20s memo-safety cadence (re-armed fast on drop).
-const SAFETY_POLL_MEMO_MS = 20_000;
+import { useMemoPoller } from '@/components/handoff/useMemoPoller';
 
 interface Props {
   /**
@@ -42,9 +39,8 @@ interface Props {
 
 export function MemoPoller({ analysisId, sessionId, initialNarrativeUpdatedAt, autoStartOnMount }: Props) {
   const router = useRouter();
-  const [expired, setExpired] = useState(false);
 
-  // Capture router via ref so the machine's onChange closure (created once)
+  // Capture router via ref so the hook's onChange closure (created once)
   // always reads the current router instance, robust to any future stability
   // changes in useRouter().
   const routerRef = useRef(router);
@@ -52,101 +48,29 @@ export function MemoPoller({ analysisId, sessionId, initialNarrativeUpdatedAt, a
     routerRef.current = router;
   });
 
-  const machineRef = useRef<ReturnType<typeof createPollingMachine> | null>(null);
-  if (machineRef.current === null) {
-    machineRef.current = createPollingMachine({
-      onChange: () => routerRef.current.refresh(),
-      lifetimeMs: LIFETIME_MS,
-    });
-  }
-  const machine = machineRef.current;
+  // Use by-analysis when sessionId is absent (live-scan analyses), else by-session.
+  const pollUrl = sessionId
+    ? `/api/pillar-analysis/by-session/${sessionId}`
+    : `/api/pillar-analysis/by-analysis/${analysisId}`;
 
-  // Latest baseline / mounted-state tracking via ref so closures see fresh values.
-  const baselineRef = useRef<string | null>(initialNarrativeUpdatedAt);
-
-  // Sync baselineRef from the prop after router.refresh() updates it.
-  // Only update while idle — if a cycle is active, the cycle owns the baseline
-  // it was started with, and overwriting would cause a missed change.
-  useEffect(() => {
-    if (machine.status() === 'idle') {
-      baselineRef.current = initialNarrativeUpdatedAt;
-    }
-  }, [initialNarrativeUpdatedAt, machine]);
-
-  // Visibility tracking
-  useEffect(() => {
-    const onVisibility = () => {
-      machine.setVisible(document.visibilityState === 'visible');
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [machine]);
-
-  // Trigger event subscription (regenerate button)
-  useEffect(() => {
-    return onMemoPollerTrigger(() => {
-      // Refresh the baseline from the latest known value, then start a new cycle.
-      machine.start({ baseline: baselineRef.current, now: Date.now() });
-      setExpired(false);
-    });
-  }, [machine]);
-
-  // A5 Task 24: SSE push on memo:<sessionId ?? analysisId> routes through
-  // machine.invalidate() — never bypassed — mirroring the same fallback the
-  // narrative PATCH route emits under (a live-scan/crawlRun-keyed
-  // PillarAnalysis has no session).
-  useEffect(() => {
-    return subscribeTopic(memoTopic(sessionId ?? analysisId), () => machine.invalidate());
-  }, [sessionId, analysisId, machine]);
-
-  const hasAutoStartedRef = useRef(false);
-
-  // Auto-start on mount when there's no memo
-  useEffect(() => {
-    if (autoStartOnMount && !hasAutoStartedRef.current) {
-      hasAutoStartedRef.current = true;
-      machine.start({ baseline: initialNarrativeUpdatedAt, now: Date.now() });
-      setExpired(false);
-    }
-  }, [autoStartOnMount, initialNarrativeUpdatedAt, machine]);
-
-  // Polling loop. Cadence is health-gated: the original 3s cadence while SSE
-  // is absent/unhealthy, demoting to the 20s safety cadence once healthy,
-  // re-arming fast on drop.
-  useEffect(() => {
-    // Use by-analysis when sessionId is absent (live-scan analyses), else by-session.
-    const pollUrl = sessionId
-      ? `/api/pillar-analysis/by-session/${sessionId}`
-      : `/api/pillar-analysis/by-analysis/${analysisId}`;
-    const doTick = async () => {
-      if (machine.status() !== 'polling') return;
+  const { expired, restart } = useMemoPoller({
+    topicId: sessionId ?? analysisId,
+    onChange: () => routerRef.current.refresh(),
+    fetchLatestUpdatedAt: async () => {
       try {
         const res = await fetch(pollUrl);
-        if (!res.ok) return;
+        if (!res.ok) return undefined;
         const body = await res.json();
-        const latest: string | null = body?.pillarAnalysis?.narrativeUpdatedAt ?? null;
-        baselineRef.current = baselineRef.current ?? latest; // first response sets baseline if missing
-        machine.tick({ latestUpdatedAt: latest, now: Date.now() });
-        if (machine.status() === 'expired') setExpired(true);
+        return body?.pillarAnalysis?.narrativeUpdatedAt ?? null;
       } catch {
-        // Network errors are silent — next tick will retry.
+        return undefined;
       }
-    };
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const restartTimer = (healthy: boolean) => {
-      if (timer) clearInterval(timer);
-      timer = setInterval(() => void doTick(), healthy ? SAFETY_POLL_MEMO_MS : POLL_INTERVAL_MS);
-    };
-    restartTimer(false);
-    const unsubHealth = subscribeHealth((h) => {
-      restartTimer(h);
-      if (h) void doTick();
-    });
-    return () => {
-      if (timer) clearInterval(timer);
-      unsubHealth();
-    };
-  }, [analysisId, sessionId, machine]);
+    },
+    initialBaseline: initialNarrativeUpdatedAt,
+    syncBaselineWhenIdle: initialNarrativeUpdatedAt,
+    autoStart: { active: autoStartOnMount, mintedAt: null },
+    subscribePollerTrigger: true,
+  });
 
   if (!expired) return null;
 
@@ -155,10 +79,7 @@ export function MemoPoller({ analysisId, sessionId, initialNarrativeUpdatedAt, a
       Stopped checking after 15 minutes.{' '}
       <button
         type="button"
-        onClick={() => {
-          machine.start({ baseline: baselineRef.current, now: Date.now() });
-          setExpired(false);
-        }}
+        onClick={() => restart()}
         className="underline hover:text-[#1c2d4a] dark:hover:text-white"
       >
         Check for memo

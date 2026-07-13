@@ -1,9 +1,18 @@
 # Pillar Prompt Format Contract
 
+> **2026-07-13 update:** the legacy `skills/pillar-analysis-narrative/` directory
+> (referenced throughout this doc's history below) was retired as part of the D1
+> handoff-engine consolidation. It is superseded by `skills/er-handoff-memo/`,
+> which activates on the same clipboard payload (`pat_` token audience is
+> unchanged — see "Frozen wire value" in
+> `docs/superpowers/specs/2026-07-12-d1-handoff-engine-consolidation-design.md`).
+> The prompt format contract below is otherwise unchanged and still governs
+> `lib/pillar-prompt.ts` + `lib/handoff/registry.ts`'s pat_ entry.
+
 **Status:** Locked. Do not change without updating ALL of:
 
 1. `lib/pillar-prompt.ts` (`composePayload` + the regex constants).
-2. `skills/pillar-analysis-narrative/SKILL.md` (the parsing instructions for Claude).
+2. `skills/er-handoff-memo/SKILL.md` (the parsing instructions for Claude; formerly `skills/pillar-analysis-narrative/SKILL.md`, retired 2026-07-13).
 3. This document.
 4. The regression test at `lib/pillar-prompt.test.ts` will catch composer/parser drift, but it cannot detect drift between this doc and either implementation. Manual review during PR is the only safeguard.
 

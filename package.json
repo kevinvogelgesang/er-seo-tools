@@ -14,7 +14,6 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "NODE_OPTIONS='--max-old-space-size=3072' next build",
-    "build:skill": "bash scripts/build-skill.sh",
     "start": "next start",
     "lint": "tsc --noEmit",
     "db:generate": "prisma generate",

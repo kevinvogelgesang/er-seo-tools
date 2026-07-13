@@ -386,3 +386,40 @@ choice.
 - No consumer besides er-handoff-memo relies on cat_'s query-token fallback
   or its header/query precedence.
 - Complete the pending A5 live watches before or immediately after PR 3.
+
+## Adding family #7 (post-D1 checklist)
+
+PR 3 retired `skills/pillar-analysis-narrative/` + its build wiring (dated
+2026-07-13 — see `docs/pillar-analysis-handoff.md` and
+`docs/pillar-prompt-contract.md` for the pointer to the replacement,
+`skills/er-handoff-memo/`). With all six existing families routed through
+`lib/handoff/`, adding a seventh token family (`xyz_`-style) is a fixed
+sequence, not a redesign:
+
+1. **Registry entry.** Add the family's token config (prefix, audience,
+   subject noun, scopes, `subNoun`, transport, `authErrors`) to
+   `lib/handoff/registry.ts`, plus its `meta` block (`idLabel`,
+   intro/outro prompt copy) and a dedicated error class in
+   `lib/handoff/errors.ts`.
+2. **Mint + poll routes.** Cookie-gated `POST .../mint-token` and `GET`
+   poll routes, following the existing family pattern (validate ownership,
+   mint via the shared token factory, no bespoke JWT code).
+3. **GET export builder.** The public, token-validated GET route that
+   assembles the structured export payload for the new family.
+4. **PATCH route.** Public PATCH route that calls `requireHandoffToken`
+   for auth, then does its write, then fires the one-line
+   `publishInvalidation(memoTopic(<row-key>))` emit — no bespoke SSE
+   wiring.
+5. **Card wrapper or hook adoption.** Either wrap `MemoHandoffCard` (the
+   srt/krt pattern) or adopt `useMemoPoller` directly (the pillar/kst
+   pattern) for the dashboard surface.
+6. **Middleware.** Add exactly the 2 anchored public-route matchers the
+   new family needs (GET + PATCH, single-segment regex, never a path
+   prefix) plus their `middleware.test.ts` cases.
+7. **Characterization additions.** Extend `lib/handoff/*-characterization.test.ts`
+   with the new family's exact prompt string and its auth-matrix rows
+   (every scope × failure-mode combination the existing families cover).
+8. **er-handoff-memo skill routing update.** Teach the skill the new
+   token prefix and payload shape. This is a **release prerequisite** —
+   do not deploy the routes/UI for a new family before the skill can
+   route its token, or a pasted payload will silently fail to activate.

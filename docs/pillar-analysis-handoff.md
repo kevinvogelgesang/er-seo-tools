@@ -4,6 +4,15 @@
 **Branch:** `main` (Phases 1, 2.1, 2.2, 2.3 squash-merged via PR #2 as commit `1035b0b`; v1.0.1 polish on top)
 **Status: shipped to production and end-to-end validated.**
 
+> **2026-07-13 update:** the `skills/pillar-analysis-narrative/` directory and
+> `scripts/build-skill.sh` / `npm run build:skill` build wiring described
+> throughout this doc were retired as part of the D1 handoff-engine
+> consolidation. `skills/er-handoff-memo/` now covers this surface (and five
+> other handoff families) with no local build step — see
+> `docs/superpowers/specs/2026-07-12-d1-handoff-engine-consolidation-design.md`.
+> The narrative below is kept as the historical record of Phases 1–2.3 and is
+> otherwise unchanged.
+
 ---
 
 ## TL;DR
