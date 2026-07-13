@@ -4,16 +4,14 @@
 // three lines the er-handoff-memo skill parses: `Webapp:` MUST be the dashboard
 // URL (handoff.py uses it as --webapp, the API base), `Content Audit ID:` is the
 // siteAuditId, and the `cat_` token prefix is the skill's routing discriminator.
+//
+// Thin facade over lib/handoff/prompt.ts's composeHandoffPayload (D1
+// consolidation) — byte-identical output, gated by
+// lib/handoff/prompt-characterization.test.ts. cat_'s two-sentence closer
+// rides HANDOFF_META.cat.outroLine's embedded `\n` — `.join('\n')` produces
+// the same bytes as the original two-element array tail.
+import { composeHandoffPayload } from './handoff/prompt';
+
 export function buildContentAuditPrompt(opts: { siteAuditId: string; token: string; appUrl: string }): string {
-  return [
-    "Run a content audit on this site audit's pages.",
-    '',
-    `Webapp: ${opts.appUrl}`,
-    `Content Audit ID: ${opts.siteAuditId}`,
-    `Access token: ${opts.token}`,
-    '(Expires in 1h)',
-    '',
-    'Fetch the content-audit manifest, review the pages, and PATCH back',
-    'cross-page consistency / stale-claim / quality findings.',
-  ].join('\n')
+  return composeHandoffPayload('cat', { webappUrl: opts.appUrl, id: opts.siteAuditId, token: opts.token });
 }

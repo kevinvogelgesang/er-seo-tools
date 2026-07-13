@@ -1,3 +1,9 @@
+// lib/seo-roadmap-prompt.ts
+// Thin facade over lib/handoff/prompt.ts's composeHandoffPayload (D1
+// consolidation) — byte-identical output, gated by
+// lib/handoff/prompt-characterization.test.ts.
+import { composeHandoffPayload } from './handoff/prompt';
+
 export interface RoadmapPromptArgs {
   webappUrl: string;
   roadmapId: string;
@@ -5,14 +11,5 @@ export interface RoadmapPromptArgs {
 }
 
 export function composeRoadmapPayload({ webappUrl, roadmapId, token }: RoadmapPromptArgs): string {
-  return [
-    'Generate a technical SEO roadmap for this site.',
-    '',
-    `Webapp: ${webappUrl}`,
-    `Roadmap ID: ${roadmapId}`,
-    `Access token: ${token}`,
-    '(Expires in 1h)',
-    '',
-    'Fetch the audit payload, write the prioritized technical-SEO roadmap, and post it back to the dashboard.',
-  ].join('\n');
+  return composeHandoffPayload('srt', { webappUrl, id: roadmapId, token });
 }
