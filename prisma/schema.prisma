@@ -747,6 +747,7 @@ model RobotsCheck {
   errorCount        Int
   warningCount      Int
   detailJson        String   // {v:1,...} RobotsCheckDetail
+  alertSentAt       DateTime? // D5: change-alert email sent for this row (idempotency marker)
   createdAt         DateTime @default(now())
 
   @@index([clientId, domain, createdAt])
