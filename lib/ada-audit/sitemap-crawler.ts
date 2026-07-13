@@ -6,6 +6,7 @@ import {
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 import { hybridCrawl, type CrawlBounds, type CrawlSource, type FetchedPage } from './seo/hybrid-crawl'
 import { parseRobots, type RobotsRules } from '@/lib/seo-fetch/robots-match'
+import { extractSitemapUrls } from '@/lib/seo-fetch/robots-parse'
 import { sameDomain } from './link-harvest'
 import { parsePositiveInt } from '@/lib/jobs/config'
 import {
@@ -64,16 +65,6 @@ async function fetchSitemapXml(url: string): Promise<string | null> {
   const direct = await fetchSitemapXmlDirect(url)
   if (direct.ok && direct.text.length > 0) return direct.text
   return await fetchSitemapViaBrowser(url)
-}
-
-/** Pure `Sitemap:` line scan over an already-fetched robots.txt body. */
-function extractSitemapUrls(text: string): string[] {
-  const urls: string[] = []
-  for (const line of text.split('\n')) {
-    const match = line.match(/^\s*Sitemap:\s*(.+)/i)
-    if (match) urls.push(match[1].trim())
-  }
-  return urls
 }
 
 /** Raw-HTTP fetch of a page's same-doc <a href>s + the post-redirect final URL.

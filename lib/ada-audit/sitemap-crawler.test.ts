@@ -623,6 +623,46 @@ describe('discoverPages browser fallback', () => {
   })
 })
 
+describe('discoverPages robots.txt Sitemap extraction', () => {
+  afterEach(() => {
+    safeFetchMock.mockReset()
+    vi.clearAllMocks()
+  })
+
+  it('D6: strips a trailing #-comment from a robots.txt Sitemap directive', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      requestedUrls.push(url)
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('Sitemap: https://example.com/from-robots.xml # primary sitemap', {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        })
+      }
+      if (url === 'https://example.com/from-robots.xml') {
+        return new Response('<urlset><url><loc>https://example.com/page</loc></url></urlset>', {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/page'],
+      mode: 'sitemap',
+      capped: false,
+    })
+    // The comment-polluted URL must never be requested
+    expect(requestedUrls).toContain('https://example.com/from-robots.xml')
+    expect(requestedUrls.every((u) => !u.includes('#') && !u.includes('%20primary'))).toBe(true)
+  })
+})
+
 describe('discoverPages hybrid', () => {
   it('hybrid:false is unchanged (no coverage, never mode hybrid)', async () => {
     const r = await discoverPagesWithDeps('x.com', { hybrid: false }, {
