@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRobots, isAllowed } from './robots-rules'
+import { parseRobots, isAllowed } from './robots-match'
 
 describe('parseRobots', () => {
   it('collects only the User-agent: * group', () => {

@@ -6,7 +6,7 @@ import {
 } from '../security/safe-url'
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 import { hybridCrawl, type CrawlBounds, type CrawlSource, type FetchedPage } from './seo/hybrid-crawl'
-import { parseRobots, type RobotsRules } from './seo/robots-rules'
+import { parseRobots, type RobotsRules } from '@/lib/seo-fetch/robots-match'
 import { sameDomain } from './link-harvest'
 import { parsePositiveInt } from '@/lib/jobs/config'
 

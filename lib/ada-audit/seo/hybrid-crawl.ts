@@ -19,7 +19,7 @@
 // root seed's url `https://x.com/` has key `https://x.com`).
 import { normalizeLinkTarget, sameDomain } from '../link-harvest'
 import { normalizeCoverageUrl, NON_PAGE_EXT } from './discovery-coverage'
-import { isAllowed, type RobotsRules } from './robots-rules'
+import { isAllowed, type RobotsRules } from '@/lib/seo-fetch/robots-match'
 
 export type CrawlSource = 'sitemap' | 'seed' | 'shallow' | 'linked'
 export interface FetchedPage { links: string[]; finalUrl: string }
