@@ -9,7 +9,7 @@ import {
   type RobotsParseResult,
   type RobotsIssue,
 } from '@/lib/seo-fetch/robots-parse'
-import { parseSitemapXml, type SitemapParseResult, type SitemapIssue } from '@/lib/validators/sitemap.validator'
+import { parseSitemapXml, type SitemapParseResult, type SitemapIssue } from '@/lib/seo-fetch/sitemap-parse'
 import { safeExternalHref } from '@/lib/safe-external-href'
 
 // ─── Reference bot data ───────────────────────────────────────────────────────
