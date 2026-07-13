@@ -1,27 +1,24 @@
 import {
   assertSafeHttpUrl,
-  readResponseBytesWithLimit,
   readResponseTextWithLimit,
   safeFetch,
 } from '../security/safe-url'
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 import { hybridCrawl, type CrawlBounds, type CrawlSource, type FetchedPage } from './seo/hybrid-crawl'
-import { parseRobots, type RobotsRules } from './seo/robots-rules'
+import { parseRobots, type RobotsRules } from '@/lib/seo-fetch/robots-match'
+import { extractSitemapUrls } from '@/lib/seo-fetch/robots-parse'
 import { sameDomain } from './link-harvest'
 import { parsePositiveInt } from '@/lib/jobs/config'
+import {
+  fetchRobotsTxt,
+  fetchSitemapXml as fetchSitemapXmlDirect,
+  collectSitemapPageUrls,
+  SEO_FETCH_USER_AGENT,
+} from '@/lib/seo-fetch/fetch'
 
 const HARD_CAP = 1000
 const FETCH_TIMEOUT = 15_000
 const MAX_HTML_BYTES = 1_000_000
-const MAX_XML_BYTES = 5_000_000
-const MAX_ROBOTS_BYTES = 500_000
-// Browser-shaped UA. CDN/WAF heuristics frequently 403 transparently bot
-// user-agents like "ER-SEO-Tools/1.0", which causes silent sitemap discovery
-// failures. Pretending to be Chrome matches what a manual fetch of the same
-// URL looks like to those filters.
-const USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
 // ─── Hybrid-crawl env tunables ───────────────────────────────────────────────
 
@@ -33,29 +30,12 @@ const HY_CONCURRENCY = () => parsePositiveInt(process.env.HYBRID_CRAWL_CONCURREN
 const HY_QUERY_VARIANTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_QUERY_VARIANTS_PER_PATH, 5)
 const HY_PATH_SEGMENTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_PATH_SEGMENTS, 12)
 
-// ─── XML helpers ─────────────────────────────────────────────────────────────
-
-function extractLocs(xml: string, tagPattern: RegExp): string[] {
-  const urls: string[] = []
-  let match: RegExpExecArray | null
-  while ((match = tagPattern.exec(xml)) !== null) {
-    // Strip CDATA wrappers and whitespace
-    const raw = match[1].replace(/<!\[CDATA\[([\s\S]*?)]]>/, '$1').trim()
-    if (raw) urls.push(raw)
-  }
-  return urls
-}
-
-function isSitemapIndex(xml: string): boolean {
-  return /<sitemapindex[\s>]/i.test(xml)
-}
-
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
 async function fetchHtml(url: string): Promise<string | null> {
   try {
     const { response: res } = await safeFetch(url, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,*/*' },
+      headers: { 'User-Agent': SEO_FETCH_USER_AGENT, Accept: 'text/html,*/*' },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     })
     if (!res.ok) return null
@@ -68,68 +48,23 @@ async function fetchHtml(url: string): Promise<string | null> {
   }
 }
 
-async function fetchXml(url: string): Promise<string | null> {
-  try {
-    const { response: res, url: finalUrl } = await safeFetch(url, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/xml,application/xml,*/*' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT),
-    })
-    if (!res.ok) return null
-    const ct = res.headers.get('content-type') ?? ''
-    // Reject HTML responses (login redirects, 404 pages served as 200, etc.)
-    if (ct.includes('html') && !ct.includes('xml')) return null
-
-    // Handle gzip-compressed sitemaps
-    if (finalUrl.endsWith('.gz') || ct.includes('gzip')) {
-      const { bytes, truncated } = await readResponseBytesWithLimit(res, MAX_XML_BYTES)
-      if (truncated) return null
-      const { gunzipSync } = await import('node:zlib')
-      const xml = gunzipSync(Buffer.from(bytes), { maxOutputLength: MAX_XML_BYTES }).toString('utf-8')
-      return xml.length > MAX_XML_BYTES ? null : xml
-    }
-
-    const { text, truncated } = await readResponseTextWithLimit(res, MAX_XML_BYTES)
-    return truncated ? null : text
-  } catch {
-    return null
-  }
+/** Single robots.txt fetch — returns the raw body, or '' on any failure. */
+async function fetchRobotsRaw(base: string): Promise<string> {
+  const r = await fetchRobotsTxt(base)
+  return r.ok ? r.text : ''
 }
 
 /**
  * Try direct fetch first, fall back to a Puppeteer-driven fetch when direct
- * returns null (CDN/WAF blocking). The browser path is expensive (~1 s
- * warmup, up to 20 s navigation) but only fires when needed.
+ * fails (CDN/WAF blocking). The browser path is expensive (~1 s warmup, up
+ * to 20 s navigation) but only fires when needed. A successful-but-EMPTY
+ * direct body also falls back — historical `if (direct)` was falsy on ''
+ * (Codex plan #1, blocker).
  */
 async function fetchSitemapXml(url: string): Promise<string | null> {
-  const direct = await fetchXml(url)
-  if (direct) return direct
+  const direct = await fetchSitemapXmlDirect(url)
+  if (direct.ok && direct.text.length > 0) return direct.text
   return await fetchSitemapViaBrowser(url)
-}
-
-/** Single robots.txt fetch — returns the raw body, or '' on any failure. */
-async function fetchRobotsRaw(base: string): Promise<string> {
-  try {
-    const { response: res } = await safeFetch(`${base}/robots.txt`, {
-      headers: { 'User-Agent': USER_AGENT },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT),
-    })
-    if (!res.ok) return ''
-    const { text, truncated } = await readResponseTextWithLimit(res, MAX_ROBOTS_BYTES)
-    if (truncated) return ''
-    return text
-  } catch {
-    return ''
-  }
-}
-
-/** Pure `Sitemap:` line scan over an already-fetched robots.txt body. */
-function extractSitemapUrls(text: string): string[] {
-  const urls: string[] = []
-  for (const line of text.split('\n')) {
-    const match = line.match(/^\s*Sitemap:\s*(.+)/i)
-    if (match) urls.push(match[1].trim())
-  }
-  return urls
 }
 
 /** Raw-HTTP fetch of a page's same-doc <a href>s + the post-redirect final URL.
@@ -137,7 +72,7 @@ function extractSitemapUrls(text: string): string[] {
 export async function fetchPageLinks(url: string, auditedHost: string): Promise<FetchedPage | null> {
   try {
     const { response: res, url: finalUrl } = await safeFetch(url, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,*/*' },
+      headers: { 'User-Agent': SEO_FETCH_USER_AGENT, Accept: 'text/html,*/*' },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     })
     if (!res.ok) return null
@@ -244,37 +179,6 @@ async function shallowCrawl(base: string, normDomain: string): Promise<string[]>
   return dedupeUrls(resolved)
 }
 
-// ─── Sitemap URL collection ─────────────────────────────────────────────────
-
-/**
- * Given a sitemap XML (plain or index), collect all page URLs.
- * Follows child sitemaps in sitemap indexes (no artificial cap).
- */
-async function collectFromSitemap(xml: string, normDomain: string): Promise<string[]> {
-  if (!isSitemapIndex(xml)) {
-    return extractLocs(xml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
-  }
-
-  // Sitemap index — fetch all child sitemaps
-  const childUrls = extractLocs(xml, /<sitemap>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
-    .filter((url) => isSameDomain(url, normDomain))
-  const pageUrls: string[] = []
-
-  // Fetch child sitemaps in batches of 5 to be polite
-  const BATCH = 5
-  for (let i = 0; i < childUrls.length; i += BATCH) {
-    const batch = childUrls.slice(i, i + BATCH)
-    const childXmls = await Promise.all(batch.map((u) => fetchSitemapXml(u)))
-    for (const childXml of childXmls) {
-      if (!childXml) continue
-      const locs = extractLocs(childXml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
-      pageUrls.push(...locs)
-    }
-  }
-
-  return pageUrls
-}
-
 // ─── Seed resolution (sitemap → shallow-crawl fallback) ─────────────────────
 
 /**
@@ -324,9 +228,13 @@ async function resolveSeedsReal(
     const xml = await fetchSitemapXml(sitemapUrl)
     if (!xml) continue
 
-    const urls = await collectFromSitemap(xml, normDomain)
-    if (urls.length > 0) {
-      allPageUrls = urls
+    const collected = await collectSitemapPageUrls(
+      xml,
+      (u) => isSameDomain(u, normDomain),
+      fetchSitemapXml,
+    )
+    if (collected.urls.length > 0) {
+      allPageUrls = collected.urls
       break
     }
   }

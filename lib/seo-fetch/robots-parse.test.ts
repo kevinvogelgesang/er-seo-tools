@@ -3,7 +3,8 @@ import {
   parseRobotsTxt,
   testUrlAgainstRobots,
   KNOWN_AI_BOTS,
-} from './robots.validator'
+  extractSitemapUrls,
+} from './robots-parse'
 
 // ---------------------------------------------------------------------------
 // parseRobotsTxt
@@ -339,5 +340,70 @@ describe('testUrlAgainstRobots', () => {
     const result = parseRobotsTxt(content)
     const test = testUrlAgainstRobots(result, '/any/path')
     expect(test.allowed).toBe(true)
+  })
+})
+
+describe('extractSitemapUrls', () => {
+  it('extracts a plain Sitemap directive', () => {
+    expect(extractSitemapUrls('Sitemap: https://x.com/sitemap.xml')).toEqual([
+      'https://x.com/sitemap.xml',
+    ])
+  })
+
+  it('is case-insensitive and tolerates leading whitespace', () => {
+    expect(extractSitemapUrls('  sitemap: https://x.com/s.xml')).toEqual(['https://x.com/s.xml'])
+  })
+
+  it('D6: strips a trailing space-separated comment', () => {
+    expect(extractSitemapUrls('Sitemap: https://x.com/sitemap.xml # primary')).toEqual([
+      'https://x.com/sitemap.xml',
+    ])
+  })
+
+  it('D6: strips an adjacent # with no space', () => {
+    expect(extractSitemapUrls('Sitemap: https://x.com/sitemap.xml#note')).toEqual([
+      'https://x.com/sitemap.xml',
+    ])
+  })
+
+  it('D6: handles CRLF line endings', () => {
+    expect(
+      extractSitemapUrls('User-agent: *\r\nSitemap: https://x.com/a.xml\r\nSitemap: https://x.com/b.xml\r\n')
+    ).toEqual(['https://x.com/a.xml', 'https://x.com/b.xml'])
+  })
+
+  it('D6: keeps duplicate directives (dedup is the caller concern)', () => {
+    expect(
+      extractSitemapUrls('Sitemap: https://x.com/s.xml\nSitemap: https://x.com/s.xml')
+    ).toEqual(['https://x.com/s.xml', 'https://x.com/s.xml'])
+  })
+
+  it('D6: percent-encoded %23 survives (only literal # is a comment)', () => {
+    expect(extractSitemapUrls('Sitemap: https://x.com/s%23a.xml')).toEqual([
+      'https://x.com/s%23a.xml',
+    ])
+  })
+
+  it('ignores full-line comments and non-sitemap fields', () => {
+    expect(
+      extractSitemapUrls('# Sitemap: https://x.com/no.xml\nUser-agent: *\nDisallow: /')
+    ).toEqual([])
+  })
+
+  it('ignores a Sitemap directive with an empty value', () => {
+    expect(extractSitemapUrls('Sitemap:')).toEqual([])
+    expect(extractSitemapUrls('Sitemap:   # only comment')).toEqual([])
+  })
+
+  it('agrees with parseRobotsTxt().sitemapUrls on a mixed file', () => {
+    const txt = [
+      'User-agent: *',
+      'Disallow: /admin',
+      'Sitemap: https://x.com/a.xml # main',
+      'sitemap: https://x.com/b.xml',
+      '# Sitemap: https://x.com/commented.xml',
+      'Sitemap: https://x.com/c%23d.xml',
+    ].join('\r\n')
+    expect(extractSitemapUrls(txt)).toEqual(parseRobotsTxt(txt).sitemapUrls)
   })
 })

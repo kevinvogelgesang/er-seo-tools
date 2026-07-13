@@ -166,3 +166,33 @@ export function parseSitemapXml(content: string): SitemapParseResult {
     isSitemapIndex,
   }
 }
+
+// ── Crawl-side XML helpers (moved from lib/ada-audit/sitemap-crawler.ts) ────
+// NOTE: parseSitemapXml above intentionally keeps its own extractTagValues —
+// it validates the raw document (counts every <loc>), while these helpers
+// feed the crawl/discovery path (scoped to <url>/<sitemap> blocks).
+
+function extractLocs(xml: string, tagPattern: RegExp): string[] {
+  const urls: string[] = []
+  let match: RegExpExecArray | null
+  while ((match = tagPattern.exec(xml)) !== null) {
+    // Strip CDATA wrappers and whitespace
+    const raw = match[1].replace(/<!\[CDATA\[([\s\S]*?)]]>/, '$1').trim()
+    if (raw) urls.push(raw)
+  }
+  return urls
+}
+
+export function isSitemapIndex(xml: string): boolean {
+  return /<sitemapindex[\s>]/i.test(xml)
+}
+
+/** Page URLs from a plain urlset sitemap (`<url>…<loc>` pairs). */
+export function extractPageLocs(xml: string): string[] {
+  return extractLocs(xml, /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
+}
+
+/** Child sitemap URLs from a sitemapindex (`<sitemap>…<loc>` pairs). */
+export function extractChildSitemapLocs(xml: string): string[] {
+  return extractLocs(xml, /<sitemap>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi)
+}

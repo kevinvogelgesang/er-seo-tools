@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSitemapXml } from './sitemap.validator'
+import { parseSitemapXml, isSitemapIndex, extractPageLocs, extractChildSitemapLocs } from './sitemap-parse'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -252,5 +252,54 @@ describe('parseSitemapXml', () => {
     const result = parseSitemapXml(xml)
     expect(result.sampleUrls).toHaveLength(10)
     expect(result.urlCount).toBe(20)
+  })
+})
+
+describe('isSitemapIndex', () => {
+  it('detects a sitemapindex root with attributes', () => {
+    expect(isSitemapIndex('<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')).toBe(true)
+  })
+  it('detects a bare sitemapindex tag', () => {
+    expect(isSitemapIndex('<sitemapindex>')).toBe(true)
+  })
+  it('is case-insensitive', () => {
+    expect(isSitemapIndex('<SITEMAPINDEX>')).toBe(true)
+  })
+  it('returns false for a urlset', () => {
+    expect(isSitemapIndex('<urlset><url><loc>https://x.com/</loc></url></urlset>')).toBe(false)
+  })
+  it('returns false for bare text mentioning sitemapindex', () => {
+    expect(isSitemapIndex('this is about sitemapindex stuff')).toBe(false)
+  })
+})
+
+describe('extractPageLocs', () => {
+  it('extracts locs from url blocks', () => {
+    const xml = '<urlset><url><loc>https://x.com/a</loc></url><url><loc>https://x.com/b</loc></url></urlset>'
+    expect(extractPageLocs(xml)).toEqual(['https://x.com/a', 'https://x.com/b'])
+  })
+  it('strips CDATA wrappers and whitespace', () => {
+    const xml = '<urlset><url><loc> <![CDATA[https://x.com/a]]> </loc></url></urlset>'
+    expect(extractPageLocs(xml)).toEqual(['https://x.com/a'])
+  })
+  it('ignores sitemap-index child locs', () => {
+    const xml = '<sitemapindex><sitemap><loc>https://x.com/child.xml</loc></sitemap></sitemapindex>'
+    expect(extractPageLocs(xml)).toEqual([])
+  })
+  it('is stateless across calls (fresh regex per call)', () => {
+    const xml = '<urlset><url><loc>https://x.com/a</loc></url></urlset>'
+    expect(extractPageLocs(xml)).toEqual(['https://x.com/a'])
+    expect(extractPageLocs(xml)).toEqual(['https://x.com/a'])
+  })
+})
+
+describe('extractChildSitemapLocs', () => {
+  it('extracts child sitemap locs from an index', () => {
+    const xml = '<sitemapindex><sitemap><loc>https://x.com/a.xml</loc></sitemap><sitemap><loc>https://x.com/b.xml</loc></sitemap></sitemapindex>'
+    expect(extractChildSitemapLocs(xml)).toEqual(['https://x.com/a.xml', 'https://x.com/b.xml'])
+  })
+  it('ignores url-block locs', () => {
+    const xml = '<urlset><url><loc>https://x.com/a</loc></url></urlset>'
+    expect(extractChildSitemapLocs(xml)).toEqual([])
   })
 })

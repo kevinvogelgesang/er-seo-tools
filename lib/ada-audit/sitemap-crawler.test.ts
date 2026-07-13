@@ -17,6 +17,7 @@ vi.mock('./sitemap-crawler-browser-fetch', () => ({
 import { discoverPages, discoverPagesWithDeps } from './sitemap-crawler'
 import { SafeUrlError } from '../security/safe-url'
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
+import { extractPageLocs, extractChildSitemapLocs, isSitemapIndex } from '@/lib/seo-fetch/sitemap-parse'
 
 vi.mock('node:dns', () => ({
   promises: {
@@ -27,20 +28,6 @@ vi.mock('node:dns', () => ({
 // ─── Copies of internal pure functions from sitemap-crawler.ts ──────────────
 // These are not exported from the module, so we duplicate the logic here
 // to unit-test them in isolation. Keep in sync with the source.
-
-function extractLocs(xml: string, tagPattern: RegExp): string[] {
-  const urls: string[] = []
-  let match: RegExpExecArray | null
-  while ((match = tagPattern.exec(xml)) !== null) {
-    const raw = match[1].replace(/<!\[CDATA\[([\s\S]*?)]]>/, '$1').trim()
-    if (raw) urls.push(raw)
-  }
-  return urls
-}
-
-function isSitemapIndex(xml: string): boolean {
-  return /<sitemapindex[\s>]/i.test(xml)
-}
 
 function normaliseDomain(domain: string): string {
   return domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase()
@@ -79,10 +66,7 @@ function dedupeUrls(urls: string[]): string[] {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe('extractLocs', () => {
-  const urlLocPattern = /<url>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi
-  const sitemapLocPattern = /<sitemap>[\s\S]*?<loc>([\s\S]*?)<\/loc>/gi
-
+describe('extractPageLocs / extractChildSitemapLocs (shared)', () => {
   it('extracts URLs from a basic sitemap XML', () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -90,7 +74,7 @@ describe('extractLocs', () => {
   <url><loc>https://example.com/page2</loc></url>
   <url><loc>https://example.com/page3</loc></url>
 </urlset>`
-    const result = extractLocs(xml, urlLocPattern)
+    const result = extractPageLocs(xml)
     expect(result).toEqual([
       'https://example.com/page1',
       'https://example.com/page2',
@@ -104,7 +88,7 @@ describe('extractLocs', () => {
   <url><loc><![CDATA[https://example.com/cdata-page]]></loc></url>
   <url><loc><![CDATA[https://example.com/another]]></loc></url>
 </urlset>`
-    const result = extractLocs(xml, urlLocPattern)
+    const result = extractPageLocs(xml)
     expect(result).toEqual([
       'https://example.com/cdata-page',
       'https://example.com/another',
@@ -112,12 +96,12 @@ describe('extractLocs', () => {
   })
 
   it('returns empty array for empty XML', () => {
-    expect(extractLocs('', urlLocPattern)).toEqual([])
+    expect(extractPageLocs('')).toEqual([])
   })
 
   it('returns empty array when there are no matches', () => {
     const xml = `<?xml version="1.0"?><urlset></urlset>`
-    expect(extractLocs(xml, urlLocPattern)).toEqual([])
+    expect(extractPageLocs(xml)).toEqual([])
   })
 
   it('skips entries with empty loc content', () => {
@@ -125,7 +109,7 @@ describe('extractLocs', () => {
   <url><loc>  </loc></url>
   <url><loc>https://example.com/valid</loc></url>
 </urlset>`
-    const result = extractLocs(xml, urlLocPattern)
+    const result = extractPageLocs(xml)
     expect(result).toEqual(['https://example.com/valid'])
   })
 
@@ -133,7 +117,7 @@ describe('extractLocs', () => {
     const xml = `<urlset>
   <url><loc>  https://example.com/trimmed  </loc></url>
 </urlset>`
-    const result = extractLocs(xml, urlLocPattern)
+    const result = extractPageLocs(xml)
     expect(result).toEqual(['https://example.com/trimmed'])
   })
 
@@ -142,7 +126,7 @@ describe('extractLocs', () => {
   <sitemap><loc>https://example.com/sitemap-posts.xml</loc></sitemap>
   <sitemap><loc>https://example.com/sitemap-pages.xml</loc></sitemap>
 </sitemapindex>`
-    const result = extractLocs(xml, sitemapLocPattern)
+    const result = extractChildSitemapLocs(xml)
     expect(result).toEqual([
       'https://example.com/sitemap-posts.xml',
       'https://example.com/sitemap-pages.xml',
@@ -153,7 +137,7 @@ describe('extractLocs', () => {
     const xml = `<urlset>
   <url><loc><![CDATA[  https://example.com/spaced  ]]></loc></url>
 </urlset>`
-    const result = extractLocs(xml, urlLocPattern)
+    const result = extractPageLocs(xml)
     expect(result).toEqual(['https://example.com/spaced'])
   })
 })
@@ -597,6 +581,85 @@ describe('discoverPages browser fallback', () => {
     expect(browserCalls.some((u) => u.includes('sitemap_index.xml'))).toBe(true)
     expect(browserCalls.some((u) => u.includes('post-sitemap.xml'))).toBe(true)
     expect(browserCalls.some((u) => u.includes('page-sitemap.xml'))).toBe(true)
+  })
+
+  it('falls back to the browser fetch when direct sitemap fetch is 200 but EMPTY (Codex plan #1)', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('Sitemap: https://example.com/sitemap.xml', {
+          status: 200, headers: { 'content-type': 'text/plain' },
+        })
+      }
+      if (url === 'https://example.com/sitemap.xml') {
+        return new Response('', { status: 200, headers: { 'content-type': 'application/xml' } })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+    vi.mocked(fetchSitemapViaBrowser).mockResolvedValue(
+      '<urlset><url><loc>https://example.com/page</loc></url></urlset>'
+    )
+
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/page'],
+      mode: 'sitemap',
+      capped: false,
+    })
+    expect(fetchSitemapViaBrowser).toHaveBeenCalledWith('https://example.com/sitemap.xml')
+  })
+
+  it('mock-seam canary: delegated fetches still route through the safeFetch mock (Codex plan #7)', async () => {
+    safeFetchMock.mockImplementation(async (url: string | URL) => ({
+      response: new Response('not found', { status: 404 }),
+      url: url.toString(),
+      redirects: [],
+    }))
+    await discoverPages('example.com').catch(() => {})
+    const requested = safeFetchMock.mock.calls.map((c) => String(c[0]))
+    expect(requested).toContain('https://example.com/robots.txt')
+  })
+})
+
+describe('discoverPages robots.txt Sitemap extraction', () => {
+  afterEach(() => {
+    safeFetchMock.mockReset()
+    vi.clearAllMocks()
+  })
+
+  it('D6: strips a trailing #-comment from a robots.txt Sitemap directive', async () => {
+    const requestedUrls: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      requestedUrls.push(url)
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('Sitemap: https://example.com/from-robots.xml # primary sitemap', {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        })
+      }
+      if (url === 'https://example.com/from-robots.xml') {
+        return new Response('<urlset><url><loc>https://example.com/page</loc></url></urlset>', {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/page'],
+      mode: 'sitemap',
+      capped: false,
+    })
+    // The comment-polluted URL must never be requested
+    expect(requestedUrls).toContain('https://example.com/from-robots.xml')
+    expect(requestedUrls.every((u) => !u.includes('#') && !u.includes('%20primary'))).toBe(true)
   })
 })
 

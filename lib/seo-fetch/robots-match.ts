@@ -5,6 +5,9 @@
 // UA-specific group against. Rules apply to the LINKED crawl frontier only;
 // sitemap/seed URLs are kept regardless (continuity: the existing pipeline
 // already audits every sitemap URL without consulting Disallow).
+// NOTE: this is the MINIMAL crawl-frontier matcher (star-group only, $-aware).
+// The UA-aware, issue-reporting validator parser lives in ./robots-parse.ts —
+// the two are intentionally distinct (spec D2); do not unify.
 
 export interface RobotsRules {
   disallow: string[]
