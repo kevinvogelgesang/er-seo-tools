@@ -1,15 +1,15 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-13 (**D1 COMPLETE — all 3 PRs shipped + deployed +
-prod-verified in one session**: PR #162 foundations (characterization net +
-`lib/handoff/` engine + 12 facades), PR #163 route-auth adoption (8 routes on
-`requireHandoffToken`), PR #164 client consolidation (`useMemoPoller` +
-`MemoHandoffCard` + 4 adoptions) + legacy `pillar-analysis-narrative` skill
-retired. Zero wire drift — characterization suites green untouched throughout.
-Same session earlier: **A6 closed as absorbed into A8**. A5 unchanged:
+**Last updated:** 2026-07-12 (**D3 COMPLETE — shared `lib/seo-fetch/` shipped +
+deployed + prod-verified in one session**: PR #165, full pipeline
+brainstorm → spec (Codex ×9 fixes) → plan (Codex ×7 fixes incl. an
+empty-body browser-fallback blocker) → 8-task subagent TDD → opus final
+review READY-TO-MERGE → gates 5148 tests/build/smoke → merge `3143fc3` →
+deploy → prod-verify. The 3-robots-parsers/2-sitemap-parsers drift class is
+closed; `SafeUrlError` now carries an additive typed `reason`. A5 unchanged:
 code-complete, `[x]` flip still gated only on Kevin's live watches (D2 flips
-with it). Next build item: **D3**.)
-· **Updated by:** the D1 session (A6 closure → spec → plan → PR1 → PR2 → PR3).
+with it). Next build item: **D4**.)
+· **Updated by:** the D3 session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -17,11 +17,10 @@ with it). Next build item: **D3**.)
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. STATE: D1 (handoff engine
-consolidation) is COMPLETE — 3 PRs shipped + deployed + prod-verified
-2026-07-12/13 (PR #162 foundations, PR #163 route-auth, PR #164 cards +
-legacy-skill retirement; tracker status log 2026-07-13 has the full entry;
-spec+plan archived). A5 (SSE push layer) remains [~] CODE-COMPLETE, gated
+Continue the er-seo-tools improvement roadmap. STATE: D3 (shared
+lib/seo-fetch/) is COMPLETE — PR #165 merged (main 3143fc3), deployed,
+prod-verified 2026-07-12; tracker status log 2026-07-12 has the full entry;
+spec+plan archived. A5 (SSE push layer) remains [~] CODE-COMPLETE, gated
 ONLY on Kevin's live authenticated watches; when they pass, flip A5 to [x]
 AND mark D2 (memo arrival via SSE — A5 PR4 is its substance) with a dated
 status-log line + handoff rewrite in the same commit. A6 closed 2026-07-12
@@ -33,48 +32,51 @@ single-page ADA audit + site audit progress via ada-audit:<id>/
 site-audit:<id>/recents frames; (b) A5-PR3 — report render / prospect scan /
 content-audit ingest push-update without the old fast poll; (c) A5-PR4 — an
 er-handoff-memo write-back (pat_/srt_/krt_/kst_) pushes the memo into its
-card via memo:<sid>. D1 PR3 rewired the memo cards onto one hook but
-preserved the A5 topology exactly (same machine/seam/cadence/topics) — the
-watches remain valid as specified.
+card via memo:<sid>. Also new from D3: on the next site audit, discovery
+runs through lib/seo-fetch for the first time in prod — glance at the page
+count sanity of whichever scan runs next (locally pinned by the frozen
+51-test characterization gate + smoke, so this is a glance, not a gate).
 
-IMMEDIATE NEXT (build): D3 — shared lib/seo-fetch/ (robots/sitemap parsing
-through safeFetch) (1-2 days), then D4 (client-attached robots/sitemap
-checks + history, 2-3 days), then D5 (scheduled monitoring w/ change-only
-alerts, needs A1 which is done). D6 (RankMath redirect generator) needs a
-Kevin decision first: build or freeze as doc — "decide, don't drift". C6/C12
-stay [~] for campaign-data/gated reasons, not build work. Full pipeline for
-D3: brainstorm -> spec -> Codex review -> plan -> Codex review ->
-subagent-driven TDD.
+IMMEDIATE NEXT (build): D4 — client-attached robots/sitemap checks +
+history (2-3 days): "validate against a client's domain" stores a
+RobotsCheck snapshot (content hash, parsed result, issues) instead of
+evaporating on refresh; only client-registered domains get rows (roadmap doc
+05-small-tools.md steps 2-4). D3 built its hooks: lib/seo-fetch/fetch.ts
+returns a discriminated-union SeoFetchResult with failure taxonomy
+(http-error/not-xml/too-large/unsafe-url/dns/redirect/invalid-response/
+timeout/network — SafeUrlError.reason backs it) and collectSitemapPageUrls
+returns childrenTotal/childrenFailed diagnostics. After D4: D5 (scheduled
+monitoring w/ change-only alerts — compare by content hash, alert only on
+state CHANGES, needs A1 which is done). D6 (RankMath redirect generator)
+needs a Kevin decision first: build or freeze as doc — "decide, don't
+drift". C6/C12 stay [~] for campaign-data/gated reasons, not build work.
+Full pipeline for D4: brainstorm -> spec -> Codex review -> plan -> Codex
+review -> subagent-driven TDD.
 
-D1 REFERENCE (shipped architecture): lib/handoff/ = registry.ts (server-only
-HANDOFF_TOKEN_CONFIGS: per-family prefix/audience/secretEnv/devFallback/
-scopes-as-const-tuples/ttl/subNoun/makeError/transport/authErrors) + meta.ts
-(client-safe, HandoffFamilyKey lives here) + errors.ts (single-home error
-classes) + token.ts (factory, 1:1 pillar-token clone) + prompt.ts
-(composeHandoffPayload) + route-auth.ts (requireHandoffToken; VERIFIERS
-table calls the FACADE verify fns so route-test vi.mocks keep working;
-transport bearer-or-query = cat_ ONLY). The six lib/*-token.ts +
-lib/*-prompt.ts modules and both route-auth helpers are thin facades —
-exports/types byte-preserved. components/handoff/ = useMemoPoller (the
-once-quadruplicated poller wiring; 14 contract tests) + MemoHandoffCard
-(srt/krt wrappers); pillar MemoPoller + KeywordStrategyCard use the hook
-(kst ignores the expired flag by design). Characterization suites
-(lib/handoff/*-characterization.test.ts, 195 tests) are the FROZEN-WIRE
-GATE — they must stay green untouched through any future change; fix code,
-never those tests. Adding family #7: follow the checklist appended to the
-archived spec (registry entries -> routes -> GET builder -> PATCH + one-line
-emit -> card wrapper/hook -> middleware matchers + tests -> characterization
-additions -> er-handoff-memo skill routing = RELEASE PREREQUISITE).
+D3 REFERENCE (shipped architecture): lib/seo-fetch/ = robots-parse.ts
+(client-safe rich validator parser parseRobotsTxt/testUrlAgainstRobots/
+KNOWN_AI_BOTS + shared comment-stripping extractSitemapUrls, agreement with
+parseRobotsTxt test-pinned) + robots-match.ts (client-safe MINIMAL
+crawl-frontier matcher, star-group-only/$-aware — intentionally distinct
+from the validator matcher, NEVER unify) + sitemap-parse.ts (client-safe
+parseSitemapXml validation + isSitemapIndex/extractPageLocs/
+extractChildSitemapLocs) + fetch.ts (server-only, ALL I/O via safeFetch:
+fetchRobotsTxt new URL('/robots.txt', base) contract; fetchSitemapXml gzip/
+5MB-cap/HTML-reject with application/xhtml+xml ACCEPTED by design;
+collectSitemapPageUrls ONE-level index expansion FROZEN, batch-of-5,
+same-domain filter before fetch). sitemap-crawler.ts keeps discovery
+orchestration behind ''/null-on-failure adapters — empty-200-body still
+falls back to the browser fetch (test-pinned blocker); its 51 behavioral
+tests are the FROZEN characterization gate: fix code, never those tests.
+The ONLY D3 behavior change: Sitemap: extraction strips #-comments (D6
+micro-delta, isolated commit 0ce7ea9). lib/validators/ and
+lib/ada-audit/seo/robots-rules.ts are GONE.
 
-PINNED WARTS (frozen, never "fix"): token_expired is dead code fleet-wide —
-jose's expiry message lacks the substring 'expired', so expired tokens map
-to token_invalid (locked by test); token_service_unavailable/500 unreachable
-via real HTTP in 5 of 6 families; cat_ collapses everything to auth_required.
-
-RECORDED FOLLOW-UPS (non-blocking): (1) report-render.ts also emits
-report-list — one-line cleanup if Kevin prefers. (2) kst latestSessionRef is
-a vestigial write-only cache — future cleanup. (3) jose-version-coupled
-substring assertions in token tests — check on any jose upgrade. (4)
+RECORDED FOLLOW-UPS (non-blocking): (1) some fetch.test.ts failure branches
+use toMatchObject not toEqual — cheap tightening. (2) report-render.ts also
+emits report-list — one-line cleanup if Kevin prefers. (3) kst
+latestSessionRef vestigial write-only cache. (4) jose-version-coupled
+substring assertions in token tests — check on any jose upgrade. (5)
 memo:<sessionId> shared across 3 memo families = cross-TAB extra idempotent
 refetch only, plan-level design.
 
@@ -87,25 +89,24 @@ GOTCHAS FOR THE NEXT SESSION:
   touches auth/SF-upload/ADA-pipeline or a component on a smoke-walked page
   (export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/
   Google Chrome" first on macOS).
-- Array-form $transaction ONLY. publishInvalidation fires AFTER the awaited
-  write resolves, OUTSIDE the tx, keyed off the RETURNED ROW's FK.
-- Topics are LITERAL strings (lib/events/topics.ts). Emit/subscribe identity
-  test-pinned with not.toHaveBeenCalledWith(<wrongId>).
-- Component tests: // @vitest-environment jsdom + afterEach(cleanup), no
-  jest-dom. vi.mock('@/lib/events/client') BEFORE importing module-level
-  stores.
-- Tests self-provision per-worker SQLite DBs, run PARALLEL. Absolute file:
-  URLs for tooling DBs.
-- DateTime columns are INTEGER ms — raw SQL binds ${x.getTime()}.
+- D4 is a schema change (RobotsCheck model) — hand-author migration SQL
+  (migrate dev is interactive-only here), apply with
+  DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy; array-form
+  $transaction ONLY; DateTime columns are INTEGER ms — raw SQL binds
+  ${x.getTime()}.
+- New cookie-gated client routes need NO middleware change; anything public
+  needs anchored middleware matchers + middleware.test.ts cases.
+- Never weaken safeFetch/SSRF guards; SafeUrlError.reason additions must
+  stay additive; audit-ci stays green. Only scan client sites already in
+  the system.
+- Tests self-provision per-worker SQLite DBs, run PARALLEL. Component
+  tests: // @vitest-environment jsdom + afterEach(cleanup), no jest-dom.
 - Never git add -A/-u at repo root (pentest-results/ etc untracked) — stage
   explicit paths. No backticks in Bash -m commit messages.
 - .superpowers/sdd/task-N-*.md files are REUSED across PR series — a stale
   same-numbered brief/report may exist; overwrite, don't trust.
-- UI-class changes: dark: variants on every element + the ThemeToggle
-  mounted-guard hydration pattern.
-- D3 will touch lib/security/safe-url.ts adjacency — security-sensitive
-  class: middleware.test.ts coverage for any route-gating change; never
-  weaken safeFetch/SSRF guards; audit-ci stays green.
+- UI: dark: variants on every element + the ThemeToggle mounted-guard
+  hydration pattern.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/cat_/qct_
 clipboard flow.
@@ -115,42 +116,43 @@ er-seo-tools-change-control FIRST. Gate policy rules 1 & 4: merge gate-green
 PRs (re-run gates in-session) + deploy with post-deploy verify autonomously;
 destructive server ops Kevin-gated; brainstorm->spec->plan ungated. Docs
 ritual in the same commit as any ship. Then: if Kevin reports the live
-watches passed, do the A5 [x] + D2 flip ritual; otherwise start D3 with
+watches passed, do the A5 [x] + D2 flip ritual; otherwise start D4 with
 superpowers:brainstorming.
 ```
 
 ---
 
-## Current state (2026-07-13, D1 complete)
+## Current state (2026-07-12, D3 complete)
 
-- **Main** @ `4789fad` (D1 PR3 merge) + this docs commit. Prod deployed on
-  PR3, healthy (6-family auth matrix verified live; `memo:` literal in
-  minified chunks; server `skills/` = er-handoff-memo only).
-- **D1 `[x]`** — see the tracker's 2026-07-12/13 status-log entries for the
-  per-PR record (gates, reviews, prod evidence).
+- **Main** @ `3143fc3` (D3 PR #165 merge) + this docs commit. Prod deployed,
+  healthy (health ok, error log quiet, scheduled jobs settling post-boot).
+- **D3 `[x]`** — see the tracker's 2026-07-12 status-log entry for the full
+  record (Codex passes, frozen-gate evidence, gates, prod verification).
 - **A5 `[~]` code-complete** — Kevin's live watches are the only gate; D2
-  flips with it. D1 PR3 preserved the A5 topology exactly.
+  flips with it.
 - **A6 `[x]`** closed as absorbed into A8 (2026-07-12).
-- SDD ledger: `.superpowers/sdd/progress.md` (gitignored recovery map —
-  D1 PR1/PR2/PR3 sections, per-task commits + review outcomes).
+- SDD ledger: `.superpowers/sdd/progress.md` (gitignored recovery map — the
+  D3 section holds per-task commits + review outcomes).
 - **Kevin manual checks:** `todos/2026-07-11-kevin-manual-checks-tracker.md`.
 
 ## The single next item
 
-**D3 — shared `lib/seo-fetch/` (robots/sitemap parsing through `safeFetch`)
-(1–2 days).** Consolidates the robots.txt/sitemap parsing duplicated between
-the robots-validator tool and the ADA sitemap-crawler behind one
-safeFetch-routed module; unlocks D4 (client-attached checks + history) and
-D5 (scheduled monitoring, A1 already done). Security-sensitive adjacency
-(safeFetch/SSRF) — never weaken `lib/security/safe-url.ts`.
+**D4 — client-attached robots/sitemap checks + history (2–3 days).**
+"Validate against a client's domain" stores a `RobotsCheck` snapshot
+(content hash, parsed result, issues) instead of evaporating on refresh;
+only client-registered domains get rows (roadmap `05-small-tools.md` step
+2; step 3's scheduling is D5). Build on D3's hooks: the `SeoFetchResult`
+failure taxonomy distinguishes "robots.txt is 404" from "timed out" from
+"SSRF-blocked", and `collectSitemapPageUrls` surfaces
+`childrenTotal`/`childrenFailed`. Schema change → feature-class pipeline +
+migration procedure.
 
 **D6 needs a Kevin decision** (build the RankMath redirect generator or
 freeze it as a doc) before any session picks it up — "decide, don't drift".
 
 ## Loose ends (small, non-blocking)
 
-- `docs/superpowers/specs/2026-07-06-broken-link-verify-internal-time-budget-design.md`
-  + its plan still sit in the ACTIVE folders — if that work shipped (likely,
-  given the builder's time budgets), archive them; verify against git log.
+- Tighten the `toMatchObject` fetch.test.ts failure branches to `toEqual`
+  (opus final-review Minor, accepted).
 - C12 D1 follow-ups (retention canary, findings-rebuild wipe edge) — see the
   C12 tracker entry.
