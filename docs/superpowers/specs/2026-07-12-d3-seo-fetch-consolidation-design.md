@@ -43,6 +43,20 @@ Other verified facts:
 - `lib/validators/*.test.ts` (343 + 256 lines) pin the parsers' behavior.
 - Repo precedent for server-only modules: `import 'server-only'`
   (`lib/handoff/token.ts`, `lib/analytics/google/*`).
+- **`SafeUrlError` is a single untyped class** thrown for very different causes
+  (verified against `safe-url.ts`): SSRF policy rejections (private hosts,
+  credentials, non-http schemes), DNS resolution failure (`Could not resolve
+  hostname`), redirect problems (missing Location, too many redirects), and
+  invalid responses (missing/unsupported status). A naive
+  `SafeUrlError → 'unsafe-url'` mapping would report a DNS outage as an
+  SSRF block (Codex #1).
+- **`collectFromSitemap` expands ONE sitemap-index level only** — a child that
+  is itself an index yields no pages. This is current, frozen behavior, not
+  recursion (Codex #5).
+- `sitemap-crawler.test.ts` contains **local copies** of `extractLocs` /
+  `isSitemapIndex` (plus copies of helpers that are not moving) with their own
+  describe blocks — the copies must be replaced by imports of the shared
+  functions or the "frozen gate" can pass while production drifts (Codex #6).
 - The silent 1000-URL cap the roadmap wanted surfaced is **already surfaced**
   since the C6 discovery-coverage increment (`DiscoverResult.mode`/`capped`,
   `SiteAudit.discoveryMode`/`discoveryCapped`). Nothing more to do in D3.
@@ -68,12 +82,14 @@ Spec-local decision codes — not tracker items.
   **unmodified** (characterization). The D1-handoff facade pattern is for wide
   frozen wire surfaces — not warranted here.
 - **D4 — Fetch primitives return structured outcomes, crawler adapts.**
-  `lib/seo-fetch/fetch.ts` functions return `{ ok, status, failure, text,
-  truncated, finalUrl }`-shaped results instead of `''`/`null`-on-failure,
-  because D4's checks must distinguish "robots.txt is 404" from "fetch timed
-  out" from "SSRF-blocked" (different findings). `sitemap-crawler.ts` adapts at
-  its call sites (e.g. `!r.ok ? '' : r.text`) so discovery behavior is
-  byte-identical.
+  `lib/seo-fetch/fetch.ts` functions return a **discriminated union** (Codex
+  #2) instead of `''`/`null`-on-failure, because D4's checks must distinguish
+  "robots.txt is 404" from "fetch timed out" from "SSRF-blocked" (different
+  findings). `sitemap-crawler.ts` adapts at its call sites (e.g.
+  `r.ok ? r.text : ''`) so discovery behavior is byte-identical. To make the
+  taxonomy truthful, **`SafeUrlError` gains an optional typed `reason` field**
+  (Codex #1) — a small additive change to `lib/security/safe-url.ts` (§4.5)
+  that changes no thrown-or-not behavior and no messages.
 - **D5 — Puppeteer stays out of `lib/seo-fetch/`.** The browser fallback
   (`fetchSitemapViaBrowser`) remains in `lib/ada-audit/`; the shared sitemap
   collection takes an **injected fetcher** so the crawler composes
@@ -83,8 +99,18 @@ Spec-local decision codes — not tracker items.
   shared extractor uses the validator's comment-stripping field parse; the
   crawler's current regex would keep a trailing ` # comment` in the URL (a
   latent bug — such a URL 404s). This is the only intended behavior change in
-  the whole refactor, it can only *improve* discovery, and it gets an explicit
-  test.
+  the whole refactor. Treat it as **observable, not "can only improve"**
+  (Codex #8): a rare sitemap URL with an unescaped `#` would change. It lands
+  in **its own commit** with an end-to-end crawler test proving
+  `Sitemap: https://x/sitemap.xml # note` requests `/sitemap.xml`, plus
+  adjacent-`#` (no space), CRLF line endings, duplicate directives, and `%23`
+  (percent-encoded `#` must survive) cases.
+- **D7 — Sitemap-index expansion stays ONE level; child failures become
+  visible.** `collectSitemapPageUrls` freezes the current one-level expansion
+  (nested indexes yield no pages — Codex #5, characterization-tested) and
+  returns bounded child diagnostics (`childrenTotal`/`childrenFailed`, Codex
+  #4) so a partially failed index can't look healthy to D4. The crawler
+  ignores the diagnostics.
 
 ## 4. Architecture
 
@@ -147,36 +173,49 @@ export const MAX_ROBOTS_BYTES = 500_000
 export const MAX_SITEMAP_XML_BYTES = 5_000_000
 
 export type SeoFetchFailure =
-  | 'http-error'      // response.ok false (status carried alongside)
-  | 'not-xml'         // sitemap fetch got HTML content-type (login redirect / soft 404)
-  | 'too-large'       // byte cap exceeded (truncated body is never returned)
-  | 'unsafe-url'      // SafeUrlError — SSRF guard rejected
-  | 'network'         // DNS/TCP/timeout/abort — anything else thrown
+  | 'http-error'        // response arrived, response.ok false
+  | 'not-xml'           // sitemap fetch got HTML content-type (login redirect / soft 404)
+  | 'too-large'         // byte cap exceeded (truncated body is never returned)
+  | 'unsafe-url'        // SafeUrlError reason 'policy' — SSRF guard rejected
+  | 'dns'               // SafeUrlError reason 'dns' — hostname did not resolve
+  | 'redirect'          // SafeUrlError reason 'redirect' — missing Location / too many hops
+  | 'invalid-response'  // SafeUrlError reason 'invalid-response' — bad/unsupported status shape
+  | 'timeout'           // AbortSignal.timeout fired (TimeoutError/AbortError)
+  | 'network'           // anything else thrown (TCP reset, TLS, etc.)
 
-export interface SeoFetchResult {
-  ok: boolean
-  status: number | null       // null when nothing came back
-  text: string | null         // body when ok
-  failure: SeoFetchFailure | null
-  finalUrl: string | null     // post-redirect URL when a response arrived
-}
+// Discriminated union — impossible states are unrepresentable (Codex #2):
+export type SeoFetchResult =
+  | { ok: true;  status: number;        text: string; finalUrl: string;
+      failure: null;            truncated: false }
+  | { ok: false; status: number | null; text: null;   finalUrl: string | null;
+      failure: SeoFetchFailure; truncated: boolean }   // truncated:true only for 'too-large'
 
-/** GET <base>/robots.txt via safeFetch. 15 s timeout, 500 KB cap. */
+/** GET robots.txt via safeFetch: new URL('/robots.txt', baseUrl) — accepts an
+ *  origin with or without trailing slash; any path on baseUrl is replaced,
+ *  never appended (Codex #7). 15 s timeout, 500 KB cap. */
 export function fetchRobotsTxt(baseUrl: string): Promise<SeoFetchResult>
 
 /** GET one sitemap document via safeFetch. Handles .gz (gunzip, capped),
  *  rejects HTML content-types, 5 MB cap. */
 export function fetchSitemapXml(url: string): Promise<SeoFetchResult>
 
+export interface CollectSitemapResult {
+  urls: string[]
+  childrenTotal: number    // same-domain children found in a sitemapindex (0 for plain urlset)
+  childrenFailed: number   // children whose fetch returned null (Codex #4)
+}
+
 /** Given fetched sitemap XML: plain urlset → page locs; sitemapindex →
  *  fetch same-domain children via the injected fetcher (batches of 5) and
- *  collect their page locs. The injection point is where the ADA crawler
- *  plugs in its direct→browser-fallback fetcher (D5). */
+ *  collect their page locs. ONE level of index expansion only — a child that
+ *  is itself an index contributes no pages (frozen current behavior, Codex
+ *  #5; do not introduce recursion). The injection point is where the ADA
+ *  crawler plugs in its direct→browser-fallback fetcher (D5). */
 export function collectSitemapPageUrls(
   xml: string,
   isSameDomain: (url: string) => boolean,
   fetchXml: (url: string) => Promise<string | null>,
-): Promise<string[]>
+): Promise<CollectSitemapResult>
 ```
 
 Behavior is lifted from the crawler's `fetchRobotsRaw`/`fetchXml`/
@@ -184,6 +223,39 @@ Behavior is lifted from the crawler's `fetchRobotsRaw`/`fetchXml`/
 the current values. `collectSitemapPageUrls` takes a same-domain predicate
 rather than a domain string so the crawler keeps its exact `isSameDomain`
 (www-insensitive) semantics.
+
+Failure-branch hygiene (Codex #3, #9):
+
+- **Early-return branches cancel the unread body** (`http-error`, `not-xml`)
+  via `response.body?.cancel()` before returning — the current crawler code
+  leaks the stream, which is tolerable in one-shot discovery but not in a
+  primitive D5 will call repeatedly on a schedule.
+- **Per-branch metadata is pinned:** branches where a response arrived
+  (`http-error`, `not-xml`, `too-large`) carry `status` + `finalUrl`; branches
+  where none did (`dns`, `timeout`, `unsafe-url`, `network`) carry
+  `status: null, finalUrl: null`.
+
+### 4.5 `lib/security/safe-url.ts` — additive typed `reason` on `SafeUrlError`
+
+To classify failures without message-sniffing, `SafeUrlError` gains:
+
+```ts
+export type SafeUrlErrorReason = 'policy' | 'dns' | 'redirect' | 'invalid-response'
+export class SafeUrlError extends Error {
+  readonly reason: SafeUrlErrorReason
+  constructor(message: string, reason: SafeUrlErrorReason = 'policy') { … }
+}
+```
+
+Construction sites are tagged: the two `Could not resolve hostname` throws →
+`'dns'`; `Redirect response missing Location` + both `Too many redirects` →
+`'redirect'`; `Response missing status code` + `Unsupported response status`
+(and the response-construction failure) → `'invalid-response'`; everything
+else keeps the `'policy'` default (no call-site change needed). **This is
+strictly additive**: no throw becomes a non-throw, no message changes, no
+guard weakens — existing `instanceof SafeUrlError` handling everywhere is
+unaffected. Characterization: existing `safe-url` tests untouched and green;
+new tests assert the reason tags only.
 
 ### 4.5 Consumer rewiring
 
@@ -237,29 +309,52 @@ future D4 RobotsCheck service / D5 scheduled checks ─────────�
   15 s) — they move as named exported constants.
 - **Client/server split is structural:** parse modules import nothing but
   types; `fetch.ts` carries `import 'server-only'` and the `node:zlib` usage.
+- **Unread bodies are cancelled** on every early-return failure branch
+  (Codex #3) — no socket retention under D5's repeated scheduled checks.
+- **Sitemap-index expansion is one level, frozen** (Codex #5) — nested indexes
+  contribute no pages, exactly as today.
+- **`SafeUrlError` change is additive-only** (§4.5) — the SSRF guard's
+  throw/no-throw behavior and messages are byte-identical.
 - **No behavior change in discovery** except D6 (comment-stripping `Sitemap:`
-  extraction), which is test-pinned.
+  extraction), which is test-pinned and lands in its own commit.
 
 ## 7. Testing
 
 - `lib/seo-fetch/robots-parse.test.ts`, `sitemap-parse.test.ts` — the moved
   validator suites, `git mv`'d, passing **unmodified** except the import line
-  (characterization). New cases: `extractSitemapUrls` (incl. the D6
-  trailing-comment case and agreement with `parseRobotsTxt().sitemapUrls`).
+  (characterization). New cases: `extractSitemapUrls` — the full D6 matrix
+  (trailing ` # comment`, adjacent `#` with no space, CRLF endings, duplicate
+  directives, `%23` percent-encoded hash survives) and agreement with
+  `parseRobotsTxt().sitemapUrls` (Codex #8).
 - `lib/seo-fetch/robots-match.test.ts` — moved `robots-rules.test.ts`,
   unmodified except import line.
 - `lib/seo-fetch/sitemap-parse.test.ts` additions: `isSitemapIndex`,
   `extractPageLocs` (CDATA, whitespace), `extractChildSitemapLocs`.
 - `lib/seo-fetch/fetch.test.ts` — new: mocks `safeFetch` (same pattern as
-  `sitemap-crawler.test.ts`); covers ok/404/HTML-content-type/gzip/oversize/
-  SafeUrlError/timeout → the full failure taxonomy; `collectSitemapPageUrls`
-  plain vs index vs cross-domain child filtering vs failed child.
-- **`lib/ada-audit/sitemap-crawler.test.ts` (657 lines) must pass with zero
-  assertion changes** — the frozen gate proving discovery behavior is
-  preserved. (Its `vi.mock` of `../security/safe-url` keeps working because
-  the crawler's delegation to `lib/seo-fetch/fetch.ts` still bottoms out in
-  `safeFetch` — the mock seam is unchanged. If the D6 delta surfaces in any
-  fixture, the fixture's robots.txt is comment-free, so it should not.)
+  `sitemap-crawler.test.ts`); one test per failure branch asserting the FULL
+  result shape — `status`, `finalUrl`, `text`, `failure`, `truncated` — not
+  just the label (Codex #9): ok / 404 / HTML-content-type / gzip / oversize /
+  SafeUrlError×{policy,dns,redirect,invalid-response} / timeout / network.
+  Body-cancellation spy test for the `http-error` and `not-xml` early returns
+  (Codex #3). `fetchRobotsTxt` input contract: trailing slash, path, port,
+  http vs https (Codex #7). `collectSitemapPageUrls`: plain urlset vs index
+  vs cross-domain child filtering vs failed child (diagnostics counted) vs
+  **nested index child yields no pages** (Codex #5).
+- `lib/security/safe-url.test.ts` — existing tests untouched; additive cases
+  asserting `reason` tags per construction-site class (§4.5).
+- **`lib/ada-audit/sitemap-crawler.test.ts` (657 lines) is the frozen gate**
+  proving discovery behavior is preserved: the `discoverPages`/
+  `discoverPagesWithDeps` behavioral blocks pass with **zero edits** (the
+  `vi.mock` of `../security/safe-url` keeps working because the crawler's
+  delegation to `lib/seo-fetch/fetch.ts` still bottoms out in `safeFetch` —
+  the mock seam is unchanged). The file's **local copies** of `extractLocs`/
+  `isSitemapIndex` (test-file duplication, verified at lines 31–44) are
+  replaced by imports of `extractPageLocs`/`extractChildSitemapLocs`/
+  `isSitemapIndex` from `lib/seo-fetch/sitemap-parse` — call shape adapts to
+  the split functions, **expected values stay frozen** — so the gate actually
+  exercises the moved production helpers (Codex #6). One new end-to-end
+  discovery test pins D6: a robots.txt fixture with
+  `Sitemap: https://x/sitemap.xml # note` must fetch `/sitemap.xml`.
 - `lib/ada-audit/seo/hybrid-crawl.test.ts` — import path only.
 - Gates: `npm run lint` + `npm test` + `npm run build`. `npm run smoke` is
   required pre-merge (this touches the ADA audit pipeline's discovery path).
@@ -270,7 +365,8 @@ future D4 RobotsCheck service / D5 scheduled checks ─────────�
    `git log --follow` shows history through the moves.
 2. `rg "parseRobotsTxt|parseSitemapXml|parseRobots\b|isAllowed"` resolves every
    consumer to `lib/seo-fetch/*`.
-3. `sitemap-crawler.test.ts` green with no assertion edits.
+3. `sitemap-crawler.test.ts` green — behavioral blocks untouched; helper-copy
+   blocks import the shared functions with frozen expected values (§7).
 4. Robots Validator page works identically (manual prod check post-deploy:
    fetch a real robots.txt + sitemap, confirm identical issue output).
 5. All three gates + smoke green; audit-ci green.
