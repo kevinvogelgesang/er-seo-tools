@@ -110,20 +110,27 @@ Schedule 'system-robots-monitor' (weekly:1@06:30)
   2. **Re-validate FIRST, on every path** (before reuse, before any fresh
      run, therefore always before an alert; Codex #1) — client exists, not
      archived, payload domain still normalizes via `normalizeClientDomain`
-     AND is still in the client's `domains` list (C2 precedent; same
-     normalizer as the sweep, Codex #5). Config rot → log + complete (never
+     AND is a member of the client's `domains` list **after normalizing the
+     stored entries too** (plan review: a legacy `Dupe.example` entry is
+     enqueued as `dupe.example` — raw comparison would wrongly reject it as
+     delisted; C2 precedent; same normalizer as the sweep, Codex #5). Config rot → log + complete (never
      destructive; there is no per-domain schedule to disable). DB errors →
      throw (worker retries). A row can no longer be reused or emailed after
      the client was archived or the domain delisted.
-  3. **Slot idempotency (job-scoped reuse; Codex #1)** — load this job's
-     own `Job.createdAt` via `ctx.jobId`; if a `source: 'scheduled'`
+  3. **Slot idempotency (slot-scoped reuse; Codex #1, refined at plan
+     review)** — the SWEEP job's `createdAt` is carried in every child
+     payload as `slotStartedAt` (epoch ms); if a `source: 'scheduled'`
      `RobotsCheck` row for (clientId, domain) exists with `createdAt >=
-     job.createdAt`, REUSE the newest such row instead of re-running the
-     fetch. The job row is the durable slot boundary: a retry finds attempt
-     1's row no matter how long a restart gap was (a wall-clock window
-     cannot promise that), so the crash-between-store-and-alert path always
-     completes; and a row from a PREVIOUS weekly slot can never be reused
-     (its `createdAt` predates this job).
+     slotStartedAt`, REUSE the newest such row instead of re-running the
+     fetch. The sweep row is the durable slot boundary: a retry finds
+     attempt 1's row no matter how long a restart gap was, AND — the plan-
+     review refinement — a child job re-enqueued by a sweep retry after an
+     early sibling went terminal carries the SAME boundary, so it still
+     reuses instead of double-fetching (a child job's own `createdAt` could
+     not promise that, since enqueue dedup is active-window-only). A row
+     from a PREVIOUS weekly slot predates the boundary and is never reused.
+     Fallback for hand-enqueued jobs without the field: this job row's own
+     `createdAt`.
   4. **Fresh run** — `runAndStoreRobotsCheck(clientId, domain, {source:
      'scheduled'})` (D4 service, unchanged — single-flight, predecessor
      comparison). **Source fence (Codex #2):** the D4 single-flight is
@@ -202,11 +209,16 @@ buildChangeSummary(prev: PrevInput, curr: CurrInput): RobotsChangeSummary
   formatting only)" instead of showing a contentless alert.
 - `robotsDiff: { added: string[], removed: string[], truncated: boolean } | null`
   — line-level multiset diff of the two robots bodies (trimmed lines,
-  comparison keyed on content; caps `ROBOTS_DIFF_MAX_LINES` = 50 per side).
-  Multiset (not LCS) is deliberate: robots.txt is line-oriented and largely
-  order-insensitive; added/removed lines ARE the story ("GPTBot now
-  blocked"). Null when either body is unavailable (robots not ok on that
-  side) or when identical.
+  comparison keyed on content; caps `ROBOTS_DIFF_MAX_LINES` = 50 per side
+  AND `ROBOTS_DIFF_MAX_LINE_CHARS` = 200 per line — one robots line can
+  approach the fetch cap, so the payload is bounded by bytes, not only line
+  count; plan review). Multiset (not LCS) is deliberate: robots.txt is
+  line-oriented and largely order-insensitive; added/removed lines ARE the
+  story ("GPTBot now blocked"). **Null vs empty is semantic (plan review):
+  null = a raw body was unavailable (renders/emails as "line diff
+  unavailable"); non-null EMPTY = both bodies present and multiset-equal
+  (renders as "reordering or formatting only"). Never claim formatting-only
+  from a null diff.**
 - `blockedBots: { added: string[], removed: string[] } | null`
 - `sitemaps: { added: string[], removed: string[], changed: Array<{url,
   urlCountPrev, urlCountCurr, childrenChanged: boolean}>, orderChanged:

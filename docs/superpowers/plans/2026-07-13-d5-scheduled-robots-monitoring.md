@@ -99,6 +99,10 @@ git commit -m "feat(d5): RobotsCheck.alertSentAt idempotency marker (additive mi
 ```ts
 /** Cap per side of the robots.txt line diff in change summaries (D5). */
 export const ROBOTS_DIFF_MAX_LINES = 50
+/** Per-line character cap in the diff — one robots line can approach the
+ *  fetch cap; the diff must stay bounded for the API, card, and email
+ *  (plan-Codex #5). Overlong lines are sliced and flag truncated. */
+export const ROBOTS_DIFF_MAX_LINE_CHARS = 200
 ```
 
 - [ ] **Step 2: Write the failing tests** — `lib/robots-check/change-summary.test.ts`
@@ -111,7 +115,7 @@ export const ROBOTS_DIFF_MAX_LINES = 50
 // summary field explains it.
 import { describe, it, expect } from 'vitest'
 import type { RobotsCheckDetail } from './types'
-import { ROBOTS_DIFF_MAX_LINES } from './types'
+import { ROBOTS_DIFF_MAX_LINES, ROBOTS_DIFF_MAX_LINE_CHARS } from './types'
 import { buildChangeSummary, type RobotsChangeSide } from './change-summary'
 
 function detailFixture(overrides: {
@@ -205,6 +209,16 @@ describe('buildChangeSummary', () => {
       side(detailFixture({ robotsHash: 'b' }), currBody),
     )
     expect(sum.robotsDiff!.added).toHaveLength(ROBOTS_DIFF_MAX_LINES)
+    expect(sum.robotsDiff!.truncated).toBe(true)
+  })
+
+  it('caps overlong lines by characters and flags truncation (plan-Codex #5)', () => {
+    const long = `Disallow: /${'a'.repeat(1000)}`
+    const sum = buildChangeSummary(
+      side(detailFixture({ robotsHash: 'a' }), 'User-agent: *'),
+      side(detailFixture({ robotsHash: 'b' }), `User-agent: *\n${long}`),
+    )
+    expect(sum.robotsDiff!.added[0]).toHaveLength(ROBOTS_DIFF_MAX_LINE_CHARS)
     expect(sum.robotsDiff!.truncated).toBe(true)
   })
 
@@ -318,7 +332,7 @@ Expected: FAIL — `Cannot find module './change-summary'`.
 // reorder/formatting-only cases the diff can't show.
 
 import type { RobotsCheckDetail, RobotsFetchStatus } from './types'
-import { ROBOTS_DIFF_MAX_LINES } from './types'
+import { ROBOTS_DIFF_MAX_LINES, ROBOTS_DIFF_MAX_LINE_CHARS } from './types'
 
 export interface RobotsChangeSide {
   detail: RobotsCheckDetail
@@ -358,18 +372,23 @@ function multisetDiff(prev: string, curr: string): { added: string[]; removed: s
   const added: string[] = []
   const removed: string[] = []
   let truncated = false
+  const capped = (line: string): string => {
+    if (line.length <= ROBOTS_DIFF_MAX_LINE_CHARS) return line
+    truncated = true // plan-Codex #5: bounded by bytes, not only line count
+    return line.slice(0, ROBOTS_DIFF_MAX_LINE_CHARS)
+  }
   for (const [line, n] of b) {
     let surplus = n - (a.get(line) ?? 0)
     while (surplus-- > 0) {
       if (added.length >= ROBOTS_DIFF_MAX_LINES) { truncated = true; break }
-      added.push(line)
+      added.push(capped(line))
     }
   }
   for (const [line, n] of a) {
     let surplus = n - (b.get(line) ?? 0)
     while (surplus-- > 0) {
       if (removed.length >= ROBOTS_DIFF_MAX_LINES) { truncated = true; break }
-      removed.push(line)
+      removed.push(capped(line))
     }
   }
   return { added, removed, truncated }
@@ -645,10 +664,20 @@ describe('buildRobotsChangeEmail', () => {
     expect(text.toLowerCase()).not.toContain('removed')
   })
 
-  it('reorder-only change gets the formatting-only notice', () => {
-    const summary = emptySummary({ robotsContentChanged: true })
+  it('reorder-only change (non-null EMPTY diff) gets the formatting-only notice', () => {
+    const summary = emptySummary({
+      robotsContentChanged: true,
+      robotsDiff: { added: [], removed: [], truncated: false },
+    })
     const { text } = buildRobotsChangeEmail({ ...base, summary })
     expect(text).toContain('reordering or formatting only')
+  })
+
+  it('null diff with changed content -> "line diff unavailable", never formatting-only (plan-Codex #3)', () => {
+    const summary = emptySummary({ robotsContentChanged: true, robotsDiff: null })
+    const { text } = buildRobotsChangeEmail({ ...base, summary })
+    expect(text).toContain('line diff unavailable')
+    expect(text).not.toContain('formatting only')
   })
 
   it('link present only when appUrl is set', () => {
@@ -736,8 +765,13 @@ export function buildRobotsChangeEmail(input: RobotsChangeEmailInput): EmailCont
     const addedH = s.robotsDiff.added.map((l) => `<div style="color:#166534">+ ${esc(l)}</div>`).join('')
     const removedH = s.robotsDiff.removed.map((l) => `<div style="color:#991b1b">- ${esc(l)}</div>`).join('')
     html.push(`<p>robots.txt line changes:</p><div style="font-family:monospace;font-size:12px">${removedH}${addedH}</div>${s.robotsDiff.truncated ? '<p>(diff truncated)</p>' : ''}`)
-  } else if (s.robotsContentChanged) {
+  } else if (s.robotsContentChanged && s.robotsDiff) {
+    // Non-null but EMPTY diff = both bodies were available and multiset-equal.
     push('robots.txt content changed (reordering or formatting only — no lines added or removed).')
+  } else if (s.robotsContentChanged) {
+    // Null diff = a raw body was unavailable (e.g. ok -> unreachable). Never
+    // claim formatting-only without evidence (plan-Codex #3).
+    push('robots.txt content changed; line diff unavailable.')
   }
 
   if (s.blockedBots) {
@@ -802,7 +836,7 @@ git commit -m "feat(d5): transport-honest robots change-alert email builder (esc
 
 **Interfaces:**
 - Consumes: `enqueueJob` from `../queue`; `normalizeClientDomain`/`InvalidDomainError` from `@/lib/security/domain-validation`; the string literal `'robots-monitor'` as the fan-out job type (Task 6 defines `ROBOTS_MONITOR_JOB_TYPE` with that exact value — the sweep imports the constant from `./robots-monitor`, so **Task 6's file must exist first if executing out of order; in-order execution: write this task with a local re-declared `const ROBOTS_MONITOR_JOB_TYPE = 'robots-monitor'` is FORBIDDEN — instead, do Task 6 Step 3's constant-only stub as this task's Step 3a below**).
-- Produces: `ROBOTS_MONITOR_SWEEP_JOB_TYPE = 'robots-monitor-sweep'`, `runRobotsMonitorSweep()`, `registerRobotsMonitorSweepHandler()` (Task 7 registers it; the system schedule fires it).
+- Produces: `ROBOTS_MONITOR_SWEEP_JOB_TYPE = 'robots-monitor-sweep'`, `runRobotsMonitorSweep(slotStartedAt: Date)`, `registerRobotsMonitorSweepHandler()` (Task 7 registers it; the system schedule fires it). Child payload shape: `{clientId: number, domain: string, slotStartedAt: number}` (epoch ms of the SWEEP job row's createdAt — Task 6's reuse boundary; plan-Codex #1).
 
 - [ ] **Step 1: Create the constant-only stub for the domain job type** — `lib/jobs/handlers/robots-monitor.ts` (Task 6 fills in the rest; the constant lands now so the sweep can import it):
 
@@ -827,31 +861,44 @@ import { ROBOTS_MONITOR_JOB_TYPE } from './robots-monitor'
 
 const PREFIX = 'd5sweep-'
 let counter = 0
+const clientIds: number[] = []
+const SLOT = new Date(Date.now() - 3_600_000) // one hour ago; fixed per suite
 
 async function makeClient(domains: unknown, archivedAt: Date | null = null) {
-  return prisma.client.create({
+  const client = await prisma.client.create({
     data: {
       name: `${PREFIX}${Date.now()}-${counter++}`,
       domains: typeof domains === 'string' ? domains : JSON.stringify(domains),
       archivedAt,
     },
   })
+  clientIds.push(client.id)
+  return client
 }
 
 async function jobsFor(clientId: number) {
-  const jobs = await prisma.job.findMany({ where: { type: ROBOTS_MONITOR_JOB_TYPE } })
-  return jobs.filter((j) => (JSON.parse(j.payload) as { clientId: number }).clientId === clientId)
+  // dedupKey embeds the clientId — payload-owned identifier, never a
+  // type-wide scan (plan-Codex #6 cleanup rule applies to reads too).
+  return prisma.job.findMany({
+    where: { type: ROBOTS_MONITOR_JOB_TYPE, dedupKey: { startsWith: `robots-monitor:${clientId}:` } },
+  })
 }
 
 afterAll(async () => {
-  await prisma.job.deleteMany({ where: { type: ROBOTS_MONITOR_JOB_TYPE } })
+  // Delete ONLY this suite's jobs (by owned clientIds), never every job of
+  // the type — parallel suites share nothing but must not be clobbered.
+  for (const id of clientIds) {
+    await prisma.job.deleteMany({
+      where: { type: ROBOTS_MONITOR_JOB_TYPE, dedupKey: { startsWith: `robots-monitor:${id}:` } },
+    })
+  }
   await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
 })
 
 describe('runRobotsMonitorSweep', () => {
-  it('enqueues one job per normalized domain with the dedupKey shape', async () => {
+  it('enqueues one job per normalized domain with the dedupKey shape and the slot boundary in the payload', async () => {
     const client = await makeClient(['acme-a.example', 'acme-b.example'])
-    await runRobotsMonitorSweep()
+    await runRobotsMonitorSweep(SLOT)
     const jobs = await jobsFor(client.id)
     expect(jobs).toHaveLength(2)
     const keys = jobs.map((j) => j.dedupKey).sort()
@@ -859,17 +906,20 @@ describe('runRobotsMonitorSweep', () => {
       `robots-monitor:${client.id}:acme-a.example`,
       `robots-monitor:${client.id}:acme-b.example`,
     ])
+    for (const j of jobs) {
+      expect((JSON.parse(j.payload) as { slotStartedAt: number }).slotStartedAt).toBe(SLOT.getTime())
+    }
   })
 
   it('skips archived clients entirely', async () => {
     const client = await makeClient(['archived.example'], new Date())
-    await runRobotsMonitorSweep()
+    await runRobotsMonitorSweep(SLOT)
     expect(await jobsFor(client.id)).toHaveLength(0)
   })
 
   it('normalizes, skips malformed entries, dedupes (Codex #5)', async () => {
-    const client = await makeClient(['https://Dupe.example/path', 'dupe.example', 'not a domain!!', 42 as unknown as string])
-    await runRobotsMonitorSweep()
+    const client = await makeClient(['Dupe.example', 'dupe.example', 'not a domain!!', 42 as unknown as string])
+    await runRobotsMonitorSweep(SLOT)
     const jobs = await jobsFor(client.id)
     expect(jobs).toHaveLength(1)
     expect((JSON.parse(jobs[0].payload) as { domain: string }).domain).toBe('dupe.example')
@@ -877,20 +927,35 @@ describe('runRobotsMonitorSweep', () => {
 
   it('tolerates malformed domains JSON (treated as no domains)', async () => {
     const client = await makeClient('{{{not json')
-    await runRobotsMonitorSweep()
+    await runRobotsMonitorSweep(SLOT)
     expect(await jobsFor(client.id)).toHaveLength(0)
   })
 
   it('partial retry re-enqueues only missing jobs (dedup no-ops live ones; Codex #8)', async () => {
     const client = await makeClient(['retry.example'])
-    await runRobotsMonitorSweep()
-    await runRobotsMonitorSweep() // second pass = the retry
+    await runRobotsMonitorSweep(SLOT)
+    await runRobotsMonitorSweep(SLOT) // second pass = the retry
     expect(await jobsFor(client.id)).toHaveLength(1)
+  })
+
+  it('retry after a child went terminal re-enqueues with the SAME slot boundary (plan-Codex #1)', async () => {
+    const client = await makeClient(['term.example'])
+    await runRobotsMonitorSweep(SLOT)
+    const [first] = await jobsFor(client.id)
+    await prisma.job.update({ where: { id: first.id }, data: { status: 'complete' } })
+    await runRobotsMonitorSweep(SLOT) // dedup is active-window only -> new child
+    const jobs = await jobsFor(client.id)
+    expect(jobs).toHaveLength(2)
+    for (const j of jobs) {
+      // Same boundary on BOTH children: the monitor's reuse predicate will
+      // find the first child's check row instead of refetching.
+      expect((JSON.parse(j.payload) as { slotStartedAt: number }).slotStartedAt).toBe(SLOT.getTime())
+    }
   })
 })
 ```
 
-NOTE: check `normalizeClientDomain('https://Dupe.example/path')` behavior before finalizing the third test — read `lib/security/domain-validation.ts:32` first. If it REJECTS URL-shaped input (rather than extracting the host), replace that entry with a case-variant like `'Dupe.example'` so the test still proves normalize+dedupe without asserting an extraction behavior the helper doesn't have.
+NOTE: the dedupe test assumes `normalizeClientDomain('Dupe.example')` lowercases to `'dupe.example'` — read `lib/security/domain-validation.ts:32` to confirm before finalizing; if it doesn't lowercase, pick any two inputs the helper DOES canonicalize to the same output.
 
 - [ ] **Step 3: Run to verify failure**
 
@@ -918,7 +983,13 @@ import { ROBOTS_MONITOR_JOB_TYPE } from './robots-monitor'
 
 export const ROBOTS_MONITOR_SWEEP_JOB_TYPE = 'robots-monitor-sweep'
 
-export async function runRobotsMonitorSweep(): Promise<void> {
+/** `slotStartedAt` (the SWEEP job row's createdAt) is the durable slot
+ *  boundary carried to every child (plan-Codex #1): a sweep retry re-attempts
+ *  the SAME job row, so a child re-enqueued after an early sibling went
+ *  terminal carries the SAME boundary — the monitor's reuse predicate still
+ *  finds the first run's check row. A child job's own createdAt could not
+ *  promise that. */
+export async function runRobotsMonitorSweep(slotStartedAt: Date): Promise<void> {
   const clients = await prisma.client.findMany({
     where: { archivedAt: null },
     select: { id: true, domains: true },
@@ -941,7 +1012,7 @@ export async function runRobotsMonitorSweep(): Promise<void> {
     for (const domain of domains) {
       await enqueueJob({
         type: ROBOTS_MONITOR_JOB_TYPE,
-        payload: { clientId: client.id, domain },
+        payload: { clientId: client.id, domain, slotStartedAt: slotStartedAt.getTime() },
         dedupKey: `robots-monitor:${client.id}:${domain}`,
       })
     }
@@ -954,8 +1025,9 @@ export function registerRobotsMonitorSweepHandler(): void {
     concurrency: 1,
     maxAttempts: 3, // enqueue-only; per-domain dedup makes retries idempotent
     timeoutMs: 30_000,
-    handler: async () => {
-      await runRobotsMonitorSweep()
+    handler: async (_payload, ctx) => {
+      const job = await prisma.job.findUnique({ where: { id: ctx.jobId }, select: { createdAt: true } })
+      await runRobotsMonitorSweep(job?.createdAt ?? new Date())
     },
   })
 }
@@ -986,7 +1058,7 @@ git commit -m "feat(d5): robots-monitor-sweep fan-out handler (normalize/skip/de
 
 **Interfaces:**
 - Consumes: `runAndStoreRobotsCheck`, `getRobotsCheck`, `StoredRobotsCheck` (Task 3); `buildRobotsChangeEmail` (Task 4); `sendEmail` from `@/lib/notify/transport`; `isNotifyEnabled`, `notifyAdminEmail` from `@/lib/notify/config`; `normalizeClientDomain` / `InvalidDomainError`; `registerJobHandler`; `RobotsCheck.alertSentAt` (Task 1).
-- Produces: `ROBOTS_MONITOR_JOB_TYPE = 'robots-monitor'` (already), `RobotsMonitorDeps`, `realRobotsMonitorDeps`, `runRobotsMonitor(payload, ctx, deps?)`, `registerRobotsMonitorHandler()`.
+- Produces: `ROBOTS_MONITOR_JOB_TYPE = 'robots-monitor'` (already), `RobotsMonitorDeps`, `realRobotsMonitorDeps`, `runRobotsMonitor(payload, ctx, deps?)`, `registerRobotsMonitorHandler()`. Payload contract (from Task 5): `{clientId, domain, slotStartedAt}` — `slotStartedAt` (epoch ms, the sweep job's createdAt) is the reuse boundary; when absent (hand-enqueued job) the handler falls back to its own Job row's createdAt.
 
 - [ ] **Step 1: Write the failing tests** — `lib/jobs/handlers/robots-monitor.test.ts`
 
@@ -995,16 +1067,23 @@ git commit -m "feat(d5): robots-monitor-sweep fan-out handler (normalize/skip/de
 //
 // D5 per-domain monitor. Injectable deps seam (spec Codex #3) — fully
 // transport-free; runAndStore/getCheck are stubs backed by real DB rows so
-// marker fencing and job-scoped reuse run against the real schema.
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
+// marker fencing and slot-scoped reuse run against the real schema.
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import { prisma } from '@/lib/db'
 import type { RobotsCheckDetail } from '@/lib/robots-check/types'
 import type { StoredRobotsCheck } from '@/lib/robots-check/service'
-import { runRobotsMonitor, type RobotsMonitorDeps } from './robots-monitor'
-import { ROBOTS_MONITOR_JOB_TYPE } from './robots-monitor'
+import { runRobotsMonitor, ROBOTS_MONITOR_JOB_TYPE, type RobotsMonitorDeps } from './robots-monitor'
 
 const PREFIX = 'd5mon-'
 let counter = 0
+const createdJobIds: string[] = []
+// The slot boundary every test payload carries (one hour ago — rows created
+// during the test are inside the slot; rows explicitly backdated are not).
+const SLOT = Date.now() - 3_600_000
+
+function pay(clientId: number, over: Record<string, unknown> = {}) {
+  return { clientId, domain: 'mon.example', slotStartedAt: SLOT, ...over }
+}
 
 function detailFixture(robotsHash: string): RobotsCheckDetail {
   return {
@@ -1023,12 +1102,12 @@ async function makeClient(domains: string[] = ['mon.example'], archivedAt: Date 
 
 /** Insert a real RobotsCheck row and return a StoredRobotsCheck-shaped view. */
 async function makeCheckRow(clientId: number, opts: {
-  source?: string; robotsHash?: string; createdAt?: Date; domain?: string
+  source?: string; robotsHash?: string; createdAt?: Date; changed?: boolean | null
 } = {}): Promise<StoredRobotsCheck> {
   const detail = detailFixture(opts.robotsHash ?? 'h1')
   const row = await prisma.robotsCheck.create({
     data: {
-      clientId, domain: opts.domain ?? 'mon.example', source: opts.source ?? 'scheduled',
+      clientId, domain: 'mon.example', source: opts.source ?? 'scheduled',
       robotsStatus: 'ok', robotsContentHash: detail.robots.contentHash,
       robotsContent: 'User-agent: *', sitemapUrlTotal: null, errorCount: 0, warningCount: 0,
       detailJson: JSON.stringify(detail),
@@ -1038,7 +1117,8 @@ async function makeCheckRow(clientId: number, opts: {
   return {
     summary: {
       id: row.id, domain: row.domain, source: row.source, robotsStatus: 'ok',
-      sitemapUrlTotal: null, errorCount: 0, warningCount: 0, changed: true,
+      sitemapUrlTotal: null, errorCount: 0, warningCount: 0,
+      changed: opts.changed === undefined ? true : opts.changed,
       createdAt: row.createdAt.toISOString(),
     },
     detail,
@@ -1050,13 +1130,13 @@ async function makeCheckRow(clientId: number, opts: {
   }
 }
 
-async function makeJob(createdAt?: Date) {
-  return prisma.job.create({
-    data: {
-      type: ROBOTS_MONITOR_JOB_TYPE, payload: '{}', status: 'running',
-      ...(createdAt ? { createdAt } : {}),
-    },
+/** Only the payload-boundary FALLBACK test needs a real Job row. */
+async function makeJob(createdAt: Date) {
+  const job = await prisma.job.create({
+    data: { type: ROBOTS_MONITOR_JOB_TYPE, payload: '{}', status: 'running', createdAt },
   })
+  createdJobIds.push(job.id)
+  return job
 }
 
 function makeDeps(overrides: Partial<RobotsMonitorDeps> = {}): {
@@ -1073,135 +1153,163 @@ function makeDeps(overrides: Partial<RobotsMonitorDeps> = {}): {
     send: vi.fn(async (args: { to: string; content: { subject: string } }) => { sent.push({ to: args.to, subject: args.content.subject }) }) as unknown as RobotsMonitorDeps['send'],
     notifyEnabled: () => true,
     adminEmail: () => 'admin@example.com',
-    now: () => new Date('2026-07-13T12:00:00Z'),
+    now: () => new Date(),
     ...overrides,
   }
   return { deps, sent, runAndStore, getCheck }
 }
 
 afterAll(async () => {
-  await prisma.job.deleteMany({ where: { type: ROBOTS_MONITOR_JOB_TYPE } })
+  // Delete ONLY rows this suite created (recorded ids / PREFIX-scoped
+  // clients; RobotsCheck rows cascade from Client) — plan-Codex #6.
+  if (createdJobIds.length) await prisma.job.deleteMany({ where: { id: { in: createdJobIds } } })
   await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } })
 })
 
 describe('runRobotsMonitor', () => {
-  it('changed:false -> no email', async () => {
+  it('changed:false -> no email (row inside the slot is reused, no refetch)', async () => {
     const client = await makeClient()
-    const job = await makeJob()
-    const stored = await makeCheckRow(client.id, { createdAt: new Date(Date.now() - 60_000) })
+    const stored = await makeCheckRow(client.id, { changed: false })
     const { deps, sent, runAndStore, getCheck } = makeDeps()
-    runAndStore.mockResolvedValue(stored)
-    getCheck.mockResolvedValue({ ...stored, summary: { ...stored.summary, changed: false } })
-    await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
+    getCheck.mockResolvedValue(stored)
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
+    expect(runAndStore).not.toHaveBeenCalled() // reuse hit
+    expect(getCheck).toHaveBeenCalledWith(client.id, stored.summary.id)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('changed:null (first check / corrupt predecessor) -> silent (Codex #8)', async () => {
+    const client = await makeClient()
+    const stored = await makeCheckRow(client.id, { changed: null })
+    const { deps, sent, getCheck } = makeDeps()
+    getCheck.mockResolvedValue(stored)
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
     expect(sent).toHaveLength(0)
   })
 
   it('changed:true -> one email, marker stamped, second run sends nothing', async () => {
     const client = await makeClient()
-    const job = await makeJob(new Date(Date.now() - 60_000))
+    const stored = await makeCheckRow(client.id)
     const { deps, sent, runAndStore, getCheck } = makeDeps()
-    const stored = await makeCheckRow(client.id) // createdAt now >= job.createdAt -> reused
-    runAndStore.mockResolvedValue(stored)
     getCheck.mockResolvedValue(stored)
 
-    await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
     expect(sent).toHaveLength(1)
     expect(sent[0].to).toBe('admin@example.com')
-    expect(runAndStore).not.toHaveBeenCalled() // job-scoped reuse found the row
+    expect(runAndStore).not.toHaveBeenCalled() // slot-scoped reuse found the row
 
     const row = await prisma.robotsCheck.findUnique({ where: { id: stored.summary.id } })
     expect(row!.alertSentAt).not.toBeNull()
 
-    await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
     expect(sent).toHaveLength(1) // marker fence held
   })
 
-  it('a PRIOR slot row (createdAt < job.createdAt) is never reused (Codex #1)', async () => {
+  it('a PRIOR slot row (createdAt < slotStartedAt) is never reused (Codex #1)', async () => {
     const client = await makeClient()
-    await makeCheckRow(client.id, { createdAt: new Date(Date.now() - 86_400_000) }) // yesterday
-    const job = await makeJob() // created now
+    await makeCheckRow(client.id, { createdAt: new Date(SLOT - 86_400_000) }) // last week's row
     const { deps, runAndStore, getCheck } = makeDeps()
-    const fresh = await makeCheckRow(client.id)
-    runAndStore.mockResolvedValue(fresh)
-    getCheck.mockResolvedValue({ ...fresh, summary: { ...fresh.summary, changed: false } })
+    // The fresh run creates its row INSIDE the mock, after the reuse miss.
+    runAndStore.mockImplementation(async () => makeCheckRow(client.id, { changed: false }))
+    getCheck.mockImplementation(async (_cid: number, id: number) => {
+      const view = await makeCheckRow(client.id, { changed: false })
+      return { ...view, summary: { ...view.summary, id } }
+    })
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
+    expect(runAndStore).toHaveBeenCalledTimes(1) // old row failed the >= boundary
+  })
+
+  it('missing slotStartedAt falls back to this job row own createdAt', async () => {
+    const client = await makeClient()
+    const job = await makeJob(new Date(SLOT))
+    const stored = await makeCheckRow(client.id, { changed: false }) // created now, >= job.createdAt
+    const { deps, runAndStore, getCheck } = makeDeps()
+    getCheck.mockResolvedValue(stored)
     await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
-    // The day-old row did NOT satisfy reuse; a fresh run happened...
-    // ...but note the row created inside makeCheckRow above ALSO postdates the
-    // job, so assert on runAndStore having been consulted via the reuse query:
-    // to keep this deterministic, delete the fresh row first.
-    expect(runAndStore).toHaveBeenCalledTimes(0) // see NOTE below
+    expect(runAndStore).not.toHaveBeenCalled() // fallback boundary reused the row
   })
 
   it('archived client -> no fetch, no reuse, no email (revalidation first; Codex #1)', async () => {
     const client = await makeClient(['mon.example'], new Date())
-    const job = await makeJob(new Date(Date.now() - 60_000))
     await makeCheckRow(client.id)
-    const { deps, sent, runAndStore } = makeDeps()
-    await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
+    const { deps, sent, runAndStore, getCheck } = makeDeps()
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
     expect(runAndStore).not.toHaveBeenCalled()
+    expect(getCheck).not.toHaveBeenCalled()
     expect(sent).toHaveLength(0)
   })
 
   it('delisted domain -> no-op', async () => {
     const client = await makeClient(['other.example'])
-    const job = await makeJob()
     const { deps, sent, runAndStore } = makeDeps()
-    await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
     expect(runAndStore).not.toHaveBeenCalled()
     expect(sent).toHaveLength(0)
   })
 
+  it('stored domains are normalized before membership (case-variant list; plan-Codex #2)', async () => {
+    const client = await makeClient(['Mon.Example']) // legacy casing in the stored list
+    const stored = await makeCheckRow(client.id, { changed: false })
+    const { deps, runAndStore, getCheck } = makeDeps()
+    getCheck.mockResolvedValue(stored)
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
+    expect(getCheck).toHaveBeenCalled() // revalidation passed via normalization
+    expect(runAndStore).not.toHaveBeenCalled()
+  })
+
   it('manual single-flight winner -> silent complete (Codex #2)', async () => {
     const client = await makeClient()
-    const job = await makeJob()
     const { deps, sent, runAndStore, getCheck } = makeDeps()
-    const manualStored = await makeCheckRow(client.id, { source: 'manual', createdAt: new Date(Date.now() - 60_000) })
-    runAndStore.mockResolvedValue(manualStored) // joiner got the manual row
-    await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
+    // No scheduled row inside the slot -> fresh run; the joiner got a MANUAL row.
+    runAndStore.mockImplementation(async () => makeCheckRow(client.id, { source: 'manual' }))
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
+    expect(runAndStore).toHaveBeenCalledTimes(1)
     expect(getCheck).not.toHaveBeenCalled()
     expect(sent).toHaveLength(0)
   })
 
-  it('dark notify env -> permanent suppression, marker NOT stamped (Codex #6)', async () => {
+  it('dark notify env -> permanent suppression: no stamp now, no back-send next week (Codex #6/#8)', async () => {
     const client = await makeClient()
-    const job = await makeJob(new Date(Date.now() - 60_000))
     const stored = await makeCheckRow(client.id)
     const { deps, sent, getCheck } = makeDeps({ notifyEnabled: () => false })
     getCheck.mockResolvedValue(stored)
-    await runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps)
+    await runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)
     expect(sent).toHaveLength(0)
     const row = await prisma.robotsCheck.findUnique({ where: { id: stored.summary.id } })
     expect(row!.alertSentAt).toBeNull()
+
+    // Next weekly slot, notify now LIT: the new row compares against the
+    // changed row and reads unchanged -> still no email (no catch-up).
+    const nextSlot = Date.now() - 1_000
+    const nextStored = await makeCheckRow(client.id, { changed: false })
+    const lit = makeDeps({ notifyEnabled: () => true })
+    lit.getCheck.mockResolvedValue(nextStored)
+    await runRobotsMonitor(pay(client.id, { slotStartedAt: nextSlot }), { jobId: 'job-x' }, lit.deps)
+    expect(lit.sent).toHaveLength(0)
   })
 
   it('send failure -> throws (worker retry), marker not stamped', async () => {
     const client = await makeClient()
-    const job = await makeJob(new Date(Date.now() - 60_000))
     const stored = await makeCheckRow(client.id)
     const { deps, getCheck } = makeDeps({
       send: vi.fn(async () => { throw new Error('mailgun 500') }) as unknown as RobotsMonitorDeps['send'],
     })
     getCheck.mockResolvedValue(stored)
-    await expect(
-      runRobotsMonitor({ clientId: client.id, domain: 'mon.example' }, { jobId: job.id }, deps),
-    ).rejects.toThrow('mailgun 500')
+    await expect(runRobotsMonitor(pay(client.id), { jobId: 'job-x' }, deps)).rejects.toThrow('mailgun 500')
     const row = await prisma.robotsCheck.findUnique({ where: { id: stored.summary.id } })
     expect(row!.alertSentAt).toBeNull()
   })
 
   it('malformed payload -> silent no-op', async () => {
-    const job = await makeJob()
     const { deps, sent, runAndStore } = makeDeps()
-    await runRobotsMonitor({ nope: true }, { jobId: job.id }, deps)
+    await runRobotsMonitor({ nope: true }, { jobId: 'job-x' }, deps)
     expect(runAndStore).not.toHaveBeenCalled()
     expect(sent).toHaveLength(0)
   })
 })
 ```
 
-NOTE on the prior-slot test: rewrite it so it is deterministic — create ONLY the day-old row, let `runAndStore` resolve a stored view whose row you create with `createdAt: new Date()` INSIDE the mock implementation (`runAndStore.mockImplementation(async () => makeCheckRow(client.id))`), then assert `runAndStore` WAS called exactly once (the old row failed the `>= job.createdAt` reuse predicate). The version above sketches intent; the implementer must make it deterministic in this way.
-
-Also verify the `Job` model's required create fields before writing `makeJob` (check `prisma/schema.prisma` `model Job`) — supply whatever non-null columns exist (e.g. `runAfter`, `maxAttempts`) with sensible literals if create fails.
+NOTE: the reuse-hit tests assume the handler's reuse query targets the newest `source:'scheduled'` row with `createdAt >= slotStartedAt` and passes ITS id to `deps.getCheck` — the `getCheck.mockResolvedValue(stored)` stubs return the matching view. Verify the `Job` model's required create fields before finalizing `makeJob` (check `prisma/schema.prisma` `model Job`) — supply any non-null columns (e.g. `runAfter`, `maxAttempts`) with sensible literals if the create fails.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1221,9 +1329,12 @@ Expected: FAIL — `runRobotsMonitor` not exported.
 // RobotsCheck and, when the stored row CHANGED vs its exact predecessor,
 // sends ONE change-alert email (dark-gated, marker-fenced, at-least-once).
 //
-// Ordering rules (spec Codex #1/#2/#3/#6):
-// - revalidation runs BEFORE reuse and alerting, on every path
-// - reuse boundary = this job row's own createdAt (durable; never wall clock)
+// Ordering rules (spec Codex #1/#2/#3/#6 + plan-Codex #1/#2):
+// - revalidation (with NORMALIZED stored-domain membership) runs BEFORE
+//   reuse and alerting, on every path
+// - reuse boundary = the sweep slot's createdAt carried in the payload
+//   (durable across child re-enqueues; never wall clock); fallback = this
+//   job row's own createdAt
 // - only source:'scheduled' rows ever alert (a manual single-flight winner
 //   absorbs the change silently)
 // - dark notify env = PERMANENT suppression for that change (no stamp)
@@ -1256,14 +1367,18 @@ export const realRobotsMonitorDeps: RobotsMonitorDeps = {
   now: () => new Date(),
 }
 
-interface Payload { clientId: number; domain: string }
+interface Payload { clientId: number; domain: string; slotStartedAt: number | null }
 
 function parsePayload(payload: unknown): Payload | null {
   if (typeof payload !== 'object' || payload === null) return null
   const p = payload as Record<string, unknown>
   if (typeof p.clientId !== 'number' || !Number.isInteger(p.clientId) || p.clientId < 1) return null
   if (typeof p.domain !== 'string' || p.domain.length === 0) return null
-  return { clientId: p.clientId, domain: p.domain }
+  const slotStartedAt =
+    typeof p.slotStartedAt === 'number' && Number.isInteger(p.slotStartedAt) && p.slotStartedAt > 0
+      ? p.slotStartedAt
+      : null
+  return { clientId: p.clientId, domain: p.domain, slotStartedAt }
 }
 
 function parseClientDomains(raw: string): string[] {
@@ -1302,18 +1417,39 @@ export async function runRobotsMonitor(
     where: { id: p.clientId },
     select: { name: true, archivedAt: true, domains: true },
   })
-  if (!client || client.archivedAt || !parseClientDomains(client.domains).includes(domain)) {
-    console.warn(`[robots-monitor] client ${p.clientId} missing/archived or ${domain} delisted; skipping`)
+  if (!client || client.archivedAt) {
+    console.warn(`[robots-monitor] client ${p.clientId} missing/archived; skipping`)
+    return
+  }
+  // Membership over the NORMALIZED stored list (plan-Codex #2): a legacy
+  // 'Dupe.example' entry was enqueued as 'dupe.example' — comparing raw
+  // stored values would wrongly reject it as delisted.
+  const listed = new Set<string>()
+  for (const entry of parseClientDomains(client.domains)) {
+    try {
+      listed.add(normalizeClientDomain(entry))
+    } catch (err) {
+      if (!(err instanceof InvalidDomainError)) throw err // malformed legacy entry -> skip
+    }
+  }
+  if (!listed.has(domain)) {
+    console.warn(`[robots-monitor] ${domain} no longer listed for client ${p.clientId}; skipping`)
     return
   }
 
-  // 2. Job-scoped reuse (Codex #1): this job row's createdAt is the durable
-  //    slot boundary — a retry after ANY gap finds attempt 1's row; a prior
-  //    weekly slot's row predates it and is never reused.
-  const job = await prisma.job.findUnique({ where: { id: ctx.jobId }, select: { createdAt: true } })
-  const reusable = job
+  // 2. Slot-scoped reuse (Codex #1 + plan-Codex #1): the SWEEP job's
+  //    createdAt, carried in the payload, is the durable slot boundary — it
+  //    survives child-job re-enqueues after an early child went terminal (a
+  //    child's own createdAt would not). Fallback for hand-enqueued jobs
+  //    without the field: this job row's createdAt.
+  let boundary: Date | null = p.slotStartedAt !== null ? new Date(p.slotStartedAt) : null
+  if (!boundary) {
+    const job = await prisma.job.findUnique({ where: { id: ctx.jobId }, select: { createdAt: true } })
+    boundary = job?.createdAt ?? null
+  }
+  const reusable = boundary
     ? await prisma.robotsCheck.findFirst({
-        where: { clientId: p.clientId, domain, source: 'scheduled', createdAt: { gte: job.createdAt } },
+        where: { clientId: p.clientId, domain, source: 'scheduled', createdAt: { gte: boundary } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: { id: true },
       })
@@ -1436,12 +1572,13 @@ In `lib/jobs/system-schedules.test.ts`, add (inside the main describe, following
     expect(monitor.jobType).toBe('robots-monitor-sweep')
     expect(monitor.cadence).toBe('weekly:1@06:30')
     expect(monitor.enabled).toBe(true)
-    // immediate:false -> nextRunAt strictly in the future at seed time
-    expect(monitor.nextRunAt.getTime()).toBeGreaterThan(Date.now() - 60_000)
+    // immediate:false -> nextRunAt is a FUTURE weekly:1@06:30 slot, never now
+    expect(monitor.nextRunAt.getTime()).toBeGreaterThan(Date.now())
+    expect(monitor.nextRunAt.getDay()).toBe(1) // Monday, server-local
   })
 ```
 
-(Adapt the assertion style to the file's existing helpers — it may seed with an injected `now`; mirror the `system-health-alert` test's structure exactly.)
+(Deterministic form, plan-Codex #6: if `seedSystemSchedules` accepts an injected `now` — check its signature in `lib/jobs/system-schedules.ts` — pass a fixed date and assert `monitor.nextRunAt` equals `nextRun('weekly:1@06:30', fixedNow)` from `lib/jobs/scheduler`; otherwise the future-Monday assertions above are the fallback. Mirror the `system-health-alert` test's structure for seeding.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1512,38 +1649,96 @@ git commit -m "feat(d5): register robots-monitor handlers + seed system-robots-m
 
 - [ ] **Step 1: Write the failing tests** — append to `components/clients/RobotsCheckCard.test.tsx`, following the file's existing conventions (`// @vitest-environment jsdom` header, `afterEach(cleanup)`, fetch stubbing via `vi.stubGlobal`, `vi.unstubAllGlobals()`). Read the existing file first and reuse its fixture builders. New cases:
 
+The file's existing conventions apply verbatim (`// @vitest-environment jsdom` header, `afterEach(cleanup + vi.unstubAllGlobals())`, the `summaryFixture`/`detailFixture` helpers). Add one import and one fixture at top level:
+
 ```ts
+import type { RobotsChangeSummary } from '@/lib/robots-check/change-summary'
+
+function changeSummaryFixture(over: Partial<RobotsChangeSummary> = {}): RobotsChangeSummary {
+  return {
+    robotsStatus: null, robotsContentChanged: false, robotsDiff: null,
+    blockedBots: null, sitemaps: null, sitemapUrlTotal: null, counts: null, ...over,
+  }
+}
+
+/** Render one changed history row and stub its detail GET. */
+function renderExpandable(changeSummary: RobotsChangeSummary | null, changed: boolean | null = true) {
+  const stored = {
+    summary: summaryFixture({ id: 11, changed }),
+    detail: detailFixture(),
+    changeSummary,
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({ ok: true, json: async () => stored }))
+  render(
+    <RobotsCheckCard
+      clientId={1} domains={['example.com']} archived={false}
+      initial={{ checks: [summaryFixture({ id: 11, changed })], latest: null }}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /Jul/ }))
+}
+```
+
+New describe blocks:
+
+```tsx
 describe('changed-vs-previous section (D5)', () => {
   it('renders added/removed robots lines when the expanded row changed', async () => {
-    // Arrange: initial history with one changed row; stub the detail GET for
-    // that row to return summary.changed:true + a changeSummary with
-    // robotsDiff {added:['Disallow: /x'], removed:['Allow: /']}.
-    // Act: click the history row.
-    // Assert:
-    //   await screen.findByText('Changed vs previous')
-    //   screen.getByText('+ Disallow: /x')
-    //   screen.getByText('- Allow: /')
+    renderExpandable(changeSummaryFixture({
+      robotsContentChanged: true,
+      robotsDiff: { added: ['Disallow: /x'], removed: ['Allow: /'], truncated: false },
+    }))
+    await waitFor(() => expect(screen.getByText('Changed vs previous')).toBeTruthy())
+    expect(screen.getByText('+ Disallow: /x')).toBeTruthy()
+    expect(screen.getByText('- Allow: /')).toBeTruthy()
   })
 
-  it('reorder-only change renders the formatting-only notice', async () => {
-    // changeSummary: robotsContentChanged:true, robotsDiff:{added:[],removed:[],truncated:false}
-    // Assert the section shows 'reordering or formatting only'.
+  it('reorder-only (non-null EMPTY diff) renders the formatting-only notice', async () => {
+    renderExpandable(changeSummaryFixture({
+      robotsContentChanged: true,
+      robotsDiff: { added: [], removed: [], truncated: false },
+    }))
+    await waitFor(() => expect(screen.getByText(/reordering or formatting only/)).toBeTruthy())
   })
 
-  it('no section when changed is false or changeSummary null', async () => {
-    // Stub detail GET with changed:false -> queryByText('Changed vs previous') is null.
+  it('null diff with changed content renders line-diff-unavailable, never formatting-only (plan-Codex #3)', async () => {
+    renderExpandable(changeSummaryFixture({ robotsContentChanged: true, robotsDiff: null }))
+    await waitFor(() => expect(screen.getByText(/line diff unavailable/)).toBeTruthy())
+    expect(screen.queryByText(/formatting only/)).toBeNull()
+  })
+
+  it('renders error/warning count movement (plan-Codex #4)', async () => {
+    renderExpandable(changeSummaryFixture({
+      robotsContentChanged: true,
+      robotsDiff: { added: [], removed: [], truncated: false },
+      counts: { errorsPrev: 0, errorsCurr: 2, warningsPrev: 1, warningsCurr: 1 },
+    }))
+    await waitFor(() => expect(screen.getByText(/Errors 0 → 2/)).toBeTruthy())
+  })
+
+  it('no section when the row did not change', async () => {
+    renderExpandable(changeSummaryFixture({ robotsContentChanged: true }), false)
+    await waitFor(() => expect(screen.getByText(/issue\(s\) recorded/)).toBeTruthy())
+    expect(screen.queryByText('Changed vs previous')).toBeNull()
   })
 })
 
 describe('childrenExcluded line (D4 follow-up #2)', () => {
   it('renders the excluded count for index sitemaps that filtered children', () => {
-    // Latest detail fixture with one sitemap entry childrenExcluded: 3,
-    // isIndex true. Assert screen.getByText(/3 excluded/).
+    const detail = detailFixture()
+    detail.sitemaps[0] = { ...detail.sitemaps[0], isIndex: true, childrenTotal: 5, childrenExcluded: 3 }
+    render(
+      <RobotsCheckCard
+        clientId={1} domains={['example.com']} archived={false}
+        initial={{ checks: [summaryFixture()], latest: { summary: summaryFixture(), detail } }}
+      />,
+    )
+    expect(screen.getByText(/3 excluded/)).toBeTruthy()
   })
 })
 ```
 
-(The comment sketches are the required behaviors — write them as real tests against the file's existing fixture helpers; the D4 suite already stubs the GET/POST fetch cycle, so extend those stubs with `changeSummary` fields.)
+(The D4 `Latest` fixture objects in older tests lack `changeSummary` — the field is optional on the interface, so they stay untouched.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1578,7 +1773,10 @@ interface Latest {
 ```tsx
 function ChangeSummarySection({ summary }: { summary: RobotsChangeSummary }) {
   const diff = summary.robotsDiff
-  const reorderOnly = summary.robotsContentChanged && (!diff || (diff.added.length === 0 && diff.removed.length === 0))
+  // plan-Codex #3: non-null EMPTY diff = reorder/formatting-only evidence;
+  // NULL diff with a changed hash = a raw body was unavailable — say so.
+  const reorderOnly = summary.robotsContentChanged && diff !== null && diff.added.length === 0 && diff.removed.length === 0
+  const diffUnavailable = summary.robotsContentChanged && diff === null
   return (
     <div className="mt-1 border-l-2 border-orange/40 pl-2">
       <p className="text-[11px] font-semibold text-gray-600 dark:text-white/60">Changed vs previous</p>
@@ -1597,6 +1795,9 @@ function ChangeSummarySection({ summary }: { summary: RobotsChangeSummary }) {
       {reorderOnly && (
         <p className="text-[11px] text-gray-500 dark:text-white/50">robots.txt changed (reordering or formatting only)</p>
       )}
+      {diffUnavailable && (
+        <p className="text-[11px] text-gray-500 dark:text-white/50">robots.txt content changed (line diff unavailable)</p>
+      )}
       {summary.blockedBots?.added.length ? (
         <p className="text-[11px] text-red-600 dark:text-red-400">AI bots newly blocked: {summary.blockedBots.added.join(', ')}</p>
       ) : null}
@@ -1605,10 +1806,13 @@ function ChangeSummarySection({ summary }: { summary: RobotsChangeSummary }) {
       ) : null}
       {summary.sitemaps && (
         <>
-          {summary.sitemaps.added.map((u) => <p key={`sa${u}`} className="text-[11px] text-gray-500 dark:text-white/50">Sitemap added: <span className="font-mono">{u}</span></p>)}
-          {summary.sitemaps.removed.map((u) => <p key={`sr${u}`} className="text-[11px] text-gray-500 dark:text-white/50">Sitemap removed: <span className="font-mono">{u}</span></p>)}
-          {summary.sitemaps.changed.map((c) => (
-            <p key={`sc${c.url}`} className="text-[11px] text-gray-500 dark:text-white/50">
+          {/* index-based keys: duplicate URLs are deliberately preserved
+              upstream via (url, ordinal) pairing — URL-only keys collide
+              (plan-Codex #4) */}
+          {summary.sitemaps.added.map((u, i) => <p key={`sa${i}`} className="text-[11px] text-gray-500 dark:text-white/50">Sitemap added: <span className="font-mono">{u}</span></p>)}
+          {summary.sitemaps.removed.map((u, i) => <p key={`sr${i}`} className="text-[11px] text-gray-500 dark:text-white/50">Sitemap removed: <span className="font-mono">{u}</span></p>)}
+          {summary.sitemaps.changed.map((c, i) => (
+            <p key={`sc${i}`} className="text-[11px] text-gray-500 dark:text-white/50">
               Sitemap changed: <span className="font-mono">{c.url}</span>
               {c.urlCountPrev !== c.urlCountCurr ? ` (URLs ${c.urlCountPrev ?? '?'} → ${c.urlCountCurr ?? '?'})` : ''}
               {c.childrenChanged ? ' (children changed)' : ''}
@@ -1620,6 +1824,11 @@ function ChangeSummarySection({ summary }: { summary: RobotsChangeSummary }) {
       {summary.sitemapUrlTotal && (
         <p className="text-[11px] text-gray-500 dark:text-white/50 tabular-nums">
           Total sitemap URLs: {summary.sitemapUrlTotal.prev ?? '—'} &rarr; {summary.sitemapUrlTotal.curr ?? '—'}
+        </p>
+      )}
+      {summary.counts && (
+        <p className="text-[11px] text-gray-500 dark:text-white/50 tabular-nums">
+          Errors {summary.counts.errorsPrev} &rarr; {summary.counts.errorsCurr} · warnings {summary.counts.warningsPrev} &rarr; {summary.counts.warningsCurr}
         </p>
       )}
     </div>
