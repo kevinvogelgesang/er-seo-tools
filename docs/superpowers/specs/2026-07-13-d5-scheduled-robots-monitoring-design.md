@@ -1,7 +1,7 @@
 # D5 — Scheduled robots/sitemap monitoring with change-only alerts
 
 **Date:** 2026-07-13
-**Status:** Draft (pending Codex review)
+**Status:** Reviewed — Codex 2026-07-13 verdict "accept with named fixes"; all 8 fixes applied in place (annotated "Codex #N" below)
 **Roadmap:** `docs/superpowers/nyi/improvement-roadmaps/05-small-tools.md` step 3 (3–4 days)
 **Builds on:** D4 (`lib/robots-check/` — client-attached checks + history, PR #166), A1 (durable job queue), D7 (Mailgun notify layer, dark-gated), C2 (scheduled-site-audit wrapper precedent)
 
@@ -82,10 +82,15 @@ Schedule 'system-robots-monitor' (weekly:1@06:30)
 
 - Handler for the system schedule. Loads clients with `archivedAt: null`,
   parses each `domains` JSON (same tolerant parse as
-  `scheduled-site-audit.ts` — malformed → treated as no domains), and for
-  each (clientId, domain) enqueues a `robots-monitor` job with payload
-  `{clientId, domain}` and `dedupKey: robots-monitor:<clientId>:<domain>`.
-  No groupKey (nothing ever cancels these as a group).
+  `scheduled-site-audit.ts` — malformed → treated as no domains), runs every
+  entry through `normalizeClientDomain` (`lib/security/domain-validation` —
+  the SAME normalizer the D4 routes use), SKIPS entries that throw
+  `InvalidDomainError` (malformed legacy values must not kill the sweep or
+  produce junk rows), and `Set`-dedupes the normalized results per client
+  (Codex #5). For each surviving (clientId, domain) it enqueues a
+  `robots-monitor` job with payload `{clientId, domain}` and `dedupKey:
+  robots-monitor:<clientId>:<domain>`. No groupKey (nothing ever cancels
+  these as a group).
 - `concurrency: 1, maxAttempts: 3, timeoutMs: 30_000` (it only enqueues; a
   partial failure retried is safe — dedupKey makes re-enqueues no-ops for
   jobs still active).
@@ -96,30 +101,57 @@ Schedule 'system-robots-monitor' (weekly:1@06:30)
 - `concurrency: 1` (politeness — one client site fetched at a time),
   `maxAttempts: 2`, `timeoutMs: 120_000` (worst-case check ≈ 75s: 60s soft
   budget + one 15s in-flight fetch overshoot, plus DB writes + email).
-- Handler flow:
+- Handler flow (all service/transport/clock access through an injectable
+  `deps` seam with a `realDeps` default, `notify-email.ts` precedent —
+  tests run fully transport-free; Codex #3):
   1. **Payload guard** — integer `clientId`, non-empty `domain` string;
      malformed → log + complete (no schedule to disable — the sweep owns
      cadence).
-  2. **Slot idempotency (reuse guard)** — if a `source: 'scheduled'`
-     `RobotsCheck` row for (clientId, domain) exists with `createdAt` within
-     `ROBOTS_MONITOR_REUSE_WINDOW_MS` (6h), REUSE it instead of re-running
-     the fetch. This is what makes retries cheap and closes the
-     crash-between-store-and-alert window: attempt 2 finds attempt 1's row,
-     recomputes `changed`, and proceeds to the alert step. The window is
-     far below the weekly cadence, so no real slot is ever swallowed.
-  3. **Re-validate** (fresh-run path only) — client exists, not archived,
-     domain still in its `domains` list (C2 precedent). Config rot → log +
-     complete (never destructive; there is no per-domain schedule to
-     disable). DB errors → throw (worker retries).
-  4. **Run** — `runAndStoreRobotsCheck(clientId, domain, {source:
+  2. **Re-validate FIRST, on every path** (before reuse, before any fresh
+     run, therefore always before an alert; Codex #1) — client exists, not
+     archived, payload domain still normalizes via `normalizeClientDomain`
+     AND is still in the client's `domains` list (C2 precedent; same
+     normalizer as the sweep, Codex #5). Config rot → log + complete (never
+     destructive; there is no per-domain schedule to disable). DB errors →
+     throw (worker retries). A row can no longer be reused or emailed after
+     the client was archived or the domain delisted.
+  3. **Slot idempotency (job-scoped reuse; Codex #1)** — load this job's
+     own `Job.createdAt` via `ctx.jobId`; if a `source: 'scheduled'`
+     `RobotsCheck` row for (clientId, domain) exists with `createdAt >=
+     job.createdAt`, REUSE the newest such row instead of re-running the
+     fetch. The job row is the durable slot boundary: a retry finds attempt
+     1's row no matter how long a restart gap was (a wall-clock window
+     cannot promise that), so the crash-between-store-and-alert path always
+     completes; and a row from a PREVIOUS weekly slot can never be reused
+     (its `createdAt` predates this job).
+  4. **Fresh run** — `runAndStoreRobotsCheck(clientId, domain, {source:
      'scheduled'})` (D4 service, unchanged — single-flight, predecessor
-     comparison, `changed` in the returned summary).
-  5. **Change gate** — `changed !== true` → done. `null` (first check ever,
+     comparison). **Source fence (Codex #2):** the D4 single-flight is
+     keyed `clientId:domain` and a joiner receives the FIRST caller's row —
+     if a concurrent manual POST won, the returned row has `source:
+     'manual'`; the handler then completes silently with no alert (the
+     documented manual-absorption rule, now enforced in code, not just
+     assumed).
+  5. **Stored-row resolution (Codex #3)** — with the check row's id in hand
+     (from reuse or fresh run), call the extended
+     `getRobotsCheck(clientId, checkId)` and use ITS recomputed
+     `summary.changed` and `changeSummary` — the one service seam that owns
+     the exact total-order predecessor and the raw robots bodies. The
+     handler never re-derives comparison evidence itself.
+  6. **Change gate** — `changed !== true` → done. `null` (first check ever,
      or corrupt/unreadable predecessor detail) never alerts.
-  6. **Alert step** (only when `changed === true`):
+  7. **Alert step** (only when `changed === true` and the row's source is
+     `'scheduled'`):
      - Dark gate: `!isNotifyEnabled()` → log `[robots-monitor] change
        detected for <domain> but notify env dark` and complete. No stamp
-       (the marker means "email sent", D7 semantics).
+       (the marker means "email sent", D7 semantics). **Durable meaning
+       (Codex #6): dark = PERMANENT suppression of that change's email, not
+       pending delivery.** The next weekly row compares against the changed
+       row and reads unchanged, so a later un-darkening never back-sends
+       old changes — by design (dark = feature off, matching every other
+       D7 surface). If catch-up delivery is ever wanted, `alertSentAt`
+       alone cannot express it; that would be a new disposition field or a
+       durable notify job — explicitly out of scope.
      - Idempotency: read `alertSentAt` on the check row; already stamped →
        done (retry after a sent-but-crashed attempt sends nothing).
      - Build content from the change summary (below) + client name; send via
@@ -162,6 +194,12 @@ buildChangeSummary(prev: PrevInput, curr: CurrInput): RobotsChangeSummary
 
 `RobotsChangeSummary` (all fields bounded):
 - `robotsStatus: { prev, curr } | null` — null when unchanged
+- `robotsContentChanged: boolean` — the two robots content hashes differ
+  (Codex #4). This is the honest fallback flag: the D4 alert predicate is
+  ORDER- and byte-sensitive while the line diff below is a multiset — a
+  reorder or whitespace-only edit alerts with an empty diff, and this flag
+  is what lets the email/card say "robots.txt changed (reordering or
+  formatting only)" instead of showing a contentless alert.
 - `robotsDiff: { added: string[], removed: string[], truncated: boolean } | null`
   — line-level multiset diff of the two robots bodies (trimmed lines,
   comparison keyed on content; caps `ROBOTS_DIFF_MAX_LINES` = 50 per side).
@@ -171,10 +209,19 @@ buildChangeSummary(prev: PrevInput, curr: CurrInput): RobotsChangeSummary
   side) or when identical.
 - `blockedBots: { added: string[], removed: string[] } | null`
 - `sitemaps: { added: string[], removed: string[], changed: Array<{url,
-  urlCountPrev, urlCountCurr, childrenChanged: boolean}> } | null` — keyed
-  by url; `changed` = same url with differing contentHash or childrenHash.
+  urlCountPrev, urlCountCurr, childrenChanged: boolean}>, orderChanged:
+  boolean } | null` — sitemap occurrences identified by **(url, ordinal)**,
+  not url alone, so duplicate declared URLs never collapse and a pure
+  reorder is reported as `orderChanged: true` rather than vanishing
+  (Codex #4). `changed` = same (url, ordinal) with differing contentHash or
+  childrenHash.
 - `sitemapUrlTotal: { prev: number|null, curr: number|null } | null`
 - `counts: { errorsPrev, errorsCurr, warningsPrev, warningsCurr } | null`
+
+**Completeness invariant (Codex #4, tested):** whenever the D4 evidence
+strings of the two rows differ (i.e. the alert predicate fires), the summary
+carries at least one non-null / non-empty explanatory field — an alert can
+never render as "changed, but nothing to show".
 
 Pure function, no imports beyond types — usable by the card (client
 component) and the email builder (server). The raw robots bodies stay
@@ -194,6 +241,18 @@ deltas, error/warning count movement, link to `/clients/<id>` when
 `NEXT_PUBLIC_APP_URL` is set (omitted when unset — unlike D7's notifier the
 email's value is its content, not its link, so an unset app URL does not
 suppress the send).
+
+**Transport-honest wording (Codex #7):** D4 records fetch failures as
+OBSERVATIONS (`unreachable` carries the runner's failure taxonomy — dns /
+timeout / policy / invalid-response), so one transient timeout IS a state
+change and will alert, and the recovery next run alerts again. v1 accepts
+one-observation alerts — the whole point is a human looking within the week
+— but the email must phrase status transitions as observations of the
+monitor, never as site-configuration claims: "robots.txt could not be
+fetched (timeout)" / "robots.txt is reachable again", NOT "robots.txt was
+removed". If flapping domains prove noisy in practice, a
+confirmation-refetch-before-alert is the recorded follow-up (deliberately
+not built now).
 
 ### Service + API surface (no new routes, no middleware change)
 
@@ -221,8 +280,8 @@ it verbatim. `listRobotsChecks` unchanged.
   false}` (seeded idempotently at boot; `system-` reserved namespace).
 - `register.ts` += both handlers.
 - New constants in `lib/robots-check/types.ts` (client-safe):
-  `ROBOTS_DIFF_MAX_LINES = 50`. Server-only constants
-  (`ROBOTS_MONITOR_REUSE_WINDOW_MS = 6h`) live with the handler.
+  `ROBOTS_DIFF_MAX_LINES = 50`. (The reuse boundary is the job row's own
+  `createdAt` — no window constant exists; Codex #1.)
 - No new env vars. No changes to `lib/seo-fetch` (FROZEN) or to the D4
   runner/retention.
 
@@ -238,33 +297,66 @@ is untouched.
 
 | Failure | Behavior |
 |---|---|
-| Client archived / domain delisted between sweep and job | log + complete (no alert, no row) |
+| Client archived / domain delisted between sweep and job (or between attempts — revalidation runs before reuse too) | log + complete (no alert, no new row) |
+| Concurrent manual check wins the single-flight | scheduled handler completes silently — manual rows never alert (source fence) |
+| Malformed / duplicate domain entries in `Client.domains` | sweep normalizes, skips invalid, dedupes — never enqueues junk |
 | `runRobotsCheck` throws (network chaos beyond the runner's own taxonomy) | job retry → next weekly slot is the durable fallback |
 | Email send fails | throw → retry (reuse guard skips the refetch); exhausted → log, in-app badge still shows the change |
-| Notify env dark | checks run, history accrues, changed badges render; email step logs + skips |
+| Notify env dark | checks run, history accrues, changed badges render; email step logs + skips — permanent suppression for that change, never back-sent (Codex #6) |
 | Corrupt predecessor detail | `changed: null` → silence (never a false alert) |
 | Worker crash between row insert and alert | retry's reuse guard finds the row and completes the alert step |
 
 ## Testing
 
-- `change-summary.test.ts` — pure: identical → all-null; robots line
-  add/remove; caps + truncated flag; sitemap add/remove/changed
-  (contentHash vs childrenHash); null bodies; corrupt-shaped inputs.
+- `change-summary.test.ts` — pure: identical → all-null;
+  robots line add/remove; caps + truncated flag; sitemap
+  add/remove/changed (contentHash vs childrenHash); null bodies;
+  corrupt-shaped inputs; **reorder-only robots change →
+  `robotsContentChanged: true` with empty diff; sitemap reorder →
+  `orderChanged: true`; duplicate sitemap URLs survive via (url, ordinal);
+  completeness invariant — evidence differs ⇒ ≥1 non-null field (Codex
+  #4/#8)**.
 - `robots-change-content.test.ts` — escaping (`<script>` in a robots line
-  never appears raw), subject, link presence/absence by appUrl.
-- `robots-monitor.test.ts` (handler, DB-backed + mocked transport/service
-  seams) — change-gate silence on `false`/`null`; alert on `true`; marker
-  fencing (second run sends nothing); dark gate; reuse guard (row within
-  window → no second fetch); config-rot no-op; send-failure → throw.
+  never appears raw), subject, link presence/absence by appUrl,
+  **transport-honest unreachable wording (Codex #7)**.
+- `robots-monitor.test.ts` (handler, DB-backed, injectable deps seam —
+  fully transport-free; Codex #3) — change-gate silence on `false`/`null`;
+  alert on `true`; marker fencing (second run sends nothing); dark gate =
+  permanent suppression (un-darkened later run does NOT back-send; Codex
+  #6); **job-scoped reuse: retry finds attempt 1's row even with a
+  simulated long gap (row createdAt >= job createdAt is the only
+  boundary), and a PRIOR slot's row is never reused (Codex #1/#8)**;
+  config-rot no-op **on the reuse path too (archived/delisted after the
+  row landed; Codex #1)**; **manual-first single-flight collision → silent
+  complete (Codex #2)**; send-failure → throw.
 - `robots-monitor-sweep.test.ts` — fan-out per (client, domain); archived
-  client excluded; malformed domains JSON tolerated; dedupKey shape.
+  client excluded; malformed domains JSON tolerated; **malformed /
+  duplicate / mixed-validity domain entries normalized-skipped-deduped
+  (Codex #5)**; dedupKey shape; **partial-failure retry re-enqueues only
+  the missing jobs (dedup no-ops the live ones; Codex #8)**.
 - `service.test.ts` additions — `getRobotsCheck` returns `changeSummary`
   against the exact predecessor; null on first check.
-- `system-schedules.test.ts` — new row seeded.
+- `system-schedules.test.ts` — new row seeded, exact cadence
+  `weekly:1@06:30`, `immediate: false` (Codex #8).
+- `register.test.ts` — both new job types registered (Codex #8).
 - Component test — changed section renders added/removed lines;
-  `childrenExcluded` line renders.
+  reorder-only renders the formatting-only notice; `childrenExcluded` line
+  renders.
 - Migration applied to the per-worker test DBs automatically (tests
   self-provision).
+
+## Flags for Kevin (Codex verify list — none block implementation)
+
+- **One-observation alerts:** a single transient fetch timeout emails (with
+  transport-honest wording), and the recovery emails again. Accepted for
+  v1; say the word if you'd rather have confirmation-refetch-before-alert
+  and it becomes a follow-up.
+- **Dark notify env = permanent suppression** of a change's email (in-app
+  badge still shows it). No catch-up on un-darkening.
+- **`weekly:1@06:30` is server-local** — the prod host runs UTC, so this is
+  Monday 06:30 UTC (Sunday ~22:30 Pacific). Deliberate: overnight,
+  clear of the 08:00 backup / 09:00 cleanup.
+- Mailgun send (10s timeout) + DB work sits far below the 120s job timeout.
 
 ## Out of scope
 
