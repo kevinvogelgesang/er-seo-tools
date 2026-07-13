@@ -23,10 +23,19 @@ const BLOCKED_HOST_SUFFIXES = [
   '.corp',
 ]
 
+/** Classification for SafeUrlError causes. 'policy' = the SSRF guard itself
+ *  rejected the request (private host, credentials, scheme, invalid URL);
+ *  the others distinguish operational failures that are NOT policy blocks so
+ *  callers (lib/seo-fetch, D4 checks) can report them truthfully. Additive
+ *  only — never changes what throws. */
+export type SafeUrlErrorReason = 'policy' | 'dns' | 'redirect' | 'invalid-response'
+
 export class SafeUrlError extends Error {
-  constructor(message: string) {
+  readonly reason: SafeUrlErrorReason
+  constructor(message: string, reason: SafeUrlErrorReason = 'policy') {
     super(message)
     this.name = 'SafeUrlError'
+    this.reason = reason
   }
 }
 
@@ -246,11 +255,11 @@ async function resolveSafeHttpUrl(input: string | URL, options?: SafeUrlOptions)
   try {
     addresses = await lookup(hostname, { all: true, verbatim: true })
   } catch {
-    throw new SafeUrlError(`Could not resolve hostname: ${hostname}`)
+    throw new SafeUrlError(`Could not resolve hostname: ${hostname}`, 'dns')
   }
 
   if (addresses.length === 0) {
-    throw new SafeUrlError(`Could not resolve hostname: ${hostname}`)
+    throw new SafeUrlError(`Could not resolve hostname: ${hostname}`, 'dns')
   }
 
   if (addresses.some(({ address }) => isPrivateOrInternalAddress(address))) {
@@ -402,10 +411,10 @@ export async function fetchWithPinnedAddress(
         if (!status) {
           // Deterministic for this response — SafeUrlError so callers classify
           // it as terminal instead of retrying an identical doomed request.
-          return fail(new SafeUrlError('Response missing status code'))
+          return fail(new SafeUrlError('Response missing status code', 'invalid-response'))
         }
         if (!isConstructibleResponseStatus(status)) {
-          return fail(new SafeUrlError(`Unsupported response status: ${status}`))
+          return fail(new SafeUrlError(`Unsupported response status: ${status}`, 'invalid-response'))
         }
         const resBody = status === 204 || status === 205 || status === 304
           ? null
@@ -422,7 +431,8 @@ export async function fetchWithPinnedAddress(
         // Response construction failed (statusText/header edge case). Also
         // deterministic — same doomed request on retry.
         fail(new SafeUrlError(
-          `Response construction failed: ${err instanceof Error ? err.message : String(err)}`
+          `Response construction failed: ${err instanceof Error ? err.message : String(err)}`,
+          'invalid-response'
         ))
       }
     })
@@ -485,11 +495,11 @@ export async function safeFetch(
 
     const location = response.headers.get('location')
     if (!location) {
-      throw new SafeUrlError('Redirect response missing Location header')
+      throw new SafeUrlError('Redirect response missing Location header', 'redirect')
     }
 
     if (redirectCount === maxRedirects) {
-      throw new SafeUrlError('Too many redirects')
+      throw new SafeUrlError('Too many redirects', 'redirect')
     }
 
     const redirectedUrl = new URL(location, current.url)
@@ -497,7 +507,7 @@ export async function safeFetch(
     redirects.push(current.url.toString())
   }
 
-  throw new SafeUrlError('Too many redirects')
+  throw new SafeUrlError('Too many redirects', 'redirect')
 }
 
 export async function readResponseBytesWithLimit(

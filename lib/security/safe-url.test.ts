@@ -85,6 +85,19 @@ describe('fetchWithPinnedAddress (real transport against loopback)', () => {
     )
   }, 10_000)
 
+  it('tags the out-of-range status rejection with reason invalid-response', async () => {
+    await withHttpServer(
+      (_req, res) => {
+        res.writeHead(999)
+        res.end()
+      },
+      async (url) => {
+        await expect(fetchWithPinnedAddress(url, undefined, resolvedFor(url)))
+          .rejects.toMatchObject({ name: 'SafeUrlError', reason: 'invalid-response' })
+      }
+    )
+  }, 10_000)
+
   it('resolves a normal 200 with body and headers', async () => {
     await withHttpServer(
       (_req, res) => {
@@ -235,6 +248,18 @@ describe('safeFetch', () => {
     expect(cancelled).toHaveBeenCalled()
   })
 
+  it('tags the redirect-limit rejection with reason redirect', async () => {
+    const lookup = vi.fn(async () => [{ address: '93.184.216.34', family: 4 }])
+    const transport = vi.fn(async () => new Response(null, {
+      status: 301,
+      headers: { Location: 'https://www.example.com/next' },
+    }))
+
+    await expect(
+      safeFetch('https://example.com', undefined, { lookup, transport, maxRedirects: 1 })
+    ).rejects.toMatchObject({ name: 'SafeUrlError', reason: 'redirect' })
+  })
+
   it('passes the validated DNS address to the transport for pinning', async () => {
     const lookup = vi.fn(async () => [{ address: '93.184.216.34', family: 4 }])
     const transport = vi.fn(async () => new Response('ok', { status: 200 }))
@@ -334,5 +359,39 @@ describe('SMOKE_LOOPBACK_TARGET allowlist', () => {
     enableSmoke()
     const u = parseSafeHttpUrl('http://127.0.0.1:41234/x')
     expect(u.host).toBe('127.0.0.1:41234')
+  })
+})
+
+describe('SafeUrlError.reason', () => {
+  it('defaults to policy', () => {
+    expect(new SafeUrlError('nope').reason).toBe('policy')
+    expect(new SafeUrlError('nope').name).toBe('SafeUrlError')
+  })
+
+  it('carries an explicit reason', () => {
+    expect(new SafeUrlError('gone', 'dns').reason).toBe('dns')
+    expect(new SafeUrlError('loop', 'redirect').reason).toBe('redirect')
+    expect(new SafeUrlError('bad', 'invalid-response').reason).toBe('invalid-response')
+  })
+
+  it('tags DNS resolution failure with reason dns', async () => {
+    const lookup = async () => { throw new Error('ENOTFOUND') }
+    await expect(
+      assertSafeHttpUrl('https://does-not-resolve.example', { lookup })
+    ).rejects.toMatchObject({ name: 'SafeUrlError', reason: 'dns' })
+  })
+
+  it('tags empty DNS results with reason dns', async () => {
+    const lookup = async () => []
+    await expect(
+      assertSafeHttpUrl('https://empty-dns.example', { lookup })
+    ).rejects.toMatchObject({ name: 'SafeUrlError', reason: 'dns' })
+  })
+
+  it('keeps policy reason for private-address rejection', async () => {
+    const lookup = async () => [{ address: '127.0.0.1', family: 4 }]
+    await expect(
+      assertSafeHttpUrl('https://internal.example', { lookup })
+    ).rejects.toMatchObject({ name: 'SafeUrlError', reason: 'policy' })
   })
 })
