@@ -42,7 +42,7 @@ PROGRESS: spec + plan Codex-reviewed (accept-with-fixes, applied) and PR1
 characterization net (exact-string prompts x6; 173-cell route-auth matrix;
 cat_ transport precedence + shared-secret-trio audience walls) + lib/handoff/
 (registry/meta/errors/token factory/prompt engine) + six token facades + six
-composer facades, wire-invisible. Remaining: PR2 = route-auth adoption (plan
+composer facades, wire-invisible. DONE ALSO: PR2 route-auth adoption SHIPPED+DEPLOYED+PROD-VERIFIED (PR #163, main d5193bd; all 8 routes on requireHandoffToken, matrix green untouched). Remaining: PR3 only. PR2 was (plan
 Tasks 8-11: requireHandoffToken w/ per-family transport+error policy,
 VERIFIERS table importing the FACADE verify fns to keep route-test mocks
 alive, kst/cat helper facades, 8 route adoptions; smoke mandatory) and PR3 =
