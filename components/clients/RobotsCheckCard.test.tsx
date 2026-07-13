@@ -127,6 +127,59 @@ describe('RobotsCheckCard', () => {
     await waitFor(() => expect(screen.getByText(/robots ok/i)).toBeTruthy())
   })
 
+  it('failed domain switch clears the previous domain history, never shows cross-domain rows', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: false, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <RobotsCheckCard
+        clientId={1} domains={['one.com', 'two.com']} archived={false}
+        initial={{ checks: [summaryFixture({ id: 5, domain: 'one.com' })], latest: null }}
+      />,
+    )
+    // domain one.com's history row is visible pre-switch
+    expect(screen.getByRole('button', { name: /Jul/ })).toBeTruthy()
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'two.com' } })
+    await waitFor(() => expect(screen.getByText(/could not load/i)).toBeTruthy())
+    // one.com's rows must NOT survive under the two.com selection
+    expect(screen.queryByRole('button', { name: /Jul/ })).toBeNull()
+  })
+
+  it('expand race: a late detail response for a previously clicked row never renders under the newer row', async () => {
+    let resolveA!: (v: { ok: boolean; json: () => Promise<unknown> }) => void
+    const pendingA = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((r) => { resolveA = r })
+    const detailA = detailFixture({
+      robots: { ...detailFixture().robots, blockedBots: ['a', 'b', 'c', 'd', 'e'] },
+    })
+    const detailB = detailFixture() // one blocked bot (GPTBot)
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(pendingA) // row 11 detail, resolves LATE
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: summaryFixture({ id: 12 }), detail: detailB }) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <RobotsCheckCard
+        clientId={1} domains={['example.com']} archived={false}
+        initial={{
+          checks: [
+            summaryFixture({ id: 11, createdAt: '2026-07-12T00:00:00.000Z' }),
+            summaryFixture({ id: 12, createdAt: '2026-06-01T00:00:00.000Z' }),
+          ],
+          latest: null,
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Jul/ })) // row 11, in flight
+    fireEvent.click(screen.getByRole('button', { name: /Jun/ })) // row 12, resolves first
+    await waitFor(() => expect(screen.getByText(/1 AI bot\(s\) blocked/)).toBeTruthy())
+    resolveA({ ok: true, json: async () => ({ summary: summaryFixture({ id: 11 }), detail: detailA }) })
+    // flush the late response's microtasks + a macrotask so a buggy
+    // setExpandedDetail(A) would have landed before we assert
+    await pendingA
+    await new Promise((r) => setTimeout(r, 0))
+    // row 11's payload (5 bots) must never render under the row-12 expansion
+    expect(screen.queryByText(/5 AI bot\(s\) blocked/)).toBeNull()
+    expect(screen.getByText(/1 AI bot\(s\) blocked/)).toBeTruthy()
+  })
+
   it('honest truncation line when flags set', () => {
     render(
       <RobotsCheckCard

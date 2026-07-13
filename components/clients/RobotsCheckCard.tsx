@@ -60,6 +60,10 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
   // Generation token: bumped on every domain switch; stale async flows
   // check it before every setState (plan-Codex #5).
   const genRef = useRef(0)
+  // Row id of the LATEST expand request, set synchronously on click. A late
+  // detail response for a previously clicked row must never render under a
+  // newer row — genRef alone can't see same-domain row switches.
+  const expandedReqRef = useRef<number | null>(null)
 
   /** Refetch history + newest detail for `forDomain`; applies state only if
    *  the generation still matches. Failures surface inline. */
@@ -126,31 +130,41 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
   const switchDomain = async (next: string) => {
     genRef.current += 1
     const gen = genRef.current
+    expandedReqRef.current = null
     setDomain(next)
     setLatest(null)
+    // Clear the previous domain's rows immediately: if the new domain's
+    // history GET fails, reconcile only sets `error` — leaving the old
+    // checks in state would show cross-domain rows under the new selection.
+    setChecks([])
     setExpandedId(null)
+    setExpandedDetail(null)
     setError(null)
     await reconcile(next, gen)
   }
 
   const toggleExpand = async (id: number) => {
     if (expandedId === id) {
+      expandedReqRef.current = null
       setExpandedId(null)
       return
     }
     const gen = genRef.current
+    expandedReqRef.current = id
     setExpandedId(id)
     setExpandedDetail(null)
     try {
       const res = await fetch(`/api/clients/${clientId}/robots-checks/${id}`)
-      if (genRef.current !== gen) return
+      if (genRef.current !== gen || expandedReqRef.current !== id) return
       if (res.ok) {
-        setExpandedDetail(((await res.json()) as Latest).detail)
+        const detail = ((await res.json()) as Latest).detail
+        if (genRef.current !== gen || expandedReqRef.current !== id) return
+        setExpandedDetail(detail)
       } else {
         setError('Could not load that check.')
       }
     } catch {
-      if (genRef.current === gen) setError('Could not load that check.')
+      if (genRef.current === gen && expandedReqRef.current === id) setError('Could not load that check.')
     }
   }
 
