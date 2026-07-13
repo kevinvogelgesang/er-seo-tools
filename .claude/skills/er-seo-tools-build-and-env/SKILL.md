@@ -213,14 +213,11 @@ npm run build   # = NODE_OPTIONS='--max-old-space-size=3072' next build
 ## Other build artifacts: `skills/`, `dist/`, `build:skill`
 
 - `skills/` (tracked) holds Claude-skill *sources* shipped to end users:
-  `skills/pillar-analysis-narrative/` and `skills/er-handoff-memo/`.
-- `npm run build:skill` runs `scripts/build-skill.sh`, which stages
-  `skills/pillar-analysis-narrative/` plus a copy of
-  `docs/screaming-frog-setup.md` (renamed `templates/screaming-frog-setup.md`)
-  and zips it to `dist/skills/pillar-analysis-narrative-<version>.zip`,
-  versioned from `skills/pillar-analysis-narrative/version.txt`. It fails loud
-  on any missing expected file. `dist/` is gitignored. Only
-  pillar-analysis-narrative is zip-built; er-handoff-memo has no build step.
+  `skills/er-handoff-memo/`.
+- **2026-07-13, D1 PR3:** the legacy `skills/pillar-analysis-narrative/`
+  skill, `scripts/build-skill.sh`, and the `npm run build:skill` script were
+  all RETIRED — superseded by `skills/er-handoff-memo/`, which needs no build
+  wiring; it is distributed as a plain folder.
 - `scripts/findings-rebuild.ts` / `scripts/findings-parity.ts` are operational
   recovery/verification tools, run as
   `DATABASE_URL="file:./local-dev.db" npx tsx scripts/findings-rebuild.ts <id>`.
@@ -300,5 +297,5 @@ ls .github/workflows/                                                    # CI st
 cat .env.example                                                         # current env-var catalog
 grep -n 'CHROME_EXECUTABLE\|BROWSER_POOL_SIZE' lib/ada-audit/browser-pool.ts  # Chrome default path
 grep -n -A2 'isAuthBypassedInDev' lib/auth.ts                            # dev auth-bypass rule
-cat scripts/build-skill.sh                                               # build:skill still pillar-only?
+ls skills/ # er-handoff-memo only; pillar-analysis-narrative retired 2026-07-13
 ```
