@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { prisma } from '@/lib/db'
 import { seedSystemSchedules, SYSTEM_SCHEDULES } from './system-schedules'
-import { tickSchedules } from './scheduler'
+import { tickSchedules, nextRun } from './scheduler'
 
 const SYSTEM_TYPES = SYSTEM_SCHEDULES.map((s) => s.jobType)
 
@@ -45,6 +45,22 @@ describe('seedSystemSchedules', () => {
     const alert = rows.find((r) => r.name === 'system-health-alert')!
     expect(backup.nextRunAt.getTime()).toBeGreaterThan(now.getTime())
     expect(alert.nextRunAt.getTime()).toBeLessThanOrEqual(now.getTime())
+  })
+
+  it('seeds system-robots-monitor weekly, not immediate (D5)', async () => {
+    const fixedNow = new Date('2026-01-13T12:00:00Z') // A Tuesday
+    await seedSystemSchedules(fixedNow)
+    const rows = await prisma.schedule.findMany({ where: { name: { startsWith: 'system-' } } })
+    const monitor = rows.find((r) => r.name === 'system-robots-monitor')!
+    expect(monitor).toBeDefined()
+    expect(monitor.jobType).toBe('robots-monitor-sweep')
+    expect(monitor.cadence).toBe('weekly:1@06:30')
+    expect(monitor.enabled).toBe(true)
+    // immediate:false -> nextRunAt is a FUTURE weekly:1@06:30 slot, never now
+    const expectedNext = nextRun('weekly:1@06:30', fixedNow)
+    expect(monitor.nextRunAt.getTime()).toBe(expectedNext.getTime())
+    expect(monitor.nextRunAt.getTime()).toBeGreaterThan(fixedNow.getTime())
+    expect(monitor.nextRunAt.getDay()).toBe(1) // Monday, server-local
   })
 
   it('re-seed is idempotent: no duplicates, nextRunAt preserved when cadence unchanged', async () => {
