@@ -4,6 +4,13 @@
 // regression test (parse). The skill (Phase 2.2) documents the same
 // regex pattern in its SKILL.md — see docs/pillar-prompt-contract.md
 // for the single source of truth.
+//
+// composePayload is now a thin facade over lib/handoff/prompt.ts's
+// composeHandoffPayload (D1 consolidation) — byte-identical output, gated
+// by lib/handoff/prompt-characterization.test.ts. parsePillarPrompt + its
+// regexes are untouched: they are consumed directly by the er-handoff-memo
+// skill's contract (docs/pillar-prompt-contract.md) and stay put.
+import { composeHandoffPayload } from './handoff/prompt';
 
 export interface PillarPromptArgs {
   webappUrl: string;
@@ -16,16 +23,7 @@ export interface PillarPromptArgs {
  * Format is locked — see docs/pillar-prompt-contract.md before changing.
  */
 export function composePayload({ webappUrl, analysisId, token }: PillarPromptArgs): string {
-  return [
-    'Run a pillar analysis narrative on this site.',
-    '',
-    `Webapp: ${webappUrl}`,
-    `Analysis ID: ${analysisId}`,
-    `Access token: ${token}`,
-    '(Expires in 1h)',
-    '',
-    'Fetch the structured analysis, write the internal strategic memo, and post it back to the dashboard.',
-  ].join('\n');
+  return composeHandoffPayload('pat', { webappUrl, id: analysisId, token });
 }
 
 /**

@@ -1,3 +1,9 @@
+// lib/keyword-memo-prompt.ts
+// Thin facade over lib/handoff/prompt.ts's composeHandoffPayload (D1
+// consolidation) — byte-identical output, gated by
+// lib/handoff/prompt-characterization.test.ts.
+import { composeHandoffPayload } from './handoff/prompt';
+
 export interface KeywordMemoPromptArgs {
   webappUrl: string;
   memoId: string;
@@ -5,14 +11,5 @@ export interface KeywordMemoPromptArgs {
 }
 
 export function composeKeywordMemoPayload({ webappUrl, memoId, token }: KeywordMemoPromptArgs): string {
-  return [
-    'Generate a keyword strategy memo for this site.',
-    '',
-    `Webapp: ${webappUrl}`,
-    `Memo ID: ${memoId}`,
-    `Access token: ${token}`,
-    '(Expires in 1h)',
-    '',
-    'Fetch the keyword research payload, write the keyword strategy memo, and post it back to the dashboard.',
-  ].join('\n');
+  return composeHandoffPayload('krt', { webappUrl, id: memoId, token });
 }

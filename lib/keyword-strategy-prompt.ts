@@ -3,6 +3,12 @@
 // handoff. Mirrors composeKeywordMemoPayload (lib/keyword-memo-prompt.ts); the
 // `kst_` prefix on the token is the skill's routing discriminator, and the
 // human-readable "Strategy ID:" label is informational only.
+//
+// Thin facade over lib/handoff/prompt.ts's composeHandoffPayload (D1
+// consolidation) — byte-identical output, gated by
+// lib/handoff/prompt-characterization.test.ts.
+import { composeHandoffPayload } from './handoff/prompt';
+
 export interface KeywordStrategyPromptArgs {
   webappUrl: string;
   strategyId: string;
@@ -14,14 +20,5 @@ export function composeKeywordStrategyPayload({
   strategyId,
   token,
 }: KeywordStrategyPromptArgs): string {
-  return [
-    'Generate a keyword strategy document for this client.',
-    '',
-    `Webapp: ${webappUrl}`,
-    `Strategy ID: ${strategyId}`,
-    `Access token: ${token}`,
-    '(Expires in 1h)',
-    '',
-    'Fetch the keyword strategy export, write the keyword strategy document, and post it back to the dashboard.',
-  ].join('\n');
+  return composeHandoffPayload('kst', { webappUrl, id: strategyId, token });
 }

@@ -102,7 +102,7 @@ describe('HANDOFF_TOKEN_CONFIGS literals', () => {
 
 describe('HANDOFF_META', () => {
   it('pins prefix + idLabel per family, verified against each prompt module', () => {
-    expect(HANDOFF_META).toEqual({
+    expect(HANDOFF_META).toMatchObject({
       pat: { prefix: 'pat_', idLabel: 'Analysis ID' },
       srt: { prefix: 'srt_', idLabel: 'Roadmap ID' },
       krt: { prefix: 'krt_', idLabel: 'Memo ID' },
@@ -116,5 +116,57 @@ describe('HANDOFF_META', () => {
     for (const key of Object.keys(HANDOFF_META) as Array<keyof typeof HANDOFF_META>) {
       expect(HANDOFF_META[key].prefix).toBe(HANDOFF_TOKEN_CONFIGS[key].prefix);
     }
+  });
+
+  // Task 7 (D1 PR1): pins introLine/outroLine verbatim per family, copied
+  // from each composer's original source (see git history of
+  // lib/*-prompt.ts pre-facade). A failure here means composeHandoffPayload's
+  // frozen-wire inputs drifted — lib/handoff/prompt-characterization.test.ts
+  // is the ground truth if these ever disagree.
+  it('pins introLine + outroLine per family, verbatim from each original composer', () => {
+    expect(HANDOFF_META).toEqual({
+      pat: {
+        prefix: 'pat_',
+        idLabel: 'Analysis ID',
+        introLine: 'Run a pillar analysis narrative on this site.',
+        outroLine:
+          'Fetch the structured analysis, write the internal strategic memo, and post it back to the dashboard.',
+      },
+      srt: {
+        prefix: 'srt_',
+        idLabel: 'Roadmap ID',
+        introLine: 'Generate a technical SEO roadmap for this site.',
+        outroLine:
+          'Fetch the audit payload, write the prioritized technical-SEO roadmap, and post it back to the dashboard.',
+      },
+      krt: {
+        prefix: 'krt_',
+        idLabel: 'Memo ID',
+        introLine: 'Generate a keyword strategy memo for this site.',
+        outroLine:
+          'Fetch the keyword research payload, write the keyword strategy memo, and post it back to the dashboard.',
+      },
+      kst: {
+        prefix: 'kst_',
+        idLabel: 'Strategy ID',
+        introLine: 'Generate a keyword strategy document for this client.',
+        outroLine:
+          'Fetch the keyword strategy export, write the keyword strategy document, and post it back to the dashboard.',
+      },
+      cat: {
+        prefix: 'cat_',
+        idLabel: 'Content Audit ID',
+        introLine: "Run a content audit on this site audit's pages.",
+        outroLine:
+          'Fetch the content-audit manifest, review the pages, and PATCH back\ncross-page consistency / stale-claim / quality findings.',
+      },
+      qct: {
+        prefix: 'qct_',
+        idLabel: 'Plan ID',
+        introLine: 'Push the current quarter cycle to Teamwork.',
+        outroLine:
+          "Fetch the cycle export, create the planned-week tasks in each client's Teamwork tasklist, and post the push receipt back to the dashboard.",
+      },
+    });
   });
 });
