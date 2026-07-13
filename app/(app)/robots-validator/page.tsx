@@ -8,7 +8,7 @@ import {
   KNOWN_AI_BOTS,
   type RobotsParseResult,
   type RobotsIssue,
-} from '@/lib/validators/robots.validator'
+} from '@/lib/seo-fetch/robots-parse'
 import { parseSitemapXml, type SitemapParseResult, type SitemapIssue } from '@/lib/validators/sitemap.validator'
 import { safeExternalHref } from '@/lib/safe-external-href'
 

@@ -1,3 +1,8 @@
+// Rich UA-aware robots.txt parser + issue reporter for the validator UI and
+// future D4 checks. The MINIMAL crawl-frontier matcher (star-group only,
+// $-aware) lives in ./robots-match.ts — intentionally distinct semantics
+// (spec D2); do not unify.
+
 export interface RobotsIssue {
   severity: 'error' | 'warning' | 'info';
   message: string;
@@ -317,4 +322,26 @@ export function testUrlAgainstRobots(
   }
 
   return { allowed: false, matchedRule: `Disallow: ${longestDisallowPattern}`, matchedAgent: targetGroup.userAgent }
+}
+
+/**
+ * Pure `Sitemap:` line scan over a robots.txt body. Strips #-comments the
+ * same way parseRobotsTxt does (spec D6) — a trailing " # note" or adjacent
+ * "#fragment" never reaches the returned URL; percent-encoded %23 survives.
+ * Duplicates are preserved (callers dedupe). Cheap alternative to running
+ * the full parser on the discovery path.
+ */
+export function extractSitemapUrls(robotsText: string): string[] {
+  const urls: string[] = []
+  for (const rawLine of robotsText.split(/\r?\n/)) {
+    const line = rawLine.split('#')[0].trim()
+    if (!line) continue
+    const colonIdx = line.indexOf(':')
+    if (colonIdx === -1) continue
+    const field = line.slice(0, colonIdx).trim().toLowerCase()
+    if (field !== 'sitemap') continue
+    const value = line.slice(colonIdx + 1).trim()
+    if (value) urls.push(value)
+  }
+  return urls
 }
