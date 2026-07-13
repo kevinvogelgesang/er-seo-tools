@@ -17,6 +17,12 @@ export const ROBOTS_CHECK_MAX_CHILDREN = 20
  *  hidden predecessor so the oldest VISIBLE row's `changed` flag never
  *  flips to null when retention prunes its comparison target (Codex #3). */
 export const ROBOTS_CHECK_HISTORY_LIMIT = 20
+/** Cap per side of the robots.txt line diff in change summaries (D5). */
+export const ROBOTS_DIFF_MAX_LINES = 50
+/** Per-line character cap in the diff — one robots line can approach the
+ *  fetch cap; the diff must stay bounded for the API, card, and email
+ *  (plan-Codex #5). Overlong lines are sliced and flag truncated. */
+export const ROBOTS_DIFF_MAX_LINE_CHARS = 200
 /** Soft deadline checked before every fetch. Worst case overshoot is one
  *  in-flight batch's 15s fetch timeout: hard bound ~= budget + 15s. */
 export const ROBOTS_CHECK_TIME_BUDGET_MS = 60_000
