@@ -27,6 +27,51 @@ import {
   QuarterPushTokenError,
 } from './errors';
 
+/** The {error, status} shape every legacy route returns via NextResponse.json(). */
+export interface HandoffAuthErrorCode {
+  error: string;
+  status: number;
+}
+
+/**
+ * Per-family route-auth error policy (D1 PR2, Task 8). Every value/branch
+ * here is copied verbatim from the corresponding public route(s) — see
+ * lib/handoff/route-auth-characterization.test.ts's per-family constants
+ * block (code -> file:line) for the source of truth. `tokenError` is a
+ * function (not a literal) because five of the six families message-sniff
+ * the thrown error's text (the `tokenErrorCode()` pattern each route/helper
+ * duplicates today); cat_ ignores the message entirely and always returns
+ * the same collapsed code.
+ */
+export interface HandoffAuthErrorPolicy {
+  /** Authorization header (or, for bearer-or-query, header+query) absent entirely. */
+  missingHeader: HandoffAuthErrorCode;
+  /** Header present but not a `Bearer <prefix>...` match (wrong scheme or wrong/no family prefix). */
+  malformedHeader: HandoffAuthErrorCode;
+  /** The family's verify() threw its OWN error class — message-sniffed per the legacy tokenErrorCode() taxonomy. */
+  tokenError(message: string): HandoffAuthErrorCode;
+  /** verify() threw something that is NOT the family's own error class (pinned-unreachable via HTTP today, per the characterization file — kept as the fail-closed policy). */
+  verifierUnavailable: HandoffAuthErrorCode;
+  /** Scope claim present-but-insufficient, non-array, or absent. */
+  missingScope: HandoffAuthErrorCode;
+}
+
+/**
+ * `tokenErrorCode()` taxonomy shared verbatim by pat_/srt_/krt_/kst_/qct_ —
+ * copied from e.g. app/api/seo-roadmap/[id]/route.ts's `tokenErrorCode()`.
+ * `wrongSubCode` is the only family-specific piece (each family's
+ * "does not match" sub-mismatch code, e.g. 'token_wrong_roadmap_id').
+ */
+function sniffTokenError(wrongSubCode: string) {
+  return (message: string): HandoffAuthErrorCode => {
+    const m = message.toLowerCase();
+    if (m.includes('expired')) return { error: 'token_expired', status: 401 };
+    if (m.includes('does not match')) return { error: wrongSubCode, status: 401 };
+    if (m.includes('signature')) return { error: 'token_invalid_signature', status: 401 };
+    return { error: 'token_invalid', status: 401 };
+  };
+}
+
 export interface HandoffTokenConfig<Scopes extends readonly string[] = readonly string[]> {
   /** Token string prefix, e.g. 'pat_'. Includes the trailing underscore. */
   prefix: string;
@@ -50,6 +95,10 @@ export interface HandoffTokenConfig<Scopes extends readonly string[] = readonly 
   subNoun: string;
   /** Constructs this family's legacy error class. */
   makeError(message: string): Error;
+  /** Bearer-header extraction policy (Task 8). 'bearer-or-query' is cat_ ONLY. */
+  transport: 'bearer-strict' | 'bearer-or-query';
+  /** Route-auth error-code policy (Task 8). See HandoffAuthErrorPolicy. */
+  authErrors: HandoffAuthErrorPolicy;
 }
 
 // pat — source: lib/pillar-token.ts
@@ -63,6 +112,14 @@ const PAT_CONFIG = {
   ttlSeconds: 3600,
   subNoun: 'analysis id',
   makeError: (message: string) => new PillarTokenError(message),
+  transport: 'bearer-strict',
+  authErrors: {
+    missingHeader: { error: 'auth_missing', status: 401 },
+    malformedHeader: { error: 'auth_malformed', status: 401 },
+    tokenError: sniffTokenError('token_wrong_analysis_id'),
+    verifierUnavailable: { error: 'token_service_unavailable', status: 500 },
+    missingScope: { error: 'token_missing_scope', status: 401 },
+  },
 } as const satisfies HandoffTokenConfig;
 
 // srt — source: lib/seo-roadmap-token.ts
@@ -76,6 +133,14 @@ const SRT_CONFIG = {
   ttlSeconds: 3600,
   subNoun: 'roadmap id',
   makeError: (message: string) => new SeoRoadmapTokenError(message),
+  transport: 'bearer-strict',
+  authErrors: {
+    missingHeader: { error: 'auth_missing', status: 401 },
+    malformedHeader: { error: 'auth_malformed', status: 401 },
+    tokenError: sniffTokenError('token_wrong_roadmap_id'),
+    verifierUnavailable: { error: 'token_service_unavailable', status: 500 },
+    missingScope: { error: 'token_missing_scope', status: 401 },
+  },
 } as const satisfies HandoffTokenConfig;
 
 // krt — source: lib/keyword-memo-token.ts
@@ -89,6 +154,14 @@ const KRT_CONFIG = {
   ttlSeconds: 3600,
   subNoun: 'memo id',
   makeError: (message: string) => new KeywordMemoTokenError(message),
+  transport: 'bearer-strict',
+  authErrors: {
+    missingHeader: { error: 'auth_missing', status: 401 },
+    malformedHeader: { error: 'auth_malformed', status: 401 },
+    tokenError: sniffTokenError('token_wrong_memo_id'),
+    verifierUnavailable: { error: 'token_service_unavailable', status: 500 },
+    missingScope: { error: 'token_missing_scope', status: 401 },
+  },
 } as const satisfies HandoffTokenConfig;
 
 // kst — source: lib/keyword-strategy-token.ts
@@ -104,6 +177,14 @@ const KST_CONFIG = {
   ttlSeconds: 3600,
   subNoun: 'session id',
   makeError: (message: string) => new KeywordStrategyTokenError(message),
+  transport: 'bearer-strict',
+  authErrors: {
+    missingHeader: { error: 'auth_missing', status: 401 },
+    malformedHeader: { error: 'auth_malformed', status: 401 },
+    tokenError: sniffTokenError('token_wrong_session_id'),
+    verifierUnavailable: { error: 'token_service_unavailable', status: 500 },
+    missingScope: { error: 'token_missing_scope', status: 401 },
+  },
 } as const satisfies HandoffTokenConfig;
 
 // cat — source: lib/content-audit-token.ts
@@ -119,6 +200,19 @@ const CAT_CONFIG = {
   ttlSeconds: 3600,
   subNoun: 'site audit id',
   makeError: (message: string) => new ContentAuditTokenError(message),
+  transport: 'bearer-or-query',
+  authErrors: {
+    // requireContentAuditToken (lib/content-audit/route-auth.ts) collapses
+    // EVERY token-shape failure -- missing token, non-Bearer header, wrong/no
+    // prefix, malformed JWT, wrong iss/aud, expired, bad signature, wrong sub
+    // -- into one bare-catch 401 auth_required. There is no message sniff
+    // and no reachable 500: the helper never throws.
+    missingHeader: { error: 'auth_required', status: 401 },
+    malformedHeader: { error: 'auth_required', status: 401 },
+    tokenError: () => ({ error: 'auth_required', status: 401 }),
+    verifierUnavailable: { error: 'auth_required', status: 401 },
+    missingScope: { error: 'insufficient_scope', status: 401 },
+  },
 } as const satisfies HandoffTokenConfig;
 
 // qct — source: lib/quarter-push-token.ts
@@ -132,6 +226,17 @@ const QCT_CONFIG = {
   ttlSeconds: 3600,
   subNoun: 'plan id',
   makeError: (message: string) => new QuarterPushTokenError(message),
+  transport: 'bearer-strict',
+  authErrors: {
+    // qct_ collapses no-header AND non-bearer/wrong-prefix into ONE code
+    // (bearerToken()/the inline match return null for either case, one
+    // check site) -- unlike pat_/srt_/krt_/kst_, which split the two.
+    missingHeader: { error: 'auth_missing_or_malformed', status: 401 },
+    malformedHeader: { error: 'auth_missing_or_malformed', status: 401 },
+    tokenError: sniffTokenError('token_wrong_plan_id'),
+    verifierUnavailable: { error: 'token_service_unavailable', status: 500 },
+    missingScope: { error: 'token_missing_scope', status: 401 },
+  },
 } as const satisfies HandoffTokenConfig;
 
 export const HANDOFF_TOKEN_CONFIGS = {

@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { verifyKeywordMemoToken, KeywordMemoTokenError } from '@/lib/keyword-memo-token';
+import { requireHandoffToken } from '@/lib/handoff/route-auth';
 import { publishInvalidation } from '@/lib/events/bus';
 import { memoTopic } from '@/lib/events/topics';
 
 const REQUIRED_SCOPE = 'memo-write';
 const MAX_MEMO_CHARS = 50_000;
 const MAX_STRUCTURED_CHARS = 200_000;
-
-function tokenErrorCode(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes('expired')) return 'token_expired';
-  if (m.includes('does not match')) return 'token_wrong_memo_id';
-  if (m.includes('signature')) return 'token_invalid_signature';
-  return 'token_invalid';
-}
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -46,32 +38,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  // 2. Auth header
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader) {
-    return NextResponse.json({ error: 'auth_missing' }, { status: 401 });
-  }
-  const match = authHeader.match(/^Bearer\s+(krt_\S+)$/);
-  if (!match) {
-    return NextResponse.json({ error: 'auth_malformed' }, { status: 401 });
-  }
-
-  // 3. Token verify
-  let payload;
-  try {
-    payload = await verifyKeywordMemoToken(match[1], id);
-  } catch (err) {
-    if (err instanceof KeywordMemoTokenError) {
-      return NextResponse.json({ error: tokenErrorCode(err.message) }, { status: 401 });
-    }
-    return NextResponse.json({ error: 'token_service_unavailable' }, { status: 500 });
-  }
-
-  // 4. Scope check
-  const scopes = Array.isArray(payload.scope) ? (payload.scope as string[]) : [];
-  if (!scopes.includes(REQUIRED_SCOPE)) {
-    return NextResponse.json({ error: 'token_missing_scope' }, { status: 401 });
-  }
+  // 2. Auth
+  const auth = await requireHandoffToken(req, 'krt', id, REQUIRED_SCOPE);
+  if (!auth.ok) return auth.response;
 
   // 5. Find session
   const existing = await prisma.keywordResearchSession.findUnique({ where: { id } });

@@ -100,6 +100,72 @@ describe('HANDOFF_TOKEN_CONFIGS literals', () => {
   });
 });
 
+describe('HANDOFF_TOKEN_CONFIGS route-auth policy (Task 8)', () => {
+  it('pins transport per family — bearer-or-query is cat_ ONLY', () => {
+    expect(HANDOFF_TOKEN_CONFIGS.pat.transport).toBe('bearer-strict');
+    expect(HANDOFF_TOKEN_CONFIGS.srt.transport).toBe('bearer-strict');
+    expect(HANDOFF_TOKEN_CONFIGS.krt.transport).toBe('bearer-strict');
+    expect(HANDOFF_TOKEN_CONFIGS.kst.transport).toBe('bearer-strict');
+    expect(HANDOFF_TOKEN_CONFIGS.qct.transport).toBe('bearer-strict');
+    expect(HANDOFF_TOKEN_CONFIGS.cat.transport).toBe('bearer-or-query');
+  });
+
+  it('pins the literal authErrors codes for pat_/srt_/krt_/kst_ (auth_missing/auth_malformed split, 500 unavailable)', () => {
+    for (const key of ['pat', 'srt', 'krt', 'kst'] as const) {
+      const { authErrors } = HANDOFF_TOKEN_CONFIGS[key];
+      expect(authErrors.missingHeader).toEqual({ error: 'auth_missing', status: 401 });
+      expect(authErrors.malformedHeader).toEqual({ error: 'auth_malformed', status: 401 });
+      expect(authErrors.verifierUnavailable).toEqual({ error: 'token_service_unavailable', status: 500 });
+      expect(authErrors.missingScope).toEqual({ error: 'token_missing_scope', status: 401 });
+    }
+  });
+
+  it('pins the qct_ authErrors codes (no-header AND malformed collapse into ONE code)', () => {
+    const { authErrors } = HANDOFF_TOKEN_CONFIGS.qct;
+    expect(authErrors.missingHeader).toEqual({ error: 'auth_missing_or_malformed', status: 401 });
+    expect(authErrors.malformedHeader).toEqual({ error: 'auth_missing_or_malformed', status: 401 });
+    expect(authErrors.verifierUnavailable).toEqual({ error: 'token_service_unavailable', status: 500 });
+    expect(authErrors.missingScope).toEqual({ error: 'token_missing_scope', status: 401 });
+  });
+
+  it('pins the cat_ authErrors codes (every token-shape failure collapses to auth_required; scope failure is insufficient_scope)', () => {
+    const { authErrors } = HANDOFF_TOKEN_CONFIGS.cat;
+    expect(authErrors.missingHeader).toEqual({ error: 'auth_required', status: 401 });
+    expect(authErrors.malformedHeader).toEqual({ error: 'auth_required', status: 401 });
+    expect(authErrors.verifierUnavailable).toEqual({ error: 'auth_required', status: 401 });
+    expect(authErrors.missingScope).toEqual({ error: 'insufficient_scope', status: 401 });
+    expect(authErrors.tokenError('does not match expected site audit id')).toEqual({
+      error: 'auth_required',
+      status: 401,
+    });
+    expect(authErrors.tokenError('anything at all')).toEqual({ error: 'auth_required', status: 401 });
+  });
+
+  it('tokenError() sniffs expired/does-not-match/signature/fallback per family, with the family-specific wrong-sub code', () => {
+    const cases: Array<{ key: 'pat' | 'srt' | 'krt' | 'kst' | 'qct'; wrongSubCode: string }> = [
+      { key: 'pat', wrongSubCode: 'token_wrong_analysis_id' },
+      { key: 'srt', wrongSubCode: 'token_wrong_roadmap_id' },
+      { key: 'krt', wrongSubCode: 'token_wrong_memo_id' },
+      { key: 'kst', wrongSubCode: 'token_wrong_session_id' },
+      { key: 'qct', wrongSubCode: 'token_wrong_plan_id' },
+    ];
+    for (const { key, wrongSubCode } of cases) {
+      const { tokenError } = HANDOFF_TOKEN_CONFIGS[key].authErrors;
+      expect(tokenError('token verification failed: "exp" claim timestamp check failed')).toEqual({
+        error: 'token_invalid',
+        status: 401,
+      });
+      expect(tokenError('token EXPIRED nonsense')).toEqual({ error: 'token_expired', status: 401 });
+      expect(tokenError('token sub (a) does not match expected foo (b)')).toEqual({
+        error: wrongSubCode,
+        status: 401,
+      });
+      expect(tokenError('invalid signature')).toEqual({ error: 'token_invalid_signature', status: 401 });
+      expect(tokenError('token missing pat_ prefix')).toEqual({ error: 'token_invalid', status: 401 });
+    }
+  });
+});
+
 describe('HANDOFF_META', () => {
   it('pins prefix + idLabel per family, verified against each prompt module', () => {
     expect(HANDOFF_META).toMatchObject({

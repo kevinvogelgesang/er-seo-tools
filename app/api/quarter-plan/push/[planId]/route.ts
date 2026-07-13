@@ -1,25 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { verifyQuarterPushToken, QuarterPushTokenError } from '@/lib/quarter-push-token'
+import { requireHandoffToken } from '@/lib/handoff/route-auth'
 import { sortAssignments } from '@/lib/quarter-grid/state'
 import { getWeekDates } from '@/lib/quarter-grid/grid-ops'
 
 export const dynamic = 'force-dynamic'
-
-function tokenErrorCode(message: string): string {
-  const m = message.toLowerCase()
-  if (m.includes('expired')) return 'token_expired'
-  if (m.includes('does not match')) return 'token_wrong_plan_id'
-  if (m.includes('signature')) return 'token_invalid_signature'
-  return 'token_invalid'
-}
-
-function bearerToken(req: NextRequest): string | null {
-  const authHeader = req.headers.get('authorization')
-  if (!authHeader) return null
-  const match = authHeader.match(/^Bearer\s+(qct_\S+)$/)
-  return match ? match[1] : null
-}
 
 /**
  * GET /api/quarter-plan/push/[planId] — the cycle export the er-handoff-memo
@@ -31,18 +16,8 @@ function bearerToken(req: NextRequest): string | null {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ planId: string }> }) {
   const { planId } = await params
 
-  const token = bearerToken(req)
-  if (!token) return NextResponse.json({ error: 'auth_missing_or_malformed' }, { status: 401 })
-
-  let payload
-  try {
-    payload = await verifyQuarterPushToken(token, planId)
-  } catch (err) {
-    if (err instanceof QuarterPushTokenError) return NextResponse.json({ error: tokenErrorCode(err.message) }, { status: 401 })
-    return NextResponse.json({ error: 'token_service_unavailable' }, { status: 500 })
-  }
-  const scopes = Array.isArray(payload.scope) ? (payload.scope as string[]) : []
-  if (!scopes.includes('read')) return NextResponse.json({ error: 'token_missing_scope' }, { status: 401 })
+  const auth = await requireHandoffToken(req, 'qct', planId, 'read')
+  if (!auth.ok) return auth.response
 
   try {
     const plan = await prisma.quarterPlan.findFirst({ orderBy: { id: 'desc' } })
