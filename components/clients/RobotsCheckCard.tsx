@@ -11,10 +11,12 @@
 
 import { useRef, useState } from 'react'
 import type { RobotsCheckDetail, RobotsCheckSummary } from '@/lib/robots-check/types'
+import type { RobotsChangeSummary } from '@/lib/robots-check/change-summary'
 
 interface Latest {
   summary: RobotsCheckSummary
   detail: RobotsCheckDetail
+  changeSummary?: RobotsChangeSummary | null
 }
 
 interface Props {
@@ -49,6 +51,70 @@ function ChangedBadge({ changed }: { changed: boolean | null }) {
   )
 }
 
+function ChangeSummarySection({ summary }: { summary: RobotsChangeSummary }) {
+  const diff = summary.robotsDiff
+  // plan-Codex #3: non-null EMPTY diff = reorder/formatting-only evidence;
+  // NULL diff with a changed hash = a raw body was unavailable — say so.
+  const reorderOnly = summary.robotsContentChanged && diff !== null && diff.added.length === 0 && diff.removed.length === 0
+  const diffUnavailable = summary.robotsContentChanged && diff === null
+  return (
+    <div className="mt-1 border-l-2 border-orange/40 pl-2">
+      <p className="text-[11px] font-semibold text-gray-600 dark:text-white/60">Changed vs previous</p>
+      {summary.robotsStatus && (
+        <p className="text-[11px] text-gray-500 dark:text-white/50">
+          Robots status: {summary.robotsStatus.prev} &rarr; {summary.robotsStatus.curr}
+        </p>
+      )}
+      {diff && diff.removed.map((l, i) => (
+        <p key={`r${i}`} className="font-mono text-[11px] text-red-600 dark:text-red-400">- {l}</p>
+      ))}
+      {diff && diff.added.map((l, i) => (
+        <p key={`a${i}`} className="font-mono text-[11px] text-green-700 dark:text-green-400">+ {l}</p>
+      ))}
+      {diff?.truncated && <p className="text-[11px] text-gray-400 dark:text-white/40">(diff truncated)</p>}
+      {reorderOnly && (
+        <p className="text-[11px] text-gray-500 dark:text-white/50">robots.txt changed (reordering or formatting only)</p>
+      )}
+      {diffUnavailable && (
+        <p className="text-[11px] text-gray-500 dark:text-white/50">robots.txt content changed (line diff unavailable)</p>
+      )}
+      {summary.blockedBots?.added.length ? (
+        <p className="text-[11px] text-red-600 dark:text-red-400">AI bots newly blocked: {summary.blockedBots.added.join(', ')}</p>
+      ) : null}
+      {summary.blockedBots?.removed.length ? (
+        <p className="text-[11px] text-gray-500 dark:text-white/50">AI bots unblocked: {summary.blockedBots.removed.join(', ')}</p>
+      ) : null}
+      {summary.sitemaps && (
+        <>
+          {/* index-based keys: duplicate URLs are deliberately preserved
+              upstream via (url, ordinal) pairing — URL-only keys collide
+              (plan-Codex #4) */}
+          {summary.sitemaps.added.map((u, i) => <p key={`sa${i}`} className="text-[11px] text-gray-500 dark:text-white/50">Sitemap added: <span className="font-mono">{u}</span></p>)}
+          {summary.sitemaps.removed.map((u, i) => <p key={`sr${i}`} className="text-[11px] text-gray-500 dark:text-white/50">Sitemap removed: <span className="font-mono">{u}</span></p>)}
+          {summary.sitemaps.changed.map((c, i) => (
+            <p key={`sc${i}`} className="text-[11px] text-gray-500 dark:text-white/50">
+              Sitemap changed: <span className="font-mono">{c.url}</span>
+              {c.urlCountPrev !== c.urlCountCurr ? ` (URLs ${c.urlCountPrev ?? '?'} → ${c.urlCountCurr ?? '?'})` : ''}
+              {c.childrenChanged ? ' (children changed)' : ''}
+            </p>
+          ))}
+          {summary.sitemaps.orderChanged && <p className="text-[11px] text-gray-500 dark:text-white/50">Sitemap order changed (same set)</p>}
+        </>
+      )}
+      {summary.sitemapUrlTotal && (
+        <p className="text-[11px] text-gray-500 dark:text-white/50 tabular-nums">
+          Total sitemap URLs: {summary.sitemapUrlTotal.prev ?? '—'} &rarr; {summary.sitemapUrlTotal.curr ?? '—'}
+        </p>
+      )}
+      {summary.counts && (
+        <p className="text-[11px] text-gray-500 dark:text-white/50 tabular-nums">
+          Errors {summary.counts.errorsPrev} &rarr; {summary.counts.errorsCurr} · warnings {summary.counts.warningsPrev} &rarr; {summary.counts.warningsCurr}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function RobotsCheckCard({ clientId, domains, archived, initial }: Props) {
   const [domain, setDomain] = useState(domains[0] ?? '')
   const [checks, setChecks] = useState<RobotsCheckSummary[]>(initial.checks)
@@ -56,7 +122,7 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [expandedDetail, setExpandedDetail] = useState<RobotsCheckDetail | null>(null)
+  const [expandedStored, setExpandedStored] = useState<Latest | null>(null)
   // Generation token: bumped on every domain switch; stale async flows
   // check it before every setState (plan-Codex #5).
   const genRef = useRef(0)
@@ -138,7 +204,7 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
     // checks in state would show cross-domain rows under the new selection.
     setChecks([])
     setExpandedId(null)
-    setExpandedDetail(null)
+    setExpandedStored(null)
     setError(null)
     await reconcile(next, gen)
   }
@@ -152,14 +218,14 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
     const gen = genRef.current
     expandedReqRef.current = id
     setExpandedId(id)
-    setExpandedDetail(null)
+    setExpandedStored(null)
     try {
       const res = await fetch(`/api/clients/${clientId}/robots-checks/${id}`)
       if (genRef.current !== gen || expandedReqRef.current !== id) return
       if (res.ok) {
-        const detail = ((await res.json()) as Latest).detail
+        const stored = (await res.json()) as Latest
         if (genRef.current !== gen || expandedReqRef.current !== id) return
-        setExpandedDetail(detail)
+        setExpandedStored(stored)
       } else {
         setError('Could not load that check.')
       }
@@ -245,7 +311,9 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
               <li key={s.url} className="text-xs text-gray-600 dark:text-white/60 flex flex-wrap gap-2">
                 <span className="font-mono truncate max-w-[60%]">{s.url}</span>
                 {s.ok ? (
-                  <span className="tabular-nums">{s.urlCount} URLs{s.isIndex ? ` · ${s.childrenTotal} children (${s.childrenFailed} failed)` : ''}</span>
+                  <span className="tabular-nums">
+                    {s.urlCount} URLs{s.isIndex ? ` · ${s.childrenTotal} children (${s.childrenFailed} failed${s.childrenExcluded > 0 ? `, ${s.childrenExcluded} excluded` : ''})` : ''}
+                  </span>
                 ) : (
                   <span className="text-red-600 dark:text-red-400">{s.failure}</span>
                 )}
@@ -276,10 +344,13 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
                   <span className="tabular-nums">{c.errorCount}E / {c.warningCount}W</span>
                   {c.source === 'scheduled' && <span className="text-gray-400 dark:text-white/40">scheduled</span>}
                 </button>
-                {expandedId === c.id && expandedDetail && (
+                {expandedId === c.id && expandedStored && (
                   <div className="pl-4 py-1 text-[11px] text-gray-500 dark:text-white/50">
-                    {expandedDetail.robots.issues.length + expandedDetail.sitemaps.reduce((n, s) => n + s.issues.length, 0)} issue(s) recorded ·{' '}
-                    {expandedDetail.robots.blockedBots.length} AI bot(s) blocked
+                    {expandedStored.detail.robots.issues.length + expandedStored.detail.sitemaps.reduce((n, s) => n + s.issues.length, 0)} issue(s) recorded ·{' '}
+                    {expandedStored.detail.robots.blockedBots.length} AI bot(s) blocked
+                    {expandedStored.summary.changed === true && expandedStored.changeSummary && (
+                      <ChangeSummarySection summary={expandedStored.changeSummary} />
+                    )}
                   </div>
                 )}
               </li>
