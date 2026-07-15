@@ -1,23 +1,27 @@
 'use client'
-// C14 redesign: large SVG arc gauge (~240° sweep). Timeline (Kevin pass 4):
-// rev 0→100 accelerating into the ceiling → drop straight back down past the
-// real score (NO bounce at the top) → settle UP to the actual number. Built as
-// explicit keyframed segments over one rAF loop (no animation library); the
-// readout ticks in sync; the loop is cancelled on unmount and the score input
-// is clamped to finite 0–100 (spec Codex fix 7). The rev only starts once the
-// gauge scrolls into view (IntersectionObserver). prefers-reduced-motion (via
-// matchMedia): final state immediately. Arc color tracks the CURRENT needle
-// value (red <80, amber 80–94, green ≥95).
+// C14 redesign: large SVG arc gauge (~240° sweep). Timeline (Kevin pass 5 —
+// smoother, slower): glide 0→100 easing in AND out (the rev decelerates to a
+// stop at the top — no slam into the ceiling), then a damped-spring settle
+// from 100 down to the score that dips a little below the target and eases
+// back up. The spring is released from rest, so velocity is CONTINUOUS across
+// the whole motion (no per-segment hard stops — the old cause of the "slamming
+// around" feel). One rAF loop (no animation library); the readout ticks in
+// sync; the loop is cancelled on unmount and the score input is clamped to
+// finite 0–100 (spec Codex fix 7). The rev only starts once the gauge scrolls
+// into view (IntersectionObserver). prefers-reduced-motion (via matchMedia):
+// final state immediately. Arc color tracks the CURRENT needle value (red <80,
+// amber 80–94, green ≥95).
 import { useEffect, useRef, useState } from 'react'
 
 const SWEEP_DEG = 240
 const START_DEG = 150 // 150° → 390°: opening faces down
 
-// Timeline (ms): hit 100, drop, settle. No hold and no bounce at the top.
-const REV_MS = 720      // 0 → 100, accelerating into the ceiling
-const FALL_MS = 540     // 100 → undershoot below the target (the drop)
-const SETTLE_MS = 340   // undershoot → rest on the actual score
-const UNDERSHOOT = 7    // how far below the target the drop dips before settling
+// Timeline (ms) + spring tuning. Total ≈ 2.55s — a graceful sweep, not a snap.
+const REV_MS = 1000      // 0 → 100, easeInOutCubic (starts and ends at rest)
+const SPRING_MS = 1550   // 100 → target, damped-spring settle (released from rest)
+const TOTAL_MS = REV_MS + SPRING_MS
+const SPRING_ZETA = 0.55 // damping ratio → one gentle undershoot, then settle
+const SPRING_OMEGA = 4.7 // natural frequency (rad/s), tuned to settle within SPRING_MS
 
 const CX = 120
 const CY = 120
@@ -43,28 +47,24 @@ function gaugeColor(v: number): string {
   return '#dc2626' // red-600
 }
 
-function easeInCubic(p: number): number {
-  return p * p * p
-}
-function easeOutCubic(p: number): number {
-  return 1 - Math.pow(1 - p, 3)
-}
-function easeInOutSine(p: number): number {
-  return -(Math.cos(Math.PI * p) - 1) / 2
+function easeInOutCubic(p: number): number {
+  return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2
 }
 
-// One leg of the timeline: interpolate `from`→`to` over `dur` ms with `ease`.
-type Segment = { dur: number; from: number; to: number; ease: (p: number) => number }
-
-// Keyframe legs for a given clamped target: rev into 100, drop past the score,
-// settle up. No dwell or bounce at the top.
-function buildSegments(target: number): Segment[] {
-  const undershoot = Math.max(0, target - UNDERSHOOT)
-  return [
-    { dur: REV_MS, from: 0, to: 100, ease: easeInCubic }, // accelerate into 100
-    { dur: FALL_MS, from: 100, to: undershoot, ease: easeInOutSine }, // drop back past the target
-    { dur: SETTLE_MS, from: undershoot, to: target, ease: easeOutCubic }, // settle up onto the score
-  ]
+// Needle value at elapsed time `t` (ms) for a clamped target. Phase 1: glide
+// 0→100 (ease in AND out → decelerates to rest at the top). Phase 2: a damped
+// harmonic oscillator released from rest at 100, settling to the target — it
+// dips below the score then eases back up. Velocity is continuous at the
+// hand-off (both sides are at rest at 100), which is what kills the "slam".
+function needleValueAt(t: number, target: number): number {
+  if (t >= TOTAL_MS) return target
+  if (t < REV_MS) return 100 * easeInOutCubic(t / REV_MS)
+  const s = (t - REV_MS) / 1000 // seconds into the spring
+  const wd = SPRING_OMEGA * Math.sqrt(1 - SPRING_ZETA * SPRING_ZETA)
+  const env =
+    Math.exp(-SPRING_ZETA * SPRING_OMEGA * s) *
+    (Math.cos(wd * s) + ((SPRING_ZETA * SPRING_OMEGA) / wd) * Math.sin(wd * s))
+  return target + (100 - target) * env
 }
 
 function polar(deg: number, r: number): { x: number; y: number } {
@@ -115,24 +115,14 @@ export function ScoreGauge(props: { score: number | null }) {
     // Park the needle at 0 until the gauge is on screen, then rev.
     setDisplay(0)
     const runTimeline = () => {
-      const segments = buildSegments(target)
-      const total = segments.reduce((sum, s) => sum + s.dur, 0)
       const startedAt = performance.now()
       const tick = (now: number) => {
         const t = now - startedAt
-        if (t >= total) {
+        if (t >= TOTAL_MS) {
           setDisplay(target)
           return // timeline done — stop scheduling
         }
-        let acc = 0
-        let v = target
-        for (const s of segments) {
-          if (t < acc + s.dur) {
-            v = s.from + (s.to - s.from) * s.ease((t - acc) / s.dur)
-            break
-          }
-          acc += s.dur
-        }
+        const v = needleValueAt(t, target)
         setDisplay(Math.min(100, Math.max(0, v)))
         rafRef.current = requestAnimationFrame(tick)
       }
