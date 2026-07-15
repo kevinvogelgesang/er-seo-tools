@@ -1,28 +1,23 @@
 'use client'
-// C14 redesign: large SVG arc gauge (~240° sweep) with a "slam-and-bounce"
-// timeline on mount (Kevin pass 3): rev 0→100 accelerating into the ceiling →
-// bounce OFF 100 (a quick recoil dip + partial rebound, no hold) → fall back
-// down past the real score (undershoot) → settle UP to the actual number.
-// Built as explicit keyframed segments over one rAF loop (no animation
-// library); the readout ticks in sync; the loop is cancelled on unmount and
-// the score input is clamped to finite 0–100 (spec Codex fix 7).
-// prefers-reduced-motion (via matchMedia): final state immediately. Arc color
-// tracks the CURRENT needle value (red <80, amber 80–94, green ≥95).
+// C14 redesign: large SVG arc gauge (~240° sweep). Timeline (Kevin pass 4):
+// rev 0→100 accelerating into the ceiling → drop straight back down past the
+// real score (NO bounce at the top) → settle UP to the actual number. Built as
+// explicit keyframed segments over one rAF loop (no animation library); the
+// readout ticks in sync; the loop is cancelled on unmount and the score input
+// is clamped to finite 0–100 (spec Codex fix 7). The rev only starts once the
+// gauge scrolls into view (IntersectionObserver). prefers-reduced-motion (via
+// matchMedia): final state immediately. Arc color tracks the CURRENT needle
+// value (red <80, amber 80–94, green ≥95).
 import { useEffect, useRef, useState } from 'react'
 
 const SWEEP_DEG = 240
 const START_DEG = 150 // 150° → 390°: opening faces down
 
-// Slam-and-bounce timeline (ms). No hold at the top — the bounce replaces it.
+// Timeline (ms): hit 100, drop, settle. No hold and no bounce at the top.
 const REV_MS = 720      // 0 → 100, accelerating into the ceiling
-const DIP_MS = 120      // 100 → recoil trough (the "bounce off 100")
-const REBOUND_MS = 130  // trough → partial rebound before gravity wins
-const FALL_MS = 470     // rebound → undershoot below the target
+const FALL_MS = 540     // 100 → undershoot below the target (the drop)
 const SETTLE_MS = 340   // undershoot → rest on the actual score
-// Bounce/undershoot depths, in score points.
-const BOUNCE_DEPTH = 11 // how far the needle recoils below 100 on impact
-const BOUNCE_RETURN = 4 // how far below 100 the rebound peaks before the fall
-const UNDERSHOOT = 7    // how far below the target the fall dips before settling
+const UNDERSHOOT = 7    // how far below the target the drop dips before settling
 
 const CX = 120
 const CY = 120
@@ -61,16 +56,13 @@ function easeInOutSine(p: number): number {
 // One leg of the timeline: interpolate `from`→`to` over `dur` ms with `ease`.
 type Segment = { dur: number; from: number; to: number; ease: (p: number) => number }
 
-// The slam-and-bounce keyframe legs for a given clamped target.
+// Keyframe legs for a given clamped target: rev into 100, drop past the score,
+// settle up. No dwell or bounce at the top.
 function buildSegments(target: number): Segment[] {
-  const trough = 100 - BOUNCE_DEPTH
-  const rebound = 100 - BOUNCE_RETURN
   const undershoot = Math.max(0, target - UNDERSHOOT)
   return [
-    { dur: REV_MS, from: 0, to: 100, ease: easeInCubic }, // slam into 100
-    { dur: DIP_MS, from: 100, to: trough, ease: easeOutCubic }, // recoil off the ceiling
-    { dur: REBOUND_MS, from: trough, to: rebound, ease: easeOutCubic }, // partial rebound
-    { dur: FALL_MS, from: rebound, to: undershoot, ease: easeInOutSine }, // fall back, past the target
+    { dur: REV_MS, from: 0, to: 100, ease: easeInCubic }, // accelerate into 100
+    { dur: FALL_MS, from: 100, to: undershoot, ease: easeInOutSine }, // drop back past the target
     { dur: SETTLE_MS, from: undershoot, to: target, ease: easeOutCubic }, // settle up onto the score
   ]
 }
@@ -103,10 +95,12 @@ const TICKS = Array.from({ length: 11 }, (_, i) => i * 10)
 
 export function ScoreGauge(props: { score: number | null }) {
   const target = clampScore(props.score)
-  // SSR/no-JS/print render the FINAL value (honest static state); the mount
-  // effect restarts from 0 only when motion is allowed.
+  // SSR/no-JS/print render the FINAL value (honest static state); the effect
+  // resets to 0 and rises from there only when motion is allowed AND the gauge
+  // has scrolled into view.
   const [display, setDisplay] = useState<number | null>(target)
   const rafRef = useRef(0)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (target === null) {
@@ -118,29 +112,55 @@ export function ScoreGauge(props: { score: number | null }) {
       setDisplay(target)
       return
     }
-    const segments = buildSegments(target)
-    const total = segments.reduce((sum, s) => sum + s.dur, 0)
-    const startedAt = performance.now()
-    const tick = (now: number) => {
-      const t = now - startedAt
-      if (t >= total) {
-        setDisplay(target)
-        return // timeline done — stop scheduling
-      }
-      let acc = 0
-      let v = target
-      for (const s of segments) {
-        if (t < acc + s.dur) {
-          v = s.from + (s.to - s.from) * s.ease((t - acc) / s.dur)
-          break
+    // Park the needle at 0 until the gauge is on screen, then rev.
+    setDisplay(0)
+    const runTimeline = () => {
+      const segments = buildSegments(target)
+      const total = segments.reduce((sum, s) => sum + s.dur, 0)
+      const startedAt = performance.now()
+      const tick = (now: number) => {
+        const t = now - startedAt
+        if (t >= total) {
+          setDisplay(target)
+          return // timeline done — stop scheduling
         }
-        acc += s.dur
+        let acc = 0
+        let v = target
+        for (const s of segments) {
+          if (t < acc + s.dur) {
+            v = s.from + (s.to - s.from) * s.ease((t - acc) / s.dur)
+            break
+          }
+          acc += s.dur
+        }
+        setDisplay(Math.min(100, Math.max(0, v)))
+        rafRef.current = requestAnimationFrame(tick)
       }
-      setDisplay(Math.min(100, Math.max(0, v)))
       rafRef.current = requestAnimationFrame(tick)
     }
-    rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
+
+    const el = containerRef.current
+    // No IntersectionObserver (jsdom/old browsers): rev immediately.
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      runTimeline()
+      return () => cancelAnimationFrame(rafRef.current)
+    }
+    let started = false
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!started && entries.some((e) => e.isIntersecting)) {
+          started = true
+          io.disconnect()
+          runTimeline()
+        }
+      },
+      { threshold: 0.35 },
+    )
+    io.observe(el)
+    return () => {
+      io.disconnect()
+      cancelAnimationFrame(rafRef.current)
+    }
   }, [target])
 
   const value = display
@@ -159,8 +179,8 @@ export function ScoreGauge(props: { score: number | null }) {
   const needlePoints = `${tip.x.toFixed(2)},${tip.y.toFixed(2)} ${baseL.x.toFixed(2)},${baseL.y.toFixed(2)} ${tail.x.toFixed(2)},${tail.y.toFixed(2)} ${baseR.x.toFixed(2)},${baseR.y.toFixed(2)}`
 
   return (
-    <div className="flex flex-col items-center" role="img" aria-label={value === null ? 'Overall score not available' : `Overall score ${Math.round(value)} out of 100`}>
-      <svg viewBox="0 0 240 214" className="w-64 sm:w-72">
+    <div ref={containerRef} className="flex flex-col items-center" role="img" aria-label={value === null ? 'Overall score not available' : `Overall score ${Math.round(value)} out of 100`}>
+      <svg viewBox="0 0 240 214" className="w-full max-w-[16rem] sm:max-w-[18rem]">
         <defs>
           <filter id="gauge-needle-shadow" x="-40%" y="-40%" width="180%" height="180%">
             <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" floodColor="#0f172a" floodOpacity="0.35" />

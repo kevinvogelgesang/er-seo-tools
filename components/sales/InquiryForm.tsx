@@ -66,12 +66,6 @@ export function InquiryForm(props: { contactEmail: string; prospectName: string;
           Send inquiry
         </button>
       </form>
-      <p className="text-[12px] font-body text-navy/50 dark:text-white/50">
-        Prefer email?{' '}
-        <a href={`mailto:${props.contactEmail}`} className="font-heading font-semibold text-blue-700 dark:text-blue-400">
-          {props.contactEmail}
-        </a>
-      </p>
     </section>
   )
 }

@@ -6,7 +6,7 @@ import { InquiryForm } from './InquiryForm'
 afterEach(cleanup)
 
 describe('InquiryForm', () => {
-  it('renders the anchor target, all four fields, submit, and the fallback mailto link', () => {
+  it('renders the anchor target, all four fields, and submit (no "prefer email" callout)', () => {
     const { container } = render(
       <InquiryForm contactEmail="kevin@enrollmentresources.com" prospectName="Acme" domain="acme.test" />,
     )
@@ -16,7 +16,7 @@ describe('InquiryForm', () => {
     expect(screen.getByLabelText(/phone/i)).toBeTruthy()
     expect(screen.getByLabelText(/message/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: /send/i })).toBeTruthy()
-    const mail = screen.getByRole('link', { name: /kevin@enrollmentresources.com/i }) as HTMLAnchorElement
-    expect(mail.href).toContain('mailto:kevin@enrollmentresources.com')
+    // The "Prefer email?" mailto callout was removed (Kevin pass 4) — the form is the CTA.
+    expect(screen.queryByRole('link', { name: /kevin@enrollmentresources.com/i })).toBeNull()
   })
 })

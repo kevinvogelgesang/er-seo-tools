@@ -35,7 +35,7 @@ export function HeroRow(props: {
           />
         </div>
       )}
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card p-8 shadow-md">
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card p-6 sm:p-8 shadow-md">
         <ScoreGauge score={props.overallScore} />
       </div>
     </div>

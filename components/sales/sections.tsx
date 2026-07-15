@@ -63,8 +63,8 @@ export function AccessibilitySalesSection(props: {
       <SectionLead>{SECTION_INTROS.accessibility}</SectionLead>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {SEVERITY_TILES.map((t) => (
-          <div key={t.key} className="rounded-xl border border-gray-200 dark:border-navy-border p-5 text-center">
-            <div className={`text-4xl font-heading font-extrabold tabular-nums ${t.cls}`}>{counts[t.key]}</div>
+          <div key={t.key} className="rounded-xl border border-gray-200 dark:border-navy-border p-4 sm:p-5 text-center">
+            <div className={`text-3xl sm:text-4xl font-heading font-extrabold tabular-nums ${t.cls}`}>{counts[t.key]}</div>
             <div className="mt-1 text-[12px] font-body text-navy/50 dark:text-white/50">{t.label}</div>
           </div>
         ))}
@@ -301,7 +301,7 @@ export function GeoSalesSection(props: { data: SalesReportData['geo']; pagesTota
               </div>
               <p className="text-[12px] font-body text-navy/60 dark:text-white/60">
                 {found
-                  ? `Present on at least one scanned page.`
+                  ? `In place — search engines and AI tools can read your ${type} details directly instead of guessing.`
                   : `Not observed on the ${d.observedPages ?? 0} pages we scanned${observationPartial ? ' (coverage may be partial)' : ''}. ${SCHEMA_IMPLICATIONS[type]}`}
               </p>
             </div>
