@@ -16,7 +16,7 @@ import {
   SEO_FETCH_USER_AGENT,
 } from '@/lib/seo-fetch/fetch'
 
-const HARD_CAP = 1000
+export const HARD_CAP = 1000
 const FETCH_TIMEOUT = 15_000
 const MAX_HTML_BYTES = 1_000_000
 
