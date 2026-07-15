@@ -144,6 +144,10 @@ describe('KeywordProfileCard', () => {
 
   it('disables all controls when archived', () => {
     render(<KeywordProfileCard clientId={1} initialProfile={emptyProfile} archived={true} />)
-    for (const b of screen.getAllByRole('button')) expect((b as HTMLButtonElement).disabled).toBe(true)
+    // The "What is this?" Explainer trigger is a read-only disclosure, not a
+    // data-mutating control — it is intentionally never disabled by archived
+    // state, so it's excluded from this sweep.
+    for (const b of screen.getAllByRole('button', { name: (name) => name !== 'What is this?' }))
+      expect((b as HTMLButtonElement).disabled).toBe(true)
   })
 })

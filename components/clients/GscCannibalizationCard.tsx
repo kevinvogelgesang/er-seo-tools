@@ -11,6 +11,7 @@
 
 import { useState } from 'react'
 import type { CannibalizationReport } from '@/lib/keywords/types'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 type Report = CannibalizationReport['report']
 
@@ -72,6 +73,16 @@ export function GscCannibalizationCard({ clientId, initial }: Props) {
           </button>
         )}
       </div>
+
+      <Explainer label="What is this?" className="mb-3">
+        <ExplainerSummary>
+          The full keyword-cannibalization list from the latest Search Console snapshot: queries
+          where two or more pages each captured at least 20% of the query&apos;s impressions,
+          splitting click potential between them. Refreshing here pulls a fresh snapshot and
+          rebuilds this report independently of the keyword snapshot card above. A query missing
+          from this list wasn&apos;t seen splitting in the window — not proof it can&apos;t be.
+        </ExplainerSummary>
+      </Explainer>
 
       {!gscMapped && (
         <p className="text-xs text-gray-500 dark:text-white/50">

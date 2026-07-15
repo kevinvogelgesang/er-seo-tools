@@ -14,6 +14,7 @@
 import { useState } from 'react'
 import type { GscSnapshotSummary } from '@/lib/keywords/gsc-snapshot'
 import { SeverityBadge } from '@/components/ui/SeverityBadge'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 interface Props {
   clientId: number
@@ -80,6 +81,16 @@ export function GscKeywordCard({ clientId, initial }: Props) {
           </button>
         )}
       </div>
+
+      <Explainer label="What is this?" className="mb-3">
+        <ExplainerSummary>
+          Ranking signals pulled from Google Search Console over a trailing 91-day window ending
+          three days back: wins (average position in the top 10), opportunities (positions 11–30),
+          quick wins (positions 11–20), and queries where two or more pages split the same
+          query&apos;s impressions (cannibalization). A keyword that does not appear was simply not
+          reported by GSC in the window — never proof the site isn&apos;t ranking for it.
+        </ExplainerSummary>
+      </Explainer>
 
       {!initial.gscMapped && (
         <p className="text-xs text-gray-500 dark:text-white/50">
