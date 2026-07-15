@@ -122,7 +122,7 @@ Do not confuse tracker D-items with **per-spec decision codes**: specs lock scop
 Model: `docs/superpowers/plans/2026-06-30-autonomous-live-seo-source.md`.
 
 1. **Title** then the required banner, verbatim:
-   > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+   > **For agentic workers:** REQUIRED SUB-SKILL: implement this plan task-by-task with your harness's plan-execution loop — Claude: superpowers:subagent-driven-development (recommended) or superpowers:executing-plans; Codex: er-seo-tools-workflow. Steps use checkbox (`- [ ]`) syntax for tracking.
 2. **Goal / Architecture / Tech Stack** — one bold paragraph each.
 3. **Resolved decisions** — the spec's D1–D4 restated with Kevin's ruling and date.
 4. **Global Constraints** — the repo invariants restated verbatim (array-form
