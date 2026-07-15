@@ -1,19 +1,28 @@
 'use client'
-// C14 redesign: large SVG arc gauge (~240° sweep) with the "engine rev"
-// timeline on mount — rev 0→100 (ease-in, ~0.9s) → hold (~0.2s) → fall back
-// to the real score with an overshoot/bounce settle (~0.8s). One rAF-driven
-// timeline (no animation library); the readout ticks in sync; the loop is
-// cancelled on unmount and the score input is clamped to finite 0–100 (spec
-// Codex fix 7). prefers-reduced-motion (via matchMedia): final state
-// immediately. Arc color tracks the CURRENT needle value through the house
-// grade thresholds (red < 60, amber 60–89, green ≥ 90 — gradeForScore).
+// C14 redesign: large SVG arc gauge (~240° sweep) with a "slam-and-bounce"
+// timeline on mount (Kevin pass 3): rev 0→100 accelerating into the ceiling →
+// bounce OFF 100 (a quick recoil dip + partial rebound, no hold) → fall back
+// down past the real score (undershoot) → settle UP to the actual number.
+// Built as explicit keyframed segments over one rAF loop (no animation
+// library); the readout ticks in sync; the loop is cancelled on unmount and
+// the score input is clamped to finite 0–100 (spec Codex fix 7).
+// prefers-reduced-motion (via matchMedia): final state immediately. Arc color
+// tracks the CURRENT needle value (red <80, amber 80–94, green ≥95).
 import { useEffect, useRef, useState } from 'react'
 
 const SWEEP_DEG = 240
 const START_DEG = 150 // 150° → 390°: opening faces down
-const REV_MS = 850
-const HOLD_MS = 150
-const FALL_MS = 950
+
+// Slam-and-bounce timeline (ms). No hold at the top — the bounce replaces it.
+const REV_MS = 720      // 0 → 100, accelerating into the ceiling
+const DIP_MS = 120      // 100 → recoil trough (the "bounce off 100")
+const REBOUND_MS = 130  // trough → partial rebound before gravity wins
+const FALL_MS = 470     // rebound → undershoot below the target
+const SETTLE_MS = 340   // undershoot → rest on the actual score
+// Bounce/undershoot depths, in score points.
+const BOUNCE_DEPTH = 11 // how far the needle recoils below 100 on impact
+const BOUNCE_RETURN = 4 // how far below 100 the rebound peaks before the fall
+const UNDERSHOOT = 7    // how far below the target the fall dips before settling
 
 const CX = 120
 const CY = 120
@@ -42,10 +51,28 @@ function gaugeColor(v: number): string {
 function easeInCubic(p: number): number {
   return p * p * p
 }
-function easeOutBack(p: number): number {
-  const c1 = 1.70158
-  const c3 = c1 + 1
-  return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2)
+function easeOutCubic(p: number): number {
+  return 1 - Math.pow(1 - p, 3)
+}
+function easeInOutSine(p: number): number {
+  return -(Math.cos(Math.PI * p) - 1) / 2
+}
+
+// One leg of the timeline: interpolate `from`→`to` over `dur` ms with `ease`.
+type Segment = { dur: number; from: number; to: number; ease: (p: number) => number }
+
+// The slam-and-bounce keyframe legs for a given clamped target.
+function buildSegments(target: number): Segment[] {
+  const trough = 100 - BOUNCE_DEPTH
+  const rebound = 100 - BOUNCE_RETURN
+  const undershoot = Math.max(0, target - UNDERSHOOT)
+  return [
+    { dur: REV_MS, from: 0, to: 100, ease: easeInCubic }, // slam into 100
+    { dur: DIP_MS, from: 100, to: trough, ease: easeOutCubic }, // recoil off the ceiling
+    { dur: REBOUND_MS, from: trough, to: rebound, ease: easeOutCubic }, // partial rebound
+    { dur: FALL_MS, from: rebound, to: undershoot, ease: easeInOutSine }, // fall back, past the target
+    { dur: SETTLE_MS, from: undershoot, to: target, ease: easeOutCubic }, // settle up onto the score
+  ]
 }
 
 function polar(deg: number, r: number): { x: number; y: number } {
@@ -91,20 +118,23 @@ export function ScoreGauge(props: { score: number | null }) {
       setDisplay(target)
       return
     }
+    const segments = buildSegments(target)
+    const total = segments.reduce((sum, s) => sum + s.dur, 0)
     const startedAt = performance.now()
     const tick = (now: number) => {
       const t = now - startedAt
-      let v: number
-      if (t < REV_MS) {
-        v = 100 * easeInCubic(t / REV_MS)
-      } else if (t < REV_MS + HOLD_MS) {
-        v = 100
-      } else if (t < REV_MS + HOLD_MS + FALL_MS) {
-        const p = (t - REV_MS - HOLD_MS) / FALL_MS
-        v = 100 + (target - 100) * easeOutBack(p) // easeOutBack > 1 ⇒ slight overshoot past the target, then settle
-      } else {
+      if (t >= total) {
         setDisplay(target)
         return // timeline done — stop scheduling
+      }
+      let acc = 0
+      let v = target
+      for (const s of segments) {
+        if (t < acc + s.dur) {
+          v = s.from + (s.to - s.from) * s.ease((t - acc) / s.dur)
+          break
+        }
+        acc += s.dur
       }
       setDisplay(Math.min(100, Math.max(0, v)))
       rafRef.current = requestAnimationFrame(tick)
