@@ -2,7 +2,7 @@
 
 ## Current Log State
 
-The production log at `/home/seotools/er-seo-tools.log` contains only one error:
+The production log at `$LOG_HOME/app.log` contains only one error:
 
 ```
 [ada-audit] id=cmnf3s3si0001u3z3jnlytqlu url=http://www.beal.edu/ error: Error: HTTP 403 —

@@ -12,7 +12,7 @@
 
 **Source data:** The 2026-05-21 queue-wide audit produced 1138 page errors across 31 sites. 99.1% were `Navigation timeout` errors concentrated in `soma.edu` (833) and `prismcareerinstitute.edu` (294). Full breakdown is in the spec.
 
-**Pre-flight:** None — works against `main` as it is. Each phase ends with a deploy (`ssh seo@144.126.213.242 "~/deploy.sh"`) and a brief manual verification.
+**Pre-flight:** None — works against `main` as it is. Each phase ends with a deploy (`ssh $PROD_SSH "~/deploy.sh"`) and a brief manual verification.
 
 ---
 
@@ -263,7 +263,7 @@ Run: `git push`
 
 - [ ] **Step 3: Deploy**
 
-Run: `ssh seo@144.126.213.242 "~/deploy.sh"`
+Run: `ssh $PROD_SSH "~/deploy.sh"`
 Expected: PM2 restart succeeds; `seo-tools` returns to `online`.
 
 - [ ] **Step 4: Manual verification on the known-problem URLs**
@@ -950,7 +950,7 @@ Expected: clean.
 
 - [ ] **Step 2: Push and deploy**
 
-Run: `git push && ssh seo@144.126.213.242 "~/deploy.sh"`
+Run: `git push && ssh $PROD_SSH "~/deploy.sh"`
 
 - [ ] **Step 3: Manual verification**
 
@@ -1342,7 +1342,7 @@ Expected: clean.
 
 - [ ] **Step 2: Push and deploy**
 
-Run: `git push && ssh seo@144.126.213.242 "~/deploy.sh"`
+Run: `git push && ssh $PROD_SSH "~/deploy.sh"`
 Expected: migration runs (`pdf-skipped-status`); PM2 restart succeeds.
 
 - [ ] **Step 3: Verify on prod**
@@ -1719,7 +1719,7 @@ EOF
 - [ ] **Step 1: Build + push + deploy**
 
 ```bash
-npm run build && git push && ssh seo@144.126.213.242 "~/deploy.sh"
+npm run build && git push && ssh $PROD_SSH "~/deploy.sh"
 ```
 
 - [ ] **Step 2: Verify on beal.edu**

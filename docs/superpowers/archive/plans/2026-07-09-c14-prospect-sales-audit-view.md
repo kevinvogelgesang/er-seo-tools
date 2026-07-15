@@ -2800,6 +2800,6 @@ git commit -m "feat(c14): dev seed script for sales-view browser verification"
 
 - PR via `superpowers:finishing-a-development-branch`; gates re-run on the merge candidate.
 - Tracker checkbox + status-log line in `docs/superpowers/todos/2026-06-10-improvement-roadmap-tracker.md`; rewrite `HANDOFF-improvement-roadmap.md`; move spec+plan to `archive/` on ship.
-- Deploy per CLAUDE.md (`git push` then `ssh seo@144.126.213.242 "~/deploy.sh"`); prod-verify: health ok, migration applied (`Prospect` table exists), `/sales/<token>` public, `/sales` gated, PM2 stable.
+- Deploy per CLAUDE.md (`git push` then `ssh $PROD_SSH "~/deploy.sh"`); prod-verify: health ok, migration applied (`Prospect` table exists), `/sales/<token>` public, `/sales` gated, PM2 stable.
 - Env (optional): `SALES_CONTACT_EMAIL` in the server `.env` if the default should change.
 - First REAL prospect scan is Kevin-initiated (owner-sanctioned policy).

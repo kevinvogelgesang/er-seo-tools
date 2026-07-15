@@ -501,7 +501,7 @@ git push -u origin feat/d1-pr2-route-auth
 gh pr create --title "D1 PR2: routes adopt shared handoff route-auth (wire-frozen)" --body "..."
 ```
 
-Merge when gate-green; deploy (`ssh seo@144.126.213.242 "~/deploy.sh"`); post-deploy verify: `/api/health` ok; one public GET per family without a token returns that family's exact error code (curl matrix: `pillar-analysis/x`, `seo-roadmap/x`, `keyword-memo/x`, `keyword-strategy/x`, `content-audit/x/manifest`, `quarter-plan/push/1`); error log quiet; prefix literals (`pat_`, `srt_`, …) intact in minified chunks.
+Merge when gate-green; deploy (`ssh $PROD_SSH "~/deploy.sh"`); post-deploy verify: `/api/health` ok; one public GET per family without a token returns that family's exact error code (curl matrix: `pillar-analysis/x`, `seo-roadmap/x`, `keyword-memo/x`, `keyword-strategy/x`, `content-audit/x/manifest`, `quarter-plan/push/1`); error log quiet; prefix literals (`pat_`, `srt_`, …) intact in minified chunks.
 
 ---
 

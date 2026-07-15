@@ -12,14 +12,16 @@ Internal SEO toolkit for Enrollment Resources. Next.js 15 App Router, TypeScript
 ## Deploy
 Always `git push` before SSHing — the server pulls from GitHub.
 
+Server address and paths are not committed. `$PROD_SSH`/`$APP_HOME`/`$DATA_HOME`/`$LOG_HOME`/`$SERVER_HOME` are placeholders — resolve them from the team's internal ops notes (see the legend in `docs/SERVER_SETUP.md`) and `export` them before running the commands below.
+
 ```bash
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
-- **App path:** `/home/seo/webapps/seo-tools`
-- **DB:** `/home/seo/data/seo-tools/db.sqlite`
-- **Uploads:** `/home/seo/data/seo-tools/uploads`
-- **Logs:** `/home/seo/logs/`
+- **App path:** `$APP_HOME`
+- **DB:** `$DATA_HOME/db.sqlite`
+- **Uploads:** `$DATA_HOME/uploads`
+- **Logs:** `$LOG_HOME/`
 - **In-build type-check/lint are DISABLED** (`next.config.ts` `typescript.ignoreBuildErrors` + `eslint.ignoreDuringBuilds`, 2026-07-11 deploy-OOM fix — the extra build workers OOM'd the 3.9 GB box twice while the app was resident). Local gates (`tsc --noEmit` + vitest) are the ONLY type-check gate: never merge without them, and never re-enable the in-build checks "for safety" without solving server build memory first.
 
 ## Improvement-roadmap handoff protocol

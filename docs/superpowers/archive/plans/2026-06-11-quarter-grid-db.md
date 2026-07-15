@@ -1428,8 +1428,8 @@ Ship flow (PR → deploy → production verification with the analyst's real loc
 
 ## Production verification checklist (post-deploy, for the close-out)
 
-1. Deploy (`git push` then `ssh seo@144.126.213.242 "~/deploy.sh"`); migration auto-applies.
+1. Deploy (`git push` then `ssh $PROD_SSH "~/deploy.sh"`); migration auto-applies.
 2. **Before anyone else opens the page**, Kevin opens `/quarter-grid` in the browser that holds the real `seo-quarter-v3` state → expect the "Imported quarter plan from this browser" toast and an identical-looking grid (assignments, priorities, statuses, notes, layouts dropdown, start date, slots/week).
 3. Second browser (incognito) shows the same grid; a drag in one appears in the other after reload.
-4. Server spot-check via node + Prisma from `/home/seo/webapps/seo-tools` (no sqlite3 CLI): one `QuarterPlan` row, ~30 `QuarterAssignment` rows, week/position populated.
+4. Server spot-check via node + Prisma from `$APP_HOME` (no sqlite3 CLI): one `QuarterPlan` row, ~30 `QuarterAssignment` rows, week/position populated.
 5. `POST /api/quarter-plan/import` against the live DB returns 409 (guard armed).

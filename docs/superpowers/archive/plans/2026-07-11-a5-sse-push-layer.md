@@ -853,7 +853,7 @@ Expected: all green. **`npm run smoke` is MANDATORY** here (Codex plan-fix 13) �
 
 - [ ] **Step 2: PR + merge** (gate-green, rule 1) — push branch, open PR with `gh`, merge once gates re-run green in the merging session.
 
-- [ ] **Step 3: Deploy** — `ssh seo@144.126.213.242 "~/deploy.sh"`. No new required env var; plain deploy. Verify clean boot (`/api/health` 200, 0 restarts).
+- [ ] **Step 3: Deploy** — `ssh $PROD_SSH "~/deploy.sh"`. No new required env var; plain deploy. Verify clean boot (`/api/health` 200, 0 restarts).
 
 - [ ] **Step 4: PROD-VERIFY SSE STREAMS (make-or-break).** First confirm whether the real `NEXT_PUBLIC_APP_URL` host is Cloudflare-fronted. Then, with a valid auth cookie:
 ```bash

@@ -695,6 +695,6 @@ git push -u origin feat/a8-pr7-clients-polish
 gh pr create --title "feat(a8-pr7): /clients visual polish — SeverityBadge primitive + tokens + wrappers" --body "<summary per house style; MUST list the documented visible canonicalizations for Kevin's eyeball: alert-pill bg *-100→*-50, gray-500→gray-600 text step, px-2→px-1.5 badge padding, #e09415→orange-dark hover shift, four StatusPill shape canonicalizations (timeline status, Paused, Archived, ✓ Done)>"
 ```
 
-- [ ] **Step 2: Merge per change-control rule 1** (gates re-run green in this session → merge), deploy (`git push` then `ssh seo@144.126.213.242 "pm2 stop seo-tools && ~/deploy.sh"`), post-deploy verify: `/api/health` ok, `/clients` → 307 login gate, new tone classes (`bg-purple-50`, `text-orange-700`) present in the shipped CSS bundle (PR 5 recipe), clean boot log.
+- [ ] **Step 2: Merge per change-control rule 1** (gates re-run green in this session → merge), deploy (`git push` then `ssh $PROD_SSH "pm2 stop seo-tools && ~/deploy.sh"`), post-deploy verify: `/api/health` ok, `/clients` → 307 login gate, new tone classes (`bg-purple-50`, `text-orange-700`) present in the shipped CSS bundle (PR 5 recipe), clean boot log.
 
 - [ ] **Step 3: Docs ritual** — tracker A8 entry + dated status-log line + rewritten handoff doc in the same commit; spec + plan → `docs/superpowers/archive/`; reply ends with the paste-in prompt.

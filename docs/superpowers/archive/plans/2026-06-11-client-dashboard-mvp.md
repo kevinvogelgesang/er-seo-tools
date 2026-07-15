@@ -2070,11 +2070,11 @@ footer.
 
 ## Post-merge production checks (from the spec)
 
-After deploy (`ssh seo@144.126.213.242 "~/deploy.sh"`):
+After deploy (`ssh $PROD_SSH "~/deploy.sh"`):
 
 1. `/clients` renders all ~30 clients with scores for post-A2 runs.
 2. Count non-null legacy standalone scores (calibrates the fallback's value):
-   run from `/home/seo/webapps/seo-tools` via node + Prisma:
+   run from `$APP_HOME` via node + Prisma:
    `prisma.adaAudit.count({ where: { siteAuditId: null, status: 'complete', score: { not: null } } })`.
 3. Confirm a recent standalone audit shows a page-audit `CrawlRun` point.
 4. Spot-check one client dashboard against its tool pages (scores match the

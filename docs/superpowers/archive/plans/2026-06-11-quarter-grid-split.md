@@ -1905,18 +1905,18 @@ EOF
 ```bash
 gh pr merge --squash --delete-branch    # or Kevin's preferred merge mode
 git checkout main && git pull
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 - [ ] **Step 3: Production verification**
 
 ```bash
 # Boot clean
-ssh seo@144.126.213.242 "pm2 logs seo-tools --lines 50 --nostream"
+ssh $PROD_SSH "pm2 logs seo-tools --lines 50 --nostream"
 # Authed page + API checks. Do NOT extract APP_AUTH_PASSWORD into a shell
 # argument (process-args/history leak). Run the login server-side via a
 # script that reads the env itself:
-ssh seo@144.126.213.242 'cd /home/seo/webapps/seo-tools && bash -s' <<'EOF'
+ssh $PROD_SSH 'cd $APP_HOME && bash -s' <<'EOF'
 set -a; source .env >/dev/null 2>&1; set +a
 curl -s -c /tmp/b4jar -o /dev/null -X POST localhost:3000/api/auth/login -F password="$APP_AUTH_PASSWORD"
 curl -s -b /tmp/b4jar -o /dev/null -w "quarter-grid %{http_code}\n" localhost:3000/quarter-grid

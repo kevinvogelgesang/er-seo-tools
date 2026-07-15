@@ -126,12 +126,12 @@ Open the PR (`feat/autonomous-live-seo-source` → `main`), record the gate
 output in the PR body, and merge (2026-07-03 ruling — a pasted roadmap
 continuation prompt is standing authorization; gates must be green in THIS
 session). Then deploy: `git push` first, then
-`ssh seo@144.126.213.242 "~/deploy.sh"` (server pulls from GitHub;
+`ssh $PROD_SSH "~/deploy.sh"` (server pulls from GitHub;
 `prisma migrate deploy` applies `20260630120000_live_seo_source`
 automatically). Gate 0.3 verification is mandatory immediately after.
 
 **Expected after deploy:** PM2 restart clean, no migration errors in
-`/home/seo/logs/`. If the migration fails → the `PillarAnalysis` table-rebuild
+`$LOG_HOME/`. If the migration fails → the `PillarAnalysis` table-rebuild
 is the risky part (SQLite PRAGMA rebuild); do NOT hand-patch prod SQL — roll
 back the deploy with Kevin and fix the migration in a follow-up commit.
 
@@ -168,7 +168,7 @@ The full ADA pipeline runs (axe + screenshots + PSI) — SEO-only scan mode is a
 
 **Step 3 — DB checks** (server has NO sqlite3 CLI; use Prisma from the app dir):
 ```bash
-cd /home/seo/webapps/seo-tools && npx tsx -e "
+cd $APP_HOME && npx tsx -e "
 import { prisma } from './lib/db'
 async function main() {
   const run = await prisma.crawlRun.findFirst({
@@ -243,7 +243,7 @@ already land as `CrawlRun`s, so this is a query problem, not a build problem.
 ```bash
 DATABASE_URL="file:./local-dev.db" npx tsx \
   .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts <domain>
-# prod: cd /home/seo/webapps/seo-tools && npx tsx <skill-script-path> <domain>
+# prod: cd $APP_HOME && npx tsx <skill-script-path> <domain>
 # NOTE: verify the skill directory is committed with:
 #   git ls-files .claude/skills/er-seo-tools-sf-retirement-campaign/ | wc -l
 # (0 = untracked → the script does not exist on prod; commit/merge/deploy the

@@ -45,15 +45,15 @@ Use a sibling instead for:
 
 | Thing | Value |
 |---|---|
-| Server | DigitalOcean VPS `144.126.213.242`, Ubuntu 24.04, 2-core AMD, 3.82 GB RAM, 80 GB disk (docs/SERVER_SETUP.md) |
+| Server | DigitalOcean VPS `$PROD_HOST`, Ubuntu 24.04, 2-core AMD, 3.82 GB RAM, 80 GB disk (docs/SERVER_SETUP.md) |
 | Management | RunCloud; native NGINX reverse proxy → `127.0.0.1:3000`; Cloudflare in front |
 | Process | PM2, app name `seo-tools`, **fork mode, 1 instance** (`ecosystem.config.js`) — cluster mode would break the in-process browser pool, job worker, and upload-quota singletons |
-| SSH user | `seo@144.126.213.242` |
-| App dir | `/home/seo/webapps/seo-tools` |
-| DB | `/home/seo/data/seo-tools/db.sqlite` (SQLite, WAL mode) |
-| Uploads / screenshots / reports | `/home/seo/data/seo-tools/{uploads,screenshots,reports}` (set via `UPLOADS_DIR`/`SCREENSHOTS_DIR`/`REPORTS_DIR` in ecosystem.config.js) |
-| Backups dir | `/home/seo/data/seo-tools/backups` (see Open unknowns) |
-| Logs | `/home/seo/logs/seo-tools-out.log` and `/home/seo/logs/seo-tools-error.log` (`merge_logs: true`, dated lines) |
+| SSH user | `$PROD_SSH` |
+| App dir | `$APP_HOME` |
+| DB | `$DATA_HOME/db.sqlite` (SQLite, WAL mode) |
+| Uploads / screenshots / reports | `$DATA_HOME/{uploads,screenshots,reports}` (set via `UPLOADS_DIR`/`SCREENSHOTS_DIR`/`REPORTS_DIR` in ecosystem.config.js) |
+| Backups dir | `$DATA_HOME/backups` (see Open unknowns) |
+| Logs | `$LOG_HOME/seo-tools-out.log` and `$LOG_HOME/seo-tools-error.log` (`merge_logs: true`, dated lines) |
 | NGINX error log | `/var/log/nginx/seo-tools-error.log` (root access) |
 | Chrome | `/usr/bin/google-chrome` (required for ADA audits) |
 
@@ -70,26 +70,26 @@ Cloudflare implications: client IP comes from `CF-Connecting-IP` (used for uploa
 git push
 
 # 2. Autonomous when gate-green (2026-07-03 ruling) — verify immediately after:
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 `~/deploy.sh` lives **only on the server** — its body is not in the repo. Do not invent its internals. Per docs/SERVER_SETUP.md §7.1, the documented-equivalent sequence is:
 
 ```
 git pull && npm install
-  && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate
+  && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma generate
   && npm run build
   && pm2 stop seo-tools
-  && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy
+  && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate deploy
   && pm2 start seo-tools
 ```
 
-Observable effects to rely on: code is pulled, deps installed, Prisma client regenerated, Next.js rebuilt, **app stopped before `migrate deploy`** (avoids SQLite lock errors — never reorder), migrations applied, app restarted. One hint the real script differs: a comment in `instrumentation.ts` says "fuser -k in the deploy command sends SIGTERM" — only `ssh seo@144.126.213.242 "cat ~/deploy.sh"` (read-only, allowed) settles it.
+Observable effects to rely on: code is pulled, deps installed, Prisma client regenerated, Next.js rebuilt, **app stopped before `migrate deploy`** (avoids SQLite lock errors — never reorder), migrations applied, app restarted. One hint the real script differs: a comment in `instrumentation.ts` says "fuser -k in the deploy command sends SIGTERM" — only `ssh $PROD_SSH "cat ~/deploy.sh"` (read-only, allowed) settles it.
 
 ### Deploy traps
 
 1. **Never `npm ci` on the server.** RunCloud environments have lockfile drift; `npm ci` fails. Always `npm install` (docs/SERVER_SETUP.md §5.2, CLAUDE.md Do-not).
-2. **Server package-lock drift.** The `npm install` during each deploy leaves small local modifications (~3-line additions) to the server's `package-lock.json`; the next deploy's `git pull` then refuses to overwrite it and the deploy fails at step 1. Documented workaround (deploy-recovery runbook — autonomous under the 2026-07-03 ruling; it only discards the drifted lockfile): `cd /home/seo/webapps/seo-tools && git checkout -- package-lock.json`, then re-run the deploy. Source: `docs/pillar-analysis-handoff.md` ("worth investigating root cause when there's downtime; deploy works fine with the workaround" — that is the accepted state as of 2026-07-02).
+2. **Server package-lock drift.** The `npm install` during each deploy leaves small local modifications (~3-line additions) to the server's `package-lock.json`; the next deploy's `git pull` then refuses to overwrite it and the deploy fails at step 1. Documented workaround (deploy-recovery runbook — autonomous under the 2026-07-03 ruling; it only discards the drifted lockfile): `cd $APP_HOME && git checkout -- package-lock.json`, then re-run the deploy. Source: `docs/pillar-analysis-handoff.md` ("worth investigating root cause when there's downtime; deploy works fine with the workaround" — that is the accepted state as of 2026-07-02).
 3. **`pm2 restart` does NOT pick up `ecosystem.config.js` env changes.** Any deploy that changes values in ecosystem.config.js requires `pm2 delete seo-tools && pm2 start ecosystem.config.js` — a plain restart silently runs stale env/config (documented at `docs/superpowers/archive/plans/2026-05-15-lighthouse-pagespeed-provider.md:948` and `2026-05-14-audit-stability.md:722`, which notes even `max_memory_restart` is not re-read by a plain restart). Verify with `pm2 env 0 | grep <VAR>`.
 4. **Startup fail-fast can brick a deploy.** `instrumentation.ts` calls `process.exit(1)` in production if any of these is missing: `PILLAR_TOKEN_SECRET`, auth config (`APP_AUTH_SECRET` + at least one login path), or the Chromium egress guard (`CHROME_PROXY_SERVER` or `CHROMIUM_NETWORK_ISOLATED=true`). Shipping a new required-in-prod env var without first adding it to the server `.env` = PM2 crash-loop after an otherwise clean build. Always call out new required env vars in the PR body.
 5. **New/changed `.env` values must land BEFORE the deploy** — Next.js reads `.env` at process start.
@@ -98,38 +98,38 @@ Observable effects to rely on: code is pulled, deps installed, Prisma client reg
 
 ```bash
 # Process health + restart counter (high restart count = crash loop)
-ssh seo@144.126.213.242 "pm2 status"
+ssh $PROD_SSH "pm2 status"
 
 # Tail logs (merged out+error; --err for stderr only)
-ssh seo@144.126.213.242 "pm2 logs seo-tools --lines 100 --nostream"
-ssh seo@144.126.213.242 "pm2 logs seo-tools --err --lines 50 --nostream"
+ssh $PROD_SSH "pm2 logs seo-tools --lines 100 --nostream"
+ssh $PROD_SSH "pm2 logs seo-tools --err --lines 50 --nostream"
 
 # Prove what env the worker actually runs with
-ssh seo@144.126.213.242 "pm2 env 0 | grep -E 'LIGHTHOUSE|PSI|BROWSER_POOL|SITE_AUDIT'"
+ssh $PROD_SSH "pm2 env 0 | grep -E 'LIGHTHOUSE|PSI|BROWSER_POOL|SITE_AUDIT'"
 
 # Migration state (read-only)
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate status"
+ssh $PROD_SSH "cd $APP_HOME && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate status"
 
 # Memory / disk / OOM evidence
-ssh seo@144.126.213.242 "free -h && df -h / && du -sh /home/seo/data/seo-tools/"
-ssh seo@144.126.213.242 "dmesg | grep -i oom | tail -10"   # may need root
+ssh $PROD_SSH "free -h && df -h / && du -sh $DATA_HOME/"
+ssh $PROD_SSH "dmesg | grep -i oom | tail -10"   # may need root
 
 # Chrome processes (should only exist during active audits)
-ssh seo@144.126.213.242 "ps aux | grep chrome | grep -v grep | wc -l"
+ssh $PROD_SSH "ps aux | grep chrome | grep -v grep | wc -l"
 
 # SQLite health + WAL size (large WAL = checkpointing stalled)
-ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA integrity_check;' && ls -lh /home/seo/data/seo-tools/db.sqlite*"
+ssh $PROD_SSH "sqlite3 $DATA_HOME/db.sqlite 'PRAGMA integrity_check;' && ls -lh $DATA_HOME/db.sqlite*"
 
 # Stuck / transient audits (table names = Prisma model names; no @@map in schema.prisma)
-ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite \"SELECT id, status, pagesTotal, pagesComplete, pdfsTotal, pdfsComplete, updatedAt FROM SiteAudit WHERE status NOT IN ('complete','error','cancelled') ORDER BY updatedAt DESC LIMIT 10;\""
+ssh $PROD_SSH "sqlite3 $DATA_HOME/db.sqlite \"SELECT id, status, pagesTotal, pagesComplete, pdfsTotal, pdfsComplete, updatedAt FROM SiteAudit WHERE status NOT IN ('complete','error','cancelled') ORDER BY updatedAt DESC LIMIT 10;\""
 # (SiteAudit has no `progress` column — progress is the counters above; the 0-100 `progress` field lives on AdaAudit)
 
 # Job queue state
-ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite \"SELECT type, status, COUNT(*) FROM Job GROUP BY type, status;\""
-ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite \"SELECT id, type, attempts, lastError FROM Job WHERE status='error' ORDER BY updatedAt DESC LIMIT 10;\""
+ssh $PROD_SSH "sqlite3 $DATA_HOME/db.sqlite \"SELECT type, status, COUNT(*) FROM Job GROUP BY type, status;\""
+ssh $PROD_SSH "sqlite3 $DATA_HOME/db.sqlite \"SELECT id, type, attempts, lastError FROM Job WHERE status='error' ORDER BY updatedAt DESC LIMIT 10;\""
 
 # Schedule tick health (nextRunAt far in the past = worker not ticking)
-ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite \"SELECT name, jobType, cadence, enabled, nextRunAt, lastRunAt FROM Schedule;\""
+ssh $PROD_SSH "sqlite3 $DATA_HOME/db.sqlite \"SELECT name, jobType, cadence, enabled, nextRunAt, lastRunAt FROM Schedule;\""
 ```
 
 Log line prefixes worth grepping: `[startup]` (fail-fast refusals), `[shutdown]`, `[cleanup]` (retention task failures), `[jobs]` (worker/schedules), `[findings] dual-write failed` (needs `scripts/findings-rebuild.ts`).
@@ -139,9 +139,9 @@ Log line prefixes worth grepping: `[startup]` (fail-fast refusals), `[shutdown]`
 - **Normal path: automatic.** `prisma migrate deploy` runs inside the deploy, with the app stopped. Local flow stays: edit `prisma/schema.prisma` → `npx prisma migrate dev --name <name>` (if it prompts/hangs in a non-interactive session, hand-author the migration SQL and apply with `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy` — see er-seo-tools-change-control) → commit the migration dir → push → merge → deploy (autonomous when gate-green).
 - **Manual path (failed-migration recovery only — autonomous under the 2026-07-03 ruling, but report it and check the D0 backup exists first):**
   ```bash
-  cd /home/seo/webapps/seo-tools
-  DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate status
-  DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate resolve --applied <migration_name>
+  cd $APP_HOME
+  DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate status
+  DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate resolve --applied <migration_name>
   ```
   Always pass `DATABASE_URL` inline ("belt and suspenders" — the CLI may not load the app's `.env`), and only run migrations with the app stopped.
 - 39 migrations as of 2026-07-02 (latest: `20260630120000_live_seo_source`, on the feature branch — not on main/prod yet).
@@ -191,17 +191,17 @@ If data "disappeared", check this table before suspecting a bug — then check `
 
 ## Secrets handling
 
-Secrets live in the server's gitignored `.env` at `/home/seo/webapps/seo-tools/.env` — NOT in `ecosystem.config.js` (which deliberately holds only non-secret tuning knobs so `pm2 env` can prove them). Never print secret **values**; names only:
+Secrets live in the server's gitignored `.env` at `$APP_HOME/.env` — NOT in `ecosystem.config.js` (which deliberately holds only non-secret tuning knobs so `pm2 env` can prove them). Never print secret **values**; names only:
 
 - `APP_AUTH_SECRET`, `APP_AUTH_PASSWORD` (break-glass; disable via `ALLOW_PASSWORD_LOGIN=false`)
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_ALLOWED_HD`
 - `PILLAR_TOKEN_SECRET`, `SEO_ROADMAP_TOKEN_SECRET`, `KEYWORD_MEMO_TOKEN_SECRET`, `QUARTER_PUSH_TOKEN_SECRET` (skill-handoff JWT signing; all required in prod)
-- `GOOGLE_SA_KEY_FILE` → points at the service-account JSON: `/home/seo/data/seo-tools/google-sa.json`, `chmod 0600`, owned by `seo` (docs/google-service-account-setup.md)
+- `GOOGLE_SA_KEY_FILE` → points at the service-account JSON: `$DATA_HOME/google-sa.json`, `chmod 0600`, owned by `seo` (docs/google-service-account-setup.md)
 - `PAGESPEED_API_KEY` (optional, raises PSI quota)
 - `NEXT_PUBLIC_APP_URL` (share-link base — never derive from request origin)
 - `CHROME_PROXY_SERVER` or `CHROMIUM_NETWORK_ISOLATED=true` (egress guard — one is required in prod)
 
-Checking which names are set (read-only, values redacted): `ssh seo@144.126.213.242 "grep -oE '^[A-Z_]+' /home/seo/webapps/seo-tools/.env"`.
+Checking which names are set (read-only, values redacted): `ssh $PROD_SSH "grep -oE '^[A-Z_]+' $APP_HOME/.env"`.
 
 Never put ops/infra strings (IPs, SSH commands, paths) in client components — the 2026-06-29 pentest's top finding was the deploy command shipped in the public JS footer. Regression check: `rg "144\.126|ssh seo|deploy\.sh" app components lib`.
 
@@ -211,31 +211,31 @@ Run after EVERY deploy — it is the mandatory second half of an autonomous depl
 
 ```bash
 # 1. Process up, restart counter not climbing
-ssh seo@144.126.213.242 "pm2 status"
+ssh $PROD_SSH "pm2 status"
 
 # 2. Boot was clean — no [startup] refusals, recovery ran
-ssh seo@144.126.213.242 "pm2 logs seo-tools --lines 80 --nostream | grep -E '\[startup\]|\[shutdown\]|\[jobs\]|\[cleanup\]|Error'"
+ssh $PROD_SSH "pm2 logs seo-tools --lines 80 --nostream | grep -E '\[startup\]|\[shutdown\]|\[jobs\]|\[cleanup\]|Error'"
 
 # 3. App answers; security headers present (CSP-Report-Only yes, X-Powered-By no)
 curl -sI https://<app-domain>/login | grep -iE 'HTTP|content-security-policy-report-only|x-powered-by'
 
 # 4. Migrations applied
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate status"
+ssh $PROD_SSH "cd $APP_HOME && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate status"
 
 # 5. Job worker ticking (schedules' nextRunAt should be in the future / lastRunAt recent)
-ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite \"SELECT name, nextRunAt, lastRunAt FROM Schedule WHERE name LIKE 'system-%';\""
+ssh $PROD_SSH "sqlite3 $DATA_HOME/db.sqlite \"SELECT name, nextRunAt, lastRunAt FROM Schedule WHERE name LIKE 'system-%';\""
 ```
 
 6. **One smoke audit:** in the UI, run a single-page ADA audit against a client site already in the system or a domain you control (owner ruling: never scan third-party sites casually), watch it reach `complete`, and confirm no new `[cleanup]`/job errors in the logs. For deeper evidence standards (proving a fix, not just observing green), use **er-seo-tools-proof-and-analysis-toolkit**.
 
 ## Open unknowns (do not paper over these)
 
-- **`~/deploy.sh` internals** — server-only; SERVER_SETUP.md §7.1 is the documented approximation; the `fuser -k` comment in instrumentation.ts hints at drift. Settle with `ssh seo@144.126.213.242 "cat ~/deploy.sh"`.
-- **Backups are documented, not verified.** SERVER_SETUP.md §8.6 describes a daily 2 AM `sqlite3 .backup` cron keeping 7 days — on the SAME disk, no off-server copy, and whether the cron is actually installed is unverifiable from the repo (`ssh seo@144.126.213.242 "crontab -l"` to check). There is no documented restore procedure.
+- **`~/deploy.sh` internals** — server-only; SERVER_SETUP.md §7.1 is the documented approximation; the `fuser -k` comment in instrumentation.ts hints at drift. Settle with `ssh $PROD_SSH "cat ~/deploy.sh"`.
+- **Backups are documented, not verified.** SERVER_SETUP.md §8.6 describes a daily 2 AM `sqlite3 .backup` cron keeping 7 days — on the SAME disk, no off-server copy, and whether the cron is actually installed is unverifiable from the repo (`ssh $PROD_SSH "crontab -l"` to check). There is no documented restore procedure.
 - **No monitoring/alerting.** No Sentry/APM, no `/api/health` endpoint. Health = manual PM2/SSH checks. A dead app is discovered by humans.
 - **Prod domain** is not in the repo (the 2026-06-29 pentest targeted `seo.erstaging.site`; whether that IS prod is unconfirmed) — read `NEXT_PUBLIC_APP_URL` from the server `.env`.
 - **Cloudflare config** (WAF, origin lockdown, which headers it injects) is not in the repo; whether the origin accepts non-Cloudflare traffic is unverified.
-- **Merged ≠ deployed.** Whether main's tip is what prod runs must be checked (`ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git log -1 --oneline"`), not assumed from git history.
+- **Merged ≠ deployed.** Whether main's tip is what prod runs must be checked (`ssh $PROD_SSH "cd $APP_HOME && git log -1 --oneline"`), not assumed from git history.
 
 ## Common mistakes
 
@@ -268,4 +268,4 @@ Re-verify volatile facts:
 | Migration count / latest | `ls -d prisma/migrations/*/ \| wc -l && ls prisma/migrations \| tail -2` (count dirs only — `migration_lock.toml` is not a migration) |
 | package-lock drift workaround still current | `grep -n 'package-lock' docs/pillar-analysis-handoff.md` |
 | Branch-vs-main drift | `git log main..HEAD --oneline \| wc -l` |
-| What prod actually runs | `ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git log -1 --oneline && pm2 env 0 \| grep -E 'PSI\|POOL'"` (read-only) |
+| What prod actually runs | `ssh $PROD_SSH "cd $APP_HOME && git log -1 --oneline && pm2 env 0 \| grep -E 'PSI\|POOL'"` (read-only) |

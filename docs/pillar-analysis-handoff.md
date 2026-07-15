@@ -162,9 +162,9 @@ Internal pillar-analysis tool for er-seo-tools. Given a Screaming Frog crawl alr
 
 ## Production deployment notes (post-deploy)
 
-- **Real env path is `/home/seo/webapps/seo-tools/.env`**, not `/home/seo/.env` as an earlier draft of CLAUDE.md said. `PILLAR_TOKEN_SECRET` lives there.
+- **Real env path is `$APP_HOME/.env`**, not `$SERVER_HOME/.env` as an earlier draft of CLAUDE.md said. `PILLAR_TOKEN_SECRET` lives there.
 - **`ecosystem.config.js` on the server has long-standing prod-specific customizations** (`seo` user, `seo-tools` paths) that diverge from the repo version (`seotools` user). The deploy works because `git pull` only fast-forwards files that are actually in the incoming diff, and `ecosystem.config.js` hasn't been touched in the repo's recent history. If a future PR modifies `ecosystem.config.js`, expect a merge conflict on the server — manual reconciliation required.
-- **`package-lock.json` accumulates a small drift** between deploys (3-line additions from the npm install during deploy). The deploy script's first `git pull` will refuse to overwrite it. Workaround: `cd /home/seo/webapps/seo-tools && git checkout -- package-lock.json` before re-running deploy. Worth investigating root cause when there's downtime; deploy works fine with the workaround.
+- **`package-lock.json` accumulates a small drift** between deploys (3-line additions from the npm install during deploy). The deploy script's first `git pull` will refuse to overwrite it. Workaround: `cd $APP_HOME && git checkout -- package-lock.json` before re-running deploy. Worth investigating root cause when there's downtime; deploy works fine with the workaround.
 - **MiniLM pre-warm runs in postinstall** and completes in ~0.6s on this VPS. Memory steady-state ~225MB after first analysis.
 - **Cloud-Claude egress allowlist** is a hard barrier for analysts running the skill from Claude Desktop / web / claude.ai. Two options: (a) instruct analysts to use Claude Code locally, OR (b) Anthropic org admin adds `seo.erstaging.site` and `seo.enrollmentresources.com` to the workspace bash sandbox allowlist. Option (a) is in place today; option (b) would unblock the broader team.
 
@@ -191,7 +191,7 @@ Internal pillar-analysis tool for er-seo-tools. Given a Screaming Frog crawl alr
 ### Operational follow-ups
 
 - [x] ~~Smoke-test skill end-to-end~~ Done 2026-04-29 via Claude Code on staging.
-- [x] ~~Set `PILLAR_TOKEN_SECRET` in prod env~~ Done. Lives at `/home/seo/webapps/seo-tools/.env`.
+- [x] ~~Set `PILLAR_TOKEN_SECRET` in prod env~~ Done. Lives at `$APP_HOME/.env`.
 - [x] ~~Verify migrations apply cleanly~~ Done — all 4 pillar migrations applied on prod deploy.
 - [x] ~~RAM check~~ Done — ~225MB steady-state.
 - [x] ~~Postinstall pre-warm~~ Done — completes in 0.6s.

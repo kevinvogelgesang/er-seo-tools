@@ -1036,7 +1036,7 @@ DATABASE_URL="file:./local-dev.db" npm test
 npm run build
 ```
 
-Then open the PR (`feat/external-link-verification` → `main`), record the gate output in the body, merge when gate-green (autonomous per change-control rule 1), deploy (`ssh seo@144.126.213.242 "~/deploy.sh"` — no migration; env vars are optional with safe defaults, so no server `.env` change is required before deploy), then prod-verify and run the tracker/handoff ritual.
+Then open the PR (`feat/external-link-verification` → `main`), record the gate output in the body, merge when gate-green (autonomous per change-control rule 1), deploy (`ssh $PROD_SSH "~/deploy.sh"` — no migration; env vars are optional with safe defaults, so no server `.env` change is required before deploy), then prod-verify and run the tracker/handoff ritual.
 
 **Prod verification (external-link-specific):** trigger a `seoIntent` audit on a real client site with known outbound links (e.g. manhattanschool.edu), wait for `complete` + the `broken-link-verify` job, then check the live-scan run's findings for a `broken_external_links` run finding and confirm `BrokenLinksSection` renders the warning tier + coverage line. The canary (proway.erstaging.site, noindex) still exercises the harvest→verify plumbing but has few externals.
 

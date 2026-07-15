@@ -400,7 +400,7 @@ git commit -m "feat(a7): login page copy for too_many_attempts throttle"
 
 - [ ] Run all three gates: `npm run lint` && `DATABASE_URL="file:./local-dev.db" npm test` && `npm run build`. All green.
 - [ ] Docs ritual (hard gate 2) in one commit: tick A7 sub-status in the tracker with a dated status-log line noting PR1; rewrite `HANDOFF-improvement-roadmap.md`.
-- [ ] Push, open PR with `gh`, merge when gate-green (rule 1), deploy (`ssh seo@144.126.213.242 "~/deploy.sh"`), prod-verify: a burst of >max bad passwords against prod `/api/auth/login` yields the `too_many_attempts` redirect + `Retry-After`; a correct login still succeeds. Record the result.
+- [ ] Push, open PR with `gh`, merge when gate-green (rule 1), deploy (`ssh $PROD_SSH "~/deploy.sh"`), prod-verify: a burst of >max bad passwords against prod `/api/auth/login` yields the `too_many_attempts` redirect + `Retry-After`; a correct login still succeeds. Record the result.
 
 ---
 

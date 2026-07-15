@@ -214,7 +214,7 @@ places on the server, neither of which is your local `.env`:
 1. `ecosystem.config.js` — tracked in this repo (so you can read its
    *shape* right now), read by PM2 on the server. It sets production tuning
    values (paths, concurrency, provider selection) — non-secret configuration.
-2. A separate `.env` file at `/home/seo/webapps/seo-tools/.env` **on the
+2. A separate `.env` file at `$APP_HOME/.env` **on the
    server itself** — gitignored, holding the actual secrets (`APP_AUTH_SECRET`,
    OAuth credentials, token-signing secrets, `PAGESPEED_API_KEY`,
    `GOOGLE_SA_KEY_FILE`). You cannot see this file's values from the repo,
@@ -230,7 +230,7 @@ is what production is actually running.
 it's whatever relative path you set in your own `.env` (`file:./local-dev.db`
 in the walkthrough above, resolving to `prisma/local-dev.db`). In production,
 `ecosystem.config.js` sets it to `file:${DATA_HOME}/db.sqlite`, which
-resolves to `/home/seo/data/seo-tools/db.sqlite` on the server (see
+resolves to `$DATA_HOME/db.sqlite` on the server (see
 `CLAUDE.md`'s Deploy section). These are two entirely separate SQLite files —
 nothing you do locally ever touches the production database.
 

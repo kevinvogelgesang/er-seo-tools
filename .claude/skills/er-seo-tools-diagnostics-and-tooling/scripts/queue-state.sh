@@ -7,7 +7,7 @@
 #   db-path default: prisma/local-dev.db (the local dev DB; Prisma resolves
 #   DATABASE_URL=file:./local-dev.db relative to prisma/).
 #   Prod DB (run on the server, or against a copied snapshot):
-#     /home/seo/data/seo-tools/db.sqlite
+#     $DATA_HOME/db.sqlite
 #
 # STRICTLY READ-ONLY: the DB is opened with -readonly AND file:...?mode=ro.
 # Safe against a live WAL database (readers never block the app's writer).
@@ -16,7 +16,7 @@ set -euo pipefail
 DB_PATH="${1:-prisma/local-dev.db}"
 if [ ! -f "$DB_PATH" ]; then
   echo "ERROR: no database file at '$DB_PATH'" >&2
-  echo "Hint: local dev DB is prisma/local-dev.db; prod is /home/seo/data/seo-tools/db.sqlite" >&2
+  echo "Hint: local dev DB is prisma/local-dev.db; prod is $DATA_HOME/db.sqlite" >&2
   exit 1
 fi
 

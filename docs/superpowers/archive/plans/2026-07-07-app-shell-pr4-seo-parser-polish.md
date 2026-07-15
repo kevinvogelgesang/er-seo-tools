@@ -601,7 +601,7 @@ gh pr create --title "A8 PR 4 — seo-parser visual polish (upload + results hea
 
 - [ ] **Step 5: Merge, deploy, and post-deploy verify (UI class — mandatory real-browser measure)**
 
-After gate-green merge and `ssh seo@144.126.213.242 "~/deploy.sh"`: drive the **authed** production `/seo-parser` and a results page via Playwright; use `getComputedStyle`/`getBoundingClientRect` to confirm the upload card renders at expected width, the `ScoreRing` SVG is present and sized, and there is no purged-CSS collapse (the PR2 failure mode). Record the measured values. (Handled by the executing session per change-control rule 1 + the roadmap prompt.)
+After gate-green merge and `ssh $PROD_SSH "~/deploy.sh"`: drive the **authed** production `/seo-parser` and a results page via Playwright; use `getComputedStyle`/`getBoundingClientRect` to confirm the upload card renders at expected width, the `ScoreRing` SVG is present and sized, and there is no purged-CSS collapse (the PR2 failure mode). Record the measured values. (Handled by the executing session per change-control rule 1 + the roadmap prompt.)
 
 ---
 

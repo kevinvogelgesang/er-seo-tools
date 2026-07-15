@@ -31,7 +31,7 @@ All facts verified against the repo on 2026-07-02, on branch `feat/autonomous-li
 |---|---|---|---|
 | Code defaults | yes | fallback for every knob | `parsePositiveInt(process.env.X, default)` pattern |
 | `ecosystem.config.js` (PM2) | yes | prod tuning: pool sizes, concurrency, provider, retention days, data paths | Deliberately NOT in `.env` so `pm2 env <id>` proves what the worker uses (comment at `ecosystem.config.js:24-25`). Changing it requires `pm2 delete seo-tools && pm2 start ecosystem.config.js` — plain `pm2 restart` keeps stale env |
-| Server `.env` at `/home/seo/webapps/seo-tools/.env` | no (gitignored) | secrets + instance identity: `APP_AUTH_SECRET`, token secrets, OAuth creds, `NEXT_PUBLIC_APP_URL`, `PAGESPEED_API_KEY`, `GOOGLE_SA_KEY_FILE` | Values unverifiable from the repo; only SSH (Kevin) can confirm |
+| Server `.env` at `$APP_HOME/.env` | no (gitignored) | secrets + instance identity: `APP_AUTH_SECRET`, token secrets, OAuth creds, `NEXT_PUBLIC_APP_URL`, `PAGESPEED_API_KEY`, `GOOGLE_SA_KEY_FILE` | Values unverifiable from the repo; only SSH (Kevin) can confirm |
 
 The README's env table has drifted (old pool size, old paths) — do not trust it.
 
@@ -49,7 +49,7 @@ Prod column: `eco` = set in `ecosystem.config.js` (value shown), `.env` = server
 | `UPLOADS_DIR` | SF CSV upload storage | `./uploads` (cwd) | eco: `${DATA_HOME}/uploads` | `lib/upload-helpers.ts:5` |
 | `SCREENSHOTS_DIR` | ADA violation screenshots | `./screenshots` | eco: `${DATA_HOME}/screenshots` | `lib/ada-audit/screenshot-helpers.ts:7` |
 | `REPORTS_DIR` | Rendered PDF store | `./data/reports` | eco: `${DATA_HOME}/reports` | `lib/report/report-file.ts:6`, `lib/report/seo/seo-report-file.ts:8` |
-| `APP_HOME` / `DATA_HOME` / `LOG_HOME` | Path roots, **read only by `ecosystem.config.js`** | `/home/seo/webapps/seo-tools`, `/home/seo/data/seo-tools`, `/home/seo/logs` | (self) | `ecosystem.config.js:3-5` |
+| `APP_HOME` / `DATA_HOME` / `LOG_HOME` | Path roots, **read only by `ecosystem.config.js`** | `$APP_HOME`, `$DATA_HOME`, `$LOG_HOME` | (self) | `ecosystem.config.js:3-5` |
 
 ### Auth (all `.env` in prod)
 

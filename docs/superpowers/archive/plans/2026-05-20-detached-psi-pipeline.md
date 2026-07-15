@@ -1955,7 +1955,7 @@ Removes the inline PSI HTTP fetch from the per-page puppeteer page slot in site 
 This PR touches `ecosystem.config.js`, so the deploy MUST use:
 
 ```bash
-ssh seo@144.126.213.242 "~/deploy.sh && pm2 delete seo-tools && pm2 start ecosystem.config.js"
+ssh $PROD_SSH "~/deploy.sh && pm2 delete seo-tools && pm2 start ecosystem.config.js"
 ```
 
 A plain `pm2 restart` will NOT re-read the new `PSI_CONCURRENCY` env var. Same gotcha as PRs #12 / #13 / #15.

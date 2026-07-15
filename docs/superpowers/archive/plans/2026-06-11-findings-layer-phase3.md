@@ -720,7 +720,7 @@ On the server (authenticated curl, cookie jar from the parity work):
 git push -u origin feat/findings-layer-phase3
 gh pr create --title "feat(findings): A2 Phase 3 — SessionPage reader flip" --body "..."
 # after merge:
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 - [ ] **Step 4: Post-deploy verification**
@@ -729,7 +729,7 @@ ssh seo@144.126.213.242 "~/deploy.sh"
 - Filter check: `?issueType=missing_meta_description` returns the same membership pre/post; a non-derivable type (e.g. `temporary_redirects`) returns >0 rows post-flip where it returned 0 pre-flip (if the session has that issue).
 - Legacy fallback: hit the pages route for a session with no CrawlRun (or rely on unit tests if none exists in prod).
 - Modal check (Codex fix 1): in the UI, click the root/homepage URL in Crawled Pages — the modal must list its issues (normalized match), and a duplicate-* chip's page must show that issue in the modal (groups membership).
-- Failure-mode watch (Codex fix 3): `grep "\[findings\] dual-write failed" /home/seo/logs/*` after the next few real parses — with SessionPage gone, a failed dual-write means NO per-page data for that session until `npx tsx scripts/findings-rebuild.ts <sessionId>` is run. That's the documented recovery path.
+- Failure-mode watch (Codex fix 3): `grep "\[findings\] dual-write failed" $LOG_HOME/*` after the next few real parses — with SessionPage gone, a failed dual-write means NO per-page data for that session until `npx tsx scripts/findings-rebuild.ts <sessionId>` is run. That's the documented recovery path.
 - Boot log error-free.
 
 </content>

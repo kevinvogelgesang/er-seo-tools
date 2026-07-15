@@ -8,7 +8,7 @@ retirement gate (roadmap §4 / Phase 7) requires — **N ≥ 5 representative cl
 data (`discoveryCoverageJson`, C6 Increment 1) that gates hybrid-discovery
 **Increment 2** (the crawler). This is a measurement log, not a build.
 
-Data source: prod DB (`/home/seo/data/seo-tools/db.sqlite`). Parity numbers from
+Data source: prod DB (`$DATA_HOME/db.sqlite`). Parity numbers from
 `.claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts`
 (read-only). Miss-rate from `CrawlRun.discoveryCoverageJson`.
 

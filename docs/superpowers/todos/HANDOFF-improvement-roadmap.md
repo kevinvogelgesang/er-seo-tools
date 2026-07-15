@@ -80,7 +80,7 @@ GOTCHAS FOR THE NEXT SESSION:
   system. lib/seo-fetch is FROZEN (51-test characterization gate) — consume,
   never modify.
 - Prod box has NO sqlite3 CLI — prod DB probes go through node + the app's
-  generated Prisma client from /home/seo/webapps/seo-tools.
+  generated Prisma client from $APP_HOME.
 - Tests self-provision per-worker SQLite DBs, run PARALLEL. Component
   tests: // @vitest-environment jsdom + afterEach(cleanup) +
   vi.unstubAllGlobals(), no jest-dom. Suite cleanup deletes ONLY owned rows.

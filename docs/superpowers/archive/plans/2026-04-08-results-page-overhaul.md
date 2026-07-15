@@ -870,7 +870,7 @@ git commit -m "feat: issue rows — title formatting, always-expandable, paginat
 - [ ] **Step 1: Push and deploy**
 
 ```bash
-git push && ssh seo@144.126.213.242 "~/deploy.sh"
+git push && ssh $PROD_SSH "~/deploy.sh"
 ```
 
 Expected: Build succeeds, PM2 restarts, app is online.

@@ -6,7 +6,7 @@
 # Usage:
 #   bash .claude/skills/er-seo-tools-diagnostics-and-tooling/scripts/findings-coverage.sh [db-path] [clientId]
 #
-#   db-path default: prisma/local-dev.db. Prod: /home/seo/data/seo-tools/db.sqlite
+#   db-path default: prisma/local-dev.db. Prod: $DATA_HOME/db.sqlite
 #   clientId (optional, integer): restrict the "recent runs" listing to one client.
 #
 # STRICTLY READ-ONLY (-readonly + file:...?mode=ro). Safe on a live WAL DB.

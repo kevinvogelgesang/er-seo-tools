@@ -61,4 +61,4 @@ The runner is integration-heavy; if a unit harness doesn't exist, scope this PR 
 
 ## Deploy
 
-Code-only; no env var changes. Normal `ssh seo@144.126.213.242 "~/deploy.sh"`.
+Code-only; no env var changes. Normal `ssh $PROD_SSH "~/deploy.sh"`.

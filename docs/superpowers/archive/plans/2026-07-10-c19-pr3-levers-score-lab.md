@@ -1566,7 +1566,7 @@ Verify in the browser (Playwright MCP):
 
 - [ ] **Step 3: Commit any fixes, then hand back to the controller for PR → merge → deploy → prod-verify → docs ritual**
 
-Deploy recipe (controller): `git push && ssh seo@144.126.213.242 "pm2 stop seo-tools && ~/deploy.sh"`, then verify `.next/BUILD_ID` fresh, `/api/health` ok, boot log clean, migration `20260710120000_ada_scoring_weights` applied (`prisma migrate status` via the deploy log or the `_prisma_migrations` table), schedules seeded. Prod verify: log in → `/settings` cards render → `/score-lab` recomputes a real run. Codex verify item: after any real weights save, confirm the NEXT scan's breakdown stamps a different `weightsHash` and the adjacent trend delta is suppressed with `comparabilityBreak: 'weights'` (PR2 wiring — observe, don't rebuild); then restore defaults unless Kevin wants the change kept. No new env vars.
+Deploy recipe (controller): `git push && ssh $PROD_SSH "pm2 stop seo-tools && ~/deploy.sh"`, then verify `.next/BUILD_ID` fresh, `/api/health` ok, boot log clean, migration `20260710120000_ada_scoring_weights` applied (`prisma migrate status` via the deploy log or the `_prisma_migrations` table), schedules seeded. Prod verify: log in → `/settings` cards render → `/score-lab` recomputes a real run. Codex verify item: after any real weights save, confirm the NEXT scan's breakdown stamps a different `weightsHash` and the adjacent trend delta is suppressed with `comparabilityBreak: 'weights'` (PR2 wiring — observe, don't rebuild); then restore defaults unless Kevin wants the change kept. No new env vars.
 
 ---
 

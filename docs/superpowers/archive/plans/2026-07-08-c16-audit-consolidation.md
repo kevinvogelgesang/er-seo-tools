@@ -1598,15 +1598,15 @@ gh pr create --title "feat: C16 audit consolidation — full merge of SEO Audits
 ```bash
 gh pr merge --squash   # or the house default (check recent PRs: merge commits used)
 git checkout main && git pull
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 Post-deploy verification (required):
 
 ```bash
-ssh seo@144.126.213.242 "curl -s localhost:3000/api/health"                       # {"status":"ok",…}
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && npx prisma migrate status | tail -3"  # session_requested_by applied
-ssh seo@144.126.213.242 "pm2 status seo-tools | head -8"                          # online, 0 unstable restarts
+ssh $PROD_SSH "curl -s localhost:3000/api/health"                       # {"status":"ok",…}
+ssh $PROD_SSH "cd $APP_HOME && npx prisma migrate status | tail -3"  # session_requested_by applied
+ssh $PROD_SSH "pm2 status seo-tools | head -8"                          # online, 0 unstable restarts
 ```
 
 Then an authed browser spot-check against prod (Kevin's session or Playwright with the operator cookie): `/seo-audits` → `/ada-audit`, recents badges render, one fresh SF upload stamps `requestedBy` (visible under Mine). Do NOT run site scans against non-client domains.

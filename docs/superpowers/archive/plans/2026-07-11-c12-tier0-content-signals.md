@@ -966,7 +966,7 @@ npm run build
 ```
 Expected: all green.
 
-- [ ] **Step 2: Open the PR**, merge once gate-green (rule 1), deploy (`ssh seo@144.126.213.242 "~/deploy.sh"` — the OOM fix restored the plain recipe), verify prod (fresh BUILD_ID, health, migration applied via read-only Prisma probe of `CrawlRun.contentSignalsJson`).
+- [ ] **Step 2: Open the PR**, merge once gate-green (rule 1), deploy (`ssh $PROD_SSH "~/deploy.sh"` — the OOM fix restored the plain recipe), verify prod (fresh BUILD_ID, health, migration applied via read-only Prisma probe of `CrawlRun.contentSignalsJson`).
 
 - [ ] **Step 3: Docs ritual (same commit):** tick C12 on the tracker (or mark the Tier-0-A+B slice shipped, leaving Tier-1/cat_ as remaining scope), add a dated status-log line, rewrite the handoff doc, add a CLAUDE.md `## Key files` bullet for `content-signals.ts` + a note on `CrawlRun.contentSignalsJson` and the new cannibalization route/card. `git mv` the spec + plan to `docs/superpowers/archive/`.
 

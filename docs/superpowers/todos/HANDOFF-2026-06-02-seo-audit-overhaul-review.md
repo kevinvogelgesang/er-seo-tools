@@ -111,7 +111,7 @@ There is an existing Codex consultation thread for this workspace — **session 
   - `seo-audit-roadmap` (writes the roadmap, optional Teamwork push)
   - `keyword-strategy-memo` (writes the keyword memo)
   Confirm they're installed wherever the team runs the handoff.
-- **Deploy:** `git push` then `ssh seo@144.126.213.242 "~/deploy.sh"` (runs `prisma migrate deploy`). Migrations are additive; safe to apply in order.
+- **Deploy:** `git push` then `ssh $PROD_SSH "~/deploy.sh"` (runs `prisma migrate deploy`). Migrations are additive; safe to apply in order.
 
 ## 8. Deferred / out of scope (don't flag as missing — they're intentional)
 - Auto-resolve-on-recrawl (close Teamwork tasks when a re-crawl shows the issue gone) — `affectedSetHash` is cross-crawl stable to enable it later.

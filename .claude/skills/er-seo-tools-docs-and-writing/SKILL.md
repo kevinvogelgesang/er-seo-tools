@@ -186,10 +186,10 @@ The root `CLAUDE.md` is the dense architecture manifest. It accretes on every sh
     er-seo-tools-architecture-contract §6; verify: `git branch --show-current &&
     grep -n pickCanonicalSeo lib/services/findings-shared.ts`. When quoting a
     CLAUDE.md invariant, say which merge state you're describing.
-  - **README.md's deploy/prod section is stale:** it gives `/home/seotools/webapps/er-seo-tools`,
-    `/home/seotools/data/er-seo-tools/*`, and says the process is "kept alive via
-    `nohup`". CLAUDE.md is authoritative: `/home/seo/webapps/seo-tools`,
-    `/home/seo/data/seo-tools/db.sqlite`, PM2. (The ssh deploy command itself is
+  - **README.md's deploy/prod section is stale:** it gives `$APP_HOME`,
+    `$DATA_HOME/*`, and says the process is "kept alive via
+    `nohup`". CLAUDE.md is authoritative: `$APP_HOME`,
+    `$DATA_HOME/db.sqlite`, PM2. (The ssh deploy command itself is
     consistent everywhere.) If you touch README, fix this; until then, never copy
     prod paths from README.
 
