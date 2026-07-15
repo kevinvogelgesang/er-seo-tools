@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { describe, it, expect, afterEach } from 'vitest'
 import { AdaScoreExplanation } from './AdaScoreExplanation'
 
@@ -20,9 +20,10 @@ const v4 = JSON.stringify({
 })
 
 describe('AdaScoreExplanation', () => {
-  it('renders the deduction invoice for a v4 breakdown', () => {
+  it('renders the deduction invoice for a v4 breakdown behind the Explainer trigger', () => {
     render(<AdaScoreExplanation breakdown={v4} />)
-    expect(screen.getByText(/How this score was calculated/i)).toBeTruthy()
+    const trigger = screen.getByRole('button', { name: 'How this score is calculated' })
+    fireEvent.click(trigger)
     expect(screen.getByText(/−12/)).toBeTruthy()
     expect(screen.getByText(/image-alt/)).toBeTruthy()
     expect(screen.getByText(/61 of 204 pages/)).toBeTruthy()
@@ -38,6 +39,7 @@ describe('AdaScoreExplanation', () => {
   it('shows the partial-coverage qualifier when lowCoverage', () => {
     const low = JSON.parse(v4); low.lowCoverage = true; low.inputsSummary.pagesAudited = 80
     render(<AdaScoreExplanation breakdown={JSON.stringify(low)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'How this score is calculated' }))
     expect(screen.getByText(/partial coverage — 80 of 204 pages scored/i)).toBeTruthy()
   })
   it('renders nothing (no throw) for a v4-tagged blob missing inputsSummary/contributions', () => {

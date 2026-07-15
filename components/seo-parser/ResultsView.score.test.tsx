@@ -51,7 +51,7 @@ describe('ResultsView health-score card', () => {
     expect(screen.getByRole('img', { name: /score 87/i })).toBeTruthy()
     // The existing label + explanation (parsed from JSON) still render inside the card
     expect(screen.getByText(/SEO health score/i)).toBeTruthy()
-    expect(screen.getByText(/How this score was calculated/i)).toBeTruthy()
+    expect(screen.getByText(/How this score is calculated/i)).toBeTruthy()
     expect(screen.getByText('Indexability')).toBeTruthy()
   })
 
