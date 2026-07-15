@@ -4,7 +4,7 @@
 // (v1/v2/v3, or blobs that predate this scorer) fall through to `null` so
 // this component is a strict no-op on legacy runs.
 import type { AdaV4Breakdown, AdaV4Category, AdaV4Contribution, AdaV4DeductionLine } from '@/lib/scoring/ada-v4'
-import { Explainer } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerNote } from '@/components/ui/Explainer'
 
 const CATEGORY_LABEL: Record<AdaV4Category, string> = {
   critical: 'Critical',
@@ -68,37 +68,51 @@ export function AdaScoreExplanation({ breakdown }: { breakdown: string | null })
   const lines = deductions.filter((d) => d.points > 0)
 
   return (
-    <Explainer label="How this score is calculated" className="mt-2">
-      <div className="space-y-2 text-[12px] font-body text-navy dark:text-white">
-        {lowCoverage && (
-          <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
-            Partial coverage — {inputsSummary.pagesAudited} of {inputsSummary.pagesTotal} pages scored.
-          </p>
-        )}
-        {lines.length === 0 ? (
-          <p className="text-navy/60 dark:text-white/60">No deductions — clean run.</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {lines.map((d) => (
-              <li key={d.category}>
-                <span className={`font-semibold ${CATEGORY_CLASS[d.category]}`}>
-                  {CATEGORY_LABEL[d.category]} −{d.points}
-                </span>
-                {d.contributions.length > 0 && (
-                  <ul className="mt-0.5 ml-4 list-disc space-y-0.5 text-navy/60 dark:text-white/60">
-                    {d.contributions.map((c, i) => (
-                      <li key={`${c.ruleId}-${i}`}>{contributionLine(c, inputsSummary.pagesAudited)}</li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+    <div className="mt-2 space-y-1">
+      {/* Run-specific coverage warning — stays OUTSIDE the card (always visible). */}
+      {lowCoverage && (
+        <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
+          Partial coverage — {inputsSummary.pagesAudited} of {inputsSummary.pagesTotal} pages scored.
+        </p>
+      )}
+      <div className="flex items-center gap-1">
+        <span className="text-[12px] font-body text-navy/50 dark:text-white/50">
+          How this score is calculated
+        </span>
+        <Explainer label="How this score is calculated" title="Accessibility Score">
+          <ExplainerSummary>
+            The accessibility score starts at 100 and subtracts severity-weighted
+            deductions. Each severity tier (critical through needs-review) has a capped
+            contribution; the invoice below lists what was deducted on this run.
+          </ExplainerSummary>
+          <div className="space-y-2 text-[12px] font-body text-navy dark:text-white">
+            {lines.length === 0 ? (
+              <p className="text-navy/60 dark:text-white/60">No deductions — clean run.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {lines.map((d) => (
+                  <li key={d.category}>
+                    <span className={`font-semibold ${CATEGORY_CLASS[d.category]}`}>
+                      {CATEGORY_LABEL[d.category]} −{d.points}
+                    </span>
+                    {d.contributions.length > 0 && (
+                      <ul className="mt-0.5 ml-4 list-disc space-y-0.5 text-navy/60 dark:text-white/60">
+                        {d.contributions.map((c, i) => (
+                          <li key={`${c.ruleId}-${i}`}>{contributionLine(c, inputsSummary.pagesAudited)}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <ExplainerNote>
+            Density-based: severity-weighted violations per element, saturating. Weights as
+            scored ({weightsHash ?? 'unhashed'}); current weights may differ.
+          </ExplainerNote>
+        </Explainer>
       </div>
-      <p className="text-[11px] font-body text-navy/40 dark:text-white/40">
-        Weights as scored ({weightsHash ?? 'unhashed'}); current weights may differ.
-      </p>
-    </Explainer>
+    </div>
   )
 }

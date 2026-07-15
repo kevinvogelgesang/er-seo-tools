@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 // components/site-audit/ContentSignalsSection.test.tsx
 // NOTE: this repo has NO jest-dom matchers — assert on .toBeTruthy(), not toBeInTheDocument.
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ContentSignalsSection } from './ContentSignalsSection'
 
 afterEach(cleanup)
@@ -57,5 +59,17 @@ describe('ContentSignalsSection', () => {
   it('always labels the readability block English-calibrated (Flesch)', () => {
     render(<ContentSignalsSection run={withSignals({})} />)
     expect(screen.getByText(/English-calibrated \(Flesch\)/i)).toBeTruthy()
+  })
+
+  it('renders methodology behind a hover-card Explainer', async () => {
+    const user = userEvent.setup()
+    render(<ContentSignalsSection run={{ contentSignalsJson: null }} />)
+    const trigger = screen.getByRole('button', { name: 'What do content signals check?' })
+    // Methodology prose is absent until the card opens; operational copy stays visible.
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(screen.getByText(/were not analyzed/i)).toBeTruthy()
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
+    expect(screen.getByText(/a bare year on its own/i)).toBeTruthy()
   })
 })

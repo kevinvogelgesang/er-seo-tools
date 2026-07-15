@@ -1,7 +1,7 @@
 // components/site-audit/ContentSimilaritySection.tsx
 // C6 Phase 5: read-time content similarity. Reads the SAME live-scan CrawlRun as the
 // sibling measurement sections, from contentSimilarityJson. Measurement, NOT a finding.
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/components/ui/Explainer'
 
 interface ExactGroup { urls: string[]; count: number }
 interface NearGroup { urls: string[]; similarity: number; exactSubgroups?: string[][] }
@@ -40,16 +40,21 @@ export function ContentSimilaritySection({ run }: { run: { contentSimilarityJson
 
   return (
     <section className="mt-6 rounded-lg bg-white dark:bg-navy-card p-4 border border-gray-200 dark:border-navy-border">
-      <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content similarity</h3>
-      <Explainer label="What does this measure?" className="mt-1">
-        <ExplainerSummary>
-          Flags pages whose main text is identical after normalization, or nearly identical
-          (at least 90% overlapping five-word phrases, with common boilerplate like navigation and
-          footers filtered out first). This is a lexical comparison of wording — pages covering the
-          same topic in different words are the Topic overlap section&apos;s job — and a measurement
-          only: it never changes any score.
-        </ExplainerSummary>
-      </Explainer>
+      <div className="flex items-center gap-1">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content similarity</h3>
+        <Explainer label="How is content similarity measured?" title="Content similarity">
+          <ExplainerSummary>
+            Flags pages whose main text is identical after normalization, or nearly identical — at
+            least 90% overlapping five-word phrases, with common boilerplate like navigation and
+            footers filtered out first.
+          </ExplainerSummary>
+          <ExplainerTags tags={['Exact duplicates', 'Near-duplicates (90%)', 'Boilerplate filtered']} />
+          <ExplainerNote>
+            A lexical comparison of wording — pages covering the same topic in different words are the
+            Topic overlap section&apos;s job. Measurement only: it never changes any score.
+          </ExplainerNote>
+        </Explainer>
+      </div>
       {clean ? (
         <p className="mt-2 text-sm text-gray-600 dark:text-white/60">
           No duplicate or near-duplicate content detected across {d.pagesEligible ?? 0} analyzed pages.

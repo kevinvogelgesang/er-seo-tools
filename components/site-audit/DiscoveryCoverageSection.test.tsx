@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { DiscoveryCoverageSection } from './DiscoveryCoverageSection'
 
 afterEach(cleanup)
@@ -54,5 +56,16 @@ describe('DiscoveryCoverageSection', () => {
     expect(screen.getByText(/40% of internally-reachable URLs/i)).toBeTruthy()
     expect(screen.getByText(/5% remained undiscovered/i)).toBeTruthy()
     expect(screen.queryByText(/not measured/i)).toBeNull()
+  })
+
+  it('renders methodology behind a hover-card Explainer', async () => {
+    const user = userEvent.setup()
+    render(<DiscoveryCoverageSection run={cov({ applicable: false, mode: 'shallow-crawl', capped: false, offBaselineCount: 5, missRate: null, sample: [] })} />)
+    const trigger = screen.getByRole('button', { name: 'What is discovery coverage measuring?' })
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(screen.getByText(/not measured/i)).toBeTruthy()
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
+    expect(screen.getByText(/the sitemap advertised/i)).toBeTruthy()
   })
 })

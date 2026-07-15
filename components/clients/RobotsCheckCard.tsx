@@ -12,7 +12,7 @@
 import { useRef, useState } from 'react'
 import type { RobotsCheckDetail, RobotsCheckSummary } from '@/lib/robots-check/types'
 import type { RobotsChangeSummary } from '@/lib/robots-check/change-summary'
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/components/ui/Explainer'
 
 interface Latest {
   summary: RobotsCheckSummary
@@ -254,7 +254,22 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
   return (
     <div className="bg-white dark:bg-navy-card rounded-xl border border-gray-200 dark:border-navy-border p-5 mb-6">
       <div className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">Robots &amp; Sitemap Checks</h2>
+        <div className="flex items-center gap-1">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">Robots &amp; Sitemap Checks</h2>
+          <Explainer label="What are robots & sitemap checks?" title="Robots & Sitemap Checks">
+            <ExplainerSummary>
+              Point-in-time checks of this domain&apos;s robots.txt and sitemaps: syntax problems,
+              AI-crawler blocking, and whether each listed sitemap resolves and how many URLs it
+              declares.
+            </ExplainerSummary>
+            <ExplainerTags tags={['robots.txt', 'Sitemaps', 'Weekly monitor']} />
+            <ExplainerNote>
+              A weekly scheduled check compares against the previous one and emails an alert only when
+              something changed — checks run manually from this card never send alerts. Sitemap XML
+              itself is never stored, so history rows carry counts and hashes rather than full copies.
+            </ExplainerNote>
+          </Explainer>
+        </div>
         <div className="flex items-center gap-2">
           {domains.length > 1 && (
             <select
@@ -283,17 +298,6 @@ export function RobotsCheckCard({ clientId, domains, archived, initial }: Props)
           </a>
         </div>
       </div>
-
-      <Explainer label="What is this?" className="mb-3">
-        <ExplainerSummary>
-          Point-in-time checks of this domain&apos;s robots.txt and sitemaps: syntax problems,
-          AI-crawler blocking, and whether each listed sitemap resolves and how many URLs it
-          declares. A weekly scheduled check compares against the previous one and emails an alert
-          only when something changed — checks run manually from this card never send alerts.
-          Sitemap XML itself is never stored, so history rows carry counts and hashes rather than
-          full copies.
-        </ExplainerSummary>
-      </Explainer>
 
       {error && <p className="text-xs text-red-600 dark:text-red-400 mb-3">{error}</p>}
 

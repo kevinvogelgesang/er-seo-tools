@@ -826,7 +826,21 @@ function RobotsValidatorContent() {
             </div>
             <div>
               <p className="text-[11px] font-body font-semibold text-orange/70 uppercase tracking-[0.2em]">SEO Tools</p>
-              <h1 className="font-display font-extrabold text-[26px] text-white leading-tight">Robots Validator</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-display font-extrabold text-[26px] text-white leading-tight">Robots Validator</h1>
+                <Explainer
+                  label="What does this tool do?"
+                  title="What this tool does"
+                  className="!text-white/50 hover:!text-white"
+                >
+                  <ExplainerSummary>
+                    Validate robots.txt syntax, check AI bot access status, test URLs against rules, and
+                    validate sitemap structure — all client-side, nothing uploaded. Paste content, upload a
+                    file, or fetch straight from a URL; the parsers flag syntax problems, blocked AI
+                    crawlers, and sitemap metadata gaps without storing anything.
+                  </ExplainerSummary>
+                </Explainer>
+              </div>
             </div>
           </div>
         </div>
@@ -834,14 +848,6 @@ function RobotsValidatorContent() {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-        <Explainer label="What does this tool do?" variant="card">
-          <ExplainerSummary>
-            Validate robots.txt syntax, check AI bot access status, test URLs against rules, and
-            validate sitemap structure — all client-side, nothing uploaded. Paste content, upload a
-            file, or fetch straight from a URL; the parsers flag syntax problems, blocked AI
-            crawlers, and sitemap metadata gaps without storing anything.
-          </ExplainerSummary>
-        </Explainer>
         <RobotsSection onFetchSitemap={handleFetchSitemapFromRobots} />
         <div id="sitemap-section">
           <SitemapSection

@@ -5,7 +5,7 @@
 // discoveryCoverageJson column. Measurement, NOT a finding — never feeds
 // priority scoring. Copy says "URLs" not "pages" (internal-link may be assets).
 import React from 'react'
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/components/ui/Explainer'
 
 // Local Card wrapper — matches BrokenLinksSection/OnPageSeoSection exactly
 // (there is no shared components/ui/Card in this repo). Owns the heading +
@@ -13,18 +13,24 @@ import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <section className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-6">
-      <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white">
-        Discovery coverage
-      </h2>
-      <Explainer label="What does this measure?" className="mt-1">
-        <ExplainerSummary>
-          Compares two lists the audit already produced: the URLs the sitemap advertised, and the
-          same-domain URLs actually linked from the audited pages. Anything linked internally but
-          absent from the sitemap is &ldquo;off-sitemap&rdquo; — content search engines can only
-          find by crawling. Computed entirely from data already collected; nothing extra is
-          fetched.
-        </ExplainerSummary>
-      </Explainer>
+      <div className="flex items-center gap-1">
+        <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white">
+          Discovery coverage
+        </h2>
+        <Explainer label="What is discovery coverage measuring?" title="Discovery coverage">
+          <ExplainerSummary>
+            Compares two lists the audit already produced: the URLs the sitemap advertised, and the
+            same-domain URLs actually linked from the audited pages. Anything linked internally but
+            absent from the sitemap is &ldquo;off-sitemap&rdquo; — content search engines can only
+            find by crawling.
+          </ExplainerSummary>
+          <ExplainerTags tags={['Sitemap URLs', 'Internal links', 'Off-sitemap']} />
+          <ExplainerNote>
+            Computed entirely from data already collected — nothing extra is fetched. Reported as
+            &ldquo;URLs&rdquo; not &ldquo;pages&rdquo;, since an internal link may point at an asset.
+          </ExplainerNote>
+        </Explainer>
+      </div>
       {children}
     </section>
   )

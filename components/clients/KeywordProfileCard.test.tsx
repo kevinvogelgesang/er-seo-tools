@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { KeywordProfileCard } from './KeywordProfileCard'
@@ -144,10 +145,10 @@ describe('KeywordProfileCard', () => {
 
   it('disables all controls when archived', () => {
     render(<KeywordProfileCard clientId={1} initialProfile={emptyProfile} archived={true} />)
-    // The "What is this?" Explainer trigger is a read-only disclosure, not a
-    // data-mutating control — it is intentionally never disabled by archived
-    // state, so it's excluded from this sweep.
-    for (const b of screen.getAllByRole('button', { name: (name) => name !== 'What is this?' }))
+    // The Explainer ⓘ trigger is a read-only disclosure, not a data-mutating
+    // control — it is intentionally never disabled by archived state, so it's
+    // excluded from this sweep.
+    for (const b of screen.getAllByRole('button', { name: (name) => name !== 'What is the keyword profile?' }))
       expect((b as HTMLButtonElement).disabled).toBe(true)
   })
 })

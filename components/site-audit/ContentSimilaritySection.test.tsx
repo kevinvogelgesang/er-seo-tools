@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ContentSimilaritySection } from './ContentSimilaritySection'
 
 afterEach(cleanup)
@@ -26,5 +28,14 @@ describe('ContentSimilaritySection', () => {
     expect(container.textContent).toContain('/a')
     expect(container.textContent).toMatch(/93%/)
     expect(screen.getByText(/exact duplicates/i)).toBeTruthy()
+  })
+  it('renders methodology behind a hover-card Explainer', async () => {
+    const user = userEvent.setup()
+    render(<ContentSimilaritySection run={sim({ pagesEligible: 40, exactDuplicateGroups: [], nearDuplicateGroups: [] })} />)
+    const trigger = screen.getByRole('button', { name: 'How is content similarity measured?' })
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
+    expect(screen.getByText(/five-word phrases/i)).toBeTruthy()
   })
 })

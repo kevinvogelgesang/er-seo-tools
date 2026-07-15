@@ -12,13 +12,30 @@ import type { SalesReportData } from '@/lib/sales/sales-report-data'
 import { SectionCard, gradeForScore } from './SectionCard'
 import { UrgencyBar } from './UrgencyBar'
 
+// Contextual card heading + trigger aria-label per area, so each ⓘ has a
+// distinct accessible name (four render on one page) and the card names the
+// area it explains.
+const METHOD_TITLES: Record<keyof typeof SCORE_METHOD, string> = {
+  overall: 'How the overall score is calculated',
+  accessibility: 'How the accessibility score is calculated',
+  seo: 'How the SEO score is calculated',
+  performance: 'How the performance score is calculated',
+  geo: 'How the structured-data score is calculated',
+}
+
 function MethodExplainer(props: { area: keyof typeof SCORE_METHOD }) {
   const m = SCORE_METHOD[props.area]
+  const title = METHOD_TITLES[props.area]
   return (
-    <Explainer label="How this score is calculated" variant="plain">
-      <ExplainerSummary>{m.summary}</ExplainerSummary>
-      <ExplainerNote>{m.note}</ExplainerNote>
-    </Explainer>
+    <div className="flex items-center gap-1">
+      <span className="text-[12px] font-body text-navy/50 dark:text-white/50">
+        How this score is calculated
+      </span>
+      <Explainer label={title} title={title}>
+        <ExplainerSummary>{m.summary}</ExplainerSummary>
+        <ExplainerNote>{m.note}</ExplainerNote>
+      </Explainer>
+    </div>
   )
 }
 

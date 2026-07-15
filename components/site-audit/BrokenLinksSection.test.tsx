@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BrokenLinksSection, type BrokenLinksRun } from './BrokenLinksSection'
 
 afterEach(cleanup)
@@ -79,15 +81,16 @@ describe('BrokenLinksSection — external links', () => {
     expect(screen.getAllByText(/partial/i)).toHaveLength(1)
   })
 
-  it('renders methodology behind a collapsed Explainer in every state', () => {
+  it('renders methodology behind a hover-card Explainer in every state', async () => {
+    const user = userEvent.setup()
     render(<BrokenLinksSection run={null} />)
-    const trigger = screen.getByRole('button', { name: 'What does this measure?' })
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    // Methodology prose is inert until expanded (not in the a11y tree via role queries).
-    fireEvent.click(trigger)
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByText(/re-requested to confirm it still resolves/i)).toBeTruthy()
-    // Operational status copy stayed visible OUTSIDE the disclosure.
+    const trigger = screen.getByRole('button', { name: 'What does the broken-link check measure?' })
+    // Methodology prose is absent from the DOM until the card opens.
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    // Operational status copy stayed visible OUTSIDE the card.
     expect(screen.getByText(/not yet verified/i)).toBeTruthy()
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
+    expect(screen.getByText(/re-requested to confirm it still resolves/i)).toBeTruthy()
   })
 })
