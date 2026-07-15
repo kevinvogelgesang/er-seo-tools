@@ -11,6 +11,7 @@ import {
   BROKEN_EXTERNAL_FINDING_TYPE as EXTERNAL_TYPE,
   BROKEN_FINDING_LABELS as TYPE_LABEL,
 } from '@/lib/findings/finding-type-sets'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 interface FindingLite {
   scope: string
@@ -40,6 +41,15 @@ function Card({ children }: { children: React.ReactNode }) {
       <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white mb-1">
         Broken links &amp; images
       </h2>
+      <Explainer label="What does this measure?" className="mb-3">
+        <ExplainerSummary>
+          After the audit completes, every same-domain link and image collected from the rendered
+          pages is re-requested to confirm it still resolves (a lightweight request first, then a
+          full one to avoid false positives). External links get a lighter probe and are reported
+          as amber warnings, since many sites block automated requests. Targets that time out or
+          refuse the check are excluded from the broken counts rather than guessed at.
+        </ExplainerSummary>
+      </Explainer>
       {children}
     </section>
   )

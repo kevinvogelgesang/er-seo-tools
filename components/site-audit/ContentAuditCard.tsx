@@ -23,6 +23,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { buildContentAuditPrompt } from '@/lib/content-audit-prompt'
 import { subscribeTopic, subscribeHealth } from '@/lib/events/client'
 import { contentAuditTopic } from '@/lib/events/topics'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 interface CardProps {
   siteAuditId: string
@@ -150,9 +151,14 @@ export function ContentAuditCard({ siteAuditId, hasLiveScanRun, initialContentAu
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-navy-border dark:bg-navy-card">
       <h3 className="font-semibold text-gray-900 dark:text-white">Content audit</h3>
-      <p className="mt-1 text-sm text-gray-600 dark:text-white/70">
-        Hand off this audit&apos;s page content to a Claude session for consistency, stale-claim, and quality review.
-      </p>
+      <Explainer label="What is this?" className="mt-1">
+        <ExplainerSummary>
+          Hand off this audit&apos;s page content to a Claude session for consistency, stale-claim,
+          and quality review. Starting mints a one-hour access token and copies a prompt for the
+          er-handoff-memo skill; the skill reads the audited page text and posts structured
+          findings back to this card. Findings are advisory — they never change audit scores.
+        </ExplainerSummary>
+      </Explainer>
       <button
         type="button"
         onClick={() => void mint()}

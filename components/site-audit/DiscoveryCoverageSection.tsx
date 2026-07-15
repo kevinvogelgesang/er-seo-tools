@@ -5,12 +5,26 @@
 // discoveryCoverageJson column. Measurement, NOT a finding — never feeds
 // priority scoring. Copy says "URLs" not "pages" (internal-link may be assets).
 import React from 'react'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 // Local Card wrapper — matches BrokenLinksSection/OnPageSeoSection exactly
-// (there is no shared components/ui/Card in this repo).
+// (there is no shared components/ui/Card in this repo). Owns the heading +
+// methodology Explainer so every state renders both.
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <section className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-6">
+      <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white">
+        Discovery coverage
+      </h2>
+      <Explainer label="What does this measure?" className="mt-1">
+        <ExplainerSummary>
+          Compares two lists the audit already produced: the URLs the sitemap advertised, and the
+          same-domain URLs actually linked from the audited pages. Anything linked internally but
+          absent from the sitemap is &ldquo;off-sitemap&rdquo; — content search engines can only
+          find by crawling. Computed entirely from data already collected; nothing extra is
+          fetched.
+        </ExplainerSummary>
+      </Explainer>
       {children}
     </section>
   )
@@ -45,18 +59,11 @@ export function DiscoveryCoverageSection({
     return null
   }
 
-  const heading = (
-    <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white">
-      Discovery coverage
-    </h2>
-  )
-
   if (data.mode === 'hybrid') {
     const sPct = data.sitemapMissRate != null ? Math.round(data.sitemapMissRate * 100) : null
     const rPct = data.residualMissRate != null ? Math.round(data.residualMissRate * 100) : null
     return (
       <Card>
-        {heading}
         <p className="mt-1 text-[13px] font-body text-navy/70 dark:text-white/70">
           {sPct != null ? (
             <>The sitemap omitted{' '}
@@ -95,7 +102,6 @@ export function DiscoveryCoverageSection({
   if (!data.applicable) {
     return (
       <Card>
-        {heading}
         <p className="mt-1 text-[13px] font-body text-navy/50 dark:text-white/50">
           Discovery coverage not measured (no sitemap was used, or the sitemap exceeded the
           1,000-URL cap).
@@ -107,7 +113,6 @@ export function DiscoveryCoverageSection({
   if (data.offBaselineCount === 0) {
     return (
       <Card>
-        {heading}
         <p className="mt-1 text-[13px] font-body text-navy/70 dark:text-white/70">
           No off-sitemap URLs found — every internally-linked URL was in the sitemap
           ({data.discoveredCount} listed).
@@ -119,7 +124,6 @@ export function DiscoveryCoverageSection({
   const pct = data.missRate != null ? Math.round(data.missRate * 100) : 0
   return (
     <Card>
-      {heading}
       <p className="mt-1 text-[13px] font-body text-navy/70 dark:text-white/70">
         Sitemap listed {data.discoveredCount} same-domain URLs.{' '}
         <span className="font-semibold text-navy dark:text-white">

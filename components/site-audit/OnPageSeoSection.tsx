@@ -8,11 +8,21 @@
 import type { BrokenLinksRun } from './BrokenLinksSection'
 import { ScoreExplanation } from '@/components/scoring/ScoreExplanation'
 import { ONPAGE_FINDING_LABELS as ONPAGE_LABEL, ONPAGE_FINDING_TYPE_SET as ONPAGE_TYPES } from '@/lib/findings/finding-type-sets'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <section className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-6">
       <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white mb-1">On-page SEO</h2>
+      <Explainer label="What does this measure?" className="mb-3">
+        <ExplainerSummary>
+          On-page fundamentals read from the fully rendered pages: missing or duplicate titles,
+          meta descriptions and H1s, plus thin content — evaluated over indexable HTML pages only
+          (redirects, errors, noindex and login-style pages are skipped). The live SEO score weighs
+          these signals together with crawl coverage; duplicate counts are groups of pages sharing
+          a value, matching Screaming Frog semantics.
+        </ExplainerSummary>
+      </Explainer>
       {children}
     </section>
   )

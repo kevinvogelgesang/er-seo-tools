@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { BrokenLinksSection, type BrokenLinksRun } from './BrokenLinksSection'
 
 afterEach(cleanup)
@@ -77,5 +77,17 @@ describe('BrokenLinksSection — external links', () => {
     render(<BrokenLinksSection run={run} />)
     // Exactly one "partial" note (the external tier's), not one on the internal tier too.
     expect(screen.getAllByText(/partial/i)).toHaveLength(1)
+  })
+
+  it('renders methodology behind a collapsed Explainer in every state', () => {
+    render(<BrokenLinksSection run={null} />)
+    const trigger = screen.getByRole('button', { name: 'What does this measure?' })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    // Methodology prose is inert until expanded (not in the a11y tree via role queries).
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText(/re-requested to confirm it still resolves/i)).toBeTruthy()
+    // Operational status copy stayed visible OUTSIDE the disclosure.
+    expect(screen.getByText(/not yet verified/i)).toBeTruthy()
   })
 })
