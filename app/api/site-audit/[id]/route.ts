@@ -10,6 +10,7 @@ import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-chi
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { classifySeoPhase, getLatestSeoVerifyJob, type SeoPhase } from '@/lib/ada-audit/seo-phase'
 import { publishInvalidation } from '@/lib/events/bus'
+import { queuedAheadCount } from '@/lib/ada-audit/queue-order'
 import { queueTopic, recentsTopic, siteAuditTopic } from '@/lib/events/topics'
 
 export const dynamic = 'force-dynamic'
@@ -63,13 +64,12 @@ export async function GET(
     }
   })
 
-  // If queued, calculate position
+  // If queued, calculate position under the shared total ordering (PR3:
+  // prospect-owned first, then createdAt, id — queue-order.ts, the same
+  // ordering processNext drains and getQueueStatus displays).
   let queuePosition: number | null = null
   if (audit.status === 'queued') {
-    const ahead = await prisma.siteAudit.count({
-      where: { status: 'queued', createdAt: { lt: audit.createdAt } },
-    })
-    queuePosition = ahead + 1
+    queuePosition = (await queuedAheadCount(audit)) + 1
   }
 
   // If queued or waiting, include active audit info

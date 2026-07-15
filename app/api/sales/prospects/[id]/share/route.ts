@@ -2,16 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { prisma } from '@/lib/db'
+import { buildProspectSalesUrl } from '@/lib/services/prospects'
 
 // Not exported: Next.js App Router route files may only export HTTP handlers
 // and route config — any other named export fails `next build`. Nothing
-// outside this route consumes these, so they stay module-private.
+// outside this route consumes this, so it stays module-private.
 const SALES_TTL_MS = 30 * 24 * 60 * 60 * 1000
-
-function buildSalesUrl(token: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-  return `${base}/sales/${token}`
-}
 
 function parseId(raw: string): number | null {
   const id = Number(raw)
@@ -36,7 +32,7 @@ export const POST = withRoute(async (_request: NextRequest, { params }: { params
   } else {
     await prisma.prospect.update({ where: { id }, data: { salesTokenExpiresAt: expiresAt } })
   }
-  return NextResponse.json({ salesUrl: buildSalesUrl(token), expiresAt: expiresAt.toISOString() })
+  return NextResponse.json({ salesUrl: buildProspectSalesUrl(token), expiresAt: expiresAt.toISOString() })
 })
 
 export const GET = withRoute(async (_request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
@@ -52,7 +48,7 @@ export const GET = withRoute(async (_request: NextRequest, { params }: { params:
   }
   return NextResponse.json({
     salesToken: prospect.salesToken,
-    salesUrl: buildSalesUrl(prospect.salesToken),
+    salesUrl: buildProspectSalesUrl(prospect.salesToken),
     expiresAt: prospect.salesTokenExpiresAt.toISOString(),
   })
 })

@@ -38,6 +38,23 @@ export const DELETE = withRoute(async (_request: NextRequest, { params }: { para
     for (const r of cleanup) {
       if (r.status === 'rejected') console.warn('[sales] hero cleanup failed on prospect delete:', r.reason)
     }
+
+    // PR3: these audits just lost prospect ownership (prospectId SetNull'd by the
+    // delete above), so any still-queued discover job must drop back to the
+    // non-prospect priority. A stale priority-1 job would out-claim a real
+    // prospect's discover job (worker claims by [priority desc, createdAt asc]),
+    // making the worker disagree with every queue-order reader (which now
+    // classifies these audits as non-prospect). Demote, never cancel — the
+    // orphaned audit still runs, just at normal priority.
+    await prisma.job.updateMany({
+      where: {
+        type: 'site-audit-discover',
+        status: 'queued',
+        groupKey: { in: ids.map((aid) => `site-audit:${aid}`) },
+        priority: { gt: 0 },
+      },
+      data: { priority: 0 },
+    })
   }
 
   // A5 Task 19: a row disappeared from the /sales dashboard list. Emit AFTER

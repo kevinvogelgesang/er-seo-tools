@@ -2,6 +2,7 @@
 // C14: prospect CRUD for the /sales intake. One prospect per normalized
 // domain, best-effort app-level (client-schedules precedent, no DB unique).
 import { prisma } from '@/lib/db'
+import { queuedAheadCount } from '@/lib/ada-audit/queue-order'
 
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
 
@@ -13,18 +14,43 @@ export function normalizeProspectDomain(input: string): string {
   return d
 }
 
+/**
+ * ONE home for the public sales-report URL (PR3, Codex fix 5) — the share
+ * route and listProspects build from here so the two can never drift.
+ * NEXT_PUBLIC_APP_URL, never request origin (house rule); the localhost
+ * fallback is byte-identical to the share route's previous local copy.
+ */
+export function buildProspectSalesUrl(token: string): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  return `${base}/sales/${token}`
+}
+
 export interface ProspectRow {
   id: number
   name: string
   domain: string
   createdAt: string
   salesTokenActive: boolean
+  salesUrl: string | null            // active token only, via buildProspectSalesUrl
   latestAudit: null | {
     id: string
     status: string
     completedAt: string | null
     adaScore: number | null
     reportable: boolean
+    pagesTotal: number
+    pagesComplete: number
+    pagesError: number
+    pagesRedirected: number
+    pdfsTotal: number
+    pdfsComplete: number
+    pdfsError: number
+    pdfsSkipped: number
+    lighthouseTotal: number
+    lighthouseComplete: number
+    lighthouseError: number
+    startedAt: string | null         // Codex fix 4: NOT createdAt — queue wait excluded from the ETA
+    queuePosition: number | null     // shared-ordering position for 'queued' audits; null otherwise
   }
 }
 
@@ -62,6 +88,13 @@ export async function listProspects(): Promise<ProspectRow[]> {
     orderBy: { createdAt: 'desc' },
     select: {
       id: true, prospectId: true, status: true, completedAt: true,
+      // PR3 progress + ETA scalars (spec §1). startedAt NOT createdAt — the
+      // ETA must exclude queue wait (Codex fix 4). createdAt is selected for
+      // the queue-position key, not surfaced.
+      createdAt: true, startedAt: true,
+      pagesTotal: true, pagesComplete: true, pagesError: true, pagesRedirected: true,
+      pdfsTotal: true, pdfsComplete: true, pdfsError: true, pdfsSkipped: true,
+      lighthouseTotal: true, lighthouseComplete: true, lighthouseError: true,
       crawlRuns: { select: { tool: true, score: true } },
     },
   })
@@ -69,14 +102,24 @@ export async function listProspects(): Promise<ProspectRow[]> {
   for (const a of audits) {
     if (a.prospectId !== null && !latestByProspect.has(a.prospectId)) latestByProspect.set(a.prospectId, a)
   }
+  // PR3: shared-ordering queue position for queued latest audits (one indexed
+  // count per queued row — rare: at most a handful of prospects queue at once).
+  const queuePositions = new Map<string, number>()
+  for (const a of latestByProspect.values()) {
+    if (a.status === 'queued') {
+      queuePositions.set(a.id, (await queuedAheadCount(a)) + 1)
+    }
+  }
   return prospects.map((p) => {
     const a = latestByProspect.get(p.id) ?? null
+    const tokenActive = !!p.salesToken && !!p.salesTokenExpiresAt && p.salesTokenExpiresAt > now
     return {
       id: p.id,
       name: p.name,
       domain: p.domain,
       createdAt: p.createdAt.toISOString(),
-      salesTokenActive: !!p.salesToken && !!p.salesTokenExpiresAt && p.salesTokenExpiresAt > now,
+      salesTokenActive: tokenActive,
+      salesUrl: tokenActive && p.salesToken ? buildProspectSalesUrl(p.salesToken) : null,
       latestAudit: a
         ? {
             id: a.id,
@@ -84,6 +127,19 @@ export async function listProspects(): Promise<ProspectRow[]> {
             completedAt: a.completedAt?.toISOString() ?? null,
             adaScore: a.crawlRuns.find((r) => r.tool === 'ada-audit')?.score ?? null,
             reportable: a.status === 'complete' && a.crawlRuns.some((r) => r.tool === 'seo-parser'),
+            pagesTotal: a.pagesTotal,
+            pagesComplete: a.pagesComplete,
+            pagesError: a.pagesError,
+            pagesRedirected: a.pagesRedirected,
+            pdfsTotal: a.pdfsTotal,
+            pdfsComplete: a.pdfsComplete,
+            pdfsError: a.pdfsError,
+            pdfsSkipped: a.pdfsSkipped,
+            lighthouseTotal: a.lighthouseTotal,
+            lighthouseComplete: a.lighthouseComplete,
+            lighthouseError: a.lighthouseError,
+            startedAt: a.startedAt?.toISOString() ?? null,
+            queuePosition: queuePositions.get(a.id) ?? null,
           }
         : null,
     }

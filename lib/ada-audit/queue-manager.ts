@@ -26,6 +26,7 @@ import { prisma } from '@/lib/db'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { recoverStandaloneAudits } from '@/lib/ada-audit/standalone-recovery'
 import { cancelJobsByGroup, countActiveJobsByGroup, enqueueJob } from '@/lib/jobs/queue'
+import { compareQueuedAudits, findNextQueuedAudit, PROSPECT_DISCOVER_PRIORITY } from './queue-order'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 import type { QueueStatusWithBatch } from './types'
 import { publishInvalidation } from '@/lib/events/bus'
@@ -37,11 +38,13 @@ const TRANSIENT_STATUSES = ['running', 'pdfs-running', 'lighthouse-running'] as 
 
 /**
  * Stateless promoter: if no audit holds the slot, enqueue a discover job for
- * the oldest queued audit. Safe under concurrent callers without a mutex:
- * both pick the SAME oldest row (dedupKey discover:<id> collapses the
- * enqueues), and the one-active invariant is enforced by the discover
- * handler's claim, not here — a stray promotion of a second audit no-ops at
- * claim time and gets re-promoted by the next finalize kick.
+ * the first queued audit under the shared queue-order.ts total ordering
+ * (prospect-owned first, then createdAt, then id). Safe under concurrent
+ * callers without a mutex: both pick the SAME first-ranked row (dedupKey
+ * discover:<id> collapses the enqueues), and the one-active invariant is
+ * enforced by the discover handler's claim, not here — a stray promotion of a
+ * second audit no-ops at claim time and gets re-promoted by the next finalize
+ * kick.
  */
 export async function processNext() {
   try {
@@ -51,11 +54,9 @@ export async function processNext() {
     })
     if (active) return
 
-    const next = await prisma.siteAudit.findFirst({
-      where: { status: 'queued' },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true },
-    })
+    // PR3: shared total ordering (lib/ada-audit/queue-order.ts) — prospect
+    // scans jump the queued line; a running audit always finishes first.
+    const next = await findNextQueuedAudit()
     if (!next) return
 
     await enqueueJob({
@@ -63,6 +64,10 @@ export async function processNext() {
       payload: { siteAuditId: next.id },
       dedupKey: `discover:${next.id}`,
       groupKey: `site-audit:${next.id}`,
+      // Codex fix 2: beat an already-enqueued (unclaimed) non-prospect
+      // discover job at the worker's [{priority:'desc'},{createdAt:'asc'}]
+      // claim. Unclaimed jobs only — never a preemption.
+      priority: next.prospectId !== null ? PROSPECT_DISCOVER_PRIORITY : 0,
     })
   } catch (err) {
     console.error('[queue] processNext error:', err)
@@ -179,11 +184,16 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
     orderBy: { createdAt: 'asc' },
   })
 
-  const queuedRows = await prisma.siteAudit.findMany({
-    where: { status: 'queued' },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true, domain: true, clientId: true, seoOnly: true },
-  })
+  // PR3: the queued list renders in the SAME total order the promoter will
+  // drain it (queue-order.ts) — prospect-owned first, then createdAt, id.
+  // JS sort: the queued set is tiny and Prisma can't order by "non-null
+  // first" without value-ordering prospectId.
+  const queuedRows = (
+    await prisma.siteAudit.findMany({
+      where: { status: 'queued' },
+      select: { id: true, domain: true, clientId: true, seoOnly: true, prospectId: true, createdAt: true },
+    })
+  ).sort(compareQueuedAudits)
 
   const openBatch = await prisma.auditBatch.findFirst({
     where: { closedAt: null },

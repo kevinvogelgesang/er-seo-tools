@@ -3,7 +3,7 @@
 // Phase 3: the promoter is stateless (no mutex) — one-at-a-time is enforced
 // by the discover handler's claim. These tests cover the promoter's enqueue
 // behavior, generic transient recovery (running included), and failSiteAudit.
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
 
 vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({
   finalizeSiteAudit: vi.fn(async () => undefined),
@@ -20,7 +20,7 @@ const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
 const { recoverStandaloneAudits } = await import('./standalone-recovery')
 const { publishInvalidation } = await import('@/lib/events/bus')
-const { processNext, recoverQueue, resetStaleAudits, failSiteAudit } = await import('./queue-manager')
+const { processNext, recoverQueue, resetStaleAudits, failSiteAudit, getQueueStatus } = await import('./queue-manager')
 
 const PREFIX = 'qm3-test-'
 
@@ -322,5 +322,81 @@ describe('enqueueAudit A5 queue emit', () => {
     const { id } = await enqueueAudit(`${PREFIX}emit.example.edu`, null, 'wcag21aa', {})
     expect(publishInvalidation).toHaveBeenCalledWith('queue')
     await prisma.siteAudit.delete({ where: { id } })
+  })
+})
+
+describe('processNext — prospect priority (PR3)', () => {
+  beforeEach(async () => {
+    await clearTestState()
+  })
+  // clearTestState's existing job cleanup keys off PREFIX-domain sites, so it
+  // covers our discover jobs + prospects — but only if it ALSO runs after the
+  // last test: don't leak final queued rows/jobs into the shared dev DB.
+  afterAll(clearTestState)
+
+  it('promotes a prospect-owned queued audit over an older non-prospect one, at priority 1', async () => {
+    const older = await seedSite('prio-client', 'queued', { createdAt: new Date(Date.now() - 60_000) })
+    const prospect = await prisma.prospect.create({ data: { name: 'Prio', domain: `${PREFIX}prio.test` } })
+    const pAudit = await seedSite('prio-prospect', 'queued', { prospectId: prospect.id })
+    await processNext()
+    expect(await discoverJobsFor(older.id)).toHaveLength(0)
+    const jobs = await discoverJobsFor(pAudit.id)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].priority).toBe(1)
+  })
+
+  it('non-prospect discover jobs keep the default priority 0', async () => {
+    const site = await seedSite('prio-plain', 'queued')
+    await processNext()
+    const jobs = await discoverJobsFor(site.id)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].priority).toBe(0)
+  })
+
+  it('Codex race: an already-enqueued non-prospect discover job is out-claimed by the later prospect job', async () => {
+    // Step 1: a non-prospect audit is queued and ALREADY has an unclaimed
+    // discover job (promoter ran while the queue was otherwise idle).
+    const older = await seedSite('race-client', 'queued', { createdAt: new Date(Date.now() - 60_000) })
+    await processNext()
+    expect(await discoverJobsFor(older.id)).toHaveLength(1)
+
+    // Step 2: a prospect scan is enqueued AFTER. Nothing is transient yet
+    // (the older discover job is unclaimed), so the promoter runs again and
+    // enqueues a SECOND discover job — the prospect's, at higher priority.
+    const prospect = await prisma.prospect.create({ data: { name: 'Race', domain: `${PREFIX}race.test` } })
+    const pAudit = await seedSite('race-prospect', 'queued', { prospectId: prospect.id })
+    await processNext()
+    expect(await discoverJobsFor(pAudit.id)).toHaveLength(1)
+
+    // Step 3: replicate the worker's claim pick (lib/jobs/worker.ts claimNext:
+    // orderBy [{priority:'desc'},{createdAt:'asc'}]) scoped to our two jobs —
+    // the prospect's newer-but-higher-priority job must win.
+    const nextClaim = await prisma.job.findFirst({
+      where: {
+        type: 'site-audit-discover',
+        status: 'queued',
+        groupKey: { in: [`site-audit:${older.id}`, `site-audit:${pAudit.id}`] },
+      },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+    })
+    expect(nextClaim?.groupKey).toBe(`site-audit:${pAudit.id}`)
+  })
+})
+
+describe('getQueueStatus — shared ordering (PR3)', () => {
+  beforeEach(async () => {
+    await clearTestState()
+  })
+  afterAll(clearTestState) // don't leak the final seeded queued rows into the shared dev DB
+
+  it('lists queued prospect-owned audits first, then non-prospect FIFO, positions 1..n', async () => {
+    const now = Date.now()
+    const older = await seedSite('gs-older', 'queued', { createdAt: new Date(now - 120_000) })
+    const mid = await seedSite('gs-mid', 'queued', { createdAt: new Date(now - 60_000) })
+    const prospect = await prisma.prospect.create({ data: { name: 'GS', domain: `${PREFIX}gs.test` } })
+    const pAudit = await seedSite('gs-prospect', 'queued', { prospectId: prospect.id }) // newest row
+    const status = await getQueueStatus()
+    expect(status.queued.map((q) => q.id)).toEqual([pAudit.id, older.id, mid.id])
+    expect(status.queued.map((q) => q.position)).toEqual([1, 2, 3])
   })
 })
