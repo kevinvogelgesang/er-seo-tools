@@ -11,7 +11,18 @@ import type { SchemaTypesSummary } from '@/lib/ada-audit/seo/schema-types'
 
 const MAX_PATTERNS = 4
 const MAX_EXAMPLE_PAGES = 5
+const MAX_ISSUE_TYPES = 6
 const IMPACT_RANK: Record<ImpactLevel, number> = { critical: 3, serious: 2, moderate: 1, minor: 0 }
+
+/** A generic accessibility-issue TYPE surfaced to the prospect: the axe rule's
+ *  plain-English description + severity + how widespread it is — never the
+ *  site-specific element/selector/page instances. */
+export interface AccessibilityIssueType {
+  ruleId: string
+  help: string
+  impact: ImpactLevel
+  affectedPages: number
+}
 
 export interface SeoIssueGroup {
   type: string
@@ -41,6 +52,7 @@ export interface SalesReportData {
   accessibility: {
     score: number | null
     counts: { critical: number; serious: number; moderate: number; minor: number; total: number }
+    issueTypes: AccessibilityIssueType[] // generic rule descriptions, no site-specific instances
   }
   seo: {
     score: number | null
@@ -159,6 +171,15 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       }
     : { critical: 0, serious: 0, moderate: 0, minor: 0, total: 0 }
 
+  // Generic issue TYPES (axe rule descriptions) — what kinds of barriers were
+  // found, by severity, without naming the specific elements/pages. Sourced
+  // from the site-wide common-issue patterns; most-severe + most-widespread
+  // first. Empty for older summaries that predate commonIssues.
+  const issueTypes: AccessibilityIssueType[] = [...(summary?.commonIssues ?? [])]
+    .sort((a, b) => IMPACT_RANK[b.impact] - IMPACT_RANK[a.impact] || b.affectedPagesCount - a.affectedPagesCount)
+    .slice(0, MAX_ISSUE_TYPES)
+    .map((ci) => ({ ruleId: ci.ruleId, help: ci.help, impact: ci.impact, affectedPages: ci.affectedPagesCount }))
+
   // SEO groups from live-scan findings: run-scope count + page-scope example URLs.
   const issueGroups: SeoIssueGroup[] = []
   for (const type of Object.keys(ISSUE_LABELS)) {
@@ -235,7 +256,7 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
         performanceScore: rollup?.medianPerformance ?? null,
         schemaCoveragePct: coveragePct,
       },
-      accessibility: { score: adaRun?.score ?? null, counts },
+      accessibility: { score: adaRun?.score ?? null, counts, issueTypes },
       seo: {
         score: seoRun.score,
         issueGroups,

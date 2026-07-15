@@ -4,6 +4,7 @@
 // remains for methodology explainers and long lists.
 import { Explainer, ExplainerNote, ExplainerSummary } from '@/components/ui/Explainer'
 import type { CwvStatus } from '@/lib/ada-audit/lighthouse-types'
+import type { ImpactLevel } from '@/lib/ada-audit/types'
 import {
   ER_ADA_CTA, ISSUE_WHY, SCHEMA_IMPLICATIONS, SCORE_METHOD, SECTION_INTROS, WCAG_MEANING,
 } from '@/lib/sales/copy'
@@ -21,6 +22,11 @@ function MethodExplainer(props: { area: keyof typeof SCORE_METHOD }) {
   )
 }
 
+/** Lead paragraph under a section header — sets the stakes (Kevin pass 2). */
+function SectionLead(props: { children: React.ReactNode }) {
+  return <p className="text-[14px] font-body text-navy/70 dark:text-white/70 leading-relaxed">{props.children}</p>
+}
+
 // ── Accessibility: counts only — no itemized rules ─────────────────────────
 
 const SEVERITY_TILES = [
@@ -30,12 +36,22 @@ const SEVERITY_TILES = [
   { key: 'minor' as const, label: 'Minor', cls: 'text-amber-500 dark:text-amber-300' },
 ]
 
+const IMPACT_CHIP: Record<ImpactLevel, string> = {
+  critical: 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300',
+  serious: 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300',
+  moderate: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300',
+  minor: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+}
+const IMPACT_LABEL: Record<ImpactLevel, string> = {
+  critical: 'Critical', serious: 'Serious', moderate: 'Moderate', minor: 'Minor',
+}
+
 export function AccessibilitySalesSection(props: {
   data: SalesReportData['accessibility']
   standardTested: string
   archived: boolean
 }) {
-  const { counts } = props.data
+  const { counts, issueTypes = [] } = props.data
   return (
     <SectionCard
       title="Accessibility"
@@ -44,14 +60,43 @@ export function AccessibilitySalesSection(props: {
       headline={`${counts.total} accessibility issues found across the scanned pages`}
       defaultOpen
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <SectionLead>{SECTION_INTROS.accessibility}</SectionLead>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {SEVERITY_TILES.map((t) => (
-          <div key={t.key} className="rounded-xl border border-gray-200 dark:border-navy-border p-4 text-center">
-            <div className={`text-3xl font-heading font-bold ${t.cls}`}>{counts[t.key]}</div>
+          <div key={t.key} className="rounded-xl border border-gray-200 dark:border-navy-border p-5 text-center">
+            <div className={`text-4xl font-heading font-extrabold tabular-nums ${t.cls}`}>{counts[t.key]}</div>
             <div className="mt-1 text-[12px] font-body text-navy/50 dark:text-white/50">{t.label}</div>
           </div>
         ))}
       </div>
+      {issueTypes.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-heading font-semibold text-navy dark:text-white">
+            The kinds of barriers we found
+          </h3>
+          <ul className="space-y-2">
+            {issueTypes.map((it) => (
+              <li
+                key={it.ruleId}
+                className="flex items-start gap-3 rounded-xl border border-gray-200 dark:border-navy-border p-3.5"
+              >
+                <span className={`mt-0.5 shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-heading font-semibold ${IMPACT_CHIP[it.impact]}`}>
+                  {IMPACT_LABEL[it.impact]}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-body text-navy/80 dark:text-white/80">{it.help}</p>
+                  <p className="mt-0.5 text-[12px] font-body text-navy/45 dark:text-white/45">
+                    Found on {it.affectedPages} {it.affectedPages === 1 ? 'page' : 'pages'}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[12px] font-body text-navy/45 dark:text-white/45">
+            These are the types of issues detected — the full element-by-element breakdown is part of the detailed audit we walk through together.
+          </p>
+        </div>
+      )}
       <p className="text-[13px] font-body text-navy/60 dark:text-white/60">
         Tested against {props.standardTested}. {WCAG_MEANING}
       </p>
@@ -84,6 +129,7 @@ export function SeoSalesSection(props: { data: SalesReportData['seo']; pagesScan
       headline={headline}
       defaultOpen
     >
+      <SectionLead>{SECTION_INTROS.seo}</SectionLead>
       {d.issueGroups.length === 0 && (
         <p className="text-[13px] font-body text-green-700 dark:text-green-400">
           The scanned pages came back clean on links, titles, and content depth.
@@ -137,6 +183,20 @@ const lcpCls = (ms: number) => (ms <= 2500 ? STATUS_CLS.pass : ms > 4000 ? STATU
 const clsCls = (v: number) => (v <= 0.1 ? STATUS_CLS.pass : v > 0.25 ? STATUS_CLS.fail : STATUS_CLS['needs-improvement'])
 const tbtCls = (ms: number) => (ms <= 200 ? STATUS_CLS.pass : ms > 600 ? STATUS_CLS.fail : STATUS_CLS['needs-improvement'])
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)}s`
+// Layout shift is a small unitless ratio — pin to 3 decimals (Lighthouse
+// convention) so raw float noise never leaks into the report.
+const fmtCls = (v: number) => v.toFixed(3)
+
+/** A single defined metric card for the homepage vitals row. */
+function MetricCard(props: { label: string; value: string; valueCls: string; hint: string }) {
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-navy-border bg-gray-50/60 dark:bg-white/[0.03] p-4 flex flex-col">
+      <span className="text-[11px] font-body uppercase tracking-wide text-navy/45 dark:text-white/45">{props.label}</span>
+      <span className={`mt-1.5 text-3xl font-heading font-extrabold tabular-nums ${props.valueCls}`}>{props.value}</span>
+      <span className="mt-auto pt-1 text-[11px] font-body text-navy/40 dark:text-white/40">{props.hint}</span>
+    </div>
+  )
+}
 
 export function PerformanceSalesSection(props: { data: SalesReportData['performance'] }) {
   const { rollup, homepage } = props.data
@@ -147,16 +207,22 @@ export function PerformanceSalesSection(props: { data: SalesReportData['performa
     : 'Not enough pages were measured for a reliable site-wide roll-up'
   return (
     <SectionCard title="Performance" grade={grade} gradeLabel={gradeLabel} headline={headline} defaultOpen>
-      {/* (a) Homepage CWV card — independent of the roll-up (spec Codex fix 6) */}
+      <SectionLead>{SECTION_INTROS.performance}</SectionLead>
+      {/* (a) Homepage CWV cards — independent of the roll-up (spec Codex fix 6) */}
       {homepage ? (
-        <div className="rounded-xl border border-gray-200 dark:border-navy-border p-4">
-          <h3 className="text-[13px] font-heading font-semibold text-navy dark:text-white mb-2">Your homepage</h3>
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Lighthouse score</dt><dd className={`text-[15px] font-heading font-semibold ${gradeForScore(homepage.performance) === 'good' ? STATUS_CLS.pass : gradeForScore(homepage.performance) === 'warn' ? STATUS_CLS['needs-improvement'] : STATUS_CLS.fail}`}>{homepage.performance}/100</dd></div>
-            <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Largest paint</dt><dd className={`text-[15px] font-heading font-semibold ${STATUS_CLS[homepage.lcpStatus]}`}>{sec(homepage.lcpMs)}</dd></div>
-            <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Layout shift</dt><dd className={`text-[15px] font-heading font-semibold ${STATUS_CLS[homepage.clsStatus]}`}>{homepage.cls}</dd></div>
-            <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Blocking time (lab proxy)</dt><dd className={`text-[15px] font-heading font-semibold ${STATUS_CLS[homepage.tbtStatus]}`}>{Math.round(homepage.tbtMs)}ms</dd></div>
-          </dl>
+        <div>
+          <h3 className="text-[13px] font-heading font-semibold text-navy dark:text-white mb-3">Your homepage</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <MetricCard
+              label="Lighthouse score"
+              value={`${homepage.performance}`}
+              valueCls={gradeForScore(homepage.performance) === 'good' ? STATUS_CLS.pass : gradeForScore(homepage.performance) === 'warn' ? STATUS_CLS['needs-improvement'] : STATUS_CLS.fail}
+              hint="out of 100"
+            />
+            <MetricCard label="Largest paint" value={sec(homepage.lcpMs)} valueCls={STATUS_CLS[homepage.lcpStatus]} hint="main content shown" />
+            <MetricCard label="Layout shift" value={fmtCls(homepage.cls)} valueCls={STATUS_CLS[homepage.clsStatus]} hint="lower is steadier" />
+            <MetricCard label="Blocking time" value={`${Math.round(homepage.tbtMs)}ms`} valueCls={STATUS_CLS[homepage.tbtStatus]} hint="lab proxy" />
+          </div>
         </div>
       ) : (
         <p className="text-[12px] font-body text-navy/45 dark:text-white/45">
@@ -184,14 +250,13 @@ export function PerformanceSalesSection(props: { data: SalesReportData['performa
       {rollup ? (
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Largest paint (p75)</dt><dd className={`text-[15px] font-heading font-semibold ${lcpCls(rollup.p75LcpMs)}`}>{sec(rollup.p75LcpMs)}</dd></div>
-          <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Layout shift (p75)</dt><dd className={`text-[15px] font-heading font-semibold ${clsCls(rollup.p75Cls)}`}>{rollup.p75Cls}</dd></div>
+          <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Layout shift (p75)</dt><dd className={`text-[15px] font-heading font-semibold ${clsCls(rollup.p75Cls)}`}>{fmtCls(rollup.p75Cls)}</dd></div>
           <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Blocking time (p75, lab proxy)</dt><dd className={`text-[15px] font-heading font-semibold ${tbtCls(rollup.p75TbtMs)}`}>{Math.round(rollup.p75TbtMs)}ms</dd></div>
           <div><dt className="text-[12px] font-body text-navy/50 dark:text-white/50">Pages passing all checks</dt><dd className="text-[15px] font-heading font-semibold text-navy dark:text-white">{rollup.pctPassing}%</dd></div>
         </dl>
       ) : (
         <p className="text-[12px] font-body text-navy/45 dark:text-white/45">Re-scan to collect site-wide Lighthouse measurements.</p>
       )}
-      <p className="text-[12px] font-body text-navy/50 dark:text-white/50">{SECTION_INTROS.performance}</p>
       <MethodExplainer area="performance" />
     </SectionCard>
   )
@@ -201,7 +266,8 @@ export function PerformanceSalesSection(props: { data: SalesReportData['performa
 
 export function GeoSalesSection(props: { data: SalesReportData['geo']; pagesTotal: number | null }) {
   const d = props.data
-  const grade = d.coveragePct === null ? 'none' : d.coveragePct >= 60 ? 'good' : d.coveragePct >= 30 ? 'warn' : 'bad'
+  // Unified urgency bands (Kevin pass 2): coverage grades on the same scale.
+  const grade = gradeForScore(d.coveragePct)
   const present = new Set(d.types.map((t) => t.type))
   const highValue = [...present].filter((t) => !d.missingHighValueTypes.includes(t))
   const cards = [...highValue, ...d.missingHighValueTypes]
@@ -221,6 +287,7 @@ export function GeoSalesSection(props: { data: SalesReportData['geo']; pagesTota
       }
       defaultOpen
     >
+      <SectionLead>{SECTION_INTROS.geo}</SectionLead>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {cards.map((type) => {
           const found = present.has(type)
@@ -258,7 +325,6 @@ export function GeoSalesSection(props: { data: SalesReportData['geo']; pagesTota
       {d.hreflangIssueCount > 0 && (
         <p className="text-[12px] font-body text-navy/50 dark:text-white/50">{d.hreflangIssueCount} language-annotation issues found.</p>
       )}
-      <p className="text-[12px] font-body text-navy/50 dark:text-white/50">{SECTION_INTROS.geo}</p>
       <MethodExplainer area="geo" />
     </SectionCard>
   )

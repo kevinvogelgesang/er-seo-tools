@@ -18,7 +18,14 @@ const data: SalesReportData = {
   preparedBy: 'Kevin', archived: false,
   overallScore: 53, heroScreenshot: true, standardTested: 'WCAG 2.1 AA',
   headline: { accessibilityScore: 62, seoScore: 71, performanceScore: 40, schemaCoveragePct: 40 },
-  accessibility: { score: 62, counts: { critical: 4, serious: 10, moderate: 2, minor: 1, total: 17 } },
+  accessibility: {
+    score: 62,
+    counts: { critical: 4, serious: 10, moderate: 2, minor: 1, total: 17 },
+    issueTypes: [
+      { ruleId: 'image-alt', help: 'Images must have alternate text', impact: 'critical', affectedPages: 5 },
+      { ruleId: 'color-contrast', help: 'Elements must have sufficient color contrast', impact: 'serious', affectedPages: 8 },
+    ],
+  },
   seo: {
     score: 71,
     issueGroups: [
@@ -64,11 +71,16 @@ describe('SalesReportView (C14 urgency redesign)', () => {
     expect(screen.getByRole('button', { name: /send/i })).toBeTruthy()
   })
 
-  it('accessibility renders counts only — no itemized rules or element screenshots', () => {
+  it('accessibility shows generic issue TYPES (no element screenshots or site-specific instances)', () => {
     render(<SalesReportView data={data} token="tok1" contactEmail="x@y.z" />)
     expect(screen.getByText('4')).toBeTruthy() // critical tile
     expect(screen.getByText(/tested against wcag 2.1 aa/i)).toBeTruthy()
-    expect(screen.queryByText(/color contrast/i)).toBeNull()
+    // generic axe rule descriptions ARE shown now (Kevin pass 2)…
+    expect(screen.getByText(/the kinds of barriers we found/i)).toBeTruthy()
+    expect(screen.getByText(/sufficient color contrast/i)).toBeTruthy()
+    expect(screen.getByText(/images must have alternate text/i)).toBeTruthy()
+    expect(screen.getByText(/found on 8 pages/i)).toBeTruthy()
+    // …but no per-element screenshots / site-specific instances
     expect(document.querySelector('img[src*="/screenshot/"]')).toBeNull()
     // sanctioned ER-product ADA claim present
     expect(screen.getByText(/enrollment resources builds is ada-compliant/i)).toBeTruthy()

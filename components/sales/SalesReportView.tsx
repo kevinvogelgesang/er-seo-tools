@@ -13,8 +13,8 @@ export function SalesReportView(props: { data: SalesReportData; token: string; c
   return (
     <div className="min-h-screen bg-[#f4f6f9] dark:bg-navy-deep">
       <SalesReportHeader prospectName={data.prospect.name} domain={data.prospect.domain} preparedBy={data.preparedBy} />
-      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-        <p className="text-[12px] font-body text-navy/50 dark:text-white/50">
+      <div className="max-w-7xl mx-auto px-6 py-10 space-y-8">
+        <p className="text-[13px] font-body text-navy/50 dark:text-white/50">
           {scanned ? `Scanned ${scanned}` : 'Scan date unavailable'}
           {data.pagesTotal ? ` · ${data.pagesTotal} pages` : ''}
         </p>
