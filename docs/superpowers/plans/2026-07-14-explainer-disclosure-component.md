@@ -64,7 +64,7 @@ function panelFor(trigger: HTMLElement): HTMLElement {
 }
 
 describe('Explainer', () => {
-  it('renders collapsed by default: trigger aria-expanded=false, panel aria-hidden + inert', () => {
+  it('renders collapsed by default: trigger aria-expanded=false, panel aria-hidden + inert + invisible', () => {
     render(
       <Explainer label="What does this measure?">
         <ExplainerSummary>Methodology prose.</ExplainerSummary>
@@ -75,9 +75,12 @@ describe('Explainer', () => {
     const panel = panelFor(trigger)
     expect(panel.getAttribute('aria-hidden')).toBe('true')
     expect(panel.hasAttribute('inert')).toBe(true)
+    // Safari 14 focus fallback: visibility:hidden removes the subtree from
+    // the tab order on browsers without native inert support.
+    expect(panel.className).toMatch(/\binvisible\b/)
   })
 
-  it('expands on click: aria-expanded flips, aria-hidden/inert removed; collapses again on second click', () => {
+  it('expands on click: aria-expanded flips, aria-hidden/inert/invisible removed; collapses again on second click', () => {
     render(
       <Explainer label="What is this?">
         <ExplainerSummary>Prose.</ExplainerSummary>
@@ -89,9 +92,11 @@ describe('Explainer', () => {
     const panel = panelFor(trigger)
     expect(panel.getAttribute('aria-hidden')).toBeNull()
     expect(panel.hasAttribute('inert')).toBe(false)
+    expect(panel.className).not.toMatch(/\binvisible\b/)
     fireEvent.click(trigger)
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(panel.hasAttribute('inert')).toBe(true)
+    expect(panel.className).toMatch(/\binvisible\b/)
   })
 
   it('defaultOpen renders expanded', () => {
@@ -198,6 +203,12 @@ Error: Failed to resolve import "./Explainer" from "components/ui/Explainer.test
 //    focus. The panel stays mounted (the grid-rows animation needs real
 //    content height), but it is removed from both the a11y tree and the tab
 //    order.
+//  - Safari 14 fallback: native `inert` is not reliable there and aria-hidden
+//    alone does NOT block keyboard focus, so the collapsed panel ALSO gets
+//    Tailwind's `invisible` (visibility:hidden) — visibility removes the
+//    subtree from the tab order everywhere. visibility transitions
+//    discretely, so content text disappears at the start of the collapse
+//    while the 200ms grid clip still animates; accepted tradeoff.
 //  - Animation: grid-template-rows 0fr→1fr wrapped in motion-safe: variants —
 //    prefers-reduced-motion users get an instant toggle.
 //
@@ -289,7 +300,7 @@ export function Explainer({
           id={panelId}
           aria-hidden={open ? undefined : true}
           inert={!open}
-          className="min-h-0 overflow-hidden"
+          className={`min-h-0 overflow-hidden ${open ? '' : 'invisible'}`.trim()}
         >
           <div className="pt-2 pb-1 space-y-3">{children}</div>
         </div>
@@ -385,6 +396,7 @@ export function ExplainerNote({ children }: { children: React.ReactNode }) {
 Implementation notes:
   - `aria-hidden={open ? undefined : true}` (not `aria-hidden={!open}`) — React would otherwise render `aria-hidden="false"`, which is harmless but the test asserts attribute absence when open.
   - `inert={!open}` — React 19 renders the attribute only when true; jsdom can't enforce inert focus semantics, so the test asserts the attribute AND uses `queryByRole` (role queries exclude `aria-hidden` subtrees) for the accessible-tree assertion.
+  - **Safari 14 focus fallback (Codex plan-review fix):** the repo targets Safari 14, where native `inert` is not reliable and `aria-hidden` alone does not prevent keyboard focus. The collapsed panel therefore ALSO carries Tailwind's `invisible` (`visibility: hidden`), which removes the subtree from the tab order on every browser. `visibility` transitions discretely, so on collapse the content text disappears at toggle start while the 200ms grid-rows clip still animates on the wrapper — an accepted tradeoff; do not add `transition-behavior`/visibility-delay complexity for it. The class is toggled by React state on the panel div (`${open ? '' : 'invisible'}`), which does not interfere with the grid-rows animation (that lives on the parent wrapper).
   - Chevron rotation via `rotate-180` on open; the panel animation is `grid-rows-[0fr]` ↔ `grid-rows-[1fr]` with `motion-safe:transition-[grid-template-rows]`; the row child needs `min-h-0 overflow-hidden` for the collapse to actually clip.
 
 - [ ] Run the suite and confirm green:

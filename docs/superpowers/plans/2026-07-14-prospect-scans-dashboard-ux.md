@@ -63,7 +63,7 @@ export function queuedAheadCount(audit: QueueOrderKey): Promise<number>
 // DB-backed against the local SQLite dev DB. House convention (copied from
 // queue-manager.test.ts): PREFIX-scoped seeds + stray queued/transient
 // neutralization, because position math over a shared DB is otherwise flaky.
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { prisma } from '@/lib/db'
 import {
   PROSPECT_DISCOVER_PRIORITY,
@@ -115,6 +115,10 @@ async function seedQueued(name: string, opts: { prospectId?: number | null; crea
 async function seedProspect(name: string) {
   return prisma.prospect.create({ data: { name, domain: `${PREFIX}${name}.test` } })
 }
+
+// beforeEach alone would leak this file's FINAL seeded queued rows into the
+// shared dev DB for whatever test file runs next — clean on the way out too.
+afterAll(clearTestState)
 
 describe('compareQueuedAudits — pure comparator', () => {
   const at = (ms: number) => new Date(ms)
@@ -310,13 +314,21 @@ npx vitest run lib/ada-audit/queue-order.test.ts
 ```
 Expected: PASS — 8 tests.
 
-- [ ] **1.5 Append the failing promoter tests** to `lib/ada-audit/queue-manager.test.ts` (bottom of the file; `seedSite`, `discoverJobsFor`, `clearTestState`, `PREFIX`, `prisma`, `processNext` are already in scope):
+- [ ] **1.5 Append the promoter tests** to `lib/ada-audit/queue-manager.test.ts` (bottom of the file; `seedSite`, `discoverJobsFor`, `clearTestState`, `PREFIX`, `prisma`, `processNext` are already in scope). First add `afterAll` to the file's vitest import (line 6):
+```ts
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
+```
+then append:
 
 ```ts
 describe('processNext — prospect priority (PR3)', () => {
   beforeEach(async () => {
     await clearTestState()
   })
+  // clearTestState's existing job cleanup keys off PREFIX-domain sites, so it
+  // covers our discover jobs + prospects — but only if it ALSO runs after the
+  // last test: don't leak final queued rows/jobs into the shared dev DB.
+  afterAll(clearTestState)
 
   it('promotes a prospect-owned queued audit over an older non-prospect one, at priority 1', async () => {
     const older = await seedSite('prio-client', 'queued', { createdAt: new Date(Date.now() - 60_000) })
@@ -368,11 +380,11 @@ describe('processNext — prospect priority (PR3)', () => {
 })
 ```
 
-- [ ] **1.6 Run — expect FAIL** (promoter still picks the oldest queued row; priority never set):
+- [ ] **1.6 Run — expect FAIL on the genuinely-new behavior** (promoter still picks the oldest queued row; priority never set):
 ```
 npx vitest run lib/ada-audit/queue-manager.test.ts
 ```
-Expected: 3 new tests FAIL — first: `expected [ …1 job… ] to have a length of 0` (discover enqueued for the older client audit); priority assertions fail with `expected 0 to be 1`. All pre-existing tests still pass.
+Expected: 2 of the 3 new tests FAIL — the prospect-priority test (`expected [ …1 job… ] to have a length of 0`: the discover job went to the older client audit; and `expected 0 to be 1` on priority) and the Codex race test (`expected +0 to be 1`: no second discover job for the prospect — the second `processNext` re-picks the older audit and dedups). The middle test (`non-prospect discover jobs keep the default priority 0`) already PASSES pre-implementation — it is deliberate characterization coverage pinning existing behavior, not a red test. All pre-existing tests still pass.
 
 - [ ] **1.7 Modify `lib/ada-audit/queue-manager.ts`.** Two edits.
 
@@ -464,6 +476,7 @@ describe('getQueueStatus — shared ordering (PR3)', () => {
   beforeEach(async () => {
     await clearTestState()
   })
+  afterAll(clearTestState) // don't leak the final seeded queued rows into the shared dev DB
 
   it('lists queued prospect-owned audits first, then non-prospect FIFO, positions 1..n', async () => {
     const now = Date.now()
@@ -518,7 +531,7 @@ The `queued: queuedRows.map((q, i) => ({ … position: i + 1 … }))` mapping (l
 // PR3: GET /api/site-audit/[id] must report queuePosition under the SAME
 // shared total ordering as processNext/getQueueStatus (queue-order.ts) —
 // previously it counted all older queued audits by createdAt alone.
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { GET } from './[id]/route'
@@ -548,6 +561,10 @@ async function clearTestState() {
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 const req = (id: string) => new NextRequest(`http://localhost:3000/api/site-audit/${id}`)
+
+// beforeEach alone would leak this file's FINAL seeded queued rows into the
+// shared dev DB for whatever test file runs next — clean on the way out too.
+afterAll(clearTestState)
 
 describe('GET /api/site-audit/[id] — queuePosition under the shared ordering (PR3)', () => {
   beforeEach(clearTestState)
@@ -1399,6 +1416,29 @@ describe('ProspectDashboard — PR3 progress + clickable cards', () => {
     expect(screen.getByText(/scanning pages \(3\/12\)/i)).toBeTruthy()
   })
 
+  it('the determinate bar is a real progressbar (label + valuemin/max/now)', () => {
+    routeFetch([RUNNING_ROW])
+    render(<ProspectDashboard initialProspects={[RUNNING_ROW]} />)
+    const bar = screen.getByRole('progressbar', { name: /running u/i })
+    // f = 0.7 × 3/12 = 0.175 → 18%
+    expect(bar.getAttribute('aria-valuemin')).toBe('0')
+    expect(bar.getAttribute('aria-valuemax')).toBe('100')
+    expect(bar.getAttribute('aria-valuenow')).toBe('18')
+  })
+
+  it('the indeterminate discovery bar keeps role+label but OMITS aria-valuenow', () => {
+    const discovering: ProspectRow = {
+      ...RUNNING_ROW,
+      latestAudit: { ...RUNNING_ROW.latestAudit!, pagesTotal: 0, pagesComplete: 0 },
+    }
+    routeFetch([discovering])
+    render(<ProspectDashboard initialProspects={[discovering]} />)
+    const bar = screen.getByRole('progressbar', { name: /running u/i })
+    // Omitted aria-valuenow is the ARIA-correct indeterminate signal.
+    expect(bar.getAttribute('aria-valuenow')).toBeNull()
+    expect(screen.getByText(/discovering pages/i)).toBeTruthy()
+  })
+
   it('renders the queue position for a queued audit', () => {
     const queued: ProspectRow = {
       ...RUNNING_ROW,
@@ -1566,7 +1606,13 @@ function ProgressBlock({ p, nowMs }: { p: ProspectRow; nowMs: number | null }) {
   if (progress.kind === 'discovering') {
     return (
       <div className="space-y-1">
-        <div className="w-full bg-gray-100 dark:bg-navy-light rounded-full h-1.5 overflow-hidden">
+        {/* Indeterminate progressbar: role + label but NO aria-valuenow —
+            that omission is the ARIA-correct indeterminate signal. */}
+        <div
+          role="progressbar"
+          aria-label={`Scan progress for ${p.name}: discovering pages`}
+          className="w-full bg-gray-100 dark:bg-navy-light rounded-full h-1.5 overflow-hidden"
+        >
           <div className="bg-blue-400 dark:bg-blue-500 h-1.5 w-1/3 rounded-full animate-pulse" />
         </div>
         <p className="text-[11px] font-body text-navy/50 dark:text-white/50">Discovering pages…</p>
@@ -1575,6 +1621,7 @@ function ProgressBlock({ p, nowMs }: { p: ProspectRow; nowMs: number | null }) {
   }
 
   const fraction = progress.fraction
+  const pct = Math.round(fraction * 100)
   const label = progress.kind === 'building-report' ? 'Building report…' : progress.phaseLabel
   // ETA renders only after the post-mount tick primes nowMs — the server
   // render and first client render agree (hydration-safe, Codex fix 4).
@@ -1585,10 +1632,17 @@ function ProgressBlock({ p, nowMs }: { p: ProspectRow; nowMs: number | null }) {
 
   return (
     <div className="space-y-1">
-      <div className="w-full bg-gray-100 dark:bg-navy-light rounded-full h-1.5 overflow-hidden">
+      <div
+        role="progressbar"
+        aria-label={`Scan progress for ${p.name}: ${label}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        className="w-full bg-gray-100 dark:bg-navy-light rounded-full h-1.5 overflow-hidden"
+      >
         <div
           className="bg-orange h-1.5 rounded-full transition-all duration-500"
-          style={{ width: `${Math.round(fraction * 100)}%` }}
+          style={{ width: `${pct}%` }}
         />
       </div>
       <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
@@ -1813,7 +1867,7 @@ export function ProspectDashboard(props: { initialProspects: ProspectRow[] }) {
 ```
 npx vitest run components/sales/intake/ProspectDashboard.test.tsx
 ```
-Expected: PASS — all tests (7 pre-existing + 10 new).
+Expected: PASS — all tests (7 pre-existing + 12 new).
 
 - [ ] **6.6 Commit:**
 ```

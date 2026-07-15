@@ -26,6 +26,8 @@
 2. The capture point is "after Phase-1 navigation completes, before Phase 2 (axe)" — for site audits (provider `pagespeed`, `siteAudit: true`) this is immediately after `postLoadSettle`, exactly as specced; it also covers the `local` provider branch, which has no separate settle call.
 3. `curl https://enrollmentresources.com` returns a Cloudflare "Just a moment…" challenge (verified 2026-07-14) — the logo step includes a browser fallback.
 4. `schemaTypesJson` carries no explicit "observation capped" flag; the structured-data "coverage may be partial" qualifier keys off `observedPages < pagesTotal`.
+5. **Every task's commit is tsc-green** (plan Codex review fix 5): Task 6 ships the new payload fields alongside a deprecated `patterns: []` + a one-line old-view compat patch; Task 11 (InquiryForm) lands before Task 12 because the new view imports it; Task 12 is the ONE atomic swap commit (sections + view + tests + deprecated-field removal + ExampleCard deletion).
+6. Root→www redirects are the COMMON prospect case (redirect-detect deliberately classifies www changes as redirects): the hero capture also runs on the redirected path when the final URL is a rendered same-domain root variant, and the page job publishes after the winning redirect settle (plan Codex review fix 1).
 
 ---
 
@@ -42,7 +44,7 @@
 export function heroScreenshotsDir(): string                       // env HERO_SCREENSHOTS_DIR || <cwd>/data/sales-hero
 export function heroScreenshotFilename(siteAuditId: string): string // `${siteAuditId}.png` (the column value)
 export function heroScreenshotPath(siteAuditId: string): string
-export async function writeHeroScreenshot(siteAuditId: string, bytes: Uint8Array): Promise<void> // atomic temp+rename; tmp cleaned on throw
+export async function writeHeroScreenshot(siteAuditId: string, bytes: Uint8Array): Promise<void> // atomic UNIQUE-temp+rename (concurrent-publish safe); tmp cleaned on throw
 export async function deleteHeroScreenshot(siteAuditId: string): Promise<void>                   // ENOENT-tolerant
 ```
 
@@ -130,6 +132,17 @@ export async function deleteHeroScreenshot(siteAuditId: string): Promise<void>  
       await expect(fs.access(heroScreenshotPath('cuid2'))).rejects.toThrow()
       await expect(deleteHeroScreenshot('cuid2')).resolves.toBeUndefined() // ENOENT swallowed
     })
+
+    it('concurrent writes to the same id do not collide (unique temp names)', async () => {
+      await Promise.all([
+        writeHeroScreenshot('cuid3', new Uint8Array([1])),
+        writeHeroScreenshot('cuid3', new Uint8Array([2])),
+      ])
+      const buf = await fs.readFile(heroScreenshotPath('cuid3'))
+      expect([1, 2]).toContain(buf[0]) // one of the two writes won, atomically
+      const entries = await fs.readdir(dir)
+      expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false)
+    })
   })
   ```
 
@@ -150,6 +163,7 @@ export async function deleteHeroScreenshot(siteAuditId: string): Promise<void>  
   // Ops note (spec Codex verify item): in prod set HERO_SCREENSHOTS_DIR to
   // `${DATA_HOME}/sales-hero` (ecosystem.config.js) — persistent across
   // deploys, PM2-writable, and inside the DATA_HOME backup expectations.
+  import { randomUUID } from 'crypto'
   import { promises as fs } from 'fs'
   import path from 'path'
 
@@ -172,11 +186,16 @@ export async function deleteHeroScreenshot(siteAuditId: string): Promise<void>  
     return path.join(heroScreenshotsDir(), heroScreenshotFilename(siteAuditId))
   }
 
-  /** Atomic temp+rename; the temp file is cleaned up on throw. */
+  /**
+   * Atomic temp+rename; the temp file is cleaned up on throw. The temp name is
+   * UNIQUE per call (plan Codex fix 2): two concurrent root-variant publishes
+   * for the same audit must not collide on a shared `<dest>.tmp` — each write
+   * gets its own temp file and the last rename wins atomically.
+   */
   export async function writeHeroScreenshot(siteAuditId: string, bytes: Uint8Array): Promise<void> {
     const dest = heroScreenshotPath(siteAuditId)
     await fs.mkdir(path.dirname(dest), { recursive: true })
-    const tmp = `${dest}.tmp`
+    const tmp = `${dest}.${randomUUID()}.tmp`
     try {
       await fs.writeFile(tmp, bytes)
       await fs.rename(tmp, dest)
@@ -197,7 +216,7 @@ export async function deleteHeroScreenshot(siteAuditId: string): Promise<void>  
   ```bash
   npx vitest run lib/sales/hero-screenshot.test.ts
   ```
-  Expected: `4 passed`.
+  Expected: `5 passed`.
 
 - [ ] Commit:
   ```bash
@@ -220,7 +239,10 @@ export async function deleteHeroScreenshot(siteAuditId: string): Promise<void>  
 ```ts
 export function canonicalRootUrl(domain: string): string          // `https://${domain}/`
 export function isRootUrl(url: string, domain: string): boolean   // scheme-insensitive, www-insensitive host, path '/'|'' , no query
-export function injectProspectRoot(urls: string[], domain: string, cap: number): string[] // pure; prepend root when no variant present; displace last at cap
+export function injectProspectRoot(urls: string[], domain: string, cap: number): { urls: string[]; displaced: boolean }
+// pure; prepend root when no variant present; at cap the root displaces the last
+// URL and `displaced: true` tells the caller to persist discoveryCapped (plan
+// Codex fix 3 — deliberate truncation must not look like complete coverage)
 ```
 
 **Steps:**
@@ -251,21 +273,23 @@ export function injectProspectRoot(urls: string[], domain: string, cap: number):
   describe('injectProspectRoot', () => {
     it('no-ops when a root variant is already present', () => {
       const urls = ['https://www.acme.test/', 'https://acme.test/a']
-      expect(injectProspectRoot(urls, 'acme.test', 1000)).toBe(urls) // same reference — untouched
+      const out = injectProspectRoot(urls, 'acme.test', 1000)
+      expect(out.urls).toBe(urls) // same reference — untouched
+      expect(out.displaced).toBe(false)
     })
-    it('prepends the canonical root when absent', () => {
-      expect(injectProspectRoot(['https://acme.test/a'], 'acme.test', 1000)).toEqual([
-        'https://acme.test/',
-        'https://acme.test/a',
-      ])
+    it('prepends the canonical root when absent (no displacement below cap)', () => {
+      const out = injectProspectRoot(['https://acme.test/a'], 'acme.test', 1000)
+      expect(out.urls).toEqual(['https://acme.test/', 'https://acme.test/a'])
+      expect(out.displaced).toBe(false)
     })
-    it('displaces the last URL when at cap', () => {
+    it('displaces the last URL when at cap and reports displaced: true', () => {
       const urls = Array.from({ length: 1000 }, (_, i) => `https://acme.test/p${i}`)
       const out = injectProspectRoot(urls, 'acme.test', 1000)
-      expect(out).toHaveLength(1000)
-      expect(out[0]).toBe(canonicalRootUrl('acme.test'))
-      expect(out).not.toContain('https://acme.test/p999')
-      expect(out).toContain('https://acme.test/p998')
+      expect(out.urls).toHaveLength(1000)
+      expect(out.urls[0]).toBe(canonicalRootUrl('acme.test'))
+      expect(out.urls).not.toContain('https://acme.test/p999')
+      expect(out.urls).toContain('https://acme.test/p998')
+      expect(out.displaced).toBe(true)
     })
   })
   ```
@@ -308,16 +332,24 @@ export function injectProspectRoot(urls: string[], domain: string, cap: number):
 
   /**
    * Prospect-only discovery adjustment: guarantee a root variant in the set.
-   * Returns the INPUT ARRAY (same reference) when a variant is present —
-   * callers may rely on that for a cheap no-op check. At `cap`, the root
-   * displaces the LAST url so the 1000-page hard cap is respected.
+   * Returns the INPUT ARRAY (same reference) with `displaced: false` when a
+   * variant is present — callers may rely on that for a cheap no-op check.
+   * At `cap`, the root displaces the LAST url so the 1000-page hard cap is
+   * respected — and `displaced: true` tells the caller to persist
+   * `discoveryCapped: true` (plan Codex fix 3: deliberate truncation must not
+   * read as complete coverage in the miss-rate measurement).
    * Pure + deterministic: every discover attempt over the same stored set
    * produces the same output.
    */
-  export function injectProspectRoot(urls: string[], domain: string, cap: number): string[] {
-    if (urls.some((u) => isRootUrl(u, domain))) return urls
+  export function injectProspectRoot(
+    urls: string[],
+    domain: string,
+    cap: number,
+  ): { urls: string[]; displaced: boolean } {
+    if (urls.some((u) => isRootUrl(u, domain))) return { urls, displaced: false }
     const withRoot = [canonicalRootUrl(domain), ...urls]
-    return withRoot.length > cap ? withRoot.slice(0, cap) : withRoot
+    if (withRoot.length > cap) return { urls: withRoot.slice(0, cap), displaced: true }
+    return { urls: withRoot, displaced: false }
   }
   ```
 
@@ -378,6 +410,25 @@ export function injectProspectRoot(urls: string[], domain: string, cap: number):
       expect(JSON.parse(s!.discoveredUrls!)[0]).toBe(`https://www.${PREFIX}hasroot/`)
       await prisma.prospect.delete({ where: { id: p.id } })
     })
+
+    it('at-cap displacement persists discoveryCapped: true (plan Codex fix 3)', async () => {
+      // HEAVY test (~1000 child rows + jobs) — the displacement branch only
+      // fires at the real HARD_CAP; clearTestState() sweeps it all by PREFIX.
+      const { HARD_CAP } = await import('@/lib/ada-audit/sitemap-crawler')
+      const p = await seedProspect('atcap')
+      const site = await seedQueued('atcap', { prospectId: p.id })
+      const urls = Array.from({ length: HARD_CAP }, (_, i) => `https://${PREFIX}atcap/p${i}`)
+      vi.mocked(discoverPages).mockResolvedValue({ urls, mode: 'sitemap', capped: false })
+      await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+      const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+      const stored = JSON.parse(s!.discoveredUrls!) as string[]
+      expect(stored).toHaveLength(HARD_CAP)
+      expect(stored[0]).toBe(`https://${PREFIX}atcap/`)
+      expect(stored).not.toContain(`https://${PREFIX}atcap/p${HARD_CAP - 1}`)
+      expect(s?.pagesTotal).toBe(HARD_CAP)
+      expect(s?.discoveryCapped).toBe(true) // deliberate truncation is honest
+      await prisma.prospect.delete({ where: { id: p.id } })
+    }, 60_000)
   })
   ```
   Also extend `clearTestState()` in that file to clean prospects:
@@ -386,7 +437,7 @@ export function injectProspectRoot(urls: string[], domain: string, cap: number):
   ```
   (add after the siteAudit deleteMany).
 
-- [ ] `npx vitest run lib/jobs/handlers/site-audit-discover.test.ts` — expect the 2 injection tests FAIL (root missing / pagesTotal 1).
+- [ ] `npx vitest run lib/jobs/handlers/site-audit-discover.test.ts` — expect the prepend test AND the at-cap test to FAIL (root missing / pagesTotal 1 / discoveryCapped not set); the www no-op test passes trivially pre-wiring.
 
 - [ ] Wire the injection into `lib/jobs/handlers/site-audit-discover.ts`:
   1. Add imports (top, with the other `@/lib` imports):
@@ -418,12 +469,37 @@ export function injectProspectRoot(urls: string[], domain: string, cap: number):
      // Prospect-only, at-most-one-page, deterministic across attempts (pure
      // function of the stored set + domain, and the ensure-write below persists
      // the injected list so later attempts see the root already present). The
-     // 1000-page cap is respected: at cap the root displaces the last URL.
+     // 1000-page cap is respected: at cap the root displaces the last URL, and
+     // that displacement is deliberate truncation — discoveryCapped must flip
+     // true so the miss-rate measurement doesn't read as complete coverage
+     // (plan Codex fix 3).
+     let rootDisplaced = false
      if (audit.prospectId !== null) {
-       urls = injectProspectRoot(urls, audit.domain, HARD_CAP)
+       const injected = injectProspectRoot(urls, audit.domain, HARD_CAP)
+       urls = injected.urls
+       rootDisplaced = injected.displaced
      }
      ```
-     (The `ensured` updateMany right below already re-persists `discoveredUrls` + `pagesTotal`, so the injected list becomes the durable fan-out set.)
+  4. Fold the displacement flag into the `ensured` updateMany directly below (currently lines 241–244) — change:
+     ```ts
+     const ensured = await prisma.siteAudit.updateMany({
+       where: { id: siteAuditId, status: 'running' },
+       data: { discoveredUrls: JSON.stringify(urls), pagesTotal: urls.length },
+     })
+     ```
+     to:
+     ```ts
+     const ensured = await prisma.siteAudit.updateMany({
+       where: { id: siteAuditId, status: 'running' },
+       data: {
+         discoveredUrls: JSON.stringify(urls),
+         pagesTotal: urls.length,
+         // Root injection at cap = deliberate truncation (plan Codex fix 3).
+         // Never flips true→false: only set when displacement happened.
+         ...(rootDisplaced ? { discoveryCapped: true } : {}),
+       },
+     })
+     ```
 
 - [ ] `npx vitest run lib/jobs/handlers/site-audit-discover.test.ts lib/sales/root-url.test.ts` — expect ALL PASS.
 
@@ -438,17 +514,24 @@ export function injectProspectRoot(urls: string[], domain: string, cap: number):
 ## Task 3: Runner `captureHeroScreenshot` (returns bytes) + fenced publication in the page job
 
 **Files:**
-- Modify: `lib/ada-audit/runner.ts` (`RunAxeOptions` lines 35–49; `RunAxeResult` 'audited' variant lines 51–67; capture block inserted before the `// ── Phase 2` comment at line 326; audited return at line 422)
-- Modify: `lib/jobs/handlers/site-audit-page.ts` (parent select lines 221–226; `runAxeAudit` call lines 249–255; post-fence block lines 345–350; new `publishHeroScreenshot` helper)
+- Modify: `lib/ada-audit/runner.ts` (`RunAxeOptions` lines 35–49; `RunAxeResult` 'audited' + 'redirected' variants lines 51–81; redirect holder line 186 + both redirect returns lines 273–275/297–299; capture block inserted before the `// ── Phase 2` comment at line 326; audited return at line 422)
+- Modify: `lib/jobs/handlers/site-audit-page.ts` (parent select lines 221–226; `runAxeAudit` call lines 249–255; redirected settle lines 270–285; post-fence block lines 345–350; new `publishHeroScreenshot` helper)
 - Modify: `lib/jobs/handlers/site-audit-page.test.ts` (new describe)
 
 **Interfaces:**
 ```ts
 // runner.ts
 interface RunAxeOptions { …; captureHeroScreenshot?: boolean }
-// 'audited' result gains: heroScreenshotPng: Uint8Array | null
+// BOTH the 'audited' AND the 'redirected' result variants gain:
+//   heroScreenshotPng: Uint8Array | null
+// (plan Codex fix 1: redirect-detect deliberately classifies root→www changes
+// as redirects — most prospect roots redirect to www, so the redirected path
+// must also carry capture bytes when the FINAL url is still a same-domain
+// root variant and the page actually rendered)
 // site-audit-page.ts (exported for tests)
 export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array | null): Promise<void>
+// stamp is guarded `where: { id, prospectId: { not: null } }`; count 0 or a
+// thrown stamp ⇒ the just-written file is deleted (plan Codex fix 2)
 ```
 
 **Steps:**
@@ -524,9 +607,48 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
       const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
       expect(s?.homepageScreenshot).toBeNull()
     })
+
+    it('root→www redirect: bytes on the redirected result are published after the winning redirect settle (plan Codex fix 1)', async () => {
+      const { site, child, payload } = await seedProspectRoot('hero-redir')
+      // The runner captured the rendered www root BEFORE returning redirected
+      // (redirect-detect classifies www changes as redirects by design).
+      vi.mocked(runAxeAudit).mockResolvedValue({
+        kind: 'redirected', finalUrl: `https://www.${PREFIX}hero-redir/`, heroScreenshotPng: PNG,
+      } as never)
+      await runSiteAuditPageJob(payload)
+      const c = await prisma.adaAudit.findUnique({ where: { id: child.id } })
+      expect(c?.status).toBe('redirected') // redirect classification unchanged
+      const buf = await fs.readFile(path.join(heroDir, `${site.id}.png`))
+      expect([...buf]).toEqual([...PNG])
+      const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+      expect(s?.homepageScreenshot).toBe(`${site.id}.png`)
+    })
+
+    it('off-domain / cross-path redirect: runner returned null bytes — nothing published', async () => {
+      // The same-domain-root gate lives in the RUNNER (isRootUrl against the
+      // original host — unit-covered in root-url.test.ts); the handler just
+      // publishes whatever bytes it was handed. Null bytes ⇒ no file, no stamp.
+      vi.mocked(runAxeAudit).mockResolvedValue({
+        kind: 'redirected', finalUrl: 'https://elsewhere.example/landing', heroScreenshotPng: null,
+      } as never)
+      const { site, payload } = await seedProspectRoot('hero-offsite')
+      await runSiteAuditPageJob(payload)
+      await expect(fs.access(path.join(heroDir, `${site.id}.png`))).rejects.toThrow()
+      expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.homepageScreenshot).toBeNull()
+    })
+
+    it('publish guard (plan Codex fix 2): audit no longer prospect-owned ⇒ no stamp AND the just-written file is removed', async () => {
+      // Simulates a prospect DELETE racing the publish: SetNull already ran.
+      const site = await prisma.siteAudit.create({
+        data: { domain: `${PREFIX}hero-orphan`, status: 'running', wcagLevel: 'wcag21aa', prospectId: null },
+      })
+      await publishHeroScreenshot(site.id, PNG)
+      expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.homepageScreenshot).toBeNull()
+      await expect(fs.access(path.join(heroDir, `${site.id}.png`))).rejects.toThrow() // orphan file cleaned up
+    })
   })
   ```
-  (Add `beforeAll, afterAll` to the vitest import at the top of the file if not present.)
+  (Add `beforeAll, afterAll` to the vitest import at the top of the file if not present, and extend the module import line to `const { runSiteAuditPageJob, onSiteAuditPageExhausted, persistPageSeo, publishHeroScreenshot } = await import('./site-audit-page')`.)
 
 - [ ] `npx vitest run lib/jobs/handlers/site-audit-page.test.ts` — expect the new describe FAILS (`captureHeroScreenshot` undefined, no file written).
 
@@ -534,42 +656,97 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
   1. In `RunAxeOptions` (lines 35–49), after the `renderOnly?: boolean` member, add:
      ```ts
      // C14 hero: capture a viewport PNG of the loaded page (prospect root page
-     // only — the caller decides). Bytes are RETURNED on the 'audited' result;
-     // the runner never writes the final file (publication is fenced to the
+     // only — the caller decides). Bytes are RETURNED on the result — 'audited'
+     // always; 'redirected' when the final URL is a RENDERED same-domain root
+     // variant (root→www is the common prospect case, plan Codex fix 1). The
+     // runner never writes the final file (publication is fenced to the
      // winning settle in site-audit-page.ts). Capture failure logs + never
      // fails the page.
      captureHeroScreenshot?: boolean
      ```
-  2. In the `'audited'` variant of `RunAxeResult` (lines 51–67), after `harvestedPageSeo: RawPageSeo | null`, add:
+  2. Add the bytes member to BOTH result variants of `RunAxeResult` (lines 51–81). In the `'audited'` variant, after `harvestedPageSeo: RawPageSeo | null`:
      ```ts
      // C14 hero: viewport PNG bytes when captureHeroScreenshot was set and the
      // capture succeeded; null otherwise.
      heroScreenshotPng: Uint8Array | null
      ```
-  3. Insert the capture block immediately BEFORE the line:
+     and in the `'redirected'` variant (currently `{ kind: 'redirected'; finalUrl: string }`):
+     ```ts
+     | {
+         kind: 'redirected'
+         finalUrl: string
+         // C14 hero (plan Codex fix 1): redirect-detect deliberately classifies
+         // root→www changes as redirects, so most prospect roots land here. When
+         // the redirect was auto-followed (page RENDERED at finalUrl) and finalUrl
+         // is still a same-domain root variant, the capture bytes ride along.
+         heroScreenshotPng: Uint8Array | null
+       }
+     ```
+  3. Add the runner-side import (top, with the other `@/lib` imports):
+     ```ts
+     import { isRootUrl } from '@/lib/sales/root-url'
+     ```
+     and a capture helper inside `runAxeAudit`'s `try` block (above the Phase-1 navigation section, after `handleRequest` is wired) so both the redirect path and the audited path share it:
+     ```ts
+     // C14 hero: shared capture helper. Never fails the page job.
+     const captureHeroIfRequested = async (): Promise<Uint8Array | null> => {
+       if (!options?.captureHeroScreenshot || options?.renderOnly) return null
+       try {
+         return await page.screenshot({ type: 'png', fullPage: false })
+       } catch (err) {
+         console.warn('[c14/hero] homepage screenshot capture failed:', (err as Error).message)
+         return null
+       }
+     }
+     ```
+  4. Distinguish RENDERED redirects from unrendered ones. Change the holder declaration (line 186) from:
+     ```ts
+     const redirectedHolder: { value: { finalUrl: string } | null } = { value: null }
+     ```
+     to:
+     ```ts
+     // `rendered`: true when puppeteer auto-followed and the final page is
+     // actually loaded in the tab (detectRedirect path); false on the
+     // 3xx-with-Location no-autofollow path, where the target never rendered
+     // and a screenshot would capture nothing meaningful.
+     const redirectedHolder: { value: { finalUrl: string; rendered: boolean } | null } = { value: null }
+     ```
+     At the Location-header site (line ~240, `redirectedHolder.value = { finalUrl: resolved }`) set `rendered: false`; at the detectRedirect site (line ~263, `redirectedHolder.value = { finalUrl: detected.finalUrl }`) set `rendered: true`.
+  5. Capture on BOTH redirect returns (lines 273–275 and 297–299). Replace each:
+     ```ts
+     if (redirectedHolder.value) {
+       return { kind: 'redirected', finalUrl: redirectedHolder.value.finalUrl }
+     }
+     ```
+     with:
+     ```ts
+     if (redirectedHolder.value) {
+       const { finalUrl, rendered } = redirectedHolder.value
+       // C14 hero (plan Codex fix 1): a root→www (or scheme) redirect is still
+       // the prospect's homepage — capture the RENDERED final page when its URL
+       // is a same-domain root variant of the originally requested host.
+       // Off-domain or cross-path redirects capture nothing. parsed.hostname is
+       // the original target's host; isRootUrl is www/scheme-insensitive.
+       const heroScreenshotPng =
+         rendered && isRootUrl(finalUrl, parsed.hostname) ? await captureHeroIfRequested() : null
+       return { kind: 'redirected', finalUrl, heroScreenshotPng }
+     }
+     ```
+  6. Insert the audited-path capture immediately BEFORE the line:
      ```ts
      // ── Phase 2: axe on the already-loaded page ──────────────────────────
      ```
      insert:
      ```ts
-     // ── C14 hero capture ─────────────────────────────────────────────────
+     // ── C14 hero capture (non-redirect path) ─────────────────────────────
      // Viewport PNG of the loaded page, after Phase-1 navigation + settle and
      // BEFORE axe mutates focus/scroll state. Site audits skip inline PSI
      // (options.siteAudit), so for the prospect path this runs directly after
-     // postLoadSettle. A redirected page never reaches here (the redirected
-     // return above) — off-domain redirects publish nothing (spec policy);
-     // the rendered page after an on-domain root→www redirect is what a
-     // visitor sees and is captured. Never fails the page job.
-     let heroScreenshotPng: Uint8Array | null = null
-     if (options?.captureHeroScreenshot && !options?.renderOnly) {
-       try {
-         heroScreenshotPng = await page.screenshot({ type: 'png', fullPage: false })
-       } catch (err) {
-         console.warn('[c14/hero] homepage screenshot capture failed:', (err as Error).message)
-       }
-     }
+     // postLoadSettle. The redirect paths above capture separately (rendered
+     // same-domain root variants only).
+     const heroScreenshotPng: Uint8Array | null = await captureHeroIfRequested()
      ```
-  4. Change the audited return (line 422) from:
+  7. Change the audited return (line 422) from:
      ```ts
      return { kind: 'audited', axe: axe as StoredAxeResults, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
      ```
@@ -577,13 +754,13 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
      ```ts
      return { kind: 'audited', axe: axe as StoredAxeResults, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo, heroScreenshotPng }
      ```
-  Note: puppeteer-core 24's `page.screenshot()` returns `Promise<Uint8Array>` — no cast needed. If tsc complains (`Buffer` overload), use `heroScreenshotPng = new Uint8Array(await page.screenshot({ type: 'png', fullPage: false }))`.
+  Notes: puppeteer-core 24's `page.screenshot()` returns `Promise<Uint8Array>` — no cast needed; if tsc complains (`Buffer` overload), wrap in `new Uint8Array(...)`. The `local`-provider branch never returns `redirected`, so only the two sites above construct that variant. Grep for other constructors/consumers before compiling: `grep -rn "kind: 'redirected'" lib app --include='*.ts' | grep -v test | grep -v worktrees` — only the runner constructs it; consumers (`site-audit-page.ts` redirect branch, standalone `ada-audit.ts` handler) read `finalUrl` and ignore the extra member.
 
 - [ ] Modify `lib/jobs/handlers/site-audit-page.ts`:
   1. Add imports:
      ```ts
      import { isRootUrl } from '@/lib/sales/root-url'
-     import { heroScreenshotFilename, writeHeroScreenshot } from '@/lib/sales/hero-screenshot'
+     import { deleteHeroScreenshot, heroScreenshotFilename, writeHeroScreenshot } from '@/lib/sales/hero-screenshot'
      ```
   2. Extend the parent select (lines 221–226) from:
      ```ts
@@ -620,24 +797,56 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
       * C14 hero publication — fenced to a WINNING settle (spec Codex fix 2):
       * callers invoke this only after settlePage() returned true, on the same
       * code path as persistHarvest/persistPageSeo. Writes the final file
-      * atomically (temp+rename; temp cleaned on throw inside the writer), then
-      * stamps homepageScreenshot. Best-effort: a failure logs and never fails
-      * the page job; the column stays null → the report hides the hero slot.
+      * atomically (UNIQUE temp+rename; temp cleaned on throw inside the
+      * writer), then stamps homepageScreenshot — guarded on the audit STILL
+      * being prospect-owned (plan Codex fix 2: a prospect DELETE between the
+      * file write and the stamp SetNulls prospectId; an unguarded stamp-by-id
+      * would strand the file as a permanent orphan). Stamp count 0 or a thrown
+      * stamp ⇒ the just-written file is deleted. Best-effort throughout: a
+      * failure logs and never fails the page job; the column stays null → the
+      * report hides the hero slot.
       */
      export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array | null): Promise<void> {
        if (!png || png.length === 0) return
        try {
          await writeHeroScreenshot(siteAuditId, png)
-         await prisma.siteAudit.updateMany({
-           where: { id: siteAuditId },
+       } catch (e) {
+         console.warn('[c14/hero] file write failed for', siteAuditId, ':', (e as Error).message)
+         return
+       }
+       try {
+         const stamped = await prisma.siteAudit.updateMany({
+           where: { id: siteAuditId, prospectId: { not: null } },
            data: { homepageScreenshot: heroScreenshotFilename(siteAuditId) },
          })
+         if (stamped.count === 0) {
+           // Row gone or no longer prospect-owned (a prospect DELETE won the
+           // race) — never leave an unstamped orphan on disk.
+           await deleteHeroScreenshot(siteAuditId)
+         }
        } catch (e) {
-         console.warn('[c14/hero] publish failed for', siteAuditId, ':', (e as Error).message)
+         console.warn('[c14/hero] stamp failed for', siteAuditId, ':', (e as Error).message)
+         await deleteHeroScreenshot(siteAuditId).catch(() => {})
        }
      }
      ```
-  6. At the post-fence block (lines 345–350) — currently:
+  6. Publish on BOTH winning settle paths (plan Codex fix 1):
+     **(a) redirected branch** (lines 270–285) — the redirected settle currently ends with:
+     ```ts
+     if (settled) await finalizeWarn(job.siteAuditId, 'redirect settle')
+     return
+     ```
+     change to:
+     ```ts
+     if (!settled) return
+     // C14 hero: a root→www redirect carries the rendered homepage bytes
+     // (runner-gated to RENDERED same-domain root variants); publish exactly
+     // like the audited path, fenced to the winning redirect settle.
+     await publishHeroScreenshot(job.siteAuditId, runResult.heroScreenshotPng ?? null)
+     await finalizeWarn(job.siteAuditId, 'redirect settle')
+     return
+     ```
+     **(b) audited post-fence block** (lines 345–350) — currently:
      ```ts
      // Reached only when this attempt won the settle (both branches return on
      // !settled) — fence the harvest persistence to that (fix #3).
@@ -648,18 +857,18 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
      ```
      add the publish between `persistPageSeo` and `finalizeWarn`:
      ```ts
-     await publishHeroScreenshot(job.siteAuditId, runResult.heroScreenshotPng)
+     await publishHeroScreenshot(job.siteAuditId, runResult.heroScreenshotPng ?? null)
      ```
-     and extend the destructure at line 306 with `heroScreenshotPng`… actually simpler: keep the destructure unchanged and reference `runResult.heroScreenshotPng` (TS has narrowed `runResult.kind === 'audited'` by that point since redirected/rendered returned earlier).
+     Keep the destructure at line 306 unchanged and reference `runResult.heroScreenshotPng` (TS has narrowed the variant on each path; the `?? null` also tolerates legacy mocked results in existing tests that omit the member).
 
-- [ ] `npx vitest run lib/jobs/handlers/site-audit-page.test.ts` — expect ALL PASS (existing + 3 new).
+- [ ] `npx vitest run lib/jobs/handlers/site-audit-page.test.ts` — expect ALL PASS (existing + 6 new).
 
-- [ ] `npx tsc --noEmit` — expect clean (the new result member is required on the audited variant; the only producer is the runner, updated above).
+- [ ] `npx tsc --noEmit` — expect clean (the new result member is required on BOTH producing variants; the only producer is the runner, updated above).
 
 - [ ] Commit:
   ```bash
   git add lib/ada-audit/runner.ts lib/jobs/handlers/site-audit-page.ts lib/jobs/handlers/site-audit-page.test.ts
-  git commit -m "feat(sales): hero screenshot capture in runner (bytes on result) + publication fenced to the winning settle"
+  git commit -m "feat(sales): hero capture in runner (audited + rendered same-domain-root redirects) + guarded publication fenced to winning settles"
   ```
 
 ---
@@ -692,13 +901,23 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
       await prisma.siteAudit.update({ where: { id: a.id }, data: { homepageScreenshot: `${a.id}.png` } })
       await fs.writeFile(path.join(heroDir, `${a.id}.png`), Buffer.from([1]))
 
+      // Interleaving case (plan Codex fix 2): a second audit whose publish
+      // wrote the FILE but has not stamped the column yet (column still null).
+      // The snapshot must cover ALL linked audits — not just stamped rows —
+      // so this file must be gone after the delete too.
+      const b = await prisma.siteAudit.create({
+        data: { domain: `${PREFIX}herodel.test`, wcagLevel: 'wcag21aa', status: 'complete', prospectId: p.id },
+      })
+      await fs.writeFile(path.join(heroDir, `${b.id}.png`), Buffer.from([2]))
+
       const r = await prospectDelete(req(`/api/sales/prospects/${p.id}`, 'DELETE'), params(p.id))
       expect(r.status).toBe(200)
       const row = await prisma.siteAudit.findUnique({ where: { id: a.id } })
       expect(row?.prospectId).toBeNull()          // SetNull unchanged
       expect(row?.homepageScreenshot).toBeNull()  // column nulled
-      await expect(fs.access(path.join(heroDir, `${a.id}.png`))).rejects.toThrow() // file gone
-      await prisma.siteAudit.delete({ where: { id: a.id } })
+      await expect(fs.access(path.join(heroDir, `${a.id}.png`))).rejects.toThrow() // stamped file gone
+      await expect(fs.access(path.join(heroDir, `${b.id}.png`))).rejects.toThrow() // UNSTAMPED file gone too
+      await prisma.siteAudit.deleteMany({ where: { id: { in: [a.id, b.id] } } })
     } finally {
       if (prevEnv === undefined) delete process.env.HERO_SCREENSHOTS_DIR
       else process.env.HERO_SCREENSHOTS_DIR = prevEnv
@@ -720,19 +939,23 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
     const existing = await prisma.prospect.findUnique({ where: { id }, select: { id: true } })
     if (!existing) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
-    // C14 hero (spec Codex fix 3b): prospect DELETE SetNulls its audits rather
-    // than deleting them — without this snapshot the hero files would be
-    // permanent orphans. Snapshot BEFORE the delete, then null the columns and
+    // C14 hero (spec Codex fix 3b + plan Codex fix 2): prospect DELETE SetNulls
+    // its audits rather than deleting them — without this snapshot the hero
+    // files would be permanent orphans. Snapshot ALL linked audit ids, NOT just
+    // rows with a stamped homepageScreenshot: a concurrent publish may have
+    // written the file but not stamped the column yet (the hero path is the
+    // deterministic `<id>.png`, so deleting by id is always safe and
+    // ENOENT-tolerant). Snapshot BEFORE the delete, then null the columns and
     // remove the files (best-effort) after.
-    const heroAudits = await prisma.siteAudit.findMany({
-      where: { prospectId: id, homepageScreenshot: { not: null } },
+    const linkedAudits = await prisma.siteAudit.findMany({
+      where: { prospectId: id },
       select: { id: true },
     })
 
     await prisma.prospect.delete({ where: { id } }) // SiteAudit.prospectId SetNulls via relation
 
-    if (heroAudits.length > 0) {
-      const ids = heroAudits.map((a) => a.id)
+    if (linkedAudits.length > 0) {
+      const ids = linkedAudits.map((a) => a.id)
       await prisma.siteAudit.updateMany({ where: { id: { in: ids } }, data: { homepageScreenshot: null } })
       const cleanup = await Promise.allSettled(ids.map((aid) => deleteHeroScreenshot(aid)))
       for (const r of cleanup) {
@@ -838,7 +1061,7 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
   import fs from 'fs/promises'
   import os from 'os'
   import path from 'path'
-  import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+  import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
   import { NextRequest } from 'next/server'
   import { prisma } from '@/lib/db'
 
@@ -913,13 +1136,26 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
     it('404 — owned audit but null homepageScreenshot column', async () => {
       expect((await call(token, nullColumnAuditId)).status).toBe(404)
     })
-    it('404 — stamped column but file missing on disk', async () => {
+    it('404 — stamped column but file missing on disk (ENOENT)', async () => {
       await fs.unlink(path.join(heroDir, `${auditId}.png`))
       expect((await call(token, auditId)).status).toBe(404)
       await fs.writeFile(path.join(heroDir, `${auditId}.png`), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     })
+    it('500 — a non-ENOENT fs failure (EACCES) surfaces via withRoute, not as a 404 oracle (plan Codex fix 4)', async () => {
+      const spy = vi
+        .spyOn(fs, 'readFile')
+        .mockRejectedValueOnce(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }))
+      try {
+        const res = await call(token, auditId)
+        expect(res.status).toBe(500)
+        expect((await res.json()).error).toBe('internal_error') // withRoute envelope, no message leak
+      } finally {
+        spy.mockRestore()
+      }
+    })
   })
   ```
+  (If `vi.spyOn` on the `fs/promises` namespace is rejected in this vitest config, switch the test file to `vi.mock('fs/promises', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs/promises')>()) }))` at the top — that makes the namespace spy-able without changing behavior.)
 
 - [ ] `npx vitest run "app/api/sales/[token]/hero/hero-route.test.ts"` — expect FAIL (route module missing).
 
@@ -928,10 +1164,12 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
   // C14 hero: token-validated homepage-screenshot streaming. Authorization =
   // token → prospect, then the PINNED siteAuditId must belong to that prospect
   // AND carry a stamped homepageScreenshot (stamped only after a successful
-  // file write). Failure contract (spec Codex fix 7): every authorization or
-  // lookup failure — bad token, wrong prospect's audit, malformed id, null
-  // column, missing file — returns an indistinguishable 404. Unexpected
-  // infrastructure failures may surface as withRoute 500s (not an oracle).
+  // file write). Failure contract (spec Codex fix 7 + plan Codex fix 4): the
+  // authorization/lookup failures — bad token, wrong prospect's audit,
+  // malformed id, null column — AND a missing file (ENOENT) return an
+  // indistinguishable 404. Any OTHER fs failure (EACCES, EIO, …) rethrows into
+  // withRoute as a 500 — that's operational breakage that must stay visible,
+  // and a 500 is not an authorization oracle.
   import fs from 'fs/promises'
   import { NextRequest, NextResponse } from 'next/server'
   import { withRoute } from '@/lib/api/with-route'
@@ -956,14 +1194,17 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
       })
       if (!audit || audit.prospectId !== prospect.id || !audit.homepageScreenshot) return notFoundRes()
 
+      let buffer: Buffer
       try {
-        const buffer = await fs.readFile(heroScreenshotPath(siteAuditId))
-        return new Response(new Uint8Array(buffer), {
-          headers: { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=3600' },
-        })
-      } catch {
-        return notFoundRes()
+        buffer = await fs.readFile(heroScreenshotPath(siteAuditId))
+      } catch (err) {
+        // Only a genuinely-absent file joins the indistinguishable-404 set.
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return notFoundRes()
+        throw err // withRoute → 500 internal_error (operational visibility)
       }
+      return new Response(new Uint8Array(buffer), {
+        headers: { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=3600' },
+      })
     },
   )
   ```
@@ -985,6 +1226,10 @@ export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array
 - Modify: `lib/sales/cwv-aggregate.test.ts` (cap-5 expectation + pickHomepageCwv tests)
 - Modify: `lib/sales/sales-report-data.ts` (interfaces lines 16–66; audit select lines 133–146; patterns loop lines 167–175 removed; issueGroups lines 177–191; children query lines 202–209; return lines 220–254)
 - Modify: `lib/sales/sales-report-data.test.ts`
+- Modify: `components/sales/sections.tsx` (ONE-line transition compat in `PerformanceSalesSection` — plan Codex fix 5: every commit stays tsc-green)
+- Modify: `components/sales/SalesReportView.test.tsx` (fixture updated to the transitional payload shape so the OLD view's suite keeps passing until the final swap)
+
+**Transition rule (plan Codex fix 5 — no knowingly-red `tsc` across tasks):** this task adds the new fields ALONGSIDE the old contract. `patterns` STAYS in the payload (typed `SalesPattern[]`, `/** @deprecated */`, loader returns `[]`); `SalesPattern` and `ExampleCard.tsx` are NOT deleted here. The only breaking shape change (`performance` → `{ rollup, homepage }`) is absorbed by a one-line compat edit inside the old `PerformanceSalesSection`. The final swap task (Task 12) removes the deprecated field, deletes `ExampleCard`, and rewrites the view tests.
 
 **Interfaces (the new payload contract — the view tasks build against this):**
 ```ts
@@ -1011,7 +1256,12 @@ export interface SalesReportData {
   heroScreenshot: boolean              // view builds /api/sales/[token]/hero/[auditId]
   standardTested: string               // "WCAG 2.1 AA" | "WCAG 2.2 AA + best practices"
   headline: { accessibilityScore: number | null; seoScore: number | null; performanceScore: number | null; schemaCoveragePct: number | null }
-  accessibility: { score: number | null; counts: { critical: number; serious: number; moderate: number; minor: number; total: number } } // patterns DROPPED
+  accessibility: {
+    score: number | null
+    counts: { critical: number; serious: number; moderate: number; minor: number; total: number }
+    /** @deprecated transition-only (plan Codex fix 5): loader returns []; the old view still type-checks. REMOVED in Task 12. */
+    patterns: SalesPattern[]
+  }
   seo: { score: number | null; issueGroups: SeoIssueGroup[]; duplicateContentGroups: number | null; sitemapMissRatePct: number | null }
   performance: { rollup: PerformanceRollup | null; homepage: HomepageCwv | null } // homepage independent of the rollup's <3-pages null
   geo: { … unchanged … }
@@ -1144,7 +1394,7 @@ export interface SalesReportData {
   // overall = round((62 + 71 + 40 + 40) / 4) = 53
   expect(d.overallScore).toBe(53)
   expect(d.accessibility.counts.critical).toBe(4)
-  expect('patterns' in d.accessibility).toBe(false) // patterns dropped from the payload
+  expect(d.accessibility.patterns).toEqual([]) // deprecated transition field — always empty; removed in Task 12
   const broken = d.seo.issueGroups.find((g) => g.type === 'broken_internal_links')
   expect(broken?.count).toBe(7)               // issue-specific unit (distinct targets)
   expect(broken?.affectedPages).toBe(2)       // distinct page-scope URLs
@@ -1220,16 +1470,16 @@ export interface SalesReportData {
      import { loadRepresentativeExamples } from './representative-examples'
      import { HIGH_VALUE_SCHEMA_TYPES, ISSUE_LABELS, standardLabel } from './copy'
      ```
-     (`standardLabel` lands in Task 7 — implement Tasks 6+7 in one worktree pass or stub it temporarily in copy.ts as shown in Task 7; recommended order: do Task 7's copy.ts additions FIRST if executing strictly sequentially, or accept a red tsc between the two commits and commit them together. Simplest: implement `standardLabel` now as part of this task's edit to `copy.ts`, and let Task 7 add the remaining copy constants.)
-  2. **Delete** the `SalesPattern` interface (lines 16–24) and the `CuratedExample` type import usage; keep `MAX_PATTERNS`, `IMPACT_RANK`, `topPatternIssues`, and `loadRepresentativeExamples` — `curatedScreenshotSet` (lines 93–109) still uses all of them (the screenshot route + allowlist stay, spec non-goal). Delete `MAX_EXAMPLE_PAGES`? No — keep it for `examplePages`.
+     (`standardLabel` is implemented in THIS task — step 11 below adds it to `copy.ts` so this commit compiles standalone; Task 7 adds the remaining copy constants.)
+  2. **Keep** the `SalesPattern` interface (lines 16–24) and its `CuratedExample` import — mark the interface `/** @deprecated transition-only; removed in Task 12 */`. Keep `MAX_PATTERNS`, `IMPACT_RANK`, `topPatternIssues`, and `loadRepresentativeExamples` — `curatedScreenshotSet` (lines 93–109) still uses all of them permanently (the screenshot route + allowlist stay, spec non-goal). Keep `MAX_EXAMPLE_PAGES` for `examplePages`.
   3. **`SeoIssueGroup`** (lines 26–31) — add:
      ```ts
      affectedPages: number
      affectedComplete: boolean
      ```
-  4. **`SalesReportData`** (lines 33–66) — apply the interface shown above (add `overallScore`, `heroScreenshot`, `standardTested`; drop `patterns` from `accessibility`; change `performance` to `{ rollup: PerformanceRollup | null; homepage: HomepageCwv | null }`).
+  4. **`SalesReportData`** (lines 33–66) — apply the interface shown above (add `overallScore`, `heroScreenshot`, `standardTested`; keep `patterns` on `accessibility` with the `@deprecated` marker; change `performance` to `{ rollup: PerformanceRollup | null; homepage: HomepageCwv | null }`).
   5. **Audit select** (lines 133–146) — add `domain: true, homepageScreenshot: true` to the top-level select and `affectedComplete: true` to the findings select.
-  6. **Delete the patterns loop** (lines 167–175, `const topIssues…` through the closing brace) — `topPatternIssues` stays (used by `curatedScreenshotSet`); the `topIssues`/`patterns` locals go.
+  6. **Delete the patterns loop** (lines 167–175, `const topIssues…` through the closing brace) — `topPatternIssues` stays (used by `curatedScreenshotSet`); the `topIssues`/`patterns` locals go. The payload's deprecated `patterns` field is a literal `[]` from here on (no `loadRepresentativeExamples` calls remain in the loader).
   7. **issueGroups loop** (lines 177–191) — replace the push with:
      ```ts
      const pageRows = seoRun.findings.filter((f) => f.scope === 'page' && f.type === type && f.url)
@@ -1284,7 +1534,7 @@ export interface SalesReportData {
           performanceScore: rollup?.medianPerformance ?? null,
           schemaCoveragePct: coveragePct,
         },
-        accessibility: { score: adaRun?.score ?? null, counts },
+        accessibility: { score: adaRun?.score ?? null, counts, patterns: [] }, // deprecated field, transition-only
         seo: { …unchanged… },
         performance: { rollup, homepage },
         geo: { …unchanged… },
@@ -1298,18 +1548,25 @@ export interface SalesReportData {
       }
       ```
 
-- [ ] Run — note the view still compiles against the OLD shape, so expect `tsc` errors from `components/sales/*` until Tasks 10–13; the loader tests must pass NOW:
-  ```bash
-  npx vitest run lib/sales/sales-report-data.test.ts lib/sales/cwv-aggregate.test.ts
-  ```
-  Expected: PASS. (`SalesReportView.test.tsx` will be red until Task 13 — acceptable mid-branch; do NOT run the full suite as a gate until Task 13.)
+- [ ] Transition compat in the OLD view (plan Codex fix 5 — keeps this commit tsc-green):
+  1. `components/sales/sections.tsx`, `PerformanceSalesSection` (currently line 89 `export function PerformanceSalesSection(props: { data: SalesReportData['performance'] })` followed by line 90 `const d = props.data`): change ONLY the body's first line to
+     ```tsx
+     const d = props.data.rollup
+     ```
+     The prop type stays `SalesReportData['performance']`, so the section tracks the new `{ rollup, homepage }` shape; every other reference in the function already reads off `d`. (`AccessibilitySalesSection` keeps compiling because the deprecated `patterns` field still exists; `SeoSalesSection` ignores the two new `SeoIssueGroup` members.)
+  2. `components/sales/SalesReportView.test.tsx` — update the fixture to the transitional payload so the OLD view suite keeps passing: add `overallScore: 53, heroScreenshot: true, standardTested: 'WCAG 2.1 AA'` after `archived: false`; add `affectedPages: 4, affectedComplete: true` to the `broken_internal_links` issue group; wrap the performance object as `performance: { rollup: { …existing object… }, homepage: null }`; and change the second test's override to `performance: { rollup: null, homepage: null }`. Assertions stay untouched (the old view still renders patterns from the fixture).
 
-- [ ] Interim compile fix so the branch stays navigable: in `components/sales/sections.tsx` and `SalesReportView.tsx` do NOT patch yet — they are fully rewritten in Tasks 10–13. Skip `tsc` at this commit and note it in the commit message.
+- [ ] Run the gates — GREEN at this commit (plan Codex fix 5):
+  ```bash
+  npx tsc --noEmit
+  npx vitest run lib/sales/sales-report-data.test.ts lib/sales/cwv-aggregate.test.ts components/sales/SalesReportView.test.tsx
+  ```
+  Expected: tsc clean; all three suites PASS.
 
 - [ ] Commit:
   ```bash
-  git add lib/sales/cwv-aggregate.ts lib/sales/cwv-aggregate.test.ts lib/sales/sales-report-data.ts lib/sales/sales-report-data.test.ts lib/sales/copy.ts
-  git commit -m "feat(sales): loader v2 — overallScore, heroScreenshot, standardTested, homepage CWV, affectedPages, worstPages 5, patterns dropped (view rewrite follows; tsc red until Task 13)"
+  git add lib/sales/cwv-aggregate.ts lib/sales/cwv-aggregate.test.ts lib/sales/sales-report-data.ts lib/sales/sales-report-data.test.ts lib/sales/copy.ts components/sales/sections.tsx components/sales/SalesReportView.test.tsx
+  git commit -m "feat(sales): loader v2 — overallScore, heroScreenshot, standardTested, homepage CWV, affectedPages, worstPages 5 (patterns deprecated to []; old view kept compiling)"
   ```
 
 ---
@@ -2087,13 +2344,148 @@ export interface SalesReportData {
 
 ---
 
-## Task 11: The four sections rebuilt + Explainer adoption
+## Task 11: `InquiryForm` (mailto placeholder)
+
+> Ordering note (plan Codex fix 5): the inquiry form lands BEFORE the sections/view swap because the new `SalesReportView` imports it — this keeps the atomic swap task (Task 12) self-contained and every commit tsc-green.
+
+**Files:**
+- Create: `components/sales/InquiryForm.tsx`
+- Create: `components/sales/InquiryForm.test.tsx`
+
+**Steps:**
+
+- [ ] Write the failing test `components/sales/InquiryForm.test.tsx`:
+  ```tsx
+  // @vitest-environment jsdom
+  import { afterEach, describe, expect, it } from 'vitest'
+  import { cleanup, render, screen } from '@testing-library/react'
+  import { InquiryForm } from './InquiryForm'
+
+  afterEach(cleanup)
+
+  describe('InquiryForm', () => {
+    it('renders the anchor target, all four fields, submit, and the fallback mailto link', () => {
+      const { container } = render(
+        <InquiryForm contactEmail="kevin@enrollmentresources.com" prospectName="Acme" domain="acme.test" />,
+      )
+      expect(container.querySelector('#inquiry')).toBeTruthy()
+      expect(screen.getByLabelText(/name/i)).toBeTruthy()
+      expect(screen.getByLabelText(/email/i)).toBeTruthy()
+      expect(screen.getByLabelText(/phone/i)).toBeTruthy()
+      expect(screen.getByLabelText(/message/i)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /send/i })).toBeTruthy()
+      const mail = screen.getByRole('link', { name: /kevin@enrollmentresources.com/i }) as HTMLAnchorElement
+      expect(mail.href).toContain('mailto:kevin@enrollmentresources.com')
+    })
+  })
+  ```
+
+- [ ] `npx vitest run components/sales/InquiryForm.test.tsx` — expect FAIL.
+
+- [ ] Create `components/sales/InquiryForm.tsx`:
+  ```tsx
+  'use client'
+  // C14 redesign: inquiry form — the Book-a-review scroll target (#inquiry).
+  // PLACEHOLDER behavior (Kevin decision): submit composes a mailto: to
+  // SALES_CONTACT_EMAIL with the fields prefilled — works today, zero backend.
+  // The section shell is structured so a future embedded Jotform swaps in
+  // behind the same card. A plain mailto link remains for no-JS/print.
+  import { useState, type FormEvent } from 'react'
+
+  export function InquiryForm(props: { contactEmail: string; prospectName: string; domain: string }) {
+    const [name, setName] = useState('')
+    const [email, setEmail] = useState('')
+    const [phone, setPhone] = useState('')
+    const [message, setMessage] = useState('')
+
+    const onSubmit = (e: FormEvent) => {
+      e.preventDefault()
+      const subject = `Website audit review — ${props.domain}`
+      const body = [
+        `Prospect: ${props.prospectName} (${props.domain})`,
+        `Name: ${name}`,
+        `Email: ${email}`,
+        `Phone: ${phone}`,
+        '',
+        message,
+      ].join('\n')
+      window.location.href = `mailto:${props.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    }
+
+    const inputCls =
+      'w-full rounded-lg border border-gray-300 dark:border-navy-border bg-white dark:bg-white/5 px-3 py-2 text-[13px] font-body text-navy dark:text-white placeholder:text-navy/30 dark:placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500'
+
+    return (
+      <section
+        id="inquiry"
+        className="scroll-mt-24 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-6 space-y-4"
+      >
+        <div>
+          <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white">Book a review</h2>
+          <p className="mt-1 text-[13px] font-body text-navy/60 dark:text-white/60">
+            Ask us what we would fix first on {props.domain} — and what it would be worth.
+          </p>
+        </div>
+        <form onSubmit={onSubmit} className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label htmlFor="inq-name" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Name</label>
+              <input id="inq-name" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label htmlFor="inq-email" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Email</label>
+              <input id="inq-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label htmlFor="inq-phone" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Phone</label>
+              <input id="inq-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="inq-message" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Message</label>
+            <textarea id="inq-message" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} className={inputCls} />
+          </div>
+          <button
+            type="submit"
+            className="rounded-full bg-blue-700 hover:bg-blue-800 text-white font-heading font-semibold text-[13px] px-5 py-2"
+          >
+            Send inquiry
+          </button>
+        </form>
+        <p className="text-[12px] font-body text-navy/50 dark:text-white/50">
+          Prefer email?{' '}
+          <a href={`mailto:${props.contactEmail}`} className="font-heading font-semibold text-blue-700 dark:text-blue-400">
+            {props.contactEmail}
+          </a>
+        </p>
+      </section>
+    )
+  }
+  ```
+
+- [ ] `npx vitest run components/sales/InquiryForm.test.tsx` — expect PASS.
+
+- [ ] Commit:
+  ```bash
+  git add components/sales/InquiryForm.tsx components/sales/InquiryForm.test.tsx
+  git commit -m "feat(sales): inquiry form placeholder (mailto compose) as the Book-a-review target"
+  ```
+
+---
+
+## Task 12: Atomic swap — sections rebuilt + view assembly + final payload cleanup
+
+> **ONE COMMIT for this whole task** (plan Codex fix 5): the sections rewrite changes prop contracts the old `SalesReportView` consumes, so sections + view + tests + deprecated-payload removal must land together to keep `tsc` green. Everything through this task's single commit step below is that commit.
 
 **Files:**
 - Modify: `components/sales/SectionCard.tsx` (add `defaultOpen`)
-- Modify: `components/sales/sections.tsx` (FULL rewrite below)
+- Modify: `components/sales/sections.tsx` (FULL rewrite below — replaces the Task 6 transition compat)
+- Modify: `components/sales/SalesReportView.tsx` (FULL rewrite below)
+- Modify: `components/sales/SalesReportView.test.tsx` (FULL rewrite below)
+- Modify: `lib/sales/sales-report-data.ts` (remove the deprecated `patterns` field + `SalesPattern` interface — the Task 6 transition ends here)
+- Modify: `lib/sales/sales-report-data.test.ts` (drop the deprecated-`patterns` assertion)
 - Delete: `components/sales/ExampleCard.tsx` (its only consumer was the dropped pattern cards; `CuratedExample` still lives in `representative-examples.ts` for the screenshot allowlist)
-- Tests land in Task 13's `SalesReportView.test.tsx` rewrite (the sections are exercised through the assembled view — the existing house pattern).
+- Tests: the sections are exercised through the assembled view's `SalesReportView.test.tsx` (the existing house pattern).
 
 **Steps:**
 
@@ -2403,157 +2795,11 @@ export interface SalesReportData {
   ```
   Note: `SECTION_INTROS.accessibility`/`.seo` are superseded by `WCAG_MEANING`/`ISSUE_WHY`; the performance and geo intros stay as visible honesty lines. Do not delete `SECTION_INTROS` (kept keys still referenced).
 
-- [ ] Compile-check just these files' neighborhood (full gates in Task 13):
-  ```bash
-  npx tsc --noEmit 2>&1 | grep -E "components/sales|lib/sales" || echo "sales tree clean"
-  ```
-  Expected: remaining errors ONLY in `SalesReportView.tsx` (rewritten next task) — nothing in `sections.tsx`/`SectionCard.tsx`.
+- [ ] Remove the deprecated transition fields (the Task 6 compat ends in THIS commit — plan Codex fix 5):
+  1. `lib/sales/sales-report-data.ts`: delete the `@deprecated` `SalesPattern` interface, remove `patterns: SalesPattern[]` from `SalesReportData['accessibility']`, remove the `patterns: []` literal from the return object, and drop the now-unused `CuratedExample` type import if nothing else references it (`loadRepresentativeExamples` + `topPatternIssues` + `MAX_PATTERNS` stay — `curatedScreenshotSet` uses them permanently).
+  2. `lib/sales/sales-report-data.test.ts`: delete the `expect(d.accessibility.patterns).toEqual([])` assertion.
 
-- [ ] Commit:
-  ```bash
-  git add components/sales/SectionCard.tsx components/sales/sections.tsx
-  git rm --cached components/sales/ExampleCard.tsx 2>/dev/null; git add -A components/sales
-  git commit -m "feat(sales): urgency sections — severity tiles, urgency rows, homepage CWV card, schema 2x2 grid, Explainer methodology"
-  ```
-
----
-
-## Task 12: `InquiryForm` (mailto placeholder) 
-
-**Files:**
-- Create: `components/sales/InquiryForm.tsx`
-- Create: `components/sales/InquiryForm.test.tsx`
-
-**Steps:**
-
-- [ ] Write the failing test `components/sales/InquiryForm.test.tsx`:
-  ```tsx
-  // @vitest-environment jsdom
-  import { afterEach, describe, expect, it } from 'vitest'
-  import { cleanup, render, screen } from '@testing-library/react'
-  import { InquiryForm } from './InquiryForm'
-
-  afterEach(cleanup)
-
-  describe('InquiryForm', () => {
-    it('renders the anchor target, all four fields, submit, and the fallback mailto link', () => {
-      const { container } = render(
-        <InquiryForm contactEmail="kevin@enrollmentresources.com" prospectName="Acme" domain="acme.test" />,
-      )
-      expect(container.querySelector('#inquiry')).toBeTruthy()
-      expect(screen.getByLabelText(/name/i)).toBeTruthy()
-      expect(screen.getByLabelText(/email/i)).toBeTruthy()
-      expect(screen.getByLabelText(/phone/i)).toBeTruthy()
-      expect(screen.getByLabelText(/message/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /send/i })).toBeTruthy()
-      const mail = screen.getByRole('link', { name: /kevin@enrollmentresources.com/i }) as HTMLAnchorElement
-      expect(mail.href).toContain('mailto:kevin@enrollmentresources.com')
-    })
-  })
-  ```
-
-- [ ] `npx vitest run components/sales/InquiryForm.test.tsx` — expect FAIL.
-
-- [ ] Create `components/sales/InquiryForm.tsx`:
-  ```tsx
-  'use client'
-  // C14 redesign: inquiry form — the Book-a-review scroll target (#inquiry).
-  // PLACEHOLDER behavior (Kevin decision): submit composes a mailto: to
-  // SALES_CONTACT_EMAIL with the fields prefilled — works today, zero backend.
-  // The section shell is structured so a future embedded Jotform swaps in
-  // behind the same card. A plain mailto link remains for no-JS/print.
-  import { useState, type FormEvent } from 'react'
-
-  export function InquiryForm(props: { contactEmail: string; prospectName: string; domain: string }) {
-    const [name, setName] = useState('')
-    const [email, setEmail] = useState('')
-    const [phone, setPhone] = useState('')
-    const [message, setMessage] = useState('')
-
-    const onSubmit = (e: FormEvent) => {
-      e.preventDefault()
-      const subject = `Website audit review — ${props.domain}`
-      const body = [
-        `Prospect: ${props.prospectName} (${props.domain})`,
-        `Name: ${name}`,
-        `Email: ${email}`,
-        `Phone: ${phone}`,
-        '',
-        message,
-      ].join('\n')
-      window.location.href = `mailto:${props.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    }
-
-    const inputCls =
-      'w-full rounded-lg border border-gray-300 dark:border-navy-border bg-white dark:bg-white/5 px-3 py-2 text-[13px] font-body text-navy dark:text-white placeholder:text-navy/30 dark:placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500'
-
-    return (
-      <section
-        id="inquiry"
-        className="scroll-mt-24 bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-6 space-y-4"
-      >
-        <div>
-          <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white">Book a review</h2>
-          <p className="mt-1 text-[13px] font-body text-navy/60 dark:text-white/60">
-            Ask us what we would fix first on {props.domain} — and what it would be worth.
-          </p>
-        </div>
-        <form onSubmit={onSubmit} className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label htmlFor="inq-name" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Name</label>
-              <input id="inq-name" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label htmlFor="inq-email" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Email</label>
-              <input id="inq-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label htmlFor="inq-phone" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Phone</label>
-              <input id="inq-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="inq-message" className="block text-[12px] font-body text-navy/50 dark:text-white/50 mb-1">Message</label>
-            <textarea id="inq-message" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} className={inputCls} />
-          </div>
-          <button
-            type="submit"
-            className="rounded-full bg-blue-700 hover:bg-blue-800 text-white font-heading font-semibold text-[13px] px-5 py-2"
-          >
-            Send inquiry
-          </button>
-        </form>
-        <p className="text-[12px] font-body text-navy/50 dark:text-white/50">
-          Prefer email?{' '}
-          <a href={`mailto:${props.contactEmail}`} className="font-heading font-semibold text-blue-700 dark:text-blue-400">
-            {props.contactEmail}
-          </a>
-        </p>
-      </section>
-    )
-  }
-  ```
-
-- [ ] `npx vitest run components/sales/InquiryForm.test.tsx` — expect PASS.
-
-- [ ] Commit:
-  ```bash
-  git add components/sales/InquiryForm.tsx components/sales/InquiryForm.test.tsx
-  git commit -m "feat(sales): inquiry form placeholder (mailto compose) as the Book-a-review target"
-  ```
-
----
-
-## Task 13: View assembly, `SalesReportView` tests, full gates, ops env
-
-**Files:**
-- Modify: `components/sales/SalesReportView.tsx` (FULL rewrite)
-- Modify: `components/sales/SalesReportView.test.tsx` (FULL rewrite)
-- Modify: `ecosystem.config.js` (add `HERO_SCREENSHOTS_DIR`)
-- No change needed to `app/(public)/sales/[token]/page.tsx` (it passes `data`/`token`/`contactEmail` through — verified).
-
-**Steps:**
+- [ ] Do NOT commit yet — continue straight into the view assembly below (same atomic commit; `SalesReportView.tsx` still references the pieces just changed).
 
 - [ ] Rewrite the test first — `components/sales/SalesReportView.test.tsx`:
   ```tsx
@@ -2712,6 +2958,33 @@ export interface SalesReportData {
   ```
   (`CTA_CLOSING` is no longer imported here — its message lives in the inquiry card intro. Leave the constant in `copy.ts`.)
 
+- [ ] Gate the atomic swap — GREEN before committing:
+  ```bash
+  npx tsc --noEmit
+  ```
+  Expected: no output (clean). Fix any residual references to the removed payload shape (`patterns`, direct `performance.medianPerformance` access) — grep first: `grep -rn "\.patterns" components app lib --include='*.ts*' | grep -v test | grep -v worktrees`.
+  ```bash
+  npx vitest run components/sales lib/sales
+  ```
+  Expected: all sales suites pass.
+
+- [ ] Commit (the ONE atomic swap commit):
+  ```bash
+  git add lib/sales/sales-report-data.ts lib/sales/sales-report-data.test.ts components/sales/SectionCard.tsx components/sales/sections.tsx components/sales/SalesReportView.tsx components/sales/SalesReportView.test.tsx
+  git rm components/sales/ExampleCard.tsx 2>/dev/null; git add -A components/sales
+  git commit -m "feat(sales): atomic swap — urgency sections + redesigned view assembly + deprecated patterns payload removed"
+  ```
+
+---
+
+## Task 13: Full gates, ops env, manual verification, PR
+
+**Files:**
+- Modify: `ecosystem.config.js` (add `HERO_SCREENSHOTS_DIR`)
+- No change needed to `app/(public)/sales/[token]/page.tsx` (it passes `data`/`token`/`contactEmail` through — verified).
+
+**Steps:**
+
 - [ ] Add the prod env to `ecosystem.config.js` — beside the existing line:
   ```js
   REPORTS_DIR: `${DATA_HOME}/reports`,
@@ -2725,7 +2998,7 @@ export interface SalesReportData {
   ```bash
   npx tsc --noEmit
   ```
-  Expected: no output (clean). Fix any residual references to the old payload shape (`patterns`, `performance.medianPerformance` direct access) — grep first: `grep -rn "\.patterns" components app lib --include='*.ts*' | grep -v test | grep -v worktrees`.
+  Expected: no output (clean).
   ```bash
   npx vitest run
   ```
@@ -2733,8 +3006,8 @@ export interface SalesReportData {
 
 - [ ] Commit:
   ```bash
-  git add components/sales/SalesReportView.tsx components/sales/SalesReportView.test.tsx ecosystem.config.js
-  git commit -m "feat(sales): assemble the urgency redesign view + prod HERO_SCREENSHOTS_DIR"
+  git add ecosystem.config.js
+  git commit -m "feat(sales): prod HERO_SCREENSHOTS_DIR under DATA_HOME"
   ```
 
 - [ ] **Manual verification pass (before PR):**
