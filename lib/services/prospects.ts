@@ -13,6 +13,17 @@ export function normalizeProspectDomain(input: string): string {
   return d
 }
 
+/**
+ * ONE home for the public sales-report URL (PR3, Codex fix 5) — the share
+ * route and listProspects build from here so the two can never drift.
+ * NEXT_PUBLIC_APP_URL, never request origin (house rule); the localhost
+ * fallback is byte-identical to the share route's previous local copy.
+ */
+export function buildProspectSalesUrl(token: string): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  return `${base}/sales/${token}`
+}
+
 export interface ProspectRow {
   id: number
   name: string

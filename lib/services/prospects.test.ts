@@ -1,8 +1,8 @@
 // lib/services/prospects.test.ts
 // DB-backed against local SQLite.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { prisma } from '@/lib/db'
-import { createProspect, listProspects, normalizeProspectDomain } from './prospects'
+import { buildProspectSalesUrl, createProspect, listProspects, normalizeProspectDomain } from './prospects'
 
 const PREFIX = 'c14-svc-'
 async function cleanup() {
@@ -51,5 +51,19 @@ describe('listProspects', () => {
     const mine = rows.find((r) => r.id === created.prospect.id)
     expect(mine?.latestAudit?.id).toBe(audit.id)
     expect(mine?.latestAudit?.reportable).toBe(false)
+  })
+})
+
+describe('buildProspectSalesUrl — the ONE sales-URL home (Codex fix 5)', () => {
+  it('builds from NEXT_PUBLIC_APP_URL in the exact share-route format', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://tools.example.com')
+    expect(buildProspectSalesUrl('tok-abc')).toBe('https://tools.example.com/sales/tok-abc')
+    vi.unstubAllEnvs()
+  })
+
+  it('falls back to localhost when the env var is unset/empty (previous route behavior, byte-identical)', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
+    expect(buildProspectSalesUrl('tok-abc')).toBe('http://localhost:3000/sales/tok-abc')
+    vi.unstubAllEnvs()
   })
 })
