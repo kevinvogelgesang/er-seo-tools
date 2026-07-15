@@ -1,6 +1,16 @@
 # HANDOFF — Sales-audit overhaul (3-PR series)
 
-**Last updated:** 2026-07-15 — **PR 1 (Explainer disclosure component) SHIPPED + DEPLOYED + PROD-VERIFIED.** Two PRs remain.
+**Last updated:** 2026-07-15 — **PR 1 SHIPPED. PR 2 (sales report urgency redesign) IMPLEMENTED + GATE-GREEN + REVIEWED — PR #169 open, AWAITING Kevin visual eyeball + merge/deploy.** PR 3 remains.
+
+## PR 2 current state (2026-07-15)
+
+- **Branch:** `feat/sales-report-redesign` (14 impl commits + 1 review-followup polish), **PR #169** open vs `main`.
+- **Built via** subagent-driven-development: 13 tasks, fresh implementer + task-scoped (spec+quality) reviewer each (opus reviews on the runner, security route, loader, and atomic-swap keystone), then an opus whole-branch review. Ledger: `.superpowers/sdd/progress.md` § "Sales-overhaul PR2".
+- **Gates (in-session):** `npx tsc --noEmit` clean · `npx vitest run` 571 files / 5310 tests · `npm run build` OK.
+- **`/codex-review` (P1):** one P2 — orphaned curated-screenshot surface — triaged valid-but-defer (not a new exposure; route retention is a plan-declared non-goal). **Opus whole-branch review: Ready to merge.** Both independently flagged the same screenshot finding; both agree it's not a safety regression.
+- **⚠️ BLOCKING before merge/deploy (plan Task 13, reinforced by both reviews):** Kevin must eyeball (1) the white ER logo (`brightness-0 dark:brightness-100`) in light + dark, and (2) the gauge rev/fall-back animation + dark + print. jsdom/tsc/vitest cannot verify a CSS-filter's visual result. This is why the PR is NOT auto-merged.
+- **On Kevin's go:** merge PR #169 → `ssh seo@144.126.213.242 "~/deploy.sh"` (migration `20260715000000` applies automatically; `HERO_SCREENSHOTS_DIR` is optional-with-default so won't brick boot, but confirm `$DATA_HOME/sales-hero` is PM2-writable — `ecosystem.config.js` env needs `pm2 delete && pm2 start`, not restart) → verify health/SHA/error-log → `git mv` PR2 spec+plan to `docs/superpowers/archive/` → rewrite this handoff → extend the CLAUDE.md `lib/sales/` entry.
+- **Deferred to PR 3 / follow-up:** retire-or-tighten the now-unlinked curated-screenshot route; hero-route `AUDIT_ID_RE` vs `assertSafeId` regex alignment (inert for cuids); InquiryForm mailto → future embedded Jotform.
 **Scope:** a Kevin-commissioned 3-PR series, SEPARATE from the improvement-roadmap (that roadmap's standing direction stays the SF-parity campaign — see `HANDOFF-improvement-roadmap.md`). Do not conflate the two threads.
 
 ---
