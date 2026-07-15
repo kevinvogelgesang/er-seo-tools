@@ -6,7 +6,7 @@
 # Usage:
 #   bash .claude/skills/er-seo-tools-diagnostics-and-tooling/scripts/audit-state.sh [db-path]
 #
-#   db-path default: prisma/local-dev.db. Prod: /home/seo/data/seo-tools/db.sqlite
+#   db-path default: prisma/local-dev.db. Prod: $DATA_HOME/db.sqlite
 #
 # Verdict logic mirrors lib/ada-audit/queue-manager.ts recoverOrFailTransient:
 #   active jobs in group 'site-audit:<id>' > 0            -> WORKING (resume)

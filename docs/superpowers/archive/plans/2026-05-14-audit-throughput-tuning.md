@@ -94,7 +94,7 @@ Expected: at least one matching commit. If the file shows no matching commit, **
 echo '' >> /tmp/throughput-preflight.md
 echo '### PM2 status (expect: no recent restarts, uptime in days)' >> /tmp/throughput-preflight.md
 echo '```' >> /tmp/throughput-preflight.md
-ssh seo@144.126.213.242 "pm2 describe seo-tools | grep -E 'restarts|uptime|created at|max_memory'" >> /tmp/throughput-preflight.md
+ssh $PROD_SSH "pm2 describe seo-tools | grep -E 'restarts|uptime|created at|max_memory'" >> /tmp/throughput-preflight.md
 echo '```' >> /tmp/throughput-preflight.md
 ```
 
@@ -106,7 +106,7 @@ Inspect the file. `restarts` should be 0 since the stability deploy (or whatever
 echo '' >> /tmp/throughput-preflight.md
 echo '### Recent site audits (expect: 3+ complete, pagesTotal â‰¥ 20, no timeout errors)' >> /tmp/throughput-preflight.md
 echo '```' >> /tmp/throughput-preflight.md
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && node -e \"
+ssh $PROD_SSH "cd $APP_HOME && node -e \"
 const { PrismaClient } = require('@prisma/client');
 const p = new PrismaClient();
 (async () => {
@@ -144,7 +144,7 @@ If a fresh audit is running or has just finished, capture peak memory from `pm2 
 echo '' >> /tmp/throughput-preflight.md
 echo '### Memory peak observation' >> /tmp/throughput-preflight.md
 echo '```' >> /tmp/throughput-preflight.md
-ssh seo@144.126.213.242 "for i in \$(seq 1 8); do
+ssh $PROD_SSH "for i in \$(seq 1 8); do
   echo \"--- sample \$i ---\"
   pm2 list | grep -E 'name|seo-tools'
   free -m | awk '/^Mem:/{print \"  system used: \" \$3 \"M of \" \$2 \"M\"}'
@@ -384,7 +384,7 @@ The deploy must use \`pm2 delete seo-tools && pm2 start ecosystem.config.js\` â€
 If audits start dying again under concurrency=2:
 
 \`\`\`bash
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git revert HEAD --no-edit && git push origin main && ~/deploy.sh && pm2 delete seo-tools && pm2 start ecosystem.config.js"
+ssh $PROD_SSH "cd $APP_HOME && git revert HEAD --no-edit && git push origin main && ~/deploy.sh && pm2 delete seo-tools && pm2 start ecosystem.config.js"
 \`\`\`
 
 This restores concurrency=1 + pool=2 in seconds.

@@ -2317,6 +2317,6 @@ git commit -m "feat(d4): RobotsCheckCard on the client page + CLAUDE.md key-file
 ## Post-plan (session-level, not task-level)
 
 1. Push branch, open PR (`gh pr create`), re-run gates, merge when green (change-control rule 1).
-2. Deploy (`ssh seo@144.126.213.242 "~/deploy.sh"`) — migration `20260713100000_robots_check` applies automatically; verify post-deploy: health ok, run one real check against a CLIENT domain already in the system (never a third-party site), confirm the row + card render.
+2. Deploy (`ssh $PROD_SSH "~/deploy.sh"`) — migration `20260713100000_robots_check` applies automatically; verify post-deploy: health ok, run one real check against a CLIENT domain already in the system (never a third-party site), confirm the row + card render.
 3. Docs ritual in the same commit: tracker D4 `[x]` + dated status-log line + handoff rewrite; move spec+plan to `docs/superpowers/archive/`.
 4. Kevin-verify carryover: NGINX/RunCloud proxy timeout vs the ~75 s worst case (flag in the PR description).

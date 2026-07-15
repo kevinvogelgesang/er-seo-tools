@@ -288,7 +288,7 @@ change** (assert nothing added to `isPublicPath`).
   additive migration (auto-applies on deploy), no new env vars, no middleware
   change, no public surface.
 - [ ] Merge when gate-green (change-control rule 1); deploy
-  (`git push` + `ssh seo@144.126.213.242 "pm2 stop seo-tools && ~/deploy.sh"`);
+  (`git push` + `ssh $PROD_SSH "pm2 stop seo-tools && ~/deploy.sh"`);
   post-deploy verify: BUILD_ID fresh, `/api/health` ok, migration applied
   (read-only schema check), clean boot log.
 - [ ] Prod verification of the changed path: dashboard card on a GSC-mapped

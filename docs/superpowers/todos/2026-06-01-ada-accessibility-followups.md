@@ -20,7 +20,7 @@ Context that matters: clients are **educational institutions** subject to **WCAG
 
 ## Item 1 — Evidence / root-cause ✅ DONE
 
-- Pulled the audit row from the staging DB (same VPS, `144.126.213.242`) and ran a fresh keyed PSI call server-side.
+- Pulled the audit row from the staging DB (same VPS, `$PROD_HOST`) and ran a fresh keyed PSI call server-side.
 - Confirmed transient false positive (see Background). No code change; this was diagnosis only.
 
 ## Item 2 — PSI accessibility UI reframe ⬜ NOT STARTED (ready to build)

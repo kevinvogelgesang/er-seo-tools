@@ -297,7 +297,7 @@ All green. Then push `feat/app-shell-pr3.5`, open the PR with `gh`.
 ### Task 8 — Merge + deploy + prod verification (rule 1)
 
 - Merge once gates are re-confirmed green in this session.
-- `ssh seo@144.126.213.242 "~/deploy.sh"`.
+- `ssh $PROD_SSH "~/deploy.sh"`.
 - **Real authed-browser verification via Playwright** (Kevin logs the browser in — the PR 3
   session proved a size bug slips past server-side health checks):
   - homepage renders the KPI strip with four real numbers and Needs-attention with live

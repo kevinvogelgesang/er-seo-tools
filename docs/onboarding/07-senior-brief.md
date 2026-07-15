@@ -69,7 +69,7 @@ Each is stated as **Decision / Why / Consequences / Revisit if**.
 ### Decision 1 — SQLite + Prisma, no Postgres
 
 **Decision.** The entire datastore is a single SQLite file (`prisma/schema.prisma`
-is the schema; the file lives at `/home/seo/data/seo-tools/db.sqlite` in prod),
+is the schema; the file lives at `$DATA_HOME/db.sqlite` in prod),
 accessed through Prisma. This is a hard constraint in `CLAUDE.md` ("SQLite only —
 no Postgres/MySQL").
 

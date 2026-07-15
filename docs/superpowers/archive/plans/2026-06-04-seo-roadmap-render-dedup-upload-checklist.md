@@ -1422,7 +1422,7 @@ gh pr create --fill --base main
 - [ ] **Step 2: After merge, deploy per CLAUDE.md**
 
 ```bash
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 - [ ] **Step 3: Smoke-test in production**

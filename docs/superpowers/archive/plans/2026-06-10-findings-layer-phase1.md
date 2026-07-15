@@ -1334,7 +1334,7 @@ verified by running them.
 // NOT a historical backfill tool.
 //
 // Usage (local):  DATABASE_URL="file:./local-dev.db" npx tsx scripts/findings-rebuild.ts <sessionId>
-// Usage (prod):   cd /home/seo/webapps/seo-tools && npx tsx scripts/findings-rebuild.ts <sessionId>
+// Usage (prod):   cd $APP_HOME && npx tsx scripts/findings-rebuild.ts <sessionId>
 import { prisma } from '../lib/db'
 import { writeSeoFindings } from '../lib/findings/seo-write'
 import type { AggregatedResult } from '../lib/types'

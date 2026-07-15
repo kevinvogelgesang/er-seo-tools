@@ -2,11 +2,24 @@
 
 Complete step-by-step guide for deploying the seo-tools Next.js application on a fresh RunCloud-managed Ubuntu server.
 
+> **Placeholders.** Host, SSH target, and filesystem paths in this repo are written as shell variables so no server address or layout is committed. Resolve them from the team's internal ops notes (secret store / internal wiki) before running any command here:
+>
+> | Placeholder | Meaning |
+> |---|---|
+> | `$PROD_HOST` | Production server hostname / IP |
+> | `$PROD_SSH` | SSH target, i.e. `<user>@$PROD_HOST` |
+> | `$APP_HOME` | App directory (repo checkout on the server) |
+> | `$DATA_HOME` | Data directory (SQLite DB, uploads, reports, backups) |
+> | `$LOG_HOME` | Log directory |
+> | `$SERVER_HOME` | App user's home directory |
+>
+> Export them in your shell (e.g. `export PROD_SSH=user@host APP_HOME=/path/...`) and the commands below work as written.
+
 ## Server Specs
 
 | Property       | Value                          |
 |----------------|--------------------------------|
-| IP             | 144.126.213.242                |
+| IP             | $PROD_HOST                |
 | Server name    | seo                            |
 | OS             | Ubuntu 24.04 Noble x86_64      |
 | CPU            | 2-core DO-Premium-AMD          |
@@ -23,7 +36,7 @@ Complete step-by-step guide for deploying the seo-tools Next.js application on a
 RunCloud provisions the server with root access. Connect and verify:
 
 ```bash
-ssh root@144.126.213.242
+ssh root@$PROD_HOST
 ```
 
 ### 1.2 Create the Application User
@@ -85,18 +98,18 @@ which google-chrome   # Should be /usr/bin/google-chrome
 
 ```bash
 # App code (RunCloud may create this when you add the web app)
-mkdir -p /home/seo/webapps/seo-tools
+mkdir -p $APP_HOME
 
 # Persistent data (outside the app directory so deploys don't touch it)
-mkdir -p /home/seo/data/seo-tools/uploads
+mkdir -p $DATA_HOME/uploads
 
 # PM2 logs
-mkdir -p /home/seo/logs
+mkdir -p $LOG_HOME
 
 # Set ownership
-chown -R seo:seo /home/seo/webapps
-chown -R seo:seo /home/seo/data
-chown -R seo:seo /home/seo/logs
+chown -R seo:seo $SERVER_HOME/webapps
+chown -R seo:seo $SERVER_HOME/data
+chown -R seo:seo $LOG_HOME
 ```
 
 ---
@@ -190,7 +203,7 @@ sysctl -p
    - **User:** seo
    - **Web Application Stack:** **Native NGINX + Custom Config**
    - **Node.js version:** 22 (if RunCloud asks)
-   - **Web Application Root:** `/home/seo/webapps/seo-tools`
+   - **Web Application Root:** `$APP_HOME`
 
 ### 3.2 Connect Git Repository
 
@@ -199,7 +212,7 @@ sysctl -p
 3. Connect to your GitHub account if not already connected
 4. Select the `er-seo-tools` repository
 5. Branch: `main`
-6. Deploy path: `/home/seo/webapps/seo-tools`
+6. Deploy path: `$APP_HOME`
 
 ### 3.3 SSL Certificate
 
@@ -209,7 +222,7 @@ sysctl -p
 4. Enable **HTTP/3 (QUIC)** if available in RunCloud's UI
 5. Enable **Force HTTPS** redirect
 
-> **RunCloud gotcha:** Let's Encrypt requires the domain's DNS A record to point to `144.126.213.242` before requesting the certificate. Set up DNS first, wait for propagation, then request the cert.
+> **RunCloud gotcha:** Let's Encrypt requires the domain's DNS A record to point to `$PROD_HOST` before requesting the certificate. Set up DNS first, wait for propagation, then request the cert.
 
 ---
 
@@ -267,7 +280,7 @@ add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment
 
 - **Do not use the "Hybrid Apache + NGINX" stack.** The app is Node.js only -- there is no PHP, no .htaccess. Native NGINX is simpler and faster.
 - **RunCloud Supervisor:** RunCloud may try to manage the Node process with its built-in Supervisor. We use PM2 instead (see Section 6). Disable RunCloud's Supervisor for this app if it creates one.
-- **Config reload:** After editing NGINX config in RunCloud, it automatically reloads NGINX. You can also force it: `ssh root@144.126.213.242 "systemctl reload nginx"`.
+- **Config reload:** After editing NGINX config in RunCloud, it automatically reloads NGINX. You can also force it: `ssh root@$PROD_HOST "systemctl reload nginx"`.
 
 ---
 
@@ -276,7 +289,7 @@ add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment
 All commands run as the `seo` user unless noted:
 
 ```bash
-ssh seo@144.126.213.242
+ssh $PROD_SSH
 ```
 
 ### 5.1 Clone the Repository
@@ -284,7 +297,7 @@ ssh seo@144.126.213.242
 If RunCloud's Git integration already cloned the repo, skip this step.
 
 ```bash
-cd /home/seo/webapps
+cd $SERVER_HOME/webapps
 git clone git@github.com:Enrollment-Resources/er-seo-tools.git er-seo-tools
 cd er-seo-tools
 ```
@@ -292,7 +305,7 @@ cd er-seo-tools
 ### 5.2 Install Dependencies
 
 ```bash
-cd /home/seo/webapps/seo-tools
+cd $APP_HOME
 npm install
 ```
 
@@ -303,9 +316,9 @@ npm install
 Create the `.env` file:
 
 ```bash
-cat > /home/seo/webapps/seo-tools/.env << 'EOF'
-DATABASE_URL=file:/home/seo/data/seo-tools/db.sqlite
-UPLOADS_DIR=/home/seo/data/seo-tools/uploads
+cat > $APP_HOME/.env << 'EOF'
+DATABASE_URL=file:$DATA_HOME/db.sqlite
+UPLOADS_DIR=$DATA_HOME/uploads
 PORT=3000
 NEXT_PUBLIC_APP_URL=https://your-domain.com
 CHROME_EXECUTABLE=/usr/bin/google-chrome
@@ -320,13 +333,13 @@ Replace `https://your-domain.com` with the actual domain. This is used for gener
 ### 5.4 Database Setup
 
 ```bash
-cd /home/seo/webapps/seo-tools
+cd $APP_HOME
 
 # Generate Prisma client
-DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate
+DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma generate
 
 # Run all migrations (creates the SQLite database if it doesn't exist)
-DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy
+DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate deploy
 ```
 
 > **Note:** We pass `DATABASE_URL` inline because Prisma CLI reads from the environment, and the `.env` file may not be loaded in all contexts. Belt and suspenders.
@@ -334,7 +347,7 @@ DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy
 ### 5.5 Build
 
 ```bash
-cd /home/seo/webapps/seo-tools
+cd $APP_HOME
 npm run build
 ```
 
@@ -358,15 +371,15 @@ npm install -g pm2
 The repo ships a working `ecosystem.config.js` at the project root. Paths are derived from `APP_HOME` / `DATA_HOME` / `LOG_HOME` env vars with sane defaults that match this VPS layout:
 
 ```js
-const APP_HOME = process.env.APP_HOME || '/home/seo/webapps/seo-tools'
-const DATA_HOME = process.env.DATA_HOME || '/home/seo/data/seo-tools'
-const LOG_HOME = process.env.LOG_HOME || '/home/seo/logs'
+const APP_HOME = process.env.APP_HOME || '$APP_HOME'
+const DATA_HOME = process.env.DATA_HOME || '$DATA_HOME'
+const LOG_HOME = process.env.LOG_HOME || '$LOG_HOME'
 ```
 
 So `git pull` already gives you a usable file — no need to overwrite it. If you ever deploy to a host with a different layout, export those three env vars before `pm2 start ecosystem.config.js` and PM2 will pick them up.
 
 ```bash
-chown seo:seo /home/seo/webapps/seo-tools/ecosystem.config.js
+chown seo:seo $APP_HOME/ecosystem.config.js
 ```
 
 > **Why fork mode, not cluster:** The app uses a singleton browser pool (headless Chrome) and a global audit queue. Cluster mode would create multiple Node processes, each with its own singleton -- breaking the "one audit at a time" invariant and potentially spawning too many Chrome instances.
@@ -379,7 +392,7 @@ chown seo:seo /home/seo/webapps/seo-tools/ecosystem.config.js
 
 ```bash
 # As seo user
-cd /home/seo/webapps/seo-tools
+cd $APP_HOME
 pm2 start ecosystem.config.js
 
 # Verify it's running
@@ -394,7 +407,7 @@ pm2 logs seo-tools --lines 20
 pm2 startup systemd
 
 # PM2 will print something like:
-#   sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u seo --hp /home/seo
+#   sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u seo --hp $SERVER_HOME
 # Run that command as root.
 
 # Then save the current process list
@@ -445,7 +458,7 @@ After making changes locally:
 git push
 
 # 2. Deploy to server (one-liner)
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
+ssh $PROD_SSH "cd $APP_HOME && git pull && npm install && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
 ```
 
 What each step does:
@@ -460,13 +473,13 @@ What each step does:
 ### 7.2 Quick Restart (No Code Changes)
 
 ```bash
-ssh seo@144.126.213.242 "pm2 restart seo-tools"
+ssh $PROD_SSH "pm2 restart seo-tools"
 ```
 
 ### 7.3 Deploy with Logs (Debug a Bad Deploy)
 
 ```bash
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 restart seo-tools && sleep 3 && pm2 logs seo-tools --lines 50 --nostream"
+ssh $PROD_SSH "cd $APP_HOME && git pull && npm install && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma generate && npm run build && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate deploy && pm2 restart seo-tools && sleep 3 && pm2 logs seo-tools --lines 50 --nostream"
 ```
 
 ---
@@ -504,7 +517,7 @@ ps aux | grep chrome
 
 # Disk usage
 df -h /
-du -sh /home/seo/data/seo-tools/
+du -sh $DATA_HOME/
 
 # CPU and memory overview
 htop   # or: top -bn1 | head -20
@@ -514,16 +527,16 @@ htop   # or: top -bn1 | head -20
 
 ```bash
 # Integrity check
-sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA integrity_check;'
+sqlite3 $DATA_HOME/db.sqlite 'PRAGMA integrity_check;'
 
 # Check WAL file size (large WAL = writes not checkpointing)
-ls -lh /home/seo/data/seo-tools/db.sqlite*
+ls -lh $DATA_HOME/db.sqlite*
 
 # Force WAL checkpoint if needed
-sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA wal_checkpoint(TRUNCATE);'
+sqlite3 $DATA_HOME/db.sqlite 'PRAGMA wal_checkpoint(TRUNCATE);'
 
 # Database size
-sqlite3 /home/seo/data/seo-tools/db.sqlite 'SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size();'
+sqlite3 $DATA_HOME/db.sqlite 'SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size();'
 ```
 
 ### 8.4 Chrome /tmp Cleanup Cron
@@ -556,7 +569,7 @@ Add:
 
 ```cron
 # Checkpoint SQLite WAL every Sunday at 4 AM
-0 4 * * 0 sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA wal_checkpoint(PASSIVE);' 2>/dev/null
+0 4 * * 0 sqlite3 $DATA_HOME/db.sqlite 'PRAGMA wal_checkpoint(PASSIVE);' 2>/dev/null
 ```
 
 ### 8.6 Backup
@@ -565,14 +578,14 @@ Back up the SQLite database regularly. Since it uses WAL mode, use `.backup` for
 
 ```bash
 # Manual backup
-sqlite3 /home/seo/data/seo-tools/db.sqlite ".backup /home/seo/data/seo-tools/backups/db-$(date +%Y%m%d).sqlite"
+sqlite3 $DATA_HOME/db.sqlite ".backup $DATA_HOME/backups/db-$(date +%Y%m%d).sqlite"
 ```
 
 Automated daily backup cron (as seo):
 
 ```cron
 # Daily SQLite backup at 2 AM, keep last 7 days
-0 2 * * * mkdir -p /home/seo/data/seo-tools/backups && sqlite3 /home/seo/data/seo-tools/db.sqlite ".backup /home/seo/data/seo-tools/backups/db-$(date +\%Y\%m\%d).sqlite" && find /home/seo/data/seo-tools/backups -name 'db-*.sqlite' -mtime +7 -delete 2>/dev/null
+0 2 * * * mkdir -p $DATA_HOME/backups && sqlite3 $DATA_HOME/db.sqlite ".backup $DATA_HOME/backups/db-$(date +\%Y\%m\%d).sqlite" && find $DATA_HOME/backups -name 'db-*.sqlite' -mtime +7 -delete 2>/dev/null
 ```
 
 ---
@@ -589,14 +602,14 @@ pm2 status
 pm2 logs seo-tools --lines 50 --nostream
 
 # Verify the build exists
-ls -la /home/seo/webapps/seo-tools/.next/
+ls -la $APP_HOME/.next/
 
 # Verify port 3000 is not already in use
 ss -tlnp | grep 3000
 
 # Try starting manually to see errors in real-time
-cd /home/seo/webapps/seo-tools
-NODE_ENV=production DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx next start
+cd $APP_HOME
+NODE_ENV=production DATABASE_URL='file:$DATA_HOME/db.sqlite' npx next start
 ```
 
 ### 9.2 502 Bad Gateway from NGINX
@@ -654,12 +667,12 @@ The app has built-in stale audit recovery (`resetStaleAudits()` runs every 10 mi
 pm2 restart seo-tools
 
 # If that doesn't help, check the database directly
-sqlite3 /home/seo/data/seo-tools/db.sqlite "SELECT id, status, progress, updatedAt FROM AdaAudit WHERE status IN ('running', 'pending') ORDER BY updatedAt DESC LIMIT 10;"
-sqlite3 /home/seo/data/seo-tools/db.sqlite "SELECT id, status, progress, updatedAt FROM SiteAudit WHERE status IN ('running', 'queued') ORDER BY updatedAt DESC LIMIT 10;"
+sqlite3 $DATA_HOME/db.sqlite "SELECT id, status, progress, updatedAt FROM AdaAudit WHERE status IN ('running', 'pending') ORDER BY updatedAt DESC LIMIT 10;"
+sqlite3 $DATA_HOME/db.sqlite "SELECT id, status, progress, updatedAt FROM SiteAudit WHERE status IN ('running', 'queued') ORDER BY updatedAt DESC LIMIT 10;"
 
 # Manually error a stuck audit (replace <ID> with the actual ID)
-sqlite3 /home/seo/data/seo-tools/db.sqlite "UPDATE AdaAudit SET status='error', errorMessage='Manually reset - stuck audit' WHERE id='<ID>';"
-sqlite3 /home/seo/data/seo-tools/db.sqlite "UPDATE SiteAudit SET status='error', errorMessage='Manually reset - stuck audit' WHERE id='<ID>';"
+sqlite3 $DATA_HOME/db.sqlite "UPDATE AdaAudit SET status='error', errorMessage='Manually reset - stuck audit' WHERE id='<ID>';"
+sqlite3 $DATA_HOME/db.sqlite "UPDATE SiteAudit SET status='error', errorMessage='Manually reset - stuck audit' WHERE id='<ID>';"
 ```
 
 ### 9.5 Chrome Won't Launch
@@ -682,26 +695,26 @@ apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 liba
 
 ```bash
 # Check migration status
-cd /home/seo/webapps/seo-tools
-DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate status
+cd $APP_HOME
+DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate status
 
 # If a migration is marked as failed, you may need to resolve it:
-DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate resolve --applied <migration_name>
+DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate resolve --applied <migration_name>
 ```
 
 ### 9.7 Disk Space Issues
 
 ```bash
 # What's using space?
-du -sh /home/seo/data/seo-tools/*
-du -sh /home/seo/logs/*
+du -sh $DATA_HOME/*
+du -sh $LOG_HOME/*
 du -sh /tmp/*
 
 # Clean PM2 logs manually
 pm2 flush
 
 # Clean old Next.js build cache
-rm -rf /home/seo/webapps/seo-tools/.next/cache
+rm -rf $APP_HOME/.next/cache
 
 # Clean npm cache
 npm cache clean --force
@@ -727,42 +740,42 @@ pm2 reset seo-tools
 
 | Path | Purpose |
 |------|---------|
-| `/home/seo/webapps/seo-tools` | Application code |
-| `/home/seo/webapps/seo-tools/.env` | Environment variables |
-| `/home/seo/webapps/seo-tools/ecosystem.config.js` | PM2 configuration |
-| `/home/seo/data/seo-tools/db.sqlite` | SQLite database |
-| `/home/seo/data/seo-tools/uploads` | File uploads |
-| `/home/seo/data/seo-tools/backups` | Database backups |
-| `/home/seo/logs/seo-tools-out.log` | PM2 stdout log |
-| `/home/seo/logs/seo-tools-error.log` | PM2 stderr log |
+| `$APP_HOME` | Application code |
+| `$APP_HOME/.env` | Environment variables |
+| `$APP_HOME/ecosystem.config.js` | PM2 configuration |
+| `$DATA_HOME/db.sqlite` | SQLite database |
+| `$DATA_HOME/uploads` | File uploads |
+| `$DATA_HOME/backups` | Database backups |
+| `$LOG_HOME/seo-tools-out.log` | PM2 stdout log |
+| `$LOG_HOME/seo-tools-error.log` | PM2 stderr log |
 | `/usr/bin/google-chrome` | Chrome executable |
 
 ### Key Commands
 
 ```bash
 # Deploy
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && git pull && npm install && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
+ssh $PROD_SSH "cd $APP_HOME && git pull && npm install && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma generate && npm run build && pm2 stop seo-tools && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate deploy && pm2 start seo-tools"
 
 # Quick restart
-ssh seo@144.126.213.242 "pm2 restart seo-tools"
+ssh $PROD_SSH "pm2 restart seo-tools"
 
 # Check status
-ssh seo@144.126.213.242 "pm2 status && free -h && df -h /"
+ssh $PROD_SSH "pm2 status && free -h && df -h /"
 
 # Tail logs
-ssh seo@144.126.213.242 "pm2 logs seo-tools --lines 50"
+ssh $PROD_SSH "pm2 logs seo-tools --lines 50"
 
 # Check database health
-ssh seo@144.126.213.242 "sqlite3 /home/seo/data/seo-tools/db.sqlite 'PRAGMA integrity_check;'"
+ssh $PROD_SSH "sqlite3 $DATA_HOME/db.sqlite 'PRAGMA integrity_check;'"
 ```
 
 ### Environment Variables
 
 | Variable | Example Value | Purpose |
 |----------|---------------|---------|
-| `DATABASE_URL` | `file:/home/seo/data/seo-tools/db.sqlite` | Prisma SQLite connection |
+| `DATABASE_URL` | `file:$DATA_HOME/db.sqlite` | Prisma SQLite connection |
 | `NEXT_PUBLIC_APP_URL` | `https://your-domain.com` | Share link URL generation |
-| `UPLOADS_DIR` | `/home/seo/data/seo-tools/uploads` | File upload directory |
+| `UPLOADS_DIR` | `$DATA_HOME/uploads` | File upload directory |
 | `PORT` | `3000` | Next.js listen port |
 | `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Headless Chrome path |
 | `BROWSER_POOL_SIZE` | `4` | Max concurrent Chrome pages (default 4, do not increase without more RAM) |

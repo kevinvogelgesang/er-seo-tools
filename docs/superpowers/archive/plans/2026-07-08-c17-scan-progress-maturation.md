@@ -1854,7 +1854,7 @@ git push -u origin feat/c17-scan-progress
 gh pr create --title "feat(c17): scan-progress maturation — live seoOnly verifier phase, auto-navigation, live recents rows" --body "…(summary of the four spec §P2 items + the 6 plan-level Codex fixes, gate results, verification notes)…"
 ```
 
-Then (rule 1): re-run gates on the branch, merge when green, deploy `ssh seo@144.126.213.242 "~/deploy.sh"` (code-only — no migration, no env vars), post-deploy verify (health + a small prod seoOnly scan on a client domain + recents live rows).
+Then (rule 1): re-run gates on the branch, merge when green, deploy `ssh $PROD_SSH "~/deploy.sh"` (code-only — no migration, no env vars), post-deploy verify (health + a small prod seoOnly scan on a client domain + recents live rows).
 
 - [ ] **Step 4: Docs ritual (same commit)**
 

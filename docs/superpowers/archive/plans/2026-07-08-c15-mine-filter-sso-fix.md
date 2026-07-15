@@ -324,7 +324,7 @@ git push -u origin fix/c15-mine-filter-sso
 gh pr create --title "fix(site-audit): Mine filter SSO regression — requestedBy via getOperatorLabel (C15)" --body "..."
 ```
 
-Merge when gate-green (standing authorization), deploy `ssh seo@144.126.213.242 "~/deploy.sh"` (code-only, no migration), post-deploy verify `/api/health` + a fresh authed site audit shows under "Mine" (Kevin eyeball, cookie-gated).
+Merge when gate-green (standing authorization), deploy `ssh $PROD_SSH "~/deploy.sh"` (code-only, no migration), post-deploy verify `/api/health` + a fresh authed site audit shows under "Mine" (Kevin eyeball, cookie-gated).
 
 - [ ] **Step 4: Docs ritual**
 

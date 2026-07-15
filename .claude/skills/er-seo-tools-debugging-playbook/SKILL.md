@@ -41,19 +41,19 @@ Use a sibling instead when:
 | Site audit stuck in `queued` | Another audit holds the one-active slot, or the promoter never enqueued discovery | `sqlite3 <DB> "SELECT id,status FROM SiteAudit WHERE status IN ('running','pdfs-running','lighthouse-running');"` — if a row exists, the queue is working as designed (FIFO, one at a time) |
 | Site audit stuck in `running`/`pdfs-running`/`lighthouse-running` | Jobs still draining (healthy) vs orphaned (crash) | Count live jobs in its group: `sqlite3 <DB> "SELECT type,status,attempts FROM Job WHERE groupKey='site-audit:<ID>' AND status IN ('queued','running');"` — rows present = draining, leave it; zero rows = wait ≤10 min for `stale-audit-reset` to finalize-or-fail it |
 | `Operations timed out` (Prisma, many writers at once) | SQLite write lock held across event-loop turns — an interactive transaction snuck in | `grep -rn '\$transaction(async' lib app --include='*.ts'` — any hit in executable code is the bug (4 comment-line hits that warn against the pattern are expected today; array-form only) |
-| Audit failed: `Audit timed out (server may have restarted)` | PM2 `max_memory_restart` SIGKILL mid-audit, or a real crash | `ssh seo@144.126.213.242 "pm2 describe seo-tools \| grep -E 'restarts\|uptime'"` — restart counter bumped + short uptime = memory kill. **Not dmesg** (fei.edu incident: kernel OOM log was clean; PM2 did the killing) |
+| Audit failed: `Audit timed out (server may have restarted)` | PM2 `max_memory_restart` SIGKILL mid-audit, or a real crash | `ssh $PROD_SSH "pm2 describe seo-tools \| grep -E 'restarts\|uptime'"` — restart counter bumped + short uptime = memory kill. **Not dmesg** (fei.edu incident: kernel OOM log was clean; PM2 did the killing) |
 | Works in dev, broken in prod | One of the four prod-only classes | See "The four prod-only bug classes" below — run the minification grep first, it's cheapest |
 | New route returns 401 in prod | Missing from `middleware.ts` `isPublicPath` allowlist | `grep -n "your-route" middleware.ts` — this has bitten the team three times; every public/token route needs an allowlist entry + a `middleware.test.ts` case |
 | SEO audit "hollow" — empty page_index, blank keyword/duplicate joins | Parser key or filename-routing miss | Check the parser has a static `parserKey` (`lib/parsers/base.parser.ts:18` pattern) and that `lib/parsers/index.routing.test.ts` covers the filename; then check the completeness panel (`lib/services/completeness.ts`) for which CSVs were absent |
 | PSI failures / accessibility scores that contradict axe | WAF/CDN serving Google's data-center IPs a challenge page | Trust axe, not PSI — per-page PSI failures fail only the Lighthouse portion by design. Full analysis: `docs/superpowers/nyi/specs/2026-05-29-psi-a11y-reframe-design.md` |
-| `[findings] dual-write failed` in logs | Findings-layer write failed after the legacy commit (by design, never fails the audit) | `npx tsx scripts/findings-rebuild.ts <sessionId\|siteAuditId\|adaAuditId>` (prod: `cd /home/seo/webapps/seo-tools && npx tsx scripts/findings-rebuild.ts <id>` — Kevin runs it) |
+| `[findings] dual-write failed` in logs | Findings-layer write failed after the legacy commit (by design, never fails the audit) | `npx tsx scripts/findings-rebuild.ts <sessionId\|siteAuditId\|adaAuditId>` (prod: `cd $APP_HOME && npx tsx scripts/findings-rebuild.ts <id>` — Kevin runs it) |
 | 409 `session_archived`, archived banners, "—" counts | 90-day blob pruning — **expected behavior, not a bug** | Verify `CrawlRun.archivePrunedAt` is set; read surfaces degrade via findings-table fallbacks. Do not try to "fix" it |
 | Login wall appears in local dev | `APP_AUTH_PASSWORD` set in a local `.env*` file | `grep -rn APP_AUTH_PASSWORD .env* 2>/dev/null` — dev bypass requires it UNSET (`lib/auth.ts` `isAuthBypassedInDev`) |
 | ADA audit hangs, no progress | Browser-pool starvation (dev pool = 2) or a page held across an uncontrolled await | Check for code holding `acquirePage()` results across awaits; dev default `BROWSER_POOL_SIZE=2` (`lib/ada-audit/browser-pool.ts:6`), prod 4 |
 | Share link 404s | 30-day token TTL expired (cleanup nulls it), or URL built from request origin | `sqlite3 <DB> "SELECT shareToken,shareExpiresAt FROM SiteAudit WHERE id='<ID>';"` — expired = re-share; also confirm URLs come from `NEXT_PUBLIC_APP_URL`, never request origin |
-| App won't start after deploy | Startup fail-fast env gate (`process.exit(1)`) | `ssh seo@144.126.213.242 "pm2 logs seo-tools --err --lines 30 --nostream"` — look for missing `PILLAR_TOKEN_SECRET` / auth config / Chromium egress guard |
+| App won't start after deploy | Startup fail-fast env gate (`process.exit(1)`) | `ssh $PROD_SSH "pm2 logs seo-tools --err --lines 30 --nostream"` — look for missing `PILLAR_TOKEN_SECRET` / auth config / Chromium egress guard |
 
-`<DB>` = `/home/seo/data/seo-tools/db.sqlite` on prod (read-only SELECTs only),
+`<DB>` = `$DATA_HOME/db.sqlite` on prod (read-only SELECTs only),
 `./local-dev.db` or your local `DATABASE_URL` in dev.
 
 ## Logging conventions
@@ -67,17 +67,17 @@ All server-side logs use **bracketed subsystem tags**. Verified tag list (as of
 `[pillar-token]` `[seo-roadmap-token]` `[keyword-memo-token]` `[quarter-push-token]`
 
 Prod log files (from `ecosystem.config.js`, pm2-logrotate 50MB×5):
-- `/home/seo/logs/seo-tools-error.log` — stderr (console.error)
-- `/home/seo/logs/seo-tools-out.log` — stdout (console.log/warn; `merge_logs: true`)
+- `$LOG_HOME/seo-tools-error.log` — stderr (console.error)
+- `$LOG_HOME/seo-tools-out.log` — stdout (console.log/warn; `merge_logs: true`)
 
 Triage greps (read-only SSH):
 
 ```bash
 # Everything a subsystem said recently
-ssh seo@144.126.213.242 "grep '\[queue\]' ~/logs/seo-tools-out.log | tail -30"
-ssh seo@144.126.213.242 "grep '\[findings\]' ~/logs/seo-tools-error.log | tail -20"
+ssh $PROD_SSH "grep '\[queue\]' ~/logs/seo-tools-out.log | tail -30"
+ssh $PROD_SSH "grep '\[findings\]' ~/logs/seo-tools-error.log | tail -20"
 # Recovery decisions for one audit (resume vs finalize vs fail)
-ssh seo@144.126.213.242 "grep '<AUDIT_ID>' ~/logs/seo-tools-*.log | tail -40"
+ssh $PROD_SSH "grep '<AUDIT_ID>' ~/logs/seo-tools-*.log | tail -40"
 # Re-derive the tag list after code changes
 grep -rh "console\.\(error\|warn\|log\)('\[" lib app --include='*.ts' | grep -o "\[[a-z-]*\]" | sort -u
 ```
@@ -147,7 +147,7 @@ differ (pool 2, site-audit concurrency 1, PSI 6, lighthouse `local`).
 
 ```bash
 grep -nE "POOL|CONCURRENCY|LIGHTHOUSE|memory" ecosystem.config.js
-ssh seo@144.126.213.242 "pm2 env 0 | grep -E 'POOL|CONCURRENCY|LIGHTHOUSE'"   # what's actually loaded
+ssh $PROD_SSH "pm2 env 0 | grep -E 'POOL|CONCURRENCY|LIGHTHOUSE'"   # what's actually loaded
 ```
 
 Trap: `pm2 restart` does NOT reload `ecosystem.config.js` env changes — that needs
@@ -209,8 +209,8 @@ heartbeat AND had no live jobs AND couldn't be finalized. It means the process d
 mid-audit. Discriminate the cause:
 
 ```bash
-ssh seo@144.126.213.242 "pm2 describe seo-tools | grep -E 'restarts|uptime|created'"
-ssh seo@144.126.213.242 "grep -i 'sigterm\|sigkill\|restart' ~/logs/seo-tools-*.log | tail -10"
+ssh $PROD_SSH "pm2 describe seo-tools | grep -E 'restarts|uptime|created'"
+ssh $PROD_SSH "grep -i 'sigterm\|sigkill\|restart' ~/logs/seo-tools-*.log | tail -10"
 ```
 - Restart counter bumped, short uptime, no SIGTERM log → **PM2 `max_memory_restart`
   SIGKILL** (2400M ceiling). The fei.edu incident (2026-05-14) proved dmesg shows

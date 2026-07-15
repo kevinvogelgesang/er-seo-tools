@@ -273,10 +273,10 @@ half the reason this app was never a serverless candidate.
 
 Where things live on that box:
 
-- App code: `/home/seo/webapps/seo-tools`
+- App code: `$APP_HOME`
 - Data — the SQLite database, uploads, screenshots, generated report PDFs:
-  under `/home/seo/data/seo-tools/` (the database is `db.sqlite` there)
-- Logs: `/home/seo/logs/`
+  under `$DATA_HOME/` (the database is `db.sqlite` there)
+- Logs: `$LOG_HOME/`
 
 The data directory sitting *outside* the app directory is deliberate:
 deploys can replace the code wholesale without going anywhere near the
@@ -286,7 +286,7 @@ database.
 code any other way. So a deploy is two steps, in an order that matters:
 
 1. `git push` (unpushed local commits deploy nothing, ever)
-2. `ssh seo@144.126.213.242 "~/deploy.sh"` — a script on the server that
+2. `ssh $PROD_SSH "~/deploy.sh"` — a script on the server that
    pulls, installs dependencies, rebuilds, stops the app, applies any
    pending database migrations, and starts it again.
 

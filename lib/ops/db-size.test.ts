@@ -7,8 +7,8 @@ vi.mock('fs/promises', () => ({ stat: vi.fn() }))
 
 describe('resolveDbPath', () => {
   it('handles an absolute file: URL (prod shape)', () => {
-    expect(resolveDbPath('file:/home/seo/data/seo-tools/db.sqlite'))
-      .toBe('/home/seo/data/seo-tools/db.sqlite')
+    expect(resolveDbPath('file:/var/data/seo-tools/db.sqlite'))
+      .toBe('/var/data/seo-tools/db.sqlite')
   })
 
   it('resolves a relative file: URL against the prisma/ dir (local dev shape)', () => {

@@ -1081,7 +1081,7 @@ EOF
 
 ## Post-merge (change-control ritual — outside the plan tasks)
 
-Deploy is code-only (no migration, no new env) → plain `ssh seo@144.126.213.242 "~/deploy.sh"`, then prod-verify:
+Deploy is code-only (no migration, no new env) → plain `ssh $PROD_SSH "~/deploy.sh"`, then prod-verify:
 - App online, low restart count, memory under ceiling.
 - **Minification survival:** grep the deployed `.next/server` bundle for the new finding-type literals + confirm no `_type_of` helper in the parse-seo-dom path (the landmine check, same as Phase 2).
 - On the next real client audit (canary / manhattanschool.edu), confirm the live-scan run carries canonical/redirect/hreflang findings alongside broken-link + on-page, in one CrawlRun, transient tables cleaned.

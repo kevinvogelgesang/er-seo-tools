@@ -38,7 +38,7 @@ PR #33 implements the full May 26 request (all 6 items):
 - **Browser-TZ dates:** use `ClientDate` (component) for JSX and `formatInBrowserTZ` from `lib/ada-audit/format-date.ts` (server-safe, NOT the `'use client'` `ClientDate.tsx`) for `title=`/attribute contexts. `duration.ts` imports the server-safe one.
 - **Test infra:** React component tests are `.test.tsx`, need a `// @vitest-environment jsdom` header line; vitest config is now `vitest.config.mts`; `tsconfig` excludes `.test.tsx`.
 - **Worktree DB setup (if recreating a worktree):** copy `.env`/`.env.local` and `prisma/local-dev.db*` from the main checkout, set the worktree `.env` `DATABASE_URL=file:./local-dev.db` (Prisma auto-loads `.env`, not `.env.local`), then `npx prisma generate`. Tests need a real SQLite DB.
-- **Deploy (do not run on unmerged work):** `git push`, then `ssh seo@144.126.213.242 "~/deploy.sh"`.
+- **Deploy (do not run on unmerged work):** `git push`, then `ssh $PROD_SSH "~/deploy.sh"`.
 
 ## Next PRs
 To be defined by Kevin in the next session. This doc captures the prior batch's landing state — tell the next session the new scope and it can run brainstorm → spec → (Codex) → plan → (Codex) → subagent-driven TDD, same as this batch.

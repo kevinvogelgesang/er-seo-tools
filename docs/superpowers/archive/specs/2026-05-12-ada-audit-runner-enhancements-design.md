@@ -52,7 +52,7 @@ If `LIGHTHOUSE_ENABLED=false`, fall back to the original flow: `page.goto(url)` 
 Cross-page concurrency stays at `BROWSER_POOL_SIZE` (LH only blocks its own slot).
 
 **Storage:**
-- Raw report serialized as JSON, gzipped, written to `/home/seo/data/seo-tools/lighthouse-reports/{auditId}.json.gz`. Path overridable via `LIGHTHOUSE_REPORTS_DIR`. Gzip yields ~10× reduction on LH reports (mostly repeated DOM strings).
+- Raw report serialized as JSON, gzipped, written to `$DATA_HOME/lighthouse-reports/{auditId}.json.gz`. Path overridable via `LIGHTHOUSE_REPORTS_DIR`. Gzip yields ~10× reduction on LH reports (mostly repeated DOM strings).
 - Inline summary on a new `AdaAudit.lighthouseSummary` column (JSON string):
   ```ts
   {

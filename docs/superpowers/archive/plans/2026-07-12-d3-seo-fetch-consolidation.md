@@ -1325,5 +1325,5 @@ git commit -m "docs(d3): CLAUDE.md key-files entry for lib/seo-fetch"
 
 1. Push branch, open PR (`gh pr create`), body notes: behavior-preserving except D6 (own commit), frozen-gate evidence (crawler behavioral tests zero-edit), smoke green.
 2. Merge when gate-green (re-run gates if merging in a later session).
-3. Deploy: `ssh seo@144.126.213.242 "~/deploy.sh"`; post-deploy verify: `/api/health` ok, then prod robots-validator page fetch-and-parse of a real client robots.txt + sitemap (identical issue output), and one site-audit discovery on an existing client domain completes with a sane page count.
+3. Deploy: `ssh $PROD_SSH "~/deploy.sh"`; post-deploy verify: `/api/health` ok, then prod robots-validator page fetch-and-parse of a real client robots.txt + sitemap (identical issue output), and one site-audit discovery on an existing client domain completes with a sane page count.
 4. Docs ritual in the same commit: tracker D3 `[x]` + dated status-log line + handoff rewrite; `git mv` spec+plan to `docs/superpowers/archive/`.

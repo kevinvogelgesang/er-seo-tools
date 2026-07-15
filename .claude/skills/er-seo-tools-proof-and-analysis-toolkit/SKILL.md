@@ -272,7 +272,7 @@ DATABASE_URL="file:./local-dev.db" npx tsx scripts/findings-rebuild.ts <id>
 ```
 
 On prod (read-only parity is fine to request; rebuild mutates — clear it with
-Kevin): `cd /home/seo/webapps/seo-tools && npx tsx scripts/findings-parity.ts <id>`.
+Kevin): `cd $APP_HOME && npx tsx scripts/findings-parity.ts <id>`.
 
 **Rules:**
 - Parity REQUIRES the blob — a pruned (90-day archived) row fails by design.
@@ -315,7 +315,7 @@ rule 1). The verification below is read-only SSH.
    pm2 status                                   # status 'online', restarts not climbing
    pm2 logs seo-tools --lines 50 --nostream     # no [startup] errors, no exit loop
    ```
-   Log files: `/home/seo/logs/seo-tools-out.log` + `seo-tools-error.log`.
+   Log files: `$LOG_HOME/seo-tools-out.log` + `seo-tools-error.log`.
 2. **Recovery + schedules ran.** Boot log shows startup recovery (silent when
    nothing was orphaned; `[jobs] startup recovery handled N…` when something
    was) and no errors from `seedSystemSchedules` / `recoverQueue`.

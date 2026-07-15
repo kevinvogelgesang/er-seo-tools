@@ -200,10 +200,10 @@ No new tests for `extractSummary` — it operates on whatever shape `lighthouseR
 
 ## Deploy mechanics
 
-The `PAGESPEED_API_KEY` is a secret. Add to `/home/seo/webapps/seo-tools/.env` on the VPS **before** the deploy pulls the new code. Procedure:
+The `PAGESPEED_API_KEY` is a secret. Add to `$APP_HOME/.env` on the VPS **before** the deploy pulls the new code. Procedure:
 
 ```bash
-ssh seo@144.126.213.242 'echo "PAGESPEED_API_KEY=<provided-key>" >> /home/seo/webapps/seo-tools/.env'
+ssh $PROD_SSH 'echo "PAGESPEED_API_KEY=<provided-key>" >> $APP_HOME/.env'
 ```
 
 Then run the standard deploy. The new `ecosystem.config.js` sets `LIGHTHOUSE_PROVIDER=pagespeed`; PM2 `delete + start` picks it up. PSI traffic from the VPS goes egress to `pagespeedonline.googleapis.com` — verify that's not blocked by firewall or egress proxy rules.
@@ -211,7 +211,7 @@ Then run the standard deploy. The new `ecosystem.config.js` sets `LIGHTHOUSE_PRO
 If anything goes wrong post-deploy, the rollback is a one-line env flip:
 
 ```bash
-ssh seo@144.126.213.242 'cd /home/seo/webapps/seo-tools && sed -i "s/LIGHTHOUSE_PROVIDER: .pagespeed./LIGHTHOUSE_PROVIDER: 'local'/" ecosystem.config.js && pm2 delete seo-tools && pm2 start ecosystem.config.js'
+ssh $PROD_SSH 'cd $APP_HOME && sed -i "s/LIGHTHOUSE_PROVIDER: .pagespeed./LIGHTHOUSE_PROVIDER: 'local'/" ecosystem.config.js && pm2 delete seo-tools && pm2 start ecosystem.config.js'
 ```
 
 (Or just revert the PR.)

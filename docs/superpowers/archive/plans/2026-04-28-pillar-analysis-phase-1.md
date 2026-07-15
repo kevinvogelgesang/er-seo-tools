@@ -2733,7 +2733,7 @@ export async function POST(req: NextRequest) {
 async function locateInternalCsv(sessionId: string, files: string[]): Promise<string | null> {
   const fs = await import('fs/promises');
   const path = await import('path');
-  const uploadRoot = process.env.UPLOAD_ROOT || '/home/seo/data/seo-tools/uploads';
+  const uploadRoot = process.env.UPLOAD_ROOT || '$DATA_HOME/uploads';
   for (const f of files) {
     if (!/internal_all/i.test(f)) continue;
     const full = path.join(uploadRoot, sessionId, f);

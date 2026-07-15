@@ -1002,7 +1002,7 @@ Expected: success.
 
 ```bash
 git push
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 ---

@@ -1044,6 +1044,6 @@ Mark A1 Phase 4 built (PR open) in `docs/superpowers/todos/2026-06-10-improvemen
 
 After deploy, on the server:
 1. Boot log shows no errors from `seedSystemSchedules`.
-2. `sqlite3 /home/seo/data/seo-tools/db.sqlite "SELECT name, jobType, cadence, enabled, datetime(nextRunAt/1000,'unixepoch') FROM Schedule WHERE name LIKE 'system-%'"` → three enabled rows.
+2. `sqlite3 $DATA_HOME/db.sqlite "SELECT name, jobType, cadence, enabled, datetime(nextRunAt/1000,'unixepoch') FROM Schedule WHERE name LIKE 'system-%'"` → three enabled rows.
 3. Within ~2 min: `SELECT type, status, COUNT(*) FROM Job WHERE type IN ('screenshot-sweep','stale-audit-reset') GROUP BY 1,2` shows completed runs (cleanup waits for its 09:00 slot).
 4. Next day: a `cleanup` job completed at the 09:00 slot; terminal Job rows older than 7 d are gone.

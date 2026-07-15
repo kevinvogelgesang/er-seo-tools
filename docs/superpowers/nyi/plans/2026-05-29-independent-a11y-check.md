@@ -107,7 +107,7 @@ await browser.close()
 - [ ] **Step 3: Run it (locally with a real Chrome path, and once on the server)**
 
 Run: `CHROME_EXECUTABLE="$(which google-chrome || echo /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome)" node scripts/ace-spike.mjs`
-Also run once on the production server (`ssh seo@144.126.213.242`) against `/usr/bin/google-chrome` to confirm prod parity.
+Also run once on the production server (`ssh $PROD_SSH`) against `/usr/bin/google-chrome` to confirm prod parity.
 
 - [ ] **Step 4: Record findings (GATE — must answer all)**
 

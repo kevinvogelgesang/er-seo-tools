@@ -1599,11 +1599,11 @@ EOF
 )"
 ```
 
-- [ ] **Step 3:** Merge after CI, then deploy: `ssh seo@144.126.213.242 "~/deploy.sh"` (push first — server pulls from GitHub).
+- [ ] **Step 3:** Merge after CI, then deploy: `ssh $PROD_SSH "~/deploy.sh"` (push first — server pulls from GitHub).
 - [ ] **Step 4:** Production verification:
-  - Boot log clean (`/home/seo/logs/`).
+  - Boot log clean (`$LOG_HOME/`).
   - Authenticated `curl` (cookie-jar login per handoff): `/clients` 200 and contains the Issues header; `/clients/30` (or another client with recent runs) 200 and contains "Open Findings".
-  - Cross-check one client's panel against its latest run's report page: same issue types, counts match the run-scope rows (`node` + Prisma from `/home/seo/webapps/seo-tools` — no sqlite3 CLI on the server).
+  - Cross-check one client's panel against its latest run's report page: same issue types, counts match the run-scope rows (`node` + Prisma from `$APP_HOME` — no sqlite3 CLI on the server).
   - A client with pre-A2 data only shows the "No findings data yet" empty state.
 
 ---

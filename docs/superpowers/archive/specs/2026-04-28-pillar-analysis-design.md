@@ -264,7 +264,7 @@ Each analysis has a `mint-token` endpoint that issues a JWT scoped to read + nar
 ## 13. Risks and open questions
 
 1. **Embedding model RAM and cold start.** MiniLM resident size ~150MB; first-load adds ~2–3s to the first analysis after a PM2 restart. RunCloud VPS should handle it given the existing browser-pool footprint, but a `top` check after the first deploy is in the rollout plan. If memory pressure becomes an issue, the model can be unloaded after each analysis at the cost of paying the cold start every run.
-2. **Webapp must be publicly reachable** from Claude's code-execution sandbox. Currently true (`144.126.213.242`). Any future move to internal-only networking breaks the skill.
+2. **Webapp must be publicly reachable** from Claude's code-execution sandbox. Currently true (`$PROD_HOST`). Any future move to internal-only networking breaks the skill.
 3. **Windows parity for Claude Desktop skills.** Confirmed Skills work in Claude Desktop generally (ZIP upload via Customize), but feature parity on Windows specifically should be smoke-tested before rollout.
 4. **Higher-ed-tuned weights are opinionated.** May need re-tuning after first 5–10 real client analyses. Subscore weights surfaced in JSON config (not hardcoded) so adjustment doesn't require a deploy.
 5. **Page-type classification on weird IA.** URL-slug heuristics break on clients with unconventional structures (e.g., everything under `/`). Override table is the escape hatch, but adds a manual step that defeats automation if hit often.

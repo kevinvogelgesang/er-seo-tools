@@ -1435,10 +1435,10 @@ Expected: success.
 
 ```bash
 git push
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
-- [ ] **Step 4: Live canary verification** (authed prod, per handoff gotchas). Trigger a site audit on the canary (`POST /api/site-audit {domain:'proway.erstaging.site', wcagLevel:'wcag21aa'}`), wait for complete + the broken-link-verify job, then from inside `/home/seo/webapps/seo-tools` confirm via Prisma:
+- [ ] **Step 4: Live canary verification** (authed prod, per handoff gotchas). Trigger a site audit on the canary (`POST /api/site-audit {domain:'proway.erstaging.site', wcagLevel:'wcag21aa'}`), wait for complete + the broken-link-verify job, then from inside `$APP_HOME` confirm via Prisma:
   - `HarvestedPageSeo` rows ≈ successfully-settled HTML page count during the run, and **zero** after the build (deleted).
   - the live-scan `CrawlRun` (`siteAuditId_tool` seo-parser) carries on-page findings (duplicate/missing/thin) AND any broken-link findings, with `score: null`.
   - the results page shows the On-page SEO section; the Broken-links section shows no on-page types.

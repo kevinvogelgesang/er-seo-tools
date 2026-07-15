@@ -409,7 +409,7 @@ Expected: success.
 
 ```bash
 git push
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 - [ ] **Step 4: Live canary verification** (authed prod, per the handoff gotchas). Run an audit on an INDEXABLE client site (e.g. manhattanschool.edu) and confirm the live-scan `CrawlRun.score` is a 0–100 number consistent with its findings; run the noindex canary (proway.erstaging.site) and confirm `score` is `null` (no indexable pages). Spot-check the results page shows the score + coverage line.

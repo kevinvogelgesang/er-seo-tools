@@ -37,7 +37,7 @@ unpushed commit deploys nothing, so the order below is not optional:
 git push
 
 # 2. Then deploy.
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 **What `deploy.sh` does.** Its body lives only on the server — it is not in
@@ -50,23 +50,23 @@ errors — this ordering must never be reversed if you ever touch the script),
 applies pending migrations with `prisma migrate deploy`, and starts the app
 again under PM2. Treat every other claim about the script's exact steps as
 **server-verified-only** — settle real uncertainty with
-`ssh seo@144.126.213.242 "cat ~/deploy.sh"` (read-only, always allowed), not by
+`ssh $PROD_SSH "cat ~/deploy.sh"` (read-only, always allowed), not by
 guessing.
 
 **Verify the deploy landed** — all four of these, every time:
 
 ```bash
 # Process is up and the restart counter didn't just climb
-ssh seo@144.126.213.242 "pm2 status"
+ssh $PROD_SSH "pm2 status"
 
 # Boot was clean — no [startup] refusals, recovery ran
-ssh seo@144.126.213.242 "pm2 logs seo-tools --lines 80 --nostream | grep -E '\[startup\]|\[shutdown\]|\[jobs\]|\[cleanup\]|Error'"
+ssh $PROD_SSH "pm2 logs seo-tools --lines 80 --nostream | grep -E '\[startup\]|\[shutdown\]|\[jobs\]|\[cleanup\]|Error'"
 
 # The app answers
 curl -sI https://<app-domain>/api/health
 
 # Migrations applied
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && DATABASE_URL='file:/home/seo/data/seo-tools/db.sqlite' npx prisma migrate status"
+ssh $PROD_SSH "cd $APP_HOME && DATABASE_URL='file:$DATA_HOME/db.sqlite' npx prisma migrate status"
 ```
 
 `<app-domain>` isn't recorded in this repo — read `NEXT_PUBLIC_APP_URL` from
@@ -93,12 +93,12 @@ this way — read that first if this is your first time here.
 
 | Thing | Path |
 |---|---|
-| App code | `/home/seo/webapps/seo-tools` |
-| Database | `/home/seo/data/seo-tools/db.sqlite` (plus its `-wal` and `-shm` sidecar files — WAL mode) |
-| Uploads | `/home/seo/data/seo-tools/uploads` |
-| Generated report PDFs | `/home/seo/data/seo-tools/reports` |
-| DB backup snapshots | `/home/seo/data/seo-tools/backups` (see §6) |
-| Logs | `/home/seo/logs/` |
+| App code | `$APP_HOME` |
+| Database | `$DATA_HOME/db.sqlite` (plus its `-wal` and `-shm` sidecar files — WAL mode) |
+| Uploads | `$DATA_HOME/uploads` |
+| Generated report PDFs | `$DATA_HOME/reports` |
+| DB backup snapshots | `$DATA_HOME/backups` (see §6) |
+| Logs | `$LOG_HOME/` |
 
 The data directory living *outside* the app directory is deliberate — a
 deploy replaces the code wholesale without touching the database, uploads, or
@@ -145,15 +145,15 @@ This panel is your first stop for "is it stuck?" before you ever open a shell.
 
 **Structured logs.** Every server-side log line is JSON (via `pino`), written
 to **stderr** in production — PM2 routes that to
-`/home/seo/logs/seo-tools-error.log`, and stdout (`console.log`/`warn`, which
-most subsystems still use directly) to `/home/seo/logs/seo-tools-out.log`.
+`$LOG_HOME/seo-tools-error.log`, and stdout (`console.log`/`warn`, which
+most subsystems still use directly) to `$LOG_HOME/seo-tools-out.log`.
 Log lines carry a bracketed subsystem tag (`[jobs]`, `[queue]`, `[findings]`,
 `[startup]`, `[cleanup]`, `[db-backup]`, `[health-alert]`, and others) — grep
 by tag to isolate one subsystem's story:
 
 ```bash
-ssh seo@144.126.213.242 "grep '\[findings\]' ~/logs/seo-tools-error.log | tail -20"
-ssh seo@144.126.213.242 "grep '<AUDIT_ID>' ~/logs/seo-tools-*.log | tail -40"
+ssh $PROD_SSH "grep '\[findings\]' ~/logs/seo-tools-error.log | tail -20"
+ssh $PROD_SSH "grep '<AUDIT_ID>' ~/logs/seo-tools-*.log | tail -40"
 ```
 
 The full, current tag catalog and what each one means when it fires lives in
@@ -179,7 +179,7 @@ SQL, and log-line vocabulary; don't duplicate them by hand.
 | 502 Bad Gateway | NGINX can't reach the Node process on port 3000 — almost always the app is down or still starting | `pm2 status`, then `ss -tlnp \| grep 3000`, then the NGINX error log (`docs/SERVER_SETUP.md` §9.2); `pm2 restart seo-tools` if the process is simply down |
 | PM2 restart loop (climbing restart count, short uptime) | Either a startup fail-fast gate refused to boot, or a real crash. The three fail-fast gates in `instrumentation.ts` (`PILLAR_TOKEN_SECRET`, auth config, the Chromium egress guard) log `[startup] ... Refusing to start.` and call `process.exit(1)` — deliberately loud rather than silently limping. An **invalid `LOG_LEVEL` cannot cause this** — the logger's construction is fully guarded (see §3) | `pm2 logs seo-tools --err --lines 30 --nostream`, grep for `[startup]`; a missing env var after shipping a new required one is the classic cause |
 | OOM / crashes during audits | Chrome pages are memory-heavy (~150–200 MB resident each); PM2's `max_memory_restart` (2400M) kills the process before the kernel OOM-killer would — so `dmesg` can look completely clean while PM2 did the killing | `pm2 describe seo-tools \| grep -E 'restarts\|uptime'`; full decision tree in `er-seo-tools-debugging-playbook`'s "`Audit timed out (server may have restarted)`" section |
-| `[findings] dual-write failed` in logs | The findings-layer write failed *after* the legacy audit/session already committed successfully — by design this never fails the audit itself, it just leaves the normalized tables lagging | `npx tsx scripts/findings-rebuild.ts <id>` (prod: `cd /home/seo/webapps/seo-tools && npx tsx scripts/findings-rebuild.ts <id>`) — only works while the origin blob still exists, i.e. before the 90-day prune |
+| `[findings] dual-write failed` in logs | The findings-layer write failed *after* the legacy audit/session already committed successfully — by design this never fails the audit itself, it just leaves the normalized tables lagging | `npx tsx scripts/findings-rebuild.ts <id>` (prod: `cd $APP_HOME && npx tsx scripts/findings-rebuild.ts <id>`) — only works while the origin blob still exists, i.e. before the 90-day prune |
 | Share link 404s | 30-day token TTL expired and cleanup nulled the token — or the link was built from request origin instead of `NEXT_PUBLIC_APP_URL` (never do the latter) | Check `shareToken`/`shareExpiresAt` on the row per `er-seo-tools-debugging-playbook`; an expired link just needs re-sharing, it isn't a bug |
 
 For anything not in this table, `er-seo-tools-debugging-playbook`'s "Symptom →
@@ -217,7 +217,7 @@ Here is what actually exists today, not what the topology *should* have:
   leave a half-written file masquerading as a good backup. Old snapshots are
   pruned to the newest N (`BACKUP_RETENTION_COUNT`, default and prod value 7).
 - Snapshots land in `BACKUP_DIR`, which prod sets to
-  `/home/seo/data/seo-tools/backups` (`ecosystem.config.js`) — **the same
+  `$DATA_HOME/backups` (`ecosystem.config.js`) — **the same
   disk as the live database.** There is no off-server copy anywhere in this
   system. A disk failure or a `rm -rf` in the wrong directory takes out the
   live DB and every backup of it together.
@@ -230,7 +230,7 @@ Here is what actually exists today, not what the topology *should* have:
   Slack-incoming-webhook-shaped message if set; if unset, the alert is
   computed and logged, never sent, and nobody is paged). Whether that variable
   is actually configured in prod is **not verifiable from this repo** — check
-  with `ssh seo@144.126.213.242 "grep -oE '^ALERT_WEBHOOK_URL' /home/seo/webapps/seo-tools/.env"`
+  with `ssh $PROD_SSH "grep -oE '^ALERT_WEBHOOK_URL' $APP_HOME/.env"`
   (names only; never print the value) before assuming anyone gets notified.
 - A manual, on-demand snapshot is one command away:
   `npx tsx scripts/db-backup.ts` (same `runDbBackup()` under the hood) — worth

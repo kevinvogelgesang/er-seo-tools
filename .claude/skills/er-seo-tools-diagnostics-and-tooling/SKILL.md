@@ -24,7 +24,7 @@ Core principle: **the DB and logs already know the answer.** SiteAudit staleness
 ## Ground rules (non-negotiable)
 
 - **Read-only always.** Every script opens SQLite with both `-readonly` and `file:...?mode=ro`. Never run mutating SQL against any DB, dev or prod. Repairs go through the app's own tools (`scripts/findings-rebuild.ts`) or code changes, never hand-written UPDATEs.
-- **Prod DB access is via SSH read commands only** (`ssh seo@144.126.213.242`). Reading logs and running these read-only scripts on the server is fine; gate-green deploys and `pm2 restart` are autonomous under the 2026-07-03 ruling, but hand-written DB writes and destructive ops stay Kevin-gated — see `er-seo-tools-change-control` rule 1.
+- **Prod DB access is via SSH read commands only** (`ssh $PROD_SSH`). Reading logs and running these read-only scripts on the server is fine; gate-green deploys and `pm2 restart` are autonomous under the 2026-07-03 ruling, but hand-written DB writes and destructive ops stay Kevin-gated — see `er-seo-tools-change-control` rule 1.
 - **DateTime columns are integer epoch-milliseconds** in this SQLite schema (Prisma storage format; verified against `prisma/local-dev.db`). Compare with `strftime('%s','now')*1000`, render with `datetime(col/1000,'unixepoch')`. A comparison against a datetime *string* silently matches nothing.
 - **SQLite `||` binds tighter than `+`**: `a + b || '/' || c` computes `a + (b||'/'||c)` and coerces to a number. Parenthesize arithmetic before concatenating.
 
@@ -33,7 +33,7 @@ Core principle: **the DB and logs already know the answer.** SiteAudit staleness
 | Environment | Path | Notes |
 |---|---|---|
 | Local dev | `prisma/local-dev.db` | `DATABASE_URL=file:./local-dev.db` resolves relative to `prisma/` |
-| Production | `/home/seo/data/seo-tools/db.sqlite` | WAL mode; read-only opens never block the app |
+| Production | `$DATA_HOME/db.sqlite` | WAL mode; read-only opens never block the app |
 | Stale local | `prisma/dev.db`, `prisma/prisma/*` | Leftovers — ignore |
 
 Table names equal Prisma model names verbatim (no `@@map` anywhere): `Job`, `Schedule`, `SiteAudit`, `AdaAudit`, `Session`, `CrawlRun`, `CrawlPage`, `Finding`, `Violation`, `HarvestedLink`, `HarvestedPageSeo`, `Client`, …
@@ -95,7 +95,7 @@ Sections: `CrawlRun` rollup (tool × source × seoIntent: runs / scored / archiv
 # siteAuditId it rebuilds ONLY the ada-audit run — the live-scan run is
 # owned by the verifier job, never this script.
 DATABASE_URL="file:./local-dev.db" npx tsx scripts/findings-rebuild.ts <id>
-# prod: cd /home/seo/webapps/seo-tools && npx tsx scripts/findings-rebuild.ts <id>
+# prod: cd $APP_HOME && npx tsx scripts/findings-rebuild.ts <id>
 
 # Blob-vs-tables parity check (same id auto-detection; exit 1 + diff lines
 # on mismatch; a pruned blob is a parity failure by design):
@@ -112,10 +112,10 @@ This script closes the loop on the *built artifact*: after `npm run build` it gr
 
 ## Log-grep recipes
 
-Prod logs (via read-only SSH): `/home/seo/logs/seo-tools-error.log` + `/home/seo/logs/seo-tools-out.log` (PM2, `merge_logs`, dated lines). All subsystem logs use a bracketed prefix. Verified tag catalog (2026-07-02):
+Prod logs (via read-only SSH): `$LOG_HOME/seo-tools-error.log` + `$LOG_HOME/seo-tools-out.log` (PM2, `merge_logs`, dated lines). All subsystem logs use a bracketed prefix. Verified tag catalog (2026-07-02):
 
 ```bash
-ssh seo@144.126.213.242 "grep -F '[findings]' ~/logs/seo-tools-error.log | tail -20"
+ssh $PROD_SSH "grep -F '[findings]' ~/logs/seo-tools-error.log | tail -20"
 ```
 
 | Tag | Subsystem | What a hit means / first response |

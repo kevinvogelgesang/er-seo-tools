@@ -316,14 +316,14 @@ Expected per-page LH coverage on similar sites: ~82% → ≥94%.
 ## Deploy mechanics
 The `PAGESPEED_TIMEOUT_MS` change is in `ecosystem.config.js` (checked into git). After deploy:
 ```bash
-ssh seo@144.126.213.242 'pm2 delete seo-tools && pm2 start /home/seo/webapps/seo-tools/ecosystem.config.js'
+ssh $PROD_SSH 'pm2 delete seo-tools && pm2 start $APP_HOME/ecosystem.config.js'
 ```
 `pm2 delete + start` is required to re-read the config file (plain `pm2 restart` won't).
 
 ## Rollback
 Revert the PR. Or for an emergency env-only rollback:
 ```bash
-ssh seo@144.126.213.242 "cd /home/seo/webapps/seo-tools && sed -i \"s/PAGESPEED_TIMEOUT_MS: '150000'/PAGESPEED_TIMEOUT_MS: '90000'/\" ecosystem.config.js && pm2 delete seo-tools && pm2 start ecosystem.config.js"
+ssh $PROD_SSH "cd $APP_HOME && sed -i \"s/PAGESPEED_TIMEOUT_MS: '150000'/PAGESPEED_TIMEOUT_MS: '90000'/\" ecosystem.config.js && pm2 delete seo-tools && pm2 start ecosystem.config.js"
 ```
 (The retry behavior is code, so an env-only rollback can't disable it. Code revert via PR if needed.)
 

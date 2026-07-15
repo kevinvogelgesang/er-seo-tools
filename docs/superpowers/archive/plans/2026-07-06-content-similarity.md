@@ -912,7 +912,7 @@ gh pr create --title "feat: content similarity (SF-retirement Phase 5)" --body "
 ```bash
 gh pr merge --squash --delete-branch
 git checkout main && git pull
-ssh seo@144.126.213.242 "~/deploy.sh"   # migration auto-applies
+ssh $PROD_SSH "~/deploy.sh"   # migration auto-applies
 ```
 
 - [ ] **Step 5: Prod-verify**

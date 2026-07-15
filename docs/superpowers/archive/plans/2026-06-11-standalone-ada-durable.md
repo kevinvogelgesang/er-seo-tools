@@ -1103,9 +1103,9 @@ gh pr create --title "feat(c1): standalone ADA audits onto the durable job queue
 
 ### Task 7: Deploy + production verification
 
-- [ ] **Step 7.1:** Merge PR, `ssh seo@144.126.213.242 "~/deploy.sh"` (push first — server pulls from GitHub). No migration in this change.
-- [ ] **Step 7.2:** Boot log clean (`/home/seo/logs/`), no handler-registration errors.
-- [ ] **Step 7.3:** Run a real standalone audit from `/ada-audit`: poller shows live progress → `complete`; `Job` row for `ada-audit` settles `complete` (verify via node + Prisma from `/home/seo/webapps/seo-tools` — no `sqlite3` CLI on the server).
+- [ ] **Step 7.1:** Merge PR, `ssh $PROD_SSH "~/deploy.sh"` (push first — server pulls from GitHub). No migration in this change.
+- [ ] **Step 7.2:** Boot log clean (`$LOG_HOME/`), no handler-registration errors.
+- [ ] **Step 7.3:** Run a real standalone audit from `/ada-audit`: poller shows live progress → `complete`; `Job` row for `ada-audit` settles `complete` (verify via node + Prisma from `$APP_HOME` — no `sqlite3` CLI on the server).
 - [ ] **Step 7.4:** Restart drill: start a standalone audit on a slow site, `pm2 restart` mid-run → boot recovery re-queues the job, audit resumes and completes (status `complete`, poller recovers).
 - [ ] **Step 7.5:** Orphan cleanup check: any pre-existing standalone `pending`/`running` rows flip to `error` after the first sweep (≤ 15 min post-deploy).
 - [ ] **Step 7.6:** PDF check: a standalone audit of a page with PDF links reaches `complete` while `pdf-scan` jobs continue; PdfAudit rows settle.

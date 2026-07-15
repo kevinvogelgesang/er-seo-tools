@@ -39,16 +39,16 @@ If any are missing: APIs & Services → Library → search by name → Enable.
 ### Production
 
 ```
-/home/seo/data/seo-tools/google-sa.json
+$DATA_HOME/google-sa.json
 ```
 
 Set permissions immediately after copying:
 
 ```bash
-chmod 0600 /home/seo/data/seo-tools/google-sa.json
+chmod 0600 $DATA_HOME/google-sa.json
 ```
 
-The file must be owned by the `seo` user. Confirm with `ls -la /home/seo/data/seo-tools/google-sa.json`.
+The file must be owned by the `seo` user. Confirm with `ls -la $DATA_HOME/google-sa.json`.
 
 ### Local dev
 
@@ -64,12 +64,12 @@ Create a gitignored directory at the repo root and place the key there:
 
 ## 4. Set the environment variable
 
-### Production — `/home/seo/webapps/seo-tools/.env`
+### Production — `$APP_HOME/.env`
 
 This file is gitignored (same file that holds `APP_AUTH_SECRET`). Add:
 
 ```
-GOOGLE_SA_KEY_FILE=/home/seo/data/seo-tools/google-sa.json
+GOOGLE_SA_KEY_FILE=$DATA_HOME/google-sa.json
 ```
 
 Optional — add only if/when a CRM adapter is configured:
@@ -141,12 +141,12 @@ Rotate the key when:
 2. Copy the new key file to the server (`scp` or paste via SSH):
    ```bash
    # from local
-   scp new-key.json seo@144.126.213.242:/home/seo/data/seo-tools/google-sa.json
-   ssh seo@144.126.213.242 "chmod 0600 /home/seo/data/seo-tools/google-sa.json"
+   scp new-key.json $PROD_SSH:$DATA_HOME/google-sa.json
+   ssh $PROD_SSH "chmod 0600 $DATA_HOME/google-sa.json"
    ```
 3. Reload the app so it picks up the new file:
    ```bash
-   ssh seo@144.126.213.242 "pm2 reload seo-tools"
+   ssh $PROD_SSH "pm2 reload seo-tools"
    # or run: ~/deploy.sh
    ```
 4. Confirm it loads: Settings → "Test connection" → should report properties/sites.

@@ -570,10 +570,10 @@ PR body: link the spec (`docs/superpowers/specs/2026-07-06-slack-alert-enrichmen
 
 - [ ] **Step 3: After merge + deploy — real Slack rendering test**
 
-Deploy per CLAUDE.md (`git push` on main happens via merge, then `ssh seo@144.126.213.242 "~/deploy.sh"`). Then send one synthetic alert through the REAL webhook from the server, with hostile characters:
+Deploy per CLAUDE.md (`git push` on main happens via merge, then `ssh $PROD_SSH "~/deploy.sh"`). Then send one synthetic alert through the REAL webhook from the server, with hostile characters:
 
 ```bash
-ssh seo@144.126.213.242 'cd ~/webapps/seo-tools && npx tsx -e "
+ssh $PROD_SSH 'cd ~/webapps/seo-tools && npx tsx -e "
 import { sendAlert } from \"./lib/ops/alert-webhook\";
 sendAlert(\":rotating_light: er-seo-tools alert TEST\n• Site audit *acme.edu* errored: \`Bad &lt;tag&gt; &amp; '"'"'code'"'"' line2\` — <https://example.com/ada-audit/site/test|View scan>\").then(r => console.log(r));
 "'

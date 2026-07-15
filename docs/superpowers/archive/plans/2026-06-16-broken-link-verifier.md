@@ -1521,7 +1521,7 @@ gh pr create --title "C6 Phase 1: out-of-band broken-link verifier" --body "<sum
 
 ```bash
 git push
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 (`prisma migrate deploy` runs automatically in the deploy command — the C6 migration applies in prod.)
 

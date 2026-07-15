@@ -1411,7 +1411,7 @@ Expected: suite green (2,137 + new), tsc clean, build clean. Commit: `docs(c3): 
 ### Task 13: PR, deploy, production verification
 
 - [ ] **Step 13.1:** Push branch, open PR (`gh pr create`) titled "C3: ADA run-over-run diffing + blob-archive activation", merge after checks.
-- [ ] **Step 13.2:** `git push` main → `ssh seo@144.126.213.242 "~/deploy.sh"` (runs `prisma migrate deploy`). Watch boot log for errors.
+- [ ] **Step 13.2:** `git push` main → `ssh $PROD_SSH "~/deploy.sh"` (runs `prisma migrate deploy`). Watch boot log for errors.
 - [ ] **Step 13.3: Production verification** (authed via the form-POST login + cookie jar per handoff doc):
   1. Open the canary client's latest scheduled site audit (`/ada-audit/site/<id>`) — diff panel renders vs the previous canary run (expect "No accessibility changes" or real counts).
   2. `/clients/31` — ScheduledScansCard shows `+N/−M` chips (or none if level/pair unavailable); FindingsPanel ADA line shows the violations clause.

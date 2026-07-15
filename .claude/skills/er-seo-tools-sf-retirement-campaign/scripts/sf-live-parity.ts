@@ -9,7 +9,7 @@
 //      SF-vs-live type-name aliases mapped)
 //
 // Usage (local): DATABASE_URL="file:./local-dev.db" npx tsx .claude/skills/er-seo-tools-sf-retirement-campaign/scripts/sf-live-parity.ts <domain>
-// Usage (prod):  cd /home/seo/webapps/seo-tools && npx tsx <this file> <domain>
+// Usage (prod):  cd $APP_HOME && npx tsx <this file> <domain>
 //
 // Run from the repo root (matches the DATABASE_URL="file:./local-dev.db" convention;
 // imports themselves are file-relative and resolve from any cwd).

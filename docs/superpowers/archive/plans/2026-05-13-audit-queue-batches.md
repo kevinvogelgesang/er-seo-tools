@@ -3046,7 +3046,7 @@ EOF
 - [ ] **Step 6: After review/merge, deploy**
 
 ```bash
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 Verify on prod: hit `/ada-audit`, run `Queue audit` on a real client, watch the Active tab populate, watch it close into History.

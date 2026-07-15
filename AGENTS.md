@@ -33,7 +33,7 @@ Do not reconstruct a skill's content from memory — the skills carry incident-s
 ## Gates & landing (authority: `er-seo-tools-change-control`)
 
 - **Gate-green** = `npm run lint` (`tsc --noEmit`) + `npm test` (`vitest run`) + `npm run build` all pass. Green is necessary, not sufficient — this repo's worst bugs were prod-only and passed every local test. Prod verification after deploy is part of the change.
-- **Merge + deploy are autonomous when gate-green** (owner ruling 2026-07-03), re-running gates in the current session; report the outcome. **`git push` before deploying** — the server pulls from GitHub, so unpushed commits never ship. Deploy: `ssh seo@144.126.213.242 "~/deploy.sh"` (migrations run automatically via `prisma migrate deploy` inside it).
+- **Merge + deploy are autonomous when gate-green** (owner ruling 2026-07-03), re-running gates in the current session; report the outcome. **`git push` before deploying** — the server pulls from GitHub, so unpushed commits never ship. Deploy: `ssh $PROD_SSH "~/deploy.sh"` (migrations run automatically via `prisma migrate deploy` inside it).
 - **Kevin-gated, current conversation only:** destructive/irreversible server ops — deleting prod data, `rm -rf`, editing the server `.env`/secrets, DB restore, force-push. A new required-in-prod env var bricks boot (`instrumentation.ts` fail-fast) — flag it as a Kevin pre-deploy step.
 - **Docs ritual (never skipped):** advancing a tracker item requires, in the same commit, the tracker checkbox + dated status-log line + rewritten `HANDOFF-*.md`; specs/plans route through Codex review before implementation. Details: `er-seo-tools-docs-and-writing`.
 

@@ -470,13 +470,13 @@ gh pr create --title "feat(findings): Phase 4 — blob retention machinery, ship
 ```bash
 gh pr merge --squash --delete-branch
 git checkout main && git pull
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 
 - [ ] **Step 4: Production verification (inert = nothing changes)**
 
 1. Boot log error-free; startup `runCleanup()` logs no `[cleanup] Cleanup task failed`.
-2. Prune is provably inert: from `/home/seo/webapps/seo-tools`, node + Prisma →
+2. Prune is provably inert: from `$APP_HOME`, node + Prisma →
    `crawlRun.count({ where: { archivePrunedAt: { not: null } } })` is `0`, and
    `session.count({ where: { result: null, status: 'complete' } })` unchanged vs pre-deploy.
 3. No `[findings] pruned` log lines.

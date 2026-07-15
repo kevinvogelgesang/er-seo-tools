@@ -1023,7 +1023,7 @@ git add scripts/db-backup.ts ecosystem.config.js
 git commit -m "feat(ops): D0 manual backup script + prod BACKUP_DIR wiring"
 ```
 
-**PR note for Kevin (pre-deploy):** `BACKUP_DIR` is added to `ecosystem.config.js`, and `ecosystem.config.js` env changes are NOT picked up by `pm2 restart` — this deploy needs `pm2 delete seo-tools && pm2 start ecosystem.config.js`. To enable alerts, set `ALERT_WEBHOOK_URL` in the server `.env` (a Slack incoming webhook). All new vars are optional — nothing bricks boot if unset. After deploy, run one manual backup (`npx tsx scripts/db-backup.ts` from `/home/seo/webapps/seo-tools`) so `backup-stale` doesn't fire before the first 08:00 slot.
+**PR note for Kevin (pre-deploy):** `BACKUP_DIR` is added to `ecosystem.config.js`, and `ecosystem.config.js` env changes are NOT picked up by `pm2 restart` — this deploy needs `pm2 delete seo-tools && pm2 start ecosystem.config.js`. To enable alerts, set `ALERT_WEBHOOK_URL` in the server `.env` (a Slack incoming webhook). All new vars are optional — nothing bricks boot if unset. After deploy, run one manual backup (`npx tsx scripts/db-backup.ts` from `$APP_HOME`) so `backup-stale` doesn't fire before the first 08:00 slot.
 
 ---
 

@@ -341,8 +341,8 @@ import { resolveDbPath } from './db-size'
 
 describe('resolveDbPath', () => {
   it('handles an absolute file: URL (prod shape)', () => {
-    expect(resolveDbPath('file:/home/seo/data/seo-tools/db.sqlite'))
-      .toBe('/home/seo/data/seo-tools/db.sqlite')
+    expect(resolveDbPath('file:$DATA_HOME/db.sqlite'))
+      .toBe('$DATA_HOME/db.sqlite')
   })
 
   it('resolves a relative file: URL against the prisma/ dir (local dev shape)', () => {
@@ -1405,7 +1405,7 @@ EOF
 
 After gate-green + PR merge:
 ```bash
-ssh seo@144.126.213.242 "~/deploy.sh"
+ssh $PROD_SSH "~/deploy.sh"
 ```
 Then prod verification:
 ```bash

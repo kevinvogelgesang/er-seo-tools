@@ -1145,7 +1145,7 @@ git commit -m "chore(c9a): calibrate K against real audit data"
 
 1. Push `feat/c9a-ada-scoring-v2`, open the PR with `gh`.
 2. Merge once gates re-run green in the session (rule 1).
-3. Deploy `ssh seo@144.126.213.242 "~/deploy.sh"` (code-only, no migration).
+3. Deploy `ssh $PROD_SSH "~/deploy.sh"` (code-only, no migration).
 4. **Prod verify:** run one real **client** audit (or wait for the weekly canary,
    client 31), confirm its live-scan/ada run `scoreBreakdown.version === 2` and the
    detail view shows the v2 badge; confirm an older audit still shows its v1

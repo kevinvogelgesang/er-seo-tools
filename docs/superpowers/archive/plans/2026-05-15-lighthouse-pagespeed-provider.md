@@ -942,7 +942,7 @@ When PSI fails for a page (429 / 400 / 5xx / timeout / malformed body), the audi
 The `PAGESPEED_API_KEY` is a secret. Before the standard deploy, append it to the VPS `.env`:
 
 ```bash
-ssh seo@144.126.213.242 'echo "PAGESPEED_API_KEY=<key>" >> /home/seo/webapps/seo-tools/.env'
+ssh $PROD_SSH 'echo "PAGESPEED_API_KEY=<key>" >> $APP_HOME/.env'
 ```
 
 Then `~/deploy.sh`, then `pm2 delete seo-tools && pm2 start ecosystem.config.js` to pick up the new `LIGHTHOUSE_PROVIDER` from `ecosystem.config.js`.
@@ -951,7 +951,7 @@ Then `~/deploy.sh`, then `pm2 delete seo-tools && pm2 start ecosystem.config.js`
 One env flip:
 
 ```bash
-ssh seo@144.126.213.242 'cd /home/seo/webapps/seo-tools && sed -i "s/LIGHTHOUSE_PROVIDER: .pagespeed./LIGHTHOUSE_PROVIDER: '\''local'\''/" ecosystem.config.js && pm2 delete seo-tools && pm2 start ecosystem.config.js'
+ssh $PROD_SSH 'cd $APP_HOME && sed -i "s/LIGHTHOUSE_PROVIDER: .pagespeed./LIGHTHOUSE_PROVIDER: '\''local'\''/" ecosystem.config.js && pm2 delete seo-tools && pm2 start ecosystem.config.js'
 ```
 
 Or revert the PR.
