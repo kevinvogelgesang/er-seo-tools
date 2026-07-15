@@ -90,6 +90,11 @@ describe('isPublicPath — C14 sales public matchers', () => {
     expect(isPublicPath('/sales')).toBe(false);
     expect(isPublicPath('/api/sales/prospects')).toBe(false);
     expect(isPublicPath('/api/sales/prospects/3/scan')).toBe(false);
+    // C14 hero route: public, anchored, single-segment only
+    expect(isPublicPath('/api/sales/tok/hero/aud1')).toBe(true);
+    // deeper paths + the bare prefix stay gated (negative anchoring proof)
+    expect(isPublicPath('/api/sales/tok/hero/aud1/extra')).toBe(false);
+    expect(isPublicPath('/api/sales/tok/hero')).toBe(false);
   });
 });
 

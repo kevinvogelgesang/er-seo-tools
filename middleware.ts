@@ -67,6 +67,7 @@ export function isPublicPath(pathname: string): boolean {
   // cookie-gated intake page (/sales) and prospect APIs (/api/sales/prospects…).
   if (/^\/sales\/[^/]+$/.test(pathname)) return true
   if (/^\/api\/sales\/[^/]+\/screenshot\/[^/]+\/[^/]+$/.test(pathname)) return true
+  if (/^\/api\/sales\/[^/]+\/hero\/[^/]+$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 
