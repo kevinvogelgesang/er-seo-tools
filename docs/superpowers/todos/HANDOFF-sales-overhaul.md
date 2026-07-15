@@ -1,82 +1,46 @@
 # HANDOFF — Sales-audit overhaul (3-PR series)
 
-**Last updated:** 2026-07-15 — **PR 1 + PR 2 SHIPPED + DEPLOYED + PROD-VERIFIED.** PR 3 remains.
+**Last updated:** 2026-07-15 — **SERIES COMPLETE. All 3 PRs SHIPPED + DEPLOYED + PROD-VERIFIED.**
 **Scope:** a Kevin-commissioned 3-PR series, SEPARATE from the improvement-roadmap (that roadmap's standing direction stays the SF-parity campaign — see `HANDOFF-improvement-roadmap.md`). Do not conflate the two threads.
 
 ---
 
-## Series status
+## Series status — DONE
 
-| PR | Title | Depends on | State |
-|----|-------|-----------|-------|
-| 1 | Explainer inline disclosure component + app-wide adoption | — | **SHIPPED** (PR #168, main `e330da1`) |
-| 2 | Sales report urgency redesign | PR 1 | **SHIPPED** (PR #169, main `99cd885`, deployed + prod-verified 2026-07-15) |
-| 3 | Prospect scans dashboard UX | independent | NOT STARTED — plan ready |
+| PR | Title | State |
+|----|-------|-------|
+| 1 | Explainer inline disclosure component + app-wide adoption | **SHIPPED** (PR #168, main `e330da1`) |
+| 2 | Sales report urgency redesign | **SHIPPED** (PR #169, main `99cd885`, prod-verified 2026-07-15) |
+| 3 | Prospect scans dashboard UX | **SHIPPED** (PR #170, merge `9dc6e2d`, deployed + prod-verified 2026-07-15) |
 
-**Recommended next: PR 3** (independent of PR 1/2).
+There is no PR 4. The series is closed. Next sales/prospect work is a fresh scope, not a continuation of this handoff.
 
-## PR 2 — what shipped (reference for PR 3)
+## PR 3 — what shipped (2026-07-15)
 
-The public token-gated `/sales/[token]` prospect report, rebuilt for urgency:
-- **Hero capture pipeline:** additive `SiteAudit.homepageScreenshot` column (migration `20260715000000`) + `HERO_SCREENSHOTS_DIR` file store (atomic write, ENOENT-tolerant delete, outlives the 24h screenshot sweep). Prospect-only root-URL injection in discovery guarantees the homepage is audited; the ADA runner captures a viewport PNG (audited path + rendered same-domain-root redirects) published **fenced to the winning settle** with a prospect-guarded stamp + delete-on-orphan; deletion wired at all 3 seams. Public `GET /api/sales/[token]/hero/[siteAuditId]` (indistinguishable-404 / non-oracle-500, ownership-equality scoping, anchored single-segment matcher).
-- **Loader v2:** `overallScore` (avg of available headline values, nulls excluded), `heroScreenshot`, `standardTested`, per-issue `affectedPages`/`affectedComplete`, `performance:{rollup,homepage}`.
-- **Rebuilt view:** sticky branded header + Book-a-review CTA, hero row (screenshot + animated gauge), `affectedPages`-driven SEO urgency bars with "why this hurts you" copy, counts-only accessibility, evidence-bounded structured-data grid, score-methodology `Explainer`s, inquiry form. Consumed PR-1's `Explainer` (+ added its focus-visible ring follow-up).
-- Full CLAUDE.md `lib/sales/` + `components/sales/` + hero-pipeline entries updated.
+On the cookie-gated `/sales` intake (`components/sales/intake/ProspectDashboard.tsx`), each prospect card now has:
+- **Real per-prospect progress bar** — phase-labeled (Scanning pages / PDFs / Lighthouse / Building report…) weighted 70/15/15 fraction (`components/sales/intake/progress-math.ts`, pure/client-safe/zero-import; `pagesRedirected` counted as settled per the finalizer; PDF/LH weights reserved until pages drain so the bar is monotone), with a `startedAt`-based ETA (queue wait excluded) on a hydration-safe post-mount 1s render tick that never fetches. Poll/SSE cadence unchanged.
+- **Whole-card click-through** (`role="link"`) to the public sales report in a new tab — `opener` nulled by hand (never the `noopener` feature, so the popup-block fallback survives), synchronous `window.open` in the click task, about:blank pre-open + share-mint for tokenless prospects, `pre?.close()` + notice on failure. `closest()` guard + per-button `stopPropagation` keep the nested Copy/Re-scan/Delete controls from activating the card.
+- **Prospect scans jump the queue** — ONE shared total ordering in `lib/ada-audit/queue-order.ts` (prospect-owned first → createdAt → id): pure `compareQueuedAudits`, `findNextQueuedAudit()`, `queuedAheadCount()`, and `PROSPECT_DISCOVER_PRIORITY=1`. All four readers adopt it (`processNext`, `getQueueStatus`, `listProspects`, `GET /api/site-audit/[id]`). `processNext` stamps `Job.priority=1` on prospect discover jobs so an already-enqueued unclaimed non-prospect discover job is out-claimed (worker `claimNext` orders `[priority desc, createdAt asc]`). NO preemption; discover claim / recovery / one-active invariant untouched. `listProspects` gained progress counters, `startedAt`, `queuePosition`, and row `salesUrl` (via the extracted single-home `buildProspectSalesUrl`).
+- No schema change, no migration, **no new env var** (plain `~/deploy.sh` sufficed).
 
-**Governing rules honored (keep them in PR 3):** only *static methodology prose* behind `Explainer`s; all operational truth (status/coverage/freshness/archived-banner/honesty-qualifier) stays visible. Honest labeling (C14): no "WCAG compliant"/"Core Web Vitals pass" about the prospect; `ER_ADA_CTA` is the ONE sanctioned ER-product ADA claim; performance is Lighthouse LAB data.
+**Codex P2 fixed in-branch** (`9acec01`): a prospect DELETE `SetNull`s `SiteAudit.prospectId` but left the already-enqueued discover job at the stale `priority=1`, so the worker would out-claim a real prospect's job while every reader classified the orphaned audit as non-prospect. Fix: the delete route (`app/api/sales/prospects/[id]/route.ts`) now demotes (never cancels) any still-queued discover job for the just-orphaned audits back to priority 0.
 
-**Deferred from PR 2 (candidates for PR 3 / follow-up):**
-- **Orphaned curated-screenshot surface** (flagged by both Codex P2 + opus): the counts-only report no longer renders any `/api/sales/[token]/screenshot/...` URL, but that public route + `curatedScreenshotSet`/`topPatternIssues`/`loadRepresentativeExamples` remain. NOT a safety regression (ownership+curated-set gated, non-guessable, same-prospect, and pre-PR reports already rendered+authorized them). Candidate to retire/tighten.
-- Hero-route `AUDIT_ID_RE` (`/^[a-z0-9]+$/i`) is stricter than `assertSafeId` (`/^[A-Za-z0-9_-]+$/`) — inert for cuids, latent divergence.
-- InquiryForm is a mailto placeholder — the card shell is structured so a future embedded Jotform swaps behind it.
+## PR 3 verification
 
-## PR 3 — prospect scans dashboard UX (next, independent)
+- Gates (in-session, the ONLY type/test gates — in-build checks disabled): `tsc --noEmit` clean · **574 files / 5361 tests pass** · `next build` exit 0.
+- Subagent-driven TDD, 6 tasks; per-task reviews (opus on the queue keystone / loader / component, sonnet elsewhere) — all Approved. Opus whole-branch review: Ready to merge. `/codex-review` (P1, gpt-5.6-sol): 1 P2, fixed.
+- Deploy: `~/deploy.sh`, no pending migrations, PM2 `restart` (no env var → no delete+start needed). Autonomous prod-verify PASS: health `ok`, server SHA `9dc6e2d` = main, error log clean (only the benign `[startup] CHROMIUM_NETWORK_ISOLATED` info line), `/sales`→307 gate, `/api/sales/prospects`→401 `auth_required`.
 
-- **Spec:** `docs/superpowers/specs/2026-07-14-prospect-scans-dashboard-ux-design.md`
-- **Plan:** `docs/superpowers/plans/2026-07-14-prospect-scans-dashboard-ux.md` (Codex-reviewed, fixes applied)
-- Touches the cookie-gated `/sales` intake (`components/sales/intake/ProspectDashboard.tsx`).
+## Open follow-ups (NOT blocking; carried forward for a future session/Kevin)
 
-## Process notes (how PR 1 + PR 2 were built — repeat for PR 3)
-
-- `superpowers:subagent-driven-development`: fresh implementer + task-scoped (spec+quality) reviewer per task (opus reviews on the riskiest tasks — runner, security route, loader, atomic-swap keystone), then an opus whole-branch review. Ledger: `.superpowers/sdd/progress.md`.
-- Gates (the ONLY type-check gate — in-build checks disabled): `npx tsc --noEmit` + `npx vitest run`, both green before merge; `npm run build` for anything file-count-heavy. PR 2: tsc clean / 571 files 5310 tests / build OK.
-- Pre-merge `/codex-review` (P1). EPERM `listen 127.0.0.1` "failures" in `lib/security/safe-url.test.ts` are sandbox artifacts — trust the in-session local run.
-- On ship: `git mv` PR spec+plan to `docs/superpowers/archive/`, merge, `ssh seo@144.126.213.242 "~/deploy.sh"`, verify health/SHA/error-log. **Deploy trap:** `~/deploy.sh` uses `pm2 restart`, which does NOT pick up new `ecosystem.config.js` env vars — after deploying a PR that adds one (PR 2 added `HERO_SCREENSHOTS_DIR`), run `pm2 delete seo-tools && pm2 start ecosystem.config.js && pm2 save` to activate it (done for PR 2). If PR 3 adds no env var, a plain deploy suffices.
+- **Authenticated live-watch of PR 3** (Kevin, `er_auth` session on `https://seo.erstaging.site`): drive a real prospect scan and eyeball (a) the live progress bar advancing with phase labels + ETA on `/sales`, (b) whole-card click opening the public report in a new tab, (c) a prospect scan jumping ahead of a queued client audit. The autonomous verify above did not exercise the authenticated UI (same posture as PR 1/2's live-watch items).
+- **Orphaned curated-screenshot route** (deferred from PR 2, NOT on PR 3's surface): the counts-only redesigned report renders no `/api/sales/[token]/screenshot/...` URL, but that PUBLIC route + `curatedScreenshotSet`/`topPatternIssues`/`loadRepresentativeExamples` remain (ownership + curated-set gated, non-guessable — not a safety regression). Retire/tighten is a security-class change (public route + middleware matcher) deserving its own spec/plan; do NOT fold it into an unrelated PR.
+- Hero-route `AUDIT_ID_RE` (`/^[a-z0-9]+$/i`) stricter than `assertSafeId` — inert for cuids, latent divergence (from PR 2).
+- InquiryForm is a mailto placeholder — shell structured so a future embedded Jotform swaps behind it (from PR 2).
+- PR 3 whole-branch review Minors (all accepted, none blocking): (1) `role="link"` card with nested `<button>` children = ARIA nested-interactive (behavior correct via the guards; internal staff tool) — cleaner would be a non-focusable region + single explicit affordance; (2) clicking a never-scanned card mints a 30-d token + opens the "being prepared" page (matches whole-card intent; consider gating the click to rows with `latestAudit`); (3) `listProspects` sequential `await queuedAheadCount` (rare/small, correct; `Promise.all` possible); (4) PRE-EXISTING: legacy `pending` status absent from the TRANSIENT sets (not introduced here).
 
 ---
 
-## Paste this into a new chat to continue
+## Series closed
 
-```
-Continue the sales-audit overhaul (Kevin-commissioned 3-PR series; SEPARATE from
-the improvement roadmap). STATE (2026-07-15): PR 1 + PR 2 are SHIPPED + DEPLOYED +
-PROD-VERIFIED (PR #168 e330da1; PR #169 main 99cd885). Only PR 3 remains — see
-docs/superpowers/todos/HANDOFF-sales-overhaul.md.
-
-NEXT: implement PR 3 — prospect scans dashboard UX (independent, no dependency on
-PR 1/2). Touches the cookie-gated /sales intake (components/sales/intake/
-ProspectDashboard.tsx).
-  Plan: docs/superpowers/plans/2026-07-14-prospect-scans-dashboard-ux.md
-  Spec: docs/superpowers/specs/2026-07-14-prospect-scans-dashboard-ux-design.md
-Both Codex-reviewed, fixes applied. Build subagent-driven per the plan header.
-Gates: npx tsc --noEmit + npx vitest run green before any merge.
-
-HARD RULES:
-- Operational truth NEVER moves behind an Explainer (status/error/freshness/
-  coverage/truncation/honesty-qualifier/archived-banner/action-guidance copy
-  stays visible). Only static methodology prose goes behind the disclosure.
-- Honest sales labeling (C14): no "WCAG compliant"/"Core Web Vitals pass";
-  performance is Lighthouse LAB data.
-- Consider folding in the PR-2 follow-ups if they touch your surface: retire or
-  tighten the now-orphaned curated-screenshot route (public, still authorized but
-  no longer rendered).
-- Pre-merge: /codex-review (P1). EPERM in lib/security/safe-url.test.ts are
-  sandbox artifacts, not regressions; trust the in-session local run.
-- On ship: git mv PR3 spec+plan to docs/superpowers/archive/, merge, push main,
-  ssh seo@144.126.213.242 "~/deploy.sh", verify health/SHA/error-log, then
-  update this handoff. (PR 3 adds no env var expected → a plain deploy suffices;
-  if it does add one, remember pm2 delete+start to activate it.)
-
-FIRST STEP: load skill er-seo-tools-change-control, confirm main clean + prod
-healthy, then read the PR 3 plan and start.
-```
+No paste-in continuation prompt — the 3-PR sales-audit overhaul is complete, shipped, and prod-verified. Start any further sales/prospect work as a new scope (brainstorm → spec → plan), not from this handoff.
