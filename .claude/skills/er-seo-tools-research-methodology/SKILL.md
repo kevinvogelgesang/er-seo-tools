@@ -30,7 +30,7 @@ Jargon used below, defined once:
 build X", a "we should stop doing Y", or a spec/plan that needs to survive review.
 
 **Do NOT use** for:
-- Executing an already-accepted plan → `superpowers:subagent-driven-development` / `superpowers:executing-plans`, and `er-seo-tools-docs-and-writing` for the doc rituals.
+- Executing an already-accepted plan → your harness's plan-execution loop (Claude: `superpowers:subagent-driven-development` / `superpowers:executing-plans`; Codex: `er-seo-tools-workflow`), and `er-seo-tools-docs-and-writing` for the doc rituals.
 - Step-by-step bug triage (symptom → which log → which query) → `er-seo-tools-debugging-playbook`.
 - The catalogue of past incidents and their root causes → `er-seo-tools-failure-archaeology`.
 - Specific measurement instruments (scripts, DB queries, log greps) → `er-seo-tools-diagnostics-and-tooling`.
@@ -78,8 +78,9 @@ the **2026-06-02 six-PR adversarial review**
 - exact-URL-only joins that left title/H1 blank on any trailing-slash mismatch between tools.
 
 Two of Codex's claims were independently verified against the code before acceptance — that is the
-protocol: **a reviewer's finding is itself a claim and gets the same treatment** (see
-`superpowers:receiving-code-review`). Review outcomes are recorded in tracker status lines as
+protocol: **a reviewer's finding is itself a claim and gets the same treatment** (Claude:
+`superpowers:receiving-code-review`; the same rigor applies in any harness — verify before
+you implement a reviewer's suggestion). Review outcomes are recorded in tracker status lines as
 "Codex accept-with-fixes ×N" with the named fixes listed.
 
 If Codex's verdict is "send back for rewrite" rather than "accept with named fixes", stop and wait

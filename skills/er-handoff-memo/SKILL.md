@@ -3,8 +3,8 @@ name: er-handoff-memo
 description: |
   Use when the user pastes a clipboard payload from an er-seo-tools dashboard —
   Pillar Analysis, the SEO Parser results page ("Generate Roadmap"), or Keyword
-  Research. The payload always has a "Webapp:" line, an "<X> ID:" line, and an
-  "Access token: <prefix>_..." line where the prefix is pat_ (pillar strategic
+  Research. The payload always has a "Webapp:" line, an ID line, and an
+  "Access token: prefix_..." line where the prefix is pat_ (pillar strategic
   memo), srt_ (technical-SEO roadmap, with optional Teamwork push), krt_
   (keyword strategy memo), kst_ (client-scoped 8-section keyword strategy
   document, with mid-conversation volume lookups), cat_ (content audit of a
@@ -13,10 +13,9 @@ description: |
   Teamwork push). Fetches the structured export, writes the right document
   (or, for qct_, creates the planned-week Teamwork tasks; for cat_, PATCHes
   structured findings), and posts the result back to the dashboard. Internal
-  use only at Enrollment Resources. Replaces the separate
-  pillar-analysis-narrative, seo-audit-roadmap, and keyword-strategy-memo
-  skills.
-version: 2.3.0
+  use only at Enrollment Resources.
+metadata:
+  version: 2.3.0
 ---
 
 # ER Handoff Memo (unified)
