@@ -87,7 +87,7 @@ export function SeoSalesSection(props: { data: SalesReportData['seo'] }) {
 }
 
 export function PerformanceSalesSection(props: { data: SalesReportData['performance'] }) {
-  const d = props.data
+  const d = props.data.rollup
   if (!d) {
     return (
       <SectionCard title="Performance" grade="none" gradeLabel="Not measured"

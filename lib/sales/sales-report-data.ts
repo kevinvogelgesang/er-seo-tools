@@ -4,15 +4,16 @@ import { prisma } from '@/lib/db'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import type { CommonIssue, ImpactLevel, SiteAuditSummary } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
-import { aggregatePerformance, type PerformanceRollup } from './cwv-aggregate'
+import { aggregatePerformance, pickHomepageCwv, type HomepageCwv, type PerformanceRollup } from './cwv-aggregate'
 import { loadRepresentativeExamples, type CuratedExample } from './representative-examples'
-import { HIGH_VALUE_SCHEMA_TYPES, ISSUE_LABELS } from './copy'
+import { HIGH_VALUE_SCHEMA_TYPES, ISSUE_LABELS, standardLabel } from './copy'
 import type { SchemaTypesSummary } from '@/lib/ada-audit/seo/schema-types'
 
 const MAX_PATTERNS = 4
 const MAX_EXAMPLE_PAGES = 5
 const IMPACT_RANK: Record<ImpactLevel, number> = { critical: 3, serious: 2, moderate: 1, minor: 0 }
 
+/** @deprecated transition-only; removed in Task 12 */
 export interface SalesPattern {
   ruleId: string
   impact: ImpactLevel
@@ -26,7 +27,9 @@ export interface SalesPattern {
 export interface SeoIssueGroup {
   type: string
   label: string
-  count: number
+  count: number            // issue-specific unit (targets / groups / pages) — label copy only, NEVER the bar
+  affectedPages: number    // distinct page-scope finding URLs — drives UrgencyBar (spec Codex fix 4)
+  affectedComplete: boolean // false ⇒ render "at least N pages"
   examplePages: string[]
 }
 
@@ -37,6 +40,9 @@ export interface SalesReportData {
   pagesTotal: number | null
   preparedBy: string | null
   archived: boolean
+  overallScore: number | null          // rounded avg of available headline values
+  heroScreenshot: boolean              // view builds /api/sales/[token]/hero/[auditId]
+  standardTested: string               // "WCAG 2.1 AA" | "WCAG 2.2 AA + best practices"
   headline: {
     accessibilityScore: number | null
     seoScore: number | null
@@ -46,6 +52,7 @@ export interface SalesReportData {
   accessibility: {
     score: number | null
     counts: { critical: number; serious: number; moderate: number; minor: number; total: number }
+    /** @deprecated transition-only (plan Codex fix 5): loader returns []; the old view still type-checks. REMOVED in Task 12. */
     patterns: SalesPattern[]
   }
   seo: {
@@ -54,7 +61,7 @@ export interface SalesReportData {
     duplicateContentGroups: number | null
     sitemapMissRatePct: number | null
   }
-  performance: PerformanceRollup | null
+  performance: { rollup: PerformanceRollup | null; homepage: HomepageCwv | null } // homepage independent of the rollup's <3-pages null
   geo: {
     coveragePct: number | null
     pagesWithSchema: number | null
@@ -135,11 +142,12 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
     orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
     select: {
       id: true, completedAt: true, pagesTotal: true, wcagLevel: true, summary: true,
+      domain: true, homepageScreenshot: true,
       crawlRuns: {
         select: {
           id: true, tool: true, score: true,
           schemaTypesJson: true, contentSimilarityJson: true, discoveryCoverageJson: true,
-          findings: { select: { scope: true, type: true, count: true, url: true } },
+          findings: { select: { scope: true, type: true, count: true, url: true, affectedComplete: true } },
         },
       },
     },
@@ -164,29 +172,21 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       }
     : { critical: 0, serious: 0, moderate: 0, minor: 0, total: 0 }
 
-  const topIssues = topPatternIssues(summary)
-  const patterns: SalesPattern[] = []
-  for (const issue of topIssues) {
-    patterns.push({
-      ruleId: issue.ruleId, impact: issue.impact, help: issue.help, description: issue.description,
-      affectedPagesCount: issue.affectedPagesCount, totalPagesScanned: issue.totalPagesScanned,
-      examples: await loadRepresentativeExamples(audit.id, issue),
-    })
-  }
-
   // SEO groups from live-scan findings: run-scope count + page-scope example URLs.
   const issueGroups: SeoIssueGroup[] = []
   for (const type of Object.keys(ISSUE_LABELS)) {
     const runFinding = seoRun.findings.find((f) => f.scope === 'run' && f.type === type)
     if (!runFinding || runFinding.count === 0) continue
+    const pageRows = seoRun.findings.filter((f) => f.scope === 'page' && f.type === type && f.url)
     issueGroups.push({
       type,
       label: ISSUE_LABELS[type],
       count: runFinding.count,
-      examplePages: seoRun.findings
-        .filter((f) => f.scope === 'page' && f.type === type && f.url)
-        .slice(0, MAX_EXAMPLE_PAGES)
-        .map((f) => f.url as string),
+      // Spec Codex fix 4: count semantics are heterogeneous (targets/groups) —
+      // only affectedPages (distinct page-scope URLs) may drive an urgency bar.
+      affectedPages: new Set(pageRows.map((f) => f.url as string)).size,
+      affectedComplete: runFinding.affectedComplete !== false, // null (unset) treated complete; live-scan mappers always set it
+      examplePages: pageRows.slice(0, MAX_EXAMPLE_PAGES).map((f) => f.url as string),
     })
   }
   // Real shape (Codex plan-review fix #3): { v, exactDuplicateGroups, nearDuplicateGroups }
@@ -201,12 +201,13 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
   // Performance: per-page Lighthouse summaries off the child rows.
   const children = await prisma.adaAudit.findMany({
     where: { siteAuditId: audit.id, lighthouseSummary: { not: null } },
-    select: { url: true, lighthouseSummary: true },
+    select: { id: true, url: true, lighthouseSummary: true },
   })
   const lhRows = children
-    .map((c) => ({ url: c.url, summary: parseJson<LighthouseSummary>(c.lighthouseSummary) }))
-    .filter((r): r is { url: string; summary: LighthouseSummary } => r.summary !== null)
-  const performance = aggregatePerformance(lhRows)
+    .map((c) => ({ url: c.url, id: c.id, summary: parseJson<LighthouseSummary>(c.lighthouseSummary) }))
+    .filter((r): r is { url: string; id: string; summary: LighthouseSummary } => r.summary !== null)
+  const rollup = aggregatePerformance(lhRows)
+  const homepage = pickHomepageCwv(lhRows, audit.domain)
 
   // GEO: schema histogram (denominators from Task 3's versioned shape).
   const schema = parseJson<SchemaTypesSummary>(seoRun.schemaTypesJson)
@@ -217,6 +218,18 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
     .filter((f) => f.scope === 'run' && f.type.startsWith('hreflang_'))
     .reduce((sum, f) => sum + f.count, 0)
 
+  // Kevin decision: simple average of the available headline scores; null
+  // metrics excluded from the denominator (never counted as zero).
+  const headlineValues = [
+    adaRun?.score ?? null,
+    seoRun.score,
+    rollup?.medianPerformance ?? null,
+    coveragePct,
+  ].filter((v): v is number => v !== null)
+  const overallScore = headlineValues.length
+    ? Math.round(headlineValues.reduce((a, b) => a + b, 0) / headlineValues.length)
+    : null
+
   return {
     kind: 'ready',
     data: {
@@ -226,13 +239,16 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       pagesTotal: audit.pagesTotal,
       preparedBy: prospect.createdBy,
       archived,
+      overallScore,
+      heroScreenshot: audit.homepageScreenshot !== null,
+      standardTested: standardLabel(audit.wcagLevel),
       headline: {
         accessibilityScore: adaRun?.score ?? null,
         seoScore: seoRun.score,
-        performanceScore: performance?.medianPerformance ?? null,
+        performanceScore: rollup?.medianPerformance ?? null,
         schemaCoveragePct: coveragePct,
       },
-      accessibility: { score: adaRun?.score ?? null, counts, patterns },
+      accessibility: { score: adaRun?.score ?? null, counts, patterns: [] }, // deprecated field, transition-only
       seo: {
         score: seoRun.score,
         issueGroups,
@@ -241,7 +257,7 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
           ? Math.round(coverage.missRate * 100)
           : null,
       },
-      performance,
+      performance: { rollup, homepage },
       geo: {
         coveragePct,
         pagesWithSchema: schema?.pagesWithSchema ?? null,

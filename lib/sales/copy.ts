@@ -35,3 +35,8 @@ export const CTA_CLOSING =
 export function issueLabel(type: string): string {
   return ISSUE_LABELS[type] ?? type.replace(/_/g, ' ')
 }
+
+/** Human label for the wcagLevel a site audit ran against. */
+export function standardLabel(wcagLevel: string): string {
+  return wcagLevel === 'wcag22aa' ? 'WCAG 2.2 AA + best practices' : 'WCAG 2.1 AA'
+}

@@ -1,6 +1,7 @@
 // C14: pure site-wide roll-up of per-page Lighthouse summaries. LAB data —
 // TBT proxy, no INP, not CrUX. Copy in the UI must say "Lighthouse-measured".
-import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
+import { isRootUrl, canonicalRootUrl } from '@/lib/sales/root-url'
+import type { CwvStatus, LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 
 export const MIN_MEASURED_PAGES = 3
 
@@ -12,7 +13,17 @@ export interface PerformanceRollup {
   p75TbtMs: number
   pctPassing: number // % of measured pages with all three statuses 'pass'
   scoreBuckets: { good: number; fair: number; poor: number }
-  worstPages: { url: string; performance: number }[] // up to 3, ascending score
+  worstPages: { url: string; performance: number }[] // up to 5, ascending score
+}
+
+export interface HomepageCwv {
+  performance: number
+  lcpMs: number
+  cls: number
+  tbtMs: number
+  lcpStatus: CwvStatus
+  clsStatus: CwvStatus
+  tbtStatus: CwvStatus
 }
 
 function p75(values: number[]): number {
@@ -49,6 +60,36 @@ export function aggregatePerformance(
     worstPages: rows
       .map((r) => ({ url: r.url, performance: r.summary.scores.performance }))
       .sort((a, b) => a.performance - b.performance)
-      .slice(0, 3),
+      .slice(0, 5),
+  }
+}
+
+/**
+ * C14 redesign: the homepage's own Lighthouse numbers, resolved from the
+ * raw child rows INDEPENDENT of aggregatePerformance (which nulls under 3
+ * measured pages — the homepage card must not vanish with it). Deterministic
+ * selection (spec Codex fix 6): among root-URL variants prefer the exact
+ * canonical root `https://<domain>/`, then fall back by stable (url, id)
+ * ordering.
+ */
+export function pickHomepageCwv(
+  rows: { url: string; id: string; summary: LighthouseSummary }[],
+  domain: string,
+): HomepageCwv | null {
+  const roots = rows.filter((r) => isRootUrl(r.url, domain))
+  if (roots.length === 0) return null
+  const canonical = canonicalRootUrl(domain)
+  const chosen =
+    roots.find((r) => r.url === canonical) ??
+    [...roots].sort((a, b) => (a.url < b.url ? -1 : a.url > b.url ? 1 : a.id < b.id ? -1 : 1))[0]
+  const { scores, cwv } = chosen.summary
+  return {
+    performance: scores.performance,
+    lcpMs: cwv.lcp,
+    cls: cwv.cls,
+    tbtMs: cwv.tbt,
+    lcpStatus: cwv.lcpStatus,
+    clsStatus: cwv.clsStatus,
+    tbtStatus: cwv.tbtStatus,
   }
 }

@@ -38,6 +38,12 @@ const lhSummary = JSON.stringify({
   topFailures: [],
 })
 
+const lhHome = JSON.stringify({
+  scores: { performance: 55, accessibility: 90, bestPractices: 90 },
+  cwv: { lcp: 3100, cls: 0.12, tbt: 350, lcpStatus: 'needs-improvement', clsStatus: 'needs-improvement', tbtStatus: 'needs-improvement' },
+  topFailures: [],
+})
+
 async function seedReady() {
   const domain = `${PREFIX}ready.test`
   const prospect = await prisma.prospect.create({
@@ -49,11 +55,13 @@ async function seedReady() {
       completedAt: new Date(), pagesTotal: 5, summary: summaryBlob(domain),
     },
   })
-  for (let i = 0; i < 3; i++) {
+  const childUrls = [`https://${domain}/`, `https://${domain}/a`, `https://${domain}/b`]
+  for (const url of childUrls) {
     await prisma.adaAudit.create({
-      data: { url: `https://${domain}/${i}`, status: 'complete', siteAuditId: audit.id, lighthouseSummary: lhSummary },
+      data: { url, status: 'complete', siteAuditId: audit.id, lighthouseSummary: url.endsWith('/') ? lhHome : lhSummary },
     })
   }
+  await prisma.siteAudit.update({ where: { id: audit.id }, data: { homepageScreenshot: `${audit.id}.png` } })
   await prisma.crawlRun.create({
     data: {
       id: `${PREFIX}ada-run`, tool: 'ada-audit', source: 'site-audit', domain, siteAuditId: audit.id,
@@ -67,9 +75,10 @@ async function seedReady() {
       schemaTypesJson: JSON.stringify({ v: 1, observedPages: 5, pagesWithSchema: 2, types: [{ type: 'Organization', pages: 2 }] }),
       findings: {
         create: [
-          { scope: 'run', type: 'broken_internal_links', severity: 'critical', count: 7, dedupKey: `${PREFIX}f1` },
+          { scope: 'run', type: 'broken_internal_links', severity: 'critical', count: 7, dedupKey: `${PREFIX}f1`, affectedComplete: true },
           { scope: 'page', type: 'broken_internal_links', severity: 'critical', count: 3, url: `https://${domain}/0`, dedupKey: `${PREFIX}f2` },
           { scope: 'run', type: 'missing_title', severity: 'warning', count: 2, dedupKey: `${PREFIX}f3` },
+          { scope: 'page', type: 'broken_internal_links', severity: 'critical', count: 2, url: `https://${domain}/1`, dedupKey: `${PREFIX}f4`, affectedComplete: true },
         ],
       },
     },
@@ -106,19 +115,73 @@ describe('loadSalesReportData', () => {
     const d = out.data
     expect(d.auditId).toBe(audit.id)
     expect(d.preparedBy).toBe('Kevin')
-    expect(d.headline.accessibilityScore).toBe(62)
-    expect(d.headline.seoScore).toBe(71)
-    expect(d.headline.performanceScore).toBe(40)
-    expect(d.headline.schemaCoveragePct).toBe(40) // 2/5
+    expect(d.standardTested).toBe('WCAG 2.1 AA')
+    expect(d.heroScreenshot).toBe(true)
+    expect(d.headline).toEqual({ accessibilityScore: 62, seoScore: 71, performanceScore: 40, schemaCoveragePct: 40 })
+    // overall = round((62 + 71 + 40 + 40) / 4) = 53
+    expect(d.overallScore).toBe(53)
     expect(d.accessibility.counts.critical).toBe(4)
-    expect(d.accessibility.patterns[0].ruleId).toBe('color-contrast')
+    expect(d.accessibility.patterns).toEqual([]) // deprecated transition field — always empty; removed in Task 12
     const broken = d.seo.issueGroups.find((g) => g.type === 'broken_internal_links')
-    expect(broken?.count).toBe(7)
-    expect(broken?.examplePages).toEqual([`https://${domain(audit)}/0`])
-    expect(d.performance?.measuredPages).toBe(3)
-    expect(d.geo.types).toContainEqual({ type: 'Organization', pages: 2 })
+    expect(broken?.count).toBe(7)               // issue-specific unit (distinct targets)
+    expect(broken?.affectedPages).toBe(2)       // distinct page-scope URLs
+    expect(broken?.affectedComplete).toBe(true)
+    expect(d.performance.rollup?.measuredPages).toBe(3)
+    // homepage CWV resolved from the root child, independent of the rollup
+    expect(d.performance.homepage).toEqual({
+      performance: 55, lcpMs: 3100, cls: 0.12, tbtMs: 350,
+      lcpStatus: 'needs-improvement', clsStatus: 'needs-improvement', tbtStatus: 'needs-improvement',
+    })
     expect(d.geo.missingHighValueTypes).toContain('Course')
   })
-})
 
-function domain(a: { domain: string }) { return a.domain }
+  it('overallScore averages only available metrics; null when none exist', async () => {
+    const p = await prisma.prospect.create({
+      data: { name: 'Avg U', domain: `${PREFIX}avg.test`, salesToken: crypto.randomUUID(), salesTokenExpiresAt: future() },
+    })
+    const audit = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}avg.test`, wcagLevel: 'wcag22aa', status: 'complete', completedAt: new Date(), prospectId: p.id },
+    })
+    // seo run only, no schema json, no ada run, no LH children → seoScore is the only metric
+    await prisma.crawlRun.create({
+      data: {
+        id: `${PREFIX}avg-seo`, tool: 'seo-parser', source: 'live-scan', domain: `${PREFIX}avg.test`,
+        siteAuditId: audit.id, status: 'complete', score: 80, pagesTotal: 1, startedAt: new Date(), completedAt: new Date(),
+      },
+    })
+    const out = await loadSalesReportData(p.salesToken!)
+    expect(out.kind).toBe('ready')
+    if (out.kind !== 'ready') return
+    expect(out.data.overallScore).toBe(80)              // 80/1, nulls excluded from the denominator
+    expect(out.data.standardTested).toBe('WCAG 2.2 AA + best practices')
+    expect(out.data.heroScreenshot).toBe(false)          // column null → slot hidden
+    expect(out.data.performance.rollup).toBeNull()
+    expect(out.data.performance.homepage).toBeNull()
+  })
+
+  it('affectedComplete=false surfaces from a capped run-scope finding', async () => {
+    const p = await prisma.prospect.create({
+      data: { name: 'Cap U', domain: `${PREFIX}cap.test`, salesToken: crypto.randomUUID(), salesTokenExpiresAt: future() },
+    })
+    const audit = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}cap.test`, wcagLevel: 'wcag21aa', status: 'complete', completedAt: new Date(), prospectId: p.id },
+    })
+    await prisma.crawlRun.create({
+      data: {
+        id: `${PREFIX}cap-seo`, tool: 'seo-parser', source: 'live-scan', domain: `${PREFIX}cap.test`,
+        siteAuditId: audit.id, status: 'complete', score: 50, pagesTotal: 3, startedAt: new Date(), completedAt: new Date(),
+        findings: {
+          create: [
+            { scope: 'run', type: 'thin_content', severity: 'warning', count: 9, dedupKey: `${PREFIX}c1`, affectedComplete: false },
+            { scope: 'page', type: 'thin_content', severity: 'warning', count: 1, url: `https://${PREFIX}cap.test/a`, dedupKey: `${PREFIX}c2` },
+          ],
+        },
+      },
+    })
+    const out = await loadSalesReportData(p.salesToken!)
+    if (out.kind !== 'ready') throw new Error('expected ready')
+    const g = out.data.seo.issueGroups.find((x) => x.type === 'thin_content')
+    expect(g?.affectedPages).toBe(1)
+    expect(g?.affectedComplete).toBe(false)
+  })
+})

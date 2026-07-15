@@ -10,6 +10,7 @@ const data: SalesReportData = {
   prospect: { id: 1, name: 'Acme College', domain: 'acme.test' },
   auditId: 'aud1', completedAt: '2026-07-09T00:00:00.000Z', pagesTotal: 5,
   preparedBy: 'Kevin', archived: false,
+  overallScore: 53, heroScreenshot: true, standardTested: 'WCAG 2.1 AA',
   headline: { accessibilityScore: 62, seoScore: 71, performanceScore: 40, schemaCoveragePct: 40 },
   accessibility: {
     score: 62,
@@ -22,13 +23,19 @@ const data: SalesReportData = {
   },
   seo: {
     score: 71,
-    issueGroups: [{ type: 'broken_internal_links', label: 'Broken links on your site', count: 7, examplePages: ['https://acme.test/0'] }],
+    issueGroups: [{
+      type: 'broken_internal_links', label: 'Broken links on your site', count: 7,
+      affectedPages: 4, affectedComplete: true, examplePages: ['https://acme.test/0'],
+    }],
     duplicateContentGroups: 2, sitemapMissRatePct: 12,
   },
   performance: {
-    measuredPages: 3, medianPerformance: 40, p75LcpMs: 4200, p75Cls: 0.3, p75TbtMs: 700,
-    pctPassing: 0, scoreBuckets: { good: 0, fair: 1, poor: 2 },
-    worstPages: [{ url: 'https://acme.test/slow', performance: 22 }],
+    rollup: {
+      measuredPages: 3, medianPerformance: 40, p75LcpMs: 4200, p75Cls: 0.3, p75TbtMs: 700,
+      pctPassing: 0, scoreBuckets: { good: 0, fair: 1, poor: 2 },
+      worstPages: [{ url: 'https://acme.test/slow', performance: 22 }],
+    },
+    homepage: null,
   },
   geo: {
     coveragePct: 40, pagesWithSchema: 2, observedPages: 5,
@@ -57,7 +64,7 @@ describe('SalesReportView', () => {
   })
 
   it('renders performance absence gracefully', () => {
-    render(<SalesReportView data={{ ...data, performance: null }} token="t" contactEmail="x@y.z" />)
+    render(<SalesReportView data={{ ...data, performance: { rollup: null, homepage: null } }} token="t" contactEmail="x@y.z" />)
     expect(screen.getByText(/not enough pages were measured/i)).toBeTruthy()
   })
 })
