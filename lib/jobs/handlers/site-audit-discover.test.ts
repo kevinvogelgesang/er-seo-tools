@@ -1,7 +1,7 @@
 // lib/jobs/handlers/site-audit-discover.test.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-vi.mock('@/lib/ada-audit/sitemap-crawler', () => ({ discoverPages: vi.fn() }))
+vi.mock('@/lib/ada-audit/sitemap-crawler', () => ({ discoverPages: vi.fn(), HARD_CAP: 1000 }))
 vi.mock('@/lib/ada-audit/site-audit-finalizer', () => ({ finalizeSiteAudit: vi.fn(async () => undefined) }))
 vi.mock('@/lib/events/bus', () => ({ publishInvalidation: vi.fn() }))
 
@@ -27,6 +27,7 @@ async function clearTestState() {
   }
   await prisma.adaAudit.deleteMany({ where: { url: { contains: PREFIX } } })
   await prisma.siteAudit.deleteMany({ where: { domain: { startsWith: PREFIX } } })
+  await prisma.prospect.deleteMany({ where: { domain: { startsWith: PREFIX } } })
   // The discover claim's one-active guard is GLOBAL (NOT EXISTS over all
   // transient audits). Stray transient rows left behind by other test files
   // in the shared dev DB would block every claim here — neutralize them.
@@ -283,4 +284,76 @@ describe('jobs/handlers/site-audit-discover — hybrid discovery wiring (Task 6)
     expect(s?.discoverySourcesJson).not.toBeNull()
     expect(await prisma.adaAudit.count({ where: { siteAuditId: site.id } })).toBe(2)
   })
+})
+
+describe('C14 hero: prospect root injection', () => {
+  beforeEach(async () => {
+    vi.mocked(discoverPages).mockReset()
+    vi.mocked(finalizeSiteAudit).mockClear()
+    vi.mocked(publishInvalidation).mockClear()
+    await clearTestState()
+  })
+
+  async function seedProspect(name: string) {
+    return prisma.prospect.create({ data: { name: `P-${name}`, domain: `${PREFIX}${name}` } })
+  }
+
+  it('prepends the canonical root for a prospect audit whose discovery omitted it', async () => {
+    const p = await seedProspect('rootless')
+    const site = await seedQueued('rootless', { prospectId: p.id })
+    vi.mocked(discoverPages).mockResolvedValue({
+      urls: [`https://${PREFIX}rootless/a`], mode: 'sitemap', capped: false,
+    })
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    const urls = JSON.parse(s!.discoveredUrls!) as string[]
+    expect(urls[0]).toBe(`https://${PREFIX}rootless/`)
+    expect(s?.pagesTotal).toBe(2)
+    const children = await prisma.adaAudit.findMany({ where: { siteAuditId: site.id } })
+    expect(children.map((c) => c.url)).toContain(`https://${PREFIX}rootless/`)
+    await prisma.prospect.delete({ where: { id: p.id } })
+  })
+
+  it('does NOT inject for a non-prospect audit', async () => {
+    const site = await seedQueued('noprospect')
+    vi.mocked(discoverPages).mockResolvedValue({
+      urls: [`https://${PREFIX}noprospect/a`], mode: 'sitemap', capped: false,
+    })
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(JSON.parse(s!.discoveredUrls!)).toEqual([`https://${PREFIX}noprospect/a`])
+    expect(s?.pagesTotal).toBe(1)
+  })
+
+  it('no-ops when a www root variant is already present', async () => {
+    const p = await seedProspect('hasroot')
+    const site = await seedQueued('hasroot', { prospectId: p.id })
+    vi.mocked(discoverPages).mockResolvedValue({
+      urls: [`https://www.${PREFIX}hasroot/`, `https://${PREFIX}hasroot/a`], mode: 'sitemap', capped: false,
+    })
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(s?.pagesTotal).toBe(2)
+    expect(JSON.parse(s!.discoveredUrls!)[0]).toBe(`https://www.${PREFIX}hasroot/`)
+    await prisma.prospect.delete({ where: { id: p.id } })
+  })
+
+  it('at-cap displacement persists discoveryCapped: true (plan Codex fix 3)', async () => {
+    // HEAVY test (~1000 child rows + jobs) — the displacement branch only
+    // fires at the real HARD_CAP; clearTestState() sweeps it all by PREFIX.
+    const { HARD_CAP } = await import('@/lib/ada-audit/sitemap-crawler')
+    const p = await seedProspect('atcap')
+    const site = await seedQueued('atcap', { prospectId: p.id })
+    const urls = Array.from({ length: HARD_CAP }, (_, i) => `https://${PREFIX}atcap/p${i}`)
+    vi.mocked(discoverPages).mockResolvedValue({ urls, mode: 'sitemap', capped: false })
+    await runSiteAuditDiscoverJob({ siteAuditId: site.id })
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    const stored = JSON.parse(s!.discoveredUrls!) as string[]
+    expect(stored).toHaveLength(HARD_CAP)
+    expect(stored[0]).toBe(`https://${PREFIX}atcap/`)
+    expect(stored).not.toContain(`https://${PREFIX}atcap/p${HARD_CAP - 1}`)
+    expect(s?.pagesTotal).toBe(HARD_CAP)
+    expect(s?.discoveryCapped).toBe(true) // deliberate truncation is honest
+    await prisma.prospect.delete({ where: { id: p.id } })
+  }, 60_000)
 })

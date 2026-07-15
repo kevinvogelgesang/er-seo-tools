@@ -16,6 +16,7 @@ import { trimAxeResultsForStorage } from './axe-trim'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
 import { capViolationNodesForStorage, STORED_NODE_LIMIT } from './node-cap'
+import { isRootUrl } from '@/lib/sales/root-url'
 
 const AXE_PATH = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js')
 
@@ -46,6 +47,14 @@ export interface RunAxeOptions {
   // C11: render-only SEO scan — keep navigation/settle/redirect-detect/harvest
   // but skip axe + screenshots + BOTH Lighthouse paths. Returns kind:'rendered'.
   renderOnly?: boolean
+  // C14 hero: capture a viewport PNG of the loaded page (prospect root page
+  // only — the caller decides). Bytes are RETURNED on the result — 'audited'
+  // always; 'redirected' when the final URL is a RENDERED same-domain root
+  // variant (root→www is the common prospect case, plan Codex fix 1). The
+  // runner never writes the final file (publication is fenced to the
+  // winning settle in site-audit-page.ts). Capture failure logs + never
+  // fails the page.
+  captureHeroScreenshot?: boolean
 }
 
 export type RunAxeResult =
@@ -64,10 +73,18 @@ export type RunAxeResult =
       // C6 Phase 2: on-page SEO captured in the same harvest evaluate (null if
       // the in-page extraction threw — non-fatal).
       harvestedPageSeo: RawPageSeo | null
+      // C14 hero: viewport PNG bytes when captureHeroScreenshot was set and the
+      // capture succeeded; null otherwise.
+      heroScreenshotPng: Uint8Array | null
     }
   | {
       kind: 'redirected'
       finalUrl: string
+      // C14 hero (plan Codex fix 1): redirect-detect deliberately classifies
+      // root→www changes as redirects, so most prospect roots land here. When
+      // the redirect was auto-followed (page RENDERED at finalUrl) and finalUrl
+      // is still a same-domain root variant, the capture bytes ride along.
+      heroScreenshotPng: Uint8Array | null
     }
   | {
       // C11: render-only result — no axe, no Lighthouse. Same harvest payload
@@ -159,6 +176,17 @@ export async function runAxeAudit(
       void handleRequest(request)
     })
 
+    // C14 hero: shared capture helper. Never fails the page job.
+    const captureHeroIfRequested = async (): Promise<Uint8Array | null> => {
+      if (!options?.captureHeroScreenshot || options?.renderOnly) return null
+      try {
+        return await page.screenshot({ type: 'png', fullPage: false })
+      } catch (err) {
+        console.warn('[c14/hero] homepage screenshot capture failed:', (err as Error).message)
+        return null
+      }
+    }
+
     // ── Phase 1: navigation owned by either Lighthouse or us ─────────────
     const provider = getLighthouseProvider()
 
@@ -183,7 +211,11 @@ export async function runAxeAudit(
       // Typed as a mutable holder so TS doesn't narrow it to `null` based on
       // initialization — the mutation happens inside attemptNavigation, which
       // is a closure that TS' control-flow analysis can't see through.
-      const redirectedHolder: { value: { finalUrl: string } | null } = { value: null }
+      // `rendered`: true when puppeteer auto-followed and the final page is
+      // actually loaded in the tab (detectRedirect path); false on the
+      // 3xx-with-Location no-autofollow path, where the target never rendered
+      // and a screenshot would capture nothing meaningful.
+      const redirectedHolder: { value: { finalUrl: string; rendered: boolean } | null } = { value: null }
 
       const attemptNavigation = async (currentPage: Page): Promise<void> => {
         try {
@@ -237,7 +269,7 @@ export async function runAxeAudit(
             if (location && chain.length === 0) {
               try {
                 const resolved = new URL(location, parsed.toString()).toString()
-                redirectedHolder.value = { finalUrl: resolved }
+                redirectedHolder.value = { finalUrl: resolved, rendered: false }
                 return  // exit attemptNavigation — outer code checks redirectedHolder
               } catch {
                 // Malformed Location — fall through to error path
@@ -260,7 +292,7 @@ export async function runAxeAudit(
         const chain = response!.request().redirectChain()
         const detected = detectRedirect(parsed.toString(), chain, response!.url())
         if (detected.kind === 'redirected') {
-          redirectedHolder.value = { finalUrl: detected.finalUrl }
+          redirectedHolder.value = { finalUrl: detected.finalUrl, rendered: true }
           return  // exit attemptNavigation — outer code will check redirectedHolder
         }
 
@@ -271,7 +303,15 @@ export async function runAxeAudit(
       try {
         await attemptNavigation(page)
         if (redirectedHolder.value) {
-          return { kind: 'redirected', finalUrl: redirectedHolder.value.finalUrl }
+          const { finalUrl, rendered } = redirectedHolder.value
+          // C14 hero (plan Codex fix 1): a root→www (or scheme) redirect is still
+          // the prospect's homepage — capture the RENDERED final page when its URL
+          // is a same-domain root variant of the originally requested host.
+          // Off-domain or cross-path redirects capture nothing. parsed.hostname is
+          // the original target's host; isRootUrl is www/scheme-insensitive.
+          const heroScreenshotPng =
+            rendered && isRootUrl(finalUrl, parsed.hostname) ? await captureHeroIfRequested() : null
+          return { kind: 'redirected', finalUrl, heroScreenshotPng }
         }
       } catch (err) {
         if (!isTransientRunnerError(err)) throw err
@@ -295,7 +335,15 @@ export async function runAxeAudit(
         blockedNavigationError = null
         await attemptNavigation(page)
         if (redirectedHolder.value) {
-          return { kind: 'redirected', finalUrl: redirectedHolder.value.finalUrl }
+          const { finalUrl, rendered } = redirectedHolder.value
+          // C14 hero (plan Codex fix 1): a root→www (or scheme) redirect is still
+          // the prospect's homepage — capture the RENDERED final page when its URL
+          // is a same-domain root variant of the originally requested host.
+          // Off-domain or cross-path redirects capture nothing. parsed.hostname is
+          // the original target's host; isRootUrl is www/scheme-insensitive.
+          const heroScreenshotPng =
+            rendered && isRootUrl(finalUrl, parsed.hostname) ? await captureHeroIfRequested() : null
+          return { kind: 'redirected', finalUrl, heroScreenshotPng }
         }
       }
 
@@ -322,6 +370,14 @@ export async function runAxeAudit(
       }
       // provider === 'off' just skips Lighthouse and proceeds to axe (Phase 2 below)
     }
+
+    // ── C14 hero capture (non-redirect path) ─────────────────────────────
+    // Viewport PNG of the loaded page, after Phase-1 navigation + settle and
+    // BEFORE axe mutates focus/scroll state. Site audits skip inline PSI
+    // (options.siteAudit), so for the prospect path this runs directly after
+    // postLoadSettle. The redirect paths above capture separately (rendered
+    // same-domain root variants only).
+    const heroScreenshotPng: Uint8Array | null = await captureHeroIfRequested()
 
     // ── Phase 2: axe on the already-loaded page ──────────────────────────
     // Skipped entirely under renderOnly (SEO scan) — no axe, no screenshots,
@@ -419,7 +475,7 @@ export async function runAxeAudit(
       return { kind: 'rendered', harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
     }
 
-    return { kind: 'audited', axe: axe as StoredAxeResults, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo }
+    return { kind: 'audited', axe: axe as StoredAxeResults, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo, heroScreenshotPng }
   } finally {
     await releasePage(page)
   }

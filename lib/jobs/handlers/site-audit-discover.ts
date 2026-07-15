@@ -22,8 +22,9 @@
 
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
-import { discoverPages } from '@/lib/ada-audit/sitemap-crawler'
+import { discoverPages, HARD_CAP } from '@/lib/ada-audit/sitemap-crawler'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
+import { injectProspectRoot } from '@/lib/sales/root-url'
 import { enqueueJob } from '../queue'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
@@ -104,6 +105,7 @@ export async function runSiteAuditDiscoverJob(payload: unknown): Promise<void> {
       discoveredUrls: true,
       seoIntent: true,
       discoverySourcesJson: true,
+      prospectId: true,
     },
   })
   if (!audit) return
@@ -238,9 +240,32 @@ export async function runSiteAuditDiscoverJob(payload: unknown): Promise<void> {
   // corrupt-legacy set on a non-seoIntent audit gets no map — which is
   // correct (non-seoIntent audits never have one). No stranding.
   urls = [...new Set(urls)]
+
+  // C14 hero (spec Codex fix 1): prospect-owned audits are GUARANTEED to
+  // include the site root — the hero screenshot is captured on that page.
+  // Prospect-only, at-most-one-page, deterministic across attempts (pure
+  // function of the stored set + domain, and the ensure-write below persists
+  // the injected list so later attempts see the root already present). The
+  // 1000-page cap is respected: at cap the root displaces the last URL, and
+  // that displacement is deliberate truncation — discoveryCapped must flip
+  // true so the miss-rate measurement doesn't read as complete coverage
+  // (plan Codex fix 3).
+  let rootDisplaced = false
+  if (audit.prospectId !== null) {
+    const injected = injectProspectRoot(urls, audit.domain, HARD_CAP)
+    urls = injected.urls
+    rootDisplaced = injected.displaced
+  }
+
   const ensured = await prisma.siteAudit.updateMany({
     where: { id: siteAuditId, status: 'running' },
-    data: { discoveredUrls: JSON.stringify(urls), pagesTotal: urls.length },
+    data: {
+      discoveredUrls: JSON.stringify(urls),
+      pagesTotal: urls.length,
+      // Root injection at cap = deliberate truncation (plan Codex fix 3).
+      // Never flips true→false: only set when displacement happened.
+      ...(rootDisplaced ? { discoveryCapped: true } : {}),
+    },
   })
   if (ensured.count === 0) {
     // Parent is no longer running (cancelled/failed/completed under a stale

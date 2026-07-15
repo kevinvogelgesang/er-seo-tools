@@ -1,5 +1,6 @@
 // Generic progressive-disclosure card: grade chip + headline counts collapsed;
-// <details> reveals the intro copy + children (evidence).
+// <details> reveals the children (evidence). C14 redesign: urgency sections
+// render open by default (leave-behind) via `defaultOpen`.
 import type { ReactNode } from 'react'
 
 export type Grade = 'good' | 'warn' | 'bad' | 'none'
@@ -23,12 +24,13 @@ export function SectionCard(props: {
   grade: Grade
   gradeLabel: string
   headline: string
-  intro: string
+  /** C14 redesign: urgency sections render open by default (leave-behind). */
+  defaultOpen?: boolean
   children: ReactNode
 }) {
   return (
     <section className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm">
-      <details>
+      <details open={props.defaultOpen}>
         <summary className="cursor-pointer list-none p-6 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white mb-1">{props.title}</h2>
@@ -38,10 +40,7 @@ export function SectionCard(props: {
             {props.gradeLabel}
           </span>
         </summary>
-        <div className="px-6 pb-6 space-y-4">
-          <p className="text-[13px] font-body text-navy/60 dark:text-white/60">{props.intro}</p>
-          {props.children}
-        </div>
+        <div className="px-6 pb-6 space-y-4">{props.children}</div>
       </details>
     </section>
   )

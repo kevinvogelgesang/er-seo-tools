@@ -19,6 +19,7 @@ import { prisma } from '@/lib/db'
 import { cadenceClass, type CadenceClass } from '@/lib/jobs/scheduler'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
 import { deleteReportFile } from '@/lib/report/report-file'
+import { deleteHeroScreenshot } from '@/lib/sales/hero-screenshot'
 
 /** ≈ a dozen retained runs per schedule at any cadence. 'daily' is
  * unreachable in v1 (CRUD rejects daily-class cadences) but priced in. */
@@ -74,7 +75,12 @@ export async function pruneScheduledSiteAudits(now: Date = new Date()): Promise<
       await prisma.siteAudit.deleteMany({ where: { id: { in: ids } } })
       // Report PDFs have no sweep of their own (screenshots age out via the
       // 24-h sweep; reports don't) — delete from the pre-delete snapshot.
-      const fileCleanup = await Promise.allSettled(ids.map((rid) => deleteReportFile(rid)))
+      // C14 hero (spec Codex fix 3c): prospect audits are manual-class and never
+      // pruned here, but the artifact hook keeps "audit row gone ⇒ hero file gone"
+      // true everywhere.
+      const fileCleanup = await Promise.allSettled(
+        ids.flatMap((rid) => [deleteReportFile(rid), deleteHeroScreenshot(rid)]),
+      )
       for (const r of fileCleanup) {
         if (r.status === 'rejected') console.warn('[retention] report file cleanup failed:', r.reason)
       }

@@ -97,7 +97,7 @@ export function Explainer({
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 text-[12px] font-body font-semibold text-navy/60 dark:text-white/60 hover:text-navy dark:hover:text-white transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-sm text-[12px] font-body font-semibold text-navy/60 dark:text-white/60 hover:text-navy dark:hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       >
         {label}
         <ChevronIcon

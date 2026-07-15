@@ -41,6 +41,8 @@ import type { HarvestedTarget } from '@/lib/ada-audit/link-harvest'
 import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
 import { publishInvalidation } from '@/lib/events/bus'
 import { queueTopic, recentsTopic, siteAuditTopic } from '@/lib/events/topics'
+import { isRootUrl } from '@/lib/sales/root-url'
+import { deleteHeroScreenshot, heroScreenshotFilename, writeHeroScreenshot } from '@/lib/sales/hero-screenshot'
 
 // C6: chunk size for HarvestedLink inserts. 300 targets/page x 5 cols > SQLite's
 // 999-variable limit, so chunk at 50 (matches the findings writer).
@@ -133,6 +135,43 @@ export async function persistPageSeo(
   }
 }
 
+/**
+ * C14 hero publication — fenced to a WINNING settle (spec Codex fix 2):
+ * callers invoke this only after settlePage() returned true, on the same
+ * code path as persistHarvest/persistPageSeo. Writes the final file
+ * atomically (UNIQUE temp+rename; temp cleaned on throw inside the
+ * writer), then stamps homepageScreenshot — guarded on the audit STILL
+ * being prospect-owned (plan Codex fix 2: a prospect DELETE between the
+ * file write and the stamp SetNulls prospectId; an unguarded stamp-by-id
+ * would strand the file as a permanent orphan). Stamp count 0 or a thrown
+ * stamp ⇒ the just-written file is deleted. Best-effort throughout: a
+ * failure logs and never fails the page job; the column stays null → the
+ * report hides the hero slot.
+ */
+export async function publishHeroScreenshot(siteAuditId: string, png: Uint8Array | null): Promise<void> {
+  if (!png || png.length === 0) return
+  try {
+    await writeHeroScreenshot(siteAuditId, png)
+  } catch (e) {
+    console.warn('[c14/hero] file write failed for', siteAuditId, ':', (e as Error).message)
+    return
+  }
+  try {
+    const stamped = await prisma.siteAudit.updateMany({
+      where: { id: siteAuditId, prospectId: { not: null } },
+      data: { homepageScreenshot: heroScreenshotFilename(siteAuditId) },
+    })
+    if (stamped.count === 0) {
+      // Row gone or no longer prospect-owned (a prospect DELETE won the
+      // race) — never leave an unstamped orphan on disk.
+      await deleteHeroScreenshot(siteAuditId)
+    }
+  } catch (e) {
+    console.warn('[c14/hero] stamp failed for', siteAuditId, ':', (e as Error).message)
+    await deleteHeroScreenshot(siteAuditId).catch(() => {})
+  }
+}
+
 export const SITE_AUDIT_PAGE_JOB_TYPE = 'site-audit-page'
 
 export interface SiteAuditPageJob {
@@ -221,7 +260,7 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
   // Read it BEFORE the claim-0 branch so both paths (repair + normal) see it.
   const parent = await prisma.siteAudit.findUnique({
     where: { id: job.siteAuditId },
-    select: { seoOnly: true },
+    select: { seoOnly: true, prospectId: true, domain: true },
   })
   const seoOnly = parent?.seoOnly === true
 
@@ -246,12 +285,17 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
 
   const detachPsi = getLighthouseProvider() === 'pagespeed'
 
+  // C14 hero: capture only for prospect-owned audits on the site-root page
+  // (scheme/www-insensitive match against the parent's stored domain).
+  const wantHero = parent != null && parent.prospectId !== null && !seoOnly && isRootUrl(job.url, parent.domain)
+
   let runResult: Awaited<ReturnType<typeof runAxeAudit>>
   try {
     runResult = await runAxeAudit(job.url, job.wcagLevel, undefined, {
       auditId: job.adaAuditId,
       siteAudit: detachPsi,
       renderOnly: seoOnly,
+      captureHeroScreenshot: wantHero,
     })
   } catch (err) {
     // Domain failure: settle and complete the job — no per-page retry,
@@ -280,7 +324,12 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
       },
       ['running'],
     )
-    if (settled) await finalizeWarn(job.siteAuditId, 'redirect settle')
+    if (!settled) return
+    // C14 hero: a root→www redirect carries the rendered homepage bytes
+    // (runner-gated to RENDERED same-domain root variants); publish exactly
+    // like the audited path, fenced to the winning redirect settle.
+    await publishHeroScreenshot(job.siteAuditId, runResult.heroScreenshotPng ?? null)
+    await finalizeWarn(job.siteAuditId, 'redirect settle')
     return
   }
 
@@ -346,6 +395,7 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
   // !settled) — fence the harvest persistence to that (fix #3).
   await persistHarvest(job.siteAuditId, job.url, harvestedLinks, harvestedLinksTruncated)
   await persistPageSeo(job.siteAuditId, job.url, harvestedPageSeo)
+  await publishHeroScreenshot(job.siteAuditId, runResult.heroScreenshotPng ?? null)
 
   await finalizeWarn(job.siteAuditId, 'page settle')
 }

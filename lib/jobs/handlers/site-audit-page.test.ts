@@ -1,5 +1,8 @@
 // lib/jobs/handlers/site-audit-page.test.ts
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest'
+import fs from 'fs/promises'
+import os from 'os'
+import path from 'path'
 
 vi.mock('@/lib/ada-audit/runner', () => ({ runAxeAudit: vi.fn() }))
 vi.mock('@/lib/ada-audit/pdf-orchestrator', () => ({ dispatchPdfScans: vi.fn(async () => undefined) }))
@@ -15,7 +18,7 @@ const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer
 const { enqueuePsiJob } = await import('@/lib/ada-audit/lighthouse-queue')
 const { getLighthouseProvider } = await import('@/lib/ada-audit/lighthouse-provider')
 const { publishInvalidation } = await import('@/lib/events/bus')
-const { runSiteAuditPageJob, onSiteAuditPageExhausted, persistPageSeo } = await import('./site-audit-page')
+const { runSiteAuditPageJob, onSiteAuditPageExhausted, persistPageSeo, publishHeroScreenshot } = await import('./site-audit-page')
 import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
 
 const PREFIX = 'sap-handler-test-'
@@ -255,5 +258,118 @@ describe('persistPageSeo — content similarity fields', () => {
     const details = JSON.parse(row!.detailsJson!)
     expect(details.faqSignals).toEqual({ heading: true, container: false, questionHeadings: 4 })
     await prisma.siteAudit.delete({ where: { id: audit.id } })
+  })
+})
+
+describe('C14 hero: capture request + fenced publication', () => {
+  let heroDir: string
+  const prevHeroEnv = process.env.HERO_SCREENSHOTS_DIR
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+
+  beforeAll(async () => {
+    heroDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hero-pub-'))
+    process.env.HERO_SCREENSHOTS_DIR = heroDir
+  })
+  // This describe is a SIBLING of `jobs/handlers/site-audit-page` above, not a
+  // nested child — its beforeEach (mockReset on runAxeAudit) does not apply
+  // here, so `mock.calls[0]` would otherwise pick up the first call from the
+  // whole file. Reset the mock locally before each test in this block.
+  beforeEach(() => {
+    vi.mocked(runAxeAudit).mockReset()
+  })
+  afterAll(async () => {
+    if (prevHeroEnv === undefined) delete process.env.HERO_SCREENSHOTS_DIR
+    else process.env.HERO_SCREENSHOTS_DIR = prevHeroEnv
+    await fs.rm(heroDir, { recursive: true, force: true })
+    await prisma.prospect.deleteMany({ where: { domain: { startsWith: PREFIX } } })
+  })
+
+  async function seedProspectRoot(name: string) {
+    const prospect = await prisma.prospect.create({ data: { name, domain: `${PREFIX}${name}` } })
+    const site = await prisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}${name}`, status: 'running', wcagLevel: 'wcag21aa',
+        prospectId: prospect.id,
+        discoveredUrls: JSON.stringify([`https://${PREFIX}${name}/`]), pagesTotal: 1,
+      },
+    })
+    const child = await prisma.adaAudit.create({
+      data: { url: `https://${PREFIX}${name}/`, status: 'pending', siteAuditId: site.id, wcagLevel: 'wcag21aa' },
+    })
+    return { site, child, payload: { adaAuditId: child.id, siteAuditId: site.id, url: child.url, wcagLevel: 'wcag21aa' } }
+  }
+
+  it('requests capture on the prospect root page and publishes file + stamp after a winning settle', async () => {
+    vi.mocked(runAxeAudit).mockResolvedValue({ ...AXE_OK, heroScreenshotPng: PNG } as never)
+    const { site, payload } = await seedProspectRoot('hero-ok')
+    await runSiteAuditPageJob(payload)
+    // capture was requested
+    const opts = vi.mocked(runAxeAudit).mock.calls[0][3]
+    expect(opts?.captureHeroScreenshot).toBe(true)
+    // file + stamp published
+    const buf = await fs.readFile(path.join(heroDir, `${site.id}.png`))
+    expect([...buf]).toEqual([...PNG])
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(s?.homepageScreenshot).toBe(`${site.id}.png`)
+  })
+
+  it('does NOT request capture for a non-prospect audit or a non-root page', async () => {
+    vi.mocked(runAxeAudit).mockResolvedValue({ ...AXE_OK, heroScreenshotPng: null } as never)
+    const { payload } = await seed('hero-nonprospect') // existing helper: no prospectId
+    await runSiteAuditPageJob(payload)
+    expect(vi.mocked(runAxeAudit).mock.calls[0][3]?.captureHeroScreenshot).toBeFalsy()
+  })
+
+  it('a LOST settle publishes no file and no stamp (zombie attempt)', async () => {
+    const { site, child, payload } = await seedProspectRoot('hero-lost')
+    // Zombie simulation: the "runner" flips the child terminal mid-run, so
+    // this attempt's settle (claimable: ['running']) matches 0 rows.
+    vi.mocked(runAxeAudit).mockImplementation(async () => {
+      await prisma.adaAudit.update({ where: { id: child.id }, data: { status: 'complete' } })
+      return { ...AXE_OK, heroScreenshotPng: PNG } as never
+    })
+    await runSiteAuditPageJob(payload)
+    await expect(fs.access(path.join(heroDir, `${site.id}.png`))).rejects.toThrow()
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(s?.homepageScreenshot).toBeNull()
+  })
+
+  it('root→www redirect: bytes on the redirected result are published after the winning redirect settle (plan Codex fix 1)', async () => {
+    const { site, child, payload } = await seedProspectRoot('hero-redir')
+    // The runner captured the rendered www root BEFORE returning redirected
+    // (redirect-detect classifies www changes as redirects by design).
+    vi.mocked(runAxeAudit).mockResolvedValue({
+      kind: 'redirected', finalUrl: `https://www.${PREFIX}hero-redir/`, heroScreenshotPng: PNG,
+    } as never)
+    await runSiteAuditPageJob(payload)
+    const c = await prisma.adaAudit.findUnique({ where: { id: child.id } })
+    expect(c?.status).toBe('redirected') // redirect classification unchanged
+    const buf = await fs.readFile(path.join(heroDir, `${site.id}.png`))
+    expect([...buf]).toEqual([...PNG])
+    const s = await prisma.siteAudit.findUnique({ where: { id: site.id } })
+    expect(s?.homepageScreenshot).toBe(`${site.id}.png`)
+  })
+
+  it('off-domain / cross-path redirect: runner returned null bytes — nothing published', async () => {
+    // The same-domain-root gate lives in the RUNNER (isRootUrl against the
+    // original host — unit-covered in root-url.test.ts); the handler just
+    // publishes whatever bytes it was handed. Null bytes ⇒ no file, no stamp.
+    vi.mocked(runAxeAudit).mockResolvedValue({
+      kind: 'redirected', finalUrl: 'https://elsewhere.example/landing', heroScreenshotPng: null,
+    } as never)
+    const { site, payload } = await seedProspectRoot('hero-offsite')
+    await runSiteAuditPageJob(payload)
+    await expect(fs.access(path.join(heroDir, `${site.id}.png`))).rejects.toThrow()
+    expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.homepageScreenshot).toBeNull()
+  })
+
+  it('publish guard (plan Codex fix 2): audit no longer prospect-owned ⇒ no stamp AND the just-written file is removed', async () => {
+    // Simulates a prospect DELETE racing the publish: SetNull already ran.
+    const site = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}hero-orphan`, status: 'running', wcagLevel: 'wcag21aa', prospectId: null },
+    })
+    await publishHeroScreenshot(site.id, PNG)
+    expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.homepageScreenshot).toBeNull()
+    await expect(fs.access(path.join(heroDir, `${site.id}.png`))).rejects.toThrow() // orphan file cleaned up
   })
 })
