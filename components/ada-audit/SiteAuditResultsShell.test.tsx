@@ -69,13 +69,13 @@ describe('SiteAuditResultsShell (C18)', () => {
       inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
     })
     render(<SiteAuditResultsShell {...base} adaScoreBreakdown={breakdown} />)
-    expect(screen.getByText(/How this score was calculated/i)).toBeTruthy()
+    expect(screen.getByText(/How this score is calculated/i)).toBeTruthy()
     expect(screen.getByText(/image-alt/)).toBeTruthy()
   })
 
   it('omits the ADA score explanation when adaScoreBreakdown is not provided (share mode)', () => {
     render(<SiteAuditResultsShell {...base} />)
-    expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
+    expect(screen.queryByText(/How this score is calculated/i)).toBeNull()
   })
 
   it('omits the ADA score explanation in shareMode even if adaScoreBreakdown is (mis)provided', () => {
@@ -89,6 +89,6 @@ describe('SiteAuditResultsShell (C18)', () => {
       inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
     })
     render(<SiteAuditResultsShell {...base} shareMode adaScoreBreakdown={breakdown} />)
-    expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
+    expect(screen.queryByText(/How this score is calculated/i)).toBeNull()
   })
 })

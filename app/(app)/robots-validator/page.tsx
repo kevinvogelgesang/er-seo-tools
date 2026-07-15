@@ -11,6 +11,7 @@ import {
 } from '@/lib/seo-fetch/robots-parse'
 import { parseSitemapXml, type SitemapParseResult, type SitemapIssue } from '@/lib/seo-fetch/sitemap-parse'
 import { safeExternalHref } from '@/lib/safe-external-href'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 // ─── Reference bot data ───────────────────────────────────────────────────────
 
@@ -828,14 +829,19 @@ function RobotsValidatorContent() {
               <h1 className="font-display font-extrabold text-[26px] text-white leading-tight">Robots Validator</h1>
             </div>
           </div>
-          <p className="font-body text-[14px] text-white/50 max-w-xl">
-            Validate robots.txt syntax, check AI bot access status, test URLs against rules, and validate sitemap structure — all client-side, nothing uploaded.
-          </p>
         </div>
       </div>
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
+        <Explainer label="What does this tool do?" variant="card">
+          <ExplainerSummary>
+            Validate robots.txt syntax, check AI bot access status, test URLs against rules, and
+            validate sitemap structure — all client-side, nothing uploaded. Paste content, upload a
+            file, or fetch straight from a URL; the parsers flag syntax problems, blocked AI
+            crawlers, and sitemap metadata gaps without storing anything.
+          </ExplainerSummary>
+        </Explainer>
         <RobotsSection onFetchSitemap={handleFetchSitemapFromRobots} />
         <div id="sitemap-section">
           <SitemapSection

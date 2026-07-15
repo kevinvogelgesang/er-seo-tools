@@ -142,7 +142,7 @@ describe('AuditResultsView — archived render contract', () => {
       inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
     })
     render(<AuditResultsView {...baseProps} results={makeResults()} scoreBreakdown={breakdown} />)
-    expect(screen.getByText(/How this score was calculated/i)).toBeTruthy()
+    expect(screen.getByText(/How this score is calculated/i)).toBeTruthy()
   })
 
   it('does NOT render the ADA score explanation when readOnly, even with scoreBreakdown', () => {
@@ -156,7 +156,7 @@ describe('AuditResultsView — archived render contract', () => {
       inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
     })
     render(<AuditResultsView {...baseProps} results={makeResults()} scoreBreakdown={breakdown} readOnly />)
-    expect(screen.queryByText(/How this score was calculated/i)).toBeNull()
+    expect(screen.queryByText(/How this score is calculated/i)).toBeNull()
   })
 
   it('renders read-only without a localStorage global and does not throw', () => {

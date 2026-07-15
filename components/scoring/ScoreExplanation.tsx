@@ -1,6 +1,7 @@
 // components/scoring/ScoreExplanation.tsx — read-only breakdown panel (C8).
 // Reads ONLY the persisted `scoreBreakdown` string; never recomputes.
 import type { PersistedBreakdown } from '@/lib/scoring/weights'
+import { Explainer } from '@/components/ui/Explainer'
 
 export function ScoreExplanation({ breakdown }: { breakdown: string | null }) {
   let parsed: PersistedBreakdown | null = null
@@ -21,11 +22,8 @@ export function ScoreExplanation({ breakdown }: { breakdown: string | null }) {
   if (parsed.factors.length === 0) return null // live null-score: ScoreLine already explains it
   const totalPossible = parsed.factors.reduce((a, x) => a + x.possible, 0)
   return (
-    <details className="mt-2">
-      <summary className="text-[12px] font-body text-navy/60 dark:text-white/60 cursor-pointer">
-        How this score was calculated
-      </summary>
-      <table className="mt-2 w-full text-[12px] font-body text-navy dark:text-white">
+    <Explainer label="How this score is calculated" className="mt-2">
+      <table className="w-full text-[12px] font-body text-navy dark:text-white">
         <thead>
           <tr className="text-navy/45 dark:text-white/45 text-left">
             <th className="py-1">Factor</th>
@@ -45,9 +43,9 @@ export function ScoreExplanation({ breakdown }: { breakdown: string | null }) {
           ))}
         </tbody>
       </table>
-      <p className="mt-2 text-[11px] font-body text-navy/40 dark:text-white/40">
+      <p className="text-[11px] font-body text-navy/40 dark:text-white/40">
         Weights as scored; current weights may differ.
       </p>
-    </details>
+    </Explainer>
   )
 }

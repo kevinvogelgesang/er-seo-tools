@@ -4,6 +4,7 @@
 // (v1/v2/v3, or blobs that predate this scorer) fall through to `null` so
 // this component is a strict no-op on legacy runs.
 import type { AdaV4Breakdown, AdaV4Category, AdaV4Contribution, AdaV4DeductionLine } from '@/lib/scoring/ada-v4'
+import { Explainer } from '@/components/ui/Explainer'
 
 const CATEGORY_LABEL: Record<AdaV4Category, string> = {
   critical: 'Critical',
@@ -67,11 +68,8 @@ export function AdaScoreExplanation({ breakdown }: { breakdown: string | null })
   const lines = deductions.filter((d) => d.points > 0)
 
   return (
-    <details className="mt-2">
-      <summary className="text-[12px] font-body text-navy/60 dark:text-white/60 cursor-pointer">
-        How this score was calculated
-      </summary>
-      <div className="mt-2 space-y-2 text-[12px] font-body text-navy dark:text-white">
+    <Explainer label="How this score is calculated" className="mt-2">
+      <div className="space-y-2 text-[12px] font-body text-navy dark:text-white">
         {lowCoverage && (
           <p className="text-[11px] font-body text-navy/50 dark:text-white/50">
             Partial coverage — {inputsSummary.pagesAudited} of {inputsSummary.pagesTotal} pages scored.
@@ -98,9 +96,9 @@ export function AdaScoreExplanation({ breakdown }: { breakdown: string | null })
           </ul>
         )}
       </div>
-      <p className="mt-2 text-[11px] font-body text-navy/40 dark:text-white/40">
+      <p className="text-[11px] font-body text-navy/40 dark:text-white/40">
         Weights as scored ({weightsHash ?? 'unhashed'}); current weights may differ.
       </p>
-    </details>
+    </Explainer>
   )
 }

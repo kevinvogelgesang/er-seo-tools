@@ -19,6 +19,7 @@ import {
 import { CURATED_LOCALES } from '@/lib/keywords/locales'
 import type { KeywordProfile } from '@/lib/services/keyword-profile'
 import { SeverityBadge } from '@/components/ui/SeverityBadge'
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
 
 const TYPE_LABELS: Record<InstitutionType, string> = {
   trade: 'Trade / Career school', bootcamp: 'Bootcamp', university: 'University / College',
@@ -176,6 +177,16 @@ export function KeywordProfileCard({ clientId, initialProfile, archived }: {
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">Keyword Profile</h2>
       </div>
+
+      <Explainer label="What is this?" className="mb-3">
+        <ExplainerSummary>
+          The curated targeting profile that feeds keyword-strategy exports: institution type, the
+          confirmed program roster, and the market/language locale used for search-volume lookups.
+          Suggested programs are derived from the latest site SEO scan (page URLs, headings, and
+          structured data) — confirm the real ones and dismiss the rest. Edits save immediately;
+          if two people edit at once, the most recent save wins.
+        </ExplainerSummary>
+      </Explainer>
 
       {error && <p className="text-xs text-red-600 dark:text-red-400 mb-3">{error}</p>}
 

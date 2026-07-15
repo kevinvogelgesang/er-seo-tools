@@ -21,6 +21,7 @@ import { useCallback, useRef, useState, useEffect } from 'react';
 import { useMemoPoller } from '@/components/handoff/useMemoPoller';
 import { composeKeywordStrategyPayload } from '@/lib/keyword-strategy-prompt';
 import { KeywordMemoMarkdown } from '@/components/keyword-research/KeywordMemoMarkdown';
+import { Explainer, ExplainerSummary } from '@/components/ui/Explainer';
 
 export interface KeywordStrategySessionInit {
   id: string;
@@ -202,6 +203,17 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
           {label}
         </button>
       </div>
+
+      <Explainer label="What is this?" className="mb-3">
+        <ExplainerSummary>
+          Builds a clipboard prompt that hands this client&apos;s data — keyword profile, Search
+          Console signals, page inventory, and audit findings — to the er-handoff-memo Claude
+          skill, which writes an eight-section keyword strategy document back into this card.
+          Search-volume lookups during that session use the profile&apos;s locale and are capped
+          per session. Regenerating starts a fresh session; the previous document remains until
+          the new one arrives.
+        </ExplainerSummary>
+      </Explainer>
 
       {hints.length > 0 && (
         <ul className="mb-3 space-y-0.5 text-[11px] text-gray-400 dark:text-white/40">
