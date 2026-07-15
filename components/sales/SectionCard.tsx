@@ -12,10 +12,13 @@ const GRADE_CLASSES: Record<Grade, string> = {
   none: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60',
 }
 
+// Urgency bands (Kevin, C14 pass 2): ≥95 green, 80–94 amber, <80 red — applied
+// throughout the sales report (scores AND coverage percentages) so the whole
+// report reads consistently and leans toward urgency.
 export function gradeForScore(score: number | null): Grade {
   if (score === null) return 'none'
-  if (score >= 90) return 'good'
-  if (score >= 60) return 'warn'
+  if (score >= 95) return 'good'
+  if (score >= 80) return 'warn'
   return 'bad'
 }
 

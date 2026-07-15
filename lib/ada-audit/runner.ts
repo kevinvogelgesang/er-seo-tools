@@ -20,6 +20,25 @@ import { isRootUrl } from '@/lib/sales/root-url'
 
 const AXE_PATH = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js')
 
+// C14 hero: desktop capture viewport (2× for a crisp, full-bleed hero image)
+// and the fixed grace period after the scroll-nudge + network settle, so
+// fade-in / deferred-render hero content has finished painting before the
+// screenshot. Restored to the puppeteer default (800×600, 1×) afterward so
+// downstream axe analysis is unaffected. Env-overridable for tuning.
+const HERO_VIEWPORT = { width: 1440, height: 900, deviceScaleFactor: 2 }
+const DEFAULT_VIEWPORT = { width: 800, height: 600, deviceScaleFactor: 1 }
+const HERO_CAPTURE_SETTLE_MS = parsePositiveIntEnv(process.env.HERO_CAPTURE_SETTLE_MS, 2500)
+// Bound on the pre-capture scroll nudge (≈10 viewport heights, ~1s at 100ms
+// each) so the loop can never approach the site-audit-page job timeout.
+const HERO_SCROLL_MAX_STEPS = 10
+
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
 // ─── SSRF protection ──────────────────────────────────────────────────────────
 // SSRF is delegated to assertSafeHttpUrl, which handles IPv4-mapped IPv6,
 // reserved ranges, blocked host suffixes (.localhost, .local, .internal, …),
@@ -176,14 +195,42 @@ export async function runAxeAudit(
       void handleRequest(request)
     })
 
-    // C14 hero: shared capture helper. Never fails the page job.
+    // C14 hero: shared capture helper. Never fails the page job. Widens the
+    // viewport to desktop, nudges the page through a full scroll to trigger
+    // lazy-loaded / scroll-reveal content, settles the network, then waits a
+    // fixed grace period so fade-in hero text has painted before the shot.
+    // Some marketing homepages (e.g. fei.edu) reveal hero copy on an animation
+    // that fires after network-idle — a bare screenshot caught an empty hero.
     const captureHeroIfRequested = async (): Promise<Uint8Array | null> => {
       if (!options?.captureHeroScreenshot || options?.renderOnly) return null
       try {
+        await page.setViewport(HERO_VIEWPORT)
+        // Nudge the page in viewport-height steps to trigger IntersectionObserver
+        // / lazy loaders, then return to the top so the capture frames the hero.
+        // Hard-bounded (steps AND per-step delay) so an unusually tall or
+        // adversarial homepage can't run the loop past the job timeout while
+        // holding a pooled page — a handful of steps covers all above/near-fold
+        // content, which is all a viewport (fullPage:false) capture needs.
+        await page.evaluate(async (maxSteps: number) => {
+          const step = Math.max(window.innerHeight, 1)
+          const max = Math.max(document.body?.scrollHeight ?? 0, step)
+          for (let i = 0, y = 0; i < maxSteps && y < max; i++, y += step) {
+            window.scrollTo(0, y)
+            await new Promise((r) => setTimeout(r, 100))
+          }
+          window.scrollTo(0, 0)
+        }, HERO_SCROLL_MAX_STEPS)
+        // Let images kicked off by the scroll finish, then hold for animations.
+        await postLoadSettle(page, { idleTime: 500, timeout: 4_000 })
+        await sleep(HERO_CAPTURE_SETTLE_MS)
         return await page.screenshot({ type: 'png', fullPage: false })
       } catch (err) {
         console.warn('[c14/hero] homepage screenshot capture failed:', (err as Error).message)
         return null
+      } finally {
+        // Restore the default viewport so axe runs at the same dimensions as
+        // every other audited page (no change to accessibility results).
+        await page.setViewport(DEFAULT_VIEWPORT).catch(() => {})
       }
     }
 

@@ -35,7 +35,7 @@ export function SalesReportHeader(props: {
         scrolled ? 'py-2' : 'py-4'
       } print:py-4`}
     >
-      <div className="max-w-4xl mx-auto px-6 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-6 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4 min-w-0">
           {/* Real asset is a WHITE-on-transparent PNG (ER's site is dark-themed
               and only publishes white logos). brightness-0 = black silhouette
