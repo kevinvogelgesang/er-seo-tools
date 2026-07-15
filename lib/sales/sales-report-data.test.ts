@@ -121,7 +121,6 @@ describe('loadSalesReportData', () => {
     // overall = round((62 + 71 + 40 + 40) / 4) = 53
     expect(d.overallScore).toBe(53)
     expect(d.accessibility.counts.critical).toBe(4)
-    expect(d.accessibility.patterns).toEqual([]) // deprecated transition field — always empty; removed in Task 12
     const broken = d.seo.issueGroups.find((g) => g.type === 'broken_internal_links')
     expect(broken?.count).toBe(7)               // issue-specific unit (distinct targets)
     expect(broken?.affectedPages).toBe(2)       // distinct page-scope URLs

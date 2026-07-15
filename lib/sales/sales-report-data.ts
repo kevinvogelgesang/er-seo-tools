@@ -5,24 +5,13 @@ import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import type { CommonIssue, ImpactLevel, SiteAuditSummary } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 import { aggregatePerformance, pickHomepageCwv, type HomepageCwv, type PerformanceRollup } from './cwv-aggregate'
-import { loadRepresentativeExamples, type CuratedExample } from './representative-examples'
+import { loadRepresentativeExamples } from './representative-examples'
 import { HIGH_VALUE_SCHEMA_TYPES, ISSUE_LABELS, standardLabel } from './copy'
 import type { SchemaTypesSummary } from '@/lib/ada-audit/seo/schema-types'
 
 const MAX_PATTERNS = 4
 const MAX_EXAMPLE_PAGES = 5
 const IMPACT_RANK: Record<ImpactLevel, number> = { critical: 3, serious: 2, moderate: 1, minor: 0 }
-
-/** @deprecated transition-only; removed in Task 12 */
-export interface SalesPattern {
-  ruleId: string
-  impact: ImpactLevel
-  help: string
-  description: string
-  affectedPagesCount: number
-  totalPagesScanned: number
-  examples: CuratedExample[]
-}
 
 export interface SeoIssueGroup {
   type: string
@@ -52,8 +41,6 @@ export interface SalesReportData {
   accessibility: {
     score: number | null
     counts: { critical: number; serious: number; moderate: number; minor: number; total: number }
-    /** @deprecated transition-only (plan Codex fix 5): loader returns []; the old view still type-checks. REMOVED in Task 12. */
-    patterns: SalesPattern[]
   }
   seo: {
     score: number | null
@@ -248,7 +235,7 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
         performanceScore: rollup?.medianPerformance ?? null,
         schemaCoveragePct: coveragePct,
       },
-      accessibility: { score: adaRun?.score ?? null, counts, patterns: [] }, // deprecated field, transition-only
+      accessibility: { score: adaRun?.score ?? null, counts },
       seo: {
         score: seoRun.score,
         issueGroups,
