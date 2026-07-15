@@ -1,27 +1,21 @@
 'use client'
-// C14 redesign: large SVG arc gauge (~240° sweep). Timeline (Kevin pass 5 —
-// smoother, slower): glide 0→100 easing in AND out (the rev decelerates to a
-// stop at the top — no slam into the ceiling), then a damped-spring settle
-// from 100 down to the score that dips a little below the target and eases
-// back up. The spring is released from rest, so velocity is CONTINUOUS across
-// the whole motion (no per-segment hard stops — the old cause of the "slamming
-// around" feel). One rAF loop (no animation library); the readout ticks in
-// sync; the loop is cancelled on unmount and the score input is clamped to
-// finite 0–100 (spec Codex fix 7). The rev only starts once the gauge scrolls
-// into view (IntersectionObserver). prefers-reduced-motion (via matchMedia):
-// final state immediately. Arc color tracks the CURRENT needle value (red <80,
-// amber 80–94, green ≥95).
+// C14 redesign: large SVG arc gauge (~240° sweep). Timeline (Kevin pass 6 —
+// single smooth sweep): the needle glides straight from 0 up to the score,
+// easing in AND out (easeInOutCubic) so it accelerates off the floor and
+// decelerates gently onto the target — no rev to 100, no spring, no bounce.
+// One rAF loop (no animation library); the readout ticks in sync; the loop is
+// cancelled on unmount and the score input is clamped to finite 0–100 (spec
+// Codex fix 7). The sweep only starts once the gauge scrolls into view
+// (IntersectionObserver). prefers-reduced-motion (via matchMedia): final state
+// immediately. Arc color tracks the CURRENT needle value (red <80, amber
+// 80–94, green ≥95).
 import { useEffect, useRef, useState } from 'react'
 
 const SWEEP_DEG = 240
 const START_DEG = 150 // 150° → 390°: opening faces down
 
-// Timeline (ms) + spring tuning. Total ≈ 2.55s — a graceful sweep, not a snap.
-const REV_MS = 1000      // 0 → 100, easeInOutCubic (starts and ends at rest)
-const SPRING_MS = 1550   // 100 → target, damped-spring settle (released from rest)
-const TOTAL_MS = REV_MS + SPRING_MS
-const SPRING_ZETA = 0.55 // damping ratio → one gentle undershoot, then settle
-const SPRING_OMEGA = 4.7 // natural frequency (rad/s), tuned to settle within SPRING_MS
+// Timeline (ms). A single graceful sweep 0 → target, not a snap.
+const TOTAL_MS = 1600 // 0 → target, easeInOutCubic (starts and ends at rest)
 
 const CX = 120
 const CY = 120
@@ -51,20 +45,12 @@ function easeInOutCubic(p: number): number {
   return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2
 }
 
-// Needle value at elapsed time `t` (ms) for a clamped target. Phase 1: glide
-// 0→100 (ease in AND out → decelerates to rest at the top). Phase 2: a damped
-// harmonic oscillator released from rest at 100, settling to the target — it
-// dips below the score then eases back up. Velocity is continuous at the
-// hand-off (both sides are at rest at 100), which is what kills the "slam".
+// Needle value at elapsed time `t` (ms) for a clamped target: a single glide
+// 0 → target, easing in AND out. It accelerates off the floor and decelerates
+// to rest exactly on the score — no overshoot, no bounce.
 function needleValueAt(t: number, target: number): number {
   if (t >= TOTAL_MS) return target
-  if (t < REV_MS) return 100 * easeInOutCubic(t / REV_MS)
-  const s = (t - REV_MS) / 1000 // seconds into the spring
-  const wd = SPRING_OMEGA * Math.sqrt(1 - SPRING_ZETA * SPRING_ZETA)
-  const env =
-    Math.exp(-SPRING_ZETA * SPRING_OMEGA * s) *
-    (Math.cos(wd * s) + ((SPRING_ZETA * SPRING_OMEGA) / wd) * Math.sin(wd * s))
-  return target + (100 - target) * env
+  return target * easeInOutCubic(t / TOTAL_MS)
 }
 
 function polar(deg: number, r: number): { x: number; y: number } {
