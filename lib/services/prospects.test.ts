@@ -8,7 +8,9 @@ const PREFIX = 'c14-svc-'
 async function cleanup() {
   const rows = await prisma.prospect.findMany({ where: { domain: { startsWith: PREFIX } }, select: { id: true } })
   const ids = rows.map((r) => r.id)
-  await prisma.siteAudit.deleteMany({ where: { prospectId: { in: ids } } })
+  await prisma.siteAudit.deleteMany({
+    where: { OR: [{ prospectId: { in: ids } }, { domain: { startsWith: PREFIX } }] },
+  })
   await prisma.prospect.deleteMany({ where: { id: { in: ids } } })
 }
 beforeAll(cleanup)
@@ -65,5 +67,72 @@ describe('buildProspectSalesUrl — the ONE sales-URL home (Codex fix 5)', () =>
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
     expect(buildProspectSalesUrl('tok-abc')).toBe('http://localhost:3000/sales/tok-abc')
     vi.unstubAllEnvs()
+  })
+})
+
+describe('listProspects — PR3 progress + queue + sales-URL fields', () => {
+  it('surfaces progress counters, startedAt, and salesUrl on the row', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://tools.example.com')
+    const created = await createProspect({ name: 'Counters', domain: `${PREFIX}counters.test` })
+    if (created.kind === 'invalid') throw new Error('seed failed')
+    await prisma.prospect.update({
+      where: { id: created.prospect.id },
+      data: { salesToken: 'tok-counters', salesTokenExpiresAt: new Date(Date.now() + 86_400_000) },
+    })
+    const startedAt = new Date('2026-07-14T10:00:00.000Z')
+    await prisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}counters.test`, wcagLevel: 'wcag21aa', status: 'running',
+        prospectId: created.prospect.id, startedAt,
+        pagesTotal: 10, pagesComplete: 4, pagesError: 1, pagesRedirected: 2,
+        pdfsTotal: 3, pdfsComplete: 1, lighthouseTotal: 5, lighthouseComplete: 2,
+      },
+    })
+    const row = (await listProspects()).find((r) => r.id === created.prospect.id)
+    expect(row?.salesUrl).toBe('https://tools.example.com/sales/tok-counters')
+    expect(row?.latestAudit).toMatchObject({
+      pagesTotal: 10, pagesComplete: 4, pagesError: 1, pagesRedirected: 2,
+      pdfsTotal: 3, pdfsComplete: 1, pdfsError: 0, pdfsSkipped: 0,
+      lighthouseTotal: 5, lighthouseComplete: 2, lighthouseError: 0,
+      startedAt: startedAt.toISOString(),
+      queuePosition: null, // running, not queued
+    })
+    vi.unstubAllEnvs()
+  })
+
+  it('salesUrl is null when the token is absent or expired', async () => {
+    const fresh = await createProspect({ name: 'NoTok', domain: `${PREFIX}notok.test` })
+    if (fresh.kind === 'invalid') throw new Error('seed failed')
+    const expired = await createProspect({ name: 'Expired', domain: `${PREFIX}expired.test` })
+    if (expired.kind === 'invalid') throw new Error('seed failed')
+    await prisma.prospect.update({
+      where: { id: expired.prospect.id },
+      data: { salesToken: 'tok-old', salesTokenExpiresAt: new Date(Date.now() - 1000) },
+    })
+    const rows = await listProspects()
+    expect(rows.find((r) => r.id === fresh.prospect.id)?.salesUrl).toBeNull()
+    expect(rows.find((r) => r.id === expired.prospect.id)?.salesUrl).toBeNull()
+  })
+
+  it('queuePosition follows the shared ordering (prospect-owned first)', async () => {
+    // Neutralize stray queued rows in the shared dev DB — positions are
+    // meaningless otherwise (queue-manager.test.ts precedent).
+    await prisma.siteAudit.updateMany({ where: { status: 'queued' }, data: { status: 'cancelled' } })
+    await prisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}client-q.test`, wcagLevel: 'wcag21aa', status: 'queued',
+        createdAt: new Date(Date.now() - 60_000), // older, but NOT prospect-owned
+      },
+    })
+    const created = await createProspect({ name: 'Queue', domain: `${PREFIX}queue.test` })
+    if (created.kind === 'invalid') throw new Error('seed failed')
+    await prisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}queue.test`, wcagLevel: 'wcag21aa', status: 'queued',
+        prospectId: created.prospect.id,
+      },
+    })
+    const row = (await listProspects()).find((r) => r.id === created.prospect.id)
+    expect(row?.latestAudit?.queuePosition).toBe(1) // jumps the older non-prospect audit
   })
 })
