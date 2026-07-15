@@ -29,9 +29,6 @@ export const ISSUE_LABELS: Record<string, string> = {
 
 export const HIGH_VALUE_SCHEMA_TYPES = ['Organization', 'Course', 'FAQPage', 'BreadcrumbList']
 
-export const CTA_CLOSING =
-  'Enrollment Resources helps schools turn findings like these into enrollments. Ask us what we would fix first — and what it would be worth.'
-
 export function issueLabel(type: string): string {
   return ISSUE_LABELS[type] ?? type.replace(/_/g, ' ')
 }

@@ -126,7 +126,7 @@ export function ScoreGauge(props: { score: number | null }) {
         )}
       </svg>
       <p className="mt-1 text-[12px] font-body text-navy/50 dark:text-white/50 text-center">
-        Overall score — average of the four audit areas below.
+        Overall score — average of the audit areas below.
       </p>
     </div>
   )
