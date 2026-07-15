@@ -1,4 +1,5 @@
 import { gradeForScore, type Grade } from './SectionCard'
+import { UrgencyBar } from './UrgencyBar'
 
 const TILE_GRADE: Record<Grade, string> = {
   good: 'text-green-700 dark:text-green-400',
@@ -6,12 +7,23 @@ const TILE_GRADE: Record<Grade, string> = {
   bad: 'text-red-600 dark:text-red-400',
   none: 'text-navy/40 dark:text-white/40',
 }
+const BAR_GRADE: Record<Grade, string> = {
+  good: 'bg-green-600 dark:bg-green-500',
+  warn: 'bg-amber-500 dark:bg-amber-400',
+  bad: 'bg-red-600 dark:bg-red-500',
+  none: 'bg-gray-300 dark:bg-white/20',
+}
 
-function Tile(props: { label: string; value: string; grade: Grade }) {
+function Tile(props: { label: string; value: string; grade: Grade; pct: number | null }) {
   return (
     <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-5 text-center">
       <div className={`text-3xl font-heading font-bold ${TILE_GRADE[props.grade]}`}>{props.value}</div>
       <div className="mt-1 text-[12px] font-body text-navy/50 dark:text-white/50">{props.label}</div>
+      {props.pct !== null && (
+        <div className="mt-3">
+          <UrgencyBar value={props.pct} max={100} colorClass={BAR_GRADE[props.grade]} ariaLabel={`${props.label}: ${props.pct} out of 100`} />
+        </div>
+      )}
     </div>
   )
 }
@@ -23,12 +35,14 @@ export function HeroTiles(props: {
   schemaCoveragePct: number | null
 }) {
   const fmt = (v: number | null, suffix = '') => (v === null ? '—' : `${v}${suffix}`)
+  const schemaGrade: Grade =
+    props.schemaCoveragePct === null ? 'none' : props.schemaCoveragePct >= 60 ? 'good' : props.schemaCoveragePct >= 30 ? 'warn' : 'bad'
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 print:grid-cols-4">
-      <Tile label="Accessibility score" value={fmt(props.accessibilityScore)} grade={gradeForScore(props.accessibilityScore)} />
-      <Tile label="SEO score" value={fmt(props.seoScore)} grade={gradeForScore(props.seoScore)} />
-      <Tile label="Performance (Lighthouse)" value={fmt(props.performanceScore)} grade={gradeForScore(props.performanceScore)} />
-      <Tile label="Structured data coverage" value={fmt(props.schemaCoveragePct, '%')} grade={props.schemaCoveragePct === null ? 'none' : props.schemaCoveragePct >= 60 ? 'good' : props.schemaCoveragePct >= 30 ? 'warn' : 'bad'} />
+      <Tile label="Accessibility score" value={fmt(props.accessibilityScore)} grade={gradeForScore(props.accessibilityScore)} pct={props.accessibilityScore} />
+      <Tile label="SEO score" value={fmt(props.seoScore)} grade={gradeForScore(props.seoScore)} pct={props.seoScore} />
+      <Tile label="Performance (Lighthouse)" value={fmt(props.performanceScore)} grade={gradeForScore(props.performanceScore)} pct={props.performanceScore} />
+      <Tile label="Structured data coverage" value={fmt(props.schemaCoveragePct, '%')} grade={schemaGrade} pct={props.schemaCoveragePct} />
     </div>
   )
 }
