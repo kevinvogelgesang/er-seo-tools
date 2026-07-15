@@ -26,7 +26,7 @@ import { prisma } from '@/lib/db'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { recoverStandaloneAudits } from '@/lib/ada-audit/standalone-recovery'
 import { cancelJobsByGroup, countActiveJobsByGroup, enqueueJob } from '@/lib/jobs/queue'
-import { findNextQueuedAudit, PROSPECT_DISCOVER_PRIORITY } from './queue-order'
+import { compareQueuedAudits, findNextQueuedAudit, PROSPECT_DISCOVER_PRIORITY } from './queue-order'
 import { closeBatchIfDrained, ensureOpenBatch } from './audit-batch-helpers'
 import type { QueueStatusWithBatch } from './types'
 import { publishInvalidation } from '@/lib/events/bus'
@@ -184,11 +184,16 @@ export async function getQueueStatus(): Promise<QueueStatusWithBatch> {
     orderBy: { createdAt: 'asc' },
   })
 
-  const queuedRows = await prisma.siteAudit.findMany({
-    where: { status: 'queued' },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true, domain: true, clientId: true, seoOnly: true },
-  })
+  // PR3: the queued list renders in the SAME total order the promoter will
+  // drain it (queue-order.ts) — prospect-owned first, then createdAt, id.
+  // JS sort: the queued set is tiny and Prisma can't order by "non-null
+  // first" without value-ordering prospectId.
+  const queuedRows = (
+    await prisma.siteAudit.findMany({
+      where: { status: 'queued' },
+      select: { id: true, domain: true, clientId: true, seoOnly: true, prospectId: true, createdAt: true },
+    })
+  ).sort(compareQueuedAudits)
 
   const openBatch = await prisma.auditBatch.findFirst({
     where: { closedAt: null },

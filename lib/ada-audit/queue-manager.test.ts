@@ -20,7 +20,7 @@ const { prisma } = await import('@/lib/db')
 const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer')
 const { recoverStandaloneAudits } = await import('./standalone-recovery')
 const { publishInvalidation } = await import('@/lib/events/bus')
-const { processNext, recoverQueue, resetStaleAudits, failSiteAudit } = await import('./queue-manager')
+const { processNext, recoverQueue, resetStaleAudits, failSiteAudit, getQueueStatus } = await import('./queue-manager')
 
 const PREFIX = 'qm3-test-'
 
@@ -380,5 +380,23 @@ describe('processNext — prospect priority (PR3)', () => {
       orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
     })
     expect(nextClaim?.groupKey).toBe(`site-audit:${pAudit.id}`)
+  })
+})
+
+describe('getQueueStatus — shared ordering (PR3)', () => {
+  beforeEach(async () => {
+    await clearTestState()
+  })
+  afterAll(clearTestState) // don't leak the final seeded queued rows into the shared dev DB
+
+  it('lists queued prospect-owned audits first, then non-prospect FIFO, positions 1..n', async () => {
+    const now = Date.now()
+    const older = await seedSite('gs-older', 'queued', { createdAt: new Date(now - 120_000) })
+    const mid = await seedSite('gs-mid', 'queued', { createdAt: new Date(now - 60_000) })
+    const prospect = await prisma.prospect.create({ data: { name: 'GS', domain: `${PREFIX}gs.test` } })
+    const pAudit = await seedSite('gs-prospect', 'queued', { prospectId: prospect.id }) // newest row
+    const status = await getQueueStatus()
+    expect(status.queued.map((q) => q.id)).toEqual([pAudit.id, older.id, mid.id])
+    expect(status.queued.map((q) => q.position)).toEqual([1, 2, 3])
   })
 })
