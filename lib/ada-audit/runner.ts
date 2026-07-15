@@ -28,6 +28,9 @@ const AXE_PATH = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js')
 const HERO_VIEWPORT = { width: 1440, height: 900, deviceScaleFactor: 2 }
 const DEFAULT_VIEWPORT = { width: 800, height: 600, deviceScaleFactor: 1 }
 const HERO_CAPTURE_SETTLE_MS = parsePositiveIntEnv(process.env.HERO_CAPTURE_SETTLE_MS, 2500)
+// Bound on the pre-capture scroll nudge (≈10 viewport heights, ~1s at 100ms
+// each) so the loop can never approach the site-audit-page job timeout.
+const HERO_SCROLL_MAX_STEPS = 10
 
 function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10)
@@ -202,18 +205,21 @@ export async function runAxeAudit(
       if (!options?.captureHeroScreenshot || options?.renderOnly) return null
       try {
         await page.setViewport(HERO_VIEWPORT)
-        // Scroll the full document in viewport-height steps (triggers
-        // IntersectionObserver / lazy loaders), then return to the top so the
-        // capture frames the hero.
-        await page.evaluate(async () => {
+        // Nudge the page in viewport-height steps to trigger IntersectionObserver
+        // / lazy loaders, then return to the top so the capture frames the hero.
+        // Hard-bounded (steps AND per-step delay) so an unusually tall or
+        // adversarial homepage can't run the loop past the job timeout while
+        // holding a pooled page — a handful of steps covers all above/near-fold
+        // content, which is all a viewport (fullPage:false) capture needs.
+        await page.evaluate(async (maxSteps: number) => {
           const step = Math.max(window.innerHeight, 1)
           const max = Math.max(document.body?.scrollHeight ?? 0, step)
-          for (let y = 0; y < max; y += step) {
+          for (let i = 0, y = 0; i < maxSteps && y < max; i++, y += step) {
             window.scrollTo(0, y)
-            await new Promise((r) => setTimeout(r, 120))
+            await new Promise((r) => setTimeout(r, 100))
           }
           window.scrollTo(0, 0)
-        })
+        }, HERO_SCROLL_MAX_STEPS)
         // Let images kicked off by the scroll finish, then hold for animations.
         await postLoadSettle(page, { idleTime: 500, timeout: 4_000 })
         await sleep(HERO_CAPTURE_SETTLE_MS)
