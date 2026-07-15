@@ -16,9 +16,9 @@ const BAR_GRADE: Record<Grade, string> = {
 
 function Tile(props: { label: string; value: string; grade: Grade; pct: number | null }) {
   return (
-    <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-md p-6 text-center">
-      <div className={`text-5xl font-heading font-extrabold tracking-tight tabular-nums ${TILE_GRADE[props.grade]}`}>{props.value}</div>
-      <div className="mt-2 text-[13px] font-body font-medium text-navy/60 dark:text-white/60">{props.label}</div>
+    <div className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-md p-5 sm:p-6 text-center">
+      <div className={`text-4xl sm:text-5xl font-heading font-extrabold tracking-tight tabular-nums ${TILE_GRADE[props.grade]}`}>{props.value}</div>
+      <div className="mt-2 text-[12px] sm:text-[13px] font-body font-medium text-navy/60 dark:text-white/60">{props.label}</div>
       {props.pct !== null && (
         <div className="mt-4">
           <UrgencyBar value={props.pct} max={100} colorClass={BAR_GRADE[props.grade]} ariaLabel={`${props.label}: ${props.pct} out of 100`} />

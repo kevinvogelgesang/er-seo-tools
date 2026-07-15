@@ -35,8 +35,8 @@ export function SalesReportHeader(props: {
         scrolled ? 'py-2' : 'py-4'
       } print:py-4`}
     >
-      <div className="max-w-7xl mx-auto px-6 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4 min-w-0">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           {/* Real asset is a WHITE-on-transparent PNG (ER's site is dark-themed
               and only publishes white logos). brightness-0 = black silhouette
               on the white light-mode header; dark:brightness-100 = unchanged
@@ -45,28 +45,33 @@ export function SalesReportHeader(props: {
           <img
             src="/er-logo.png"
             alt="Enrollment Resources"
-            className={`w-auto transition-all duration-300 brightness-0 dark:brightness-100 print:h-10 ${
-              scrolled ? 'h-7' : 'h-10'
+            className={`w-auto shrink-0 transition-all duration-300 brightness-0 dark:brightness-100 print:h-10 ${
+              scrolled ? 'h-6 sm:h-7' : 'h-8 sm:h-10'
             }`}
           />
           <div className="min-w-0">
             <p
-              className={`font-heading font-bold text-navy dark:text-white transition-all duration-300 ${
-                scrolled ? 'text-sm' : 'text-lg'
+              className={`font-heading font-bold text-navy dark:text-white leading-tight transition-all duration-300 ${
+                scrolled ? 'text-sm' : 'text-base sm:text-lg'
               } print:text-lg`}
             >
               Website Audit Report
             </p>
-            <p className="text-[12px] font-body text-navy/50 dark:text-white/50 truncate">
-              Prepared for {props.prospectName} · {props.domain} ·{' '}
-              {props.preparedBy ? `By ${props.preparedBy} @ Enrollment Resources` : 'By Enrollment Resources'}
+            {/* Full provenance on sm+; just the domain on phones so the header
+                row stays one clean line next to the button. */}
+            <p className="text-[11px] sm:text-[12px] font-body text-navy/50 dark:text-white/50 truncate">
+              <span className="sm:hidden">{props.domain}</span>
+              <span className="hidden sm:inline">
+                Prepared for {props.prospectName} · {props.domain} ·{' '}
+                {props.preparedBy ? `By ${props.preparedBy} @ Enrollment Resources` : 'By Enrollment Resources'}
+              </span>
             </p>
           </div>
         </div>
         <button
           type="button"
           onClick={bookReview}
-          className="shrink-0 rounded-full bg-blue-700 hover:bg-blue-800 text-white font-heading font-semibold text-[13px] px-4 py-2 print:hidden"
+          className="shrink-0 whitespace-nowrap rounded-full bg-blue-700 hover:bg-blue-800 text-white font-heading font-semibold text-[12px] sm:text-[13px] px-3 sm:px-4 py-2 print:hidden"
         >
           Book a review
         </button>

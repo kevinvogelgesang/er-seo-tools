@@ -34,16 +34,16 @@ export function SectionCard(props: {
   return (
     <section className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm">
       <details open={props.defaultOpen}>
-        <summary className="cursor-pointer list-none p-6 flex items-start justify-between gap-4">
-          <div>
+        <summary className="cursor-pointer list-none p-5 sm:p-6 flex items-start justify-between gap-3 sm:gap-4">
+          <div className="min-w-0">
             <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white mb-1">{props.title}</h2>
             <p className="text-[13px] font-body text-navy/50 dark:text-white/50">{props.headline}</p>
           </div>
-          <span className={`shrink-0 rounded-full px-3 py-1 text-[12px] font-heading font-semibold ${GRADE_CLASSES[props.grade]}`}>
+          <span className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-heading font-semibold ${GRADE_CLASSES[props.grade]}`}>
             {props.gradeLabel}
           </span>
         </summary>
-        <div className="px-6 pb-6 space-y-4">{props.children}</div>
+        <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-4">{props.children}</div>
       </details>
     </section>
   )
