@@ -73,3 +73,6 @@ dist/
 .smoke-reports/
 test-results/
 playwright-report/
+
+# Playwright MCP session artifacts
+.playwright-mcp/

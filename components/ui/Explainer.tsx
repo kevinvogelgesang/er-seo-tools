@@ -1,41 +1,60 @@
 'use client'
 
-// components/ui/Explainer.tsx — reusable inline explanation disclosure (2026-07-14 spec).
+// components/ui/Explainer.tsx — reusable inline-triggered FLOATING HOVER CARD
+// (2026-07-15 redesign; supersedes the inline-disclosure version).
 //
-// One consistent home for "what does this measure / how is this computed" prose:
-// a button trigger (label + rotating chevron) that expands an inline panel.
-// Structured subcomponents mirror the "Social Style" mock's visual language
-// (summary paragraph, tag chips, two-column do/don't lists, flagged footer note)
-// WITHOUT its popover behavior — expansion is inline, below the trigger.
+// A small circled-ⓘ button that, on hover / keyboard-focus / tap, opens a
+// floating card of STATIC explanatory prose ("what does this measure / how is
+// this computed"). Structured subcomponents mirror the "Social Style" mock's
+// visual language (summary paragraph, tag chips, two-column do/don't lists,
+// flagged footer note).
 //
-// Accessibility contract (Codex fixes 1):
-//  - `aria-expanded` on the trigger, `aria-controls` wired via useId()
-//    (unique + hydration-safe).
-//  - Collapsed panel is `aria-hidden` AND `inert` (React 19 boolean prop) so
-//    links/buttons inside the zero-height grid can never receive keyboard
-//    focus. The panel stays mounted (the grid-rows animation needs real
-//    content height), but it is removed from both the a11y tree and the tab
-//    order.
-//  - Safari 14 fallback: native `inert` is not reliable there and aria-hidden
-//    alone does NOT block keyboard focus, so the collapsed panel ALSO gets
-//    Tailwind's `invisible` (visibility:hidden) — visibility removes the
-//    subtree from the tab order everywhere. visibility transitions
-//    discretely, so content text disappears at the start of the collapse
-//    while the 200ms grid clip still animates; accepted tradeoff.
-//  - Animation: grid-template-rows 0fr→1fr wrapped in motion-safe: variants —
-//    prefers-reduced-motion users get an instant toggle.
+// Design contract (spec 2026-07-15, Codex-reviewed):
+//  - STRICTLY NON-INTERACTIVE content. No links/buttons/inputs inside — only
+//    prose, chips, ✓/✗ lists, notes, and static tables. This keeps
+//    role="tooltip" semantically valid (WAI: tooltips must not contain
+//    focusable content) and makes hover-dismiss safe. Interactive content
+//    would need a separate non-modal-dialog popover with focus management.
+//  - Positioning: @floating-ui/react with offset/flip/shift/size/arrow +
+//    autoUpdate. `size` caps the card to the viewport (long tables scroll)
+//    since flip/shift reposition but never shrink.
+//  - Interaction: useHover(mouseOnly + safePolygon so the cursor can cross the
+//    gap into the card) + useFocus(visibleOnly, the a11y path) +
+//    useClick(stickIfOpen, the tap/pin path) + useDismiss (Esc/outside).
+//  - Positioning transform (outer element) is kept separate from the entrance
+//    animation (inner element), per Floating UI guidance.
+//  - Closed = genuinely unmounted (entrance-only animation, no exit
+//    transition), so there is no hidden-focus concern.
 //
-// House rule (Codex fix 2, spec §"methodology-vs-operational-truth"): only
-// STATIC explanatory prose belongs inside an Explainer. Status lines, errors,
+// House rule (spec §methodology-vs-operational-truth): ONLY invariant
+// methodology prose belongs inside a card. Run-specific status, errors,
 // freshness lines, coverage/truncation warnings, and honesty qualifiers must
 // stay visible in the adopting surface at all times.
 //
-// No state beyond useState(open), no fetches, no context — safe on public
-// token-gated pages and inside server-component trees (RSC children pattern).
+// No fetches, no context — safe on public token-gated pages and inside
+// server-component trees (RSC children pattern).
 
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
+import {
+  useFloating,
+  autoUpdate,
+  offset,
+  flip,
+  shift,
+  size,
+  arrow,
+  useHover,
+  useFocus,
+  useClick,
+  useDismiss,
+  useRole,
+  useInteractions,
+  safePolygon,
+  FloatingPortal,
+  FloatingArrow,
+} from '@floating-ui/react'
 
-function ChevronIcon({ className }: { className?: string }) {
+function InfoIcon({ className }: { className?: string }) {
   return (
     <svg
       aria-hidden
@@ -47,7 +66,9 @@ function ChevronIcon({ className }: { className?: string }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M6 9l6 6 6-6" />
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
     </svg>
   )
 }
@@ -72,53 +93,107 @@ function FlagIcon({ className }: { className?: string }) {
 
 export function Explainer({
   label,
+  title,
   children,
-  defaultOpen = false,
-  variant = 'plain',
   className = '',
 }: {
+  /** Accessible name of the ⓘ trigger (aria-label). Not rendered as text. */
   label: string
+  /** Optional bold heading at the top of the floating card. */
+  title?: string
+  /** Non-interactive content — the subcomponents below or static prose/tables. */
   children: React.ReactNode
-  defaultOpen?: boolean
-  /** 'card' = bordered rounded panel for standalone placement; 'plain' = borderless for embedding inside an existing card. */
-  variant?: 'card' | 'plain'
+  /** Applied to the trigger button, e.g. for placement next to a heading. */
   className?: string
 }) {
-  const [open, setOpen] = useState(defaultOpen)
-  const panelId = useId()
-  const chrome =
-    variant === 'card'
-      ? 'bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-xl px-4 py-3'
-      : ''
+  const [open, setOpen] = useState(false)
+  const arrowRef = useRef<SVGSVGElement>(null)
+  const titleId = useId()
+
+  const { refs, floatingStyles, context } = useFloating({
+    open,
+    onOpenChange: setOpen,
+    placement: 'bottom',
+    whileElementsMounted: autoUpdate,
+    middleware: [
+      offset(8),
+      flip({ padding: 8 }),
+      shift({ padding: 8 }),
+      size({
+        padding: 8,
+        apply({ availableWidth, availableHeight, elements }) {
+          Object.assign(elements.floating.style, {
+            maxWidth: `${Math.min(360, availableWidth)}px`,
+            maxHeight: `${Math.max(0, availableHeight)}px`,
+          })
+        },
+      }),
+      arrow({ element: arrowRef }),
+    ],
+  })
+
+  const hover = useHover(context, {
+    mouseOnly: true,
+    move: false,
+    delay: { open: 120, close: 80 },
+    handleClose: safePolygon(),
+  })
+  const focus = useFocus(context, { visibleOnly: true })
+  const click = useClick(context, { stickIfOpen: true })
+  const dismiss = useDismiss(context)
+  const role = useRole(context, { role: 'tooltip' })
+  const { getReferenceProps, getFloatingProps } = useInteractions([
+    hover,
+    focus,
+    click,
+    dismiss,
+    role,
+  ])
+
   return (
-    <div className={`${chrome} ${className}`.trim()}>
+    <>
       <button
         type="button"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 rounded-sm text-[12px] font-body font-semibold text-navy/60 dark:text-white/60 hover:text-navy dark:hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        ref={refs.setReference}
+        aria-label={label}
+        {...getReferenceProps()}
+        className={`inline-flex items-center justify-center rounded-full p-1.5 min-h-7 min-w-7 align-middle text-navy/40 dark:text-white/40 hover:text-navy dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors ${className}`.trim()}
       >
-        {label}
-        <ChevronIcon
-          className={`w-3.5 h-3.5 motion-safe:transition-transform motion-safe:duration-200 ${open ? 'rotate-180' : ''}`}
-        />
+        <InfoIcon className="w-4 h-4" />
       </button>
-      <div
-        className={`grid motion-safe:transition-[grid-template-rows] motion-safe:duration-200 motion-safe:ease-out ${
-          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-        }`}
-      >
-        <div
-          id={panelId}
-          aria-hidden={open ? undefined : true}
-          inert={!open}
-          className={`min-h-0 overflow-hidden ${open ? '' : 'invisible'}`.trim()}
-        >
-          <div className="pt-2 pb-1 space-y-3">{children}</div>
-        </div>
-      </div>
-    </div>
+      {open && (
+        <FloatingPortal>
+          {/* Outer element carries the positioning transform. */}
+          <div
+            ref={refs.setFloating}
+            style={floatingStyles}
+            {...getFloatingProps()}
+            className="z-50"
+          >
+            {/* Inner element carries the entrance animation (kept separate). */}
+            <div
+              aria-labelledby={title ? titleId : undefined}
+              className="motion-safe:animate-explainer-in max-w-sm overflow-y-auto rounded-xl border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card shadow-lg px-4 py-3"
+            >
+              <FloatingArrow
+                ref={arrowRef}
+                context={context}
+                className="fill-white dark:fill-navy-card [&>path:first-of-type]:stroke-gray-200 dark:[&>path:first-of-type]:stroke-navy-border"
+              />
+              {title && (
+                <p
+                  id={titleId}
+                  className="font-heading font-semibold text-[13px] text-navy dark:text-white mb-2"
+                >
+                  {title}
+                </p>
+              )}
+              <div className="space-y-3">{children}</div>
+            </div>
+          </div>
+        </FloatingPortal>
+      )}
+    </>
   )
 }
 
@@ -151,7 +226,13 @@ interface ExplainerColumn {
   items: string[]
 }
 
-export function ExplainerColumns({ good, bad }: { good: ExplainerColumn; bad: ExplainerColumn }) {
+export function ExplainerColumns({
+  good,
+  bad,
+}: {
+  good: ExplainerColumn
+  bad: ExplainerColumn
+}) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div>
