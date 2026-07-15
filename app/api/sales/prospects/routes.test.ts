@@ -144,4 +144,30 @@ describe('DELETE /api/sales/prospects/[id]', () => {
       await fs.rm(heroDir, { recursive: true, force: true })
     }
   })
+
+  it('PR3 Codex P2: demotes a still-queued discover job to priority 0 when its audit loses prospect ownership', async () => {
+    const p = await prisma.prospect.create({ data: { name: 'Demote', domain: `${PREFIX}demote.test` } })
+    const a = await prisma.siteAudit.create({
+      data: { domain: `${PREFIX}demote.test`, wcagLevel: 'wcag21aa', status: 'queued', prospectId: p.id },
+    })
+    // Simulates the stamp processNext gives a prospect-owned audit's discover
+    // job (lib/ada-audit/queue-manager.ts) — still unclaimed when the
+    // prospect is deleted.
+    const job = await prisma.job.create({
+      data: {
+        type: 'site-audit-discover',
+        payload: JSON.stringify({ siteAuditId: a.id }),
+        status: 'queued',
+        groupKey: `site-audit:${a.id}`,
+        dedupKey: `discover:${a.id}`,
+        priority: 1,
+      },
+    })
+    const r = await prospectDelete(req(`/api/sales/prospects/${p.id}`, 'DELETE'), params(p.id))
+    expect(r.status).toBe(200)
+    expect((await prisma.siteAudit.findUnique({ where: { id: a.id } }))?.prospectId).toBeNull()
+    expect((await prisma.job.findUnique({ where: { id: job.id } }))?.priority).toBe(0)
+    await prisma.job.delete({ where: { id: job.id } })
+    await prisma.siteAudit.delete({ where: { id: a.id } })
+  })
 })
