@@ -1,7 +1,7 @@
 // components/site-audit/ContentSignalsSection.tsx
 // C12: read-time stale-date + readability signals. Reads the SAME live-scan CrawlRun
 // as the sibling measurement sections, from contentSignalsJson. Measurement, NOT a finding.
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/components/ui/Explainer'
 
 interface StaleDateHit { kind: 'copyright' | 'term' | 'deadline'; year: number; excerpt: string }
 interface StaleDatePage { url: string; hits: StaleDateHit[] }
@@ -22,25 +22,31 @@ const KIND_LABEL: Record<string, string> = { copyright: 'Copyright', term: 'Term
 
 const NOT_ANALYZED = 'Content signals were not analyzed for this audit.'
 
-function SignalsExplainer() {
+function SignalsHeader() {
   return (
-    <Explainer label="What does this measure?" className="mt-1">
-      <ExplainerSummary>
-        Two read-time signals from each page&apos;s main text: stale date references (old copyright
-        years, past terms or semesters, and passed enrollment deadlines — a bare year on its own
-        never flags) and Flesch readability (reading ease and U.S. grade level, calibrated for
-        English prose). Only the first 30,000 characters of a page&apos;s main content are examined.
-        Measurement only — no score impact.
-      </ExplainerSummary>
-    </Explainer>
+    <div className="flex items-center gap-1">
+      <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content signals</h3>
+      <Explainer label="What do content signals check?" title="Content signals">
+        <ExplainerSummary>
+          Two read-time signals from each page&apos;s main text: stale date references (old copyright
+          years, past terms or semesters, and passed enrollment deadlines — a bare year on its own
+          never flags) and Flesch readability (reading ease and U.S. grade level, calibrated for
+          English prose).
+        </ExplainerSummary>
+        <ExplainerTags tags={['Copyright years', 'Past terms', 'Passed deadlines', 'Readability']} />
+        <ExplainerNote>
+          Only the first 30,000 characters of a page&apos;s main content are examined. Measurement
+          only — no score impact.
+        </ExplainerNote>
+      </Explainer>
+    </div>
   )
 }
 
 function NotAnalyzed() {
   return (
     <section className="mt-6 rounded-lg bg-white dark:bg-navy-card p-4 border border-gray-200 dark:border-navy-border">
-      <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content signals</h3>
-      <SignalsExplainer />
+      <SignalsHeader />
       <p className="mt-2 text-sm text-gray-600 dark:text-white/60">{NOT_ANALYZED}</p>
     </section>
   )
@@ -81,8 +87,7 @@ export function ContentSignalsSection({ run }: { run: { contentSignalsJson: stri
 
   return (
     <section className="mt-6 rounded-lg bg-white dark:bg-navy-card p-4 border border-gray-200 dark:border-navy-border">
-      <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content signals</h3>
-      <SignalsExplainer />
+      <SignalsHeader />
 
       {clean ? (
         <p className="mt-2 text-sm text-gray-600 dark:text-white/60">No stale date references detected.</p>

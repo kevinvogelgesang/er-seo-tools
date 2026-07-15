@@ -43,7 +43,17 @@ let writeText: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   writeText = vi.fn(async () => {});
-  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+  // Spread drops navigator's prototype getters (platform/vendor/userAgent/
+  // maxTouchPoints); @floating-ui (used by the card's Explainer) reads them on
+  // mount, so carry them through explicitly.
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    platform: navigator.platform,
+    vendor: navigator.vendor,
+    userAgent: navigator.userAgent,
+    maxTouchPoints: navigator.maxTouchPoints,
+    clipboard: { writeText },
+  });
   vi.stubGlobal('fetch', vi.fn());
   __reset();
 });

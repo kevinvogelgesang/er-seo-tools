@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { ResultsView } from './ResultsView'
 import type { AggregatedResult } from '@/lib/types'
@@ -38,7 +39,8 @@ const SID = '00000000-0000-4000-8000-000000000000'
 afterEach(cleanup)
 
 describe('ResultsView health-score card', () => {
-  it('renders a ScoreRing with the value and keeps the score explanation when healthScore is set', () => {
+  it('renders a ScoreRing with the value and keeps the score explanation when healthScore is set', async () => {
+    const user = userEvent.setup()
     render(
       <ResultsView
         result={baseResult}
@@ -49,9 +51,11 @@ describe('ResultsView health-score card', () => {
     )
     // ScoreRing renders role="img" with aria-label "score 87"
     expect(screen.getByRole('img', { name: /score 87/i })).toBeTruthy()
-    // The existing label + explanation (parsed from JSON) still render inside the card
     expect(screen.getByText(/SEO health score/i)).toBeTruthy()
-    expect(screen.getByText(/How this score is calculated/i)).toBeTruthy()
+    // The explanation is behind the ⓘ hover-card trigger; open it to see the factors.
+    const trigger = screen.getByRole('button', { name: /How this score is calculated/i })
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
     expect(screen.getByText('Indexability')).toBeTruthy()
   })
 

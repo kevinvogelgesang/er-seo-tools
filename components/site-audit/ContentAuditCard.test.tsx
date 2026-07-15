@@ -9,6 +9,7 @@
 // can land from a different tab/session before this tab has minted a token,
 // or after findings already loaded (last-writer-wins allows a later PATCH to
 // replace them).
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
 

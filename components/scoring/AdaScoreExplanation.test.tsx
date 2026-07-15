@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import '../../test/setup-jsdom-observers'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, afterEach } from 'vitest'
 import { AdaScoreExplanation } from './AdaScoreExplanation'
 
@@ -20,10 +22,12 @@ const v4 = JSON.stringify({
 })
 
 describe('AdaScoreExplanation', () => {
-  it('renders the deduction invoice for a v4 breakdown behind the Explainer trigger', () => {
+  it('renders the deduction invoice for a v4 breakdown behind the Explainer trigger', async () => {
+    const user = userEvent.setup()
     render(<AdaScoreExplanation breakdown={v4} />)
     const trigger = screen.getByRole('button', { name: 'How this score is calculated' })
-    fireEvent.click(trigger)
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
     expect(screen.getByText(/−12/)).toBeTruthy()
     expect(screen.getByText(/image-alt/)).toBeTruthy()
     expect(screen.getByText(/61 of 204 pages/)).toBeTruthy()
@@ -36,10 +40,9 @@ describe('AdaScoreExplanation', () => {
     const { container: c3 } = render(<AdaScoreExplanation breakdown={null} />)
     expect(c3.textContent).toBe('')
   })
-  it('shows the partial-coverage qualifier when lowCoverage', () => {
+  it('shows the partial-coverage qualifier (rendered OUTSIDE the card, no click needed)', () => {
     const low = JSON.parse(v4); low.lowCoverage = true; low.inputsSummary.pagesAudited = 80
     render(<AdaScoreExplanation breakdown={JSON.stringify(low)} />)
-    fireEvent.click(screen.getByRole('button', { name: 'How this score is calculated' }))
     expect(screen.getByText(/partial coverage — 80 of 204 pages scored/i)).toBeTruthy()
   })
   it('renders nothing (no throw) for a v4-tagged blob missing inputsSummary/contributions', () => {

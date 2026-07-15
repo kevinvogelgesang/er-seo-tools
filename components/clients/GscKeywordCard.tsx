@@ -14,7 +14,7 @@
 import { useState } from 'react'
 import type { GscSnapshotSummary } from '@/lib/keywords/gsc-snapshot'
 import { SeverityBadge } from '@/components/ui/SeverityBadge'
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/components/ui/Explainer'
 
 interface Props {
   clientId: number
@@ -69,7 +69,22 @@ export function GscKeywordCard({ clientId, initial }: Props) {
   return (
     <div className="bg-white dark:bg-navy-card rounded-xl border border-gray-200 dark:border-navy-border p-5 mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">GSC keyword snapshot</h2>
+        <div className="flex items-center gap-1">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">GSC keyword snapshot</h2>
+          <Explainer label="What is the GSC keyword snapshot?" title="GSC Keyword Snapshot">
+            <ExplainerSummary>
+              Ranking signals pulled from Google Search Console over a trailing 91-day window ending
+              three days back: wins (average position in the top 10), opportunities (positions 11–30),
+              quick wins (positions 11–20), and queries where two or more pages split the same
+              query&apos;s impressions (cannibalization).
+            </ExplainerSummary>
+            <ExplainerTags tags={['Google Search Console', 'Trailing 91 days']} />
+            <ExplainerNote>
+              A keyword that doesn&apos;t appear was simply not reported by GSC in this window — never
+              proof the site isn&apos;t ranking for it.
+            </ExplainerNote>
+          </Explainer>
+        </div>
         {initial.gscMapped && (
           <button
             type="button"
@@ -81,16 +96,6 @@ export function GscKeywordCard({ clientId, initial }: Props) {
           </button>
         )}
       </div>
-
-      <Explainer label="What is this?" className="mb-3">
-        <ExplainerSummary>
-          Ranking signals pulled from Google Search Console over a trailing 91-day window ending
-          three days back: wins (average position in the top 10), opportunities (positions 11–30),
-          quick wins (positions 11–20), and queries where two or more pages split the same
-          query&apos;s impressions (cannibalization). A keyword that does not appear was simply not
-          reported by GSC in the window — never proof the site isn&apos;t ranking for it.
-        </ExplainerSummary>
-      </Explainer>
 
       {!initial.gscMapped && (
         <p className="text-xs text-gray-500 dark:text-white/50">

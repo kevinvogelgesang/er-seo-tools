@@ -1,22 +1,24 @@
 // @vitest-environment jsdom
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ScoreExplanation } from './ScoreExplanation'
 
 afterEach(cleanup)
 
 const bd = JSON.stringify({ version: 1, scorer: 'health', score: 72, factors: [{ key: 'indexability', label: 'Indexability', weight: 20, earned: 18, possible: 20 }] })
 describe('ScoreExplanation', () => {
-  it('renders a collapsed Explainer trigger and factor rows on expand', () => {
+  it('opens the hover card and shows factor rows', async () => {
+    const user = userEvent.setup()
     render(<ScoreExplanation breakdown={bd} />)
     const trigger = screen.getByRole('button', { name: 'How this score is calculated' })
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(trigger)
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
     expect(screen.getByText('Indexability')).toBeTruthy()
     expect(screen.getByText(/Weights as scored/)).toBeTruthy()
   })
-  it('renders unavailable for null (fallback stays OUTSIDE the disclosure — no trigger)', () => {
+  it('renders unavailable for null (fallback stays OUTSIDE the card — no trigger)', () => {
     render(<ScoreExplanation breakdown={null} />)
     expect(screen.getByText(/unavailable/i)).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()

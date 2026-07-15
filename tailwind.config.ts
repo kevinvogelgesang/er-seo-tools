@@ -53,6 +53,10 @@ const config: Config = {
           '0%': { transform: 'translateX(-8px)', opacity: '0' },
           '100%': { transform: 'translateX(0)', opacity: '1' },
         },
+        explainerIn: {
+          '0%': { opacity: '0', transform: 'scale(0.96)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
       },
       animation: {
         'fade-up': 'fadeUp 0.5s ease-out forwards',
@@ -61,6 +65,7 @@ const config: Config = {
         'fade-up-delay-3': 'fadeUp 0.5s ease-out 0.3s forwards',
         'fade-up-delay-4': 'fadeUp 0.5s ease-out 0.4s forwards',
         'fade-in': 'fadeIn 0.4s ease-out forwards',
+        'explainer-in': 'explainerIn 120ms ease-out',
       },
     },
   },

@@ -8,21 +8,30 @@
 import type { BrokenLinksRun } from './BrokenLinksSection'
 import { ScoreExplanation } from '@/components/scoring/ScoreExplanation'
 import { ONPAGE_FINDING_LABELS as ONPAGE_LABEL, ONPAGE_FINDING_TYPE_SET as ONPAGE_TYPES } from '@/lib/findings/finding-type-sets'
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerColumns, ExplainerNote } from '@/components/ui/Explainer'
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <section className="bg-white dark:bg-navy-card border border-gray-200 dark:border-navy-border rounded-2xl shadow-sm p-6">
-      <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white mb-1">On-page SEO</h2>
-      <Explainer label="What does this measure?" className="mb-3">
-        <ExplainerSummary>
-          On-page fundamentals read from the fully rendered pages: missing or duplicate titles,
-          meta descriptions and H1s, plus thin content — evaluated over indexable HTML pages only
-          (redirects, errors, noindex and login-style pages are skipped). The live SEO score weighs
-          these signals together with crawl coverage; duplicate counts are groups of pages sharing
-          a value, matching Screaming Frog semantics.
-        </ExplainerSummary>
-      </Explainer>
+      <div className="flex items-center gap-1 mb-3">
+        <h2 className="text-[15px] font-heading font-semibold text-navy dark:text-white">On-page SEO</h2>
+        <Explainer label="What is on-page SEO checking?" title="On-page SEO">
+          <ExplainerSummary>
+            On-page fundamentals read from the fully rendered pages — the title, meta description,
+            H1 and body content that tell search engines what each page is about.
+          </ExplainerSummary>
+          <ExplainerTags tags={['Titles', 'Meta descriptions', 'H1 headings', 'Thin content', 'Duplicates']} />
+          <ExplainerColumns
+            good={{ label: 'Do', items: ['One unique, descriptive title per page', 'A distinct meta description', 'Exactly one H1', 'Enough substantive content'] }}
+            bad={{ label: 'Avoid', items: ['Reusing a title or meta across pages', 'Missing or empty H1s', 'Thin, near-empty pages'] }}
+          />
+          <ExplainerNote>
+            Evaluated over indexable HTML pages only — redirects, errors, noindex and login-style
+            pages are skipped. Duplicate counts are groups of pages sharing a value, matching
+            Screaming Frog semantics.
+          </ExplainerNote>
+        </Explainer>
+      </div>
       {children}
     </section>
   )

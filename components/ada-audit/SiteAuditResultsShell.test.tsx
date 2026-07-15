@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 // ONE stable searchParams instance + router (C17 gotcha): returning a fresh
 // object each render would refire the shell's sync-effect and clobber clicks.
@@ -58,7 +59,7 @@ describe('SiteAuditResultsShell (C18)', () => {
 
   // C19 PR1 Task 5: the explanation panel is internal-only — the share page
   // never passes adaScoreBreakdown, so it must render nothing there.
-  it('renders the ADA score explanation invoice when adaScoreBreakdown is provided', () => {
+  it('renders the ADA score explanation invoice when adaScoreBreakdown is provided', async () => {
     const breakdown = JSON.stringify({
       version: 4, scorer: 'ada-v4', score: 76, weightsHash: 'abc123', lowCoverage: false,
       deductions: [
@@ -69,13 +70,16 @@ describe('SiteAuditResultsShell (C18)', () => {
       inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
     })
     render(<SiteAuditResultsShell {...base} adaScoreBreakdown={breakdown} />)
-    expect(screen.getByText(/How this score is calculated/i)).toBeTruthy()
+    const trigger = screen.getByRole('button', { name: /How this score is calculated/i })
+    // The invoice detail lives inside the ⓘ hover card; open it to assert.
+    await userEvent.setup().click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
     expect(screen.getByText(/image-alt/)).toBeTruthy()
   })
 
   it('omits the ADA score explanation when adaScoreBreakdown is not provided (share mode)', () => {
     render(<SiteAuditResultsShell {...base} />)
-    expect(screen.queryByText(/How this score is calculated/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /How this score is calculated/i })).toBeNull()
   })
 
   it('omits the ADA score explanation in shareMode even if adaScoreBreakdown is (mis)provided', () => {
@@ -89,6 +93,6 @@ describe('SiteAuditResultsShell (C18)', () => {
       inputsSummary: { pagesAudited: 204, pagesTotal: 204, meanIncomplete: 0.4 },
     })
     render(<SiteAuditResultsShell {...base} shareMode adaScoreBreakdown={breakdown} />)
-    expect(screen.queryByText(/How this score is calculated/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /How this score is calculated/i })).toBeNull()
   })
 })

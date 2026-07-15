@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+import '../../test/setup-jsdom-observers'
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { TopicOverlapSection } from './TopicOverlapSection'
 
 afterEach(cleanup)
@@ -43,5 +45,16 @@ describe('TopicOverlapSection', () => {
     render(<TopicOverlapSection run={{ topicOverlapJson: json }} />)
     expect(screen.getAllByText(/and 3 more/i).length).toBeGreaterThan(0)          // size 5 − 2 shown
     expect(screen.getAllByText(/showing the largest/i).length).toBeGreaterThan(0) // clustersCapped notice
+  })
+
+  it('renders methodology behind a hover-card Explainer', async () => {
+    const user = userEvent.setup()
+    render(<TopicOverlapSection run={{ topicOverlapJson: null }} />)
+    const trigger = screen.getByRole('button', { name: 'How is topic overlap detected?' })
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(screen.getAllByText(/not analyzed/i).length).toBeGreaterThan(0)
+    await user.click(trigger)
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeTruthy())
+    expect(screen.getByText(/embedded locally/i)).toBeTruthy()
   })
 })

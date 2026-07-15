@@ -21,7 +21,7 @@ import { useCallback, useRef, useState, useEffect } from 'react';
 import { useMemoPoller } from '@/components/handoff/useMemoPoller';
 import { composeKeywordStrategyPayload } from '@/lib/keyword-strategy-prompt';
 import { KeywordMemoMarkdown } from '@/components/keyword-research/KeywordMemoMarkdown';
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer';
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/components/ui/Explainer';
 
 export interface KeywordStrategySessionInit {
   id: string;
@@ -191,7 +191,23 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
     <div className="bg-white dark:bg-navy-card rounded-xl border border-gray-200 dark:border-navy-border p-5 mb-6">
       <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
         <div className="flex flex-col gap-0.5">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">Keyword Strategy</h2>
+          <div className="flex items-center gap-1">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">Keyword Strategy</h2>
+            <Explainer label="What is the keyword strategy handoff?" title="Keyword Strategy">
+              <ExplainerSummary>
+                Builds a clipboard prompt that hands this client&apos;s data — keyword profile, Search
+                Console signals, page inventory, and audit findings — to the er-handoff-memo Claude
+                skill, which writes an eight-section keyword strategy document back into this card.
+                Search-volume lookups during that session use the profile&apos;s locale and are capped
+                per session.
+              </ExplainerSummary>
+              <ExplainerTags tags={['er-handoff-memo skill', 'Locale-scoped volume']} />
+              <ExplainerNote>
+                Regenerating starts a fresh session; the previous document stays visible until the new
+                one arrives.
+              </ExplainerNote>
+            </Explainer>
+          </div>
           {hasMemo && <UpdatedAt value={memoUpdatedAt} />}
         </div>
         <button
@@ -203,17 +219,6 @@ export function KeywordStrategyCard({ clientId, initialSession, readiness, archi
           {label}
         </button>
       </div>
-
-      <Explainer label="What is this?" className="mb-3">
-        <ExplainerSummary>
-          Builds a clipboard prompt that hands this client&apos;s data — keyword profile, Search
-          Console signals, page inventory, and audit findings — to the er-handoff-memo Claude
-          skill, which writes an eight-section keyword strategy document back into this card.
-          Search-volume lookups during that session use the profile&apos;s locale and are capped
-          per session. Regenerating starts a fresh session; the previous document remains until
-          the new one arrives.
-        </ExplainerSummary>
-      </Explainer>
 
       {hints.length > 0 && (
         <ul className="mb-3 space-y-0.5 text-[11px] text-gray-400 dark:text-white/40">

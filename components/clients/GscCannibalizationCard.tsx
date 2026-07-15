@@ -11,7 +11,7 @@
 
 import { useState } from 'react'
 import type { CannibalizationReport } from '@/lib/keywords/types'
-import { Explainer, ExplainerSummary } from '@/components/ui/Explainer'
+import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/components/ui/Explainer'
 
 type Report = CannibalizationReport['report']
 
@@ -61,7 +61,21 @@ export function GscCannibalizationCard({ clientId, initial }: Props) {
   return (
     <div className="bg-white dark:bg-navy-card rounded-xl border border-gray-200 dark:border-navy-border p-5 mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">GSC cannibalization report</h2>
+        <div className="flex items-center gap-1">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-white/80">GSC cannibalization report</h2>
+          <Explainer label="What is the cannibalization report?" title="GSC Cannibalization Report">
+            <ExplainerSummary>
+              The full keyword-cannibalization list from the latest Search Console snapshot: queries
+              where two or more pages each captured at least 20% of the query&apos;s impressions,
+              splitting click potential between them.
+            </ExplainerSummary>
+            <ExplainerTags tags={['Google Search Console', '≥20% impression share']} />
+            <ExplainerNote>
+              A query missing from this list wasn&apos;t seen splitting impressions across pages in
+              this window — not proof it can&apos;t be.
+            </ExplainerNote>
+          </Explainer>
+        </div>
         {gscMapped && (
           <button
             type="button"
@@ -73,16 +87,6 @@ export function GscCannibalizationCard({ clientId, initial }: Props) {
           </button>
         )}
       </div>
-
-      <Explainer label="What is this?" className="mb-3">
-        <ExplainerSummary>
-          The full keyword-cannibalization list from the latest Search Console snapshot: queries
-          where two or more pages each captured at least 20% of the query&apos;s impressions,
-          splitting click potential between them. Refreshing here pulls a fresh snapshot and
-          rebuilds this report independently of the keyword snapshot card above. A query missing
-          from this list wasn&apos;t seen splitting in the window — not proof it can&apos;t be.
-        </ExplainerSummary>
-      </Explainer>
 
       {!gscMapped && (
         <p className="text-xs text-gray-500 dark:text-white/50">

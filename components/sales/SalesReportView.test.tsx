@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import '../../test/setup-jsdom-observers'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { SalesReportView } from './SalesReportView'
