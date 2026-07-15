@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
 import { cancelJobsByGroup } from '@/lib/jobs/queue'
 import { deleteReportFile } from '@/lib/report/report-file'
+import { deleteHeroScreenshot } from '@/lib/sales/hero-screenshot'
 import type { AuditPdfRow, SiteAuditDetail } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-children-helpers'
@@ -186,6 +187,7 @@ export async function DELETE(
 
   const reportCleanup = await Promise.allSettled([
     deleteReportFile(id),
+    deleteHeroScreenshot(id), // C14 hero (spec Codex fix 3a): audit row gone ⇒ hero file gone
   ])
   for (const result of reportCleanup) {
     if (result.status === 'rejected') {

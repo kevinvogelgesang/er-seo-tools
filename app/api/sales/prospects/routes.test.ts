@@ -105,4 +105,43 @@ describe('DELETE /api/sales/prospects/[id]', () => {
     expect(r.status).toBe(404)
     expect(publishInvalidation).not.toHaveBeenCalled()
   })
+
+  it('C14 hero: snapshots audit ids, deletes hero files, and nulls homepageScreenshot', async () => {
+    const fs = await import('fs/promises')
+    const os = await import('os')
+    const path = await import('path')
+    const heroDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hero-del-'))
+    const prevEnv = process.env.HERO_SCREENSHOTS_DIR
+    process.env.HERO_SCREENSHOTS_DIR = heroDir
+    try {
+      const p = await prisma.prospect.create({ data: { name: 'HeroDel', domain: `${PREFIX}herodel.test` } })
+      const a = await prisma.siteAudit.create({
+        data: { domain: `${PREFIX}herodel.test`, wcagLevel: 'wcag21aa', status: 'complete', prospectId: p.id },
+      })
+      await prisma.siteAudit.update({ where: { id: a.id }, data: { homepageScreenshot: `${a.id}.png` } })
+      await fs.writeFile(path.join(heroDir, `${a.id}.png`), Buffer.from([1]))
+
+      // Interleaving case (plan Codex fix 2): a second audit whose publish
+      // wrote the FILE but has not stamped the column yet (column still null).
+      // The snapshot must cover ALL linked audits — not just stamped rows —
+      // so this file must be gone after the delete too.
+      const b = await prisma.siteAudit.create({
+        data: { domain: `${PREFIX}herodel.test`, wcagLevel: 'wcag21aa', status: 'complete', prospectId: p.id },
+      })
+      await fs.writeFile(path.join(heroDir, `${b.id}.png`), Buffer.from([2]))
+
+      const r = await prospectDelete(req(`/api/sales/prospects/${p.id}`, 'DELETE'), params(p.id))
+      expect(r.status).toBe(200)
+      const row = await prisma.siteAudit.findUnique({ where: { id: a.id } })
+      expect(row?.prospectId).toBeNull()          // SetNull unchanged
+      expect(row?.homepageScreenshot).toBeNull()  // column nulled
+      await expect(fs.access(path.join(heroDir, `${a.id}.png`))).rejects.toThrow() // stamped file gone
+      await expect(fs.access(path.join(heroDir, `${b.id}.png`))).rejects.toThrow() // UNSTAMPED file gone too
+      await prisma.siteAudit.deleteMany({ where: { id: { in: [a.id, b.id] } } })
+    } finally {
+      if (prevEnv === undefined) delete process.env.HERO_SCREENSHOTS_DIR
+      else process.env.HERO_SCREENSHOTS_DIR = prevEnv
+      await fs.rm(heroDir, { recursive: true, force: true })
+    }
+  })
 })
