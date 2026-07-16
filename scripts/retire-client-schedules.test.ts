@@ -54,9 +54,26 @@ describe('retireClientSchedules', () => {
     const auditB = await prisma.siteAudit.create({
       data: { domain: `${PREFIX}a.example.edu`, status: 'complete', wcagLevel: 'wcag21aa', scheduleId: sched.id, completedAt: new Date('2020-02-01T00:00:00Z') },
     })
+    // Third audit: OLDER than the 90-day weekly retention window AND beyond the
+    // keep-latest-2 floor. The prune predicate keys on createdAt (not just
+    // completedAt), so both are backdated — it must be DELETED by the prune
+    // before the schedule link is severed.
+    const auditC = await prisma.siteAudit.create({
+      data: {
+        domain: `${PREFIX}a.example.edu`,
+        status: 'complete',
+        wcagLevel: 'wcag21aa',
+        scheduleId: sched.id,
+        completedAt: new Date('2019-01-01T00:00:00Z'),
+        createdAt: new Date('2019-01-01T00:00:00Z'),
+      },
+    })
 
     const { retired } = await retireClientSchedules()
     expect(retired).toBeGreaterThanOrEqual(1)
+
+    // The out-of-window third audit was PRUNED (deleted), not merely SetNull'd.
+    expect(await prisma.siteAudit.findUnique({ where: { id: auditC.id } })).toBeNull()
 
     // Schedule row gone.
     expect(await prisma.schedule.findUnique({ where: { id: sched.id } })).toBeNull()

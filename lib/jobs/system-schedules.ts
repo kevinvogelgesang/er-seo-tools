@@ -19,7 +19,7 @@ import { STALE_AUDIT_RESET_JOB_TYPE } from './handlers/stale-audit-reset'
 import { DB_BACKUP_JOB_TYPE } from './handlers/db-backup'
 import { HEALTH_ALERT_JOB_TYPE } from './handlers/health-alert'
 import { ROBOTS_MONITOR_SWEEP_JOB_TYPE } from './handlers/robots-monitor-sweep'
-import { CLIENT_SWEEP_JOB_TYPE, SWEEP_DIGEST_JOB_TYPE } from '@/lib/sweep/types'
+import { CLIENT_SWEEP_JOB_TYPE, SWEEP_DIGEST_JOB_TYPE, SWEEP_CADENCE, SWEEP_DIGEST_CADENCE } from '@/lib/sweep/types'
 import { nextRun } from './scheduler'
 
 interface SystemScheduleDef {
@@ -50,11 +50,11 @@ export const SYSTEM_SCHEDULES: SystemScheduleDef[] = [
   // ahead of db-backup 08:00 / cleanup 09:00. Not immediate: the fan-out is a
   // heavy full-audit-per-client burst that must land on its intended slot, not
   // at deploy time.
-  { name: 'system-client-sweep', jobType: CLIENT_SWEEP_JOB_TYPE, cadence: 'weekly:1@01:00', immediate: false },
+  { name: 'system-client-sweep', jobType: CLIENT_SWEEP_JOB_TYPE, cadence: SWEEP_CADENCE, immediate: false },
   // D8: weekly digest — Monday 14:00 server-local, 13h after the 01:00 fan-out so
   // the audits have drained and their snapshots frozen. Not immediate: the digest
   // only makes sense once a real sweep has run on its slot.
-  { name: 'system-sweep-digest', jobType: SWEEP_DIGEST_JOB_TYPE, cadence: 'weekly:1@14:00', immediate: false },
+  { name: 'system-sweep-digest', jobType: SWEEP_DIGEST_JOB_TYPE, cadence: SWEEP_DIGEST_CADENCE, immediate: false },
 ]
 
 export async function seedSystemSchedules(now: Date = new Date()): Promise<void> {

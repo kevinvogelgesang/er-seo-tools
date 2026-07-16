@@ -141,6 +141,39 @@ describe('IssuesView', () => {
     expect(row!.className).toMatch(/opacity/)
   })
 
+  it('the "No longer detected this week (N)" summary uses totals.resolvedCount, not resolvedGroups.length', () => {
+    // Two resolved groups (one notice) but the canonical notice-filtered count is 1.
+    const resolved = {
+      clientId: 1,
+      clientName: 'Acme College',
+      domain: 'acme.edu',
+      tool: 'seo-parser' as const,
+      type: 'missing-title',
+      title: 'Missing title',
+      severity: 'warning' as const,
+      priorCount: 3,
+      unit: 'pages' as const,
+      siteAuditId: null,
+      liveScanRunId: null,
+    }
+    const payload = makePayload({
+      sweep: {
+        scheduledFor: '2026-07-12T00:00:00.000Z',
+        startedAt: '2026-07-12T01:00:00.000Z',
+        snapshotAt: '2026-07-12T02:00:00.000Z',
+        totals: makeTotals({ resolvedCount: 1 }),
+      },
+      resolvedGroups: [resolved, { ...resolved, type: 'thin', severity: 'notice' as const, title: 'Thin content' }],
+    })
+    render(<IssuesView payload={payload} />)
+    // summary count = canonical 1 (notice-filtered), NOT resolvedGroups.length (2).
+    const summaryEl = document.querySelector('details > summary')
+    expect(summaryEl?.textContent?.replace(/\s+/g, ' ').trim()).toBe('No longer detected this week (1)')
+    // the list itself still renders BOTH resolved rows
+    expect(screen.getByText('Thin content')).toBeTruthy()
+    expect(screen.getByText('Missing title')).toBeTruthy()
+  })
+
   it('shows the first-run empty state when sweep is null', () => {
     render(<IssuesView payload={makePayload({ sweep: null })} />)
     expect(screen.getByText(/first sweep runs Sunday evening/i)).toBeTruthy()

@@ -25,7 +25,7 @@ import { isNotifyEnabled, supportNotifyEmail } from '@/lib/notify/config'
 import { sendEmail, type SendArgs } from '@/lib/notify/transport'
 import { buildSweepDigestEmail } from '@/lib/notify/sweep-digest-content'
 import { computeSweepSnapshot, loadPreviousSnapshot, publishSweepSnapshot } from '@/lib/sweep/snapshot'
-import { SWEEP_DIGEST_JOB_TYPE, parseSnapshot } from '@/lib/sweep/types'
+import { SWEEP_DIGEST_JOB_TYPE, SWEEP_SLOT_HOUR, parseSnapshot } from '@/lib/sweep/types'
 
 export { SWEEP_DIGEST_JOB_TYPE }
 
@@ -44,7 +44,7 @@ export async function runSweepDigest(digestSlot: Date, deps: SweepDigestDeps = r
   // Server-local sweep-slot derivation (Codex plan-fix #18): the sweep fired at
   // 01:00 the same calendar day the digest fires (14:00).
   const sweepSlot = new Date(digestSlot)
-  sweepSlot.setHours(1, 0, 0, 0)
+  sweepSlot.setHours(SWEEP_SLOT_HOUR, 0, 0, 0)
 
   const sweep = await prisma.weeklySweep.findUnique({ where: { scheduledFor: sweepSlot } })
   if (!sweep) {

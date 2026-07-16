@@ -373,7 +373,7 @@ export function IssuesView({ payload }: { payload: IssuesPayload }) {
       {payload.resolvedGroups.length > 0 && (
         <details className="rounded-xl border border-gray-200 dark:border-navy-border bg-white dark:bg-navy-card">
           <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-gray-600 dark:text-white/70">
-            No longer detected this week ({payload.resolvedGroups.length})
+            No longer detected this week ({sweep.totals.resolvedCount})
           </summary>
           <ul className="border-t border-gray-100 dark:border-navy-border divide-y divide-gray-100 dark:divide-navy-border">
             {payload.resolvedGroups.map((r, i) => (
