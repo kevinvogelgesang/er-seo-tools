@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-lane-check.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking worktrees and other Claude sessions..."
+          }
+        ]
+      }
+    ]
+  }
+}
