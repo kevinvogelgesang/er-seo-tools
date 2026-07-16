@@ -42,8 +42,8 @@ export function ViewbookShell({
         {primarySections.map((s) => (
           <div key={s.sectionKey}>{renderSection(s)}</div>
         ))}
+        <EarlierSteps sections={carriedSections} renderSection={renderSection} />
       </div>
-      <EarlierSteps sections={carriedSections} renderSection={renderSection} />
       <footer className="px-6 py-10 text-center text-sm text-black/40">
         Prepared for {data.clientName} by Enrollment Resources
       </footer>
