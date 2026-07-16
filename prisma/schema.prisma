@@ -578,6 +578,24 @@ model Schedule {
   @@index([clientId])
 }
 
+// Weekly client sweep campaign record (2026-07-15 spec). One row per sweep
+// SLOT (scheduledFor = the Schedule slot, Codex #1) — a manual re-fire can
+// never mint a second row for the same week. membershipJson is the cohort
+// frozen BEFORE fan-out; snapshotJson is the complete frozen render payload
+// the digest email AND /issues both serve.
+model WeeklySweep {
+  id                Int       @id @default(autoincrement())
+  scheduledFor      DateTime  @unique
+  startedAt         DateTime?
+  membershipJson    String?
+  fanoutCompletedAt DateTime?
+  snapshotJson      String?
+  snapshotAt        DateTime?
+  digestSentAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
 // C8: configurable SEO scoring weights (singleton — all writes use
 // upsert({ where: { id: 1 } }); the app enforces the singleton, not a
 // raw CHECK constraint, to avoid schema drift risk).
