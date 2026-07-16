@@ -41,6 +41,7 @@ export interface ViewbookDetail {
   dataLockedAt: string | null
   dataLockedBy: string | null
   stage: string
+  syncVersion: number // PR2 live sync: poll /sync and refetch when it advances
   theme: ViewbookTheme
   client: { name: string; archivedAt: string | null }
   sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]

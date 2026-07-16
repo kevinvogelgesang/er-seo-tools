@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { CATALOG_CATEGORIES } from '@/lib/viewbook/catalog'
+import { registerEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 export interface AdminViewbookField {
   id: number
@@ -164,6 +165,14 @@ function CustomFieldForm({
   const [category, setCategory] = useState<(typeof CATALOG_CATEGORIES)[number]>('school')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { focused, onFocus, onBlur } = useFocusWithin()
+
+  // PR2 Task 6: active while a new-field label is drafted, mid-submit, or
+  // focus remains within this form.
+  useEffect(() => {
+    registerEditorActivity('admin-new-field', label.trim() !== '' || busy || focused)
+    return () => registerEditorActivity('admin-new-field', false)
+  }, [label, busy, focused])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -186,7 +195,12 @@ function CustomFieldForm({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-navy-border dark:bg-navy-card">
+    <form
+      onSubmit={submit}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      className="rounded-xl border border-gray-200 bg-white p-4 dark:border-navy-border dark:bg-navy-card"
+    >
       <h3 className="font-semibold text-gray-900 dark:text-white">Add custom field</h3>
       <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
         <input
@@ -229,11 +243,24 @@ function AdminFieldCard({
   const [amendment, setAmendment] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const { focused, onFocus, onBlur } = useFocusWithin()
 
   useEffect(() => {
     setDraft(displayValue(field))
     setLabel(field.label)
   }, [field])
+
+  // PR2 Task 6 (Codex wave-2 fix 6): active while the value/label/amendment
+  // draft differs from the loaded field, a save is in flight, or focus
+  // remains within this card — this is what keeps the admin editor's
+  // background poll from calling load() (which would reset the effect
+  // above) while an operator is mid-edit.
+  useEffect(() => {
+    const dirty = draft !== displayValue(field) || label !== field.label || amendment.trim() !== ''
+    const registryId = `admin-field-${field.id}`
+    registerEditorActivity(registryId, dirty || busy || focused)
+    return () => registerEditorActivity(registryId, false)
+  }, [draft, label, amendment, field, busy, focused])
 
   const lockedBaseline = lockedAt !== null && new Date(field.createdAt).getTime() <= new Date(lockedAt).getTime()
   const editable = !field.archivedAt && !lockedBaseline
@@ -324,7 +351,11 @@ function AdminFieldCard({
 
   const inputClass = 'w-full rounded border border-gray-300 bg-white px-3 py-2 dark:border-navy-border dark:bg-navy-light dark:text-white'
   return (
-    <article className={`rounded-xl border p-4 ${field.archivedAt ? 'border-gray-200 bg-gray-100 opacity-60 dark:border-navy-border dark:bg-navy-light' : 'border-gray-200 bg-white dark:border-navy-border dark:bg-navy-card'}`}>
+    <article
+      onFocus={onFocus}
+      onBlur={onBlur}
+      className={`rounded-xl border p-4 ${field.archivedAt ? 'border-gray-200 bg-gray-100 opacity-60 dark:border-navy-border dark:bg-navy-light' : 'border-gray-200 bg-white dark:border-navy-border dark:bg-navy-card'}`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {field.defKey === null && !field.archivedAt ? (

@@ -3,10 +3,11 @@
 // Welcome note, per-section intro/narrative text, and per-client "your plan"
 // content overrides.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
 import { GLOBAL_CONTENT_KEYS } from '@/lib/viewbook/global-content-keys'
 import { jsonFetch } from './viewbook-admin-shared'
+import { registerEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 interface SectionRow {
   sectionKey: string
@@ -36,8 +37,20 @@ export function ContentTab({
   const [welcome, setWelcome] = useState(welcomeNote ?? '')
   const [error, setError] = useState<string | null>(null)
   const [savedFlash, setSavedFlash] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const { focused, onFocus, onBlur } = useFocusWithin()
+
+  // PR2 Task 6 (Codex wave-2 fix 6): active while the welcome-note draft
+  // differs from the loaded value, a save is in flight, or focus remains in
+  // this section.
+  useEffect(() => {
+    const dirty = welcome !== (welcomeNote ?? '')
+    registerEditorActivity('admin-content-welcome', dirty || busy || focused)
+    return () => registerEditorActivity('admin-content-welcome', false)
+  }, [welcome, welcomeNote, busy, focused])
 
   async function run(label: string, fn: () => Promise<unknown>) {
+    setBusy(true)
     setError(null)
     try {
       await fn()
@@ -46,6 +59,8 @@ export function ContentTab({
       onChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save_failed')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -54,7 +69,7 @@ export function ContentTab({
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
       {savedFlash && <p className="text-teal-600 dark:text-teal-400">Saved {savedFlash}.</p>}
 
-      <div>
+      <div onFocus={onFocus} onBlur={onBlur}>
         <label className="mb-1 block font-medium text-gray-700 dark:text-white/80">Welcome note</label>
         <textarea
           value={welcome}
@@ -129,8 +144,19 @@ function SectionTextRow({
 }) {
   const [intro, setIntro] = useState(introNote ?? '')
   const [narr, setNarr] = useState(narrative ?? '')
+  const { focused, onFocus, onBlur } = useFocusWithin()
+
+  // PR2 Task 6: active while intro/narrative drafts differ from the loaded
+  // values or focus remains within this row.
+  useEffect(() => {
+    const dirty = intro !== (introNote ?? '') || (showNarrative && narr !== (narrative ?? ''))
+    const registryId = `admin-content-section-${sectionKey}`
+    registerEditorActivity(registryId, dirty || focused)
+    return () => registerEditorActivity(registryId, false)
+  }, [intro, narr, introNote, narrative, showNarrative, sectionKey, focused])
+
   return (
-    <details className="rounded border border-gray-200 p-2 dark:border-navy-border">
+    <details className="rounded border border-gray-200 p-2 dark:border-navy-border" onFocus={onFocus} onBlur={onBlur}>
       <summary className="cursor-pointer font-medium text-gray-700 dark:text-white/80">{sectionKey}</summary>
       <div className="mt-2 space-y-2">
         <textarea
@@ -182,8 +208,18 @@ function OverrideRowEditor({
   run: (label: string, fn: () => Promise<unknown>) => Promise<void>
 }) {
   const [text, setText] = useState(body)
+  const { focused, onFocus, onBlur } = useFocusWithin()
+
+  // PR2 Task 6: active while the override draft differs from the loaded
+  // value or focus remains within this row.
+  useEffect(() => {
+    const registryId = `admin-content-override-${contentKey}`
+    registerEditorActivity(registryId, text !== body || focused)
+    return () => registerEditorActivity(registryId, false)
+  }, [text, body, contentKey, focused])
+
   return (
-    <details className="rounded border border-gray-200 p-2 dark:border-navy-border">
+    <details className="rounded border border-gray-200 p-2 dark:border-navy-border" onFocus={onFocus} onBlur={onBlur}>
       <summary className="cursor-pointer font-medium text-gray-700 dark:text-white/80">{contentKey}</summary>
       <div className="mt-2 space-y-2">
         <textarea

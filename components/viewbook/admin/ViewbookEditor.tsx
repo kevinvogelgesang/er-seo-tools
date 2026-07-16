@@ -12,6 +12,7 @@ import { MilestonesEditor } from './MilestonesEditor'
 import { FeedbackTab } from './FeedbackTab'
 import { ActivityFeed } from './ActivityFeed'
 import { DataSourceTab } from './DataSourceTab'
+import { registerEditorActivity, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
 
 const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 
@@ -33,6 +34,16 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  // PR2 Task 6: poll the admin version endpoint every ~3.5s (default cadence)
+  // while visible; onChange only fires while the editor registry is idle —
+  // an operator mid-edit in ThemeEditor/ContentTab/DataSourceTab/
+  // MilestonesEditor/SettingsTab is never clobbered by a background reload.
+  useViewbookSync({
+    url: `/api/viewbooks/${viewbookId}/sync`,
+    initialVersion: vb?.syncVersion ?? 0,
+    onChange: () => void load(),
+  })
 
   if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
   if (!vb) return <p className="text-sm text-gray-400">Loading…</p>
@@ -111,8 +122,18 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
   const [notifyEmail, setNotifyEmail] = useState(vb.notifyEmail ?? '')
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // PR2 Task 6 (Codex wave-2 fix 6): active while the notify-email draft
+  // differs from the loaded value or a save is in flight.
+  useEffect(() => {
+    const dirty = notifyEmail !== (vb.notifyEmail ?? '')
+    registerEditorActivity('admin-settings', dirty || busy)
+    return () => registerEditorActivity('admin-settings', false)
+  }, [notifyEmail, vb.notifyEmail, busy])
 
   async function run(label: string, fn: () => Promise<unknown>) {
+    setBusy(true)
     setError(null)
     try {
       await fn()
@@ -121,6 +142,8 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
       onChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save_failed')
+    } finally {
+      setBusy(false)
     }
   }
 

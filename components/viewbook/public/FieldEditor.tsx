@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import type { PublicField } from '@/lib/viewbook/public-types'
 import { AmendmentForm } from './AmendmentForm'
+import { registerEditorActivity, requestRefresh } from './useViewbookSync'
 
 function draftFromValue(fieldType: string, value: string | null): string {
   if (value == null) return ''
@@ -29,7 +29,16 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
   const [busy, setBusy] = useState(false)
   const [locked, setLocked] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
+  const [focused, setFocused] = useState(false)
+
+  // PR2 Task 6: this field is "active" (suppresses the shared refresher)
+  // while focused, mid-save, or holding an unsaved draft — dispose on unmount.
+  const dirty = draft !== draftFromValue(field.fieldType, current.value)
+  const registryId = `field-${field.id}`
+  useEffect(() => {
+    registerEditorActivity(registryId, focused || busy || dirty)
+    return () => registerEditorActivity(registryId, false)
+  }, [registryId, focused, busy, dirty])
 
   async function save() {
     const value = requestValue(field.fieldType, draft)
@@ -61,7 +70,7 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
       setCurrent({ value: body.field.value, version: body.field.version })
       setDraft(draftFromValue(field.fieldType, body.field.value))
       setMessage('Saved')
-      setRefreshKey((key) => key + 1)
+      requestRefresh()
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Could not save this answer.')
     } finally {
@@ -85,13 +94,16 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
     'aria-label': `Answer for ${field.label}`,
     value: draft,
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value),
-    onBlur: () => void save(),
+    onFocus: () => setFocused(true),
+    onBlur: () => {
+      setFocused(false)
+      void save()
+    },
     disabled: busy,
     className: 'mt-1 w-full rounded-lg border border-black/15 bg-white p-3 text-black disabled:opacity-60',
   }
   return (
     <div>
-      {refreshKey > 0 && <RefreshAfterSave key={refreshKey} />}
       <span className="sr-only">Current answer: {draft}</span>
       {field.fieldType === 'text'
         ? <input {...common} />
@@ -99,10 +111,4 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
       {message && <p aria-live="polite" className="mt-1 text-xs text-black/50">{message}</p>}
     </div>
   )
-}
-
-function RefreshAfterSave() {
-  const router = useRouter()
-  useEffect(() => router.refresh(), [router])
-  return null
 }

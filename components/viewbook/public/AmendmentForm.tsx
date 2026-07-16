@@ -1,7 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { registerEditorActivity, requestRefresh } from './useViewbookSync'
 
 function amendmentValue(fieldType: string, draft: string): string | string[] {
   if (fieldType !== 'list') return draft
@@ -22,7 +22,15 @@ export function AmendmentForm({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [refreshNeeded, setRefreshNeeded] = useState(false)
+  const [focused, setFocused] = useState(false)
+
+  // PR2 Task 6: active while there's an unsaved proposed change, mid-submit,
+  // or focused — dispose on unmount.
+  const registryId = `amendment-${fieldId}`
+  useEffect(() => {
+    registerEditorActivity(registryId, focused || busy || draft.trim() !== '')
+    return () => registerEditorActivity(registryId, false)
+  }, [registryId, focused, busy, draft])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -42,7 +50,7 @@ export function AmendmentForm({
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error || 'Could not propose this change.')
       setDraft('')
-      setRefreshNeeded(true)
+      requestRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not propose this change.')
     } finally {
@@ -52,13 +60,14 @@ export function AmendmentForm({
 
   return (
     <form onSubmit={submit} className="mt-3 space-y-2 rounded-lg bg-black/[0.03] p-3">
-      {refreshNeeded && <RefreshAfterSuccess />}
       <label className="block text-sm font-semibold text-black/60">
         Proposed change for {label}
         <textarea
           required
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           rows={fieldType === 'text' ? 2 : 4}
           placeholder={fieldType === 'list' ? 'One item per line' : 'Describe the corrected answer'}
           className="mt-1 w-full rounded-lg border border-black/15 bg-white p-3 font-normal text-black"
@@ -73,10 +82,4 @@ export function AmendmentForm({
       </button>
     </form>
   )
-}
-
-function RefreshAfterSuccess() {
-  const router = useRouter()
-  useEffect(() => router.refresh(), [router])
-  return null
 }

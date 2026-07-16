@@ -2,11 +2,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MaterialLinkForm } from './MaterialLinkForm'
+import { __resetSyncRegistry, requestRefresh } from './useViewbookSync'
 
-const refreshMock = vi.fn()
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: refreshMock }) }))
+vi.mock('./useViewbookSync', async () => {
+  const actual = await vi.importActual<typeof import('./useViewbookSync')>('./useViewbookSync')
+  return { ...actual, requestRefresh: vi.fn() }
+})
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); refreshMock.mockClear() })
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.mocked(requestRefresh).mockClear()
+  __resetSyncRegistry()
+})
 
 describe('MaterialLinkForm', () => {
   it('submits label, https URL, optional reported name, and a mutation id', async () => {
@@ -25,7 +33,7 @@ describe('MaterialLinkForm', () => {
     expect(submit.className).not.toContain('--viewbook-primary')
     fireEvent.click(submit)
     await waitFor(() => expect(onCreated).toHaveBeenCalledOnce())
-    expect(refreshMock).toHaveBeenCalledOnce()
+    expect(requestRefresh).toHaveBeenCalledOnce()
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body).toMatchObject({ label: 'Logo', url: 'https://example.com/logo', authorName: 'Alex' })
     expect(body.clientMutationId).toMatch(/^[0-9a-f-]{36}$/)

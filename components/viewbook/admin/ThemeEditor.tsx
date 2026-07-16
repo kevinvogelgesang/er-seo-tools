@@ -4,10 +4,11 @@
 // swatch/typography preview. The full shared public preview renderer arrives
 // in PR2 (ThemePreview.tsx) and mounts beside this editor.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { FONT_CATALOG, SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import { jsonFetch } from './viewbook-admin-shared'
 import { ThemePreview } from './ThemePreview'
+import { registerEditorActivity } from '@/components/viewbook/public/useViewbookSync'
 
 const COLOR_FIELDS = ['primary', 'secondary', 'tertiary'] as const
 
@@ -23,6 +24,14 @@ export function ThemeEditor({
   const [draft, setDraft] = useState<ViewbookTheme>(theme)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // PR2 Task 6 (Codex wave-2 fix 6): active while the draft theme differs
+  // from the loaded theme or a save/upload is in flight.
+  useEffect(() => {
+    const dirty = JSON.stringify(draft) !== JSON.stringify(theme)
+    registerEditorActivity('admin-theme', dirty || busy)
+    return () => registerEditorActivity('admin-theme', false)
+  }, [draft, theme, busy])
 
   async function save() {
     setBusy(true)

@@ -3,13 +3,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { PublicField } from '@/lib/viewbook/public-types'
 import { FieldEditor } from './FieldEditor'
+import { __resetSyncRegistry, requestRefresh } from './useViewbookSync'
 
-const refresh = vi.fn()
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
+vi.mock('./useViewbookSync', async () => {
+  const actual = await vi.importActual<typeof import('./useViewbookSync')>('./useViewbookSync')
+  return { ...actual, requestRefresh: vi.fn() }
+})
 
 afterEach(() => {
   cleanup()
-  refresh.mockReset()
+  vi.mocked(requestRefresh).mockClear()
+  __resetSyncRegistry()
   vi.unstubAllGlobals()
 })
 
@@ -56,7 +60,7 @@ describe('FieldEditor', () => {
     const amendment = JSON.parse(fetchMock.mock.calls[1][1].body)
     expect(amendment).toMatchObject({ mode: 'amend', fieldId: 7, value: 'Please use this instead' })
     expect(amendment.clientMutationId).toMatch(/^[0-9a-f-]{36}$/)
-    await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledOnce())
   })
 
   it('adopts stale current truth and uses its version on the next blur', async () => {
@@ -80,5 +84,6 @@ describe('FieldEditor', () => {
     fireEvent.blur(answer)
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).expectedVersion).toBe(5)
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledOnce())
   })
 })

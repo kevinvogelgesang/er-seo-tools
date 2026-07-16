@@ -1,6 +1,7 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
+import { registerEditorActivity, useFocusWithin } from './useViewbookSync'
 
 export interface PublicFeedbackItem {
   id: number
@@ -23,6 +24,17 @@ export function FeedbackThread({ token, reviewLinkId, initialFeedback = [] }: Pr
   const [authorName, setAuthorName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { focused, onFocus, onBlur } = useFocusWithin()
+
+  // PR2 Task 6: registration ONLY — this island keeps its own optimistic
+  // append and never calls requestRefresh(); it just suppresses the shared
+  // refresher while the operator/client has unsent feedback drafted.
+  const registryId = `feedback-${reviewLinkId}`
+  const dirty = body.trim() !== '' || authorName.trim() !== ''
+  useEffect(() => {
+    registerEditorActivity(registryId, focused || busy || dirty)
+    return () => registerEditorActivity(registryId, false)
+  }, [registryId, focused, busy, dirty])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -62,7 +74,7 @@ export function FeedbackThread({ token, reviewLinkId, initialFeedback = [] }: Pr
         <p className="mt-1 whitespace-pre-wrap text-sm">{item.body}</p>
       </article>)}
     </div>
-    <form onSubmit={submit} className="space-y-3">
+    <form onSubmit={submit} onFocus={onFocus} onBlur={onBlur} className="space-y-3">
       <label className="block text-sm font-medium">Feedback
         <textarea required value={body} onChange={(event) => setBody(event.target.value)}
           className="mt-1 min-h-24 w-full rounded-lg border border-current/20 bg-transparent p-3" />

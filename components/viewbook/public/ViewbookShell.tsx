@@ -11,6 +11,7 @@ import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-ty
 import { ProgressNav } from './ProgressNav'
 import { EarlierSteps } from './EarlierSteps'
 import { ThemeStyle, publicAssetUrl, themeCssVars } from './ThemeStyle'
+import { ViewbookSyncClient } from './ViewbookSyncClient'
 
 export function ViewbookShell({
   token,
@@ -29,6 +30,7 @@ export function ViewbookShell({
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#1a1a1a]" style={themeCssVars(data.theme)}>
       <ThemeStyle theme={data.theme} />
+      <ViewbookSyncClient token={token} initialVersion={data.syncVersion} />
       {/* The (public) layout already renders the page's <main> — no nested
           main here; exactly ONE h1 on the page (Codex plan-fix 5). */}
       <h1 className="sr-only">{data.clientName} — Viewbook</h1>
