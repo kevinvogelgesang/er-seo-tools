@@ -29,6 +29,7 @@ describe('loadViewbookPublicData', () => {
     const data = await loadViewbookPublicData(token)
     expect(data).not.toBeNull()
     expect(data!.clientName).toMatch(/^vb-pub-/)
+    expect(typeof data!.syncVersion).toBe('number')
     // Creation stage is 'building' in PR1 — the building lineup's primary
     // list mirrors the old fixed SECTION_KEYS order, minus hidden 'assessment'.
     const keys = data!.primarySections.map((s) => s.sectionKey)

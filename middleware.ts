@@ -76,6 +76,7 @@ export function isPublicPath(pathname: string): boolean {
   if (/^\/api\/viewbook\/[^/]+\/feedback$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/materials$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/answers$/.test(pathname)) return true
+  if (/^\/api\/viewbook\/[^/]+\/sync$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 
