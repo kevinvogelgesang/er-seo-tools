@@ -80,6 +80,26 @@ describe('classifyCoverage', () => {
       expect(result.state).toBe('first-baseline')
     })
 
+    // Verifier-memory-loop fix (Task 4) pinning test: `loadSeoTool` computes
+    // `attributionComplete = findings.every(f => f.affectedComplete === true)`,
+    // which is VACUOUSLY true for zero findings (the "clean scan" case). An
+    // exhausted verifier's terminal placeholder run has runStatus:'partial'
+    // AND zero findings — attributionComplete alone would read as complete,
+    // but runStatus:'partial' still forces the pair to 'partial', never
+    // 'first-baseline'/'comparable'. No code change needed here (the
+    // precedence already covers it); this documents WHY the combination is
+    // safe so a future precedence reorder can't regress it silently.
+    it('exhausted-placeholder pair (runStatus partial, vacuously-complete attribution from zero findings) stays partial', () => {
+      const current: PairObservation = {
+        runPresent: true,
+        runStatus: 'partial',
+        discoveryCapped: false,
+        attributionComplete: true, // vacuous truth: [].every(...) === true
+      }
+      const result = classifyCoverage(current, true)
+      expect(result.state).toBe('partial')
+    })
+
     it('runPresent && baselineAvailable && healthy -> comparable', () => {
       const current: PairObservation = {
         runPresent: true,

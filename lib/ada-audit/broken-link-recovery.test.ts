@@ -97,4 +97,36 @@ describe('recoverBrokenLinkVerifies', () => {
     const jobs = await prisma.job.count({ where: { groupKey: `site-audit:${sa.id}` } })
     expect(jobs).toBe(0)
   })
+
+  it('does not re-enqueue when a terminal errored verifier exists; repairs the placeholder instead', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    await prisma.harvestedLink.create({ data: { siteAuditId: sa.id, sourcePageUrl: `https://${DOMAIN}/`, targetUrl: `https://${DOMAIN}/a`, kind: 'internal-link' } })
+    await prisma.job.create({ data: {
+      type: 'broken-link-verify', status: 'error', attempts: 2, maxAttempts: 2,
+      payload: JSON.stringify({ siteAuditId: sa.id, domain: DOMAIN }),
+      groupKey: `site-audit:${sa.id}`, dedupKey: null,
+    } })
+    const n = await recoverBrokenLinkVerifies()
+    expect(n).toBe(0)
+    const jobs = await prisma.job.findMany({ where: { groupKey: `site-audit:${sa.id}`, status: { in: ['queued', 'running'] } } })
+    expect(jobs).toHaveLength(0) // no fresh verifier
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } } })
+    expect(run?.source).toBe('live-scan-placeholder') // placeholder repaired by the sweep
+    // Codex plan-fix #5: this arrange (errored job + no run) IS the failed-hook
+    // state — the sweep is the self-repair. Prove idempotence with a second pass:
+    expect(await recoverBrokenLinkVerifies()).toBe(0)
+    const runs = await prisma.crawlRun.findMany({ where: { siteAuditId: sa.id, tool: 'seo-parser' } })
+    expect(runs).toHaveLength(1)
+  })
+
+  it('still prefers an ACTIVE job over the errored-job fence', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    await prisma.harvestedLink.create({ data: { siteAuditId: sa.id, sourcePageUrl: `https://${DOMAIN}/`, targetUrl: `https://${DOMAIN}/a`, kind: 'internal-link' } })
+    await prisma.job.create({ data: { type: 'broken-link-verify', status: 'error', attempts: 2, maxAttempts: 2, payload: '{}', groupKey: `site-audit:${sa.id}` } })
+    await prisma.job.create({ data: { type: 'broken-link-verify', status: 'queued', attempts: 0, maxAttempts: 2, payload: '{}', groupKey: `site-audit:${sa.id}` } })
+    const n = await recoverBrokenLinkVerifies()
+    expect(n).toBe(0) // active job — leave alone
+    const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } } })
+    expect(run).toBeNull() // fence not reached; active attempt may still write the real run
+  })
 })

@@ -155,4 +155,39 @@ describe('GET /api/site-audit/[id] — C11 seoOnly + liveScanRunId', () => {
     body = await res.json()
     expect(body.liveScanRunId).toBe(run.id)
   })
+
+  // Verifier-memory-loop fix (Task 4): an exhausted verifier's terminal
+  // placeholder run (source: 'live-scan-placeholder') must never be reported
+  // as a real live-scan run — the route would otherwise redirect/link to a
+  // run page with no real SEO content behind it.
+  it('excludes a live-scan-placeholder run from liveScanRunId (SEO stays unavailable)', async () => {
+    const site = await prisma.siteAudit.create({
+      data: {
+        domain: DOMAIN,
+        status: 'complete',
+        wcagLevel: 'wcag21aa',
+        seoOnly: true,
+        pagesTotal: 1,
+        pagesComplete: 1,
+        summary: null,
+        startedAt: new Date('2026-07-15T00:00:00Z'),
+        completedAt: new Date('2026-07-15T00:10:00Z'),
+      },
+    })
+
+    await prisma.crawlRun.create({
+      data: {
+        siteAuditId: site.id,
+        tool: 'seo-parser',
+        source: 'live-scan-placeholder',
+        domain: DOMAIN,
+        status: 'partial',
+        seoIntent: false,
+      },
+    })
+
+    const res = await GET({} as never, makeParams(site.id))
+    const body = await res.json()
+    expect(body.liveScanRunId).toBeNull()
+  })
 })

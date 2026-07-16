@@ -32,6 +32,18 @@ describe('ContentSignalsSection', () => {
     expect(screen.getByText(/No stale date references detected/i)).toBeTruthy()
   })
 
+  // Task 8 (memory fix stage B2): a budget-capped null persists as an
+  // { unavailable: true } stub, not a bare null — must render distinctly from
+  // both the not-analyzed and clean states.
+  it('renders the capped state for an unavailable stub', () => {
+    render(<ContentSignalsSection run={{ contentSignalsJson: JSON.stringify({
+      v: 1, unavailable: true, inputCapped: true, budgetSkippedPages: 4,
+    }) }} />)
+    expect(screen.getByText(/content input was capped for this run/i)).toBeTruthy()
+    expect(screen.queryByText(/No stale date references detected/i)).toBeNull()
+    expect(screen.queryByText(/were not analyzed/i)).toBeNull()
+  })
+
   it('renders a stale-date hit', () => {
     render(<ContentSignalsSection run={withSignals({ staleDates: { pagesWithHits: 1, pages: [
       { url: 'https://x.edu/a', hits: [{ kind: 'copyright', year: 2021, excerpt: '© 2021 Example' }] } ] } })} />)

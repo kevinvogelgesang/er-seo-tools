@@ -18,6 +18,7 @@ const data: SalesReportData = {
   auditId: 'aud1', completedAt: '2026-07-14T00:00:00.000Z', pagesTotal: 10,
   preparedBy: 'Kevin', archived: false,
   overallScore: 53, heroScreenshot: true, standardTested: 'WCAG 2.1 AA',
+  seoUnavailable: false,
   headline: { accessibilityScore: 62, seoScore: 71, performanceScore: 40, schemaCoveragePct: 40 },
   accessibility: {
     score: 62,
@@ -118,5 +119,26 @@ describe('SalesReportView (C14 urgency redesign)', () => {
     render(<SalesReportView data={data} token="tok1" contactEmail="x@y.z" />)
     expect(screen.queryByText(/wcag compliant/i)).toBeNull()
     expect(screen.getAllByText(/lighthouse-measured/i).length).toBeGreaterThan(0)
+  })
+
+  // Verifier-memory-loop fix (Task 4): when the only seo-parser run is an
+  // exhausted-verifier terminal placeholder, the loader flags seoUnavailable
+  // instead of silently rendering "no issues found" (which would be false —
+  // the scan simply never completed). The SEO section must render an
+  // explicit note in place of the urgency rows; the other three sections are
+  // unaffected.
+  it('SEO section: renders an explicit unavailable note (not "no issues") when seoUnavailable', () => {
+    render(
+      <SalesReportView
+        data={{ ...data, seoUnavailable: true, seo: { ...data.seo, score: null, issueGroups: [] } }}
+        token="tok1" contactEmail="x@y.z"
+      />,
+    )
+    expect(screen.getByText(/seo analysis is unavailable for this scan/i)).toBeTruthy()
+    expect(screen.getByText(/the post-scan seo verifier did not complete/i)).toBeTruthy()
+    expect(screen.queryByText(/no blocking seo issues found/i)).toBeNull()
+    // unaffected sections still render normally
+    expect(screen.getByText('Accessibility')).toBeTruthy()
+    expect(screen.getByText('Performance')).toBeTruthy()
   })
 })

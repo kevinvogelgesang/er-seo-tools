@@ -13,7 +13,11 @@ import type { CrawlPageInput, FindingInput } from './types'
 
 export interface HreflangEntry { lang: string; href: string }
 export interface ValidationSeoRow { url: string; canonicalUrl: string | null; hreflang: HreflangEntry[] }
-export interface ValidationLink { sourcePageUrl: string; targetUrl: string }
+// occurrences?: multiplicity when the caller passes a DEDUPED pair list (stage-A
+// memory fix). Absent → 1 (a per-row list). The redirect push sites below apply
+// it so page-scope counts + detail target lists stay byte-identical to feeding
+// one link object per physical harvested row.
+export interface ValidationLink { sourcePageUrl: string; targetUrl: string; occurrences?: number }
 export interface ResolveLookup { get(normUrl: string): ResolveResult | undefined }
 export interface ValidationMapDeps {
   runId: string
@@ -93,8 +97,11 @@ export function mapValidationFindings(seoRows: ValidationSeoRow[], links: Valida
   for (const link of links) {
     const host = hostOf(link.targetUrl); if (!host || !isSameDomain(host)) continue
     const r = resolve.get(normalizeFindingUrl(link.targetUrl)); if (!r) continue
-    if (r.result === 'ok' && r.hops >= 1) addPageHit(link.sourcePageUrl, 'redirect_chain', link.targetUrl)
-    else if (r.tooManyRedirects) addPageHit(link.sourcePageUrl, 'redirect_loop', link.targetUrl)
+    // Apply occurrence multiplicity at each per-link push (stage-A memory fix):
+    // a deduped pair with occurrences=N pushes N hits, exactly as N raw rows did.
+    const reps = link.occurrences ?? 1
+    if (r.result === 'ok' && r.hops >= 1) { for (let i = 0; i < reps; i++) addPageHit(link.sourcePageUrl, 'redirect_chain', link.targetUrl) }
+    else if (r.tooManyRedirects) { for (let i = 0; i < reps; i++) addPageHit(link.sourcePageUrl, 'redirect_loop', link.targetUrl) }
     // broken (final >= 400) is handled by broken-link-mapper — NOT here (no double-count).
   }
 

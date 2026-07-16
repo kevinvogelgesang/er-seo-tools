@@ -101,6 +101,23 @@ describe('runNotifyEmailJob', () => {
     expect(content.text).toContain('Broken links & images: 2')
   })
 
+  // Verifier-memory-loop fix (Task 4) pinning test: runNotifyEmailJob's
+  // `r.tool === 'seo-parser' && r.source === 'live-scan'` seoRun lookup
+  // already excludes an exhausted-verifier terminal placeholder run (source:
+  // 'live-scan-placeholder') by construction — NO code change was needed for
+  // this surface. This test pins that behavior so a future refactor of the
+  // lookup can't silently regress it.
+  it('reports seoUnavailable:true when the only seo-parser run is an exhausted-verifier placeholder', async () => {
+    const id = await mkAudit({ notifyEmail: 'r@example.com' })
+    await prisma.crawlRun.create({
+      data: { tool: 'seo-parser', source: 'live-scan-placeholder', status: 'partial', domain: 'notify-test.example', siteAuditId: id, seoIntent: false },
+    })
+    await runNotifyEmailJob({ siteAuditId: id, kind: 'complete' }, deps)
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    const content = (sendSpy.mock.calls[0][0] as { content: { text: string } }).content
+    expect(content.text).toContain('SEO analysis unavailable for this run.')
+  })
+
   it('still sends a basic email (and stamps marker once) when enrichment throws', async () => {
     const id = await mkAudit({ notifyEmail: 'r@example.com' })
     const spy = vi.spyOn(prisma.finding, 'aggregate').mockRejectedValueOnce(new Error('db boom'))

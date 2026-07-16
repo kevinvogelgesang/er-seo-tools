@@ -7,6 +7,7 @@ interface StaleDateHit { kind: 'copyright' | 'term' | 'deadline'; year: number; 
 interface StaleDatePage { url: string; hits: StaleDateHit[] }
 interface ReadabilityPage { url: string; fleschReadingEase: number; gradeLevel: number }
 interface SignalsData {
+  unavailable?: boolean
   observedPages?: number
   truncatedPages?: number
   staleDates?: { pagesWithHits: number; pages: StaleDatePage[] }
@@ -21,6 +22,10 @@ interface SignalsData {
 const KIND_LABEL: Record<string, string> = { copyright: 'Copyright', term: 'Term/semester', deadline: 'Deadline' }
 
 const NOT_ANALYZED = 'Content signals were not analyzed for this audit.'
+// Task 8 (memory fix stage B2): a run whose contentText budget was exhausted
+// before this pass had enough admitted text persists this stub instead of a
+// bare null (Codex plan-fix #4) — distinct from "not analyzed".
+const CAPPED_MESSAGE = 'Not measured — content input was capped for this run.'
 
 function SignalsHeader() {
   return (
@@ -52,6 +57,15 @@ function NotAnalyzed() {
   )
 }
 
+function Capped() {
+  return (
+    <section className="mt-6 rounded-lg bg-white dark:bg-navy-card p-4 border border-gray-200 dark:border-navy-border">
+      <SignalsHeader />
+      <p className="mt-2 text-sm text-gray-600 dark:text-white/60">{CAPPED_MESSAGE}</p>
+    </section>
+  )
+}
+
 function StaleDatePageItem({ page }: { page: StaleDatePage }) {
   return (
     <details className="rounded border border-gray-200 dark:border-navy-border p-2 text-sm">
@@ -78,6 +92,8 @@ export function ContentSignalsSection({ run }: { run: { contentSignalsJson: stri
   } catch {
     return <NotAnalyzed />
   }
+
+  if (d.unavailable) return <Capped />
 
   const staleDates = d.staleDates ?? { pagesWithHits: 0, pages: [] }
   const readability = d.readability ?? { scoredPages: 0, medianFleschReadingEase: null, medianGradeLevel: null, pages: [] }

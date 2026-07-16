@@ -78,4 +78,25 @@ describe('computeContentSimilarity', () => {
     const pages = [p('/a', toks('w', 80)), p('/b', toks('w', 80)), p('/c', toks('z', 80))]
     expect(JSON.stringify(computeContentSimilarity(pages, NF))).toBe(JSON.stringify(computeContentSimilarity(pages, NF)))
   })
+
+  // Task 6 characterization (pre-refactor gate): pins that noText/thin/truncated
+  // counters are tallied across ALL inputs, even past maxPages — because the
+  // per-page classification loop runs over every input page BEFORE the
+  // maxPages cap slices `eligible` down (the cap happens after the loop).
+  // Tasks 7-10's rewrite of the builder/internals must reproduce this exactly.
+  it('counts noText/thin/truncated across ALL inputs even past maxPages (Codex #6)', () => {
+    const mk = (i: number, text: string | null) => ({ url: `https://x.test/p${String(i).padStart(2, '0')}`, contentText: text, contentTruncated: i === 9 })
+    const pages = [
+      ...Array.from({ length: 5 }, (_, i) => mk(i, `unique page body ${i} ` + 'alpha beta gamma delta epsilon zeta eta theta '.repeat(20))),
+      mk(5, null),                       // noText — beyond maxPages by sort order
+      mk(6, 'too short'),                // thin — beyond maxPages
+      mk(9, 'trunc page ' + 'word '.repeat(100)),
+    ]
+    const r = computeContentSimilarity(pages, { maxPages: 3 })
+    expect(r).not.toBeNull()
+    expect(r!.pagesEligible).toBe(3)     // capped
+    expect(r!.capped).toBe(true)
+    expect(r!.pagesSkipped).toEqual({ noText: 1, thin: 1 })
+    expect(r!.truncatedPages).toBe(1)
+  })
 })

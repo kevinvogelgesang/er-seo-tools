@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { prisma } from '@/lib/db'
 import { mintContentAuditToken, CONTENT_AUDIT_TOKEN_TTL_MS } from '@/lib/content-audit-token'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 
 export const dynamic = 'force-dynamic'
 type RouteParams = { params: Promise<{ id: string }> }
@@ -20,9 +21,9 @@ export const POST = withRoute(async (_req: NextRequest, { params }: RouteParams)
   if (audit.client?.archivedAt) return NextResponse.json({ error: 'client_archived' }, { status: 409 })
   const run = await prisma.crawlRun.findUnique({
     where: { siteAuditId_tool: { siteAuditId: id, tool: 'seo-parser' } },
-    select: { id: true },
+    select: { id: true, source: true },
   })
-  if (!run) return NextResponse.json({ error: 'no_live_scan_run' }, { status: 409 })
+  if (!run || isPlaceholderRun(run)) return NextResponse.json({ error: 'no_live_scan_run' }, { status: 409 })
 
   // Codex plan #2: atomic MONOTONIC extension. `now + TTL` is always >= any
   // earlier extension, so a conditional raw UPDATE that only RAISES the column

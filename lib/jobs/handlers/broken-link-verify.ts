@@ -23,7 +23,7 @@ import type { CrawlPageInput, FindingInput, FindingsBundle } from '@/lib/finding
 import { randomUUID } from 'crypto'
 import { HostThrottle } from '@/lib/ada-audit/broken-link-check'
 import { resolveUrl, resolveExternalHead, realResolveDeps, type ResolveResult } from '@/lib/ada-audit/url-resolver'
-import { mapValidationFindings, type ValidationSeoRow, type ValidationLink } from '@/lib/findings/validation-mapper'
+import { mapValidationFindings, type ValidationSeoRow } from '@/lib/findings/validation-mapper'
 import { normalizeLinkTarget, sameDomain } from '@/lib/ada-audit/link-harvest'
 import { parsePositiveInt, parseNonNegativeInt } from '../config'
 import { scoreLiveSeo } from '@/lib/findings/live-seo-score'
@@ -43,6 +43,7 @@ import { deriveFaqEvidence } from '@/lib/ada-audit/seo/faq-evidence'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import { enqueueNotifyEmail } from './notify-email'
+import { ensureExhaustedPlaceholder } from '@/lib/findings/exhausted-placeholder'
 import type { JobExhaustedContext, JobHandlerContext } from '../types'
 import { publishInvalidation } from '@/lib/events/bus'
 import { siteAuditTopic, prospectListTopic, clientSummaryTopic, recentsTopic } from '@/lib/events/topics'
@@ -115,6 +116,94 @@ const EXTERNAL_TIMEOUT = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL
 const EXTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_EXTERNAL_TIME_BUDGET_MS, 300_000)
 const INTERNAL_TIME_BUDGET = () => parsePositiveInt(process.env.BROKEN_LINK_INTERNAL_TIME_BUDGET_MS, 600_000)
 
+// Stage-A memory fix (2026-07-16 OOM crash-loop): HarvestedLink is streamed in
+// keyset-paged chunks and accumulated into compact interned structures in ONE
+// pass, instead of two unbounded findMany loads + three derived full copies
+// (1000 pages x 300 links measured ~2.7GB marginal RSS before this change).
+const LINK_STREAM_CHUNK = 5000
+// RSS ceiling checked at each link-stream chunk boundary; over it, pair
+// retention is abandoned (graph/coverage/validation degrade, verification proper
+// still runs). parsePositiveInt already imported from '../config'.
+export const VERIFIER_RSS_GUARD_MB = () => parsePositiveInt(process.env.VERIFIER_RSS_GUARD_MB, 1600)
+
+// Task 11b (Codex ruling): the MiniLM/ONNX embed pass inside the topic-overlap
+// block measured 1.3-2.1GB marginal RSS with INTRA-CHUNK native overshoot that
+// crosses even the 1600MB RSS guard (peaked 2409MB against PM2's 2400M kill
+// threshold; prod baseline ~540MB) -- the RSS guard checks BETWEEN chunks, not
+// during ONNX's synchronous native compute, so it cannot bound this. Ship with
+// the pass OFF by default; ONNX-side bounding is a follow-up. Default OFF.
+const TOPIC_OVERLAP_ENABLED = () => process.env.VERIFIER_TOPIC_OVERLAP_ENABLED === 'true'
+
+/** Keyset-stream HarvestedLink rows in the builder's deterministic order.
+ * Exported for tests. onRow must be synchronous (single pass, no retention).
+ * onChunkEnd fires after each DB chunk (RSS checkpoint seam, Codex #5).
+ * chunkSize is overridable for cross-boundary tests (Codex plan-fix #6). */
+export async function streamHarvestedLinks(
+  siteAuditId: string,
+  kinds: string[],
+  onRow: (r: { targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean }) => void,
+  opts?: { onChunkEnd?: () => void; chunkSize?: number },
+): Promise<void> {
+  const size = opts?.chunkSize ?? LINK_STREAM_CHUNK
+  let cursor: string | null = null
+  for (;;) {
+    const chunk: { id: string; targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean }[] =
+      await prisma.harvestedLink.findMany({
+        where: { siteAuditId, kind: { in: kinds } },
+        orderBy: [{ targetUrl: 'asc' }, { kind: 'asc' }, { sourcePageUrl: 'asc' }, { id: 'asc' }],
+        select: { id: true, targetUrl: true, kind: true, sourcePageUrl: true, harvestTruncated: true },
+        take: size,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+    for (const r of chunk) onRow(r)
+    opts?.onChunkEnd?.()
+    if (chunk.length < size) return
+    cursor = chunk[chunk.length - 1].id
+  }
+}
+
+// Stage-B memory fix part 2 (2026-07-16): contentText is no longer selected on
+// the main seoRows load — it is loaded SEPARATELY, chunked, under a total byte
+// budget, so a huge site's aggregate main-content text can never balloon the
+// resident seoRows array. Codex plan-fix #4: STRICT PREFIX admission in url
+// order (see loadContentTextBudgeted) — never a first-fit scavenge, which
+// would make the admitted set depend on page sizes instead of purely on url
+// order (byte-identical reasoning to the link-stream RSS guard's honesty rule).
+const CONTENT_TEXT_BUDGET = () => parsePositiveInt(process.env.CONTENT_TEXT_TOTAL_BYTE_BUDGET, 25_165_824)
+
+/** Keyset-stream HarvestedPageSeo.contentText in url order, admitting a STRICT
+ * PREFIX under CONTENT_TEXT_BUDGET(): once the running total would exceed the
+ * budget, that page AND every later page (in url order) is skipped — never a
+ * later small page slipping in past an earlier skip. Exported for tests. */
+export async function loadContentTextBudgeted(
+  siteAuditId: string,
+): Promise<{ textByUrl: Map<string, string>; budgetSkippedPages: number }> {
+  const textByUrl = new Map<string, string>()
+  let used = 0
+  let skipped = 0
+  let overflowed = false
+  let cursor: string | null = null
+  for (;;) {
+    const chunk: { id: string; url: string; contentText: string | null }[] = await prisma.harvestedPageSeo.findMany({
+      where: { siteAuditId },
+      orderBy: [{ url: 'asc' }, { id: 'asc' }],
+      select: { id: true, url: true, contentText: true },
+      take: 200,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    })
+    for (const r of chunk) {
+      if (!r.contentText) continue
+      if (overflowed) { skipped++; continue }
+      const bytes = Buffer.byteLength(r.contentText, 'utf8') // Codex #4: bytes, never .length
+      if (used + bytes > CONTENT_TEXT_BUDGET()) { overflowed = true; skipped++; continue }
+      used += bytes
+      textByUrl.set(r.url, r.contentText)
+    }
+    if (chunk.length < 200) return { textByUrl, budgetSkippedPages: skipped }
+    cursor = chunk[chunk.length - 1].id
+  }
+}
+
 const unconfirmedResult = (): ResolveResult => ({
   result: 'unconfirmed', finalUrl: null, status: null, hops: 0, chain: [], tooManyRedirects: false,
 })
@@ -129,6 +218,12 @@ export interface VerifyDeps {
   resolveExternal: (url: string, timeoutMs: number) => Promise<ResolveResult>
   now: () => number
   sleep: (ms: number) => Promise<void>
+  // Stage-A memory fix (2026-07-16 OOM): live RSS reading, sampled at each
+  // link-stream chunk boundary to decide whether to abandon pair retention.
+  // Optional so the frozen characterization deps + existing test helpers keep
+  // compiling untouched; absent → the guard is inert (never trips). Task 10
+  // reuses it. productionDeps always provides the real reading.
+  rssBytes?: () => number
 }
 
 const productionDeps: VerifyDeps = {
@@ -136,6 +231,7 @@ const productionDeps: VerifyDeps = {
   resolveExternal: (url, timeoutMs) => resolveExternalHead(url, realResolveDeps, timeoutMs),
   now: realResolveDeps.now,
   sleep: realResolveDeps.sleep,
+  rssBytes: () => process.memoryUsage().rss,
 }
 
 function assertPayload(p: unknown): BrokenLinkVerifyJob {
@@ -161,35 +257,60 @@ export async function runBrokenLinkVerify(
   })
   if (!site) return // deleted audit -> no-op
 
-  const rows = await prisma.harvestedLink.findMany({
-    where: { siteAuditId: job.siteAuditId, kind: { in: ['internal-link', 'image'] } },
-    // Deterministic order so the cap below selects a STABLE subset across retries.
-    orderBy: [{ targetUrl: 'asc' }, { kind: 'asc' }, { sourcePageUrl: 'asc' }],
-    select: { targetUrl: true, kind: true, sourcePageUrl: true, harvestTruncated: true },
-  })
-  const harvestTruncated = rows.some((r) => r.harvestTruncated)
-
-  // Dedupe to unique (targetUrl, kind); collect a source-page sample per target.
-  const startedAt = new Date(deps.now())
+  // Stage-A memory fix: ONE streamed pass over internal-link + image rows,
+  // accumulating compact interned structures — never the old full findMany +
+  // derived copies. `cap` is read first because target admission stops at it.
+  const cap = MAX_CHECKS()
+  const intern = new Map<string, string>()
+  const asIntern = (s: string): string => { const v = intern.get(s); if (v !== undefined) return v; intern.set(s, s); return s }
+  // (1) capped dedup list — identical first-seen order to the old byTarget map.
   const byTarget = new Map<string, { kind: 'internal-link' | 'image'; sources: Set<string> }>()
-  for (const r of rows) {
+  // Codex plan-fix #2: rows are (targetUrl, kind)-contiguous, so distinct groups
+  // are counted by group-key TRANSITION — a `!byTarget.has(key)` probe would
+  // over-count unadmitted (post-cap) targets once per ROW instead of per group.
+  let prevGroupKey: string | null = null
+  let uniqueCount = 0
+  // (2) ONE deduped internal-pair list with occurrence counts (Codex #3). The
+  // constant `kind` string ref lets the SAME array feed computeLinkGraph +
+  // computeDiscoveryCoverage + mapValidationFindings directly, no per-consumer
+  // map/flatMap copies (Codex plan-fix #1).
+  const pairKeyToIdx = new Map<string, number>()
+  const internalPairs: { sourcePageUrl: string; targetUrl: string; kind: 'internal-link'; occurrences: number }[] = []
+  let harvestTruncated = false
+  let linkStreamRssTripped = false
+
+  await streamHarvestedLinks(job.siteAuditId, ['internal-link', 'image'], (r) => {
+    if (r.harvestTruncated) harvestTruncated = true
     const key = `${r.kind} ${r.targetUrl}`
+    if (key !== prevGroupKey) { uniqueCount++; prevGroupKey = key }
     let e = byTarget.get(key)
-    if (!e) {
+    if (!e && byTarget.size < cap) {
       e = { kind: r.kind as 'internal-link' | 'image', sources: new Set() }
       byTarget.set(key, e)
     }
-    if (e.sources.size < URLS_PER_FINDING) e.sources.add(normalizeFindingUrl(r.sourcePageUrl))
-  }
-  const unique = [...byTarget.entries()].map(([key, v]) => ({
+    if (e && e.sources.size < URLS_PER_FINDING) e.sources.add(normalizeFindingUrl(r.sourcePageUrl))
+    if (r.kind === 'internal-link' && !linkStreamRssTripped) {
+      const pk = `${r.sourcePageUrl}\n${r.targetUrl}`
+      const idx = pairKeyToIdx.get(pk)
+      if (idx !== undefined) internalPairs[idx].occurrences++
+      else { pairKeyToIdx.set(pk, internalPairs.length); internalPairs.push({ sourcePageUrl: asIntern(r.sourcePageUrl), targetUrl: asIntern(r.targetUrl), kind: 'internal-link', occurrences: 1 }) }
+    }
+  }, { onChunkEnd: () => {
+    if (!linkStreamRssTripped && deps.rssBytes && deps.rssBytes() > VERIFIER_RSS_GUARD_MB() * 1048576) {
+      linkStreamRssTripped = true
+      internalPairs.length = 0; pairKeyToIdx.clear()
+      console.warn('[live-seo] rss guard tripped during link stream — graph/coverage/validation degrade')
+    }
+  } })
+  pairKeyToIdx.clear(); intern.clear()
+
+  const startedAt = new Date(deps.now())
+  const capped = uniqueCount > cap
+  if (capped) console.warn(`[broken-link-verify] ${job.siteAuditId}: capping ${uniqueCount} -> ${cap} checks`)
+  const toCheck = [...byTarget.entries()].map(([key, v]) => ({
     targetUrl: key.slice(key.indexOf(' ') + 1),
     ...v,
   }))
-
-  const cap = MAX_CHECKS()
-  const capped = unique.length > cap
-  if (capped) console.warn(`[broken-link-verify] ${job.siteAuditId}: capping ${unique.length} -> ${cap} checks`)
-  const toCheck = capped ? unique.slice(0, cap) : unique
 
   // Bounded concurrency: CONCURRENCY workers pull unique targets from a shared
   // cursor and resolve each ONCE into the shared `cache` map, respecting the
@@ -205,7 +326,7 @@ export async function runBrokenLinkVerify(
     select: {
       url: true, statusCode: true, isHtml: true, robotsNoindex: true, xRobotsNoindex: true,
       loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true, schemaCount: true,
-      canonicalUrl: true, detailsJson: true, contentText: true, contentTruncated: true,
+      canonicalUrl: true, detailsJson: true, contentTruncated: true,
     },
   })
 
@@ -230,9 +351,9 @@ export async function runBrokenLinkVerify(
   const validationRows: ValidationSeoRow[] = seoRows.map((r) => ({
     url: r.url, canonicalUrl: r.canonicalUrl ?? null, hreflang: parseHreflang(r.detailsJson),
   }))
-  const internalLinks: ValidationLink[] = rows
-    .filter((r) => r.kind === 'internal-link')
-    .map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl }))
+  // internalPairs (built in the streamed pass above) IS the validation-mapper's
+  // link input now — occurrence-counted, so multiplicity stays byte-identical to
+  // the old per-row `links` array (Codex plan-fix #1, no re-expansion here).
 
   // Resolution set: legacy link/image targets FIRST (existing deterministic order
   // preserved + already capped), then canonical/hreflang-only same-domain targets
@@ -354,21 +475,22 @@ export async function runBrokenLinkVerify(
   let externalCapped = false
   let externalHarvestTruncated = false
   if (EXTERNAL_MAX > 0) {
-    const extRows = await prisma.harvestedLink.findMany({
-      where: { siteAuditId: job.siteAuditId, kind: 'external-link' },
-      orderBy: [{ targetUrl: 'asc' }, { sourcePageUrl: 'asc' }],
-      select: { targetUrl: true, sourcePageUrl: true, harvestTruncated: true },
-    })
-    externalHarvestTruncated = extRows.some((r) => r.harvestTruncated)
+    // Streamed like the internal pass (stage-A memory fix): dedup by targetUrl
+    // with a bounded source sample, admit up to EXTERNAL_MAX distinct targets.
+    // Codex plan-fix #2: count distinct targets by group-key TRANSITION (rows are
+    // targetUrl-contiguous under the stream's orderBy), never by an admission probe.
     const extByTarget = new Map<string, Set<string>>()
-    for (const r of extRows) {
+    let extPrevGroupKey: string | null = null
+    let extUniqueCount = 0
+    await streamHarvestedLinks(job.siteAuditId, ['external-link'], (r) => {
+      if (r.harvestTruncated) externalHarvestTruncated = true
+      if (r.targetUrl !== extPrevGroupKey) { extUniqueCount++; extPrevGroupKey = r.targetUrl }
       let s = extByTarget.get(r.targetUrl)
-      if (!s) { s = new Set<string>(); extByTarget.set(r.targetUrl, s) }
-      if (s.size < URLS_PER_FINDING) s.add(normalizeFindingUrl(r.sourcePageUrl))
-    }
-    const extUnique = [...extByTarget.entries()].map(([targetUrl, sources]) => ({ targetUrl, sources }))
-    externalCapped = extUnique.length > EXTERNAL_MAX
-    const extToCheck = externalCapped ? extUnique.slice(0, EXTERNAL_MAX) : extUnique
+      if (!s && extByTarget.size < EXTERNAL_MAX) { s = new Set<string>(); extByTarget.set(r.targetUrl, s) }
+      if (s && s.size < URLS_PER_FINDING) s.add(normalizeFindingUrl(r.sourcePageUrl))
+    })
+    externalCapped = extUniqueCount > EXTERNAL_MAX
+    const extToCheck = [...extByTarget.entries()].map(([targetUrl, sources]) => ({ targetUrl, sources }))
 
     if (extToCheck.length > 0) {
       const remaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
@@ -432,16 +554,35 @@ export async function runBrokenLinkVerify(
   )
   const domain = site.domain ?? job.domain
   const homepageUrl = domain ? normalizeFindingUrl(`https://${domain}/`) : null // null-domain guard (Codex #5)
+  // internalPairs feeds the graph directly (Codex plan-fix #1). It carries only
+  // internal-link edges — identical to the old all-rows input because
+  // computeLinkGraph already skips non-'internal-link' edges and dedupes into
+  // sets, so occurrence counts and dropped image rows never affected the result.
+  // Task 10 (memory fix stage B3-4): the RSS ceiling isn't only a link-stream
+  // concern (Task 7) — every optional POST-verification analytics pass (link
+  // graph, content signals, topic-overlap, similarity) reads a fresh RSS
+  // sample at its own gate and bails fail-to-null rather than growing memory
+  // further; the three content-text passes persist a capped stub instead of a
+  // bare null (see each block below). Optional on VerifyDeps (see rssBytes
+  // doc above) -> absent means never over.
+  const rssOverGuard = (): boolean => deps.rssBytes != null && deps.rssBytes() > VERIFIER_RSS_GUARD_MB() * 1048576
+
+  // On an RSS trip the pairs were abandoned, so the graph degrades to null (its
+  // existing fail-path) rather than being computed over an empty/partial set.
+  // graphRssOver is independent of linkStreamRssTripped (a separate live read,
+  // not a reuse of the link-stream's earlier sample) but only warns when IT is
+  // the reason for the skip -- linkStreamRssTripped already logged its own
+  // warning upstream.
   let graph: ReturnType<typeof computeLinkGraph> | null = null
-  try {
-    graph = computeLinkGraph(
-      rows.map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl, kind: r.kind })),
-      graphNodes,
-      homepageUrl,
-      indexableUrls,
-    )
-  } catch (e) {
-    console.error('[live-seo] graph compute failed', e)
+  const graphRssOver = rssOverGuard()
+  if (!linkStreamRssTripped && !graphRssOver) {
+    try {
+      graph = computeLinkGraph(internalPairs, graphNodes, homepageUrl, indexableUrls)
+    } catch (e) {
+      console.error('[live-seo] graph compute failed', e)
+    }
+  } else if (!linkStreamRssTripped && graphRssOver) {
+    console.warn('[live-seo] rss guard: skipping link graph')
   }
 
   // Builder owns the single runId + the shared normalized-URL -> CrawlPage map.
@@ -490,9 +631,15 @@ export async function runBrokenLinkVerify(
     confidence: { checked: externalChecked, broken: externalBroken.length, unconfirmed: externalUnconfirmed, capped: externalCapped, harvestTruncated: externalHarvestTruncated },
     severity: 'warning',
   })
-  const validationFindings = mapValidationFindings(validationRows, internalLinks, cache, {
-    runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation && !internalBudgetHit,
-  })
+  // RSS-trip: skip validation entirely (no findings — never fabricated-clean
+  // ones from an empty link set, Codex plan-fix #2). Otherwise internalPairs
+  // carries occurrence counts so redirect_chain/redirect_loop multiplicity is
+  // byte-identical to the old per-row `links` input.
+  const validationFindings = linkStreamRssTripped
+    ? []
+    : mapValidationFindings(validationRows, internalPairs, cache, {
+      runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation && !internalBudgetHit,
+    })
   const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...externalFindings, ...validationFindings]
 
   // C6 Phase 3: live SEO score from the on-page signals (pure scorer).
@@ -517,16 +664,21 @@ export async function runBrokenLinkVerify(
   // internal links vs the discovery baseline. ZERO new fetches. NOT a Finding.
   const discoveredUrls = safeParseUrlList(site.discoveredUrls)
   const { baseline: sitemapBaseline, sitemapCapped } = deriveSitemapBaseline(site.discoverySourcesJson)
-  const coverage = computeDiscoveryCoverage({
-    discoveredUrls,
-    internalLinks: rows
-      .filter((r) => r.kind === 'internal-link')
-      .map((r) => ({ sourcePageUrl: r.sourcePageUrl, targetUrl: r.targetUrl })),
-    discoveryMode: (site.discoveryMode as DiscoveryMode | null) ?? null,
-    discoveryCapped: site.discoveryCapped ?? false,
-    sitemapBaseline,
-    sitemapCapped,
-  })
+  // RSS-trip: do NOT call computeDiscoveryCoverage — empty-input coverage would
+  // render clean-looking sitemap numbers (Codex plan-fix #2). Store null instead
+  // (column is nullable; DiscoveryCoverageSection returns null on a null payload).
+  // Otherwise internalPairs (deduped) yields identical output — coverage dedupes
+  // targets + sources into sets, so occurrence counts never mattered.
+  const coverage = linkStreamRssTripped
+    ? null
+    : computeDiscoveryCoverage({
+      discoveredUrls,
+      internalLinks: internalPairs,
+      discoveryMode: (site.discoveryMode as DiscoveryMode | null) ?? null,
+      discoveryCapped: site.discoveryCapped ?? false,
+      sitemapBaseline,
+      sitemapCapped,
+    })
 
   // C14: JSON-LD @type histogram across harvested pages. Fail-to-null — never
   // fails the live-scan write.
@@ -549,21 +701,43 @@ export async function runBrokenLinkVerify(
     console.error('[live-seo] program-entity aggregation failed', e)
   }
 
+  // Stage-B memory fix part 2: contentText is loaded ONCE here, separately from
+  // seoRows, under a total byte budget (see loadContentTextBudgeted above). All
+  // three content-text passes below read textByUrl.get(r.url) ?? null instead
+  // of a per-row scalar — budgetSkippedPages is threaded into each wrapper's
+  // honesty flags (Codex plan-fix #4).
+  const { textByUrl, budgetSkippedPages } = await loadContentTextBudgeted(job.siteAuditId)
+
   // C12: stale-date + readability signals over the SAME indexable ∧ ¬login-like
   // aggregation set. Best-effort + time-budget-guarded (runs before similarity, so
   // its reserve accounts for both). Never fails the live-scan write (fail-to-null).
   let contentSignalsJson: string | null = null
   const sigRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
-  if (sigRemaining >= CONTENT_SIGNALS_RESERVE_MS + TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
+  const sigRssOver = rssOverGuard()
+  if (sigRemaining >= CONTENT_SIGNALS_RESERVE_MS + TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS && !sigRssOver) {
     try {
       const sigInputs = seoRows
         .filter((r) => indexableOf(r) && !r.loginLike)
-        .map((r) => ({ url: r.url, contentText: r.contentText, contentTruncated: r.contentTruncated }))
+        .map((r) => ({ url: r.url, contentText: textByUrl.get(r.url) ?? null, contentTruncated: r.contentTruncated }))
       const signals = computeContentSignals(sigInputs, { currentYear: new Date().getUTCFullYear() })
-      if (signals) contentSignalsJson = JSON.stringify({ v: 1, ...signals })
+      if (signals) {
+        contentSignalsJson = JSON.stringify({
+          v: 1, ...signals, ...(budgetSkippedPages > 0 ? { inputCapped: true, budgetSkippedPages } : {}),
+        })
+      } else if (budgetSkippedPages > 0) {
+        // Codex plan-fix #4: a budget-capped null must not read as "not analyzed" —
+        // persist a capped stub instead of a bare null.
+        contentSignalsJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
+      }
     } catch (e) {
       console.error('[live-seo] content signals failed', e)
     }
+  } else if (sigRssOver) {
+    // Task 10: RSS-skipped passes persist the SAME capped stub as a
+    // budget-skipped one (budgetSkippedPages > 0 || rssSkippedThisPass) —
+    // "unavailable", never a bare null that would read as "clean".
+    console.warn('[live-seo] rss guard: skipping content signals')
+    contentSignalsJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
   }
 
   // C12 Tier-1: semantic topic-overlap networks over MiniLM embeddings, over the
@@ -572,23 +746,46 @@ export async function runBrokenLinkVerify(
   // synchronous ONNX pass off the event-loop critical path. Fail-to-null: a throw,
   // model failure, or deadline-abandon must NEVER fail the live-scan write.
   let topicOverlapJson: string | null = null
+  if (!TOPIC_OVERLAP_ENABLED()) {
+    // Task 11b kill switch: disabled by default. Plain null, matching the
+    // existing time-skip semantics ("not analyzed" render) -- NOT the
+    // inputCapped stub, which would falsely claim input capping. The embedder
+    // is never touched: this branch returns before any embedChunked/embedTexts
+    // reference, before the RSS/time gates below, and before the eligible-page
+    // text assembly.
+    console.log('[live-seo] topic-overlap pass disabled (VERIFIER_TOPIC_OVERLAP_ENABLED not set)')
+  } else {
   const topicRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
-  if (topicRemaining >= TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
+  const topicRssOver = rssOverGuard()
+  if (topicRemaining >= TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS && !topicRssOver) {
     try {
       const eligible = seoRows.filter((r) => indexableOf(r) && !r.loginLike)
-      const withText = eligible.map((r) => ({
-        url: r.url,
-        sigText: [r.title, r.h1, r.metaDescription].map((s) => (s ?? '').trim()).filter(Boolean).join('\n'),
-        bodyFull: (r.contentText ?? '').trim(),
-      }))
-      const candidates = withText.filter((c) => c.sigText.length > 0 && c.bodyFull.length > 0)
+      // Task 10 slice-before-retain: the retained object holds only the
+      // TOPIC_OVERLAP_BODY_CHARS slice + a precomputed truncation flag — the
+      // full .trim()ed string is transient inside this map callback and is
+      // never held on the array (the old `bodyFull` field kept the WHOLE
+      // contentText resident for every eligible page for the rest of this
+      // block, on top of the copy already held in textByUrl).
+      const withText = eligible.map((r) => {
+        const full = (textByUrl.get(r.url) ?? '').trim()
+        return {
+          url: r.url,
+          sigText: [r.title, r.h1, r.metaDescription].map((s) => (s ?? '').trim()).filter(Boolean).join('\n'),
+          // Buffer round-trip forces a FLAT copy: when .trim() above allocated a
+          // new parent string, a bare .slice() would be a V8 SlicedString pinning
+          // the whole ~30KB parent for as long as this object is retained.
+          body: Buffer.from(full.slice(0, TOPIC_OVERLAP_BODY_CHARS), 'utf8').toString('utf8'),
+          bodyPrefixTruncated: full.length > TOPIC_OVERLAP_BODY_CHARS,
+        }
+      })
+      const candidates = withText.filter((c) => c.sigText.length > 0 && c.body.length > 0)
       const inputCapped = candidates.length > TOPIC_OVERLAP_MAX_PAGES
       const kept = inputCapped
         ? [...candidates].sort((a, b) => (a.url < b.url ? -1 : a.url > b.url ? 1 : 0)).slice(0, TOPIC_OVERLAP_MAX_PAGES)
         : candidates
       if (kept.length >= 2) {
         const sigTexts = kept.map((c) => c.sigText)
-        const bodyTexts = kept.map((c) => c.bodyFull.slice(0, TOPIC_OVERLAP_BODY_CHARS))
+        const bodyTexts = kept.map((c) => c.body)
         const vecs = await embedChunked([...sigTexts, ...bodyTexts], {
           embed: embedTexts,
           chunkSize: TOPIC_OVERLAP_EMBED_CHUNK,
@@ -597,16 +794,19 @@ export async function runBrokenLinkVerify(
           // CONTENT_SIM_RESERVE_MS remaining, but no further. A single final chunk
           // that overruns is backstopped by the similarity block's own entry guard
           // (`simRemaining >= CONTENT_SIM_RESERVE_MS`), which simply skips similarity
-          // to null rather than corrupting anything.
+          // to null rather than corrupting anything. Task 10: ALSO abort on a live
+          // RSS-over reading mid-embed (not just the frozen topicRssOver sampled
+          // at the gate above) — the embed pass runs across several chunks and
+          // memory can tip over during it.
           shouldAbort: () =>
-            JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS < CONTENT_SIM_RESERVE_MS,
+            JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS < CONTENT_SIM_RESERVE_MS || rssOverGuard(),
         })
         if (vecs) {
           const m = kept.length
           const vecByUrl = new Map(
             kept.map((c, i) => [
               c.url,
-              { sigVec: vecs[i], bodyVec: vecs[m + i], bodyPrefixTruncated: c.bodyFull.length > TOPIC_OVERLAP_BODY_CHARS },
+              { sigVec: vecs[i], bodyVec: vecs[m + i], bodyPrefixTruncated: c.bodyPrefixTruncated },
             ]),
           )
           const pageVecs = eligible.map((r) => {
@@ -615,36 +815,63 @@ export async function runBrokenLinkVerify(
               ? { url: r.url, sigVec: v.sigVec, bodyVec: v.bodyVec, bodyPrefixTruncated: v.bodyPrefixTruncated }
               : { url: r.url, sigVec: null, bodyVec: null, bodyPrefixTruncated: false }
           })
-          const result = clusterByTopicOverlap(pageVecs, { inputCapped })
-          if (result) topicOverlapJson = JSON.stringify({ v: 1, ...result })
+          // Codex plan-fix #4: OR the byte-budget cap into the existing page-count
+          // cap flag — both are honest "input was capped" signals on one field.
+          const result = clusterByTopicOverlap(pageVecs, { inputCapped: inputCapped || budgetSkippedPages > 0 })
+          if (result) {
+            topicOverlapJson = JSON.stringify({
+              v: 1, ...result, ...(budgetSkippedPages > 0 ? { budgetSkippedPages } : {}),
+            })
+          }
         }
+      }
+      if (topicOverlapJson === null && budgetSkippedPages > 0) {
+        // Budget-capped null (e.g. every candidate lost its body text to the
+        // budget, leaving < 2 clusterable pages) must not read as "not analyzed".
+        topicOverlapJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
       }
     } catch (e) {
       console.error('[live-seo] topic overlap failed', e)
     }
+  } else if (topicRssOver) {
+    console.warn('[live-seo] rss guard: skipping topic overlap')
+    topicOverlapJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
+  }
   }
 
   // C6 Phase 5: content similarity. Best-effort + time-budget-guarded — a similarity
   // failure or overrun must NEVER fail the live-scan write (mirrors the graph fail-to-null).
   let contentSimilarityJson: string | null = null
   const simRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
-  if (simRemaining >= CONTENT_SIM_RESERVE_MS) {
+  const simRssOver = rssOverGuard()
+  if (simRemaining >= CONTENT_SIM_RESERVE_MS && !simRssOver) {
     try {
       const simInputs: SimilarityPageInput[] = seoRows
         .filter((r) => indexableOf(r) && !r.loginLike)
-        .map((r) => ({ url: r.url, contentText: r.contentText, contentTruncated: r.contentTruncated }))
+        .map((r) => ({ url: r.url, contentText: textByUrl.get(r.url) ?? null, contentTruncated: r.contentTruncated }))
       const sim = computeContentSimilarity(simInputs)
-      if (sim) contentSimilarityJson = JSON.stringify({ v: 1, ...sim })
+      if (sim) {
+        contentSimilarityJson = JSON.stringify({
+          v: 1, ...sim, ...(budgetSkippedPages > 0 ? { inputCapped: true, budgetSkippedPages } : {}),
+        })
+      } else if (budgetSkippedPages > 0) {
+        // Codex plan-fix #4: budget-capped null (e.g. fewer than 2 pages kept
+        // any text) must not read as "not analyzed".
+        contentSimilarityJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
+      }
     } catch (e) {
       console.error('[live-seo] content similarity failed', e)
     }
+  } else if (simRssOver) {
+    console.warn('[live-seo] rss guard: skipping content similarity')
+    contentSimilarityJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
   }
 
   const bundle: FindingsBundle = {
     run: {
       id: runId, tool: 'seo-parser', source: 'live-scan', domain: site.domain ?? job.domain,
       clientId: site.clientId, sessionId: null, siteAuditId: site.id, adaAuditId: null,
-      status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated || internalBudgetHit ? 'partial' : 'complete',
+      status: capped || harvestTruncated || cappedValidation || externalCapped || externalHarvestTruncated || internalBudgetHit || linkStreamRssTripped ? 'partial' : 'complete',
       score: scoreResult.score,
       scoreBreakdown: serializeBreakdownV2(
         'live-seo', scoreResult, hashWeights(weights), scoreResult.inputsSnapshot,
@@ -652,7 +879,7 @@ export async function runBrokenLinkVerify(
       wcagLevel: null,
       pagesTotal: pages.length, startedAt, completedAt: new Date(deps.now()),
       seoIntent: site.seoIntent,
-      discoveryCoverageJson: JSON.stringify(coverage),
+      discoveryCoverageJson: coverage ? JSON.stringify(coverage) : null,
       reachabilityJson: graph ? JSON.stringify({ v: 1, ...graph.summary }) : null,
       contentSimilarityJson,
       contentSignalsJson,
@@ -716,11 +943,15 @@ export function enqueueBrokenLinkVerify(siteAuditId: string, domain: string | nu
 
 export async function onBrokenLinkVerifyExhausted(payload: unknown, ctx: JobExhaustedContext): Promise<void> {
   console.warn(`[broken-link-verify] exhausted after ${ctx.attempts} attempts: ${ctx.lastError}`)
-  // D7: the parent SiteAudit is already terminal 'complete' at this point (verify
-  // is enqueued post-terminal), so still send the completion email. The content
-  // builder tolerates a missing SEO run. Never throw from onExhausted.
   const p = payload as { siteAuditId?: string } | null
   if (!p?.siteAuditId) return
+  // Spec §3.1 (Codex): terminality FIRST, notify second, independent catches —
+  // a notify failure must never prevent the placeholder (and vice versa).
+  // ensureExhaustedPlaceholder never throws by contract.
+  await ensureExhaustedPlaceholder(p.siteAuditId)
+  // D7: the parent SiteAudit is already terminal 'complete' at this point (verify
+  // is enqueued post-terminal), so still send the completion email. The content
+  // builder treats a placeholder run as a missing SEO run. Never throw from onExhausted.
   const row = await prisma.siteAudit
     .findUnique({ where: { id: p.siteAuditId }, select: { notifyEmail: true, notifyCompleteSentAt: true } })
     .catch(() => null)

@@ -132,6 +132,32 @@ describe('loadSalesReportData', () => {
       lcpStatus: 'needs-improvement', clsStatus: 'needs-improvement', tbtStatus: 'needs-improvement',
     })
     expect(d.geo.missingHighValueTypes).toContain('Course')
+    expect(d.seoUnavailable).toBe(false) // real live-scan run
+  })
+
+  // Verifier-memory-loop fix (Task 4): the exhausted verifier's terminal
+  // placeholder run (source: 'live-scan-placeholder') still counts as
+  // "reportable" (pinned decision — ADA-only report, never "being prepared"
+  // forever) but must surface as SEO-unavailable rather than a real SEO run.
+  it('seoUnavailable=true when the only seo-parser run is an exhausted-verifier placeholder', async () => {
+    const domain = `${PREFIX}placeholder.test`
+    const prospect = await prisma.prospect.create({
+      data: { name: 'Placeholder U', domain, createdBy: 'Kevin', salesToken: crypto.randomUUID(), salesTokenExpiresAt: future() },
+    })
+    const audit = await prisma.siteAudit.create({
+      data: { domain, wcagLevel: 'wcag21aa', status: 'complete', prospectId: prospect.id, completedAt: new Date(), pagesTotal: 3 },
+    })
+    await prisma.crawlRun.create({
+      data: {
+        id: `${PREFIX}placeholder-run`, tool: 'seo-parser', source: 'live-scan-placeholder', domain,
+        siteAuditId: audit.id, status: 'partial', seoIntent: false,
+      },
+    })
+    const out = await loadSalesReportData(prospect.salesToken!)
+    expect(out.kind).toBe('ready') // placeholder still counts as reportable
+    if (out.kind !== 'ready') return
+    expect(out.data.seoUnavailable).toBe(true)
+    expect(out.data.seo.score).toBeNull()
   })
 
   it('overallScore averages only available metrics; null when none exist', async () => {
@@ -156,6 +182,44 @@ describe('loadSalesReportData', () => {
     expect(out.data.heroScreenshot).toBe(false)          // column null → slot hidden
     expect(out.data.performance.rollup).toBeNull()
     expect(out.data.performance.homepage).toBeNull()
+  })
+
+  // Task 8 (memory fix stage B2): a budget-capped similarity pass persists a
+  // non-null stub { v, unavailable: true, ... }. The sales report must read it
+  // as NOT MEASURED (null), never as "0 duplicate content groups"; a real
+  // payload (no unavailable field) still counts groups.
+  it('duplicateContentGroups: unavailable stub -> null; real payload still counts groups', async () => {
+    const mk = async (slug: string, contentSimilarityJson: string) => {
+      const domain = `${PREFIX}${slug}.test`
+      const p = await prisma.prospect.create({
+        data: { name: slug, domain, salesToken: crypto.randomUUID(), salesTokenExpiresAt: future() },
+      })
+      const audit = await prisma.siteAudit.create({
+        data: { domain, wcagLevel: 'wcag21aa', status: 'complete', completedAt: new Date(), prospectId: p.id },
+      })
+      await prisma.crawlRun.create({
+        data: {
+          id: `${PREFIX}${slug}-seo`, tool: 'seo-parser', source: 'live-scan', domain,
+          siteAuditId: audit.id, status: 'complete', score: 60, pagesTotal: 2,
+          startedAt: new Date(), completedAt: new Date(), contentSimilarityJson,
+        },
+      })
+      return p
+    }
+
+    const capped = await mk('simstub', JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages: 4 }))
+    const cappedOut = await loadSalesReportData(capped.salesToken!)
+    if (cappedOut.kind !== 'ready') throw new Error('expected ready')
+    expect(cappedOut.data.seo.duplicateContentGroups).toBeNull() // not measured, NEVER a literal 0
+
+    const real = await mk('simreal', JSON.stringify({
+      v: 1,
+      exactDuplicateGroups: [{ urls: ['/a', '/b'], count: 2 }],
+      nearDuplicateGroups: [{ urls: ['/c', '/d'], similarity: 0.93 }],
+    }))
+    const realOut = await loadSalesReportData(real.salesToken!)
+    if (realOut.kind !== 'ready') throw new Error('expected ready')
+    expect(realOut.data.seo.duplicateContentGroups).toBe(2) // measured path unchanged
   })
 
   it('affectedComplete=false surfaces from a capped run-scope finding', async () => {

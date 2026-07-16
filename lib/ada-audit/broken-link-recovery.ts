@@ -5,6 +5,7 @@
 // self-heals (finalizeSiteAudit early-returns on 'complete'). Run at boot
 // (recoverQueue) and in the 10-min stale-audit sweep.
 import { prisma } from '@/lib/db'
+import { ensureExhaustedPlaceholder } from '@/lib/findings/exhausted-placeholder'
 import { BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
 import { enqueueJob } from '@/lib/jobs/queue'
 import { JOB_ACTIVE_STATUSES } from '@/lib/jobs/types'
@@ -36,10 +37,10 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
   // empty-harvest verify still writes a clean run (the builder handles it).
   //
   // Codex note (re-enqueue bound): a permanently errored verifier is not "active",
-  // so a seoOnly audit whose verify keeps failing gets re-enqueued each sweep. This
-  // MIRRORS the existing transient-path behavior — bounded by the job's own
-  // maxAttempts/backoff and self-terminating once a seo-parser run lands. Intended;
-  // no unbounded-retry suppression here (out of scope for PR1).
+  // so without the self-repair fence below a seoOnly audit whose verify keeps
+  // failing would get re-enqueued every sweep. The per-id errored-job check now
+  // catches this for ALL candidates (transient-path and seoOnly-zero-harvest
+  // alike): a terminal 'error' job repairs the placeholder instead of retrying.
   const seoOnlyComplete = await prisma.siteAudit.findMany({
     where: { seoOnly: true, status: 'complete' },
     select: { id: true },
@@ -69,6 +70,19 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
       select: { id: true },
     })
     if (activeJob) continue
+    // Spec §3.2 (Codex #1) — self-repair fence: onExhausted hooks are
+    // best-effort (runOnExhausted swallows failures), so a crashed placeholder
+    // write must be repaired HERE, and an exhausted verifier must never be
+    // re-enqueued. Terminal errored job present -> retry the placeholder,
+    // skip the enqueue. Active jobs take precedence (checked above).
+    const erroredJob = await prisma.job.findFirst({
+      where: { type: BROKEN_LINK_VERIFY_JOB_TYPE, groupKey: `site-audit:${siteAuditId}`, status: 'error' },
+      select: { id: true },
+    })
+    if (erroredJob) {
+      await ensureExhaustedPlaceholder(siteAuditId)
+      continue
+    }
     // AWAIT a real enqueue — this sweep closes the fire-and-forget window, so it
     // must confirm the job is durably queued before counting it. dedupKey makes
     // it idempotent against a racing enqueue.

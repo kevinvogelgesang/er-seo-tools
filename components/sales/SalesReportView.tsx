@@ -27,7 +27,7 @@ export function SalesReportView(props: { data: SalesReportData; token: string; c
         />
         <HeroTiles {...data.headline} />
         <AccessibilitySalesSection data={data.accessibility} standardTested={data.standardTested} archived={data.archived} />
-        <SeoSalesSection data={data.seo} pagesScanned={data.pagesTotal ?? 0} />
+        <SeoSalesSection data={data.seo} pagesScanned={data.pagesTotal ?? 0} seoUnavailable={data.seoUnavailable} />
         <PerformanceSalesSection data={data.performance} />
         <GeoSalesSection data={data.geo} pagesTotal={data.pagesTotal} />
         <InquiryForm contactEmail={props.contactEmail} prospectName={data.prospect.name} domain={data.prospect.domain} />

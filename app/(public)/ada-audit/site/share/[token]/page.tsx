@@ -13,7 +13,9 @@ import { DiscoveryCoverageSection } from '@/components/site-audit/DiscoveryCover
 import { ReachabilitySection } from '@/components/site-audit/ReachabilitySection'
 import { ContentSimilaritySection } from '@/components/site-audit/ContentSimilaritySection'
 import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
+import SeoUnavailableNotice from '@/components/site-audit/SeoUnavailableNotice'
 import { classifySeoPhase, getLatestSeoVerifyJob } from '@/lib/ada-audit/seo-phase'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 import type { SiteAuditSummary, AuditPdfRow } from '@/lib/ada-audit/types'
 import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 
@@ -53,7 +55,7 @@ export default async function SharedSiteAuditPage({ params }: { params: Promise<
   const liveScanRun = await prisma.crawlRun.findUnique({
     where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'seo-parser' } },
     select: {
-      id: true, status: true, score: true, scoreBreakdown: true,
+      id: true, status: true, source: true, score: true, scoreBreakdown: true,
       discoveryCoverageJson: true, reachabilityJson: true, contentSimilarityJson: true,
       findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
       pages: { select: { statusCode: true, indexable: true } },
@@ -74,7 +76,14 @@ export default async function SharedSiteAuditPage({ params }: { params: Promise<
     return { url: p.url, fileSize: p.fileSize, pageCount: p.pageCount, issues, scanError: p.scanError ?? null }
   })
 
-  const seoContent = liveScanRun ? (
+  // Codex plan-fix #3: an exhausted-verifier placeholder run must not let ANY
+  // SEO section render a misleading empty/"pre-dates analysis" state — one
+  // page-level branch replaces the whole stack (share view must never render
+  // misleading empty SEO sections for a placeholder either).
+  const liveScanUnavailable = liveScanRun != null && isPlaceholderRun(liveScanRun)
+  const seoContent = liveScanUnavailable ? (
+    <SeoUnavailableNotice />
+  ) : liveScanRun ? (
     <>
       <BrokenLinksSection run={liveScanRun} />
       <OnPageSeoSection

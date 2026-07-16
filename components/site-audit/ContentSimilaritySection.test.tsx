@@ -19,6 +19,16 @@ describe('ContentSimilaritySection', () => {
     const { container } = render(<ContentSimilaritySection run={sim({ pagesEligible: 40, exactDuplicateGroups: [], nearDuplicateGroups: [] })} />)
     expect(container.textContent).toMatch(/no duplicate/i)
   })
+
+  // Task 8 (memory fix stage B2): a budget-capped null persists as an
+  // { unavailable: true } stub, not a bare null (which renders nothing here) —
+  // it must render the capped message instead of being silently dropped.
+  it('shows the capped message for an unavailable stub instead of rendering nothing', () => {
+    const { container } = render(<ContentSimilaritySection run={{ contentSimilarityJson: JSON.stringify({
+      v: 1, unavailable: true, inputCapped: true, budgetSkippedPages: 3,
+    }) }} />)
+    expect(container.textContent).toMatch(/content input was capped for this run/i)
+  })
   it('lists exact and near duplicate groups', () => {
     const { container } = render(<ContentSimilaritySection run={sim({
       pagesEligible: 40, boilerplateShinglesDropped: 12,

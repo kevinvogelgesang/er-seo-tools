@@ -18,6 +18,7 @@ import { TopicOverlapSection } from '@/components/site-audit/TopicOverlapSection
 import { ContentAuditCard } from '@/components/site-audit/ContentAuditCard'
 import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
 import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
+import SeoUnavailableNotice from '@/components/site-audit/SeoUnavailableNotice'
 import { classifySeoPhase, getLatestSeoVerifyJob } from '@/lib/ada-audit/seo-phase'
 import SiteAuditExportBar from '@/components/ada-audit/SiteAuditExportBar'
 import { reportFileExists } from '@/lib/report/report-file'
@@ -26,6 +27,7 @@ import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
 import { resolveSeoOnlyView } from './seo-only-view'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 
 export const dynamic = 'force-dynamic'
 
@@ -142,9 +144,13 @@ export default async function SiteAuditResultPage({ params }: Props) {
   if (audit.seoOnly) {
     const liveRun = await prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'seo-parser' } },
-      select: { id: true },
+      select: { id: true, source: true },
     })
-    const view = resolveSeoOnlyView(audit, liveRun?.id ?? null)
+    // Task 4 (verifier-memory-loop fix): an exhausted verifier's terminal
+    // placeholder run must not trigger the redirect to the SEO run page —
+    // there is no real SEO content behind it. resolveSeoOnlyView(audit, null)
+    // already renders the banner correctly; this just nulls out the id.
+    const view = resolveSeoOnlyView(audit, liveRun && !isPlaceholderRun(liveRun) ? liveRun.id : null)
     if (view.kind === 'redirect') redirect(view.href)
     const seoPhase = classifySeoPhase({
       liveScanRunId: null,
@@ -224,6 +230,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
     select: {
       id: true,
       status: true,
+      source: true,
       score: true,
       scoreBreakdown: true,
       discoveryCoverageJson: true,
@@ -275,7 +282,13 @@ export default async function SiteAuditResultPage({ params }: Props) {
     }
   })
 
-  const seoContent = liveScanRun ? (
+  // Codex plan-fix #3: an exhausted-verifier placeholder run must not let ANY
+  // SEO section render a misleading empty/"pre-dates analysis" state — one
+  // page-level branch replaces the whole stack.
+  const liveScanUnavailable = liveScanRun != null && isPlaceholderRun(liveScanRun)
+  const seoContent = liveScanUnavailable ? (
+    <SeoUnavailableNotice />
+  ) : liveScanRun ? (
     <>
       <BrokenLinksSection run={liveScanRun} />
       <OnPageSeoSection

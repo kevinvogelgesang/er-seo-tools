@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 
 export type SeoPhaseState = 'done' | 'running' | 'queued' | 'failed' | 'unavailable'
 
@@ -59,12 +60,13 @@ export async function getLatestSeoVerifyJob(siteAuditId: string): Promise<Verify
   })
 }
 
-/** Convenience for callers without a preloaded run id. */
+/** Convenience for callers without a preloaded run id. An exhausted-verifier
+ * placeholder run must NOT read as done (it means "SEO analysis unavailable"). */
 export async function getSeoPhase(siteAuditId: string, completedAt?: Date | null): Promise<SeoPhase> {
   const run = await prisma.crawlRun.findUnique({
     where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
-    select: { id: true },
+    select: { id: true, source: true },
   })
-  if (run) return { state: 'done', progress: null, message: null }
+  if (run && !isPlaceholderRun(run)) return { state: 'done', progress: null, message: null }
   return classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(siteAuditId), completedAt })
 }

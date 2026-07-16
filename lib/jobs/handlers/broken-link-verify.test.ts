@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { prisma } from '@/lib/db'
-import { runBrokenLinkVerify, deriveSitemapBaseline, type VerifyDeps } from './broken-link-verify'
+import { runBrokenLinkVerify, deriveSitemapBaseline, streamHarvestedLinks, VERIFIER_RSS_GUARD_MB, type VerifyDeps } from './broken-link-verify'
 import * as notifyMod from './notify-email'
 import * as contentSignalsMod from '@/lib/ada-audit/seo/content-signals'
 import * as embeddings from '@/lib/services/pillarAnalysis/embeddings'
@@ -987,6 +987,16 @@ describe('runBrokenLinkVerify — D7 completion notify', () => {
 })
 
 describe('C12 Tier-1 topic overlap', () => {
+  // Task 11b: the pass is OFF by default (VERIFIER_TOPIC_OVERLAP_ENABLED) —
+  // these tests exercise the pass itself, so they opt in explicitly, save/
+  // restore around each test (env hygiene — suites share a worker).
+  const ORIG_TOPIC_OVERLAP_ENABLED = process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+  beforeEach(() => { process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = 'true' })
+  afterEach(() => {
+    if (ORIG_TOPIC_OVERLAP_ENABLED === undefined) delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    else process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = ORIG_TOPIC_OVERLAP_ENABLED
+  })
+
   // helper: two indexable, non-login pages that ARE clustering candidates
   async function seedTwoTopicPages(siteAuditId: string) {
     await prisma.harvestedPageSeo.createMany({
@@ -1063,5 +1073,323 @@ describe('C12 Tier-1 topic overlap', () => {
     })
     expect(run!.topicOverlapJson).toBeNull()
     spy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 11b: VERIFIER_TOPIC_OVERLAP_ENABLED kill switch (Codex ruling — the
+// ONNX embed pass's intra-chunk RSS overshoot is unboundable by the RSS guard,
+// so the pass ships OFF by default; ONNX-side bounding is a follow-up).
+// ---------------------------------------------------------------------------
+
+describe('VERIFIER_TOPIC_OVERLAP_ENABLED kill switch', () => {
+  const KILL_DOMAIN = 'kill-switch.example.com'
+  const cleanKill = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: KILL_DOMAIN } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: KILL_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: KILL_DOMAIN } })
+  }
+  beforeEach(cleanKill)
+  afterAll(cleanKill)
+
+  const ORIG_TOPIC_OVERLAP_ENABLED = process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+  afterEach(async () => {
+    if (ORIG_TOPIC_OVERLAP_ENABLED === undefined) delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    else process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = ORIG_TOPIC_OVERLAP_ENABLED
+    vi.restoreAllMocks()
+    await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
+  })
+
+  // Same shape as seedTwoTopicPages above (two indexable, non-login,
+  // clustering-candidate pages) on this describe's own domain.
+  async function seedKillPages(siteAuditId: string) {
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${KILL_DOMAIN}/nursing-diploma`, statusCode: 200, isHtml: true,
+          title: 'Nursing Diploma', h1: 'Nursing Diploma Program', metaDescription: 'Become a nurse',
+          contentText: 'Our nursing diploma program prepares registered nurses for clinical practice.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId, url: `https://${KILL_DOMAIN}/rn-program`, statusCode: 200, isHtml: true,
+          title: 'RN Program', h1: 'Registered Nurse Program', metaDescription: 'Train as an RN',
+          contentText: 'The registered nurse program trains students for careers in clinical nursing.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+      ],
+    })
+  }
+
+  it('default (unset): topicOverlapJson stays plain null, embedder never invoked, status unchanged', async () => {
+    delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) => texts.map(() => [1, 0]))
+    const sa = await prisma.siteAudit.create({ data: { domain: KILL_DOMAIN, status: 'complete', clientId: null } })
+    await seedKillPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: KILL_DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } },
+      select: { status: true, topicOverlapJson: true },
+    })
+    expect(run).not.toBeNull()
+    expect(run!.topicOverlapJson).toBeNull() // plain null, NOT the inputCapped stub
+    expect(spy).not.toHaveBeenCalled()       // embedder never touched
+    expect(run!.status).toBe('complete')     // disabling the pass never flips run status
+  })
+
+  it("enabled='true': the topic-overlap pass runs and clusters the two same-topic pages", async () => {
+    process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = 'true'
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) => texts.map(() => [1, 0]))
+    const sa = await prisma.siteAudit.create({ data: { domain: KILL_DOMAIN, status: 'complete', clientId: null } })
+    await seedKillPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: KILL_DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } },
+      select: { topicOverlapJson: true },
+    })
+    const d = JSON.parse(run!.topicOverlapJson!)
+    expect(d.v).toBe(1)
+    expect(d.clusters).toHaveLength(1)
+    expect(spy).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 7 (stage-A memory fix): streamed loader cursor stability + RSS-guard trip
+// ---------------------------------------------------------------------------
+
+describe('streamHarvestedLinks — cursor stability across chunk boundaries', () => {
+  const CURSOR_DOMAIN = 'cursor-stab.example.com'
+  const cleanCursor = async () => {
+    await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: CURSOR_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: CURSOR_DOMAIN } })
+  }
+  beforeEach(cleanCursor); afterAll(cleanCursor)
+
+  it('delivers 5 identical (target,kind,source) rows exactly once, in order, with chunkSize 2', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: CURSOR_DOMAIN, status: 'complete', clientId: null } })
+    // Five rows identical in all three sort columns -> only the id tiebreaker
+    // separates them; a cursor without it (or with a wrong skip) would loop or
+    // skip a row across a chunk boundary. chunkSize 2 -> chunks of [2,2,1].
+    await prisma.harvestedLink.createMany({
+      data: Array.from({ length: 5 }, () => ({
+        siteAuditId: sa.id, targetUrl: `https://${CURSOR_DOMAIN}/same`, kind: 'internal-link',
+        sourcePageUrl: `https://${CURSOR_DOMAIN}/hub`,
+      })),
+    })
+    const seen: { targetUrl: string; kind: string; sourcePageUrl: string }[] = []
+    await streamHarvestedLinks(
+      sa.id, ['internal-link', 'image'],
+      (r) => seen.push({ targetUrl: r.targetUrl, kind: r.kind, sourcePageUrl: r.sourcePageUrl }),
+      { chunkSize: 2 },
+    )
+    // Exactly 5 rows delivered — no duplicate (cursor `skip: 1`), no skip (id tiebreaker).
+    expect(seen).toHaveLength(5)
+    expect(seen.every((s) =>
+      s.targetUrl === `https://${CURSOR_DOMAIN}/same` && s.kind === 'internal-link' &&
+      s.sourcePageUrl === `https://${CURSOR_DOMAIN}/hub`,
+    )).toBe(true)
+  })
+})
+
+describe('runBrokenLinkVerify — RSS-guard trip during link stream', () => {
+  const RSS_DOMAIN = 'rss-guard.example.com'
+  const cleanRss = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: RSS_DOMAIN } })
+    await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: RSS_DOMAIN } } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: RSS_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: RSS_DOMAIN } })
+  }
+  beforeEach(cleanRss); afterAll(cleanRss)
+  afterEach(async () => { await prisma.scoringWeights.deleteMany({ where: { id: 1 } }) })
+
+  async function seedRss() {
+    const sa = await prisma.siteAudit.create({
+      data: {
+        domain: RSS_DOMAIN, status: 'complete', clientId: null, pagesTotal: 1, pagesComplete: 1, pagesError: 0,
+        discoveredUrls: JSON.stringify([`https://${RSS_DOMAIN}/hub`]), discoveryMode: 'sitemap', discoveryCapped: false,
+      },
+    })
+    await prisma.harvestedPageSeo.create({
+      data: {
+        siteAuditId: sa.id, url: `https://${RSS_DOMAIN}/hub`, statusCode: 200, isHtml: true,
+        robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+        title: 'Hub', h1: 'Hub', metaDescription: 'M', wordCount: 800, schemaCount: 1,
+      },
+    })
+    // /redir resolves as a redirect (would emit redirect_chain via the validation
+    // mapper); /dead resolves broken (broken_internal_links via the broken-link mapper).
+    await prisma.harvestedLink.createMany({
+      data: [
+        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/redir`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub` },
+        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/dead`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub` },
+      ],
+    })
+    return sa.id
+  }
+
+  const rssDeps = (rssBytes: () => number): VerifyDeps => ({
+    resolve: async (url) => {
+      if (url.includes('/redir')) return { result: 'ok', finalUrl: `https://${RSS_DOMAIN}/redir2`, status: 200, hops: 1, chain: [`https://${RSS_DOMAIN}/redir2`], tooManyRedirects: false }
+      if (url.includes('/dead')) return { result: 'broken', finalUrl: null, status: 404, hops: 0, chain: [], tooManyRedirects: false }
+      return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }
+    },
+    resolveExternal: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+    now: () => 0, sleep: async () => {}, rssBytes,
+  })
+
+  const rssRun = (id: string) =>
+    prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: id, tool: 'seo-parser' } }, include: { findings: true } })
+
+  it('above guard: pairs dropped, graph+coverage null, no validation findings, run partial, toCheck still verified', async () => {
+    const id = await seedRss()
+    const overGuard = VERIFIER_RSS_GUARD_MB() * 1048576 + 1
+    await runBrokenLinkVerify({ siteAuditId: id, domain: RSS_DOMAIN }, rssDeps(() => overGuard))
+    const run = await rssRun(id)
+    expect(run).not.toBeNull()
+    expect(run!.status).toBe('partial')            // linkStreamRssTripped ORs into the disjunction
+    expect(run!.reachabilityJson).toBeNull()       // graph degraded to null (never computed over dropped pairs)
+    expect(run!.discoveryCoverageJson).toBeNull()  // coverage not computed (no fabricated-clean numbers)
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('redirect_chain')).toBe(false)        // validation mapper skipped entirely
+    expect(types.has('broken_internal_links')).toBe(true)  // toCheck (verification proper) NEVER dropped
+  })
+
+  it('below guard (control): graph+coverage present, redirect_chain emitted, run complete', async () => {
+    const id = await seedRss()
+    await runBrokenLinkVerify({ siteAuditId: id, domain: RSS_DOMAIN }, rssDeps(() => 1))
+    const run = await rssRun(id)
+    expect(run!.reachabilityJson).not.toBeNull()
+    expect(run!.discoveryCoverageJson).not.toBeNull()
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('redirect_chain')).toBe(true)
+    expect(types.has('broken_internal_links')).toBe(true)
+    expect(run!.status).toBe('complete') // nothing else trips partial in this fixture
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 10 (memory fix stage B3-4): the RSS ceiling ALSO gates the four
+// optional POST-verification analytics passes (link graph, content signals,
+// topic-overlap, similarity) independently of the link-stream trip above —
+// each reads a FRESH deps.rssBytes() sample at its own entry gate. Unlike the
+// link-stream trip (which flips the run to 'partial'), the analytics-gate
+// skip is measurement-only: it degrades the payloads (graph → null; the
+// three content-text passes → a capped { unavailable: true } stub, same
+// shape Task 8 uses for a byte-budget skip) but never touches run status.
+// ---------------------------------------------------------------------------
+
+describe('runBrokenLinkVerify — Task 10 RSS guard on optional analytics passes', () => {
+  const RSS2_DOMAIN = 'rss-analytics.example.com'
+  const cleanRss2 = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: RSS2_DOMAIN } })
+    await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: RSS2_DOMAIN } } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: RSS2_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: RSS2_DOMAIN } })
+  }
+  // Task 11b: topic-overlap is OFF by default — this describe's tests assert
+  // on its RSS-gated behavior specifically, so they opt in explicitly.
+  const ORIG_TOPIC_OVERLAP_ENABLED = process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+  beforeEach(cleanRss2)
+  beforeEach(() => { process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = 'true' })
+  afterAll(cleanRss2)
+  afterEach(async () => {
+    if (ORIG_TOPIC_OVERLAP_ENABLED === undefined) delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    else process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = ORIG_TOPIC_OVERLAP_ENABLED
+    vi.restoreAllMocks()
+    await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
+  })
+
+  // Two indexable, non-login pages with real (if short) sigText + body text —
+  // enough to be topic-overlap candidates (mirrors seedTwoTopicPages above) —
+  // plus one broken internal link, so "findings intact" has something concrete
+  // to assert against (broken_internal_links survives the analytics-gate skip
+  // untouched, since that pass is verification-proper, not optional analytics).
+  async function seedAnalytics() {
+    const sa = await prisma.siteAudit.create({
+      data: {
+        domain: RSS2_DOMAIN, status: 'complete', clientId: null, pagesTotal: 2, pagesComplete: 2, pagesError: 0,
+        discoveredUrls: JSON.stringify([`https://${RSS2_DOMAIN}/nursing-diploma`]), discoveryMode: 'sitemap', discoveryCapped: false,
+      },
+    })
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId: sa.id, url: `https://${RSS2_DOMAIN}/nursing-diploma`, statusCode: 200, isHtml: true,
+          title: 'Nursing Diploma', h1: 'Nursing Diploma Program', metaDescription: 'Become a nurse',
+          contentText: 'Our nursing diploma program prepares registered nurses for clinical practice.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, schemaCount: 1 },
+        { siteAuditId: sa.id, url: `https://${RSS2_DOMAIN}/rn-program`, statusCode: 200, isHtml: true,
+          title: 'RN Program', h1: 'Registered Nurse Program', metaDescription: 'Train as an RN',
+          contentText: 'The registered nurse program trains students for careers in clinical nursing.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false, schemaCount: 1 },
+      ],
+    })
+    await prisma.harvestedLink.create({
+      data: { siteAuditId: sa.id, targetUrl: `https://${RSS2_DOMAIN}/dead`, kind: 'internal-link', sourcePageUrl: `https://${RSS2_DOMAIN}/nursing-diploma` },
+    })
+    return sa.id
+  }
+
+  const analyticsDeps = (rssBytes: () => number): VerifyDeps => ({
+    resolve: async (url) => (url.includes('/dead')
+      ? { result: 'broken', finalUrl: null, status: 404, hops: 0, chain: [], tooManyRedirects: false }
+      : { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+    resolveExternal: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+    now: () => 0, sleep: async () => {}, rssBytes,
+  })
+
+  const analyticsRun = (id: string) =>
+    prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: id, tool: 'seo-parser' } },
+      include: { findings: true },
+    })
+
+  it('above guard AFTER the link stream: signals/topic/similarity persist a capped stub, graph null, findings intact, status unchanged', async () => {
+    const embedSpy = vi.spyOn(embeddings, 'embedTexts')
+    const id = await seedAnalytics()
+    const overGuard = VERIFIER_RSS_GUARD_MB() * 1048576 + 1
+    // Call #1 is the link-stream's single onChunkEnd (1 harvestedLink row, one
+    // chunk) -- kept UNDER the guard so linkStreamRssTripped never trips; that
+    // is Task 7's already-characterized behavior and this test isolates the
+    // NEW analytics gates. Every call after simulates RSS climbing past the
+    // ceiling mid-run, which is when graph/signals/topic/similarity each
+    // re-sample deps.rssBytes() at their own entry gate.
+    let calls = 0
+    const rssBytes = () => { calls++; return calls === 1 ? 1 : overGuard }
+    await runBrokenLinkVerify({ siteAuditId: id, domain: RSS2_DOMAIN }, analyticsDeps(rssBytes))
+    const run = await analyticsRun(id)
+    expect(run).not.toBeNull()
+    expect(run!.status).toBe('complete') // the analytics-gate skip alone never flips partial
+    expect(run!.reachabilityJson).toBeNull() // graph has no wrapper -- stays plain null
+
+    for (const json of [run!.contentSignalsJson, run!.contentSimilarityJson, run!.topicOverlapJson]) {
+      expect(json).not.toBeNull() // never a bare null -- persists the capped stub
+      const parsed = JSON.parse(json!)
+      expect(parsed.v).toBe(1)
+      expect(parsed.unavailable).toBe(true)
+      expect(parsed.inputCapped).toBe(true)
+    }
+
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('broken_internal_links')).toBe(true) // verification proper untouched by the analytics gate
+    expect(embedSpy).not.toHaveBeenCalled() // topic-overlap skipped at its entry gate -- embedTexts never reached
+    expect(calls).toBeGreaterThanOrEqual(5) // link-stream + graph + signals + topic + similarity gates
+  })
+
+  it('below guard (control): analytics outputs match characterization, unaffected by the RSS gate', async () => {
+    const id = await seedAnalytics()
+    vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) => texts.map(() => [1, 0]))
+    await runBrokenLinkVerify({ siteAuditId: id, domain: RSS2_DOMAIN }, analyticsDeps(() => 1))
+    const run = await analyticsRun(id)
+    expect(run!.status).toBe('complete')
+    expect(run!.reachabilityJson).not.toBeNull()
+
+    expect(run!.contentSignalsJson).not.toBeNull()
+    expect(JSON.parse(run!.contentSignalsJson!).unavailable).toBeUndefined()
+
+    // Both pages' contentText is well under computeContentSimilarity's 50-token
+    // eligibility floor, so this stays null on its OWN merits (thin content) —
+    // NOT the RSS stub; the assertion that matters is the shape, not the value.
+    expect(run!.contentSimilarityJson).toBeNull()
+
+    const overlap = JSON.parse(run!.topicOverlapJson!)
+    expect(overlap.unavailable).toBeUndefined()
+    expect(overlap.clusters).toHaveLength(1) // same as the C12 Tier-1 topic-overlap characterization
   })
 })
