@@ -18,6 +18,7 @@ import { TopicOverlapSection } from '@/components/site-audit/TopicOverlapSection
 import { ContentAuditCard } from '@/components/site-audit/ContentAuditCard'
 import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
 import { SeoPhaseBanner } from '@/components/site-audit/SeoPhaseBanner'
+import SeoUnavailableNotice from '@/components/site-audit/SeoUnavailableNotice'
 import { classifySeoPhase, getLatestSeoVerifyJob } from '@/lib/ada-audit/seo-phase'
 import SiteAuditExportBar from '@/components/ada-audit/SiteAuditExportBar'
 import { reportFileExists } from '@/lib/report/report-file'
@@ -229,6 +230,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
     select: {
       id: true,
       status: true,
+      source: true,
       score: true,
       scoreBreakdown: true,
       discoveryCoverageJson: true,
@@ -280,7 +282,13 @@ export default async function SiteAuditResultPage({ params }: Props) {
     }
   })
 
-  const seoContent = liveScanRun ? (
+  // Codex plan-fix #3: an exhausted-verifier placeholder run must not let ANY
+  // SEO section render a misleading empty/"pre-dates analysis" state — one
+  // page-level branch replaces the whole stack.
+  const liveScanUnavailable = liveScanRun != null && isPlaceholderRun(liveScanRun)
+  const seoContent = liveScanUnavailable ? (
+    <SeoUnavailableNotice />
+  ) : liveScanRun ? (
     <>
       <BrokenLinksSection run={liveScanRun} />
       <OnPageSeoSection
