@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface MaterialLink {
   id: number
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function MaterialLinkForm({ token, onCreated }: Props) {
+  const router = useRouter()
   const [label, setLabel] = useState('')
   const [url, setUrl] = useState('')
   const [authorName, setAuthorName] = useState('')
@@ -35,6 +37,7 @@ export function MaterialLinkForm({ token, onCreated }: Props) {
       setLabel('')
       setUrl('')
       setAuthorName('')
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add this link. Please try again.')
     } finally {
@@ -56,7 +59,7 @@ export function MaterialLinkForm({ token, onCreated }: Props) {
         className="mt-1 w-full rounded-lg border border-current/20 bg-transparent p-3" />
     </label>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    <button disabled={busy || !label.trim() || !url.trim()} className="rounded-lg bg-[var(--viewbook-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+    <button disabled={busy || !label.trim() || !url.trim()} className="rounded-lg bg-[var(--vb-primary)] px-4 py-2 text-sm font-semibold text-[var(--vb-on-primary)] disabled:opacity-50">
       {busy ? 'Adding…' : 'Add link'}
     </button>
   </form>

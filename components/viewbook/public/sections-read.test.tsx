@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { WelcomeSection } from './WelcomeSection'
 import { BrandSection } from './BrandSection'
 import { StrategySection } from './StrategySection'
 import { MaterialsSection } from './MaterialsSection'
+import { MilestonesSection } from './MilestonesSection'
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
 afterEach(cleanup)
 
@@ -94,6 +97,7 @@ describe('MaterialsSection', () => {
     expect(a.getAttribute('target')).toBe('_blank')
     expect(screen.getByText('Logo files')).toBeDefined()
     expect(screen.queryByRole('link', { name: /logo files/i })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add link' })).toBeDefined()
   })
 
   it('renders a non-https material URL as plain text, never an anchor (security-review)', () => {
@@ -105,5 +109,48 @@ describe('MaterialsSection', () => {
     render(<MaterialsSection section={sec('materials')} data={data} token="tok" />)
     expect(screen.queryByRole('link', { name: /sneaky/i })).toBeNull()
     expect(screen.getByText('Sneaky')).toBeDefined()
+  })
+})
+
+describe('MilestonesSection', () => {
+  it('renders one feedback form per review link and seeds each thread', () => {
+    const data = base({
+      milestones: [{
+        id: 1,
+        title: 'Design',
+        blurb: null,
+        status: 'current',
+        targetDate: null,
+        doneAt: null,
+        reviewLinks: [
+          {
+            id: 10,
+            label: 'Homepage mockup',
+            url: 'https://example.com/home',
+            kind: 'mockup',
+            feedback: [{
+              id: 100,
+              body: 'Make the headline warmer.',
+              authorName: 'Alex',
+              authorKind: 'client',
+              resolvedAt: null,
+              createdAt: '2026-07-15T00:00:00.000Z',
+            }],
+          },
+          {
+            id: 11,
+            label: 'Programs mockup',
+            url: 'https://example.com/programs',
+            kind: 'mockup',
+            feedback: [],
+          },
+        ],
+      }],
+    })
+
+    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+
+    expect(screen.getAllByRole('button', { name: 'Send feedback' })).toHaveLength(2)
+    expect(screen.getByText('Make the headline warmer.')).toBeDefined()
   })
 })

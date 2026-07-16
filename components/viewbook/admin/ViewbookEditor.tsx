@@ -1,7 +1,7 @@
 'use client'
 
-// PR1 editor shell: Theme · Content · Milestones · Settings.
-// Data Source (PR3) and Feedback/Activity (PR4) tabs arrive with their lanes.
+// Viewbook editor shell: Theme · Content · Milestones · Feedback · Activity · Settings.
+// Data Source (PR3) arrives with its lane.
 
 import { useCallback, useEffect, useState } from 'react'
 import type { ViewbookTheme } from '@/lib/viewbook/theme'
@@ -10,8 +10,10 @@ import { jsonFetch, publicViewbookUrl } from './viewbook-admin-shared'
 import { ThemeEditor } from './ThemeEditor'
 import { ContentTab } from './ContentTab'
 import { MilestonesEditor } from './MilestonesEditor'
+import { FeedbackTab } from './FeedbackTab'
+import { ActivityFeed } from './ActivityFeed'
 
-const TABS = ['Theme', 'Content', 'Milestones', 'Settings'] as const
+const TABS = ['Theme', 'Content', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 
 interface ViewbookDetail {
   id: number
@@ -24,7 +26,29 @@ interface ViewbookDetail {
   theme: ViewbookTheme
   client: { name: string; archivedAt: string | null }
   sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]
-  milestones: { id: number; title: string; blurb: string | null; sortOrder: number; status: string; targetDate: string | null }[]
+  milestones: {
+    id: number
+    title: string
+    blurb: string | null
+    sortOrder: number
+    status: string
+    targetDate: string | null
+    reviewLinks: {
+      id: number
+      label: string
+      url: string
+      kind: string
+      feedback: {
+        id: number
+        body: string
+        authorName: string | null
+        authorKind: string
+        createdAt: string
+        resolvedAt: string | null
+        resolvedBy: string | null
+      }[]
+    }[]
+  }[]
   contentOverrides: { contentKey: string; body: string }[]
 }
 
@@ -49,6 +73,12 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
 
   if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
   if (!vb) return <p className="text-sm text-gray-400">Loading…</p>
+
+  const threads = vb.milestones.flatMap((m) => m.reviewLinks.map((l) => ({
+    reviewLinkId: l.id,
+    label: `${m.title} — ${l.label}`,
+    feedback: l.feedback,
+  })))
 
   return (
     <div className="space-y-4">
@@ -104,6 +134,8 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
       {tab === 'Milestones' && (
         <MilestonesEditor viewbookId={vb.id} milestones={vb.milestones} onChanged={() => void load()} />
       )}
+      {tab === 'Feedback' && <FeedbackTab key={vb.id} viewbookId={vb.id} threads={threads} />}
+      {tab === 'Activity' && <ActivityFeed viewbookId={vb.id} />}
       {tab === 'Settings' && <SettingsTab vb={vb} onChanged={() => void load()} />}
     </div>
   )

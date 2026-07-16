@@ -72,7 +72,7 @@ export function FeedbackThread({ token, reviewLinkId, initialFeedback = [] }: Pr
           className="mt-1 w-full rounded-lg border border-current/20 bg-transparent p-3" />
       </label>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      <button disabled={busy || !body.trim()} className="rounded-lg bg-[var(--viewbook-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+      <button disabled={busy || !body.trim()} className="rounded-lg bg-[var(--vb-primary)] px-4 py-2 text-sm font-semibold text-[var(--vb-on-primary)] disabled:opacity-50">
         {busy ? 'Sending…' : 'Send feedback'}
       </button>
     </form>

@@ -18,7 +18,11 @@ describe('FeedbackThread', () => {
     expect(screen.getByText('<script>alert(1)</script>')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Feedback'), { target: { value: 'Please revise' } })
     fireEvent.change(screen.getByLabelText('Name (as reported)'), { target: { value: 'Alex' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send feedback' }))
+    const submit = screen.getByRole('button', { name: 'Send feedback' })
+    expect(submit.className).toContain('bg-[var(--vb-primary)]')
+    expect(submit.className).toContain('text-[var(--vb-on-primary)]')
+    expect(submit.className).not.toContain('--viewbook-primary')
+    fireEvent.click(submit)
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
     const init = fetchMock.mock.calls[0][1]
     const body = JSON.parse(init.body)

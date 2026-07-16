@@ -1,11 +1,12 @@
 // Process & Milestones (spec §8): horizontal timeline with the current stage
-// spotlighted, review-link cards per stage. Read-only in PR2 — PR4's
-// integration phase mounts FeedbackThread under each review-link card.
+// spotlighted, review-link cards per stage. PR4 mounted FeedbackThread under
+// each review-link card.
 import type { PublicMilestone, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { isHttpsUrl } from './MaterialsSection'
+import { FeedbackThread } from './FeedbackThread'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -131,7 +132,9 @@ export function MilestonesSection({
                     </span>
                   )}
                 </div>
-                {/* PR4 integration mounts FeedbackThread here. */}
+                <div className="mt-3">
+                  <FeedbackThread token={token} reviewLinkId={l.id} initialFeedback={l.feedback} />
+                </div>
               </div>
             ))}
           </div>
