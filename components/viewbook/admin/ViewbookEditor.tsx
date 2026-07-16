@@ -3,9 +3,9 @@
 // Viewbook editor shell: Theme · Content · Data Source · Milestones · Feedback · Activity · Settings.
 
 import { useCallback, useEffect, useState } from 'react'
-import type { ViewbookTheme } from '@/lib/viewbook/theme'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
-import { jsonFetch, publicViewbookUrl } from './viewbook-admin-shared'
+import { isViewbookStage, STAGE_LABELS } from '@/lib/viewbook/stages'
+import { jsonFetch, publicViewbookUrl, type ViewbookDetail } from './viewbook-admin-shared'
 import { ThemeEditor } from './ThemeEditor'
 import { ContentTab } from './ContentTab'
 import { MilestonesEditor } from './MilestonesEditor'
@@ -14,59 +14,6 @@ import { ActivityFeed } from './ActivityFeed'
 import { DataSourceTab } from './DataSourceTab'
 
 const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
-
-interface ViewbookDetail {
-  id: number
-  kind: string
-  token: string
-  revokedAt: string | null
-  welcomeNote: string | null
-  notifyEmail: string | null
-  dataLockedAt: string | null
-  dataLockedBy: string | null
-  theme: ViewbookTheme
-  client: { name: string; archivedAt: string | null }
-  sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]
-  milestones: {
-    id: number
-    title: string
-    blurb: string | null
-    sortOrder: number
-    status: string
-    targetDate: string | null
-    reviewLinks: {
-      id: number
-      label: string
-      url: string
-      kind: string
-      feedback: {
-        id: number
-        body: string
-        authorName: string | null
-        authorKind: string
-        createdAt: string
-        resolvedAt: string | null
-        resolvedBy: string | null
-      }[]
-    }[]
-  }[]
-  contentOverrides: { contentKey: string; body: string }[]
-  fields: {
-    id: number
-    defKey: string | null
-    category: string
-    label: string
-    fieldType: string
-    sortOrder: number
-    value: string | null
-    version: number
-    valueUpdatedBy: string | null
-    valueUpdatedAt: string | null
-    archivedAt: string | null
-    createdAt: string
-    amendments: { id: number; value: string; author: string; createdAt: string }[]
-  }[]
-}
 
 export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>('Theme')
@@ -181,6 +128,10 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
     <div className="space-y-5 text-sm">
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
       {flash && <p className="text-teal-600 dark:text-teal-400">{flash} done.</p>}
+
+      <p className="text-gray-700 dark:text-white/80">
+        Project stage: <span className="font-medium">{isViewbookStage(vb.stage) ? STAGE_LABELS[vb.stage] : vb.stage}</span>
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-gray-700 dark:text-white/80">Kind</label>

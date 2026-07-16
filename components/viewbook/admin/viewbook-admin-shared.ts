@@ -2,6 +2,8 @@
 
 // Shared client-side helpers for the viewbook admin components.
 
+import type { ViewbookTheme } from '@/lib/viewbook/theme'
+
 export function publicViewbookUrl(token: string): string {
   const base =
     process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')
@@ -23,7 +25,62 @@ export interface ViewbookListRow {
   token: string
   revoked: boolean
   currentMilestone: string | null
+  stage: string
   activityCount: number
   dataLockedAt: string | null
   createdAt: string
+}
+
+export interface ViewbookDetail {
+  id: number
+  kind: string
+  token: string
+  revokedAt: string | null
+  welcomeNote: string | null
+  notifyEmail: string | null
+  dataLockedAt: string | null
+  dataLockedBy: string | null
+  stage: string
+  theme: ViewbookTheme
+  client: { name: string; archivedAt: string | null }
+  sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]
+  milestones: {
+    id: number
+    title: string
+    blurb: string | null
+    sortOrder: number
+    status: string
+    targetDate: string | null
+    reviewLinks: {
+      id: number
+      label: string
+      url: string
+      kind: string
+      feedback: {
+        id: number
+        body: string
+        authorName: string | null
+        authorKind: string
+        createdAt: string
+        resolvedAt: string | null
+        resolvedBy: string | null
+      }[]
+    }[]
+  }[]
+  contentOverrides: { contentKey: string; body: string }[]
+  fields: {
+    id: number
+    defKey: string | null
+    category: string
+    label: string
+    fieldType: string
+    sortOrder: number
+    value: string | null
+    version: number
+    valueUpdatedBy: string | null
+    valueUpdatedAt: string | null
+    archivedAt: string | null
+    createdAt: string
+    amendments: { id: number; value: string; author: string; createdAt: string }[]
+  }[]
 }
