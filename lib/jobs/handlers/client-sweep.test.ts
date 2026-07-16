@@ -300,6 +300,70 @@ describe('runClientSweep', () => {
     expect(memberFor(membership, client.id, domain).outcome).toBe('error')
   })
 
+  it('(j) pre-seed: errored member ordered before an enqueued same-domain sibling → shared-domain on retry', async () => {
+    const domain = `${DOM}-j-shared.example`
+    const clientA = await makeClient([domain])
+    const clientB = await makeClient([domain])
+    const slot = nextSlot()
+    await ensureSweepSchedule()
+    // clientA is ordered FIRST, clientB second — both on the same domain.
+    await seedSweep(slot, [
+      { clientId: clientA.id, clientName: clientA.name, domain, siteAuditId: null, outcome: 'pending' },
+      { clientId: clientB.id, clientName: clientB.name, domain, siteAuditId: null, outcome: 'pending' },
+    ])
+
+    // Run 1: clientA's enqueue throws (errors); clientB enqueues cleanly.
+    const q1 = makeQueue((input): QueueRequestResult => {
+      if (input.clientId === clientA.id) throw new Error('boom')
+      return { kind: 'queued', id: `aud-${input.domain}` }
+    })
+    await expect(runClientSweep(slot, { queue: q1.fn, now: () => new Date() })).rejects.toThrow()
+    let membership = await loadMembership(slot)
+    expect(memberFor(membership, clientA.id, domain).outcome).toBe('error')
+    expect(memberFor(membership, clientB.id, domain).outcome).toBe('enqueued')
+    const auditId = memberFor(membership, clientB.id, domain).siteAuditId
+    expect(auditId).toBe(`aud-${domain}`)
+
+    // Run 2 (retry): clientA collapses to shared-domain with clientB's audit id —
+    // NOT skipped-conflict. The pre-pass seeded the domain map before the walk.
+    const q2 = makeQueue(okResponder)
+    await runClientSweep(slot, { queue: q2.fn, now: () => new Date() })
+    membership = await loadMembership(slot)
+    const a = memberFor(membership, clientA.id, domain)
+    expect(a.outcome).toBe('shared-domain')
+    expect(a.siteAuditId).toBe(auditId)
+    expect(q2.calls.some((c) => c.clientId === clientA.id)).toBe(false)
+  })
+
+  it('(k) reuses an already-frozen cohort verbatim — never rebuilds mid-week', async () => {
+    const slot = nextSlot()
+    await ensureSweepSchedule()
+    const markerClientId = 999_000_001 // not an active client → buildCohort would never emit it
+    await seedSweep(slot, [
+      { clientId: markerClientId, clientName: 'Frozen Winner', domain: `${DOM}-k.example`, siteAuditId: null, outcome: 'pending' },
+    ])
+    const q = makeQueue(okResponder)
+    await runClientSweep(slot, { queue: q.fn, now: () => new Date() })
+    const membership = await loadMembership(slot)
+    // the frozen (winner) cohort's marker member survives — proof we adopted the
+    // existing membership instead of rebuilding from the active-client list.
+    expect(membership.members.some((m) => m.clientId === markerClientId)).toBe(true)
+    expect(membership.members).toHaveLength(1)
+  })
+
+  it('(l) a present-but-unparseable membershipJson throws (never silently rebuilds)', async () => {
+    const slot = nextSlot()
+    await ensureSweepSchedule()
+    await prisma.weeklySweep.create({
+      data: { scheduledFor: slot, startedAt: new Date(), membershipJson: '{not valid json' },
+    })
+    const q = makeQueue(okResponder)
+    await expect(runClientSweep(slot, { queue: q.fn, now: () => new Date() })).rejects.toThrow(/refusing to rebuild/)
+    const row = await prisma.weeklySweep.findUniqueOrThrow({ where: { scheduledFor: slot } })
+    expect(row.membershipJson).toBe('{not valid json') // untouched — no rebuild
+    expect(q.calls).toHaveLength(0)
+  })
+
   it('(h) re-firing the same slot upserts — never a second WeeklySweep row', async () => {
     const domain = `${DOM}-h.example`
     await makeClient([domain])

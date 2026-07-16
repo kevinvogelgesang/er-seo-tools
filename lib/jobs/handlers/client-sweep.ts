@@ -49,23 +49,50 @@ export async function runClientSweep(slot: Date, deps: ClientSweepDeps = realDep
   //    reuses the SAME membership — a client added later is never admitted.
   let membership = parseMembership(sweep.membershipJson)
   if (!membership) {
+    // A non-null-but-unparseable membershipJson is CORRUPT, not "unset". Rebuilding
+    // would mint a fresh cohort mid-week (dropping every recorded outcome) — throw
+    // instead and let the worker retry / an operator investigate.
+    if (sweep.membershipJson !== null) {
+      throw new Error('[sweep] membershipJson is present but failed to parse — refusing to rebuild cohort')
+    }
     const clients = await prisma.client.findMany({
       where: { archivedAt: null },
       select: { id: true, name: true, domains: true },
     })
-    membership = buildCohort(clients)
-    await prisma.weeklySweep.update({
-      where: { id: sweep.id },
+    const built = buildCohort(clients)
+    // Fence the FIRST publish on membershipJson still being null: a zombie first
+    // attempt racing a retry must not publish a second, different cohort. On a
+    // lost race we adopt the WINNER's frozen cohort (never our own).
+    const { count } = await prisma.weeklySweep.updateMany({
+      where: { id: sweep.id, membershipJson: null },
       data: {
-        membershipJson: JSON.stringify(membership),
+        membershipJson: JSON.stringify(built),
         startedAt: sweep.startedAt ?? deps.now(),
       },
     })
+    if (count === 0) {
+      const row = await prisma.weeklySweep.findUnique({
+        where: { id: sweep.id },
+        select: { membershipJson: true },
+      })
+      const winner = parseMembership(row?.membershipJson ?? null)
+      if (!winner) throw new Error('[sweep] cohort publish raced but winner cohort is unreadable')
+      membership = winner
+    } else {
+      membership = built
+    }
   }
 
   // 3. Process pending/error members; persist after EACH outcome so a crash
   //    mid-fan-out resumes without re-queuing already-enqueued members.
   const byDomainAudit = new Map<string, string>() // normalized domain -> siteAuditId
+  // Pre-seed the shared-domain map from EVERY member that already has an audit,
+  // BEFORE walking the list. Otherwise an errored (or pending) member ordered
+  // ahead of a successfully-enqueued same-domain sibling would re-enqueue on
+  // retry and land skipped-conflict instead of collapsing to shared-domain.
+  for (const m of membership.members) {
+    if (m.siteAuditId) byDomainAudit.set(m.domain, m.siteAuditId)
+  }
   for (const m of membership.members) {
     // Already-settled members: seed the shared-domain map with their audit id
     // (including ids recovered from terminal members on a retry) and skip.
