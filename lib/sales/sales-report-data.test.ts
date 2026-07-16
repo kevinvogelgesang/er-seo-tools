@@ -184,6 +184,44 @@ describe('loadSalesReportData', () => {
     expect(out.data.performance.homepage).toBeNull()
   })
 
+  // Task 8 (memory fix stage B2): a budget-capped similarity pass persists a
+  // non-null stub { v, unavailable: true, ... }. The sales report must read it
+  // as NOT MEASURED (null), never as "0 duplicate content groups"; a real
+  // payload (no unavailable field) still counts groups.
+  it('duplicateContentGroups: unavailable stub -> null; real payload still counts groups', async () => {
+    const mk = async (slug: string, contentSimilarityJson: string) => {
+      const domain = `${PREFIX}${slug}.test`
+      const p = await prisma.prospect.create({
+        data: { name: slug, domain, salesToken: crypto.randomUUID(), salesTokenExpiresAt: future() },
+      })
+      const audit = await prisma.siteAudit.create({
+        data: { domain, wcagLevel: 'wcag21aa', status: 'complete', completedAt: new Date(), prospectId: p.id },
+      })
+      await prisma.crawlRun.create({
+        data: {
+          id: `${PREFIX}${slug}-seo`, tool: 'seo-parser', source: 'live-scan', domain,
+          siteAuditId: audit.id, status: 'complete', score: 60, pagesTotal: 2,
+          startedAt: new Date(), completedAt: new Date(), contentSimilarityJson,
+        },
+      })
+      return p
+    }
+
+    const capped = await mk('simstub', JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages: 4 }))
+    const cappedOut = await loadSalesReportData(capped.salesToken!)
+    if (cappedOut.kind !== 'ready') throw new Error('expected ready')
+    expect(cappedOut.data.seo.duplicateContentGroups).toBeNull() // not measured, NEVER a literal 0
+
+    const real = await mk('simreal', JSON.stringify({
+      v: 1,
+      exactDuplicateGroups: [{ urls: ['/a', '/b'], count: 2 }],
+      nearDuplicateGroups: [{ urls: ['/c', '/d'], similarity: 0.93 }],
+    }))
+    const realOut = await loadSalesReportData(real.salesToken!)
+    if (realOut.kind !== 'ready') throw new Error('expected ready')
+    expect(realOut.data.seo.duplicateContentGroups).toBe(2) // measured path unchanged
+  })
+
   it('affectedComplete=false surfaces from a capped run-scope finding', async () => {
     const p = await prisma.prospect.create({
       data: { name: 'Cap U', domain: `${PREFIX}cap.test`, salesToken: crypto.randomUUID(), salesTokenExpiresAt: future() },

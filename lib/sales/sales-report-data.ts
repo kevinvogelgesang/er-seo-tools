@@ -209,11 +209,15 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       examplePages: pageRows.slice(0, MAX_EXAMPLE_PAGES).map((f) => f.url as string),
     })
   }
-  // Real shape (Codex plan-review fix #3): { v, exactDuplicateGroups, nearDuplicateGroups }
-  const similarity = parseJson<{ exactDuplicateGroups?: unknown[]; nearDuplicateGroups?: unknown[] }>(
+  // Real shape (Codex plan-review fix #3): { v, exactDuplicateGroups, nearDuplicateGroups }.
+  // Task 8 (memory fix stage B2): a budget-capped similarity pass persists a
+  // non-null STUB { v, unavailable: true, ... } instead of a bare null — that is
+  // "not measured", never "0 groups", so gate the arithmetic on !unavailable
+  // (field absent on real/legacy payloads → measured path unchanged).
+  const similarity = parseJson<{ unavailable?: boolean; exactDuplicateGroups?: unknown[]; nearDuplicateGroups?: unknown[] }>(
     seoRun.contentSimilarityJson,
   )
-  const duplicateContentGroups = similarity
+  const duplicateContentGroups = similarity && !similarity.unavailable
     ? (similarity.exactDuplicateGroups?.length ?? 0) + (similarity.nearDuplicateGroups?.length ?? 0)
     : null
   const coverage = parseJson<{ applicable?: boolean; missRate?: number }>(seoRun.discoveryCoverageJson)
