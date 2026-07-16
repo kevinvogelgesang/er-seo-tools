@@ -1,0 +1,121 @@
+// Data Source (spec §8): Q&A grouped by catalog category, read-only in PR2.
+// PR3 owns this file next: inline editing, autosave, propose-a-change.
+import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { SectionShell } from './SectionShell'
+import { SECTION_TITLES } from './section-titles'
+import { publicAssetUrl } from './ThemeStyle'
+
+const CATEGORY_LABELS: Record<string, string> = {
+  school: 'Your school',
+  programs: 'Programs',
+  'team-access': 'Team & access',
+  'crm-leads': 'CRM & leads',
+  admissions: 'Admissions',
+  positioning: 'Positioning',
+  'student-experience': 'Student experience',
+  'brand-materials': 'Brand & materials',
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+  })
+}
+
+function who(author: string | null): string {
+  return author === 'client' ? 'you' : 'our team'
+}
+
+function ListValue({ value }: { value: string }) {
+  let items: string[] | null = null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) items = parsed
+  } catch {
+    items = null
+  }
+  if (!items) return <p className="whitespace-pre-line">{value}</p>
+  return (
+    <ul className="list-disc pl-5">
+      {items.map((x, i) => (
+        <li key={i}>{x}</li>
+      ))}
+    </ul>
+  )
+}
+
+function FieldRow({ field }: { field: PublicField }) {
+  return (
+    <div className="px-5 py-3">
+      <p className="text-sm font-semibold text-black/60">{field.label}</p>
+      {field.value == null || field.value === '' ? (
+        <p className="text-black/35">Not provided yet</p>
+      ) : field.fieldType === 'list' ? (
+        <ListValue value={field.value} />
+      ) : (
+        <p className="whitespace-pre-line">{field.value}</p>
+      )}
+      {field.valueUpdatedAt && (
+        <p className="mt-1 text-xs text-black/40">
+          Last updated by {who(field.valueUpdatedBy)} on {fmtDate(field.valueUpdatedAt)}
+        </p>
+      )}
+      {field.amendments.map((a) => (
+        <div key={a.id} className="mt-2 border-l-4 pl-3" style={{ borderColor: 'var(--vb-tertiary)' }}>
+          <p className="whitespace-pre-line">{a.value}</p>
+          <p className="text-xs text-black/40">
+            changed on {fmtDate(a.createdAt)} by {who(a.author)}
+          </p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function DataSourceSection({
+  section,
+  data,
+  token,
+}: {
+  section: PublicSection
+  data: ViewbookPublicData
+  token: string
+}) {
+  const hero = data.theme.sectionHeroes[section.sectionKey]
+  return (
+    <SectionShell
+      section={section}
+      title={SECTION_TITLES[section.sectionKey]}
+      heroUrl={hero ? publicAssetUrl(token, hero) : null}
+    >
+      {data.dataLockedAt && (
+        <div
+          className="rounded-lg px-4 py-3 text-sm font-medium"
+          style={{ background: 'var(--vb-primary)', color: 'var(--vb-on-primary)' }}
+        >
+          These answers were locked in on {fmtDate(data.dataLockedAt)}. Amendments appear beside the
+          original answers.
+        </div>
+      )}
+      {data.fieldCategories.length === 0 && (
+        <p className="text-black/50">The launch questionnaire will appear here.</p>
+      )}
+      {data.fieldCategories.map((cat) => (
+        <details key={cat.category} open className="rounded-xl border border-black/10 bg-white shadow-sm">
+          <summary
+            className="cursor-pointer px-5 py-3 text-lg font-bold"
+            style={{ fontFamily: 'var(--vb-heading-font)' }}
+          >
+            {CATEGORY_LABELS[cat.category] ?? cat.category}
+          </summary>
+          <div className="divide-y divide-black/5">
+            {cat.fields.map((f) => (
+              <FieldRow key={f.id} field={f} />
+            ))}
+          </div>
+        </details>
+      ))}
+      {/* PR3 owns this file next: inline editing, autosave, propose-a-change. */}
+    </SectionShell>
+  )
+}
