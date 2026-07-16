@@ -50,6 +50,8 @@ export async function createViewbook(
         kind,
         token,
         createdBy,
+        // PR1: explicit until PR5 ships the post-contract UI (spec fix 2)
+        stage: 'building',
         sections: {
           create: SECTION_KEYS.map((sectionKey) => ({
             sectionKey,
@@ -99,6 +101,7 @@ export async function listViewbooks() {
     kind: r.kind,
     token: r.token,
     revoked: r.revokedAt != null,
+    stage: r.stage,
     currentMilestone: r.milestones[0]?.title ?? null,
     activityCount: r._count.activities,
     dataLockedAt: r.dataLockedAt,

@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import {
   createViewbook,
+  listViewbooks,
   rotateViewbookToken,
   revokeViewbook,
   setSectionState,
@@ -54,7 +55,7 @@ describe('createViewbook', () => {
     })
     expect(vb.fields).toHaveLength(CATALOG.length)
     expect(vb.fields.every((f) => f.createdBy === 'seed')).toBe(true)
-    expect(vb.sections).toHaveLength(7)
+    expect(vb.sections).toHaveLength(13)
     expect(vb.sections.find((s) => s.sectionKey === 'assessment')?.state).toBe('hidden')
     expect(vb.milestones).toHaveLength(7)
     expect(vb.milestones.filter((m) => m.status === 'current')).toHaveLength(1)
@@ -78,6 +79,22 @@ describe('createViewbook', () => {
       status: 409,
       code: 'client_archived',
     })
+  })
+
+  it('seeds all 13 section rows and creation stage building (PR1)', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id }, include: { sections: true } })
+    expect(vb.stage).toBe('building')
+    expect(vb.sections).toHaveLength(13)
+    expect(vb.sections.map((s) => s.sectionKey)).toContain('pc-thanks')
+  })
+
+  it('listViewbooks exposes stage', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    const rows = await listViewbooks()
+    expect(rows.find((r) => r.id === id)?.stage).toBe('building')
   })
 })
 
