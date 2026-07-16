@@ -1,7 +1,6 @@
 'use client'
 
-// Viewbook editor shell: Theme · Content · Milestones · Feedback · Activity · Settings.
-// Data Source (PR3) arrives with its lane.
+// Viewbook editor shell: Theme · Content · Data Source · Milestones · Feedback · Activity · Settings.
 
 import { useCallback, useEffect, useState } from 'react'
 import type { ViewbookTheme } from '@/lib/viewbook/theme'
@@ -12,8 +11,9 @@ import { ContentTab } from './ContentTab'
 import { MilestonesEditor } from './MilestonesEditor'
 import { FeedbackTab } from './FeedbackTab'
 import { ActivityFeed } from './ActivityFeed'
+import { DataSourceTab } from './DataSourceTab'
 
-const TABS = ['Theme', 'Content', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
+const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 
 interface ViewbookDetail {
   id: number
@@ -23,6 +23,7 @@ interface ViewbookDetail {
   welcomeNote: string | null
   notifyEmail: string | null
   dataLockedAt: string | null
+  dataLockedBy: string | null
   theme: ViewbookTheme
   client: { name: string; archivedAt: string | null }
   sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]
@@ -50,6 +51,21 @@ interface ViewbookDetail {
     }[]
   }[]
   contentOverrides: { contentKey: string; body: string }[]
+  fields: {
+    id: number
+    defKey: string | null
+    category: string
+    label: string
+    fieldType: string
+    sortOrder: number
+    value: string | null
+    version: number
+    valueUpdatedBy: string | null
+    valueUpdatedAt: string | null
+    archivedAt: string | null
+    createdAt: string
+    amendments: { id: number; value: string; author: string; createdAt: string }[]
+  }[]
 }
 
 export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
@@ -130,6 +146,9 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
           overrides={vb.contentOverrides}
           onChanged={() => void load()}
         />
+      )}
+      {tab === 'Data Source' && (
+        <DataSourceTab key={vb.id} viewbook={vb} onChanged={() => void load()} />
       )}
       {tab === 'Milestones' && (
         <MilestonesEditor viewbookId={vb.id} milestones={vb.milestones} onChanged={() => void load()} />

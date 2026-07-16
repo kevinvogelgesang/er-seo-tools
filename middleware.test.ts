@@ -133,22 +133,23 @@ describe('isPublicPath — D8 weekly sweep /issues (Task 12)', () => {
 });
 
 describe('isPublicPath — client viewbook public matchers (PR2)', () => {
-  it('public page, token assets, and shipped PR4 write routes are public', () => {
+  it('public page, token assets, and shipped write routes are public', () => {
     expect(isPublicPath('/viewbook/3f9c2f4e-aaaa-bbbb-cccc-000000000000')).toBe(true);
     expect(isPublicPath('/api/viewbook/tok/assets/9b0e2c-logo.png')).toBe(true);
     expect(isPublicPath('/api/viewbook/tok/feedback')).toBe(true);
     expect(isPublicPath('/api/viewbook/tok/materials')).toBe(true);
+    expect(isPublicPath('/api/viewbook/tok/answers')).toBe(true);
   });
 
-  it('shorter/deeper paths and the future answers write route stay gated', () => {
+  it('shorter/deeper and near-match paths stay gated', () => {
     expect(isPublicPath('/viewbook')).toBe(false);
     expect(isPublicPath('/viewbook/tok/extra')).toBe(false);
     expect(isPublicPath('/api/viewbook/tok/assets')).toBe(false);
     expect(isPublicPath('/api/viewbook/tok/assets/a/b')).toBe(false);
     expect(isPublicPath('/api/viewbook/tok/feedback/extra')).toBe(false);
     expect(isPublicPath('/api/viewbook/tok/materials/x')).toBe(false);
-    // PR3's route must NOT be public until its PR ships it.
-    expect(isPublicPath('/api/viewbook/tok/answers')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/answers/extra')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/answersx')).toBe(false);
     // admin API stays cookie-gated
     expect(isPublicPath('/api/viewbooks')).toBe(false);
     expect(isPublicPath('/api/viewbooks/3')).toBe(false);
