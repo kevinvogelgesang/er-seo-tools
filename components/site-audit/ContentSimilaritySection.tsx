@@ -6,8 +6,44 @@ import { Explainer, ExplainerSummary, ExplainerTags, ExplainerNote } from '@/com
 interface ExactGroup { urls: string[]; count: number }
 interface NearGroup { urls: string[]; similarity: number; exactSubgroups?: string[][] }
 interface SimData {
+  unavailable?: boolean
   pagesEligible?: number; boilerplateShinglesDropped?: number; truncatedPages?: number; capped?: boolean
   exactDuplicateGroups?: ExactGroup[]; nearDuplicateGroups?: NearGroup[]
+}
+
+// Task 8 (memory fix stage B2): a run whose contentText budget was exhausted
+// before this pass had enough admitted text persists this stub instead of a
+// bare null (Codex plan-fix #4) — distinct from "not analyzed" (null renders
+// nothing here — a skip-for-time is silent by existing design).
+const CAPPED_MESSAGE = 'Not measured — content input was capped for this run.'
+
+function SimilarityHeader() {
+  return (
+    <div className="flex items-center gap-1">
+      <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content similarity</h3>
+      <Explainer label="How is content similarity measured?" title="Content similarity">
+        <ExplainerSummary>
+          Flags pages whose main text is identical after normalization, or nearly identical — at
+          least 90% overlapping five-word phrases, with common boilerplate like navigation and
+          footers filtered out first.
+        </ExplainerSummary>
+        <ExplainerTags tags={['Exact duplicates', 'Near-duplicates (90%)', 'Boilerplate filtered']} />
+        <ExplainerNote>
+          A lexical comparison of wording — pages covering the same topic in different words are the
+          Topic overlap section&apos;s job. Measurement only: it never changes any score.
+        </ExplainerNote>
+      </Explainer>
+    </div>
+  )
+}
+
+function Capped() {
+  return (
+    <section className="mt-6 rounded-lg bg-white dark:bg-navy-card p-4 border border-gray-200 dark:border-navy-border">
+      <SimilarityHeader />
+      <p className="mt-2 text-sm text-gray-600 dark:text-white/60">{CAPPED_MESSAGE}</p>
+    </section>
+  )
 }
 
 function GroupList({ groups, tone, label }: { groups: (NearGroup | ExactGroup)[]; tone: string; label: string }) {
@@ -34,27 +70,14 @@ export function ContentSimilaritySection({ run }: { run: { contentSimilarityJson
   if (!run?.contentSimilarityJson) return null
   let d: SimData
   try { d = JSON.parse(run.contentSimilarityJson) } catch { return null }
+  if (d.unavailable) return <Capped />
   const exact = d.exactDuplicateGroups ?? []
   const near = d.nearDuplicateGroups ?? []
   const clean = exact.length === 0 && near.length === 0
 
   return (
     <section className="mt-6 rounded-lg bg-white dark:bg-navy-card p-4 border border-gray-200 dark:border-navy-border">
-      <div className="flex items-center gap-1">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content similarity</h3>
-        <Explainer label="How is content similarity measured?" title="Content similarity">
-          <ExplainerSummary>
-            Flags pages whose main text is identical after normalization, or nearly identical — at
-            least 90% overlapping five-word phrases, with common boilerplate like navigation and
-            footers filtered out first.
-          </ExplainerSummary>
-          <ExplainerTags tags={['Exact duplicates', 'Near-duplicates (90%)', 'Boilerplate filtered']} />
-          <ExplainerNote>
-            A lexical comparison of wording — pages covering the same topic in different words are the
-            Topic overlap section&apos;s job. Measurement only: it never changes any score.
-          </ExplainerNote>
-        </Explainer>
-      </div>
+      <SimilarityHeader />
       {clean ? (
         <p className="mt-2 text-sm text-gray-600 dark:text-white/60">
           No duplicate or near-duplicate content detected across {d.pagesEligible ?? 0} analyzed pages.

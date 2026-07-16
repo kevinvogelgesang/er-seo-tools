@@ -154,6 +154,48 @@ export async function streamHarvestedLinks(
   }
 }
 
+// Stage-B memory fix part 2 (2026-07-16): contentText is no longer selected on
+// the main seoRows load — it is loaded SEPARATELY, chunked, under a total byte
+// budget, so a huge site's aggregate main-content text can never balloon the
+// resident seoRows array. Codex plan-fix #4: STRICT PREFIX admission in url
+// order (see loadContentTextBudgeted) — never a first-fit scavenge, which
+// would make the admitted set depend on page sizes instead of purely on url
+// order (byte-identical reasoning to the link-stream RSS guard's honesty rule).
+const CONTENT_TEXT_BUDGET = () => parsePositiveInt(process.env.CONTENT_TEXT_TOTAL_BYTE_BUDGET, 25_165_824)
+
+/** Keyset-stream HarvestedPageSeo.contentText in url order, admitting a STRICT
+ * PREFIX under CONTENT_TEXT_BUDGET(): once the running total would exceed the
+ * budget, that page AND every later page (in url order) is skipped — never a
+ * later small page slipping in past an earlier skip. Exported for tests. */
+export async function loadContentTextBudgeted(
+  siteAuditId: string,
+): Promise<{ textByUrl: Map<string, string>; budgetSkippedPages: number }> {
+  const textByUrl = new Map<string, string>()
+  let used = 0
+  let skipped = 0
+  let overflowed = false
+  let cursor: string | null = null
+  for (;;) {
+    const chunk: { id: string; url: string; contentText: string | null }[] = await prisma.harvestedPageSeo.findMany({
+      where: { siteAuditId },
+      orderBy: [{ url: 'asc' }, { id: 'asc' }],
+      select: { id: true, url: true, contentText: true },
+      take: 200,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    })
+    for (const r of chunk) {
+      if (!r.contentText) continue
+      if (overflowed) { skipped++; continue }
+      const bytes = Buffer.byteLength(r.contentText, 'utf8') // Codex #4: bytes, never .length
+      if (used + bytes > CONTENT_TEXT_BUDGET()) { overflowed = true; skipped++; continue }
+      used += bytes
+      textByUrl.set(r.url, r.contentText)
+    }
+    if (chunk.length < 200) return { textByUrl, budgetSkippedPages: skipped }
+    cursor = chunk[chunk.length - 1].id
+  }
+}
+
 const unconfirmedResult = (): ResolveResult => ({
   result: 'unconfirmed', finalUrl: null, status: null, hops: 0, chain: [], tooManyRedirects: false,
 })
@@ -276,7 +318,7 @@ export async function runBrokenLinkVerify(
     select: {
       url: true, statusCode: true, isHtml: true, robotsNoindex: true, xRobotsNoindex: true,
       loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true, schemaCount: true,
-      canonicalUrl: true, detailsJson: true, contentText: true, contentTruncated: true,
+      canonicalUrl: true, detailsJson: true, contentTruncated: true,
     },
   })
 
@@ -635,6 +677,13 @@ export async function runBrokenLinkVerify(
     console.error('[live-seo] program-entity aggregation failed', e)
   }
 
+  // Stage-B memory fix part 2: contentText is loaded ONCE here, separately from
+  // seoRows, under a total byte budget (see loadContentTextBudgeted above). All
+  // three content-text passes below read textByUrl.get(r.url) ?? null instead
+  // of a per-row scalar — budgetSkippedPages is threaded into each wrapper's
+  // honesty flags (Codex plan-fix #4).
+  const { textByUrl, budgetSkippedPages } = await loadContentTextBudgeted(job.siteAuditId)
+
   // C12: stale-date + readability signals over the SAME indexable ∧ ¬login-like
   // aggregation set. Best-effort + time-budget-guarded (runs before similarity, so
   // its reserve accounts for both). Never fails the live-scan write (fail-to-null).
@@ -644,9 +693,17 @@ export async function runBrokenLinkVerify(
     try {
       const sigInputs = seoRows
         .filter((r) => indexableOf(r) && !r.loginLike)
-        .map((r) => ({ url: r.url, contentText: r.contentText, contentTruncated: r.contentTruncated }))
+        .map((r) => ({ url: r.url, contentText: textByUrl.get(r.url) ?? null, contentTruncated: r.contentTruncated }))
       const signals = computeContentSignals(sigInputs, { currentYear: new Date().getUTCFullYear() })
-      if (signals) contentSignalsJson = JSON.stringify({ v: 1, ...signals })
+      if (signals) {
+        contentSignalsJson = JSON.stringify({
+          v: 1, ...signals, ...(budgetSkippedPages > 0 ? { inputCapped: true, budgetSkippedPages } : {}),
+        })
+      } else if (budgetSkippedPages > 0) {
+        // Codex plan-fix #4: a budget-capped null must not read as "not analyzed" —
+        // persist a capped stub instead of a bare null.
+        contentSignalsJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
+      }
     } catch (e) {
       console.error('[live-seo] content signals failed', e)
     }
@@ -665,7 +722,7 @@ export async function runBrokenLinkVerify(
       const withText = eligible.map((r) => ({
         url: r.url,
         sigText: [r.title, r.h1, r.metaDescription].map((s) => (s ?? '').trim()).filter(Boolean).join('\n'),
-        bodyFull: (r.contentText ?? '').trim(),
+        bodyFull: (textByUrl.get(r.url) ?? '').trim(),
       }))
       const candidates = withText.filter((c) => c.sigText.length > 0 && c.bodyFull.length > 0)
       const inputCapped = candidates.length > TOPIC_OVERLAP_MAX_PAGES
@@ -701,9 +758,20 @@ export async function runBrokenLinkVerify(
               ? { url: r.url, sigVec: v.sigVec, bodyVec: v.bodyVec, bodyPrefixTruncated: v.bodyPrefixTruncated }
               : { url: r.url, sigVec: null, bodyVec: null, bodyPrefixTruncated: false }
           })
-          const result = clusterByTopicOverlap(pageVecs, { inputCapped })
-          if (result) topicOverlapJson = JSON.stringify({ v: 1, ...result })
+          // Codex plan-fix #4: OR the byte-budget cap into the existing page-count
+          // cap flag — both are honest "input was capped" signals on one field.
+          const result = clusterByTopicOverlap(pageVecs, { inputCapped: inputCapped || budgetSkippedPages > 0 })
+          if (result) {
+            topicOverlapJson = JSON.stringify({
+              v: 1, ...result, ...(budgetSkippedPages > 0 ? { budgetSkippedPages } : {}),
+            })
+          }
         }
+      }
+      if (topicOverlapJson === null && budgetSkippedPages > 0) {
+        // Budget-capped null (e.g. every candidate lost its body text to the
+        // budget, leaving < 2 clusterable pages) must not read as "not analyzed".
+        topicOverlapJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
       }
     } catch (e) {
       console.error('[live-seo] topic overlap failed', e)
@@ -718,9 +786,17 @@ export async function runBrokenLinkVerify(
     try {
       const simInputs: SimilarityPageInput[] = seoRows
         .filter((r) => indexableOf(r) && !r.loginLike)
-        .map((r) => ({ url: r.url, contentText: r.contentText, contentTruncated: r.contentTruncated }))
+        .map((r) => ({ url: r.url, contentText: textByUrl.get(r.url) ?? null, contentTruncated: r.contentTruncated }))
       const sim = computeContentSimilarity(simInputs)
-      if (sim) contentSimilarityJson = JSON.stringify({ v: 1, ...sim })
+      if (sim) {
+        contentSimilarityJson = JSON.stringify({
+          v: 1, ...sim, ...(budgetSkippedPages > 0 ? { inputCapped: true, budgetSkippedPages } : {}),
+        })
+      } else if (budgetSkippedPages > 0) {
+        // Codex plan-fix #4: budget-capped null (e.g. fewer than 2 pages kept
+        // any text) must not read as "not analyzed".
+        contentSimilarityJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
+      }
     } catch (e) {
       console.error('[live-seo] content similarity failed', e)
     }

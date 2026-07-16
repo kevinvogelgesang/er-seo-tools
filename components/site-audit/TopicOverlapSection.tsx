@@ -11,6 +11,7 @@ interface OverlapCluster {
   minEdgeSimilarity: number
 }
 interface OverlapData {
+  unavailable?: boolean
   observedPages?: number
   clusteredCandidates?: number
   clustersCapped?: boolean
@@ -19,6 +20,10 @@ interface OverlapData {
 }
 
 const NOT_ANALYZED = 'Topic overlap was not analyzed for this audit.'
+// Task 8 (memory fix stage B2): a run whose contentText budget was exhausted
+// before this pass had enough admitted text persists this stub instead of a
+// bare null (Codex plan-fix #4) — distinct from "not analyzed".
+const CAPPED_MESSAGE = 'Not measured — content input was capped for this run.'
 
 function tierLabel(sim: number): string {
   if (sim >= 0.9) return 'strong'
@@ -59,6 +64,15 @@ function NotAnalyzed() {
   )
 }
 
+function Capped() {
+  return (
+    <section className="mt-6 rounded-lg bg-white dark:bg-navy-card p-4 border border-gray-200 dark:border-navy-border">
+      <OverlapHeader />
+      <p className="mt-2 text-sm text-gray-600 dark:text-white/60">{CAPPED_MESSAGE}</p>
+    </section>
+  )
+}
+
 export function TopicOverlapSection({ run }: { run: { topicOverlapJson: string | null } | null }) {
   if (!run?.topicOverlapJson) return <NotAnalyzed />
 
@@ -68,6 +82,8 @@ export function TopicOverlapSection({ run }: { run: { topicOverlapJson: string |
   } catch {
     return <NotAnalyzed />
   }
+
+  if (d.unavailable) return <Capped />
 
   const clusters = d.clusters ?? []
 

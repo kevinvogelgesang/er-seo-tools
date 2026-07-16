@@ -24,6 +24,17 @@ describe('TopicOverlapSection', () => {
     expect(screen.getAllByText(/no topic-overlap/i).length).toBeGreaterThan(0)
   })
 
+  // Task 8 (memory fix stage B2): a budget-capped null persists as an
+  // { unavailable: true } stub, not a bare null — must render distinctly from
+  // both the not-analyzed and clean states.
+  it('renders the capped state for an unavailable stub', () => {
+    const json = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages: 7 })
+    render(<TopicOverlapSection run={{ topicOverlapJson: json }} />)
+    expect(screen.getAllByText(/content input was capped for this run/i).length).toBeGreaterThan(0)
+    expect(screen.queryAllByText(/no topic-overlap/i).length).toBe(0)
+    expect(screen.queryAllByText(/not analyzed/i).length).toBe(0)
+  })
+
   it('lists networks with member urls as links (href set)', () => {
     const json = JSON.stringify({
       v: 1, observedPages: 60, clusteredCandidates: 42, threshold: 0.78, weights: { sig: 0.6, body: 0.4 },
