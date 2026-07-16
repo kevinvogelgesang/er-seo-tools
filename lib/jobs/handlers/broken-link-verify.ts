@@ -754,7 +754,10 @@ export async function runBrokenLinkVerify(
         return {
           url: r.url,
           sigText: [r.title, r.h1, r.metaDescription].map((s) => (s ?? '').trim()).filter(Boolean).join('\n'),
-          body: full.slice(0, TOPIC_OVERLAP_BODY_CHARS),
+          // Buffer round-trip forces a FLAT copy: when .trim() above allocated a
+          // new parent string, a bare .slice() would be a V8 SlicedString pinning
+          // the whole ~30KB parent for as long as this object is retained.
+          body: Buffer.from(full.slice(0, TOPIC_OVERLAP_BODY_CHARS), 'utf8').toString('utf8'),
           bodyPrefixTruncated: full.length > TOPIC_OVERLAP_BODY_CHARS,
         }
       })
