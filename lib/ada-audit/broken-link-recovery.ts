@@ -37,10 +37,10 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
   // empty-harvest verify still writes a clean run (the builder handles it).
   //
   // Codex note (re-enqueue bound): a permanently errored verifier is not "active",
-  // so a seoOnly audit whose verify keeps failing gets re-enqueued each sweep. This
-  // MIRRORS the existing transient-path behavior — bounded by the job's own
-  // maxAttempts/backoff and self-terminating once a seo-parser run lands. Intended;
-  // no unbounded-retry suppression here (out of scope for PR1).
+  // so without the self-repair fence below a seoOnly audit whose verify keeps
+  // failing would get re-enqueued every sweep. The per-id errored-job check now
+  // catches this for ALL candidates (transient-path and seoOnly-zero-harvest
+  // alike): a terminal 'error' job repairs the placeholder instead of retrying.
   const seoOnlyComplete = await prisma.siteAudit.findMany({
     where: { seoOnly: true, status: 'complete' },
     select: { id: true },
