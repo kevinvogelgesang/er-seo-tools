@@ -1,7 +1,8 @@
 # Viewbook v2 — Stages, Live Sync & Presentation Overhaul — Design
 
 **Date:** 2026-07-16
-**Status:** Approved by Kevin (brainstorming session); pending Codex review
+**Status:** Approved by Kevin (brainstorming session); Codex review applied
+(accept-with-fixes, 12 fixes, 2026-07-16)
 **Approach:** A — stage overlay on the v1 section engine (no rewrite of the
 hardened public-write layer)
 **Baseline:** v1 shipped 2026-07-16 (PRs #185/#187/#189/#191/#192, migration
@@ -93,18 +94,29 @@ one-way, survives ack resets). ER can reset an ack (admin/inline, clears `acknow
 row). In later stages the three sections render in their normal
 collapsed-carried form regardless of ack state.
 
-**Post-contract completion.** The fenced ack transaction that acks the LAST
-un-acked section also stamps `Viewbook.pcCompletedAt` (conditional on it being
-null — first writer wins) and enqueues the CSM-completion email job after
-commit. `pcCompletedAt` non-null is what reveals `pc-thanks`; an ER ack-reset
-does NOT clear it (the thank-you state and email are one-way).
+**Post-contract completion.** The completion predicate is: every ackable
+section that is currently NOT `hidden` has `acknowledgedAt` set (hidden
+sections are EXCLUDED from the predicate — hiding one shrinks the required
+set; Codex fix 4). The fenced ack transaction that satisfies the predicate
+also stamps `Viewbook.pcCompletedAt` (conditional on null — first writer
+wins; array-form SQL: fence the ack, conditionally stamp the parent when no
+required visible acks remain, use the affected-row count to trigger the email
+delivery) and creates the `pc-complete` delivery row (§8) after commit.
+`pcCompletedAt` non-null reveals `pc-thanks`; an ER ack-reset does NOT clear
+it (thank-you state and email are one-way).
 
 **Stage moves.** Cookie-gated `POST /api/viewbooks/[id]/stage`
-`{direction: 'forward' | 'back'}` — fenced conditional update (current stage
-re-checked in SQL; concurrent moves can't double-step), appends a
-`ViewbookStageLog` row + `stage-change` activity row, bumps `syncVersion`.
-Forward moves enqueue the stage-change client email job. The inline ER layer
-and the admin Settings tab both call this route.
+`{direction: 'forward' | 'back', force?: boolean}` — fenced conditional
+update (current stage re-checked in SQL; concurrent moves can't double-step),
+appends a `ViewbookStageLog` row + `stage-change` activity row, bumps
+`syncVersion`. **Ack-to-stage fence (Codex fix 4):** a forward move OUT of
+`post-contract` requires `pcCompletedAt` set, else 409 — UNLESS
+`force: true` (the ER UI confirms "acknowledgments incomplete — advance
+anyway?"), in which case the same fenced statement ALSO stamps
+`pcCompletedAt` (and creates the `pc-complete` delivery) so the completion
+path can never be stranded in a stage whose UI no longer exposes it. Forward
+moves create stage-change delivery rows (§8). The inline ER layer and the
+admin Settings tab both call this route.
 
 ## 5. Data model (additive migration)
 
@@ -115,7 +127,6 @@ syncVersion      Int      @default(0)
 csmName          String?             // roster name of the assigned CSM
 clientNotifyJson String   @default("[]") // validated: ≤5 emails, each ≤254 B
 pcCompletedAt    DateTime?
-pcEmailSentAt    DateTime?           // CSM completion email marker (D7 pattern)
 
 // ViewbookSection — new column
 acknowledgedAt   DateTime?
@@ -125,11 +136,9 @@ model ViewbookTeamMember {
   viewbookId       Int
   viewbook         Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   name             String   // ≤120 B
-  email            String   // ≤254 B, validated shape
+  email            String   // ≤254 B, single canonical mailbox (§8)
   addedBy          String   // 'client' | operator email
   clientMutationId String?  @unique
-  inviteCount      Int      @default(0)   // sends attempted (cap 3)
-  invitedAt        DateTime?              // last successful send
   createdAt        DateTime @default(now())
   @@unique([viewbookId, email])           // no duplicate invitees
   @@index([viewbookId, id])
@@ -142,9 +151,24 @@ model ViewbookStageLog {
   stage       String   // stage ENTERED
   direction   String   // 'forward' | 'back'
   actor       String   // operator email
-  emailSentAt DateTime? // stage-change client email marker (forward rows only)
   createdAt   DateTime @default(now())
   @@index([viewbookId, id])
+}
+
+model ViewbookEmailDelivery {
+  id          Int      @id @default(autoincrement())
+  viewbookId  Int
+  viewbook    Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  kind        String   // 'team-invite' | 'pc-complete' | 'stage-change'
+  recipient   String   // resolved at creation time
+  dedupKey    String   @unique // e.g. 'vb-invite:<memberId>:<n>', 'vb-pc-complete:<viewbookId>', 'vb-stage:<stageLogId>:<recipient>'
+  memberId    Int?     // team-invite: the invitee row
+  stageLogId  Int?     // stage-change: the triggering log row
+  sentAt      DateTime? // set by the job on successful send
+  suppressedAt DateTime? // set instead of sentAt when notify env is dark
+  createdAt   DateTime @default(now())
+  @@index([viewbookId, id])
+  @@index([memberId])
 }
 
 model ViewbookDoc {
@@ -163,8 +187,9 @@ model ViewbookDoc {
 
 Roster (`ViewbookGlobalContent` key `'team'`) entry shape gains optional
 `isCsm?: boolean` and `email?: string` — the ONE validator (`global-content.ts`)
-extends; read stays exactly as strict as write; entries without the new keys
-stay valid (additive). The generic team block filters `isCsm` out.
+extends to ALLOW the two new keys without REQUIRING them (Codex fix 11);
+read stays exactly as strict as write; entries without the new keys stay
+valid (additive). The generic team block filters `isCsm` out.
 `csmName` assignment (admin/inline) validates against the current flagged
 roster set; at render time a dangling `csmName` (member renamed/removed) hides
 the CSM card rather than erroring, and the featured card degrades gracefully
@@ -172,10 +197,17 @@ when the roster is unavailable.
 
 **Migration** (one additive migration): new columns + tables; sets
 `stage='building'` for existing rows (raw UPDATE); INSERTs the six new
-`ViewbookSection` rows (`state='active'`) for every existing viewbook (raw
-INSERT…SELECT). Creation seeding (`service.ts`) adds the six new keys for new
-viewbooks. Since lineups already decide what renders per stage, pre-seeded
-future-stage rows are inert.
+`ViewbookSection` rows (`state='active'`) for every existing viewbook via
+`INSERT … SELECT … WHERE NOT EXISTS` (tolerates partially-present rows) with
+`updatedAt` populated explicitly (raw SQL bypasses `@updatedAt` — Codex fix
+11). Creation seeding (`service.ts`) adds the six new keys for new viewbooks.
+Since lineups already decide what renders per stage, pre-seeded future-stage
+rows are inert. Compatibility: existing `themeJson` values whose
+`sectionHeroes` maps lack the new section keys remain valid (the validator's
+recognized-key set is a superset — additive); the public data contract must
+expose each field's `defKey` so pc-setup and the header display-name
+derivation can find the designated org-basics rows (Codex fix 11). Migration
+tests run against BOTH a populated v1 database and a fresh one.
 
 ## 6. Live sync
 
@@ -184,22 +216,38 @@ future-stage rows are inert.
   array-form transaction that touches the viewbook subtree — public writes
   (answers, amendments, feedback, materials, acks, team members, setup),
   operator writes (sections, fields, milestones, review links, theme, docs,
-  overrides, content, stage moves, lock), and global-content saves bump every
-  viewbook (`UPDATE Viewbook SET syncVersion = syncVersion + 1` unscoped —
-  global content renders into all of them).
+  overrides, content, stage moves, lock). **Fence sharing (Codex fix 5):**
+  the bump statement carries the SAME conditional predicates as the domain
+  write it accompanies — a fenced write that affects 0 rows bumps nothing,
+  and a `clientMutationId` replay (200 replay path) bumps nothing. Standalone
+  service writes that are not currently transactions (e.g. global-content
+  saves) BECOME array-form transactions containing their bump — never a
+  separate best-effort bump after the fact. Metadata-only writes that change
+  no rendered public data (digest cursor/`digestSentAt`, token
+  rotate/revoke, delivery-row stamps) do NOT bump. Global-content saves bump
+  every viewbook (`UPDATE Viewbook SET syncVersion = syncVersion + 1`
+  unscoped, atomic within the save transaction — global content renders into
+  all of them; acceptable at current fleet size, Codex-reviewed).
 - Public `GET /api/viewbook/[token]/sync` → `{ v }` — single-row select through
   `requireViewbookToken`, `Cache-Control: no-store`, 404 contract identical to
   the other token routes. No other data leaves.
 - `useViewbookSync(currentVersion)` hook (`components/viewbook/public/`):
   polls every ~3.5 s while `document.visibilityState === 'visible'`; pauses
   when hidden; exponential backoff on errors (max ~30 s); on `v` change →
-  `router.refresh()`. **Edit guard:** a module-level focus/dirty registry —
-  every editing island (FieldEditor, AmendmentForm, feedback, materials, team,
-  inline ER editors) marks itself active while focused/dirty; the hook skips
-  refresh while any editor is active and applies the pending refresh on
-  release. Transport (poll vs future SSE) is fully encapsulated in the hook.
-- Admin editor + inline ER layer reuse the same hook against the cookie-gated
-  `GET /api/viewbooks/[id]` (which now returns `syncVersion`).
+  `router.refresh()`. **Edit guard (Codex fix 10):** a module-level editor
+  registry — every editing island (FieldEditor, AmendmentForm, feedback,
+  materials, team, inline ER editors) registers while it (a) contains focus,
+  (b) is dirty, OR (c) has a save in flight; the hook suppresses refresh
+  while ANY of the three holds and coalesces pending invalidations into ONE
+  refresh on release. The hook becomes the SINGLE refresher: the v1
+  mutation-side `router.refresh()` calls are removed/reconciled so a write
+  and the poller never race two refreshes. Transport (poll vs future SSE) is
+  fully encapsulated in the hook.
+- Admin editor + inline ER layer reuse the same hook against a NEW
+  version-only cookie-gated `GET /api/viewbooks/[id]/sync` → `{ v }` (Codex
+  fix 6 — polling the full detail endpoint every 3.5 s would reload the
+  whole editable subtree); the detail endpoint also returns `syncVersion` for
+  initial hydration.
 
 ## 7. Public page composition & design pass
 
@@ -214,8 +262,11 @@ functional when expanded (Q&A editing still obeys the v1 lock rules).
 viewport and contract when it leaves — UNLESS the section is acknowledged/done
 (stays collapsed until deliberately opened) or the user has manually toggled
 it (manual wins for the rest of the pageview). `IntersectionObserver`;
-CSS transitions; `prefers-reduced-motion: reduce` disables all of it (sections
-render expanded, static). Nested data presentation: per-category dropdowns in
+CSS transitions. **Motion rules (Codex fix 12):** `prefers-reduced-motion:
+reduce` disables the transitions/auto-behavior only — acknowledged/done
+sections STAY collapsed (never forced open), everything else renders expanded
+and static. A section that contains focus or unsaved edits is NEVER
+auto-collapsed by the scroll behavior. Nested data presentation: per-category dropdowns in
 Data Source, tooltips for who/when stamps, hover cards for team members.
 Code-owned decorative SVG accents tinted via the existing `--vb-*` CSS vars.
 The concrete visual language is driven through the frontend-design skill at
@@ -270,69 +321,112 @@ contains only data already rendered on the page.
 
 ## 8. Emails (all through `lib/notify/` transport, D7 rules)
 
-New durable job type `viewbook-email` (registered concurrency 1, 3 attempts,
-dedupKeyed per send, **no shared groups**), fired post-commit; a send failure
-never fails the triggering write. All three kinds are marker-fenced
-(read-marker → send → conditional stamp; at-least-once with a narrow dup
-window — the D7/notify-email pattern). Dark env (Mailgun unset) = permanent
-suppression, no stamp, no catch-up flood. All bodies HTML-escaped, fixed
-templates, no client-authored content beyond escaped names/labels.
+**Per-delivery records (Codex fix 1 — the blocker fix).** Every send is a
+`ViewbookEmailDelivery` row (one per recipient per send, unique `dedupKey`),
+created inside the triggering fenced transaction (or, for stage-change,
+alongside the stage move — one row per resolved recipient). The durable
+`viewbook-email` job (registered concurrency 1, 3 attempts, **no shared
+groups**) receives the DELIVERY id, and fences that exact row:
+read `sentAt`/`suppressedAt` → send → conditional stamp `sentAt`
+(at-least-once, narrow dup window — the D7 pattern). Dark env (Mailgun unset)
+stamps `suppressedAt` instead — permanent suppression, honest record, no
+catch-up flood. Partial multi-recipient failure retries only the unsent
+delivery rows. A send failure never fails the triggering write. All bodies
+HTML-escaped, fixed templates, no client-authored content beyond escaped
+names/labels.
 
-| Kind | Trigger | Recipient | Marker | dedupKey |
-|---|---|---|---|---|
-| `team-invite` | member add / re-send (public, capped) | the member's email | `invitedAt` + `inviteCount` (count bumped in the guarded reserve, stamp on send) | `vb-invite:<memberId>:<n>` |
-| `pc-complete` | last post-contract ack | assigned CSM's roster email ?? `notifyAdminEmail()` | `Viewbook.pcEmailSentAt` | `vb-pc-complete:<viewbookId>` |
-| `stage-change` | forward stage move | every address in `clientNotifyJson` (skip if empty) | `ViewbookStageLog.emailSentAt` on the log row | `vb-stage:<stageLogId>` |
+| Kind | Trigger | Recipient(s) | dedupKey |
+|---|---|---|---|
+| `team-invite` | member add / re-send (public, capped) | the member's email | `vb-invite:<memberId>:<n>` (n = 1-based send ordinal) |
+| `pc-complete` | completion predicate satisfied (ack or force-advance) | assigned CSM's roster email ?? `notifyAdminEmail()` (resolved at delivery creation) | `vb-pc-complete:<viewbookId>` |
+| `stage-change` | forward stage move | each address in `clientNotifyJson` (skip if empty) | `vb-stage:<stageLogId>:<recipient>` |
 
-Invite reserve is a guarded `INSERT … SELECT`/conditional-UPDATE (member cap
-15, send cap 3) — never count-then-create; the public write throttle (v1
-per-token guard) applies. Roster-email resolution for `pc-complete` happens at
-send time; a missing/unset CSM email falls back to `notifyAdminEmail()`.
+**Abuse boundary (Codex fix 3)** — the same-site check and in-process
+throttle are soft (the token is the real grant), so the email surface gets
+durable SQL-enforced bounds:
+
+- Invitee emails must be a SINGLE canonical mailbox: strict `local@domain`
+  shape, no display names, no commas, no whitespace/newlines, lowercased for
+  the `@@unique([viewbookId, email])` check.
+- Caps in guarded `INSERT … SELECT` (never count-then-create): ≤15 members
+  per viewbook; ≤3 sends per member (ordinal derived from existing delivery
+  rows); PLUS a durable per-viewbook time-window cap — ≤10 `team-invite`
+  delivery rows created per rolling 24 h, counted in the same SQL guard.
+- `clientNotifyJson` recipients are RESTRICTED to addresses already on the
+  viewbook: each entry must equal a stored `ViewbookTeamMember.email` or the
+  designated primary-contact answer value — never an arbitrary typed address.
+  Validation re-runs at stage-change delivery creation (entries that no
+  longer match are skipped).
+- The v1 per-token write throttle still applies on top.
+
 Stage-change emails are per-stage templates ("Your project has moved to …")
 linking the viewbook. Re-entering a stage after a rollback emails again (new
-log row) — ER controls cadence by controlling moves. The internal ER activity
-digest (15-min) is unchanged.
+log row → new delivery rows) — ER controls cadence by controlling moves. The
+internal ER activity digest (15-min) is unchanged.
 
 ## 9. Images, PDFs & the WCAG tester
 
-**Image pipeline.** Add `sharp`. Upload flow (both asset routes): magic-byte
-sniff (png/jpg/webp allowlist, SVG still rejected) → decode → re-encode
-**webp quality 90** (alpha preserved) → atomic unique-temp+rename write.
-Input cap raised to 10 MB (`MAX_ASSET_BYTES`); the stored file is always
-`.webp` (server-generated filename). A sharp decode failure → 400
-`invalid_image` (never a crash). Existing stored png/jpg files keep serving
-unchanged (the serve route already sniffs stored bytes); no backfill.
+**Image pipeline.** Add `sharp` as a DIRECT dependency (it is currently only
+transitive — Codex fix 7) and verify Next production bundling
+(`serverExternalPackages`). Upload flow (both asset routes): reject on
+`Content-Length` and `File.size` BEFORE buffering (a useful cap must precede
+`arrayBuffer()` allocation) → magic-byte sniff (png/jpg/webp allowlist, SVG
+still rejected) → decode with sharp pixel/dimension limits
+(`limitInputPixels` ~40 MP — decoded-bitmap cost is bounded, not just encoded
+bytes) → re-encode **webp quality 90** (alpha preserved; re-encode strips
+EXIF/metadata) → atomic unique-temp+rename write. Conversions are SERIALIZED
+per process (single-flight queue) so concurrent uploads can't stack decoded
+bitmaps in RAM. Input cap raised to 10 MB (`MAX_ASSET_BYTES`); the stored
+file is always `.webp` (server-generated filename). A sharp decode failure →
+400 `invalid_image` (never a crash). Existing stored png/jpg files keep
+serving unchanged (the serve route already sniffs stored bytes); no backfill.
 sharp runs at upload time only — request path, not build path; prebuilt
-binaries via `npm install` on the prod box (verify in the PR's deploy notes).
+binaries via `npm install` on the prod box; profile on the prod Linux/Node 22
+box at max dimensions before merge (deploy notes).
 
-**PDF docs.** `MAX_DOC_BYTES = 20 MB`; `%PDF-` magic-byte sniff; stored under
-the existing scoped dirs (`global/` for global docs, `<viewbookId>/` for
-extras) with server-generated `.pdf` filenames. Cookie-gated CRUD:
-`GET/POST /api/viewbook-docs` + `DELETE /api/viewbook-docs/[docId]` (global) and
-`GET/POST /api/viewbooks/[id]/docs` + `DELETE …/docs/[docId]` (per-client) —
-upload multipart, write-file → DB row → old-file delete on replace, orphan
-cleanup on failed stamp (v1 asset rules). Public serving extends the EXISTING
+**PDF docs.** `MAX_DOC_BYTES = 20 MB`, checked against `Content-Length` and
+`File.size` BEFORE buffering; `%PDF-` magic-byte sniff; stored under the
+existing scoped dirs (`global/` for global docs, `<viewbookId>/` for extras)
+with server-generated `.pdf` filenames (filename regex extends to a
+PDF-specific allowlist alongside the image regex — Codex fix 8). Docs are
+**create/delete-only — there is NO replace operation** (fix 8 resolved the
+contradiction): updating a doc = upload new + delete old, each its own fenced
+op; write-file → DB row with orphan cleanup on failed stamp (v1 asset rules).
+Cookie-gated routes: `GET/POST /api/viewbook-docs` +
+`DELETE /api/viewbook-docs/[docId]` (global) and
+`GET/POST /api/viewbooks/[id]/docs` + `DELETE …/docs/[docId]` (per-client).
+Render merge order is deterministic: global docs (`sortOrder, id`) then
+per-viewbook docs (`sortOrder, id`). Public serving extends the EXISTING
 token asset route's allowlist: a token may fetch filenames referenced by its
 own themeJson + the global roster photos + **its own `ViewbookDoc` rows +
 global doc rows** — served `application/pdf` + `nosniff` +
-`Content-Disposition: inline`. Deletion seams (viewbook DELETE, client
-cascade snapshot) extend to doc files.
+`Content-Disposition: inline`. Deletion seams: viewbook DELETE and the Client
+cascade snapshot include the viewbook's doc filenames; deleting a global doc
+row deletes its file (global docs outlive any viewbook).
 
 **WCAG contrast tester.** `lib/viewbook/contrast.ts` — client-safe pure
-`contrastRatio(hexA, hexB)` (WCAG 2.x relative-luminance formula; reuses the
-theme luminance math). Brand section renders a live matrix of the theme's real
-pairings (body on background, heading on brand bands, link on background,
-button text on primary) each scored vs AA (4.5 normal / 3.0 large) and AAA
-with pass/fail chips, plus a free pair-picker (two color inputs, client-side
-only, nothing persisted). Updates live as ER edits the theme (live sync
-refresh). Visible to everyone.
+`contrastRatio(hexA, hexB)` implementing the WCAG 2.x relative-luminance
+formula with the standard `0.04045` sRGB linearization threshold; this
+becomes the ONE shared luminance implementation — `theme.ts`'s derived
+on-primary text logic refactors onto it (Codex fix 12, one impl not two).
+Bands pinned explicitly: AA 4.5 normal / 3.0 large text; AAA 7.0 normal /
+4.5 large. Brand section renders a live matrix of the theme's real pairings
+(body on background, heading on brand bands, link on background, button text
+on primary) with pass/fail chips per band, plus a free pair-picker (two color
+inputs, client-side only, nothing persisted). Updates live as ER edits the
+theme (live sync refresh). Visible to everyone.
 
 ## 10. ER inline editing layer
 
-The public page (already `force-dynamic`) additionally resolves
-`getAuthSession()`; a **verified-email** session renders the operator layer
-(the same bar `requireOperatorEmail` sets — break-glass password sessions do
-NOT see it):
+The public page (already `force-dynamic`) additionally reads the auth cookie
+via `cookies()` (`AUTH_COOKIE_NAME`) and passes its VALUE to
+`getAuthSession(value)` — the function takes the cookie value, it is not
+parameterless (Codex fix 9). A **verified-email** session renders the
+operator layer (the same bar `requireOperatorEmail` sets — break-glass
+password sessions do NOT see it). A signed, unexpired verified-email cookie
+is SUFFICIENT (no per-render active-user DB check) — this matches the
+existing admin-route bar exactly; rotation/deactivation remedies are the
+existing session-expiry mechanics:
 
 - Stage controls: advance/rollback with confirm (the §4 route).
 - Per-section quick controls: hide/show, mark done, reset ack.
@@ -359,7 +453,7 @@ data in the client payload for non-ER viewers.
 | Route | Method | Purpose |
 |---|---|---|
 | `^/api/viewbook/[^/]+/sync$` | GET | `{v: syncVersion}`. |
-| `^/api/viewbook/[^/]+/ack$` | POST | `{sectionKey}` — ackable set only, fenced, idempotent no-op on re-ack; last-ack stamps `pcCompletedAt` + enqueues `pc-complete`. |
+| `^/api/viewbook/[^/]+/ack$` | POST | `{sectionKey}` — ackable set only, fenced, idempotent no-op on re-ack; completion-predicate satisfaction stamps `pcCompletedAt` + creates the `pc-complete` delivery. |
 | `^/api/viewbook/[^/]+/team-members$` | POST | body-dispatched `{mode:'create', name, email, clientMutationId}` or `{mode:'resend', memberId}` — caps in SQL, invite job post-commit. |
 | `^/api/viewbook/[^/]+/setup$` | PATCH | `{notifyEmails: string[]}` → validated `clientNotifyJson`. |
 
@@ -370,7 +464,8 @@ write throttle, `Cache-Control: no-store`, `withRoute`-wrapped. Org-basics
 answers ride the EXISTING `answers` matcher.
 
 **New cookie-gated routes (default-gated, no middleware change):**
-`POST /api/viewbooks/[id]/stage`, ack-reset (`DELETE /api/viewbooks/[id]/ack/[sectionKey]`),
+`POST /api/viewbooks/[id]/stage`, `GET /api/viewbooks/[id]/sync`
+(version-only, §6), ack-reset (`DELETE /api/viewbooks/[id]/ack/[sectionKey]`),
 CSM assignment (PATCH on the existing `[id]` route), docs CRUD (§9),
 `GET/POST/DELETE /api/viewbook-docs[/…]` (global docs).
 
@@ -379,9 +474,12 @@ CSM assignment (PATCH on the existing `[id]` route), docs CRUD (§9),
 - Public surface grows by exactly four anchored matchers; every mutation keeps
   the v1 fencing/caps/idempotency/throttle/same-site/no-store contract.
 - Client-triggered email is template-fixed (no client-authored body), capped
-  in SQL (≤15 members, ≤3 sends each), throttled, activity-logged — the token
-  cannot be weaponized as a spam relay; recipient addresses are validated and
-  byte-capped.
+  in SQL (≤15 members, ≤3 sends each, ≤10 invite deliveries per rolling
+  24 h), throttled, activity-logged, and per-delivery-recorded — the token
+  cannot be weaponized as a spam relay; invitee addresses are strict single
+  canonical mailboxes, and stage-change recipients are restricted to
+  addresses already stored on the viewbook (team members / primary contact),
+  never arbitrary input.
 - Stage moves and ALL inline editing are cookie-gated (verified email);
   the token grants no new write power.
 - sharp decodes untrusted bytes AFTER magic-byte allowlisting; decode errors
@@ -409,10 +507,16 @@ images: png+alpha, jpg, webp passthrough, corrupt → reject), search index
 builder, header display-name derivation.
 
 DB-backed race tests: concurrent last-ack (one `pcCompletedAt` winner, one
-email job), ack vs stage-move, ack vs revoke, invite cap under concurrency,
-stage-move double-fire (fenced single step), syncVersion bump coverage across
-EVERY mutating path (public + operator + global-content fan-out), doc
-allowlist (own docs yes, other viewbook's docs 404, global docs yes).
+delivery row), ack replay, hidden-ackable-section predicate, ack vs
+stage-move, force-advance stamping, ack vs revoke, invite caps under
+concurrency (member/send-ordinal/24h-window), stage-move double-fire (fenced
+single step), partial multi-recipient delivery failure + retry + dark
+suppression (`suppressedAt`), syncVersion bump coverage across EVERY mutating
+path including 0-row fenced writes and `clientMutationId` replays bumping
+NOTHING (public + operator + global-content fan-out), doc allowlist (own
+docs yes, other viewbook's docs 404, global docs yes). Anonymous public
+HTML/RSC payload contains NO operator session or edit-control data
+(snapshot-style assertion).
 
 Matcher anchoring tests (positive + deeper-path negative) for the four new
 public routes. Gates: `tsc --noEmit`, `npm run lint`,
@@ -428,31 +532,48 @@ public routes. Gates: `tsc --noEmit`, `npm run lint`,
 - Deploy notes: `sharp` added to prod `npm install`; no new env vars; asset
   dir + backup expectations unchanged.
 
-## 15. Increments (7 PRs, tandem lanes at plan time)
+## 15. Increments (8 PRs, tandem lanes at plan time)
 
-1. **Stage engine core** — migration (columns/tables/backfill), stage catalog,
-   lineup resolution in public-data, stage-move route + log, ack route +
-   completion stamp, creation seeding. Public page renders lineups (plain).
-2. **Live sync** — syncVersion bumps across all write transactions, sync
-   endpoint, `useViewbookSync` + edit-guard registry, adoption on public +
+Ordering rule (Codex fix 2, blocker): **producers never precede consumers** —
+email infrastructure and CSM support land BEFORE anything that can trigger a
+send, and new viewbooks do NOT default to `post-contract` until the
+post-contract UI exists (creation default stays `building` through PR 4 and
+flips in PR 5).
+
+1. **Stage engine core** — migration (columns/tables/backfill incl.
+   `ViewbookEmailDelivery`), stage catalog, lineup resolution in public-data,
+   stage-move route + log (NO email side effects yet), creation seeding of
+   the six new section rows; creation default `building`. Public page renders
+   lineups (plain).
+2. **Live sync** — syncVersion bumps across all write transactions
+   (fence-shared), public + admin sync endpoints, `useViewbookSync` +
+   editor registry, single-refresher reconciliation, adoption on public +
    admin.
-3. **Post-contract stage** — pc-intro/setup/invite/thanks sections,
-   `ViewbookTeamMember` + invite flow, `viewbook-email` job + all three email
-   kinds + templates, `clientNotifyJson` setup route.
-4. **Kickoff + docs** — `ViewbookDoc` + PDF pipeline + docs CRUD + asset-route
-   allowlist extension, strategy doc cards, kickoff-next dual CTA, CSM
-   roster flag/email + assignment + featured card.
-5. **Website-specifics** — ws-intro, brand-section WCAG tester +
-   `contrast.ts`, assessment placement.
-6. **Design pass** — SectionShell v2 (summary face + scroll expand/collapse),
-   matured header, floating TOC rail, building-stage verbose TOC + search,
-   SVG accents, sharp/webp upload pipeline.
-7. **ER inline layer** — session detection on the public page, inline
-   controls, presentation mode toggle.
+3. **Email infrastructure + CSM** — `viewbook-email` job + delivery-row
+   fencing + templates for all three kinds, roster `isCsm`/`email` validator
+   extension, CSM assignment + featured card, stage-change delivery creation
+   wired into the (already-shipped) stage-move route.
+4. **Kickoff + docs** — `ViewbookDoc` + PDF pipeline + docs CRUD +
+   asset-route allowlist extension, strategy doc cards, kickoff-next dual
+   CTA.
+5. **Post-contract stage** — pc-intro/setup/invite/thanks sections,
+   `ViewbookTeamMember` + invite flow (public routes: ack, team-members,
+   setup), ack completion stamping + `pc-complete` delivery, ack-to-stage
+   fence, creation default flips to `post-contract`.
+6. **Website-specifics** — ws-intro, brand-section WCAG tester +
+   `contrast.ts` (shared luminance refactor), assessment placement.
+7. **Design pass** — SectionShell v2 (summary face + scroll expand/collapse +
+   motion rules), matured header, floating TOC rail, building-stage verbose
+   TOC + search, SVG accents, sharp/webp upload pipeline (direct dep +
+   decode bounds + serialization).
+8. **ER inline layer** — session detection on the public page (cookie value →
+   `getAuthSession`), inline controls, presentation mode toggle.
 
 Each increment gate-green and deployable; middleware matchers land only with
-their route. Cross-review both directions (Claude ↔ Codex); Codex on Sol High
-until budget exhaustion → pause, Kevin triggers reset.
+their route (PR 1 ships `sync`'s matcher with the sync route in PR 2 — i.e.
+each matcher rides its own route's PR). Cross-review both directions
+(Claude ↔ Codex); Codex on Sol High until budget exhaustion → pause, Kevin
+triggers reset.
 
 ## 16. Future (explicitly out of v2)
 
