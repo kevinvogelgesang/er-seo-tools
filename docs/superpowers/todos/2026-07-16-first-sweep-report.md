@@ -77,6 +77,16 @@ CORRECT behavior (not an error to fix).
    site in the weekly sweep. Kevin: intentional?
 4. ADA runs are `partial` wherever pagesError>0 — consistent and honest.
 
+### Bucket 5 — sweep unit-map gap for validation finding types (TOOL fix, found post-digest)
+At snapshot compute (18:10:56Z) the unit mapper logged 35 `sweep_unmapped_issue_unit`
+events: `redirect_chain` x26, `canonical_broken` x7, `canonical_redirect` x1,
+`canonical_external_unverified` x1. The C6 Phase-4 validation finding types are
+not in `snapshot.ts`'s unit map, so they fell back to "groups" units + logError
+(the designed honest fallback — never a silent guess), but the digest//issues
+rows for those types carry imprecise units. Fix: add the validation types to
+the unit map (likely pages-by-source semantics; check the mapper's page-scope
+keying) + a test. Fold into the triage spec alongside the "timed-out" label fix.
+
 ## Verdict
 
 Both 2026-07-16 incident-class defenses held under the exact incident load

@@ -41,6 +41,12 @@ across 21 domains from the test run, four buckets in the report:
   4. HTTP 301 "puppeteer did not auto-follow" (~8 pages) — INVESTIGATE:
      odd http/https flip-flop chains suggest a runner redirect-
      normalization quirk; some are legit client redirect findings.
+  5. Sweep unit-map gap (found post-digest): 35 sweep_unmapped_issue_unit
+     logError events at snapshot compute — validation finding types
+     (redirect_chain x26, canonical_broken x7, canonical_redirect,
+     canonical_external_unverified) missing from snapshot.ts's unit map,
+     falling back to "groups" units. TOOL fix: add them to the unit map +
+     test.
   PLUS the real-data finding: coverage reason label says "timed-out" for
   ALL partial pairs (23/29 domains) when the true cause was pagesError>0 —
   fix the reason vocabulary in lib/sweep/classify.ts+snapshot.ts (the C21
