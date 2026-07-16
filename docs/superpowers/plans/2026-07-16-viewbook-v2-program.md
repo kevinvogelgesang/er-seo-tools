@@ -22,6 +22,15 @@ land before anything that can trigger a send (PR5); creation default stays
 `building` until PR5 flips it; PR7 runs last so the visual pass restyles the
 FINAL section set once, with no concurrent structural edits.
 
+## Session cadence (Kevin, 2026-07-16)
+
+ONE session per wave. Claude finishes its PR, waits for the Codex-lane PR to
+land too (either order), then writes the wave handoff (tracker line, HANDOFF
+doc, "paste into a new chat" prompt) and STOPS — no next-wave plans, briefs,
+worktrees, or dispatches in the same session. The handoff prompt includes the
+instructions to cut and launch Codex's next-wave brief, so the fresh session
+starts both lanes.
+
 ## Lane rules (v1 lessons, verbatim)
 
 - **Briefs are cut from MERGED code, never memory.** Each Codex brief is
