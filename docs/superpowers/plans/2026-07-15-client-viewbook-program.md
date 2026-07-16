@@ -84,14 +84,21 @@ M: `app/(app)/clients/[id]/page.tsx` (card), `app/api/clients/[id]/route.ts`
 `ecosystem.config.js` (`VIEWBOOK_ASSETS_DIR`).
 
 **PR2 (Claude)** — C: `lib/viewbook/public-data.ts`,
-`app/(public)/viewbook/[token]/page.tsx`,
+`lib/viewbook/public-types.ts` (client-safe payload types — PR2 plan Codex
+fix 7), `app/(public)/viewbook/[token]/page.tsx`,
 `components/viewbook/public/{ViewbookShell,SectionShell,ProgressNav,WelcomeSection,MilestonesSection,DataSourceSection,BrandSection,AssessmentPlaceholder,StrategySection,MaterialsSection,ThemeStyle}.tsx`,
+`components/viewbook/public/section-titles.ts`,
 `app/api/viewbook/[token]/assets/[filename]/route.ts` **+ its
 curation/HTTP-serving tests** (re-review verify item — PR1 only asserts up to
-`readViewbookAsset`), preview adoption in admin
+`readViewbookAsset`), `components/PublicFooter.test.tsx`,
+`next.config.test.ts`, preview adoption in admin
 (`components/viewbook/admin/ThemePreview.tsx` + M `ThemeEditor.tsx`).
 M: `middleware.ts` + `middleware.test.ts` (page + assets matchers),
-`next.config.ts` (CSP fonts origins).
+`next.config.ts` (CSP fonts origins), `components/PublicFooter.tsx`
+(anchored public-viewbook footer gate).
+**CSS-var contract:** PR2's `--vb-*` names are canonical; PR4's integration
+phase renames its leaves' `--viewbook-primary` references (PR2 plan Codex
+fix 4).
 
 **PR4 (Codex) — core phase** — C: `lib/viewbook/activity.ts`,
 `lib/viewbook/digest.ts`, `lib/viewbook/retention.ts`,
