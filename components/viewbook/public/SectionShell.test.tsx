@@ -50,3 +50,36 @@ describe('SectionShell', () => {
     expect(screen.getByText('Body')).toBeDefined()
   })
 })
+
+describe('SectionShell PR5 polish', () => {
+  it('animates the done badge via open-state selectors with reduced-motion override', () => {
+    const { container } = render(
+      <SectionShell
+        section={section({ state: 'done', doneAt: '2026-07-01T00:00:00.000Z' })}
+        title="Brand Guidelines"
+        heroUrl={null}
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(container.innerHTML).toContain('vb-pop')
+    expect(container.innerHTML).toContain('details[open] .vb-done-body')
+    expect(container.innerHTML).toContain('prefers-reduced-motion')
+    expect(container.querySelector('.vb-done-badge')).not.toBeNull()
+    expect(container.querySelector('.vb-done-body')).not.toBeNull()
+  })
+
+  it('renders the hero legibility gradient and scroll offset on active sections', () => {
+    const { container } = render(
+      <SectionShell
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(container.innerHTML).toContain('linear-gradient(to top, var(--vb-primary)')
+    expect(container.innerHTML).toContain('scroll-mt-14')
+  })
+})
