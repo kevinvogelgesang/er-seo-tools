@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { FONT_CATALOG, SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import { jsonFetch } from './viewbook-admin-shared'
+import { ThemePreview } from './ThemePreview'
 
 const COLOR_FIELDS = ['primary', 'secondary', 'tertiary'] as const
 
@@ -129,20 +130,9 @@ export function ThemeEditor({
         </div>
       </details>
 
-      {/* Inline preview: swatches + type specimen in the chosen brand colors */}
-      <div className="rounded-lg border border-gray-200 p-4 dark:border-navy-border" style={{ background: draft.primary }}>
-        <p className="text-2xl font-bold" style={{ color: '#ffffff', fontFamily: FONT_CATALOG[draft.headingFont]?.family }}>
-          {`Aa — heading specimen`}
-        </p>
-        <p className="mt-1 text-sm" style={{ color: '#ffffff', fontFamily: FONT_CATALOG[draft.bodyFont]?.family }}>
-          Body specimen — the public page loads the real Google Fonts.
-        </p>
-        <div className="mt-3 flex gap-2">
-          {COLOR_FIELDS.map((f) => (
-            <span key={f} className="inline-block h-8 w-8 rounded border border-white/40" style={{ background: draft[f] }} title={f} />
-          ))}
-        </div>
-      </div>
+      {/* Shared public-renderer preview (PR2): the real SectionShell +
+          theming primitives with the draft theme, live fonts included. */}
+      <ThemePreview theme={draft} />
 
       <button
         onClick={() => void save()}
