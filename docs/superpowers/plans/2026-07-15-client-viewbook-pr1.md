@@ -1,45 +1,43 @@
-# Client Viewbook PR1 — Schema + Seeds + Theme/Assets + Admin Implementation Plan
+# Client Viewbook PR1 — Schema + Seeds + Theme/Assets + Admin Implementation Plan (rev 2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Land the full viewbook schema, the code-owned seeds (question catalog, default milestones, font catalog), the strict theme validator, the asset store, the admin service layer + API routes, and the internal admin UI shell — everything both later lanes build on.
+**Goal:** Land the full 11-model viewbook schema, the code-owned seeds (question catalog, default milestones, font catalog), the strict theme validator, the atomic asset-attachment layer, the public-token validator (`route-auth.ts` — later lanes compile against it), the admin service + API routes, and the internal admin UI shell.
 
-**Architecture:** All 10 Prisma models ship in this one migration (later PRs never touch `schema.prisma`). Pure/validating modules live in `lib/viewbook/*` with vitest coverage; thin `withRoute` admin routes call the service layer; admin UI is a minimal three-tab editor. No public routes, no middleware changes, no jobs in this PR.
+**Architecture:** All 11 Prisma models ship in this one migration (later PRs never touch `schema.prisma`). Pure/validating modules in `lib/viewbook/*` with vitest coverage; thin `withRoute` admin routes over the service layer; asset writes are atomic file-write → DB-stamp → old-file-delete operations, never bare saves. No public page, no middleware changes, no jobs in this PR.
 
-**Tech Stack:** Next.js 15 App Router, Prisma + SQLite, vitest (per-worker isolated test DBs — import `prisma` from `@/lib/db` directly in tests), Tailwind (class dark mode).
+**Tech Stack:** Next.js 15 App Router, Prisma + SQLite, vitest (per-worker template-copied test DBs — import `prisma` from `@/lib/db` in tests; `.test-dbs/` is wiped per run, but add prefix-scoped cleanup hooks anyway for intra-worker cross-suite hygiene), Tailwind class dark mode.
+
+**Rev 2** applies Codex plan-review fixes 8–15 and Kevin-confirmed decisions (2026-07-16): missing session email → **401 reject** (never a sentinel in an email field); global team photo = **one atomic multipart update**; `VIEWBOOK_ASSETS_DIR` added to `ecosystem.config.js` in this PR.
 
 ## Global Constraints (from spec — apply to every task)
 
-- Array-form `$transaction([...])` ONLY; conditional logic in SQL (`EXISTS`), never interactive transactions.
-- All API routes wrapped in `withRoute` (`lib/api/with-route.ts`); JSON bodies via `parseJsonBody` (`lib/api/body.ts`); errors via `HttpError` (`lib/api/errors.ts`).
-- Operator attribution = `getAuthSession()` email (`lib/auth.ts`), never client-supplied.
+- Array-form `$transaction([...])` ONLY; conditional logic in SQL / fenced statements whose failure rolls the transaction back.
+- All API routes wrapped in `withRoute`; JSON bodies via `parseJsonBody`; errors via `HttpError`.
+- Operator attribution: `requireOperatorEmail()` (Task 7) — verified session email or `HttpError(401, 'auth_required')`. Never a fallback sentinel.
 - Custom `ViewbookField.defKey` is `NULL`, never `''`; custom fields addressed by `id`.
-- Theme validation is a strict whole-object parse: unknown keys rejected, 8 KB byte cap, colors `^#[0-9a-fA-F]{6}$`, fonts must be `FONT_CATALOG` keys, `sectionHeroes` keys ⊆ section keys, filenames match `^[a-z0-9-]+\.(png|jpe?g|webp)$`.
-- Uploads: magic-byte sniffing (png/jpg/webp), SVG impossible by construction, 2 MB cap, server-generated filenames, atomic unique-temp+rename, ENOENT-tolerant delete.
-- `VIEWBOOK_ASSETS_DIR` env, default `<cwd>/data/viewbook-assets`; subdirs `global/` and `<viewbookId>/`.
-- Gates: `npx tsc --noEmit` · `npm run lint` · `DATABASE_URL="file:./local-dev.db" npm test` · `npm run build`.
+- Theme validation strict whole-object (details Task 3). Uploads magic-byte-sniffed, 2 MB cap, server-generated filenames, atomic attachment flows (Task 4/5).
+- `VIEWBOOK_ASSETS_DIR` env, default `path.join(process.cwd(), 'data', 'viewbook-assets')`; scopes exactly `'global'` or `String(positiveInt)`.
+- Never run `prisma migrate reset` against the local dev DB.
+- Gates: `npx tsc --noEmit` · `npm run lint` · `DATABASE_URL="file:./local-dev.db" npm test` · `npm run build` · `npm run audit:ci`.
 
 **Section keys (frozen):** `welcome` · `milestones` · `data-source` · `brand` · `assessment` · `strategy` · `materials`.
 **Global content keys (frozen):** `team` · `process` · `why` · `seo-base` · `geo-base` · `eeat-base`.
 
 ---
 
-### Task 1: Prisma schema + migration
+### Task 1: Prisma schema + migration (11 models)
 
 **Files:**
-- Modify: `prisma/schema.prisma` (add 10 models + `Client.viewbook` inverse relation)
-- Create: `prisma/migrations/<generated>_client_viewbook/migration.sql` (generated, then hand-append one partial index)
+- Modify: `prisma/schema.prisma` (11 models + `Client.viewbook Viewbook?` inverse)
+- Create: `prisma/migrations/<generated>_client_viewbook/migration.sql` (generated, then hand-append the partial index)
 
 **Interfaces:**
-- Produces: models `Viewbook`, `ViewbookSection`, `ViewbookField`, `ViewbookFieldAmendment`, `ViewbookMilestone`, `ViewbookReviewLink`, `ViewbookFeedback`, `ViewbookGlobalContent`, `ViewbookContentOverride`, `ViewbookMaterialLink`, `ViewbookActivity` exactly as spec §4 (post-Codex-fix version: `ViewbookField.version/archivedAt`, `clientMutationId @unique` on amendment/feedback/material, `ViewbookMaterialLink.status/url?/providedAt`, indexes `@@index([viewbookId, id])` on activity/materials, `@@index([reviewLinkId, id])`, `@@index([fieldId, id])`, `@@index([viewbookId, sortOrder])` on milestones).
+- Produces: models `Viewbook`, `ViewbookSection`, `ViewbookField`, `ViewbookFieldAmendment`, `ViewbookMilestone`, `ViewbookReviewLink`, `ViewbookFeedback`, `ViewbookGlobalContent`, `ViewbookContentOverride`, `ViewbookMaterialLink`, `ViewbookActivity` — copy the schema block from spec §4 verbatim (it is the contract).
 
-- [ ] **Step 1: Add the models to `prisma/schema.prisma`** — copy the schema block from spec §4 verbatim (it is the contract; do not improvise), and add to `model Client`: `viewbook Viewbook?`
-- [ ] **Step 2: Generate the migration**
-
-Run: `npx prisma migrate dev --name client_viewbook`
-Expected: migration created, client regenerated, no drift.
-
-- [ ] **Step 3: Append the partial unique index** to the new `migration.sql` (Prisma can't express it):
+- [ ] **Step 1:** Add the models + the `Client` inverse relation to `prisma/schema.prisma`.
+- [ ] **Step 2:** `npx prisma migrate dev --name client_viewbook` (normal repo flow — creates the migration + regenerates the client against the local dev DB; no reset).
+- [ ] **Step 3:** Hand-append to the new `migration.sql`:
 
 ```sql
 -- At most one 'current' milestone per viewbook (spec §4 / Codex fix 5)
@@ -47,82 +45,23 @@ CREATE UNIQUE INDEX "ViewbookMilestone_one_current_per_viewbook"
 ON "ViewbookMilestone"("viewbookId") WHERE "status" = 'current';
 ```
 
-Run: `npx prisma migrate reset --force && npx prisma migrate dev` (local db) to prove the edited migration applies cleanly.
+- [ ] **Step 4:** Prove the edited migration applies cleanly WITHOUT touching the dev DB — disposable DB:
 
-- [ ] **Step 4: Gate + commit**
+Run: `DATABASE_URL="file:/tmp/vb-mig-check.db" npx prisma migrate deploy && rm -f /tmp/vb-mig-check.db*`
+Expected: all migrations applied, including the hand-edited one. Then apply the partial index to the local dev DB itself: `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy` (idempotent for already-applied migrations; `migrate dev` in Step 2 ran before the hand-edit, so deploy picks up nothing new — instead run the index statement once via `npx prisma db execute --file` against local-dev if `migrate dev` already marked the migration applied. Simplest safe order: write the SQL edit BEFORE first applying — i.e. use `npx prisma migrate dev --create-only`, edit, then `npx prisma migrate dev`).
+- [ ] **Step 5:** Gate `npx tsc --noEmit` → clean. Commit: `git add prisma && git commit -m "feat(viewbook): PR1 schema — 11 models, partial unique current-milestone index"`
 
-Run: `npx tsc --noEmit`
-Expected: clean.
-
-```bash
-git add prisma && git commit -m "feat(viewbook): PR1 schema — 10 models, partial unique current-milestone index"
-```
+> Corrected procedure summary: `npx prisma migrate dev --name client_viewbook --create-only` → hand-edit SQL → `npx prisma migrate dev` (applies + generates) → disposable-DB `migrate deploy` proof. Never `migrate reset`.
 
 ---
 
 ### Task 2: Question catalog + default milestones (seeds)
 
-**Files:**
-- Create: `lib/viewbook/catalog.ts`, `lib/viewbook/milestones.ts`
-- Test: `lib/viewbook/catalog.test.ts`
+Files `lib/viewbook/catalog.ts` + `lib/viewbook/milestones.ts`, test `lib/viewbook/catalog.test.ts`; contracts: `CATALOG: CatalogEntry[]` (`{ defKey, category, label, fieldType: 'text'|'textarea'|'list', sortOrder }`), `CATALOG_CATEGORIES` (8 categories: `school`, `programs`, `team-access`, `crm-leads`, `admissions`, `positioning`, `student-experience`, `brand-materials`), `DEFAULT_MILESTONES` (7 stages).
 
-**Interfaces:**
-- Produces: `CATALOG: CatalogEntry[]` where `CatalogEntry = { defKey: string; category: CatalogCategory; label: string; fieldType: 'text' | 'textarea' | 'list'; sortOrder: number }`; `CATALOG_CATEGORIES: readonly CatalogCategory[]` (`'school' | 'programs' | 'team-access' | 'crm-leads' | 'admissions' | 'positioning' | 'student-experience' | 'brand-materials'`); `DEFAULT_MILESTONES: { title: string; blurb: string; sortOrder: number }[]` (7 stages, spec §5).
-
-- [ ] **Step 1: Write the failing test** (`lib/viewbook/catalog.test.ts`)
+The full `CATALOG` literal (33 entries — implement exactly; additive-only contract, never rename/remove a defKey once shipped):
 
 ```ts
-import { describe, it, expect } from 'vitest'
-import { CATALOG, CATALOG_CATEGORIES } from './catalog'
-import { DEFAULT_MILESTONES } from './milestones'
-
-describe('viewbook catalog', () => {
-  it('has unique defKeys and valid categories/types', () => {
-    const keys = CATALOG.map((e) => e.defKey)
-    expect(new Set(keys).size).toBe(keys.length)
-    for (const e of CATALOG) {
-      expect(CATALOG_CATEGORIES).toContain(e.category)
-      expect(['text', 'textarea', 'list']).toContain(e.fieldType)
-      expect(e.defKey).toMatch(/^[a-z0-9-]+$/)
-      expect(e.label.length).toBeGreaterThan(0)
-    }
-  })
-  it('covers every category and orders within category', () => {
-    for (const cat of CATALOG_CATEGORIES) {
-      const entries = CATALOG.filter((e) => e.category === cat)
-      expect(entries.length).toBeGreaterThan(0)
-      const orders = entries.map((e) => e.sortOrder)
-      expect(new Set(orders).size).toBe(orders.length)
-    }
-  })
-  it('seeds 7 default milestones in order', () => {
-    expect(DEFAULT_MILESTONES).toHaveLength(7)
-    expect(DEFAULT_MILESTONES.map((m) => m.sortOrder)).toEqual([1, 2, 3, 4, 5, 6, 7])
-    expect(DEFAULT_MILESTONES[0].title).toBe('Kickoff')
-  })
-})
-```
-
-- [ ] **Step 2: Run to verify it fails** — `npm test -- lib/viewbook/catalog.test.ts` → FAIL (module not found).
-- [ ] **Step 3: Implement `catalog.ts`** — client-safe, no imports:
-
-```ts
-export const CATALOG_CATEGORIES = [
-  'school', 'programs', 'team-access', 'crm-leads',
-  'admissions', 'positioning', 'student-experience', 'brand-materials',
-] as const
-export type CatalogCategory = (typeof CATALOG_CATEGORIES)[number]
-
-export interface CatalogEntry {
-  defKey: string
-  category: CatalogCategory
-  label: string
-  fieldType: 'text' | 'textarea' | 'list'
-  sortOrder: number
-}
-
-// Modeled on the Jotform onboarding document (spec §5). Additive-only:
-// never rename/remove a defKey — existing ViewbookField rows reference them.
 export const CATALOG: CatalogEntry[] = [
   { defKey: 'school-name', category: 'school', label: 'School name', fieldType: 'text', sortOrder: 1 },
   { defKey: 'school-contact-name', category: 'school', label: 'Primary contact name', fieldType: 'text', sortOrder: 2 },
@@ -160,7 +99,7 @@ export const CATALOG: CatalogEntry[] = [
 ]
 ```
 
-And `milestones.ts`:
+And `DEFAULT_MILESTONES` (first stage seeded `current` by the service):
 
 ```ts
 export const DEFAULT_MILESTONES = [
@@ -174,234 +113,129 @@ export const DEFAULT_MILESTONES = [
 ] as const
 ```
 
-- [ ] **Step 4: Run tests** — `npm test -- lib/viewbook/catalog.test.ts` → PASS.
-- [ ] **Step 5: Commit** — `git add lib/viewbook && git commit -m "feat(viewbook): question catalog + default milestone seeds"`
+- [ ] Test-first as rev 1 (unique defKeys, category coverage, per-category unique sortOrder, 7 ordered milestones) → fail → implement → pass.
+- [ ] Commit: `git commit -m "feat(viewbook): question catalog + default milestone seeds"`
+
+Run tests: `DATABASE_URL="file:./local-dev.db" npm test -- lib/viewbook/catalog.test.ts`
 
 ---
 
 ### Task 3: Theme kit — strict validator + font catalog
 
-**Files:**
-- Create: `lib/viewbook/theme.ts`
-- Test: `lib/viewbook/theme.test.ts`
+**Files:** Create `lib/viewbook/theme.ts`; Test `lib/viewbook/theme.test.ts`
 
-**Interfaces:**
-- Produces: `SECTION_KEYS` (frozen 7-key list), `type SectionKey`, `type ViewbookTheme = { primary: string; secondary: string; tertiary: string; headingFont: string; bodyFont: string; logo: string | null; sectionHeroes: Partial<Record<SectionKey, string>> }`; `DEFAULT_THEME: ViewbookTheme` (ER navy/teal/gold, `'inter'`/`'inter'`, no logo/heroes); `FONT_CATALOG: Record<string, { family: string; gfQuery: string }>` (12+ curated entries incl. `'inter'`); `validateViewbookTheme(raw: unknown): ViewbookTheme | null` (strict: null on ANY violation — unknown key, bad hex, unknown font key, bad hero section key, bad filename, >8 KB when re-serialized); `parseStoredTheme(json: string): ViewbookTheme` (validate-or-DEFAULT_THEME — read as strict as write, degrade never throw); `onThemeColorText(hex: string): '#ffffff' | '#111111'` (relative luminance threshold 0.5); `ASSET_FILENAME_RE = /^[a-z0-9-]+\.(png|jpe?g|webp)$/`.
+**Interfaces (rev 2 deltas bolded):**
+- `SECTION_KEYS`, `SectionKey`, `ViewbookTheme`, `DEFAULT_THEME`, `FONT_CATALOG` (12 entries incl. `'inter'`), `ASSET_FILENAME_RE = /^[a-z0-9-]+\.(png|jpe?g|webp)$/`, `validateViewbookTheme(raw: unknown): ViewbookTheme | null`, `parseStoredTheme(json: string): ViewbookTheme`, `onThemeColorText(hex: string): '#ffffff' | '#111111'`.
+- Validator rules (strict, in order): **plain object only** (`Object.getPrototypeOf(raw)` is `Object.prototype` or `null`; arrays rejected) → key set exactly equals the 7 allowed keys → colors `/^#[0-9a-fA-F]{6}$/` → fonts via **`Object.prototype.hasOwnProperty.call(FONT_CATALOG, key)`** (never `in` — prototype names like `'toString'` must fail) → `logo` null or `ASSET_FILENAME_RE` → `sectionHeroes` **plain object**, keys ⊆ `SECTION_KEYS`, values match the regex → **UTF-8 byte cap `new TextEncoder().encode(JSON.stringify(theme)).length <= 8192`** (never `.length` on the string).
+- `onThemeColorText`: WCAG relative luminance with the **0.179 crossover** (the point where white and black text have equal contrast ratio), not 0.5: `L > 0.179 → '#111111'` else `'#ffffff'`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Failing tests** — rev 1 cases PLUS: array theme rejected (`validateViewbookTheme([]) === null`); `sectionHeroes: []` rejected; `headingFont: 'toString'` rejected; multi-byte cap test (theme with a logo name padded so UTF-16 length < 8192 but UTF-8 bytes > 8192 via 3-byte chars) rejected; contrast crossover: `onThemeColorText('#808080')` → `'#111111'` (L≈0.216 > 0.179) and `onThemeColorText('#5a5a5a')` → `'#ffffff'` (L≈0.100).
 
 ```ts
-import { describe, it, expect } from 'vitest'
-import { validateViewbookTheme, parseStoredTheme, onThemeColorText, DEFAULT_THEME, FONT_CATALOG } from './theme'
-
-const good = {
-  primary: '#122033', secondary: '#1D7F7F', tertiary: '#C99334',
-  headingFont: 'inter', bodyFont: 'inter', logo: null, sectionHeroes: {},
-}
-
-describe('validateViewbookTheme', () => {
-  it('accepts a complete valid theme', () => {
-    expect(validateViewbookTheme(good)).toEqual(good)
-  })
-  it('rejects unknown keys, bad hex, unknown fonts, bad hero keys/filenames', () => {
-    expect(validateViewbookTheme({ ...good, extra: 1 })).toBeNull()
-    expect(validateViewbookTheme({ ...good, primary: 'red' })).toBeNull()
-    expect(validateViewbookTheme({ ...good, primary: '#12203' })).toBeNull()
-    expect(validateViewbookTheme({ ...good, headingFont: 'comic-sans' })).toBeNull()
-    expect(validateViewbookTheme({ ...good, sectionHeroes: { nope: 'a.png' } })).toBeNull()
-    expect(validateViewbookTheme({ ...good, sectionHeroes: { brand: '../x.png' } })).toBeNull()
-    expect(validateViewbookTheme({ ...good, logo: 'x.svg' })).toBeNull()
-    expect(validateViewbookTheme(null)).toBeNull()
-  })
-  it('parseStoredTheme degrades to DEFAULT_THEME, never throws', () => {
-    expect(parseStoredTheme('not json')).toEqual(DEFAULT_THEME)
-    expect(parseStoredTheme('{}')).toEqual(DEFAULT_THEME)
-    expect(parseStoredTheme(JSON.stringify(good))).toEqual(good)
-  })
-  it('every catalog font has family + gfQuery; luminance picks legible text', () => {
-    expect(Object.keys(FONT_CATALOG).length).toBeGreaterThanOrEqual(12)
-    for (const f of Object.values(FONT_CATALOG)) {
-      expect(f.family.length).toBeGreaterThan(0)
-      expect(f.gfQuery).toMatch(/^family=/)
-    }
-    expect(onThemeColorText('#122033')).toBe('#ffffff')
-    expect(onThemeColorText('#f5f0e6')).toBe('#111111')
-  })
+it('rejects arrays, prototype font keys, and over-cap UTF-8 bytes', () => {
+  expect(validateViewbookTheme([])).toBeNull()
+  expect(validateViewbookTheme({ ...good, sectionHeroes: [] })).toBeNull()
+  expect(validateViewbookTheme({ ...good, headingFont: 'toString' })).toBeNull()
+  const fat = { ...good, sectionHeroes: { brand: 'a'.repeat(3000) + '.png' } } // regex-legal but with multibyte padding variant below
+  expect(validateViewbookTheme(fat)).toBeNull() // byte cap via TextEncoder
+})
+it('picks text color at the 0.179 luminance crossover', () => {
+  expect(onThemeColorText('#808080')).toBe('#111111')
+  expect(onThemeColorText('#5a5a5a')).toBe('#ffffff')
 })
 ```
 
-- [ ] **Step 2: Run to fail** — `npm test -- lib/viewbook/theme.test.ts` → FAIL.
-- [ ] **Step 3: Implement** — client-safe module; strict object walk (no `zod` — repo has none; follow `lib/sweep/types.ts` whole-doc-reject convention). Validation checks, in order: non-null object → key set exactly equals allowed keys → three colors match `/^#[0-9a-fA-F]{6}$/` → both fonts `in FONT_CATALOG` → `logo` null or `ASSET_FILENAME_RE` → `sectionHeroes` object whose keys ⊆ `SECTION_KEYS` and values match `ASSET_FILENAME_RE` → `JSON.stringify(theme).length <= 8192`. `onThemeColorText`: WCAG relative luminance (`0.2126R+0.7152G+0.0722B` on sRGB-linearized channels) > 0.5 → dark text else white. `FONT_CATALOG` initial 12: inter, lora, playfair-display, montserrat, oswald, merriweather, source-sans-3, work-sans, libre-baskerville, poppins, archivo, dm-serif-display (each `gfQuery` like `family=Playfair+Display:wght@400;700`).
-- [ ] **Step 4: Run tests** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(viewbook): strict theme validator + curated font catalog"`
+- [ ] **Steps 2–4:** fail → implement → pass. **Step 5:** Commit `git commit -m "feat(viewbook): strict theme validator (plain-object, hasOwnProperty, UTF-8 cap, 0.179 crossover) + font catalog"`
 
 ---
 
-### Task 4: Asset store — sniffing, atomic write, lifecycle delete
+### Task 4: Asset store — sniffing, containment, ENOENT-only tolerance
 
-**Files:**
-- Create: `lib/viewbook/assets.ts`
-- Test: `lib/viewbook/assets.test.ts`
+**Files:** Create `lib/viewbook/assets.ts`; Test `lib/viewbook/assets.test.ts`
 
-**Interfaces:**
-- Produces: `viewbookAssetsDir(): string` (env `VIEWBOOK_ASSETS_DIR` default `path.join(process.cwd(), 'data', 'viewbook-assets')`); `sniffImageType(buf: Buffer): 'png' | 'jpeg' | 'webp' | null` (magic bytes: `89 50 4E 47`, `FF D8 FF`, `RIFF....WEBP`); `saveViewbookAsset(scope: string, buf: Buffer): Promise<{ filename: string; mime: string }>` (scope = `'global'` or `String(viewbookId)`; rejects `buf.length > 2_097_152` or null sniff with `HttpError(400, 'invalid_image')`; filename = `${crypto.randomUUID()}.${ext}` — server-generated, always matches `ASSET_FILENAME_RE`; write temp + `fs.rename`); `readViewbookAsset(scope, filename)` (containment: filename must match `ASSET_FILENAME_RE` — no separators possible; returns `{ buf, mime } | null` on ENOENT); `deleteViewbookAssets(scope: string, filenames: string[]): Promise<void>` (ENOENT-tolerant, never throws).
-- Consumes: `ASSET_FILENAME_RE` from Task 3.
+**Interfaces (rev 2 deltas bolded):**
+- `viewbookAssetsDir()`; `sniffImageType(buf): 'png'|'jpeg'|'webp'|null`; **`validateAssetScope(scope: string): boolean`** (exactly `'global'` or `/^[1-9][0-9]*$/`); `saveViewbookAsset(scope, buf)` → `{ filename, mime }` (2 MB cap, sniff-reject → `HttpError(400,'invalid_image')`, `crypto.randomUUID()`-based filename, temp+rename); `readViewbookAsset(scope, filename)` → `{ buf, mime } | null` — **containment = `path.resolve(dir, scope, filename)` must `startsWith(path.resolve(dir) + path.sep)` IN ADDITION to the filename regex**; ENOENT → null, **any other fs error rethrows**; `deleteViewbookAssets(scope, filenames)` — best-effort: ENOENT swallowed silently, **other errors logged via `logError('[viewbook] asset delete', err)` and swallowed** (delete paths must not throw into callers), invalid scope/filename entries skipped.
 
-- [ ] **Step 1: Write the failing test** — use `fs.mkdtemp` + `process.env.VIEWBOOK_ASSETS_DIR` override in `beforeEach`; minimal valid PNG/JPEG/WEBP header buffers as fixtures; asserts: save→read roundtrip + returned filename matches the regex; oversize and sniff-fail throw `HttpError` 400; `readViewbookAsset('1', 'nope.png')` → null; `deleteViewbookAssets` on missing files resolves; a `.svg`-shaped buffer (`<svg…`) sniffs null.
-
-```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm } from 'fs/promises'
-import { tmpdir } from 'os'
-import path from 'path'
-import { saveViewbookAsset, readViewbookAsset, deleteViewbookAssets, sniffImageType } from './assets'
-import { HttpError } from '@/lib/api/errors'
-
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)])
-let dir: string
-beforeEach(async () => { dir = await mkdtemp(path.join(tmpdir(), 'vb-assets-')); process.env.VIEWBOOK_ASSETS_DIR = dir })
-afterEach(async () => { delete process.env.VIEWBOOK_ASSETS_DIR; await rm(dir, { recursive: true, force: true }) })
-
-describe('viewbook asset store', () => {
-  it('sniffs png/jpeg/webp and rejects svg/unknown', () => {
-    expect(sniffImageType(PNG)).toBe('png')
-    expect(sniffImageType(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toBe('jpeg')
-    expect(sniffImageType(Buffer.from('RIFF0000WEBPVP8 '))).toBe('webp')
-    expect(sniffImageType(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg">'))).toBeNull()
-  })
-  it('save → read roundtrip with server-generated filename', async () => {
-    const { filename, mime } = await saveViewbookAsset('7', PNG)
-    expect(filename).toMatch(/^[a-z0-9-]+\.png$/)
-    expect(mime).toBe('image/png')
-    const back = await readViewbookAsset('7', filename)
-    expect(back?.buf.equals(PNG)).toBe(true)
-  })
-  it('rejects oversize and non-image; tolerates missing on read/delete', async () => {
-    await expect(saveViewbookAsset('7', Buffer.alloc(2_097_153))).rejects.toBeInstanceOf(HttpError)
-    await expect(saveViewbookAsset('7', Buffer.from('hello'))).rejects.toBeInstanceOf(HttpError)
-    expect(await readViewbookAsset('7', 'missing.png')).toBeNull()
-    await expect(deleteViewbookAssets('7', ['missing.png'])).resolves.toBeUndefined()
-  })
-})
-```
-
-- [ ] **Step 2: Run to fail** → FAIL. **Step 3: Implement** (mirror `lib/sales/hero-screenshot.ts` atomic-write/delete idioms). **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(viewbook): asset store with magic-byte sniffing + atomic writes"`
+- [ ] **Step 1: Failing tests** — rev 1 cases PLUS: `validateAssetScope('global')`/`('12')` true, `('0')`/`('../x')`/`('')` false; `readViewbookAsset('12', 'ok-name.png')` with a crafted resolved-path escape impossible by construction (test the regex+containment rejection of `'..%2f'`-style names → null without fs touch); non-ENOENT read error rethrows (chmod-based EACCES test skipped on CI-unfriendly platforms — simulate by injecting `deps.readFile` throwing `{code:'EACCES'}`; give the module an injectable `deps` like `broken-link-check.ts`'s `realDeps` pattern).
+- [ ] **Steps 2–4:** fail → implement → pass. **Step 5:** Commit `git commit -m "feat(viewbook): asset store — sniffing, scope validation, path containment, ENOENT-only tolerance"`
 
 ---
 
-### Task 5: Service layer — create/seed, list, token, sections, milestones, delete
+### Task 5: Service layer — seeding, token, sections, milestones, atomic attachments, delete
 
-**Files:**
-- Create: `lib/viewbook/service.ts`
-- Test: `lib/viewbook/service.test.ts` (DB-backed — import `prisma` from `@/lib/db`, create a `Client` per test with a unique name)
+**Files:** Create `lib/viewbook/service.ts`; Test `lib/viewbook/service.test.ts`
 
-**Interfaces:**
-- Consumes: `CATALOG`, `DEFAULT_MILESTONES`, `SECTION_KEYS`, `DEFAULT_THEME`, `validateViewbookTheme`, `deleteViewbookAssets`, `parseStoredTheme`.
-- Produces:
-  - `createViewbook(clientId: number, kind: 'new-build' | 'upgrade', createdBy: string): Promise<{ id: number; token: string }>` — ONE nested `prisma.viewbook.create` seeding `sections` (7 rows; `assessment` state `'hidden'` when kind `'new-build'`, else `'active'`), `fields` (one per `CATALOG` entry, `createdBy: 'seed'`), `milestones` (from `DEFAULT_MILESTONES`, first one `status: 'current'`). Existing viewbook for client → `HttpError(409, 'viewbook_exists')` (P2002 on `clientId` unique caught by withRoute as fallback). Archived client → `HttpError(409, 'client_archived')`.
-  - `listViewbooks()` — client name/kind/createdAt + counts (unresolvedFeedback: 0 until PR4 — computed via `_count` when models populate).
-  - `getViewbookAdmin(id: number)` — full subtree for the editor (sections, fields+amendments, milestones+reviewLinks, overrides, materials) + `theme: parseStoredTheme(themeJson)`.
-  - `updateViewbookTheme(id, raw: unknown)` — `validateViewbookTheme` or `HttpError(400, 'invalid_theme')`; returns saved theme.
-  - `updateViewbookSettings(id, patch: { welcomeNote?; notifyEmail?; kind? })` — bounded strings.
-  - `rotateViewbookToken(id)` / `revokeViewbook(id)` — new UUID / stamp `revokedAt`.
-  - `setSectionState(id, sectionKey, state: 'hidden' | 'active' | 'done')` — stamps/clears `doneAt`; unknown key → `HttpError(400, 'invalid_section')`.
-  - `updateSectionText(id, sectionKey, patch: { introNote?; narrative? })`.
-  - `createMilestone/updateMilestone/deleteMilestone` — status transitions keep the partial-unique invariant with an array-form txn: `[demote current where viewbookId, promote target]` when setting `'current'`.
-  - `syncCatalogQuestions(id)` — `createMany` missing defKeys only (idempotent, never touches values).
-  - `deleteViewbook(id)` — snapshot `themeJson` filenames + hero filenames FIRST, `prisma.viewbook.delete`, then `deleteViewbookAssets(String(id), snapshot)` best-effort.
+**Interfaces (rev 2 deltas bolded):**
+- `createViewbook(clientId, kind, createdBy)` — ONE nested `prisma.viewbook.create` (7 sections — `assessment` hidden for `new-build`; `CATALOG.length` fields `createdBy:'seed'`; 7 milestones, first `current`). **Catches P2002 on the `clientId` unique itself → `HttpError(409,'viewbook_exists')`** (service promises the 409; not delegated to withRoute). Archived client → `HttpError(409,'client_archived')`.
+- `listViewbooks()`, `getViewbookAdmin(id)` (subtree + `parseStoredTheme`).
+- `updateViewbookTheme(id, raw)`, `updateViewbookSettings(id, patch)`.
+- `rotateViewbookToken(id)` — new UUID **AND `revokedAt: null`** (rotation un-revokes; revoke-then-rotate = re-enable with a fresh link). `revokeViewbook(id)`.
+- `setSectionState(id, key, state)` / `updateSectionText(id, key, patch)`.
+- `createMilestone(id, data, { current?: boolean })` / `updateMilestone(id, milestoneId, patch)` / `deleteMilestone(id, milestoneId)` — promotion to `'current'` is `$transaction([updateMany({ where: { viewbookId: id, status: 'current' }, data: { status: 'upcoming' } }), update({ where: { id: milestoneId, viewbookId: id }, data: { status: 'current' } })])` — **the second statement's compound `where { id, viewbookId }` throws P2025 on a missing/cross-viewbook target and rolls the whole transaction back** (the demote is never orphaned). Create-as-current uses the same demote + nested create shape.
+- `syncCatalogQuestions(id)` — **per-row `create` with narrow P2002-catch-and-skip** (SQLite Prisma has no `skipDuplicates`; find-missing-then-createMany races — fix 12). Returns `{ added: number }`.
+- **`attachViewbookLogo(id, buf)` / `attachSectionHero(id, sectionKey, buf)`** — atomic attachment (fix 11): `saveViewbookAsset` → theme re-validate with new filename → conditional `update` stamping `themeJson` → on stamp failure (throw/0 rows) delete the NEW file and rethrow → on success delete the OLD filename. Returns the updated theme.
+- `deleteViewbook(id)` — snapshot theme filenames FIRST, delete row, best-effort `deleteViewbookAssets`.
+- **`collectClientViewbookAssetSnapshot(clientId)`** — exported for Task 7's client-DELETE integration.
 
-- [ ] **Step 1: Write failing tests** — cover: create seeds exact counts (`CATALOG.length` fields, 7 sections, 7 milestones, milestone[0] current, new-build hides `assessment`); duplicate create → 409; rotate changes token, revoke stamps; `setSectionState('data-source','done')` stamps doneAt; promoting a second milestone to current demotes the first (assert exactly one `status: 'current'` row); `syncCatalogQuestions` after deleting one seeded field row restores exactly it; `deleteViewbook` removes subtree rows.
+- [ ] **Step 1: Failing tests** (DB-backed; **`beforeAll`/`afterAll` prefix-scoped cleanup: `prisma.client.deleteMany({ where: { name: { startsWith: 'vb-test-' } } })`** — fix 12): rev 1 cases PLUS: duplicate-create 409 comes from the service catch (assert `HttpError` code `viewbook_exists`); rotate clears `revokedAt`; cross-viewbook milestone promotion rejects AND leaves the original `current` row intact (rollback proof); two sequential promotions leave exactly one current; `syncCatalogQuestions` concurrent double-call (`Promise.all([sync, sync])`) adds each missing defKey exactly once; `attachViewbookLogo` on a deleted viewbook leaves no orphan file (assert dir empty after rejection).
 
-```ts
-import { describe, it, expect } from 'vitest'
-import { prisma } from '@/lib/db'
-import { createViewbook, rotateViewbookToken, revokeViewbook, setSectionState, updateMilestone, syncCatalogQuestions, deleteViewbook } from './service'
-import { CATALOG } from './catalog'
+Run: `DATABASE_URL="file:./local-dev.db" npm test -- lib/viewbook/service.test.ts`
 
-async function mkClient() {
-  return prisma.client.create({ data: { name: `vb-test-${crypto.randomUUID()}` } })
-}
-
-describe('createViewbook', () => {
-  it('seeds sections/fields/milestones in one nested create', async () => {
-    const c = await mkClient()
-    const { id } = await createViewbook(c.id, 'new-build', 'kevin@enrollmentresources.com')
-    const vb = await prisma.viewbook.findUniqueOrThrow({
-      where: { id }, include: { sections: true, fields: true, milestones: true },
-    })
-    expect(vb.fields).toHaveLength(CATALOG.length)
-    expect(vb.sections).toHaveLength(7)
-    expect(vb.sections.find((s) => s.sectionKey === 'assessment')?.state).toBe('hidden')
-    expect(vb.milestones.filter((m) => m.status === 'current')).toHaveLength(1)
-    await expect(createViewbook(c.id, 'upgrade', 'x@y.z')).rejects.toMatchObject({ status: 409 })
-  })
-})
-// …token rotate/revoke, section state, single-current invariant,
-// syncCatalogQuestions idempotency, delete-cascades tests in the same file,
-// each on its own fresh client (same shape as above).
-```
-
-- [ ] **Step 2: Run to fail** → FAIL. **Step 3: Implement `service.ts`** per the Produces contract (array-form transactions; single-current promotion = `$transaction([updateMany demote, update promote])`). **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(viewbook): admin service layer — nested-create seeding, token lifecycle, sections, milestones"`
+- [ ] **Steps 2–4:** fail → implement → pass. **Step 5:** Commit `git commit -m "feat(viewbook): service layer — nested-create seeding, rollback-safe milestone promotion, atomic asset attachment"`
 
 ---
 
-### Task 6: Global content — typed bodies + service
+### Task 6: Global content — typed bodies + atomic team photo
 
-**Files:**
-- Create: `lib/viewbook/global-content.ts`
-- Test: `lib/viewbook/global-content.test.ts`
+**Files:** Create `lib/viewbook/global-content.ts`; Test `lib/viewbook/global-content.test.ts`
 
-**Interfaces:**
-- Produces: `GLOBAL_CONTENT_KEYS` (frozen 6); `type TeamMember = { name: string; role: string; photo: string | null; blurb: string }`; `type ContentBlocks = { blocks: { heading: string; body: string }[] }`; `validateGlobalContent(key, raw: unknown)` — `team` → `TeamMember[]` (photo null or `ASSET_FILENAME_RE`, caps: 20 members, 2 KB blurb), others → `ContentBlocks` (≤ 20 blocks, ≤ 4 KB body each); strict whole-doc reject → null; `putGlobalContent(key, raw, updatedBy)` (upsert; invalid → `HttpError(400,'invalid_content')`); `getAllGlobalContent()` → `Record<key, parsed | null>` (corrupt row reads null, never throws); `getGlobalContent(key)`.
+**Interfaces:** as rev 1 (`GLOBAL_CONTENT_KEYS`, `TeamMember`, `ContentBlocks`, `validateGlobalContent`, `putGlobalContent`, `getGlobalContent`, `getAllGlobalContent` — corrupt row reads null) PLUS **`attachTeamPhoto(memberName: string, buf: Buffer, updatedBy: string)`** — one atomic multipart flow (Kevin decision): save to scope `'global'` → load+validate roster → member by exact name (miss → delete new file, `HttpError(404,'member_not_found')`) → stamp `photo` → delete old photo file. PLUS **`validateContentOverride(body: string)`** (≤ 4 KB) + `putContentOverride(viewbookId, contentKey, body, updatedBy)` / `deleteContentOverride` (fix 13 — per-client overrides are PR1 admin scope).
 
-- [ ] **Step 1: Failing test** — valid team roster roundtrips; unknown key 400; corrupt stored JSON reads null; block caps enforced.
-- [ ] **Step 2: Run to fail.** **Step 3: Implement.** **Step 4: Run to pass.**
-- [ ] **Step 5: Commit** — `git commit -m "feat(viewbook): typed global content store"`
+- [ ] Test-first (roster roundtrip; unknown key 400; corrupt null; caps; photo-attach miss deletes orphan; override cap) → fail → implement → pass → commit `git commit -m "feat(viewbook): global content store + atomic team photo + per-client overrides"`
 
 ---
 
-### Task 7: Admin API routes
+### Task 7: Public-token validator + admin API routes (test-first)
 
 **Files:**
-- Create: `app/api/viewbooks/route.ts` (GET list, POST `{clientId, kind}`), `app/api/viewbooks/[id]/route.ts` (GET, PATCH `{theme?|welcomeNote?|notifyEmail?|kind?}`, DELETE), `app/api/viewbooks/[id]/token/route.ts` (POST rotate / DELETE revoke), `app/api/viewbooks/[id]/sections/[sectionKey]/route.ts` (PATCH `{state?|introNote?|narrative?}`), `app/api/viewbooks/[id]/milestones/route.ts` (POST) + `app/api/viewbooks/[id]/milestones/[milestoneId]/route.ts` (PATCH/DELETE), `app/api/viewbooks/[id]/assets/route.ts` (POST multipart upload → `saveViewbookAsset(String(id), buf)`), `app/api/viewbook-content/[key]/route.ts` (GET/PUT).
+- Create: `lib/viewbook/route-auth.ts` + `lib/viewbook/route-auth.test.ts` (moved into PR1 — program fix 1)
+- Create: `lib/viewbook/operator.ts` (`requireOperatorEmail(): Promise<string>` — `getAuthSession()` email or `HttpError(401,'auth_required')`; **no sentinel fallback** — Kevin decision) + test (mock `@/lib/auth` via `vi.mock`)
+- Create: `app/api/viewbooks/route.ts`, `app/api/viewbooks/[id]/route.ts`, `…/[id]/token/route.ts`, `…/[id]/sections/[sectionKey]/route.ts`, `…/[id]/milestones/route.ts` + `…/[milestoneId]/route.ts`, `…/[id]/assets/route.ts` (POST multipart `{kind:'logo'|'hero', sectionKey?}` → attachment ops — never save-only), `…/[id]/sync-questions/route.ts`, `…/[id]/overrides/[contentKey]/route.ts`, `app/api/viewbook-content/[key]/route.ts`, `app/api/viewbook-content/team-photo/route.ts`
+- Create: `app/api/viewbooks/routes.test.ts` (route-level tests)
+- Modify: `app/api/clients/[id]/route.ts` — DELETE: `collectClientViewbookAssetSnapshot(clientId)` BEFORE the delete, best-effort file cleanup after (fix 11)
 
 **Interfaces:**
-- Consumes: everything from Tasks 3–6; `withRoute`, `parseJsonBody`, `HttpError`, `getAuthSession`.
-- Produces: JSON envelopes `{ viewbook }` / `{ viewbooks }` / `{ theme }` / `{ error }` consumed by Task 8's UI and later lanes' admin tabs. All handlers: strict `^[1-9][0-9]*$` id parse → 404; operator email = `(await getAuthSession())?.email ?? 'operator'`; every route `withRoute`-wrapped; **no middleware.ts changes** (cookie-gated by default).
+- `route-auth.ts` produces `requireViewbookToken(token: string): Promise<Viewbook>` — resolves by token, rejects revoked / archived-client / not-found with ONE indistinguishable `HttpError(404, 'not_found')`. PR2/PR4/PR3 import it unchanged.
+- Routes are thin service calls; ids parsed `^[1-9][0-9]*$` → 404; every handler `withRoute`-wrapped; attribution via `requireOperatorEmail()`.
 
-- [ ] **Step 1:** Implement routes as thin service calls (no business logic in handlers). Upload route: `const form = await req.formData()`, single `file` entry, `Buffer.from(await file.arrayBuffer())`.
-- [ ] **Step 2:** Gate — `npx tsc --noEmit` clean; `npm test` still green (service tests cover the logic; routes stay logic-free).
-- [ ] **Step 3: Commit** — `git commit -m "feat(viewbook): admin API routes (viewbooks CRUD, token, sections, milestones, assets, global content)"`
+- [ ] **Step 1: Failing route tests** (call the exported handlers directly with `new Request(...)`, `vi.mock('@/lib/auth')`): malformed JSON → 400 `invalid_json`; id `'abc'` → 404; no session email → 401 `auth_required`; invalid theme PATCH → 400 `invalid_theme`; multipart logo attach happy-path stamps theme + serves back; `requireViewbookToken` fail-closed trio (bad token / revoked / archived client) → identical 404 bodies.
+- [ ] **Steps 2–4:** fail → implement → pass. **Step 5:** Commit `git commit -m "feat(viewbook): route-auth + operator guard + admin API routes (test-first)"`
 
 ---
 
-### Task 8: Admin UI shell + clients-page card
+### Task 8: Admin UI shell + clients card + nav registry (test-first where logic lives)
 
 **Files:**
-- Create: `app/(app)/viewbooks/page.tsx` (index), `app/(app)/viewbooks/[id]/page.tsx` (editor), `app/(app)/viewbooks/settings/page.tsx` (global content), `components/viewbook/admin/ViewbookIndex.tsx`, `components/viewbook/admin/ViewbookEditor.tsx` (tabs: Theme · Content · Milestones · Settings — Data Source/Feedback/Activity tabs are later lanes), `components/viewbook/admin/ThemeEditor.tsx` (color pickers via `<input type="color">` + font selects + logo/hero upload + inline swatch/typography preview — the SHARED public preview renderer arrives in PR2), `components/viewbook/admin/GlobalContentEditor.tsx`, `components/viewbook/admin/MilestonesEditor.tsx`
-- Modify: `app/(app)/clients/[id]/page.tsx` — add a `ViewbookCard` (create / open editor / copy `${NEXT_PUBLIC_APP_URL}/viewbook/${token}` link)
-- Modify: the Nav registry the app uses for tool tiles (follow `/sales` precedent) to add `/viewbooks` ("Client Viewbooks")
+- Create: `app/(app)/viewbooks/page.tsx`, `app/(app)/viewbooks/[id]/page.tsx`, `app/(app)/viewbooks/settings/page.tsx`, `components/viewbook/admin/{ViewbookIndex,ViewbookEditor,ThemeEditor,ContentTab,MilestonesEditor,GlobalContentEditor,ViewbookCard}.tsx`, `components/viewbook/admin/ViewbookCard.test.tsx` + `ViewbookIndex.test.tsx` (render + copy-link + create-flow behavior, `@vitejs/plugin-react` is already wired)
+- Modify: `app/(app)/clients/[id]/page.tsx` (mount `ViewbookCard`), `lib/tools-registry.ts` + its existing test (add `/viewbooks` entry — follow the `/sales` row shape), `ecosystem.config.js` (add `VIEWBOOK_ASSETS_DIR: '${DATA_HOME}/viewbook-assets'`-style env following `HERO_SCREENSHOTS_DIR`'s row)
 
-**Interfaces:**
-- Consumes: Task 7 routes only (fetch from client components; follow `ProspectDashboard.tsx` idioms — controlled forms, error banners, no polling needed here).
+Editor tabs in PR1: **Theme · Content (incl. per-client overrides) · Milestones · Settings** (+ "Sync questions" button in Settings). Data Source / Feedback / Activity tabs arrive in PR3/PR4. ThemeEditor preview = inline swatches + typography specimen (the shared public renderer arrives in PR2).
 
-- [ ] **Step 1:** Build index (table: client, kind, created, link-copy button) + editor tabs + settings editor + card. Dark-mode variants per repo convention (`dark:bg-navy-card` etc.).
-- [ ] **Step 2:** Gate — `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean.
-- [ ] **Step 3: Commit** — `git commit -m "feat(viewbook): admin UI shell — index, editor tabs, global content, clients card"`
+- [ ] **Step 1:** Failing component tests (index renders rows from fetched JSON; card copy-link writes `${NEXT_PUBLIC_APP_URL}/viewbook/<token>`; create posts `{clientId, kind}`) → fail.
+- [ ] **Step 2:** Build UI (repo dark-mode variants; `ProspectDashboard.tsx` idioms) → tests pass.
+- [ ] **Step 3:** Gates: `npx tsc --noEmit && npm run lint && npm run build` clean. Commit `git commit -m "feat(viewbook): admin UI shell, clients card, nav registry, assets env"`
 
 ---
 
 ### Task 9: PR gates + PR + handoff
 
-- [ ] **Step 1:** Full gate run in the worktree: `npx tsc --noEmit && npm run lint && DATABASE_URL="file:./local-dev.db" npm test && npm run build` — all green.
-- [ ] **Step 2:** Push `feat/client-viewbook`, open PR titled `feat(viewbook): PR1 — schema, seeds, theme/assets, admin shell`, body links spec + program plan.
-- [ ] **Step 3:** Request `/codex-review` on the branch diff (P1); apply verified findings.
-- [ ] **Step 4:** Write `docs/superpowers/todos/HANDOFF-client-viewbook.md` (current state, PR2 next + PR4 Codex brief-cut next, gotchas) and commit.
+- [ ] **Step 1:** Full gates in the worktree: `npx tsc --noEmit && npm run lint && DATABASE_URL="file:./local-dev.db" npm test && npm run build && npm run audit:ci` — all green.
+- [ ] **Step 2:** Push `feat/client-viewbook`; open PR `feat(viewbook): PR1 — schema, seeds, theme/assets, route-auth, admin shell`; body links spec + program plan.
+- [ ] **Step 3:** `/codex-review` the branch diff (P1); apply verified findings; merge on gate-green.
+- [ ] **Step 4:** Write `docs/superpowers/todos/HANDOFF-client-viewbook.md` (state, next = PR2 open + PR4 Codex core-phase brief cut, gotchas) and commit. Cut the PR4 brief.
 
-## Self-review notes
+## Self-review notes (rev 2)
 
-- Spec coverage: PR1 slice of §4–§6, §10 (admin), §12 (seed/theme/asset/service tests) — public/§7–§9 items are explicitly later lanes per the program plan.
-- No placeholders: every module's contract is stated with exact signatures; test code included where a task is test-first (Tasks 5–6 include representative complete tests plus named required cases — the implementer writes them in the same file/shape shown).
-- Type consistency: `SectionKey`/`SECTION_KEYS`, `ASSET_FILENAME_RE`, `CatalogEntry`, `ViewbookTheme` names match across Tasks 3–8.
+- All 15 Codex plan fixes addressed: 1 (route-auth → Task 7), 8 (11 models, no reset, create-only flow), 9 (compound-where rollback + cross-viewbook tests), 10 (TextEncoder/plain-object/hasOwnProperty/0.179 + tests), 11 (atomic attachments, scope validation, path containment, ENOENT-only, client-DELETE snapshot, ecosystem env, team-photo route), 12 (service P2002 catch, rotate clears revokedAt, per-row sync, cleanup hooks, exact test commands), 13 (sync-questions, overrides, team photo, client-delete cleanup, tools-registry owned here), 14 (Tasks 7–8 test-first, audit:ci in gates), 15 (401 reject — Kevin decision).
+- Fixes 2–7 live in the program plan rev 2 (lane/ownership changes).
+- Test-DB correction: per-worker template copies ARE the mechanism (verified `test/global-setup.ts` + `test/setup-worker.ts`); cleanup hooks kept as hygiene, reset ban kept as correctness.
