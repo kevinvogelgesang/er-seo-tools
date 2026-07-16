@@ -550,15 +550,31 @@ export async function runBrokenLinkVerify(
   // internal-link edges — identical to the old all-rows input because
   // computeLinkGraph already skips non-'internal-link' edges and dedupes into
   // sets, so occurrence counts and dropped image rows never affected the result.
+  // Task 10 (memory fix stage B3-4): the RSS ceiling isn't only a link-stream
+  // concern (Task 7) — every optional POST-verification analytics pass (link
+  // graph, content signals, topic-overlap, similarity) reads a fresh RSS
+  // sample at its own gate and bails fail-to-null rather than growing memory
+  // further; the three content-text passes persist a capped stub instead of a
+  // bare null (see each block below). Optional on VerifyDeps (see rssBytes
+  // doc above) -> absent means never over.
+  const rssOverGuard = (): boolean => deps.rssBytes != null && deps.rssBytes() > VERIFIER_RSS_GUARD_MB() * 1048576
+
   // On an RSS trip the pairs were abandoned, so the graph degrades to null (its
   // existing fail-path) rather than being computed over an empty/partial set.
+  // graphRssOver is independent of linkStreamRssTripped (a separate live read,
+  // not a reuse of the link-stream's earlier sample) but only warns when IT is
+  // the reason for the skip -- linkStreamRssTripped already logged its own
+  // warning upstream.
   let graph: ReturnType<typeof computeLinkGraph> | null = null
-  if (!linkStreamRssTripped) {
+  const graphRssOver = rssOverGuard()
+  if (!linkStreamRssTripped && !graphRssOver) {
     try {
       graph = computeLinkGraph(internalPairs, graphNodes, homepageUrl, indexableUrls)
     } catch (e) {
       console.error('[live-seo] graph compute failed', e)
     }
+  } else if (!linkStreamRssTripped && graphRssOver) {
+    console.warn('[live-seo] rss guard: skipping link graph')
   }
 
   // Builder owns the single runId + the shared normalized-URL -> CrawlPage map.
@@ -689,7 +705,8 @@ export async function runBrokenLinkVerify(
   // its reserve accounts for both). Never fails the live-scan write (fail-to-null).
   let contentSignalsJson: string | null = null
   const sigRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
-  if (sigRemaining >= CONTENT_SIGNALS_RESERVE_MS + TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
+  const sigRssOver = rssOverGuard()
+  if (sigRemaining >= CONTENT_SIGNALS_RESERVE_MS + TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS && !sigRssOver) {
     try {
       const sigInputs = seoRows
         .filter((r) => indexableOf(r) && !r.loginLike)
@@ -707,6 +724,12 @@ export async function runBrokenLinkVerify(
     } catch (e) {
       console.error('[live-seo] content signals failed', e)
     }
+  } else if (sigRssOver) {
+    // Task 10: RSS-skipped passes persist the SAME capped stub as a
+    // budget-skipped one (budgetSkippedPages > 0 || rssSkippedThisPass) —
+    // "unavailable", never a bare null that would read as "clean".
+    console.warn('[live-seo] rss guard: skipping content signals')
+    contentSignalsJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
   }
 
   // C12 Tier-1: semantic topic-overlap networks over MiniLM embeddings, over the
@@ -716,22 +739,33 @@ export async function runBrokenLinkVerify(
   // model failure, or deadline-abandon must NEVER fail the live-scan write.
   let topicOverlapJson: string | null = null
   const topicRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
-  if (topicRemaining >= TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS) {
+  const topicRssOver = rssOverGuard()
+  if (topicRemaining >= TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS && !topicRssOver) {
     try {
       const eligible = seoRows.filter((r) => indexableOf(r) && !r.loginLike)
-      const withText = eligible.map((r) => ({
-        url: r.url,
-        sigText: [r.title, r.h1, r.metaDescription].map((s) => (s ?? '').trim()).filter(Boolean).join('\n'),
-        bodyFull: (textByUrl.get(r.url) ?? '').trim(),
-      }))
-      const candidates = withText.filter((c) => c.sigText.length > 0 && c.bodyFull.length > 0)
+      // Task 10 slice-before-retain: the retained object holds only the
+      // TOPIC_OVERLAP_BODY_CHARS slice + a precomputed truncation flag — the
+      // full .trim()ed string is transient inside this map callback and is
+      // never held on the array (the old `bodyFull` field kept the WHOLE
+      // contentText resident for every eligible page for the rest of this
+      // block, on top of the copy already held in textByUrl).
+      const withText = eligible.map((r) => {
+        const full = (textByUrl.get(r.url) ?? '').trim()
+        return {
+          url: r.url,
+          sigText: [r.title, r.h1, r.metaDescription].map((s) => (s ?? '').trim()).filter(Boolean).join('\n'),
+          body: full.slice(0, TOPIC_OVERLAP_BODY_CHARS),
+          bodyPrefixTruncated: full.length > TOPIC_OVERLAP_BODY_CHARS,
+        }
+      })
+      const candidates = withText.filter((c) => c.sigText.length > 0 && c.body.length > 0)
       const inputCapped = candidates.length > TOPIC_OVERLAP_MAX_PAGES
       const kept = inputCapped
         ? [...candidates].sort((a, b) => (a.url < b.url ? -1 : a.url > b.url ? 1 : 0)).slice(0, TOPIC_OVERLAP_MAX_PAGES)
         : candidates
       if (kept.length >= 2) {
         const sigTexts = kept.map((c) => c.sigText)
-        const bodyTexts = kept.map((c) => c.bodyFull.slice(0, TOPIC_OVERLAP_BODY_CHARS))
+        const bodyTexts = kept.map((c) => c.body)
         const vecs = await embedChunked([...sigTexts, ...bodyTexts], {
           embed: embedTexts,
           chunkSize: TOPIC_OVERLAP_EMBED_CHUNK,
@@ -740,16 +774,19 @@ export async function runBrokenLinkVerify(
           // CONTENT_SIM_RESERVE_MS remaining, but no further. A single final chunk
           // that overruns is backstopped by the similarity block's own entry guard
           // (`simRemaining >= CONTENT_SIM_RESERVE_MS`), which simply skips similarity
-          // to null rather than corrupting anything.
+          // to null rather than corrupting anything. Task 10: ALSO abort on a live
+          // RSS-over reading mid-embed (not just the frozen topicRssOver sampled
+          // at the gate above) — the embed pass runs across several chunks and
+          // memory can tip over during it.
           shouldAbort: () =>
-            JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS < CONTENT_SIM_RESERVE_MS,
+            JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS < CONTENT_SIM_RESERVE_MS || rssOverGuard(),
         })
         if (vecs) {
           const m = kept.length
           const vecByUrl = new Map(
             kept.map((c, i) => [
               c.url,
-              { sigVec: vecs[i], bodyVec: vecs[m + i], bodyPrefixTruncated: c.bodyFull.length > TOPIC_OVERLAP_BODY_CHARS },
+              { sigVec: vecs[i], bodyVec: vecs[m + i], bodyPrefixTruncated: c.bodyPrefixTruncated },
             ]),
           )
           const pageVecs = eligible.map((r) => {
@@ -776,13 +813,17 @@ export async function runBrokenLinkVerify(
     } catch (e) {
       console.error('[live-seo] topic overlap failed', e)
     }
+  } else if (topicRssOver) {
+    console.warn('[live-seo] rss guard: skipping topic overlap')
+    topicOverlapJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
   }
 
   // C6 Phase 5: content similarity. Best-effort + time-budget-guarded — a similarity
   // failure or overrun must NEVER fail the live-scan write (mirrors the graph fail-to-null).
   let contentSimilarityJson: string | null = null
   const simRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
-  if (simRemaining >= CONTENT_SIM_RESERVE_MS) {
+  const simRssOver = rssOverGuard()
+  if (simRemaining >= CONTENT_SIM_RESERVE_MS && !simRssOver) {
     try {
       const simInputs: SimilarityPageInput[] = seoRows
         .filter((r) => indexableOf(r) && !r.loginLike)
@@ -800,6 +841,9 @@ export async function runBrokenLinkVerify(
     } catch (e) {
       console.error('[live-seo] content similarity failed', e)
     }
+  } else if (simRssOver) {
+    console.warn('[live-seo] rss guard: skipping content similarity')
+    contentSimilarityJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
   }
 
   const bundle: FindingsBundle = {
