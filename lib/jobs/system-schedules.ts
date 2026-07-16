@@ -19,6 +19,7 @@ import { STALE_AUDIT_RESET_JOB_TYPE } from './handlers/stale-audit-reset'
 import { DB_BACKUP_JOB_TYPE } from './handlers/db-backup'
 import { HEALTH_ALERT_JOB_TYPE } from './handlers/health-alert'
 import { ROBOTS_MONITOR_SWEEP_JOB_TYPE } from './handlers/robots-monitor-sweep'
+import { CLIENT_SWEEP_JOB_TYPE } from '@/lib/sweep/types'
 import { nextRun } from './scheduler'
 
 interface SystemScheduleDef {
@@ -45,6 +46,11 @@ export const SYSTEM_SCHEDULES: SystemScheduleDef[] = [
   // D5: weekly robots/sitemap monitoring sweep — Monday 06:30 server-local
   // (prod host runs UTC), clear of db-backup 08:00 and cleanup 09:00.
   { name: 'system-robots-monitor', jobType: ROBOTS_MONITOR_SWEEP_JOB_TYPE, cadence: 'weekly:1@06:30', immediate: false },
+  // D8: weekly client sweep — Monday 01:00 server-local (prod host runs UTC),
+  // ahead of db-backup 08:00 / cleanup 09:00. Not immediate: the fan-out is a
+  // heavy full-audit-per-client burst that must land on its intended slot, not
+  // at deploy time.
+  { name: 'system-client-sweep', jobType: CLIENT_SWEEP_JOB_TYPE, cadence: 'weekly:1@01:00', immediate: false },
 ]
 
 export async function seedSystemSchedules(now: Date = new Date()): Promise<void> {
