@@ -86,3 +86,129 @@ npm run audit:ci
 
 Commit message style: `feat(viewbook): PR4 <what> ` + `Co-Authored-By: Codex`.
 When gate-green: push and STOP. Claude cross-reviews before any merge.
+
+---
+
+# ADDENDUM — Viewbook PR4, INTEGRATION PHASE (post-PR2-merge)
+
+> Cut 2026-07-16 from MERGED main @ a8ff04e (PR1 #185 + PR2 #187 both in).
+> Your worktree `feat/viewbook-pr4` is ALREADY REBASED on that main by Claude
+> (single clean commit b1603df, `npx tsc --noEmit` green at the base). You are
+> now the ONLY live editor of the shared files below — PR2's lane is closed,
+> PR3/PR5 are not open.
+
+## Sandbox rules (lesson from the core phase)
+
+- Do NOT commit — `git` metadata for this worktree lives in the main repo's
+  `.git/worktrees/…`, outside your sandbox. Leave ALL work uncommitted;
+  Claude reviews, runs full gates, and commits.
+- Do NOT run `npm run build` or `npm run audit:ci` (network). You MAY run:
+  `npx tsc --noEmit`, `npm run lint`, and
+  `DATABASE_URL="file:./local-dev.db" npx vitest run <paths>` (the worktree
+  has no `.env` — always prefix `DATABASE_URL`).
+
+## Task 1 — MANDATORY CSS-var rename (your own leaf files)
+
+PR2 shipped the canonical `--vb-*` namespace (`ThemeStyle.tsx` sets:
+`--vb-primary`, `--vb-secondary`, `--vb-tertiary`, `--vb-on-primary`,
+`--vb-on-secondary`, `--vb-on-tertiary`, `--vb-heading-font`,
+`--vb-body-font`). `--viewbook-primary` does not exist anywhere.
+
+- `components/viewbook/public/FeedbackThread.tsx:75` and
+  `components/viewbook/public/MaterialLinkForm.tsx:59`: change
+  `bg-[var(--viewbook-primary)] … text-white` →
+  `bg-[var(--vb-primary)]` with `text-[var(--vb-on-primary)]` (the theme
+  guarantees contrast via `onThemeColorText`; hardcoded white breaks on light
+  primaries).
+
+## Task 2 — middleware matchers (shared file, yours now)
+
+`middleware.ts` `isPublicPath` already has the PR2 block (lines ~71-76) with
+this comment contract: "NEVER a '/viewbook/' or '/api/viewbook/' PREFIX".
+Add EXACTLY two anchored single-segment matchers alongside PR2's:
+
+```ts
+if (/^\/api\/viewbook\/[^/]+\/feedback$/.test(pathname)) return true
+if (/^\/api\/viewbook\/[^/]+\/materials$/.test(pathname)) return true
+```
+
+`middleware.test.ts` (describe block at ~line 135): main CURRENTLY asserts
+`/api/viewbook/tok/feedback` and `/api/viewbook/tok/materials` are NOT public
+(lines ~148-149) — MOVE those two into the public expectations, and add
+negatives: `/api/viewbook/tok/feedback/extra`, `/api/viewbook/tok/materials/x`,
+`/api/viewbook/tok/answers` STAYS non-public (PR3's matcher, not yours).
+
+## Task 3 — mount FeedbackThread (PR2 file, yours now)
+
+`components/viewbook/public/MilestonesSection.tsx` — a SERVER component (no
+'use client'); it may render your client leaf but can NOT pass function props.
+At the marker comment (line ~134, inside each review-link card `<div>`):
+
+```tsx
+{/* replace the marker comment with: */}
+<div className="mt-3">
+  <FeedbackThread token={token} reviewLinkId={l.id} initialFeedback={l.feedback} />
+</div>
+```
+
+`l.feedback` is `PublicFeedback[]` from `lib/viewbook/public-types.ts`
+(`{id,body,authorName,authorKind,resolvedAt,createdAt}` — string dates) —
+structurally assignable to your `PublicFeedbackItem[]`. Import
+`{ FeedbackThread }` from './FeedbackThread'. Update the section header
+comment (line 2-3) to say PR4 mounted it.
+
+## Task 4 — mount MaterialLinkForm (PR2 file, yours now)
+
+`components/viewbook/public/MaterialsSection.tsx` — same server-component
+rule: mount WITHOUT `onCreated` (a function prop cannot cross the boundary).
+At the marker comment (line ~77, before `</SectionShell>`):
+
+```tsx
+<div className="mt-4">
+  <MaterialLinkForm token={token} />
+</div>
+```
+
+So the new link appears without a manual reload, add
+`useRouter().refresh()` (from 'next/navigation') on successful submit INSIDE
+`MaterialLinkForm.tsx` (your own file — allowed).
+
+## Task 5 — Feedback/Activity tabs (PR1 file, yours now)
+
+`components/viewbook/admin/ViewbookEditor.tsx`:
+
+- `const TABS = ['Theme', 'Content', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const`
+- `GET /api/viewbooks/:id` ALREADY returns the full subtree — `getViewbookAdmin`
+  includes `milestones: { include: { reviewLinks: { include: { feedback: true } } } }`.
+  Extend the local `ViewbookDetail` interface's `milestones` entries with:
+  `reviewLinks: { id: number; label: string; url: string; kind: string; feedback: { id: number; body: string; authorName: string | null; authorKind: string; createdAt: string; resolvedAt: string | null; resolvedBy: string | null }[] }[]`
+- Derive threads for the tab:
+  `const threads = vb.milestones.flatMap(m => m.reviewLinks.map(l => ({ reviewLinkId: l.id, label: `${m.title} — ${l.label}`, feedback: l.feedback })))`
+- Render: `{tab === 'Feedback' && <FeedbackTab key={vb.id} viewbookId={vb.id} threads={threads} />}`
+  and `{tab === 'Activity' && <ActivityFeed viewbookId={vb.id} />}`.
+  NOTE `FeedbackTab` seeds `useState(threads)` — it will not re-seed on prop
+  change; the `key` + tab remount is the accepted refresh path.
+- Do NOT touch the other tabs or `SettingsTab`.
+
+## Tests to add/extend
+
+- `middleware.test.ts` — per Task 2.
+- Section-mount tests following PR2's `sections-read.test.tsx` pattern
+  (server components render via `renderToStaticMarkup` there): assert
+  MilestonesSection markup now contains the feedback form per review link and
+  MaterialsSection contains the add-a-link form.
+- Your existing `FeedbackThread.test.tsx` / `MaterialLinkForm.test.tsx`:
+  update for the var rename + router.refresh (mock `next/navigation`).
+
+## FORBIDDEN
+
+`prisma/schema.prisma`, `next.config.ts`, `app/(public)/viewbook/[token]/page.tsx`,
+every other `components/viewbook/public/*` file (SectionShell/DataSourceSection
+etc. are PR5/PR3 territory), all `lib/` outside files you created in the core
+phase. No new routes.
+
+## Done means
+
+`npx tsc --noEmit` green + `npm run lint` green + targeted vitest green in
+your worktree, all changes uncommitted, then STOP and report. Claude runs the
+full suite + build, commits, cross-reviews, opens the PR.
