@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import type { SectionKey } from '@/lib/viewbook/theme'
+import type { PublicSection } from '@/lib/viewbook/public-types'
 import { loadViewbookPublicData } from '@/lib/viewbook/public-data'
 import { ViewbookShell } from '@/components/viewbook/public/ViewbookShell'
 import { WelcomeSection } from '@/components/viewbook/public/WelcomeSection'
@@ -26,11 +27,9 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
   const data = await loadViewbookPublicData(token)
   if (!data) notFound()
 
-  const bySection = (sectionKey: SectionKey) => {
-    const section = data.sections.find((s) => s.sectionKey === sectionKey)
-    if (!section) return null
+  const renderSection = (section: PublicSection): ReactNode => {
     const props = { section, data, token }
-    switch (sectionKey) {
+    switch (section.sectionKey) {
       case 'welcome':
         return <WelcomeSection {...props} />
       case 'milestones':
@@ -48,5 +47,13 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
     }
   }
 
-  return <ViewbookShell token={token} data={data} sectionContent={bySection} />
+  return (
+    <ViewbookShell
+      token={token}
+      data={data}
+      primarySections={data.primarySections}
+      carriedSections={data.carriedSections}
+      renderSection={renderSection}
+    />
+  )
 }

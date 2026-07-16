@@ -29,8 +29,45 @@ describe('loadViewbookPublicData', () => {
     const data = await loadViewbookPublicData(token)
     expect(data).not.toBeNull()
     expect(data!.clientName).toMatch(/^vb-pub-/)
-    const keys = data!.sections.map((s) => s.sectionKey)
+    // Creation stage is 'building' in PR1 — the building lineup's primary
+    // list mirrors the old fixed SECTION_KEYS order, minus hidden 'assessment'.
+    const keys = data!.primarySections.map((s) => s.sectionKey)
     expect(keys).toEqual(['welcome', 'milestones', 'data-source', 'brand', 'strategy', 'materials'])
+    expect(data!.carriedSections).toEqual([])
+  })
+
+  it('resolves the building lineup: v1 sections primary, nothing carried', async () => {
+    const { token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    const data = await loadViewbookPublicData(token) // creation stage is 'building' in PR1
+    expect(data?.stage).toBe('building')
+    expect(data?.stageLabel).toBe('Now Building')
+    expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(
+      ['welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials'],
+    )
+    expect(data?.carriedSections).toEqual([])
+  })
+
+  it('kickoff stage: primary trio + data-source carried; hidden still suppresses', async () => {
+    const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
+    await prisma.viewbookSection.update({
+      where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: 'strategy' } },
+      data: { state: 'hidden' },
+    })
+    const data = await loadViewbookPublicData(token)
+    expect(data?.stage).toBe('kickoff')
+    expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(['welcome', 'milestones'])
+    expect(data?.carriedSections.map((s) => s.sectionKey)).toEqual(['data-source'])
+  })
+
+  it('unknown stored stage degrades to building lineup (never blanks)', async () => {
+    const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'bogus' } })
+    const data = await loadViewbookPublicData(token)
+    expect(data?.stage).toBe('building')
+    expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(
+      ['welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials'],
+    )
   })
 
   it('groups fields by category in catalog order, excludes archived, parses stamps + amendments', async () => {

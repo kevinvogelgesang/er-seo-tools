@@ -873,6 +873,11 @@ model Viewbook {
   dataLockedBy    String? // operator email
   digestCursorId  Int       @default(0) // last client-actor ViewbookActivity.id included in a digest
   digestSentAt    DateTime?
+  stage            String    @default("post-contract")
+  syncVersion      Int       @default(0)
+  csmName          String?
+  clientNotifyJson String    @default("[]")
+  pcCompletedAt    DateTime?
   createdBy       String? // operator email
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -882,6 +887,10 @@ model Viewbook {
   contentOverrides ViewbookContentOverride[]
   materialLinks    ViewbookMaterialLink[]
   activities       ViewbookActivity[]
+  teamMembers     ViewbookTeamMember[]
+  stageLogs       ViewbookStageLog[]
+  emailDeliveries ViewbookEmailDelivery[]
+  docs            ViewbookDoc[]
 }
 
 model ViewbookSection {
@@ -893,6 +902,7 @@ model ViewbookSection {
   doneAt     DateTime?
   introNote  String? // operator-written per-client intro (plain text)
   narrative  String? // assessment narrative / brand philosophy prose (plain text)
+  acknowledgedAt DateTime?
   updatedAt  DateTime  @updatedAt
 
   @@unique([viewbookId, sectionKey])
@@ -1017,4 +1027,59 @@ model ViewbookActivity {
   createdAt  DateTime @default(now())
 
   @@index([viewbookId, id]) // digest range scan (oldCursor, highWater]
+}
+
+model ViewbookTeamMember {
+  id               Int      @id @default(autoincrement())
+  viewbookId       Int
+  viewbook         Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  memberKey        String   @unique
+  name             String
+  email            String
+  addedBy          String
+  clientMutationId String?  @unique
+  createdAt        DateTime @default(now())
+  @@unique([viewbookId, email])
+  @@index([viewbookId, id])
+}
+
+model ViewbookStageLog {
+  id         Int      @id @default(autoincrement())
+  viewbookId Int
+  viewbook   Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  eventKey   String   @unique
+  stage      String
+  direction  String
+  actor      String
+  createdAt  DateTime @default(now())
+  @@index([viewbookId, id])
+}
+
+model ViewbookEmailDelivery {
+  id           Int       @id @default(autoincrement())
+  viewbookId   Int
+  viewbook     Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  kind         String
+  recipient    String
+  dedupKey     String    @unique
+  memberId     Int?
+  stageLogId   Int?
+  sentAt       DateTime?
+  suppressedAt DateTime?
+  createdAt    DateTime  @default(now())
+  @@index([viewbookId, id])
+  @@index([memberId])
+}
+
+model ViewbookDoc {
+  id         Int       @id @default(autoincrement())
+  viewbookId Int?
+  viewbook   Viewbook? @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  title      String
+  blurb      String?
+  filename   String
+  sortOrder  Int
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  @@index([viewbookId, sortOrder])
 }

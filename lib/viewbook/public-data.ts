@@ -9,8 +9,9 @@ import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
 import { logError } from '@/lib/log'
 import { requireViewbookToken } from './route-auth'
-import { parseStoredTheme, SECTION_KEYS } from './theme'
+import { parseStoredTheme } from './theme'
 import { CATALOG_CATEGORIES } from './catalog'
+import { isViewbookStage, STAGE_LABELS, STAGE_LINEUPS, type ViewbookStage } from './stages'
 import { getGlobalContent } from './global-content'
 import {
   GLOBAL_CONTENT_KEYS,
@@ -56,17 +57,25 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
   ])
   if (!client) return null
 
-  const order: readonly string[] = SECTION_KEYS
-  const sections: PublicSection[] = sectionRows
-    .filter((s) => s.state !== 'hidden')
-    .sort((a, b) => order.indexOf(a.sectionKey) - order.indexOf(b.sectionKey))
-    .map((s) => ({
-      sectionKey: s.sectionKey as PublicSection['sectionKey'],
-      state: s.state === 'done' ? 'done' : 'active',
-      doneAt: iso(s.doneAt),
-      introNote: s.introNote,
-      narrative: s.narrative,
-    }))
+  // Unknown stored stage degrades to 'building' (never blanks) — a corrupt
+  // or pre-migration stage value must still render the fullest lineup.
+  const stage: ViewbookStage = isViewbookStage(vb.stage) ? vb.stage : 'building'
+  const lineup = STAGE_LINEUPS[stage]
+  const visible = new Map(
+    sectionRows.filter((s) => s.state !== 'hidden').map((s) => [s.sectionKey, s]),
+  )
+  const toPublic = (s: (typeof sectionRows)[number]): PublicSection => ({
+    sectionKey: s.sectionKey as PublicSection['sectionKey'],
+    state: s.state === 'done' ? 'done' : 'active',
+    doneAt: iso(s.doneAt),
+    acknowledgedAt: iso(s.acknowledgedAt),
+    introNote: s.introNote,
+    narrative: s.narrative,
+  })
+  const pick = (keys: readonly string[]) =>
+    keys.flatMap((k) => (visible.has(k) ? [toPublic(visible.get(k)!)] : []))
+  const primarySections = pick(lineup.primary)
+  const carriedSections = pick(lineup.carried)
 
   const [fieldCategories, milestones, materials, global, overrides] = await Promise.all([
     guarded('fields', () => loadFieldCategories(vb.id), [] as PublicFieldCategory[]),
@@ -82,7 +91,10 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     welcomeNote: vb.welcomeNote,
     dataLockedAt: iso(vb.dataLockedAt),
     theme: parseStoredTheme(vb.themeJson),
-    sections,
+    stage,
+    stageLabel: STAGE_LABELS[stage],
+    primarySections,
+    carriedSections,
     fieldCategories,
     milestones,
     materials,

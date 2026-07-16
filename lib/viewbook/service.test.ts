@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import {
   createViewbook,
+  listViewbooks,
   rotateViewbookToken,
   revokeViewbook,
   setSectionState,
@@ -16,6 +17,7 @@ import {
   attachViewbookLogo,
   updateViewbookTheme,
   collectClientViewbookAssetSnapshot,
+  moveViewbookStage,
 } from './service'
 import { readViewbookAsset } from './assets'
 import { DEFAULT_THEME } from './theme'
@@ -54,7 +56,7 @@ describe('createViewbook', () => {
     })
     expect(vb.fields).toHaveLength(CATALOG.length)
     expect(vb.fields.every((f) => f.createdBy === 'seed')).toBe(true)
-    expect(vb.sections).toHaveLength(7)
+    expect(vb.sections).toHaveLength(13)
     expect(vb.sections.find((s) => s.sectionKey === 'assessment')?.state).toBe('hidden')
     expect(vb.milestones).toHaveLength(7)
     expect(vb.milestones.filter((m) => m.status === 'current')).toHaveLength(1)
@@ -78,6 +80,22 @@ describe('createViewbook', () => {
       status: 409,
       code: 'client_archived',
     })
+  })
+
+  it('seeds all 13 section rows and creation stage building (PR1)', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id }, include: { sections: true } })
+    expect(vb.stage).toBe('building')
+    expect(vb.sections).toHaveLength(13)
+    expect(vb.sections.map((s) => s.sectionKey)).toContain('pc-thanks')
+  })
+
+  it('listViewbooks exposes stage', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    const rows = await listViewbooks()
+    expect(rows.find((r) => r.id === id)?.stage).toBe('building')
   })
 })
 
@@ -213,5 +231,53 @@ describe('assets + delete lifecycle', () => {
     const saved = await updateViewbookTheme(id, { ...DEFAULT_THEME, secondary: '#123456' })
     expect(saved.secondary).toBe('#123456')
     expect(saved.logo).toBe(attached.logo) // asset reference preserved from storage
+  })
+})
+
+describe('moveViewbookStage', () => {
+  it('moves forward and logs (with eventKey)', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract' } })
+    const res = await moveViewbookStage(id, 'forward', 'post-contract', 'op@er.com')
+    expect(res.stage).toBe('kickoff')
+    const log = await prisma.viewbookStageLog.findFirstOrThrow({ where: { viewbookId: id } })
+    expect(log).toMatchObject({ stage: 'kickoff', direction: 'forward', actor: 'op@er.com' })
+    expect(log.eventKey).toMatch(/[0-9a-f-]{36}/)
+    const act = await prisma.viewbookActivity.findFirstOrThrow({ where: { viewbookId: id, kind: 'stage-change' } })
+    expect(act.actor).toBe('op@er.com')
+  })
+  it('409s at the boundary (building has no next)', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await expect(moveViewbookStage(id, 'forward', 'building', 'op@er.com')).rejects.toMatchObject({ status: 409 })
+  })
+  it('409s on stale expectedStage without touching the row', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com') // stage: building
+    await expect(moveViewbookStage(id, 'back', 'kickoff', 'op@er.com')).rejects.toMatchObject({ status: 409 })
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.stage).toBe('building')
+  })
+  it('moves back', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    const res = await moveViewbookStage(id, 'back', 'building', 'op@er.com')
+    expect(res.stage).toBe('website-specifics')
+  })
+  it('same-expectedStage double-fire: exactly one wins, one step, one log', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
+    const results = await Promise.allSettled([
+      moveViewbookStage(id, 'forward', 'kickoff', 'a@er.com'),
+      moveViewbookStage(id, 'forward', 'kickoff', 'b@er.com'),
+    ])
+    const wins = results.filter((r) => r.status === 'fulfilled')
+    expect(wins).toHaveLength(1) // the loser 409s on the expectedStage fence
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.stage).toBe('website-specifics') // exactly ONE step
+    const logs = await prisma.viewbookStageLog.count({ where: { viewbookId: id } })
+    expect(logs).toBe(1) // the losing move writes NO log
   })
 })

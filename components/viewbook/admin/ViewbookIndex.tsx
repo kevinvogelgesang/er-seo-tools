@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { jsonFetch, publicViewbookUrl, type ViewbookListRow } from './viewbook-admin-shared'
+import { isViewbookStage, STAGE_LABELS } from '@/lib/viewbook/stages'
 
 interface ClientRow {
   id: number
@@ -110,7 +111,8 @@ export function ViewbookIndex() {
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-navy-border dark:text-white/50">
               <th className="px-4 py-2">Client</th>
               <th className="px-4 py-2">Kind</th>
-              <th className="px-4 py-2">Current stage</th>
+              <th className="px-4 py-2">Project stage</th>
+              <th className="px-4 py-2">Current milestone</th>
               <th className="px-4 py-2">Data lock</th>
               <th className="px-4 py-2">Link</th>
               <th className="px-4 py-2" />
@@ -119,11 +121,11 @@ export function ViewbookIndex() {
           <tbody>
             {rows === null ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-gray-400">Loading…</td>
+                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">Loading…</td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-gray-400">No viewbooks yet.</td>
+                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">No viewbooks yet.</td>
               </tr>
             ) : (
               rows.map((r) => (
@@ -133,6 +135,11 @@ export function ViewbookIndex() {
                     {r.clientArchived && <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">archived</span>}
                   </td>
                   <td className="px-4 py-2 text-gray-600 dark:text-white/70">{r.kind}</td>
+                  <td className="px-4 py-2">
+                    <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800 dark:bg-teal-500/10 dark:text-teal-400">
+                      {isViewbookStage(r.stage) ? STAGE_LABELS[r.stage] : r.stage}
+                    </span>
+                  </td>
                   <td className="px-4 py-2 text-gray-600 dark:text-white/70">{r.currentMilestone ?? '—'}</td>
                   <td className="px-4 py-2 text-gray-600 dark:text-white/70">{r.dataLockedAt ? 'Locked' : 'Open'}</td>
                   <td className="px-4 py-2">

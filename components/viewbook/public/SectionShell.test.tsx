@@ -10,6 +10,7 @@ const section = (over: Partial<PublicSection> = {}): PublicSection => ({
   sectionKey: 'brand',
   state: 'active',
   doneAt: null,
+  acknowledgedAt: null,
   introNote: null,
   narrative: null,
   ...over,

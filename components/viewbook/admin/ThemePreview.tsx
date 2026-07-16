@@ -15,6 +15,7 @@ const SAMPLE_SECTION: PublicSection = {
   sectionKey: 'brand',
   state: 'active',
   doneAt: null,
+  acknowledgedAt: null,
   introNote: 'A short operator intro note looks like this.',
   narrative: null,
 }

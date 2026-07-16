@@ -9,12 +9,13 @@ import { DataSourceSection } from './DataSourceSection'
 afterEach(cleanup)
 
 const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
-  sectionKey, state: 'active', doneAt: null, introNote: null, narrative: null,
+  sectionKey, state: 'active', doneAt: null, acknowledgedAt: null, introNote: null, narrative: null,
 })
 
 const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   clientName: 'Acme', kind: 'upgrade', welcomeNote: null, dataLockedAt: null,
-  theme: DEFAULT_THEME, sections: [], fieldCategories: [], milestones: [],
+  theme: DEFAULT_THEME, stage: 'building', stageLabel: 'Now Building',
+  primarySections: [], carriedSections: [], fieldCategories: [], milestones: [],
   materials: [], global: { team: null, blocks: {} }, overrides: {}, ...over,
 })
 
