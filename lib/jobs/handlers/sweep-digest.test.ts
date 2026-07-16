@@ -104,24 +104,27 @@ afterAll(async () => {
 })
 
 describe('runSweepDigest', () => {
-  it('selects the sweep by the EXACT derived 01:00 slot — never a neighbour', async () => {
+  it('a re-fired OLDER digest job still targets its own exact slot — never the newest sweep', async () => {
+    // Two sweeps in the table; the digest fires for slot A (the OLDER row). A
+    // buggy "pick newest sweep" implementation would email B's payload and
+    // stamp B — the exact-slot findUnique must email A's and stamp ONLY A.
     const slotA = nextSweepSlot()
     const slotB = nextSweepSlot()
     await seedSweep(slotA, { snapshot: mkSnapshot(7) })
     await seedSweep(slotB, { snapshot: mkSnapshot(3) })
 
     const send = makeSend()
-    await runSweepDigest(digestSlotFor(slotB), { send: send.fn, now })
+    await runSweepDigest(digestSlotFor(slotA), { send: send.fn, now })
 
     expect(send.calls).toHaveLength(1)
     expect(send.calls[0].to).toBe('support@example.com')
-    expect(send.calls[0].content.subject).toContain('3 actionable')
-    expect(send.calls[0].content.subject).not.toContain('7 actionable')
+    expect(send.calls[0].content.subject).toContain('7 actionable')
+    expect(send.calls[0].content.subject).not.toContain('3 actionable')
 
     const rowA = await prisma.weeklySweep.findUniqueOrThrow({ where: { scheduledFor: slotA } })
     const rowB = await prisma.weeklySweep.findUniqueOrThrow({ where: { scheduledFor: slotB } })
-    expect(rowA.digestSentAt).toBeNull()
-    expect(rowB.digestSentAt).not.toBeNull()
+    expect(rowA.digestSentAt).not.toBeNull()
+    expect(rowB.digestSentAt).toBeNull()
   })
 
   it('missing sweep row → no send, no throw (ops signal, not retryable)', async () => {
