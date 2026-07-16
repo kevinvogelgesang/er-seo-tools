@@ -2,11 +2,17 @@
 import type { SectionKey } from '@/lib/viewbook/theme'
 
 export const SECTION_TITLES: Record<SectionKey, string> = {
-  welcome: 'Welcome & Team',
-  milestones: 'Process & Milestones',
-  'data-source': 'Data Source',
-  brand: 'Brand Guidelines',
   assessment: 'Current-Site Assessment',
-  strategy: 'SEO, GEO & E-E-A-T Strategy',
+  brand: 'Brand Guidelines',
+  'data-source': 'Data Source',
+  'kickoff-next': 'Next Steps',
   materials: 'Materials & Links',
+  milestones: 'Process & Milestones',
+  'pc-intro': 'Welcome',
+  'pc-invite': 'Invite Your Team',
+  'pc-setup': 'Set Up Your Viewbook',
+  'pc-thanks': 'Thank You',
+  strategy: 'SEO, GEO & E-E-A-T Strategy',
+  welcome: 'Welcome & Team',
+  'ws-intro': 'Website Specifics',
 }
