@@ -164,7 +164,7 @@ describe('buildIssueGroups', () => {
   })
 
   describe('severity transitions (comparable)', () => {
-    it('escalation same count -> worsened + escalated, streak resets to 1', () => {
+    it('escalation same count -> worsened + escalated, streak 1, delta NULL (no fabricated +n)', () => {
       const out = buildIssueGroups({
         raw: [raw({ severity: 'critical', affectedCount: 5 })],
         previous: {
@@ -178,7 +178,40 @@ describe('buildIssueGroups', () => {
       expect(g.changeState).toBe('worsened')
       expect(g.severityChanged).toBe('escalated')
       expect(g.streak).toBe(1)
-      expect(g.delta).toBe(0)
+      // count did NOT rise (equal), so escalation must not invent a +n delta.
+      expect(g.delta).toBeNull()
+    })
+
+    it('escalation WITH a real count rise keeps its +n delta', () => {
+      const out = buildIssueGroups({
+        raw: [raw({ severity: 'critical', affectedCount: 8 })],
+        previous: {
+          keys: [key({ severity: 'warning', affectedCount: 5, streak: 2 })],
+          groups: [group({ severity: 'warning', affectedCount: 5 })],
+        },
+        coverage: [cov()],
+        snapshotAt: AT,
+      })
+      const g = out.groups[0]
+      expect(g.changeState).toBe('worsened')
+      expect(g.severityChanged).toBe('escalated')
+      expect(g.delta).toBe(3)
+    })
+
+    it('escalation with count DOWN -> forced worsened, escalated, delta NULL', () => {
+      const out = buildIssueGroups({
+        raw: [raw({ severity: 'critical', affectedCount: 2 })],
+        previous: {
+          keys: [key({ severity: 'notice', affectedCount: 5, streak: 2 })],
+          groups: [group({ severity: 'notice', affectedCount: 5 })],
+        },
+        coverage: [cov()],
+        snapshotAt: AT,
+      })
+      const g = out.groups[0]
+      expect(g.changeState).toBe('worsened')
+      expect(g.severityChanged).toBe('escalated')
+      expect(g.delta).toBeNull()
     })
 
     it('escalation with count down -> forced worsened, escalated', () => {
@@ -318,6 +351,39 @@ describe('buildIssueGroups', () => {
       expect(s.streak).toBe(5)
       expect(s.lastObservedAt).toBe(PRIOR_AT)
       expect(out.semanticKeys).toHaveLength(0)
+    })
+  })
+
+  describe('stale rows persist across consecutive failed weeks', () => {
+    it('two failed weeks in a row -> stale row still present with the week N-1 lastObservedAt', () => {
+      // Week N-1: the pair failed, carrying its prior live group as a stale row.
+      const w1 = buildIssueGroups({
+        raw: [],
+        previous: {
+          keys: [key({ affectedCount: 7, streak: 5 })],
+          groups: [group({ affectedCount: 7, title: 'Kept', severity: 'warning', lastObservedAt: PRIOR_AT })],
+        },
+        coverage: [cov({ state: 'failed', reason: 'scan-failed', baselineAvailable: true })],
+        snapshotAt: '2026-07-15T00:00:00.000Z',
+      })
+      expect(w1.staleGroups).toHaveLength(1)
+      expect(w1.groups).toHaveLength(0)
+      expect(w1.staleGroups[0].lastObservedAt).toBe(PRIOR_AT)
+
+      // Week N: the pair fails AGAIN. previous.groups is now empty (the row was
+      // stale, not live), so ONLY the staleGroups carry-forward keeps it alive.
+      const w2 = buildIssueGroups({
+        raw: [],
+        previous: { keys: w1.semanticKeys, groups: w1.groups, staleGroups: w1.staleGroups },
+        coverage: [cov({ state: 'failed', reason: 'scan-failed', baselineAvailable: true })],
+        snapshotAt: '2026-07-22T00:00:00.000Z',
+      })
+      expect(w2.staleGroups).toHaveLength(1)
+      const s = w2.staleGroups[0]
+      expect(s.changeState).toBe('stale')
+      expect(s.title).toBe('Kept')
+      // ORIGINAL lastObservedAt preserved (never refreshed to a later week).
+      expect(s.lastObservedAt).toBe(PRIOR_AT)
     })
   })
 

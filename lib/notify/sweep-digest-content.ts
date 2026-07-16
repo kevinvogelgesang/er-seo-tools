@@ -61,8 +61,16 @@ export function buildSweepDigestEmail(snapshot: SweepSnapshot, appUrl: string | 
 
   const subject = `Weekly scan digest — ${totals.actionable} actionable issues (${fmtDeltaGlyph(totals.delta)})`
 
-  const totalsLine = `${totals.actionable} actionable issue${totals.actionable === 1 ? '' : 's'} across ${totals.comparablePairs} comparable domain/tool observation${totals.comparablePairs === 1 ? '' : 's'}.`
-  const changeLine = `Change since last week: ${fmtDeltaSentence(totals.delta)}`
+  // The actionable total spans ALL observations (comparable + partial +
+  // first-baseline), so it must NOT carry the "comparable" qualifier — that
+  // qualifier belongs ONLY on the delta line, which is the value actually
+  // computed over comparable pairs (delta null ⇒ no comparable pairs ⇒ omit it).
+  const totalsLine = `${totals.actionable} actionable issue${totals.actionable === 1 ? '' : 's'} observed this week.`
+  const comparableQualifier = `across ${totals.comparablePairs} comparable domain/tool observation${totals.comparablePairs === 1 ? '' : 's'}`
+  const changeLine =
+    totals.delta === null
+      ? `Change since last week: ${fmtDeltaSentence(totals.delta)}`
+      : `Change since last week: ${fmtDeltaSentence(totals.delta)} ${comparableQualifier}.`
   // New/worsened/resolved breakout — the net delta can mask churn (3 new + 3
   // resolved nets to 0). Always uses the precomputed, notice-filtered totals
   // (lib/sweep/snapshot.ts computeTotals), NEVER raw group array lengths.

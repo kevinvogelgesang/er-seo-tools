@@ -41,6 +41,7 @@ import {
   type CoverageState,
   type IssueGroup,
   type IssueUnit,
+  type MemberOutcome,
   type PairCoverage,
   type ResolvedIssueGroup,
   type SweepSnapshot,
@@ -216,6 +217,23 @@ function pairKey(clientId: number, domain: string, tool: SweepTool): string {
   return `${clientId}\x00${domain}\x00${tool}`
 }
 
+// A cohort member that never produced an audit (pending/error/skipped-conflict/
+// invalid-domain) → failed coverage with an outcome-derived reason.
+function reasonForNoAudit(outcome: MemberOutcome): string {
+  switch (outcome) {
+    case 'pending':
+      return 'not-scanned'
+    case 'error':
+      return 'scan-error'
+    case 'skipped-conflict':
+      return 'scan-conflict'
+    case 'invalid-domain':
+      return 'invalid-domain'
+    default:
+      return 'run-missing'
+  }
+}
+
 function reasonFor(state: CoverageState, obs: PairObservation): string | null {
   if (state === 'failed') return 'run-missing'
   if (state === 'partial') {
@@ -261,7 +279,29 @@ export async function computeSweepSnapshot(
   const raw: RawGroup[] = []
 
   for (const m of members) {
-    if (!m.siteAuditId) continue // no audit → not scanned; counts toward `expected` only
+    if (!m.siteAuditId) {
+      // Only archived/delisted members are OUT of cohort — the client left scope
+      // before the scan, so they emit no coverage rows (they still count toward
+      // `expected`). Every OTHER audit-less member (pending/error/skipped-conflict/
+      // invalid-domain) IS in cohort but produced no scan: both tools classify
+      // `failed` so prior issues go stale and failedDomains counts the pair.
+      if (m.outcome === 'skipped-archived' || m.outcome === 'skipped-delisted') continue
+      for (const tool of TOOLS) {
+        const baselineAvailable = baselinePairs.has(pairKey(m.clientId, m.domain, tool))
+        const { state } = classifyCoverage(null, baselineAvailable)
+        coverage.push({
+          clientId: m.clientId,
+          domain: m.domain,
+          tool,
+          state,
+          reason: reasonForNoAudit(m.outcome),
+          baselineAvailable,
+          siteAuditId: null,
+          runId: null,
+        })
+      }
+      continue
+    }
     const load = await loadAudit(m.siteAuditId)
     for (const tool of TOOLS) {
       const tl = tool === 'ada-audit' ? load.ada : load.seo
@@ -305,12 +345,14 @@ export async function computeSweepSnapshot(
 
   const { groups, staleGroups, resolvedGroups, semanticKeys } = buildIssueGroups({
     raw,
-    previous: previous ? { keys: previous.semanticKeys, groups: previous.groups } : null,
+    previous: previous
+      ? { keys: previous.semanticKeys, groups: previous.groups, staleGroups: previous.staleGroups }
+      : null,
     coverage,
     snapshotAt,
   })
 
-  const totals = computeTotals({ groups, resolvedGroups, coverage, expected, hasPrevious: previous !== null })
+  const totals = computeTotals({ groups, resolvedGroups, coverage, expected, previous })
   const shortlist = buildShortlist(groups)
 
   return { v: 1, snapshotAt, totals, coverage, groups, staleGroups, resolvedGroups, shortlist, semanticKeys }
@@ -335,9 +377,9 @@ function computeTotals(input: {
   resolvedGroups: ResolvedIssueGroup[]
   coverage: PairCoverage[]
   expected: number
-  hasPrevious: boolean
+  previous: SweepSnapshot | null
 }): SweepSnapshot['totals'] {
-  const { groups, resolvedGroups, coverage, expected, hasPrevious } = input
+  const { groups, resolvedGroups, coverage, expected, previous } = input
   const nonNotice = (s: { severity: Severity }) => s.severity !== 'notice'
 
   const actionable = groups.filter(nonNotice).length
@@ -362,15 +404,28 @@ function computeTotals(input: {
   }
   const scanned = domainWorst.size
 
-  // Delta: net actionable change over COMPARABLE pairs only (new − resolved).
-  // Resolved groups only ever arise from comparable pairs (Task 7), so restricting
-  // new to comparable pairs keeps the delta symmetric and evidence-honest.
+  // Delta: net change in actionable-severity issue identities over the pairs
+  // that are comparable THIS week. Counting identities on both sides (current
+  // vs prior over the SAME pairs) — rather than new − resolved — also captures
+  // notice↔actionable severity transitions, which new/resolved alone miss.
+  // `null` when there are no comparable pairs (nothing to compare against;
+  // comparable requires a baseline, so this also covers the first-sweep case).
   let delta: number | null = null
-  if (hasPrevious) {
-    const newInComparable = groups.filter(
-      (g) => nonNotice(g) && g.changeState === 'new' && g.coverageState === 'comparable',
+  if (comparablePairs > 0) {
+    const comparablePairKeys = new Set<string>()
+    for (const c of coverage) {
+      if (c.state === 'comparable') comparablePairKeys.add(pairKey(c.clientId, c.domain, c.tool))
+    }
+    const currentActionable = groups.filter(
+      (g) => nonNotice(g) && g.coverageState === 'comparable',
     ).length
-    delta = newInComparable - resolvedCount
+    let priorActionable = 0
+    for (const k of previous?.semanticKeys ?? []) {
+      if (k.severity !== 'notice' && comparablePairKeys.has(pairKey(k.clientId, k.domain, k.tool))) {
+        priorActionable++
+      }
+    }
+    delta = currentActionable - priorActionable
   }
 
   return {

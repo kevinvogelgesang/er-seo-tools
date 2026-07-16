@@ -80,7 +80,7 @@ function sortRows<T extends { clientId: number; domain: string; tool: SweepTool;
 
 export function buildIssueGroups(input: {
   raw: RawGroup[]
-  previous: { keys: SemanticKey[]; groups: IssueGroup[] } | null
+  previous: { keys: SemanticKey[]; groups: IssueGroup[]; staleGroups?: IssueGroup[] } | null
   coverage: PairCoverage[]
   snapshotAt: string
 }): {
@@ -102,6 +102,10 @@ export function buildIssueGroups(input: {
   // --- previous, filtered out-of-cohort FIRST ------------------------------
   const prevKeys = (previous?.keys ?? []).filter((k) => inCohort(k.clientId, k.domain, k.tool))
   const prevGroups = (previous?.groups ?? []).filter((g) => inCohort(g.clientId, g.domain, g.tool))
+  // A pair that was failed LAST week carried its issues as staleGroups (not live
+  // groups / not semanticKeys). If it fails AGAIN this week those rows must
+  // persist — otherwise a second consecutive failed week silently drops them.
+  const prevStaleGroups = (previous?.staleGroups ?? []).filter((g) => inCohort(g.clientId, g.domain, g.tool))
 
   const prevKeyByIdentity = new Map<string, SemanticKey>()
   for (const k of prevKeys) {
@@ -177,8 +181,11 @@ export function buildIssueGroups(input: {
           if (SEVERITY_RANK[r.severity] > SEVERITY_RANK[priorKey.severity]) {
             severityChanged = 'escalated'
             if (changeState !== 'worsened') {
-              // at-least-worsened, even on equal/down count
+              // at-least-worsened, even on equal/down count — but the count did
+              // NOT rise, so we must NOT fabricate a +n delta. WORSENED renders
+              // without a number when delta is null (see components/issues/chips).
               changeState = 'worsened'
+              delta = null
               streak = 1
             }
           } else {
@@ -213,6 +220,14 @@ export function buildIssueGroups(input: {
 
   // --- stale groups from failed pairs' prior GROUPS ------------------------
   const staleGroups: IssueGroup[] = []
+  const staleEmitted = new Set<string>()
+  const pushStale = (g: IssueGroup): void => {
+    const identity = identityKey(g.clientId, g.domain, g.tool, g.type)
+    if (staleEmitted.has(identity)) return
+    staleEmitted.add(identity)
+    // full render data + lastObservedAt carried verbatim; only changeState flips
+    staleGroups.push({ ...g, changeState: 'stale' })
+  }
   // --- resolved groups from comparable pairs' prior GROUPS -----------------
   const resolvedGroups: ResolvedIssueGroup[] = []
 
@@ -221,8 +236,7 @@ export function buildIssueGroups(input: {
     if (!covEntry) continue // out-of-cohort (already filtered, defensive)
 
     if (covEntry.state === 'failed') {
-      // full render data + lastObservedAt carried verbatim; only changeState flips
-      staleGroups.push({ ...g, changeState: 'stale' })
+      pushStale(g)
       continue
     }
 
@@ -244,6 +258,16 @@ export function buildIssueGroups(input: {
       })
     }
     // partial / first-baseline: neither stale nor resolved (no absence claims)
+  }
+
+  // Carry prior STALE rows forward for pairs that failed AGAIN this week, so a
+  // run of consecutive failed weeks preserves the last-observed evidence (with
+  // its ORIGINAL lastObservedAt — never refreshed). A recovered pair reads
+  // first-baseline (a failed predecessor grants no baseline), so these never
+  // feed the resolved path and cannot fabricate a false "resolved" claim.
+  for (const g of prevStaleGroups) {
+    const covEntry = coverageByPair.get(pairKey(g.clientId, g.domain, g.tool))
+    if (covEntry?.state === 'failed') pushStale(g)
   }
 
   // --- semantic keys: live groups ONLY (stale carry-forward breaks streaks) -
