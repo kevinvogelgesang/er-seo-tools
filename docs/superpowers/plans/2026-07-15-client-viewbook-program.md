@@ -143,7 +143,10 @@ component at its mount point), `components/viewbook/public/Tooltip.tsx`.
 M: `components/viewbook/public/SectionShell.tsx` (done-state animation +
 section hero rendering — the ONE shared polish surface, fix 4),
 `app/(public)/viewbook/[token]/page.tsx` (swap AssessmentPlaceholder →
-AssessmentSection). Explicitly NOT touched: `DataSourceSection.tsx`,
+AssessmentSection).
+D: `components/viewbook/public/AssessmentPlaceholder.tsx` (PR5 Codex review
+fix 8 — its only consumer is the page mount being swapped; recorded here
+because this map is exact). Explicitly NOT touched: `DataSourceSection.tsx`,
 `MilestonesSection.tsx`, `MaterialsSection.tsx` (PR3/PR4 territory).
 
 ## Codex brief template (per Codex PR)

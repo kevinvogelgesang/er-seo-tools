@@ -7,7 +7,7 @@ import { WelcomeSection } from '@/components/viewbook/public/WelcomeSection'
 import { MilestonesSection } from '@/components/viewbook/public/MilestonesSection'
 import { DataSourceSection } from '@/components/viewbook/public/DataSourceSection'
 import { BrandSection } from '@/components/viewbook/public/BrandSection'
-import { AssessmentPlaceholder } from '@/components/viewbook/public/AssessmentPlaceholder'
+import { AssessmentSection } from '@/components/viewbook/public/AssessmentSection'
 import { StrategySection } from '@/components/viewbook/public/StrategySection'
 import { MaterialsSection } from '@/components/viewbook/public/MaterialsSection'
 
@@ -40,8 +40,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
       case 'brand':
         return <BrandSection {...props} />
       case 'assessment':
-        // PR5 swaps this placeholder for the real AssessmentSection.
-        return <AssessmentPlaceholder {...props} />
+        return <AssessmentSection {...props} />
       case 'strategy':
         return <StrategySection {...props} />
       case 'materials':
