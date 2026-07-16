@@ -96,10 +96,28 @@ model WeeklySweep {
 }
 ```
 
-- [ ] **Step 2: Generate the migration**
+- [ ] **Step 2: Hand-author the migration (Codex plan-fix #1 — house convention, no interactive generation)**
 
-Run: `DATABASE_URL="file:./local-dev.db" npx prisma migrate dev --name weekly_sweep`
-Expected: new `prisma/migrations/*_weekly_sweep/migration.sql` creating the table; client regenerated.
+Create `prisma/migrations/20260716000000_weekly_sweep/migration.sql`:
+
+```sql
+CREATE TABLE "WeeklySweep" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "scheduledFor" DATETIME NOT NULL,
+    "startedAt" DATETIME,
+    "membershipJson" TEXT,
+    "fanoutCompletedAt" DATETIME,
+    "snapshotJson" TEXT,
+    "snapshotAt" DATETIME,
+    "digestSentAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "WeeklySweep_scheduledFor_key" ON "WeeklySweep"("scheduledFor");
+```
+
+Run: `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && npx prisma generate`
+Expected: migration applied, client regenerated.
 
 - [ ] **Step 3: Gate + commit**
 
@@ -145,9 +163,21 @@ export interface IssueGroup extends Omit<SemanticKey, 'streak'> {
   changeState: ChangeState; delta: number | null; streak: number
   severityChanged: 'escalated' | 'downgraded' | null
   coverageState: CoverageState
+  lastObservedAt: string        // ISO; current sweep's snapshotAt for live rows, the PRIOR sweep's for stale rows (Codex plan-fix #2)
   siteAuditId: string | null; liveScanRunId: string | null
 }
-export interface PairCoverage { clientId: number; domain: string; tool: SweepTool; state: CoverageState }
+export interface ResolvedIssueGroup {   // full render payload for "no longer detected" (Codex plan-fix #2)
+  clientId: number; clientName: string; domain: string; tool: SweepTool
+  type: string; title: string; severity: 'critical' | 'warning' | 'notice'
+  priorCount: number; unit: IssueUnit
+  siteAuditId: string | null; liveScanRunId: string | null
+}
+export interface PairCoverage {
+  clientId: number; domain: string; tool: SweepTool; state: CoverageState
+  reason: string | null            // e.g. 'scan-failed' | 'timed-out' | 'crawl-capped' | 'run-missing' | 'attribution-incomplete'
+  baselineAvailable: boolean       // pair observed in the immediate predecessor snapshot (Codex plan-fix #9)
+  siteAuditId: string | null; runId: string | null   // selected run ids frozen per member/tool (spec Codex #4)
+}
 export interface SweepSnapshot {
   v: 1; snapshotAt: string
   totals: {
@@ -158,9 +188,9 @@ export interface SweepSnapshot {
   }
   coverage: PairCoverage[]
   groups: IssueGroup[]           // actionable + notices, changeState != 'stale'
-  staleGroups: IssueGroup[]      // from failed pairs' previous keys
-  resolvedGroups: Array<Pick<IssueGroup, 'clientId' | 'clientName' | 'domain' | 'tool' | 'type' | 'title' | 'affectedCount' | 'unit'>>
-  shortlist: IssueGroup[]        // top 3, new/worsened actionable, severity×reach
+  staleGroups: IssueGroup[]      // from failed pairs' previous GROUPS (full render data, Codex plan-fix #10)
+  resolvedGroups: ResolvedIssueGroup[]
+  shortlist: IssueGroup[]        // top 3, deterministic tuple rank (Task 8, Codex plan-fix #16)
   semanticKeys: SemanticKey[]    // next week's baseline + streak store
 }
 export function parseSnapshot(raw: string | null): SweepSnapshot | null
@@ -229,7 +259,17 @@ it('C2 single-domain schedules keep exactly the previous behavior', async () => 
 Handler flow (spec §4.2, verbatim contract):
 
 ```ts
-export async function runClientSweep(slot: Date): Promise<void> {
+export interface ClientSweepDeps {   // injectable seams (Codex plan-fix #6)
+  queue: typeof queueSiteAuditRequest
+  now: () => Date
+}
+const realDeps: ClientSweepDeps = { queue: queueSiteAuditRequest, now: () => new Date() }
+
+export async function runClientSweep(slot: Date, deps: ClientSweepDeps = realDeps): Promise<void> {
+  // 0. resolve the sweep Schedule row once; missing = misconfigured boot → throw (Codex plan-fix #3)
+  const sweepSchedule = await prisma.schedule.findUnique({ where: { name: 'system-client-sweep' }, select: { id: true } })
+  if (!sweepSchedule) throw new Error('[sweep] system-client-sweep schedule row missing')
+  const sweepScheduleId = sweepSchedule.id
   // 1. upsert the slot row
   const sweep = await prisma.weeklySweep.upsert({
     where: { scheduledFor: slot },
@@ -263,9 +303,9 @@ export async function runClientSweep(slot: Date): Promise<void> {
     else if (byDomainAudit.has(m.domain)) { m.outcome = 'shared-domain'; m.siteAuditId = byDomainAudit.get(m.domain)! }
     else {
       try {
-        const res = await queueSiteAuditRequest({
+        const res = await deps.queue({
           domain: m.domain, clientId: m.clientId, ...SWEEP_SCAN_PROFILE,
-          requestedBy: 'sweep', scheduleId: sweepScheduleId, // resolved once: Schedule name 'system-client-sweep'
+          requestedBy: 'sweep', scheduleId: sweepScheduleId,
         })
         if (res.kind === 'queued') { m.outcome = 'enqueued'; m.siteAuditId = res.id; byDomainAudit.set(m.domain, res.id) }
         else if (res.kind === 'duplicate') {
@@ -288,9 +328,9 @@ export async function runClientSweep(slot: Date): Promise<void> {
 }
 ```
 
-Registration: `concurrency: 1, maxAttempts: 3, timeoutMs: 120_000`; handler resolves `slot` from its own job row's `scheduledFor` (`prisma.job.findUnique({ where: { id: ctx.jobId } })`), falling back to the current UTC day at 01:00.
+Registration: `concurrency: 1, maxAttempts: 3, timeoutMs: 120_000`; handler resolves `slot` from its own job row's `scheduledFor` (`prisma.job.findUnique({ where: { id: ctx.jobId } })`). **No fallback slot** (Codex plan-fix #4): a null `scheduledFor` throws `'[sweep] client-sweep job has no scheduledFor slot'` — manufacturing "today at 01:00" could attach a manual job to the wrong campaign; a manual re-fire must enqueue with the intended `scheduledFor` explicitly.
 
-- [ ] **Step 1: Failing DB-backed tests:** (a) first run freezes cohort then enqueues (SiteAudit rows exist, membership outcomes `enqueued`, profile fields wcagLevel/seoIntent stamped, fanoutCompletedAt set); (b) client added AFTER freeze not admitted on retry; (c) `error` member reprocessed on second run, `enqueued` member untouched (same audit id); (d) two clients one domain → one SiteAudit, outcomes `enqueued` + `shared-domain`; (e) in-flight seoOnly duplicate → `skipped-conflict`; (f) archived-after-freeze → `skipped-archived`; (g) residual error → handler throws; (h) same slot re-fire upserts, never a second row.
+- [ ] **Step 1: Failing DB-backed tests:** (a) first run freezes cohort then enqueues (SiteAudit rows exist, membership outcomes `enqueued`, profile fields wcagLevel/seoIntent stamped, fanoutCompletedAt set); (b) client added AFTER freeze not admitted on retry; (c) `error` member reprocessed on second run (injected `deps.queue` throws once then succeeds — no module mocking, Codex plan-fix #6), `enqueued` member untouched (same audit id); (d) two clients one domain → one SiteAudit, outcomes `enqueued` + `shared-domain`; (e) in-flight seoOnly duplicate → `skipped-conflict`; (f) archived-after-freeze → `skipped-archived`; (g) residual error → handler throws; (h) same slot re-fire upserts, never a second row; (i) null job `scheduledFor` → throws, no WeeklySweep row. **Also update the central suites (Codex plan-fix #7):** add `client-sweep` to `lib/jobs/handlers/register.test.ts`'s registered-types assertion, and assert `system-client-sweep` name/cadence/`immediate:false` in `lib/jobs/system-schedules.test.ts`.
 - [ ] **Step 2:** Run → FAIL. **Step 3:** Implement per sketch + system-schedule entry + registration. **Step 4:** PASS.
 - [ ] **Step 5: Commit** `git add lib/jobs/handlers/client-sweep.* lib/jobs/system-schedules.ts <registration file> && git commit -m "feat(sweep): client-sweep fan-out job + system-client-sweep schedule"`
 
@@ -306,16 +346,22 @@ export interface PairObservation {
   runPresent: boolean            // required tool run exists for this member's audit
   runStatus: string | null       // CrawlRun.status ('complete' | 'partial' | ...)
   discoveryCapped: boolean       // SiteAudit.discoveryCapped === true
-  attributionComplete: boolean   // every group in this pair has affectedComplete !== false
+  attributionComplete: boolean   // Codex plan-fix #8: SEO run-scope groups need affectedComplete === true
+                                 // (null = legacy/sample = INCOMPLETE); ADA page-scope rows are
+                                 // complete by construction (the loader sets true for ada pairs)
 }
-export function classifyCoverage(current: PairObservation | null, previouslyObserved: boolean): CoverageState
+export function classifyCoverage(current: PairObservation | null, baselineAvailable: boolean): {
+  state: CoverageState; baselineAvailable: boolean   // carried through (Codex plan-fix #9)
+}
 // null current OR !runPresent            -> 'failed'
 // capped / status 'partial' / !attributionComplete -> 'partial'
-// runPresent && !previouslyObserved      -> 'first-baseline'
+// runPresent && !baselineAvailable       -> 'first-baseline'
 // else                                   -> 'comparable'
+// baselineAvailable is INDEPENDENT of state: a 'partial' pair with a baseline
+// may still prove NEW; a 'partial' pair without one cannot (Task 7 consumes it).
 ```
 
-- [ ] **Steps 1–4:** Failing table-driven test over the four states + precedence (failed beats partial beats first-baseline; partial current with prior observation stays `partial`, never `comparable`), implement, PASS.
+- [ ] **Steps 1–4:** Failing table-driven test over the four states + precedence (failed beats partial beats first-baseline; partial current with prior observation stays `partial`, never `comparable`; baselineAvailable passthrough on every state; SEO `affectedComplete: null` classifies `partial`), implement, PASS.
 - [ ] **Step 5: Commit** `git add lib/sweep/classify.* && git commit -m "feat(sweep): per-(domain,tool) coverage classifier"`
 
 ### Task 7: Pure issue-group builder (`lib/sweep/issue-groups.ts`)
@@ -335,17 +381,20 @@ export interface RawGroup {   // one current observation, loader-provided (Task 
 }
 export function buildIssueGroups(input: {
   raw: RawGroup[]
-  previousKeys: SemanticKey[]          // [] when prior sweep absent/corrupt
-  coverage: PairCoverage[]
+  previous: { keys: SemanticKey[]; groups: IssueGroup[] } | null  // FULL prior groups for stale/resolved
+                                   // presentation; keys for identity/streaks (Codex plan-fix #10).
+                                   // null when prior sweep absent/corrupt.
+  coverage: PairCoverage[]         // current frozen cohort — pairs absent here are OUT-OF-COHORT
+  snapshotAt: string               // stamps IssueGroup.lastObservedAt on live rows
 }): {
   groups: IssueGroup[]; staleGroups: IssueGroup[]
-  resolvedGroups: SweepSnapshot['resolvedGroups']; semanticKeys: SemanticKey[]
+  resolvedGroups: ResolvedIssueGroup[]; semanticKeys: SemanticKey[]
 }
 ```
 
-Rules (spec §4.3): key match on (clientId, domain, tool, type) ignoring severity. Pair coverage governs claims: `failed` pair → its previous keys become `staleGroups` (changeState `'stale'`, counts from the OLD key), raw absent claims impossible; `partial` pair → raw groups keep positive states (`new` allowed) but no `fewer`, and missing keys are NOT resolved; `comparable` → full vocabulary: no prior key → `new`; count up → `worsened` (delta +n); count down → `fewer` (delta −n); equal → `detected` with `streak = prev.streak + 1`; prior key with no raw group → `resolvedGroups`. Severity escalation with any count → `severityChanged: 'escalated'` and at-least-`worsened` (Codex #8); downgrade → `'downgraded'`. `first-baseline` pair → groups `new`, streak 1, nothing resolved. `semanticKeys` emitted for every observed group (streaks reset to 1 on non-`detected` states; `stale` keys carry forward unchanged so a one-week outage doesn't wipe streaks).
+Rules (spec §4.3): key match on (clientId, domain, tool, type) ignoring severity. **Out-of-cohort first (Codex plan-fix #11):** previous pairs with no entry in `coverage` (domain removed/renamed, client archived) are dropped before diffing — neither stale nor resolved. Then pair coverage governs claims: `failed` pair → its previous GROUPS become `staleGroups` (changeState `'stale'`, full render data and `lastObservedAt` carried from the prior group), raw absent claims impossible; `partial` pair → raw groups keep positive states (`new` only when `baselineAvailable`, else the group presents as `first-baseline`-style `new` with no claim, Codex plan-fix #9) but no `fewer`, and missing keys are NOT resolved; `comparable` → full vocabulary: no prior key → `new`; count up → `worsened` (delta +n); count down → `fewer` (delta −n); equal → `detected` with `streak = prev.streak + 1`; prior key with no raw group → `resolvedGroups` (full `ResolvedIssueGroup` from the prior group). Severity escalation with any count → `severityChanged: 'escalated'` and at-least-`worsened`; downgrade → `'downgraded'`. `first-baseline` pair → groups `new`, streak 1, nothing resolved. `semanticKeys` emitted ONLY for currently observed groups — **stale keys do NOT carry forward: a failed or missing sweep breaks the consecutive-sweep streak** (spec's `DETECTED n SWEEPS` is consecutive; Codex plan-fix #10 reverses the earlier carry-forward idea).
 
-- [ ] **Step 1: Failing tests** (fixture-pinned): new/worsened/fewer/detected+streak/resolved; severity escalation same count → worsened+escalated; partial pair suppresses resolved + fewer but allows new; failed pair emits stale from old keys and never resolves; first sweep ever (previousKeys []) → all new, no resolved; unit passthrough (`targets` group renders unit intact); approximate carried; stale key carry-forward preserves streak.
+- [ ] **Step 1: Failing tests** (fixture-pinned): new/worsened/fewer/detected+streak/resolved (resolved rows carry title/severity/priorCount from prior groups); severity escalation same count → worsened+escalated; partial+baseline allows `new` but suppresses resolved + fewer; partial WITHOUT baseline never claims `new`-vs-prior; failed pair emits stale groups (full render fields, old lastObservedAt) and never resolves; out-of-cohort prior pair (removed domain) → neither stale nor resolved; first sweep ever (`previous: null`) → all new, no resolved; unit passthrough; approximate carried; streak does NOT survive a failed week (stale then recovered → streak restarts at 1).
 - [ ] **Steps 2–4:** FAIL → implement → PASS.
 - [ ] **Step 5: Commit** `git add lib/sweep/issue-groups.* && git commit -m "feat(sweep): change-state issue group builder with streaks + severity transitions"`
 
@@ -360,10 +409,19 @@ Rules (spec §4.3): key match on (clientId, domain, tool, type) ignoring severit
 ```ts
 export async function computeSweepSnapshot(sweep: WeeklySweep, previous: SweepSnapshot | null, now: Date): Promise<SweepSnapshot>
 export async function publishSweepSnapshot(sweepId: number, snapshot: SweepSnapshot): Promise<SweepSnapshot> // race-safe
-export async function loadPreviousSnapshot(scheduledFor: Date): Promise<SweepSnapshot | null> // newest older sweep w/ valid snapshot
+export async function loadPreviousSnapshot(scheduledFor: Date): Promise<SweepSnapshot | null>
+// EXACT immediate predecessor ONLY: scheduledFor − 7 days (Codex plan-fix #14).
+// A missed or corrupt week returns null → everything first-baseline, streaks
+// reset — never bridge an evidence gap with an older snapshot.
 ```
 
-`computeSweepSnapshot`: for each membership member with `siteAuditId` (dedup shared-domain by audit id but emit per-client groups): load `SiteAudit` (`status`, `discoveryCapped`), both runs via `crawlRun.findFirst({ where: { siteAuditId, tool } })`, run-scope findings + severity + counts; RawGroup unit: `broken_*` types → `targets` (count = run finding count), duplicate types → `groups`, else `pages`; `approximate` from `affectedComplete === false` on the loaded aggregate. Assemble `PairObservation`s → `classifyCoverage` (previouslyObserved = pair present in `previous.semanticKeys` or `previous.coverage`), → `buildIssueGroups` → totals (actionable = non-notice groups excl. stale; delta only over comparable pairs, Codex #7) → shortlist = top 3 actionable `new|worsened` by `(severity === 'critical' ? 2 : 1) * affectedCount`.
+`computeSweepSnapshot`: for each membership member with `siteAuditId` (dedup shared-domain by audit id — load each audit ONCE, then emit per-client groups for every member sharing it): load `SiteAudit` (`status`, `discoveryCapped`), both runs via the canonical C6 compound-unique selector `crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId, tool } } })` (Codex plan-fix #13). **Findings loader (Codex plan-fix #12 — `Finding.message` does not exist):**
+- **ADA pair:** page-scope findings grouped by `type`; `affectedCount` = distinct affected pages; severity = max over the group's rows; `title` from the associated `Violation.help` (fallback: the type id); `attributionComplete: true` by construction.
+- **SEO pair:** run-scope findings are the authoritative aggregates (`count`, `severity`); `title`/description from `Finding.detail` JSON's `description` field (fallback: type id); `attributionComplete` = `affectedComplete === true` ONLY (null = legacy/sample = incomplete, Codex plan-fix #8).
+
+**Unit map (exhaustive, Codex plan-fix #15):** `broken_internal_links` / `broken_images` / `broken_external_links` → `targets`; `duplicate_title` / `duplicate_meta_description` / `duplicate_h1` → `groups`; all ADA rule types and remaining on-page types (`missing_title`, `missing_h1`, `missing_meta_description`, `thin_content`, …) → `pages`. Unknown future type → `groups` + `logError('[sweep] unmapped issue unit', …)` — never a silent guess; re-consult Codex at execution time if an unmapped type appears in production data.
+
+Assemble `PairObservation`s → `classifyCoverage` (baselineAvailable = pair present in the immediate predecessor's `coverage`/`semanticKeys`) → `buildIssueGroups` → totals (actionable = non-notice groups excl. stale; delta only over comparable pairs) → **shortlist rank (Codex plan-fix #16):** deterministic tuple sort — change priority (`new`=0, `worsened`=1) → severity rank (`critical` before `warning`) → affected reach desc → (clientId, domain, tool, type) tie-break; top 3. No multiplicative severity×count scoring (a big warning must not outrank a small critical; units aren't comparable).
 
 `publishSweepSnapshot` (Codex #5):
 
@@ -381,7 +439,7 @@ if (updated === 0) {
 return snapshot
 ```
 
-- [ ] **Step 1: Failing DB-backed tests:** full pipeline fixture (two members, ada+seo runs with findings, prior snapshot) → snapshot totals/groups/shortlist match pinned fixture; late-completing audit (no live-scan run at compute) → SEO pair `failed`, ada still classified; deleted member audit → pair `failed`, no throw; publish twice → second call returns first's payload byte-identical; corrupt prior snapshot → everything `first-baseline`.
+- [ ] **Step 1: Failing DB-backed tests:** full pipeline fixture (two members, ada+seo runs with findings, prior snapshot) → snapshot totals/groups/shortlist match pinned fixture; late-completing audit (no live-scan run at compute) → SEO pair `failed`, ada still classified; deleted member audit → pair `failed`, no throw; publish twice → second call returns first's payload byte-identical; corrupt prior snapshot → everything `first-baseline`. **Plus (Codex plan-fix #17):** same aggregate count with changed page URLs → `detected` (never "unchanged" wording anywhere); missing immediate predecessor (gap week) → baseline reset even though an older snapshot exists; removed/renamed domain → neither stale nor resolved; partial pair with vs without baseline; warning→critical AND critical→warning transitions; shared audit emits both client-attributed groups while loading the audit once (assert via query-count spy or loader call count).
 - [ ] **Steps 2–4:** FAIL → implement → PASS.
 - [ ] **Step 5: Commit** `git add lib/sweep/snapshot.* && git commit -m "feat(sweep): snapshot compute + race-safe publish"`
 
@@ -392,7 +450,7 @@ return snapshot
 - Modify: `lib/notify/config.ts`
 
 **Interfaces:**
-- Produces: `supportNotifyEmail(): string` (config: `process.env.SUPPORT_NOTIFY_EMAIL || 'support@enrollmentresources.com'`); `DIGEST_EFFORT_NUDGE` string const (D6 — the ONLY place the 1-hour framing lives); `buildSweepDigestEmail(snapshot: SweepSnapshot, appUrl: string): { subject: string; text: string; html: string }`.
+- Produces: `supportNotifyEmail(): string` (config: `process.env.SUPPORT_NOTIFY_EMAIL || 'support@enrollmentresources.com'`); `DIGEST_EFFORT_NUDGE` string const (D6 — the ONLY place the 1-hour framing lives); `buildSweepDigestEmail(snapshot: SweepSnapshot, appUrl: string | null): { subject: string; text: string; html: string }` — `appUrl` is trimmed `NEXT_PUBLIC_APP_URL` or null; when null, ALL links are omitted (plain text labels remain) rather than inventing an origin (Codex plan-fix #19).
 
 Content rules (spec §4.4): subject `Weekly scan digest — <N> actionable issues (▼/▲ n)`; body = totals with "across N comparable domain/tool observations", coverage line `27/30 scanned · 24 comparable · 1 partial · 2 failed`, shortlist top-3 with absolute deep links `${appUrl}/issues` + per-item audit links, nudge line, footer honesty note. HTML-escape every dynamic string (reuse `lib/report/escape.ts` helpers); "no longer detected", never "fixed"; no causal copy.
 
@@ -409,7 +467,7 @@ Content rules (spec §4.4): subject `Weekly scan digest — <N> actionable issue
 - Consumes: Tasks 8/9; `sendEmail` from `lib/notify/transport`, `isNotifyEnabled` from `lib/notify/config`.
 - Produces: `runSweepDigest(digestSlot: Date, deps?): Promise<void>`; `registerSweepDigestHandler(): void`.
 
-Flow (spec §4.4): sweep slot = `Date.UTC(y, m, d, 1, 0, 0)` of the digest slot's UTC day (Codex #1) → `weeklySweep.findUnique({ where: { scheduledFor: sweepSlot } })`; missing → `logError` + return (no send). Snapshot: `parseSnapshot` ?? (`computeSweepSnapshot(sweep, await loadPreviousSnapshot(sweepSlot), now)` → `publishSweepSnapshot`). Marker flow: `digestSentAt` set → return; `!isNotifyEnabled()` → return (no stamp — permanent suppression); build → `sendEmail({ to: supportNotifyEmail(), ... })` → `updateMany({ where: { id, digestSentAt: null }, data: { digestSentAt: now } })`. Transport/DB errors throw (worker retries, marker keeps at-least-once). Registration `concurrency: 1, maxAttempts: 3, timeoutMs: 120_000`.
+Flow (spec §4.4): sweep slot derivation is **server-local, matching scheduler semantics** (Codex plan-fix #18): `const sweepSlot = new Date(digestSlot); sweepSlot.setHours(1, 0, 0, 0)` — NOT `Date.UTC(...)`, which only coincidentally works on the UTC prod host and diverges in local dev/tests. Then `weeklySweep.findUnique({ where: { scheduledFor: sweepSlot } })`; missing → `logError` + return (no send). The digest job's own null `scheduledFor` → throw (same no-fallback rule as Task 5). Snapshot: `parseSnapshot` ?? (`computeSweepSnapshot(sweep, await loadPreviousSnapshot(sweepSlot), now)` → `publishSweepSnapshot`). Marker flow: `digestSentAt` set → return; `!isNotifyEnabled()` → return (no stamp — permanent suppression); build with `appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || null` → `sendEmail({ to: supportNotifyEmail(), content })` — the transport takes `{ to, content }`, NOT spread content fields (Codex plan-fix #19) → `updateMany({ where: { id, digestSentAt: null }, data: { digestSentAt: now } })`. Transport/DB errors throw (worker retries, marker keeps at-least-once). Registration `concurrency: 1, maxAttempts: 3, timeoutMs: 120_000`. **Central suites (Codex plan-fix #7):** add `sweep-digest` to `register.test.ts` and `system-sweep-digest` (cadence `weekly:1@14:00`, `immediate: false`) to `system-schedules.test.ts`.
 
 - [ ] **Step 1: Failing tests:** exact-slot selection (two sweeps in table; digest for slot B never reads slot A — a manually re-fired older digest job still targets its own slot); missing sweep row → no send, no throw; computes+publishes when snapshot null; second run after sent → no second send; dark env → no send AND no stamp; send-throw → marker unstamped and error propagates. Inject transport via deps (house `NotifyDeps` pattern).
 - [ ] **Steps 2–4:** FAIL → implement → PASS.
@@ -443,7 +501,7 @@ export interface IssuesPayload {
 
 Rule: newest sweep with a **valid** (`parseSnapshot` non-null) snapshot is served; `inProgress` true when a strictly newer row exists with `snapshotJson: null`; no valid snapshot anywhere → `sweep: null` (page renders an empty state: "first sweep runs Sunday"). Route: `withRoute(async () => Response.json(await loadIssuesPayload()))` — cookie-gated by default middleware (no middleware change).
 
-- [ ] **Steps 1–4:** Failing tests (valid+newer-unsnapshotted → payload + inProgress; corrupt newest snapshot falls back to older valid one; empty table → nulls) → implement → PASS. Route smoke: 401 unauthenticated (middleware default), 200 shape when authed (follow the house route-test convention).
+- [ ] **Steps 1–4:** Failing tests (valid+newer-unsnapshotted → payload + inProgress; corrupt newest snapshot falls back to older valid one; empty table → nulls) → implement → PASS. Route test: 200 response shape by importing the handler directly — **no 401 case** (middleware doesn't run for directly-imported handlers in vitest, Codex plan-fix #20); instead assert `isPublicPath('/api/issues') === false` in the middleware helper's own suite if that helper is exported/testable.
 - [ ] **Step 5: Commit** `git add lib/sweep/read.* app/api/issues && git commit -m "feat(issues): read payload + GET /api/issues"`
 
 ### Task 13: `/issues` page, components, nav
@@ -454,7 +512,7 @@ Rule: newest sweep with a **valid** (`parseSnapshot` non-null) snapshot is serve
 
 **Interfaces:**
 - Consumes: `loadIssuesPayload()` (server component calls it directly — no client fetch; the payload is frozen, no polling).
-- Produces: the approved mockup, in app idiom: server `page.tsx` loads payload → `IssuesView` (client) renders header/tiles/shortlist/filters/table/stale/not-comparable/resolved. Filters are client-state only (severity Actionable|Critical|Warning|Notices · tool · change · client select · search). Chips per mockup: `NEW` / `WORSENED +n <unit>` / `FEWER −n <unit>` / `DETECTED n SWEEPS` / `FIRST BASELINE` / `PARTIAL` / `STALE · LAST OBSERVED <date>`; severity stripes; dark-mode variants (`dark:bg-navy-card` idiom). Row links: ADA → `/ada-audit/site/[siteAuditId]?resultTab=accessibility`, SEO → `/seo-audits/results/run/[liveScanRunId]` (null link → plain text). Shortlist card copy: "Start here — highest-impact candidates" + "keep going as time allows" (D6). In-progress banner + first-run empty state.
+- Produces: the approved mockup, in app idiom: server `page.tsx` loads payload → `IssuesView` (client) renders header/tiles/shortlist/filters/table/stale/not-comparable/resolved. Filters are client-state only (severity Actionable|Critical|Warning|Notices · tool · change · client select · search). Chips per mockup: `NEW` / `WORSENED +n <unit>` / `FEWER −n <unit>` / `DETECTED n SWEEPS` / `FIRST BASELINE` / `PARTIAL` / `STALE · LAST OBSERVED <date>`; **chip precedence (Codex plan-fix #21): coverage badges SUPPLEMENT change badges — a partial pair's `NEW` group renders both `NEW` and `PARTIAL`, never silently hides the change chip**; severity stripes; dark-mode variants (`dark:bg-navy-card` idiom). Row links: ADA → `/ada-audit/site/[siteAuditId]?resultTab=accessibility`, SEO → `/seo-audits/results/run/[liveScanRunId]` (null link → plain text). Shortlist card copy: "Start here — highest-impact candidates" + "keep going as time allows" (D6). In-progress banner + first-run empty state. **Registry entry exact (Codex plan-fix #21):** add `IconIssues` to `components/shell/icons.tsx` (no issues icon exists; `ToolDef.icon` is required), then insert `{ id: 'issues', name: 'Issues', href: '/issues', group: 'overview', icon: IconIssues, description: 'Weekly sweep — current scan issues' }` immediately after the Clients entry in `lib/tools-registry.ts` (match the existing `ToolDef` shape field-for-field; adjust if the real shape differs).
 
 - [ ] **Step 1:** Component test for `IssuesView` (vitest + testing-library, house convention): renders tiles from totals; Actionable default hides notice rows; tool filter narrows; stale row dimmed with chip; empty state on `sweep: null`.
 - [ ] **Steps 2–4:** FAIL → implement page/components/registry entry → PASS.
@@ -467,11 +525,11 @@ Rule: newest sweep with a **valid** (`parseSnapshot` non-null) snapshot is serve
 - Create: `scripts/retire-client-schedules.ts`
 
 **Interfaces:**
-- POST returns `throw new HttpError(410, 'schedule_retired', 'Per-client scan schedules are replaced by the weekly sweep')` (Codex #11). GET/PATCH/DELETE untouched (stragglers manageable).
-- Script (run once at deploy, `npx tsx scripts/retire-client-schedules.ts`): for each `Schedule` where `jobType: 'scheduled-site-audit'` and `clientId != null`: `await pruneScheduledSiteAudits()` once up front (not per schedule), then per schedule `cancelJobsByGroup(\`schedule:${id}\`)` → `prisma.schedule.delete` (existing C2 DELETE semantics SetNull historical audits). Prints a summary line per schedule; idempotent (second run finds nothing).
+- POST returns the 410 **directly** — `HttpError` takes `(status, code)` only, no third message arg (Codex plan-fix #23): `throw new HttpError(410, 'schedule_retired')` (or `NextResponse.json({ error: 'schedule_retired' }, { status: 410 })` if the route needs a body message). GET/PATCH/DELETE untouched (stragglers manageable).
+- Script exports a testable `retireClientSchedules(): Promise<{ retired: number }>` with a thin CLI wrapper calling it then `prisma.$disconnect()` in `finally` (Codex plan-fix #25 — direct DB/service execution, do NOT invoke the HTTP DELETE route): `await pruneScheduledSiteAudits()` once up front, then for each `Schedule` where `jobType: 'scheduled-site-audit'` and `clientId != null`: `cancelJobsByGroup(\`schedule:${id}\`)` → `prisma.schedule.delete` (existing C2 DELETE semantics SetNull historical audits). Prints a summary line per schedule; idempotent (second run finds nothing).
 
-- [ ] **Step 1:** Failing route test: POST → 410 `schedule_retired`; GET still 200. Script test (DB-backed): seeds one client schedule + queued wrapper job + old audits → after run: schedule gone, job cancelled, prune executed, audits SetNull'd.
-- [ ] **Steps 2–4:** FAIL → implement → PASS. Remove the card from the client page (grep for remaining `ScheduledScansCard` references — component file itself stays, out of scope §8).
+- [ ] **Step 1:** Failing route test: POST → 410 `schedule_retired`; GET still 200. **Rewrite the existing POST cases in the schedules route suite** — every current successful-create/validation POST expectation flips to the single 410 contract; GET and straggler PATCH/DELETE cases stay (Codex plan-fix #24). Script test (DB-backed, against exported `retireClientSchedules`): seeds one client schedule + queued wrapper job + old audits → after run: schedule gone, job cancelled, prune executed, audits SetNull'd.
+- [ ] **Steps 2–4:** FAIL → implement → PASS. **Client-page removal is complete (Codex plan-fix #22):** remove the `ScheduledScansCard` render, the `getClientSchedules` import, its `Promise.all` entry and tuple variable from `app/(app)/clients/[id]/page.tsx`; update any "No scheduled scans" wording in `ClientHeader`/related copy to reflect automatic weekly-sweep coverage (or remove the line). Component file itself stays (out of scope §8).
 - [ ] **Step 5: Commit** `git add app/api/clients scripts app/\(app\)/clients && git commit -m "feat(sweep): retire C2 client scan schedules (410 POST, card removed, ops script)"`
 
 ### Task 15: Full gates + docs
@@ -484,4 +542,4 @@ Rule: newest sweep with a **valid** (`parseSnapshot` non-null) snapshot is serve
 
 - Tasks 2→4→5 and 6→7→8 are the two dependency spines; 3, 9, 11 are parallel-safe once Task 2 lands. Task 13 needs 12; Task 14 is independent; Task 15 last.
 - DB-backed tests follow the house convention (fresh SQLite per suite; see `lib/jobs/*.test.ts` for the harness pattern). Test-cleanup ordering: delete children before parents.
-- Deploy sequence: merge → deploy (migration auto-applies) → run `scripts/retire-client-schedules.ts` on the server → set `SUPPORT_NOTIFY_EMAIL` in prod `.env` (or accept the default) → verify the two `system-*` schedules seeded (boot log) → first sweep fires next Monday 01:00 UTC; post-ship verification per spec §11.
+- Deploy sequence: merge → deploy (migration auto-applies) → run `scripts/retire-client-schedules.ts` on the server → verify the two `system-*` schedules seeded (boot log) → first sweep fires next Monday 01:00 UTC; post-ship verification per spec §11. `SUPPORT_NOTIFY_EMAIL` is optional — the `support@enrollmentresources.com` default is the approved recipient; overriding it is a Kevin-gated server `.env` edit requiring a PM2 restart, NOT an ordinary post-deploy step (Codex plan-fix #26).
