@@ -1,7 +1,7 @@
 # Client Viewbook Hub — Design
 
 **Date:** 2026-07-15
-**Status:** Approved by Kevin (brainstorming session); pending Codex review
+**Status:** Approved by Kevin (brainstorming session); Codex review applied (accept-with-fixes, 9 fixes, 2026-07-16)
 **Approach:** B — fixed purpose-built sections + per-client theme kit, shipped in 5 increments
 
 ## 1. What this is
@@ -53,7 +53,11 @@ style guide). That is the section name used throughout.
 ## 4. Data model (Prisma, additive migration)
 
 All new models. Origin FK deletes follow existing conventions (cascade within the
-viewbook subtree; `Client` delete cascades the viewbook).
+viewbook subtree; `Client` delete cascades the viewbook — and `Client` gains the
+inverse optional `viewbook Viewbook?` relation). Creation seeding is ONE nested
+`Viewbook.create` (`sections/fields/milestones` via nested `create`) — separate
+child ops cannot consume the autoincremented parent id inside a preconstructed
+array transaction (Codex fix 5).
 
 ```prisma
 model Viewbook {
@@ -104,12 +108,14 @@ model ViewbookField {
   fieldType   String    // 'text' | 'textarea' | 'list'
   sortOrder   Int
   value       String?   // canonical answer (list = JSON array of strings)
+  version     Int       @default(0)  // optimistic concurrency: every value write bumps; autosave carries expectedVersion
   valueUpdatedBy String? // 'client' | operator email
   valueUpdatedAt DateTime?
+  archivedAt  DateTime? // soft archive — fields with amendments or created pre-lock are NEVER hard-deleted (append-only record survives)
   createdBy   String    // 'seed' | operator email (custom-field who/when requirement)
   createdAt   DateTime  @default(now())
   amendments  ViewbookFieldAmendment[]
-  @@unique([viewbookId, defKey])   // one row per catalog question; custom rows have defKey null (SQLite: NULLs never collide)
+  @@unique([viewbookId, defKey])   // one row per catalog question; custom rows have defKey NULL — never '' (SQLite: NULLs never collide); custom fields are addressed by id, not this selector
 }
 
 model ViewbookFieldAmendment {
@@ -118,7 +124,9 @@ model ViewbookFieldAmendment {
   field      ViewbookField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   value      String
   author     String   // 'client' | operator email
+  clientMutationId String? @unique // client-generated UUID — retry idempotency (replay returns the existing row)
   createdAt  DateTime @default(now())
+  @@index([fieldId, id])
 }
 
 model ViewbookMilestone {
@@ -132,6 +140,9 @@ model ViewbookMilestone {
   targetDate  DateTime?
   doneAt      DateTime?
   reviewLinks ViewbookReviewLink[]
+  @@index([viewbookId, sortOrder])
+  // migration adds a raw PARTIAL unique index: at most ONE 'current' milestone
+  // per viewbook — CREATE UNIQUE INDEX ... ON ViewbookMilestone(viewbookId) WHERE status = 'current'
 }
 
 model ViewbookReviewLink {
@@ -153,9 +164,11 @@ model ViewbookFeedback {
   body         String    // plain text, byte-capped
   authorName   String?   // client-claimed, optional (no auth)
   authorKind   String    // 'client' | 'operator'
+  clientMutationId String? @unique // retry idempotency
   resolvedAt   DateTime?
   resolvedBy   String?   // operator email
   createdAt    DateTime  @default(now())
+  @@index([reviewLinkId, id])
 }
 
 model ViewbookGlobalContent {
@@ -181,9 +194,13 @@ model ViewbookMaterialLink {
   viewbookId  Int
   viewbook    Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   label       String
-  url         String   // https-only, validated
+  status      String   @default("provided") // 'requested' (operator placeholder, url null) | 'provided'
+  url         String?  // https-only, validated; null while 'requested'
+  clientMutationId String? @unique // retry idempotency
   addedBy     String   // 'client' | operator email
+  providedAt  DateTime?
   createdAt   DateTime @default(now())
+  @@index([viewbookId, id])
 }
 
 model ViewbookActivity {
@@ -194,6 +211,7 @@ model ViewbookActivity {
   actor       String   // 'client' | operator email
   summary     String   // pre-rendered one-line description (plain text)
   createdAt   DateTime @default(now())
+  @@index([viewbookId, id]) // digest range scan (oldCursor, highWater]
 }
 ```
 
@@ -259,6 +277,10 @@ type ViewbookTheme = {
 }
 ```
 
+- The validator is a **strict whole-object parse** (Codex fix 6): unknown keys
+  rejected, JSON byte cap on `themeJson`, `sectionHeroes` keys must be
+  recognized section keys, filenames must match the server-generated filename
+  regex. Read is exactly as strict as write.
 - Colors validated `^#[0-9a-fA-F]{6}$` — values are injected into a `<style>`
   block as CSS custom properties; the regex is the injection guard.
   A derived on-primary text color (relative-luminance check) keeps headers
@@ -267,6 +289,10 @@ type ViewbookTheme = {
   name + Google Fonts URL params). The public page emits ONE
   `fonts.googleapis.com` `<link>` built from catalog values only — client input
   never reaches the URL. Missing/invalid key → app default stack.
+  **CSP (Codex fix 7):** the report-only CSP in `next.config.ts` must gain
+  `fonts.googleapis.com` (style) + `fonts.gstatic.com` (font) origins in the
+  same increment that ships the public page — runtime Google Fonts accepted
+  (Kevin-side privacy call defaulted; self-hosting is the recorded fallback).
 - Defaults: parse failure or empty theme renders the ER-default theme; a broken
   theme can never blank the page.
 - The public viewbook does NOT participate in the app's dark/light mode; the
@@ -274,10 +300,20 @@ type ViewbookTheme = {
 
 Assets: `VIEWBOOK_ASSETS_DIR` env (`${DATA_HOME}/viewbook-assets` in prod,
 `<cwd>/data/viewbook-assets` default — HERO_SCREENSHOTS_DIR precedent). Operator
-uploads (logo, section heroes) go through a cookie-gated upload route (size cap
-2 MB; content-type allowlist png/jpg/webp only — SVG explicitly rejected, script
-risk; atomic unique-temp+rename write). Files deleted on replacement and on viewbook
-delete (ENOENT-tolerant).
+uploads (logo, section heroes, **and global team photos** — same store, keyed
+`global/` vs `<viewbookId>/` prefix; the asset route authorizes team photos via
+the global-content roster's filename set, viewbook assets via the token's own
+themeJson filename set — C14 curated-set precedent, path-containment guarded)
+go through a cookie-gated upload route: size cap 2 MB; allowlist png/jpg/webp
+verified by **magic-byte signature sniffing, never the upload Content-Type**
+(SVG explicitly rejected — script risk); served with the allowlisted MIME +
+`X-Content-Type-Options: nosniff`; filenames are server-generated (regex-safe),
+written atomic unique-temp+rename. Write order: file write → DB stamp →
+old-file delete; a failed stamp deletes the orphan file; deletes are
+ENOENT-tolerant. Lifecycle (Codex fix 6): viewbook DELETE and **Client
+cascade-delete** both snapshot the viewbook's filenames BEFORE the DB delete,
+then best-effort-delete files (the Client DELETE route gains this snapshot —
+cascade alone would leak files).
 
 ## 7. Routes & middleware
 
@@ -294,13 +330,41 @@ prefix:**
 
 Token validation: ONE fail-closed helper `requireViewbookToken(token)` in
 `lib/viewbook/route-auth.ts` (cat_ `route-auth.ts` precedent) — resolves
-`Viewbook` by token, rejects revoked, rejects archived client. Every failure →
-controlled 401/404, never a raw throw.
+`Viewbook` by token, rejects revoked, rejects archived client. Every token
+failure (invalid, revoked, archived client) → ONE indistinguishable **404**
+contract (never 401-vs-404 oracles), never a raw throw.
 
-Public writes additionally reject when the target section is `hidden`, when the
-viewbook is revoked, and (answers only, pre-lock path) when field ids don't
-belong to the token's viewbook. Bodies parsed with `parseJsonBody` +
-`readBoundedJson`-style byte caps. All routes `withRoute`-wrapped.
+**Commit-time fencing (Codex fix 1):** `requireViewbookToken` is only a
+preflight. EVERY public mutation re-verifies inside its own conditional
+statement (array-form transaction, EXISTS predicates — the repo's
+reservation/fencing pattern): token still current + `revokedAt IS NULL` +
+client not archived + target section not `hidden` + target row belongs to the
+token's viewbook (answers AND amendments AND feedback's `reviewLinkId` AND
+materials). 0 rows affected → 404/409, never a blind write. Rotation/revocation
+racing a request can therefore never land a write.
+
+**Write semantics (Codex fixes 2–3):**
+- Answers PATCH carries `expectedVersion`; pre-lock update is conditional on
+  `version = expectedVersion AND dataLockedAt IS NULL` and bumps `version`.
+  Stale tab → 409 `stale_version` with the current value. Lock won the race →
+  409 `data_locked` with the current value (NEVER a silent amendment; the
+  client UI re-renders the locked state and offers "propose a change").
+  Operator answer writes obey the same version + lock rules.
+- Amendments, feedback, and materials are append-only with a client-generated
+  `clientMutationId` (UUID) — a retry replays the stored row (200), never
+  duplicates. Count caps are enforced with guarded `INSERT … SELECT` (cap
+  predicate in SQL), never count-then-create.
+- The domain row and its `ViewbookActivity` row are created in the SAME
+  array-form transaction. No-op answer saves (unchanged value) emit NO
+  activity. A token-scoped in-process write throttle returns 429 on burst
+  abuse (bounds the activity stream).
+- Public write handlers additionally require a JSON content type and apply
+  `isSameSiteRequest` INSIDE the handler (Codex fix 8 — middleware returns
+  before the same-site guard for public paths). All mutation responses and the
+  public page send `Cache-Control: no-store`.
+
+Bodies parsed with `parseJsonBody` + `readBoundedJson`-style byte caps. All API
+routes `withRoute`-wrapped (the page itself is not a `withRoute` handler).
 
 **Internal (cookie-gated, no middleware changes needed — default-gated):**
 
@@ -344,14 +408,18 @@ completion date), expandable — data always retained.
   Pre-lock: inline client editing, autosave per field (PATCH per blur),
   "last updated by {who} on {date}" stamps. Post-lock: read-only values +
   locked banner + per-field "propose a change" → amendment form; amendments
-  render beside the original with "changed on {date} by {who}".
+  render beside the original with "changed on {date} by {who}". Operators MAY
+  add custom fields post-lock: those sit outside the locked baseline, stay
+  editable, and render marked "added after lock-in". A field that races the
+  lock gets an honest 409 `data_locked` (never a silent amendment).
 - **Brand Guidelines** — palette swatches (theme colors + admin-added extended
   swatches later if needed — v1 = theme kit colors), live typography specimens
   in the actual heading/body fonts, `narrative` design-philosophy prose.
 - **Current-Site Assessment** — server loader pulls the client's latest
   completed, non-seoOnly site audit with a `seo-parser` run (C14 reportable
-  rule): ADA + SEO scores, top issue groups (counts only), CWV rollup, plus the
-  operator `narrative`. Honest labels (lab data; no compliance claims — reuse
+  rule), resolved CLIENT-WIDE across all registered domains (newest first, the
+  audited domain displayed): ADA + SEO scores, top issue groups (counts only),
+  CWV rollup, plus the operator `narrative`. Honest labels (lab data; no compliance claims — reuse
   C14 copy rules). No completed audit → "first scan coming soon" state. Hidden
   by default for `kind: 'new-build'`.
 - **SEO/GEO/E-E-A-T Strategy** — global base blocks ("our playbook") + the
@@ -363,28 +431,45 @@ completion date), expandable — data always retained.
 (`loadOpsSnapshot` precedent): a failing section degrades to a friendly
 placeholder; the page never blanks.
 
+All outbound links (review links, material links) render with
+`rel="noopener noreferrer"`; the page is served `Cache-Control: no-store`.
+
 ## 9. Notifications & activity
 
 - Every public write and notable operator action (lock, section done) appends a
   `ViewbookActivity` row with a pre-rendered plain-text `summary`.
 - `system-viewbook-digest` schedule (`every:15m`, seeded in
-  `system-schedules.ts`) fires a `viewbook-digest` job: find viewbooks with
-  `ViewbookActivity.id > digestCursorId` AND client-actor activity AND
-  (`digestSentAt` null OR older than 1 h) → for each, send ONE email via the D7
-  transport (`buildViewbookDigestEmail` in `lib/notify/`) listing the new
-  activity, then advance `digestCursorId` + stamp `digestSentAt` (marker-then-
-  cursor ordering = at-least-once, duplicate-tolerant).
+  `system-schedules.ts`) fires a `viewbook-digest` job (registered concurrency
+  1, 3 attempts, **no `site-audit:*` or other shared group** — D7 rules): find
+  viewbooks with client-actor `ViewbookActivity.id > digestCursorId` AND
+  (`digestSentAt` null OR older than 1 h).
+- **High-water semantics (Codex fix 4):** per viewbook, capture
+  `highWater = MAX(client-actor activity id)` ONCE up front; render ONLY rows
+  `digestCursorId < id <= highWater`; send via the D7 transport
+  (`buildViewbookDigestEmail` in `lib/notify/`); after a successful send,
+  update `digestCursorId = highWater` AND stamp `digestSentAt` in the same
+  statement (send-before-marker = D7's accepted narrow duplicate window).
+  NEVER recompute `MAX(id)` after sending — concurrent writes land above the
+  high-water mark and stay pending for the next run.
+- Email content is capped (≤ 30 rows / byte cap); overflow renders one honest
+  "+N more in the activity feed" line and the cursor STILL advances to
+  `highWater` (no backlog carry — decided).
 - Recipient: `Viewbook.notifyEmail` ?? `notifyAdminEmail()`. Dark env (Mailgun
-  unset) = permanent suppression, cursor still advances (feed remains the source
-  of truth; no catch-up flood when env lights up — matches sweep-digest rule).
-- Operator-actor activity never triggers digests (it's in the feed only).
+  unset) = permanent suppression: cursor advances to `highWater` but
+  `digestSentAt` is NOT stamped (feed remains the source of truth; no catch-up
+  flood when env lights up — matches sweep-digest rule).
+- Operator-actor activity never triggers digests (it's in the feed only), and
+  no-op client autosaves emit no activity at all (§7).
 
 ## 10. Internal admin UI
 
 - **`/viewbooks`** — index: client, kind, stage summary, last client activity,
   unresolved feedback count; create button.
-- **`/viewbooks/[id]`** — editor tabs: Theme (kit editor + live preview iframe
-  of the public page), Content (welcome, section intros/narratives, overrides),
+- **`/viewbooks/[id]`** — editor tabs: Theme (kit editor + live preview via a
+  SHARED preview renderer — the public page's server components rendered inline
+  in the admin page, NEVER an iframe: the app ships `frame-ancestors 'none'` /
+  `X-Frame-Options: DENY`, Codex fix 7), Content (welcome, section
+  intros/narratives, overrides),
   Data Source (edit answers, add custom fields, **Lock in** with confirm,
   amendment review), Milestones (CRUD + status + review links), Feedback
   (threads + resolve), Activity (feed), Settings (token copy/rotate/revoke,
@@ -397,17 +482,29 @@ placeholder; the page never blanks.
 ## 11. Security summary
 
 - Non-guessable UUID token; single fail-closed validator; revocation +
-  rotation; archived client → public 404.
-- Anchored single-segment middleware matchers only (5 new).
+  rotation; ALL token failures (invalid/revoked/archived) → one
+  indistinguishable 404 contract.
+- Anchored single-segment middleware matchers only (5 total), each added ONLY
+  in the increment that ships its route, with positive + deeper-path-negative
+  anchoring tests.
+- Every public mutation is commit-time fenced (conditional SQL re-verifying
+  token/revocation/client-active/section-visible/ownership — §7), idempotent
+  via `clientMutationId`, cap-enforced via guarded `INSERT … SELECT`, version-
+  guarded on answers, throttled per token (429), same-site-checked in-handler,
+  JSON-content-type-required, `Cache-Control: no-store`.
 - Public writes: typed bodies, byte caps (answer 8 KB, feedback 4 KB, label
   256 B), count caps (feedback ≤ 200/link, materials ≤ 100/viewbook, amendments
   ≤ 20/field), plain-text storage, render-time escaping.
-- URLs (`materials`, operator review links): `new URL` + https-only.
-- Theme colors regex-validated; fonts catalog-keyed; assets served through an
-  ownership + allowlist + traversal-guarded route; SVG uploads rejected.
+- URLs (`materials`, operator review links): `new URL` + https-only; rendered
+  with `rel="noopener noreferrer"`.
+- Theme = strict whole-object validation (unknown-key reject, byte cap,
+  filename regex); colors regex-validated; fonts catalog-keyed; uploads
+  magic-byte-sniffed (SVG rejected); assets served through an ownership +
+  allowlist + traversal-guarded route with `nosniff`.
 - No client-supplied identity trusted for attribution beyond the free-text
   display name on feedback (clearly labeled "as reported").
-- Array-form transactions only; lock-in is a fenced `updateMany`.
+- Array-form transactions only; lock-in is a fenced `updateMany`; post-lock
+  fields are soft-archived, never hard-deleted (amendment record survives).
 
 ## 12. Testing
 
@@ -415,24 +512,38 @@ Vitest on the pure cores:
 
 - catalog + milestone seeding (row shapes, idempotent sync-questions),
 - answer-write state machine (pre-lock mutates + stamps; post-lock appends
-  amendment; lock fence first-writer-wins),
-- theme validation (hex/font/asset-filename acceptance + rejection + luminance
-  derivation),
-- digest batching (cursor math, 1-h window, dark-gate cursor advance,
-  client-vs-operator actor filtering),
-- public-write validators (caps, URL rules, cross-viewbook field id rejection),
-- assessment loader (reportable-audit resolution, no-audit state).
+  amendment; lock fence first-writer-wins; version bump rules),
+- theme validation (strict-object/unknown-key/hex/font/asset-filename
+  acceptance + rejection + luminance derivation),
+- digest batching (high-water math, 1-h window, dark-gate cursor advance
+  without `digestSentAt`, overflow "+N more" line, client-vs-operator actor
+  filtering),
+- public-write validators (caps, URL rules, cross-viewbook id rejection,
+  `clientMutationId` replay),
+- assessment loader (reportable-audit resolution client-wide, no-audit state).
+
+DB-backed race tests (Codex fix 9): lock-vs-answer, revoke-vs-write, stale
+`expectedVersion`, cross-viewbook ids, concurrent cap enforcement
+(`INSERT … SELECT`), digest concurrent insertion above high-water, middleware
+matcher anchoring (positive + deeper-path negative), asset-route curation.
 
 Route-level tests for `requireViewbookToken` fail-closed behavior. Gates:
-`tsc --noEmit` + vitest locally (the only gates, per repo rules).
+`npm run lint`, `DATABASE_URL="file:./local-dev.db" npm test`, `npm run build`,
+plus `tsc --noEmit` (repo gate-green set).
 
 ## 13. Retention & lifecycle
 
-- `runCleanup` prunes `ViewbookActivity` older than 180 d.
+- `runCleanup` prunes `ViewbookActivity` older than 180 d (safely far above the
+  1-h digest cadence — no interaction with the cursor window).
 - Viewbook lives as long as the client; client archive hides the public page
-  (validator rejects); client delete cascades.
-- Asset files deleted on replacement/viewbook-delete (ENOENT-tolerant).
+  (validator rejects); client delete cascades (with the filename snapshot →
+  file cleanup in the Client DELETE route, §6).
+- Asset files deleted on replacement/viewbook-delete (ENOENT-tolerant, orphan
+  cleanup on failed stamps).
 - No token TTL (project-length links); rotation is the operator remedy.
+- Deploy checklist: `VIEWBOOK_ASSETS_DIR` on the persistent data volume
+  (`${DATA_HOME}/viewbook-assets`), PM2-writable, added to backup expectations
+  alongside uploads/reports.
 
 ## 14. Increments (5 PRs)
 
@@ -451,7 +562,11 @@ Route-level tests for `requireViewbookToken` fail-closed behavior. Gates:
 5. **Assessment** — audit pull loader + narrative + new-build hiding; polish
    pass (done-state animations, tooltips, section hero images).
 
-Each increment is independently gate-green and deployable.
+Each increment is independently gate-green and deployable. Middleware matchers
+land only in the increment that ships their route (fix 9). Lane split (Kevin's
+tandem test): PR1/PR2/PR5 = Claude; PR4 then PR3 = Codex (self-contained briefs
+in the implementation plan); cross-review before every merge; Codex budget
+exhaustion → pause the lane, Kevin triggers his usage reset.
 
 ## 15. Open questions / future (explicitly out of v1)
 
