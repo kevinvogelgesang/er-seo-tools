@@ -5,7 +5,7 @@ import type { ComponentType } from 'react'
 import {
   IconHome, IconClients, IconSiteAudit, IconParser, IconReports,
   IconRobots, IconQuarter, IconChecklist, IconRedirect, IconBook, IconSettings,
-  IconProspect, IconIssues,
+  IconProspect, IconIssues, IconViewbook,
 } from '@/components/shell/icons'
 
 export type NavGroupId = 'overview' | 'run' | 'plan' | 'reference'
@@ -62,6 +62,18 @@ export const TOOLS: ToolDef[] = [
     group: 'run',
     icon: IconProspect,
     description: 'Scan a prospect site & share a sales report link',
+  },
+  {
+    id: 'viewbooks',
+    name: 'Client Viewbooks',
+    href: '/viewbooks',
+    group: 'plan',
+    icon: IconViewbook,
+    description: 'Themed client hubs for website builds',
+    children: [
+      { name: 'Viewbooks', href: '/viewbooks' },
+      { name: 'Company content', href: '/viewbooks/settings' },
+    ],
   },
   { id: 'reports', name: 'SEO Reports', href: '/reports', group: 'run', icon: IconReports, description: 'GA4 + GSC branded client PDFs' },
   { id: 'robots-validator', name: 'Robots Validator', href: '/robots-validator', group: 'run', icon: IconRobots, description: 'robots.txt, sitemaps & AI-bot access' },

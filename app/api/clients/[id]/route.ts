@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { normalizeClientDomains, InvalidDomainError } from '@/lib/security/domain-validation';
+import { collectClientViewbookAssetSnapshot } from '@/lib/viewbook/service';
+import { deleteViewbookAssets } from '@/lib/viewbook/assets';
 
 export const dynamic = 'force-dynamic';
 
@@ -136,7 +138,13 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     if (existing.archivedAt == null) {
       return NextResponse.json({ error: 'archive_first' }, { status: 409 });
     }
+    // Viewbook asset files are NOT covered by the DB cascade — snapshot the
+    // filenames BEFORE the delete, best-effort remove them after.
+    const viewbookAssets = await collectClientViewbookAssetSnapshot(clientId);
     await prisma.client.delete({ where: { id: clientId } });
+    if (viewbookAssets) {
+      await deleteViewbookAssets(String(viewbookAssets.viewbookId), viewbookAssets.filenames);
+    }
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
