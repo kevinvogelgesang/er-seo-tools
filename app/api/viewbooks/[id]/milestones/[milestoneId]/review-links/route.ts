@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
+import { syncVersionBumpWhere } from '@/lib/viewbook/sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,15 +35,24 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   if (body.kind !== 'mockup' && body.kind !== 'live') throw new HttpError(400, 'invalid_review_link')
   const url = httpsUrl(body.url)
   const createdAt = Date.now()
-  const inserted = await prisma.$queryRaw<Array<{ id: number }>>`
-    INSERT INTO "ViewbookReviewLink" ("milestoneId", "label", "url", "kind", "createdBy", "createdAt")
-    SELECT ${milestoneId}, ${body.label.trim()}, ${url}, ${body.kind}, ${operator}, ${createdAt}
-    WHERE EXISTS (
+  // Bump shares the SAME EXISTS milestone {id, viewbookId} guard the INSERT
+  // uses (mechanism b) — RETURNING stays the LAST array member, its id used
+  // for the response (never a post-tx label lookup).
+  const milestoneGuard = Prisma.sql`
+    EXISTS (
       SELECT 1 FROM "ViewbookMilestone" m
       WHERE m."id" = ${milestoneId} AND m."viewbookId" = ${viewbookId}
     )
-    RETURNING "id"
   `
+  const [, inserted] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbookId, milestoneGuard),
+    prisma.$queryRaw<Array<{ id: number }>>`
+      INSERT INTO "ViewbookReviewLink" ("milestoneId", "label", "url", "kind", "createdBy", "createdAt")
+      SELECT ${milestoneId}, ${body.label.trim()}, ${url}, ${body.kind}, ${operator}, ${createdAt}
+      WHERE ${milestoneGuard}
+      RETURNING "id"
+    `,
+  ])
   if (inserted.length !== 1) throw new HttpError(404, 'not_found')
   const reviewLink = await prisma.viewbookReviewLink.findUniqueOrThrow({ where: { id: inserted[0].id } })
   return NextResponse.json({ reviewLink }, { status: 201 })
