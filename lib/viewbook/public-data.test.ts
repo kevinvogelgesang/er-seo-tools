@@ -48,7 +48,7 @@ describe('loadViewbookPublicData', () => {
     expect(data?.carriedSections).toEqual([])
   })
 
-  it('kickoff stage: primary trio + data-source carried; hidden still suppresses', async () => {
+  it('kickoff stage: shipped primary sections + data-source carried; hidden still suppresses', async () => {
     const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
     await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
     await prisma.viewbookSection.update({
@@ -57,8 +57,35 @@ describe('loadViewbookPublicData', () => {
     })
     const data = await loadViewbookPublicData(token)
     expect(data?.stage).toBe('kickoff')
-    expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(['welcome', 'milestones'])
+    expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(['welcome', 'milestones', 'kickoff-next'])
     expect(data?.carriedSections.map((s) => s.sectionKey)).toEqual(['data-source'])
+  })
+
+  it('adds viewbook identity, CSM name, and ordered global/own docs to the public payload', async () => {
+    const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { csmName: 'Kevin' } })
+    await prisma.viewbookDoc.createMany({
+      data: [
+        { viewbookId: null, title: 'Global second', filename: 'g2.pdf', sortOrder: 2, createdBy: 'op@er.com' },
+        { viewbookId: null, title: 'Global first', filename: 'g1.pdf', sortOrder: 1, createdBy: 'op@er.com' },
+        { viewbookId: id, title: 'Own first', filename: 'o1.pdf', sortOrder: 1, createdBy: 'op@er.com' },
+      ],
+    })
+    const data = await loadViewbookPublicData(token)
+    expect(data?.viewbookId).toBe(id)
+    expect(data?.csmName).toBe('Kevin')
+    expect(data?.docs.global.map((doc) => doc.title)).toEqual(['Global first', 'Global second'])
+    expect(data?.docs.own.map((doc) => doc.title)).toEqual(['Own first'])
+  })
+
+  it('fault-isolates docs without blanking sibling payload blocks', async () => {
+    const { token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    const original = prisma.viewbookDoc.findMany.bind(prisma.viewbookDoc)
+    const spy = vi.spyOn(prisma.viewbookDoc, 'findMany').mockRejectedValueOnce(new Error('docs unavailable'))
+    const data = await loadViewbookPublicData(token)
+    spy.mockImplementation(original)
+    expect(data?.docs).toEqual({ global: [], own: [] })
+    expect(data?.fieldCategories.length).toBeGreaterThan(0)
   })
 
   it('unknown stored stage degrades to building lineup (never blanks)', async () => {

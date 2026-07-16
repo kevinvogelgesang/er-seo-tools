@@ -36,7 +36,7 @@ export interface StageLineup {
 
 export const STAGE_LINEUPS: Record<ViewbookStage, StageLineup> = {
   'post-contract': { primary: ['data-source'], carried: [] },
-  kickoff: { primary: ['welcome', 'milestones', 'strategy'], carried: ['data-source'] },
+  kickoff: { primary: ['welcome', 'milestones', 'strategy', 'kickoff-next'], carried: ['data-source'] },
   'website-specifics': {
     primary: ['brand', 'assessment'],
     carried: ['welcome', 'milestones', 'strategy', 'data-source'],

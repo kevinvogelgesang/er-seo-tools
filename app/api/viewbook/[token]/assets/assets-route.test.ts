@@ -10,6 +10,7 @@ import { GET } from './[filename]/route'
 
 // 1x1 PNG (magic bytes are all the route cares about — files are read raw)
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+const PDF = Buffer.from('%PDF-1.7\nasset route')
 
 let assetsDir: string
 
@@ -89,6 +90,60 @@ describe('GET /api/viewbook/[token]/assets/[filename]', () => {
     const res = await call(token, photo)
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('image/png')
+  })
+
+  it('serves owned and global PDF docs with inline PDF headers', async () => {
+    const { id, token } = await seedViewbookWithLogo()
+    const owned = `${crypto.randomUUID()}.pdf`
+    const global = `${crypto.randomUUID()}.pdf`
+    await mkdir(path.join(assetsDir, String(id)), { recursive: true })
+    await mkdir(path.join(assetsDir, 'global'), { recursive: true })
+    await writeFile(path.join(assetsDir, String(id), owned), PDF)
+    await writeFile(path.join(assetsDir, 'global', global), PDF)
+    await prisma.viewbookDoc.createMany({
+      data: [
+        { viewbookId: id, title: 'Owned', filename: owned, sortOrder: 1, createdBy: 'test' },
+        { viewbookId: null, title: 'Global', filename: global, sortOrder: 1, createdBy: 'test' },
+      ],
+    })
+
+    for (const filename of [owned, global]) {
+      const res = await call(token, filename)
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Content-Type')).toBe('application/pdf')
+      expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
+      expect(res.headers.get('Content-Disposition')).toBe('inline')
+    }
+  })
+
+  it("404s another viewbook's PDF doc", async () => {
+    const a = await seedViewbookWithLogo()
+    const b = await seedViewbookWithLogo()
+    const filename = `${crypto.randomUUID()}.pdf`
+    await writeFile(path.join(assetsDir, String(b.id), filename), PDF)
+    await prisma.viewbookDoc.create({
+      data: { viewbookId: b.id, title: 'Private to B', filename, sortOrder: 1, createdBy: 'test' },
+    })
+    expect((await call(a.token, filename)).status).toBe(404)
+  })
+
+  it('prefers the owned scope when a doc filename collides with a global row', async () => {
+    const { id, token } = await seedViewbookWithLogo()
+    const filename = `${crypto.randomUUID()}.pdf`
+    const ownedPdf = Buffer.from('%PDF-owned')
+    const globalPdf = Buffer.from('%PDF-global')
+    await mkdir(path.join(assetsDir, String(id)), { recursive: true })
+    await mkdir(path.join(assetsDir, 'global'), { recursive: true })
+    await writeFile(path.join(assetsDir, String(id), filename), ownedPdf)
+    await writeFile(path.join(assetsDir, 'global', filename), globalPdf)
+    await prisma.viewbookDoc.createMany({
+      data: [
+        { viewbookId: id, title: 'Owned', filename, sortOrder: 1, createdBy: 'test' },
+        { viewbookId: null, title: 'Global', filename, sortOrder: 1, createdBy: 'test' },
+      ],
+    })
+    const res = await call(token, filename)
+    expect(Buffer.from(await res.arrayBuffer()).equals(ownedPdf)).toBe(true)
   })
 
   it('404s a roster-shaped filename when the roster does not contain it', async () => {

@@ -84,8 +84,18 @@ export interface PublicGlobalContent {
   blocks: Partial<Record<Exclude<GlobalContentKey, 'team'>, ContentBlocks | null>>
 }
 
+export interface PublicDocRow {
+  id: number
+  title: string
+  blurb: string | null
+  filename: string
+  sortOrder: number
+}
+
 export interface ViewbookPublicData {
+  viewbookId: number
   clientName: string
+  csmName: string | null
   kind: string // 'new-build' | 'upgrade'
   welcomeNote: string | null
   dataLockedAt: string | null
@@ -98,6 +108,7 @@ export interface ViewbookPublicData {
   fieldCategories: PublicFieldCategory[]
   milestones: PublicMilestone[]
   materials: PublicMaterialLink[]
+  docs: { global: PublicDocRow[]; own: PublicDocRow[] }
   global: PublicGlobalContent
   overrides: Partial<Record<GlobalContentKey, string>>
 }

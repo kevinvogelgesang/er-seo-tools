@@ -12,6 +12,7 @@ import {
   type TeamMember,
 } from '@/lib/viewbook/global-content-keys'
 import { jsonFetch } from './viewbook-admin-shared'
+import { StrategyDocsCard } from './StrategyDocsCard'
 
 const BLOCK_KEYS = GLOBAL_CONTENT_KEYS.filter((k) => k !== 'team')
 
@@ -58,6 +59,7 @@ export function GlobalContentEditor() {
     <div className="space-y-6">
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       {flash && <p className="text-sm text-teal-600 dark:text-teal-400">Saved {flash}.</p>}
+      <StrategyDocsCard />
       <TeamEditor roster={(content.team as TeamMember[] | null) ?? []} run={run} />
       {BLOCK_KEYS.map((key) => (
         <BlocksEditor key={key} contentKey={key} value={(content[key] as ContentBlocks | null) ?? { blocks: [] }} run={run} />

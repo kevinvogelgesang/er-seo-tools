@@ -8,6 +8,7 @@ import { SECTION_KEYS } from '@/lib/viewbook/theme'
 import { GLOBAL_CONTENT_KEYS } from '@/lib/viewbook/global-content-keys'
 import { jsonFetch } from './viewbook-admin-shared'
 import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+import { StrategyDocsCard } from './StrategyDocsCard'
 
 interface SectionRow {
   sectionKey: string
@@ -69,6 +70,8 @@ export function ContentTab({
     <div className="space-y-6 text-sm">
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
       {savedFlash && <p className="text-teal-600 dark:text-teal-400">Saved {savedFlash}.</p>}
+
+      <StrategyDocsCard viewbookId={viewbookId} />
 
       <div onFocus={onFocus} onBlur={onBlur}>
         <label className="mb-1 block font-medium text-gray-700 dark:text-white/80">Welcome note</label>

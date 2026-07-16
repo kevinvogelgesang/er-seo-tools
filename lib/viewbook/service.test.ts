@@ -22,7 +22,8 @@ import {
   collectClientViewbookAssetSnapshot,
   moveViewbookStage,
 } from './service'
-import { readViewbookAsset } from './assets'
+import { deleteViewbookAssets, readViewbookAsset } from './assets'
+import { createViewbookDoc } from './docs'
 import { DEFAULT_THEME } from './theme'
 import { CATALOG } from './catalog'
 
@@ -334,16 +335,55 @@ describe('assets + delete lifecycle', () => {
     expect((entries as string[]).filter((e) => String(e).endsWith('.png'))).toHaveLength(0)
   })
 
-  it('deleteViewbook removes the subtree and its files; snapshot collects filenames', async () => {
+  it('deleteViewbook removes owned image/PDF files while global PDFs survive', async () => {
     const c = await mkClient()
     const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
     const theme = await attachViewbookLogo(id, PNG)
+    const ownDoc = await createViewbookDoc({
+      viewbookId: id,
+      title: 'Owned',
+      buf: Buffer.from('%PDF-1.7\nowned'),
+      createdBy: OPERATOR,
+    })
+    const globalDoc = await createViewbookDoc({
+      viewbookId: null,
+      title: 'Global',
+      buf: Buffer.from('%PDF-1.7\nglobal'),
+      createdBy: OPERATOR,
+    })
     const snapshot = await collectClientViewbookAssetSnapshot(c.id)
     expect(snapshot?.filenames).toContain(theme.logo)
+    expect(snapshot?.filenames).toContain(ownDoc.filename)
+    expect(snapshot?.filenames).not.toContain(globalDoc.filename)
     await deleteViewbook(id)
     expect(await prisma.viewbook.findUnique({ where: { id } })).toBeNull()
     expect(await prisma.viewbookField.count({ where: { viewbookId: id } })).toBe(0)
     expect(await readViewbookAsset(String(id), theme.logo as string)).toBeNull()
+    expect(await readViewbookAsset(String(id), ownDoc.filename)).toBeNull()
+    expect(await readViewbookAsset('global', globalDoc.filename)).not.toBeNull()
+  })
+
+  it('client-cascade snapshot includes owned PDFs for post-delete cleanup', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const ownDoc = await createViewbookDoc({
+      viewbookId: id,
+      title: 'Cascade owned',
+      buf: Buffer.from('%PDF-1.7\ncascade'),
+      createdBy: OPERATOR,
+    })
+    const globalDoc = await createViewbookDoc({
+      viewbookId: null,
+      title: 'Cascade global survivor',
+      buf: Buffer.from('%PDF-1.7\nglobal survivor'),
+      createdBy: OPERATOR,
+    })
+    await prisma.client.update({ where: { id: c.id }, data: { archivedAt: new Date() } })
+    const snapshot = await collectClientViewbookAssetSnapshot(c.id)
+    await prisma.client.delete({ where: { id: c.id } })
+    if (snapshot) await deleteViewbookAssets(String(snapshot.viewbookId), snapshot.filenames)
+    expect(await readViewbookAsset(String(id), ownDoc.filename)).toBeNull()
+    expect(await readViewbookAsset('global', globalDoc.filename)).not.toBeNull()
   })
 
   it('updateViewbookTheme validates strictly and bumps on a valid save', async () => {

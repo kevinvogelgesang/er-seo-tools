@@ -8,6 +8,7 @@ import { BrandSection } from './BrandSection'
 import { StrategySection } from './StrategySection'
 import { MaterialsSection } from './MaterialsSection'
 import { MilestonesSection } from './MilestonesSection'
+import { KickoffNextSection } from './KickoffNextSection'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
@@ -24,7 +25,9 @@ const sec = (sectionKey: PublicSection['sectionKey'], over: Partial<PublicSectio
 })
 
 const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
+  viewbookId: 42,
   clientName: 'Acme College',
+  csmName: null,
   kind: 'upgrade',
   welcomeNote: null,
   dataLockedAt: null,
@@ -36,6 +39,7 @@ const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   fieldCategories: [],
   milestones: [],
   materials: [],
+  docs: { global: [], own: [] },
   global: { team: null, blocks: {} },
   overrides: {},
   ...over,
@@ -84,6 +88,53 @@ describe('StrategySection', () => {
     expect(screen.getByText('Do SEO well.')).toBeDefined()
     expect(screen.getByText('Your custom plan.')).toBeDefined()
     expect(screen.getByText(/your plan/i)).toBeDefined()
+  })
+
+  it('renders global then own doc cards with safe links/text before one collapsed full playbook', () => {
+    const hostile = '<img src=x>'
+    const data = base({
+      docs: {
+        global: [
+          { id: 1, title: 'Global guide', blurb: 'First', filename: 'global.pdf', sortOrder: 1 },
+          { id: 2, title: hostile, blurb: null, filename: 'hostile.pdf', sortOrder: 2 },
+        ],
+        own: [{ id: 3, title: 'Acme extra', blurb: 'Custom', filename: 'own.pdf', sortOrder: 1 }],
+      },
+      global: { team: null, blocks: { 'seo-base': { blocks: [{ heading: 'Full', body: 'Long copy' }] } } },
+    })
+    const { container } = render(<StrategySection section={sec('strategy')} data={data} token="tok" />)
+    const links = screen.getAllByRole('link', { name: 'Open PDF' })
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/api/viewbook/tok/assets/global.pdf',
+      '/api/viewbook/tok/assets/hostile.pdf',
+      '/api/viewbook/tok/assets/own.pdf',
+    ])
+    expect(links.every((link) => link.getAttribute('target') === '_blank')).toBe(true)
+    expect(links.every((link) => link.getAttribute('rel') === 'noopener noreferrer')).toBe(true)
+    expect(screen.getByText(hostile)).toBeDefined()
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByText('Read the full playbook').closest('details')?.hasAttribute('open')).toBe(false)
+  })
+})
+
+describe('KickoffNextSection', () => {
+  it('renders the operator CTA only during kickoff', () => {
+    const { rerender } = render(
+      <KickoffNextSection isOperator stage="kickoff" csmName="Kevin" viewbookId={42} />,
+    )
+    expect(screen.getByText('Ready for the next step?')).toBeDefined()
+    expect(screen.getByRole('button')).toBeDefined()
+    rerender(<KickoffNextSection isOperator stage="building" csmName="Kevin" viewbookId={42} />)
+    expect(screen.queryByText('Ready for the next step?')).toBeNull()
+  })
+
+  it('renders named and neutral client contact copy', () => {
+    const { rerender } = render(
+      <KickoffNextSection isOperator={false} stage="kickoff" csmName="Kevin" viewbookId={42} />,
+    )
+    expect(screen.getByText(/Reach out to Kevin/)).toBeDefined()
+    rerender(<KickoffNextSection isOperator={false} stage="kickoff" csmName={null} viewbookId={42} />)
+    expect(screen.getByText(/Reach out to your Enrollment Resources contact/)).toBeDefined()
   })
 })
 
