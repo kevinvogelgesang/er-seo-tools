@@ -59,7 +59,7 @@ export function ClientHeader({ name, domains, seedUrls, teamworkTasklistId, sche
       </div>
       <p className="mt-1.5 text-xs text-gray-400 dark:text-white/40">
         {schedules.length === 0
-          ? 'No scheduled scans'
+          ? 'Scanned automatically every Sunday'
           : `Scheduled: ${schedules.map((s) => `${JOB_TYPE_LABELS[s.jobType] ?? s.jobType} (${s.cadence})`).join(' · ')}`}
       </p>
     </div>
