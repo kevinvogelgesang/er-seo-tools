@@ -588,6 +588,13 @@ Automated daily backup cron (as seo):
 0 2 * * * mkdir -p $DATA_HOME/backups && sqlite3 $DATA_HOME/db.sqlite ".backup $DATA_HOME/backups/db-$(date +\%Y\%m\%d).sqlite" && find $DATA_HOME/backups -name 'db-*.sqlite' -mtime +7 -delete 2>/dev/null
 ```
 
+The DB snapshot alone is not a full backup. Any file-level or volume backup
+must also cover the persistent file stores under `$DATA_HOME`:
+`uploads` (analyzed CSVs), `reports` (branded PDFs), `sales-hero`
+(prospect hero screenshots), and `viewbook-assets` (client viewbook
+logos/heroes/team photos — user-uploaded, not regenerable from the DB).
+`screenshots` is transient (swept every 30 min) and can be excluded.
+
 ---
 
 ## 9. Troubleshooting
@@ -745,6 +752,9 @@ pm2 reset seo-tools
 | `$APP_HOME/ecosystem.config.js` | PM2 configuration |
 | `$DATA_HOME/db.sqlite` | SQLite database |
 | `$DATA_HOME/uploads` | File uploads |
+| `$DATA_HOME/reports` | Branded PDF reports |
+| `$DATA_HOME/sales-hero` | Prospect hero screenshots |
+| `$DATA_HOME/viewbook-assets` | Client viewbook assets (logos, heroes, team photos) |
 | `$DATA_HOME/backups` | Database backups |
 | `$LOG_HOME/seo-tools-out.log` | PM2 stdout log |
 | `$LOG_HOME/seo-tools-error.log` | PM2 stderr log |
