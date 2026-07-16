@@ -1,0 +1,80 @@
+// Materials & Links (spec §8): client-added share links + operator request
+// placeholders. Read-only in PR2 — PR4's integration phase mounts
+// MaterialLinkForm here (client add-a-link).
+import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { SectionShell } from './SectionShell'
+import { SECTION_TITLES } from './section-titles'
+import { publicAssetUrl } from './ThemeStyle'
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+  })
+}
+
+// Render-side scheme guard (security-review): the write side enforces
+// https-only, but this public sink must not depend on a different lane's
+// validation — a non-https URL renders as plain text, never an anchor.
+export function isHttpsUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+export function MaterialsSection({
+  section,
+  data,
+  token,
+}: {
+  section: PublicSection
+  data: ViewbookPublicData
+  token: string
+}) {
+  const hero = data.theme.sectionHeroes[section.sectionKey]
+  return (
+    <SectionShell
+      section={section}
+      title={SECTION_TITLES[section.sectionKey]}
+      heroUrl={hero ? publicAssetUrl(token, hero) : null}
+    >
+      {data.materials.length === 0 ? (
+        <p className="text-black/50">No materials yet — links you share with us will appear here.</p>
+      ) : (
+        <ul className="divide-y divide-black/10 rounded-xl border border-black/10 bg-white shadow-sm">
+          {data.materials.map((m) => (
+            <li key={m.id} className="flex flex-wrap items-center gap-2 px-5 py-3">
+              {m.status === 'provided' && m.url && isHttpsUrl(m.url) ? (
+                <a
+                  href={m.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium underline"
+                  style={{ color: 'var(--vb-secondary)' }}
+                >
+                  {m.label}
+                </a>
+              ) : (
+                <span className="font-medium text-black/70">{m.label}</span>
+              )}
+              {m.status === 'requested' && (
+                <span
+                  className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                  style={{ background: 'var(--vb-tertiary)', color: 'var(--vb-on-tertiary)' }}
+                >
+                  requested — add a link
+                </span>
+              )}
+              <span className="ml-auto text-xs text-black/40">
+                {m.addedBy === 'client' ? 'added by you' : 'added by our team'}
+                {m.providedAt ? ` · ${fmtDate(m.providedAt)}` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* PR4 integration mounts MaterialLinkForm here (client add-a-link). */}
+    </SectionShell>
+  )
+}

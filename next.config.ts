@@ -14,10 +14,11 @@ const contentSecurityPolicy = [
   "frame-ancestors 'none'",
   "object-src 'none'",
   "img-src 'self' data: https:",
-  "style-src 'self' 'unsafe-inline'",
+  // fonts.googleapis.com / fonts.gstatic.com: public viewbook Google Fonts (spec §6)
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "script-src 'self' 'unsafe-inline'",
   "connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com",
-  "font-src 'self' data:",
+  "font-src 'self' data: https://fonts.gstatic.com",
 ].join('; ')
 
 const nextConfig: NextConfig = {
