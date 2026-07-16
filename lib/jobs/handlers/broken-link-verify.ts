@@ -43,6 +43,7 @@ import { deriveFaqEvidence } from '@/lib/ada-audit/seo/faq-evidence'
 import { registerJobHandler } from '../registry'
 import { enqueueJob } from '../queue'
 import { enqueueNotifyEmail } from './notify-email'
+import { ensureExhaustedPlaceholder } from '@/lib/findings/exhausted-placeholder'
 import type { JobExhaustedContext, JobHandlerContext } from '../types'
 import { publishInvalidation } from '@/lib/events/bus'
 import { siteAuditTopic, prospectListTopic, clientSummaryTopic, recentsTopic } from '@/lib/events/topics'
@@ -716,11 +717,15 @@ export function enqueueBrokenLinkVerify(siteAuditId: string, domain: string | nu
 
 export async function onBrokenLinkVerifyExhausted(payload: unknown, ctx: JobExhaustedContext): Promise<void> {
   console.warn(`[broken-link-verify] exhausted after ${ctx.attempts} attempts: ${ctx.lastError}`)
-  // D7: the parent SiteAudit is already terminal 'complete' at this point (verify
-  // is enqueued post-terminal), so still send the completion email. The content
-  // builder tolerates a missing SEO run. Never throw from onExhausted.
   const p = payload as { siteAuditId?: string } | null
   if (!p?.siteAuditId) return
+  // Spec §3.1 (Codex): terminality FIRST, notify second, independent catches —
+  // a notify failure must never prevent the placeholder (and vice versa).
+  // ensureExhaustedPlaceholder never throws by contract.
+  await ensureExhaustedPlaceholder(p.siteAuditId)
+  // D7: the parent SiteAudit is already terminal 'complete' at this point (verify
+  // is enqueued post-terminal), so still send the completion email. The content
+  // builder treats a placeholder run as a missing SEO run. Never throw from onExhausted.
   const row = await prisma.siteAudit
     .findUnique({ where: { id: p.siteAuditId }, select: { notifyEmail: true, notifyCompleteSentAt: true } })
     .catch(() => null)
