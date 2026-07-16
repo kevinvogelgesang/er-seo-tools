@@ -1,0 +1,98 @@
+# Viewbook v2 Program — Waves, Lanes & Coordination
+
+**Spec:** `docs/superpowers/specs/2026-07-16-viewbook-v2-stages-design.md`
+(Codex-reviewed, 12 fixes applied). 8 PRs, Claude + Codex tandem — the v1
+viewbook tandem model (PRs #185–#192) reused.
+
+## Wave plan
+
+PR numbers are the spec §15 increments. Waves run left-to-right; PRs inside a
+wave run concurrently in separate worktrees with disjoint file ownership.
+
+| Wave | Claude lane | Codex lane | Gate to start |
+|---|---|---|---|
+| 1 | **PR1** Stage engine core (schema/migration, stage catalog, lineups, stage-move) | — (idle; briefs not yet cuttable) | spec merged |
+| 2 | **PR2** Live sync (syncVersion bumps, sync endpoints, `useViewbookSync`) | **PR4** Kickoff + docs (`ViewbookDoc`, PDF pipeline, doc cards, kickoff-next CTA, public-page session helper) | PR1 merged |
+| 3 | **PR6** Website-specifics (ws-intro, WCAG tester, `contrast.ts`, luminance refactor) | **PR3** Email infra + CSM (`viewbook-email` job, delivery fencing, templates, roster isCsm/email, CSM card, stage-change wiring) | wave 2 merged |
+| 4 | **PR5** Post-contract stage (pc sections, team invites, ack + completion, public routes, ack-to-stage fence, creation default flip) | **PR8** ER inline layer (inline controls, presentation toggle — consumes PR4's session helper) | wave 3 merged |
+| 5 | **PR7** Design pass (SectionShell v2, header, TOC rail, search, SVG accents, sharp/webp) — via frontend-design skill | — | wave 4 merged |
+
+Ordering rationale (spec Codex fix 2): email infrastructure (PR3) and CSM
+land before anything that can trigger a send (PR5); creation default stays
+`building` until PR5 flips it; PR7 runs last so the visual pass restyles the
+FINAL section set once, with no concurrent structural edits.
+
+## Lane rules (v1 lessons, verbatim)
+
+- **Briefs are cut from MERGED code, never memory.** Each Codex brief is
+  written just-in-time when its wave opens, referencing the then-current
+  `main`. Same for Claude PR plans beyond PR1.
+- Codex works in a worktree under `.claude/worktrees/<slug>`; `codex exec`
+  there **cannot commit or network** — Codex leaves work uncommitted, Claude
+  runs gates (`tsc --noEmit`, `npm run lint`, `DATABASE_URL="file:./local-dev.db" npm test`,
+  `npm run build`) and commits.
+- `codex exec resume` takes `-c sandbox_mode=` (not `--sandbox`); pin the
+  model each call. Sol High while the 5h window has >25% remaining; on budget
+  exhaustion **PAUSE the lane and tell Kevin** (he triggers his reset) —
+  never takeover.
+- **Cross-review both directions before every merge:** Codex-lane work is
+  reviewed by Claude before commit; Claude-lane PRs get `/codex-review`
+  (P1) before merge.
+- One PR = one branch = one worktree. Never edit in the main checkout while
+  lanes are open (other sessions run there).
+
+## File-ownership map (conflict fences per concurrent wave)
+
+**Wave 2** — PR2 owns: `lib/viewbook/answers.ts`, `lib/viewbook/public-writes.ts`,
+`lib/viewbook/global-content.ts` (txn-ification + bumps), `lib/viewbook/service.ts`
+(bump statements only), `app/api/viewbook/[token]/sync/`, `app/api/viewbooks/[id]/sync/`,
+`components/viewbook/public/useViewbookSync.ts` + editor-registry touches to the
+four v1 islands, `middleware.ts` (sync matcher). PR4 owns: `lib/viewbook/docs.ts`
+(new), `lib/viewbook/assets.ts` (PDF sniff/caps section), `lib/viewbook/public-session.ts`
+(new helper), `app/api/viewbook-docs/**`, `app/api/viewbooks/[id]/docs/**`,
+`app/api/viewbook/[token]/assets/[filename]/route.ts` (allowlist extension),
+`components/viewbook/public/StrategySection.tsx`, `components/viewbook/public/KickoffNextSection.tsx`
+(new), admin docs UI. **Merge order inside wave 2: PR2 first** — PR4 rebases
+and adopts PR2's exported `syncVersionBumpStatement()` for its new doc-write
+transactions before merge.
+
+**Wave 3** — PR6 owns: `lib/viewbook/contrast.ts` (new), `lib/viewbook/theme.ts`
+(luminance refactor), `components/viewbook/public/WsIntroSection.tsx` +
+`ContrastTester.tsx` (new), brand-section composition. PR3 owns:
+`lib/viewbook/email.ts` (new delivery core), `lib/jobs/handlers/viewbook-email.ts`
+(new), `lib/notify/viewbook-*-content.ts` (new templates),
+`lib/viewbook/global-content.ts`/`global-content-keys.ts` (roster isCsm/email),
+`lib/viewbook/service.ts` (CSM assignment + stage-move delivery wiring),
+`components/viewbook/public/WelcomeSection.tsx` (CSM card), admin CSM picker.
+
+**Wave 4** — PR5 owns: `lib/viewbook/stages.ts` (lineup additions, PC defkeys),
+`lib/viewbook/catalog.ts` (phone/website entries), `lib/viewbook/team-members.ts` +
+`lib/viewbook/ack.ts` (new), the three public routes + matchers
+(`middleware.ts`), pc-* section components, creation-default flip in
+`service.ts`. PR8 owns: `components/viewbook/public/OperatorLayer/**` (new),
+`components/viewbook/public/PresentationToggle.tsx` (new), per-section
+affordance slots, `app/(public)/viewbook/[token]/page.tsx` (session wiring
+via PR4's helper). Shared-file caution: BOTH touch section components —
+PR8 adds affordance slots only via a wrapper, never edits pc-* files.
+
+## Deploy plan
+
+- Additive migration lands with PR1; deploy is optional per wave — minimum:
+  one deploy after wave 2 (schema + sync live for smoke) and one after wave 5.
+- `sharp` (PR7): direct dependency; prod `npm install` pulls prebuilt
+  binaries; profile decode at max dimensions on the box before merge
+  (spec §9); no new env vars anywhere in the program.
+- The prod smoke viewbook (id 1) migrates to `building` — verify post-deploy
+  that its public page renders identically (v1 parity) after PR1's deploy.
+
+## Tracker & handoff
+
+Program-level status lives in this doc's checklist (below). The roadmap
+tracker gets a status-log line per merged wave (change-control ritual).
+
+- [ ] Wave 1: PR1 merged
+- [ ] Wave 2: PR2 + PR4 merged
+- [ ] Wave 3: PR6 + PR3 merged
+- [ ] Wave 4: PR5 + PR8 merged
+- [ ] Wave 5: PR7 merged
+- [ ] Prod deploy + spec-§13 verification pass
