@@ -44,3 +44,18 @@ describe('next.config /seo-parser → /seo-audits redirects', () => {
     expect(sub).toMatchObject({ destination: '/seo-audits/:path*', permanent: true })
   })
 })
+
+describe('CSP report-only header (viewbook PR2 fonts origins)', () => {
+  it('adds both Google Fonts origins and retains the existing directives', async () => {
+    const headers = await nextConfig.headers!()
+    const csp = headers[0].headers.find((h) => h.key === 'Content-Security-Policy-Report-Only')!.value
+    expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com")
+    expect(csp).toContain("font-src 'self' data: https://fonts.gstatic.com")
+    // Existing directives must survive the edit untouched
+    expect(csp).toContain("default-src 'self'")
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).toContain("object-src 'none'")
+    expect(csp).toContain("script-src 'self' 'unsafe-inline'")
+    expect(csp).toContain('connect-src')
+  })
+})
