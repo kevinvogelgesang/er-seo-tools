@@ -8,19 +8,15 @@ import { HttpError } from '@/lib/api/errors'
 import { ASSET_FILENAME_RE } from './theme'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 
-export const GLOBAL_CONTENT_KEYS = ['team', 'process', 'why', 'seo-base', 'geo-base', 'eeat-base'] as const
-export type GlobalContentKey = (typeof GLOBAL_CONTENT_KEYS)[number]
+import {
+  GLOBAL_CONTENT_KEYS,
+  type ContentBlocks,
+  type GlobalContentKey,
+  type TeamMember,
+} from './global-content-keys'
 
-export interface TeamMember {
-  name: string
-  role: string
-  photo: string | null
-  blurb: string
-}
-
-export interface ContentBlocks {
-  blocks: { heading: string; body: string }[]
-}
+export { GLOBAL_CONTENT_KEYS }
+export type { ContentBlocks, GlobalContentKey, TeamMember }
 
 const TEAM_CAPS = { members: 20, name: 120, role: 160, blurb: 2048 }
 const BLOCK_CAPS = { blocks: 20, heading: 200, body: 4096 }

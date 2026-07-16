@@ -15,6 +15,7 @@ import { IssueTrendCard } from '@/components/clients/IssueTrendCard'
 import { FindingsPanel } from '@/components/clients/FindingsPanel'
 import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
 import { RobotsCheckCard } from '@/components/clients/RobotsCheckCard'
+import { ViewbookCard } from '@/components/viewbook/admin/ViewbookCard'
 import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
 import { GscKeywordCard } from '@/components/clients/GscKeywordCard'
 import { GscCannibalizationCard } from '@/components/clients/GscCannibalizationCard'
@@ -131,6 +132,8 @@ export default async function ClientDashboardPage({ params }: Props) {
           archived={dash.client.archivedAt !== null}
           initial={{ checks: robotsChecks, latest: robotsLatest }}
         />
+
+        <ViewbookCard clientId={clientId} clientName={dash.client.name} />
 
         <AnalyticsIdsPanel clientId={clientId} />
 

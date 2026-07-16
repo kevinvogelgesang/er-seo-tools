@@ -24,6 +24,7 @@ export function IconRedirect(p: IconProps) { return base(p, <><path d="M4 12h13M
 export function IconBook(p: IconProps) { return base(p, <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5z" /><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-2.5" /></>) }
 export function IconProspect(p: IconProps) { return base(p, <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>) }
 export function IconIssues(p: IconProps) { return base(p, <><path d="M10.3 3.9 2.6 17a1.8 1.8 0 0 0 1.5 2.7h15.8a1.8 1.8 0 0 0 1.5-2.7L13.7 3.9a1.8 1.8 0 0 0-3.1 0Z" /><path d="M12 9v4M12 16.5v.5" /></>) }
+export function IconViewbook(p: IconProps) { return base(p, <><path d="M12 6c-1.8-1.4-4.2-2-7-2v14c2.8 0 5.2.6 7 2 1.8-1.4 4.2-2 7-2V4c-2.8 0-5.2.6-7 2Z" /><path d="M12 6v14" /></>) }
 export function IconSettings(p: IconProps) { return base(p, <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z" /></>) }
 export function IconLogout(p: IconProps) { return base(p, <><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15" /><path d="M12 9l-3 3m0 0 3 3m-3-3h12" /></>, 2) }
 export function IconChevron(p: IconProps) { return base(p, <path d="M15 6l-6 6 6 6" />, 2) }

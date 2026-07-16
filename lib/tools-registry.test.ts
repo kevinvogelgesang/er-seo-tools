@@ -48,6 +48,13 @@ describe('tools registry', () => {
     expect(audits.children?.map((c) => c.name)).toEqual(['Run an audit', 'Audit queue', 'Recents', 'Compare crawls'])
   })
 
+  it('registers the viewbooks tool with its settings child', () => {
+    const viewbooks = TOOLS.find((t) => t.id === 'viewbooks')
+    expect(viewbooks?.href).toBe('/viewbooks')
+    expect(viewbooks?.group).toBe('plan')
+    expect(viewbooks?.children?.map((c) => c.href)).toEqual(['/viewbooks', '/viewbooks/settings'])
+  })
+
   it('C16: aliases are internal, non-public paths', () => {
     for (const t of TOOLS) {
       for (const a of t.aliases ?? []) {

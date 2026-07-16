@@ -21,6 +21,7 @@ module.exports = {
       SCREENSHOTS_DIR: `${DATA_HOME}/screenshots`,
       REPORTS_DIR: `${DATA_HOME}/reports`,
       HERO_SCREENSHOTS_DIR: `${DATA_HOME}/sales-hero`, // C14 hero: outlives the 24h screenshot sweep; 30-day sales tokens
+      VIEWBOOK_ASSETS_DIR: `${DATA_HOME}/viewbook-assets`, // client viewbook logos/heroes/team photos — persistent, include in backups
       // D0 ops safety. BACKUP_DIR holds daily DB snapshots + alert-state.json.
       // Set ALERT_WEBHOOK_URL in the server .env (a Slack incoming webhook) to
       // enable failure alerts; unset = alerts computed + logged, not sent.
