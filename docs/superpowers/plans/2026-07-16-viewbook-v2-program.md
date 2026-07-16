@@ -14,7 +14,7 @@ wave run concurrently in separate worktrees with disjoint file ownership.
 | 1 | **PR1** Stage engine core (schema/migration, stage catalog, lineups, stage-move) | — (idle; briefs not yet cuttable) | spec merged |
 | 2 | **PR2** Live sync (syncVersion bumps, sync endpoints, `useViewbookSync`) | **PR4** Kickoff + docs (`ViewbookDoc`, PDF pipeline, doc cards, kickoff-next CTA, public-page session helper) | PR1 merged |
 | 3 | **PR6** Website-specifics (ws-intro, WCAG tester, `contrast.ts`, luminance refactor) | **PR3** Email infra + CSM (`viewbook-email` job, delivery fencing, templates, roster isCsm/email, CSM card, stage-change wiring) | wave 2 merged |
-| 4 | **PR5** Post-contract stage (pc sections, team invites, ack + completion, public routes, ack-to-stage fence, creation default flip) | **PR8** ER inline layer (inline controls, presentation toggle — consumes PR4's session helper) | wave 3 merged |
+| 4 | **PR5** Post-contract stage (pc sections, team invites, ack + completion, public routes, ack-to-stage fence, creation default flip, **admin stage-move buttons** — deferred here from PR1 so the UI never exposes moves into stages whose components don't exist yet) | **PR8** ER inline layer (inline controls, presentation toggle — consumes PR4's session helper) | wave 3 merged |
 | 5 | **PR7** Design pass (SectionShell v2, header, TOC rail, search, SVG accents, sharp/webp) — via frontend-design skill | — | wave 4 merged |
 
 Ordering rationale (spec Codex fix 2): email infrastructure (PR3) and CSM
@@ -40,6 +40,12 @@ FINAL section set once, with no concurrent structural edits.
   (P1) before merge.
 - One PR = one branch = one worktree. Never edit in the main checkout while
   lanes are open (other sessions run there).
+- **Program-wide sync-bump rule (Codex plan-review fix 4):** every PR after
+  PR2 that introduces a mutation of rendered viewbook data (PR3 CSM/global
+  content/stage deliveries, PR4 docs, PR5 ack/team/setup, PR7 asset writes)
+  MUST consume PR2's exported `syncVersionBumpStatement()` inside the same
+  fenced transaction AND add bump/no-bump tests (0-row fenced write and
+  idempotent replay bump NOTHING). This is a merge gate, not a rebase note.
 
 ## File-ownership map (conflict fences per concurrent wave)
 
@@ -52,9 +58,12 @@ four v1 islands, `middleware.ts` (sync matcher). PR4 owns: `lib/viewbook/docs.ts
 (new helper), `app/api/viewbook-docs/**`, `app/api/viewbooks/[id]/docs/**`,
 `app/api/viewbook/[token]/assets/[filename]/route.ts` (allowlist extension),
 `components/viewbook/public/StrategySection.tsx`, `components/viewbook/public/KickoffNextSection.tsx`
-(new), admin docs UI. **Merge order inside wave 2: PR2 first** — PR4 rebases
-and adopts PR2's exported `syncVersionBumpStatement()` for its new doc-write
-transactions before merge.
+(new), admin docs UI. **NOT disjoint (Codex plan-review fix 3):** both PRs
+touch `lib/viewbook/public-data.ts`, `lib/viewbook/public-types.ts`, and the
+public page/shell. **Merge order inside wave 2: PR2 first; PR4 rebases and
+OWNS the integration edits** to those shared files (and adopts
+`syncVersionBumpStatement()` for its doc-write transactions) before merge.
+Concurrent work stays on leaf files until the rebase.
 
 **Wave 3** — PR6 owns: `lib/viewbook/contrast.ts` (new), `lib/viewbook/theme.ts`
 (luminance refactor), `components/viewbook/public/WsIntroSection.tsx` +
@@ -72,8 +81,11 @@ transactions before merge.
 `service.ts`. PR8 owns: `components/viewbook/public/OperatorLayer/**` (new),
 `components/viewbook/public/PresentationToggle.tsx` (new), per-section
 affordance slots, `app/(public)/viewbook/[token]/page.tsx` (session wiring
-via PR4's helper). Shared-file caution: BOTH touch section components —
-PR8 adds affordance slots only via a wrapper, never edits pc-* files.
+via PR4's helper). **NOT disjoint (fix 3):** both touch the public page and
+section components. **Merge order: PR5 first; PR8 rebases and OWNS the final
+page/session integration.** PR8 adds affordance slots only via a wrapper,
+never edits pc-* files. PR5 also picks up the admin stage-move buttons
+deferred from PR1 (fix 6).
 
 ## Deploy plan
 

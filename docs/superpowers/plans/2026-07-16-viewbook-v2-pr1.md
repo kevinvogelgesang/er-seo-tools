@@ -63,6 +63,7 @@ model ViewbookTeamMember {
   id               Int      @id @default(autoincrement())
   viewbookId       Int
   viewbook         Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  memberKey        String   @unique
   name             String
   email            String
   addedBy          String
@@ -76,6 +77,7 @@ model ViewbookStageLog {
   id         Int      @id @default(autoincrement())
   viewbookId Int
   viewbook   Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  eventKey   String   @unique
   stage      String
   direction  String
   actor      String
@@ -113,16 +115,23 @@ model ViewbookDoc {
 }
 ```
 
-- [ ] **Step 2: Generate the migration WITHOUT applying**
+- [ ] **Step 2: Hand-author the migration (repo procedure — Codex plan fix 5)**
 
-Run: `npx prisma migrate dev --create-only --name viewbook_v2_stages`
-Expected: new folder under `prisma/migrations/`, SQL contains `ALTER TABLE "Viewbook" ADD COLUMN "stage" TEXT NOT NULL DEFAULT 'post-contract'` etc. plus the four `CREATE TABLE`s.
+Create `prisma/migrations/<YYYYMMDDHHMMSS>_viewbook_v2_stages/migration.sql`
+by hand (do NOT use `migrate dev --create-only`): the five `ALTER TABLE
+"Viewbook" ADD COLUMN …` statements, `ALTER TABLE "ViewbookSection" ADD
+COLUMN "acknowledgedAt" DATETIME`, the four `CREATE TABLE`s + their
+`CREATE UNIQUE INDEX`/`CREATE INDEX` statements — mirror the SQL shapes in
+`prisma/migrations/20260716101640_client_viewbook/migration.sql` (same
+column-type conventions), with `eventKey`/`memberKey` unique indexes.
 
-- [ ] **Step 3: Append backfill statements to the generated `migration.sql`**
+- [ ] **Step 3: Append backfill statements to `migration.sql`**
 
 ```sql
--- v2 backfill: existing viewbooks land in 'building' (spec §2 migration row)
-UPDATE "Viewbook" SET "stage" = 'building';
+-- v2 backfill: existing viewbooks land in 'building' (spec §2 migration row);
+-- updatedAt set manually — raw SQL bypasses @updatedAt
+UPDATE "Viewbook" SET "stage" = 'building',
+  "updatedAt" = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER);
 
 -- Seed the six new section rows for every existing viewbook (idempotent,
 -- updatedAt populated explicitly — raw SQL bypasses @updatedAt)
@@ -140,10 +149,11 @@ WHERE NOT EXISTS (
 );
 ```
 
-- [ ] **Step 4: Populated-DB migration check (spec fix 11), then apply**
+- [ ] **Step 4: Rehearse on BOTH database shapes (spec fix 11), then apply**
 
-With the CURRENT local dev DB (which has at least one v1 viewbook — create one via the admin UI or `npx tsx -e` with `createViewbook` if empty), run:
-`npx prisma migrate dev`
+First a fresh DB: `DATABASE_URL="file:./v2-fresh-test.db" npx prisma migrate deploy` → applies cleanly from zero; delete the file after.
+Then the populated dev DB (which has at least one v1 viewbook — create one via the admin UI or `npx tsx -e` with `createViewbook` if empty):
+`DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy && npx prisma generate`
 Expected: applies cleanly. Then verify:
 `npx tsx -e "import {prisma} from './lib/db'; prisma.viewbook.findFirst({include:{sections:true}}).then(v => { console.log(v?.stage, v?.sections.length); return prisma.\$disconnect() })"`
 Expected: `building 13`
@@ -325,10 +335,13 @@ git commit -m "feat(viewbook): stage catalog + section-key registry extension"
 
 - [ ] **Step 1: Write failing tests** (extend `lib/viewbook/service.test.ts`, following its existing client-fixture helpers)
 
+Use the suite's REAL helper `mkClient()` (returns a client row — Codex plan
+fix 8), and filter `listViewbooks()` by the created id, never `rows[0]`:
+
 ```ts
 it('seeds all 13 section rows and creation stage building (PR1)', async () => {
-  const clientId = await makeClient() // existing suite helper
-  const { id } = await createViewbook(clientId, 'upgrade', 'op@er.com')
+  const client = await mkClient()
+  const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
   const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id }, include: { sections: true } })
   expect(vb.stage).toBe('building')
   expect(vb.sections).toHaveLength(13)
@@ -336,8 +349,10 @@ it('seeds all 13 section rows and creation stage building (PR1)', async () => {
 })
 
 it('listViewbooks exposes stage', async () => {
+  const client = await mkClient()
+  const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
   const rows = await listViewbooks()
-  expect(rows[0]).toHaveProperty('stage')
+  expect(rows.find((r) => r.id === id)?.stage).toBe('building')
 })
 ```
 
@@ -372,48 +387,56 @@ git commit -m "feat(viewbook): seed v2 section rows, explicit building creation 
 - Test: `lib/viewbook/service.test.ts` (extend), `app/api/viewbooks/viewbook-v2-stage-route.test.ts`
 
 **Interfaces:**
-- Produces: `moveViewbookStage(id: number, direction: 'forward' | 'back', actor: string): Promise<{ stage: ViewbookStage }>` — throws `HttpError(400,'invalid_direction')`, `HttpError(404,'not_found')`, `HttpError(409,'stage_conflict')` (concurrent move lost / at boundary). `POST /api/viewbooks/[id]/stage` body `{direction}` → `{stage}`. PR3 wires stage-change deliveries into this function; PR5 adds the `pcCompletedAt` fence + `force`.
+- Produces: `moveViewbookStage(id: number, direction: 'forward' | 'back', expectedStage: ViewbookStage, actor: string): Promise<{ stage: ViewbookStage }>` — throws `HttpError(400,'invalid_direction')`, `HttpError(404,'not_found')`, `HttpError(409,'stage_conflict')` (expectedStage mismatch / concurrent move lost / at boundary). The fence is the CALLER-supplied `expectedStage` (Codex plan fix 2 — a server pre-read can't stop two sequential requests double-stepping). `POST /api/viewbooks/[id]/stage` body `{direction, expectedStage}` → `{stage}`. PR3 wires stage-change deliveries into this function (via the log row's `eventKey`); PR5 adds the `pcCompletedAt` fence + `force`.
 
 - [ ] **Step 1: Write failing service tests**
 
 ```ts
 describe('moveViewbookStage', () => {
-  it('moves forward and logs', async () => {
-    const clientId = await makeClient()
-    const { id } = await createViewbook(clientId, 'upgrade', 'op@er.com')
+  it('moves forward and logs (with eventKey)', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
     await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract' } })
-    const res = await moveViewbookStage(id, 'forward', 'op@er.com')
+    const res = await moveViewbookStage(id, 'forward', 'post-contract', 'op@er.com')
     expect(res.stage).toBe('kickoff')
     const log = await prisma.viewbookStageLog.findFirstOrThrow({ where: { viewbookId: id } })
     expect(log).toMatchObject({ stage: 'kickoff', direction: 'forward', actor: 'op@er.com' })
+    expect(log.eventKey).toMatch(/[0-9a-f-]{36}/)
     const act = await prisma.viewbookActivity.findFirstOrThrow({ where: { viewbookId: id, kind: 'stage-change' } })
     expect(act.actor).toBe('op@er.com')
   })
   it('409s at the boundary (building has no next)', async () => {
-    const clientId = await makeClient()
-    const { id } = await createViewbook(clientId, 'upgrade', 'op@er.com')
-    await expect(moveViewbookStage(id, 'forward', 'op@er.com')).rejects.toMatchObject({ status: 409 })
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await expect(moveViewbookStage(id, 'forward', 'building', 'op@er.com')).rejects.toMatchObject({ status: 409 })
+  })
+  it('409s on stale expectedStage without touching the row', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com') // stage: building
+    await expect(moveViewbookStage(id, 'back', 'kickoff', 'op@er.com')).rejects.toMatchObject({ status: 409 })
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.stage).toBe('building')
   })
   it('moves back', async () => {
-    const clientId = await makeClient()
-    const { id } = await createViewbook(clientId, 'upgrade', 'op@er.com')
-    const res = await moveViewbookStage(id, 'back', 'op@er.com')
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    const res = await moveViewbookStage(id, 'back', 'building', 'op@er.com')
     expect(res.stage).toBe('website-specifics')
   })
-  it('double-fire loses the fence (single step, no duplicate log)', async () => {
-    const clientId = await makeClient()
-    const { id } = await createViewbook(clientId, 'upgrade', 'op@er.com')
+  it('same-expectedStage double-fire: exactly one wins, one step, one log', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
     await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
     const results = await Promise.allSettled([
-      moveViewbookStage(id, 'forward', 'a@er.com'),
-      moveViewbookStage(id, 'forward', 'b@er.com'),
+      moveViewbookStage(id, 'forward', 'kickoff', 'a@er.com'),
+      moveViewbookStage(id, 'forward', 'kickoff', 'b@er.com'),
     ])
     const wins = results.filter((r) => r.status === 'fulfilled')
-    expect(wins.length).toBeGreaterThanOrEqual(1)
+    expect(wins).toHaveLength(1) // the loser 409s on the expectedStage fence
     const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
     expect(vb.stage).toBe('website-specifics') // exactly ONE step
     const logs = await prisma.viewbookStageLog.count({ where: { viewbookId: id } })
-    expect(logs).toBe(wins.length) // a losing move writes NO log
+    expect(logs).toBe(1) // the losing move writes NO log
   })
 })
 ```
@@ -428,26 +451,30 @@ Expected: FAIL — `moveViewbookStage` not exported.
 ```ts
 import { isViewbookStage, nextStage, prevStage, type ViewbookStage } from './stages'
 
-// Fenced stage move (v2 PR1). Compound-where update: a concurrent move that
-// changed `stage` first makes this update throw P2025, rolling the log +
-// activity statements back with it (milestone-promote precedent above).
-// PR3 wires stage-change email deliveries here; PR5 adds the pcCompletedAt
-// forward-fence + force. NO email side effects in PR1.
+// Fenced stage move (v2 PR1). The fence is the CALLER-supplied expectedStage
+// (Codex plan fix 2 — a pre-read can't stop sequential double-steps): the
+// compound-where update throws P2025 when the row's stage no longer matches,
+// rolling the log + activity statements back with it (milestone-promote
+// precedent above). eventKey is app-generated so PR3 can key stage-change
+// deliveries in the SAME transaction (plan fix 1). PR5 adds the
+// pcCompletedAt forward-fence + force. NO email side effects in PR1.
 export async function moveViewbookStage(
   id: number,
   direction: 'forward' | 'back',
+  expectedStage: ViewbookStage,
   actor: string,
 ): Promise<{ stage: ViewbookStage }> {
   if (direction !== 'forward' && direction !== 'back') throw new HttpError(400, 'invalid_direction')
-  const vb = await prisma.viewbook.findUnique({ where: { id }, select: { stage: true } })
+  if (!isViewbookStage(expectedStage)) throw new HttpError(400, 'invalid_direction')
+  const vb = await prisma.viewbook.findUnique({ where: { id }, select: { id: true } })
   if (!vb) throw new HttpError(404, 'not_found')
-  if (!isViewbookStage(vb.stage)) throw new HttpError(409, 'stage_conflict')
-  const target = direction === 'forward' ? nextStage(vb.stage) : prevStage(vb.stage)
+  const target = direction === 'forward' ? nextStage(expectedStage) : prevStage(expectedStage)
   if (!target) throw new HttpError(409, 'stage_conflict')
+  const eventKey = crypto.randomUUID()
   try {
     await prisma.$transaction([
-      prisma.viewbook.update({ where: { id, stage: vb.stage }, data: { stage: target } }),
-      prisma.viewbookStageLog.create({ data: { viewbookId: id, stage: target, direction, actor } }),
+      prisma.viewbook.update({ where: { id, stage: expectedStage }, data: { stage: target } }),
+      prisma.viewbookStageLog.create({ data: { viewbookId: id, eventKey, stage: target, direction, actor } }),
       ...appendActivityStatements(id, 'stage-change', actor, `Moved to stage: ${target}`),
     ])
   } catch (err) {
@@ -486,16 +513,25 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   const id = parseId((await params).id)
   const body = requireJsonObject(await parseJsonBody(request))
   const direction = body.direction === 'forward' || body.direction === 'back' ? body.direction : null
-  if (!direction) return NextResponse.json({ error: 'invalid_direction' }, { status: 400 })
-  return NextResponse.json(await moveViewbookStage(id, direction, operatorEmail))
+  const expectedStage = typeof body.expectedStage === 'string' && isViewbookStage(body.expectedStage)
+    ? body.expectedStage : null
+  if (!direction || !expectedStage) return NextResponse.json({ error: 'invalid_direction' }, { status: 400 })
+  return NextResponse.json(await moveViewbookStage(id, direction, expectedStage, operatorEmail))
 })
 ```
 
 (This mirrors `app/api/viewbooks/[id]/lock/route.ts` exactly — same
 `withRoute`/`requireOperatorEmail`/`parseId` shapes, plus `requireJsonObject`
-for the primitive-body 400 guard.)
+for the primitive-body 400 guard; add the `isViewbookStage` import from
+`@/lib/viewbook/stages`.)
 
-Route test `app/api/viewbooks/viewbook-v2-stage-route.test.ts` follows the existing `app/api/viewbooks/routes.test.ts` harness (mocked operator auth): asserts 200 forward move, 400 bad direction, 401 unauthenticated, 404 unknown id.
+Route test `app/api/viewbooks/viewbook-v2-stage-route.test.ts` follows the
+existing `app/api/viewbooks/routes.test.ts` harness EXACTLY — it authenticates
+with REAL signed session cookies, not mocked operator auth (Codex plan fix 8;
+copy its cookie-building setup): asserts 200 forward move (body
+`{direction:'forward', expectedStage:'building'}` → 409 at boundary — use a
+row moved to `kickoff` first for the 200 case), 400 bad/missing direction or
+expectedStage, 401 unauthenticated, 404 unknown id, 409 stale expectedStage.
 
 - [ ] **Step 6: Run route tests, verify pass**
 
@@ -523,11 +559,17 @@ git commit -m "feat(viewbook): fenced stage-move service + cookie-gated route"
 - Consumes: `STAGE_LINEUPS`, `STAGE_LABELS`, `isViewbookStage` from `lib/viewbook/stages`.
 - Produces: `ViewbookPublicData` gains `stage: ViewbookStage`, `stageLabel: string`, and `sections` is REPLACED by `primarySections: PublicSection[]` + `carriedSections: PublicSection[]` (each `PublicSection` unchanged, plus new `acknowledgedAt: string | null`). PR2+ consume this exact shape.
 
-- [ ] **Step 1: Write failing public-data tests** (extend the existing suite's fixture helpers)
+- [ ] **Step 1: Write failing public-data tests**
+
+`lib/viewbook/public-data.test.ts` has NO shared `token`/`vbId` fixtures
+(Codex plan fix 8) — each test arranges its own viewbook inline with the
+suite's existing creation pattern (read the file first and reuse its exact
+arrangement helpers/imports):
 
 ```ts
 it('resolves the building lineup: v1 sections primary, nothing carried', async () => {
-  const data = await loadViewbookPublicData(token) // fixture viewbook is stage 'building'
+  const { token } = await createViewbook((await mkClient()).id, 'upgrade', 'op@er.com')
+  const data = await loadViewbookPublicData(token) // creation stage is 'building' in PR1
   expect(data?.stage).toBe('building')
   expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(
     ['welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials'],
@@ -536,9 +578,10 @@ it('resolves the building lineup: v1 sections primary, nothing carried', async (
 })
 
 it('kickoff stage: primary trio + data-source carried; hidden still suppresses', async () => {
-  await prisma.viewbook.update({ where: { id: vbId }, data: { stage: 'kickoff' } })
+  const { id, token } = await createViewbook((await mkClient()).id, 'upgrade', 'op@er.com')
+  await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
   await prisma.viewbookSection.update({
-    where: { viewbookId_sectionKey: { viewbookId: vbId, sectionKey: 'strategy' } },
+    where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: 'strategy' } },
     data: { state: 'hidden' },
   })
   const data = await loadViewbookPublicData(token)
@@ -547,11 +590,15 @@ it('kickoff stage: primary trio + data-source carried; hidden still suppresses',
 })
 
 it('unknown stored stage degrades to building lineup (never blanks)', async () => {
-  await prisma.viewbook.update({ where: { id: vbId }, data: { stage: 'bogus' } })
+  const { id, token } = await createViewbook((await mkClient()).id, 'upgrade', 'op@er.com')
+  await prisma.viewbook.update({ where: { id }, data: { stage: 'bogus' } })
   const data = await loadViewbookPublicData(token)
   expect(data?.stage).toBe('building')
 })
 ```
+
+(If `createViewbook` doesn't return `token` in the current signature, it does
+— see `service.ts:79` `return { id: vb.id, token }`.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -584,16 +631,34 @@ const carriedSections = pick(lineup.carried)
 
 Return `stage`, `stageLabel: STAGE_LABELS[stage]`, `primarySections`, `carriedSections` in the payload (drop `sections`). Update `public-types.ts` accordingly (`PublicSection` gains `acknowledgedAt: string | null`).
 
-- [ ] **Step 4: Update the page + shell**
+- [ ] **Step 4: Update the page + shell (one rendering owner — Codex plan fix 7)**
 
-`app/(public)/viewbook/[token]/page.tsx`: the existing `bySection` switch stays; render `data.primarySections` through it in the main flow, then `<EarlierSteps sections={data.carriedSections} render={bySection} />`. `ViewbookShell` accepts the two lists (it currently maps one `sections` prop) and shows `stageLabel` next to the client name in `ProgressNav`. `EarlierSteps.tsx` (server component): renders nothing when empty; otherwise a slim band `<details>` per carried section — heading "Earlier steps" — each detail body rendering the SAME section component (full v1 functionality inside; PR7 restyles).
+The page's `bySection` map currently receives entries from `data.sections`
+and will break when that field is removed — restate it as
+`renderSection(s: PublicSection): ReactNode` (same switch body, takes the
+section directly). **`ViewbookShell` becomes the single rendering owner:** it
+takes `primarySections`, `carriedSections`, and `renderSection`, renders the
+primary flow itself, then ONE outer collapsed "Earlier steps" band
+(`EarlierSteps.tsx`, server component: renders nothing when empty; otherwise
+a slim `<details>` per carried section whose body calls the SAME
+`renderSection` — full v1 functionality inside; PR7 restyles). `ProgressNav`
+is updated DELIBERATELY: it shows `stageLabel` next to the client name and
+dots for PRIMARY sections only — carried sections do not get dots.
 
-- [ ] **Step 5: Run the full viewbook suite + verify a build**
+- [ ] **Step 5: Named type-fixture updates, then the full suite + build**
+
+Update these known consumers of the payload/`PublicSection` shape by name
+(Codex plan fix 10 — don't leave them to a generic tsc sweep):
+- `components/viewbook/admin/ThemePreview.tsx` — constructs a `PublicSection`
+  literal: add `acknowledgedAt: null`.
+- `components/viewbook/public/sections-read.test.tsx` (and any sibling
+  section tests constructing the old payload) — rename `sections` fixtures to
+  `primarySections`/`carriedSections`; assertions otherwise identical.
 
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/viewbook components/viewbook app/api/viewbook app/api/viewbooks`
-Expected: PASS — the sections-read tests may pin the old `sections` payload shape; update them to `primarySections`/`carriedSections` (shape rename only, assertions otherwise identical).
+Expected: PASS.
 Run: `npx tsc --noEmit`
-Expected: clean (the compiler surfaces every consumer of the renamed payload — fix each by renaming, no logic changes).
+Expected: clean (the compiler catches any consumer missed above — fix by renaming, no logic changes).
 
 - [ ] **Step 6: Commit**
 
@@ -604,32 +669,40 @@ git commit -m "feat(viewbook): stage-aware public lineup + Earlier-steps band"
 
 ---
 
-### Task 6: Admin stage controls (Settings tab + index)
+### Task 6: Admin stage visibility (types + index chip — NO move buttons)
+
+The stage-move BUTTONS are deferred to PR5 (Codex plan fix 6): PR1 must not
+expose UI that moves a viewbook into stages whose components don't exist yet.
+The route from Task 4 ships (tested, cookie-gated, nothing calls it yet).
 
 **Files:**
-- Modify: `components/viewbook/admin/ViewbookEditor.tsx:163-297` (SettingsTab), `components/viewbook/admin/ViewbookIndex.tsx`
-- Test: existing admin component tests (extend only if the suite already covers SettingsTab controls; otherwise route-level coverage from Task 4 suffices — do NOT add a new component-test harness in this PR)
+- Modify: `components/viewbook/admin/viewbook-admin-shared.ts` (types), `components/viewbook/admin/ViewbookIndex.tsx`, `components/viewbook/admin/ViewbookEditor.tsx` (Settings tab read-only stage line)
+- Test: extend the existing admin component test for the index (chip rendering)
 
 **Interfaces:**
-- Consumes: `POST /api/viewbooks/[id]/stage` (Task 4), `STAGE_LABELS`/`VIEWBOOK_STAGES` from `lib/viewbook/stages`.
+- Consumes: `STAGE_LABELS` from `lib/viewbook/stages`; the `stage` field from Task 3's `listViewbooks` and `getViewbookAdmin` (spread — already present).
+- Produces: `ViewbookListRow.stage: string` and `ViewbookDetail.stage: string` in `viewbook-admin-shared.ts` (Codex plan fix 9) — PR5's buttons consume these.
 
-- [ ] **Step 1: SettingsTab stage card**
+- [ ] **Step 1: Add `stage` to the shared admin types**
 
-Add a "Stage" card above the section-state controls: current `STAGE_LABELS[stage]`, a 4-dot progress strip, and two buttons — "← Back" / "Advance →" — each `window.confirm` ("Move this viewbook to {label}?") then `POST {direction}`, then the editor's existing reload callback. Buttons disable at the ends (`nextStage`/`prevStage` null) and while in flight; a 409 shows the editor's existing error affordance ("Stage changed elsewhere — reloaded").
+`components/viewbook/admin/viewbook-admin-shared.ts`: add `stage: string` to `ViewbookListRow` AND `ViewbookDetail`.
 
-- [ ] **Step 2: Index stage column**
+- [ ] **Step 2: Index stage chip (distinct from the milestone column)**
 
-`ViewbookIndex.tsx`: render `STAGE_LABELS` chip per row from the `stage` field added in Task 3.
+`ViewbookIndex.tsx` currently labels `currentMilestone` "Current stage" — KEEP the milestone value but relabel that column "Current milestone", and add a separate project-stage chip rendering `STAGE_LABELS[row.stage]` (fallback: raw value). SettingsTab gets a read-only "Project stage: {label}" line (buttons arrive in PR5).
 
-- [ ] **Step 3: Manual verification**
+- [ ] **Step 3: Extend the index test**
 
-Run: `npm run dev` → `/viewbooks/[id]` Settings tab: advance/back moves persist (public page lineup changes on refresh), boundary buttons disabled, index shows the chip.
+In the existing admin index test file, assert a listed viewbook renders its stage chip label ("Now Building" for the fixture's `building` stage).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Run, then commit**
+
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run components/viewbook`
+Expected: PASS.
 
 ```bash
 git add components/viewbook/admin
-git commit -m "feat(viewbook): admin stage controls + index stage chip"
+git commit -m "feat(viewbook): admin stage types + index stage chip"
 ```
 
 ---

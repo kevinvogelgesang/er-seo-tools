@@ -81,6 +81,10 @@ Lineups:
 Stage-scoped sections (`pc-intro`, `pc-thanks`, `kickoff-next`, `ws-intro`)
 appear only in their own stage — never carried. A section key absent from both
 lists for the current stage does not render even if its DB row exists.
+**The lineup table above is the FINAL v2 target** (Codex plan-review fix 6):
+increments activate keys progressively — a key enters `STAGE_LINEUPS` only in
+the PR that ships its component, so an in-flight deploy never renders a
+section without a renderer.
 `state='hidden'` still suppresses a section everywhere (per-viewbook override,
 unchanged). The v1 fault isolation per section is retained.
 
@@ -106,8 +110,11 @@ delivery) and creates the `pc-complete` delivery row (§8) after commit.
 it (thank-you state and email are one-way).
 
 **Stage moves.** Cookie-gated `POST /api/viewbooks/[id]/stage`
-`{direction: 'forward' | 'back', force?: boolean}` — fenced conditional
-update (current stage re-checked in SQL; concurrent moves can't double-step),
+`{direction: 'forward' | 'back', expectedStage: ViewbookStage, force?: boolean}`
+— the fence is the CALLER-supplied `expectedStage` (Codex plan-review fix 2:
+a server pre-read cannot stop two sequential requests from double-stepping;
+the client fences against the stage it was LOOKING at), conditional update
+re-checked in SQL so concurrent moves can't double-step,
 appends a `ViewbookStageLog` row + `stage-change` activity row, bumps
 `syncVersion`. **Ack-to-stage fence (Codex fix 4):** a forward move OUT of
 `post-contract` requires `pcCompletedAt` set, else 409 — UNLESS
@@ -135,6 +142,7 @@ model ViewbookTeamMember {
   id               Int      @id @default(autoincrement())
   viewbookId       Int
   viewbook         Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  memberKey        String   @unique // app-generated UUID — delivery dedupKeys reference THIS, not the autoincrement id (array-form txns can't consume a same-txn autoincrement; Codex plan-review fix 1)
   name             String   // ≤120 B
   email            String   // ≤254 B, single canonical mailbox (§8)
   addedBy          String   // 'client' | operator email
@@ -148,6 +156,7 @@ model ViewbookStageLog {
   id          Int      @id @default(autoincrement())
   viewbookId  Int
   viewbook    Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  eventKey    String   @unique // app-generated UUID — same-txn delivery dedupKeys reference this (Codex plan-review fix 1)
   stage       String   // stage ENTERED
   direction   String   // 'forward' | 'back'
   actor       String   // operator email
@@ -337,9 +346,9 @@ names/labels.
 
 | Kind | Trigger | Recipient(s) | dedupKey |
 |---|---|---|---|
-| `team-invite` | member add / re-send (public, capped) | the member's email | `vb-invite:<memberId>:<n>` (n = 1-based send ordinal) |
+| `team-invite` | member add / re-send (public, capped) | the member's email | `vb-invite:<memberKey>:<n>` (n = 1-based send ordinal; `memberKey` = the app-generated UUID, usable in the SAME transaction that creates the member) |
 | `pc-complete` | completion predicate satisfied (ack or force-advance) | assigned CSM's roster email ?? `notifyAdminEmail()` (resolved at delivery creation) | `vb-pc-complete:<viewbookId>` |
-| `stage-change` | forward stage move | each address in `clientNotifyJson` (skip if empty) | `vb-stage:<stageLogId>:<recipient>` |
+| `stage-change` | forward stage move | each address in `clientNotifyJson` (skip if empty) | `vb-stage:<eventKey>:<recipient>` (`eventKey` = the log row's app-generated UUID) |
 
 **Abuse boundary (Codex fix 3)** — the same-site check and in-process
 throttle are soft (the token is the real grant), so the email surface gets
