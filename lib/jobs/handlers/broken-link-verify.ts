@@ -126,6 +126,14 @@ const LINK_STREAM_CHUNK = 5000
 // still runs). parsePositiveInt already imported from '../config'.
 export const VERIFIER_RSS_GUARD_MB = () => parsePositiveInt(process.env.VERIFIER_RSS_GUARD_MB, 1600)
 
+// Task 11b (Codex ruling): the MiniLM/ONNX embed pass inside the topic-overlap
+// block measured 1.3-2.1GB marginal RSS with INTRA-CHUNK native overshoot that
+// crosses even the 1600MB RSS guard (peaked 2409MB against PM2's 2400M kill
+// threshold; prod baseline ~540MB) -- the RSS guard checks BETWEEN chunks, not
+// during ONNX's synchronous native compute, so it cannot bound this. Ship with
+// the pass OFF by default; ONNX-side bounding is a follow-up. Default OFF.
+const TOPIC_OVERLAP_ENABLED = () => process.env.VERIFIER_TOPIC_OVERLAP_ENABLED === 'true'
+
 /** Keyset-stream HarvestedLink rows in the builder's deterministic order.
  * Exported for tests. onRow must be synchronous (single pass, no retention).
  * onChunkEnd fires after each DB chunk (RSS checkpoint seam, Codex #5).
@@ -738,6 +746,15 @@ export async function runBrokenLinkVerify(
   // synchronous ONNX pass off the event-loop critical path. Fail-to-null: a throw,
   // model failure, or deadline-abandon must NEVER fail the live-scan write.
   let topicOverlapJson: string | null = null
+  if (!TOPIC_OVERLAP_ENABLED()) {
+    // Task 11b kill switch: disabled by default. Plain null, matching the
+    // existing time-skip semantics ("not analyzed" render) -- NOT the
+    // inputCapped stub, which would falsely claim input capping. The embedder
+    // is never touched: this branch returns before any embedChunked/embedTexts
+    // reference, before the RSS/time gates below, and before the eligible-page
+    // text assembly.
+    console.log('[live-seo] topic-overlap pass disabled (VERIFIER_TOPIC_OVERLAP_ENABLED not set)')
+  } else {
   const topicRemaining = JOB_TIMEOUT_MS - (deps.now() - jobStartedAt) - SAFETY_RESERVE_MS
   const topicRssOver = rssOverGuard()
   if (topicRemaining >= TOPIC_OVERLAP_RESERVE_MS + CONTENT_SIM_RESERVE_MS && !topicRssOver) {
@@ -819,6 +836,7 @@ export async function runBrokenLinkVerify(
   } else if (topicRssOver) {
     console.warn('[live-seo] rss guard: skipping topic overlap')
     topicOverlapJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
+  }
   }
 
   // C6 Phase 5: content similarity. Best-effort + time-budget-guarded — a similarity

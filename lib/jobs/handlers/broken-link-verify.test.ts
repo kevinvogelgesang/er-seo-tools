@@ -987,6 +987,16 @@ describe('runBrokenLinkVerify — D7 completion notify', () => {
 })
 
 describe('C12 Tier-1 topic overlap', () => {
+  // Task 11b: the pass is OFF by default (VERIFIER_TOPIC_OVERLAP_ENABLED) —
+  // these tests exercise the pass itself, so they opt in explicitly, save/
+  // restore around each test (env hygiene — suites share a worker).
+  const ORIG_TOPIC_OVERLAP_ENABLED = process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+  beforeEach(() => { process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = 'true' })
+  afterEach(() => {
+    if (ORIG_TOPIC_OVERLAP_ENABLED === undefined) delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    else process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = ORIG_TOPIC_OVERLAP_ENABLED
+  })
+
   // helper: two indexable, non-login pages that ARE clustering candidates
   async function seedTwoTopicPages(siteAuditId: string) {
     await prisma.harvestedPageSeo.createMany({
@@ -1063,6 +1073,80 @@ describe('C12 Tier-1 topic overlap', () => {
     })
     expect(run!.topicOverlapJson).toBeNull()
     spy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 11b: VERIFIER_TOPIC_OVERLAP_ENABLED kill switch (Codex ruling — the
+// ONNX embed pass's intra-chunk RSS overshoot is unboundable by the RSS guard,
+// so the pass ships OFF by default; ONNX-side bounding is a follow-up).
+// ---------------------------------------------------------------------------
+
+describe('VERIFIER_TOPIC_OVERLAP_ENABLED kill switch', () => {
+  const KILL_DOMAIN = 'kill-switch.example.com'
+  const cleanKill = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: KILL_DOMAIN } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: KILL_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: KILL_DOMAIN } })
+  }
+  beforeEach(cleanKill)
+  afterAll(cleanKill)
+
+  const ORIG_TOPIC_OVERLAP_ENABLED = process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+  afterEach(async () => {
+    if (ORIG_TOPIC_OVERLAP_ENABLED === undefined) delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    else process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = ORIG_TOPIC_OVERLAP_ENABLED
+    vi.restoreAllMocks()
+    await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
+  })
+
+  // Same shape as seedTwoTopicPages above (two indexable, non-login,
+  // clustering-candidate pages) on this describe's own domain.
+  async function seedKillPages(siteAuditId: string) {
+    await prisma.harvestedPageSeo.createMany({
+      data: [
+        { siteAuditId, url: `https://${KILL_DOMAIN}/nursing-diploma`, statusCode: 200, isHtml: true,
+          title: 'Nursing Diploma', h1: 'Nursing Diploma Program', metaDescription: 'Become a nurse',
+          contentText: 'Our nursing diploma program prepares registered nurses for clinical practice.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+        { siteAuditId, url: `https://${KILL_DOMAIN}/rn-program`, statusCode: 200, isHtml: true,
+          title: 'RN Program', h1: 'Registered Nurse Program', metaDescription: 'Train as an RN',
+          contentText: 'The registered nurse program trains students for careers in clinical nursing.',
+          wordCount: 500, robotsNoindex: false, xRobotsNoindex: false, loginLike: false },
+      ],
+    })
+  }
+
+  it('default (unset): topicOverlapJson stays plain null, embedder never invoked, status unchanged', async () => {
+    delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) => texts.map(() => [1, 0]))
+    const sa = await prisma.siteAudit.create({ data: { domain: KILL_DOMAIN, status: 'complete', clientId: null } })
+    await seedKillPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: KILL_DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } },
+      select: { status: true, topicOverlapJson: true },
+    })
+    expect(run).not.toBeNull()
+    expect(run!.topicOverlapJson).toBeNull() // plain null, NOT the inputCapped stub
+    expect(spy).not.toHaveBeenCalled()       // embedder never touched
+    expect(run!.status).toBe('complete')     // disabling the pass never flips run status
+  })
+
+  it("enabled='true': the topic-overlap pass runs and clusters the two same-topic pages", async () => {
+    process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = 'true'
+    const spy = vi.spyOn(embeddings, 'embedTexts').mockImplementation(async (texts: string[]) => texts.map(() => [1, 0]))
+    const sa = await prisma.siteAudit.create({ data: { domain: KILL_DOMAIN, status: 'complete', clientId: null } })
+    await seedKillPages(sa.id)
+    await runBrokenLinkVerify({ siteAuditId: sa.id, domain: KILL_DOMAIN }, depsFor(new Set()))
+    const run = await prisma.crawlRun.findUnique({
+      where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } },
+      select: { topicOverlapJson: true },
+    })
+    const d = JSON.parse(run!.topicOverlapJson!)
+    expect(d.v).toBe(1)
+    expect(d.clusters).toHaveLength(1)
+    expect(spy).toHaveBeenCalled()
   })
 })
 
@@ -1199,9 +1283,15 @@ describe('runBrokenLinkVerify — Task 10 RSS guard on optional analytics passes
     await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: RSS2_DOMAIN } } })
     await prisma.siteAudit.deleteMany({ where: { domain: RSS2_DOMAIN } })
   }
+  // Task 11b: topic-overlap is OFF by default — this describe's tests assert
+  // on its RSS-gated behavior specifically, so they opt in explicitly.
+  const ORIG_TOPIC_OVERLAP_ENABLED = process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
   beforeEach(cleanRss2)
+  beforeEach(() => { process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = 'true' })
   afterAll(cleanRss2)
   afterEach(async () => {
+    if (ORIG_TOPIC_OVERLAP_ENABLED === undefined) delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+    else process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = ORIG_TOPIC_OVERLAP_ENABLED
     vi.restoreAllMocks()
     await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
   })

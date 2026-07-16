@@ -27,9 +27,16 @@ beforeEach(cleanBudget)
 // Save/restore: several tests set CONTENT_TEXT_TOTAL_BYTE_BUDGET and MUST NOT
 // leak it into sibling test files sharing the same vitest worker.
 const ORIGINAL_BUDGET_ENV = process.env.CONTENT_TEXT_TOTAL_BYTE_BUDGET
+// Task 11b: topic-overlap is OFF by default (VERIFIER_TOPIC_OVERLAP_ENABLED) —
+// every test in this file asserts on topicOverlapJson, so opt in for all of
+// them here rather than per-test.
+const ORIGINAL_TOPIC_OVERLAP_ENV = process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+beforeEach(() => { process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = 'true' })
 afterEach(async () => {
   if (ORIGINAL_BUDGET_ENV === undefined) delete process.env.CONTENT_TEXT_TOTAL_BYTE_BUDGET
   else process.env.CONTENT_TEXT_TOTAL_BYTE_BUDGET = ORIGINAL_BUDGET_ENV
+  if (ORIGINAL_TOPIC_OVERLAP_ENV === undefined) delete process.env.VERIFIER_TOPIC_OVERLAP_ENABLED
+  else process.env.VERIFIER_TOPIC_OVERLAP_ENABLED = ORIGINAL_TOPIC_OVERLAP_ENV
   vi.restoreAllMocks()
   await prisma.scoringWeights.deleteMany({ where: { id: 1 } })
   await cleanBudget()
