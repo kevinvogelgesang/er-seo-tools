@@ -11,6 +11,12 @@ export const SECTION_KEYS = [
   'assessment',
   'strategy',
   'materials',
+  'pc-intro',
+  'pc-setup',
+  'pc-invite',
+  'pc-thanks',
+  'kickoff-next',
+  'ws-intro',
 ] as const
 
 export type SectionKey = (typeof SECTION_KEYS)[number]
