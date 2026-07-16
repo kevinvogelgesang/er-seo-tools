@@ -4,6 +4,7 @@
 // docs/superpowers/specs/2026-06-10-durable-job-queue-design.md.
 
 export const JOB_ACTIVE_STATUSES = ['queued', 'running'] as const
+export const VIEWBOOK_DIGEST_JOB_TYPE = 'viewbook-digest'
 
 export type JobStatus = 'queued' | 'running' | 'complete' | 'error' | 'cancelled'
 

@@ -99,17 +99,21 @@ describe('sections', () => {
   it('done stamps doneAt; re-activate clears it; unknown key 400', async () => {
     const c = await mkClient()
     const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
-    await setSectionState(id, 'data-source', 'done')
+    await setSectionState(id, 'data-source', 'done', OPERATOR)
     let s = await prisma.viewbookSection.findUniqueOrThrow({
       where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: 'data-source' } },
     })
     expect(s.doneAt).not.toBeNull()
-    await setSectionState(id, 'data-source', 'active')
+    const activity = await prisma.viewbookActivity.findMany({ where: { viewbookId: id } })
+    expect(activity).toEqual([expect.objectContaining({
+      kind: 'section-done', actor: OPERATOR, summary: 'Completed data-source',
+    })])
+    await setSectionState(id, 'data-source', 'active', OPERATOR)
     s = await prisma.viewbookSection.findUniqueOrThrow({
       where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: 'data-source' } },
     })
     expect(s.doneAt).toBeNull()
-    await expect(setSectionState(id, 'nope', 'done')).rejects.toMatchObject({ code: 'invalid_section' })
+    await expect(setSectionState(id, 'nope', 'done', OPERATOR)).rejects.toMatchObject({ code: 'invalid_section' })
   })
 })
 

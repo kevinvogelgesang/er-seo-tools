@@ -95,6 +95,15 @@ describe('seedSystemSchedules', () => {
     expect(digest.nextRunAt.getDay()).toBe(1) // Monday, server-local
   })
 
+  it('seeds system-viewbook-digest every 15 minutes and immediately', async () => {
+    const now = new Date('2026-07-16T12:00:00Z')
+    await seedSystemSchedules(now)
+    const digest = await prisma.schedule.findUniqueOrThrow({ where: { name: 'system-viewbook-digest' } })
+    expect(digest.jobType).toBe('viewbook-digest')
+    expect(digest.cadence).toBe('every:15m')
+    expect(digest.nextRunAt.getTime()).toBeLessThanOrEqual(now.getTime())
+  })
+
   it('re-seed is idempotent: no duplicates, nextRunAt preserved when cadence unchanged', async () => {
     await seedSystemSchedules()
     const before = await prisma.schedule.findMany({ where: { name: { startsWith: 'system-' } } })

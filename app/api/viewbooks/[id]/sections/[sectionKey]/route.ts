@@ -12,7 +12,7 @@ type RouteParams = { params: Promise<{ id: string; sectionKey: string }> }
 
 /** PATCH /api/viewbooks/:id/sections/:sectionKey — { state? , introNote?, narrative? }. */
 export const PATCH = withRoute(async (request: NextRequest, { params }: RouteParams) => {
-  await requireOperatorEmail(request)
+  const operator = await requireOperatorEmail(request)
   const { id: rawId, sectionKey } = await params
   const id = parseId(rawId)
   const body = requireJsonObject(await parseJsonBody<Record<string, unknown>>(request))
@@ -21,7 +21,7 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
     if (body.state !== 'hidden' && body.state !== 'active' && body.state !== 'done') {
       throw new HttpError(400, 'invalid_section')
     }
-    await setSectionState(id, sectionKey, body.state)
+    await setSectionState(id, sectionKey, body.state, operator)
     handled = true
   }
   const text: { introNote?: string | null; narrative?: string | null } = {}
