@@ -68,31 +68,36 @@ function exactJaccard(x: number[], y: number[]): number {
 export function computeContentSimilarity(pages: SimilarityPageInput[], opts: ContentSimilarityOptions = {}): ContentSimilarityResult | null {
   const o = { ...D, ...opts }
   let noText = 0, thin = 0, truncatedPages = 0
-  type Row = { url: string; tokens: string[]; norm: string; truncated: boolean }
+  let capped = false // Codex plan-fix #6: declared BEFORE the loop (the loop now sets it)
+  type Row = { url: string; sh: number[]; exactHash: string | null; truncated: boolean }
   const eligible: Row[] = []
   for (const pg of [...pages].sort((x, y) => (x.url < y.url ? -1 : x.url > y.url ? 1 : 0))) {
     if (pg.contentTruncated) truncatedPages++
     if (!pg.contentText) { noText++; continue }
     const tokens = normalize(pg.contentText)
     if (tokens.length < o.minTokens) { thin++; continue }
-    eligible.push({ url: pg.url, tokens, norm: tokens.join(' '), truncated: pg.contentTruncated })
+    if (eligible.length >= o.maxPages) { capped = true; continue } // counters above still ran (Codex #6)
+    eligible.push({
+      url: pg.url,
+      sh: shingleHashes(tokens, o.shingleSize),
+      exactHash: pg.contentTruncated ? null : createHash('sha256').update(tokens.join(' ')).digest('hex'),
+      truncated: pg.contentTruncated,
+    })
   }
-  let capped = false
-  if (eligible.length > o.maxPages) { eligible.length = o.maxPages; capped = true }
   if (eligible.length < 2) return null
 
   // Exact duplicates (non-truncated only)
   const byHash = new Map<string, string[]>()
   for (const r of eligible) {
     if (r.truncated) continue
-    const h = createHash('sha256').update(r.norm).digest('hex')
+    const h = r.exactHash!
     ;(byHash.get(h) ?? byHash.set(h, []).get(h)!).push(r.url)
   }
   const exactGroups: ExactGroup[] = [...byHash.values()].filter(u => u.length >= 2)
     .map(u => ({ urls: u.slice().sort(), count: u.length }))
 
   // Shingle sets + DF-based boilerplate filter
-  const raw = eligible.map(r => ({ url: r.url, sh: shingleHashes(r.tokens, o.shingleSize) }))
+  const raw = eligible
   const df = new Map<number, number>()
   for (const r of raw) for (const h of new Set(r.sh)) df.set(h, (df.get(h) ?? 0) + 1)
   const dropped = new Set<number>()
