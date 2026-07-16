@@ -4,6 +4,8 @@ import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewb
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import { FieldEditor } from './FieldEditor'
+import { AmendmentForm } from './AmendmentForm'
 
 const CATEGORY_LABELS: Record<string, string> = {
   school: 'Your school',
@@ -44,16 +46,21 @@ function ListValue({ value }: { value: string }) {
   )
 }
 
-function FieldRow({ field }: { field: PublicField }) {
+function FieldValue({ field }: { field: PublicField }) {
+  if (field.value == null || field.value === '') return <p className="text-black/35">Not provided yet</p>
+  if (field.fieldType === 'list') return <ListValue value={field.value} />
+  return <p className="whitespace-pre-line">{field.value}</p>
+}
+
+function FieldRow({ field, token, dataLockedAt }: { field: PublicField; token: string; dataLockedAt: string | null }) {
+  const lockedBaseline = dataLockedAt !== null
+    && new Date(field.createdAt).getTime() <= new Date(dataLockedAt).getTime()
   return (
     <div className="px-5 py-3">
       <p className="text-sm font-semibold text-black/60">{field.label}</p>
-      {field.value == null || field.value === '' ? (
-        <p className="text-black/35">Not provided yet</p>
-      ) : field.fieldType === 'list' ? (
-        <ListValue value={field.value} />
-      ) : (
-        <p className="whitespace-pre-line">{field.value}</p>
+      {lockedBaseline ? <FieldValue field={field} /> : <FieldEditor token={token} field={field} />}
+      {dataLockedAt && !lockedBaseline && field.isCustom && (
+        <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--vb-primary)' }}>Added after lock-in · still editable</p>
       )}
       {field.valueUpdatedAt && (
         <p className="mt-1 text-xs text-black/40">
@@ -62,12 +69,15 @@ function FieldRow({ field }: { field: PublicField }) {
       )}
       {field.amendments.map((a) => (
         <div key={a.id} className="mt-2 border-l-4 pl-3" style={{ borderColor: 'var(--vb-tertiary)' }}>
-          <p className="whitespace-pre-line">{a.value}</p>
+          {field.fieldType === 'list' ? <ListValue value={a.value} /> : <p className="whitespace-pre-line">{a.value}</p>}
           <p className="text-xs text-black/40">
             changed on {fmtDate(a.createdAt)} by {who(a.author)}
           </p>
         </div>
       ))}
+      {lockedBaseline && (
+        <AmendmentForm token={token} fieldId={field.id} fieldType={field.fieldType} label={field.label} />
+      )}
     </div>
   )
 }
@@ -110,12 +120,11 @@ export function DataSourceSection({
           </summary>
           <div className="divide-y divide-black/5">
             {cat.fields.map((f) => (
-              <FieldRow key={f.id} field={f} />
+              <FieldRow key={f.id} field={f} token={token} dataLockedAt={data.dataLockedAt} />
             ))}
           </div>
         </details>
       ))}
-      {/* PR3 owns this file next: inline editing, autosave, propose-a-change. */}
     </SectionShell>
   )
 }
