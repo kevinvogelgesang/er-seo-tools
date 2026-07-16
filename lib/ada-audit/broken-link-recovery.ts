@@ -5,6 +5,7 @@
 // self-heals (finalizeSiteAudit early-returns on 'complete'). Run at boot
 // (recoverQueue) and in the 10-min stale-audit sweep.
 import { prisma } from '@/lib/db'
+import { ensureExhaustedPlaceholder } from '@/lib/findings/exhausted-placeholder'
 import { BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
 import { enqueueJob } from '@/lib/jobs/queue'
 import { JOB_ACTIVE_STATUSES } from '@/lib/jobs/types'
@@ -69,6 +70,19 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
       select: { id: true },
     })
     if (activeJob) continue
+    // Spec §3.2 (Codex #1) — self-repair fence: onExhausted hooks are
+    // best-effort (runOnExhausted swallows failures), so a crashed placeholder
+    // write must be repaired HERE, and an exhausted verifier must never be
+    // re-enqueued. Terminal errored job present -> retry the placeholder,
+    // skip the enqueue. Active jobs take precedence (checked above).
+    const erroredJob = await prisma.job.findFirst({
+      where: { type: BROKEN_LINK_VERIFY_JOB_TYPE, groupKey: `site-audit:${siteAuditId}`, status: 'error' },
+      select: { id: true },
+    })
+    if (erroredJob) {
+      await ensureExhaustedPlaceholder(siteAuditId)
+      continue
+    }
     // AWAIT a real enqueue — this sweep closes the fire-and-forget window, so it
     // must confirm the job is durably queued before counting it. dedupKey makes
     // it idempotent against a racing enqueue.
