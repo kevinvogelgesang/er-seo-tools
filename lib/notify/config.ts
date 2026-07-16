@@ -29,3 +29,7 @@ export function notifyAdminEmail(): string {
 export function notifyRequestTimeoutMs(): number {
   return Number(process.env.NOTIFY_REQUEST_TIMEOUT_MS) || 10_000
 }
+
+export function supportNotifyEmail(): string {
+  return process.env.SUPPORT_NOTIFY_EMAIL || 'support@enrollmentresources.com'
+}
