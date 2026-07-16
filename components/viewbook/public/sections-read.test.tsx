@@ -95,4 +95,15 @@ describe('MaterialsSection', () => {
     expect(screen.getByText('Logo files')).toBeDefined()
     expect(screen.queryByRole('link', { name: /logo files/i })).toBeNull()
   })
+
+  it('renders a non-https material URL as plain text, never an anchor (security-review)', () => {
+    const data = base({
+      materials: [
+        { id: 1, label: 'Sneaky', status: 'provided', url: 'javascript:alert(1)', addedBy: 'client', providedAt: null },
+      ],
+    })
+    render(<MaterialsSection section={sec('materials')} data={data} token="tok" />)
+    expect(screen.queryByRole('link', { name: /sneaky/i })).toBeNull()
+    expect(screen.getByText('Sneaky')).toBeDefined()
+  })
 })

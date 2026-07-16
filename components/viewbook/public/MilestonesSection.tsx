@@ -5,6 +5,7 @@ import type { PublicMilestone, PublicSection, ViewbookPublicData } from '@/lib/v
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import { isHttpsUrl } from './MaterialsSection'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -105,15 +106,19 @@ export function MilestonesSection({
             {m.reviewLinks.map((l) => (
               <div key={l.id} className="rounded-xl border border-black/10 bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  <a
-                    href={l.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium underline"
-                    style={{ color: 'var(--vb-secondary)' }}
-                  >
-                    {l.label}
-                  </a>
+                  {isHttpsUrl(l.url) ? (
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium underline"
+                      style={{ color: 'var(--vb-secondary)' }}
+                    >
+                      {l.label}
+                    </a>
+                  ) : (
+                    <span className="font-medium text-black/70">{l.label}</span>
+                  )}
                   <span
                     className="rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
                     style={{ background: 'var(--vb-primary)', color: 'var(--vb-on-primary)' }}

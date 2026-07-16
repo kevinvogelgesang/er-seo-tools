@@ -42,6 +42,20 @@ describe('MilestonesSection', () => {
     expect(screen.queryByText(/reviews will appear here/i)).toBeNull() // links exist → no empty state
   })
 
+  it('renders a non-https review-link URL as plain text, never an anchor (security-review)', () => {
+    const data = base({
+      milestones: [
+        milestone({
+          id: 2, title: 'Design', status: 'current',
+          reviewLinks: [{ id: 9, label: 'Sneaky link', url: 'javascript:alert(1)', kind: 'mockup', feedback: [] }],
+        }),
+      ],
+    })
+    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    expect(screen.queryByRole('link', { name: /sneaky link/i })).toBeNull()
+    expect(screen.getByText('Sneaky link')).toBeDefined()
+  })
+
   it('renders the empty state when NO milestone has review links (separate fixture — Codex plan-fix 8)', () => {
     const data = base({
       milestones: [milestone({ id: 1, title: 'Kickoff', status: 'current' })],

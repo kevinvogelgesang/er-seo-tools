@@ -12,6 +12,17 @@ function fmtDate(iso: string): string {
   })
 }
 
+// Render-side scheme guard (security-review): the write side enforces
+// https-only, but this public sink must not depend on a different lane's
+// validation — a non-https URL renders as plain text, never an anchor.
+export function isHttpsUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 export function MaterialsSection({
   section,
   data,
@@ -34,7 +45,7 @@ export function MaterialsSection({
         <ul className="divide-y divide-black/10 rounded-xl border border-black/10 bg-white shadow-sm">
           {data.materials.map((m) => (
             <li key={m.id} className="flex flex-wrap items-center gap-2 px-5 py-3">
-              {m.status === 'provided' && m.url ? (
+              {m.status === 'provided' && m.url && isHttpsUrl(m.url) ? (
                 <a
                   href={m.url}
                   target="_blank"
