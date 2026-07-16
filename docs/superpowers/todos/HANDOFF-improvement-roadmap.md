@@ -1,13 +1,10 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-16 (**C21 weekly client sweep MERGED (PR #183) but NOT
-deployed — deploy is BLOCKED on a `runBrokenLinkVerify` memory fix**, the root
-cause of the 2026-07-16 prod crash-loop incident (180 PM2 kills; resolved same
-night by deleting the transient HarvestedLink/HarvestedPageSeo fuel; ~7 audits
-lost their live-scan SEO results, ADA intact). Sessions now have direct prod
-SSH via the gitignored `.claude/ops-secrets.local.sh` (Kevin authorization).
-The SF-parity campaign remains the standing direction AFTER the blocker +
-deploy land.) · **Updated by:** the C21 weekly-sweep + incident session.
+**Last updated:** 2026-07-16 (**verifier memory/loop fix SHIPPED (PR #186) and
+C21 weekly sweep DEPLOYED — the 2026-07-16 crash-loop incident class is
+closed. First sweep fires Mon 2026-07-20 01:00 UTC, digest 14:00 UTC. The
+standing direction resumes: the SF-parity campaign.**) · **Updated by:** the
+verifier-fix + C21-deploy session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -15,61 +12,73 @@ deploy land.) · **Updated by:** the C21 weekly-sweep + incident session.
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. STATE (2026-07-16): C21 (weekly
-client sweep + /issues Current Issues page + Monday support digest) is MERGED
-(PR #183, main 7048744) but NOT DEPLOYED. Deploying it is BLOCKED on one fix.
+Continue the er-seo-tools improvement roadmap. STATE (2026-07-16): the
+verifier memory/loop fix is SHIPPED (PR #186, main 89ebda6) and C21 (weekly
+client sweep + /issues + Monday support digest) is DEPLOYED. C2 client
+schedules are retired on the server. Both system-* sweep schedules are
+seeded: first sweep fires Mon 2026-07-20 01:00 UTC (~25 full audits), digest
+Mon 14:00 UTC to SUPPORT_NOTIFY_EMAIL (default support@enrollmentresources.com).
 
-THE SINGLE NEXT ITEM — fix runBrokenLinkVerify (lib/jobs/handlers/
-broken-link-verify.ts), then deploy C21:
-  1. The bug (caused the 2026-07-16 prod crash-loop, tracker status log):
-     on large audits (~500+ pages; 54k-78k HarvestedLink rows) the builder
-     exceeds PM2's max_memory_restart (2400M) in TWO independent stages —
-     (a) loading/deduping the full HarvestedLink set, and (b) the content
-     passes over HarvestedPageSeo (kills continued with links=0). PM2 kills
-     the process; the interrupted job exhausts its 3 attempts; then
-     recoverBrokenLinkVerifies() re-enqueues a FRESH job (predicate:
-     complete audit + harvested rows + no seo-parser run) -> self-sustaining
-     kill-loop. 180 restarts, prod effectively down for hours.
-  2. The fix must do BOTH: bound the memory (chunk/stream the link
-     load + dedup; investigate and bound the content-pass stage — profile
-     which sub-stage balloons: ONNX embed, similarity shingles, or the
-     on-page mapper) AND make exhaustion TERMINAL (onExhausted should write
-     a minimal/partial live-scan run — or otherwise break the recovery
-     predicate — so a repeatedly-dying verifier can never loop; the LOOP,
-     not the memory, is what took prod down).
-  3. Full pipeline: brainstorm -> spec -> Codex review -> plan -> Codex ->
-     TDD build -> gates -> merge (Kevin's flow: never pause for him; route
-     judgment calls to Codex — see memory 'codex-not-kevin-as-gate').
-  4. THEN the C21 deploy sequence: source .claude/ops-secrets.local.sh ->
-     ssh $PROD_SSH "~/deploy.sh" (migration 20260716000000_weekly_sweep
-     auto-applies) -> ON the server: npx tsx scripts/retire-client-schedules.ts
-     (one-shot C2 retirement) -> verify boot log seeds system-client-sweep
-     (weekly:1@01:00) + system-sweep-digest (weekly:1@14:00) -> post-deploy
-     verification checklist (er-seo-tools-run-and-operate) -> first sweep
-     fires Mon 01:00 UTC, digest Mon 14:00 UTC to SUPPORT_NOTIFY_EMAIL
-     (default support@enrollmentresources.com; env optional) -> after the
-     first live sweep record drain wall-clock + snapshot coverage >=90% in
-     the tracker (spec section 11) -> git mv the C21 spec+plan to archive/.
-
-AFTER C21 DEPLOYS, the standing direction resumes: the SF-parity campaign
+THE STANDING DIRECTION RESUMES — the SF-parity campaign
 (er-seo-tools-sf-retirement-campaign skill) + the two campaign-gated [~]
-items (C6 hybrid-discovery Increment 2; C12 tier promotions).
+items (C6 hybrid-discovery Increment 2; C12 tier promotions). Load that
+skill and pick up where it points.
 
-PROD ACCESS (new since 2026-07-16): source .claude/ops-secrets.local.sh
-(gitignored — PROD_SSH/APP_HOME/DATA_HOME/LOG_HOME/PROD_DB + the verbatim
-deploy.sh body). Live paths are /home/seo/... (the pre-scrub README's
-/home/seotools/... is a stale docs era). NO sqlite3 CLI on the server —
-prod DB probes go through node + the app's PrismaClient from $APP_HOME.
-Gate policy unchanged: read-only inspection + gate-green deploy + pm2
-restart autonomous; destructive ops (rm -rf, .env edits, DB restore)
-Kevin-gated per conversation.
+MONDAY 2026-07-20 VERIFICATION DUTY (whoever is in a session after Mon):
+  1. After the sweep drains: record drain wall-clock + snapshot coverage
+     >=90% in the tracker (C21 spec section 11) — the spec/plan were archived
+     to docs/superpowers/archive/ this session.
+  2. Watch pm2 memory through the ~25 verifier runs (the REAL prod exercise
+     of the new streamed builder; local evidence: 263MB marginal vs the old
+     ~2.7GB). Restarts must stay frozen at 180.
+  3. D5's first robots sweep fires the same morning 06:30 UTC (in-app
+     "changed" badge; notify env dark).
 
-KEVIN STEPS OUTSTANDING (small): (a) D5 first natural robots sweep glance
-after Mon 2026-07-20 ~06:30 UTC (scheduled RobotsCheck rows appeared;
-in-app "changed" badge is the signal — notify env is dark). (b) D3 optional
-page-count glance on the next real site audit. (c) C21 incident data cost:
-~7 audits (beal/urbanriver/cw/valley/soma/discoverycommunitycollege/
-tintcosmetology batch) have empty live-scan SEO results until next scan.
+VERIFIER-FIX FACTS THE NEXT SESSION NEEDS:
+- Exhausted verifiers now write a terminal placeholder CrawlRun
+  (source 'live-scan-placeholder', lib/findings/exhausted-placeholder.ts);
+  recovery NEVER re-enqueues one (errored-job fence). Read surfaces gate on
+  isPlaceholderRun -> "SEO analysis unavailable". A placeholder is
+  self-heal-REPLACED by any later successful build (writeFindingsRun
+  delete-and-recreate).
+- PROD BEHAVIOR CHANGE (Codex ruling): VERIFIER_TOPIC_OVERLAP_ENABLED is
+  DEFAULT OFF — topic-overlap cards render "not analyzed" until the switch
+  is enabled after the ONNX follow-up. Profiling proved MiniLM/ONNX
+  intra-chunk overshoot is unboundable by RSS gates (crossed the 1600MB
+  guard, peaked 2409MB; PM2 cap 2400M). Re-enabling requires the recorded
+  ONNX follow-up: child-process embed worker OR dispose fencing + chunk-size
+  benchmark (4/8/16/32, per-chunk RSS) + a 5-10 sequential-audit
+  accumulation check. Kevin flips the env only after that lands.
+- New env vars, all optional-with-defaults (no server .env changes needed):
+  VERIFIER_RSS_GUARD_MB (1600), CONTENT_TEXT_TOTAL_BYTE_BUDGET (24MB),
+  VERIFIER_TOPIC_OVERLAP_ENABLED (unset=off).
+- The characterization suite (broken-link-verify.characterization.test.ts)
+  is a FROZEN byte-identical gate on the builder's happy path — any
+  legitimate behavior change there must update the pins deliberately.
+- Dev profiling tool: DATABASE_URL="file:./local-dev.db" npx tsx
+  scripts/profile-verifier-memory.ts [--pages N --links-per-page M
+  --warm-embedder] — never deployed, never imported by app code.
+
+RECORDED FOLLOW-UPS (non-blocking, tracker status log 2026-07-16 has the
+full list): ONNX bounding (gates topic-overlap re-enable); sweep digest
+labels a placeholder pair 'timed-out' (label-only); direct run-page nav to
+a placeholder cuid renders the degraded empty view; Capped-component
+triplication; sales MethodExplainer beside the unavailable note (Kevin copy
+call); C21 log-only edges from the previous session.
+
+KEVIN STEPS OUTSTANDING (small): (a) D5 robots sweep glance after Mon
+~06:30 UTC; (b) D3 optional page-count glance on the next real site audit;
+(c) the ~7 incident audits have empty live-scan SEO results until next scan
+(placeholder-era data cost, self-heals on rescan); (d) optional UI smoke
+audit post-deploy (checklist item 6 — everything else verified; the Monday
+sweep is the real exercise).
+
+PROD ACCESS: source .claude/ops-secrets.local.sh (gitignored — PROD_SSH/
+APP_HOME/DATA_HOME/LOG_HOME/PROD_DB + the verbatim deploy.sh body). Live
+paths /home/seo/... NO sqlite3 CLI on the server — prod DB probes go
+through node + the app's PrismaClient from $APP_HOME. Gate policy
+unchanged: read-only inspection + gate-green deploy + pm2 restart
+autonomous; destructive ops Kevin-gated per conversation.
 
 CODEX MODEL: budget-gated — gpt-5.6-sol when 5h window >25% remaining, else
 gpt-5.6-terra; both high effort. Encoded in the consulting-codex skill.
@@ -77,67 +86,42 @@ gpt-5.6-terra; both high effort. Encoded in the consulting-codex skill.
 GOTCHAS FOR THE NEXT SESSION:
 - Local gates are the ONLY type-check gate: npx tsc --noEmit + npm test +
   npm run build before EVERY merge. npm run smoke mandatory if the PR
-  touches auth/SF-upload/ADA-pipeline or a component on a smoke-walked page
-  (export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/
-  Google Chrome" first on macOS).
+  touches auth/SF-upload/ADA-pipeline (export CHROME_EXECUTABLE=
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" on macOS).
 - Schema changes are hand-authored migration SQL (migrate dev is
   interactive-only), applied with DATABASE_URL="file:./local-dev.db" npx
   prisma migrate deploy; array-form $transaction ONLY; DateTime columns are
-  INTEGER ms — raw SQL binds ${x.getTime()} (this bit the incident session's
-  own diagnostics: datetime('now') comparisons vs ms columns return empty).
+  INTEGER ms in raw SQL.
 - New cookie-gated client routes need NO middleware change; anything public
   needs anchored middleware matchers + middleware.test.ts cases.
 - Never weaken safeFetch/SSRF guards. Only scan client sites already in the
-  system. lib/seo-fetch is FROZEN (51-test characterization gate) — consume,
-  never modify.
-- Prod box has NO sqlite3 CLI — prod DB probes go through node + the app's
-  generated Prisma client from $APP_HOME.
-- Tests self-provision per-worker SQLite DBs, run PARALLEL. Component
-  tests: // @vitest-environment jsdom + afterEach(cleanup) +
-  vi.unstubAllGlobals(), no jest-dom. Suite cleanup deletes ONLY owned rows.
-- WeeklySweep tests share one global scheduledFor timeline — new suites pick
-  a FRESH far-future anchor (+10y/+60y/+70y are taken by sweep-digest/
-  retention/read suites respectively).
-- Never git add -A/-u at repo root (pentest-results/ etc untracked) — stage
-  explicit paths. No backticks in Bash -m commit messages.
-- UI: dark: variants on every element + the ThemeToggle mounted-guard
-  hydration pattern; date rendering pins timeZone UTC when server-preloaded.
-- Raw NUL bytes in source make files binary-in-git and unreviewable — write
-  \x00/\u0000 escapes (bit TWO subagents this session).
-
-RECORDED FOLLOW-UPS (non-blocking): (1) C21 log-only edges: "first baseline"
-wording over-broad at zero comparable pairs; scanned tile counts
-never-enqueued failed members; outage-across-both-Monday-slots -> digest
-no-send or empty frozen snapshot (fails honest-side). (2) A5 PR3
-report/prospect/content-audit emit-sites never literally watched (transport
-proven — flip accepted). (3) D5 changed-alert EMAIL path not yet
-prod-exercised. (4) D4 resolveListedDomain normalized-vs-RAW parity one-liner.
-(5) misc carried minors: 'unrecognized' probe double-counts one error;
-fetch.test.ts toMatchObject tightening; kst latestSessionRef vestigial;
-jose-version-coupled token-test assertions.
+  system. lib/seo-fetch is FROZEN — consume, never modify.
+- Tests self-provision per-worker SQLite DBs, run PARALLEL; save/restore
+  any env var a suite sets (worker-shared env). WeeklySweep suites use
+  far-future scheduledFor anchors (+10y/+60y/+70y taken).
+- Never git add -A/-u at repo root (pentest-results/ etc untracked). No
+  backticks in Bash -m commit messages. No raw NUL bytes in source.
+- UI: dark: variants on every element + the mounted-guard hydration pattern.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/cat_/qct_
 clipboard flow.
 
-FIRST STEP — confirm main clean + prod healthy (source the ops secrets file;
-pm2 status should show restarts frozen ~180, verify queue empty). Load skill
-er-seo-tools-change-control FIRST, then er-seo-tools-architecture-contract
-(the job-queue/recovery seams you are about to change). Then start the
-verifier-fix brainstorm per the paste above.
+FIRST STEP — confirm main clean + prod healthy (source the ops secrets
+file; pm2 status restarts should still be 180; queue empty). If it is on
+or after Mon 2026-07-20, do the MONDAY VERIFICATION DUTY above FIRST. Then
+load er-seo-tools-sf-retirement-campaign and resume the campaign.
 ```
 
 ---
 
 ## Current state (one paragraph)
 
-Roadmap spine complete: A1 job queue, A2 findings layer, A3 route kit, A4
-logging/observability, A5 SSE push layer, A7 (auth/testing hardening),
-A8 app-shell, B-series, C-series through C20, D0, D1 (handoff engine),
-D2 (memo-via-SSE), D3 (seo-fetch), D4 (client robots checks), D5 (scheduled
-robots monitoring), D7 (scan emails) are all [x]; D6 FROZEN [x]; A6 absorbed
-into A8. **New: C21 (weekly client sweep + /issues + support digest) is [~]
-MERGED-NOT-DEPLOYED** — the only ungated build item, blocked on the
-`runBrokenLinkVerify` memory/loop fix (2026-07-16 incident root cause).
-After C21 deploys, the remaining work is the two campaign-gated [~] items
-(C6 hybrid-discovery Increment 2, C12 tier promotions) via the SF-retirement
-parity campaign — still the standing direction.
+Roadmap spine complete: A1-A8, B-series, C-series through **C21 (weekly
+client sweep + /issues + digest — DEPLOYED 2026-07-16)**, D0-D5, D7 all
+[x]; D6 FROZEN [x]. The 2026-07-16 verifier crash-loop incident is closed
+by PR #186 (terminal placeholder + recovery fence + memory-bounded builder;
+topic-overlap embedding OFF by default pending the ONNX follow-up). The
+first weekly sweep fires Mon 2026-07-20 01:00 UTC and needs its spec-§11
+numbers recorded. Remaining build work: the two campaign-gated [~] items
+(C6 hybrid-discovery Increment 2, C12 tier promotions) via the
+SF-retirement parity campaign — the standing direction.
