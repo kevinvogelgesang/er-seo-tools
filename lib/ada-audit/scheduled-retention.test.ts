@@ -6,6 +6,7 @@ import path from 'path'
 import { prisma } from '@/lib/db'
 import { pruneScheduledSiteAudits, RETENTION_DAYS } from './scheduled-retention'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
+import { CLIENT_SWEEP_JOB_TYPE } from '@/lib/sweep/types'
 
 const PREFIX = 'c2sched-r-'
 const NOW = new Date('2026-06-12T00:00:00Z')
@@ -17,9 +18,9 @@ function daysAgo(n: number): Date {
 
 const createdScheduleIds: string[] = []
 
-async function makeSchedule(cadence: string) {
+async function makeSchedule(cadence: string, jobType: string = SCHEDULED_SITE_AUDIT_JOB_TYPE) {
   const sched = await prisma.schedule.create({
-    data: { jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, cadence, payload: '{}', nextRunAt: new Date('2099-01-01T00:00:00Z') },
+    data: { jobType, cadence, payload: '{}', nextRunAt: new Date('2099-01-01T00:00:00Z') },
   })
   createdScheduleIds.push(sched.id)
   return sched
@@ -173,5 +174,54 @@ describe('pruneScheduledSiteAudits', () => {
     const audit = await makeAudit({ scheduleId: sched.id, status: 'error', createdAt: daysAgo(100), domain: `${PREFIX}g.example.edu` })
     await pruneScheduledSiteAudits(NOW)
     expect(await prisma.siteAudit.findUnique({ where: { id: audit.audit.id } })).not.toBeNull() // 100d < 365d
+  })
+
+  it('keeps latest 2 completed PER DOMAIN under one schedule', async () => {
+    const sched = await makeSchedule('weekly:1@06:00', CLIENT_SWEEP_JOB_TYPE)
+    const domains = [`${PREFIX}sweep-a.example.edu`, `${PREFIX}sweep-b.example.edu`]
+    for (const domain of domains) {
+      for (let i = 0; i < 5; i++) {
+        // staggered but all past the weekly window; keep-set must not care about age
+        await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(RETENTION_DAYS.weekly + 10 + i), domain })
+      }
+    }
+
+    await pruneScheduledSiteAudits(NOW)
+
+    for (const domain of domains) {
+      const survivors = await prisma.siteAudit.count({ where: { domain } })
+      expect(survivors).toBe(2)
+    }
+    const totalRemaining = await prisma.siteAudit.count({ where: { scheduleId: sched.id } })
+    expect(totalRemaining).toBe(4) // 10 total, 6 deleted, 4 kept (2 per domain)
+  })
+
+  it('prunes audits of client-sweep-jobType schedules at the weekly window', async () => {
+    const sched = await makeSchedule('weekly:1@01:00', CLIENT_SWEEP_JOB_TYPE)
+    const domain = `${PREFIX}sweep-single.example.edu`
+    const pruned = await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(RETENTION_DAYS.weekly + 10), domain })
+    // two newer completed audits so the keep-latest guard doesn't save the old one
+    await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(2), domain })
+    await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(1), domain })
+
+    await pruneScheduledSiteAudits(NOW)
+
+    expect(await prisma.siteAudit.findUnique({ where: { id: pruned.audit.id } })).toBeNull()
+  })
+
+  it('C2 single-domain schedules keep exactly the previous behavior', async () => {
+    const sched = await makeSchedule('weekly:1@06:00')
+    const domain = `${PREFIX}single.example.edu`
+    const audits = []
+    for (let i = 0; i < 5; i++) {
+      const { audit } = await makeAudit({ scheduleId: sched.id, status: 'complete', createdAt: daysAgo(RETENTION_DAYS.weekly + 10 + i), domain })
+      audits.push(audit)
+    }
+
+    await pruneScheduledSiteAudits(NOW)
+
+    const survivors = await prisma.siteAudit.findMany({ where: { scheduleId: sched.id }, select: { id: true } })
+    expect(survivors.length).toBe(2)
+    expect(survivors.map((s) => s.id).sort()).toEqual([audits[0].id, audits[1].id].sort()) // the two newest
   })
 })
