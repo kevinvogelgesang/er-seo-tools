@@ -72,7 +72,7 @@ deployable PRs.
 **PR1 (Claude)** — C: `prisma/schema.prisma` models + migration,
 `lib/viewbook/catalog.ts`, `milestones.ts`, `theme.ts`, `assets.ts`,
 `service.ts`, `global-content.ts`, `route-auth.ts` (fix 1 — PR4/PR3 compile
-against it), all their `.test.ts`; `app/api/viewbooks/route.ts`, `[id]/route.ts`,
+against it), `operator.ts` (re-review fix 3), all their `.test.ts`; `app/api/viewbooks/route.ts`, `[id]/route.ts`,
 `[id]/token` (the lock route is PR3's, not PR1's), `[id]/sections/[sectionKey]`,
 `[id]/milestones` + `[milestoneId]`, `[id]/assets` (attachment flows),
 `[id]/sync-questions`, `[id]/overrides/[contentKey]`,
@@ -86,8 +86,10 @@ M: `app/(app)/clients/[id]/page.tsx` (card), `app/api/clients/[id]/route.ts`
 **PR2 (Claude)** — C: `lib/viewbook/public-data.ts`,
 `app/(public)/viewbook/[token]/page.tsx`,
 `components/viewbook/public/{ViewbookShell,SectionShell,ProgressNav,WelcomeSection,MilestonesSection,DataSourceSection,BrandSection,AssessmentPlaceholder,StrategySection,MaterialsSection,ThemeStyle}.tsx`,
-`app/api/viewbook/[token]/assets/[filename]/route.ts`, preview adoption in
-admin (`components/viewbook/admin/ThemePreview.tsx` + M `ThemeEditor.tsx`).
+`app/api/viewbook/[token]/assets/[filename]/route.ts` **+ its
+curation/HTTP-serving tests** (re-review verify item — PR1 only asserts up to
+`readViewbookAsset`), preview adoption in admin
+(`components/viewbook/admin/ThemePreview.tsx` + M `ThemeEditor.tsx`).
 M: `middleware.ts` + `middleware.test.ts` (page + assets matchers),
 `next.config.ts` (CSP fonts origins).
 
@@ -107,7 +109,12 @@ files — NOT edits to PR2 files),
 M: `lib/jobs/handlers/register.ts` + test, `lib/jobs/types.ts` (job type),
 `lib/jobs/system-schedules.ts` + test, `lib/cleanup.ts` + wiring test
 (activity/retention wiring lives in `lib/viewbook/retention.ts`, NOT
-`lib/findings/retention.ts` — fix 5).
+`lib/findings/retention.ts` — fix 5), **`lib/viewbook/service.ts` +
+`service.test.ts` + `app/api/viewbooks/[id]/sections/[sectionKey]/route.ts`**
+(re-review fix 5 — section-done activity: `setSectionState` gains operator
+identity + writes the transition AND its `ViewbookActivity` row in one
+array-form transaction; PR1 is merged before PR4-core opens, so this modify
+never overlaps a live lane).
 **Integration phase (post-PR2-merge, rebased):** M: `middleware.ts` +
 `middleware.test.ts` (feedback + materials matchers),
 `components/viewbook/public/MilestonesSection.tsx` (mount FeedbackThread),
@@ -145,5 +152,6 @@ gates); (6) gate commands + "commit per task, push branch, do not merge".
 
 All five PRs merged gate-green + cross-reviewed; spec §12 test matrix covered;
 deploy checklist (`VIEWBOOK_ASSETS_DIR` on the data volume + in
-`ecosystem.config.js`, CSP fonts origins verified, migration applied); docs
-moved to `archive/` per superpowers taxonomy; handoff doc retired.
+`ecosystem.config.js` **+ added to the server backup coverage alongside
+uploads/reports — spec §13**, CSP fonts origins verified, migration applied);
+docs moved to `archive/` per superpowers taxonomy; handoff doc retired.

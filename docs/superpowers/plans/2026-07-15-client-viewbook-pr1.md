@@ -36,8 +36,8 @@
 - Produces: models `Viewbook`, `ViewbookSection`, `ViewbookField`, `ViewbookFieldAmendment`, `ViewbookMilestone`, `ViewbookReviewLink`, `ViewbookFeedback`, `ViewbookGlobalContent`, `ViewbookContentOverride`, `ViewbookMaterialLink`, `ViewbookActivity` — copy the schema block from spec §4 verbatim (it is the contract).
 
 - [ ] **Step 1:** Add the models + the `Client` inverse relation to `prisma/schema.prisma`.
-- [ ] **Step 2:** `npx prisma migrate dev --name client_viewbook` (normal repo flow — creates the migration + regenerates the client against the local dev DB; no reset).
-- [ ] **Step 3:** Hand-append to the new `migration.sql`:
+- [ ] **Step 2:** `npx prisma migrate dev --name client_viewbook --create-only` — creates the migration file WITHOUT applying it.
+- [ ] **Step 3:** Hand-append to the new (unapplied) `migration.sql`:
 
 ```sql
 -- At most one 'current' milestone per viewbook (spec §4 / Codex fix 5)
@@ -45,13 +45,11 @@ CREATE UNIQUE INDEX "ViewbookMilestone_one_current_per_viewbook"
 ON "ViewbookMilestone"("viewbookId") WHERE "status" = 'current';
 ```
 
-- [ ] **Step 4:** Prove the edited migration applies cleanly WITHOUT touching the dev DB — disposable DB:
+- [ ] **Step 4:** `npx prisma migrate dev` — applies the edited migration to the local dev DB + regenerates the client. Then prove it applies cleanly from scratch on a disposable DB:
 
 Run: `DATABASE_URL="file:/tmp/vb-mig-check.db" npx prisma migrate deploy && rm -f /tmp/vb-mig-check.db*`
-Expected: all migrations applied, including the hand-edited one. Then apply the partial index to the local dev DB itself: `DATABASE_URL="file:./local-dev.db" npx prisma migrate deploy` (idempotent for already-applied migrations; `migrate dev` in Step 2 ran before the hand-edit, so deploy picks up nothing new — instead run the index statement once via `npx prisma db execute --file` against local-dev if `migrate dev` already marked the migration applied. Simplest safe order: write the SQL edit BEFORE first applying — i.e. use `npx prisma migrate dev --create-only`, edit, then `npx prisma migrate dev`).
+Expected: every migration applies, including the hand-edited one. (Never `migrate reset`; never edit an already-applied migration — that's checksum drift.)
 - [ ] **Step 5:** Gate `npx tsc --noEmit` → clean. Commit: `git add prisma && git commit -m "feat(viewbook): PR1 schema — 11 models, partial unique current-milestone index"`
-
-> Corrected procedure summary: `npx prisma migrate dev --name client_viewbook --create-only` → hand-edit SQL → `npx prisma migrate dev` (applies + generates) → disposable-DB `migrate deploy` proof. Never `migrate reset`.
 
 ---
 
@@ -129,21 +127,27 @@ Run tests: `DATABASE_URL="file:./local-dev.db" npm test -- lib/viewbook/catalog.
 - Validator rules (strict, in order): **plain object only** (`Object.getPrototypeOf(raw)` is `Object.prototype` or `null`; arrays rejected) → key set exactly equals the 7 allowed keys → colors `/^#[0-9a-fA-F]{6}$/` → fonts via **`Object.prototype.hasOwnProperty.call(FONT_CATALOG, key)`** (never `in` — prototype names like `'toString'` must fail) → `logo` null or `ASSET_FILENAME_RE` → `sectionHeroes` **plain object**, keys ⊆ `SECTION_KEYS`, values match the regex → **UTF-8 byte cap `new TextEncoder().encode(JSON.stringify(theme)).length <= 8192`** (never `.length` on the string).
 - `onThemeColorText`: WCAG relative luminance with the **0.179 crossover** (the point where white and black text have equal contrast ratio), not 0.5: `L > 0.179 → '#111111'` else `'#ffffff'`.
 
-- [ ] **Step 1: Failing tests** — rev 1 cases PLUS: array theme rejected (`validateViewbookTheme([]) === null`); `sectionHeroes: []` rejected; `headingFont: 'toString'` rejected; multi-byte cap test (theme with a logo name padded so UTF-16 length < 8192 but UTF-8 bytes > 8192 via 3-byte chars) rejected; contrast crossover: `onThemeColorText('#808080')` → `'#111111'` (L≈0.216 > 0.179) and `onThemeColorText('#5a5a5a')` → `'#ffffff'` (L≈0.100).
+- [ ] **Step 1: Failing tests** — rev 1 cases PLUS: array theme rejected; `sectionHeroes: []` rejected; `headingFont: 'toString'` rejected; byte-cap test with an ASCII payload actually exceeding 8,192 bytes (a multibyte payload can't survive the ASCII filename regex — Codex re-review fix 2); contrast crossover: `onThemeColorText('#808080')` → `'#111111'` (L≈0.216 > 0.179) and `onThemeColorText('#5a5a5a')` → `'#ffffff'` (L≈0.100).
 
 ```ts
-it('rejects arrays, prototype font keys, and over-cap UTF-8 bytes', () => {
+it('rejects arrays, prototype font keys, and over-cap themes', () => {
   expect(validateViewbookTheme([])).toBeNull()
   expect(validateViewbookTheme({ ...good, sectionHeroes: [] })).toBeNull()
   expect(validateViewbookTheme({ ...good, headingFont: 'toString' })).toBeNull()
-  const fat = { ...good, sectionHeroes: { brand: 'a'.repeat(3000) + '.png' } } // regex-legal but with multibyte padding variant below
-  expect(validateViewbookTheme(fat)).toBeNull() // byte cap via TextEncoder
+  // regex-legal (the filename regex has no length bound) but > 8192 bytes serialized:
+  expect(validateViewbookTheme({ ...good, logo: 'a'.repeat(8300) + '.png' })).toBeNull()
+})
+it('measures the cap in UTF-8 bytes via TextEncoder', () => {
+  // direct unit check on the exported helper so the encoder choice is pinned:
+  expect(themeByteLength({ ...good, logo: null })).toBe(new TextEncoder().encode(JSON.stringify({ ...good, logo: null })).length)
 })
 it('picks text color at the 0.179 luminance crossover', () => {
   expect(onThemeColorText('#808080')).toBe('#111111')
   expect(onThemeColorText('#5a5a5a')).toBe('#ffffff')
 })
 ```
+
+(`themeByteLength(theme)` is exported from `theme.ts` for exactly this pin.)
 
 - [ ] **Steps 2–4:** fail → implement → pass. **Step 5:** Commit `git commit -m "feat(viewbook): strict theme validator (plain-object, hasOwnProperty, UTF-8 cap, 0.179 crossover) + font catalog"`
 
@@ -189,7 +193,7 @@ Run: `DATABASE_URL="file:./local-dev.db" npm test -- lib/viewbook/service.test.t
 
 **Files:** Create `lib/viewbook/global-content.ts`; Test `lib/viewbook/global-content.test.ts`
 
-**Interfaces:** as rev 1 (`GLOBAL_CONTENT_KEYS`, `TeamMember`, `ContentBlocks`, `validateGlobalContent`, `putGlobalContent`, `getGlobalContent`, `getAllGlobalContent` — corrupt row reads null) PLUS **`attachTeamPhoto(memberName: string, buf: Buffer, updatedBy: string)`** — one atomic multipart flow (Kevin decision): save to scope `'global'` → load+validate roster → member by exact name (miss → delete new file, `HttpError(404,'member_not_found')`) → stamp `photo` → delete old photo file. PLUS **`validateContentOverride(body: string)`** (≤ 4 KB) + `putContentOverride(viewbookId, contentKey, body, updatedBy)` / `deleteContentOverride` (fix 13 — per-client overrides are PR1 admin scope).
+**Interfaces:** as rev 1 (`GLOBAL_CONTENT_KEYS`, `TeamMember`, `ContentBlocks`, `validateGlobalContent`, `putGlobalContent`, `getGlobalContent`, `getAllGlobalContent` — corrupt row reads null) PLUS **`attachTeamPhoto(memberName: string, buf: Buffer, updatedBy: string)`** — one atomic multipart flow (Kevin decision): `validateGlobalContent('team', …)` REQUIRES unique member names (add that rule + test); save to scope `'global'` → load roster + keep the raw loaded `bodyJson` string → member by exact name (miss → delete new file, `HttpError(404,'member_not_found')`) → **conditional stamp `updateMany({ where: { key: 'team', bodyJson: loadedRaw }, data: … })` — 0 rows (concurrent roster edit) or any throw → delete the NEW file and 409 `roster_conflict`** (Codex re-review fix 6; test the conflict path, not just the missing member) → on success delete the old photo file. PLUS **`validateContentOverride(body: string)`** (≤ 4 KB) + `putContentOverride(viewbookId, contentKey, body, updatedBy)` / `deleteContentOverride` (fix 13 — per-client overrides are PR1 admin scope).
 
 - [ ] Test-first (roster roundtrip; unknown key 400; corrupt null; caps; photo-attach miss deletes orphan; override cap) → fail → implement → pass → commit `git commit -m "feat(viewbook): global content store + atomic team photo + per-client overrides"`
 
@@ -199,7 +203,7 @@ Run: `DATABASE_URL="file:./local-dev.db" npm test -- lib/viewbook/service.test.t
 
 **Files:**
 - Create: `lib/viewbook/route-auth.ts` + `lib/viewbook/route-auth.test.ts` (moved into PR1 — program fix 1)
-- Create: `lib/viewbook/operator.ts` (`requireOperatorEmail(): Promise<string>` — `getAuthSession()` email or `HttpError(401,'auth_required')`; **no sentinel fallback** — Kevin decision) + test (mock `@/lib/auth` via `vi.mock`)
+- Create: `lib/viewbook/operator.ts` (`requireOperatorEmail(request: Request): Promise<string>` — reads `AUTH_COOKIE_NAME` from the request's cookies and resolves via `getAuthSession(cookieValue)`'s actual signature (`lib/auth.ts:159` — it takes the cookie value, check before writing); missing/invalid → `HttpError(401,'auth_required')`; **no sentinel fallback** — Kevin decision. Request-passing keeps direct route tests deterministic — Codex re-review fix 3) + test
 - Create: `app/api/viewbooks/route.ts`, `app/api/viewbooks/[id]/route.ts`, `…/[id]/token/route.ts`, `…/[id]/sections/[sectionKey]/route.ts`, `…/[id]/milestones/route.ts` + `…/[milestoneId]/route.ts`, `…/[id]/assets/route.ts` (POST multipart `{kind:'logo'|'hero', sectionKey?}` → attachment ops — never save-only), `…/[id]/sync-questions/route.ts`, `…/[id]/overrides/[contentKey]/route.ts`, `app/api/viewbook-content/[key]/route.ts`, `app/api/viewbook-content/team-photo/route.ts`
 - Create: `app/api/viewbooks/routes.test.ts` (route-level tests)
 - Modify: `app/api/clients/[id]/route.ts` — DELETE: `collectClientViewbookAssetSnapshot(clientId)` BEFORE the delete, best-effort file cleanup after (fix 11)
@@ -208,7 +212,7 @@ Run: `DATABASE_URL="file:./local-dev.db" npm test -- lib/viewbook/service.test.t
 - `route-auth.ts` produces `requireViewbookToken(token: string): Promise<Viewbook>` — resolves by token, rejects revoked / archived-client / not-found with ONE indistinguishable `HttpError(404, 'not_found')`. PR2/PR4/PR3 import it unchanged.
 - Routes are thin service calls; ids parsed `^[1-9][0-9]*$` → 404; every handler `withRoute`-wrapped; attribution via `requireOperatorEmail()`.
 
-- [ ] **Step 1: Failing route tests** (call the exported handlers directly with `new Request(...)`, `vi.mock('@/lib/auth')`): malformed JSON → 400 `invalid_json`; id `'abc'` → 404; no session email → 401 `auth_required`; invalid theme PATCH → 400 `invalid_theme`; multipart logo attach happy-path stamps theme + serves back; `requireViewbookToken` fail-closed trio (bad token / revoked / archived client) → identical 404 bodies.
+- [ ] **Step 1: Failing route tests** (call the exported handlers directly with `new Request(...)`, `vi.mock('@/lib/auth')`): malformed JSON → 400 `invalid_json`; id `'abc'` → 404; no session email → 401 `auth_required`; invalid theme PATCH → 400 `invalid_theme`; multipart logo attach happy-path stamps `themeJson` AND the file is readable via `readViewbookAsset` (HTTP serving is PR2's route — its curation/serving tests live there, Codex re-review fix 4); `requireViewbookToken` fail-closed trio (bad token / revoked / archived client) → identical 404 bodies.
 - [ ] **Steps 2–4:** fail → implement → pass. **Step 5:** Commit `git commit -m "feat(viewbook): route-auth + operator guard + admin API routes (test-first)"`
 
 ---
