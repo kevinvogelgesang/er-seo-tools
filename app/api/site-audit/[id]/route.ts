@@ -9,6 +9,7 @@ import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { buildLiveChildren, LIVE_CHILDREN_LIMIT } from '@/lib/ada-audit/live-children-helpers'
 import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { classifySeoPhase, getLatestSeoVerifyJob, type SeoPhase } from '@/lib/ada-audit/seo-phase'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 import { publishInvalidation } from '@/lib/events/bus'
 import { queuedAheadCount } from '@/lib/ada-audit/queue-order'
 import { queueTopic, recentsTopic, siteAuditTopic } from '@/lib/events/topics'
@@ -28,7 +29,7 @@ export async function GET(
       pdfAudits: {
         select: { url: true, fileSize: true, pageCount: true, issues: true, scanError: true },
       },
-      crawlRuns: { where: { tool: 'seo-parser' }, select: { id: true } },
+      crawlRuns: { where: { tool: 'seo-parser' }, select: { id: true, source: true } },
     },
   })
 
@@ -103,7 +104,11 @@ export async function GET(
       )
     : undefined
 
-  const liveScanRunId = audit.crawlRuns[0]?.id ?? null
+  // Task 4 (verifier-memory-loop fix): an exhausted verifier's terminal
+  // placeholder run must not be reported as a real live-scan run — the
+  // client would otherwise redirect/link to a run page with no SEO content.
+  const seoRun = audit.crawlRuns[0] ?? null
+  const liveScanRunId = seoRun && !isPlaceholderRun(seoRun) ? seoRun.id : null
   const seoPhase: SeoPhase = liveScanRunId
     ? { state: 'done', progress: null, message: null }
     : classifySeoPhase({ liveScanRunId: null, job: await getLatestSeoVerifyJob(audit.id), completedAt: audit.completedAt })

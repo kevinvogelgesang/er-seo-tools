@@ -33,6 +33,13 @@ describe('POST content-audit/mint-token', () => {
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe('no_live_scan_run')
   })
+  it('409s when the only seo-parser run is an exhausted-verifier placeholder', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    await prisma.crawlRun.create({ data: { siteAuditId: sa.id, tool: 'seo-parser', source: 'live-scan-placeholder', domain: DOMAIN, status: 'partial', seoIntent: false } })
+    const res = await POST(new NextRequest('https://app.test/x', { method: 'POST' }), params(sa.id))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('no_live_scan_run')
+  })
   it('mints but reports textAvailable:false when text is already gone', async () => {
     const sa = await seedComplete(true, new Date(Date.now() - 1000)) // window already closed
     // no HarvestedPageSeo rows (swept)

@@ -132,12 +132,14 @@ export function AccessibilitySalesSection(props: {
 
 // ── SEO: urgency rows ───────────────────────────────────────────────────────
 
-export function SeoSalesSection(props: { data: SalesReportData['seo']; pagesScanned: number }) {
+export function SeoSalesSection(props: { data: SalesReportData['seo']; pagesScanned: number; seoUnavailable?: boolean }) {
   const d = props.data
   const pages = Math.max(1, props.pagesScanned)
-  const headline = d.issueGroups.length
-    ? d.issueGroups.slice(0, 2).map((g) => `${g.count} ${g.label.toLowerCase()}`).join(' · ')
-    : 'No blocking SEO issues found on scanned pages'
+  const headline = props.seoUnavailable
+    ? 'SEO analysis unavailable for this scan'
+    : d.issueGroups.length
+      ? d.issueGroups.slice(0, 2).map((g) => `${g.count} ${g.label.toLowerCase()}`).join(' · ')
+      : 'No blocking SEO issues found on scanned pages'
   return (
     <SectionCard
       title="SEO"
@@ -147,41 +149,50 @@ export function SeoSalesSection(props: { data: SalesReportData['seo']; pagesScan
       defaultOpen
     >
       <SectionLead>{SECTION_INTROS.seo}</SectionLead>
-      {d.issueGroups.length === 0 && (
-        <p className="text-[13px] font-body text-green-700 dark:text-green-400">
-          The scanned pages came back clean on links, titles, and content depth.
+      {props.seoUnavailable ? (
+        <p className="text-sm text-gray-600 dark:text-white/60">
+          SEO analysis is unavailable for this scan — the post-scan SEO verifier did not complete.
+          Accessibility, performance, and structured-data results below are unaffected.
         </p>
-      )}
-      {d.issueGroups.map((g) => (
-        <div key={g.type} className="rounded-xl border border-gray-200 dark:border-navy-border p-4 space-y-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="text-[13px] font-heading font-semibold text-navy dark:text-white">{g.label}</span>
-            <span className="text-[13px] font-heading font-bold text-red-600 dark:text-red-400">{g.count}</span>
-          </div>
-          <UrgencyBar
-            value={g.affectedPages}
-            max={pages}
-            ariaLabel={`${g.label}: ${g.affectedComplete ? '' : 'at least '}${g.affectedPages} of ${props.pagesScanned} pages affected`}
-          />
-          <p className="text-[12px] font-body text-navy/50 dark:text-white/50">
-            {g.affectedComplete ? `${g.affectedPages}` : `At least ${g.affectedPages}`} of {props.pagesScanned} pages affected
-          </p>
-          <p className="text-[12px] font-body text-navy/60 dark:text-white/60">{ISSUE_WHY[g.type]}</p>
-        </div>
-      ))}
-      {((d.duplicateContentGroups ?? 0) > 0 || (d.sitemapMissRatePct ?? 0) > 0) && (
-        <div className="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 p-4 space-y-1">
-          {d.duplicateContentGroups !== null && d.duplicateContentGroups > 0 && (
-            <p className="text-[13px] font-body text-navy/70 dark:text-white/70">
-              {d.duplicateContentGroups} groups of pages share near-identical content — they compete with each other in search.
+      ) : (
+        <>
+          {d.issueGroups.length === 0 && (
+            <p className="text-[13px] font-body text-green-700 dark:text-green-400">
+              The scanned pages came back clean on links, titles, and content depth.
             </p>
           )}
-          {d.sitemapMissRatePct !== null && d.sitemapMissRatePct > 0 && (
-            <p className="text-[13px] font-body text-navy/70 dark:text-white/70">
-              {d.sitemapMissRatePct}% of reachable pages are missing from the sitemap — search engines may never find them.
-            </p>
+          {d.issueGroups.map((g) => (
+            <div key={g.type} className="rounded-xl border border-gray-200 dark:border-navy-border p-4 space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[13px] font-heading font-semibold text-navy dark:text-white">{g.label}</span>
+                <span className="text-[13px] font-heading font-bold text-red-600 dark:text-red-400">{g.count}</span>
+              </div>
+              <UrgencyBar
+                value={g.affectedPages}
+                max={pages}
+                ariaLabel={`${g.label}: ${g.affectedComplete ? '' : 'at least '}${g.affectedPages} of ${props.pagesScanned} pages affected`}
+              />
+              <p className="text-[12px] font-body text-navy/50 dark:text-white/50">
+                {g.affectedComplete ? `${g.affectedPages}` : `At least ${g.affectedPages}`} of {props.pagesScanned} pages affected
+              </p>
+              <p className="text-[12px] font-body text-navy/60 dark:text-white/60">{ISSUE_WHY[g.type]}</p>
+            </div>
+          ))}
+          {((d.duplicateContentGroups ?? 0) > 0 || (d.sitemapMissRatePct ?? 0) > 0) && (
+            <div className="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 p-4 space-y-1">
+              {d.duplicateContentGroups !== null && d.duplicateContentGroups > 0 && (
+                <p className="text-[13px] font-body text-navy/70 dark:text-white/70">
+                  {d.duplicateContentGroups} groups of pages share near-identical content — they compete with each other in search.
+                </p>
+              )}
+              {d.sitemapMissRatePct !== null && d.sitemapMissRatePct > 0 && (
+                <p className="text-[13px] font-body text-navy/70 dark:text-white/70">
+                  {d.sitemapMissRatePct}% of reachable pages are missing from the sitemap — search engines may never find them.
+                </p>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
       <MethodExplainer area="seo" />
     </SectionCard>

@@ -8,6 +8,7 @@ import { aggregatePerformance, pickHomepageCwv, type HomepageCwv, type Performan
 import { loadRepresentativeExamples } from './representative-examples'
 import { HIGH_VALUE_SCHEMA_TYPES, ISSUE_LABELS, standardLabel } from './copy'
 import type { SchemaTypesSummary } from '@/lib/ada-audit/seo/schema-types'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 
 const MAX_PATTERNS = 4
 const MAX_EXAMPLE_PAGES = 5
@@ -43,6 +44,10 @@ export interface SalesReportData {
   overallScore: number | null          // rounded avg of available headline values
   heroScreenshot: boolean              // view builds /api/sales/[token]/hero/[auditId]
   standardTested: string               // "WCAG 2.1 AA" | "WCAG 2.2 AA + best practices"
+  // Task 4 (verifier-memory-loop fix): true when the only seo-parser run is
+  // an exhausted-verifier terminal placeholder — SEO analysis never
+  // completed for this scan. Accessibility/performance/schema are unaffected.
+  seoUnavailable: boolean
   headline: {
     accessibilityScore: number | null
     seoScore: number | null
@@ -144,7 +149,7 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       domain: true, homepageScreenshot: true,
       crawlRuns: {
         select: {
-          id: true, tool: true, score: true,
+          id: true, tool: true, source: true, score: true,
           schemaTypesJson: true, contentSimilarityJson: true, discoveryCoverageJson: true,
           findings: { select: { scope: true, type: true, count: true, url: true, affectedComplete: true } },
         },
@@ -156,6 +161,13 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
 
   const adaRun = audit.crawlRuns.find((r) => r.tool === 'ada-audit') ?? null
   const seoRun = audit.crawlRuns.find((r) => r.tool === 'seo-parser')!
+  // Task 4: an exhausted verifier's terminal placeholder run still satisfies
+  // the REPORTABLE resolution above (has a seo-parser run) — pinned decision,
+  // never "being prepared" forever — but must not be presented as real SEO
+  // analysis. score/findings/schema/similarity/coverage all read as absent
+  // off the placeholder row (it carries none of them), so this flag is what
+  // the UI needs to render an explicit "unavailable" note instead of silent zeros.
+  const seoUnavailable = isPlaceholderRun(seoRun)
 
   // Accessibility: summary blob, findings-fallback when pruned.
   let summary = parseJson<SiteAuditSummary>(audit.summary)
@@ -250,6 +262,7 @@ export async function loadSalesReportData(token: string): Promise<SalesReportRes
       overallScore,
       heroScreenshot: audit.homepageScreenshot !== null,
       standardTested: standardLabel(audit.wcagLevel),
+      seoUnavailable,
       headline: {
         accessibilityScore: adaRun?.score ?? null,
         seoScore: seoRun.score,

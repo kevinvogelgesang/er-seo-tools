@@ -26,6 +26,7 @@ import type { PdfIssue } from '@/lib/ada-audit/pdf-types'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
 import { resolveSeoOnlyView } from './seo-only-view'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 
 export const dynamic = 'force-dynamic'
 
@@ -142,9 +143,13 @@ export default async function SiteAuditResultPage({ params }: Props) {
   if (audit.seoOnly) {
     const liveRun = await prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId: audit.id, tool: 'seo-parser' } },
-      select: { id: true },
+      select: { id: true, source: true },
     })
-    const view = resolveSeoOnlyView(audit, liveRun?.id ?? null)
+    // Task 4 (verifier-memory-loop fix): an exhausted verifier's terminal
+    // placeholder run must not trigger the redirect to the SEO run page —
+    // there is no real SEO content behind it. resolveSeoOnlyView(audit, null)
+    // already renders the banner correctly; this just nulls out the id.
+    const view = resolveSeoOnlyView(audit, liveRun && !isPlaceholderRun(liveRun) ? liveRun.id : null)
     if (view.kind === 'redirect') redirect(view.href)
     const seoPhase = classifySeoPhase({
       liveScanRunId: null,

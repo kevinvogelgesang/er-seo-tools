@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import { computeScore, computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { BROKEN_LINK_VERIFY_JOB_TYPE } from '@/lib/jobs/handlers/broken-link-verify'
 import { SEO_PHASE_ENQUEUE_GRACE_MS } from './seo-phase'
+import { isPlaceholderRun } from '@/lib/findings/exhausted-placeholder'
 import type { AxeViolation } from '@/lib/ada-audit/types'
 
 // C17: statuses during which a SiteAudit row is worth live-polling.
@@ -200,7 +201,7 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
         id: true, createdAt: true, domain: true, status: true,
         startedAt: true, completedAt: true, requestedBy: true,
         client: { select: { name: true } },
-        crawlRuns: { where: { tool: 'seo-parser' }, select: { id: true, score: true } },
+        crawlRuns: { where: { tool: 'seo-parser' }, select: { id: true, score: true, source: true } },
         prospectId: true,
       },
     }),
@@ -256,24 +257,31 @@ export async function fetchAllRecents(opts: RecentsQueryOptions = {}): Promise<R
       inFlight: transientSite(s.status),
       prospectLinked: s.prospectId != null,
     })),
-    ...seoSites.map((s): RecentItem => ({
-      type: 'site-seo', id: s.id, createdAt: s.createdAt.toISOString(),
-      label: s.domain,
-      // Complete + run-ready → straight to SEO results (the spec's rule:
-      // completed rows with a live-scan run link to the run page); otherwise
-      // the site page hosts the poller/banner (C16 seoOnly behavior).
-      href: seoSiteHref(s.id, s.status, s.crawlRuns[0]?.id),
-      status: s.status, score: s.crawlRuns[0]?.score ?? null,
-      startedAt: s.startedAt?.toISOString() ?? null,
-      completedAt: s.completedAt?.toISOString() ?? null,
-      clientName: s.client?.name ?? null, requestedBy: s.requestedBy, deletable: false,
-      inFlight:
-        transientSite(s.status) ||
-        (s.status === 'complete' &&
-          !s.crawlRuns[0]?.id &&
-          (aliveVerifyGroups.has(`site-audit:${s.id}`) || withinGrace(s.completedAt))),
-      prospectLinked: s.prospectId != null,
-    })),
+    ...seoSites.map((s): RecentItem => {
+      // Task 4 (verifier-memory-loop fix): an exhausted verifier's terminal
+      // placeholder run (source: 'live-scan-placeholder') must never produce
+      // the run-page href — there is no real SEO content behind it. Fall
+      // back to the site page, which renders the failed/unavailable banner.
+      const seoRun = s.crawlRuns[0] && !isPlaceholderRun(s.crawlRuns[0]) ? s.crawlRuns[0] : null
+      return {
+        type: 'site-seo', id: s.id, createdAt: s.createdAt.toISOString(),
+        label: s.domain,
+        // Complete + run-ready → straight to SEO results (the spec's rule:
+        // completed rows with a live-scan run link to the run page); otherwise
+        // the site page hosts the poller/banner (C16 seoOnly behavior).
+        href: seoSiteHref(s.id, s.status, seoRun?.id),
+        status: s.status, score: seoRun?.score ?? null,
+        startedAt: s.startedAt?.toISOString() ?? null,
+        completedAt: s.completedAt?.toISOString() ?? null,
+        clientName: s.client?.name ?? null, requestedBy: s.requestedBy, deletable: false,
+        inFlight:
+          transientSite(s.status) ||
+          (s.status === 'complete' &&
+            !s.crawlRuns[0]?.id &&
+            (aliveVerifyGroups.has(`site-audit:${s.id}`) || withinGrace(s.completedAt))),
+        prospectLinked: s.prospectId != null,
+      }
+    }),
     ...orphans.map((r): RecentItem => ({
       type: 'site-seo', id: r.id, createdAt: r.createdAt.toISOString(),
       label: r.domain ?? 'SEO scan', href: `/seo-audits/results/run/${r.id}`,

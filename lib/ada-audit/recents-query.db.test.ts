@@ -83,6 +83,15 @@ beforeAll(async () => {
   const seoOnlyRunning = await prisma.siteAudit.create({
     data: { domain: `${PREFIX}s5.example`, status: 'running', summary: null, wcagLevel: 'wcag21aa', requestedBy: OPERATOR, seoOnly: true },
   })
+  // Verifier-memory-loop fix (Task 4): a seoOnly audit whose ONLY seo-parser
+  // run is an exhausted-verifier terminal placeholder must fall back to the
+  // site page (failed/unavailable banner), never link the run page.
+  const seoOnlyPlaceholder = await prisma.siteAudit.create({
+    data: { domain: `${PREFIX}s6.example`, status: 'complete', summary: null, wcagLevel: 'wcag21aa', requestedBy: OPERATOR, completedAt: new Date(), seoOnly: true },
+  })
+  await prisma.crawlRun.create({
+    data: { tool: 'seo-parser', source: 'live-scan-placeholder', seoIntent: false, domain: `${PREFIX}s6.example`, siteAuditId: seoOnlyPlaceholder.id, status: 'partial' },
+  })
 
   // C16: sessions — technical (deletable sf-upload), keyword-research (excluded),
   // legacy null-requestedBy (never matches Mine).
@@ -110,6 +119,7 @@ beforeAll(async () => {
     siteRun: siteRun.id, siteLegacy: siteLegacy.id, sitePruned: sitePruned.id,
     siteSeoOnly: siteSeoOnly.id, liveRun: liveRun.id,
     seoOnlyRunning: seoOnlyRunning.id, orphanRun: orphanRun.id,
+    seoOnlyPlaceholder: seoOnlyPlaceholder.id,
   }
 
   // C16 pagination fixtures: 8 rows at ONE shared timestamp, dedicated
@@ -156,6 +166,15 @@ describe('fetchAllRecents — C16 unified feed (DB-backed)', () => {
     expect(row.type).toBe('site-seo')
     expect(row.href).toBe(`/seo-audits/results/run/${ids.liveRun}`)
     expect(row.score).toBe(77)
+  })
+
+  it('an exhausted-verifier placeholder run falls back to the site page, never the run page', async () => {
+    const { items } = await fetchAllRecents({ limit: 100 })
+    const row = items.find((i) => i.id === ids.seoOnlyPlaceholder)!
+    expect(row.type).toBe('site-seo')
+    expect(row.href).toBe(`/ada-audit/site/${ids.seoOnlyPlaceholder}`)
+    expect(row.score).toBeNull()
+    expect(row.inFlight).toBe(false) // exhaustion is terminal — never keep polling
   })
 
   it('transient seoOnly audits link to the site page (poller host)', async () => {

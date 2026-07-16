@@ -132,6 +132,32 @@ describe('loadSalesReportData', () => {
       lcpStatus: 'needs-improvement', clsStatus: 'needs-improvement', tbtStatus: 'needs-improvement',
     })
     expect(d.geo.missingHighValueTypes).toContain('Course')
+    expect(d.seoUnavailable).toBe(false) // real live-scan run
+  })
+
+  // Verifier-memory-loop fix (Task 4): the exhausted verifier's terminal
+  // placeholder run (source: 'live-scan-placeholder') still counts as
+  // "reportable" (pinned decision — ADA-only report, never "being prepared"
+  // forever) but must surface as SEO-unavailable rather than a real SEO run.
+  it('seoUnavailable=true when the only seo-parser run is an exhausted-verifier placeholder', async () => {
+    const domain = `${PREFIX}placeholder.test`
+    const prospect = await prisma.prospect.create({
+      data: { name: 'Placeholder U', domain, createdBy: 'Kevin', salesToken: crypto.randomUUID(), salesTokenExpiresAt: future() },
+    })
+    const audit = await prisma.siteAudit.create({
+      data: { domain, wcagLevel: 'wcag21aa', status: 'complete', prospectId: prospect.id, completedAt: new Date(), pagesTotal: 3 },
+    })
+    await prisma.crawlRun.create({
+      data: {
+        id: `${PREFIX}placeholder-run`, tool: 'seo-parser', source: 'live-scan-placeholder', domain,
+        siteAuditId: audit.id, status: 'partial', seoIntent: false,
+      },
+    })
+    const out = await loadSalesReportData(prospect.salesToken!)
+    expect(out.kind).toBe('ready') // placeholder still counts as reportable
+    if (out.kind !== 'ready') return
+    expect(out.data.seoUnavailable).toBe(true)
+    expect(out.data.seo.score).toBeNull()
   })
 
   it('overallScore averages only available metrics; null when none exist', async () => {
