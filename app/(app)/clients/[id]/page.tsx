@@ -4,7 +4,6 @@ import { getClientDashboard } from '@/lib/services/client-dashboard'
 import { getClientSeoHistory } from '@/lib/services/client-seo-history'
 import { getClientFindings } from '@/lib/services/client-findings'
 import { getClientQuarterContext } from '@/lib/services/client-quarter'
-import { getClientSchedules } from '@/lib/services/client-schedules'
 import { getLatestGscSnapshot, getCannibalizationReport } from '@/lib/keywords/gsc-snapshot'
 import { getKeywordProfile } from '@/lib/services/keyword-profile'
 import { getLatestKeywordStrategySession } from '@/lib/keywords/strategy-export'
@@ -15,7 +14,6 @@ import { ActivityTimeline } from '@/components/clients/ActivityTimeline'
 import { IssueTrendCard } from '@/components/clients/IssueTrendCard'
 import { FindingsPanel } from '@/components/clients/FindingsPanel'
 import { QuarterContextCard } from '@/components/clients/QuarterContextCard'
-import { ScheduledScansCard } from '@/components/clients/ScheduledScansCard'
 import { RobotsCheckCard } from '@/components/clients/RobotsCheckCard'
 import { AnalyticsIdsPanel } from '@/components/clients/AnalyticsIdsPanel'
 import { GscKeywordCard } from '@/components/clients/GscKeywordCard'
@@ -39,13 +37,12 @@ export default async function ClientDashboardPage({ params }: Props) {
   const clientId = Number(id)
   if (!Number.isInteger(clientId) || clientId <= 0) notFound()
 
-  const [dash, history, findings, quarter, scanSchedules, gscSnapshot, keywordProfile, strategySession, cannibalization] =
+  const [dash, history, findings, quarter, gscSnapshot, keywordProfile, strategySession, cannibalization] =
     await Promise.all([
       getClientDashboard(clientId),
       getClientSeoHistory(clientId),
       getClientFindings(clientId),
       getClientQuarterContext(clientId),
-      getClientSchedules(clientId),
       getLatestGscSnapshot(clientId),
       getKeywordProfile(clientId),
       getLatestKeywordStrategySession(clientId),
@@ -127,13 +124,6 @@ export default async function ClientDashboardPage({ params }: Props) {
           />
           <QuarterContextCard context={quarter} />
         </div>
-
-        <ScheduledScansCard
-          clientId={clientId}
-          domains={dash.client.domains}
-          archived={dash.client.archivedAt !== null}
-          initial={scanSchedules}
-        />
 
         <RobotsCheckCard
           clientId={clientId}

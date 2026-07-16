@@ -1,6 +1,8 @@
 // app/api/clients/[id]/schedules/route.test.ts
 //
-// C2 schedule CRUD — covers both route files (collection + item).
+// C2 schedule collection route. POST is RETIRED (410 schedule_retired) — the
+// weekly sweep now covers all active clients automatically. GET still lists
+// any surviving schedules; PATCH/DELETE (item route) are unchanged.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -47,79 +49,29 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: PREFIX } } }) // cascades schedules
 })
 
-describe('POST /api/clients/[id]/schedules', () => {
-  it('creates a weekly schedule with server-built payload and future nextRunAt', async () => {
-    const res = await POST(jsonReq('POST', { domain: `${PREFIX}a.example.edu`, cadence: 'weekly:1@06:00', wcagLevel: 'wcag22aa' }), p(clientId))
-    expect(res.status).toBe(201)
-    const { id } = await res.json()
-    const sched = await prisma.schedule.findUnique({ where: { id } })
-    expect(sched?.jobType).toBe(SCHEDULED_SITE_AUDIT_JOB_TYPE)
-    expect(sched?.clientId).toBe(clientId)
-    expect(sched?.name).toBeNull()
-    expect(JSON.parse(sched!.payload)).toEqual({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag22aa', seoIntent: false, seoOnly: false })
-    expect(sched!.nextRunAt.getTime()).toBeGreaterThan(Date.now())
-  })
-
-  it('409 schedule_exists for a second schedule on the same domain', async () => {
-    const res = await POST(jsonReq('POST', { domain: `${PREFIX}a.example.edu`, cadence: 'monthly:1@06:00' }), p(clientId))
-    expect(res.status).toBe(409)
-    expect((await res.json()).error).toBe('schedule_exists')
-  })
-
-  it('400 domain_not_listed for a domain not on the client', async () => {
-    const res = await POST(jsonReq('POST', { domain: 'evil.example.com', cadence: 'weekly:1@06:00' }), p(clientId))
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('domain_not_listed')
-  })
-
-  it('400 cadence_invalid for unparseable cadence', async () => {
-    const res = await POST(jsonReq('POST', { domain: `${PREFIX}b.example.edu`, cadence: 'sometimes' }), p(clientId))
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('cadence_invalid')
-  })
-
-  it.each(['daily@06:00', 'every:30m', 'every:1d', 'every:7d', 'every:14d'])('400 cadence_not_allowed for non-weekly/monthly %s', async (cadence) => {
-    const res = await POST(jsonReq('POST', { domain: `${PREFIX}b.example.edu`, cadence }), p(clientId))
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('cadence_not_allowed')
-  })
-
-  it('409 client_archived for an archived client', async () => {
-    const archived = await prisma.client.create({
-      data: { name: `${PREFIX}archived`, domains: JSON.stringify([`${PREFIX}c.example.edu`]), archivedAt: new Date() },
-    })
-    const res = await POST(jsonReq('POST', { domain: `${PREFIX}c.example.edu`, cadence: 'weekly:1@06:00' }), p(archived.id))
-    expect(res.status).toBe(409)
-    expect((await res.json()).error).toBe('client_archived')
-  })
-
-  it('404 for unknown client, 400 for bad id, 400 for bad JSON', async () => {
-    expect((await POST(jsonReq('POST', { domain: 'x.edu', cadence: 'weekly:1@06:00' }), p(999_999))).status).toBe(404)
-    expect((await POST(jsonReq('POST', { domain: 'x.edu', cadence: 'weekly:1@06:00' }), p('abc'))).status).toBe(400)
-    const badJson = new NextRequest('http://localhost/api/x', { method: 'POST', body: '{nope' })
-    expect((await POST(badJson, p(clientId))).status).toBe(400)
-  })
-
-  it('400 invalid_domain when scheduling a malformed domain, even if it is in the stored array (legacy data)', async () => {
-    // Pentest regression: a malformed domain persisted before validation existed
-    // must NOT be schedulable just because it is in the client's domains list.
-    const legacy = await prisma.client.create({
-      data: {
-        name: `${PREFIX}legacy-bad`,
-        domains: JSON.stringify(['example.com', 'javascript:alert(1)']),
-      },
-    })
+describe('POST /api/clients/[id]/schedules (retired)', () => {
+  it('410 schedule_retired for any create attempt (C2 retired by the weekly sweep)', async () => {
     const res = await POST(
-      jsonReq('POST', { domain: 'javascript:alert(1)', cadence: 'weekly:1@06:00' }),
-      p(legacy.id),
+      jsonReq('POST', { domain: `${PREFIX}a.example.edu`, cadence: 'weekly:1@06:00', wcagLevel: 'wcag22aa' }),
+      p(clientId),
     )
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('invalid_domain')
+    expect(res.status).toBe(410)
+    expect((await res.json()).error).toBe('schedule_retired')
+    // No schedule row is created.
+    expect(await prisma.schedule.count({ where: { clientId } })).toBe(0)
   })
 })
 
 describe('GET /api/clients/[id]/schedules', () => {
   it('lists schedules with payload-derived domain', async () => {
+    // Seed directly — POST no longer creates.
+    await prisma.schedule.create({
+      data: {
+        jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, clientId, cadence: 'weekly:1@06:00',
+        payload: JSON.stringify({ clientId, domain: `${PREFIX}a.example.edu`, wcagLevel: 'wcag21aa' }),
+        nextRunAt: new Date('2099-01-01T00:00:00Z'),
+      },
+    })
     const res = await GET(jsonReq('GET'), p(clientId))
     expect(res.status).toBe(200)
     const { schedules } = await res.json()
@@ -217,117 +169,5 @@ describe('PATCH/DELETE /api/clients/[id]/schedules/[scheduleId]', () => {
     })
     expect((await PATCH(jsonReq('PATCH', { enabled: false }), p(clientId, sched.id))).status).toBe(404)
     expect((await DELETE(jsonReq('DELETE'), p(clientId, sched.id))).status).toBe(404)
-  })
-})
-
-describe('D1: seoIntent coexistence', () => {
-  let d1ClientId: number
-  const d1Domain = `${PREFIX}seoint.example.edu`
-
-  beforeAll(async () => {
-    const c = await prisma.client.create({
-      data: { name: `${PREFIX}d1-client`, domains: JSON.stringify([d1Domain]) },
-    })
-    d1ClientId = c.id
-  })
-
-  afterAll(async () => {
-    await prisma.client.deleteMany({ where: { name: `${PREFIX}d1-client` } })
-  })
-
-  it('creates an ADA schedule (seoIntent omitted/false) for a domain', async () => {
-    const res = await POST(
-      jsonReq('POST', { domain: d1Domain, cadence: 'weekly:1@06:00', wcagLevel: 'wcag21aa' }),
-      p(d1ClientId),
-    )
-    expect(res.status).toBe(201)
-    const { id } = await res.json()
-    const sched = await prisma.schedule.findUnique({ where: { id } })
-    const payload = JSON.parse(sched!.payload) as Record<string, unknown>
-    expect(payload.seoIntent).toBeFalsy()
-  })
-
-  it('creates a separate SEO schedule (seoIntent:true) for the SAME domain — coexist', async () => {
-    const res = await POST(
-      jsonReq('POST', { domain: d1Domain, cadence: 'weekly:1@06:00', wcagLevel: 'wcag21aa', seoIntent: true }),
-      p(d1ClientId),
-    )
-    expect(res.status).toBe(201)
-    const { id } = await res.json()
-    const sched = await prisma.schedule.findUnique({ where: { id } })
-    const payload = JSON.parse(sched!.payload) as Record<string, unknown>
-    expect(payload.seoIntent).toBe(true)
-  })
-
-  it('409 schedule_exists when creating a duplicate SEO schedule for the same domain', async () => {
-    const res = await POST(
-      jsonReq('POST', { domain: d1Domain, cadence: 'monthly:1@06:00', wcagLevel: 'wcag21aa', seoIntent: true }),
-      p(d1ClientId),
-    )
-    expect(res.status).toBe(409)
-    expect((await res.json()).error).toBe('schedule_exists')
-  })
-
-  it('409 schedule_exists when creating a duplicate ADA schedule for the same domain', async () => {
-    const res = await POST(
-      jsonReq('POST', { domain: d1Domain, cadence: 'monthly:1@06:00', wcagLevel: 'wcag21aa' }),
-      p(d1ClientId),
-    )
-    expect(res.status).toBe(409)
-    expect((await res.json()).error).toBe('schedule_exists')
-  })
-
-  it('GET returns seoIntent on each schedule row', async () => {
-    const res = await GET(jsonReq('GET'), p(d1ClientId))
-    expect(res.status).toBe(200)
-    const { schedules } = (await res.json()) as { schedules: Array<{ domain: string; seoIntent: boolean }> }
-    const mine = schedules.filter((s) => s.domain === d1Domain)
-    expect(mine).toHaveLength(2)
-    const adaSched = mine.find((s) => !s.seoIntent)
-    const seoSched = mine.find((s) => s.seoIntent)
-    expect(adaSched).toBeDefined()
-    expect(seoSched).toBeDefined()
-  })
-})
-
-describe('C11 PR2a: seoOnly coercion', () => {
-  let d2ClientId: number
-
-  beforeAll(async () => {
-    const c = await prisma.client.create({
-      data: {
-        name: `${PREFIX}d2-client`,
-        domains: JSON.stringify([`${PREFIX}t.example.edu`, `${PREFIX}t2.example.edu`]),
-      },
-    })
-    d2ClientId = c.id
-  })
-
-  afterAll(async () => {
-    await prisma.client.deleteMany({ where: { name: `${PREFIX}d2-client` } })
-  })
-
-  it('coerces seoOnly⇒seoIntent before uniqueness and persists both', async () => {
-    const res = await POST(
-      jsonReq('POST', { domain: `${PREFIX}t.example.edu`, cadence: 'weekly:1@06:00', seoOnly: true }),
-      p(d2ClientId),
-    )
-    expect(res.status).toBe(201)
-    const { id } = await res.json()
-    const sched = await prisma.schedule.findUnique({ where: { id } })
-    const payload = JSON.parse(sched!.payload) as Record<string, unknown>
-    expect(payload.seoOnly).toBe(true)
-    expect(payload.seoIntent).toBe(true)
-  })
-
-  it('coexists ADA + SEO schedules for one domain; a same-intent dup 409s', async () => {
-    const mk = (extra: object) =>
-      POST(
-        jsonReq('POST', { domain: `${PREFIX}t2.example.edu`, cadence: 'weekly:1@06:00', ...extra }),
-        p(d2ClientId),
-      )
-    expect((await mk({})).status).toBe(201) // ADA
-    expect((await mk({ seoOnly: true })).status).toBe(201) // SEO — different seoIntent
-    expect((await mk({})).status).toBe(409) // duplicate ADA
   })
 })

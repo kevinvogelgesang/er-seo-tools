@@ -18,6 +18,7 @@
 import { prisma } from '@/lib/db'
 import { cadenceClass, type CadenceClass } from '@/lib/jobs/scheduler'
 import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
+import { CLIENT_SWEEP_JOB_TYPE } from '@/lib/sweep/types'
 import { deleteReportFile } from '@/lib/report/report-file'
 import { deleteHeroScreenshot } from '@/lib/sales/hero-screenshot'
 
@@ -29,8 +30,10 @@ export const RETENTION_DAYS: Record<CadenceClass, number> = {
   monthly: 365,
 }
 
-/** Most recent completed audits per schedule that are never pruned —
- * preserves the latest results view and the carry-forward source. */
+/** Most recent completed audits per (schedule, domain) that are never pruned —
+ * preserves the latest results view and the carry-forward source. C2 schedules
+ * are single-domain so this collapses to the old per-schedule behavior; the
+ * client-sweep schedule spans many domains and needs the per-domain floor. */
 export const KEEP_LATEST_COMPLETED = 2
 
 const TERMINAL = ['complete', 'error', 'cancelled']
@@ -39,7 +42,10 @@ const CHUNK = 25
 
 export async function pruneScheduledSiteAudits(now: Date = new Date()): Promise<void> {
   const schedules = await prisma.schedule.findMany({
-    where: { jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE, siteAudits: { some: {} } },
+    where: {
+      jobType: { in: [SCHEDULED_SITE_AUDIT_JOB_TYPE, CLIENT_SWEEP_JOB_TYPE] },
+      siteAudits: { some: {} },
+    },
     select: { id: true, cadence: true },
   })
   for (const sched of schedules) {
@@ -51,18 +57,30 @@ export async function pruneScheduledSiteAudits(now: Date = new Date()): Promise<
     }
     const cutoff = new Date(now.getTime() - RETENTION_DAYS[cls] * DAY_MS)
 
-    const keep = await prisma.siteAudit.findMany({
+    // Per-(schedule, domain) keep-set: a single client-sweep schedule spans
+    // ~30 domains, and each domain needs its own floor of recent results —
+    // a global top-2 would starve every domain but the two most-recently-
+    // completed. C2 schedules are single-domain, so this collapses to the
+    // old per-schedule behavior for them.
+    const completed = await prisma.siteAudit.findMany({
       where: { scheduleId: sched.id, status: 'complete' },
       orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
-      take: KEEP_LATEST_COMPLETED,
-      select: { id: true },
+      select: { id: true, domain: true },
     })
+    const keptPerDomain = new Map<string, number>()
+    const keepIds: string[] = []
+    for (const a of completed) {
+      const count = keptPerDomain.get(a.domain) ?? 0
+      if (count >= KEEP_LATEST_COMPLETED) continue
+      keepIds.push(a.id)
+      keptPerDomain.set(a.domain, count + 1)
+    }
     const candidates = await prisma.siteAudit.findMany({
       where: {
         scheduleId: sched.id,
         status: { in: TERMINAL },
         createdAt: { lt: cutoff },
-        id: { notIn: keep.map((k) => k.id) },
+        id: { notIn: keepIds },
       },
       select: { id: true },
     })

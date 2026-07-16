@@ -57,11 +57,19 @@ export function ClientHeader({ name, domains, seedUrls, teamworkTasklistId, sche
           </a>
         )}
       </div>
-      <p className="mt-1.5 text-xs text-gray-400 dark:text-white/40">
-        {schedules.length === 0
-          ? 'No scheduled scans'
-          : `Scheduled: ${schedules.map((s) => `${JOB_TYPE_LABELS[s.jobType] ?? s.jobType} (${s.cadence})`).join(' · ')}`}
-      </p>
+      {(() => {
+        // Archived clients are excluded from the weekly sweep, so don't promise
+        // "Scanned automatically every Sunday" for them.
+        const scheduleText =
+          schedules.length > 0
+            ? `Scheduled: ${schedules.map((s) => `${JOB_TYPE_LABELS[s.jobType] ?? s.jobType} (${s.cadence})`).join(' · ')}`
+            : archivedAt
+              ? null
+              : 'Scanned automatically every Sunday'
+        return scheduleText ? (
+          <p className="mt-1.5 text-xs text-gray-400 dark:text-white/40">{scheduleText}</p>
+        ) : null
+      })()}
     </div>
   )
 }

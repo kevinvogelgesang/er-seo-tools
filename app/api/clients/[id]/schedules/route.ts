@@ -1,17 +1,17 @@
 // GET  /api/clients/[id]/schedules — list scan schedules + last-run info
-// POST /api/clients/[id]/schedules — create a scan schedule
+// POST /api/clients/[id]/schedules — RETIRED (410). C2 per-client scan
+//      schedules are superseded by the weekly sweep, which scans every
+//      active client automatically. GET stays (lists any surviving rows);
+//      the item route's PATCH/DELETE stay (pause/remove stragglers).
 //
 // Internal UI-facing routes: cookie-gated by the middleware (NOT in
-// isPublicPath). One schedule per (client, domain) is best-effort v1 —
-// app-level check; duplicates from racing POSTs are visible/deletable in
-// the card UI.
+// isPublicPath).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { parseCadence, nextRun } from '@/lib/jobs/scheduler'
-import { SCHEDULED_SITE_AUDIT_JOB_TYPE } from '@/lib/jobs/handlers/scheduled-site-audit'
 import { getClientSchedules } from '@/lib/services/client-schedules'
-import { normalizeClientDomain, InvalidDomainError } from '@/lib/security/domain-validation'
+import { withRoute } from '@/lib/api/with-route'
+import { HttpError } from '@/lib/api/errors'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -28,92 +28,10 @@ export async function GET(_request: NextRequest, { params }: Params) {
   return NextResponse.json({ schedules: await getClientSchedules(clientId) })
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
-  const clientId = parseClientId((await params).id)
-  if (clientId === null) return NextResponse.json({ error: 'invalid_client' }, { status: 400 })
-
-  let body: Record<string, unknown>
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
-  }
-
-  const client = await prisma.client.findUnique({
-    where: { id: clientId },
-    select: { archivedAt: true, domains: true },
-  })
-  if (!client) return NextResponse.json({ error: 'not_found' }, { status: 404 })
-  if (client.archivedAt) return NextResponse.json({ error: 'client_archived' }, { status: 409 })
-
-  let domains: string[] = []
-  try {
-    const parsed = JSON.parse(client.domains)
-    if (Array.isArray(parsed)) domains = parsed.filter((d): d is string => typeof d === 'string')
-  } catch { /* no domains */ }
-  // Re-validate the submitted domain server-side: membership in the stored array
-  // is not enough, because legacy/unmigrated clients may hold malformed domains
-  // that must never become a schedule payload.
-  let domain: string
-  try {
-    domain = normalizeClientDomain(body.domain)
-  } catch (err) {
-    if (err instanceof InvalidDomainError) {
-      return NextResponse.json({ error: 'invalid_domain' }, { status: 400 })
-    }
-    throw err
-  }
-  if (!domains.includes(domain)) {
-    return NextResponse.json({ error: 'domain_not_listed' }, { status: 400 })
-  }
-
-  const cadence = typeof body.cadence === 'string' ? body.cadence : ''
-  let parsed: ReturnType<typeof parseCadence>
-  try {
-    parsed = parseCadence(cadence)
-  } catch {
-    return NextResponse.json({ error: 'cadence_invalid' }, { status: 400 })
-  }
-  if (parsed.kind !== 'weekly' && parsed.kind !== 'monthly') {
-    // Literal weekly:/monthly: only. daily@/every:* stay rejected even after
-    // C3 made blobs prunable: pruning at 90 d does not reduce WITHIN-window
-    // volume — 14 daily audits per client hold full child blobs until the
-    // 14-d scheduled-retention delete. Enabling daily safely needs
-    // supersede-based blob trimming (keep blobs only on the latest N audits
-    // per schedule) — C6's design space. every:* additionally has no UI
-    // surface — cadenceClass still prices it in for retention robustness.
-    return NextResponse.json({ error: 'cadence_not_allowed' }, { status: 400 })
-  }
-
-  const wcagLevel = body.wcagLevel === 'wcag22aa' ? 'wcag22aa' : 'wcag21aa'
-  const seoOnly = body.seoOnly === true
-  const seoIntent = body.seoIntent === true || seoOnly // seoOnly ⇒ seoIntent
-
-  // Best-effort uniqueness (D1): one schedule per (client, domain, seoIntent).
-  // An ADA schedule (seoIntent falsy/absent) and an SEO schedule (seoIntent:true)
-  // can coexist for the same domain; a duplicate same-intent schedule is rejected.
-  const existing = await prisma.schedule.findMany({
-    where: { clientId, jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE },
-    select: { payload: true },
-  })
-  const taken = existing.some((s) => {
-    try {
-      const p = JSON.parse(s.payload) as Record<string, unknown>
-      return p?.domain === domain && (p?.seoIntent === true) === seoIntent
-    } catch {
-      return false
-    }
-  })
-  if (taken) return NextResponse.json({ error: 'schedule_exists' }, { status: 409 })
-
-  const created = await prisma.schedule.create({
-    data: {
-      jobType: SCHEDULED_SITE_AUDIT_JOB_TYPE,
-      clientId,
-      cadence,
-      payload: JSON.stringify({ clientId, domain, wcagLevel, seoIntent, seoOnly }),
-      nextRunAt: nextRun(cadence, new Date()), // never immediate
-    },
-  })
-  return NextResponse.json({ id: created.id }, { status: 201 })
-}
+// Creating new per-client scan schedules is retired: the weekly sweep
+// (system-owned) scans every active client automatically, so there is no
+// per-client cadence to configure. Any stale caller gets a clear,
+// non-retryable 410 rather than a silently-ignored write.
+export const POST = withRoute(async () => {
+  throw new HttpError(410, 'schedule_retired')
+})

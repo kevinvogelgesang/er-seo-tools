@@ -125,3 +125,9 @@ describe('content-audit (cat_) public paths', () => {
     expect(isPublicPath('/api/site-audit/audit_1/content-audit/mint-token')).toBe(false)
   })
 });
+
+describe('isPublicPath — D8 weekly sweep /issues (Task 12)', () => {
+  it('GET /api/issues stays cookie-gated (no isPublicPath entry added)', () => {
+    expect(isPublicPath('/api/issues')).toBe(false)
+  })
+});
