@@ -3,10 +3,12 @@
 // read null, never throw), atomic team-photo attachment, and per-viewbook
 // append-mode content overrides. Server-only.
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
 import { ASSET_FILENAME_RE } from './theme'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
+import { syncVersionBumpAllStatement, syncVersionBumpAllWhere, syncVersionBumpStatement, syncVersionBumpWhere } from './sync'
 
 import {
   GLOBAL_CONTENT_KEYS,
@@ -80,11 +82,16 @@ export async function putGlobalContent(key: string, raw: unknown, updatedBy: str
     return
   }
   const bodyJson = JSON.stringify(validated)
-  await prisma.viewbookGlobalContent.upsert({
-    where: { key },
-    update: { bodyJson, updatedBy },
-    create: { key, bodyJson, updatedBy },
-  })
+  // Unscoped bump: global content renders on every viewbook, so a change here
+  // is visible everywhere at once.
+  await prisma.$transaction([
+    prisma.viewbookGlobalContent.upsert({
+      where: { key },
+      update: { bodyJson, updatedBy },
+      create: { key, bodyJson, updatedBy },
+    }),
+    syncVersionBumpAllStatement(),
+  ])
 }
 
 // Roster writes: photo filenames are single-owner (attachTeamPhoto is the only
@@ -108,13 +115,24 @@ async function putTeamRoster(incoming: TeamMember[], updatedBy: string): Promise
   const bodyJson = JSON.stringify(next)
 
   if (!row) {
-    await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson, updatedBy } })
+    await prisma.$transaction([
+      prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson, updatedBy } }),
+      syncVersionBumpAllStatement(),
+    ])
     return
   }
-  const res = await prisma.viewbookGlobalContent.updateMany({
-    where: { key: 'team', bodyJson: row.bodyJson },
-    data: { bodyJson, updatedBy },
-  })
+  // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
+  // updateMany below — bump first, both hit or both miss.
+  const fence = Prisma.sql`EXISTS (
+    SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = 'team' AND "bodyJson" = ${row.bodyJson}
+  )`
+  const [, res] = await prisma.$transaction([
+    syncVersionBumpAllWhere(fence),
+    prisma.viewbookGlobalContent.updateMany({
+      where: { key: 'team', bodyJson: row.bodyJson },
+      data: { bodyJson, updatedBy },
+    }),
+  ])
   if (res.count === 0) throw new HttpError(409, 'roster_conflict')
 
   const keptNames = new Set(next.map((m) => m.name))
@@ -179,11 +197,19 @@ export async function attachTeamPhoto(
 
   if (deps.beforeStamp) await deps.beforeStamp()
 
+  // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
+  // updateMany below — bump first, both hit or both miss.
+  const fence = Prisma.sql`EXISTS (
+    SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = 'team' AND "bodyJson" = ${row.bodyJson}
+  )`
   try {
-    const res = await prisma.viewbookGlobalContent.updateMany({
-      where: { key: 'team', bodyJson: row.bodyJson },
-      data: { bodyJson: JSON.stringify(next), updatedBy },
-    })
+    const [, res] = await prisma.$transaction([
+      syncVersionBumpAllWhere(fence),
+      prisma.viewbookGlobalContent.updateMany({
+        where: { key: 'team', bodyJson: row.bodyJson },
+        data: { bodyJson: JSON.stringify(next), updatedBy },
+      }),
+    ])
     if (res.count === 0) {
       await deleteViewbookAssets('global', [filename])
       throw new HttpError(409, 'roster_conflict')
@@ -210,14 +236,25 @@ export async function putContentOverride(
   }
   const vb = await prisma.viewbook.findUnique({ where: { id: viewbookId }, select: { id: true } })
   if (!vb) throw new HttpError(404, 'not_found')
-  await prisma.viewbookContentOverride.upsert({
-    where: { viewbookId_contentKey: { viewbookId, contentKey } },
-    update: { body, updatedBy },
-    create: { viewbookId, contentKey, body, updatedBy },
-  })
+  // Scoped bump: an override affects only its own viewbook. The upsert either
+  // succeeds or throws, rolling the bump back with it.
+  await prisma.$transaction([
+    prisma.viewbookContentOverride.upsert({
+      where: { viewbookId_contentKey: { viewbookId, contentKey } },
+      update: { body, updatedBy },
+      create: { viewbookId, contentKey, body, updatedBy },
+    }),
+    syncVersionBumpStatement(viewbookId),
+  ])
 }
 
 export async function deleteContentOverride(viewbookId: number, contentKey: string): Promise<void> {
-  const res = await prisma.viewbookContentOverride.deleteMany({ where: { viewbookId, contentKey } })
+  const fence = Prisma.sql`EXISTS (
+    SELECT 1 FROM "ViewbookContentOverride" WHERE "viewbookId" = ${viewbookId} AND "contentKey" = ${contentKey}
+  )`
+  const [, res] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbookId, fence),
+    prisma.viewbookContentOverride.deleteMany({ where: { viewbookId, contentKey } }),
+  ])
   if (res.count === 0) throw new HttpError(404, 'not_found')
 }
