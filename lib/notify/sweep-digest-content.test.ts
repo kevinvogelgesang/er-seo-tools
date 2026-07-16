@@ -76,6 +76,18 @@ describe('buildSweepDigestEmail', () => {
     expect(subject).toBe('Weekly scan digest — 12 actionable issues (first baseline)')
   })
 
+  it('pins the exact subject line for a flat week (delta exactly 0 renders neutrally, never ▲0)', () => {
+    const s = snapshot({ totals: { ...baseTotals(), delta: 0 } })
+    const { subject } = buildSweepDigestEmail(s, 'https://app.example.com')
+    expect(subject).toBe('Weekly scan digest — 12 actionable issues (no change)')
+  })
+
+  it('surfaces the new/worsened/resolved breakout from precomputed totals (net delta can mask churn)', () => {
+    const { text, html } = buildSweepDigestEmail(snapshot(), 'https://app.example.com')
+    expect(text).toContain('2 new · 3 worsened · 5 no longer detected')
+    expect(html).toContain('2 new · 3 worsened · 5 no longer detected')
+  })
+
   it('HTML-escapes a client name containing an ampersand', () => {
     const s = snapshot({ shortlist: [group({ clientName: 'A&B College' })] })
     const { html } = buildSweepDigestEmail(s, 'https://app.example.com')
@@ -142,6 +154,32 @@ describe('buildSweepDigestEmail', () => {
     const { text } = buildSweepDigestEmail(s, 'https://app.example.com')
     expect(text).toContain('no longer detected')
     expect(text.toLowerCase()).not.toContain('fixed')
+  })
+
+  it('uses the canonical notice-filtered totals.resolvedCount, never raw resolvedGroups.length', () => {
+    // Two resolved groups, one of them notice-severity. The canonical
+    // totals.resolvedCount (lib/sweep/snapshot.ts computeTotals) is
+    // notice-filtered, so the digest must say 1, not 2.
+    const resolved = {
+      clientId: 1,
+      clientName: 'Acme University',
+      domain: 'acme.edu',
+      tool: 'seo-parser' as const,
+      type: 'missing_title',
+      title: 'Missing title tag',
+      severity: 'warning' as const,
+      priorCount: 3,
+      unit: 'pages' as const,
+      siteAuditId: null,
+      liveScanRunId: null,
+    }
+    const s = snapshot({
+      totals: { ...baseTotals(), resolvedCount: 1 },
+      resolvedGroups: [resolved, { ...resolved, type: 'notice_thing', severity: 'notice' as const }],
+    })
+    const { text } = buildSweepDigestEmail(s, 'https://app.example.com')
+    expect(text).toContain('1 issue no longer detected')
+    expect(text).not.toContain('2 issues no longer detected')
   })
 
   it('gives shortlist items factual ranking lines (severity · changeState · count+unit)', () => {

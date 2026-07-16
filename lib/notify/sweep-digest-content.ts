@@ -22,9 +22,10 @@ export interface SweepDigestEmail {
 export const DIGEST_EFFORT_NUDGE =
   'Pick one item below and put an hour on it this week — start at the top.'
 
-/** Subject-line glyph: ▼n (fewer, good) · ▲n (more, bad) · first baseline (no prior snapshot). */
+/** Subject-line glyph: ▼n (fewer, good) · ▲n (more, bad) · no change (flat) · first baseline (no prior snapshot). */
 function fmtDeltaGlyph(delta: number | null): string {
   if (delta === null) return 'first baseline'
+  if (delta === 0) return 'no change'
   return delta < 0 ? `▼${Math.abs(delta)}` : `▲${delta}`
 }
 
@@ -54,7 +55,7 @@ function auditUrl(base: string | null, siteAuditId: string | null): string | nul
 }
 
 export function buildSweepDigestEmail(snapshot: SweepSnapshot, appUrl: string | null): SweepDigestEmail {
-  const { totals, shortlist, resolvedGroups } = snapshot
+  const { totals, shortlist } = snapshot
   const base = appUrl ? trimTrailingSlash(appUrl) : null
   const issuesUrl = base ? `${base}/issues` : null
 
@@ -62,13 +63,19 @@ export function buildSweepDigestEmail(snapshot: SweepSnapshot, appUrl: string | 
 
   const totalsLine = `${totals.actionable} actionable issue${totals.actionable === 1 ? '' : 's'} across ${totals.comparablePairs} comparable domain/tool observation${totals.comparablePairs === 1 ? '' : 's'}.`
   const changeLine = `Change since last week: ${fmtDeltaSentence(totals.delta)}`
+  // New/worsened/resolved breakout — the net delta can mask churn (3 new + 3
+  // resolved nets to 0). Always uses the precomputed, notice-filtered totals
+  // (lib/sweep/snapshot.ts computeTotals), NEVER raw group array lengths.
+  const breakoutLine = `${totals.newCount} new · ${totals.worsenedCount} worsened · ${totals.resolvedCount} no longer detected`
   const coverageLine = `${totals.scanned}/${totals.expected} scanned · ${totals.comparableDomains} comparable · ${totals.partialDomains} partial · ${totals.failedDomains} failed`
 
   const hasShortlist = shortlist.length > 0
   const EMPTY_SHORTLIST_MSG = 'No new or worsened issues this week.'
 
-  const resolvedLine = resolvedGroups.length > 0
-    ? `${resolvedGroups.length} issue${resolvedGroups.length === 1 ? '' : 's'} no longer detected since last week — unverified, please confirm before closing out.`
+  // Canonical notice-filtered count — resolvedGroups.length would inflate the
+  // number when a notice-severity resolution is present.
+  const resolvedLine = totals.resolvedCount > 0
+    ? `${totals.resolvedCount} issue${totals.resolvedCount === 1 ? '' : 's'} no longer detected since last week — unverified, please confirm before closing out.`
     : null
 
   const footerLines = [
@@ -77,7 +84,7 @@ export function buildSweepDigestEmail(snapshot: SweepSnapshot, appUrl: string | 
   ]
 
   // --- text body ---
-  const tLines: string[] = [totalsLine, changeLine, '', `Coverage: ${coverageLine}`, '']
+  const tLines: string[] = [totalsLine, changeLine, breakoutLine, '', `Coverage: ${coverageLine}`, '']
   if (hasShortlist) {
     tLines.push('Top issues this week:', '')
     shortlist.forEach((g, i) => {
@@ -119,6 +126,7 @@ export function buildSweepDigestEmail(snapshot: SweepSnapshot, appUrl: string | 
   const html = `<div>
     <p style="margin:0 0 8px;">${escapeHtml(totalsLine)}</p>
     <p style="margin:0 0 8px;">${escapeHtml(changeLine)}</p>
+    <p style="margin:0 0 8px;">${escapeHtml(breakoutLine)}</p>
     <p style="margin:0 0 16px;color:#6b7280;">Coverage: ${escapeHtml(coverageLine)}</p>
     ${shortlistHtml}
     ${nudgeHtml}
