@@ -42,6 +42,7 @@ model Client {
   gscSnapshots          GscSnapshot[]
   keywordStrategySessions KeywordStrategySession[]
   robotsChecks          RobotsCheck[]
+  viewbook              Viewbook?
 }
 
 model Prospect {
@@ -854,4 +855,166 @@ model User {
   active     Boolean   @default(true)
   lastLoginAt DateTime?
   createdAt  DateTime  @default(now())
+}
+
+// ─── Client Viewbook (spec docs/superpowers/specs/2026-07-15-client-viewbook-design.md §4) ───
+
+model Viewbook {
+  id              Int       @id @default(autoincrement())
+  clientId        Int       @unique
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  kind            String // 'new-build' | 'upgrade'
+  token           String    @unique // crypto.randomUUID; rotate = new value + revokedAt cleared
+  revokedAt       DateTime? // non-null = public page 404s
+  themeJson       String    @default("{}") // validated ViewbookTheme (lib/viewbook/theme.ts)
+  welcomeNote     String?
+  notifyEmail     String? // digest recipient; null → NOTIFY_ADMIN_EMAIL
+  dataLockedAt    DateTime? // Data Source lock-in point
+  dataLockedBy    String? // operator email
+  digestCursorId  Int       @default(0) // last client-actor ViewbookActivity.id included in a digest
+  digestSentAt    DateTime?
+  createdBy       String? // operator email
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sections         ViewbookSection[]
+  fields           ViewbookField[]
+  milestones       ViewbookMilestone[]
+  contentOverrides ViewbookContentOverride[]
+  materialLinks    ViewbookMaterialLink[]
+  activities       ViewbookActivity[]
+}
+
+model ViewbookSection {
+  id         Int       @id @default(autoincrement())
+  viewbookId Int
+  viewbook   Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  sectionKey String // 'welcome' | 'milestones' | 'data-source' | 'brand' | 'assessment' | 'strategy' | 'materials'
+  state      String    @default("active") // 'hidden' | 'active' | 'done'
+  doneAt     DateTime?
+  introNote  String? // operator-written per-client intro (plain text)
+  narrative  String? // assessment narrative / brand philosophy prose (plain text)
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([viewbookId, sectionKey])
+}
+
+model ViewbookField {
+  id             Int       @id @default(autoincrement())
+  viewbookId     Int
+  viewbook       Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  defKey         String? // code-owned catalog key; NULL = custom field (never '')
+  category       String // catalog category key (custom fields pick one)
+  label          String
+  fieldType      String // 'text' | 'textarea' | 'list'
+  sortOrder      Int
+  value          String? // canonical answer (list = JSON array of strings)
+  version        Int       @default(0) // optimistic concurrency: every value write bumps
+  valueUpdatedBy String? // 'client' | operator email
+  valueUpdatedAt DateTime?
+  archivedAt     DateTime? // soft archive — pre-lock/amended fields are never hard-deleted
+  createdBy      String // 'seed' | operator email
+  createdAt      DateTime  @default(now())
+  amendments     ViewbookFieldAmendment[]
+
+  @@unique([viewbookId, defKey])
+}
+
+model ViewbookFieldAmendment {
+  id               Int           @id @default(autoincrement())
+  fieldId          Int
+  field            ViewbookField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value            String
+  author           String // 'client' | operator email
+  clientMutationId String?       @unique // retry idempotency
+  createdAt        DateTime      @default(now())
+
+  @@index([fieldId, id])
+}
+
+model ViewbookMilestone {
+  id          Int       @id @default(autoincrement())
+  viewbookId  Int
+  viewbook    Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  title       String
+  blurb       String?
+  sortOrder   Int
+  status      String    @default("upcoming") // 'upcoming' | 'current' | 'done'
+  targetDate  DateTime?
+  doneAt      DateTime?
+  reviewLinks ViewbookReviewLink[]
+
+  @@index([viewbookId, sortOrder])
+}
+
+model ViewbookReviewLink {
+  id          Int               @id @default(autoincrement())
+  milestoneId Int
+  milestone   ViewbookMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  label       String
+  url         String // https-only, validated
+  kind        String // 'mockup' | 'live'
+  createdBy   String // operator email
+  createdAt   DateTime          @default(now())
+  feedback    ViewbookFeedback[]
+}
+
+model ViewbookFeedback {
+  id               Int                @id @default(autoincrement())
+  reviewLinkId     Int
+  reviewLink       ViewbookReviewLink @relation(fields: [reviewLinkId], references: [id], onDelete: Cascade)
+  body             String // plain text, byte-capped
+  authorName       String? // client-claimed, optional (no auth)
+  authorKind       String // 'client' | 'operator'
+  clientMutationId String?            @unique // retry idempotency
+  resolvedAt       DateTime?
+  resolvedBy       String? // operator email
+  createdAt        DateTime           @default(now())
+
+  @@index([reviewLinkId, id])
+}
+
+model ViewbookGlobalContent {
+  key       String   @id // 'team' | 'process' | 'why' | 'seo-base' | 'geo-base' | 'eeat-base'
+  bodyJson  String // typed per key: team = roster array; others = heading/paragraph blocks
+  updatedBy String
+  updatedAt DateTime @updatedAt
+}
+
+model ViewbookContentOverride {
+  id         Int      @id @default(autoincrement())
+  viewbookId Int
+  viewbook   Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  contentKey String // same key space as ViewbookGlobalContent
+  body       String // plain-text append block ("your plan" adjustments)
+  updatedBy  String
+  updatedAt  DateTime @updatedAt
+
+  @@unique([viewbookId, contentKey])
+}
+
+model ViewbookMaterialLink {
+  id               Int       @id @default(autoincrement())
+  viewbookId       Int
+  viewbook         Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  label            String
+  status           String    @default("provided") // 'requested' (operator placeholder, url null) | 'provided'
+  url              String? // https-only, validated; null while 'requested'
+  clientMutationId String?   @unique // retry idempotency
+  addedBy          String // 'client' | operator email
+  providedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([viewbookId, id])
+}
+
+model ViewbookActivity {
+  id         Int      @id @default(autoincrement())
+  viewbookId Int
+  viewbook   Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  kind       String // 'answer' | 'amendment' | 'feedback' | 'material-link' | 'lock' | 'section-done' | ...
+  actor      String // 'client' | operator email
+  summary    String // pre-rendered one-line description (plain text)
+  createdAt  DateTime @default(now())
+
+  @@index([viewbookId, id]) // digest range scan (oldCursor, highWater]
 }
