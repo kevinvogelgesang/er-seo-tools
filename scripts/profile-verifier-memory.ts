@@ -2,7 +2,7 @@
 // Dev-only: seeds a synthetic worst-case audit and profiles runBrokenLinkVerify
 // stage-by-stage (rss/heap/elapsed via reportProgress checkpoints + a sampler).
 // NEVER deployed / imported by app code. Usage:
-//   DATABASE_URL="file:./local-dev.db" npx tsx scripts/profile-verifier-memory.ts [--pages 1000] [--links-per-page 300] [--text-kb 30]
+//   DATABASE_URL="file:./local-dev.db" npx tsx scripts/profile-verifier-memory.ts [--pages 1000] [--links-per-page 300] [--text-kb 30] [--warm-embedder]
 import { prisma } from '../lib/db'
 import { runBrokenLinkVerify, type VerifyDeps } from '../lib/jobs/handlers/broken-link-verify'
 
@@ -11,6 +11,14 @@ const PAGES = Number(args.get('pages') ?? 1000)
 const LINKS = Number(args.get('links-per-page') ?? 300)
 const TEXT_KB = Number(args.get('text-kb') ?? 30)
 const DOMAIN = 'profile-verifier.example.com'
+// Task 11 evidence flag (supplementary, NOT part of the brief's required exact
+// commands): --warm-embedder preloads the process-wide MiniLM/ONNX singleton
+// (lib/services/pillarAnalysis/embeddings.ts getExtractor()) BEFORE the
+// 'start' mark, so the printed marginal-RSS number reflects only per-audit
+// data growth, isolated from the one-time model-load cost a real long-running
+// PM2 process only ever pays once. Off by default -- a bare invocation stays
+// byte-identical to the spec'd command.
+const WARM_EMBEDDER = process.argv.includes('--warm-embedder')
 
 function mb(n: number): number { return Math.round(n / 1048576) }
 const marks: { stage: string; rssMB: number; heapMB: number; at: number }[] = []
@@ -92,6 +100,12 @@ async function main(): Promise<void> {
     now: () => Date.now(), sleep: () => Promise.resolve(),
     rssBytes: () => process.memoryUsage().rss,
   }
+  if (WARM_EMBEDDER) {
+    const { embedTexts } = await import('../lib/services/pillarAnalysis/embeddings')
+    await embedTexts(['warmup'])
+    mark('embedder warmed (excluded from run)')
+    peakRss = 0 // reset: the printed peak/marginal below must cover only the post-warm run window
+  }
   const sampler = setInterval(() => { peakRss = Math.max(peakRss, process.memoryUsage().rss) }, 100)
   mark('start')
   await runBrokenLinkVerify({ siteAuditId: id, domain: DOMAIN }, deps, {
@@ -99,9 +113,10 @@ async function main(): Promise<void> {
   } as never)
   mark('end')
   clearInterval(sampler)
-  const t0 = marks[0].at
+  const startIdx = marks.findIndex((m) => m.stage === 'start') // always the run baseline, warm or not
+  const t0 = marks[startIdx].at
   console.table(marks.map((m) => ({ stage: m.stage.slice(0, 48), rssMB: m.rssMB, heapMB: m.heapMB, elapsedMs: m.at - t0 })))
-  console.log(`[profile] peak rss ${mb(peakRss)}MB (baseline ${marks[0].rssMB}MB, marginal ${mb(peakRss) - marks[0].rssMB}MB)`)
+  console.log(`[profile] peak rss ${mb(peakRss)}MB (baseline ${marks[startIdx].rssMB}MB, marginal ${mb(peakRss) - marks[startIdx].rssMB}MB)`)
   await cleanup()
   await prisma.$disconnect()
 }
