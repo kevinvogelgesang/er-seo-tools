@@ -3,7 +3,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
-import { parseId } from '@/lib/viewbook/route-utils'
+import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { deleteMilestone, updateMilestone } from '@/lib/viewbook/service'
 
 export const dynamic = 'force-dynamic'
@@ -16,7 +16,7 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
   const { id: rawId, milestoneId: rawMid } = await params
   const id = parseId(rawId)
   const milestoneId = parseId(rawMid)
-  const body = await parseJsonBody<Record<string, unknown>>(request)
+  const body = requireJsonObject(await parseJsonBody<Record<string, unknown>>(request))
 
   const patch: Parameters<typeof updateMilestone>[2] = {}
   if ('title' in body) {

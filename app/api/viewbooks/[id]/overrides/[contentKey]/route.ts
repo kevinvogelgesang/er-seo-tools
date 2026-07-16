@@ -3,7 +3,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
-import { parseId } from '@/lib/viewbook/route-utils'
+import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { deleteContentOverride, putContentOverride } from '@/lib/viewbook/global-content'
 
 export const dynamic = 'force-dynamic'
@@ -15,7 +15,7 @@ export const PUT = withRoute(async (request: NextRequest, { params }: RouteParam
   const operator = await requireOperatorEmail(request)
   const { id: rawId, contentKey } = await params
   const id = parseId(rawId)
-  const body = await parseJsonBody<{ body?: unknown }>(request)
+  const body = requireJsonObject(await parseJsonBody<{ body?: unknown }>(request))
   if (typeof body.body !== 'string') throw new HttpError(400, 'invalid_content')
   await putContentOverride(id, contentKey, body.body, operator)
   return NextResponse.json({ ok: true })

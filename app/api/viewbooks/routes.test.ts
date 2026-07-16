@@ -92,6 +92,13 @@ describe('viewbook admin routes', () => {
     expect(notFound.status).toBe(404)
 
     const { id } = await mkViewbook()
+    const primitive = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: 'null' }),
+      params({ id: String(id) }),
+    )
+    expect(primitive.status).toBe(400)
+    expect((await primitive.json()).error).toBe('invalid_request')
+
     const badTheme = await patchViewbook(
       req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ theme: { bogus: 1 } }) }),
       params({ id: String(id) }),

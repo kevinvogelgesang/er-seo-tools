@@ -200,4 +200,14 @@ describe('assets + delete lifecycle', () => {
     const saved = await updateViewbookTheme(id, { ...DEFAULT_THEME, primary: '#ABCDEF' })
     expect(saved.primary).toBe('#ABCDEF')
   })
+
+  it('a stale theme save cannot resurrect a replaced asset filename', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const attached = await attachViewbookLogo(id, PNG)
+    // Stale tab: full theme payload still carrying logo: null (pre-attach)
+    const saved = await updateViewbookTheme(id, { ...DEFAULT_THEME, secondary: '#123456' })
+    expect(saved.secondary).toBe('#123456')
+    expect(saved.logo).toBe(attached.logo) // asset reference preserved from storage
+  })
 })

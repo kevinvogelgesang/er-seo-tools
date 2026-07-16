@@ -3,7 +3,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
-import { parseId } from '@/lib/viewbook/route-utils'
+import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { createMilestone } from '@/lib/viewbook/service'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +22,7 @@ function parseTargetDate(raw: unknown): Date | null {
 export const POST = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const id = parseId((await params).id)
-  const body = await parseJsonBody<Record<string, unknown>>(request)
+  const body = requireJsonObject(await parseJsonBody<Record<string, unknown>>(request))
   if (typeof body.title !== 'string' || typeof body.sortOrder !== 'number') {
     throw new HttpError(400, 'invalid_milestone')
   }

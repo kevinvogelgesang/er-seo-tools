@@ -74,12 +74,54 @@ export function validateGlobalContent(key: string, raw: unknown): TeamMember[] |
 export async function putGlobalContent(key: string, raw: unknown, updatedBy: string): Promise<void> {
   const validated = validateGlobalContent(key, raw)
   if (!validated) throw new HttpError(400, 'invalid_content')
+
+  if (key === 'team') {
+    await putTeamRoster(validated as TeamMember[], updatedBy)
+    return
+  }
   const bodyJson = JSON.stringify(validated)
   await prisma.viewbookGlobalContent.upsert({
     where: { key },
     update: { bodyJson, updatedBy },
     create: { key, bodyJson, updatedBy },
   })
+}
+
+// Roster writes: photo filenames are single-owner (attachTeamPhoto is the only
+// writer) — incoming `photo` values are IGNORED and re-derived from the stored
+// roster by member name, so a stale tab's roster save can never resurrect a
+// deleted photo file. The write is fenced on the loaded bodyJson (concurrent
+// edit → 409 roster_conflict), and photos of REMOVED members are best-effort
+// deleted (Codex PR1 review finding).
+async function putTeamRoster(incoming: TeamMember[], updatedBy: string): Promise<void> {
+  const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+  let stored: TeamMember[] = []
+  if (row) {
+    try {
+      stored = validateTeam(JSON.parse(row.bodyJson)) ?? []
+    } catch {
+      stored = []
+    }
+  }
+  const storedPhotoByName = new Map(stored.map((m) => [m.name, m.photo]))
+  const next = incoming.map((m) => ({ ...m, photo: storedPhotoByName.get(m.name) ?? null }))
+  const bodyJson = JSON.stringify(next)
+
+  if (!row) {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson, updatedBy } })
+    return
+  }
+  const res = await prisma.viewbookGlobalContent.updateMany({
+    where: { key: 'team', bodyJson: row.bodyJson },
+    data: { bodyJson, updatedBy },
+  })
+  if (res.count === 0) throw new HttpError(409, 'roster_conflict')
+
+  const keptNames = new Set(next.map((m) => m.name))
+  const orphaned = stored
+    .filter((m) => m.photo != null && !keptNames.has(m.name))
+    .map((m) => m.photo as string)
+  if (orphaned.length > 0) await deleteViewbookAssets('global', orphaned)
 }
 
 export async function getGlobalContent(key: GlobalContentKey): Promise<TeamMember[] | ContentBlocks | null> {

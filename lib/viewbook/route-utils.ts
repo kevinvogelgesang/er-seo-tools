@@ -8,6 +8,15 @@ export function parseId(raw: string): number {
   return parseInt(raw, 10)
 }
 
+// Valid JSON that isn't an object (null, "x", 7, []) must be a 400, not a
+// 500 from `in`/property access on a primitive (Codex review finding).
+export function requireJsonObject(body: unknown): Record<string, unknown> {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    throw new HttpError(400, 'invalid_request')
+  }
+  return body as Record<string, unknown>
+}
+
 // Multipart helper: the single 'file' entry as a Buffer, capped upstream by
 // the asset store's 2 MB sniff gate.
 export async function fileBufferFromForm(form: FormData): Promise<Buffer> {

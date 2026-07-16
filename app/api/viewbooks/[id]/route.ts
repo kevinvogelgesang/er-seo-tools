@@ -3,7 +3,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
-import { parseId } from '@/lib/viewbook/route-utils'
+import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import {
   deleteViewbook,
   getViewbookAdmin,
@@ -26,7 +26,7 @@ export const GET = withRoute(async (_request: NextRequest, { params }: RoutePara
 export const PATCH = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const id = parseId((await params).id)
-  const body = await parseJsonBody<Record<string, unknown>>(request)
+  const body = requireJsonObject(await parseJsonBody<Record<string, unknown>>(request))
   let handled = false
   let theme = null
   if ('theme' in body) {

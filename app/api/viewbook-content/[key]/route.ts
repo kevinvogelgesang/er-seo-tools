@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
+import { requireJsonObject } from '@/lib/viewbook/route-utils'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import {
@@ -29,7 +30,7 @@ export const GET = withRoute(async (_request: NextRequest, { params }: RoutePara
 export const PUT = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   const operator = await requireOperatorEmail(request)
   const key = parseKey((await params).key)
-  const body = await parseJsonBody<{ content?: unknown }>(request)
+  const body = requireJsonObject(await parseJsonBody<{ content?: unknown }>(request))
   await putGlobalContent(key, body.content, operator)
   return NextResponse.json({ ok: true })
 })

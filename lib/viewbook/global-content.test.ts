@@ -107,6 +107,21 @@ describe('attachTeamPhoto', () => {
   })
 })
 
+describe('roster single-owner photos', () => {
+  it('a stale roster save cannot resurrect a replaced photo; removed members lose their files', async () => {
+    await putGlobalContent('team', roster, OPERATOR)
+    const photo = await attachTeamPhoto('Kevin', PNG, OPERATOR)
+    // Stale tab: roster payload still carrying photo: null — must be ignored.
+    await putGlobalContent('team', [{ ...roster[0], blurb: 'updated' }], OPERATOR)
+    const stored = await getGlobalContent('team')
+    expect((stored as Array<{ photo: string | null }>)[0].photo).toBe(photo)
+
+    // Removing the member best-effort-deletes their photo file.
+    await putGlobalContent('team', [{ name: 'New Person', role: 'x', photo: null, blurb: '' }], OPERATOR)
+    expect(await readViewbookAsset('global', photo)).toBeNull()
+  })
+})
+
 describe('content overrides', () => {
   it('upserts bounded per-viewbook overrides; rejects unknown keys and oversize', async () => {
     const c = await prisma.client.create({ data: { name: `vb-test-${crypto.randomUUID()}` } })

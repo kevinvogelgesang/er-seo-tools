@@ -121,9 +121,17 @@ export async function getViewbookAdmin(id: number) {
   return { ...vb, theme: parseStoredTheme(vb.themeJson) }
 }
 
+// Theme PATCH saves colors/fonts ONLY. Asset references (logo, sectionHeroes)
+// are single-owner: the atomic attachment flows below are the only writers —
+// a stale editor tab's color save can therefore never resurrect a deleted
+// asset filename (Codex PR1 review finding).
 export async function updateViewbookTheme(id: number, raw: unknown): Promise<ViewbookTheme> {
-  const theme = validateViewbookTheme(raw)
-  if (!theme) throw new HttpError(400, 'invalid_theme')
+  const vb = await prisma.viewbook.findUnique({ where: { id }, select: { themeJson: true } })
+  if (!vb) throw new HttpError(404, 'not_found')
+  const stored = parseStoredTheme(vb.themeJson)
+  const incoming = validateViewbookTheme(raw)
+  if (!incoming) throw new HttpError(400, 'invalid_theme')
+  const theme: ViewbookTheme = { ...incoming, logo: stored.logo, sectionHeroes: stored.sectionHeroes }
   await mustUpdateViewbook(id, { themeJson: JSON.stringify(theme) })
   return theme
 }

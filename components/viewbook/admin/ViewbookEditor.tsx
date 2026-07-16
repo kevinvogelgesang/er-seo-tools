@@ -132,6 +132,26 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
       {flash && <p className="text-teal-600 dark:text-teal-400">{flash} done.</p>}
 
       <div className="flex flex-wrap items-center gap-2">
+        <label className="text-gray-700 dark:text-white/80">Kind</label>
+        <select
+          value={vb.kind}
+          onChange={(e) =>
+            void run('Kind', () =>
+              jsonFetch(`/api/viewbooks/${vb.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kind: e.target.value }),
+              }),
+            )
+          }
+          className="rounded border border-gray-300 bg-white px-2 py-1 dark:border-navy-border dark:bg-navy-card dark:text-white"
+        >
+          <option value="new-build">new-build</option>
+          <option value="upgrade">upgrade</option>
+        </select>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
         <label className="text-gray-700 dark:text-white/80">Digest email</label>
         <input
           value={notifyEmail}
