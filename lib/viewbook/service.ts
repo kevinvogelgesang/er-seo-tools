@@ -24,6 +24,7 @@ import {
   parseStoredTheme,
   validateViewbookTheme,
 } from './theme'
+import { isViewbookStage, nextStage, prevStage, type ViewbookStage } from './stages'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { appendActivityStatements } from './activity'
 
@@ -225,6 +226,41 @@ export async function updateSectionText(
 
 function assertSectionKey(key: string): asserts key is SectionKey {
   if (!(SECTION_KEYS as readonly string[]).includes(key)) throw new HttpError(400, 'invalid_section')
+}
+
+// Fenced stage move (v2 PR1). The fence is the CALLER-supplied expectedStage
+// (Codex plan fix 2 — a pre-read can't stop sequential double-steps): the
+// compound-where update throws P2025 when the row's stage no longer matches,
+// rolling the log + activity statements back with it (milestone-promote
+// precedent above). eventKey is app-generated so PR3 can key stage-change
+// deliveries in the SAME transaction (plan fix 1). PR5 adds the
+// pcCompletedAt forward-fence + force. NO email side effects in PR1.
+export async function moveViewbookStage(
+  id: number,
+  direction: 'forward' | 'back',
+  expectedStage: ViewbookStage,
+  actor: string,
+): Promise<{ stage: ViewbookStage }> {
+  if (direction !== 'forward' && direction !== 'back') throw new HttpError(400, 'invalid_direction')
+  if (!isViewbookStage(expectedStage)) throw new HttpError(400, 'invalid_direction')
+  const vb = await prisma.viewbook.findUnique({ where: { id }, select: { id: true } })
+  if (!vb) throw new HttpError(404, 'not_found')
+  const target = direction === 'forward' ? nextStage(expectedStage) : prevStage(expectedStage)
+  if (!target) throw new HttpError(409, 'stage_conflict')
+  const eventKey = crypto.randomUUID()
+  try {
+    await prisma.$transaction([
+      prisma.viewbook.update({ where: { id, stage: expectedStage }, data: { stage: target } }),
+      prisma.viewbookStageLog.create({ data: { viewbookId: id, eventKey, stage: target, direction, actor } }),
+      ...appendActivityStatements(id, 'stage-change', actor, `Moved to stage: ${target}`),
+    ])
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+      throw new HttpError(409, 'stage_conflict')
+    }
+    throw err
+  }
+  return { stage: target }
 }
 
 // ── Milestones ──────────────────────────────────────────────────────────────
