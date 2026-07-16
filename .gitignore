@@ -76,3 +76,4 @@ playwright-report/
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+.claude/ops-secrets.local.sh
