@@ -10,10 +10,11 @@
 // clientMutationId replay idempotency; the activity row rides the same
 // transaction. `createdAt` is bound as integer ms per the raw-SQL house rule.
 
-import type { Viewbook, ViewbookFeedback, ViewbookMaterialLink } from '@prisma/client'
+import { Prisma, type Viewbook, type ViewbookFeedback, type ViewbookMaterialLink } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
+import { syncVersionBumpWhere } from '@/lib/viewbook/sync'
 
 const FEEDBACK_CAP = 200
 const MATERIAL_CAP = 100
@@ -44,22 +45,29 @@ export async function insertClientFeedback(
   await hooks.beforeCommit?.()
   const now = Date.now()
   const summary = `Client feedback: ${input.body.trim().slice(0, 120)}`
-  const [activityCount, insertCount] = await prisma.$transaction([
+  // Same predicate the activity INSERT below uses (replay guard + full access
+  // chain) — already self-contained (its own FROM/JOIN aliases, no dangling
+  // reference), so it can be reused verbatim as the bump's predicate.
+  const activityPredicate = Prisma.sql`
+    NOT EXISTS (
+      SELECT 1 FROM "ViewbookFeedback" f WHERE f."clientMutationId" = ${input.clientMutationId}
+    )
+    AND EXISTS (
+      SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
+      JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'milestones'
+      JOIN "ViewbookMilestone" m ON m."viewbookId" = v."id"
+      JOIN "ViewbookReviewLink" r ON r."milestoneId" = m."id"
+      WHERE v."id" = ${viewbook.id} AND v."token" = ${token} AND v."revokedAt" IS NULL
+        AND c."archivedAt" IS NULL AND s."state" <> 'hidden' AND r."id" = ${input.reviewLinkId}
+        AND (SELECT COUNT(*) FROM "ViewbookFeedback" f2 WHERE f2."reviewLinkId" = r."id") < ${FEEDBACK_CAP}
+    )
+  `
+  const [, activityCount, insertCount] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbook.id, activityPredicate),
     prisma.$executeRaw`
       INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
       SELECT ${viewbook.id}, 'feedback', 'client', ${summary}, ${now}
-      WHERE NOT EXISTS (
-        SELECT 1 FROM "ViewbookFeedback" f WHERE f."clientMutationId" = ${input.clientMutationId}
-      )
-      AND EXISTS (
-        SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
-        JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'milestones'
-        JOIN "ViewbookMilestone" m ON m."viewbookId" = v."id"
-        JOIN "ViewbookReviewLink" r ON r."milestoneId" = m."id"
-        WHERE v."id" = ${viewbook.id} AND v."token" = ${token} AND v."revokedAt" IS NULL
-          AND c."archivedAt" IS NULL AND s."state" <> 'hidden' AND r."id" = ${input.reviewLinkId}
-          AND (SELECT COUNT(*) FROM "ViewbookFeedback" f2 WHERE f2."reviewLinkId" = r."id") < ${FEEDBACK_CAP}
-      )
+      WHERE ${activityPredicate}
     `,
     prisma.$executeRaw`
       INSERT INTO "ViewbookFeedback"
@@ -120,20 +128,25 @@ export async function insertClientMaterial(
   await hooks.beforeCommit?.()
   const now = Date.now()
   const summary = `Client shared material: ${input.label}`
-  const [activityCount, insertCount] = await prisma.$transaction([
+  // Same predicate the activity INSERT below uses — self-contained already.
+  const activityPredicate = Prisma.sql`
+    NOT EXISTS (
+      SELECT 1 FROM "ViewbookMaterialLink" ml WHERE ml."clientMutationId" = ${input.clientMutationId}
+    )
+    AND EXISTS (
+      SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
+      JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'materials'
+      WHERE v."id" = ${viewbook.id} AND v."token" = ${token} AND v."revokedAt" IS NULL
+        AND c."archivedAt" IS NULL AND s."state" <> 'hidden'
+        AND (SELECT COUNT(*) FROM "ViewbookMaterialLink" ml2 WHERE ml2."viewbookId" = v."id") < ${MATERIAL_CAP}
+    )
+  `
+  const [, activityCount, insertCount] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbook.id, activityPredicate),
     prisma.$executeRaw`
       INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
       SELECT ${viewbook.id}, 'material-link', 'client', ${summary}, ${now}
-      WHERE NOT EXISTS (
-        SELECT 1 FROM "ViewbookMaterialLink" ml WHERE ml."clientMutationId" = ${input.clientMutationId}
-      )
-      AND EXISTS (
-        SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
-        JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'materials'
-        WHERE v."id" = ${viewbook.id} AND v."token" = ${token} AND v."revokedAt" IS NULL
-          AND c."archivedAt" IS NULL AND s."state" <> 'hidden'
-          AND (SELECT COUNT(*) FROM "ViewbookMaterialLink" ml2 WHERE ml2."viewbookId" = v."id") < ${MATERIAL_CAP}
-      )
+      WHERE ${activityPredicate}
     `,
     prisma.$executeRaw`
       INSERT INTO "ViewbookMaterialLink"

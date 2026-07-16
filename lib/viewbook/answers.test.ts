@@ -26,14 +26,21 @@ async function mkViewbook() {
   return { client, viewbook, token: created.token, textField, listField }
 }
 
+async function syncVersion(viewbookId: number): Promise<number> {
+  return (await prisma.viewbook.findUniqueOrThrow({ where: { id: viewbookId } })).syncVersion
+}
+
 describe('viewbook answer state machine', () => {
   it('edits with a version bump and emits no activity or bump for a no-op', async () => {
     const ctx = await mkViewbook()
+    const before = await syncVersion(ctx.viewbook.id)
     const first = await applyAnswerEdit(ctx.viewbook, ctx.token, {
       fieldId: ctx.textField.id, value: 'First answer', expectedVersion: 0,
     }, 'client')
     expect(first.field).toMatchObject({ value: 'First answer', version: 1, valueUpdatedBy: 'client' })
     expect(first.field.valueUpdatedAt).toBeInstanceOf(Date)
+    const afterFirst = await syncVersion(ctx.viewbook.id)
+    expect(afterFirst).toBe(before + 1)
 
     const noOp = await applyAnswerEdit(ctx.viewbook, ctx.token, {
       fieldId: ctx.textField.id, value: 'First answer', expectedVersion: 1,
@@ -42,6 +49,8 @@ describe('viewbook answer state machine', () => {
     expect(await prisma.viewbookActivity.count({
       where: { viewbookId: ctx.viewbook.id, kind: 'answer' },
     })).toBe(1)
+    // value-unchanged no-op save must not bump syncVersion
+    expect(await syncVersion(ctx.viewbook.id)).toBe(afterFirst)
   })
 
   it('returns stale_version with current truth and rejects cross-viewbook or archived fields', async () => {
@@ -51,11 +60,14 @@ describe('viewbook answer state machine', () => {
       where: { id: a.textField.id },
       data: { value: 'Current', version: 3 },
     })
+    const before = await syncVersion(a.viewbook.id)
     await expect(applyAnswerEdit(a.viewbook, a.token, {
       fieldId: a.textField.id, value: 'Stale', expectedVersion: 2,
     }, 'client')).rejects.toMatchObject({
       status: 409, code: 'stale_version', current: { value: 'Current', version: 3 },
     })
+    // fenced failure (stale expectedVersion) must not bump syncVersion
+    expect(await syncVersion(a.viewbook.id)).toBe(before)
     await expect(applyAnswerEdit(a.viewbook, a.token, {
       fieldId: b.textField.id, value: 'Cross', expectedVersion: 0,
     }, 'client')).rejects.toMatchObject({ status: 404, code: 'not_found' })
@@ -91,8 +103,13 @@ describe('viewbook answer state machine', () => {
 
   it('locks once, rejects baseline edits, and keeps post-lock custom fields editable', async () => {
     const ctx = await mkViewbook()
+    const before = await syncVersion(ctx.viewbook.id)
     const first = await lockViewbook(ctx.viewbook.id, 'first@example.com')
+    const afterFirst = await syncVersion(ctx.viewbook.id)
+    expect(afterFirst).toBe(before + 1)
     const replay = await lockViewbook(ctx.viewbook.id, 'second@example.com')
+    // re-lock (alreadyLocked) must not bump syncVersion
+    expect(await syncVersion(ctx.viewbook.id)).toBe(afterFirst)
     expect(first.alreadyLocked).toBe(false)
     expect(replay).toMatchObject({ alreadyLocked: true, dataLockedBy: 'first@example.com' })
     expect(await prisma.viewbookActivity.count({
@@ -148,19 +165,27 @@ describe('viewbook amendments', () => {
   it('requires a locked baseline field and replays a mutation id as the same row', async () => {
     const ctx = await mkViewbook()
     const id = crypto.randomUUID()
+    const before = await syncVersion(ctx.viewbook.id)
     await expect(proposeAmendment(ctx.viewbook, ctx.token, {
       fieldId: ctx.textField.id, value: 'Too early', clientMutationId: id,
     }, 'client')).rejects.toMatchObject({ status: 409, code: 'not_locked' })
+    // fenced failure (not yet locked) must not bump syncVersion
+    expect(await syncVersion(ctx.viewbook.id)).toBe(before)
 
     await lockViewbook(ctx.viewbook.id, 'operator@example.com')
+    const afterLock = await syncVersion(ctx.viewbook.id)
     const first = await proposeAmendment(ctx.viewbook, ctx.token, {
       fieldId: ctx.textField.id, value: 'Please change this', clientMutationId: id,
     }, 'client')
+    const afterFirst = await syncVersion(ctx.viewbook.id)
+    expect(afterFirst).toBe(afterLock + 1)
     const replay = await proposeAmendment(ctx.viewbook, ctx.token, {
       fieldId: ctx.textField.id, value: 'Please change this', clientMutationId: id,
     }, 'client')
     expect(replay.replayed).toBe(true)
     expect(replay.amendment.id).toBe(first.amendment.id)
+    // clientMutationId replay must not bump syncVersion again
+    expect(await syncVersion(ctx.viewbook.id)).toBe(afterFirst)
     expect(await prisma.viewbookActivity.count({
       where: { viewbookId: ctx.viewbook.id, kind: 'amendment' },
     })).toBe(1)
