@@ -8,5 +8,8 @@ import Footer from '@/components/footer'
 export default function PublicFooter() {
   const pathname = usePathname()
   if (pathname?.startsWith('/sales/')) return null
+  // Client-facing viewbook page: anchored like the middleware matcher — a
+  // future deeper /viewbook/token/... route must not inherit this exception.
+  if (pathname && /^\/viewbook\/[^/]+$/.test(pathname)) return null
   return <Footer />
 }
