@@ -145,10 +145,11 @@ const deps: VerifyDeps = {
   sleep: async () => {},
 }
 
-// The retained cap-subset, sorted by targetUrl asc (the builder's dedup order):
-// aaa-redirect, aab-broken, aac-broken.png, fill-01..fill-07 — exactly 10.
-// zzz-01/zzz-02 are the dropped-by-cap pair.
-const EXPECTED_DISCOVERY_SAMPLE_TARGETS = [
+// discoveryCoverageJson reads from the RAW harvested rows (not the resolution
+// cap), so its `sample` lists all 11 unique internal-link targets regardless
+// of BROKEN_LINK_MAX_CHECKS — including the two that never got resolved.
+// This is NOT the cap subset (see EXPECTED_RESOLVED_CAP_SUBSET below for that).
+const EXPECTED_ALL_UNIQUE_INTERNAL_TARGETS = [
   `https://${DOMAIN}/aaa-redirect`,
   `https://${DOMAIN}/aab-broken`,
   `https://${DOMAIN}/fill-01`,
@@ -160,6 +161,25 @@ const EXPECTED_DISCOVERY_SAMPLE_TARGETS = [
   `https://${DOMAIN}/fill-07`,
   `https://${DOMAIN}/zzz-01`,
   `https://${DOMAIN}/zzz-02`,
+].sort()
+
+// The ACTUAL cap subset: sorted by targetUrl asc (the builder's dedup/DB
+// orderBy order), the first 10 of the 12 unique (kind,targetUrl) pairs are
+// retained — [aaa-redirect, aab-broken, aac-broken.png, fill-01..fill-07].
+// zzz-01/zzz-02 (sorted last) are the dropped-by-cap pair and must NEVER be
+// passed to deps.resolve. Verified below via a call-tracking wrapper around
+// deps.resolve — pins the exact target LIST, not just the count.
+const EXPECTED_RESOLVED_CAP_SUBSET = [
+  `https://${DOMAIN}/aaa-redirect`,
+  `https://${DOMAIN}/aab-broken`,
+  `https://${DOMAIN}/aac-broken.png`,
+  `https://${DOMAIN}/fill-01`,
+  `https://${DOMAIN}/fill-02`,
+  `https://${DOMAIN}/fill-03`,
+  `https://${DOMAIN}/fill-04`,
+  `https://${DOMAIN}/fill-05`,
+  `https://${DOMAIN}/fill-06`,
+  `https://${DOMAIN}/fill-07`,
 ].sort()
 
 const EXPECTED_FINDINGS = [
@@ -194,7 +214,7 @@ const EXPECTED_FINDINGS = [
 const EXPECTED_DISCOVERY_COVERAGE = {
   mode: null, capped: false, applicable: false,
   discoveredCount: 0, linkedInternalCount: 11, offBaselineCount: 11, missRate: null,
-  sample: EXPECTED_DISCOVERY_SAMPLE_TARGETS.map((targetUrl) => ({ targetUrl, sourcePageUrls: [HUB] })),
+  sample: EXPECTED_ALL_UNIQUE_INTERNAL_TARGETS.map((targetUrl) => ({ targetUrl, sourcePageUrls: [HUB] })),
   sitemapMissRate: null, sitemapApplicable: false, residualMissRate: null, residualApplicable: false,
   hybridCapped: false,
 }
@@ -234,8 +254,13 @@ describe('runBrokenLinkVerify — characterization (pre-refactor gate, Task 6)',
     await prisma.harvestedPageSeo.createMany({ data: buildPages(siteAuditId) })
     await prisma.harvestedLink.createMany({ data: buildLinks(siteAuditId) })
 
+    // Wrap deps.resolve to record every URL it's actually invoked with — the
+    // direct proof of the cap SUBSET (not just the count in the log line).
+    const resolvedUrls: string[] = []
+    const trackedDeps: VerifyDeps = { ...deps, resolve: async (url) => { resolvedUrls.push(url); return deps.resolve(url) } }
+
     const logSpy = vi.spyOn(console, 'log')
-    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, deps)
+    await runBrokenLinkVerify({ siteAuditId, domain: DOMAIN }, trackedDeps)
 
     const run = await prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId, tool: 'seo-parser' } },
@@ -250,6 +275,13 @@ describe('runBrokenLinkVerify — characterization (pre-refactor gate, Task 6)',
 
     // ---- discoveryCoverageJson (full deep-equal) ----
     expect(JSON.parse(run!.discoveryCoverageJson!)).toEqual(EXPECTED_DISCOVERY_COVERAGE)
+
+    // ---- cap SUBSET: the exact 10 targets resolve() was called with (deduped,
+    // each queried exactly once) — zzz-01/zzz-02 must NEVER be resolved.
+    expect([...new Set(resolvedUrls)].sort()).toEqual(EXPECTED_RESOLVED_CAP_SUBSET)
+    expect(resolvedUrls).toHaveLength(10) // no re-resolution of a duplicate target
+    expect(resolvedUrls).not.toContain(`https://${DOMAIN}/zzz-01`)
+    expect(resolvedUrls).not.toContain(`https://${DOMAIN}/zzz-02`)
 
     // ---- reachabilityJson (order-independent on the two sample arrays) ----
     const reach = JSON.parse(run!.reachabilityJson!)
