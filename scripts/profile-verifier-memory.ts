@@ -34,7 +34,12 @@ async function seed(): Promise<string> {
       siteAuditId: sa.id, url, statusCode: 200, isHtml: true, robotsNoindex: false, xRobotsNoindex: false,
       loginLike: false, title: `Title ${i + j}`, h1: `H1 ${i + j}`, metaDescription: `Meta ${i + j}`,
       wordCount: 5000, schemaCount: 1, canonicalUrl: url, detailsJson: null,
-      contentText: `${text} page-variant-${i + j}`, contentTruncated: false,
+      // Task 10 reviewer follow-up: wrap with leading/trailing whitespace so
+      // downstream .trim() calls (content-similarity, topic-overlap) are NOT
+      // a no-op -- a bare slice of an untrimmed string still exercises the
+      // SlicedString flat-copy fix realistically (real harvested contentText
+      // is rarely already trim()-clean).
+      contentText: `  ${text} page-variant-${i + j} \n`, contentTruncated: false,
     })) })
   }
   // Chunk createMany calls into array-form $transaction batches of ~20
