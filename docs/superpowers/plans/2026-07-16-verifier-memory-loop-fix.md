@@ -4,6 +4,8 @@
 
 **Goal:** Make `runBrokenLinkVerify` memory-bounded and make verifier exhaustion terminal, so the 2026-07-16 OOM crash-loop class is impossible — unblocking the C21 deploy.
 
+**Codex plan review (2026-07-16):** accept with named fixes — all applied below, marked "Codex plan-fix #N": #1 no re-expansion (weighted validation input, one shared array), #2 post-cap uniqueCount group counting + RSS-trip → null coverage/graph + partial run, #3 shared `isPlaceholderRun` + page-level SEO-unavailable branch + recents/seoOnly-early-branch coverage, #4 strict-prefix content budget + capped stub persisted when analyzers return null, #5 automated self-repair + notify-independence tests, #6 executable-detail corrections.
+
 **Architecture:** Two independent fixes per the spec (`docs/superpowers/specs/2026-07-16-verifier-memory-loop-fix-design.md`): (1) an exhausted verifier durably publishes a minimal placeholder CrawlRun (`source: 'live-scan-placeholder'`) that breaks `recoverBrokenLinkVerifies`' predicate, with the recovery sweep itself as the self-repair path and every read surface treating the placeholder as "SEO analysis unavailable"; (2) the builder streams the HarvestedLink load into compact interned structures, bounds the content passes (similarity retention refactor, contentText byte budget, topic-overlap slice fix), and gates every optional pass on an injectable RSS guard. Measurement first: a profiling script produces before/after per-stage rss + wall-clock evidence.
 
 **Tech Stack:** existing — Next.js 15 / Prisma + SQLite / vitest. No new dependencies. No schema migration.
@@ -142,7 +144,7 @@ git commit -m "chore(verifier): add dev-only memory profiling script + baseline 
 - Modify: `lib/jobs/handlers/broken-link-verify.ts` (`onBrokenLinkVerifyExhausted`, lines ~717-730)
 
 **Interfaces:**
-- Produces: `LIVE_SCAN_PLACEHOLDER_SOURCE = 'live-scan-placeholder'` (string const), `ensureExhaustedPlaceholder(siteAuditId: string): Promise<'created' | 'exists' | 'skipped' | 'failed'>`. Later tasks import the constant for source checks.
+- Produces: `LIVE_SCAN_PLACEHOLDER_SOURCE = 'live-scan-placeholder'` (string const), `isPlaceholderRun(run: { source: string }): boolean` (Codex plan-fix #3 — THE one predicate every consumer uses; never inline source comparisons), `ensureExhaustedPlaceholder(siteAuditId: string): Promise<'created' | 'exists' | 'skipped' | 'failed'>`.
 
 - [ ] **Step 1: Write the failing tests** (`lib/findings/exhausted-placeholder.test.ts`)
 
@@ -210,6 +212,12 @@ import { Prisma } from '@prisma/client'
 
 export const LIVE_SCAN_PLACEHOLDER_SOURCE = 'live-scan-placeholder'
 
+/** Codex plan-fix #3: the ONE placeholder predicate. Every read surface uses
+ * this — never an inline source comparison. */
+export function isPlaceholderRun(run: { source: string }): boolean {
+  return run.source === LIVE_SCAN_PLACEHOLDER_SOURCE
+}
+
 export type PlaceholderOutcome = 'created' | 'exists' | 'skipped' | 'failed'
 
 export async function ensureExhaustedPlaceholder(siteAuditId: string): Promise<PlaceholderOutcome> {
@@ -262,7 +270,11 @@ export async function onBrokenLinkVerifyExhausted(payload: unknown, ctx: JobExha
 
 Add the import: `import { ensureExhaustedPlaceholder } from '@/lib/findings/exhausted-placeholder'`.
 
-- [ ] **Step 6: Add an onExhausted test** to `lib/findings/exhausted-placeholder.test.ts` (or a new `describe` in the existing `lib/jobs/handlers/broken-link-verify.test.ts` if it already covers onExhausted — check first): a complete audit with no run → call `onBrokenLinkVerifyExhausted({ siteAuditId }, { jobId: 'x', attempts: 2, lastError: 'oom' })` → placeholder run exists after. Run → PASS.
+- [ ] **Step 6: Add onExhausted tests** to `lib/findings/exhausted-placeholder.test.ts` (or a new `describe` in the existing `lib/jobs/handlers/broken-link-verify.test.ts` if it already covers onExhausted — check first):
+  1. a complete audit with no run → call `onBrokenLinkVerifyExhausted({ siteAuditId }, { jobId: 'x', attempts: 2, lastError: 'oom' })` → placeholder run exists after;
+  2. **Codex plan-fix #5 — notify independence:** `vi.spyOn(prisma.crawlRun, 'create').mockRejectedValueOnce(new Error('db down'))` (non-P2002) + audit with `notifyEmail` set and no sent-marker → `onBrokenLinkVerifyExhausted` still enqueues the notify-email job (assert the `notify-email` Job row exists) and does not throw.
+
+  Run → PASS.
 
 - [ ] **Step 7: Commit**
 
@@ -299,6 +311,11 @@ it('does not re-enqueue when a terminal errored verifier exists; repairs the pla
   expect(jobs).toHaveLength(0) // no fresh verifier
   const run = await prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: sa.id, tool: 'seo-parser' } } })
   expect(run?.source).toBe('live-scan-placeholder') // placeholder repaired by the sweep
+  // Codex plan-fix #5: this arrange (errored job + no run) IS the failed-hook
+  // state — the sweep is the self-repair. Prove idempotence with a second pass:
+  expect(await recoverBrokenLinkVerifies()).toBe(0)
+  const runs = await prisma.crawlRun.findMany({ where: { siteAuditId: sa.id, tool: 'seo-parser' } })
+  expect(runs).toHaveLength(1)
 })
 
 it('still prefers an ACTIVE job over the errored-job fence', async () => {
@@ -383,15 +400,22 @@ Assertions:
 
 ```ts
 const seoRun = audit.crawlRuns[0] ?? null
-const liveScanRunId = seoRun && seoRun.source !== LIVE_SCAN_PLACEHOLDER_SOURCE ? seoRun.id : null
+const liveScanRunId = seoRun && !isPlaceholderRun(seoRun) ? seoRun.id : null
 ```
+
+(Codex plan-fix #3: ALL source checks in Tasks 4-5 go through `isPlaceholderRun` — the snippets below assume it.)
+
+**Codex plan-fix #3 — additional derivation sites (each gets the same null-out + a test):**
+- the **early seoOnly branch** in `app/(app)/ada-audit/site/[id]/page.tsx` (the `resolveSeoOnlyView` call site derives its own liveScanRunId before the main render — a placeholder must yield null there too, or the page still redirects to the placeholder's run URL);
+- **unified recents** href/status resolution (grep `results/run/` under `lib/` + `app/` and `components/` recents code): a seoOnly recents row currently links `/seo-audits/results/run/<id>` when a run exists — a placeholder run must NOT produce that href (fall back to the site page link, which now renders the failed banner). Add `source` to the recents run select and gate with `isPlaceholderRun`;
+- any other `getLatestSeoVerifyJob`/`classifySeoPhase` caller that derives `liveScanRunId` from a bare `tool: 'seo-parser'` lookup (grep `siteAuditId_tool` across `app/` and `lib/` and audit each hit — the mint route and the two pages are covered explicitly here; anything else found gets the same treatment + a line in the PR description).
 
 (seo-phase needs no change: `liveScanRunId: null` + latest verify job `status: 'error'` → `classifySeoPhase` returns `failed`, which `SeoPhaseBanner` already renders; after 30-d job pruning it degrades to `unavailable` — also already rendered.)
 
 `content-audit/mint-token/route.ts` — add `source: true` to the run select and extend the guard:
 
 ```ts
-if (!run || run.source === LIVE_SCAN_PLACEHOLDER_SOURCE)
+if (!run || isPlaceholderRun(run))
   return NextResponse.json({ error: 'no_live_scan_run' }, { status: 409 })
 ```
 
@@ -399,7 +423,7 @@ if (!run || run.source === LIVE_SCAN_PLACEHOLDER_SOURCE)
 
 ```ts
 const seoRun = audit.crawlRuns.find((r) => r.tool === 'seo-parser')
-const seoUnavailable = seoRun?.source === LIVE_SCAN_PLACEHOLDER_SOURCE
+const seoUnavailable = seoRun != null && isPlaceholderRun(seoRun)
 ```
 
 into the returned payload (`seoUnavailable: boolean` on the ready-state type).
@@ -427,62 +451,80 @@ git commit -m "fix(verifier): placeholder run reads as SEO-unavailable on server
 
 ---
 
-### Task 5: UI section states for the placeholder
+### Task 5: Page-level SEO-unavailable branch (Codex plan-fix #3)
+
+Codex plan review rejected per-section props: a placeholder must not let ANY
+of the SEO tab's cards (BrokenLinks, OnPageSeo, TechnicalSeo,
+DiscoveryCoverage, Reachability, ContentSimilarity, ContentSignals,
+TopicOverlap, content-audit card) render a misleading empty/"pre-dates
+analysis" state. One page-level branch replaces the whole stack.
 
 **Files:**
-- Modify: `components/site-audit/BrokenLinksSection.tsx` (new `unavailable` prop + branch before the `!run` branch)
-- Modify: `components/site-audit/OnPageSeoSection.tsx` (same)
-- Modify: `app/(app)/ada-audit/site/[id]/page.tsx` (add `source: true` to the live-scan select at ~222-239; compute + pass the prop, lines ~278-289)
-- Modify: `app/(public)/ada-audit/site/share/[token]/page.tsx` (same wiring)
-- Test: `components/site-audit/BrokenLinksSection.test.tsx`, `components/site-audit/OnPageSeoSection.test.tsx` (create or extend; jsdom conventions)
+- Create: `components/site-audit/SeoUnavailableNotice.tsx`
+- Create: `components/site-audit/SeoUnavailableNotice.test.tsx`
+- Modify: `app/(app)/ada-audit/site/[id]/page.tsx` (add `source: true` to the live-scan select at ~222-239; branch the `seoContent` block at ~278-299)
+- Modify: `app/(public)/ada-audit/site/share/[token]/page.tsx` (same branch in its SEO tab assembly)
 
 **Interfaces:**
-- Consumes: `LIVE_SCAN_PLACEHOLDER_SOURCE`.
-- Produces: both sections accept `unavailable?: boolean`; when true they render the unavailable state regardless of `run`.
+- Consumes: `isPlaceholderRun` from Task 2.
+- Produces: `SeoUnavailableNotice` (no props) — a single card explaining the state.
 
-- [ ] **Step 1: Write failing component tests** (jsdom):
+- [ ] **Step 1: Write the failing component test** (jsdom):
 
 ```tsx
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest'
+import { it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
-import { BrokenLinksSection } from './BrokenLinksSection'
+import SeoUnavailableNotice from './SeoUnavailableNotice'
 afterEach(cleanup)
 
-it('renders the unavailable state for a placeholder run — never verified-clean', () => {
-  render(<BrokenLinksSection run={{ status: 'partial', findings: [] }} unavailable />)
+it('renders the explicit unavailable copy', () => {
+  render(<SeoUnavailableNotice />)
   expect(screen.getByText(/SEO analysis unavailable/i)).toBeTruthy()
-  expect(screen.queryByText(/no broken links/i)).toBeNull()
+  expect(screen.getByText(/re-run the audit/i)).toBeTruthy()
 })
 ```
 
-(mirror for `OnPageSeoSection` with its required props; adjust import style to the components' actual export form.)
-
 - [ ] **Step 2: Run to verify failure.**
 
-- [ ] **Step 3: Implement.** In each section, FIRST branch:
+- [ ] **Step 3: Implement the component** (match the sibling sections' Card structure and dark-mode classes):
 
 ```tsx
-if (unavailable) {
+// components/site-audit/SeoUnavailableNotice.tsx
+// Rendered INSTEAD OF the whole SEO section stack when the audit's only
+// seo-parser run is the exhausted-verifier placeholder (spec §3.3).
+export default function SeoUnavailableNotice() {
   return (
-    <Card>{/* match the section's existing Card/heading structure */}
-      <p className="text-[13px] font-body text-amber-700 dark:text-amber-400">
-        SEO analysis unavailable — the post-scan verifier did not complete for this audit. Re-run the audit to populate this section.
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+      <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">SEO analysis unavailable</h3>
+      <p className="mt-1 text-[13px] font-body text-amber-700 dark:text-amber-400/90">
+        The post-scan SEO verifier did not complete for this audit, so broken-link,
+        on-page, and content analysis are unavailable. Accessibility results are
+        unaffected. Re-run the audit to populate this tab.
       </p>
-    </Card>
+    </div>
   )
 }
 ```
 
-In both pages: `const liveScanUnavailable = liveScanRun?.source === LIVE_SCAN_PLACEHOLDER_SOURCE` (after adding `source: true` to the selects) and pass `unavailable={liveScanUnavailable}` to both sections. When unavailable, ALSO suppress the score/coverage line inputs to `OnPageSeoSection` exactly as the not-analyzed path does (score is null and pages are empty on a placeholder, so the existing derivations already produce the right values — verify, don't assume).
+- [ ] **Step 4: Branch both pages.** In `app/(app)/ada-audit/site/[id]/page.tsx` (and the share page's equivalent block):
 
-- [ ] **Step 4: Run component tests + the pages' existing tests** → PASS.
+```tsx
+const liveScanUnavailable = liveScanRun != null && isPlaceholderRun(liveScanRun)
+const seoContent = liveScanUnavailable
+  ? <SeoUnavailableNotice />
+  : ( /* existing section stack, unchanged */ )
+```
 
-- [ ] **Step 5: Commit**
+The content-audit card is inside the stack → suppressed with it (consistent with the Task 4 mint-guard 409).
+
+- [ ] **Step 5: Run component test + the pages' existing tests** → PASS.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add components/site-audit app/(app)/ada-audit/site app/(public)/ada-audit/site
-git commit -m "fix(verifier): results + share sections render explicit SEO-unavailable state for placeholder runs"
+git add components/site-audit/SeoUnavailableNotice.tsx components/site-audit/SeoUnavailableNotice.test.tsx app/(app)/ada-audit/site app/(public)/ada-audit/site
+git commit -m "fix(verifier): page-level SEO-unavailable branch replaces section stack for placeholder runs"
 ```
 
 ---
@@ -502,7 +544,7 @@ git commit -m "fix(verifier): results + share sections render explicit SEO-unava
   - enough unique targets to exceed a small `BROKEN_LINK_MAX_CHECKS` (set via env in the test, e.g. 10) — pins the cap SUBSET (assert the exact target list checked, not just the count);
   - one broken internal target + one broken image.
 
-  Assert (deep-equal, not snapshots): the full sorted `findings` list (type, scope, count, url, detail), the run row (status/score/pagesTotal), `discoveryCoverageJson`, `reachabilityJson`, `contentSimilarityJson`, and the console-log counters if exposed. Extract the expected values by running the test once with `console.log(JSON.stringify(...))` and pinning them — the values themselves come from current-code execution, not hand-derivation.
+  Assert (deep-equal, not snapshots): the full sorted `findings` list (type, scope, count, url, detail), the run row (status/score/pagesTotal), `discoveryCoverageJson`, `reachabilityJson`, `contentSimilarityJson`, and the console-log counters if exposed. Extract the expected values by running the test once with `console.log(JSON.stringify(...))` and pinning them — the values themselves come from current-code execution, not hand-derivation. Codex plan-fix #6: any env var the suite sets (`BROKEN_LINK_MAX_CHECKS` etc.) is saved in `beforeEach` and restored in `afterEach` — the suites run in one worker process and a leaked env poisons sibling files.
 
 - [ ] **Step 2: Run it** → PASS on current code. If any assertion is flaky (ordering), fix the assertion (sort first), never the code.
 
@@ -568,12 +610,16 @@ const LINK_STREAM_CHUNK = 5000
 export const VERIFIER_RSS_GUARD_MB = () => parsePositiveInt(process.env.VERIFIER_RSS_GUARD_MB, 1600)
 
 /** Keyset-stream HarvestedLink rows in the builder's deterministic order.
- * Exported for tests. onRow must be synchronous (single pass, no retention). */
+ * Exported for tests. onRow must be synchronous (single pass, no retention).
+ * onChunkEnd fires after each DB chunk (RSS checkpoint seam, Codex #5).
+ * chunkSize is overridable for cross-boundary tests (Codex plan-fix #6). */
 export async function streamHarvestedLinks(
   siteAuditId: string,
   kinds: string[],
   onRow: (r: { targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean }) => void,
+  opts?: { onChunkEnd?: () => void; chunkSize?: number },
 ): Promise<void> {
+  const size = opts?.chunkSize ?? LINK_STREAM_CHUNK
   let cursor: string | null = null
   for (;;) {
     const chunk: { id: string; targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean }[] =
@@ -581,15 +627,21 @@ export async function streamHarvestedLinks(
         where: { siteAuditId, kind: { in: kinds } },
         orderBy: [{ targetUrl: 'asc' }, { kind: 'asc' }, { sourcePageUrl: 'asc' }, { id: 'asc' }],
         select: { id: true, targetUrl: true, kind: true, sourcePageUrl: true, harvestTruncated: true },
-        take: LINK_STREAM_CHUNK,
+        take: size,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       })
     for (const r of chunk) onRow(r)
-    if (chunk.length < LINK_STREAM_CHUNK) return
+    opts?.onChunkEnd?.()
+    if (chunk.length < size) return
     cursor = chunk[chunk.length - 1].id
   }
 }
 ```
+
+Add a dedicated cursor-stability test (Codex plan-fix #6): seed rows where
+identical `(targetUrl, kind, sourcePageUrl)` triples straddle a chunk
+boundary (`chunkSize: 2`, 5 identical rows), assert every row is delivered
+exactly once and in order (no duplicate, no skip across the cursor).
 
 NOTE the ordering change: the existing `orderBy` gains an `id` tiebreaker. Rows identical in all three sort columns (exact duplicates) permute freely today, so the tiebreaker cannot change any observable output — the characterization suite proves it.
 
@@ -601,29 +653,42 @@ const asIntern = (s: string): string => { const v = intern.get(s); if (v !== und
 
 // (1) capped dedup list — identical first-seen order to the old byTarget map
 const byTarget = new Map<string, { kind: 'internal-link' | 'image'; sources: Set<string> }>()
+// Codex plan-fix #2: rows are (targetUrl, kind)-contiguous, so distinct groups
+// are counted by group-key TRANSITION — a `!byTarget.has(key)` probe would
+// over-count unadmitted (post-cap) targets once per ROW instead of per group.
+let prevGroupKey: string | null = null
 let uniqueCount = 0
-// (2) ONE deduped internal-pair list with occurrence counts (Codex #3)
+// (2) ONE deduped internal-pair list with occurrence counts (Codex #3).
+// kind is a constant string ref so the SAME array feeds computeLinkGraph
+// directly (Codex plan-fix #1 — no per-consumer map/flatMap copies).
 const pairKeyToIdx = new Map<string, number>()
-const internalPairs: { sourcePageUrl: string; targetUrl: string; occurrences: number }[] = []
+const internalPairs: { sourcePageUrl: string; targetUrl: string; kind: 'internal-link'; occurrences: number }[] = []
 let harvestTruncated = false
 let linkStreamRssTripped = false
 
 await streamHarvestedLinks(job.siteAuditId, ['internal-link', 'image'], (r) => {
   if (r.harvestTruncated) harvestTruncated = true
   const key = `${r.kind} ${r.targetUrl}`
+  if (key !== prevGroupKey) { uniqueCount++; prevGroupKey = key }
   let e = byTarget.get(key)
-  if (!e) {
-    uniqueCount++
-    if (byTarget.size < cap) { e = { kind: r.kind as 'internal-link' | 'image', sources: new Set() }; byTarget.set(key, e) }
+  if (!e && byTarget.size < cap) {
+    e = { kind: r.kind as 'internal-link' | 'image', sources: new Set() }
+    byTarget.set(key, e)
   }
   if (e && e.sources.size < URLS_PER_FINDING) e.sources.add(normalizeFindingUrl(r.sourcePageUrl))
   if (r.kind === 'internal-link' && !linkStreamRssTripped) {
     const pk = `${r.sourcePageUrl}\n${r.targetUrl}`
     const idx = pairKeyToIdx.get(pk)
     if (idx !== undefined) internalPairs[idx].occurrences++
-    else { pairKeyToIdx.set(pk, internalPairs.length); internalPairs.push({ sourcePageUrl: asIntern(r.sourcePageUrl), targetUrl: asIntern(r.targetUrl), occurrences: 1 }) }
+    else { pairKeyToIdx.set(pk, internalPairs.length); internalPairs.push({ sourcePageUrl: asIntern(r.sourcePageUrl), targetUrl: asIntern(r.targetUrl), kind: 'internal-link', occurrences: 1 }) }
   }
-})
+}, { onChunkEnd: () => {
+  if (!linkStreamRssTripped && deps.rssBytes() > VERIFIER_RSS_GUARD_MB() * 1048576) {
+    linkStreamRssTripped = true
+    internalPairs.length = 0; pairKeyToIdx.clear()
+    console.warn('[live-seo] rss guard tripped during link stream — graph/coverage/validation degrade')
+  }
+} })
 pairKeyToIdx.clear(); intern.clear()
 const capped = uniqueCount > cap
 const toCheck = [...byTarget.entries()].map(([key, v]) => ({ targetUrl: key.slice(key.indexOf(' ') + 1), ...v }))
@@ -631,20 +696,18 @@ const toCheck = [...byTarget.entries()].map(([key, v]) => ({ targetUrl: key.slic
 
 **Cap-subset equivalence argument (verify against characterization):** the old code collected ALL unique targets then `slice(0, cap)`; insertion order was first-seen in `(targetUrl, kind, sourcePageUrl)` row order, so the first `cap` map entries ARE the old slice. The new code stops ADMITTING new targets at `cap` but keeps counting `uniqueCount` — same subset, same `capped` flag. Source samples for admitted targets accumulate identically.
 
-Between stream chunks is synchronous here; the RSS trip for pair retention (Codex #5) goes INSIDE `onRow` batching: check `deps.rssBytes() > VERIFIER_RSS_GUARD_MB() * 1048576` once per chunk (cheapest: inside `streamHarvestedLinks` via an optional `onChunkEnd` callback, or hoist the check into the loop). On trip: set `linkStreamRssTripped = true`, `internalPairs.length = 0`, and downstream: graph → `null` (existing fail-path), coverage → compute with `internalLinks: []` only if that yields an honest "not measured" (check `computeDiscoveryCoverage`'s `applicable` logic — if empty input fabricates a 0 missRate, pass `discoveryCapped: true` instead to force not-measured), validation findings → skip with `affectedComplete: false` semantics preserved (empty input array). Log one `[live-seo] rss guard tripped during link stream` line. `toCheck` (verification proper) is NEVER dropped.
+**RSS-trip downstream semantics (Codex plan-fix #2 — rejected the `discoveryCapped: true` fallback; empty-input coverage can still render clean-looking sitemap numbers):** on `linkStreamRssTripped`, the builder sets graph → `null` (existing fail-path), `discoveryCoverageJson` → `null` (do NOT call `computeDiscoveryCoverage`), skips `mapValidationFindings` entirely (no findings, not fabricated-clean ones), and ORs `linkStreamRssTripped` into the run-status disjunction so the run lands `'partial'`. `toCheck` (verification proper) is NEVER dropped. Note `discoveryCoverageJson` becomes conditionally null where it was unconditionally stringified — the column is nullable and `DiscoveryCoverageSection` already handles a missing payload (verify with its test).
 
-- [ ] **Step 4: Re-point the three consumers:**
-  - validation mapper — re-expand with interned strings (cheap: duplicate objects share string refs):
-    ```ts
-    const internalLinks: ValidationLink[] = internalPairs.flatMap((p) =>
-      Array.from({ length: p.occurrences }, () => ({ sourcePageUrl: p.sourcePageUrl, targetUrl: p.targetUrl })))
-    ```
-  - graph — `computeLinkGraph(internalPairs.map((p) => ({ sourcePageUrl: p.sourcePageUrl, targetUrl: p.targetUrl, kind: 'internal-link' })), ...)` (multiplicity-insensitive: it dedupes into sets);
-  - coverage — `internalLinks: internalPairs.map((p) => ({ sourcePageUrl: p.sourcePageUrl, targetUrl: p.targetUrl }))`.
+- [ ] **Step 4: Re-point the three consumers to the ONE array (Codex plan-fix #1 — no map/flatMap copies):**
+  - validation mapper — `ValidationLink` gains an optional `occurrences?: number`; `mapValidationFindings` applies multiplicity internally (wherever it currently pushes one hit per link row, loop `for (let i = 0; i < (l.occurrences ?? 1); i++)` — inspect the actual push sites in `lib/findings/validation-mapper.ts` and multiply EACH, keeping counts and sample-target lists byte-identical to per-row input; the characterization duplicate-pair fixture is the proof). Call: `mapValidationFindings(validationRows, internalPairs, cache, ...)`.
+  - graph — `computeLinkGraph(internalPairs, graphNodes, homepageUrl, indexableUrls)`: the array already carries `kind: 'internal-link'` and structural typing accepts the extra `occurrences` field. Multiplicity-insensitive (dedupes into sets).
+  - coverage — `internalLinks: internalPairs` (its input type is `{sourcePageUrl, targetUrl}[]`; extra fields are structurally fine when passing a typed variable).
 
   Delete the old `rows` variable entirely; `rows.some(harvestTruncated)` is replaced by the streamed flag.
 
-- [ ] **Step 5: Stream the external pass the same way** (kinds `['external-link']`, dedup by targetUrl with source samples, cap `EXTERNAL_MAX`, truncated flag) — replaces the `extRows` findMany.
+- [ ] **Step 5: Stream the external pass the same way** (kinds `['external-link']`, dedup by targetUrl with source samples, cap `EXTERNAL_MAX`, truncated flag) — replaces the `extRows` findMany. Codex plan-fix #2 applies here too: count distinct external targets by group-key transition, never by admission probes.
+
+- [ ] **Step 5b: Update the Task 1 profiling script's injected deps** with `rssBytes: () => process.memoryUsage().rss` (Codex plan-fix #6 — the script's `VerifyDeps` object no longer compiles without it).
 
 - [ ] **Step 6: Run the characterization suite + full verify suites** — `DATABASE_URL="file:./local-dev.db" npx vitest run lib/jobs/handlers/ lib/ada-audit/broken-link-recovery.test.ts` → ALL PASS, byte-identical outputs.
 
@@ -675,7 +738,8 @@ git commit -m "fix(verifier): stream + intern HarvestedLink load; one shared occ
     const CONTENT_TEXT_BUDGET = () => parsePositiveInt(process.env.CONTENT_TEXT_TOTAL_BYTE_BUDGET, 25_165_824)
     async function loadContentTextBudgeted(siteAuditId: string): Promise<{ textByUrl: Map<string, string>; budgetSkippedPages: number }> {
       const textByUrl = new Map<string, string>()
-      let used = 0, skipped = 0, cursor: string | null = null
+      let used = 0, skipped = 0, overflowed = false
+      let cursor: string | null = null
       for (;;) {
         const chunk: { id: string; url: string; contentText: string | null }[] = await prisma.harvestedPageSeo.findMany({
           where: { siteAuditId }, orderBy: [{ url: 'asc' }, { id: 'asc' }],
@@ -684,8 +748,13 @@ git commit -m "fix(verifier): stream + intern HarvestedLink load; one shared occ
         })
         for (const r of chunk) {
           if (!r.contentText) continue
+          // Codex plan-fix #4: STRICT PREFIX admission in url order — after the
+          // first overflow nothing else is admitted (first-fit would let later
+          // small pages jump an earlier skip, making the admitted set depend on
+          // page sizes instead of purely on url order).
+          if (overflowed) { skipped++; continue }
           const bytes = Buffer.byteLength(r.contentText, 'utf8') // Codex #4: bytes, never .length
-          if (used + bytes > CONTENT_TEXT_BUDGET()) { skipped++; continue }
+          if (used + bytes > CONTENT_TEXT_BUDGET()) { overflowed = true; skipped++; continue }
           used += bytes; textByUrl.set(r.url, r.contentText)
         }
         if (chunk.length < 200) return { textByUrl, budgetSkippedPages: skipped }
@@ -701,6 +770,21 @@ git commit -m "fix(verifier): stream + intern HarvestedLink load; one shared occ
     // similarity: same pattern on its wrapper
     // topic overlap: inputCapped: inputCapped || budgetSkippedPages > 0 (into the existing flag), plus budgetSkippedPages when > 0
     ```
+  - **Codex plan-fix #4 — the null-result case must not lose the cap metadata:**
+    when a pass was budget/RSS-capped AND its analyzer returned `null` (e.g.
+    every page budget-skipped → fewer than 2 eligible), persist a capped STUB
+    instead of null:
+    ```ts
+    else if (budgetSkippedPages > 0 || rssTrippedThisPass)
+      contentSignalsJson = JSON.stringify({ v: 1, unavailable: true, inputCapped: true, budgetSkippedPages })
+    // same for contentSimilarityJson / topicOverlapJson
+    ```
+    and update `ContentSignalsSection`, `ContentSimilaritySection`,
+    `TopicOverlapSection` to render "Not measured — content input was capped
+    for this run" for an `unavailable: true` payload (their strict parsers
+    must tolerate the stub — extend each parser + one jsdom test per section).
+    A pass skipped ONLY for time keeps writing plain null (existing behavior,
+    unchanged).
   - `contentAuditRetainUntil` stamping and `HarvestedPageSeo` retention are untouched — the budget affects what THIS pass reads, not what is stored.
 
 - [ ] **Step 3: Run tests + characterization** (characterization runs under default budget — unaffected) → PASS. **Step 4: Commit**
@@ -723,6 +807,8 @@ git commit -m "fix(verifier): contentText loaded under a byte budget with honest
 - [ ] **Step 2: Refactor** — compute per-page digest + shingles inline; never retain `tokens`/`norm`:
 
 ```ts
+let noText = 0, thin = 0, truncatedPages = 0
+let capped = false // Codex plan-fix #6: declared BEFORE the loop (the loop now sets it)
 type Row = { url: string; sh: number[]; exactHash: string | null; truncated: boolean }
 const eligible: Row[] = []
 for (const pg of [...pages].sort((x, y) => (x.url < y.url ? -1 : x.url > y.url ? 1 : 0))) {
