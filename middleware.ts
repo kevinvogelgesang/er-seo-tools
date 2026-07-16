@@ -68,12 +68,14 @@ export function isPublicPath(pathname: string): boolean {
   if (/^\/sales\/[^/]+$/.test(pathname)) return true
   if (/^\/api\/sales\/[^/]+\/screenshot\/[^/]+\/[^/]+$/.test(pathname)) return true
   if (/^\/api\/sales\/[^/]+\/hero\/[^/]+$/.test(pathname)) return true
-  // Client viewbook (PR2): public themed page + token-scoped theme assets
-  // ONLY. NEVER a '/viewbook/' or '/api/viewbook/' PREFIX — the answers/
-  // feedback/materials matchers land only in the PR that ships each route
-  // (spec §11), and /viewbooks (admin) stays cookie-gated.
+  // Client viewbook: public themed page + exact token-scoped routes ONLY.
+  // NEVER a '/viewbook/' or '/api/viewbook/' PREFIX — the answers matcher
+  // lands only in the PR that ships that route (spec §11), and /viewbooks
+  // (admin) stays cookie-gated.
   if (/^\/viewbook\/[^/]+$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/assets\/[^/]+$/.test(pathname)) return true
+  if (/^\/api\/viewbook\/[^/]+\/feedback$/.test(pathname)) return true
+  if (/^\/api\/viewbook\/[^/]+\/materials$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 

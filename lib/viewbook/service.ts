@@ -25,6 +25,7 @@ import {
   validateViewbookTheme,
 } from './theme'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
+import { appendActivityStatements } from './activity'
 
 export type ViewbookKind = 'new-build' | 'upgrade'
 
@@ -177,14 +178,18 @@ export async function setSectionState(
   id: number,
   sectionKey: string,
   state: 'hidden' | 'active' | 'done',
+  actor: string,
 ): Promise<void> {
   assertSectionKey(sectionKey)
   if (!['hidden', 'active', 'done'].includes(state)) throw new HttpError(400, 'invalid_section')
   try {
-    await prisma.viewbookSection.update({
-      where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },
-      data: { state, doneAt: state === 'done' ? new Date() : null },
-    })
+    const update = prisma.viewbookSection.update({
+        where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },
+        data: { state, doneAt: state === 'done' ? new Date() : null },
+      })
+    await prisma.$transaction(state === 'done'
+      ? [update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
+      : [update])
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
       throw new HttpError(404, 'not_found')

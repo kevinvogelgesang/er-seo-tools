@@ -5,6 +5,7 @@ import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-ty
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import { MaterialLinkForm } from './MaterialLinkForm'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -74,7 +75,9 @@ export function MaterialsSection({
           ))}
         </ul>
       )}
-      {/* PR4 integration mounts MaterialLinkForm here (client add-a-link). */}
+      <div className="mt-4">
+        <MaterialLinkForm token={token} />
+      </div>
     </SectionShell>
   )
 }

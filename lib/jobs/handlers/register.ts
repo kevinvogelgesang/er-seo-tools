@@ -25,6 +25,7 @@ import { registerRobotsMonitorHandler } from './robots-monitor'
 import { registerRobotsMonitorSweepHandler } from './robots-monitor-sweep'
 import { registerClientSweepHandler } from './client-sweep'
 import { registerSweepDigestHandler } from './sweep-digest'
+import { registerViewbookDigestHandler } from './viewbook-digest'
 
 export function registerBuiltInJobHandlers(): void {
   registerPsiHandler()
@@ -47,4 +48,5 @@ export function registerBuiltInJobHandlers(): void {
   registerRobotsMonitorSweepHandler()
   registerClientSweepHandler()
   registerSweepDigestHandler()
+  registerViewbookDigestHandler()
 }

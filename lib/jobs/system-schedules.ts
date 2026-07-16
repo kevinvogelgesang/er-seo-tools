@@ -21,6 +21,7 @@ import { HEALTH_ALERT_JOB_TYPE } from './handlers/health-alert'
 import { ROBOTS_MONITOR_SWEEP_JOB_TYPE } from './handlers/robots-monitor-sweep'
 import { CLIENT_SWEEP_JOB_TYPE, SWEEP_DIGEST_JOB_TYPE, SWEEP_CADENCE, SWEEP_DIGEST_CADENCE } from '@/lib/sweep/types'
 import { nextRun } from './scheduler'
+import { VIEWBOOK_DIGEST_JOB_TYPE } from './types'
 
 interface SystemScheduleDef {
   name: string
@@ -55,6 +56,7 @@ export const SYSTEM_SCHEDULES: SystemScheduleDef[] = [
   // the audits have drained and their snapshots frozen. Not immediate: the digest
   // only makes sense once a real sweep has run on its slot.
   { name: 'system-sweep-digest', jobType: SWEEP_DIGEST_JOB_TYPE, cadence: SWEEP_DIGEST_CADENCE, immediate: false },
+  { name: 'system-viewbook-digest', jobType: VIEWBOOK_DIGEST_JOB_TYPE, cadence: 'every:15m', immediate: true },
 ]
 
 export async function seedSystemSchedules(now: Date = new Date()): Promise<void> {
