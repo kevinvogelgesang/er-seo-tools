@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { prisma } from '@/lib/db'
-import { runBrokenLinkVerify, deriveSitemapBaseline, type VerifyDeps } from './broken-link-verify'
+import { runBrokenLinkVerify, deriveSitemapBaseline, streamHarvestedLinks, VERIFIER_RSS_GUARD_MB, type VerifyDeps } from './broken-link-verify'
 import * as notifyMod from './notify-email'
 import * as contentSignalsMod from '@/lib/ada-audit/seo/content-signals'
 import * as embeddings from '@/lib/services/pillarAnalysis/embeddings'
@@ -1063,5 +1063,119 @@ describe('C12 Tier-1 topic overlap', () => {
     })
     expect(run!.topicOverlapJson).toBeNull()
     spy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 7 (stage-A memory fix): streamed loader cursor stability + RSS-guard trip
+// ---------------------------------------------------------------------------
+
+describe('streamHarvestedLinks — cursor stability across chunk boundaries', () => {
+  const CURSOR_DOMAIN = 'cursor-stab.example.com'
+  const cleanCursor = async () => {
+    await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: CURSOR_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: CURSOR_DOMAIN } })
+  }
+  beforeEach(cleanCursor); afterAll(cleanCursor)
+
+  it('delivers 5 identical (target,kind,source) rows exactly once, in order, with chunkSize 2', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: CURSOR_DOMAIN, status: 'complete', clientId: null } })
+    // Five rows identical in all three sort columns -> only the id tiebreaker
+    // separates them; a cursor without it (or with a wrong skip) would loop or
+    // skip a row across a chunk boundary. chunkSize 2 -> chunks of [2,2,1].
+    await prisma.harvestedLink.createMany({
+      data: Array.from({ length: 5 }, () => ({
+        siteAuditId: sa.id, targetUrl: `https://${CURSOR_DOMAIN}/same`, kind: 'internal-link',
+        sourcePageUrl: `https://${CURSOR_DOMAIN}/hub`,
+      })),
+    })
+    const seen: { targetUrl: string; kind: string; sourcePageUrl: string }[] = []
+    await streamHarvestedLinks(
+      sa.id, ['internal-link', 'image'],
+      (r) => seen.push({ targetUrl: r.targetUrl, kind: r.kind, sourcePageUrl: r.sourcePageUrl }),
+      { chunkSize: 2 },
+    )
+    // Exactly 5 rows delivered — no duplicate (cursor `skip: 1`), no skip (id tiebreaker).
+    expect(seen).toHaveLength(5)
+    expect(seen.every((s) =>
+      s.targetUrl === `https://${CURSOR_DOMAIN}/same` && s.kind === 'internal-link' &&
+      s.sourcePageUrl === `https://${CURSOR_DOMAIN}/hub`,
+    )).toBe(true)
+  })
+})
+
+describe('runBrokenLinkVerify — RSS-guard trip during link stream', () => {
+  const RSS_DOMAIN = 'rss-guard.example.com'
+  const cleanRss = async () => {
+    await prisma.crawlRun.deleteMany({ where: { domain: RSS_DOMAIN } })
+    await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: RSS_DOMAIN } } })
+    await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: RSS_DOMAIN } } })
+    await prisma.siteAudit.deleteMany({ where: { domain: RSS_DOMAIN } })
+  }
+  beforeEach(cleanRss); afterAll(cleanRss)
+  afterEach(async () => { await prisma.scoringWeights.deleteMany({ where: { id: 1 } }) })
+
+  async function seedRss() {
+    const sa = await prisma.siteAudit.create({
+      data: {
+        domain: RSS_DOMAIN, status: 'complete', clientId: null, pagesTotal: 1, pagesComplete: 1, pagesError: 0,
+        discoveredUrls: JSON.stringify([`https://${RSS_DOMAIN}/hub`]), discoveryMode: 'sitemap', discoveryCapped: false,
+      },
+    })
+    await prisma.harvestedPageSeo.create({
+      data: {
+        siteAuditId: sa.id, url: `https://${RSS_DOMAIN}/hub`, statusCode: 200, isHtml: true,
+        robotsNoindex: false, xRobotsNoindex: false, loginLike: false,
+        title: 'Hub', h1: 'Hub', metaDescription: 'M', wordCount: 800, schemaCount: 1,
+      },
+    })
+    // /redir resolves as a redirect (would emit redirect_chain via the validation
+    // mapper); /dead resolves broken (broken_internal_links via the broken-link mapper).
+    await prisma.harvestedLink.createMany({
+      data: [
+        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/redir`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub` },
+        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/dead`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub` },
+      ],
+    })
+    return sa.id
+  }
+
+  const rssDeps = (rssBytes: () => number): VerifyDeps => ({
+    resolve: async (url) => {
+      if (url.includes('/redir')) return { result: 'ok', finalUrl: `https://${RSS_DOMAIN}/redir2`, status: 200, hops: 1, chain: [`https://${RSS_DOMAIN}/redir2`], tooManyRedirects: false }
+      if (url.includes('/dead')) return { result: 'broken', finalUrl: null, status: 404, hops: 0, chain: [], tooManyRedirects: false }
+      return { result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }
+    },
+    resolveExternal: async (url) => ({ result: 'ok', finalUrl: url, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
+    now: () => 0, sleep: async () => {}, rssBytes,
+  })
+
+  const rssRun = (id: string) =>
+    prisma.crawlRun.findUnique({ where: { siteAuditId_tool: { siteAuditId: id, tool: 'seo-parser' } }, include: { findings: true } })
+
+  it('above guard: pairs dropped, graph+coverage null, no validation findings, run partial, toCheck still verified', async () => {
+    const id = await seedRss()
+    const overGuard = VERIFIER_RSS_GUARD_MB() * 1048576 + 1
+    await runBrokenLinkVerify({ siteAuditId: id, domain: RSS_DOMAIN }, rssDeps(() => overGuard))
+    const run = await rssRun(id)
+    expect(run).not.toBeNull()
+    expect(run!.status).toBe('partial')            // linkStreamRssTripped ORs into the disjunction
+    expect(run!.reachabilityJson).toBeNull()       // graph degraded to null (never computed over dropped pairs)
+    expect(run!.discoveryCoverageJson).toBeNull()  // coverage not computed (no fabricated-clean numbers)
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('redirect_chain')).toBe(false)        // validation mapper skipped entirely
+    expect(types.has('broken_internal_links')).toBe(true)  // toCheck (verification proper) NEVER dropped
+  })
+
+  it('below guard (control): graph+coverage present, redirect_chain emitted, run complete', async () => {
+    const id = await seedRss()
+    await runBrokenLinkVerify({ siteAuditId: id, domain: RSS_DOMAIN }, rssDeps(() => 1))
+    const run = await rssRun(id)
+    expect(run!.reachabilityJson).not.toBeNull()
+    expect(run!.discoveryCoverageJson).not.toBeNull()
+    const types = new Set(run!.findings.map((f) => f.type))
+    expect(types.has('redirect_chain')).toBe(true)
+    expect(types.has('broken_internal_links')).toBe(true)
+    expect(run!.status).toBe('complete') // nothing else trips partial in this fixture
   })
 })

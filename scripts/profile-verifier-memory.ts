@@ -85,6 +85,7 @@ async function main(): Promise<void> {
     resolve: async () => ({ result: 'ok', finalUrl: null, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
     resolveExternal: async () => ({ result: 'ok', finalUrl: null, status: 200, hops: 0, chain: [], tooManyRedirects: false }),
     now: () => Date.now(), sleep: () => Promise.resolve(),
+    rssBytes: () => process.memoryUsage().rss,
   }
   const sampler = setInterval(() => { peakRss = Math.max(peakRss, process.memoryUsage().rss) }, 100)
   mark('start')
