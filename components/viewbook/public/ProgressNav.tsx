@@ -1,14 +1,17 @@
-// Slim sticky progress nav (spec §8): client logo + one anchor dot per
-// visible section. Pure anchors — no client JS.
+// Slim sticky progress nav (spec §8): client logo + stage label + one anchor
+// dot per visible PRIMARY section (carried/Earlier-steps sections do not get
+// dots — v2 spec §4/§8). Pure anchors — no client JS.
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import { SECTION_TITLES } from './section-titles'
 
 export function ProgressNav({
   clientName,
+  stageLabel,
   logoUrl,
   sections,
 }: {
   clientName: string
+  stageLabel: string
   logoUrl: string | null
   sections: PublicSection[]
 }) {
@@ -30,6 +33,12 @@ export function ProgressNav({
             {clientName}
           </span>
         )}
+        <span
+          className="text-xs font-semibold uppercase tracking-wide opacity-80"
+          style={{ color: 'var(--vb-on-primary)' }}
+        >
+          {stageLabel}
+        </span>
         <ul className="ml-auto flex items-center gap-3">
           {sections.map((s) => (
             <li key={s.sectionKey}>

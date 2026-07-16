@@ -6,11 +6,13 @@
 
 import type { SectionKey, ViewbookTheme } from './theme'
 import type { ContentBlocks, GlobalContentKey, TeamMember } from './global-content-keys'
+import type { ViewbookStage } from './stages'
 
 export interface PublicSection {
   sectionKey: SectionKey
   state: 'active' | 'done'
   doneAt: string | null
+  acknowledgedAt: string | null
   introNote: string | null
   narrative: string | null
 }
@@ -88,7 +90,10 @@ export interface ViewbookPublicData {
   welcomeNote: string | null
   dataLockedAt: string | null
   theme: ViewbookTheme
-  sections: PublicSection[] // visible only, fixed SECTION_KEYS order
+  stage: ViewbookStage
+  stageLabel: string
+  primarySections: PublicSection[] // this stage's primary lineup, visible only, lineup order
+  carriedSections: PublicSection[] // this stage's carried lineup, visible only, lineup order
   fieldCategories: PublicFieldCategory[]
   milestones: PublicMilestone[]
   materials: PublicMaterialLink[]
