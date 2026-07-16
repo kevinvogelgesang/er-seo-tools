@@ -1,47 +1,34 @@
 # HANDOFF — Client Viewbook (5-PR tandem build)
 
-**Updated:** 2026-07-16 (session 4 end: PR4 MERGED #189; next = PR3 brief + PR5 lane, parallel)
+**Updated:** 2026-07-16 (session 5 end: PR3 MERGED #191 + PR5 MERGED #192 — ALL FIVE PRs in main. Remaining = the DEPLOY checklist only.)
 
 ## Current state
 
-- **Spec** `docs/superpowers/specs/2026-07-15-client-viewbook-design.md` — Codex-accepted (2 review rounds, 9+6 fixes applied).
-- **Plans** `docs/superpowers/plans/2026-07-15-client-viewbook-program.md` (lane split; READ THIS FIRST) + `…-pr1.md` + `…-pr2.md` — all Codex-accepted.
-- **PR1 MERGED** (#185): schema (11 models), seeds, theme validator, asset store, service layer, `route-auth.ts`, admin API + UI shell.
-- **PR2 MERGED** (#187): public themed page — `public-data.ts`/`public-types.ts`, `(public)/viewbook/[token]` page, 11 public components, token assets route, 2 anchored matchers, `--vb-*` canonical CSS vars, render-side https-only guard.
-- **PR4 MERGED** (#189, main @ 35c8c9a — Codex lane, both phases): activity feed (`lib/viewbook/activity.ts`, composable `appendActivityStatements`), spec-§9 high-water digest (`viewbook-digest` job + `system-viewbook-digest` every:15m; dark env advances cursor WITHOUT stamping `digestSentAt`), 180-d activity retention in `runCleanup`, `lib/viewbook/public-write-guard.ts` (same-site · JSON content-type · 10/min token throttle · bounded body reader · clientMutationId — **PR3 MUST reuse this**), `lib/viewbook/public-writes.ts` transactional cores (ONE array-form txn, commit-time EXISTS fencing incl. caps 200 feedback/link · 100 materials/viewbook, `ON CONFLICT(clientMutationId)` replay, activity row in the same txn — **the pattern PR3's answers write follows**), public `POST /api/viewbook/[token]/feedback|materials` + anchored matchers, operator review-link CRUD / feedback resolve / activity routes, `FeedbackThread` mounted per review-link card in `MilestonesSection`, `MaterialLinkForm` in `MaterialsSection` (+ `router.refresh()` on success), Feedback/Activity tabs in `ViewbookEditor` (threads derived from the existing `GET /api/viewbooks/:id` subtree — `getViewbookAdmin` already included reviewLinks+feedback; no new route), `--viewbook-primary`→`--vb-primary` rename done (paired with `text-[var(--vb-on-primary)]`). `setSectionState` now takes `actor` and writes section-done activity in the same txn. Gates: tsc/lint green, 5,672 tests / 623 files, build green. Integration brief = ADDENDUM section of `…-pr4-codex-brief.md`. Codex thread `019f6a92-dc55-73c1-b601-de9b5bd0b59a` (~413k tokens used at last run).
-- **Lane split (remaining):** Claude = PR5; Codex CLI = PR3 — they run in PARALLEL (program plan: PR3 opens when PR2 AND PR4 merged — both are). Cross-review before every merge. Codex budget limit → PAUSE and tell Kevin (usage reset in hand, expires ~2026-07-17); never take over Codex lanes.
+- **CODE COMPLETE.** PR1 #185 (schema/admin) · PR2 #187 (public themed page) · PR4 #189 (feedback/activity/digest) · PR3 #191 (Data Source interactivity — Codex lane) · PR5 #192 (assessment section + SectionShell polish — Claude lane) all merged to main. PR5 was rebased onto PR3's merge and the COMBINED build was gate-proven (tsc · lint · 5,709 tests / 631 files · build) before its merge, satisfying the program plan's "second merger proves the combined boundary" requirement.
+- Cross-reviews done both directions: Claude reviewed the PR3 diff (fencing/replay/cap semantics verified); Codex `exec review` on PR5 returned no findings; the PR5 plan itself was Codex-accepted with 8 fixes (applied pre-implementation).
+- Spec + program plan + per-PR plans + both Codex briefs are archived under `docs/superpowers/archive/{specs,plans}/2026-07-15-client-viewbook-*`.
+- **NOT deployed.** No deploy has shipped any viewbook PR to prod yet.
 
-## Next steps (parallel lanes)
+## Next step (the ONLY remaining item): deploy checklist (spec §13, archived)
 
-1. **Cut + fire the PR3 Codex brief** (`docs/superpowers/plans/2026-07-15-client-viewbook-pr3-codex-brief.md`), interfaces copied from MERGED main: Data Source interactivity — C: `lib/viewbook/answers.ts` (version/lock/amendment state machine over `PublicField.version` = the `expectedVersion` optimistic-concurrency contract), `app/api/viewbook/[token]/answers/route.ts` (MUST reuse `public-write-guard.ts` exports — `requireSameSite`/`requireJsonContentType`/`checkWriteThrottle`/`readBoundedJson`/`validateClientMutationId` — and follow the `public-writes.ts` fenced-txn pattern), `app/api/viewbooks/[id]/lock/route.ts`, `app/api/viewbooks/[id]/fields/**` (custom-field CRUD + soft-archive), `components/viewbook/admin/DataSourceTab.tsx`, tests. M: `components/viewbook/public/DataSourceSection.tsx`, `components/viewbook/admin/ViewbookEditor.tsx` (tab), `middleware.ts` + `middleware.test.ts` — main still asserts `/api/viewbook/tok/answers` NOT public; PR3 flips exactly that. New worktree `viewbook-pr3` / branch `feat/viewbook-pr3` from origin/main; fresh Codex thread is fine (brief is self-contained). Include the sandbox rules below in the brief.
-2. **PR5 (Claude lane, parallel with PR3):** branch from origin/main (the `client-viewbook` worktree ends session 4 on `docs/viewbook-pr4-handoff`). C: `lib/viewbook/assessment.ts`, `components/viewbook/public/AssessmentSection.tsx` (same props as `AssessmentPlaceholder`, swapped at the page mount point), `Tooltip.tsx`. M: `SectionShell.tsx` (done-state animation + hero polish — the ONE shared polish surface), `app/(public)/viewbook/[token]/page.tsx` (component swap). NOT touched: `DataSourceSection`/`MilestonesSection`/`MaterialsSection` (PR3/PR4 territory). Write the PR5 plan first (writing-plans → Codex review per user CLAUDE.md).
-3. After both merge: program definition-of-done — deploy checklist (`VIEWBOOK_ASSETS_DIR` on the data volume + in `ecosystem.config.js` + server backup coverage per spec §13; CSP fonts origins verified; migration applied), move spec/plans/briefs to `archive/`, retire this handoff.
+1. **Before/with the first deploy:** set `VIEWBOOK_ASSETS_DIR=${DATA_HOME}/viewbook-assets` in the server env (repo `ecosystem.config.js` already carries it — verify the server copy), create the directory PM2-writable on the persistent data volume.
+2. Add `viewbook-assets` to the server backup coverage alongside `uploads`/`reports`.
+3. Deploy (`git push` is done — server pulls from GitHub): `ssh $PROD_SSH "~/deploy.sh"` (resolve `$PROD_SSH` from ops notes / `.claude/ops-secrets.local.sh`). The viewbook migrations apply automatically via `prisma migrate deploy`.
+4. Post-deploy verify: create a viewbook on a test client, open `/viewbook/[token]` (theme + fonts render → CSP fonts origins working), submit an answer + a feedback row, confirm `Cache-Control: no-store`, confirm the assessment section renders (or shows "first scan coming soon"), confirm the `system-viewbook-digest` schedule seeded.
+5. Then retire this handoff (delete it in the same PR as any post-deploy fixes) per the docs taxonomy.
 
 ## Gotchas
 
-- **Codex sandbox in worktrees:** `codex exec` in a git WORKTREE cannot commit (git metadata lives in the main repo's `.git/worktrees/…`) and cannot run build/audit (network) — tell Codex to leave work uncommitted; Claude runs gates + commits. `codex exec resume` does NOT accept `--sandbox`; pass `-c sandbox_mode="workspace-write"` instead.
-- The main checkout may be shared with another live Claude session (the lane-check hook warns) — do docs/PR5 work in worktrees, never edit the main checkout's working tree.
-- Worktrees share `node_modules` with the main checkout — regenerate the Prisma client from a viewbook branch if another lane ran `prisma generate` without the viewbook models.
-- Worktree has no `.env`: prefix DB commands with `DATABASE_URL="file:./local-dev.db"`.
-- `local main` refs in worktrees go stale — always diff/branch against `origin/main` after a merge.
-- Prod-mode local smoke needs env: `PILLAR_TOKEN_SECRET`, `KEYWORD_MEMO_TOKEN_SECRET`, `APP_AUTH_PASSWORD`, `APP_AUTH_SECRET`, `CHROMIUM_NETWORK_ISOLATED=true`.
-- One unreproduced full-suite flake seen in the PR4 lane — a red run is a red run; re-run only to collect evidence.
-- Deploy of the merged viewbook work has NOT happened yet — `VIEWBOOK_ASSETS_DIR` must be set on the server (data volume) before/with the first deploy that includes PR1+.
+- The main checkout may be shared with another live Claude session — do any further work in a worktree.
+- Mailgun env is prod-dark unless `MAILGUN_API_KEY`/`MAILGUN_DOMAIN` are set — the viewbook digest advances its cursor without stamping `digestSentAt` in dark env (by design, no catch-up flood when it lights up).
+- `prisma migrate deploy` is idempotent — earlier deploys having applied predecessor migrations is fine.
 
 ## Paste this into a new chat
 
 ```
-Continue the client-viewbook build in er-seo-tools. Read
-docs/superpowers/todos/HANDOFF-client-viewbook.md and
-docs/superpowers/plans/2026-07-15-client-viewbook-program.md. PR1/PR2/PR4
-are merged (#185/#187/#189); the two remaining lanes run in PARALLEL:
-(1) cut + fire the PR3 Codex brief (Data Source interactivity — new
-worktree viewbook-pr3 from origin/main, interfaces from MERGED main,
-reuse lib/viewbook/public-write-guard.ts + follow the public-writes.ts
-fenced-txn pattern, flip ONLY the answers matcher in middleware), and
-(2) PR5 (Claude lane): assessment section + SectionShell polish — write
-the PR5 plan first, Codex-review it, then implement in the
-client-viewbook worktree branched from origin/main. Lane rules: Claude
-owns PR5, Codex CLI owns PR3; cross-review before merge; if Codex hits a
-usage limit, pause and tell me.
+Deploy the client-viewbook program in er-seo-tools. Read
+docs/superpowers/todos/HANDOFF-client-viewbook.md — all five PRs
+(#185/#187/#189/#191/#192) are merged; only the deploy checklist remains:
+VIEWBOOK_ASSETS_DIR on the server data volume + backup coverage, then
+~/deploy.sh, then the post-deploy verify list, then retire the handoff.
 ```
