@@ -79,6 +79,22 @@ describe('seedSystemSchedules', () => {
     expect(sweep.nextRunAt.getDay()).toBe(1) // Monday, server-local
   })
 
+  it('seeds system-sweep-digest weekly, not immediate (D8)', async () => {
+    const fixedNow = new Date('2026-01-13T12:00:00Z') // A Tuesday
+    await seedSystemSchedules(fixedNow)
+    const rows = await prisma.schedule.findMany({ where: { name: { startsWith: 'system-' } } })
+    const digest = rows.find((r) => r.name === 'system-sweep-digest')!
+    expect(digest).toBeDefined()
+    expect(digest.jobType).toBe('sweep-digest')
+    expect(digest.cadence).toBe('weekly:1@14:00')
+    expect(digest.enabled).toBe(true)
+    // immediate:false -> nextRunAt is a FUTURE weekly:1@14:00 slot, never now
+    const expectedNext = nextRun('weekly:1@14:00', fixedNow)
+    expect(digest.nextRunAt.getTime()).toBe(expectedNext.getTime())
+    expect(digest.nextRunAt.getTime()).toBeGreaterThan(fixedNow.getTime())
+    expect(digest.nextRunAt.getDay()).toBe(1) // Monday, server-local
+  })
+
   it('re-seed is idempotent: no duplicates, nextRunAt preserved when cadence unchanged', async () => {
     await seedSystemSchedules()
     const before = await prisma.schedule.findMany({ where: { name: { startsWith: 'system-' } } })
