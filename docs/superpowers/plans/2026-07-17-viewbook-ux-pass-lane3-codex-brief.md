@@ -34,13 +34,21 @@ FROZEN (reuse as-is).
 
 ## The exact edits (verified against merged code)
 
-### 1. Ack-completion fix — `lib/viewbook/ack.ts` (Codex spec fix 7)
-In `buildPcCompletion`'s NOT-EXISTS `baseGate` (≈ack.ts:82-87), **drop the `AND spc."state" <> 'hidden'`
-clause** so ALL three `ACKABLE_SECTION_KEYS` (`pc-setup`, `pc-invite`, `data-source`) must have
-`acknowledgedAt IS NOT NULL` **regardless of visibility** before `pcCompletedAt` is stamped. Do NOT
-touch `ackPredicate`'s own `state <> 'hidden'` (ack.ts:124) — that's the legitimate write-eligibility
-fence for a section's OWN ack, unrelated. Preserve the load-bearing statement order (delivery INSERT
-before the `pcCompletedAt` UPDATE). `resetSectionAck` must keep never touching `pcCompletedAt`.
+### 1. Ack-completion fix — `lib/viewbook/ack.ts` (Codex spec fix 7 + plan-review fix 1)
+In `buildPcCompletion`'s completion gate (≈ack.ts:82-87), **prove all THREE `ACKABLE_SECTION_KEYS`
+(`pc-setup`, `pc-invite`, `data-source`) rows EXIST and are acknowledged, regardless of visibility.**
+Merely dropping `AND spc."state" <> 'hidden'` is NOT enough — the current `NOT EXISTS (…unacked…)` form
+still completes if a required section row is entirely MISSING (vacuously true). Replace it with a
+**positive** gate: either a count gate (`(SELECT COUNT(*) … sectionKey IN (…three…) AND acknowledgedAt
+IS NOT NULL) = 3`) OR three positive `EXISTS(… acknowledgedAt IS NOT NULL)` joined by AND — no
+`state`/visibility predicate on these. Do NOT touch `ackPredicate`'s own `state <> 'hidden'` (ack.ts:124)
+— that's the legitimate write-eligibility fence for a section's OWN ack, unrelated. Preserve the
+load-bearing statement order (delivery INSERT before the `pcCompletedAt` UPDATE). `resetSectionAck` must
+keep never touching `pcCompletedAt`.
+**Tests (plan-review fix 2):** `ack.test.ts` currently asserts the OPPOSITE (hidden excluded; hide
+completes) — REPLACE with: (a) hidden+unacked BLOCKS completion; (b) hidden+already-acked still counts;
+(c) a MISSING required row blocks completion; (d) hiding never creates a completion delivery. Update the
+now-stale `ack.ts` comments describing "non-hidden" completion / hide-path reuse.
 
 ### 2. Remove hide-triggered completion — `lib/viewbook/service.ts` (spec §7)
 In `setSectionState` (≈service.ts:198-239), **delete the `isAckableHide`/`completion` block
@@ -55,15 +63,21 @@ false completions (no backfill).
 Keep the existing `lockedBaseline` rule (`dataLockedAt !== null && field.createdAt <= dataLockedAt`,
 ≈:53). For a locked field: restyle `FieldValue`/`FieldRow` (≈:46-80) as visibly **greyed/disabled**
 (muted bg/text, a lock affordance) instead of plain black text, and replace the UNCONDITIONAL inline
-`AmendmentForm` render (≈:75-77) with a clear **"Propose a change"** affordance (a toggle
-link/button that reveals `AmendmentForm` on click). `AmendmentForm` needs no prop change. Post-lock
-**custom** fields (`createdAt > dataLockedAt`) stay directly editable (the existing "Added after
-lock-in · still editable" path) — the lock is **baseline-only**, never every field. No schema change.
+`AmendmentForm` render (≈:75-77) with a clear **"Propose a change"** affordance (plan-review fix 6:
+use an accessible **`<details>/<summary>`** "Propose a change" wrapper around the existing
+`AmendmentForm` — server-safe, no new client-state file needed; the form starts HIDDEN and reveals on
+open). If you instead need a client leaf for the toggle, add it explicitly to Lane-3 ownership. `AmendmentForm`
+needs no prop change. Post-lock **custom** fields (`createdAt > dataLockedAt`) stay directly editable
+(the existing "Added after lock-in · still editable" path) — the lock is **baseline-only**, never every
+field. No schema change. **Test:** form starts hidden; locked field renders greyed; post-lock custom
+field stays editable.
 
 ### 4. Milestone kickoff-vs-building — `MilestonesSection.tsx` (D5)
 Add a `data.stage` branch (none exists today). The `StageCard` date-overview row (≈:105-109) already
 renders for every stage — keep it. In **`kickoff`**: HIDE the `withLinks`/`FeedbackThread` review
-block (≈:111-154) entirely — kickoff is a milestone-**date** overview only. In **`building`**: keep
+block (≈:111-154) entirely — including the "Reviews will appear…" empty-state placeholder (plan-review
+fix 6: hide BOTH the review links AND the empty state in kickoff) — kickoff is a milestone-**date**
+overview only. In **`building`**: keep
 the review block but wrap it in a visually **distinct**, titled+bordered "Review & feedback" region so
 the client action is obvious. **NO `website-specifics` special case** (OQ4 — milestones is `carried`
 there, renders via the normal Earlier-Steps path; do not branch for it). Do not touch `stages.ts`.
@@ -72,10 +86,17 @@ there, renders via the normal Earlier-Steps path; do not branch for it). Do not 
 The reset-ack control (`SectionQuickControls.tsx` ≈:105-114) already gates uniformly on all three
 ackable keys, and `PcThanksSection.tsx` already gates on `data.pcCompletedAt` (≈:24). The spec's
 symptom (invite/data-source acks not visibly persisting; thank-you appearing early) is driven by the
-ack.ts/service.ts bugs above — once #1+#2 land, verify end-to-end that: a client ack for each of the
-three sections persists and shows the reset control + TOC green circle; thank-you appears ONLY when
-all three acks land. **Add tests proving this; only change code here if a real defect surfaces** (do
-not skip the verification, and do not make cosmetic edits without a proven need).
+ack.ts/service.ts bugs above — once #1+#2 land, verify end-to-end. **Test (plan-review fix 4): an actual
+three-section integration test** — parameterize over `pc-setup`/`pc-invite`/`data-source`, acknowledge
+each, and after EACH ack load public data to prove (a) the ack persists + the reset control shows, (b)
+TOC `acked: true` propagates for that section, (c) `pc-thanks` is ABSENT until the third ack lands. Do
+NOT rely only on the `PcThanksSection` unit test (which merely trusts `pcCompletedAt`).
+**Plan-review fix 5 — TOC wording:** do NOT claim Lane 3 produces a "filled green circle." `TocRail`
+(Lane-1-frozen) renders acknowledged as a **hollow secondary-colour** glyph (`data-vb-glyph="acked"`),
+filled only for `done`. Lane 3 verifies ONLY that `acked: true` propagates; record the "acked should be
+a filled green circle" visual want as a separate Wave-1 residual (do not touch `TocRail`).
+**Only change code in these two files if a real defect surfaces** — do not make cosmetic edits without a
+proven need, and do not skip the verification.
 
 ## Frozen contracts (consume, never change)
 `SectionShell` props `{ section, title, heroUrl, summary?, stage, children }`; `PublicSection`
