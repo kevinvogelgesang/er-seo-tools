@@ -204,8 +204,8 @@ describe('KickoffNextSection', () => {
     expect(screen.getByText('One more thing before we move on.')).toBeDefined()
 
     // done-state mounts as the v2 collapsed reveal region (data-vb-expanded
-    // false — SectionReveal seeds `expanded` from `!startCollapsed` at MOUNT
-    // per the contract, so a done section is asserted via a fresh mount, not a
+    // false — SectionReveal seeds `expanded` from `initiallyOpen`/`alwaysOpen`,
+    // so a done section is asserted via a fresh mount as collapsed, not a
     // rerender from the expanded normal state above). Body retained in the DOM,
     // title (header band) still visible.
     cleanup()

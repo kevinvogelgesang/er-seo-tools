@@ -80,7 +80,7 @@ export function SectionReveal({
           always-open sections render a non-interactive heading. */}
       <div
         className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-4"
-        style={{ position: 'sticky', top: 'var(--vb-sticky-offset, 0px)', zIndex: 30, background: 'var(--vb-surface, transparent)' }}
+        style={{ position: 'sticky', top: 'var(--vb-sticky-offset, 0px)', zIndex: 30, background: '#fafafa' }}
       >
         <div className="min-w-0 flex-1">
           <div
