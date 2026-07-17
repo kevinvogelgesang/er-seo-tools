@@ -44,7 +44,7 @@ export function ThemePreview({
           {clientName} — viewbook preview
         </div>
         <div style={{ fontFamily: 'var(--vb-body-font)' }}>
-          <SectionShell section={SAMPLE_SECTION} title="Brand Guidelines" heroUrl={null} stage="building">
+          <SectionShell section={SAMPLE_SECTION} title="Brand Guidelines" heroUrl={null} stage="kickoff">
             <p className="text-black/80">
               Body copy renders in the selected body font. Headers use the heading font on the brand
               primary band above.

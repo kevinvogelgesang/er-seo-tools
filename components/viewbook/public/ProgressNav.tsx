@@ -30,9 +30,13 @@ export function ProgressNav({
 
   return (
     <nav
+      id="vb-progress-nav"
       aria-label="Viewbook progress"
-      className="sticky top-0 z-40 border-b border-black/10 backdrop-blur"
-      style={{ background: 'color-mix(in srgb, var(--vb-primary) 92%, transparent)' }}
+      className="sticky z-40 border-b border-black/10 backdrop-blur"
+      style={{
+        top: 'var(--vb-operator-bar-height, 0px)',
+        background: 'color-mix(in srgb, var(--vb-primary) 92%, transparent)',
+      }}
     >
       <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-4 px-6 py-2">
         <div className="flex items-center gap-2">

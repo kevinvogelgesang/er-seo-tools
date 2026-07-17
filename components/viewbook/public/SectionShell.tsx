@@ -1,26 +1,24 @@
-// PR7 Task 4: the shared section frame is now a two-layer shape — a brand
-// header band + a persistent SUMMARY FACE + a collapsible detail body that
-// reveals on scroll. This component stays a SERVER component: it computes the
-// display mode (Task 3), renders the brand header band, composes the summary
-// face (the section's own `summary` band PLUS the done/ack celebratory ✓ /
-// "Completed {doneAt}" styling), and delegates the summary row + toggle +
-// collapsible region + body to the `SectionReveal` client island. The ONLY
+// Viewbook UX pass, Lane 1 Task 2: the shared section frame — a brand hero band
+// + a compact STICKY header (title + summary face + toggle) + a collapsible
+// detail body whose visibility is STATE-ONLY (no scroll observer — that was the
+// blink bug). This stays a SERVER component: it computes the display mode,
+// renders the brand hero band, composes the summary face (the section's own
+// `summary` band PLUS the done/ack celebratory ✓ / "Completed {doneAt}"
+// styling), computes the pure `initiallyOpen` policy and the `regionId` (a
+// server component cannot use `useId`), and delegates the sticky header + toggle
+// + collapsible region + body to the `SectionReveal` client island. The ONLY
 // things crossing the RSC boundary are serializable props + server-rendered
 // nodes (`summary`, `children`) — never a function prop (Wave-4 P1).
 //
 // Display modes (lib/viewbook/section-display.ts):
 //   always-open (pc-intro)  → expanded, no toggle, never collapses
-//   normal                  → SSR-expanded, scroll-reveal after mount
+//   normal                  → open per the stage policy, click-toggle only
 //   done / ack-collapsed    → start collapsed, celebratory summary face, open
-//                             only on deliberate toggle or vb:navigate
+//                             on deliberate toggle or vb:navigate
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
-import {
-  sectionDisplayMode,
-  sectionStartsCollapsed,
-  sectionLocksAutoReveal,
-} from '@/lib/viewbook/section-display'
+import { sectionDisplayMode, sectionInitiallyOpen } from '@/lib/viewbook/section-display'
 import { SectionReveal } from './SectionReveal'
 import { CornerBracket, TickDivider } from './SectionAccents'
 
@@ -46,9 +44,12 @@ export function SectionShell({
   children: ReactNode
 }) {
   const mode = sectionDisplayMode(section, stage)
-  const startCollapsed = sectionStartsCollapsed(mode)
-  const lockAutoReveal = sectionLocksAutoReveal(mode)
   const alwaysOpen = mode === 'always-open'
+  const initiallyOpen = sectionInitiallyOpen(section, stage)
+  // Server component → cannot useId; the region anchor is derived from the
+  // (unique) section key. `id={section.sectionKey}` on the <section> is the nav
+  // anchor; this is the collapsible region — distinct, no collision.
+  const regionId = `vb-region-${section.sectionKey}`
   // 'done' and 'ack-collapsed' carry the celebratory summary-face styling that
   // in v1 lived in the slim <details> header — data body always retained below.
   const celebratory = mode === 'done' || mode === 'ack-collapsed'
@@ -77,7 +78,14 @@ export function SectionShell({
   ) : undefined
 
   return (
-    <section id={section.sectionKey} className="flex w-full scroll-mt-24 flex-col">
+    <section
+      id={section.sectionKey}
+      className="flex w-full flex-col"
+      // Replaces the fixed `scroll-mt-24` — anchor scrolls clear the measured
+      // cumulative sticky chrome (nav + operator bar) published by the Lane-1
+      // measurement leaf, plus a small gap.
+      style={{ scrollMarginTop: 'calc(var(--vb-sticky-offset, 0px) + 12px)' }}
+    >
       {/* Celebratory badge pop, keyed off render (summary face is always visible
           now), with a reduced-motion override. */}
       <style>{`
@@ -122,11 +130,11 @@ export function SectionShell({
 
       <SectionReveal
         sectionKey={section.sectionKey}
+        regionId={regionId}
         title={title}
         summary={summaryFace}
-        startCollapsed={startCollapsed}
-        lockAutoReveal={lockAutoReveal}
         alwaysOpen={alwaysOpen}
+        initiallyOpen={initiallyOpen}
       >
         {section.introNote && (
           <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>

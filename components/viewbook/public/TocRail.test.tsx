@@ -134,25 +134,19 @@ describe('TocRail', () => {
     expect(nav.getAttribute('data-vb-open')).toBe('false')
   })
 
-  it('stays open on mouse-leave while focus is inside, collapses once focus leaves', () => {
+  // Codex-review fix P2-3 (hamburger-persistent rail): the rail's open state
+  // is now owned SOLELY by the hamburger trigger (+ Escape) — mouse
+  // enter/leave and blur no longer touch it at all. These two cases replace
+  // the old hover-driven "collapses on mouse-leave once focus is outside"
+  // assertion, which encoded exactly the behavior Kevin asked to remove.
+  it('mouse-leave does NOT collapse the rail, even when focus is outside it', () => {
     const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
     const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
-    const rows = entries(container)
-    // Focus a control inside the rail → opens it.
-    act(() => {
-      rows[0].focus()
-    })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    expect(nav.getAttribute('data-vb-open')).toBe('true') // default-open
 
-    // Mouse-leave while focus is still inside must NOT collapse (the 40px
-    // container would otherwise clip the focused control).
-    act(() => {
-      fireEvent.mouseLeave(nav)
-    })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-    expect(document.activeElement).toBe(rows[0]) // still reachable
-
-    // Move focus outside the rail, then mouse-leave → collapses.
+    // Focus outside the rail (the old code's onBlur collapse trigger), then
+    // mouse-leave the rail (the old code's onMouseLeave collapse trigger).
+    // Neither may change `open` now — only the hamburger/Escape may.
     const outside = document.createElement('button')
     document.body.appendChild(outside)
     act(() => {
@@ -161,8 +155,28 @@ describe('TocRail', () => {
     act(() => {
       fireEvent.mouseLeave(nav)
     })
-    expect(nav.getAttribute('data-vb-open')).toBe('false')
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
     outside.remove()
+  })
+
+  it('mouse-leave does NOT collapse the rail when it was hamburger-collapsed either', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    const trigger = container.querySelector('[data-vb-toc-trigger]') as HTMLElement
+    act(() => {
+      fireEvent.click(trigger) // hamburger-collapse
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('false')
+
+    // mouse enter/leave must be fully inert now — no auto-(re)open either.
+    act(() => {
+      fireEvent.mouseEnter(nav)
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('false')
+    act(() => {
+      fireEvent.mouseLeave(nav)
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('false')
   })
 
   it('mobile (< 768px) renders a FAB button', () => {
@@ -177,5 +191,58 @@ describe('TocRail', () => {
     expect(() =>
       renderToStaticMarkup(<TocRail toc={toc} searchIndex={searchIndex} verbose />),
     ).not.toThrow()
+  })
+
+  // Task 7: default-expanded, left-anchored, hamburger toggle.
+
+  it('desktop rail defaults to expanded (open) without any interaction', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    const trigger = container.querySelector('[data-vb-toc-trigger]') as HTMLElement
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('desktop rail is left-anchored, not right-anchored', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    expect(nav.className).toContain('left-3')
+    expect(nav.className).not.toContain('right-3')
+  })
+
+  it('the hamburger trigger toggles open (aria-expanded flips true -> false -> true)', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const trigger = container.querySelector('[data-vb-toc-trigger]') as HTMLElement
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    act(() => {
+      fireEvent.click(trigger)
+    })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(nav.getAttribute('data-vb-open')).toBe('false')
+    act(() => {
+      fireEvent.click(trigger)
+    })
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+  })
+
+  it('a done entry renders the filled glyph and an acked-not-done entry renders the hollow glyph', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const welcome = container.querySelector('[data-anchor="#welcome"]') as HTMLElement
+    const dataSource = container.querySelector('[data-anchor="#data-source"]') as HTMLElement
+    expect(welcome.querySelector('[data-vb-glyph="done"]')).not.toBeNull()
+    expect(dataSource.querySelector('[data-vb-glyph="acked"]')).not.toBeNull()
+  })
+
+  it('activating a TOC item does not collapse the desktop rail', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    const welcome = container.querySelector('[data-anchor="#welcome"]') as HTMLElement
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    act(() => {
+      fireEvent.click(welcome)
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
   })
 })

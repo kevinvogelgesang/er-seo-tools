@@ -12,10 +12,12 @@ export function sectionDisplayMode(section: PublicSection, stage: ViewbookStage)
   return 'normal'
 }
 
-export function sectionStartsCollapsed(m: SectionDisplayMode): boolean {
-  return m === 'done' || m === 'ack-collapsed'
-}
+const BUILDING_OPEN = new Set<string>(['milestones', 'materials'])
 
-export function sectionLocksAutoReveal(m: SectionDisplayMode): boolean {
-  return m !== 'normal'
+export function sectionInitiallyOpen(section: PublicSection, stage: ViewbookStage): boolean {
+  const mode = sectionDisplayMode(section, stage)
+  if (mode === 'always-open') return true
+  if (mode === 'done' || mode === 'ack-collapsed') return false
+  if (stage === 'building') return BUILDING_OPEN.has(section.sectionKey)
+  return true
 }

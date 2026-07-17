@@ -64,7 +64,15 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">{vb.client.name}</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+          {vb.revokedAt ? (
+            <span>{vb.client.name}</span>
+          ) : (
+            <a href={publicViewbookUrl(vb.token)} target="_blank" rel="noopener" className="hover:underline">
+              {vb.client.name}
+            </a>
+          )}
+        </h1>
         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-white/10 dark:text-white/60">
           {vb.kind}
         </span>

@@ -70,6 +70,10 @@ describe('WelcomeSection', () => {
 
   it('features the assigned flagged CSM, links their mailbox, and filters them out of the ordinary grid', () => {
     const data = base({
+      // kickoff (not building) so this normal section is expanded — in the
+      // sticky-header model `building` opens only milestones+materials, and a
+      // collapsed region is aria-hidden/inert (invisible to getByRole).
+      stage: 'kickoff',
       csmName: 'Casey CSM',
       global: {
         team: [
@@ -127,6 +131,9 @@ describe('StrategySection', () => {
   it('renders global then own doc cards with safe links/text before one collapsed full playbook', () => {
     const hostile = '<img src=x>'
     const data = base({
+      // kickoff so this normal section is expanded (see note above): a
+      // collapsed region's links are aria-hidden and excluded from getByRole.
+      stage: 'kickoff',
       docs: {
         global: [
           { id: 1, title: 'Global guide', blurb: 'First', filename: 'global.pdf', sortOrder: 1 },
@@ -197,8 +204,8 @@ describe('KickoffNextSection', () => {
     expect(screen.getByText('One more thing before we move on.')).toBeDefined()
 
     // done-state mounts as the v2 collapsed reveal region (data-vb-expanded
-    // false — SectionReveal seeds `expanded` from `!startCollapsed` at MOUNT
-    // per the contract, so a done section is asserted via a fresh mount, not a
+    // false — SectionReveal seeds `expanded` from `initiallyOpen`/`alwaysOpen`,
+    // so a done section is asserted via a fresh mount as collapsed, not a
     // rerender from the expanded normal state above). Body retained in the DOM,
     // title (header band) still visible.
     cleanup()
