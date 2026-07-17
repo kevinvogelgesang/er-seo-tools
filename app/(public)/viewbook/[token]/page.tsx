@@ -8,6 +8,7 @@ import { WelcomeSection } from '@/components/viewbook/public/WelcomeSection'
 import { MilestonesSection } from '@/components/viewbook/public/MilestonesSection'
 import { DataSourceSection } from '@/components/viewbook/public/DataSourceSection'
 import { BrandSection } from '@/components/viewbook/public/BrandSection'
+import { WsIntroSection } from '@/components/viewbook/public/WsIntroSection'
 import { AssessmentSection } from '@/components/viewbook/public/AssessmentSection'
 import { StrategySection } from '@/components/viewbook/public/StrategySection'
 import { MaterialsSection } from '@/components/viewbook/public/MaterialsSection'
@@ -51,6 +52,8 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
         return <MaterialsSection {...props} />
       case 'kickoff-next':
         return <KickoffNextSection {...props} isOperator={operatorEmail != null} />
+      case 'ws-intro':
+        return <WsIntroSection {...props} />
       default:
         return null
     }

@@ -3,6 +3,7 @@
 // design-philosophy narrative. v1 palette = the three theme colors.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { FONT_CATALOG } from '@/lib/viewbook/theme'
+import { ContrastTester } from './ContrastTester'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -63,6 +64,8 @@ export function BrandSection({
           </p>
         </div>
       </div>
+
+      <ContrastTester theme={data.theme} />
 
       {section.narrative && (
         <>
