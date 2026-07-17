@@ -1,5 +1,6 @@
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
-import { KickoffNextCta, KickoffQuestionsOutro } from './KickoffNextButton'
+import { KickoffNextCta } from './KickoffNextButton'
+import { KickoffQuestionsOutro } from './KickoffQuestionsOutro'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'

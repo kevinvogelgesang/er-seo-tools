@@ -3,20 +3,7 @@
 import { useState } from 'react'
 import { usePresentationMode } from './PresentationToggle'
 import { requestRefresh } from './useViewbookSync'
-
-// The anonymous "Questions?" outro — shared so the operator CTA can fall back
-// to the EXACT same block in presentation mode. Pure presentational; safe to
-// render from both the server anonymous branch and the client CTA below.
-export function KickoffQuestionsOutro({ csmName }: { csmName: string | null }) {
-  return (
-    <div className="space-y-2">
-      <h2 className="text-2xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>Questions?</h2>
-      <p className="text-black/70">
-        {csmName ? `Reach out to ${csmName}, your primary contact.` : 'Reach out to your Enrollment Resources contact.'}
-      </p>
-    </div>
-  )
-}
+import { KickoffQuestionsOutro } from './KickoffQuestionsOutro'
 
 // Operator kickoff content, presentation-aware (Codex PR8 review, P2): during a
 // screen-share (presentation mode ON) the operator-only "Move to Website
