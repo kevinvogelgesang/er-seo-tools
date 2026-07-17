@@ -28,6 +28,7 @@ export function PcInviteSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES['pc-invite']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
     >

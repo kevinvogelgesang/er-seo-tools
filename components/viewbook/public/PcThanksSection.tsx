@@ -26,6 +26,7 @@ export function PcThanksSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES['pc-thanks']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
     >

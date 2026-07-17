@@ -63,6 +63,7 @@ export function PcSetupSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES['pc-setup']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
     >

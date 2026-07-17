@@ -159,7 +159,8 @@ describe('KickoffNextSection', () => {
       <KickoffNextSection isOperator section={sec('kickoff-next')} data={kickoff} token="tok" />,
     )
     expect(screen.getByText('Ready for the next step?')).toBeDefined()
-    expect(screen.getByRole('button')).toBeDefined()
+    // v2 SectionShell adds a summary-row toggle button; target the CTA by name.
+    expect(screen.getByRole('button', { name: 'Move to Website Specifics' })).toBeDefined()
     rerender(<KickoffNextSection isOperator section={sec('kickoff-next')} data={building} token="tok" />)
     expect(screen.queryByText('Ready for the next step?')).toBeNull()
   })
@@ -195,9 +196,13 @@ describe('KickoffNextSection', () => {
     )
     expect(screen.getByText('One more thing before we move on.')).toBeDefined()
 
-    // done-state renders the collapsed <details> shell variant, not the
-    // expanded full-viewport layout.
-    rerender(
+    // done-state mounts as the v2 collapsed reveal region (data-vb-expanded
+    // false — SectionReveal seeds `expanded` from `!startCollapsed` at MOUNT
+    // per the contract, so a done section is asserted via a fresh mount, not a
+    // rerender from the expanded normal state above). Body retained in the DOM,
+    // title (header band) still visible.
+    cleanup()
+    const { container: doneContainer } = render(
       <KickoffNextSection
         isOperator
         section={sec('kickoff-next', { state: 'done', doneAt: '2026-07-16T00:00:00.000Z' })}
@@ -205,9 +210,10 @@ describe('KickoffNextSection', () => {
         token="tok"
       />,
     )
-    const details = container.querySelector('details')
-    expect(details).not.toBeNull()
-    expect(details?.hasAttribute('open')).toBe(false)
+    const region = doneContainer.querySelector('[role="region"]')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('data-vb-expanded')).toBe('false')
+    expect(screen.getByText(/Completed/)).toBeDefined()
     expect(screen.getByText('Next Steps')).toBeDefined()
   })
 })

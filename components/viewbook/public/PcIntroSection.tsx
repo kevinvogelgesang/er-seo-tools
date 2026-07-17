@@ -29,6 +29,7 @@ export function PcIntroSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES['pc-intro']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
     >

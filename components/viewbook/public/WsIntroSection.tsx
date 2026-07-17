@@ -32,6 +32,7 @@ export function WsIntroSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES['ws-intro']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
     >

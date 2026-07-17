@@ -86,6 +86,7 @@ export function MilestonesSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={current ? <p>You&apos;re in the <strong>{current.title}</strong> stage.</p> : undefined}
