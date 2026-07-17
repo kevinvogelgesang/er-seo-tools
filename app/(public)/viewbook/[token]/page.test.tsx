@@ -108,5 +108,16 @@ describe('ViewbookPage anonymous vs operator branch (spec §13)', () => {
     const props = (el as { props: Record<string, unknown> }).props
     expect(props.operatorEmail).toBe('op@example.com')
     expect(props.viewbookId).toBe(7)
+
+    // P1 regression guard (Codex PR8 review): Next.js cannot serialize
+    // functions across the Server→Client boundary, so the operator layer must
+    // receive NO function-typed props. The old `renderSection`/`renderViewbook`
+    // closures are GONE; the section tree crosses as `children` (a ReactNode).
+    expect(props.renderSection).toBeUndefined()
+    expect(props.renderViewbook).toBeUndefined()
+    for (const [key, value] of Object.entries(props)) {
+      expect(typeof value, `prop "${key}" must not be a function`).not.toBe('function')
+    }
+    expect(isValidElement(props.children)).toBe(true)
   })
 })

@@ -12,6 +12,17 @@ export interface PresentationModeValue {
 
 const PresentationModeContext = createContext<PresentationModeValue | null>(null)
 
+// Safe default for consumers rendered OUTSIDE a PresentationModeProvider — the
+// anonymous public tree renders KickoffNextSection (and, via it, presentation-
+// aware children) with no operator layer / provider. There is no presentation
+// concept there, so behave as fully-initialized + not-presenting with a no-op
+// toggle. usePresentationMode NEVER throws, so a bare render can't crash.
+const PRESENTATION_MODE_DEFAULT: PresentationModeValue = {
+  initialized: true,
+  presenting: false,
+  toggle: () => {},
+}
+
 export function PresentationModeProvider({ children }: { children: ReactNode }) {
   // Treat the pre-hydration state as presenting. Consumers can safely render
   // public content, but must wait for `initialized` before showing ER chrome.
@@ -48,9 +59,7 @@ export function PresentationModeProvider({ children }: { children: ReactNode }) 
 }
 
 export function usePresentationMode(): PresentationModeValue {
-  const value = useContext(PresentationModeContext)
-  if (!value) throw new Error('usePresentationMode must be used inside PresentationModeProvider')
-  return value
+  return useContext(PresentationModeContext) ?? PRESENTATION_MODE_DEFAULT
 }
 
 export function PresentationToggle() {

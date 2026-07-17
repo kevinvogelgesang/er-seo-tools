@@ -1,7 +1,41 @@
 'use client'
 
 import { useState } from 'react'
+import { usePresentationMode } from './PresentationToggle'
 import { requestRefresh } from './useViewbookSync'
+
+// The anonymous "Questions?" outro — shared so the operator CTA can fall back
+// to the EXACT same block in presentation mode. Pure presentational; safe to
+// render from both the server anonymous branch and the client CTA below.
+export function KickoffQuestionsOutro({ csmName }: { csmName: string | null }) {
+  return (
+    <div className="space-y-2">
+      <h2 className="text-2xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>Questions?</h2>
+      <p className="text-black/70">
+        {csmName ? `Reach out to ${csmName}, your primary contact.` : 'Reach out to your Enrollment Resources contact.'}
+      </p>
+    </div>
+  )
+}
+
+// Operator kickoff content, presentation-aware (Codex PR8 review, P2): during a
+// screen-share (presentation mode ON) the operator-only "Move to Website
+// Specifics" mutation CTA must NOT show — fall back to the anonymous outro so
+// the client sees the same thing they would. usePresentationMode has a safe
+// default outside a provider, so this can never crash the anonymous branch.
+export function KickoffNextCta({ viewbookId, csmName }: { viewbookId: number; csmName: string | null }) {
+  const { presenting } = usePresentationMode()
+  if (presenting) return <KickoffQuestionsOutro csmName={csmName} />
+  return (
+    <div className="space-y-3">
+      <h2 className="text-2xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
+        Ready for the next step?
+      </h2>
+      <p className="text-black/70">Advance the client when the kickoff conversation is complete.</p>
+      <KickoffNextButton viewbookId={viewbookId} />
+    </div>
+  )
+}
 
 export function KickoffNextButton({ viewbookId }: { viewbookId: number }) {
   const [error, setError] = useState<string | null>(null)

@@ -5,6 +5,7 @@ import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { OperatorViewbookData } from '@/lib/viewbook/operator-data'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import { OperatorViewbookLayer } from './OperatorViewbookLayer'
+import { OperatorSectionWrapper } from './OperatorSectionWrapper'
 
 const visible: PublicSection = {
   sectionKey: 'welcome',
@@ -50,6 +51,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// P1 (Codex PR8 review): the layer's interface is now ALL-serializable — the
+// section tree is composed SERVER-SIDE and handed in as `children` (a
+// ReactNode), never as function props. This harness mirrors that composition:
+// the per-section OperatorSectionWrapper islands live INSIDE `children`.
 function renderLayer() {
   return render(
     <OperatorViewbookLayer
@@ -58,9 +63,19 @@ function renderLayer() {
       stage="kickoff"
       pcCompletedAt={null}
       operatorData={operatorData}
-      renderSection={(section) => <div>Public {section.sectionKey}</div>}
-      renderViewbook={(renderSection) => <main>{renderSection(visible)}</main>}
-    />,
+    >
+      <main>
+        <OperatorSectionWrapper
+          sectionKey="welcome"
+          viewbookId={22}
+          section={operatorData.sections[0]}
+          operatorData={operatorData}
+          pcCompletedAt={null}
+        >
+          <div>Public welcome</div>
+        </OperatorSectionWrapper>
+      </main>
+    </OperatorViewbookLayer>,
   )
 }
 

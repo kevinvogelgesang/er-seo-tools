@@ -16,7 +16,7 @@ import {
   useEditorActivity,
   useFocusWithin,
 } from '../useViewbookSync'
-import { operatorRequest } from './operator-api'
+import { OperatorRequestError, operatorRequest } from './operator-api'
 
 const inputClass = 'w-full rounded border border-black/15 bg-white px-3 py-2 text-sm text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600'
 const saveClass = 'rounded bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2'
@@ -462,6 +462,25 @@ function OperatorFieldRow({
       setMessage(lockedBaseline ? 'Amendment recorded' : 'Saved')
       requestRefresh()
     } catch (caught) {
+      // 409 stale_version reconciliation (Codex PR8 review, P2): mirror the
+      // admin FieldEditor — adopt the current version/value the server returned
+      // so the NEXT save sends a fresh `expectedVersion` instead of resending
+      // the obsolete one forever. Without this, the dirty draft suppresses the
+      // live refresh and every retry re-conflicts (stuck until manual reload).
+      if (
+        caught instanceof OperatorRequestError &&
+        caught.status === 409 &&
+        caught.code === 'stale_version'
+      ) {
+        const current = caught.body.current as { value?: string | null; version?: number } | undefined
+        if (current && typeof current.version === 'number') {
+          const nextValue = current.value ?? null
+          onUpdated({ ...field, value: nextValue, version: current.version })
+          setDraft(displayFieldValue({ ...field, value: nextValue }))
+          setMessage('A newer answer was loaded.')
+          return
+        }
+      }
       setMessage(caught instanceof Error ? caught.message : 'save_failed')
     } finally {
       setBusy(false)

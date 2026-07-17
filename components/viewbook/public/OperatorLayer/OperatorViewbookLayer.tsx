@@ -2,21 +2,24 @@
 
 import type { ReactNode } from 'react'
 import type { OperatorViewbookData } from '@/lib/viewbook/operator-data'
-import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
 import { PresentationModeProvider, PresentationToggle, usePresentationMode } from '../PresentationToggle'
 import { HiddenSectionsList } from './HiddenSectionsList'
 import { OperatorBar } from './OperatorBar'
-import { OperatorSectionWrapper } from './OperatorSectionWrapper'
 
+// Server→Client boundary contract (Codex PR8 review, P1): every prop here is
+// SERIALIZABLE. The section tree is composed SERVER-SIDE in page.tsx (the
+// ViewbookShell wrapped with per-section OperatorSectionWrapper islands) and
+// handed down as `children` — a ReactNode. NO function props: Next.js cannot
+// serialize closures across the RSC boundary, and passing `renderSection` /
+// `renderViewbook` here crashed the operator route at runtime.
 export interface OperatorViewbookLayerProps {
   viewbookId: number
   operatorEmail: string
   stage: ViewbookStage
   pcCompletedAt: string | null
   operatorData: OperatorViewbookData
-  renderSection: (section: PublicSection) => ReactNode
-  renderViewbook: (renderSection: (section: PublicSection) => ReactNode) => ReactNode
+  children: ReactNode
 }
 
 export function OperatorViewbookLayer(props: OperatorViewbookLayerProps) {
@@ -33,39 +36,21 @@ function OperatorViewbookLayerContent({
   stage,
   pcCompletedAt,
   operatorData,
-  renderSection,
-  renderViewbook,
+  children,
 }: OperatorViewbookLayerProps) {
   const { initialized, presenting } = usePresentationMode()
 
-  // Before localStorage has been read, render the normal public tree only.
-  // This prevents a persisted presentation-mode browser from flashing ER
-  // chrome while leaving the actual viewbook visible during hydration.
-  if (!initialized) return <>{renderViewbook(renderSection)}</>
-
-  if (presenting) {
+  // Before localStorage has been read, OR in presentation mode, render the
+  // pre-composed public tree only. Every OperatorSectionWrapper INSIDE
+  // `children` reads the same presentation flag and self-hides its controls,
+  // so the tree looks anonymous; the toggle stays available to return to
+  // editing (it renders null until `initialized`, matching the old flow).
+  if (!initialized || presenting) {
     return (
       <>
-        {renderViewbook(renderSection)}
+        {children}
         <PresentationToggle />
       </>
-    )
-  }
-
-  const wrappedRenderSection = (publicSection: PublicSection): ReactNode => {
-    const section = operatorData.sections.find((item) => item.sectionKey === publicSection.sectionKey)
-    const rendered = renderSection(publicSection)
-    if (!section) return rendered
-    return (
-      <OperatorSectionWrapper
-        sectionKey={section.sectionKey}
-        viewbookId={viewbookId}
-        section={section}
-        operatorData={operatorData}
-        pcCompletedAt={pcCompletedAt}
-      >
-        {rendered}
-      </OperatorSectionWrapper>
     )
   }
 
@@ -78,7 +63,7 @@ function OperatorViewbookLayerContent({
         pcCompletedAt={pcCompletedAt}
       />
       <HiddenSectionsList viewbookId={viewbookId} operatorData={operatorData} pcCompletedAt={pcCompletedAt} />
-      {renderViewbook(wrappedRenderSection)}
+      {children}
     </div>
   )
 }

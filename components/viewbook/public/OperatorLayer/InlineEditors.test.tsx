@@ -183,4 +183,31 @@ describe('light-only operator inline editors', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ value: 'New answer', expectedVersion: 2 })
     expectLightOnly(container)
   })
+
+  // FIX 3 (Codex PR8 review): a 409 stale_version must reconcile the tracked
+  // version to the server's current one, so the NEXT save sends the fresh
+  // `expectedVersion` instead of resending the obsolete one forever.
+  it('adopts the current version on a 409 stale_version so a retry sends the fresh expectedVersion', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ error: 'stale_version', current: { value: 'Server answer', version: 5 } }, 409))
+      .mockResolvedValueOnce(ok({ field: { ...field, value: 'Newer answer', version: 6 } }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} />)
+
+    // First save conflicts — it went out with the stale mount-time version (2).
+    fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'My answer' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save answer for School motto' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ value: 'My answer', expectedVersion: 2 })
+
+    // Reconciliation surfaces the server's current value/version.
+    expect(await screen.findByText('A newer answer was loaded.')).toBeTruthy()
+    expect((screen.getByLabelText('Answer for School motto') as HTMLInputElement).value).toBe('Server answer')
+
+    // The retry now carries the adopted version (5), not the obsolete 2.
+    fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'Newer answer' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save answer for School motto' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ value: 'Newer answer', expectedVersion: 5 })
+  })
 })

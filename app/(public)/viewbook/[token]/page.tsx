@@ -19,7 +19,7 @@ import { PcInviteSection } from '@/components/viewbook/public/PcInviteSection'
 import { PcThanksSection } from '@/components/viewbook/public/PcThanksSection'
 import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
 import { loadOperatorViewbookData } from '@/lib/viewbook/operator-data'
-import { OperatorViewbookLayer } from '@/components/viewbook/public/OperatorLayer'
+import { OperatorViewbookLayer, OperatorSectionWrapper } from '@/components/viewbook/public/OperatorLayer'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,7 +39,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
   ])
   if (!data) notFound()
 
-  const renderSection = (section: PublicSection): ReactNode => {
+  const baseRenderSection = (section: PublicSection): ReactNode => {
     const props = { section, data, token }
     switch (section.sectionKey) {
       case 'welcome':
@@ -83,16 +83,39 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
         data={data}
         primarySections={data.primarySections}
         carriedSections={data.carriedSections}
-        renderSection={renderSection}
+        renderSection={baseRenderSection}
       />
     )
   }
 
   // Operator branch: only a VERIFIED-email session reaches the SELECT-only
-  // operator read model, which the layer uses to wrap every section (incl.
-  // PR5's pc-*) via a render prop without editing any section component.
+  // operator read model, which wraps every section (incl. PR5's pc-*) without
+  // editing any section component.
   const operatorData = await loadOperatorViewbookData(data.viewbookId)
   if (!operatorData) notFound()
+
+  // Compose the wrapped section tree SERVER-SIDE (P1 fix): each section node is
+  // rendered by the base switch, then wrapped in the OperatorSectionWrapper
+  // client island with SERIALIZABLE props + the section node as CHILDREN — the
+  // canonical Next pattern (server renders a client component). The resulting
+  // ViewbookShell tree is a ReactNode passed as `children` to the client
+  // layer, so NO closures ever cross the RSC boundary.
+  const wrappedRenderSection = (section: PublicSection): ReactNode => {
+    const operatorSection = operatorData.sections.find((item) => item.sectionKey === section.sectionKey)
+    const rendered = baseRenderSection(section)
+    if (!operatorSection) return rendered
+    return (
+      <OperatorSectionWrapper
+        sectionKey={operatorSection.sectionKey}
+        viewbookId={data.viewbookId}
+        section={operatorSection}
+        operatorData={operatorData}
+        pcCompletedAt={operatorData.pcCompletedAt}
+      >
+        {rendered}
+      </OperatorSectionWrapper>
+    )
+  }
 
   return (
     <OperatorViewbookLayer
@@ -101,16 +124,14 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
       stage={data.stage}
       pcCompletedAt={operatorData.pcCompletedAt}
       operatorData={operatorData}
-      renderSection={renderSection}
-      renderViewbook={(operatorRenderSection) => (
-        <ViewbookShell
-          token={token}
-          data={data}
-          primarySections={data.primarySections}
-          carriedSections={data.carriedSections}
-          renderSection={operatorRenderSection}
-        />
-      )}
-    />
+    >
+      <ViewbookShell
+        token={token}
+        data={data}
+        primarySections={data.primarySections}
+        carriedSections={data.carriedSections}
+        renderSection={wrappedRenderSection}
+      />
+    </OperatorViewbookLayer>
   )
 }
