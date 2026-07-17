@@ -168,7 +168,7 @@ describe('acknowledgeSection', () => {
     expect(row.suppressedAt).not.toBeNull()
   })
 
-  it('excludes a hidden ackable section from the completion predicate (Codex fix 4)', async () => {
+  it('blocks completion while a hidden ackable section remains unacknowledged', async () => {
     const ctx = await mkViewbook()
     await prisma.viewbookSection.update({
       where: { viewbookId_sectionKey: { viewbookId: ctx.viewbook.id, sectionKey: 'pc-invite' } },
@@ -176,9 +176,38 @@ describe('acknowledgeSection', () => {
     })
     await acknowledgeSection(ctx.viewbook, ctx.token, { sectionKey: 'pc-setup', clientMutationId: mutationId() })
     const result = await acknowledgeSection(ctx.viewbook, ctx.token, { sectionKey: 'data-source', clientMutationId: mutationId() })
-    expect(result.pcCompleted).toBe(true)
+    expect(result.pcCompleted).toBe(false)
     const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.viewbook.id } })
-    expect(vb.pcCompletedAt).not.toBeNull()
+    expect(vb.pcCompletedAt).toBeNull()
+    expect(await prisma.viewbookEmailDelivery.count({ where: { dedupKey: pcDeliveryKey(ctx.viewbook.id) } })).toBe(0)
+  })
+
+  it('counts a hidden ackable section when it was acknowledged before being hidden', async () => {
+    const ctx = await mkViewbook()
+    await acknowledgeSection(ctx.viewbook, ctx.token, { sectionKey: 'pc-invite', clientMutationId: mutationId() })
+    await setSectionState(ctx.viewbook.id, 'pc-invite', 'hidden', OPERATOR)
+    expect(await prisma.viewbookEmailDelivery.count({ where: { dedupKey: pcDeliveryKey(ctx.viewbook.id) } })).toBe(0)
+
+    await acknowledgeSection(ctx.viewbook, ctx.token, { sectionKey: 'pc-setup', clientMutationId: mutationId() })
+    const result = await acknowledgeSection(ctx.viewbook, ctx.token, { sectionKey: 'data-source', clientMutationId: mutationId() })
+
+    expect(result.pcCompleted).toBe(true)
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.viewbook.id } })).pcCompletedAt).not.toBeNull()
+    expect(await prisma.viewbookEmailDelivery.count({ where: { dedupKey: pcDeliveryKey(ctx.viewbook.id) } })).toBe(1)
+  })
+
+  it('blocks completion when a required ackable section row is missing', async () => {
+    const ctx = await mkViewbook()
+    await prisma.viewbookSection.delete({
+      where: { viewbookId_sectionKey: { viewbookId: ctx.viewbook.id, sectionKey: 'pc-invite' } },
+    })
+
+    await acknowledgeSection(ctx.viewbook, ctx.token, { sectionKey: 'pc-setup', clientMutationId: mutationId() })
+    const result = await acknowledgeSection(ctx.viewbook, ctx.token, { sectionKey: 'data-source', clientMutationId: mutationId() })
+
+    expect(result.pcCompleted).toBe(false)
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.viewbook.id } })).pcCompletedAt).toBeNull()
+    expect(await prisma.viewbookEmailDelivery.count({ where: { dedupKey: pcDeliveryKey(ctx.viewbook.id) } })).toBe(0)
   })
 
   it('exactly one pcCompletedAt winner + one delivery under a concurrent last-ack', async () => {
@@ -243,8 +272,8 @@ describe('acknowledgeSection', () => {
   })
 })
 
-describe('completion-on-hide (setSectionState)', () => {
-  it('completes post-contract when hiding the last unacknowledged ackable section', async () => {
+describe('section hiding never completes post-contract', () => {
+  it('does not stamp completion or create a delivery when the last unacknowledged ackable section is hidden', async () => {
     const ctx = await mkViewbook()
     await ackAll(ctx, ['pc-invite'])
     const before = await syncVersion(ctx.viewbook.id)
@@ -253,9 +282,9 @@ describe('completion-on-hide (setSectionState)', () => {
 
     expect(await syncVersion(ctx.viewbook.id)).toBe(before + 1)
     const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.viewbook.id } })
-    expect(vb.pcCompletedAt).not.toBeNull()
+    expect(vb.pcCompletedAt).toBeNull()
     const deliveries = await prisma.viewbookEmailDelivery.findMany({ where: { dedupKey: pcDeliveryKey(ctx.viewbook.id) } })
-    expect(deliveries).toHaveLength(1)
+    expect(deliveries).toHaveLength(0)
   })
 
   it('hiding an ackable section when already complete does not create a duplicate delivery', async () => {

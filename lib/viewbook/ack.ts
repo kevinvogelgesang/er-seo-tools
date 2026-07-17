@@ -9,13 +9,12 @@
 // bump) — there is no clientMutationId column on ViewbookSection, so
 // `acknowledgedAt IS NULL` IS the replay guard.
 //
-// Completion: the ack that leaves every non-hidden ackable section acked
+// Completion: the ack that leaves all three required ackable sections acked
 // stamps `Viewbook.pcCompletedAt` (first-writer-wins) and creates the
-// `pc-complete` email delivery. `buildPcCompletion` is the ONE shared
-// statement-builder for this — reused by acknowledgeSection here, the
-// operator section-hide path (service.ts setSectionState), and force-advance
-// (moveViewbookStage, Task 6). Statement ORDER is load-bearing: the delivery
-// INSERT (gated on `pcCompletedAt IS NULL`) must run BEFORE the
+// `pc-complete` email delivery. Visibility does not reduce the required set:
+// a hidden or missing required row blocks completion. Statement ORDER is
+// load-bearing: the delivery INSERT (gated on `pcCompletedAt IS NULL`) must
+// run BEFORE the
 // `pcCompletedAt` UPDATE in the same array, or the stamp would already be
 // visible to itself and the delivery would never be created.
 
@@ -50,14 +49,12 @@ export interface AcknowledgeSectionResult {
   replayed: boolean
 }
 
-// ── Shared post-contract completion builder (Codex fix 3) ──────────────────
+// ── Post-contract completion builder ───────────────────────────────────────
 //
 // `extraGate` narrows the base completion gate further (ack supplies "this
 // section's acknowledgedAt = now" so a no-op re-ack can never trigger
-// completion — Codex fix 2; the hide path omits it since hiding IS the event
-// that shrinks the required set, no ack happened). Both statements share the
-// SAME gate expression (self-contained, safe to reuse verbatim in two
-// separate raw statements).
+// completion — Codex fix 2). Both statements share the SAME gate expression
+// (self-contained, safe to reuse verbatim in two separate raw statements).
 export interface BuildPcCompletionParams {
   viewbookId: number
   recipient: string
@@ -79,12 +76,12 @@ export function buildPcCompletion(params: BuildPcCompletionParams): PcCompletion
       SELECT 1 FROM "Viewbook" vpc
       WHERE vpc."id" = ${viewbookId} AND vpc."stage" = 'post-contract' AND vpc."pcCompletedAt" IS NULL
     )
-    AND NOT EXISTS (
-      SELECT 1 FROM "ViewbookSection" spc
+    AND (
+      SELECT COUNT(*) FROM "ViewbookSection" spc
       WHERE spc."viewbookId" = ${viewbookId}
         AND spc."sectionKey" IN (${Prisma.join([...ACKABLE_SECTION_KEYS])})
-        AND spc."state" <> 'hidden' AND spc."acknowledgedAt" IS NULL
-    )
+        AND spc."acknowledgedAt" IS NOT NULL
+    ) = ${ACKABLE_SECTION_KEYS.length}
   `
   const gate = extraGate ? Prisma.sql`(${baseGate}) AND (${extraGate})` : baseGate
   const deliveryInsert = pcCompleteDeliveryInsert({ viewbookId, recipient, predicate: gate })

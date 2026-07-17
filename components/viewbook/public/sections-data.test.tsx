@@ -42,6 +42,8 @@ describe('MilestonesSection', () => {
     const a = screen.getByRole('link', { name: /homepage mockup/i })
     expect(a.getAttribute('rel')).toBe('noopener noreferrer')
     expect(screen.queryByText(/reviews will appear here/i)).toBeNull() // links exist → no empty state
+    const reviewRegion = screen.getByRole('region', { name: 'Review & feedback' })
+    expect(reviewRegion.className).toContain('border')
   })
 
   it('renders a non-https review-link URL as plain text, never an anchor (security-review)', () => {
@@ -64,6 +66,33 @@ describe('MilestonesSection', () => {
     })
     render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
     expect(screen.getByText(/reviews will appear here/i)).toBeDefined()
+  })
+
+  it('keeps kickoff as a date overview and hides both review links and the no-links empty state', () => {
+    const withReview = base({
+      stage: 'kickoff',
+      stageLabel: 'Kickoff',
+      milestones: [milestone({
+        id: 1,
+        title: 'Kickoff',
+        status: 'current',
+        targetDate: '2026-08-01T00:00:00.000Z',
+        reviewLinks: [{ id: 9, label: 'Homepage mockup', url: 'https://x.com/m', kind: 'mockup', feedback: [] }],
+      })],
+    })
+    const { rerender } = render(<MilestonesSection section={sec('milestones')} data={withReview} token="tok" />)
+    expect(screen.getByText(/target: august 1, 2026/i)).toBeDefined()
+    expect(screen.queryByRole('link', { name: /homepage mockup/i })).toBeNull()
+    expect(screen.queryByText('Review & feedback')).toBeNull()
+
+    rerender(
+      <MilestonesSection
+        section={sec('milestones')}
+        data={base({ stage: 'kickoff', stageLabel: 'Kickoff', milestones: [milestone({ status: 'current' })] })}
+        token="tok"
+      />,
+    )
+    expect(screen.queryByText(/reviews will appear here/i)).toBeNull()
   })
 })
 
@@ -96,7 +125,7 @@ describe('DataSourceSection', () => {
     expect(screen.getByText(/updated by you/i)).toBeDefined()
     expect(screen.getByText('SEO')).toBeDefined() // list value parsed to items
     expect(screen.getByText('ADA')).toBeDefined()
-    expect(screen.getByText(/locked/i)).toBeDefined()
+    expect(screen.getAllByText(/locked/i).length).toBeGreaterThan(0)
     expect(screen.getByText('Pro Way Hair School')).toBeDefined()
     expect(screen.getByText(/changed on/i)).toBeDefined()
   })
@@ -114,6 +143,43 @@ describe('DataSourceSection', () => {
     })
     render(<DataSourceSection section={sec('data-source')} data={data} token="tok" />)
     expect(screen.getByText('not-json[')).toBeDefined()
+  })
+
+  it('greys a locked baseline behind a collapsed proposal affordance while a post-lock custom field stays editable', () => {
+    const data = base({
+      dataLockedAt: '2026-07-10T00:00:00.000Z',
+      fieldCategories: [{
+        category: 'school',
+        fields: [
+          {
+            id: 1, label: 'School name', fieldType: 'text', value: 'Pro Way',
+            version: 1, createdAt: '2026-06-01T00:00:00.000Z',
+            valueUpdatedBy: null, valueUpdatedAt: null, isCustom: false, amendments: [],
+          },
+          {
+            id: 2, label: 'Post-lock custom', fieldType: 'text', value: 'Still editable',
+            version: 1, createdAt: '2026-07-11T00:00:00.000Z',
+            valueUpdatedBy: null, valueUpdatedAt: null, isCustom: true, amendments: [],
+          },
+        ],
+      }],
+    })
+
+    const { container } = render(<DataSourceSection section={sec('data-source')} data={data} token="tok" />)
+    const lockedRow = container.querySelector('#vb-field-1')
+    expect(lockedRow?.getAttribute('data-vb-locked')).toBe('true')
+    expect(lockedRow?.className).toContain('bg-black')
+    expect(lockedRow?.querySelector('[data-vb-locked-content]')?.getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText('Locked baseline')).toBeDefined()
+    expect(screen.queryByRole('textbox', { name: 'Answer for School name' })).toBeNull()
+
+    const proposal = lockedRow?.querySelector('details') as HTMLDetailsElement | null
+    expect(proposal).not.toBeNull()
+    expect(proposal?.open).toBe(false)
+    expect(proposal?.querySelector('summary')?.textContent).toContain('Propose a change')
+
+    expect(container.querySelector('input[aria-label="Answer for Post-lock custom"]')).not.toBeNull()
+    expect(screen.getByText(/added after lock-in · still editable/i)).toBeDefined()
   })
 
   it('renders a post-contract intro line and the ack action; both absent outside post-contract (PR5 Task 7)', () => {

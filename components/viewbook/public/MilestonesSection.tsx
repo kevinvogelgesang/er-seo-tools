@@ -108,49 +108,64 @@ export function MilestonesSection({
         ))}
       </div>
 
-      {withLinks.length === 0 ? (
-        <p className="text-black/50">Reviews will appear here at each touchpoint.</p>
-      ) : (
-        withLinks.map((m) => (
-          <div key={m.id} className="space-y-3">
-            <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
-              {m.title} — reviews
-            </h3>
-            {m.reviewLinks.map((l) => (
-              <div key={l.id} className="rounded-xl border border-black/10 bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  {isHttpsUrl(l.url) ? (
-                    <a
-                      href={l.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium underline"
-                      style={{ color: 'var(--vb-secondary)' }}
-                    >
-                      {l.label}
-                    </a>
-                  ) : (
-                    <span className="font-medium text-black/70">{l.label}</span>
-                  )}
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
-                    style={{ background: 'var(--vb-primary)', color: 'var(--vb-on-primary)' }}
-                  >
-                    {l.kind}
-                  </span>
-                  {l.feedback.length > 0 && (
-                    <span className="ml-auto text-xs text-black/50">
-                      {l.feedback.length} comment{l.feedback.length === 1 ? '' : 's'}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-3">
-                  <FeedbackThread token={token} reviewLinkId={l.id} initialFeedback={l.feedback} />
-                </div>
+      {data.stage !== 'kickoff' && (
+        <section
+          role="region"
+          aria-labelledby="vb-review-feedback-title"
+          className="space-y-5 rounded-2xl border-2 border-black/10 bg-black/[0.025] p-5"
+        >
+          <h3
+            id="vb-review-feedback-title"
+            className="text-2xl font-bold"
+            style={{ fontFamily: 'var(--vb-heading-font)' }}
+          >
+            Review &amp; feedback
+          </h3>
+          {withLinks.length === 0 ? (
+            <p className="text-black/50">Reviews will appear here at each touchpoint.</p>
+          ) : (
+            withLinks.map((m) => (
+              <div key={m.id} className="space-y-3">
+                <h4 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
+                  {m.title} — reviews
+                </h4>
+                {m.reviewLinks.map((l) => (
+                  <div key={l.id} className="rounded-xl border border-black/10 bg-white p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isHttpsUrl(l.url) ? (
+                        <a
+                          href={l.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium underline"
+                          style={{ color: 'var(--vb-secondary)' }}
+                        >
+                          {l.label}
+                        </a>
+                      ) : (
+                        <span className="font-medium text-black/70">{l.label}</span>
+                      )}
+                      <span
+                        className="rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+                        style={{ background: 'var(--vb-primary)', color: 'var(--vb-on-primary)' }}
+                      >
+                        {l.kind}
+                      </span>
+                      {l.feedback.length > 0 && (
+                        <span className="ml-auto text-xs text-black/50">
+                          {l.feedback.length} comment{l.feedback.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-3">
+                      <FeedbackThread token={token} reviewLinkId={l.id} initialFeedback={l.feedback} />
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ))
+            ))
+          )}
+        </section>
       )}
     </SectionShell>
   )
