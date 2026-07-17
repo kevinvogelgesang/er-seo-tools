@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, cleanup, act, fireEvent } from '@testing-library/react'
+import { render, cleanup, act } from '@testing-library/react'
 import { SectionReveal } from './SectionReveal'
 import * as sync from './useViewbookSync'
 

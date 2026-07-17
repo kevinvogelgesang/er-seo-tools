@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import {
   __resetSyncRegistry,
+  hasActiveEditorActivity,
   registerEditorActivity,
   requestRefresh,
   useEditorActivity,
@@ -543,6 +544,33 @@ describe('useViewbookSync', () => {
     // The real version already matches what was passed — no bogus "change"
     // detected against a stale placeholder, so no redundant onChange.
     expect(onChange).not.toHaveBeenCalled()
+  })
+})
+
+// Task 5 — SectionReveal (components/viewbook/public/SectionReveal.tsx) uses
+// this read-only query to suppress scroll-collapse while ANY editor island is
+// active, including the operator inline editors that render OUTSIDE a given
+// SectionShell's DOM (a local focus/`contains` check can't see those; this
+// module-level registry can). This is a pure reflection of the same registry
+// `registerEditorActivity` writes to — no separate state to drift.
+describe('hasActiveEditorActivity', () => {
+  it('reflects the registry: false when idle, true while any id is active, false again once released', () => {
+    __resetSyncRegistry()
+    expect(hasActiveEditorActivity()).toBe(false)
+    registerEditorActivity('field-1', true)
+    expect(hasActiveEditorActivity()).toBe(true)
+    registerEditorActivity('field-1', false)
+    expect(hasActiveEditorActivity()).toBe(false)
+  })
+
+  it('stays true while at least one of several registered ids remains active', () => {
+    __resetSyncRegistry()
+    registerEditorActivity('field-1', true)
+    registerEditorActivity('field-2', true)
+    registerEditorActivity('field-1', false)
+    expect(hasActiveEditorActivity()).toBe(true) // field-2 still active
+    registerEditorActivity('field-2', false)
+    expect(hasActiveEditorActivity()).toBe(false)
   })
 })
 
