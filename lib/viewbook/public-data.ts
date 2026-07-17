@@ -155,7 +155,7 @@ async function loadTeamMembers(viewbookId: number): Promise<PublicTeamMember[]> 
     prisma.viewbookTeamMember.findMany({
       where: { viewbookId },
       orderBy: { id: 'asc' },
-      select: { memberKey: true, name: true, email: true },
+      select: { id: true, memberKey: true, name: true, email: true },
     }),
     prisma.viewbookEmailDelivery.findMany({
       where: { viewbookId, kind: 'team-invite' },
@@ -163,6 +163,7 @@ async function loadTeamMembers(viewbookId: number): Promise<PublicTeamMember[]> 
     }),
   ])
   return members.map((m) => ({
+    id: m.id,
     memberKey: m.memberKey,
     name: m.name,
     email: m.email,

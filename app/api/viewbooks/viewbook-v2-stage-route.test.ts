@@ -68,6 +68,7 @@ describe('POST /api/viewbooks/:id/stage', () => {
 
   it('409 at the boundary (building has no next)', async () => {
     const { id } = await mkViewbook()
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // creation default is post-contract (PR5 Task 7)
     const res = await moveStage(
       req(`/api/viewbooks/${id}/stage`, {
         method: 'POST',
@@ -143,7 +144,7 @@ describe('POST /api/viewbooks/:id/stage', () => {
   })
 
   it('409 on stale expectedStage', async () => {
-    const { id } = await mkViewbook() // stage: building
+    const { id } = await mkViewbook() // stage: post-contract (creation default) — mismatches expectedStage 'kickoff' either way
     const res = await moveStage(
       req(`/api/viewbooks/${id}/stage`, {
         method: 'POST',

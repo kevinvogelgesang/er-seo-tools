@@ -63,8 +63,9 @@ export async function createViewbook(
         kind,
         token,
         createdBy,
-        // PR1: explicit until PR5 ships the post-contract UI (spec fix 2)
-        stage: 'building',
+        // PR5 Task 7: post-contract is the first stage a new viewbook enters
+        // (spec fix 2) — the pc-* sections now have shipped renderers.
+        stage: 'post-contract',
         sections: {
           create: SECTION_KEYS.map((sectionKey) => ({
             sectionKey,

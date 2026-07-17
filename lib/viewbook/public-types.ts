@@ -88,7 +88,12 @@ export interface PublicGlobalContent {
 
 // PR5 pc-invite roster row for the public payload. `invited` is EXISTENCE-only
 // (>=1 team-invite delivery row), never send status — see public-data.ts.
+// `id` is the numeric ViewbookTeamMember row id (Task 7 addition) — the
+// public team-members resend route (team-members.ts `resendInvite`) is keyed
+// by numeric `memberId`, not `memberKey`, so the public per-member resend
+// button needs it to call that route at all.
 export interface PublicTeamMember {
+  id: number
   memberKey: string
   name: string
   email: string

@@ -101,11 +101,11 @@ describe('createViewbook', () => {
     })
   })
 
-  it('seeds all 13 section rows and creation stage building (PR1)', async () => {
+  it('seeds all 13 section rows and creation stage post-contract (PR5 Task 7 flip)', async () => {
     const client = await mkClient()
     const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
     const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id }, include: { sections: true } })
-    expect(vb.stage).toBe('building')
+    expect(vb.stage).toBe('post-contract')
     expect(vb.sections).toHaveLength(13)
     expect(vb.sections.map((s) => s.sectionKey)).toContain('pc-thanks')
   })
@@ -114,7 +114,7 @@ describe('createViewbook', () => {
     const client = await mkClient()
     const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
     const rows = await listViewbooks()
-    expect(rows.find((r) => r.id === id)?.stage).toBe('building')
+    expect(rows.find((r) => r.id === id)?.stage).toBe('post-contract')
   })
 })
 
@@ -439,11 +439,13 @@ describe('moveViewbookStage', () => {
   it('409s at the boundary (building has no next)', async () => {
     const client = await mkClient()
     const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // creation default is post-contract (PR5 Task 7)
     await expect(moveViewbookStage(id, 'forward', 'building', 'op@er.com')).rejects.toMatchObject({ status: 409 })
   })
   it('409s on stale expectedStage without touching the row or bumping', async () => {
     const client = await mkClient()
-    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com') // stage: building
+    const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // creation default is post-contract (PR5 Task 7)
     const before = await syncVersion(id)
     await expect(moveViewbookStage(id, 'back', 'kickoff', 'op@er.com')).rejects.toMatchObject({ status: 409 })
     const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
@@ -453,6 +455,7 @@ describe('moveViewbookStage', () => {
   it('moves back', async () => {
     const client = await mkClient()
     const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // creation default is post-contract (PR5 Task 7)
     const res = await moveViewbookStage(id, 'back', 'building', 'op@er.com')
     expect(res.stage).toBe('website-specifics')
     expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id } })).toBe(0)

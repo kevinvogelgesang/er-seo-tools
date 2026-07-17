@@ -40,30 +40,45 @@ describe('loadViewbookPublicData', () => {
 
   it('returns sections visible-only in fixed order; hidden assessment (new-build) is absent', async () => {
     const client = await makeClient()
-    const { token } = await createViewbook(client.id, 'new-build', 'kevin@er.com')
+    const { id, token } = await createViewbook(client.id, 'new-build', 'kevin@er.com')
+    // Creation default is 'post-contract' (PR5 Task 7) — bump to 'building' to
+    // exercise the v1 fixed-order lineup this test targets.
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } })
     const data = await loadViewbookPublicData(token)
     expect(data).not.toBeNull()
     expect(data!.clientName).toMatch(/^vb-pub-/)
     expect(typeof data!.syncVersion).toBe('number')
-    // Creation stage is 'building' in PR1 — the building lineup's primary
-    // list mirrors the old fixed SECTION_KEYS order, minus hidden 'assessment'.
     const keys = data!.primarySections.map((s) => s.sectionKey)
     expect(keys).toEqual(['welcome', 'milestones', 'data-source', 'brand', 'strategy', 'materials'])
-    expect(data!.carriedSections).toEqual([])
+    expect(data!.carriedSections.map((s) => s.sectionKey)).toEqual(['pc-setup', 'pc-invite'])
   })
 
-  it('resolves the building lineup: v1 sections primary, nothing carried', async () => {
-    const { token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
-    const data = await loadViewbookPublicData(token) // creation stage is 'building' in PR1
+  it('resolves the building lineup: v1 sections primary, pc-setup+pc-invite carried', async () => {
+    const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // creation default is post-contract
+    const data = await loadViewbookPublicData(token)
     expect(data?.stage).toBe('building')
     expect(data?.stageLabel).toBe('Now Building')
     expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(
       ['welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials'],
     )
+    expect(data?.carriedSections.map((s) => s.sectionKey)).toEqual(['pc-setup', 'pc-invite'])
+  })
+
+  it('resolves the post-contract lineup (creation default): all five primary sections in order once pcCompletedAt is set (PR5 Task 7)', async () => {
+    const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id } })).stage).toBe('post-contract')
+    await prisma.viewbook.update({ where: { id }, data: { pcCompletedAt: new Date() } })
+    const data = await loadViewbookPublicData(token)
+    expect(data?.stage).toBe('post-contract')
+    expect(data?.stageLabel).toBe('Getting Started')
+    expect(data?.primarySections.map((s) => s.sectionKey)).toEqual([
+      'pc-intro', 'pc-setup', 'pc-invite', 'data-source', 'pc-thanks',
+    ])
     expect(data?.carriedSections).toEqual([])
   })
 
-  it('kickoff stage: shipped primary sections + data-source carried; hidden still suppresses', async () => {
+  it('kickoff stage: shipped primary sections + pc-setup/pc-invite/data-source carried; hidden still suppresses', async () => {
     const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
     await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
     await prisma.viewbookSection.update({
@@ -73,7 +88,7 @@ describe('loadViewbookPublicData', () => {
     const data = await loadViewbookPublicData(token)
     expect(data?.stage).toBe('kickoff')
     expect(data?.primarySections.map((s) => s.sectionKey)).toEqual(['welcome', 'milestones', 'kickoff-next'])
-    expect(data?.carriedSections.map((s) => s.sectionKey)).toEqual(['data-source'])
+    expect(data?.carriedSections.map((s) => s.sectionKey)).toEqual(['pc-setup', 'pc-invite', 'data-source'])
   })
 
   it('adds viewbook identity, CSM name, and ordered global/own docs to the public payload', async () => {

@@ -45,14 +45,21 @@ export interface StageLineup {
 }
 
 export const STAGE_LINEUPS: Record<ViewbookStage, StageLineup> = {
-  'post-contract': { primary: ['data-source'], carried: [] },
-  kickoff: { primary: ['welcome', 'milestones', 'strategy', 'kickoff-next'], carried: ['data-source'] },
+  // PR5 Task 7 activation: the four pc-* keys now have shipped renderers.
+  'post-contract': {
+    primary: ['pc-intro', 'pc-setup', 'pc-invite', 'data-source', 'pc-thanks'],
+    carried: [],
+  },
+  kickoff: {
+    primary: ['welcome', 'milestones', 'strategy', 'kickoff-next'],
+    carried: ['pc-setup', 'pc-invite', 'data-source'],
+  },
   'website-specifics': {
     primary: ['ws-intro', 'brand', 'assessment'],
-    carried: ['welcome', 'milestones', 'strategy', 'data-source'],
+    carried: ['welcome', 'milestones', 'strategy', 'pc-setup', 'pc-invite', 'data-source'],
   },
   building: {
     primary: ['welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials'],
-    carried: [],
+    carried: ['pc-setup', 'pc-invite'],
   },
 }

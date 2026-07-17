@@ -50,6 +50,25 @@ describe('SectionShell', () => {
     expect(screen.getByText(/Completed/)).toBeDefined()
     expect(screen.getByText('Body')).toBeDefined()
   })
+
+  it('collapses an acknowledged section (state still active, no doneAt) exactly like a done section — PR5 Task 7', () => {
+    render(
+      <SectionShell
+        section={section({ acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+        title="Set Up Your Viewbook"
+        heroUrl={null}
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const details = document.querySelector('details')
+    expect(details).not.toBeNull()
+    expect(details!.open).toBe(false)
+    expect(screen.getByText('Body')).toBeDefined()
+    // No doneAt on this section — the "Completed" date line must not appear
+    // (only a 'done' state's doneAt renders that line).
+    expect(screen.queryByText(/Completed/)).toBeNull()
+  })
 })
 
 describe('SectionShell PR5 polish', () => {

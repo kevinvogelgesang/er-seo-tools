@@ -13,11 +13,12 @@ const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
 })
 
 const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
-  clientName: 'Acme', kind: 'upgrade', welcomeNote: null, dataLockedAt: null,
+  clientName: 'Acme', displayName: 'Acme', kind: 'upgrade', welcomeNote: null, dataLockedAt: null,
   theme: DEFAULT_THEME, stage: 'building', stageLabel: 'Now Building',
+  pcCompletedAt: null, clientNotifyJson: [], teamMembers: [],
   primarySections: [], carriedSections: [], fieldCategories: [], milestones: [],
-  materials: [], global: { team: null, blocks: {} }, overrides: {}, ...over,
-})
+  materials: [], global: { team: null, pcIntro: null, blocks: {} }, overrides: {}, ...over,
+} as unknown as ViewbookPublicData)
 
 const milestone = (over: Partial<PublicMilestone> = {}): PublicMilestone => ({
   id: 1, title: 'Design', blurb: 'Designs take shape.', status: 'upcoming',
@@ -113,6 +114,17 @@ describe('DataSourceSection', () => {
     })
     render(<DataSourceSection section={sec('data-source')} data={data} token="tok" />)
     expect(screen.getByText('not-json[')).toBeDefined()
+  })
+
+  it('renders a post-contract intro line and the ack action; both absent outside post-contract (PR5 Task 7)', () => {
+    const postContract = base({ stage: 'post-contract' })
+    const { rerender } = render(<DataSourceSection section={sec('data-source')} data={postContract} token="tok" />)
+    expect(screen.getByText(/before the kickoff call/i)).toBeDefined()
+    expect(screen.getByRole('button', { name: /looks good/i })).toBeDefined()
+
+    rerender(<DataSourceSection section={sec('data-source')} data={base({ stage: 'kickoff' })} token="tok" />)
+    expect(screen.queryByText(/before the kickoff call/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /looks good/i })).toBeNull()
   })
 
   it('renders user-controlled markup as TEXT, never as elements (Codex plan-fix 8)', () => {

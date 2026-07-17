@@ -19,18 +19,22 @@ const baseSection: PublicSection = {
 function data(stage: string): ViewbookPublicData {
   return {
     clientName: 'Acme',
+    displayName: 'Acme',
     kind: 'upgrade',
     welcomeNote: null,
     dataLockedAt: null,
     theme: DEFAULT_THEME,
     stage,
     stageLabel: 'Website Specifics',
+    pcCompletedAt: null,
+    clientNotifyJson: [],
+    teamMembers: [],
     primarySections: [],
     carriedSections: [],
     fieldCategories: [],
     milestones: [],
     materials: [],
-    global: { team: null, blocks: {} },
+    global: { team: null, pcIntro: null, blocks: {} },
     overrides: {},
   } as unknown as ViewbookPublicData
 }
