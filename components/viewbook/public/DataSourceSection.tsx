@@ -6,6 +6,7 @@
 import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { answeredProgress } from '@/lib/viewbook/summary-metrics'
 import { CATEGORY_LABELS } from '@/lib/viewbook/category-labels'
+import { categoryAnchor, fieldAnchor } from '@/lib/viewbook/anchors'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -52,7 +53,7 @@ function FieldRow({ field, token, dataLockedAt }: { field: PublicField; token: s
   const lockedBaseline = dataLockedAt !== null
     && new Date(field.createdAt).getTime() <= new Date(dataLockedAt).getTime()
   return (
-    <div className="px-5 py-3">
+    <div id={fieldAnchor(field.id).slice(1)} className="px-5 py-3">
       <p className="text-sm font-semibold text-black/60">{field.label}</p>
       {lockedBaseline ? <FieldValue field={field} /> : <FieldEditor token={token} field={field} />}
       {dataLockedAt && !lockedBaseline && field.isCustom && (
@@ -115,7 +116,7 @@ export function DataSourceSection({
         <p className="text-black/50">The launch questionnaire will appear here.</p>
       )}
       {data.fieldCategories.map((cat) => (
-        <details key={cat.category} open className="rounded-xl border border-black/10 bg-white shadow-sm">
+        <details key={cat.category} id={categoryAnchor(cat.category).slice(1)} open className="rounded-xl border border-black/10 bg-white shadow-sm">
           <summary
             className="cursor-pointer px-5 py-3 text-lg font-bold"
             style={{ fontFamily: 'var(--vb-heading-font)' }}

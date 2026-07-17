@@ -3,6 +3,7 @@
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import type { GlobalContentKey } from '@/lib/viewbook/global-content-keys'
 import { docCount } from '@/lib/viewbook/summary-metrics'
+import { docAnchor } from '@/lib/viewbook/anchors'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -40,7 +41,7 @@ export function StrategySection({
       {docs.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {docs.map((doc) => (
-            <article key={doc.id} className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">
+            <article key={doc.id} id={docAnchor(doc.filename).slice(1)} className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">
               <h3 className="text-lg font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>{doc.title}</h3>
               {doc.blurb && <p className="mt-2 whitespace-pre-line text-sm text-black/70">{doc.blurb}</p>}
               <a

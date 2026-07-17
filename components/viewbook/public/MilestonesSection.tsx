@@ -3,6 +3,7 @@
 // each review-link card.
 import type { PublicMilestone, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { milestoneProgress } from '@/lib/viewbook/summary-metrics'
+import { milestoneAnchor } from '@/lib/viewbook/anchors'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -43,6 +44,7 @@ function StageDot({ status }: { status: string }) {
 function StageCard({ m }: { m: PublicMilestone }) {
   return (
     <div
+      id={milestoneAnchor(m.id).slice(1)}
       className={`min-w-56 flex-1 rounded-xl border bg-white p-4 shadow-sm ${
         m.status === 'current' ? 'border-2' : 'border-black/10'
       }`}

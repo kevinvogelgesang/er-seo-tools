@@ -2,6 +2,7 @@
 // placeholders. Read-only in PR2 — PR4's integration phase mounts
 // MaterialLinkForm here (client add-a-link).
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { materialAnchor } from '@/lib/viewbook/anchors'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -56,7 +57,7 @@ export function MaterialsSection({
       ) : (
         <ul className="divide-y divide-black/10 rounded-xl border border-black/10 bg-white shadow-sm">
           {data.materials.map((m) => (
-            <li key={m.id} className="flex flex-wrap items-center gap-2 px-5 py-3">
+            <li key={m.id} id={materialAnchor(m.id).slice(1)} className="flex flex-wrap items-center gap-2 px-5 py-3">
               {m.status === 'provided' && m.url && isHttpsUrl(m.url) ? (
                 <a
                   href={m.url}
