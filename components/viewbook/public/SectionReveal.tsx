@@ -140,6 +140,15 @@ export function SectionReveal({
         id={regionId}
         role="region"
         aria-label={title}
+        // Collapsed = visually clipped only; without these the clipped
+        // inputs/links/buttons stay tabbable and the region stays AT-exposed.
+        // `inert` (React 19 boolean prop) + `aria-hidden` take the whole subtree
+        // out of the tab order and the accessibility tree while collapsed, and
+        // are REMOVED when expanded. Neither stops the CSS grid-rows transition,
+        // so the collapse/expand animation is untouched. The deliberate-open
+        // paths (toggle / vb:navigate) set expanded=true → interactive again.
+        aria-hidden={expanded ? undefined : true}
+        inert={!expanded}
         data-vb-expanded={expanded ? 'true' : 'false'}
         className="vb-reveal"
       >

@@ -111,6 +111,7 @@ export function TocRail({
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
+  const railRef = useRef<HTMLElement>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const items = useMemo<NavItem[]>(() => {
@@ -314,11 +315,24 @@ export function TocRail({
     <>
       <style>{RAIL_STYLE}</style>
       <nav
+        ref={railRef}
         data-vb-toc-nav
         data-vb-open={open ? 'true' : 'false'}
         aria-label="Section navigation"
         onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        // Collapse on mouse-leave ONLY when focus is outside the rail. The 40px
+        // collapsed container clips the focused search input / nav labels, so
+        // collapsing while a control inside still holds focus makes keyboard
+        // typing/nav unusable. A genuine focus-out (blur to outside) fires
+        // onBlur below, which collapses it then.
+        onMouseLeave={() => {
+          if (!railRef.current?.contains(document.activeElement)) setOpen(false)
+        }}
+        onBlur={(e) => {
+          // relatedTarget = where focus is going; null/outside the rail → close.
+          const next = e.relatedTarget as Node | null
+          if (!next || !railRef.current?.contains(next)) setOpen(false)
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.preventDefault()

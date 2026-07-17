@@ -134,6 +134,37 @@ describe('TocRail', () => {
     expect(nav.getAttribute('data-vb-open')).toBe('false')
   })
 
+  it('stays open on mouse-leave while focus is inside, collapses once focus leaves', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    const rows = entries(container)
+    // Focus a control inside the rail → opens it.
+    act(() => {
+      rows[0].focus()
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+
+    // Mouse-leave while focus is still inside must NOT collapse (the 40px
+    // container would otherwise clip the focused control).
+    act(() => {
+      fireEvent.mouseLeave(nav)
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    expect(document.activeElement).toBe(rows[0]) // still reachable
+
+    // Move focus outside the rail, then mouse-leave → collapses.
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    act(() => {
+      outside.focus()
+    })
+    act(() => {
+      fireEvent.mouseLeave(nav)
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('false')
+    outside.remove()
+  })
+
   it('mobile (< 768px) renders a FAB button', () => {
     mockMatchMedia(true)
     const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)

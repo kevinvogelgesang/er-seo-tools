@@ -39,4 +39,31 @@ describe('navigateToAnchor', () => {
 
     expect(el.classList.contains('vb-flash')).toBe(true)
   })
+
+  // Review fix P2: a search/nav target inside a CLOSED <details> (building-stage
+  // carried sections, DataSource category/field <details>) has no layout box —
+  // scrollIntoView would land on nothing. Every enclosing closed <details>
+  // ancestor must be opened before the scroll/flash.
+  it('opens nested closed <details> ancestors before flashing the target', async () => {
+    document.body.innerHTML = `
+      <details id="outer"><summary>outer</summary>
+        <details id="inner"><summary>inner</summary>
+          <div id="vb-field-5">field</div>
+        </details>
+      </details>`
+    const outer = document.getElementById('outer') as HTMLDetailsElement
+    const inner = document.getElementById('inner') as HTMLDetailsElement
+    const target = document.getElementById('vb-field-5') as HTMLElement
+    target.scrollIntoView = vi.fn()
+    expect(outer.open).toBe(false)
+    expect(inner.open).toBe(false)
+
+    navigateToAnchor('data-source', '#vb-field-5')
+
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    expect(inner.open).toBe(true)
+    expect(outer.open).toBe(true)
+    expect(target.classList.contains('vb-flash')).toBe(true)
+  })
 })

@@ -47,6 +47,21 @@ export function navigateToAnchor(sectionKey: SectionKey, anchor: string): void {
     }
     if (!target) return
 
+    // Open every enclosing CLOSED <details> ancestor before scrolling. The
+    // `vb:navigate` dispatch above handles the SectionReveal expansion, but it
+    // does NOT own native <details> — in the building stage the carried
+    // pc-setup/pc-invite sections sit inside a closed EarlierSteps <details>,
+    // and DataSource categories/fields live inside per-category <details> that
+    // may be closed. A target inside a closed <details> has no layout box, so
+    // scrollIntoView would land on nothing. Walk up and open each one.
+    let ancestor: Element | null = target
+    while (ancestor) {
+      const details: Element | null = ancestor.closest('details:not([open])')
+      if (!(details instanceof HTMLDetailsElement)) break
+      details.open = true
+      ancestor = details.parentElement
+    }
+
     if (typeof (target as HTMLElement).scrollIntoView === 'function') {
       try {
         ;(target as HTMLElement).scrollIntoView(

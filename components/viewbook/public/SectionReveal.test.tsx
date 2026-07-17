@@ -75,4 +75,29 @@ describe('SectionReveal', () => {
     const { container } = render(<SectionReveal sectionKey="pc-setup" title="Setup" startCollapsed lockAutoReveal alwaysOpen={false}><p>b</p></SectionReveal>)
     expect(expanded(container)).toBe(true)
   })
+  // Review fix P1: a collapsed region is only visually clipped, so its controls
+  // must be made non-interactive + hidden from AT via `inert` + `aria-hidden`.
+  const region = (r: HTMLElement) => r.querySelector('[role="region"]') as HTMLElement
+  it('locked (done/ack) collapsed region is inert + aria-hidden', () => {
+    const { container } = render(<SectionReveal sectionKey="pc-setup" title="Setup" startCollapsed lockAutoReveal alwaysOpen={false}><input aria-label="q"/></SectionReveal>)
+    expect(expanded(container)).toBe(false)
+    expect(region(container).hasAttribute('inert')).toBe(true)
+    expect(region(container).getAttribute('aria-hidden')).toBe('true')
+  })
+  it('expanded region is neither inert nor aria-hidden', () => {
+    const { container } = render(<SectionReveal sectionKey="data-source" {...base} startCollapsed={false} lockAutoReveal={false} alwaysOpen={false}><p>b</p></SectionReveal>)
+    expect(expanded(container)).toBe(true)
+    expect(region(container).hasAttribute('inert')).toBe(false)
+    expect(region(container).hasAttribute('aria-hidden')).toBe(false)
+  })
+  it('auto-collapse toggles inert + aria-hidden on the region, re-expand removes both', () => {
+    const { container } = render(<SectionReveal sectionKey="data-source" {...base} startCollapsed={false} lockAutoReveal={false} alwaysOpen={false}><p>b</p></SectionReveal>)
+    expect(region(container).hasAttribute('inert')).toBe(false)          // starts expanded → interactive
+    act(() => ioCb([{ isIntersecting: false, intersectionRatio: 0 }]))   // auto-collapse
+    expect(region(container).hasAttribute('inert')).toBe(true)
+    expect(region(container).getAttribute('aria-hidden')).toBe('true')
+    act(() => ioCb([{ isIntersecting: true, intersectionRatio: 0.6 }]))  // re-expand
+    expect(region(container).hasAttribute('inert')).toBe(false)
+    expect(region(container).hasAttribute('aria-hidden')).toBe(false)
+  })
 })
