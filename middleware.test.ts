@@ -160,3 +160,26 @@ describe('isPublicPath — client viewbook public matchers (PR2)', () => {
     expect(isPublicPath('/viewbooks')).toBe(false);
   });
 });
+
+describe('isPublicPath — client viewbook post-contract public writes (PR5 Task 5)', () => {
+  it('ack, team-members, and setup are public, anchored single-segment', () => {
+    expect(isPublicPath('/api/viewbook/tok/ack')).toBe(true);
+    expect(isPublicPath('/api/viewbook/tok/team-members')).toBe(true);
+    expect(isPublicPath('/api/viewbook/tok/setup')).toBe(true);
+  });
+
+  it('deeper paths under the new matchers are NOT public (anchoring proof)', () => {
+    expect(isPublicPath('/api/viewbook/tok/ack/extra')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/team-members/extra')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/setup/extra')).toBe(false);
+    // near-match suffixes must not accidentally match the anchored regex
+    expect(isPublicPath('/api/viewbook/tok/ackx')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/team-membersx')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/setupx')).toBe(false);
+  });
+
+  it('the ack-reset admin route stays cookie-gated (no matcher added)', () => {
+    expect(isPublicPath('/api/viewbooks/3/ack/pc-setup')).toBe(false);
+    expect(isPublicPath('/api/viewbooks/3/ack')).toBe(false);
+  });
+});
