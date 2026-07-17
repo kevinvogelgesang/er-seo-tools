@@ -32,6 +32,11 @@ export const CATALOG: CatalogEntry[] = [
   { defKey: 'school-contact-email', category: 'school', label: 'Primary contact email', fieldType: 'text', sortOrder: 3 },
   { defKey: 'school-services', category: 'school', label: 'Services in your subscription', fieldType: 'list', sortOrder: 4 },
   { defKey: 'school-ad-name', category: 'school', label: 'How do you refer to your school in advertising? Any abbreviations?', fieldType: 'textarea', sortOrder: 5 },
+  // PR5 post-contract additions. Inserting between school-contact-email (3)
+  // and school-services (4) would force a renumber of the existing entries —
+  // additive-only means appended at the end of the category instead.
+  { defKey: 'school-phone', category: 'school', label: 'Main phone number', fieldType: 'text', sortOrder: 6 },
+  { defKey: 'school-website', category: 'school', label: 'Website URL', fieldType: 'text', sortOrder: 7 },
   { defKey: 'programs-roster', category: 'programs', label: 'Programs to market (one per line)', fieldType: 'list', sortOrder: 1 },
   { defKey: 'programs-highlights', category: 'programs', label: 'Key features / highlights per program', fieldType: 'textarea', sortOrder: 2 },
   { defKey: 'team-staff-accounts', category: 'team-access', label: 'Staff needing accounts / lead notifications (name + email)', fieldType: 'list', sortOrder: 1 },

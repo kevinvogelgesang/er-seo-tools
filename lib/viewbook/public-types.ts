@@ -26,6 +26,7 @@ export interface PublicFieldAmendment {
 
 export interface PublicField {
   id: number
+  defKey: string | null // code-owned catalog key; null = custom field (mirrors isCustom)
   label: string
   fieldType: string // 'text' | 'textarea' | 'list'
   value: string | null // list = JSON array of strings
@@ -81,7 +82,17 @@ export interface PublicMaterialLink {
 
 export interface PublicGlobalContent {
   team: TeamMember[] | null
-  blocks: Partial<Record<Exclude<GlobalContentKey, 'team'>, ContentBlocks | null>>
+  pcIntro: string | null // plain bounded string (PR5), not a block list — see global-content.ts
+  blocks: Partial<Record<Exclude<GlobalContentKey, 'team' | 'pc-intro'>, ContentBlocks | null>>
+}
+
+// PR5 pc-invite roster row for the public payload. `invited` is EXISTENCE-only
+// (>=1 team-invite delivery row), never send status — see public-data.ts.
+export interface PublicTeamMember {
+  memberKey: string
+  name: string
+  email: string
+  invited: boolean
 }
 
 export interface PublicDocRow {
@@ -95,6 +106,7 @@ export interface PublicDocRow {
 export interface ViewbookPublicData {
   viewbookId: number
   clientName: string
+  displayName: string // spec §7 header derivation: trimmed school-name answer, else clientName
   csmName: string | null
   kind: string // 'new-build' | 'upgrade'
   welcomeNote: string | null
@@ -103,6 +115,9 @@ export interface ViewbookPublicData {
   stage: ViewbookStage
   stageLabel: string
   syncVersion: number // PR2 live sync: poll /sync and refetch when it advances
+  pcCompletedAt: string | null // post-contract completion stamp; gates pc-thanks visibility
+  clientNotifyJson: string[] // who gets stage-change mail (pc-setup UI)
+  teamMembers: PublicTeamMember[] // pc-invite roster
   primarySections: PublicSection[] // this stage's primary lineup, visible only, lineup order
   carriedSections: PublicSection[] // this stage's carried lineup, visible only, lineup order
   fieldCategories: PublicFieldCategory[]

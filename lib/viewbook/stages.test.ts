@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { SECTION_KEYS } from './theme'
+import { CATALOG } from './catalog'
 import {
-  VIEWBOOK_STAGES, isViewbookStage, nextStage, prevStage, STAGE_LINEUPS,
+  VIEWBOOK_STAGES, isViewbookStage, nextStage, prevStage, STAGE_LINEUPS, PC_SETUP_DEF_KEYS,
 } from './stages'
 
 describe('stage catalog', () => {
@@ -47,5 +48,15 @@ describe('stage catalog', () => {
     expect(STAGE_LINEUPS.building.primary).toEqual([
       'welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials',
     ])
+  })
+})
+
+describe('PC_SETUP_DEF_KEYS (PR5)', () => {
+  it('is the 5 org-basics defKeys in display order, each resolving in CATALOG', () => {
+    expect(PC_SETUP_DEF_KEYS).toEqual([
+      'school-name', 'school-contact-name', 'school-contact-email', 'school-phone', 'school-website',
+    ])
+    const catalogKeys = new Set(CATALOG.map((e) => e.defKey))
+    for (const key of PC_SETUP_DEF_KEYS) expect(catalogKeys.has(key)).toBe(true)
   })
 })

@@ -26,6 +26,7 @@ export interface ViewbookListRow {
   revoked: boolean
   currentMilestone: string | null
   stage: string
+  pcCompletedAt: string | null
   activityCount: number
   dataLockedAt: string | null
   createdAt: string
@@ -41,6 +42,7 @@ export interface ViewbookDetail {
   dataLockedAt: string | null
   dataLockedBy: string | null
   stage: string
+  pcCompletedAt: string | null
   csmName: string | null
   syncVersion: number // PR2 live sync: poll /sync and refetch when it advances
   theme: ViewbookTheme

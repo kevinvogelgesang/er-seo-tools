@@ -1,7 +1,9 @@
 // Client-safe global-content key constants + body types (the server store in
 // global-content.ts imports these; client components import ONLY this file).
 
-export const GLOBAL_CONTENT_KEYS = ['team', 'process', 'why', 'seo-base', 'geo-base', 'eeat-base'] as const
+// 'pc-intro' (PR5) is a plain bounded string, unlike the roster ('team') or
+// heading/body blocks (everything else) — see validateGlobalContent.
+export const GLOBAL_CONTENT_KEYS = ['team', 'process', 'why', 'seo-base', 'geo-base', 'eeat-base', 'pc-intro'] as const
 export type GlobalContentKey = (typeof GLOBAL_CONTENT_KEYS)[number]
 
 export interface TeamMember {

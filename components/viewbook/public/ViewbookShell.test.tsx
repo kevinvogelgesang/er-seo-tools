@@ -31,6 +31,7 @@ const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
 
 const data = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   clientName: 'Acme',
+  displayName: 'Acme',
   kind: 'upgrade',
   welcomeNote: null,
   dataLockedAt: null,
@@ -42,7 +43,7 @@ const data = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   fieldCategories: [],
   milestones: [],
   materials: [],
-  global: { team: null, blocks: {} },
+  global: { team: null, pcIntro: null, blocks: {} },
   overrides: {},
   ...over,
 })

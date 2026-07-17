@@ -20,12 +20,14 @@ import {
   type GlobalContentKey,
   type TeamMember,
 } from './global-content-keys'
+import { viewbookDisplayName } from './display-name'
 import type {
   PublicFieldCategory,
   PublicGlobalContent,
   PublicMaterialLink,
   PublicMilestone,
   PublicSection,
+  PublicTeamMember,
   ViewbookPublicData,
 } from './public-types'
 
@@ -75,21 +77,37 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
   })
   const pick = (keys: readonly string[]) =>
     keys.flatMap((k) => (visible.has(k) ? [toPublic(visible.get(k)!)] : []))
-  const primarySections = pick(lineup.primary)
+  const pcCompletedAt = iso(vb.pcCompletedAt)
+  // pc-thanks nav-exclusion (Codex fix 10): a component-only null gate would
+  // still leave a dead ProgressNav dot for an unreached section. STAGE_LINEUPS
+  // doesn't carry 'pc-thanks' yet (Task 7 activates it) — gatePcThanks is
+  // exported/pure so this can be exercised directly today and needs no
+  // changes when the lineup lands it.
+  const primarySections = gatePcThanks(pick(lineup.primary), pcCompletedAt)
   const carriedSections = pick(lineup.carried)
 
-  const [fieldCategories, milestones, materials, docs, global, overrides] = await Promise.all([
+  const [fieldCategories, milestones, materials, docs, global, overrides, teamMembers] = await Promise.all([
     guarded('fields', () => loadFieldCategories(vb.id), [] as PublicFieldCategory[]),
     guarded('milestones', () => loadMilestones(vb.id), [] as PublicMilestone[]),
     guarded('materials', () => loadMaterials(vb.id), [] as PublicMaterialLink[]),
     guarded('docs', () => listViewbookDocs(vb.id), { global: [], own: [] }),
     loadGlobal(), // self-guards PER KEY (Codex plan-fix 2)
     guarded('overrides', () => loadOverrides(vb.id), {} as Partial<Record<GlobalContentKey, string>>),
+    guarded('team-members', () => loadTeamMembers(vb.id), [] as PublicTeamMember[]),
   ])
+
+  // Header display-name (spec §7): the client-entered school-name answer
+  // wins over the CRM client record name. Reuses the already-loaded (and
+  // fault-isolated) fieldCategories rather than a second query — a failed
+  // fields block degrades this to clientName too, same as everything else.
+  const schoolNameValue =
+    fieldCategories.flatMap((c) => c.fields).find((f) => f.defKey === 'school-name')?.value ?? null
+  const displayName = viewbookDisplayName({ schoolNameValue, clientName: client.name })
 
   return {
     viewbookId: vb.id,
     clientName: client.name,
+    displayName,
     csmName: vb.csmName,
     kind: vb.kind,
     welcomeNote: vb.welcomeNote,
@@ -98,6 +116,9 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     stage,
     stageLabel: STAGE_LABELS[stage],
     syncVersion: vb.syncVersion,
+    pcCompletedAt,
+    clientNotifyJson: parseClientNotifyJson(vb.clientNotifyJson),
+    teamMembers,
     primarySections,
     carriedSections,
     fieldCategories,
@@ -107,6 +128,46 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     global,
     overrides,
   }
+}
+
+// Exported for direct unit testing (see note above): drops 'pc-thanks' from
+// an already-computed section list when the stage hasn't been completed yet.
+export function gatePcThanks(sections: PublicSection[], pcCompletedAt: string | null): PublicSection[] {
+  return pcCompletedAt != null ? sections : sections.filter((s) => s.sectionKey !== 'pc-thanks')
+}
+
+function parseClientNotifyJson(raw: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) && parsed.every((x) => typeof x === 'string') ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+// PR5 pc-invite roster. `invited` is existence-only (Codex fix 7): a
+// team-invite ViewbookEmailDelivery row for the member exists, never
+// send/suppress status — rendering sentAt/suppressedAt would turn the email
+// job's marker writes into rendered-data mutations that would then need to
+// bump syncVersion, which they deliberately don't.
+async function loadTeamMembers(viewbookId: number): Promise<PublicTeamMember[]> {
+  const [members, deliveries] = await Promise.all([
+    prisma.viewbookTeamMember.findMany({
+      where: { viewbookId },
+      orderBy: { id: 'asc' },
+      select: { memberKey: true, name: true, email: true },
+    }),
+    prisma.viewbookEmailDelivery.findMany({
+      where: { viewbookId, kind: 'team-invite' },
+      select: { dedupKey: true },
+    }),
+  ])
+  return members.map((m) => ({
+    memberKey: m.memberKey,
+    name: m.name,
+    email: m.email,
+    invited: deliveries.some((d) => d.dedupKey.startsWith(`vb-invite:${m.memberKey}:`)),
+  }))
 }
 
 async function loadFieldCategories(viewbookId: number): Promise<PublicFieldCategory[]> {
@@ -125,6 +186,7 @@ async function loadFieldCategories(viewbookId: number): Promise<PublicFieldCateg
   for (const r of rows) {
     byCategory.get(r.category)?.fields.push({
       id: r.id,
+      defKey: r.defKey,
       label: r.label,
       fieldType: r.fieldType,
       value: r.value,
@@ -195,14 +257,15 @@ async function loadMaterials(viewbookId: number): Promise<PublicMaterialLink[]> 
 }
 
 async function loadGlobal(): Promise<PublicGlobalContent> {
-  const out: PublicGlobalContent = { team: null, blocks: {} }
+  const out: PublicGlobalContent = { team: null, pcIntro: null, blocks: {} }
   for (const key of GLOBAL_CONTENT_KEYS) {
     // PER-KEY isolation (Codex plan-fix 2): getGlobalContent reads null on
     // corrupt/absent rows, and a thrown query failure degrades ONLY this key
     // — one bad key must not blank both Welcome and Strategy.
     const value = await guarded(`global-${key}`, () => getGlobalContent(key), null)
     if (key === 'team') out.team = (value as TeamMember[] | null) ?? null
-    else out.blocks[key] = (value as ContentBlocks | null) ?? null
+    else if (key === 'pc-intro') out.pcIntro = (value as string | null) ?? null
+    else out.blocks[key as Exclude<GlobalContentKey, 'team' | 'pc-intro'>] = (value as ContentBlocks | null) ?? null
   }
   return out
 }

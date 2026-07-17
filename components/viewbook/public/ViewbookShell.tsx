@@ -33,9 +33,9 @@ export function ViewbookShell({
       <ViewbookSyncClient token={token} initialVersion={data.syncVersion} />
       {/* The (public) layout already renders the page's <main> — no nested
           main here; exactly ONE h1 on the page (Codex plan-fix 5). */}
-      <h1 className="sr-only">{data.clientName} — Viewbook</h1>
+      <h1 className="sr-only">{data.displayName} — Viewbook</h1>
       <ProgressNav
-        clientName={data.clientName}
+        clientName={data.displayName}
         stageLabel={data.stageLabel}
         logoUrl={logoUrl}
         sections={primarySections}

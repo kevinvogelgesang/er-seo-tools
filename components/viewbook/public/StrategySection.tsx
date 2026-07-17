@@ -6,7 +6,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 
-const STRATEGY_KEYS: { key: Exclude<GlobalContentKey, 'team'>; label: string }[] = [
+const STRATEGY_KEYS: { key: Exclude<GlobalContentKey, 'team' | 'pc-intro'>; label: string }[] = [
   { key: 'seo-base', label: 'SEO' },
   { key: 'geo-base', label: 'GEO' },
   { key: 'eeat-base', label: 'E-E-A-T' },

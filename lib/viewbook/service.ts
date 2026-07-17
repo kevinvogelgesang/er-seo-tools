@@ -108,6 +108,7 @@ export async function listViewbooks() {
     token: r.token,
     revoked: r.revokedAt != null,
     stage: r.stage,
+    pcCompletedAt: r.pcCompletedAt,
     currentMilestone: r.milestones[0]?.title ?? null,
     activityCount: r._count.activities,
     dataLockedAt: r.dataLockedAt,

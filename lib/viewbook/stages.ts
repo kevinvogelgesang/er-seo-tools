@@ -29,6 +29,16 @@ export const STAGE_LABELS: Record<ViewbookStage, string> = {
   building: 'Now Building',
 }
 
+// The org-basics fields pc-setup renders, in display order (PR5 spec §7).
+// Client-safe pure const — never renumber/rename; append-only like CATALOG.
+export const PC_SETUP_DEF_KEYS = [
+  'school-name',
+  'school-contact-name',
+  'school-contact-email',
+  'school-phone',
+  'school-website',
+] as const
+
 export interface StageLineup {
   primary: SectionKey[]
   carried: SectionKey[]

@@ -79,6 +79,22 @@ describe('validateGlobalContent', () => {
   })
 })
 
+describe('pc-intro global text key (PR5)', () => {
+  it('accepts a bounded non-empty string; rejects empty, non-string, and oversize', () => {
+    expect(validateGlobalContent('pc-intro', 'Welcome to your viewbook!')).toBe('Welcome to your viewbook!')
+    expect(validateGlobalContent('pc-intro', '')).toBeNull()
+    expect(validateGlobalContent('pc-intro', 123)).toBeNull()
+    expect(validateGlobalContent('pc-intro', ['not a string'])).toBeNull()
+    expect(validateGlobalContent('pc-intro', 'a'.repeat(2001))).toBeNull()
+  })
+
+  it('round-trips through put/get; absent reads null (additive)', async () => {
+    expect(await getGlobalContent('pc-intro')).toBeNull()
+    await putGlobalContent('pc-intro', 'Welcome aboard — let’s get your account set up.', OPERATOR)
+    expect(await getGlobalContent('pc-intro')).toBe('Welcome aboard — let’s get your account set up.')
+  })
+})
+
 describe('put/get', () => {
   it('roundtrips; unknown key 400s; corrupt row reads null', async () => {
     await putGlobalContent('team', roster, OPERATOR)
