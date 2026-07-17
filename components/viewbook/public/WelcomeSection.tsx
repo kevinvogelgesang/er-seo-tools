@@ -5,6 +5,7 @@ import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-ty
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import { SummaryStat, sectionStatusLabel } from './SummaryStat'
 
 function Placeholder({ what }: { what: string }) {
   return <p className="text-black/50">{what} is coming soon.</p>
@@ -43,9 +44,15 @@ export function WelcomeSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={data.welcomeNote ? <p className="text-xl">{data.welcomeNote}</p> : undefined}
+      summary={
+        <SummaryStat
+          eyebrow={SECTION_TITLES[section.sectionKey]}
+          headline={data.welcomeNote?.trim() ? data.welcomeNote : sectionStatusLabel(section)}
+        />
+      }
     >
       {blocks.why?.blocks?.length ? <Blocks blocks={blocks.why.blocks} /> : <Placeholder what="Our story" />}
 

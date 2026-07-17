@@ -4,23 +4,16 @@
 // the three ackable sections (lib/viewbook/ack.ts's ACKABLE_SECTION_KEYS) and
 // sits in the post-contract primary flow.
 import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { answeredProgress } from '@/lib/viewbook/summary-metrics'
+import { CATEGORY_LABELS } from '@/lib/viewbook/category-labels'
+import { categoryAnchor, fieldAnchor } from '@/lib/viewbook/anchors'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { FieldEditor } from './FieldEditor'
 import { AmendmentForm } from './AmendmentForm'
 import { AckButton } from './AckButton'
-
-const CATEGORY_LABELS: Record<string, string> = {
-  school: 'Your school',
-  programs: 'Programs',
-  'team-access': 'Team & access',
-  'crm-leads': 'CRM & leads',
-  admissions: 'Admissions',
-  positioning: 'Positioning',
-  'student-experience': 'Student experience',
-  'brand-materials': 'Brand & materials',
-}
+import { SummaryStat } from './SummaryStat'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -60,7 +53,7 @@ function FieldRow({ field, token, dataLockedAt }: { field: PublicField; token: s
   const lockedBaseline = dataLockedAt !== null
     && new Date(field.createdAt).getTime() <= new Date(dataLockedAt).getTime()
   return (
-    <div className="px-5 py-3">
+    <div id={fieldAnchor(field.id).slice(1)} className="px-5 py-3">
       <p className="text-sm font-semibold text-black/60">{field.label}</p>
       {lockedBaseline ? <FieldValue field={field} /> : <FieldEditor token={token} field={field} />}
       {dataLockedAt && !lockedBaseline && field.isCustom && (
@@ -96,11 +89,14 @@ export function DataSourceSection({
   token: string
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
+  const { answered, total } = answeredProgress(data.fieldCategories)
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={<SummaryStat eyebrow="Data Source" headline={`${answered} of ${total} answered`} />}
     >
       {data.stage === 'post-contract' && (
         <p className="text-black/60">
@@ -120,7 +116,7 @@ export function DataSourceSection({
         <p className="text-black/50">The launch questionnaire will appear here.</p>
       )}
       {data.fieldCategories.map((cat) => (
-        <details key={cat.category} open className="rounded-xl border border-black/10 bg-white shadow-sm">
+        <details key={cat.category} id={categoryAnchor(cat.category).slice(1)} open className="rounded-xl border border-black/10 bg-white shadow-sm">
           <summary
             className="cursor-pointer px-5 py-3 text-lg font-bold"
             style={{ fontFamily: 'var(--vb-heading-font)' }}

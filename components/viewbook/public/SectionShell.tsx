@@ -1,14 +1,28 @@
-// One shared section frame (spec §8): FULL-VIEWPORT spread — bold header band
-// in the brand primary (heading font, derived on-primary text, optional hero
-// image), anchor id for the ProgressNav, operator intro note, and an optional
-// CEO-skimmable SUMMARY band (one line + big number/status) above the detail
-// (Codex plan-fix 5 — the summary prop is the stable API sections and PR5
-// build on). 'done' collapses to a celebratory slim <details> header — data
-// always retained. PR5 landed the polish pass (done-state pop/fade keyed to
-// details[open] with a prefers-reduced-motion override, hero legibility
-// gradient, sticky-nav scroll offset) — props surface unchanged.
+// PR7 Task 4: the shared section frame is now a two-layer shape — a brand
+// header band + a persistent SUMMARY FACE + a collapsible detail body that
+// reveals on scroll. This component stays a SERVER component: it computes the
+// display mode (Task 3), renders the brand header band, composes the summary
+// face (the section's own `summary` band PLUS the done/ack celebratory ✓ /
+// "Completed {doneAt}" styling), and delegates the summary row + toggle +
+// collapsible region + body to the `SectionReveal` client island. The ONLY
+// things crossing the RSC boundary are serializable props + server-rendered
+// nodes (`summary`, `children`) — never a function prop (Wave-4 P1).
+//
+// Display modes (lib/viewbook/section-display.ts):
+//   always-open (pc-intro)  → expanded, no toggle, never collapses
+//   normal                  → SSR-expanded, scroll-reveal after mount
+//   done / ack-collapsed    → start collapsed, celebratory summary face, open
+//                             only on deliberate toggle or vb:navigate
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
+import type { ViewbookStage } from '@/lib/viewbook/stages'
+import {
+  sectionDisplayMode,
+  sectionStartsCollapsed,
+  sectionLocksAutoReveal,
+} from '@/lib/viewbook/section-display'
+import { SectionReveal } from './SectionReveal'
+import { CornerBracket, TickDivider } from './SectionAccents'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -21,58 +35,63 @@ export function SectionShell({
   title,
   heroUrl,
   summary,
+  stage,
   children,
 }: {
   section: PublicSection
   title: string
   heroUrl: string | null
   summary?: ReactNode
+  stage: ViewbookStage
   children: ReactNode
 }) {
-  // PR5 Task 7 (Codex fix 10, spec §4 "collapses the section for everyone"):
-  // an acknowledged ackable section (pc-setup/pc-invite/data-source) collapses
-  // exactly like a 'done' section — same slim <details> face, body retained.
-  // Reset-ack (operator) clears acknowledgedAt and re-expands.
-  if (section.state === 'done' || section.acknowledgedAt != null) {
-    return (
-      <section id={section.sectionKey} className="mx-auto w-full max-w-5xl scroll-mt-14 px-6 py-4">
-        <style>{`
-          @keyframes vb-pop { 0% { transform: scale(0); } 70% { transform: scale(1.18); } 100% { transform: scale(1); } }
-          @keyframes vb-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-          .vb-done-badge { animation: vb-pop 400ms ease-out both; }
-          details[open] .vb-done-body { animation: vb-fade 250ms ease-out both; }
-          @media (prefers-reduced-motion: reduce) {
-            .vb-done-badge, details[open] .vb-done-body { animation: none; }
-          }
-        `}</style>
-        <details className="rounded-xl border border-black/10 bg-white shadow-sm">
-          <summary className="flex cursor-pointer items-center gap-3 px-5 py-4">
-            <span
-              aria-hidden
-              className="vb-done-badge flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold"
-              style={{ background: 'var(--vb-secondary)', color: 'var(--vb-on-secondary)' }}
-            >
-              ✓
-            </span>
-            <span className="text-lg font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
-              {title}
-            </span>
-            {section.doneAt && (
-              <span className="ml-auto text-sm text-black/50">Completed {fmtDate(section.doneAt)}</span>
-            )}
-          </summary>
-          <div className="vb-done-body space-y-6 px-5 pb-6">{children}</div>
-        </details>
-      </section>
-    )
-  }
+  const mode = sectionDisplayMode(section, stage)
+  const startCollapsed = sectionStartsCollapsed(mode)
+  const lockAutoReveal = sectionLocksAutoReveal(mode)
+  const alwaysOpen = mode === 'always-open'
+  // 'done' and 'ack-collapsed' carry the celebratory summary-face styling that
+  // in v1 lived in the slim <details> header — data body always retained below.
+  const celebratory = mode === 'done' || mode === 'ack-collapsed'
+
+  // The summary FACE composes the celebratory badge (done/ack) with the
+  // section's own summary band. `undefined` when neither is present, so
+  // SectionReveal shows just the toggle row (or nothing, for always-open).
+  const summaryFace: ReactNode | undefined = (celebratory || summary) ? (
+    <div className="flex flex-wrap items-center gap-3">
+      {celebratory && (
+        <>
+          <span
+            aria-hidden
+            className="vb-done-badge flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold"
+            style={{ background: 'var(--vb-secondary)', color: 'var(--vb-on-secondary)' }}
+          >
+            ✓
+          </span>
+          {section.doneAt && (
+            <span className="text-sm text-black/50">Completed {fmtDate(section.doneAt)}</span>
+          )}
+        </>
+      )}
+      {summary && <div className="min-w-0">{summary}</div>}
+    </div>
+  ) : undefined
 
   return (
-    <section id={section.sectionKey} className="flex min-h-screen w-full scroll-mt-14 flex-col">
+    <section id={section.sectionKey} className="flex w-full scroll-mt-24 flex-col">
+      {/* Celebratory badge pop, keyed off render (summary face is always visible
+          now), with a reduced-motion override. */}
+      <style>{`
+        @keyframes vb-pop { 0% { transform: scale(0); } 70% { transform: scale(1.18); } 100% { transform: scale(1); } }
+        .vb-done-badge { animation: vb-pop 400ms ease-out both; }
+        @media (prefers-reduced-motion: reduce) { .vb-done-badge { animation: none; } }
+      `}</style>
       <div
         className={`relative flex ${heroUrl ? 'min-h-[38vh]' : 'min-h-[30vh]'} items-end overflow-hidden`}
         style={{ background: 'var(--vb-primary)' }}
       >
+        {/* Decorative-only corner accent (Task 10) — subtle brand-tinted
+            geometry, never load-bearing for layout or a11y. */}
+        <CornerBracket className="absolute left-4 top-4" />
         {heroUrl && (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -94,22 +113,28 @@ export function SectionShell({
           {title}
         </h2>
       </div>
-      {summary && (
-        <div
-          className="border-b border-black/10"
-          style={{ background: 'color-mix(in srgb, var(--vb-secondary) 10%, white)' }}
-        >
-          <div className="mx-auto w-full max-w-5xl px-6 py-5 text-lg">{summary}</div>
-        </div>
-      )}
-      <div className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-6 py-10">
+
+      {/* Decorative-only hairline divider (Task 10) above the summary face —
+          purely visual rhythm between the header band and the reveal region. */}
+      <div className="mx-auto w-full max-w-5xl px-6 pt-5">
+        <TickDivider />
+      </div>
+
+      <SectionReveal
+        sectionKey={section.sectionKey}
+        title={title}
+        summary={summaryFace}
+        startCollapsed={startCollapsed}
+        lockAutoReveal={lockAutoReveal}
+        alwaysOpen={alwaysOpen}
+      >
         {section.introNote && (
           <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
             {section.introNote}
           </p>
         )}
         {children}
-      </div>
+      </SectionReveal>
     </section>
   )
 }

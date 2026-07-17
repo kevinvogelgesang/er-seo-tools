@@ -4,6 +4,7 @@ import { KickoffQuestionsOutro } from './KickoffQuestionsOutro'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import { SummaryStat, sectionStatusLabel } from './SummaryStat'
 
 export function KickoffNextSection({
   isOperator,
@@ -26,8 +27,12 @@ export function KickoffNextSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={
+        <SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={sectionStatusLabel(section)} />
+      }
     >
       {isOperator ? (
         <KickoffNextCta viewbookId={data.viewbookId} csmName={data.csmName} />

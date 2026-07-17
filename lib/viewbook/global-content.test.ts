@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
+import sharp from 'sharp'
 import { prisma } from '@/lib/db'
 import {
   GLOBAL_CONTENT_KEYS,
@@ -18,7 +19,14 @@ import { readViewbookAsset } from './assets'
 import { createViewbook } from './service'
 import crypto from 'crypto'
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)])
+// Real tiny PNG — attachTeamPhoto now decodes every upload via sharp, so the
+// old "PNG magic + zero bytes" fake is correctly rejected as invalid_image.
+let PNG: Buffer
+beforeAll(async () => {
+  PNG = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+    .png()
+    .toBuffer()
+})
 const OPERATOR = 'kevin@enrollmentresources.com'
 
 const roster = [{ name: 'Kevin', role: 'Web Lead', photo: null, blurb: 'Builds the sites.' }]
@@ -144,7 +152,7 @@ describe('attachTeamPhoto', () => {
     await expect(attachTeamPhoto('Nobody', PNG, OPERATOR)).rejects.toMatchObject({ code: 'member_not_found' })
     const { readdir } = await import('fs/promises')
     const entries = (await readdir(path.join(assetsDir, 'global')).catch(() => [])) as string[]
-    expect(entries.filter((e) => e.endsWith('.png'))).toHaveLength(0)
+    expect(entries.filter((e) => e.endsWith('.webp'))).toHaveLength(0)
   })
 
   it('concurrent roster conflict deletes the new file and 409s', async () => {
@@ -160,7 +168,7 @@ describe('attachTeamPhoto', () => {
     ).rejects.toMatchObject({ code: 'roster_conflict' })
     const { readdir } = await import('fs/promises')
     const entries = (await readdir(path.join(assetsDir, 'global')).catch(() => [])) as string[]
-    expect(entries.filter((e) => e.endsWith('.png'))).toHaveLength(0)
+    expect(entries.filter((e) => e.endsWith('.webp'))).toHaveLength(0)
   })
 })
 

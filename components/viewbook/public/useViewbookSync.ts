@@ -98,6 +98,18 @@ export function useEditorActivity(id: string, active: boolean): void {
   }, [])
 }
 
+/**
+ * Read-only query of the module-level editor registry: true when ANY editor
+ * island (dirty/focused/saving) is currently active. SectionReveal uses this
+ * to suppress scroll-collapse while an operator is editing — the operator
+ * inline editors render OUTSIDE any single SectionShell's DOM, so a local
+ * focus/`contains` check can't see them; this global registry can. No
+ * behavior change to `registerEditorActivity`/the poller — this is a pure read.
+ */
+export function hasActiveEditorActivity(): boolean {
+  return !isRegistryIdle()
+}
+
 /** Marks a pending refresh; the polling hook flushes it once the registry is idle. */
 export function requestRefresh(): void {
   pendingRefresh = true

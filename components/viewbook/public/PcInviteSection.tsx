@@ -5,11 +5,13 @@
 // (post-contract only). Carried into kickoff/website-specifics/building
 // (STAGE_LINEUPS) — must NOT hard-gate to post-contract.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { inviteProgress } from '@/lib/viewbook/summary-metrics'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { AckButton } from './AckButton'
 import { ResendInviteButton, TeamInviteForm } from './TeamInviteForm'
+import { SummaryStat } from './SummaryStat'
 
 const MEMBER_CAP = 15
 
@@ -24,12 +26,21 @@ export function PcInviteSection({
 }) {
   const hero = data.theme.sectionHeroes['pc-invite']
   const members = data.teamMembers
+  const { invited, total } = inviteProgress(members)
 
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES['pc-invite']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={
+        <SummaryStat
+          eyebrow="Team Invites"
+          headline={`${invited} invite${invited === 1 ? '' : 's'} requested`}
+          chip={`${total} added`}
+        />
+      }
     >
       <div className="space-y-4">
         <p className="text-sm text-black/60">

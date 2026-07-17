@@ -4,20 +4,13 @@ import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { MAX_DOC_BYTES } from '@/lib/viewbook/assets'
 import { createViewbookDoc, listGlobalViewbookDocs } from '@/lib/viewbook/docs'
-import { fileBufferFromForm } from '@/lib/viewbook/route-utils'
+import { fileBufferFromForm, requireBoundedContentLength } from '@/lib/viewbook/route-utils'
 
 export const dynamic = 'force-dynamic'
 const MAX_MULTIPART_BYTES = MAX_DOC_BYTES + 64 * 1024
 
-function requireBoundedContentLength(request: NextRequest): void {
-  const raw = request.headers.get('content-length')
-  if (!raw || !/^[0-9]+$/.test(raw) || Number(raw) > MAX_MULTIPART_BYTES) {
-    throw new HttpError(413, 'payload_too_large')
-  }
-}
-
 async function readUpload(request: NextRequest): Promise<{ title: string; blurb: string | null; buf: Buffer }> {
-  requireBoundedContentLength(request)
+  requireBoundedContentLength(request, MAX_MULTIPART_BYTES)
   let form: FormData
   try {
     form = await request.formData()

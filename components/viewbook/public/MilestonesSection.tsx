@@ -2,11 +2,14 @@
 // spotlighted, review-link cards per stage. PR4 mounted FeedbackThread under
 // each review-link card.
 import type { PublicMilestone, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { milestoneProgress } from '@/lib/viewbook/summary-metrics'
+import { milestoneAnchor } from '@/lib/viewbook/anchors'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { isHttpsUrl } from './MaterialsSection'
 import { FeedbackThread } from './FeedbackThread'
+import { SummaryStat } from './SummaryStat'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -41,6 +44,7 @@ function StageDot({ status }: { status: string }) {
 function StageCard({ m }: { m: PublicMilestone }) {
   return (
     <div
+      id={milestoneAnchor(m.id).slice(1)}
       className={`min-w-56 flex-1 rounded-xl border bg-white p-4 shadow-sm ${
         m.status === 'current' ? 'border-2' : 'border-black/10'
       }`}
@@ -83,12 +87,20 @@ export function MilestonesSection({
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const withLinks = data.milestones.filter((m) => m.reviewLinks.length > 0)
   const current = data.milestones.find((m) => m.status === 'current')
+  const { done, total } = milestoneProgress(data.milestones)
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={current ? <p>You&apos;re in the <strong>{current.title}</strong> stage.</p> : undefined}
+      summary={
+        <SummaryStat
+          eyebrow="Milestones"
+          headline={`${done} of ${total} complete`}
+          chip={current ? current.title : undefined}
+        />
+      }
     >
       <div className="flex gap-4 overflow-x-auto pb-2">
         {data.milestones.map((m) => (

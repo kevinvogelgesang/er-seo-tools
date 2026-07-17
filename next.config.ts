@@ -59,7 +59,7 @@ const nextConfig: NextConfig = {
   // cleanly (transitive deps reference internal Chrome DevTools modules / Node
   // built-ins). They're loaded via dynamic `await import(...)` at runtime; marking
   // them external skips bundling and uses Node's native resolution.
-  serverExternalPackages: ['jsdom', 'axe-core', 'lighthouse', 'pdfjs-dist'],
+  serverExternalPackages: ['jsdom', 'axe-core', 'lighthouse', 'pdfjs-dist', 'sharp'],
   experimental: {
     serverActions: {
       bodySizeLimit: '50mb',

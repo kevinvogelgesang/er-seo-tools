@@ -2,10 +2,12 @@
 // placeholders. Read-only in PR2 — PR4's integration phase mounts
 // MaterialLinkForm here (client add-a-link).
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { materialAnchor } from '@/lib/viewbook/anchors'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { MaterialLinkForm } from './MaterialLinkForm'
+import { SummaryStat } from './SummaryStat'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -34,18 +36,28 @@ export function MaterialsSection({
   token: string
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
+  const n = data.materials.length
+  const requested = data.materials.filter((m) => m.status === 'requested').length
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={
+        <SummaryStat
+          eyebrow="Materials"
+          headline={`${n} link${n === 1 ? '' : 's'}`}
+          chip={requested > 0 ? `${requested} requested` : undefined}
+        />
+      }
     >
       {data.materials.length === 0 ? (
         <p className="text-black/50">No materials yet — links you share with us will appear here.</p>
       ) : (
         <ul className="divide-y divide-black/10 rounded-xl border border-black/10 bg-white shadow-sm">
           {data.materials.map((m) => (
-            <li key={m.id} className="flex flex-wrap items-center gap-2 px-5 py-3">
+            <li key={m.id} id={materialAnchor(m.id).slice(1)} className="flex flex-wrap items-center gap-2 px-5 py-3">
               {m.status === 'provided' && m.url && isHttpsUrl(m.url) ? (
                 <a
                   href={m.url}

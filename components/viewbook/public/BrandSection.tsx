@@ -14,6 +14,25 @@ const SWATCHES = [
   { key: 'tertiary', label: 'Tertiary' },
 ] as const
 
+// The summary face's "key visual" for Brand Guidelines — three small swatch
+// dots, not a SummaryStat metric (there's no meaningful count to show; the
+// palette itself IS the glanceable summary).
+function BrandSwatchesSummary() {
+  return (
+    <div className="flex items-center gap-2">
+      {SWATCHES.map((s) => (
+        <span
+          key={s.key}
+          aria-hidden
+          className="h-6 w-6 rounded-full border border-black/10"
+          style={{ background: `var(--vb-${s.key})` }}
+        />
+      ))}
+      <span className="text-sm text-black/60">Your brand palette</span>
+    </div>
+  )
+}
+
 export function BrandSection({
   section,
   data,
@@ -29,8 +48,10 @@ export function BrandSection({
   return (
     <SectionShell
       section={section}
+      stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={<BrandSwatchesSummary />}
     >
       <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
         Palette

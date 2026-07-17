@@ -5,7 +5,7 @@ import { prisma } from '@/lib/db'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { MAX_DOC_BYTES } from '@/lib/viewbook/assets'
 import { createViewbookDoc, listViewbookDocs } from '@/lib/viewbook/docs'
-import { fileBufferFromForm, parseId } from '@/lib/viewbook/route-utils'
+import { fileBufferFromForm, parseId, requireBoundedContentLength } from '@/lib/viewbook/route-utils'
 
 export const dynamic = 'force-dynamic'
 const MAX_MULTIPART_BYTES = MAX_DOC_BYTES + 64 * 1024
@@ -20,13 +20,6 @@ async function requireViewbook(id: number, mutating: boolean): Promise<void> {
   if (mutating && row.client.archivedAt) throw new HttpError(409, 'client_archived')
 }
 
-function requireBoundedContentLength(request: NextRequest): void {
-  const raw = request.headers.get('content-length')
-  if (!raw || !/^[0-9]+$/.test(raw) || Number(raw) > MAX_MULTIPART_BYTES) {
-    throw new HttpError(413, 'payload_too_large')
-  }
-}
-
 export const GET = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const id = parseId((await params).id)
@@ -38,7 +31,7 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   const createdBy = await requireOperatorEmail(request)
   const id = parseId((await params).id)
   await requireViewbook(id, true)
-  requireBoundedContentLength(request)
+  requireBoundedContentLength(request, MAX_MULTIPART_BYTES)
   let form: FormData
   try {
     form = await request.formData()

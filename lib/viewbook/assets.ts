@@ -7,16 +7,17 @@
 import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import path from 'path'
 import crypto from 'crypto'
+import sharp from 'sharp'
 import { HttpError } from '@/lib/api/errors'
 import { logError } from '@/lib/log'
 import { ASSET_FILENAME_RE } from './theme'
 
-const MAX_ASSET_BYTES = 2_097_152 // 2 MB
+export const MAX_ASSET_BYTES = 10 * 1024 * 1024 // 10 MB (PR7 §9)
+export const MAX_IMAGE_DIM = 4000 // dimension ceiling alongside limitInputPixels
 export const MAX_DOC_BYTES = 20 * 1024 * 1024
 export const DOC_FILENAME_RE = /^[a-z0-9-]+\.pdf$/
 
 const MIME_BY_TYPE = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' } as const
-const EXT_BY_TYPE = { png: 'png', jpeg: 'jpg', webp: 'webp' } as const
 
 export interface AssetReadDeps {
   readFile: (p: string) => Promise<Buffer>
@@ -82,24 +83,48 @@ export async function saveViewbookDoc(
   return { filename, mime: 'application/pdf' }
 }
 
+// Serialize decode→re-encode across the process: two concurrent uploads must
+// never hold two decoded bitmaps in RAM at once. Correctly ordered + self-healing
+// after a rejection (a rejected run does not poison the chain).
+let encodeChain: Promise<unknown> = Promise.resolve()
+function serializeEncode<T>(fn: () => Promise<T>): Promise<T> {
+  const run = encodeChain.then(fn, fn)
+  encodeChain = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function reencodeToWebp(buf: Buffer): Promise<Buffer> {
+  return sharp(buf, { limitInputPixels: 40_000_000 })
+    .rotate() // honor EXIF orientation before stripping metadata
+    .resize(MAX_IMAGE_DIM, MAX_IMAGE_DIM, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 90 })
+    .toBuffer()
+}
+
 export async function saveViewbookAsset(
   scope: string,
   buf: Buffer,
 ): Promise<{ filename: string; mime: string }> {
   if (!validateAssetScope(scope)) throw new HttpError(400, 'invalid_scope')
   if (buf.length > MAX_ASSET_BYTES) throw new HttpError(400, 'invalid_image')
-  const type = sniffImageType(buf)
-  if (!type) throw new HttpError(400, 'invalid_image')
+  if (!sniffImageType(buf)) throw new HttpError(400, 'invalid_image')
 
-  const filename = `${crypto.randomUUID()}.${EXT_BY_TYPE[type]}`
+  let webp: Buffer
+  try {
+    webp = await serializeEncode(() => reencodeToWebp(buf))
+  } catch {
+    throw new HttpError(400, 'invalid_image')
+  }
+
+  const filename = `${crypto.randomUUID()}.webp`
   const dest = containedPath(scope, filename)
   if (!dest) throw new HttpError(400, 'invalid_scope')
 
   await mkdir(path.dirname(dest), { recursive: true })
   const tmp = `${dest}.tmp-${crypto.randomUUID()}`
-  await writeFile(tmp, buf)
+  await writeFile(tmp, webp)
   await rename(tmp, dest)
-  return { filename, mime: MIME_BY_TYPE[type] }
+  return { filename, mime: 'image/webp' }
 }
 
 export async function readViewbookAsset(

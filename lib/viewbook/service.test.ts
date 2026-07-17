@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 import crypto from 'crypto'
+import sharp from 'sharp'
 import { prisma } from '@/lib/db'
 import {
   createViewbook,
@@ -29,7 +30,14 @@ import { DEFAULT_THEME } from './theme'
 import { CATALOG } from './catalog'
 import { VIEWBOOK_EMAIL_JOB_TYPE } from '@/lib/jobs/types'
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)])
+// Real tiny PNG — saveViewbookAsset now decodes every upload via sharp, so the
+// old "PNG magic + zero bytes" fake is correctly rejected as invalid_image.
+let PNG: Buffer
+beforeAll(async () => {
+  PNG = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+    .png()
+    .toBuffer()
+})
 const OPERATOR = 'kevin@enrollmentresources.com'
 // Global ViewbookDoc rows (viewbookId: null) aren't reachable via the
 // client-cascade cleanup below — they're app-global rows the shared worker
@@ -317,7 +325,7 @@ describe('assets + delete lifecycle', () => {
     const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
     const before = await syncVersion(id)
     const t1 = await attachViewbookLogo(id, PNG)
-    expect(t1.logo).toMatch(/\.png$/)
+    expect(t1.logo).toMatch(/\.webp$/)
     const afterFirst = await syncVersion(id)
     expect(afterFirst).toBe(before + 1)
     const t2 = await attachViewbookLogo(id, PNG)
@@ -343,7 +351,7 @@ describe('assets + delete lifecycle', () => {
     await expect(attachViewbookLogo(999_999_999, PNG)).rejects.toBeTruthy()
     const { readdir } = await import('fs/promises')
     const entries = await readdir(assetsDir, { recursive: true }).catch(() => [])
-    expect((entries as string[]).filter((e) => String(e).endsWith('.png'))).toHaveLength(0)
+    expect((entries as string[]).filter((e) => String(e).endsWith('.webp'))).toHaveLength(0)
   })
 
   it('deleteViewbook removes owned image/PDF files while global PDFs survive', async () => {
