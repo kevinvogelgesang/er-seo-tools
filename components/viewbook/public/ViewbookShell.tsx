@@ -35,10 +35,12 @@ export function ViewbookShell({
           main here; exactly ONE h1 on the page (Codex plan-fix 5). */}
       <h1 className="sr-only">{data.displayName} — Viewbook</h1>
       <ProgressNav
-        clientName={data.displayName}
-        stageLabel={data.stageLabel}
+        token={token}
+        displayName={data.displayName}
         logoUrl={logoUrl}
-        sections={primarySections}
+        stage={data.stage}
+        csmName={data.csmName}
+        team={data.global.team}
       />
       <div style={{ fontFamily: 'var(--vb-body-font)' }}>
         {primarySections.map((s) => (
