@@ -8,16 +8,23 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { ViewbookShell } from './ViewbookShell'
+import { StickyOffsetProbe } from './StickyOffsetProbe'
 import { __resetSyncRegistry } from './useViewbookSync'
 
 // ViewbookShell now mounts ViewbookSyncClient (PR2 Task 6), a 'use client'
 // island that calls useRouter() — this test renders outside an app router.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }))
 
+// Task 5: StickyOffsetProbe is a real 'use client' leaf (renders null) — mock
+// it so we can assert ViewbookShell mounts it EXACTLY ONCE per render,
+// regardless of which branch (anonymous vs operator) is rendering it.
+vi.mock('./StickyOffsetProbe', () => ({ StickyOffsetProbe: vi.fn(() => null) }))
+
 afterEach(() => {
   cleanup()
   __resetSyncRegistry()
   vi.unstubAllGlobals()
+  vi.mocked(StickyOffsetProbe).mockClear()
 })
 
 const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
@@ -101,6 +108,64 @@ describe('ViewbookShell', () => {
       />,
     )
     expect(container.querySelector('details')).toBeNull()
+  })
+})
+
+// Task 5: sticky-chrome ids, z-index order, theme-root marker + single probe
+// mount. The probe reads/writes CSS vars off `[data-vb-theme-root]` and
+// measures `#vb-progress-nav`/`#vb-operator-bar` — ViewbookShell owns all
+// three responsibilities exactly once (it renders in both the anonymous and
+// operator branches, so a second mount elsewhere would double-write).
+describe('ViewbookShell sticky chrome (Task 5)', () => {
+  it('marks the themed root with data-vb-theme-root and keeps the --vb-* theme vars on it', () => {
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ primarySections: [sec('welcome')] })}
+        primarySections={[sec('welcome')]}
+        carriedSections={[]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+    const themeRoot = container.querySelector<HTMLElement>('[data-vb-theme-root]')
+    expect(themeRoot).not.toBeNull()
+    // The DEFAULT_THEME primary color must still land on the marked element
+    // (Lane 2's live-theme store targets this same node — the marker and the
+    // theme vars must be co-located, not just both present somewhere).
+    expect(themeRoot!.style.getPropertyValue('--vb-primary')).not.toBe('')
+    // Pre-hydration fallback so sticky pinning is sane before the probe runs;
+    // must stay a plain (non-!important) inline value so the live-theme
+    // store can override it later.
+    expect(themeRoot!.style.getPropertyValue('--vb-sticky-offset')).toBe('64px')
+    expect(themeRoot!.style.getPropertyPriority('--vb-sticky-offset')).toBe('')
+  })
+
+  it('mounts exactly one StickyOffsetProbe', () => {
+    render(
+      <ViewbookShell
+        token="tok"
+        data={data({ primarySections: [sec('welcome')] })}
+        primarySections={[sec('welcome')]}
+        carriedSections={[]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+    expect(vi.mocked(StickyOffsetProbe)).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders #vb-progress-nav', () => {
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ primarySections: [sec('welcome')] })}
+        primarySections={[sec('welcome')]}
+        carriedSections={[]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+    expect(container.querySelector('#vb-progress-nav')).not.toBeNull()
   })
 })
 

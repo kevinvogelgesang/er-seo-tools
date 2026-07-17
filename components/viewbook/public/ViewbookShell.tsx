@@ -18,7 +18,7 @@
 // search index MUST be `[]` (Codex fix 7) — don't serialize Q&A/milestone/
 // material/doc values into stages where those sections aren't the
 // searchable focus; buildSearchIndex is only ever called when building.
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { buildSearchIndex, buildTocIndex } from '@/lib/viewbook/toc-index'
 import { ProgressNav } from './ProgressNav'
@@ -26,6 +26,7 @@ import { EarlierSteps } from './EarlierSteps'
 import { TocRail } from './TocRail'
 import { ThemeStyle, publicAssetUrl, themeCssVars } from './ThemeStyle'
 import { ViewbookSyncClient } from './ViewbookSyncClient'
+import { StickyOffsetProbe } from './StickyOffsetProbe'
 
 export function ViewbookShell({
   token,
@@ -42,9 +43,26 @@ export function ViewbookShell({
 }) {
   const logoUrl = data.theme.logo ? publicAssetUrl(token, data.theme.logo) : null
   return (
-    <div className="min-h-screen bg-[#fafafa] text-[#1a1a1a]" style={themeCssVars(data.theme)}>
+    <div
+      data-vb-theme-root
+      className="min-h-screen bg-[#fafafa] text-[#1a1a1a]"
+      style={{
+        ...themeCssVars(data.theme),
+        // Pre-hydration fallback (matches the operator-bar-less common
+        // case) so sticky pinning is sane before StickyOffsetProbe measures
+        // the real chrome height. Plain, non-!important — Lane 2's
+        // live-theme store overrides this same property on this same node.
+        '--vb-sticky-offset': '64px',
+      } as CSSProperties}
+    >
       <ThemeStyle theme={data.theme} />
       <ViewbookSyncClient token={token} initialVersion={data.syncVersion} />
+      {/* Mounted EXACTLY ONCE here — ViewbookShell renders in both the
+          anonymous and operator branches (the operator branch passes this
+          whole tree down as `children`), so this single mount covers both.
+          A second mount anywhere else would double-write the measured CSS
+          vars (Codex plan-fix 2). */}
+      <StickyOffsetProbe />
       {/* The (public) layout already renders the page's <main> — no nested
           main here; exactly ONE h1 on the page (Codex plan-fix 5). */}
       <h1 className="sr-only">{data.displayName} — Viewbook</h1>

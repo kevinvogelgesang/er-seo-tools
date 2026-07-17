@@ -62,9 +62,10 @@ export function OperatorBar({
 
   return (
     <aside
+      id="vb-operator-bar"
       data-operator-bar
       aria-label="Viewbook editing controls"
-      className="sticky top-0 z-40 border-b border-black/10 bg-white/95 px-4 py-2 text-sm text-black shadow-sm backdrop-blur"
+      className="sticky top-0 z-50 border-b border-black/10 bg-white/95 px-4 py-2 text-sm text-black shadow-sm backdrop-blur"
     >
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3">
         <span className="font-semibold">ER editing</span>
