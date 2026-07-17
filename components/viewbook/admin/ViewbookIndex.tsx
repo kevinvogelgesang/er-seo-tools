@@ -131,9 +131,13 @@ export function ViewbookIndex() {
               rows.map((r) => (
                 <tr key={r.id} className="border-b border-gray-100 last:border-0 dark:border-navy-border/50">
                   <td className="px-4 py-2 font-medium text-gray-900 dark:text-white">
-                    <a href={publicViewbookUrl(r.token)} target="_blank" rel="noopener" className="hover:underline">
-                      {r.clientName}
-                    </a>
+                    {r.revoked ? (
+                      <span>{r.clientName}</span>
+                    ) : (
+                      <a href={publicViewbookUrl(r.token)} target="_blank" rel="noopener" className="hover:underline">
+                        {r.clientName}
+                      </a>
+                    )}
                     {r.clientArchived && <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">archived</span>}
                   </td>
                   <td className="px-4 py-2 text-gray-600 dark:text-white/70">{r.kind}</td>

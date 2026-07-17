@@ -66,6 +66,21 @@ describe('ViewbookIndex', () => {
     expect(screen.getByRole('link', { name: /open editor/i }).getAttribute('href')).toBe('/viewbooks/5')
   })
 
+  it('renders the row name as plain text (no link) when the public link is revoked', async () => {
+    mockFetch((url) => {
+      if (url === '/api/viewbooks') return { viewbooks: [row({ revoked: true })] }
+      if (url === '/api/clients') return { clients: [] }
+      return {}
+    })
+    await act(async () => {
+      render(<ViewbookIndex />)
+    })
+    expect(screen.queryByRole('link', { name: 'Acme College' })).toBeNull()
+    expect(screen.getByText('Acme College')).toBeTruthy()
+    // The existing in-app editor link must survive untouched.
+    expect(screen.getByRole('link', { name: /open editor/i }).getAttribute('href')).toBe('/viewbooks/5')
+  })
+
   it('falls back to the raw stage value when it is not a known stage', async () => {
     mockFetch((url) => {
       if (url === '/api/viewbooks') return { viewbooks: [row({ stage: 'some-future-stage' })] }

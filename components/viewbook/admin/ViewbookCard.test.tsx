@@ -63,6 +63,16 @@ describe('ViewbookCard', () => {
     expect(screen.getByRole('link', { name: /open editor/i }).getAttribute('href')).toBe('/viewbooks/5')
   })
 
+  it('renders the client name as plain text (no link) when the public link is revoked', async () => {
+    mockFetch(() => ({ viewbooks: [row({ revoked: true })] }))
+    await act(async () => {
+      render(<ViewbookCard clientId={1} clientName="Acme College" />)
+    })
+    expect(screen.queryByRole('link', { name: 'Acme College' })).toBeNull()
+    expect(screen.getByText('Acme College')).toBeTruthy()
+    expect(screen.getByText(/link revoked/i)).toBeTruthy()
+  })
+
   it('creates a viewbook via POST {clientId, kind} when none exists', async () => {
     let created = false
     mockFetch((url, init) => {

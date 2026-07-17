@@ -187,4 +187,18 @@ describe('ViewbookEditor header', () => {
     expect(anchor?.getAttribute('target')).toBe('_blank')
     expect(anchor?.getAttribute('rel') ?? '').toContain('noopener')
   })
+
+  it('renders the client name in the header as plain text (no link) when the public link is revoked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ viewbook: mkFullViewbook({ revokedAt: '2026-07-01T00:00:00.000Z' }) })),
+    )
+    await act(async () => {
+      render(<ViewbookEditor viewbookId={3} />)
+    })
+    const heading = await screen.findByRole('heading', { name: 'Acme College' })
+    const anchor = heading.tagName === 'A' ? heading : heading.querySelector('a')
+    expect(anchor).toBeNull()
+    expect(screen.getByText(/link revoked/i)).toBeTruthy()
+  })
 })
