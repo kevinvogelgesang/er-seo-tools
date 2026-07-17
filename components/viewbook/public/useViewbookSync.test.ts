@@ -103,6 +103,64 @@ describe('useViewbookSync', () => {
     expect(onChange).toHaveBeenCalledTimes(2)
   })
 
+  // Final-review CRITICAL fix — latch deadlock via a stale pendingObservedRef.
+  // Trace: tick observes vA -> onChange fires, latch armed at vA. While
+  // still latched, a LATER tick observes vB > vA -> pendingObservedRef holds
+  // vB. The refresh for vA then lands ALREADY at vB (the server moved on
+  // before the RSC refresh resolved) — the latch correctly clears (vB >=
+  // vA), but the leftover pendingObservedRef=vB used to survive untouched.
+  // The NEXT tick (server still at vB) would re-observe that same
+  // already-satisfied value, tryFlush would misread it as fresh, arm a new
+  // latch on it, and that latch could never clear again (initialVersion
+  // can't "catch up" to a value it's already caught up to) — live sync dead
+  // until reload. Both the tryFlush() discard AND the initialVersion effect
+  // discard are required to close this; this test exercises the full trace.
+  it('CRITICAL: a refresh landing past a stale pendingObserved value does not deadlock the latch — a later genuine bump still fires onChange', async () => {
+    const onChange = vi.fn()
+    let remoteV = 2
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(remoteV)))
+    const { rerender } = renderHook(
+      (props: UseViewbookSyncOpts) => useViewbookSync(props),
+      { initialProps: { url: '/sync', initialVersion: 1, onChange, intervalMs: 1000 } },
+    )
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1) // latch armed at v=2
+
+    // Server advances AGAIN to v=3 while still latched on v=2 (refresh for
+    // v=2 hasn't landed yet) — pendingObservedRef now holds the newer v=3.
+    remoteV = 3
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(onChange).toHaveBeenCalledTimes(1) // still latched — held, not fired
+
+    // The refresh lands, but ALREADY at v=3 (the server moved on before this
+    // RSC refresh resolved) — initialVersion jumps straight past both v=2
+    // and the pendingObserved v=3.
+    rerender({ url: '/sync', initialVersion: 3, onChange, intervalMs: 1000 })
+    await act(async () => {
+      await flushAsync()
+    })
+
+    // Nothing new from the server yet (still v=3) — must NOT fire a spare
+    // onChange from the leftover pendingObservedRef=3 the props already
+    // reflect. This is the assertion that fails without the fix.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(onChange).toHaveBeenCalledTimes(1)
+
+    // A genuinely NEW bump afterward must still fire — this is exactly what
+    // deadlocked permanently before the fix.
+    remoteV = 4
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(onChange).toHaveBeenCalledTimes(2)
+  })
+
   it('coalesces a poll-detected change with a requestRefresh() call into ONE onChange', async () => {
     const onChange = vi.fn()
     let remoteV = 1
@@ -135,6 +193,40 @@ describe('useViewbookSync', () => {
       registerEditorActivity('editor-1', false)
     })
     expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  // Final-review P2 fix — a bare pendingRefresh (no observed version yet)
+  // queued while a sync fetch is already in flight must stay queued rather
+  // than firing a blind refresh the moment an editor releases mid-fetch —
+  // the in-flight tick's OWN post-resolve flush must be the ONLY one that
+  // fires, coalescing into a single onChange instead of two.
+  it('P2: a bare pendingRefresh queued during an in-flight poll does not double-fire once the editor releases and the fetch resolves', async () => {
+    const onChange = vi.fn()
+    let resolveFetch: ((value: unknown) => void) | null = null
+    const fetchMock = vi.fn(() => new Promise((resolve) => { resolveFetch = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    registerEditorActivity('editor-1', true) // busy editor — suppresses onChange
+    renderHook(() => useViewbookSync({ url: '/sync', initialVersion: 1, onChange, intervalMs: 1000 }))
+    expect(fetchMock).toHaveBeenCalledTimes(1) // mount tick's fetch is now in flight
+
+    // requestRefresh() arrives while the editor is still busy AND the mount
+    // tick's fetch is still outstanding — triggerTick() is a no-op (a tick is
+    // already inFlight), so this only sets the bare pendingRefresh flag.
+    requestRefresh()
+
+    // The editor releases WHILE the fetch is still outstanding.
+    await act(async () => {
+      registerEditorActivity('editor-1', false)
+      await flushAsync()
+    })
+    expect(onChange).not.toHaveBeenCalled() // deferred — fetch still in flight
+
+    // The in-flight fetch resolves with a genuinely newer version.
+    await act(async () => {
+      resolveFetch!(jsonResponse(2))
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1) // exactly one refresh, not two
   })
 
   // PR2 Task 6 fix wave — per-keystroke idle-window flush. Every editor

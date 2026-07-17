@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PublicField } from '@/lib/viewbook/public-types'
 import { AmendmentForm } from './AmendmentForm'
 import { requestRefresh, useEditorActivity } from './useViewbookSync'
@@ -36,6 +36,30 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
   const dirty = draft !== draftFromValue(field.fieldType, current.value)
   const registryId = `field-${field.id}`
   useEditorActivity(registryId, focused || busy || dirty)
+
+  // Final-review fix (P1): `current`/`draft` used to be seeded ONCE from the
+  // `field` prop (`useState(field.value)`), so a router.refresh() that lands
+  // a genuinely newer server value (another session's edit, or an amendment
+  // approval) never reached this island — the stale draft just kept
+  // showing. Reconcile while idle: adopt the incoming field value/version
+  // ONLY when this field isn't focused/busy, the incoming prop is ACTUALLY
+  // NEWER than what's already adopted (`field.version > current.version` —
+  // NOT merely "different": `current` can already be ahead of the mount-time
+  // `field` prop via a 409 conflict response or a successful save, and the
+  // prop itself may not have caught up yet; a plain inequality check would
+  // wrongly regress `current` back to that stale prop), AND the draft
+  // hasn't locally diverged from the last-adopted value (an untouched
+  // field, or one whose own save already landed via `current`) — a
+  // genuinely dirty draft is left alone, matching the registry's existing
+  // "never clobber a focused/dirty/busy editor" contract.
+  useEffect(() => {
+    if (focused || busy) return
+    if (field.version <= current.version) return
+    if (draft !== draftFromValue(field.fieldType, current.value)) return // diverged locally
+    setCurrent({ value: field.value, version: field.version })
+    setDraft(draftFromValue(field.fieldType, field.value))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [field.value, field.version, focused, busy])
 
   async function save() {
     const value = requestValue(field.fieldType, draft)

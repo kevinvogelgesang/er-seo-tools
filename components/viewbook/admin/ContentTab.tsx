@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
 import { GLOBAL_CONTENT_KEYS } from '@/lib/viewbook/global-content-keys'
 import { jsonFetch } from './viewbook-admin-shared'
-import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 interface SectionRow {
   sectionKey: string
@@ -34,23 +34,27 @@ export function ContentTab({
   overrides: OverrideRow[]
   onChanged: () => void
 }) {
-  const [welcome, setWelcome] = useState(welcomeNote ?? '')
   const [error, setError] = useState<string | null>(null)
   const [savedFlash, setSavedFlash] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const { focused, onFocus, onBlur } = useFocusWithin()
 
-  // PR2 Task 6 (Codex wave-2 fix 6): active while the welcome-note draft
-  // differs from the loaded value, a save is in flight, or focus remains in
-  // this section.
-  const welcomeDirty = welcome !== (welcomeNote ?? '')
+  // Final-review fix (P1): `welcome` used to be seeded ONCE from
+  // `welcomeNote` and dirty was computed directly against the raw prop, so a
+  // background `load()` advancing `welcomeNote` (including THIS tab's own
+  // save landing) left `welcomeDirty` stuck true forever. `useBaselineSync`
+  // reconciles while idle and `commitWelcome()` is called immediately on a
+  // successful save (see `run`'s `onSuccess` param below).
+  const { draft: welcome, setDraft: setWelcome, dirty: welcomeDirty, commit: commitWelcome } =
+    useBaselineSync(welcomeNote ?? '', focused || busy)
   useEditorActivity('admin-content-welcome', welcomeDirty || busy || focused)
 
-  async function run(label: string, fn: () => Promise<unknown>) {
+  async function run(label: string, fn: () => Promise<unknown>, onSuccess?: () => void) {
     setBusy(true)
     setError(null)
     try {
       await fn()
+      onSuccess?.()
       setSavedFlash(label)
       setTimeout(() => setSavedFlash(null), 1500)
       onChanged()
@@ -76,12 +80,15 @@ export function ContentTab({
         />
         <button
           onClick={() =>
-            void run('welcome note', () =>
-              jsonFetch(`/api/viewbooks/${viewbookId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ welcomeNote: welcome || null }),
-              }),
+            void run(
+              'welcome note',
+              () =>
+                jsonFetch(`/api/viewbooks/${viewbookId}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ welcomeNote: welcome || null }),
+                }),
+              () => commitWelcome(welcome),
             )
           }
           className="mt-1 rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700"
@@ -137,15 +144,19 @@ function SectionTextRow({
   introNote: string | null
   narrative: string | null
   showNarrative: boolean
-  run: (label: string, fn: () => Promise<unknown>) => Promise<void>
+  run: (label: string, fn: () => Promise<unknown>, onSuccess?: () => void) => Promise<void>
 }) {
-  const [intro, setIntro] = useState(introNote ?? '')
-  const [narr, setNarr] = useState(narrative ?? '')
   const { focused, onFocus, onBlur } = useFocusWithin()
 
-  // PR2 Task 6: active while intro/narrative drafts differ from the loaded
-  // values or focus remains within this row.
-  const dirty = intro !== (introNote ?? '') || (showNarrative && narr !== (narrative ?? ''))
+  // Final-review fix (P1): see the welcome-note comment in ContentTab above
+  // — same baseline-reconciliation pattern, applied per-row. No `busy` guard
+  // here since this row has no local busy state of its own (saves route
+  // through the shared `run` in the parent).
+  const { draft: intro, setDraft: setIntro, dirty: introDirty, commit: commitIntro } =
+    useBaselineSync(introNote ?? '', focused)
+  const { draft: narr, setDraft: setNarr, dirty: narrDirty, commit: commitNarr } =
+    useBaselineSync(narrative ?? '', focused)
+  const dirty = introDirty || (showNarrative && narrDirty)
   useEditorActivity(`admin-content-section-${sectionKey}`, dirty || focused)
 
   return (
@@ -170,14 +181,20 @@ function SectionTextRow({
         )}
         <button
           onClick={() =>
-            void run(sectionKey, () =>
-              jsonFetch(`/api/viewbooks/${viewbookId}/sections/${sectionKey}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(
-                  showNarrative ? { introNote: intro || null, narrative: narr || null } : { introNote: intro || null },
-                ),
-              }),
+            void run(
+              sectionKey,
+              () =>
+                jsonFetch(`/api/viewbooks/${viewbookId}/sections/${sectionKey}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(
+                    showNarrative ? { introNote: intro || null, narrative: narr || null } : { introNote: intro || null },
+                  ),
+                }),
+              () => {
+                commitIntro(intro)
+                if (showNarrative) commitNarr(narr)
+              },
             )
           }
           className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700"
@@ -198,14 +215,14 @@ function OverrideRowEditor({
   viewbookId: number
   contentKey: string
   body: string
-  run: (label: string, fn: () => Promise<unknown>) => Promise<void>
+  run: (label: string, fn: () => Promise<unknown>, onSuccess?: () => void) => Promise<void>
 }) {
-  const [text, setText] = useState(body)
   const { focused, onFocus, onBlur } = useFocusWithin()
 
-  // PR2 Task 6: active while the override draft differs from the loaded
-  // value or focus remains within this row.
-  useEditorActivity(`admin-content-override-${contentKey}`, text !== body || focused)
+  // Final-review fix (P1): same baseline-reconciliation pattern as the
+  // welcome note / section rows above.
+  const { draft: text, setDraft: setText, dirty: textDirty, commit: commitText } = useBaselineSync(body, focused)
+  useEditorActivity(`admin-content-override-${contentKey}`, textDirty || focused)
 
   return (
     <details className="rounded border border-gray-200 p-2 dark:border-navy-border" onFocus={onFocus} onBlur={onBlur}>
@@ -221,12 +238,15 @@ function OverrideRowEditor({
         <div className="flex gap-2">
           <button
             onClick={() =>
-              void run(contentKey, () =>
-                jsonFetch(`/api/viewbooks/${viewbookId}/overrides/${contentKey}`, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ body: text }),
-                }),
+              void run(
+                contentKey,
+                () =>
+                  jsonFetch(`/api/viewbooks/${viewbookId}/overrides/${contentKey}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ body: text }),
+                  }),
+                () => commitText(text),
               )
             }
             disabled={!text}
@@ -237,8 +257,10 @@ function OverrideRowEditor({
           {body && (
             <button
               onClick={() =>
-                void run(`${contentKey} (removed)`, () =>
-                  jsonFetch(`/api/viewbooks/${viewbookId}/overrides/${contentKey}`, { method: 'DELETE' }),
+                void run(
+                  `${contentKey} (removed)`,
+                  () => jsonFetch(`/api/viewbooks/${viewbookId}/overrides/${contentKey}`, { method: 'DELETE' }),
+                  () => commitText(''),
                 )
               }
               className="rounded border border-red-300 px-3 py-1 text-red-600 hover:bg-red-50 dark:border-red-500/40 dark:text-red-400 dark:hover:bg-red-500/10"

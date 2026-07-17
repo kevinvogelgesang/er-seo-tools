@@ -12,7 +12,7 @@
 // dirty/focused/saving state here via registerEditorActivity(). The hook
 // only ever calls onChange while the registry is idle — an in-flight
 // refresh must never clobber an in-progress edit.
-import { useEffect, useRef, useState, type FocusEvent } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type FocusEvent, type SetStateAction } from 'react'
 
 // ---------------------------------------------------------------------------
 // Module-level registry
@@ -72,6 +72,16 @@ export function registerEditorActivity(id: string, active: boolean): void {
  * changing per keystroke), which is exactly the per-keystroke idle-window
  * bug the module-level defer above also guards against. Two independent
  * layers, same failure class.
+ *
+ * `id` MUST be mount-stable (a literal or a value fixed for the component's
+ * whole lifetime — e.g. `field-${field.id}` where `field.id` never changes
+ * post-mount). The unmount-cleanup effect below reads `id` via `idRef`,
+ * which always holds the LATEST value, so if a caller passes a CHANGING id
+ * across renders (e.g. derived from an array index that can shift), the
+ * unmount cleanup unregisters only the last id seen — every EARLIER id this
+ * component was registered under (from before the id changed) is never
+ * unregistered and leaks as a permanently-active registration, deadlocking
+ * the shared refresher exactly like a stuck latch.
  */
 export function useEditorActivity(id: string, active: boolean): void {
   const idRef = useRef(id)
@@ -135,6 +145,62 @@ export function useFocusWithin(): {
       }
     },
   }
+}
+
+// ---------------------------------------------------------------------------
+// useBaselineSync — shared "adopt-when-idle" draft reconciliation for admin
+// editor tabs (ThemeEditor, ContentTab, …) whose local draft state used to
+// be seeded ONCE from a prop (`useState(prop)`) and never resynced. Because
+// the shared refresher only ever calls the page-level reload while this
+// editor's own dirty flag is false (registerEditorActivity gates it), the
+// prop CAN change while idle — but a bare `useState(prop)` ignores prop
+// changes after mount, so the stale draft then reads as "differs from the
+// NEW prop" and `dirty` gets stuck true forever, permanently suppressing the
+// refresher for the whole page (Codex wave-2 fix 5).
+// ---------------------------------------------------------------------------
+
+/**
+ * `serverValue` is the authoritative prop from the parent. `guard` must be
+ * true whenever this specific editor must not be clobbered (typically
+ * `focused || busy` — NOT the editor's own `dirty`, to avoid a
+ * self-referential guard). The draft adopts a new `serverValue` only when:
+ * not guarded, the server value actually changed since the last adopted
+ * baseline, AND the draft hasn't locally diverged from that baseline (an
+ * untouched or already-saved draft) — a diverged draft is left alone, and
+ * reconciliation retries on the next `serverValue` or `guard` change.
+ *
+ * Call `commit(value)` immediately after a successful save to move BOTH the
+ * baseline and the draft to the just-saved value right away. Without this,
+ * the eventual background reload's `serverValue` (now equal to what this
+ * editor itself just saved) would look like a genuine external change, but
+ * the draft (already at that value, saved moments ago) would read as
+ * "diverged from the still-stale baseline" — the effect would decline to
+ * advance the baseline, and `dirty` would stay stuck true exactly like the
+ * bug this hook exists to fix.
+ */
+export function useBaselineSync<T>(
+  serverValue: T,
+  guard: boolean,
+  isEqual: (a: T, b: T) => boolean = (a, b) => a === b,
+): { draft: T; setDraft: Dispatch<SetStateAction<T>>; dirty: boolean; commit: (value: T) => void; baseline: T } {
+  const [baseline, setBaseline] = useState(serverValue)
+  const [draft, setDraft] = useState(serverValue)
+
+  useEffect(() => {
+    if (guard) return
+    if (isEqual(serverValue, baseline)) return
+    if (!isEqual(draft, baseline)) return // diverged locally — never clobber
+    setBaseline(serverValue)
+    setDraft(serverValue)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverValue, guard])
+
+  function commit(value: T): void {
+    setBaseline(value)
+    setDraft(value)
+  }
+
+  return { draft, setDraft, dirty: !isEqual(draft, baseline), commit, baseline }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +285,19 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
     if (awaitingConfirmRef.current !== null && opts.initialVersion >= awaitingConfirmRef.current) {
       awaitingConfirmRef.current = null
     }
+    // CRITICAL fix (latch deadlock): a pendingObservedRef value the props
+    // ALREADY reflect (this refresh landed at or past it — the common case
+    // when a later tick observed a newer version while still latched on an
+    // earlier one, and the refresh that eventually lands jumps straight to
+    // that newer version) is stale — discard it here too, not just in
+    // tryFlush. Left in place, the NEXT tick would re-observe the same
+    // already-satisfied value, tryFlush would find lastKnownRef now equal to
+    // it (nothing new to report) yet still arm the latch on it, and that
+    // latch would never clear again (initialVersion can't "catch up" to a
+    // value it already caught up to) — live sync dead until reload.
+    if (pendingObservedRef.current !== null && opts.initialVersion >= pendingObservedRef.current) {
+      pendingObservedRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opts.initialVersion])
 
@@ -250,8 +329,28 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
       if (disposed || stoppedRef.current) return
       if (!isRegistryIdle()) return
       const hadPendingRefresh = pendingRefresh
-      const observed = pendingObservedRef.current
+      let observed = pendingObservedRef.current
+      // CRITICAL fix (latch deadlock): a leftover observed value the props
+      // already reflect (<= lastKnownRef) is stale information — nothing to
+      // wait for. See the matching discard in the initialVersion effect
+      // above for the full trace this closes.
+      if (observed !== null && observed <= lastKnownRef.current) {
+        pendingObservedRef.current = null
+        observed = null
+      }
       if (observed === null && !hadPendingRefresh) return
+      // P2 fix: a BARE pendingRefresh (no observed version) arriving while a
+      // sync fetch is already in flight (e.g. requestRefresh()'s own
+      // triggerTick() kicked that fetch off) must stay queued rather than
+      // firing a blind refresh now — the in-flight tick's OWN post-resolve
+      // tryFlush() call (see tick()'s finally block, which runs it only
+      // AFTER inFlight is reset to false) will flush it exactly once. Without
+      // this, an idle transition landing mid-fetch (e.g. an editor releasing
+      // while its own save's requestRefresh() fetch is still outstanding)
+      // fires ONE onChange here for the bare request, then the resolving
+      // fetch's own tryFlush() fires a SECOND with the newly observed
+      // version — two refreshes coalesced into what should be one.
+      if (observed === null && hadPendingRefresh && inFlight) return
       if (observed !== null && awaitingConfirmRef.current !== null) {
         // Already latched, waiting for confirmation of an earlier detected
         // change. A requestRefresh() arriving during that wait is
@@ -285,6 +384,7 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
       if (disposed || inFlight || !enabledRef.current) return
       inFlight = true
       clearTimer() // a manually-triggered tick preempts any still-pending schedule
+      let shouldFlush = false
       try {
         const res = await fetch(urlRef.current, { cache: 'no-store' })
         if (disposed) return
@@ -301,12 +401,17 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
         if (body.v !== lastKnownRef.current) {
           pendingObservedRef.current = body.v
         }
-        tryFlush()
+        shouldFlush = true
       } catch {
         if (disposed) return
         backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF_MS)
       } finally {
+        // inFlight is cleared BEFORE this tick's own tryFlush() call (P2
+        // fix) so that call is never mistaken, by tryFlush's own inFlight
+        // check, for "a fetch is still outstanding" — it IS this tick
+        // completing, not a concurrent one.
         inFlight = false
+        if (shouldFlush) tryFlush()
         if (!disposed && document.visibilityState === 'visible') {
           scheduleNext(backoffRef.current)
         }

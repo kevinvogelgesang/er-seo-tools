@@ -17,5 +17,5 @@ export const GET = withRoute(async (_request: NextRequest, { params }: RoutePara
   const id = parseId((await params).id)
   const vb = await prisma.viewbook.findUnique({ where: { id }, select: { syncVersion: true } })
   if (!vb) throw new HttpError(404, 'not_found')
-  return NextResponse.json({ v: vb.syncVersion })
+  return NextResponse.json({ v: vb.syncVersion }, { headers: { 'Cache-Control': 'no-store' } })
 })

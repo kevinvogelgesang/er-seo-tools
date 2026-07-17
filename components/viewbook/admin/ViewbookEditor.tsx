@@ -12,7 +12,7 @@ import { MilestonesEditor } from './MilestonesEditor'
 import { FeedbackTab } from './FeedbackTab'
 import { ActivityFeed } from './ActivityFeed'
 import { DataSourceTab } from './DataSourceTab'
-import { useEditorActivity, useFocusWithin, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
+import { useBaselineSync, useEditorActivity, useFocusWithin, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
 
 const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 
@@ -125,23 +125,27 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
 }
 
 function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => void }) {
-  const [notifyEmail, setNotifyEmail] = useState(vb.notifyEmail ?? '')
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const { focused, onFocus, onBlur } = useFocusWithin()
 
-  // PR2 Task 6 (Codex wave-2 fix 6): active while the notify-email draft
-  // differs from the loaded value, a save is in flight, or focus remains
-  // within this tab.
-  const dirty = notifyEmail !== (vb.notifyEmail ?? '')
+  // Final-review fix (P1): `notifyEmail` used to be seeded ONCE from
+  // `vb.notifyEmail` and dirty was computed directly against the raw prop —
+  // the same falsely-permanent-dirty bug as ThemeEditor/ContentTab (a
+  // background `load()` advancing `vb`, including THIS tab's own save
+  // landing, left `dirty` stuck true forever). `useBaselineSync` reconciles
+  // while idle and `commit()` is called immediately on a successful save.
+  const { draft: notifyEmail, setDraft: setNotifyEmail, dirty, commit } =
+    useBaselineSync(vb.notifyEmail ?? '', focused || busy)
   useEditorActivity('admin-settings', dirty || busy || focused)
 
-  async function run(label: string, fn: () => Promise<unknown>) {
+  async function run(label: string, fn: () => Promise<unknown>, onSuccess?: () => void) {
     setBusy(true)
     setError(null)
     try {
       await fn()
+      onSuccess?.()
       setFlash(label)
       setTimeout(() => setFlash(null), 1500)
       onChanged()
@@ -191,12 +195,15 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
         />
         <button
           onClick={() =>
-            void run('Notify email', () =>
-              jsonFetch(`/api/viewbooks/${vb.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notifyEmail: notifyEmail || null }),
-              }),
+            void run(
+              'Notify email',
+              () =>
+                jsonFetch(`/api/viewbooks/${vb.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ notifyEmail: notifyEmail || null }),
+                }),
+              () => commit(notifyEmail),
             )
           }
           className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700"

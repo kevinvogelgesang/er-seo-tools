@@ -56,6 +56,8 @@ describe('GET /api/viewbooks/:id/sync', () => {
     const res = await getSync(req(`/api/viewbooks/${id}/sync`), params({ id: String(id) }))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ v: expect.any(Number) })
+    // Parity with the public token-scoped sync route: never cache a poll target.
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
   })
 
   it('404 unknown id', async () => {

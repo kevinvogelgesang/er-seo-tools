@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export interface AdminFeedbackThread {
   reviewLinkId: number
@@ -19,6 +19,18 @@ export interface AdminFeedbackThread {
 export function FeedbackTab({ viewbookId, threads }: { viewbookId: number; threads: AdminFeedbackThread[] }) {
   const [rows, setRows] = useState(threads)
   const [busyId, setBusyId] = useState<number | null>(null)
+
+  // Final-review fix (P1): `rows` used to be seeded ONCE from `threads` and
+  // never resynced — this tab has no edit-state to protect (resolve is an
+  // immediate committed action, not a draft), so a background `load()`
+  // bringing new feedback (or another operator's resolve) simply never
+  // appeared until a full page reload. The key includes resolvedAt so a
+  // resolve-only change (same ids/count) is also picked up.
+  const threadsKey = threads.flatMap((t) => t.feedback.map((f) => `${f.id}:${f.resolvedAt ?? ''}`)).join('|')
+  useEffect(() => {
+    setRows(threads)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadsKey])
 
   async function resolve(feedbackId: number) {
     setBusyId(feedbackId)

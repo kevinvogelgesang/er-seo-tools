@@ -8,7 +8,11 @@ import { useState } from 'react'
 import { FONT_CATALOG, SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import { jsonFetch } from './viewbook-admin-shared'
 import { ThemePreview } from './ThemePreview'
-import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+
+function themeEquals(a: ViewbookTheme, b: ViewbookTheme): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
 
 const COLOR_FIELDS = ['primary', 'secondary', 'tertiary'] as const
 
@@ -21,15 +25,20 @@ export function ThemeEditor({
   theme: ViewbookTheme
   onSaved: (theme: ViewbookTheme) => void
 }) {
-  const [draft, setDraft] = useState<ViewbookTheme>(theme)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const { focused, onFocus, onBlur } = useFocusWithin()
 
-  // PR2 Task 6 (Codex wave-2 fix 6): active while the draft theme differs
-  // from the loaded theme, a save/upload is in flight, or focus remains
-  // within this editor.
-  const dirty = JSON.stringify(draft) !== JSON.stringify(theme)
+  // Final-review fix (P1): `draft` used to be seeded ONCE from `theme`
+  // (`useState(theme)`), so a background `load()` that advances `theme`
+  // (another admin session, or this editor's OWN save landing) never
+  // reached the draft — `dirty` (previously `draft !== theme` directly)
+  // would then read true FOREVER, permanently suppressing the shared
+  // refresher. `useBaselineSync` reconciles while idle (not focused/busy)
+  // and exposes `commit()` for `save()`/`upload()` to call immediately on
+  // success, so THIS editor's own save doesn't trip the same bug the moment
+  // busy flips back to false but before `load()`'s round trip completes.
+  const { draft, setDraft, dirty, commit } = useBaselineSync<ViewbookTheme>(theme, focused || busy, themeEquals)
   useEditorActivity('admin-theme', dirty || busy || focused)
 
   async function save() {
@@ -41,7 +50,9 @@ export function ThemeEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ theme: draft }),
       })
-      onSaved(res.theme ?? draft)
+      const saved = res.theme ?? draft
+      commit(saved)
+      onSaved(saved)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save_failed')
     } finally {
@@ -60,7 +71,7 @@ export function ThemeEditor({
       const res = await fetch(`/api/viewbooks/${viewbookId}/assets`, { method: 'POST', body: form })
       const body = (await res.json()) as { theme?: ViewbookTheme; error?: string }
       if (!res.ok || !body.theme) throw new Error(body.error || 'upload_failed')
-      setDraft(body.theme)
+      commit(body.theme)
       onSaved(body.theme)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'upload_failed')

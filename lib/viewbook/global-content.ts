@@ -34,6 +34,17 @@ function isKnownKey(key: string): key is GlobalContentKey {
   return (GLOBAL_CONTENT_KEYS as readonly string[]).includes(key)
 }
 
+// Shared fence for both team-roster writers below (putTeamRoster,
+// attachTeamPhoto): both pair this predicate with the SAME
+// syncVersionBumpAllWhere in one $transaction — bump first, both hit or both
+// miss — so a concurrent roster edit between load and write is caught as a
+// 409 rather than silently clobbered.
+function teamRosterFence(bodyJson: string): Prisma.Sql {
+  return Prisma.sql`EXISTS (
+    SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = 'team' AND "bodyJson" = ${bodyJson}
+  )`
+}
+
 function validateTeam(raw: unknown): TeamMember[] | null {
   if (!Array.isArray(raw) || raw.length > TEAM_CAPS.members) return null
   const out: TeamMember[] = []
@@ -123,9 +134,7 @@ async function putTeamRoster(incoming: TeamMember[], updatedBy: string): Promise
   }
   // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
   // updateMany below — bump first, both hit or both miss.
-  const fence = Prisma.sql`EXISTS (
-    SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = 'team' AND "bodyJson" = ${row.bodyJson}
-  )`
+  const fence = teamRosterFence(row.bodyJson)
   const [, res] = await prisma.$transaction([
     syncVersionBumpAllWhere(fence),
     prisma.viewbookGlobalContent.updateMany({
@@ -199,9 +208,7 @@ export async function attachTeamPhoto(
 
   // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
   // updateMany below — bump first, both hit or both miss.
-  const fence = Prisma.sql`EXISTS (
-    SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = 'team' AND "bodyJson" = ${row.bodyJson}
-  )`
+  const fence = teamRosterFence(row.bodyJson)
   try {
     const [, res] = await prisma.$transaction([
       syncVersionBumpAllWhere(fence),
