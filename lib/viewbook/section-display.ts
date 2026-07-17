@@ -12,14 +12,6 @@ export function sectionDisplayMode(section: PublicSection, stage: ViewbookStage)
   return 'normal'
 }
 
-export function sectionStartsCollapsed(m: SectionDisplayMode): boolean {
-  return m === 'done' || m === 'ack-collapsed'
-}
-
-export function sectionLocksAutoReveal(m: SectionDisplayMode): boolean {
-  return m !== 'normal'
-}
-
 const BUILDING_OPEN = new Set<string>(['milestones', 'materials'])
 
 export function sectionInitiallyOpen(section: PublicSection, stage: ViewbookStage): boolean {

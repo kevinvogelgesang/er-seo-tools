@@ -70,6 +70,10 @@ describe('WelcomeSection', () => {
 
   it('features the assigned flagged CSM, links their mailbox, and filters them out of the ordinary grid', () => {
     const data = base({
+      // kickoff (not building) so this normal section is expanded — in the
+      // sticky-header model `building` opens only milestones+materials, and a
+      // collapsed region is aria-hidden/inert (invisible to getByRole).
+      stage: 'kickoff',
       csmName: 'Casey CSM',
       global: {
         team: [
@@ -127,6 +131,9 @@ describe('StrategySection', () => {
   it('renders global then own doc cards with safe links/text before one collapsed full playbook', () => {
     const hostile = '<img src=x>'
     const data = base({
+      // kickoff so this normal section is expanded (see note above): a
+      // collapsed region's links are aria-hidden and excluded from getByRole.
+      stage: 'kickoff',
       docs: {
         global: [
           { id: 1, title: 'Global guide', blurb: 'First', filename: 'global.pdf', sortOrder: 1 },

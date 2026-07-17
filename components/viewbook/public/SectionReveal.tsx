@@ -1,98 +1,58 @@
 'use client'
 
-// PR7 Task 4: the scroll-reveal client island. SectionShell (a SERVER
-// component) renders the brand header band + composes the summary face, then
-// hands BOTH the summary face (`summary`) and the detail body (`children`) to
-// this island as server-rendered nodes — the ONLY things that cross the RSC
-// boundary are serializable props + nodes (never a function prop), so the
-// Wave-4 P1 stays intact.
+// Viewbook UX pass, Lane 1 Task 2 — the sticky-header, STATE-ONLY reveal island.
 //
-// Two-layer shape: a persistent summary FACE (always visible, carries the
-// toggle) + a collapsible detail REGION that reveals on scroll. Height is
-// animated purely in CSS via `grid-template-rows: 0fr → 1fr` over an
-// `overflow:hidden` child, reduced-motion-guarded by an inline <style>.
+// This replaces the self-oscillating IntersectionObserver (the "blink" bug):
+// the old island watched the SAME element whose height it mutated, so scrolling
+// the tall Data Source section made it flip expanded↔collapsed on every frame.
+// Body visibility is now driven ONLY by state — the toggle button and the
+// deliberate `vb:navigate`/hash force-open. NO observer, NO scroll listener.
 //
-// HYDRATION: `expanded` seeds from `!startCollapsed` ONLY (no window read in
-// the initializer) so SSR and the first client render agree. Normal sections
-// render SSR-EXPANDED — the full body is present and readable with no JS; the
-// IntersectionObserver only applies scroll-collapse AFTER mount. window/
-// matchMedia/document are touched exclusively inside effects.
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+// SectionShell (a SERVER component) renders the brand hero band, composes the
+// summary FACE, and hands BOTH the face (`summary`) and the detail body
+// (`children`) to this island as server-rendered nodes. It also computes
+// `regionId` (a server component cannot use `useId`) and the pure
+// `initiallyOpen` policy. The ONLY things crossing the RSC boundary are
+// serializable props + nodes (never a function prop) — Wave-4 P1 stays intact.
+//
+// Shape: a COMPACT sticky header bar (`position: sticky; top: var(--vb-sticky-
+// offset)`) carrying the section title + summary face + the toggle button, then
+// a collapsible detail REGION. Height animates purely in CSS via
+// `grid-template-rows: 0fr → 1fr` over an `overflow:hidden` child, reduced-
+// motion-guarded by an inline <style>. Nothing drives the collapse from scroll,
+// so there is no layout thrash. `expanded` seeds from `initiallyOpen` at mount
+// (no window read in the initializer) so SSR and first client render agree.
+import { useEffect, useState, type ReactNode } from 'react'
 import type { SectionKey } from '@/lib/viewbook/theme'
-import { hasActiveEditorActivity } from './useViewbookSync'
-
-// Enter/leave uses a mid threshold so a section reveals when meaningfully in
-// view and collapses only once it's well clear.
-const REVEAL_THRESHOLD = 0.35
 
 export function SectionReveal({
   sectionKey,
+  regionId,
   title,
   summary,
-  startCollapsed,
-  lockAutoReveal,
   alwaysOpen,
+  initiallyOpen,
   children,
 }: {
-  sectionKey: SectionKey
-  title: string
+  sectionKey?: SectionKey
+  regionId: string
+  title: ReactNode
   summary?: ReactNode
-  startCollapsed: boolean
-  lockAutoReveal: boolean
   alwaysOpen: boolean
+  initiallyOpen: boolean
   children: ReactNode
 }) {
-  // SSR-safe seed — no window read here (see the hydration note above).
-  const [expanded, setExpanded] = useState(!startCollapsed)
-  // Once the user (or a deliberate navigation) toggles, auto-behavior is off
-  // for the rest of the pageview — manual wins.
-  const manuallyToggledRef = useRef(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const reactId = useId()
-  const regionId = `vb-region-${reactId.replace(/:/g, '')}`
+  // always-open sections are permanently expanded; otherwise seed from the
+  // pure stage-driven policy. No scroll/observer ever mutates this.
+  const [expanded, setExpanded] = useState(alwaysOpen || initiallyOpen)
 
-  // Scroll-reveal observer. Attached ONLY for `normal` sections
-  // (!lockAutoReveal) and ONLY when the viewer has not requested reduced
-  // motion (read once at mount — reduced-motion is treated as static, no
-  // observer, exactly like SSR). always-open + done/ack are locked and get no
-  // observer at all.
+  // Deliberate-open channels: a `vb:navigate` CustomEvent targeting this section
+  // (ProgressNav / TOC clicks) AND the initial `location.hash` on mount. Both
+  // force-expand. There is no auto-behaviour to fight, so no manual-toggle latch
+  // is needed. always-open sections are already open — the listener is harmless.
   useEffect(() => {
-    if (lockAutoReveal) return
-    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') return
-    // reduced-motion → no observer (static behavior, identical to SSR).
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const el = containerRef.current
-    if (!el) return
-    const obs = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[entries.length - 1]
-        if (!entry) return
-        if (manuallyToggledRef.current) return // manual wins
-        if (entry.isIntersecting) {
-          // Auto-EXPAND is always allowed.
-          setExpanded(true)
-        } else {
-          // Never auto-COLLAPSE while this section holds focus OR any editor
-          // island is active (the operator inline editors render OUTSIDE this
-          // DOM, so the global registry is what covers them).
-          if (el.contains(document.activeElement)) return
-          if (hasActiveEditorActivity()) return
-          setExpanded(false)
-        }
-      },
-      { threshold: REVEAL_THRESHOLD },
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [lockAutoReveal])
-
-  // Deliberate-open channels: a `vb:navigate` CustomEvent targeting this
-  // section (Task 9's ProgressNav) AND the initial `location.hash` on mount.
-  // Both force-expand even when locked, and mark the section manually-toggled
-  // so a later scroll doesn't fight the deliberate open.
-  useEffect(() => {
+    if (!sectionKey) return
     function forceOpen() {
-      manuallyToggledRef.current = true
       setExpanded(true)
     }
     function onNavigate(event: Event) {
@@ -104,13 +64,8 @@ export function SectionReveal({
     return () => window.removeEventListener('vb:navigate', onNavigate)
   }, [sectionKey])
 
-  function onToggle() {
-    manuallyToggledRef.current = true
-    setExpanded((v) => !v)
-  }
-
   return (
-    <div ref={containerRef}>
+    <div>
       <style>{`
         .vb-reveal { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 320ms ease; }
         .vb-reveal[data-vb-expanded="false"] { grid-template-rows: 0fr; }
@@ -118,35 +73,48 @@ export function SectionReveal({
         @media (prefers-reduced-motion: reduce) { .vb-reveal { transition: none; } }
       `}</style>
 
-      {(summary || !alwaysOpen) && (
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-4">
-          {summary && <div className="min-w-0 flex-1 text-lg">{summary}</div>}
-          {!alwaysOpen && (
-            <button
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={regionId}
-              onClick={onToggle}
-              className="ml-auto shrink-0 rounded-full border border-black/15 px-4 py-1.5 text-sm font-semibold text-black/70 transition-colors hover:bg-black/5"
-              style={{ fontFamily: 'var(--vb-heading-font)' }}
-            >
-              {expanded ? 'Hide details' : 'Show details'}
-            </button>
-          )}
+      {/* Compact STICKY header bar (§4.3): pins under the top nav at
+          `--vb-sticky-offset`; the next section's header pushes it up via
+          standard CSS sticky stacking — no JS. It IS the toggle for non-
+          always-open sections (the old "Show/hide details" button is gone).
+          always-open sections render a non-interactive heading. */}
+      <div
+        className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-4"
+        style={{ position: 'sticky', top: 'var(--vb-sticky-offset, 0px)', zIndex: 30, background: 'var(--vb-surface, transparent)' }}
+      >
+        <div className="min-w-0 flex-1">
+          <div
+            className="text-sm font-semibold uppercase tracking-wide text-black/45"
+            style={{ fontFamily: 'var(--vb-heading-font)' }}
+          >
+            {title}
+          </div>
+          {summary && <div className="mt-1 min-w-0 text-lg">{summary}</div>}
         </div>
-      )}
+        {!alwaysOpen && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={regionId}
+            onClick={() => setExpanded((v) => !v)}
+            className="ml-auto shrink-0 rounded-full border border-black/15 px-4 py-1.5 text-sm font-semibold text-black/70 transition-colors hover:bg-black/5"
+            style={{ fontFamily: 'var(--vb-heading-font)' }}
+          >
+            {expanded ? 'Hide details' : 'Show details'}
+          </button>
+        )}
+      </div>
 
       <div
         id={regionId}
         role="region"
-        aria-label={title}
+        aria-label={typeof title === 'string' ? title : undefined}
+        data-testid="vb-region"
         // Collapsed = visually clipped only; without these the clipped
         // inputs/links/buttons stay tabbable and the region stays AT-exposed.
         // `inert` (React 19 boolean prop) + `aria-hidden` take the whole subtree
         // out of the tab order and the accessibility tree while collapsed, and
-        // are REMOVED when expanded. Neither stops the CSS grid-rows transition,
-        // so the collapse/expand animation is untouched. The deliberate-open
-        // paths (toggle / vb:navigate) set expanded=true → interactive again.
+        // are REMOVED when expanded. Neither stops the CSS grid-rows transition.
         aria-hidden={expanded ? undefined : true}
         inert={!expanded}
         data-vb-expanded={expanded ? 'true' : 'false'}

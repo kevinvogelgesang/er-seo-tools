@@ -16,18 +16,19 @@ const section = (over: Partial<PublicSection> = {}): PublicSection => ({
   ...over,
 })
 
-// jsdom implements neither IntersectionObserver nor matchMedia; SectionReveal's
-// observer effect bails on the missing IntersectionObserver before touching
-// matchMedia, so SSR state (seeded from startCollapsed) is what these assert.
+// Body visibility is now STATE-ONLY (sticky-header model, no observer). Initial
+// open/closed comes from the pure `sectionInitiallyOpen(section, stage)` policy;
+// these assert that seeded state. A normal `brand` section is open in `kickoff`
+// (in `building` only milestones+materials open — see the sections-read tests).
 
 describe('SectionShell', () => {
-  it('renders a normal section SSR-expanded with its anchor id, intro note, summary face, and body', () => {
+  it('renders a normal section initially-open with its anchor id, intro note, summary face, and body', () => {
     const { container } = render(
       <SectionShell
         section={section({ introNote: 'A note' })}
         title="Brand Guidelines"
         heroUrl={null}
-        stage="building"
+        stage="kickoff"
         summary={<span>3 colors locked in</span>}
       >
         <p>Body</p>
@@ -131,6 +132,7 @@ describe('SectionShell PR5 polish', () => {
       </SectionShell>,
     )
     expect(container.innerHTML).toContain('linear-gradient(to top, var(--vb-primary)')
-    expect(container.innerHTML).toContain('scroll-mt-24')
+    // scroll-mt-24 was replaced by an inline measured scroll offset.
+    expect(container.innerHTML).toMatch(/scroll-margin-top:\s*calc\(var\(--vb-sticky-offset, 0px\) \+ 12px\)/)
   })
 })
