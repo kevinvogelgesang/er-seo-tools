@@ -162,6 +162,27 @@ describe('setNotifyEmails', () => {
     const stored = await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.viewbook.id } })
     expect(stored.clientNotifyJson).toBe('[]')
   })
+
+  it('404s when the pc-setup section is hidden — no clientNotifyJson change, no activity, syncVersion +0', async () => {
+    const ctx = await mkViewbook()
+    await addMember(ctx.viewbook.id, 'member@example.com')
+    await prisma.viewbookSection.update({
+      where: { viewbookId_sectionKey: { viewbookId: ctx.viewbook.id, sectionKey: 'pc-setup' } },
+      data: { state: 'hidden' },
+    })
+    const before = await syncVersion(ctx.viewbook.id)
+
+    await expect(
+      setNotifyEmails(ctx.viewbook, ctx.token, { notifyEmails: ['member@example.com'] }),
+    ).rejects.toMatchObject({ status: 404, code: 'not_found' })
+
+    expect(await syncVersion(ctx.viewbook.id)).toBe(before)
+    const stored = await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.viewbook.id } })
+    expect(stored.clientNotifyJson).toBe('[]')
+    expect(
+      await prisma.viewbookActivity.count({ where: { viewbookId: ctx.viewbook.id, kind: 'notify-emails-set' } }),
+    ).toBe(0)
+  })
 })
 
 describe('resolveAllowedNotifyRecipients', () => {

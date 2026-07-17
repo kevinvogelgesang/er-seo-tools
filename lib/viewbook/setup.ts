@@ -62,14 +62,32 @@ function validateNotifyEmails(raw: unknown, allowed: Set<string>): string[] {
   return [...canonical].sort()
 }
 
+// The pc-setup section gates this write exactly like team-members.ts gates
+// the invite add/resend on pc-invite (Global Constraints route contract:
+// token current + not-revoked + client active + section visible). JOIN
+// (not EXISTS) mirrors that file's existing style.
 function accessChainPredicate(viewbookId: number, token: string): Prisma.Sql {
   return Prisma.sql`
     EXISTS (
       SELECT 1 FROM "Viewbook" v
       JOIN "Client" c ON c."id" = v."clientId"
+      JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'pc-setup' AND s."state" <> 'hidden'
       WHERE v."id" = ${viewbookId} AND v."token" = ${token} AND v."revokedAt" IS NULL AND c."archivedAt" IS NULL
     )
   `
+}
+
+// Hidden-section diagnosis (mirrors team-members.ts's
+// `requirePcInviteSectionVisible` / ack.ts's `!section || section.state ===
+// 'hidden'` check): a hidden pc-setup section must 404 as `not_found` — the
+// SAME oracle as a missing/revoked viewbook — BEFORE the value-idempotent
+// no-op is assumed, so a hidden section never leaks distinguishing
+// information through a false "success" no-op.
+async function requirePcSetupSectionVisible(viewbookId: number): Promise<void> {
+  const section = await prisma.viewbookSection.findFirst({
+    where: { viewbookId, sectionKey: 'pc-setup' },
+  })
+  if (!section || section.state === 'hidden') throw new HttpError(404, 'not_found')
 }
 
 export async function setNotifyEmails(
@@ -111,8 +129,11 @@ export async function setNotifyEmails(
   if (updateCount !== activityCount) throw new Error('viewbook_notify_activity_mismatch')
 
   // 0 rows: either the access chain failed (bad/revoked token, archived
-  // client — re-preflight surfaces the honest 404) or the stored value
-  // already equals what was posted (value-idempotent no-op, Codex fix 8).
+  // client, hidden pc-setup section — re-preflight surfaces the honest 404)
+  // or the stored value already equals what was posted (value-idempotent
+  // no-op, Codex fix 8). Both preflights must pass before the no-op is
+  // assumed, or a hidden section would leak through as a false "success".
   await requireViewbookToken(token)
+  await requirePcSetupSectionVisible(viewbook.id)
   return { notifyEmails: canonical }
 }
