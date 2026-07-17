@@ -6,10 +6,24 @@
 // `dark:` variants. ViewbookShell is the SINGLE rendering owner (Codex plan
 // fix 7): both primary and carried sections render through the caller's
 // SAME renderSection, so a section behaves identically wherever it appears.
+//
+// PR7 Task 11: also mounts TocRail, a 'use client' LEAF island, with indexes
+// built server-side from `data` (buildTocIndex/buildSearchIndex — pure, no
+// server imports). ViewbookShell itself stays a SERVER component, so this is
+// safe in BOTH the anonymous branch (ViewbookShell is the page root) and the
+// operator branch (ViewbookShell is passed as `children` to the client
+// OperatorViewbookLayer — a client component may receive a server-rendered
+// subtree as children; only ITS OWN props must be serializable, and none of
+// TocRail's props are ever a function). Outside the `building` stage the
+// search index MUST be `[]` (Codex fix 7) — don't serialize Q&A/milestone/
+// material/doc values into stages where those sections aren't the
+// searchable focus; buildSearchIndex is only ever called when building.
 import type { ReactNode } from 'react'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { buildSearchIndex, buildTocIndex } from '@/lib/viewbook/toc-index'
 import { ProgressNav } from './ProgressNav'
 import { EarlierSteps } from './EarlierSteps'
+import { TocRail } from './TocRail'
 import { ThemeStyle, publicAssetUrl, themeCssVars } from './ThemeStyle'
 import { ViewbookSyncClient } from './ViewbookSyncClient'
 
@@ -51,6 +65,11 @@ export function ViewbookShell({
       <footer className="px-6 py-10 text-center text-sm text-black/40">
         Prepared for {data.clientName} by Enrollment Resources
       </footer>
+      <TocRail
+        toc={buildTocIndex(data)}
+        searchIndex={data.stage === 'building' ? buildSearchIndex(data) : []}
+        verbose={data.stage === 'building'}
+      />
     </div>
   )
 }

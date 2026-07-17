@@ -30,19 +30,26 @@ const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
 })
 
 const data = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
+  viewbookId: 1,
   clientName: 'Acme',
   displayName: 'Acme',
+  csmName: null,
   kind: 'upgrade',
   welcomeNote: null,
   dataLockedAt: null,
   theme: DEFAULT_THEME,
   stage: 'building',
   stageLabel: 'Now Building',
+  syncVersion: 0,
+  pcCompletedAt: null,
+  clientNotifyJson: [],
+  teamMembers: [],
   primarySections: [],
   carriedSections: [],
   fieldCategories: [],
   milestones: [],
   materials: [],
+  docs: { global: [], own: [] },
   global: { team: null, pcIntro: null, blocks: {} },
   overrides: {},
   ...over,
@@ -94,5 +101,46 @@ describe('ViewbookShell', () => {
       />,
     )
     expect(container.querySelector('details')).toBeNull()
+  })
+})
+
+// Task 11: ViewbookShell mounts TocRail (a 'use client' leaf) with
+// server-built indexes — the search index (and the rail's verbose mode) MUST
+// be gated to the `building` stage (a data-exposure requirement: Q&A values
+// never serialize into stages where that content isn't the searchable
+// focus).
+describe('ViewbookShell TOC rail wiring', () => {
+  it('building-stage data renders TOC entries and a verbose search box', () => {
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ stage: 'building', primarySections: [sec('welcome'), sec('data-source')] })}
+        primarySections={[sec('welcome'), sec('data-source')]}
+        carriedSections={[]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+    expect(container.querySelectorAll('[data-vb-toc-entry]').length).toBeGreaterThan(0)
+    expect(container.querySelector('input[type="search"]')).not.toBeNull()
+  })
+
+  it('a non-building stage renders the rail but NO search box (empty search index)', () => {
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ stage: 'kickoff', primarySections: [sec('welcome')] })}
+        primarySections={[sec('welcome')]}
+        carriedSections={[]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+    // The rail itself still mounts (TOC entries reflect the primary lineup
+    // regardless of stage) …
+    expect(container.querySelectorAll('[data-vb-toc-entry]').length).toBeGreaterThan(0)
+    // … but the search box is verbose-only, and verbose is `stage ===
+    // 'building'` — outside that stage there is no input[type=search] at all.
+    expect(container.querySelector('input[type="search"]')).toBeNull()
   })
 })
