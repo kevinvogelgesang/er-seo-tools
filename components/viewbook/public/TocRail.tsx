@@ -104,7 +104,7 @@ export function TocRail({
   // note in the file header). The mobile branch and open state settle in
   // effects / on interaction after mount.
   const [isMobile, setIsMobile] = useState(false)
-  const [open, setOpen] = useState(false) // desktop rail expanded (labels shown)
+  const [open, setOpen] = useState(true) // desktop rail expanded (labels shown) by default; the hamburger is the sole collapse toggle
   const [sheetOpen, setSheetOpen] = useState(false) // mobile bottom-sheet
   const [activeIndex, setActiveIndex] = useState(0)
   const [query, setQuery] = useState('')
@@ -160,7 +160,10 @@ export function TocRail({
 
   const activate = useCallback((item: { sectionKey: SectionKey; anchor: string }) => {
     navigateToAnchor(item.sectionKey, item.anchor)
-    setOpen(false)
+    // Desktop rail defaults open and stays open on navigation — only the
+    // hamburger trigger (or Escape / genuine focus-out) collapses it. The
+    // mobile bottom-sheet still closes after navigating, since it covers
+    // the viewport.
     setSheetOpen(false)
   }, [])
 
@@ -341,7 +344,7 @@ export function TocRail({
             onListKeyDown(e)
           }
         }}
-        className="fixed right-3 top-1/2 z-40 -translate-y-1/2"
+        className="fixed left-3 top-1/2 z-40 -translate-y-1/2"
       >
         <button
           type="button"

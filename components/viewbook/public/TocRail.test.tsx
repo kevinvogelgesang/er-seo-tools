@@ -178,4 +178,57 @@ describe('TocRail', () => {
       renderToStaticMarkup(<TocRail toc={toc} searchIndex={searchIndex} verbose />),
     ).not.toThrow()
   })
+
+  // Task 7: default-expanded, left-anchored, hamburger toggle.
+
+  it('desktop rail defaults to expanded (open) without any interaction', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    const trigger = container.querySelector('[data-vb-toc-trigger]') as HTMLElement
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('desktop rail is left-anchored, not right-anchored', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    expect(nav.className).toContain('left-3')
+    expect(nav.className).not.toContain('right-3')
+  })
+
+  it('the hamburger trigger toggles open (aria-expanded flips true -> false -> true)', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const trigger = container.querySelector('[data-vb-toc-trigger]') as HTMLElement
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    act(() => {
+      fireEvent.click(trigger)
+    })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(nav.getAttribute('data-vb-open')).toBe('false')
+    act(() => {
+      fireEvent.click(trigger)
+    })
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+  })
+
+  it('a done entry renders the filled glyph and an acked-not-done entry renders the hollow glyph', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const welcome = container.querySelector('[data-anchor="#welcome"]') as HTMLElement
+    const dataSource = container.querySelector('[data-anchor="#data-source"]') as HTMLElement
+    expect(welcome.querySelector('[data-vb-glyph="done"]')).not.toBeNull()
+    expect(dataSource.querySelector('[data-vb-glyph="acked"]')).not.toBeNull()
+  })
+
+  it('activating a TOC item does not collapse the desktop rail', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
+    const welcome = container.querySelector('[data-anchor="#welcome"]') as HTMLElement
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    act(() => {
+      fireEvent.click(welcome)
+    })
+    expect(nav.getAttribute('data-vb-open')).toBe('true')
+  })
 })
