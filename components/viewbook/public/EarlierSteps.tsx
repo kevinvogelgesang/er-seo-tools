@@ -20,11 +20,19 @@ export function EarlierSteps({
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-6">
-      <details className="relative rounded-xl border border-black/10 bg-white/60">
+      <details className="rounded-xl border border-black/10 bg-white/60">
         {/* Decorative-only stacked-dot column (Task 10) — a quiet visual
-            marker for the collapsed archive, never load-bearing. */}
-        <DotStack className="absolute -left-1 top-3 hidden sm:block" />
-        <summary className="cursor-pointer px-5 py-4 text-sm font-bold text-black/60">
+            marker for the collapsed archive, never load-bearing. Rendered
+            INSIDE <summary> (not a sibling <div> wrapper): the UA stylesheet
+            keys off the direct-child selector `details > summary:first-of-
+            type` to make summary the visible toggle label, and hides every
+            OTHER direct child (`details > *:not(summary) { display: none }`)
+            until [open] — a wrapper div containing both would itself become
+            that hidden non-summary child, taking the toggle label down with
+            it. Nesting the SVG inside <summary> keeps it visible whenever
+            the label is, in both collapsed and expanded states. */}
+        <summary className="relative cursor-pointer px-5 py-4 text-sm font-bold text-black/60">
+          <DotStack className="absolute -left-1 top-3 hidden sm:block" />
           Earlier steps
         </summary>
         <div className="space-y-4 px-5 pb-5">
