@@ -5,6 +5,7 @@
 // sits in the post-contract primary flow.
 import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { answeredProgress } from '@/lib/viewbook/summary-metrics'
+import { CATEGORY_LABELS } from '@/lib/viewbook/category-labels'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -12,17 +13,6 @@ import { FieldEditor } from './FieldEditor'
 import { AmendmentForm } from './AmendmentForm'
 import { AckButton } from './AckButton'
 import { SummaryStat } from './SummaryStat'
-
-const CATEGORY_LABELS: Record<string, string> = {
-  school: 'Your school',
-  programs: 'Programs',
-  'team-access': 'Team & access',
-  'crm-leads': 'CRM & leads',
-  admissions: 'Admissions',
-  positioning: 'Positioning',
-  'student-experience': 'Student experience',
-  'brand-materials': 'Brand & materials',
-}
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
