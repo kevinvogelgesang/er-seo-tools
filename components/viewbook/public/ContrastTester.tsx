@@ -88,8 +88,8 @@ function BandChips({ bands }: { bands: ContrastBands }) {
             data-pass={pass}
             className={
               pass
-                ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-500/20 dark:text-green-300'
-                : 'rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-500/20 dark:text-red-300'
+                ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800'
+                : 'rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800'
             }
           >
             {pass ? '✓' : '✗'} {BAND_LABELS[bandKey]}
@@ -106,18 +106,18 @@ function ContrastRow({ testId, label, fg, bg }: { testId: string; label: string;
   return (
     <div
       data-testid={testId}
-      className="flex flex-col gap-2 rounded-lg border border-black/10 bg-white p-3 dark:border-navy-border dark:bg-navy-card sm:flex-row sm:items-center sm:justify-between"
+      className="flex flex-col gap-2 rounded-lg border border-black/10 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
     >
       <div className="flex items-center gap-3">
         <div
-          className="flex h-10 w-16 flex-shrink-0 items-center justify-center rounded-md border border-black/10 text-xs font-semibold dark:border-white/10"
+          className="flex h-10 w-16 flex-shrink-0 items-center justify-center rounded-md border border-black/10 text-xs font-semibold"
           style={{ background: bg, color: fg }}
         >
           Aa
         </div>
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-white">{label}</div>
-          <div data-testid="contrast-ratio" className="text-xs text-gray-500 dark:text-white/60">
+          <div className="text-sm font-medium text-gray-900">{label}</div>
+          <div data-testid="contrast-ratio" className="text-xs text-gray-500">
             {ratio.toFixed(2)}:1
           </div>
         </div>
@@ -140,7 +140,7 @@ export function ContrastTester({ theme }: { theme: ViewbookTheme }) {
         <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
           Contrast checker
         </h3>
-        <p className="text-sm text-gray-600 dark:text-white/70">
+        <p className="text-sm text-gray-600">
           Contrast ratios for this theme&rsquo;s real color pairings, against WCAG AA/AAA.
         </p>
       </div>
@@ -151,37 +151,37 @@ export function ContrastTester({ theme }: { theme: ViewbookTheme }) {
         ))}
       </div>
 
-      <div className="rounded-xl border border-black/10 bg-white p-4 dark:border-navy-border dark:bg-navy-card">
-        <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Try any two colors</h4>
+      <div className="rounded-xl border border-black/10 bg-white p-4">
+        <h4 className="text-sm font-semibold text-gray-900">Try any two colors</h4>
         <div className="mt-3 flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-white/70">
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
             Text color
             <input
               type="color"
               data-testid="pairpicker-fg"
               value={fg}
               onChange={(e) => setFg(e.target.value)}
-              className="h-9 w-16 cursor-pointer rounded border border-black/10 dark:border-white/20"
+              className="h-9 w-16 cursor-pointer rounded border border-black/10"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-white/70">
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
             Background color
             <input
               type="color"
               data-testid="pairpicker-bg"
               value={bg}
               onChange={(e) => setBg(e.target.value)}
-              className="h-9 w-16 cursor-pointer rounded border border-black/10 dark:border-white/20"
+              className="h-9 w-16 cursor-pointer rounded border border-black/10"
             />
           </label>
           <div
-            className="flex h-14 w-24 flex-shrink-0 items-center justify-center rounded-md border border-black/10 text-sm font-semibold dark:border-white/10"
+            className="flex h-14 w-24 flex-shrink-0 items-center justify-center rounded-md border border-black/10 text-sm font-semibold"
             style={{ background: bg, color: fg }}
           >
             Sample
           </div>
           <div>
-            <div data-testid="pairpicker-ratio" className="text-sm font-medium text-gray-900 dark:text-white">
+            <div data-testid="pairpicker-ratio" className="text-sm font-medium text-gray-900">
               {pickerRatio.toFixed(2)}:1
             </div>
             <BandChips bands={pickerBands} />
