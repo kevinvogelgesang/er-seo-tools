@@ -1,11 +1,9 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-16 evening (**first sweep TEST RUN complete — 29/29,
-zero failures, 4h40m drain, 100% snapshot coverage, digest emailed. Both
-2026-07-16 incident defenses held end-to-end, including through an unplanned
-mid-sweep deploy. NEXT ITEM: sweep error triage (Kevin request), then the
-SF-parity campaign.**) · **Updated by:** the verifier-fix + C21-deploy +
-sweep-test session.
+**Last updated:** 2026-07-17 (**Sweep Error Triage spec + plan authored and
+Codex-reviewed twice, both accept-with-fixes; all fixes applied. PAUSED at
+Kevin's request before implementation. NEXT: implement the plan TDD.**) ·
+**Updated by:** the sweep-error-triage spec+plan session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -13,132 +11,144 @@ sweep-test session.
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. STATE (2026-07-16 evening):
-verifier memory/loop fix SHIPPED (PR #186), C21 weekly sweep DEPLOYED, and a
-manually-fired FULL TEST SWEEP ran same day: 29/29 audits complete in 4h40m,
-zero failures/placeholders/guard-trips, snapshot coverage 100%, digest
-emailed to support@ attempt-1, /issues live. Spec-§11 recorded. A parallel
-viewbook-lane deploy bounced the app mid-sweep and the durable queue resumed
-with zero losses. Full report: docs/superpowers/todos/2026-07-16-first-sweep-report.md
-(READ IT FIRST — it is the source for the next item). The real weekly
-cadence is untouched: next sweep fires automatically Mon 2026-07-20 01:00
-UTC, digest 14:00 UTC.
+Continue the er-seo-tools improvement roadmap. STATE (2026-07-17): the SWEEP
+ERROR TRIAGE spec + implementation plan are DONE and Codex-reviewed (both
+accept-with-fixes; all fixes applied). Your job THIS session: IMPLEMENT the
+plan, TDD, task by task. No new design — the design is settled.
 
-THE NEXT ITEM (Kevin request): SWEEP ERROR TRIAGE — ~116 page-level errors
-across 21 domains from the test run, four buckets in the report:
-  1. Client sitemap hygiene (~85 real 404s; healthcarecareercollege.edu 35,
-     cw.edu ~13, innovatesalonacademy.com 11, rest 1-4 each) — CLIENT work,
-     surfaced for the support workflow; decide whether page-level 404s
-     should surface as /issues groups (today they are audit errors, not
-     findings).
-  2. /cdn-cgi/l/email-protection pseudo-pages in the audited set (~8
-     domains) — TOOL fix: exclude /cdn-cgi/ paths at discovery/harvest
-     (one-line filter + test in the discovery/link-harvest layer).
-  3. Transient Chrome "Protocol error (Target.createTarget)" (6 pages) —
-     TOOL fix: one page-level retry before settling the child as error
-     (respect the architecture contract's domain-vs-infrastructure error
-     split and the deliberately-narrow retry layers).
-  4. HTTP 301 "puppeteer did not auto-follow" (~8 pages) — INVESTIGATE:
-     odd http/https flip-flop chains suggest a runner redirect-
-     normalization quirk; some are legit client redirect findings.
-  5. Sweep unit-map gap (found post-digest): 35 sweep_unmapped_issue_unit
-     logError events at snapshot compute — validation finding types
-     (redirect_chain x26, canonical_broken x7, canonical_redirect,
-     canonical_external_unverified) missing from snapshot.ts's unit map,
-     falling back to "groups" units. TOOL fix: add them to the unit map +
-     test.
-  PLUS the real-data finding: coverage reason label says "timed-out" for
-  ALL partial pairs (23/29 domains) when the true cause was pagesError>0 —
-  fix the reason vocabulary in lib/sweep/classify.ts+snapshot.ts (the C21
-  final-review "label-only" follow-up, now priority-bumped: the digest
-  tells support "timed out" 23 times falsely).
-  Buckets 2-4 + the label fix are one small feature-class pipeline
-  (brainstorm -> spec -> Codex -> plan -> Codex -> TDD; they are small —
-  consider one combined spec). Bucket 1 is a Kevin/support workflow
-  decision, not code.
+WHERE THE WORK IS: branch feat/sweep-error-triage already exists with the
+spec + plan committed, in the worktree
+.claude/worktrees/sweep-error-triage.
+  - Spec:  docs/superpowers/specs/2026-07-17-sweep-error-triage-design.md
+  - Plan:  docs/superpowers/plans/2026-07-17-sweep-error-triage.md  (12 TDD tasks)
+READ BOTH IN FULL FIRST. The plan has real code + exact file:line seams per task.
 
-AFTER THE TRIAGE: the SF-parity campaign resumes
-(er-seo-tools-sf-retirement-campaign skill) + the two campaign-gated [~]
-items (C6 hybrid-discovery Increment 2; C12 tier promotions).
+WHAT IT DOES (one cohesive feature-class change, buckets interdependent):
+  - Spine: lib/ada-audit/runner-errors.ts classifyRunnerError taxonomy.
+  - B2: exclude /cdn-cgi/ paths at discovery + harvest (crawl-exclude.ts).
+  - B3: one 750ms retry for transient Chrome acquire (Target.createTarget);
+    site-audit-page rethrows ONLY infrastructure-kind.
+  - B4: Location-bearing 3xx classified 'redirected' not error (reuse
+    normalizeForRedirect; no-progress loop stays an error).
+  - B1 (Kevin-approved scope growth): capture dead 404/410 audited URLs into a
+    NEW transient HarvestedPageError table (migration) at page-settle, live-scan
+    builder emits a 'dead_page' finding (dead-page-mapper.ts) + new
+    DeadPagesSection UI (results + share). CrawlPage.statusCode stays NULL for
+    dead rows (don't inflate observed coverage).
+  - B5: complete the sweep unit map via findingUnit() in finding-type-sets.ts
+    (all 11 validation types + dead_page); snapshot.ts delegates.
+  - Label fix: pagesError>0 becomes a conservative 'partial' cause in
+    classify.ts + honest 'pages-errored' reason in snapshot.ts reasonFor
+    (retires the false 'timed-out').
 
-MONDAY 2026-07-20: the automatic sweep needs NO babysitting (test proved
-it). Optional glance: digest email lands ~14:00 UTC; D5's first robots
-sweep fires 06:30 UTC same morning (in-app "changed" badge; notify dark
-for robots alerts).
+IMPLEMENTATION ORDER (Codex ruling — DO NOT reorder): Task 1 (B2) -> 2 (spine)
+-> 3 (B3) -> 4 (B4) -> 5 (provider scope) -> 6-10 (B1: schema, capture, mapper,
+builder, UI) -> 11 (B5) -> 12 (label). B1 capture must land AFTER B2/B3/B4 so it
+never records noise as a dead_page.
 
-VERIFIER-FIX FACTS (shipped 2026-07-16, PR #186):
-- Exhausted verifiers write a terminal placeholder run
-  (lib/findings/exhausted-placeholder.ts); recovery never re-enqueues one;
-  read surfaces gate on isPlaceholderRun -> "SEO analysis unavailable";
-  a later successful build self-heal-replaces the placeholder.
-- VERIFIER_TOPIC_OVERLAP_ENABLED DEFAULT OFF (Codex ONNX ruling) —
-  topic-overlap cards read "not analyzed" until the ONNX follow-up lands
-  (child-process embed worker / dispose fencing / chunk benchmark) and
-  Kevin flips the env. Test run confirmed: null on all 29 runs.
-- Env vars all optional-with-defaults: VERIFIER_RSS_GUARD_MB (1600),
-  CONTENT_TEXT_TOTAL_BYTE_BUDGET (24MB), VERIFIER_TOPIC_OVERLAP_ENABLED.
-- broken-link-verify.characterization.test.ts is a FROZEN byte-identical
-  gate on the builder happy path — re-pin deliberately on any behavior
-  change. Dev profiler: scripts/profile-verifier-memory.ts.
+CRITICAL CODEX-CAUGHT POINTS baked into the plan (don't undo them):
+  - Task 3: transfer page ownership BEFORE re-acquire (page=null) so a failed
+    re-acquire can't double-release + corrupt browser-pool slots. Test with fake
+    timers, not a real 750ms wait.
+  - Task 7: captureDeadPage runs AFTER the winning settlePage but BEFORE
+    finalizeWarn (finalize can enqueue the verifier and race the error row).
+  - Task 9: the FROZEN broken-link-verify.characterization.test.ts stays
+    byte-identical (empty HarvestedPageError). Add a SEPARATE dead-page test;
+    NEVER re-pin the frozen fixture.
+  - Task 5: B1/B4 status observation only works in runner-owned-nav modes
+    (prod = LIGHTHOUSE_PROVIDER=pagespeed). local mode delegates nav to
+    Lighthouse -> documented dev-only limitation, NOT a bug. (Kevin: confirm or
+    ask for local-mode parity.)
+  - Task 6: pruneHarvestedPageErrors must be wired into runCleanup in
+    lib/cleanup.ts (Promise<void> shape), and HarvestedPageError added to the
+    recovery OR-set with the crawlRuns:{none:{tool:'seo-parser'}} fence.
+  - Task 12: pagesError is a REQUIRED field -> update EVERY PairObservation /
+    AuditLoad fixture in lib/sweep/*.test.ts with pagesError:0 or tsc fails.
 
-KEVIN QUESTIONS OUTSTANDING: (a) proway.erstaging.site (staging) is in the
-weekly sweep cohort as client 31 — intentional? (b) sales MethodExplainer
-renders beside the SEO-unavailable note (copy call). (c) D3 optional
-page-count glance on the next real site audit. (d) the ~7 incident audits'
-empty live-scan results were REPAIRED by the test sweep (fresh runs for
-all cohort domains).
+FIRST STEPS:
+  1. Pre-flight (er-seo-tools-multi-agent-coordination): git worktree list;
+     the client-viewbook lanes move fast — pull main. The sweep branch may need
+     a rebase onto main if main advanced (viewbook edits different files, so
+     expect a clean rebase). cd into .claude/worktrees/sweep-error-triage (it
+     already exists) — do NOT git worktree add a second one.
+  2. Confirm main clean + prod healthy (source .claude/ops-secrets.local.sh;
+     queue empty; pm2 restarts ~0).
+  3. Load er-seo-tools-change-control + superpowers:executing-plans (or
+     subagent-driven-development). Read spec + plan. Implement TDD in order.
+  4. Gate-green EVERY merge: npx tsc --noEmit + DATABASE_URL="file:./local-dev.db"
+     npm test + npm run build. npm run smoke IS MANDATORY (ADA pipeline touched:
+     runner + site-audit-page) — export CHROME_EXECUTABLE=
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" on macOS.
+  5. PR -> merge (gate-green, autonomous) -> deploy (ssh $PROD_SSH "~/deploy.sh";
+     the HarvestedPageError migration applies automatically) -> prod-verify
+     (plan's post-deploy checklist: scan a client with known sitemap 404s, e.g.
+     healthcarecareercollege.edu had 35; confirm no /cdn-cgi/ in the set, a
+     dead_page finding + DeadPagesSection, null CrawlPage.statusCode, and on the
+     next sweep / manual recompute the 'pages-errored' reason with no
+     sweep_unmapped_issue_unit for validation types).
+  6. On ship: tracker checkbox + status-log line + rewrite THIS handoff, same
+     commit; move spec + plan to docs/superpowers/archive/. End the reply with
+     the next paste-in prompt.
 
-PARALLEL-LANE AWARENESS: the client-viewbook lane (Codex) merged PRs
-#187-#194 and deployed mid-sweep on 2026-07-16. Run the
-er-seo-tools-multi-agent-coordination pre-flight before feature work; pull
-main first — it moves fast.
+AFTER THE TRIAGE SHIPS: the SF-parity campaign resumes
+(er-seo-tools-sf-retirement-campaign skill) + the two campaign-gated [~] items
+(C6 hybrid-discovery Increment 2; C12 tier promotions).
+
+KEVIN QUESTIONS STILL OUTSTANDING (from the first-sweep report, not blocking the
+triage): (a) proway.erstaging.site (staging) in the weekly sweep cohort as
+client 31 — intentional? (b) sales MethodExplainer beside the SEO-unavailable
+note (copy call). (c) D3 optional page-count glance on the next real audit.
+
+THE REAL WEEKLY SWEEP is untouched by all of this: it fires automatically Mon
+2026-07-20 01:00 UTC, digest 14:00 UTC. Needs no babysitting (the 2026-07-16
+test run proved it end-to-end). Optional glance at the digest email ~14:00 UTC;
+D5's first robots sweep fires 06:30 UTC same morning (in-app "changed" badge;
+notify dark for robots alerts). NOTE: the triage will likely NOT be deployed
+before Mon 2026-07-20 — that's fine; the first real sweep runs on current prod
+and the triage improves subsequent weeks.
+
+VERIFIER-FIX FACTS (shipped 2026-07-16, PR #186): exhausted verifiers write a
+terminal placeholder run (lib/findings/exhausted-placeholder.ts); recovery never
+re-enqueues one; VERIFIER_TOPIC_OVERLAP_ENABLED DEFAULT OFF (Codex ONNX ruling);
+broken-link-verify.characterization.test.ts is FROZEN byte-identical.
 
 PROD ACCESS: source .claude/ops-secrets.local.sh (gitignored). Live paths
-/home/seo/... NO sqlite3 CLI on the server — prod DB probes via node + the
-app's PrismaClient from $APP_HOME. Gate policy: read-only inspection +
-gate-green deploy + pm2 restart autonomous; destructive ops Kevin-gated
-per conversation.
+/home/seo/... NO sqlite3 CLI on the server — prod DB probes via node + the app's
+PrismaClient from $APP_HOME. Gate policy: read-only inspection + gate-green
+deploy + pm2 restart autonomous; destructive ops Kevin-gated per conversation.
 
 CODEX MODEL: budget-gated — gpt-5.6-sol when 5h window >25% remaining, else
-gpt-5.6-terra; both high effort. Encoded in the consulting-codex skill.
+gpt-5.6-terra; both high effort. NOTE 2026-07-17: the 5h window was ~93% used at
+the end of this session — the next session may find it reset (check the budget
+guard). Codex session for this repo: 019f2b57 (turns 105).
 
-GOTCHAS FOR THE NEXT SESSION:
-- Local gates are the ONLY type-check gate: npx tsc --noEmit + npm test +
-  npm run build before EVERY merge. npm run smoke mandatory if the PR
-  touches auth/SF-upload/ADA-pipeline (export CHROME_EXECUTABLE=
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" on macOS).
-- Schema changes are hand-authored migration SQL; array-form $transaction
-  ONLY; DateTime columns are INTEGER ms in raw SQL.
-- New cookie-gated client routes need NO middleware change; anything public
-  needs anchored matchers + middleware.test.ts cases.
-- Never weaken safeFetch/SSRF guards. Only scan client sites already in
-  the system. lib/seo-fetch is FROZEN — consume, never modify.
-- Tests self-provision per-worker SQLite DBs, run PARALLEL; save/restore
-  env vars a suite sets. WeeklySweep suites use far-future scheduledFor
-  anchors (+10y/+60y/+70y taken).
-- Never git add -A/-u at repo root. No backticks in Bash -m commit
-  messages. No raw NUL bytes in source.
+GOTCHAS:
+- Local gates are the ONLY type-check gate. Schema changes are hand-authored
+  migration SQL; array-form $transaction ONLY; DateTime columns are INTEGER ms
+  in raw SQL.
+- New cookie-gated routes need NO middleware change; public needs anchored
+  matchers + middleware.test.ts (the triage adds NO new routes).
+- Never weaken safeFetch/SSRF guards. lib/seo-fetch is FROZEN — consume only.
+- Tests self-provision per-worker SQLite DBs, run PARALLEL; save/restore any env
+  a suite sets.
+- Never git add -A/-u at repo root. No backticks in Bash -m commit messages.
 - UI: dark: variants on every element + the mounted-guard hydration pattern.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/cat_/qct_
 clipboard flow.
-
-FIRST STEP — confirm main clean + prod healthy (source the ops secrets
-file; queue should be empty; note the pm2 restart counter baseline is ~0
-since the 2026-07-16 parallel-lane redeploy, NOT 180). Read
-docs/superpowers/todos/2026-07-16-first-sweep-report.md, then load
-er-seo-tools-change-control and start the sweep error triage brainstorm.
 ```
 
 ---
 
 ## Current state (one paragraph)
 
-Roadmap spine complete: A1-A8, B-series, C-series through **C21 (weekly
-client sweep — DEPLOYED and TEST-PROVEN 2026-07-16: 29/29, 4h40m, 100%
-coverage, digest emailed)**, D0-D5, D7 all [x]; D6 FROZEN [x]. The
-2026-07-16 verifier crash-loop class is closed by PR #186 and held under
-the exact incident load shape same day. Next: the sweep error triage
-(4 buckets + the "timed-out" label fix — Kevin request from the test run),
-then the two campaign-gated [~] items (C6 hybrid-discovery Increment 2,
-C12 tier promotions) via the SF-retirement parity campaign.
+Roadmap spine complete: A1-A8, B-series, C-series through **C21 (weekly client
+sweep — DEPLOYED + TEST-PROVEN 2026-07-16)**, D0-D7 all [x]; D6 FROZEN [x]. The
+**Sweep Error Triage** (Kevin's follow-up from the first-sweep report) has a
+committed, twice-Codex-reviewed spec + 12-task TDD plan on branch
+`feat/sweep-error-triage`; scope grew to include Bucket 1 (surface dead 404/410
+URLs as `dead_page` findings) + honest coverage-reason labels. **This session
+stopped at Kevin's request before implementation** — the next session implements
+the plan TDD, ships, and archives the docs. After the triage: the two
+campaign-gated [~] items (C6 hybrid-discovery Increment 2; C12 tier promotions)
+via the SF-retirement parity campaign.
