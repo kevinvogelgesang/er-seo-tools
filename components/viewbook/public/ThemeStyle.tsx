@@ -4,21 +4,22 @@
 // by parseStoredTheme; they are applied as React inline-style CSS custom
 // properties on the shell wrapper (no <style> injection surface at all).
 import type { CSSProperties } from 'react'
-import { DEFAULT_THEME, FONT_CATALOG, onThemeColorText, type ViewbookTheme } from '@/lib/viewbook/theme'
+import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
+import { DEFAULT_THEME, onThemeColorText, type ViewbookTheme } from '@/lib/viewbook/theme'
 
-const FALLBACK = FONT_CATALOG[DEFAULT_THEME.headingFont]
+const FALLBACK = FONT_MANIFEST[DEFAULT_THEME.headingFont as keyof typeof FONT_MANIFEST]
 
 export function fontsHref(theme: ViewbookTheme): string {
   const queries = [
     ...new Set(
-      [theme.headingFont, theme.bodyFont].map((k) => (FONT_CATALOG[k] ?? FALLBACK).gfQuery),
+      [theme.headingFont, theme.bodyFont].map((k) => (FONT_MANIFEST[k as keyof typeof FONT_MANIFEST] ?? FALLBACK).gfQuery),
     ),
   ]
   return `https://fonts.googleapis.com/css2?${queries.join('&')}&display=swap`
 }
 
 export function fontFamily(key: string): string {
-  return `'${(FONT_CATALOG[key] ?? FALLBACK).family}', sans-serif`
+  return `'${(FONT_MANIFEST[key as keyof typeof FONT_MANIFEST] ?? FALLBACK).family}', sans-serif`
 }
 
 // `--vb-*` is the CANONICAL variable namespace (Codex plan-fix 4): PR4's
@@ -46,7 +47,7 @@ export function ThemeStyle({ theme }: { theme: ViewbookTheme }) {
     <>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      <link rel="stylesheet" href={fontsHref(theme)} />
+      <link data-vb-theme-font rel="stylesheet" href={fontsHref(theme)} />
     </>
   )
 }

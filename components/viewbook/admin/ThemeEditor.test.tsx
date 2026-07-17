@@ -33,6 +33,17 @@ function lastCallFor(id: string): boolean | undefined {
 }
 
 describe('ThemeEditor', () => {
+  it('offers searchable manifest-backed font choices in the admin editor', () => {
+    render(<ThemeEditor viewbookId={1} theme={DEFAULT_THEME} onSaved={vi.fn()} />)
+    const bodySelect = screen.getByLabelText('Body font') as HTMLSelectElement
+    expect(bodySelect.querySelector('option[value="roboto"]')).not.toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Search body fonts'), { target: { value: 'garamond' } })
+
+    expect(bodySelect.querySelector('option[value="eb-garamond"]')?.textContent).toBe('EB Garamond')
+    expect(bodySelect.querySelector('option[value="roboto"]')).toBeNull()
+  })
+
   it('adopts a newer theme prop from a background reload while idle (does not stay dirty forever)', () => {
     const { rerender } = render(<ThemeEditor viewbookId={1} theme={DEFAULT_THEME} onSaved={vi.fn()} />)
     expect(lastCallFor('admin-theme')).toBe(false) // idle at mount

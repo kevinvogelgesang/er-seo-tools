@@ -4,6 +4,9 @@
 // parseStoredTheme degrades to DEFAULT_THEME, never throws.
 
 import { relativeLuminance } from './contrast'
+import { FONT_MANIFEST, isAllowedFont } from './font-manifest'
+
+export { FONT_MANIFEST as FONT_CATALOG }
 
 export const SECTION_KEYS = [
   'welcome',
@@ -35,23 +38,6 @@ export interface ViewbookTheme {
 
 export const ASSET_FILENAME_RE = /^[a-z0-9-]+\.(png|jpe?g|webp)$/
 
-// Curated Google Fonts. gfQuery values are code-owned constants — client input
-// never reaches the fonts URL (only catalog KEYS are stored on themes).
-export const FONT_CATALOG: Record<string, { family: string; gfQuery: string }> = {
-  inter: { family: 'Inter', gfQuery: 'family=Inter:wght@400;600;800' },
-  lora: { family: 'Lora', gfQuery: 'family=Lora:wght@400;600;700' },
-  'playfair-display': { family: 'Playfair Display', gfQuery: 'family=Playfair+Display:wght@400;700;900' },
-  montserrat: { family: 'Montserrat', gfQuery: 'family=Montserrat:wght@400;600;800' },
-  oswald: { family: 'Oswald', gfQuery: 'family=Oswald:wght@400;600;700' },
-  merriweather: { family: 'Merriweather', gfQuery: 'family=Merriweather:wght@400;700;900' },
-  'source-sans-3': { family: 'Source Sans 3', gfQuery: 'family=Source+Sans+3:wght@400;600;700' },
-  'work-sans': { family: 'Work Sans', gfQuery: 'family=Work+Sans:wght@400;600;800' },
-  'libre-baskerville': { family: 'Libre Baskerville', gfQuery: 'family=Libre+Baskerville:wght@400;700' },
-  poppins: { family: 'Poppins', gfQuery: 'family=Poppins:wght@400;600;800' },
-  archivo: { family: 'Archivo', gfQuery: 'family=Archivo:wght@400;600;800' },
-  'dm-serif-display': { family: 'DM Serif Display', gfQuery: 'family=DM+Serif+Display:wght@400' },
-}
-
 export const DEFAULT_THEME: ViewbookTheme = {
   primary: '#122033',
   secondary: '#1D7F7F',
@@ -72,10 +58,6 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return proto === Object.prototype || proto === null
 }
 
-function isCatalogFont(key: unknown): key is string {
-  return typeof key === 'string' && Object.prototype.hasOwnProperty.call(FONT_CATALOG, key)
-}
-
 export function themeByteLength(theme: ViewbookTheme): number {
   return new TextEncoder().encode(JSON.stringify(theme)).length
 }
@@ -90,7 +72,7 @@ export function validateViewbookTheme(raw: unknown): ViewbookTheme | null {
   for (const color of [primary, secondary, tertiary]) {
     if (typeof color !== 'string' || !HEX_RE.test(color)) return null
   }
-  if (!isCatalogFont(headingFont) || !isCatalogFont(bodyFont)) return null
+  if (!isAllowedFont(headingFont) || !isAllowedFont(bodyFont)) return null
   if (logo !== null && (typeof logo !== 'string' || !ASSET_FILENAME_RE.test(logo))) return null
   if (!isPlainObject(sectionHeroes)) return null
   const heroes: Partial<Record<SectionKey, string>> = {}

@@ -27,22 +27,16 @@ export function contrastRatio(hexA: string, hexB: string): number {
 export const CONTRAST_BANDS = {
   aaNormal: 4.5,
   aaLarge: 3.0,
-  aaaNormal: 7.0,
-  aaaLarge: 4.5,
 } as const
 
 export type ContrastBands = {
   aaNormal: boolean
   aaLarge: boolean
-  aaaNormal: boolean
-  aaaLarge: boolean
 }
 
 export function contrastBands(ratio: number): ContrastBands {
   return {
     aaNormal: ratio >= CONTRAST_BANDS.aaNormal,
     aaLarge: ratio >= CONTRAST_BANDS.aaLarge,
-    aaaNormal: ratio >= CONTRAST_BANDS.aaaNormal,
-    aaaLarge: ratio >= CONTRAST_BANDS.aaaLarge,
   }
 }

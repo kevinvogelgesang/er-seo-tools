@@ -17,6 +17,16 @@ describe('fontsHref', () => {
     expect(href).toContain('family=Oswald')
     expect(href).toContain('family=Lora')
   })
+  it('uses only manifest metadata, including each family\'s supported weights', () => {
+    const href = fontsHref({
+      ...DEFAULT_THEME,
+      headingFont: 'roboto',
+      bodyFont: 'dm-serif-display',
+    })
+    expect(href).toContain('family=Roboto:wght@100;300;400;500;700;900')
+    expect(href).toContain('family=DM+Serif+Display:wght@400')
+    expect(href).not.toContain(encodeURIComponent('roboto'))
+  })
   it('falls back to the default catalog entry for an unknown key (defensive)', () => {
     const href = fontsHref({ ...DEFAULT_THEME, headingFont: 'nope', bodyFont: 'nope' })
     expect(href).toContain('family=Inter')
@@ -38,8 +48,9 @@ describe('themeCssVars', () => {
 })
 
 describe('ThemeStyle', () => {
-  it('renders exactly one stylesheet link', () => {
+  it('renders exactly one marked stylesheet link for live replacement', () => {
     const { container } = render(<ThemeStyle theme={DEFAULT_THEME} />)
     expect(container.querySelectorAll('link[rel="stylesheet"]')).toHaveLength(1)
+    expect(container.querySelector('link[data-vb-theme-font]')).not.toBeNull()
   })
 })

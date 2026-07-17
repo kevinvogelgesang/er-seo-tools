@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { CATALOG_CATEGORIES } from '@/lib/viewbook/catalog'
 import type {
   OperatorFieldData,
@@ -9,21 +9,26 @@ import type {
   OperatorViewbookData,
 } from '@/lib/viewbook/operator-data'
 import type { PublicDocRow } from '@/lib/viewbook/public-types'
-import { FONT_CATALOG, SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
+import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
+import { SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import {
   requestRefresh,
+  useAutosave,
   useBaselineSync,
   useEditorActivity,
   useFocusWithin,
 } from '../useViewbookSync'
 import { OperatorRequestError, operatorRequest } from './operator-api'
+import { ThemeDraftWriter } from './ThemeDraftWriter'
+import { commitThemeDraft, getCommittedTheme, initializeThemeDraft, setThemeDraft } from './theme-store'
 
 const inputClass = 'w-full rounded border border-black/15 bg-white px-3 py-2 text-sm text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600'
 const saveClass = 'rounded bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2'
+const sameTheme = (a: ViewbookTheme, b: ViewbookTheme) => JSON.stringify(a) === JSON.stringify(b)
 
 function EditorPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <details data-operator-inline-editor className="border-b border-teal-900/10 bg-white px-4 py-2 text-black">
+    <details open data-operator-inline-editor className="border-b border-teal-900/10 bg-white px-4 py-2 text-black">
       <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-teal-900">Edit {title}</summary>
       <div className="mt-3 space-y-3 pb-2">{children}</div>
     </details>
@@ -31,80 +36,73 @@ function EditorPanel({ title, children }: { title: string; children: React.React
 }
 
 export function WelcomeNoteInlineEditor({ viewbookId, welcomeNote }: { viewbookId: number; welcomeNote: string | null }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const focus = useFocusWithin()
-  const { draft, setDraft, dirty, commit } = useBaselineSync(welcomeNote ?? '', focus.focused || busy)
-  useEditorActivity('operator-welcome-note', dirty || busy || focus.focused)
-
-  async function save() {
-    setBusy(true)
-    setError(null)
-    try {
+  const { draft, setDraft, dirty, commit } = useBaselineSync(welcomeNote ?? '', focus.focused)
+  const autosave = useAutosave({
+    editorId: 'operator-welcome-note',
+    draft,
+    dirty,
+    active: focus.focused,
+    save: async (value) => {
       await operatorRequest(`/api/viewbooks/${viewbookId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ welcomeNote: draft || null }),
+        body: JSON.stringify({ welcomeNote: value || null }),
       })
-      commit(draft)
-      requestRefresh()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'save_failed')
-    } finally {
-      setBusy(false)
-    }
-  }
+      return value
+    },
+    commit,
+  })
 
   return (
     <EditorPanel title="welcome note">
-      <div onFocus={focus.onFocus} onBlur={focus.onBlur}>
+      <div onFocus={focus.onFocus} onBlur={(event) => { focus.onBlur(event); autosave.flushOnBlur(event) }}>
         <label className="block text-xs font-medium text-black/65">
           Welcome note
           <textarea aria-label="Welcome note" rows={3} value={draft} onChange={(event) => setDraft(event.target.value)} className={`mt-1 ${inputClass}`} />
         </label>
-        <button type="button" disabled={busy || !dirty} onClick={() => void save()} className={`mt-2 ${saveClass}`}>Save welcome note</button>
-        {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
+        {autosave.saving && <p aria-live="polite" className="mt-2 text-xs text-black/50">Saving…</p>}
+        {autosave.error && <p role="alert" className="mt-2 text-xs text-red-700">{autosave.error}</p>}
       </div>
     </EditorPanel>
   )
 }
 
 export function SectionTextInlineEditor({ viewbookId, section }: { viewbookId: number; section: OperatorSectionData }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const focus = useFocusWithin()
-  const intro = useBaselineSync(section.introNote ?? '', focus.focused || busy)
-  const narrative = useBaselineSync(section.narrative ?? '', focus.focused || busy)
+  const intro = useBaselineSync(section.introNote ?? '', focus.focused)
+  const narrative = useBaselineSync(section.narrative ?? '', focus.focused)
   const showNarrative = section.sectionKey === 'brand' || section.sectionKey === 'assessment'
   const dirty = intro.dirty || (showNarrative && narrative.dirty)
-  useEditorActivity(`operator-section-text-${section.sectionKey}`, dirty || busy || focus.focused)
-
-  async function save() {
-    setBusy(true)
-    setError(null)
-    const payload = {
-      introNote: intro.draft || null,
-      ...(showNarrative ? { narrative: narrative.draft || null } : {}),
-    }
-    try {
+  const combinedDraft = useMemo(() => ({
+    introNote: intro.draft,
+    ...(showNarrative ? { narrative: narrative.draft } : {}),
+  }), [intro.draft, narrative.draft, showNarrative])
+  const autosave = useAutosave({
+    editorId: `operator-section-text-${section.sectionKey}`,
+    draft: combinedDraft,
+    dirty,
+    active: focus.focused,
+    save: async (value) => {
       await operatorRequest(`/api/viewbooks/${viewbookId}/sections/${section.sectionKey}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          introNote: value.introNote || null,
+          ...(showNarrative ? { narrative: value.narrative || null } : {}),
+        }),
       })
-      intro.commit(intro.draft)
-      if (showNarrative) narrative.commit(narrative.draft)
-      requestRefresh()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'save_failed')
-    } finally {
-      setBusy(false)
-    }
-  }
+      return value
+    },
+    commit: (value) => {
+      intro.commit(value.introNote)
+      if (showNarrative) narrative.commit(value.narrative ?? '')
+    },
+  })
 
   return (
     <EditorPanel title={`${section.sectionKey} copy`}>
-      <div className="space-y-2" onFocus={focus.onFocus} onBlur={focus.onBlur}>
+      <div className="space-y-2" onFocus={focus.onFocus} onBlur={(event) => { focus.onBlur(event); autosave.flushOnBlur(event) }}>
         <label className="block text-xs font-medium text-black/65">
           Intro note
           <textarea aria-label={`Intro for ${section.sectionKey}`} rows={2} value={intro.draft} onChange={(event) => intro.setDraft(event.target.value)} className={`mt-1 ${inputClass}`} />
@@ -115,8 +113,8 @@ export function SectionTextInlineEditor({ viewbookId, section }: { viewbookId: n
             <textarea aria-label={`Narrative for ${section.sectionKey}`} rows={4} value={narrative.draft} onChange={(event) => narrative.setDraft(event.target.value)} className={`mt-1 ${inputClass}`} />
           </label>
         )}
-        <button type="button" disabled={busy || !dirty} onClick={() => void save()} className={saveClass}>Save {section.sectionKey} copy</button>
-        {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+        {autosave.saving && <p aria-live="polite" className="text-xs text-black/50">Saving…</p>}
+        {autosave.error && <p role="alert" className="text-xs text-red-700">{autosave.error}</p>}
       </div>
     </EditorPanel>
   )
@@ -139,32 +137,27 @@ function MilestoneRow({ viewbookId, milestone }: { viewbookId: number; milestone
     status: milestone.status,
     targetDate: milestone.targetDate?.slice(0, 10) ?? '',
   }
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const focus = useFocusWithin()
-  const { draft, setDraft, dirty, commit } = useBaselineSync(server, focus.focused || busy, (a, b) => JSON.stringify(a) === JSON.stringify(b))
-  useEditorActivity(`operator-milestone-${milestone.id}`, dirty || busy || focus.focused)
-
-  async function save() {
-    setBusy(true)
-    setError(null)
-    try {
+  const { draft, setDraft, dirty, commit } = useBaselineSync(server, focus.focused, (a, b) => JSON.stringify(a) === JSON.stringify(b))
+  const autosave = useAutosave({
+    editorId: `operator-milestone-${milestone.id}`,
+    draft,
+    dirty,
+    active: focus.focused,
+    enabled: draft.title.trim().length > 0,
+    save: async (value) => {
       await operatorRequest(`/api/viewbooks/${viewbookId}/milestones/${milestone.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: draft.title, status: draft.status, targetDate: draft.targetDate || null }),
+        body: JSON.stringify({ title: value.title, status: value.status, targetDate: value.targetDate || null }),
       })
-      commit(draft)
-      requestRefresh()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'save_failed')
-    } finally {
-      setBusy(false)
-    }
-  }
+      return value
+    },
+    commit,
+  })
 
   return (
-    <div className="grid gap-2 rounded border border-black/10 bg-black/[0.02] p-3 sm:grid-cols-[1fr_auto_auto_auto]" onFocus={focus.onFocus} onBlur={focus.onBlur}>
+    <div className="grid gap-2 rounded border border-black/10 bg-black/[0.02] p-3 sm:grid-cols-[1fr_auto_auto]" onFocus={focus.onFocus} onBlur={(event) => { focus.onBlur(event); autosave.flushOnBlur(event) }}>
       <input aria-label="Milestone title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className={inputClass} />
       <select aria-label="Milestone status" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })} className={inputClass}>
         <option value="upcoming">upcoming</option>
@@ -172,42 +165,93 @@ function MilestoneRow({ viewbookId, milestone }: { viewbookId: number; milestone
         <option value="done">done</option>
       </select>
       <input aria-label="Milestone target date" type="date" value={draft.targetDate} onChange={(event) => setDraft({ ...draft, targetDate: event.target.value })} className={inputClass} />
-      <button type="button" disabled={busy || !dirty || !draft.title.trim()} onClick={() => void save()} className={saveClass}>Save milestone</button>
-      {error && <p role="alert" className="text-xs text-red-700 sm:col-span-4">{error}</p>}
+      {autosave.saving && <p aria-live="polite" className="text-xs text-black/50 sm:col-span-3">Saving…</p>}
+      {autosave.error && <p role="alert" className="text-xs text-red-700 sm:col-span-3">{autosave.error}</p>}
     </div>
   )
 }
 
 const COLOR_FIELDS = ['primary', 'secondary', 'tertiary'] as const
 
+function OperatorFontPicker({
+  kind,
+  value,
+  onChange,
+}: {
+  kind: 'Heading' | 'Body'
+  value: string
+  onChange: (key: string) => void
+}) {
+  const [search, setSearch] = useState('')
+  const query = search.trim().toLocaleLowerCase()
+  const options = Object.entries(FONT_MANIFEST).filter(([key, font]) => (
+    key === value || !query || `${font.family} ${key}`.toLocaleLowerCase().includes(query)
+  ))
+
+  return (
+    <div className="min-w-56 space-y-1">
+      <label className="block text-xs font-medium text-black/65">
+        Search {kind.toLocaleLowerCase()} fonts
+        <input
+          aria-label={`Search ${kind.toLocaleLowerCase()} fonts`}
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className={`mt-1 ${inputClass}`}
+        />
+      </label>
+      <label className="block text-xs font-medium text-black/65">
+        {kind} font
+        <select
+          aria-label={`${kind} font`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={`mt-1 ${inputClass}`}
+        >
+          {options.map(([key, font]) => <option key={key} value={key}>{font.family}</option>)}
+        </select>
+      </label>
+    </div>
+  )
+}
+
 export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; theme: ViewbookTheme }) {
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const focus = useFocusWithin()
-  const { draft, setDraft, dirty, commit } = useBaselineSync(theme, focus.focused || busy, (a, b) => JSON.stringify(a) === JSON.stringify(b))
-  useEditorActivity('operator-theme', dirty || busy || focus.focused)
-
-  async function save() {
-    setBusy(true)
-    setError(null)
-    try {
+  const serverSeed = useRef<{ viewbookId: number; propTheme: ViewbookTheme; theme: ViewbookTheme } | null>(null)
+  if (!serverSeed.current || serverSeed.current.viewbookId !== viewbookId) {
+    serverSeed.current = { viewbookId, propTheme: theme, theme: getCommittedTheme(viewbookId) ?? theme }
+  } else if (!sameTheme(serverSeed.current.propTheme, theme)) {
+    serverSeed.current = { viewbookId, propTheme: theme, theme }
+  }
+  const { draft, setDraft, dirty, commit } = useBaselineSync(serverSeed.current.theme, focus.focused || busy, sameTheme)
+  const autosave = useAutosave({
+    editorId: 'operator-theme',
+    draft,
+    dirty,
+    active: busy || focus.focused,
+    save: async (value) => {
       const body = await operatorRequest<{ theme?: ViewbookTheme }>(`/api/viewbooks/${viewbookId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme: draft }),
+        body: JSON.stringify({ theme: value }),
       })
-      commit(body.theme ?? draft)
-      requestRefresh()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'save_failed')
-    } finally {
-      setBusy(false)
-    }
-  }
+      return body.theme ?? value
+    },
+    commit: (saved) => {
+      commit(saved)
+      commitThemeDraft(viewbookId, saved)
+    },
+  })
+  useEffect(() => {
+    initializeThemeDraft(viewbookId, theme)
+    setThemeDraft(viewbookId, draft)
+  }, [draft, theme, viewbookId])
 
   async function upload(kind: 'logo' | 'hero', sectionKey: string | null, file: File) {
     setBusy(true)
-    setError(null)
+    setUploadError(null)
     const form = new FormData()
     form.set('kind', kind)
     if (sectionKey) form.set('sectionKey', sectionKey)
@@ -215,9 +259,10 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
     try {
       const body = await operatorRequest<{ theme: ViewbookTheme }>(`/api/viewbooks/${viewbookId}/assets`, { method: 'POST', body: form })
       commit(body.theme)
+      commitThemeDraft(viewbookId, body.theme)
       requestRefresh()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'upload_failed')
+      setUploadError(caught instanceof Error ? caught.message : 'upload_failed')
     } finally {
       setBusy(false)
     }
@@ -225,7 +270,8 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
 
   return (
     <EditorPanel title="theme">
-      <div className="space-y-3" onFocus={focus.onFocus} onBlur={focus.onBlur}>
+      <ThemeDraftWriter viewbookId={viewbookId} theme={theme} />
+      <div className="space-y-3" onFocus={focus.onFocus} onBlur={(event) => { focus.onBlur(event); autosave.flushOnBlur(event) }}>
         <div className="flex flex-wrap gap-4">
           {COLOR_FIELDS.map((field) => (
             <label key={field} className="flex items-center gap-2 text-sm text-black/70">
@@ -236,14 +282,8 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
           ))}
         </div>
         <div className="flex flex-wrap gap-4">
-          {(['headingFont', 'bodyFont'] as const).map((field) => (
-            <label key={field} className="text-xs font-medium text-black/65">
-              {field === 'headingFont' ? 'Heading font' : 'Body font'}
-              <select value={draft[field]} onChange={(event) => setDraft({ ...draft, [field]: event.target.value })} className={`ml-2 ${inputClass}`}>
-                {Object.entries(FONT_CATALOG).map(([key, value]) => <option key={key} value={key}>{value.family}</option>)}
-              </select>
-            </label>
-          ))}
+          <OperatorFontPicker kind="Heading" value={draft.headingFont} onChange={(headingFont) => setDraft({ ...draft, headingFont })} />
+          <OperatorFontPicker kind="Body" value={draft.bodyFont} onChange={(bodyFont) => setDraft({ ...draft, bodyFont })} />
         </div>
         <label className="block text-xs font-medium text-black/65">
           Logo {draft.logo ? '(uploaded)' : ''}
@@ -266,8 +306,8 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
             ))}
           </div>
         </details>
-        <button type="button" disabled={busy || !dirty} onClick={() => void save()} className={saveClass}>{busy ? 'Saving…' : 'Save theme'}</button>
-        {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+        {autosave.saving && <p aria-live="polite" className="text-xs text-black/50">Saving…</p>}
+        {(uploadError || autosave.error) && <p role="alert" className="text-xs text-red-700">{uploadError || autosave.error}</p>}
       </div>
     </EditorPanel>
   )
@@ -433,40 +473,40 @@ function OperatorFieldRow({
   onUpdated: (field: OperatorFieldData) => void
 }) {
   const [draft, setDraft] = useState(() => displayFieldValue(field))
+  const [baseline, setBaseline] = useState(() => ({
+    value: displayFieldValue(field),
+    version: field.version,
+  }))
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const focus = useFocusWithin()
   const lockedBaseline = dataLockedAt !== null && new Date(field.createdAt).getTime() <= new Date(dataLockedAt).getTime()
-  const dirty = draft !== displayFieldValue(field)
-  useEditorActivity(`operator-field-${field.id}`, dirty || busy || focus.focused)
-  useEffect(() => setDraft(displayFieldValue(field)), [field])
-
-  async function save() {
-    setBusy(true)
-    setMessage(null)
-    try {
-      const payload = lockedBaseline
-        ? { mode: 'amend', value: fieldRequestValue(field.fieldType, draft), clientMutationId: crypto.randomUUID() }
-        : { value: fieldRequestValue(field.fieldType, draft), expectedVersion: field.version }
-      const body = await operatorRequest<{ field?: Partial<OperatorFieldData>; amendment?: OperatorFieldData['amendments'][number] }>(`/api/viewbooks/${viewbookId}/fields/${field.id}`, {
+  const dirty = draft !== baseline.value
+  const autosave = useAutosave<string, OperatorFieldData>({
+    editorId: `operator-field-${field.id}`,
+    draft,
+    dirty,
+    enabled: !lockedBaseline,
+    active: busy || focus.focused,
+    save: async (value) => {
+      const body = await operatorRequest<{ field?: Partial<OperatorFieldData> }>(`/api/viewbooks/${viewbookId}/fields/${field.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          value: fieldRequestValue(field.fieldType, value),
+          expectedVersion: baseline.version,
+        }),
       })
-      if (lockedBaseline && body.amendment) {
-        onUpdated({ ...field, amendments: [...field.amendments, body.amendment] })
-        setDraft(displayFieldValue(field))
-      } else {
-        onUpdated({ ...field, ...body.field })
-      }
-      setMessage(lockedBaseline ? 'Amendment recorded' : 'Saved')
-      requestRefresh()
-    } catch (caught) {
-      // 409 stale_version reconciliation (Codex PR8 review, P2): mirror the
-      // admin FieldEditor — adopt the current version/value the server returned
-      // so the NEXT save sends a fresh `expectedVersion` instead of resending
-      // the obsolete one forever. Without this, the dirty draft suppresses the
-      // live refresh and every retry re-conflicts (stuck until manual reload).
+      return { ...field, ...body.field }
+    },
+    commit: (next) => {
+      const value = displayFieldValue(next)
+      setBaseline({ value, version: next.version })
+      setDraft(value)
+      onUpdated(next)
+      setMessage('Saved')
+    },
+    onError: (caught) => {
       if (
         caught instanceof OperatorRequestError &&
         caught.status === 409 &&
@@ -474,13 +514,46 @@ function OperatorFieldRow({
       ) {
         const current = caught.body.current as { value?: string | null; version?: number } | undefined
         if (current && typeof current.version === 'number') {
-          const nextValue = current.value ?? null
-          onUpdated({ ...field, value: nextValue, version: current.version })
-          setDraft(displayFieldValue({ ...field, value: nextValue }))
-          setMessage('A newer answer was loaded.')
-          return
+          const next = { ...field, value: current.value ?? null, version: current.version }
+          setBaseline({ value: displayFieldValue(next), version: current.version })
+          onUpdated(next)
+          setMessage('A newer answer exists. Your draft was kept.')
+          return 'pause'
         }
       }
+    },
+  })
+
+  useEffect(() => {
+    const nextValue = displayFieldValue(field)
+    setBaseline((current) => {
+      if (current.version === field.version && current.value === nextValue) return current
+      if (draft === current.value) setDraft(nextValue)
+      return { value: nextValue, version: field.version }
+    })
+  }, [draft, field])
+
+  async function recordAmendment() {
+    if (!lockedBaseline) return
+    setBusy(true)
+    setMessage(null)
+    try {
+      const body = await operatorRequest<{ amendment?: OperatorFieldData['amendments'][number] }>(`/api/viewbooks/${viewbookId}/fields/${field.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'amend',
+          value: fieldRequestValue(field.fieldType, draft),
+          clientMutationId: crypto.randomUUID(),
+        }),
+      })
+      if (body.amendment) {
+        onUpdated({ ...field, amendments: [...field.amendments, body.amendment] })
+        setDraft(displayFieldValue(field))
+      }
+      setMessage('Amendment recorded')
+      requestRefresh()
+    } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : 'save_failed')
     } finally {
       setBusy(false)
@@ -488,14 +561,21 @@ function OperatorFieldRow({
   }
 
   return (
-    <div className="rounded border border-black/10 p-3" onFocus={focus.onFocus} onBlur={focus.onBlur}>
+    <div className="rounded border border-black/10 p-3" onFocus={focus.onFocus} onBlur={(event) => { focus.onBlur(event); autosave.flushOnBlur(event) }}>
       <label className="block text-xs font-medium text-black/65">
         {lockedBaseline ? `Operator amendment for ${field.label}` : `Answer for ${field.label}`}
         {field.fieldType === 'text'
           ? <input aria-label={`Answer for ${field.label}`} value={draft} onChange={(event) => setDraft(event.target.value)} className={`mt-1 ${inputClass}`} />
           : <textarea aria-label={`Answer for ${field.label}`} rows={4} value={draft} onChange={(event) => setDraft(event.target.value)} className={`mt-1 ${inputClass}`} />}
       </label>
-      <button type="button" disabled={busy || !dirty} onClick={() => void save()} aria-label={`Save answer for ${field.label}`} className={`mt-2 ${saveClass}`}>{lockedBaseline ? 'Record amendment' : 'Save answer'}</button>
+      {lockedBaseline && (
+        <button type="button" disabled={busy || !dirty} onClick={() => void recordAmendment()} aria-label={`Save answer for ${field.label}`} className={`mt-2 ${saveClass}`}>Record amendment</button>
+      )}
+      {!lockedBaseline && autosave.paused && (
+        <button type="button" onClick={autosave.resume} aria-label={`Retry my answer for ${field.label}`} className={`mt-2 ${saveClass}`}>Retry my answer</button>
+      )}
+      {autosave.saving && <p aria-live="polite" className="mt-2 text-xs text-black/50">Saving…</p>}
+      {!autosave.paused && autosave.error && <p role="alert" className="mt-2 text-xs text-red-700">{autosave.error}</p>}
       {message && <p aria-live="polite" className="mt-2 text-xs text-black/60">{message}</p>}
     </div>
   )

@@ -25,15 +25,15 @@ describe('contrastRatio', () => {
 
 describe('contrastBands', () => {
   it('all bands pass at 21:1', () => {
-    expect(contrastBands(21)).toEqual({ aaNormal: true, aaLarge: true, aaaNormal: true, aaaLarge: true })
+    expect(contrastBands(21)).toEqual({ aaNormal: true, aaLarge: true })
   })
-  it('exactly 4.5 passes AA-normal, AA-large, AAA-large but not AAA-normal', () => {
-    expect(contrastBands(4.5)).toEqual({ aaNormal: true, aaLarge: true, aaaNormal: false, aaaLarge: true })
+  it('exactly 4.5 passes both AA bands', () => {
+    expect(contrastBands(4.5)).toEqual({ aaNormal: true, aaLarge: true })
   })
   it('3.0 passes only AA-large', () => {
-    expect(contrastBands(3.0)).toEqual({ aaNormal: false, aaLarge: true, aaaNormal: false, aaaLarge: false })
+    expect(contrastBands(3.0)).toEqual({ aaNormal: false, aaLarge: true })
   })
   it('band thresholds are the spec-pinned values', () => {
-    expect(CONTRAST_BANDS).toEqual({ aaNormal: 4.5, aaLarge: 3.0, aaaNormal: 7.0, aaaLarge: 4.5 })
+    expect(CONTRAST_BANDS).toEqual({ aaNormal: 4.5, aaLarge: 3.0 })
   })
 })
