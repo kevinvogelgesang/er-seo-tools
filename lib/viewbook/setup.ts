@@ -27,7 +27,7 @@ import { HttpError } from '@/lib/api/errors'
 import { requireViewbookToken } from './route-auth'
 import { validateClientMutationId } from './public-write-guard'
 import { syncVersionBumpWhere } from './sync'
-import { canonicalMailbox } from './global-content-keys'
+import { canonicalMailbox, PRIMARY_CONTACT_EMAIL_DEFKEY } from './global-content-keys'
 import { resolveAllowedNotifyRecipients } from './notify-recipients'
 
 const MAX_NOTIFY_EMAILS = 5
@@ -90,6 +90,30 @@ async function requirePcSetupSectionVisible(viewbookId: number): Promise<void> {
   if (!section || section.state === 'hidden') throw new HttpError(404, 'not_found')
 }
 
+// Commit-time recipient revalidation (Codex fix — TOCTOU): resolveAllowedNotifyRecipients()
+// snapshots the allowed set BEFORE the transaction opens. A concurrent edit
+// between that read and commit — a team member removed, or the
+// school-contact-email answer changed — must not let a now-stale address
+// persist, so every validated recipient is re-checked as a CURRENT member
+// (team OR primary-contact answer) INSIDE the same fence `S` the write
+// commits under. `canonical` is already ≤5 canonical emails, so this is a
+// small fixed number of extra EXISTS clauses. Empty list needs no clause —
+// clearing the list is always allowed.
+function recipientsStillAllowedPredicate(viewbookId: number, emails: string[]): Prisma.Sql {
+  if (emails.length === 0) return Prisma.sql`1=1`
+  const clauses = emails.map(
+    (email) => Prisma.sql`
+      (EXISTS (SELECT 1 FROM "ViewbookTeamMember" WHERE "viewbookId" = ${viewbookId} AND "email" = ${email})
+       OR EXISTS (
+         SELECT 1 FROM "ViewbookField"
+         WHERE "viewbookId" = ${viewbookId} AND "defKey" = ${PRIMARY_CONTACT_EMAIL_DEFKEY}
+           AND "archivedAt" IS NULL AND lower("value") = ${email}
+       ))
+    `,
+  )
+  return Prisma.join(clauses, ' AND ')
+}
+
 export async function setNotifyEmails(
   viewbook: Viewbook,
   token: string,
@@ -108,6 +132,7 @@ export async function setNotifyEmails(
   const S = Prisma.sql`
     ${accessChainPredicate(viewbook.id, token)}
     AND (SELECT "clientNotifyJson" FROM "Viewbook" WHERE "id" = ${viewbook.id}) IS NOT ${serialized}
+    AND ${recipientsStillAllowedPredicate(viewbook.id, canonical)}
   `
 
   const [, activityCount, updateCount] = await prisma.$transaction([
@@ -129,11 +154,17 @@ export async function setNotifyEmails(
   if (updateCount !== activityCount) throw new Error('viewbook_notify_activity_mismatch')
 
   // 0 rows: either the access chain failed (bad/revoked token, archived
-  // client, hidden pc-setup section — re-preflight surfaces the honest 404)
-  // or the stored value already equals what was posted (value-idempotent
-  // no-op, Codex fix 8). Both preflights must pass before the no-op is
-  // assumed, or a hidden section would leak through as a false "success".
+  // client, hidden pc-setup section — re-preflight surfaces the honest 404),
+  // the stored value already equals what was posted (value-idempotent no-op,
+  // Codex fix 8), or a validated recipient stopped being a current member
+  // between resolveAllowedNotifyRecipients() and this commit (TOCTOU fix).
+  // Both preflights must pass before either explanation is assumed, or a
+  // hidden section would leak through as a false "success".
   await requireViewbookToken(token)
   await requirePcSetupSectionVisible(viewbook.id)
+  const allowedNow = await resolveAllowedNotifyRecipients(viewbook.id)
+  if (canonical.some((email) => !allowedNow.has(email))) {
+    throw new HttpError(400, 'invalid_notify_recipient')
+  }
   return { notifyEmails: canonical }
 }

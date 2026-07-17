@@ -189,11 +189,20 @@ export async function addTeamMember(
     return { member, replayed: false, delivered: true }
   }
 
-  // Replay / blocked diagnosis (member count 0).
+  // Replay / blocked diagnosis (member count 0). The replay lookup must
+  // recheck pc-invite section visibility (Codex fix — replay-vs-fresh
+  // oracle): without it, replaying an add after an operator hides pc-invite
+  // would return 200 (the stale member row) while a fresh add/resend on the
+  // same viewbook 404s — an inconsistent oracle. Mirrors the same
+  // `sections: { some: { sectionKey, state: { not: 'hidden' } } }` shape used
+  // elsewhere in this file's access chains.
   const replay = await prisma.viewbookTeamMember.findFirst({
     where: {
       clientMutationId, viewbookId: viewbook.id,
-      viewbook: { token, revokedAt: null, client: { archivedAt: null } },
+      viewbook: {
+        token, revokedAt: null, client: { archivedAt: null },
+        sections: { some: { sectionKey: 'pc-invite', state: { not: 'hidden' } } },
+      },
     },
   })
   if (replay) return { member: replay, replayed: true, delivered: true }

@@ -5,13 +5,15 @@
 // contact answer — the ONLY candidates the server allows, see
 // lib/viewbook/notify-recipients.ts) get stage-change mail. PATCHes
 // `/api/viewbook/[token]/setup` (lib/viewbook/setup.ts `setNotifyEmails`).
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { requestRefresh, useEditorActivity } from './useViewbookSync'
 
 export interface NotifyCandidate {
   email: string
   label: string
 }
+
+const MAX_NOTIFY_EMAILS = 5
 
 export function NotifyEmailsControl({
   token,
@@ -22,16 +24,32 @@ export function NotifyEmailsControl({
   candidates: NotifyCandidate[]
   initialSelected: string[]
 }) {
-  const [selected, setSelected] = useState<string[]>(initialSelected)
+  // Reconciled against `candidates` on init AND whenever `candidates` changes
+  // below — a previously-selected address (e.g. an edited primary-contact
+  // answer, or a removed team member) can fall out of the candidate set with
+  // no checkbox left to uncheck it. A stale selection must never reach save.
+  const [selected, setSelected] = useState<string[]>(() =>
+    initialSelected.filter((email) => candidates.some((c) => c.email === email)),
+  )
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEditorActivity('notify-emails', busy || dirty)
 
+  useEffect(() => {
+    setSelected((prev) => prev.filter((email) => candidates.some((c) => c.email === email)))
+  }, [candidates])
+
   function toggle(email: string) {
     setDirty(true)
-    setSelected((prev) => (prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]))
+    setSelected((prev) => {
+      if (prev.includes(email)) return prev.filter((e) => e !== email)
+      // Client-side mirror of the route's MAX_NOTIFY_EMAILS=5 cap — checkboxes
+      // past the cap are also disabled below, this guard is defense in depth.
+      if (prev.length >= MAX_NOTIFY_EMAILS) return prev
+      return [...prev, email]
+    })
   }
 
   async function save() {
@@ -69,18 +87,25 @@ export function NotifyEmailsControl({
         Who should we email when your project moves to the next stage?
       </p>
       <div className="mt-2 space-y-1">
-        {candidates.map((c) => (
-          <label key={c.email} className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={selected.includes(c.email)}
-              onChange={() => toggle(c.email)}
-              disabled={busy}
-            />
-            {c.label} ({c.email})
-          </label>
-        ))}
+        {candidates.map((c) => {
+          const checked = selected.includes(c.email)
+          const atCap = !checked && selected.length >= MAX_NOTIFY_EMAILS
+          return (
+            <label key={c.email} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => toggle(c.email)}
+                disabled={busy || atCap}
+              />
+              {c.label} ({c.email})
+            </label>
+          )
+        })}
       </div>
+      {selected.length >= MAX_NOTIFY_EMAILS && (
+        <p className="mt-1 text-xs text-black/50">Maximum {MAX_NOTIFY_EMAILS} recipients.</p>
+      )}
       <button
         type="button"
         onClick={() => void save()}

@@ -211,6 +211,30 @@ describe('addTeamMember', () => {
     expect(await prisma.viewbookTeamMember.count({ where: { viewbookId: ctx.viewbook.id } })).toBe(0)
   })
 
+  it('404s replaying a prior add clientMutationId after pc-invite is hidden — not a 200 member echo', async () => {
+    const ctx = await mkViewbook()
+    const clientMutationId = mutationId()
+    const first = await addTeamMember(ctx.viewbook, ctx.token, {
+      name: 'Replay Then Hide', email: 'replay-then-hide@example.com', clientMutationId,
+    })
+    expect(first.replayed).toBe(false)
+    await prisma.viewbookSection.update({
+      where: { viewbookId_sectionKey: { viewbookId: ctx.viewbook.id, sectionKey: 'pc-invite' } },
+      data: { state: 'hidden' },
+    })
+    const before = await syncVersion(ctx.viewbook.id)
+
+    await expect(
+      addTeamMember(ctx.viewbook, ctx.token, { name: 'Replay Then Hide', email: 'replay-then-hide@example.com', clientMutationId }),
+    ).rejects.toMatchObject({ status: 404, code: 'not_found' })
+
+    expect(await syncVersion(ctx.viewbook.id)).toBe(before)
+    // The member row from the original (visible-section) add still exists —
+    // this proves the 404 comes from the replay lookup's new section-visible
+    // condition, not from the member having been deleted.
+    expect(await prisma.viewbookTeamMember.count({ where: { id: first.member.id } })).toBe(1)
+  })
+
   it('404s when the pc-invite section is hidden — no member, no delivery, no activity, syncVersion +0', async () => {
     const ctx = await mkViewbook()
     await prisma.viewbookSection.update({

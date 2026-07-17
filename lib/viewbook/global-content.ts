@@ -12,6 +12,7 @@ import { syncVersionBumpAllStatement, syncVersionBumpAllWhere, syncVersionBumpSt
 
 import {
   GLOBAL_CONTENT_KEYS,
+  OVERRIDE_ELIGIBLE_KEYS,
   canonicalMailbox,
   type ContentBlocks,
   type GlobalContentKey,
@@ -34,6 +35,16 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 function isKnownKey(key: string): key is GlobalContentKey {
   return (GLOBAL_CONTENT_KEYS as readonly string[]).includes(key)
+}
+
+// Overrides only make sense for the heading/body block keys (Codex fix — the
+// per-viewbook "your plan" surface): 'team' has its own roster editor and
+// 'pc-intro' renders ONLY from `data.global.pcIntro` (PcIntroSection), so an
+// override on either key would upsert successfully with NO effect on what
+// renders — a dead/misleading control. Reject it here rather than accept a
+// write nothing reads.
+function isOverrideEligibleKey(key: string): key is GlobalContentKey {
+  return (OVERRIDE_ELIGIBLE_KEYS as readonly string[]).includes(key)
 }
 
 // Shared fence for both team-roster writers below (putTeamRoster,
@@ -262,7 +273,7 @@ export async function putContentOverride(
   body: string,
   updatedBy: string,
 ): Promise<void> {
-  if (!isKnownKey(contentKey)) throw new HttpError(400, 'invalid_content')
+  if (!isOverrideEligibleKey(contentKey)) throw new HttpError(400, 'invalid_content')
   if (typeof body !== 'string' || body.length === 0 || body.length > OVERRIDE_BODY_CAP) {
     throw new HttpError(400, 'invalid_content')
   }

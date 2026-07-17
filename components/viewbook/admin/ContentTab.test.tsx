@@ -119,4 +119,16 @@ describe('ContentTab client-specific override row', () => {
 
     expect(lastCallFor(`admin-content-override-${overrideKey}`)).toBe(false)
   })
+
+  // Codex PR5 fix-wave finding 5: 'pc-intro' is BOTH a SECTION_KEYS member
+  // (its own "Section intros & narratives" row, unconditionally rendered
+  // above) AND a GLOBAL_CONTENT_KEYS member (its own GlobalContentEditor
+  // field) — but PcIntroSection reads only `data.global.pcIntro`, so a
+  // per-viewbook override row for it would be a dead control (saves
+  // succeed, nothing renders differently). It must render exactly ONCE
+  // (the section-intro row), never a second time as an override row.
+  it('does not render pc-intro a second time as a per-viewbook override row', () => {
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[]} onChanged={vi.fn()} />)
+    expect(screen.getAllByText('pc-intro')).toHaveLength(1)
+  })
 })

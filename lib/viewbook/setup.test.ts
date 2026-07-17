@@ -163,6 +163,38 @@ describe('setNotifyEmails', () => {
     expect(stored.clientNotifyJson).toBe('[]')
   })
 
+  it('revalidates recipient membership INSIDE the commit fence (TOCTOU) — a member removed between resolve and commit does not persist', async () => {
+    const ctx = await mkViewbook()
+    await addMember(ctx.viewbook.id, 'member@example.com')
+    const before = await syncVersion(ctx.viewbook.id)
+
+    await expect(
+      setNotifyEmails(
+        ctx.viewbook,
+        ctx.token,
+        { notifyEmails: ['member@example.com'] },
+        {
+          // Simulates a concurrent edit landing between
+          // resolveAllowedNotifyRecipients() (pre-transaction) and the
+          // transaction's commit — the recipient is no longer a member by
+          // the time the fence evaluates.
+          beforeCommit: async () => {
+            await prisma.viewbookTeamMember.deleteMany({
+              where: { viewbookId: ctx.viewbook.id, email: 'member@example.com' },
+            })
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ status: 400, code: 'invalid_notify_recipient' })
+
+    expect(await syncVersion(ctx.viewbook.id)).toBe(before)
+    const stored = await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.viewbook.id } })
+    expect(stored.clientNotifyJson).toBe('[]')
+    expect(
+      await prisma.viewbookActivity.count({ where: { viewbookId: ctx.viewbook.id, kind: 'notify-emails-set' } }),
+    ).toBe(0)
+  })
+
   it('404s when the pc-setup section is hidden — no clientNotifyJson change, no activity, syncVersion +0', async () => {
     const ctx = await mkViewbook()
     await addMember(ctx.viewbook.id, 'member@example.com')
