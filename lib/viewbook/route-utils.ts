@@ -17,10 +17,12 @@ export function requireJsonObject(body: unknown): Record<string, unknown> {
   return body as Record<string, unknown>
 }
 
-// Multipart helper: the single 'file' entry as a Buffer, capped upstream by
-// the asset store's 2 MB sniff gate.
-export async function fileBufferFromForm(form: FormData): Promise<Buffer> {
+// Multipart helper: validate File.size before arrayBuffer() when a route has
+// an allocation cap. Routes must still bound the multipart body before
+// request.formData(), because formData() itself buffers the request.
+export async function fileBufferFromForm(form: FormData, maxBytes?: number): Promise<Buffer> {
   const file = form.get('file')
   if (!(file instanceof File)) throw new HttpError(400, 'invalid_upload')
+  if (maxBytes != null && file.size > maxBytes) throw new HttpError(413, 'payload_too_large')
   return Buffer.from(await file.arrayBuffer())
 }

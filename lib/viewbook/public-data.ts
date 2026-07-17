@@ -13,6 +13,7 @@ import { parseStoredTheme } from './theme'
 import { CATALOG_CATEGORIES } from './catalog'
 import { isViewbookStage, STAGE_LABELS, STAGE_LINEUPS, type ViewbookStage } from './stages'
 import { getGlobalContent } from './global-content'
+import { listViewbookDocs } from './docs'
 import {
   GLOBAL_CONTENT_KEYS,
   type ContentBlocks,
@@ -77,16 +78,19 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
   const primarySections = pick(lineup.primary)
   const carriedSections = pick(lineup.carried)
 
-  const [fieldCategories, milestones, materials, global, overrides] = await Promise.all([
+  const [fieldCategories, milestones, materials, docs, global, overrides] = await Promise.all([
     guarded('fields', () => loadFieldCategories(vb.id), [] as PublicFieldCategory[]),
     guarded('milestones', () => loadMilestones(vb.id), [] as PublicMilestone[]),
     guarded('materials', () => loadMaterials(vb.id), [] as PublicMaterialLink[]),
+    guarded('docs', () => listViewbookDocs(vb.id), { global: [], own: [] }),
     loadGlobal(), // self-guards PER KEY (Codex plan-fix 2)
     guarded('overrides', () => loadOverrides(vb.id), {} as Partial<Record<GlobalContentKey, string>>),
   ])
 
   return {
+    viewbookId: vb.id,
     clientName: client.name,
+    csmName: vb.csmName,
     kind: vb.kind,
     welcomeNote: vb.welcomeNote,
     dataLockedAt: iso(vb.dataLockedAt),
@@ -99,6 +103,7 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     fieldCategories,
     milestones,
     materials,
+    docs,
     global,
     overrides,
   }

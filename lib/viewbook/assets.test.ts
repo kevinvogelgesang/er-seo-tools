@@ -6,6 +6,8 @@ import {
   saveViewbookAsset,
   readViewbookAsset,
   deleteViewbookAssets,
+  saveViewbookDoc,
+  sniffPdfType,
   sniffImageType,
   validateAssetScope,
 } from './assets'
@@ -32,6 +34,13 @@ describe('viewbook asset store', () => {
     expect(sniffImageType(Buffer.alloc(2))).toBeNull()
   })
 
+  it('strictly sniffs PDF magic bytes', () => {
+    expect(sniffPdfType(Buffer.from('%PDF-1.7\nbody'))).toBe('pdf')
+    expect(sniffPdfType(Buffer.from(' %PDF-1.7'))).toBeNull()
+    expect(sniffPdfType(Buffer.from('%PDF'))).toBeNull()
+    expect(sniffPdfType(PNG)).toBeNull()
+  })
+
   it('validates scopes as global or positive int strings', () => {
     expect(validateAssetScope('global')).toBe(true)
     expect(validateAssetScope('12')).toBe(true)
@@ -48,6 +57,18 @@ describe('viewbook asset store', () => {
     const back = await readViewbookAsset('7', filename)
     expect(back?.buf.equals(PNG)).toBe(true)
     expect(back?.mime).toBe('image/png')
+  })
+
+  it('saves, reads, and deletes server-generated PDF documents', async () => {
+    const pdf = Buffer.from('%PDF-1.7\ntest document')
+    const { filename, mime } = await saveViewbookDoc('global', pdf)
+    expect(filename).toMatch(/^[a-z0-9-]+\.pdf$/)
+    expect(mime).toBe('application/pdf')
+    const back = await readViewbookAsset('global', filename)
+    expect(back?.buf.equals(pdf)).toBe(true)
+    expect(back?.mime).toBe('application/pdf')
+    await deleteViewbookAssets('global', [filename])
+    expect(await readViewbookAsset('global', filename)).toBeNull()
   })
 
   it('rejects oversize, non-image, and bad scopes', async () => {

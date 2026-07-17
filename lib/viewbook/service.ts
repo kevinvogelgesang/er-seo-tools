@@ -489,9 +489,15 @@ function diffThemeFilenames(before: ViewbookTheme, after: ViewbookTheme): string
 // ── Delete lifecycle ────────────────────────────────────────────────────────
 
 export async function deleteViewbook(id: number): Promise<void> {
-  const vb = await prisma.viewbook.findUnique({ where: { id }, select: { themeJson: true } })
+  const vb = await prisma.viewbook.findUnique({
+    where: { id },
+    select: { themeJson: true, docs: { select: { filename: true } } },
+  })
   if (!vb) throw new HttpError(404, 'not_found')
-  const snapshot = themeFilenames(parseStoredTheme(vb.themeJson))
+  const snapshot = [
+    ...themeFilenames(parseStoredTheme(vb.themeJson)),
+    ...vb.docs.map((doc) => doc.filename),
+  ]
   await prisma.viewbook.delete({ where: { id } })
   await deleteViewbookAssets(String(id), snapshot)
 }
@@ -503,10 +509,16 @@ export async function collectClientViewbookAssetSnapshot(
 ): Promise<{ viewbookId: number; filenames: string[] } | null> {
   const vb = await prisma.viewbook.findUnique({
     where: { clientId },
-    select: { id: true, themeJson: true },
+    select: { id: true, themeJson: true, docs: { select: { filename: true } } },
   })
   if (!vb) return null
-  return { viewbookId: vb.id, filenames: themeFilenames(parseStoredTheme(vb.themeJson)) }
+  return {
+    viewbookId: vb.id,
+    filenames: [
+      ...themeFilenames(parseStoredTheme(vb.themeJson)),
+      ...vb.docs.map((doc) => doc.filename),
+    ],
+  }
 }
 
 // bump: true rides the same array-form transaction as the updateMany

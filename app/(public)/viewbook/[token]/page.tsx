@@ -11,6 +11,8 @@ import { BrandSection } from '@/components/viewbook/public/BrandSection'
 import { AssessmentSection } from '@/components/viewbook/public/AssessmentSection'
 import { StrategySection } from '@/components/viewbook/public/StrategySection'
 import { MaterialsSection } from '@/components/viewbook/public/MaterialsSection'
+import { KickoffNextSection } from '@/components/viewbook/public/KickoffNextSection'
+import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +26,10 @@ export const metadata: Metadata = {
 
 export default async function ViewbookPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
-  const data = await loadViewbookPublicData(token)
+  const [data, operatorEmail] = await Promise.all([
+    loadViewbookPublicData(token),
+    getOperatorEmailForPublicPage(),
+  ])
   if (!data) notFound()
 
   const renderSection = (section: PublicSection): ReactNode => {
@@ -44,6 +49,10 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
         return <StrategySection {...props} />
       case 'materials':
         return <MaterialsSection {...props} />
+      case 'kickoff-next':
+        return <KickoffNextSection {...props} isOperator={operatorEmail != null} />
+      default:
+        return null
     }
   }
 
