@@ -2,6 +2,7 @@
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ViewbookCard } from './ViewbookCard'
+import { publicViewbookUrl } from './viewbook-admin-shared'
 
 type FetchCall = { url: string; init?: RequestInit }
 let calls: FetchCall[] = []
@@ -47,6 +48,19 @@ describe('ViewbookCard', () => {
     const link = screen.getByRole('link', { name: /open editor/i })
     expect(link.getAttribute('href')).toBe('/viewbooks/5')
     expect(screen.getByText(/copy public link/i)).toBeTruthy()
+  })
+
+  it('renders the client name as a new-tab link to the public viewbook page', async () => {
+    mockFetch(() => ({ viewbooks: [row()] }))
+    await act(async () => {
+      render(<ViewbookCard clientId={1} clientName="Acme College" />)
+    })
+    const nameLink = screen.getByRole('link', { name: 'Acme College' })
+    expect(nameLink.getAttribute('href')).toBe(publicViewbookUrl('tok-123'))
+    expect(nameLink.getAttribute('target')).toBe('_blank')
+    expect(nameLink.getAttribute('rel') ?? '').toContain('noopener')
+    // The existing in-app editor link must survive untouched.
+    expect(screen.getByRole('link', { name: /open editor/i }).getAttribute('href')).toBe('/viewbooks/5')
   })
 
   it('creates a viewbook via POST {clientId, kind} when none exists', async () => {

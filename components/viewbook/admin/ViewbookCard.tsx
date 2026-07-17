@@ -53,6 +53,14 @@ export function ViewbookCard({ clientId, clientName }: { clientId: number; clien
         <p className="text-sm text-gray-400">Loading…</p>
       ) : row ? (
         <div className="flex flex-wrap items-center gap-3 text-sm">
+          <a
+            href={publicViewbookUrl(row.token)}
+            target="_blank"
+            rel="noopener"
+            className="font-medium text-gray-900 hover:underline dark:text-white"
+          >
+            {clientName}
+          </a>
           <Link href={`/viewbooks/${row.id}`} className="font-medium text-teal-700 hover:underline dark:text-teal-400">
             Open editor →
           </Link>

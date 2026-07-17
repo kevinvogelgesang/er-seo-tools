@@ -8,8 +8,9 @@
 // no jest-dom.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { SettingsTab, type SettingsTabViewbook } from './ViewbookEditor'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { ViewbookEditor, SettingsTab, type SettingsTabViewbook } from './ViewbookEditor'
+import { publicViewbookUrl } from './viewbook-admin-shared'
 import { __resetSyncRegistry } from '@/components/viewbook/public/useViewbookSync'
 
 afterEach(() => {
@@ -122,5 +123,68 @@ describe('SettingsTab stage-move buttons', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Advance' }))
     await waitFor(() => expect(onChanged).toHaveBeenCalled())
     expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7/stage', expect.objectContaining({ method: 'POST' }))
+  })
+})
+
+// Task 10: the header title (client name) opens the public viewbook page in
+// a new tab. Renders the FULL ViewbookEditor (not just SettingsTab) since the
+// header lives in the outer component.
+describe('ViewbookEditor header', () => {
+  function jsonResponse(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  function mkFullViewbook(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 3,
+      kind: 'upgrade',
+      token: 'tok-abc',
+      revokedAt: null,
+      welcomeNote: null,
+      notifyEmail: null,
+      dataLockedAt: null,
+      dataLockedBy: null,
+      stage: 'kickoff',
+      pcCompletedAt: null,
+      csmName: null,
+      syncVersion: 1,
+      theme: {
+        primary: '#000',
+        secondary: '#111',
+        tertiary: '#222',
+        headingFont: 'inter',
+        bodyFont: 'inter',
+        logo: null,
+        sectionHeroes: {},
+      },
+      client: { name: 'Acme College', archivedAt: null },
+      sections: [],
+      milestones: [],
+      contentOverrides: [],
+      fields: [],
+      ...overrides,
+    }
+  }
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    __resetSyncRegistry()
+  })
+
+  it('renders the client name in the header as a new-tab link to the public viewbook page', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ viewbook: mkFullViewbook() })),
+    )
+    await act(async () => {
+      render(<ViewbookEditor viewbookId={3} />)
+    })
+    const heading = await screen.findByRole('heading', { name: 'Acme College' })
+    const anchor = heading.tagName === 'A' ? heading : heading.querySelector('a')
+    expect(anchor).toBeTruthy()
+    expect(anchor?.getAttribute('href')).toBe(publicViewbookUrl('tok-abc'))
+    expect(anchor?.getAttribute('target')).toBe('_blank')
+    expect(anchor?.getAttribute('rel') ?? '').toContain('noopener')
   })
 })
