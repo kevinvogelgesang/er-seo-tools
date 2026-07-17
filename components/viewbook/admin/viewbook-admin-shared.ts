@@ -26,7 +26,6 @@ export interface ViewbookListRow {
   revoked: boolean
   currentMilestone: string | null
   stage: string
-  csmName: string | null
   activityCount: number
   dataLockedAt: string | null
   createdAt: string

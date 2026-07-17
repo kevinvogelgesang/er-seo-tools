@@ -3,7 +3,13 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { prisma } from '@/lib/db'
 import { getJobHandler } from '../registry'
 import { VIEWBOOK_EMAIL_JOB_TYPE } from '../types'
-import { registerViewbookEmailHandler, runViewbookEmailJob, type ViewbookEmailDeps } from './viewbook-email'
+import {
+  onViewbookEmailExhausted,
+  registerViewbookEmailHandler,
+  runViewbookEmailJob,
+  type ViewbookEmailDeps,
+} from './viewbook-email'
+import { recoverViewbookEmailDeliveries } from '@/lib/viewbook/email'
 
 const PREFIX = 'vb-email-handler-test-'
 const OLD_ENV = process.env
@@ -56,7 +62,7 @@ afterAll(async () => {
 })
 
 describe('viewbook-email job registration', () => {
-  it('registers the required retry settings without an exhausted hook', () => {
+  it('registers the required retry settings with the exhaustion kill-switch wired up', () => {
     registerViewbookEmailHandler()
     const handler = getJobHandler(VIEWBOOK_EMAIL_JOB_TYPE)
     expect(handler).toMatchObject({
@@ -65,7 +71,51 @@ describe('viewbook-email job registration', () => {
       backoffBaseMs: 30_000,
       timeoutMs: 30_000,
     })
-    expect(handler?.onExhausted).toBeUndefined()
+    expect(handler?.onExhausted).toBeDefined()
+  })
+})
+
+describe('onViewbookEmailExhausted', () => {
+  const ctx = { jobId: 'job-1', attempts: 3, lastError: 'boom' }
+
+  it('stamps suppressedAt so the delivery becomes terminal (never sent, no retry storm)', async () => {
+    const delivery = await makeDelivery()
+    await onViewbookEmailExhausted({ deliveryId: delivery.id }, ctx)
+    expect(await prisma.viewbookEmailDelivery.findUnique({ where: { id: delivery.id } })).toMatchObject({
+      sentAt: null,
+      suppressedAt: expect.any(Date),
+    })
+  })
+
+  it('cannot overwrite an existing sent marker', async () => {
+    const sentAt = new Date('2030-01-02T03:04:05.000Z')
+    const delivery = await makeDelivery({ sentAt })
+    await onViewbookEmailExhausted({ deliveryId: delivery.id }, ctx)
+    expect(await prisma.viewbookEmailDelivery.findUnique({ where: { id: delivery.id } })).toMatchObject({
+      sentAt,
+      suppressedAt: null,
+    })
+  })
+
+  it('never throws on a malformed payload', async () => {
+    await expect(onViewbookEmailExhausted({ deliveryId: 'not-a-number' }, ctx)).resolves.toBeUndefined()
+    await expect(onViewbookEmailExhausted(null, ctx)).resolves.toBeUndefined()
+  })
+
+  it('a subsequent recovery pass enqueues nothing, even after the error Job row is deleted', async () => {
+    const delivery = await makeDelivery()
+    await onViewbookEmailExhausted({ deliveryId: delivery.id }, ctx)
+
+    // Simulate lib/jobs/retention.ts pruning the terminal error Job row (30 d) —
+    // recovery must still skip this delivery because it is now suppressed,
+    // not merely because a Job row happens to still exist.
+    await prisma.job.deleteMany({ where: { type: VIEWBOOK_EMAIL_JOB_TYPE, dedupKey: `${VIEWBOOK_EMAIL_JOB_TYPE}:${delivery.id}` } })
+
+    await recoverViewbookEmailDeliveries()
+
+    expect(
+      await prisma.job.findFirst({ where: { type: VIEWBOOK_EMAIL_JOB_TYPE, dedupKey: `${VIEWBOOK_EMAIL_JOB_TYPE}:${delivery.id}` } }),
+    ).toBeNull()
   })
 })
 
@@ -101,6 +151,32 @@ describe('runViewbookEmailJob', () => {
     expect(args.content.text).toContain('Kickoff')
     expect(await prisma.viewbookEmailDelivery.findUnique({ where: { id: delivery.id } })).toMatchObject({
       sentAt: expect.any(Date),
+      suppressedAt: null,
+    })
+  })
+
+  it('a transient viewbook-lookup error throws so the job retries (never sends a login-walled CTA)', async () => {
+    const delivery = await makeDelivery()
+    const original = prisma.viewbook.findUnique.bind(prisma.viewbook)
+    const spy = vi.spyOn(prisma.viewbook, 'findUnique').mockRejectedValueOnce(new Error('transient db error'))
+    await expect(runViewbookEmailJob({ deliveryId: delivery.id }, deps)).rejects.toThrow('transient db error')
+    spy.mockImplementation(original)
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(await prisma.viewbookEmailDelivery.findUnique({ where: { id: delivery.id } })).toMatchObject({
+      sentAt: null,
+      suppressedAt: null,
+    })
+  })
+
+  it('a deleted viewbook no-ops without sending or throwing', async () => {
+    const delivery = await makeDelivery()
+    const original = prisma.viewbook.findUnique.bind(prisma.viewbook)
+    const spy = vi.spyOn(prisma.viewbook, 'findUnique').mockResolvedValueOnce(null as never)
+    await expect(runViewbookEmailJob({ deliveryId: delivery.id }, deps)).resolves.toBeUndefined()
+    spy.mockImplementation(original)
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(await prisma.viewbookEmailDelivery.findUnique({ where: { id: delivery.id } })).toMatchObject({
+      sentAt: null,
       suppressedAt: null,
     })
   })

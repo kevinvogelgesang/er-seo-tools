@@ -8,6 +8,7 @@ import {
 } from '@/lib/notify/viewbook-email-content'
 import { sendEmail } from '@/lib/notify/transport'
 import { isViewbookStage, STAGE_LABELS } from '@/lib/viewbook/stages'
+import type { JobExhaustedContext } from '../types'
 import { VIEWBOOK_EMAIL_JOB_TYPE } from '../types'
 import { registerJobHandler } from '../registry'
 
@@ -90,29 +91,48 @@ export async function runViewbookEmailJob(
     return
   }
 
-  let clientName = 'Your organization'
-  let viewbookTitle = 'Your project viewbook'
-  let viewbookUrl = baseUrl
-  let stageLabel = 'the next stage'
-  try {
-    const eventKey = delivery.kind === 'stage-change' ? eventKeyFromStageDedup(delivery.dedupKey) : null
-    const [viewbook, stageLog] = await withDeadline(Promise.all([
+  // The viewbook lookup is ESSENTIAL: it's the only source of the token that
+  // builds a valid public viewbookUrl. A transient failure/timeout here must
+  // throw (never fall back to the login-walled baseUrl) so the job retries;
+  // a genuinely deleted viewbook (row absent, not an error) stays a no-op.
+  // The stage label is a nicety — its own failure degrades to a generic
+  // label rather than blocking the send.
+  const eventKey = delivery.kind === 'stage-change' ? eventKeyFromStageDedup(delivery.dedupKey) : null
+  const [viewbookResult, stageLogResult] = await Promise.allSettled([
+    withDeadline(
       prisma.viewbook.findUnique({
         where: { id: delivery.viewbookId },
         select: { token: true, client: { select: { name: true } } },
       }),
-      eventKey
-        ? prisma.viewbookStageLog.findUnique({ where: { eventKey }, select: { stage: true } })
-        : Promise.resolve(null),
-    ]), ENRICHMENT_DEADLINE_MS)
-    if (viewbook) {
-      clientName = viewbook.client.name
-      viewbookTitle = `${clientName} Project Viewbook`
-      viewbookUrl = `${baseUrl}/viewbook/${viewbook.token}`
-    }
+      ENRICHMENT_DEADLINE_MS,
+    ),
+    eventKey
+      ? withDeadline(
+          prisma.viewbookStageLog.findUnique({ where: { eventKey }, select: { stage: true } }),
+          ENRICHMENT_DEADLINE_MS,
+        )
+      : Promise.resolve(null),
+  ])
+
+  if (viewbookResult.status === 'rejected') {
+    logError({ subsystem: 'jobs', job: VIEWBOOK_EMAIL_JOB_TYPE, deliveryId: delivery.id }, viewbookResult.reason)
+    throw viewbookResult.reason instanceof Error
+      ? viewbookResult.reason
+      : new Error(String(viewbookResult.reason))
+  }
+  const viewbook = viewbookResult.value
+  if (!viewbook) return // viewbook was deleted — nothing to send about
+
+  const clientName = viewbook.client.name
+  const viewbookTitle = `${clientName} Project Viewbook`
+  const viewbookUrl = `${baseUrl}/viewbook/${viewbook.token}`
+
+  let stageLabel = 'the next stage'
+  if (stageLogResult.status === 'fulfilled') {
+    const stageLog = stageLogResult.value
     if (stageLog && isViewbookStage(stageLog.stage)) stageLabel = STAGE_LABELS[stageLog.stage]
-  } catch (err) {
-    logError({ subsystem: 'jobs', job: VIEWBOOK_EMAIL_JOB_TYPE, deliveryId: delivery.id }, err)
+  } else {
+    logError({ subsystem: 'jobs', job: VIEWBOOK_EMAIL_JOB_TYPE, deliveryId: delivery.id }, stageLogResult.reason)
   }
 
   const content = delivery.kind === 'team-invite'
@@ -128,6 +148,34 @@ export async function runViewbookEmailJob(
   })
 }
 
+/**
+ * Kill switch for a permanently-failing send (mirrors the class of bug
+ * `lib/findings/exhausted-placeholder.ts` exists to prevent for
+ * broken-link-verify): without this, an exhausted job leaves the delivery
+ * non-terminal (sentAt+suppressedAt both null); `recoverViewbookEmailDeliveries`
+ * skips it only while the error Job row exists, and once retention prunes
+ * that row (30 d) the sweep re-enqueues it, exhausting forever. Stamping
+ * `suppressedAt` here (the SAME sentAt/suppressedAt-both-null-fenced update
+ * the handler uses) makes exhaustion terminal — recovery skips it for good.
+ * Never throws: this runs from the worker's settle path.
+ */
+export async function onViewbookEmailExhausted(payload: unknown, ctx: JobExhaustedContext): Promise<void> {
+  const value = payload as Partial<ViewbookEmailPayload> | null
+  const deliveryId = value && Number.isInteger(value.deliveryId) ? (value.deliveryId as number) : null
+  if (deliveryId == null) {
+    logError(
+      { subsystem: 'jobs', job: VIEWBOOK_EMAIL_JOB_TYPE },
+      new Error(`viewbook-email exhausted with an unparseable payload after ${ctx.attempts} attempts: ${ctx.lastError}`),
+    )
+    return
+  }
+  try {
+    await stampSuppressed(deliveryId)
+  } catch (err) {
+    logError({ subsystem: 'jobs', job: VIEWBOOK_EMAIL_JOB_TYPE, deliveryId }, err)
+  }
+}
+
 export function registerViewbookEmailHandler(): void {
   registerJobHandler({
     type: VIEWBOOK_EMAIL_JOB_TYPE,
@@ -136,5 +184,6 @@ export function registerViewbookEmailHandler(): void {
     backoffBaseMs: 30_000,
     timeoutMs: 30_000,
     handler: (payload) => runViewbookEmailJob(payload),
+    onExhausted: onViewbookEmailExhausted,
   })
 }
