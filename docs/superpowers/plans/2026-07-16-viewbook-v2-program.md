@@ -76,12 +76,22 @@ Concurrent work stays on leaf files until the rebase.
 
 **Wave 3** — PR6 owns: `lib/viewbook/contrast.ts` (new), `lib/viewbook/theme.ts`
 (luminance refactor), `components/viewbook/public/WsIntroSection.tsx` +
-`ContrastTester.tsx` (new), brand-section composition. PR3 owns:
-`lib/viewbook/email.ts` (new delivery core), `lib/jobs/handlers/viewbook-email.ts`
-(new), `lib/notify/viewbook-*-content.ts` (new templates),
-`lib/viewbook/global-content.ts`/`global-content-keys.ts` (roster isCsm/email),
+`ContrastTester.tsx` (new), `components/viewbook/public/BrandSection.tsx`
+(tester composition), `lib/viewbook/stages.ts` (ws-intro lineup activation) +
+`app/(public)/viewbook/[token]/page.tsx` (ws-intro renderSection case)
+(Codex wave-3 fix 5 — these two were omitted from the original map; PR3 touches
+neither, so the lane stays disjoint). PR3 owns:
+`lib/viewbook/email.ts` (new delivery core + shared recovery seam),
+`lib/jobs/handlers/viewbook-email.ts` (new),
+`lib/notify/viewbook-email-content.ts` (new templates),
+`lib/viewbook/global-content.ts`/`global-content-keys.ts` (roster isCsm/email +
+shared `canonicalMailbox`/`PRIMARY_CONTACT_EMAIL_DEFKEY`),
 `lib/viewbook/service.ts` (CSM assignment + stage-move delivery wiring),
-`components/viewbook/public/WelcomeSection.tsx` (CSM card), admin CSM picker.
+`lib/jobs/handlers/register.ts` + recovery seams (`recoverQueue`/stale-audit-reset
+wiring), `components/viewbook/public/WelcomeSection.tsx` (CSM card),
+`components/viewbook/admin/GlobalContentEditor.tsx` (roster email/isCsm inputs +
+CSM picker). **Wave 3 is disjoint — no shared files, no rebase-integration duty
+(either merge order works).**
 
 **Wave 4** — PR5 owns: `lib/viewbook/stages.ts` (lineup additions, PC defkeys),
 `lib/viewbook/catalog.ts` (phone/website entries), `lib/viewbook/team-members.ts` +
