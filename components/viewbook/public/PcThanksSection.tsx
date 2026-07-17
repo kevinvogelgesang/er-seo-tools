@@ -7,6 +7,7 @@ import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-ty
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import { SummaryStat, sectionStatusLabel } from './SummaryStat'
 
 const THANK_YOU_COPY =
   "Thank you! We've received your information — adjust anything or add users; we look forward to starting."
@@ -29,6 +30,7 @@ export function PcThanksSection({
       stage={data.stage}
       title={SECTION_TITLES['pc-thanks']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={<SummaryStat eyebrow={SECTION_TITLES['pc-thanks']} headline={sectionStatusLabel(section)} />}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>{THANK_YOU_COPY}</p>
     </SectionShell>

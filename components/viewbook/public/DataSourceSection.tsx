@@ -4,12 +4,14 @@
 // the three ackable sections (lib/viewbook/ack.ts's ACKABLE_SECTION_KEYS) and
 // sits in the post-contract primary flow.
 import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { answeredProgress } from '@/lib/viewbook/summary-metrics'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { FieldEditor } from './FieldEditor'
 import { AmendmentForm } from './AmendmentForm'
 import { AckButton } from './AckButton'
+import { SummaryStat } from './SummaryStat'
 
 const CATEGORY_LABELS: Record<string, string> = {
   school: 'Your school',
@@ -96,12 +98,14 @@ export function DataSourceSection({
   token: string
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
+  const { answered, total } = answeredProgress(data.fieldCategories)
   return (
     <SectionShell
       section={section}
       stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={<SummaryStat eyebrow="Data Source" headline={`${answered} of ${total} answered`} />}
     >
       {data.stage === 'post-contract' && (
         <p className="text-black/60">

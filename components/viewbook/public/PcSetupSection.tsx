@@ -14,6 +14,7 @@ import { publicAssetUrl } from './ThemeStyle'
 import { FieldEditor } from './FieldEditor'
 import { AckButton } from './AckButton'
 import { NotifyEmailsControl, type NotifyCandidate } from './NotifyEmailsControl'
+import { SummaryStat, sectionStatusLabel } from './SummaryStat'
 
 function orderedSetupFields(data: ViewbookPublicData): PublicField[] {
   const all = data.fieldCategories.flatMap((c) => c.fields)
@@ -66,6 +67,7 @@ export function PcSetupSection({
       stage={data.stage}
       title={SECTION_TITLES['pc-setup']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={<SummaryStat eyebrow={SECTION_TITLES['pc-setup']} headline={sectionStatusLabel(section)} />}
     >
       <div className="space-y-4">
         {fields.map((field) => (

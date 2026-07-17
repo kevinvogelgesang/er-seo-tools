@@ -2,9 +2,11 @@
 // the viewbook's override blocks ("your plan"), visually distinguished.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import type { GlobalContentKey } from '@/lib/viewbook/global-content-keys'
+import { docCount } from '@/lib/viewbook/summary-metrics'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import { SummaryStat } from './SummaryStat'
 
 const STRATEGY_KEYS: { key: Exclude<GlobalContentKey, 'team' | 'pc-intro'>; label: string }[] = [
   { key: 'seo-base', label: 'SEO' },
@@ -23,6 +25,7 @@ export function StrategySection({
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const docs = [...data.docs.global, ...data.docs.own]
+  const n = docCount(data.docs)
   const hasAny = STRATEGY_KEYS.some(
     (k) => (data.global.blocks[k.key]?.blocks?.length ?? 0) > 0 || data.overrides[k.key],
   )
@@ -32,6 +35,7 @@ export function StrategySection({
       stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={<SummaryStat eyebrow="Strategy" headline={`${n} document${n === 1 ? '' : 's'}`} />}
     >
       {docs.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">

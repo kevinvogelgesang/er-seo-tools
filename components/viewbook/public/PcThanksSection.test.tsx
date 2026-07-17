@@ -51,6 +51,9 @@ describe('PcThanksSection', () => {
       <PcThanksSection section={section} data={data({ pcCompletedAt: '2026-07-16T00:00:00.000Z' })} token="t" />,
     )
     expect(screen.getByText(/we've received your information/i)).toBeDefined()
-    expect(screen.getByText('Thank You')).toBeDefined()
+    // Title now appears twice — once in the header band, once as the
+    // generic summary face's eyebrow (PR7 Task 6) — so this is no longer a
+    // single-match assertion.
+    expect(screen.getAllByText('Thank You').length).toBeGreaterThan(0)
   })
 })

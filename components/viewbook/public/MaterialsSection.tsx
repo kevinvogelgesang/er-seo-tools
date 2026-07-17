@@ -6,6 +6,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { MaterialLinkForm } from './MaterialLinkForm'
+import { SummaryStat } from './SummaryStat'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -34,12 +35,21 @@ export function MaterialsSection({
   token: string
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
+  const n = data.materials.length
+  const requested = data.materials.filter((m) => m.status === 'requested').length
   return (
     <SectionShell
       section={section}
       stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
+      summary={
+        <SummaryStat
+          eyebrow="Materials"
+          headline={`${n} link${n === 1 ? '' : 's'}`}
+          chip={requested > 0 ? `${requested} requested` : undefined}
+        />
+      }
     >
       {data.materials.length === 0 ? (
         <p className="text-black/50">No materials yet — links you share with us will appear here.</p>

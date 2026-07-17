@@ -10,6 +10,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { Tooltip } from './Tooltip'
+import { SummaryStat, sectionStatusLabel } from './SummaryStat'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -148,18 +149,16 @@ export async function AssessmentSection({
 }) {
   const assessment = await loadAssessmentData(token)
   const hero = data.theme.sectionHeroes[section.sectionKey]
-  const summary = assessment ? (
-    <p>
-      Snapshot of <span className="font-semibold">{assessment.domain}</span> · {assessment.pagesAudited} pages audited
-    </p>
-  ) : undefined
+  const summaryHeadline = assessment
+    ? `Snapshot of ${assessment.domain} · ${assessment.pagesAudited} pages audited`
+    : sectionStatusLabel(section)
   return (
     <SectionShell
       section={section}
       stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={summary}
+      summary={<SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={summaryHeadline} />}
     >
       {assessment ? (
         <AssessmentBody assessment={assessment} narrative={section.narrative} />

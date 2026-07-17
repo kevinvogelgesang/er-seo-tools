@@ -214,7 +214,9 @@ describe('KickoffNextSection', () => {
     expect(region).not.toBeNull()
     expect(region?.getAttribute('data-vb-expanded')).toBe('false')
     expect(screen.getByText(/Completed/)).toBeDefined()
-    expect(screen.getByText('Next Steps')).toBeDefined()
+    // Title now appears twice — header band + the generic summary face's
+    // eyebrow (PR7 Task 6) — so this is no longer a single-match assertion.
+    expect(screen.getAllByText('Next Steps').length).toBeGreaterThan(0)
   })
 })
 
