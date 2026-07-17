@@ -1,5 +1,6 @@
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
-import { KickoffNextButton } from './KickoffNextButton'
+import { KickoffNextCta } from './KickoffNextButton'
+import { KickoffQuestionsOutro } from './KickoffQuestionsOutro'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -29,20 +30,9 @@ export function KickoffNextSection({
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
     >
       {isOperator ? (
-        <div className="space-y-3">
-          <h2 className="text-2xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
-            Ready for the next step?
-          </h2>
-          <p className="text-black/70">Advance the client when the kickoff conversation is complete.</p>
-          <KickoffNextButton viewbookId={data.viewbookId} />
-        </div>
+        <KickoffNextCta viewbookId={data.viewbookId} csmName={data.csmName} />
       ) : (
-        <div className="space-y-2">
-          <h2 className="text-2xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>Questions?</h2>
-          <p className="text-black/70">
-            {data.csmName ? `Reach out to ${data.csmName}, your primary contact.` : 'Reach out to your Enrollment Resources contact.'}
-          </p>
-        </div>
+        <KickoffQuestionsOutro csmName={data.csmName} />
       )}
     </SectionShell>
   )
