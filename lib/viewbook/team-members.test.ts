@@ -210,6 +210,24 @@ describe('addTeamMember', () => {
     ).rejects.toMatchObject({ status: 404, code: 'not_found' })
     expect(await prisma.viewbookTeamMember.count({ where: { viewbookId: ctx.viewbook.id } })).toBe(0)
   })
+
+  it('404s when the pc-invite section is hidden — no member, no delivery, no activity, syncVersion +0', async () => {
+    const ctx = await mkViewbook()
+    await prisma.viewbookSection.update({
+      where: { viewbookId_sectionKey: { viewbookId: ctx.viewbook.id, sectionKey: 'pc-invite' } },
+      data: { state: 'hidden' },
+    })
+    const before = await syncVersion(ctx.viewbook.id)
+
+    await expect(
+      addTeamMember(ctx.viewbook, ctx.token, { name: 'Hidden Section', email: 'hidden-section@example.com', clientMutationId: mutationId() }),
+    ).rejects.toMatchObject({ status: 404, code: 'not_found' })
+
+    expect(await syncVersion(ctx.viewbook.id)).toBe(before)
+    expect(await prisma.viewbookTeamMember.count({ where: { viewbookId: ctx.viewbook.id } })).toBe(0)
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: ctx.viewbook.id, kind: 'team-invite' } })).toBe(0)
+    expect(await prisma.viewbookActivity.count({ where: { viewbookId: ctx.viewbook.id, kind: 'team-invite-add' } })).toBe(0)
+  })
 })
 
 describe('resendInvite', () => {
@@ -293,6 +311,23 @@ describe('resendInvite', () => {
     const ctx2 = await mkViewbook()
     const member = await addedMember(ctx1)
     await expect(resendInvite(ctx2.viewbook, ctx2.token, { memberId: member.id })).rejects.toMatchObject({ status: 404, code: 'not_found' })
+  })
+
+  it('404s when the pc-invite section is hidden — no new delivery, syncVersion +0', async () => {
+    const ctx = await mkViewbook()
+    const member = await addedMember(ctx) // ordinal :1 while the section was still visible
+    await prisma.viewbookSection.update({
+      where: { viewbookId_sectionKey: { viewbookId: ctx.viewbook.id, sectionKey: 'pc-invite' } },
+      data: { state: 'hidden' },
+    })
+    const before = await syncVersion(ctx.viewbook.id)
+
+    await expect(resendInvite(ctx.viewbook, ctx.token, { memberId: member.id })).rejects.toMatchObject({ status: 404, code: 'not_found' })
+
+    expect(await syncVersion(ctx.viewbook.id)).toBe(before)
+    expect(
+      await prisma.viewbookEmailDelivery.count({ where: { viewbookId: ctx.viewbook.id, dedupKey: { startsWith: `vb-invite:${member.memberKey}:` } } }),
+    ).toBe(1)
   })
 })
 

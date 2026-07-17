@@ -78,13 +78,32 @@ function validateName(raw: unknown): string {
   return name
 }
 
+// The pc-invite section gates BOTH the member insert and the resend — a
+// hidden section must block the invite email exactly like public-writes.ts
+// blocks feedback/materials on a hidden section (Global Constraints route
+// contract: token current + revoked + client active + section visible +
+// ownership + caps). JOIN (not EXISTS) mirrors this file's existing style.
 function accessChainPredicate(viewbookId: number, token: string): Prisma.Sql {
   return Prisma.sql`
     EXISTS (
-      SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
+      SELECT 1 FROM "Viewbook" v
+      JOIN "Client" c ON c."id" = v."clientId"
+      JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'pc-invite' AND s."state" <> 'hidden'
       WHERE v."id" = ${viewbookId} AND v."token" = ${token} AND v."revokedAt" IS NULL AND c."archivedAt" IS NULL
     )
   `
+}
+
+// Hidden-section diagnosis (mirrors ack.ts's `!section || section.state ===
+// 'hidden'` check): a hidden pc-invite section must 404 as `not_found` — the
+// SAME oracle as a missing/revoked viewbook — BEFORE any cap/dup/window
+// check runs, so a hidden section never leaks distinguishing information
+// through a 409/429 instead.
+async function requirePcInviteSectionVisible(viewbookId: number): Promise<void> {
+  const section = await prisma.viewbookSection.findFirst({
+    where: { viewbookId, sectionKey: 'pc-invite' },
+  })
+  if (!section || section.state === 'hidden') throw new HttpError(404, 'not_found')
 }
 
 function inviteWindowCapPredicate(viewbookId: number, windowStart: number): Prisma.Sql {
@@ -180,6 +199,7 @@ export async function addTeamMember(
   if (replay) return { member: replay, replayed: true, delivered: true }
 
   await requireViewbookToken(token)
+  await requirePcInviteSectionVisible(viewbook.id)
   const memberTotal = await prisma.viewbookTeamMember.count({ where: { viewbookId: viewbook.id } })
   if (memberTotal >= MEMBER_CAP) throw new HttpError(409, 'team_member_limit_reached')
   const dup = await prisma.viewbookTeamMember.findFirst({ where: { viewbookId: viewbook.id, email } })
@@ -225,6 +245,7 @@ export async function resendInvite(
       SELECT 1 FROM "ViewbookTeamMember" tm
       JOIN "Viewbook" v ON v."id" = tm."viewbookId"
       JOIN "Client" c ON c."id" = v."clientId"
+      JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'pc-invite' AND s."state" <> 'hidden'
       WHERE tm."id" = ${memberId} AND tm."viewbookId" = ${viewbook.id}
         AND v."token" = ${token} AND v."revokedAt" IS NULL AND c."archivedAt" IS NULL
     )
@@ -262,6 +283,7 @@ export async function resendInvite(
 
   // Blocked diagnosis.
   await requireViewbookToken(token)
+  await requirePcInviteSectionVisible(viewbook.id)
   const sendCount = await prisma.viewbookEmailDelivery.count({
     where: { viewbookId: viewbook.id, dedupKey: { startsWith: likePrefix } },
   })
