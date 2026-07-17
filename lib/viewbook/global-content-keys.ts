@@ -9,6 +9,29 @@ export interface TeamMember {
   role: string
   photo: string | null
   blurb: string
+  isCsm?: boolean
+  email?: string
+}
+
+export const PRIMARY_CONTACT_EMAIL_DEFKEY = 'school-contact-email'
+
+/** One client-safe canonical mailbox parser for roster, recipient filtering, and PR5 writes. */
+export function canonicalMailbox(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const value = raw.trim()
+  if (!value || value.length > 254 || /[\s,<>()]/.test(value)) return null
+  const at = value.indexOf('@')
+  if (at < 1 || at !== value.lastIndexOf('@')) return null
+  const local = value.slice(0, at)
+  const domain = value.slice(at + 1)
+  if (local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) return null
+  if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)) return null
+  const labels = domain.split('.')
+  if (labels.length < 2 || labels.some((label) =>
+    !label || label.length > 63 || !/^[A-Za-z0-9-]+$/.test(label) || label.startsWith('-') || label.endsWith('-'))) {
+    return null
+  }
+  return value.toLowerCase()
 }
 
 export interface ContentBlocks {

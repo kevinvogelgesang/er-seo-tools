@@ -38,6 +38,8 @@ export function WelcomeSection({
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const { team, blocks } = data.global
+  const csm = team?.find((member) => member.isCsm === true && member.name === data.csmName) ?? null
+  const ordinaryTeam = team?.filter((member) => member.isCsm !== true) ?? []
   return (
     <SectionShell
       section={section}
@@ -47,12 +49,39 @@ export function WelcomeSection({
     >
       {blocks.why?.blocks?.length ? <Blocks blocks={blocks.why.blocks} /> : <Placeholder what="Our story" />}
 
+      {csm && (
+        <div className="rounded-2xl border border-black/10 bg-white p-5 shadow-md">
+          <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
+            Your ER contact
+          </h3>
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            {csm.photo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={publicAssetUrl(token, csm.photo)}
+                alt={csm.name}
+                className="h-24 w-24 rounded-full object-cover"
+              />
+            )}
+            <div>
+              <p className="text-lg font-bold">{csm.name}</p>
+              <p className="text-sm" style={{ color: 'var(--vb-secondary)' }}>{csm.role}</p>
+              {csm.email && (
+                <a className="mt-2 inline-block text-sm underline" href={`mailto:${csm.email}`}>
+                  {csm.email}
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
         Your team
       </h3>
-      {team?.length ? (
+      {ordinaryTeam.length ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {team.map((m) => (
+          {ordinaryTeam.map((m) => (
             <div key={m.name} className="rounded-xl border border-black/10 bg-white p-4 shadow-sm">
               {m.photo && (
                 // eslint-disable-next-line @next/next/no-img-element

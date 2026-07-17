@@ -461,6 +461,10 @@ export async function recoverQueue() {
     .then((m) => m.recoverBrokenLinkVerifies())
     .catch((err) => console.warn('[queue] broken-link verify recovery failed:', (err as Error).message))
 
+  await import('@/lib/viewbook/email')
+    .then((m) => m.recoverViewbookEmailDeliveries())
+    .catch((err) => console.warn('[queue] viewbook email recovery failed:', (err as Error).message))
+
   // C10: global stranded SEO-report recovery — re-enqueue seo-report-render jobs
   // for any non-terminal SeoReport whose heartbeat has gone cold. Guarded — never
   // blocks site-audit recovery.

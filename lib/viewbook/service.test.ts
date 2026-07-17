@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
@@ -21,11 +21,13 @@ import {
   updateViewbookSettings,
   collectClientViewbookAssetSnapshot,
   moveViewbookStage,
+  assignViewbookCsm,
 } from './service'
 import { deleteViewbookAssets, readViewbookAsset } from './assets'
 import { createViewbookDoc } from './docs'
 import { DEFAULT_THEME } from './theme'
 import { CATALOG } from './catalog'
+import { VIEWBOOK_EMAIL_JOB_TYPE } from '@/lib/jobs/types'
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)])
 const OPERATOR = 'kevin@enrollmentresources.com'
@@ -45,6 +47,7 @@ afterEach(async () => {
   await rm(assetsDir, { recursive: true, force: true })
 })
 afterAll(async () => {
+  await prisma.job.deleteMany({ where: { type: VIEWBOOK_EMAIL_JOB_TYPE } })
   await prisma.client.deleteMany({ where: { name: { startsWith: 'vb-test-' } } })
   await prisma.viewbookDoc.deleteMany({
     where: { viewbookId: null, title: { startsWith: GLOBAL_DOC_TITLE_PREFIX } },
@@ -450,6 +453,7 @@ describe('moveViewbookStage', () => {
     const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
     const res = await moveViewbookStage(id, 'back', 'building', 'op@er.com')
     expect(res.stage).toBe('website-specifics')
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id } })).toBe(0)
   })
   it('same-expectedStage double-fire: exactly one wins, one step, one log, one bump', async () => {
     const client = await mkClient()
@@ -468,5 +472,197 @@ describe('moveViewbookStage', () => {
     expect(logs).toBe(1) // the losing move writes NO log
     // the loser's bump rolls back with its update+log — exactly one bump lands
     expect(await syncVersion(id)).toBe(before + 1)
+  })
+
+  it('a forward move creates one delivery per allowed recipient, enqueues each, and still bumps only once', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({
+      where: { id },
+      data: { stage: 'post-contract', clientNotifyJson: JSON.stringify(['member@example.com', 'primary@example.com']) },
+    })
+    await prisma.viewbookTeamMember.create({
+      data: { viewbookId: id, memberKey: crypto.randomUUID(), name: 'Member', email: 'member@example.com', addedBy: OPERATOR },
+    })
+    await prisma.viewbookField.update({
+      where: { viewbookId_defKey: { viewbookId: id, defKey: 'school-contact-email' } },
+      data: { value: 'PRIMARY@EXAMPLE.COM' },
+    })
+    const before = await syncVersion(id)
+
+    await moveViewbookStage(id, 'forward', 'post-contract', OPERATOR)
+
+    const log = await prisma.viewbookStageLog.findFirstOrThrow({ where: { viewbookId: id } })
+    const deliveries = await prisma.viewbookEmailDelivery.findMany({ where: { viewbookId: id }, orderBy: { recipient: 'asc' } })
+    expect(deliveries).toEqual([
+      expect.objectContaining({ kind: 'stage-change', recipient: 'member@example.com', dedupKey: `vb-stage:${log.eventKey}:member@example.com`, sentAt: null, suppressedAt: null, stageLogId: null }),
+      expect.objectContaining({ kind: 'stage-change', recipient: 'primary@example.com', dedupKey: `vb-stage:${log.eventKey}:primary@example.com`, sentAt: null, suppressedAt: null, stageLogId: null }),
+    ])
+    let jobs = await prisma.job.findMany({ where: { id: '__none__' } })
+    await vi.waitFor(async () => {
+      jobs = await prisma.job.findMany({
+        where: { type: VIEWBOOK_EMAIL_JOB_TYPE, dedupKey: { in: deliveries.map((d) => `viewbook-email:${d.id}`) } },
+      })
+      expect(jobs).toHaveLength(2)
+    })
+    expect(jobs).toHaveLength(2)
+    expect(jobs.every((job) => job.groupKey === null)).toBe(true)
+    expect(await syncVersion(id)).toBe(before + 1)
+  })
+
+  it('drops unmatched addresses and canonicalizes case-insensitive duplicates to one delivery', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({
+      where: { id },
+      data: {
+        stage: 'kickoff',
+        clientNotifyJson: JSON.stringify(['MEMBER@example.com', 'member@EXAMPLE.COM', 'stranger@example.com']),
+      },
+    })
+    await prisma.viewbookTeamMember.create({
+      data: { viewbookId: id, memberKey: crypto.randomUUID(), name: 'Member', email: 'member@example.com', addedBy: OPERATOR },
+    })
+
+    await moveViewbookStage(id, 'forward', 'kickoff', OPERATOR)
+
+    const deliveries = await prisma.viewbookEmailDelivery.findMany({ where: { viewbookId: id } })
+    expect(deliveries).toHaveLength(1)
+    expect(deliveries[0].recipient).toBe('member@example.com')
+  })
+
+  it('empty or corrupt recipient JSON creates no deliveries', async () => {
+    const emptyClient = await mkClient()
+    const empty = await createViewbook(emptyClient.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id: empty.id }, data: { stage: 'kickoff', clientNotifyJson: '[]' } })
+    await moveViewbookStage(empty.id, 'forward', 'kickoff', OPERATOR)
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: empty.id } })).toBe(0)
+
+    const corruptClient = await mkClient()
+    const corrupt = await createViewbook(corruptClient.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id: corrupt.id }, data: { stage: 'kickoff', clientNotifyJson: '{bad' } })
+    await moveViewbookStage(corrupt.id, 'forward', 'kickoff', OPERATOR)
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: corrupt.id } })).toBe(0)
+  })
+
+  it('a stale stage-fence replay creates zero delivery rows', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({
+      where: { id },
+      data: { stage: 'building', clientNotifyJson: JSON.stringify(['member@example.com']) },
+    })
+    await prisma.viewbookTeamMember.create({
+      data: { viewbookId: id, memberKey: crypto.randomUUID(), name: 'Member', email: 'member@example.com', addedBy: OPERATOR },
+    })
+    await expect(moveViewbookStage(id, 'forward', 'kickoff', OPERATOR)).rejects.toMatchObject({ code: 'stage_conflict' })
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id } })).toBe(0)
+  })
+})
+
+describe('assignViewbookCsm', () => {
+  async function seedRoster() {
+    await prisma.viewbookGlobalContent.upsert({
+      where: { key: 'team' },
+      update: {
+        bodyJson: JSON.stringify([
+          { name: 'Casey CSM', role: 'CSM', photo: null, blurb: '', isCsm: true, email: 'casey@example.com' },
+          { name: 'Taylor Teammate', role: 'Designer', photo: null, blurb: '', email: 'taylor@example.com' },
+        ]),
+        updatedBy: OPERATOR,
+      },
+      create: {
+        key: 'team',
+        bodyJson: JSON.stringify([
+          { name: 'Casey CSM', role: 'CSM', photo: null, blurb: '', isCsm: true, email: 'casey@example.com' },
+          { name: 'Taylor Teammate', role: 'Designer', photo: null, blurb: '', email: 'taylor@example.com' },
+        ]),
+        updatedBy: OPERATOR,
+      },
+    })
+  }
+
+  it('assigns a flagged roster member with one relative bump and one activity row', async () => {
+    await seedRoster()
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    const before = await syncVersion(id)
+
+    await assignViewbookCsm(id, 'Casey CSM', OPERATOR)
+
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id } })).csmName).toBe('Casey CSM')
+    expect(await syncVersion(id)).toBe(before + 1)
+    expect(await prisma.viewbookActivity.findMany({ where: { viewbookId: id, kind: 'csm-assigned' } })).toEqual([
+      expect.objectContaining({ actor: OPERATOR, summary: 'Assigned CSM: Casey CSM' }),
+    ])
+  })
+
+  it('rejects absent and non-flagged names without a bump or activity', async () => {
+    await seedRoster()
+    for (const name of ['Taylor Teammate', 'Missing Person']) {
+      const client = await mkClient()
+      const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+      const before = await syncVersion(id)
+      await expect(assignViewbookCsm(id, name, OPERATOR)).rejects.toMatchObject({ status: 400, code: 'invalid_csm' })
+      expect(await syncVersion(id)).toBe(before)
+      expect(await prisma.viewbookActivity.count({ where: { viewbookId: id } })).toBe(0)
+    }
+  })
+
+  it('clears an assignment with one bump', async () => {
+    await seedRoster()
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { csmName: 'Casey CSM' } })
+    const before = await syncVersion(id)
+    await assignViewbookCsm(id, null, OPERATOR)
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id } })).csmName).toBeNull()
+    expect(await syncVersion(id)).toBe(before + 1)
+  })
+
+  it('archived clients reject with no bump or activity', async () => {
+    await seedRoster()
+    const client = await mkClient(true)
+    const viewbook = await prisma.viewbook.create({ data: { clientId: client.id, kind: 'upgrade', token: crypto.randomUUID() } })
+    const before = await syncVersion(viewbook.id)
+    await expect(assignViewbookCsm(viewbook.id, 'Casey CSM', OPERATOR)).rejects.toMatchObject({ status: 409, code: 'client_archived' })
+    expect(await syncVersion(viewbook.id)).toBe(before)
+    expect(await prisma.viewbookActivity.count({ where: { viewbookId: viewbook.id } })).toBe(0)
+  })
+
+  it('unknown ids 404 without bumping an unrelated viewbook', async () => {
+    await seedRoster()
+    const client = await mkClient()
+    const unrelated = await createViewbook(client.id, 'upgrade', OPERATOR)
+    const before = await syncVersion(unrelated.id)
+    await expect(assignViewbookCsm(999_999_999, 'Casey CSM', OPERATOR)).rejects.toMatchObject({ status: 404, code: 'not_found' })
+    expect(await syncVersion(unrelated.id)).toBe(before)
+  })
+
+  it('same-value replay is a no-op with no bump or activity', async () => {
+    await seedRoster()
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { csmName: 'Casey CSM' } })
+    const before = await syncVersion(id)
+    await assignViewbookCsm(id, 'Casey CSM', OPERATOR)
+    expect(await syncVersion(id)).toBe(before)
+    expect(await prisma.viewbookActivity.count({ where: { viewbookId: id } })).toBe(0)
+  })
+
+  it('a lost pre-state race makes bump, activity, and csm update all miss', async () => {
+    await seedRoster()
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    const before = await syncVersion(id)
+    await assignViewbookCsm(id, 'Casey CSM', OPERATOR, {
+      beforeWrite: async () => {
+        await prisma.client.update({ where: { id: client.id }, data: { archivedAt: new Date() } })
+      },
+    })
+    const row = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(row.csmName).toBeNull()
+    expect(row.syncVersion).toBe(before)
+    expect(await prisma.viewbookActivity.count({ where: { viewbookId: id } })).toBe(0)
   })
 })

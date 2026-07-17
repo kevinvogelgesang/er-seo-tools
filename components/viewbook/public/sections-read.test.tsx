@@ -63,6 +63,36 @@ describe('WelcomeSection', () => {
     render(<WelcomeSection section={sec('welcome')} data={base()} token="tok" />)
     expect(screen.getAllByText(/coming soon/i).length).toBeGreaterThan(0)
   })
+
+  it('features the assigned flagged CSM, links their mailbox, and filters them out of the ordinary grid', () => {
+    const data = base({
+      csmName: 'Casey CSM',
+      global: {
+        team: [
+          { name: 'Casey CSM', role: 'Client Success Manager', photo: 'casey.png', blurb: 'Your guide.', isCsm: true, email: 'casey@example.com' },
+          { name: 'Dana Designer', role: 'Designer', photo: null, blurb: 'Designs.' },
+        ],
+        blocks: {},
+      },
+    })
+    const { container } = render(<WelcomeSection section={sec('welcome')} data={data} token="tok" />)
+    expect(screen.getByText('Your ER contact')).toBeDefined()
+    expect(screen.getAllByText('Casey CSM')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'casey@example.com' }).getAttribute('href')).toBe('mailto:casey@example.com')
+    expect(screen.getByAltText('Casey CSM').getAttribute('src')).toBe('/api/viewbook/tok/assets/casey.png')
+    expect(screen.getByText('Dana Designer')).toBeDefined()
+    const headings = [...container.querySelectorAll('h3')].map((node) => node.textContent)
+    expect(headings.indexOf('Your ER contact')).toBeLessThan(headings.indexOf('Your team'))
+  })
+
+  it('hides a dangling CSM card while keeping the ordinary team grid', () => {
+    render(<WelcomeSection section={sec('welcome')} data={base({
+      csmName: 'Former CSM',
+      global: { team: [{ name: 'Dana Designer', role: 'Designer', photo: null, blurb: '' }], blocks: {} },
+    })} token="tok" />)
+    expect(screen.queryByText('Your ER contact')).toBeNull()
+    expect(screen.getByText('Dana Designer')).toBeDefined()
+  })
 })
 
 describe('BrandSection', () => {

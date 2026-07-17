@@ -13,6 +13,7 @@ import { FeedbackTab } from './FeedbackTab'
 import { ActivityFeed } from './ActivityFeed'
 import { DataSourceTab } from './DataSourceTab'
 import { useBaselineSync, useEditorActivity, useFocusWithin, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
+import { CsmPicker } from './GlobalContentEditor'
 
 const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 
@@ -164,6 +165,8 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
       <p className="text-gray-700 dark:text-white/80">
         Project stage: <span className="font-medium">{isViewbookStage(vb.stage) ? STAGE_LABELS[vb.stage] : vb.stage}</span>
       </p>
+
+      <CsmPicker viewbookId={vb.id} csmName={vb.csmName} onChanged={onChanged} />
 
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-gray-700 dark:text-white/80">Kind</label>

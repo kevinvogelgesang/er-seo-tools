@@ -5,6 +5,7 @@
 
 export const JOB_ACTIVE_STATUSES = ['queued', 'running'] as const
 export const VIEWBOOK_DIGEST_JOB_TYPE = 'viewbook-digest'
+export const VIEWBOOK_EMAIL_JOB_TYPE = 'viewbook-email'
 
 export type JobStatus = 'queued' | 'running' | 'complete' | 'error' | 'cancelled'
 
