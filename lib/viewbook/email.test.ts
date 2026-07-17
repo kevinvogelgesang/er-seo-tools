@@ -106,4 +106,52 @@ describe('recoverViewbookEmailDeliveries', () => {
       dedupKey: `viewbook-email:${stranded.id}`,
     }))
   })
+
+  it('applies the jobless-delivery predicate before the recovery cap, so a stranded delivery behind 200 already-jobbed rows is still selected', async () => {
+    const viewbook = await makeViewbook()
+
+    // RECOVERY_LIMIT (200) non-terminal deliveries that already have a Job
+    // row — these must NOT count against the cap.
+    const withJobIds: number[] = []
+    for (let i = 0; i < 200; i++) {
+      const delivery = await prisma.viewbookEmailDelivery.create({
+        data: {
+          viewbookId: viewbook.id,
+          kind: 'stage-change',
+          recipient: `job-${i}@example.com`,
+          dedupKey: `vb-stage:${crypto.randomUUID()}:job-${i}@example.com`,
+        },
+      })
+      withJobIds.push(delivery.id)
+    }
+    await prisma.job.createMany({
+      data: withJobIds.map((id) => ({
+        type: VIEWBOOK_EMAIL_JOB_TYPE,
+        payload: JSON.stringify({ deliveryId: id }),
+        dedupKey: `${VIEWBOOK_EMAIL_JOB_TYPE}:${id}`,
+        status: 'complete',
+        completedAt: new Date(),
+      })),
+    })
+
+    // Created after (higher autoincrement id than) all 200 rows above —
+    // ordered behind them, jobless, non-terminal: genuinely stranded.
+    const stranded = await prisma.viewbookEmailDelivery.create({
+      data: {
+        viewbookId: viewbook.id,
+        kind: 'stage-change',
+        recipient: 'stranded-cap@example.com',
+        dedupKey: `vb-stage:${crypto.randomUUID()}:stranded-cap@example.com`,
+      },
+    })
+
+    await recoverViewbookEmailDeliveries()
+
+    expect(enqueueJob).toHaveBeenCalledTimes(1)
+    expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
+      type: VIEWBOOK_EMAIL_JOB_TYPE,
+      payload: { deliveryId: stranded.id },
+      dedupKey: `viewbook-email:${stranded.id}`,
+    }))
+  })
 })

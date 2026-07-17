@@ -219,6 +219,29 @@ describe('runViewbookEmailJob', () => {
     })
   })
 
+  it('a revoked viewbook is terminal suppression (never sends a dead link)', async () => {
+    const delivery = await makeDelivery()
+    await prisma.viewbook.update({ where: { id: delivery.viewbookId }, data: { revokedAt: new Date() } })
+    await runViewbookEmailJob({ deliveryId: delivery.id }, deps)
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(await prisma.viewbookEmailDelivery.findUnique({ where: { id: delivery.id } })).toMatchObject({
+      sentAt: null,
+      suppressedAt: expect.any(Date),
+    })
+  })
+
+  it('an archived client is terminal suppression (never sends a dead link)', async () => {
+    const delivery = await makeDelivery()
+    const viewbook = await prisma.viewbook.findUniqueOrThrow({ where: { id: delivery.viewbookId } })
+    await prisma.client.update({ where: { id: viewbook.clientId }, data: { archivedAt: new Date() } })
+    await runViewbookEmailJob({ deliveryId: delivery.id }, deps)
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(await prisma.viewbookEmailDelivery.findUnique({ where: { id: delivery.id } })).toMatchObject({
+      sentAt: null,
+      suppressedAt: expect.any(Date),
+    })
+  })
+
   it('missing NEXT_PUBLIC_APP_URL is terminal suppression', async () => {
     const delivery = await makeDelivery()
     delete process.env.NEXT_PUBLIC_APP_URL

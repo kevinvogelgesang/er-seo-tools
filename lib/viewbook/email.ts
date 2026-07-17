@@ -31,24 +31,27 @@ export function enqueueViewbookEmail(deliveryId: number): Promise<unknown> {
 }
 
 export async function recoverViewbookEmailDeliveries(): Promise<void> {
-  const candidates = await prisma.viewbookEmailDelivery.findMany({
-    where: { sentAt: null, suppressedAt: null },
-    select: { id: true },
-    orderBy: { id: 'asc' },
-    take: RECOVERY_LIMIT,
-  })
-  if (candidates.length === 0) return
-
-  const dedupKeys = candidates.map(({ id }) => `${VIEWBOOK_EMAIL_JOB_TYPE}:${id}`)
-  const existingJobs = await prisma.job.findMany({
-    where: { type: VIEWBOOK_EMAIL_JOB_TYPE, dedupKey: { in: dedupKeys } },
-    select: { dedupKey: true },
-  })
-  const seen = new Set(existingJobs.flatMap((job) => job.dedupKey ? [job.dedupKey] : []))
+  // The "no job has ever existed for this delivery" predicate is applied
+  // INSIDE the query (NOT EXISTS) so `take`/LIMIT bounds actual recovery
+  // candidates — jobless non-terminal deliveries — rather than the first
+  // RECOVERY_LIMIT non-terminal rows overall. Filtering post-hoc would let a
+  // genuinely stranded delivery hide behind 200 rows that already have jobs
+  // and never get selected. The dedupKey format here (`<type>:<id>`) must
+  // match `enqueueViewbookEmail` exactly.
+  const dedupPrefix = `${VIEWBOOK_EMAIL_JOB_TYPE}:`
+  const candidates = await prisma.$queryRaw<Array<{ id: number }>>`
+    SELECT d."id"
+    FROM "ViewbookEmailDelivery" d
+    WHERE d."sentAt" IS NULL AND d."suppressedAt" IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM "Job" j
+        WHERE j."dedupKey" = ${dedupPrefix} || d."id"
+      )
+    ORDER BY d."id" ASC
+    LIMIT ${RECOVERY_LIMIT}
+  `
 
   for (const { id } of candidates) {
-    const dedupKey = `${VIEWBOOK_EMAIL_JOB_TYPE}:${id}`
-    if (seen.has(dedupKey)) continue
     try {
       await enqueueViewbookEmail(id)
     } catch (err) {

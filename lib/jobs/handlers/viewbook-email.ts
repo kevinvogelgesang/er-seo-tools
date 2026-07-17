@@ -102,7 +102,7 @@ export async function runViewbookEmailJob(
     withDeadline(
       prisma.viewbook.findUnique({
         where: { id: delivery.viewbookId },
-        select: { token: true, client: { select: { name: true } } },
+        select: { token: true, revokedAt: true, client: { select: { name: true, archivedAt: true } } },
       }),
       ENRICHMENT_DEADLINE_MS,
     ),
@@ -122,6 +122,13 @@ export async function runViewbookEmailJob(
   }
   const viewbook = viewbookResult.value
   if (!viewbook) return // viewbook was deleted — nothing to send about
+
+  // A revoked viewbook (public page 404s) or an archived client's viewbook
+  // would produce a dead-link email — terminally suppress instead of sending.
+  if (viewbook.revokedAt || viewbook.client.archivedAt) {
+    await stampSuppressed(delivery.id)
+    return
+  }
 
   const clientName = viewbook.client.name
   const viewbookTitle = `${clientName} Project Viewbook`

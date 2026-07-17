@@ -220,6 +220,13 @@ export function CsmPicker({
   }, [])
 
   const choices = roster.filter((member) => member.isCsm === true)
+  // The stored csmName can go dangling (renamed/removed/unflagged CSM). If we
+  // forced the <select> value to '' in that case it would render as
+  // "Unassigned" already selected, so re-selecting "Unassigned" would be a
+  // no-op (same value -> no onChange) and the operator could never clear it.
+  // Render the stale name as its own distinct option instead, so switching to
+  // "Unassigned" is a real value change.
+  const isDangling = selected !== '' && !choices.some((member) => member.name === selected)
 
   async function assign(value: string) {
     const previous = selected
@@ -248,12 +255,13 @@ export function CsmPicker({
         <select
           id={`viewbook-csm-${viewbookId}`}
           aria-label="Assigned CSM"
-          value={choices.some((member) => member.name === selected) ? selected : ''}
+          value={selected}
           disabled={busy}
           onChange={(event) => void assign(event.target.value)}
           className="rounded border border-gray-300 bg-white px-2 py-1 dark:border-navy-border dark:bg-navy-card dark:text-white disabled:opacity-60"
         >
           <option value="">Unassigned</option>
+          {isDangling && <option value={selected}>{`${selected} — no longer a CSM`}</option>}
           {choices.map((member) => <option key={member.name} value={member.name}>{member.name}</option>)}
         </select>
       </div>
