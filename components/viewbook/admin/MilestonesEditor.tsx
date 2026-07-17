@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { jsonFetch } from './viewbook-admin-shared'
+import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 interface MilestoneRow {
   id: number
@@ -24,21 +25,31 @@ export function MilestonesEditor({
   const [title, setTitle] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const { focused, onFocus, onBlur } = useFocusWithin()
+
+  // PR2 Task 6: active while a new-milestone title is drafted, an edit row
+  // is open (its own EditFields registration also fires — belt and
+  // suspenders), a save is in flight, or focus remains within this list.
+  useEditorActivity('admin-new-milestone', title.trim() !== '' || editingId !== null || busy || focused)
 
   async function run(fn: () => Promise<unknown>) {
+    setBusy(true)
     setError(null)
     try {
       await fn()
       onChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save_failed')
+    } finally {
+      setBusy(false)
     }
   }
 
   const nextOrder = Math.max(0, ...milestones.map((m) => m.sortOrder)) + 1
 
   return (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-4 text-sm" onFocus={onFocus} onBlur={onBlur}>
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
       <ol className="space-y-2">
         {milestones.map((m) => (
@@ -176,8 +187,20 @@ function EditFields({
   const [blurb, setBlurb] = useState(milestone.blurb ?? '')
   const [sortOrder, setSortOrder] = useState(String(milestone.sortOrder))
   const [targetDate, setTargetDate] = useState(milestone.targetDate ? milestone.targetDate.slice(0, 10) : '')
+  const { focused, onFocus, onBlur } = useFocusWithin()
+
+  // PR2 Task 6: active while this edit row's drafts differ from the loaded
+  // milestone, or focus remains within the row (it's already open — any
+  // input differing counts, per the "err on active" fallback).
+  const dirty =
+    title !== milestone.title ||
+    blurb !== (milestone.blurb ?? '') ||
+    sortOrder !== String(milestone.sortOrder) ||
+    targetDate !== (milestone.targetDate ? milestone.targetDate.slice(0, 10) : '')
+  useEditorActivity(`admin-milestone-edit-${milestone.id}`, dirty || focused)
+
   return (
-    <span className="flex flex-wrap items-center gap-1">
+    <span className="flex flex-wrap items-center gap-1" onFocus={onFocus} onBlur={onBlur}>
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}

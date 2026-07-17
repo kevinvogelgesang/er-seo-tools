@@ -44,6 +44,10 @@ async function mkViewbook() {
   return { ...viewbook, field }
 }
 
+async function syncVersion(viewbookId: number): Promise<number> {
+  return (await prisma.viewbook.findUniqueOrThrow({ where: { id: viewbookId } })).syncVersion
+}
+
 describe('viewbook PR3 operator routes', () => {
   it('locks idempotently with session-derived first-writer attribution', async () => {
     const ctx = await mkViewbook()
@@ -67,6 +71,7 @@ describe('viewbook PR3 operator routes', () => {
     await prisma.viewbook.update({
       where: { id: ctx.id }, data: { dataLockedAt: new Date(Date.now() + 1000), dataLockedBy: 'operator@example.com' },
     })
+    const before = await syncVersion(ctx.id)
     const created = await createField(req(`/api/viewbooks/${ctx.id}/fields`, {
       method: 'POST', body: JSON.stringify({ label: 'Custom question', fieldType: 'textarea', category: 'school' }),
     }), params({ id: String(ctx.id) }))
@@ -75,11 +80,23 @@ describe('viewbook PR3 operator routes', () => {
     expect(field).toMatchObject({ defKey: null, label: 'Custom question', version: 0, createdBy: 'operator@example.com' })
     const locked = await prisma.viewbook.findUniqueOrThrow({ where: { id: ctx.id } })
     expect(new Date(field.createdAt).getTime()).toBeGreaterThan(locked.dataLockedAt!.getTime())
+    expect(await syncVersion(ctx.id)).toBe(before + 1)
 
+    const beforeInvalid = await syncVersion(ctx.id)
     const invalid = await createField(req(`/api/viewbooks/${ctx.id}/fields`, {
       method: 'POST', body: JSON.stringify({ label: '', fieldType: 'bogus', category: 'nope' }),
     }), params({ id: String(ctx.id) }))
     expect(invalid.status).toBe(400)
+    // 400 body validation never reaches the DB — no bump
+    expect(await syncVersion(ctx.id)).toBe(beforeInvalid)
+
+    const crossViewbook = await mkViewbook()
+    const beforeCross = await syncVersion(crossViewbook.id)
+    const missing = await createField(req(`/api/viewbooks/999999999/fields`, {
+      method: 'POST', body: JSON.stringify({ label: 'Nope', fieldType: 'text', category: 'school' }),
+    }), params({ id: '999999999' }))
+    expect(missing.status).toBe(404)
+    expect(await syncVersion(crossViewbook.id)).toBe(beforeCross)
   })
 
   it('edits answers, relabels custom fields only, and creates operator amendments', async () => {
@@ -90,19 +107,24 @@ describe('viewbook PR3 operator routes', () => {
     expect(edited.status).toBe(200)
     expect((await edited.json()).field).toMatchObject({ value: 'Operator answer', version: 1, valueUpdatedBy: 'operator@example.com' })
 
+    const beforeCatalog = await syncVersion(ctx.id)
     const catalogRelabel = await patchField(req(`/api/viewbooks/${ctx.id}/fields/${ctx.field.id}`, {
       method: 'PATCH', body: JSON.stringify({ label: 'Nope' }),
     }), params({ id: String(ctx.id), fieldId: String(ctx.field.id) }))
     expect(catalogRelabel.status).toBe(400)
+    // a catalog (defKey-owned) field can't be relabeled — no bump
+    expect(await syncVersion(ctx.id)).toBe(beforeCatalog)
 
     const custom = await prisma.viewbookField.create({
       data: { viewbookId: ctx.id, category: 'school', label: 'Old label', fieldType: 'text', sortOrder: 999, createdBy: 'operator@example.com' },
     })
+    const beforeRelabel = await syncVersion(ctx.id)
     const relabeled = await patchField(req(`/api/viewbooks/${ctx.id}/fields/${custom.id}`, {
       method: 'PATCH', body: JSON.stringify({ label: 'New label' }),
     }), params({ id: String(ctx.id), fieldId: String(custom.id) }))
     expect(relabeled.status).toBe(200)
     expect((await relabeled.json()).field.label).toBe('New label')
+    expect(await syncVersion(ctx.id)).toBe(beforeRelabel + 1)
 
     await lockRoute(req(`/api/viewbooks/${ctx.id}/lock`, { method: 'POST' }), params({ id: String(ctx.id) }))
     const amended = await patchField(req(`/api/viewbooks/${ctx.id}/fields/${ctx.field.id}`, {
@@ -117,16 +139,21 @@ describe('viewbook PR3 operator routes', () => {
   it('soft-archives with ownership fencing', async () => {
     const a = await mkViewbook()
     const b = await mkViewbook()
+    const beforeCross = await syncVersion(b.id)
     const cross = await archiveField(
       req(`/api/viewbooks/${b.id}/fields/${a.field.id}`, { method: 'DELETE' }),
       params({ id: String(b.id), fieldId: String(a.field.id) }),
     )
     expect(cross.status).toBe(404)
+    // cross-viewbook target 404s — no bump on either viewbook
+    expect(await syncVersion(b.id)).toBe(beforeCross)
+    const beforeArchive = await syncVersion(a.id)
     const archived = await archiveField(
       req(`/api/viewbooks/${a.id}/fields/${a.field.id}`, { method: 'DELETE' }),
       params({ id: String(a.id), fieldId: String(a.field.id) }),
     )
     expect(archived.status).toBe(200)
     expect((await prisma.viewbookField.findUniqueOrThrow({ where: { id: a.field.id } })).archivedAt).toBeInstanceOf(Date)
+    expect(await syncVersion(a.id)).toBe(beforeArchive + 1)
   })
 })

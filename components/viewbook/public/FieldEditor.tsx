@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import type { PublicField } from '@/lib/viewbook/public-types'
 import { AmendmentForm } from './AmendmentForm'
+import { requestRefresh, useEditorActivity } from './useViewbookSync'
 
 function draftFromValue(fieldType: string, value: string | null): string {
   if (value == null) return ''
@@ -29,7 +29,37 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
   const [busy, setBusy] = useState(false)
   const [locked, setLocked] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
+  const [focused, setFocused] = useState(false)
+
+  // PR2 Task 6: this field is "active" (suppresses the shared refresher)
+  // while focused, mid-save, or holding an unsaved draft — dispose on unmount.
+  const dirty = draft !== draftFromValue(field.fieldType, current.value)
+  const registryId = `field-${field.id}`
+  useEditorActivity(registryId, focused || busy || dirty)
+
+  // Final-review fix (P1): `current`/`draft` used to be seeded ONCE from the
+  // `field` prop (`useState(field.value)`), so a router.refresh() that lands
+  // a genuinely newer server value (another session's edit, or an amendment
+  // approval) never reached this island — the stale draft just kept
+  // showing. Reconcile while idle: adopt the incoming field value/version
+  // ONLY when this field isn't focused/busy, the incoming prop is ACTUALLY
+  // NEWER than what's already adopted (`field.version > current.version` —
+  // NOT merely "different": `current` can already be ahead of the mount-time
+  // `field` prop via a 409 conflict response or a successful save, and the
+  // prop itself may not have caught up yet; a plain inequality check would
+  // wrongly regress `current` back to that stale prop), AND the draft
+  // hasn't locally diverged from the last-adopted value (an untouched
+  // field, or one whose own save already landed via `current`) — a
+  // genuinely dirty draft is left alone, matching the registry's existing
+  // "never clobber a focused/dirty/busy editor" contract.
+  useEffect(() => {
+    if (focused || busy) return
+    if (field.version <= current.version) return
+    if (draft !== draftFromValue(field.fieldType, current.value)) return // diverged locally
+    setCurrent({ value: field.value, version: field.version })
+    setDraft(draftFromValue(field.fieldType, field.value))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [field.value, field.version, focused, busy])
 
   async function save() {
     const value = requestValue(field.fieldType, draft)
@@ -61,7 +91,7 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
       setCurrent({ value: body.field.value, version: body.field.version })
       setDraft(draftFromValue(field.fieldType, body.field.value))
       setMessage('Saved')
-      setRefreshKey((key) => key + 1)
+      requestRefresh()
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Could not save this answer.')
     } finally {
@@ -85,13 +115,16 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
     'aria-label': `Answer for ${field.label}`,
     value: draft,
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value),
-    onBlur: () => void save(),
+    onFocus: () => setFocused(true),
+    onBlur: () => {
+      setFocused(false)
+      void save()
+    },
     disabled: busy,
     className: 'mt-1 w-full rounded-lg border border-black/15 bg-white p-3 text-black disabled:opacity-60',
   }
   return (
     <div>
-      {refreshKey > 0 && <RefreshAfterSave key={refreshKey} />}
       <span className="sr-only">Current answer: {draft}</span>
       {field.fieldType === 'text'
         ? <input {...common} />
@@ -99,10 +132,4 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
       {message && <p aria-live="polite" className="mt-1 text-xs text-black/50">{message}</p>}
     </div>
   )
-}
-
-function RefreshAfterSave() {
-  const router = useRouter()
-  useEffect(() => router.refresh(), [router])
-  return null
 }

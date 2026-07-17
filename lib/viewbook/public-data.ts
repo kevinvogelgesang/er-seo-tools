@@ -93,6 +93,7 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     theme: parseStoredTheme(vb.themeJson),
     stage,
     stageLabel: STAGE_LABELS[stage],
+    syncVersion: vb.syncVersion,
     primarySections,
     carriedSections,
     fieldCategories,

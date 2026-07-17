@@ -1,7 +1,7 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { FormEvent, useId, useState } from 'react'
+import { requestRefresh, useEditorActivity, useFocusWithin } from './useViewbookSync'
 
 interface MaterialLink {
   id: number
@@ -15,12 +15,19 @@ interface Props {
 }
 
 export function MaterialLinkForm({ token, onCreated }: Props) {
-  const router = useRouter()
   const [label, setLabel] = useState('')
   const [url, setUrl] = useState('')
   const [authorName, setAuthorName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { focused, onFocus, onBlur } = useFocusWithin()
+  const instanceId = useId()
+
+  // PR2 Task 6: active while any field has unsaved input, mid-submit, or
+  // focus remains inside the form — dispose on unmount.
+  const registryId = `material-link-form-${instanceId}`
+  const dirty = label.trim() !== '' || url.trim() !== '' || authorName.trim() !== ''
+  useEditorActivity(registryId, focused || busy || dirty)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -37,7 +44,7 @@ export function MaterialLinkForm({ token, onCreated }: Props) {
       setLabel('')
       setUrl('')
       setAuthorName('')
-      router.refresh()
+      requestRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add this link. Please try again.')
     } finally {
@@ -45,7 +52,7 @@ export function MaterialLinkForm({ token, onCreated }: Props) {
     }
   }
 
-  return <form onSubmit={submit} className="space-y-3">
+  return <form onSubmit={submit} onFocus={onFocus} onBlur={onBlur} className="space-y-3">
     <label className="block text-sm font-medium">Link label
       <input required value={label} onChange={(event) => setLabel(event.target.value)}
         className="mt-1 w-full rounded-lg border border-current/20 bg-transparent p-3" />

@@ -92,6 +92,7 @@ export interface ViewbookPublicData {
   theme: ViewbookTheme
   stage: ViewbookStage
   stageLabel: string
+  syncVersion: number // PR2 live sync: poll /sync and refetch when it advances
   primarySections: PublicSection[] // this stage's primary lineup, visible only, lineup order
   carriedSections: PublicSection[] // this stage's carried lineup, visible only, lineup order
   fieldCategories: PublicFieldCategory[]

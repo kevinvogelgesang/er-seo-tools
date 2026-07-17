@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
@@ -12,6 +13,7 @@ import {
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { validateClientMutationId } from '@/lib/viewbook/public-write-guard'
+import { syncVersionBumpWhere } from '@/lib/viewbook/sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,7 +74,13 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
     }
     if (hasLabel) {
       const label = labelValue(body.label)
-      const [updated] = await prisma.$transaction([
+      const [, updated] = await prisma.$transaction([
+        syncVersionBumpWhere(viewbookId, Prisma.sql`
+          EXISTS (
+            SELECT 1 FROM "ViewbookField"
+            WHERE "id" = ${fieldId} AND "viewbookId" = ${viewbookId} AND "defKey" IS NULL AND "archivedAt" IS NULL
+          )
+        `),
         prisma.viewbookField.updateMany({
           where: { id: fieldId, viewbookId, defKey: null, archivedAt: null },
           data: { label },
@@ -100,7 +108,13 @@ export const DELETE = withRoute(async (request: NextRequest, { params }: RoutePa
   const { id: rawId, fieldId: rawFieldId } = await params
   const viewbookId = parseId(rawId)
   const fieldId = parseId(rawFieldId)
-  const [updated] = await prisma.$transaction([
+  const [, updated] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbookId, Prisma.sql`
+      EXISTS (
+        SELECT 1 FROM "ViewbookField"
+        WHERE "id" = ${fieldId} AND "viewbookId" = ${viewbookId} AND "archivedAt" IS NULL
+      )
+    `),
     prisma.viewbookField.updateMany({
       where: { id: fieldId, viewbookId, archivedAt: null },
       data: { archivedAt: new Date() },

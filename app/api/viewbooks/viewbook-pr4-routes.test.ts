@@ -45,10 +45,15 @@ async function mkViewbook() {
   return { ...vb, milestone }
 }
 
+async function syncVersion(viewbookId: number): Promise<number> {
+  return (await prisma.viewbook.findUniqueOrThrow({ where: { id: viewbookId } })).syncVersion
+}
+
 describe('viewbook PR4 operator routes', () => {
   it('creates https review links and fences milestone ownership', async () => {
     const a = await mkViewbook()
     const b = await mkViewbook()
+    const before = await syncVersion(a.id)
     const ok = await createReviewLink(
       req(`/api/viewbooks/${a.id}/milestones/${a.milestone.id}/review-links`, {
         method: 'POST', body: JSON.stringify({ label: 'Homepage', url: 'https://example.com/mockup', kind: 'mockup' }),
@@ -56,6 +61,8 @@ describe('viewbook PR4 operator routes', () => {
       params({ id: String(a.id), milestoneId: String(a.milestone.id) }),
     )
     expect(ok.status).toBe(201)
+    expect(await syncVersion(a.id)).toBe(before + 1)
+    const beforeCross = await syncVersion(b.id)
     const cross = await createReviewLink(
       req(`/api/viewbooks/${b.id}/milestones/${a.milestone.id}/review-links`, {
         method: 'POST', body: JSON.stringify({ label: 'Nope', url: 'https://example.com', kind: 'live' }),
@@ -63,6 +70,8 @@ describe('viewbook PR4 operator routes', () => {
       params({ id: String(b.id), milestoneId: String(a.milestone.id) }),
     )
     expect(cross.status).toBe(404)
+    // cross-viewbook milestone ownership fails the guard — no bump
+    expect(await syncVersion(b.id)).toBe(beforeCross)
   })
 
   it('ownership-fences resolve and delete operations', async () => {
@@ -74,11 +83,14 @@ describe('viewbook PR4 operator routes', () => {
     const feedback = await prisma.viewbookFeedback.create({
       data: { reviewLinkId: link.id, body: 'Looks good', authorKind: 'client' },
     })
+    const beforeCrossResolve = await syncVersion(b.id)
     const crossResolve = await resolveFeedback(
       req(`/api/viewbooks/${b.id}/feedback/${feedback.id}/resolve`, { method: 'POST' }),
       params({ id: String(b.id), feedbackId: String(feedback.id) }),
     )
     expect(crossResolve.status).toBe(404)
+    expect(await syncVersion(b.id)).toBe(beforeCrossResolve)
+    const beforeResolve = await syncVersion(a.id)
     const resolved = await resolveFeedback(
       req(`/api/viewbooks/${a.id}/feedback/${feedback.id}/resolve`, { method: 'POST' }),
       params({ id: String(a.id), feedbackId: String(feedback.id) }),
@@ -86,16 +98,21 @@ describe('viewbook PR4 operator routes', () => {
     expect(resolved.status).toBe(200)
     expect((await prisma.viewbookFeedback.findUniqueOrThrow({ where: { id: feedback.id } })).resolvedBy)
       .toBe('operator@example.com')
+    expect(await syncVersion(a.id)).toBe(beforeResolve + 1)
+    const beforeCrossDelete = await syncVersion(b.id)
     const crossDelete = await deleteReviewLink(
       req(`/api/viewbooks/${b.id}/review-links/${link.id}`, { method: 'DELETE' }),
       params({ id: String(b.id), reviewLinkId: String(link.id) }),
     )
     expect(crossDelete.status).toBe(404)
+    expect(await syncVersion(b.id)).toBe(beforeCrossDelete)
+    const beforeDelete = await syncVersion(a.id)
     const deleted = await deleteReviewLink(
       req(`/api/viewbooks/${a.id}/review-links/${link.id}`, { method: 'DELETE' }),
       params({ id: String(a.id), reviewLinkId: String(link.id) }),
     )
     expect(deleted.status).toBe(200)
+    expect(await syncVersion(a.id)).toBe(beforeDelete + 1)
   })
 
   it('returns a cursor-paginated operator activity feed', async () => {

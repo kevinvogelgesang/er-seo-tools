@@ -4,12 +4,21 @@
 // `fontFamily: var(--vb-body-font)`), not after it — otherwise carried
 // sections silently fall back to the app default font.
 import { render, cleanup } from '@testing-library/react'
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { ViewbookShell } from './ViewbookShell'
+import { __resetSyncRegistry } from './useViewbookSync'
 
-afterEach(cleanup)
+// ViewbookShell now mounts ViewbookSyncClient (PR2 Task 6), a 'use client'
+// island that calls useRouter() — this test renders outside an app router.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }))
+
+afterEach(() => {
+  cleanup()
+  __resetSyncRegistry()
+  vi.unstubAllGlobals()
+})
 
 const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
   sectionKey,

@@ -139,6 +139,7 @@ describe('isPublicPath — client viewbook public matchers (PR2)', () => {
     expect(isPublicPath('/api/viewbook/tok/feedback')).toBe(true);
     expect(isPublicPath('/api/viewbook/tok/materials')).toBe(true);
     expect(isPublicPath('/api/viewbook/tok/answers')).toBe(true);
+    expect(isPublicPath('/api/viewbook/tok/sync')).toBe(true);
   });
 
   it('shorter/deeper and near-match paths stay gated', () => {
@@ -150,9 +151,12 @@ describe('isPublicPath — client viewbook public matchers (PR2)', () => {
     expect(isPublicPath('/api/viewbook/tok/materials/x')).toBe(false);
     expect(isPublicPath('/api/viewbook/tok/answers/extra')).toBe(false);
     expect(isPublicPath('/api/viewbook/tok/answersx')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/syncx')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/sync/extra')).toBe(false);
     // admin API stays cookie-gated
     expect(isPublicPath('/api/viewbooks')).toBe(false);
     expect(isPublicPath('/api/viewbooks/3')).toBe(false);
+    expect(isPublicPath('/api/viewbooks/3/sync')).toBe(false);
     expect(isPublicPath('/viewbooks')).toBe(false);
   });
 });

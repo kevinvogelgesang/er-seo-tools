@@ -11,6 +11,7 @@ import {
   getAllGlobalContent,
   attachTeamPhoto,
   putContentOverride,
+  deleteContentOverride,
 } from './global-content'
 import { readViewbookAsset } from './assets'
 import { createViewbook } from './service'
@@ -119,6 +120,89 @@ describe('roster single-owner photos', () => {
     // Removing the member best-effort-deletes their photo file.
     await putGlobalContent('team', [{ name: 'New Person', role: 'x', photo: null, blurb: '' }], OPERATOR)
     expect(await readViewbookAsset('global', photo)).toBeNull()
+  })
+})
+
+async function mkClient() {
+  return prisma.client.create({ data: { name: `vb-test-${crypto.randomUUID()}` } })
+}
+
+async function syncVersion(viewbookId: number): Promise<number> {
+  return (await prisma.viewbook.findUniqueOrThrow({ where: { id: viewbookId } })).syncVersion
+}
+
+describe('syncVersion bumps (v2 PR2 task 4)', () => {
+  it('putGlobalContent (non-team) bumps every viewbook, unscoped', async () => {
+    const a = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    const b = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    const beforeA = await syncVersion(a.id)
+    const beforeB = await syncVersion(b.id)
+    await putGlobalContent('process', blocks, OPERATOR)
+    expect(await syncVersion(a.id)).toBe(beforeA + 1)
+    expect(await syncVersion(b.id)).toBe(beforeB + 1)
+  })
+
+  it('putTeamRoster stale-bodyJson conflict bumps nothing beyond the winner', async () => {
+    const a = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    await putGlobalContent('team', roster, OPERATOR)
+    const before = await syncVersion(a.id)
+    const results = await Promise.allSettled([
+      putGlobalContent('team', [{ ...roster[0], blurb: 'racer A' }], OPERATOR),
+      putGlobalContent('team', [{ ...roster[0], blurb: 'racer B' }], OPERATOR),
+    ])
+    const wins = results.filter((r) => r.status === 'fulfilled')
+    const losses = results.filter((r) => r.status === 'rejected')
+    expect(wins).toHaveLength(1)
+    expect(losses).toHaveLength(1)
+    expect((losses[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'roster_conflict' })
+    // The loser's fenced bump rolls back with its updateMany — exactly ONE bump lands.
+    expect(await syncVersion(a.id)).toBe(before + 1)
+  })
+
+  it('attachTeamPhoto success bumps all viewbooks; forced stamp-conflict deletes the new file and bumps nothing', async () => {
+    const a = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    const b = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    await putGlobalContent('team', roster, OPERATOR)
+
+    const beforeA = await syncVersion(a.id)
+    const beforeB = await syncVersion(b.id)
+    await attachTeamPhoto('Kevin', PNG, OPERATOR)
+    expect(await syncVersion(a.id)).toBe(beforeA + 1)
+    expect(await syncVersion(b.id)).toBe(beforeB + 1)
+
+    const beforeConflictA = await syncVersion(a.id)
+    await expect(
+      attachTeamPhoto('Kevin', PNG, OPERATOR, {
+        beforeStamp: async () => {
+          await putGlobalContent('team', [{ ...roster[0], blurb: 'edited meanwhile' }], OPERATOR)
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'roster_conflict' })
+    // The stale-tab attach's own bump rolls back with its updateMany; only the
+    // concurrent putGlobalContent's bump (inside beforeStamp) landed.
+    expect(await syncVersion(a.id)).toBe(beforeConflictA + 1)
+  })
+
+  it('putContentOverride bumps ONLY its own viewbook', async () => {
+    const own = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    const other = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    const beforeOwn = await syncVersion(own.id)
+    const beforeOther = await syncVersion(other.id)
+    await putContentOverride(own.id, 'seo-base', 'Your plan: local landing pages.', OPERATOR)
+    expect(await syncVersion(own.id)).toBe(beforeOwn + 1)
+    expect(await syncVersion(other.id)).toBe(beforeOther)
+  })
+
+  it('deleteContentOverride on a missing row 404s and bumps nothing', async () => {
+    const vb = await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    const before = await syncVersion(vb.id)
+    await expect(deleteContentOverride(vb.id, 'seo-base')).rejects.toMatchObject({ code: 'not_found' })
+    expect(await syncVersion(vb.id)).toBe(before)
+
+    await putContentOverride(vb.id, 'seo-base', 'Your plan v2.', OPERATOR)
+    const beforeDelete = await syncVersion(vb.id)
+    await deleteContentOverride(vb.id, 'seo-base')
+    expect(await syncVersion(vb.id)).toBe(beforeDelete + 1)
   })
 })
 

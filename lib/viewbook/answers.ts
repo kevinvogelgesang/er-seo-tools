@@ -12,6 +12,7 @@ import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
 import { requireViewbookToken } from './route-auth'
 import { validateClientMutationId } from './public-write-guard'
+import { syncVersionBumpWhere } from './sync'
 
 const VALUE_CAP_BYTES = 8 * 1024
 const AMENDMENT_CAP = 20
@@ -108,6 +109,21 @@ function fieldAccessWhere(
   `
 }
 
+// Wraps a WHERE fragment built from the f/v/c/s aliases (editableWhere,
+// amendmentWhere) in a SELF-CONTAINED EXISTS subquery declaring those same
+// aliases itself — safe to embed in the syncVersion bump's outer UPDATE
+// "Viewbook" (which has no aliases of its own), unlike pasting the bare
+// fragment (Codex wave-2 fix 2).
+function fieldJoinExists(where: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`EXISTS (
+    SELECT 1 FROM "ViewbookField" f
+    JOIN "Viewbook" v ON v."id" = f."viewbookId"
+    JOIN "Client" c ON c."id" = v."clientId"
+    JOIN "ViewbookSection" s ON s."viewbookId" = v."id"
+    WHERE ${where}
+  )`
+}
+
 function editableWhere(
   viewbookId: number,
   token: string | null,
@@ -180,7 +196,8 @@ export async function applyAnswerEdit(
   await hooks.beforeCommit?.()
   const now = Date.now()
   const where = editableWhere(viewbook.id, token, input, value)
-  const [activityCount, updateCount] = await prisma.$transaction([
+  const [, activityCount, updateCount] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbook.id, fieldJoinExists(where)),
     prisma.$executeRaw`
       INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
       SELECT v."id", 'answer', ${actor}, 'Updated Data Source answer', ${now}
@@ -264,7 +281,11 @@ export async function proposeAmendment(
   await hooks.beforeCommit?.()
   const now = Date.now()
   const where = amendmentWhere(viewbook.id, token, input, value)
-  const [activityCount, insertCount] = await prisma.$transaction([
+  const replayGuard = Prisma.sql`NOT EXISTS (
+    SELECT 1 FROM "ViewbookFieldAmendment" a WHERE a."clientMutationId" = ${clientMutationId}
+  )`
+  const [, activityCount, insertCount] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbook.id, Prisma.sql`${replayGuard} AND ${fieldJoinExists(where)}`),
     prisma.$executeRaw`
       INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
       SELECT v."id", 'amendment', ${actor}, 'Proposed a Data Source amendment', ${now}
@@ -272,9 +293,7 @@ export async function proposeAmendment(
       JOIN "Viewbook" v ON v."id" = f."viewbookId"
       JOIN "Client" c ON c."id" = v."clientId"
       JOIN "ViewbookSection" s ON s."viewbookId" = v."id"
-      WHERE NOT EXISTS (
-        SELECT 1 FROM "ViewbookFieldAmendment" a WHERE a."clientMutationId" = ${clientMutationId}
-      ) AND ${where}
+      WHERE ${replayGuard} AND ${where}
     `,
     prisma.$executeRaw`
       INSERT INTO "ViewbookFieldAmendment"
@@ -324,7 +343,11 @@ export async function lockViewbook(
 ): Promise<{ dataLockedAt: Date; dataLockedBy: string | null; alreadyLocked: boolean }> {
   const now = new Date()
   const nowMs = now.getTime()
-  const [activityCount, updated] = await prisma.$transaction([
+  const notYetLocked = Prisma.sql`EXISTS (
+    SELECT 1 FROM "Viewbook" WHERE "id" = ${viewbookId} AND "dataLockedAt" IS NULL
+  )`
+  const [, activityCount, updated] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbookId, notYetLocked),
     prisma.$executeRaw`
       INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
       SELECT v."id", 'lock', ${operatorEmail}, 'Locked in Data Source answers', ${nowMs}

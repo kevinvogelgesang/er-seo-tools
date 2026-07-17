@@ -27,6 +27,7 @@ import {
 import { isViewbookStage, nextStage, prevStage, type ViewbookStage } from './stages'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { appendActivityStatements } from './activity'
+import { syncVersionBumpStatement, syncVersionBumpWhere } from './sync'
 
 export type ViewbookKind = 'new-build' | 'upgrade'
 
@@ -137,7 +138,7 @@ export async function updateViewbookTheme(id: number, raw: unknown): Promise<Vie
   const incoming = validateViewbookTheme(raw)
   if (!incoming) throw new HttpError(400, 'invalid_theme')
   const theme: ViewbookTheme = { ...incoming, logo: stored.logo, sectionHeroes: stored.sectionHeroes }
-  await mustUpdateViewbook(id, { themeJson: JSON.stringify(theme) })
+  await mustUpdateViewbook(id, { themeJson: JSON.stringify(theme) }, { bump: true })
   return theme
 }
 
@@ -165,7 +166,10 @@ export async function updateViewbookSettings(
     data.kind = patch.kind
   }
   if (Object.keys(data).length === 0) throw new HttpError(400, 'invalid_settings')
-  await mustUpdateViewbook(id, data)
+  // Mixed metadata (spec §6): welcomeNote/kind are rendered viewbook content and
+  // bump; a notifyEmail-only patch is delivery metadata and must not.
+  const bump = 'welcomeNote' in patch || patch.kind !== undefined
+  await mustUpdateViewbook(id, data, { bump })
 }
 
 export async function rotateViewbookToken(id: number): Promise<{ token: string }> {
@@ -191,9 +195,11 @@ export async function setSectionState(
         where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },
         data: { state, doneAt: state === 'done' ? new Date() : null },
       })
+    // Unconditional bump joins the array (mechanism a) — the compound-where
+    // update throws P2025 on an unknown section key, rolling the bump back.
     await prisma.$transaction(state === 'done'
-      ? [update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
-      : [update])
+      ? [syncVersionBumpStatement(id), update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
+      : [syncVersionBumpStatement(id), update])
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
       throw new HttpError(404, 'not_found')
@@ -218,10 +224,16 @@ export async function updateSectionText(
     data.narrative = patch.narrative
   }
   if (Object.keys(data).length === 0) throw new HttpError(400, 'invalid_section')
-  await prisma.viewbookSection.update({
-    where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },
-    data,
-  })
+  // Unconditional bump joins the array (mechanism a) — the compound-where
+  // update throws P2025 on an unknown viewbook/section pair, rolling the
+  // bump back with it.
+  await prisma.$transaction([
+    syncVersionBumpStatement(id),
+    prisma.viewbookSection.update({
+      where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },
+      data,
+    }),
+  ])
 }
 
 function assertSectionKey(key: string): asserts key is SectionKey {
@@ -249,7 +261,11 @@ export async function moveViewbookStage(
   if (!target) throw new HttpError(409, 'stage_conflict')
   const eventKey = crypto.randomUUID()
   try {
+    // Unconditional bump joins the array (mechanism a) — the expectedStage
+    // compound-where update throws P2025 on the loser of a race, rolling the
+    // bump back with the log + activity rows.
     await prisma.$transaction([
+      syncVersionBumpStatement(id),
       prisma.viewbook.update({ where: { id, stage: expectedStage }, data: { stage: target } }),
       prisma.viewbookStageLog.create({ data: { viewbookId: id, eventKey, stage: target, direction, actor } }),
       ...appendActivityStatements(id, 'stage-change', actor, `Moved to stage: ${target}`),
@@ -277,7 +293,10 @@ export async function createMilestone(
   const vb = await prisma.viewbook.findUnique({ where: { id: viewbookId }, select: { id: true } })
   if (!vb) throw new HttpError(404, 'not_found')
   if (opts.current) {
-    const [, created] = await prisma.$transaction([
+    // Unconditional bump joins the array (mechanism a) — the create throws
+    // on failure, rolling the bump + demote back with it.
+    const [, , created] = await prisma.$transaction([
+      syncVersionBumpStatement(viewbookId),
       prisma.viewbookMilestone.updateMany({
         where: { viewbookId, status: 'current' },
         data: { status: 'upcoming' },
@@ -288,9 +307,13 @@ export async function createMilestone(
     ])
     return created
   }
-  return prisma.viewbookMilestone.create({
-    data: { viewbookId, title: data.title, blurb: data.blurb ?? null, sortOrder: data.sortOrder, targetDate: data.targetDate ?? null },
-  })
+  const [, created] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbookId, Prisma.sql`EXISTS (SELECT 1 FROM "Viewbook" WHERE "id" = ${viewbookId})`),
+    prisma.viewbookMilestone.create({
+      data: { viewbookId, title: data.title, blurb: data.blurb ?? null, sortOrder: data.sortOrder, targetDate: data.targetDate ?? null },
+    }),
+  ])
+  return created
 }
 
 export async function updateMilestone(
@@ -315,8 +338,9 @@ export async function updateMilestone(
 
   if (patch.status === 'current') {
     // Fenced promote: the second statement's compound where throws P2025 on a
-    // missing/cross-viewbook target and rolls the demote back with it.
-    const [, updated] = await prisma.$transaction([
+    // missing/cross-viewbook target and rolls the demote (+ bump) back with it.
+    const [, , updated] = await prisma.$transaction([
+      syncVersionBumpStatement(viewbookId),
       prisma.viewbookMilestone.updateMany({
         where: { viewbookId, status: 'current', id: { not: milestoneId } },
         data: { status: 'upcoming' },
@@ -325,11 +349,24 @@ export async function updateMilestone(
     ])
     return updated
   }
-  return prisma.viewbookMilestone.update({ where: { id: milestoneId, viewbookId }, data })
+  // Unconditional bump joins the array (mechanism a) — the compound-where
+  // update throws P2025 on a missing/cross-viewbook target, rolling the
+  // bump back with it.
+  const [, updated] = await prisma.$transaction([
+    syncVersionBumpStatement(viewbookId),
+    prisma.viewbookMilestone.update({ where: { id: milestoneId, viewbookId }, data }),
+  ])
+  return updated
 }
 
 export async function deleteMilestone(viewbookId: number, milestoneId: number): Promise<void> {
-  const res = await prisma.viewbookMilestone.deleteMany({ where: { id: milestoneId, viewbookId } })
+  const [, res] = await prisma.$transaction([
+    syncVersionBumpWhere(
+      viewbookId,
+      Prisma.sql`EXISTS (SELECT 1 FROM "ViewbookMilestone" WHERE "id" = ${milestoneId} AND "viewbookId" = ${viewbookId})`,
+    ),
+    prisma.viewbookMilestone.deleteMany({ where: { id: milestoneId, viewbookId } }),
+  ])
   if (res.count === 0) throw new HttpError(404, 'not_found')
 }
 
@@ -349,17 +386,24 @@ export async function syncCatalogQuestions(viewbookId: number): Promise<{ added:
   for (const e of CATALOG) {
     if (have.has(e.defKey)) continue
     try {
-      await prisma.viewbookField.create({
-        data: {
-          viewbookId,
-          defKey: e.defKey,
-          category: e.category,
-          label: e.label,
-          fieldType: e.fieldType,
-          sortOrder: e.sortOrder,
-          createdBy: 'seed',
-        },
-      })
+      // Each admitted insert is its own bump+create transaction (mechanism
+      // a, per-row): a concurrent-loser P2002 rolls the bump back along with
+      // the skipped row — atomicity beats increment-exactness (Codex wave-2
+      // fix 1).
+      await prisma.$transaction([
+        syncVersionBumpStatement(viewbookId),
+        prisma.viewbookField.create({
+          data: {
+            viewbookId,
+            defKey: e.defKey,
+            category: e.category,
+            label: e.label,
+            fieldType: e.fieldType,
+            sortOrder: e.sortOrder,
+            createdBy: 'seed',
+          },
+        }),
+      ])
       added += 1
     } catch (err) {
       if (!isP2002(err)) throw err
@@ -406,11 +450,18 @@ async function attachThemeAsset(
   }
   try {
     // Conditional stamp fenced on the loaded themeJson: a concurrent theme
-    // write means 0 rows — delete the new file, honest 409.
-    const res = await prisma.viewbook.updateMany({
-      where: { id: viewbookId, themeJson: vb.themeJson },
-      data: { themeJson: JSON.stringify(validated) },
-    })
+    // write means 0 rows — delete the new file, honest 409. The bump shares
+    // the SAME fence (mechanism c) so a lost race bumps nothing.
+    const [, res] = await prisma.$transaction([
+      syncVersionBumpWhere(
+        viewbookId,
+        Prisma.sql`EXISTS (SELECT 1 FROM "Viewbook" WHERE "id" = ${viewbookId} AND "themeJson" IS ${vb.themeJson})`,
+      ),
+      prisma.viewbook.updateMany({
+        where: { id: viewbookId, themeJson: vb.themeJson },
+        data: { themeJson: JSON.stringify(validated) },
+      }),
+    ])
     if (res.count === 0) {
       await deleteViewbookAssets(scope, [filename])
       throw new HttpError(409, 'theme_conflict')
@@ -458,7 +509,23 @@ export async function collectClientViewbookAssetSnapshot(
   return { viewbookId: vb.id, filenames: themeFilenames(parseStoredTheme(vb.themeJson)) }
 }
 
-async function mustUpdateViewbook(id: number, data: Record<string, unknown>): Promise<void> {
+// bump: true rides the same array-form transaction as the updateMany
+// (mechanism c) — predicated on the row still existing, mirroring the
+// updateMany's own `where`. bump: false (default) covers rotate/revoke,
+// which are token/delivery metadata, never rendered content (spec §6).
+async function mustUpdateViewbook(
+  id: number,
+  data: Record<string, unknown>,
+  opts: { bump?: boolean } = {},
+): Promise<void> {
+  if (opts.bump) {
+    const [, res] = await prisma.$transaction([
+      syncVersionBumpWhere(id, Prisma.sql`EXISTS (SELECT 1 FROM "Viewbook" WHERE "id" = ${id})`),
+      prisma.viewbook.updateMany({ where: { id }, data }),
+    ])
+    if (res.count === 0) throw new HttpError(404, 'not_found')
+    return
+  }
   const res = await prisma.viewbook.updateMany({ where: { id }, data })
   if (res.count === 0) throw new HttpError(404, 'not_found')
 }

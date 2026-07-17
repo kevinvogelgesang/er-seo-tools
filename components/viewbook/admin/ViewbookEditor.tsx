@@ -12,6 +12,7 @@ import { MilestonesEditor } from './MilestonesEditor'
 import { FeedbackTab } from './FeedbackTab'
 import { ActivityFeed } from './ActivityFeed'
 import { DataSourceTab } from './DataSourceTab'
+import { useBaselineSync, useEditorActivity, useFocusWithin, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
 
 const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 
@@ -33,6 +34,22 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  // PR2 Task 6: poll the admin version endpoint every ~3.5s (default cadence)
+  // while visible; onChange only fires while the editor registry is idle —
+  // an operator mid-edit in ThemeEditor/ContentTab/DataSourceTab/
+  // MilestonesEditor/SettingsTab is never clobbered by a background reload.
+  // `enabled: vb !== null` (NIT fix): the mount-time `load()` above is still
+  // in flight on the very first render, so `vb?.syncVersion ?? 0` is a
+  // placeholder — polling against that placeholder would race the mount
+  // load and fire a redundant second GET the moment the poll observes the
+  // REAL version. Gate the hook off the same `vb` load state instead.
+  useViewbookSync({
+    url: `/api/viewbooks/${viewbookId}/sync`,
+    initialVersion: vb?.syncVersion ?? 0,
+    enabled: vb !== null,
+    onChange: () => void load(),
+  })
 
   if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
   if (!vb) return <p className="text-sm text-gray-400">Loading…</p>
@@ -108,24 +125,39 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
 }
 
 function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => void }) {
-  const [notifyEmail, setNotifyEmail] = useState(vb.notifyEmail ?? '')
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const { focused, onFocus, onBlur } = useFocusWithin()
 
-  async function run(label: string, fn: () => Promise<unknown>) {
+  // Final-review fix (P1): `notifyEmail` used to be seeded ONCE from
+  // `vb.notifyEmail` and dirty was computed directly against the raw prop —
+  // the same falsely-permanent-dirty bug as ThemeEditor/ContentTab (a
+  // background `load()` advancing `vb`, including THIS tab's own save
+  // landing, left `dirty` stuck true forever). `useBaselineSync` reconciles
+  // while idle and `commit()` is called immediately on a successful save.
+  const { draft: notifyEmail, setDraft: setNotifyEmail, dirty, commit } =
+    useBaselineSync(vb.notifyEmail ?? '', focused || busy)
+  useEditorActivity('admin-settings', dirty || busy || focused)
+
+  async function run(label: string, fn: () => Promise<unknown>, onSuccess?: () => void) {
+    setBusy(true)
     setError(null)
     try {
       await fn()
+      onSuccess?.()
       setFlash(label)
       setTimeout(() => setFlash(null), 1500)
       onChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save_failed')
+    } finally {
+      setBusy(false)
     }
   }
 
   return (
-    <div className="space-y-5 text-sm">
+    <div className="space-y-5 text-sm" onFocus={onFocus} onBlur={onBlur}>
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
       {flash && <p className="text-teal-600 dark:text-teal-400">{flash} done.</p>}
 
@@ -163,12 +195,15 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
         />
         <button
           onClick={() =>
-            void run('Notify email', () =>
-              jsonFetch(`/api/viewbooks/${vb.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notifyEmail: notifyEmail || null }),
-              }),
+            void run(
+              'Notify email',
+              () =>
+                jsonFetch(`/api/viewbooks/${vb.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ notifyEmail: notifyEmail || null }),
+                }),
+              () => commit(notifyEmail),
             )
           }
           className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700"
