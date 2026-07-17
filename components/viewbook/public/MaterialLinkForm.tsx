@@ -1,7 +1,7 @@
 'use client'
 
-import { FormEvent, useEffect, useId, useState } from 'react'
-import { registerEditorActivity, requestRefresh, useFocusWithin } from './useViewbookSync'
+import { FormEvent, useId, useState } from 'react'
+import { requestRefresh, useEditorActivity, useFocusWithin } from './useViewbookSync'
 
 interface MaterialLink {
   id: number
@@ -27,10 +27,7 @@ export function MaterialLinkForm({ token, onCreated }: Props) {
   // focus remains inside the form — dispose on unmount.
   const registryId = `material-link-form-${instanceId}`
   const dirty = label.trim() !== '' || url.trim() !== '' || authorName.trim() !== ''
-  useEffect(() => {
-    registerEditorActivity(registryId, focused || busy || dirty)
-    return () => registerEditorActivity(registryId, false)
-  }, [registryId, focused, busy, dirty])
+  useEditorActivity(registryId, focused || busy || dirty)
 
   async function submit(event: FormEvent) {
     event.preventDefault()

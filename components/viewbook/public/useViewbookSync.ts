@@ -35,6 +35,16 @@ function isRegistryIdle(): boolean {
 /**
  * Islands call this on focus/dirty/save-in-flight transitions. Call with
  * `active: false` (or rely on the unmount cleanup calling it) to dispose.
+ *
+ * The idle-transition flush is deferred to a microtask and RE-CHECKS
+ * idleness before running listeners. This matters because a per-keystroke
+ * effect-deps change (the pre-`useEditorActivity` inline pattern, and any
+ * future caller shaped like it) unregisters and immediately re-registers
+ * the SAME id synchronously within one render/effect pass — a transient
+ * idle window with no real release. Without the defer+recheck, that
+ * transient window would flush a held refresh mid-keystroke. Queuing the
+ * notification lets the synchronous re-register (if any) land first; only a
+ * genuine release is still idle by the time the microtask runs.
  */
 export function registerEditorActivity(id: string, active: boolean): void {
   const wasIdle = isRegistryIdle()
@@ -44,8 +54,38 @@ export function registerEditorActivity(id: string, active: boolean): void {
     activeEditors.delete(id)
   }
   if (!wasIdle && isRegistryIdle()) {
-    for (const listener of Array.from(idleListeners)) listener()
+    queueMicrotask(() => {
+      if (!isRegistryIdle()) return // re-registered before this microtask ran — not a real release
+      for (const listener of Array.from(idleListeners)) listener()
+    })
   }
+}
+
+/**
+ * Owns an editor's registration for its entire mount lifetime: registers the
+ * current `active` level via an effect (no cleanup — nothing to unregister
+ * on a mere level change), and unregisters ONLY on unmount via a SEPARATE
+ * empty-deps effect. This is the shape every island/admin tab should use
+ * instead of inlining `useEffect(() => { registerEditorActivity(id, active);
+ * return () => registerEditorActivity(id, false) }, [...])` — that inline
+ * pattern's cleanup fires on every dependency change (e.g. a draft string
+ * changing per keystroke), which is exactly the per-keystroke idle-window
+ * bug the module-level defer above also guards against. Two independent
+ * layers, same failure class.
+ */
+export function useEditorActivity(id: string, active: boolean): void {
+  const idRef = useRef(id)
+  idRef.current = id
+
+  useEffect(() => {
+    registerEditorActivity(id, active)
+  }, [id, active])
+
+  useEffect(() => {
+    return () => registerEditorActivity(idRef.current, false)
+    // Unmount-only by design — see the doc comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 }
 
 /** Marks a pending refresh; the polling hook flushes it once the registry is idle. */
@@ -115,6 +155,17 @@ export interface UseViewbookSyncOpts {
   onChange: () => void
   /** Called (instead of onChange) on a terminal 404 — defaults to onChange. */
   onGone?: () => void
+  /**
+   * Defaults to `true`. Pass `false` while `initialVersion` is still a
+   * placeholder (e.g. the admin editor's initial `vb?.syncVersion ?? 0`
+   * before its first load resolves) — polling with a placeholder version
+   * races the mount-time load: the poll's first tick would observe the REAL
+   * remote version, treat it as a "change" from the placeholder, and fire a
+   * redundant second load. No fetch happens while disabled; polling starts
+   * (or resumes) the moment this flips true, using whatever `initialVersion`
+   * is current at that point.
+   */
+  enabled?: boolean
 }
 
 export function useViewbookSync(opts: UseViewbookSyncOpts): void {
@@ -134,6 +185,16 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
   useEffect(() => {
     urlRef.current = opts.url
   })
+  const enabled = opts.enabled ?? true
+  const enabledRef = useRef(enabled)
+  useEffect(() => {
+    enabledRef.current = enabled
+  })
+  // Exposes the mount effect's triggerTick to the enabled-transition effect
+  // below (declared before that effect runs, in source order) so flipping
+  // `enabled` from false to true kicks off the first real tick immediately
+  // instead of waiting out a full interval.
+  const triggerTickRef = useRef<() => void>(() => {})
 
   // lastKnown: the syncVersion the current props already reflect.
   const lastKnownRef = useRef(opts.initialVersion)
@@ -191,7 +252,27 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
       const hadPendingRefresh = pendingRefresh
       const observed = pendingObservedRef.current
       if (observed === null && !hadPendingRefresh) return
-      if (observed !== null && awaitingConfirmRef.current !== null) return // already latched, waiting for confirmation
+      if (observed !== null && awaitingConfirmRef.current !== null) {
+        // Already latched, waiting for confirmation of an earlier detected
+        // change. A requestRefresh() arriving during that wait is
+        // redundant — the latch's eventual clear already implies a refresh
+        // happened — so consume it now rather than leaving it to fire a
+        // spare onChange once the latch clears.
+        pendingRefresh = false
+        if (observed === awaitingConfirmRef.current) {
+          // Repeated ticks while latched keep re-observing the SAME
+          // already-armed value (server hasn't moved further yet) — that's
+          // not new information beyond the pending latch, so clear it. Left
+          // stale, the tick right after the latch clears would see this
+          // same old value, find lastKnownRef now equal to it (no reason to
+          // reassign), and tryFlush would misread the leftover as a fresh
+          // change — an extra onChange for nothing. A genuinely NEWER
+          // observed value (real change while still waiting) is left
+          // in place so it flushes once the latch clears.
+          pendingObservedRef.current = null
+        }
+        return
+      }
       pendingRefresh = false
       if (observed !== null) {
         awaitingConfirmRef.current = observed
@@ -201,7 +282,7 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
     }
 
     async function tick() {
-      if (disposed || inFlight) return
+      if (disposed || inFlight || !enabledRef.current) return
       inFlight = true
       clearTimer() // a manually-triggered tick preempts any still-pending schedule
       try {
@@ -253,8 +334,9 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
     document.addEventListener('visibilitychange', onVisibility)
     const unsubIdle = subscribeIdle(tryFlush)
     const unsubPendingRefresh = subscribePendingRefresh(triggerTick)
+    triggerTickRef.current = triggerTick
 
-    if (document.visibilityState === 'visible') void tick()
+    if (document.visibilityState === 'visible') void tick() // no-op while disabled — see enabledRef check in tick()
 
     return () => {
       disposed = true
@@ -266,6 +348,16 @@ export function useViewbookSync(opts: UseViewbookSyncOpts): void {
     // Mounted once — freshness is handled entirely via refs above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Kicks off the first real tick the moment `enabled` flips true (e.g. the
+  // admin editor's initial load resolving), using whatever initialVersion is
+  // current by then. A no-op while still disabled, while hidden (mirrors the
+  // mount effect's own visibility check — onVisibility resumes it later),
+  // or while already enabled at mount (the mount effect's own tick() call
+  // already ran; triggerTick's inFlight guard de-dupes the redundant call).
+  useEffect(() => {
+    if (enabled && document.visibilityState === 'visible') triggerTickRef.current()
+  }, [enabled])
 
   // Single-mount guard (Codex wave-2 fix 7): React Strict Mode's dev
   // double-mount runs mount→cleanup→mount synchronously within one tick, so

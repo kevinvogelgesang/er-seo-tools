@@ -3,11 +3,11 @@
 // Welcome note, per-section intro/narrative text, and per-client "your plan"
 // content overrides.
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
 import { GLOBAL_CONTENT_KEYS } from '@/lib/viewbook/global-content-keys'
 import { jsonFetch } from './viewbook-admin-shared'
-import { registerEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 interface SectionRow {
   sectionKey: string
@@ -43,11 +43,8 @@ export function ContentTab({
   // PR2 Task 6 (Codex wave-2 fix 6): active while the welcome-note draft
   // differs from the loaded value, a save is in flight, or focus remains in
   // this section.
-  useEffect(() => {
-    const dirty = welcome !== (welcomeNote ?? '')
-    registerEditorActivity('admin-content-welcome', dirty || busy || focused)
-    return () => registerEditorActivity('admin-content-welcome', false)
-  }, [welcome, welcomeNote, busy, focused])
+  const welcomeDirty = welcome !== (welcomeNote ?? '')
+  useEditorActivity('admin-content-welcome', welcomeDirty || busy || focused)
 
   async function run(label: string, fn: () => Promise<unknown>) {
     setBusy(true)
@@ -148,12 +145,8 @@ function SectionTextRow({
 
   // PR2 Task 6: active while intro/narrative drafts differ from the loaded
   // values or focus remains within this row.
-  useEffect(() => {
-    const dirty = intro !== (introNote ?? '') || (showNarrative && narr !== (narrative ?? ''))
-    const registryId = `admin-content-section-${sectionKey}`
-    registerEditorActivity(registryId, dirty || focused)
-    return () => registerEditorActivity(registryId, false)
-  }, [intro, narr, introNote, narrative, showNarrative, sectionKey, focused])
+  const dirty = intro !== (introNote ?? '') || (showNarrative && narr !== (narrative ?? ''))
+  useEditorActivity(`admin-content-section-${sectionKey}`, dirty || focused)
 
   return (
     <details className="rounded border border-gray-200 p-2 dark:border-navy-border" onFocus={onFocus} onBlur={onBlur}>
@@ -212,11 +205,7 @@ function OverrideRowEditor({
 
   // PR2 Task 6: active while the override draft differs from the loaded
   // value or focus remains within this row.
-  useEffect(() => {
-    const registryId = `admin-content-override-${contentKey}`
-    registerEditorActivity(registryId, text !== body || focused)
-    return () => registerEditorActivity(registryId, false)
-  }, [text, body, contentKey, focused])
+  useEditorActivity(`admin-content-override-${contentKey}`, text !== body || focused)
 
   return (
     <details className="rounded border border-gray-200 p-2 dark:border-navy-border" onFocus={onFocus} onBlur={onBlur}>

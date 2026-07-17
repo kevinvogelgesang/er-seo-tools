@@ -4,11 +4,11 @@
 // swatch/typography preview. The full shared public preview renderer arrives
 // in PR2 (ThemePreview.tsx) and mounts beside this editor.
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { FONT_CATALOG, SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import { jsonFetch } from './viewbook-admin-shared'
 import { ThemePreview } from './ThemePreview'
-import { registerEditorActivity } from '@/components/viewbook/public/useViewbookSync'
+import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 const COLOR_FIELDS = ['primary', 'secondary', 'tertiary'] as const
 
@@ -24,14 +24,13 @@ export function ThemeEditor({
   const [draft, setDraft] = useState<ViewbookTheme>(theme)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const { focused, onFocus, onBlur } = useFocusWithin()
 
   // PR2 Task 6 (Codex wave-2 fix 6): active while the draft theme differs
-  // from the loaded theme or a save/upload is in flight.
-  useEffect(() => {
-    const dirty = JSON.stringify(draft) !== JSON.stringify(theme)
-    registerEditorActivity('admin-theme', dirty || busy)
-    return () => registerEditorActivity('admin-theme', false)
-  }, [draft, theme, busy])
+  // from the loaded theme, a save/upload is in flight, or focus remains
+  // within this editor.
+  const dirty = JSON.stringify(draft) !== JSON.stringify(theme)
+  useEditorActivity('admin-theme', dirty || busy || focused)
 
   async function save() {
     setBusy(true)
@@ -71,7 +70,7 @@ export function ThemeEditor({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" onFocus={onFocus} onBlur={onBlur}>
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       <div className="flex flex-wrap gap-4">
         {COLOR_FIELDS.map((field) => (

@@ -12,6 +12,7 @@ import {
   __resetSyncRegistry,
   registerEditorActivity,
   requestRefresh,
+  useEditorActivity,
   useViewbookSync,
   type UseViewbookSyncOpts,
 } from './useViewbookSync'
@@ -134,6 +135,109 @@ describe('useViewbookSync', () => {
       registerEditorActivity('editor-1', false)
     })
     expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  // PR2 Task 6 fix wave — per-keystroke idle-window flush. Every editor
+  // island's registration effect used to inline
+  // `useEffect(() => { registerEditorActivity(id, active); return () =>
+  // registerEditorActivity(id, false) }, [...draft state])` — the cleanup
+  // ran on EVERY dependency change, so a keystroke (draft string changes,
+  // deps re-evaluate) unregistered then immediately re-registered the SAME
+  // id synchronously, with nothing awaited in between. If that transient
+  // unregister happened to be the only active editor, the OLD synchronous
+  // idle-transition flush would fire a held refresh mid-keystroke, clobbering
+  // the operator's draft. The fix defers the idle notification to a
+  // microtask and re-checks idleness before running it.
+  it('a synchronous unregister→re-register (simulated keystroke) with a held refresh does not fire onChange', async () => {
+    const onChange = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(2)))
+    registerEditorActivity('editor-1', true)
+    renderHook(() => useViewbookSync({ url: '/sync', initialVersion: 1, onChange, intervalMs: 1000 }))
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).not.toHaveBeenCalled() // detected but held — registry still active
+
+    // Simulate one keystroke's effect cleanup+re-run: unregister then
+    // immediately re-register the SAME id synchronously, no await between —
+    // exactly what the pre-`useEditorActivity` inline pattern did on every
+    // dependency change.
+    registerEditorActivity('editor-1', false)
+    registerEditorActivity('editor-1', true)
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).not.toHaveBeenCalled() // transient idle window — still active, must not flush
+
+    // A genuine release afterward still works normally.
+    await act(async () => {
+      registerEditorActivity('editor-1', false)
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('a real release (stays idle across the microtask) flushes exactly once', async () => {
+    const onChange = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(2)))
+    registerEditorActivity('editor-1', true)
+    renderHook(() => useViewbookSync({ url: '/sync', initialVersion: 1, onChange, intervalMs: 1000 }))
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).not.toHaveBeenCalled()
+
+    registerEditorActivity('editor-1', false) // a genuine release — no re-register follows
+    expect(onChange).not.toHaveBeenCalled() // flush is deferred to a microtask, not synchronous
+
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1)
+
+    // Nothing further fires on subsequent flushes.
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  // PR2 Task 6 fix wave — MINOR: the latched early-return must consume
+  // pendingRefresh (and the stale-observed value) rather than leaving them
+  // to fire a spare onChange once the latch clears.
+  it('a requestRefresh() arriving while latched is consumed — no extra onChange once the latch clears', async () => {
+    const onChange = vi.fn()
+    const remoteV = 2
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(remoteV)))
+    const { rerender } = renderHook(
+      (props: UseViewbookSyncOpts) => useViewbookSync(props),
+      { initialProps: { url: '/sync', initialVersion: 1, onChange, intervalMs: 1000 } },
+    )
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1) // armed the latch at v=2
+
+    // A requestRefresh() arrives while still latched (initialVersion prop
+    // hasn't caught up yet, and the server still reports the SAME v=2 the
+    // latch is already waiting to confirm) — its intent is already covered
+    // by the pending latch, so it must not survive to fire a spare onChange
+    // once that latch clears.
+    requestRefresh()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1)
+
+    // The refresh lands: initialVersion catches up, clearing the latch. The
+    // server still reports the SAME v=2 — nothing genuinely new.
+    rerender({ url: '/sync', initialVersion: 2, onChange, intervalMs: 1000 })
+    await act(async () => {
+      await flushAsync()
+      await vi.advanceTimersByTimeAsync(1000) // next natural tick, still v=2
+    })
+    expect(onChange).toHaveBeenCalledTimes(1) // no spare fire
   })
 
   it('a terminal 404 calls the provided onGone exactly once and stops polling permanently', async () => {
@@ -315,5 +419,86 @@ describe('useViewbookSync', () => {
     a.unmount()
     b.unmount()
     warnSpy.mockRestore()
+  })
+
+  // PR2 Task 6 fix wave — NIT: the admin editor used to pass a placeholder
+  // `initialVersion` (`vb?.syncVersion ?? 0`) before its mount-time load()
+  // resolved, so the poll started immediately and could observe the REAL
+  // version as a "change" from the placeholder — a redundant second load.
+  // `enabled` gates the hook off until the real version is available.
+  it('enabled:false does not poll; flipping it true starts polling using the current initialVersion', async () => {
+    const onChange = vi.fn()
+    const fetchMock = vi.fn(async () => jsonResponse(5))
+    vi.stubGlobal('fetch', fetchMock)
+    const { rerender } = renderHook(
+      (props: UseViewbookSyncOpts) => useViewbookSync(props),
+      { initialProps: { url: '/sync', initialVersion: 0, onChange, intervalMs: 1000, enabled: false } },
+    )
+    await act(async () => {
+      await flushAsync()
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+
+    // The "load" resolves: the real version (5, matching what the server
+    // will report) is now known, and the hook is enabled.
+    rerender({ url: '/sync', initialVersion: 5, onChange, intervalMs: 1000, enabled: true })
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // The real version already matches what was passed — no bogus "change"
+    // detected against a stale placeholder, so no redundant onChange.
+    expect(onChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('useEditorActivity', () => {
+  it('registers the initial active level on mount and unregisters on unmount', async () => {
+    const onChange = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(2)))
+    const { unmount } = renderHook(() => useEditorActivity('hook-editor', true))
+    renderHook(() => useViewbookSync({ url: '/sync', initialVersion: 1, onChange, intervalMs: 1000 }))
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).not.toHaveBeenCalled() // registered active — suppresses the refresher
+
+    unmount()
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1) // unmount unregistered it — flush released
+  })
+
+  it('updates the active level on a dependency change WITHOUT unregistering — no per-keystroke idle window', async () => {
+    const onChange = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(2)))
+    const { rerender } = renderHook(({ active }: { active: boolean }) => useEditorActivity('hook-editor-2', active), {
+      initialProps: { active: true },
+    })
+    renderHook(() => useViewbookSync({ url: '/sync', initialVersion: 1, onChange, intervalMs: 1000 }))
+    await act(async () => {
+      await flushAsync()
+    })
+    expect(onChange).not.toHaveBeenCalled()
+
+    // Simulate a keystroke: `active` stays true across the re-render (the
+    // draft is still non-empty), which is the common case this hook must
+    // handle WITHOUT ever unregistering mid-edit.
+    await act(async () => {
+      rerender({ active: true })
+      await flushAsync()
+    })
+    expect(onChange).not.toHaveBeenCalled() // never unregistered — still suppressed
+
+    // A real transition to inactive DOES unregister (via the level effect,
+    // not the unmount effect) and releases the refresher.
+    await act(async () => {
+      rerender({ active: false })
+      await flushAsync()
+    })
+    expect(onChange).toHaveBeenCalledTimes(1)
   })
 })

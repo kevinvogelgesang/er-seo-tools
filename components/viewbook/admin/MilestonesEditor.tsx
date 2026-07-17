@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { jsonFetch } from './viewbook-admin-shared'
-import { registerEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 interface MilestoneRow {
   id: number
@@ -31,10 +31,7 @@ export function MilestonesEditor({
   // PR2 Task 6: active while a new-milestone title is drafted, an edit row
   // is open (its own EditFields registration also fires — belt and
   // suspenders), a save is in flight, or focus remains within this list.
-  useEffect(() => {
-    registerEditorActivity('admin-new-milestone', title.trim() !== '' || editingId !== null || busy || focused)
-    return () => registerEditorActivity('admin-new-milestone', false)
-  }, [title, editingId, busy, focused])
+  useEditorActivity('admin-new-milestone', title.trim() !== '' || editingId !== null || busy || focused)
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true)
@@ -195,16 +192,12 @@ function EditFields({
   // PR2 Task 6: active while this edit row's drafts differ from the loaded
   // milestone, or focus remains within the row (it's already open — any
   // input differing counts, per the "err on active" fallback).
-  useEffect(() => {
-    const dirty =
-      title !== milestone.title ||
-      blurb !== (milestone.blurb ?? '') ||
-      sortOrder !== String(milestone.sortOrder) ||
-      targetDate !== (milestone.targetDate ? milestone.targetDate.slice(0, 10) : '')
-    const registryId = `admin-milestone-edit-${milestone.id}`
-    registerEditorActivity(registryId, dirty || focused)
-    return () => registerEditorActivity(registryId, false)
-  }, [title, blurb, sortOrder, targetDate, milestone, focused])
+  const dirty =
+    title !== milestone.title ||
+    blurb !== (milestone.blurb ?? '') ||
+    sortOrder !== String(milestone.sortOrder) ||
+    targetDate !== (milestone.targetDate ? milestone.targetDate.slice(0, 10) : '')
+  useEditorActivity(`admin-milestone-edit-${milestone.id}`, dirty || focused)
 
   return (
     <span className="flex flex-wrap items-center gap-1" onFocus={onFocus} onBlur={onBlur}>

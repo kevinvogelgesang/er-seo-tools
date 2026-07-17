@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { PublicField } from '@/lib/viewbook/public-types'
 import { AmendmentForm } from './AmendmentForm'
-import { registerEditorActivity, requestRefresh } from './useViewbookSync'
+import { requestRefresh, useEditorActivity } from './useViewbookSync'
 
 function draftFromValue(fieldType: string, value: string | null): string {
   if (value == null) return ''
@@ -35,10 +35,7 @@ export function FieldEditor({ token, field }: { token: string; field: PublicFiel
   // while focused, mid-save, or holding an unsaved draft — dispose on unmount.
   const dirty = draft !== draftFromValue(field.fieldType, current.value)
   const registryId = `field-${field.id}`
-  useEffect(() => {
-    registerEditorActivity(registryId, focused || busy || dirty)
-    return () => registerEditorActivity(registryId, false)
-  }, [registryId, focused, busy, dirty])
+  useEditorActivity(registryId, focused || busy || dirty)
 
   async function save() {
     const value = requestValue(field.fieldType, draft)

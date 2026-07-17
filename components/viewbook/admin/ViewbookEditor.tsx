@@ -12,7 +12,7 @@ import { MilestonesEditor } from './MilestonesEditor'
 import { FeedbackTab } from './FeedbackTab'
 import { ActivityFeed } from './ActivityFeed'
 import { DataSourceTab } from './DataSourceTab'
-import { registerEditorActivity, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
+import { useEditorActivity, useFocusWithin, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
 
 const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 
@@ -39,9 +39,15 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   // while visible; onChange only fires while the editor registry is idle —
   // an operator mid-edit in ThemeEditor/ContentTab/DataSourceTab/
   // MilestonesEditor/SettingsTab is never clobbered by a background reload.
+  // `enabled: vb !== null` (NIT fix): the mount-time `load()` above is still
+  // in flight on the very first render, so `vb?.syncVersion ?? 0` is a
+  // placeholder — polling against that placeholder would race the mount
+  // load and fire a redundant second GET the moment the poll observes the
+  // REAL version. Gate the hook off the same `vb` load state instead.
   useViewbookSync({
     url: `/api/viewbooks/${viewbookId}/sync`,
     initialVersion: vb?.syncVersion ?? 0,
+    enabled: vb !== null,
     onChange: () => void load(),
   })
 
@@ -123,14 +129,13 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const { focused, onFocus, onBlur } = useFocusWithin()
 
   // PR2 Task 6 (Codex wave-2 fix 6): active while the notify-email draft
-  // differs from the loaded value or a save is in flight.
-  useEffect(() => {
-    const dirty = notifyEmail !== (vb.notifyEmail ?? '')
-    registerEditorActivity('admin-settings', dirty || busy)
-    return () => registerEditorActivity('admin-settings', false)
-  }, [notifyEmail, vb.notifyEmail, busy])
+  // differs from the loaded value, a save is in flight, or focus remains
+  // within this tab.
+  const dirty = notifyEmail !== (vb.notifyEmail ?? '')
+  useEditorActivity('admin-settings', dirty || busy || focused)
 
   async function run(label: string, fn: () => Promise<unknown>) {
     setBusy(true)
@@ -148,7 +153,7 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
   }
 
   return (
-    <div className="space-y-5 text-sm">
+    <div className="space-y-5 text-sm" onFocus={onFocus} onBlur={onBlur}>
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
       {flash && <p className="text-teal-600 dark:text-teal-400">{flash} done.</p>}
 

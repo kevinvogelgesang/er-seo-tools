@@ -1,7 +1,7 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
-import { registerEditorActivity, requestRefresh } from './useViewbookSync'
+import { FormEvent, useState } from 'react'
+import { requestRefresh, useEditorActivity } from './useViewbookSync'
 
 function amendmentValue(fieldType: string, draft: string): string | string[] {
   if (fieldType !== 'list') return draft
@@ -27,10 +27,7 @@ export function AmendmentForm({
   // PR2 Task 6: active while there's an unsaved proposed change, mid-submit,
   // or focused — dispose on unmount.
   const registryId = `amendment-${fieldId}`
-  useEffect(() => {
-    registerEditorActivity(registryId, focused || busy || draft.trim() !== '')
-    return () => registerEditorActivity(registryId, false)
-  }, [registryId, focused, busy, draft])
+  useEditorActivity(registryId, focused || busy || draft.trim() !== '')
 
   async function submit(event: FormEvent) {
     event.preventDefault()

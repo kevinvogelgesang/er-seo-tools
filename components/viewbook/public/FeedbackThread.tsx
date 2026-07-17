@@ -1,7 +1,7 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
-import { registerEditorActivity, useFocusWithin } from './useViewbookSync'
+import { FormEvent, useState } from 'react'
+import { useEditorActivity, useFocusWithin } from './useViewbookSync'
 
 export interface PublicFeedbackItem {
   id: number
@@ -31,10 +31,7 @@ export function FeedbackThread({ token, reviewLinkId, initialFeedback = [] }: Pr
   // refresher while the operator/client has unsent feedback drafted.
   const registryId = `feedback-${reviewLinkId}`
   const dirty = body.trim() !== '' || authorName.trim() !== ''
-  useEffect(() => {
-    registerEditorActivity(registryId, focused || busy || dirty)
-    return () => registerEditorActivity(registryId, false)
-  }, [registryId, focused, busy, dirty])
+  useEditorActivity(registryId, focused || busy || dirty)
 
   async function submit(event: FormEvent) {
     event.preventDefault()

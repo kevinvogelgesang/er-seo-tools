@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { CATALOG_CATEGORIES } from '@/lib/viewbook/catalog'
-import { registerEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
 export interface AdminViewbookField {
   id: number
@@ -169,10 +169,7 @@ function CustomFieldForm({
 
   // PR2 Task 6: active while a new-field label is drafted, mid-submit, or
   // focus remains within this form.
-  useEffect(() => {
-    registerEditorActivity('admin-new-field', label.trim() !== '' || busy || focused)
-    return () => registerEditorActivity('admin-new-field', false)
-  }, [label, busy, focused])
+  useEditorActivity('admin-new-field', label.trim() !== '' || busy || focused)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -255,12 +252,8 @@ function AdminFieldCard({
   // remains within this card — this is what keeps the admin editor's
   // background poll from calling load() (which would reset the effect
   // above) while an operator is mid-edit.
-  useEffect(() => {
-    const dirty = draft !== displayValue(field) || label !== field.label || amendment.trim() !== ''
-    const registryId = `admin-field-${field.id}`
-    registerEditorActivity(registryId, dirty || busy || focused)
-    return () => registerEditorActivity(registryId, false)
-  }, [draft, label, amendment, field, busy, focused])
+  const dirty = draft !== displayValue(field) || label !== field.label || amendment.trim() !== ''
+  useEditorActivity(`admin-field-${field.id}`, dirty || busy || focused)
 
   const lockedBaseline = lockedAt !== null && new Date(field.createdAt).getTime() <= new Date(lockedAt).getTime()
   const editable = !field.archivedAt && !lockedBaseline
