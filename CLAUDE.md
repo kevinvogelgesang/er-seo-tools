@@ -3,7 +3,7 @@
 Internal SEO toolkit for Enrollment Resources. Next.js 15 App Router, TypeScript, Tailwind CSS (class-based dark mode), Prisma + SQLite. Deployed on RunCloud (not Vercel/serverless).
 
 ## Stack constraints
-- **Node 22** on production
+- **Node 24** on production (24.14.1 as of 2026-07-17; sharp 0.34.5 ships Node 24 prebuilts)
 - **SQLite only** — no Postgres/MySQL
 - **No serverless** — RunCloud + PM2
 - **Google Chrome** must be installed on the server (`/usr/bin/google-chrome`) for ADA audits
