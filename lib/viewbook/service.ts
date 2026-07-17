@@ -30,9 +30,10 @@ import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { appendActivityStatements } from './activity'
 import { syncVersionBumpStatement, syncVersionBumpWhere } from './sync'
 import { enqueueViewbookEmail, resolvePcCompleteRecipient, stageChangeDeliveryStatements } from './email'
-import { canonicalMailbox, PRIMARY_CONTACT_EMAIL_DEFKEY } from './global-content-keys'
+import { canonicalMailbox } from './global-content-keys'
 import { getGlobalContent } from './global-content'
 import { ACKABLE_SECTION_KEYS, buildPcCompletion } from './ack'
+import { resolveAllowedNotifyRecipients } from './notify-recipients'
 
 export type ViewbookKind = 'new-build' | 'upgrade'
 
@@ -280,28 +281,15 @@ export async function moveViewbookStage(
   if (!isViewbookStage(expectedStage)) throw new HttpError(400, 'invalid_direction')
   const vb = await prisma.viewbook.findUnique({
     where: { id },
-    select: {
-      id: true,
-      clientNotifyJson: true,
-      teamMembers: { select: { email: true } },
-      fields: {
-        where: { defKey: PRIMARY_CONTACT_EMAIL_DEFKEY, archivedAt: null },
-        select: { value: true },
-        take: 1,
-      },
-    },
+    select: { id: true, clientNotifyJson: true },
   })
   if (!vb) throw new HttpError(404, 'not_found')
   const target = direction === 'forward' ? nextStage(expectedStage) : prevStage(expectedStage)
   if (!target) throw new HttpError(409, 'stage_conflict')
   const eventKey = crypto.randomUUID()
-  const allowed = new Set<string>()
-  for (const member of vb.teamMembers) {
-    const email = canonicalMailbox(member.email)
-    if (email) allowed.add(email)
-  }
-  const primaryEmail = canonicalMailbox(vb.fields[0]?.value)
-  if (primaryEmail) allowed.add(primaryEmail)
+  // Shared allowed-set resolver (PR5 Task 4) — the SAME set setNotifyEmails
+  // (setup.ts) validates writes against, so the two surfaces can never drift.
+  const allowed = await resolveAllowedNotifyRecipients(id)
   let requested: unknown = []
   try {
     requested = JSON.parse(vb.clientNotifyJson)

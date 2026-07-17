@@ -1,0 +1,118 @@
+// pc-setup `clientNotifyJson` write (v2 PR5 spec §5/§8): the public "who
+// gets notified on a stage advance" list. Every posted address MUST already
+// be known to the viewbook — equal (canonicalized) to a stored
+// `ViewbookTeamMember.email` OR the current `school-contact-email` answer
+// value — via the SAME `resolveAllowedNotifyRecipients` set
+// `moveViewbookStage` (service.ts) filters its recipients against
+// (lib/viewbook/notify-recipients.ts). An arbitrary address is rejected
+// (400 `invalid_notify_recipient`) even though the value only becomes
+// load-bearing at the NEXT stage move.
+//
+// Value-idempotent (Codex fix 8): the write is fenced not just on the access
+// chain but on `clientNotifyJson IS NOT <canonical serialization>` — a
+// repost of the identical (deduped/canonicalized/sorted) list is a true
+// no-op: 0 rows, no activity, syncVersion +0. The validated array is
+// deduped, lowercased (via canonicalMailbox), and sorted before
+// serialization so the equality compare is deterministic regardless of the
+// order the client posted addresses in.
+//
+// `clientMutationId` is advisory only — there is no durable column to key a
+// replay against (unlike ack.ts/team-members.ts), so it is validated for
+// shape (if present) but never used as a fence. Value-idempotence is the
+// real replay guard here.
+
+import { Prisma, type Viewbook } from '@prisma/client'
+import { prisma } from '@/lib/db'
+import { HttpError } from '@/lib/api/errors'
+import { requireViewbookToken } from './route-auth'
+import { validateClientMutationId } from './public-write-guard'
+import { syncVersionBumpWhere } from './sync'
+import { canonicalMailbox } from './global-content-keys'
+import { resolveAllowedNotifyRecipients } from './notify-recipients'
+
+const MAX_NOTIFY_EMAILS = 5
+
+export interface MutationHooks {
+  beforeCommit?: () => Promise<void>
+}
+
+export interface SetNotifyEmailsInput {
+  notifyEmails: unknown
+  clientMutationId?: string
+}
+
+export interface SetNotifyEmailsResult {
+  notifyEmails: string[]
+}
+
+function validateNotifyEmails(raw: unknown, allowed: Set<string>): string[] {
+  if (!Array.isArray(raw) || raw.length > MAX_NOTIFY_EMAILS) {
+    throw new HttpError(400, 'invalid_notify_emails')
+  }
+  const canonical = new Set<string>()
+  for (const entry of raw) {
+    const email = canonicalMailbox(entry)
+    if (!email) throw new HttpError(400, 'invalid_notify_emails')
+    if (!allowed.has(email)) throw new HttpError(400, 'invalid_notify_recipient')
+    canonical.add(email)
+  }
+  // Stable (sorted) order so the serialized JSON is deterministic regardless
+  // of client-submitted order — the value-idempotence fence compares this
+  // string verbatim.
+  return [...canonical].sort()
+}
+
+function accessChainPredicate(viewbookId: number, token: string): Prisma.Sql {
+  return Prisma.sql`
+    EXISTS (
+      SELECT 1 FROM "Viewbook" v
+      JOIN "Client" c ON c."id" = v."clientId"
+      WHERE v."id" = ${viewbookId} AND v."token" = ${token} AND v."revokedAt" IS NULL AND c."archivedAt" IS NULL
+    )
+  `
+}
+
+export async function setNotifyEmails(
+  viewbook: Viewbook,
+  token: string,
+  input: SetNotifyEmailsInput,
+  hooks: MutationHooks = {},
+): Promise<SetNotifyEmailsResult> {
+  // Advisory only (no durable column) — validated for shape, never a fence.
+  validateClientMutationId(input.clientMutationId ?? null)
+
+  const allowed = await resolveAllowedNotifyRecipients(viewbook.id)
+  const canonical = validateNotifyEmails(input.notifyEmails, allowed)
+  const serialized = JSON.stringify(canonical)
+
+  await hooks.beforeCommit?.()
+  const now = Date.now()
+  const S = Prisma.sql`
+    ${accessChainPredicate(viewbook.id, token)}
+    AND (SELECT "clientNotifyJson" FROM "Viewbook" WHERE "id" = ${viewbook.id}) IS NOT ${serialized}
+  `
+
+  const [, activityCount, updateCount] = await prisma.$transaction([
+    syncVersionBumpWhere(viewbook.id, S),
+    prisma.$executeRaw`
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
+      SELECT ${viewbook.id}, 'notify-emails-set', 'client', 'Updated notify emails', ${now}
+      WHERE (${S})
+    `,
+    prisma.$executeRaw`
+      UPDATE "Viewbook" SET "clientNotifyJson" = ${serialized}, "updatedAt" = ${now}
+      WHERE "id" = ${viewbook.id} AND (${S})
+    `,
+  ])
+
+  if (updateCount === 1 && activityCount === 1) {
+    return { notifyEmails: canonical }
+  }
+  if (updateCount !== activityCount) throw new Error('viewbook_notify_activity_mismatch')
+
+  // 0 rows: either the access chain failed (bad/revoked token, archived
+  // client — re-preflight surfaces the honest 404) or the stored value
+  // already equals what was posted (value-idempotent no-op, Codex fix 8).
+  await requireViewbookToken(token)
+  return { notifyEmails: canonical }
+}
