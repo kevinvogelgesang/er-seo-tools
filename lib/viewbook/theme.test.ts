@@ -7,6 +7,7 @@ import {
   DEFAULT_THEME,
   FONT_CATALOG,
 } from './theme'
+import { isAllowedFont } from './font-manifest'
 import { relativeLuminance } from './contrast'
 
 const good = {
@@ -59,8 +60,18 @@ describe('validateViewbookTheme', () => {
     expect(Object.keys(FONT_CATALOG).length).toBeGreaterThanOrEqual(12)
     for (const f of Object.values(FONT_CATALOG)) {
       expect(f.family.length).toBeGreaterThan(0)
+      expect(f.supportedWeights.length).toBeGreaterThan(0)
       expect(f.gfQuery).toMatch(/^family=/)
     }
+  })
+
+  it('validates font keys against the manifest, never submitted URL fragments', () => {
+    expect(isAllowedFont('roboto')).toBe(true)
+    expect(validateViewbookTheme({ ...good, headingFont: 'roboto' })).toEqual({
+      ...good,
+      headingFont: 'roboto',
+    })
+    expect(validateViewbookTheme({ ...good, headingFont: 'family=Roboto&display=swap' })).toBeNull()
   })
 
   it('picks text color at the 0.179 luminance crossover', () => {

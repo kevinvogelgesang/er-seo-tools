@@ -5,7 +5,8 @@
 // in PR2 (ThemePreview.tsx) and mounts beside this editor.
 
 import { useState } from 'react'
-import { FONT_CATALOG, SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
+import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
+import { SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import { jsonFetch } from './viewbook-admin-shared'
 import { ThemePreview } from './ThemePreview'
 import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
@@ -15,6 +16,48 @@ function themeEquals(a: ViewbookTheme, b: ViewbookTheme): boolean {
 }
 
 const COLOR_FIELDS = ['primary', 'secondary', 'tertiary'] as const
+
+function AdminFontPicker({
+  kind,
+  value,
+  onChange,
+}: {
+  kind: 'Heading' | 'Body'
+  value: string
+  onChange: (key: string) => void
+}) {
+  const [search, setSearch] = useState('')
+  const query = search.trim().toLocaleLowerCase()
+  const options = Object.entries(FONT_MANIFEST).filter(([key, font]) => (
+    key === value || !query || `${font.family} ${key}`.toLocaleLowerCase().includes(query)
+  ))
+
+  return (
+    <div className="min-w-56 space-y-1 text-sm text-gray-700 dark:text-white/80">
+      <label className="block">
+        Search {kind.toLocaleLowerCase()} fonts
+        <input
+          aria-label={`Search ${kind.toLocaleLowerCase()} fonts`}
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-navy-border dark:bg-navy-card dark:text-white"
+        />
+      </label>
+      <label className="block">
+        {kind} font
+        <select
+          aria-label={`${kind} font`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-navy-border dark:bg-navy-card dark:text-white"
+        >
+          {options.map(([key, font]) => <option key={key} value={key}>{font.family}</option>)}
+        </select>
+      </label>
+    </div>
+  )
+}
 
 export function ThemeEditor({
   viewbookId,
@@ -98,22 +141,8 @@ export function ThemeEditor({
         ))}
       </div>
       <div className="flex flex-wrap gap-4">
-        {(['headingFont', 'bodyFont'] as const).map((field) => (
-          <label key={field} className="flex items-center gap-2 text-sm text-gray-700 dark:text-white/80">
-            <span>{field === 'headingFont' ? 'Heading font' : 'Body font'}</span>
-            <select
-              value={draft[field]}
-              onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
-              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-navy-border dark:bg-navy-card dark:text-white"
-            >
-              {Object.entries(FONT_CATALOG).map(([key, f]) => (
-                <option key={key} value={key}>
-                  {f.family}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
+        <AdminFontPicker kind="Heading" value={draft.headingFont} onChange={(headingFont) => setDraft({ ...draft, headingFont })} />
+        <AdminFontPicker kind="Body" value={draft.bodyFont} onChange={(bodyFont) => setDraft({ ...draft, bodyFont })} />
       </div>
 
       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-700 dark:text-white/80">

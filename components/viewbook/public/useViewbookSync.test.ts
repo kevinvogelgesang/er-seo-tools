@@ -13,6 +13,8 @@ import {
   hasActiveEditorActivity,
   registerEditorActivity,
   requestRefresh,
+  useAutosave,
+  useBaselineSync,
   useEditorActivity,
   useViewbookSync,
   type UseViewbookSyncOpts,
@@ -620,5 +622,163 @@ describe('useEditorActivity', () => {
       await flushAsync()
     })
     expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useAutosave', () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason?: unknown) => void
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  it('saves once after a 600ms trailing debounce and requests refresh only after commit', async () => {
+    const save = vi.fn(async (draft: string) => draft)
+    const onQueueDrained = vi.fn()
+    const hook = renderHook(() => {
+      const baseline = useBaselineSync('old', false)
+      const autosave = useAutosave({
+        editorId: 'autosave-debounce',
+        draft: baseline.draft,
+        dirty: baseline.dirty,
+        save,
+        commit: baseline.commit,
+        onQueueDrained,
+      })
+      return { ...baseline, ...autosave }
+    })
+
+    act(() => hook.result.current.setDraft('new'))
+    expect(hasActiveEditorActivity()).toBe(true)
+    await act(async () => vi.advanceTimersByTimeAsync(599))
+    expect(save).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+      await flushAsync()
+    })
+
+    expect(save).toHaveBeenCalledOnce()
+    expect(save).toHaveBeenCalledWith('new')
+    expect(onQueueDrained).toHaveBeenCalledOnce()
+    expect(hook.result.current.dirty).toBe(false)
+    expect(hasActiveEditorActivity()).toBe(false)
+  })
+
+  it('flushes the queued draft immediately when blur asks it to flush', async () => {
+    const save = vi.fn(async (draft: string) => draft)
+    const hook = renderHook(() => {
+      const baseline = useBaselineSync('old', false)
+      const autosave = useAutosave({
+        editorId: 'autosave-blur',
+        draft: baseline.draft,
+        dirty: baseline.dirty,
+        save,
+        commit: baseline.commit,
+        onQueueDrained: vi.fn(),
+      })
+      return { ...baseline, ...autosave }
+    })
+
+    act(() => hook.result.current.setDraft('blurred'))
+    await act(async () => {
+      hook.result.current.flush()
+      await flushAsync()
+    })
+    expect(save).toHaveBeenCalledOnce()
+    expect(save).toHaveBeenCalledWith('blurred')
+  })
+
+  it('serializes requests, coalesces to the latest queued draft, and ignores the stale first response', async () => {
+    const first = deferred<string>()
+    const second = deferred<string>()
+    const save = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+    const onQueueDrained = vi.fn()
+    const committed: string[] = []
+    const hook = renderHook(() => {
+      const baseline = useBaselineSync('old', false)
+      const autosave = useAutosave({
+        editorId: 'autosave-queue',
+        draft: baseline.draft,
+        dirty: baseline.dirty,
+        save,
+        commit: (value) => {
+          committed.push(value)
+          baseline.commit(value)
+        },
+        onQueueDrained,
+      })
+      return { ...baseline, ...autosave }
+    })
+
+    act(() => hook.result.current.setDraft('first'))
+    await act(async () => vi.advanceTimersByTimeAsync(600))
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenLastCalledWith('first')
+
+    act(() => hook.result.current.setDraft('second'))
+    act(() => hook.result.current.setDraft('latest'))
+    await act(async () => vi.advanceTimersByTimeAsync(600))
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(hasActiveEditorActivity()).toBe(true)
+
+    await act(async () => {
+      first.resolve('stale-server-response')
+      await flushAsync()
+    })
+    expect(committed).toEqual([])
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenLastCalledWith('latest')
+    expect(onQueueDrained).not.toHaveBeenCalled()
+    expect(hasActiveEditorActivity()).toBe(true)
+
+    await act(async () => {
+      second.resolve('latest')
+      await flushAsync()
+    })
+    expect(committed).toEqual(['latest'])
+    expect(onQueueDrained).toHaveBeenCalledOnce()
+    expect(hasActiveEditorActivity()).toBe(false)
+  })
+
+  it('pauses on a classified conflict and retries only after the explicit resume action', async () => {
+    const save = vi.fn()
+      .mockRejectedValueOnce(new Error('stale_version'))
+      .mockResolvedValueOnce('mine')
+    const hook = renderHook(() => {
+      const baseline = useBaselineSync('server', false)
+      const autosave = useAutosave({
+        editorId: 'autosave-conflict',
+        draft: baseline.draft,
+        dirty: baseline.dirty,
+        save,
+        commit: baseline.commit,
+        onError: () => 'pause',
+        onQueueDrained: vi.fn(),
+      })
+      return { ...baseline, ...autosave }
+    })
+
+    act(() => hook.result.current.setDraft('mine'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600)
+      await flushAsync()
+    })
+    expect(hook.result.current.paused).toBe(true)
+    expect(hook.result.current.draft).toBe('mine')
+
+    await act(async () => vi.advanceTimersByTimeAsync(5000))
+    expect(save).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      hook.result.current.resume()
+      await flushAsync()
+    })
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(hook.result.current.paused).toBe(false)
   })
 })

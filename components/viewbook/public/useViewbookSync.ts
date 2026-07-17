@@ -12,7 +12,7 @@
 // dirty/focused/saving state here via registerEditorActivity(). The hook
 // only ever calls onChange while the registry is idle — an in-flight
 // refresh must never clobber an in-progress edit.
-import { useEffect, useRef, useState, type Dispatch, type FocusEvent, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type FocusEvent, type SetStateAction } from 'react'
 
 // ---------------------------------------------------------------------------
 // Module-level registry
@@ -213,6 +213,196 @@ export function useBaselineSync<T>(
   }
 
   return { draft, setDraft, dirty: !isEqual(draft, baseline), commit, baseline }
+}
+
+// ---------------------------------------------------------------------------
+// useAutosave — shared serialized trailing-debounce state machine for the
+// operator's inline value editors. Structural/irreversible actions do not use
+// this hook and retain their explicit buttons.
+// ---------------------------------------------------------------------------
+
+export interface UseAutosaveOptions<T, R = T> {
+  editorId: string
+  draft: T
+  dirty: boolean
+  save: (draft: T) => Promise<R>
+  commit: (result: R) => void
+  active?: boolean
+  enabled?: boolean
+  debounceMs?: number
+  onError?: (error: unknown) => 'pause' | void
+  onQueueDrained?: () => void
+}
+
+export interface UseAutosaveResult {
+  saving: boolean
+  paused: boolean
+  error: string | null
+  flush: () => void
+  flushOnBlur: (event: FocusEvent<HTMLElement>) => void
+  resume: () => void
+}
+
+function autosaveErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'save_failed'
+}
+
+export function useAutosave<T, R = T>({
+  editorId,
+  draft,
+  dirty,
+  save,
+  commit,
+  active = false,
+  enabled = true,
+  debounceMs = 600,
+  onError,
+  onQueueDrained = requestRefresh,
+}: UseAutosaveOptions<T, R>): UseAutosaveResult {
+  const [saving, setSaving] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const draftRef = useRef(draft)
+  const generationRef = useRef(0)
+  const previousDraftRef = useRef(draft)
+  const skipCommittedDraftRef = useRef(false)
+  const queuedRef = useRef<{ draft: T; generation: number } | null>(null)
+  const inFlightRef = useRef(false)
+  const pausedRef = useRef(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveRef = useRef(save)
+  const commitRef = useRef(commit)
+  const onErrorRef = useRef(onError)
+  const onQueueDrainedRef = useRef(onQueueDrained)
+  const runNextRef = useRef<() => void>(() => {})
+
+  draftRef.current = draft
+  saveRef.current = save
+  commitRef.current = commit
+  onErrorRef.current = onError
+  onQueueDrainedRef.current = onQueueDrained
+
+  function clearTimer(): void {
+    if (timerRef.current === null) return
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+  }
+
+  runNextRef.current = () => {
+    if (inFlightRef.current || pausedRef.current) return
+    const job = queuedRef.current
+    if (!job) return
+    clearTimer()
+    queuedRef.current = null
+    inFlightRef.current = true
+    setSaving(true)
+    setError(null)
+    let succeeded = false
+
+    void saveRef.current(job.draft)
+      .then((result) => {
+        if (!mountedRef.current) return
+        succeeded = true
+        // A response belongs only to the generation that sent it. If the
+        // operator typed again meanwhile, the queued latest draft owns the
+        // eventual commit; this stale response must not move the baseline.
+        if (job.generation === generationRef.current && queuedRef.current === null) {
+          skipCommittedDraftRef.current = true
+          commitRef.current(result)
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!mountedRef.current) return
+        setError(autosaveErrorMessage(caught))
+        if (onErrorRef.current?.(caught) === 'pause') {
+          pausedRef.current = true
+          setPaused(true)
+          queuedRef.current = null
+          clearTimer()
+        }
+      })
+      .finally(() => {
+        inFlightRef.current = false
+        if (!mountedRef.current) return
+        if (queuedRef.current && !pausedRef.current) {
+          runNextRef.current()
+          return
+        }
+        setSaving(false)
+        if (succeeded && !pausedRef.current) onQueueDrainedRef.current()
+      })
+  }
+
+  const flush = useCallback(() => {
+    clearTimer()
+    runNextRef.current()
+    // `clearTimer` and `runNextRef` are ref-backed and intentionally stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const resume = useCallback(() => {
+    pausedRef.current = false
+    setPaused(false)
+    setError(null)
+    queuedRef.current = { draft: draftRef.current, generation: generationRef.current }
+    clearTimer()
+    runNextRef.current()
+    // Ref-backed state machine; no render-time values are captured.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const flushOnBlur = useCallback((event: FocusEvent<HTMLElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) flush()
+  }, [flush])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      clearTimer()
+      queuedRef.current = null
+    }
+    // Unmount-only cleanup for the ref-backed machine.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (Object.is(previousDraftRef.current, draft)) return
+    previousDraftRef.current = draft
+    // `commit()` commonly replaces the draft with a server-normalized object
+    // before the request's finally block drops the in-flight flag. That state
+    // transition is acknowledgement, not fresh operator input, so it must not
+    // queue a duplicate PATCH merely because the request is technically still
+    // in its final microtask.
+    if (skipCommittedDraftRef.current) {
+      skipCommittedDraftRef.current = false
+      return
+    }
+    generationRef.current += 1
+
+    // A change back to the old baseline still needs to queue while an older
+    // request is in flight, otherwise that older request would leave the
+    // server at an intermediate value the UI no longer shows.
+    if ((!dirty && !inFlightRef.current) || !enabled || pausedRef.current) {
+      if (!inFlightRef.current) queuedRef.current = null
+      clearTimer()
+      return
+    }
+
+    queuedRef.current = { draft, generation: generationRef.current }
+    setError(null)
+    if (!inFlightRef.current) {
+      clearTimer()
+      timerRef.current = setTimeout(() => runNextRef.current(), debounceMs)
+    }
+    // dirty/enabled reflect the draft transition; callback refs deliberately
+    // stay out of this scheduling effect.
+  }, [debounceMs, dirty, draft, enabled])
+
+  useEditorActivity(editorId, dirty || saving || active)
+
+  return { saving, paused, error, flush, flushOnBlur, resume }
 }
 
 // ---------------------------------------------------------------------------

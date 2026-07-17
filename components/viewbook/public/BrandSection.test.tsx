@@ -45,4 +45,9 @@ describe('BrandSection', () => {
     expect(screen.getByText('Typography')).toBeDefined()
     expect(screen.getByText(/Contrast checker/i)).toBeDefined()
   })
+
+  it('passes the public viewbook id to the live contrast store subscriber', () => {
+    render(<BrandSection section={section} data={{ ...data, viewbookId: 42 }} token="tok" />)
+    expect(screen.getByTestId('contrast-tester').getAttribute('data-viewbook-id')).toBe('42')
+  })
 })

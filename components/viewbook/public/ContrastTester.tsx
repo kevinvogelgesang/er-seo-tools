@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { contrastRatio, contrastBands, type ContrastBands } from '@/lib/viewbook/contrast'
 import { onThemeColorText, type ViewbookTheme } from '@/lib/viewbook/theme'
+import { useThemeDraft } from './OperatorLayer/theme-store'
 
 const PAGE_BG = '#fafafa'
 const PAGE_TEXT = '#1a1a1a'
@@ -70,11 +71,9 @@ function buildRows(theme: ViewbookTheme): Row[] {
 const BAND_LABELS: Record<keyof ContrastBands, string> = {
   aaNormal: 'AA · normal',
   aaLarge: 'AA · large',
-  aaaNormal: 'AAA · normal',
-  aaaLarge: 'AAA · large',
 }
 
-const BAND_ORDER: (keyof ContrastBands)[] = ['aaNormal', 'aaLarge', 'aaaNormal', 'aaaLarge']
+const BAND_ORDER: (keyof ContrastBands)[] = ['aaNormal', 'aaLarge']
 
 function BandChips({ bands }: { bands: ContrastBands }) {
   return (
@@ -127,21 +126,22 @@ function ContrastRow({ testId, label, fg, bg }: { testId: string; label: string;
   )
 }
 
-export function ContrastTester({ theme }: { theme: ViewbookTheme }) {
-  const rows = buildRows(theme)
+export function ContrastTester({ theme, viewbookId }: { theme: ViewbookTheme; viewbookId?: number }) {
+  const liveTheme = useThemeDraft(viewbookId, theme)
+  const rows = buildRows(liveTheme)
   const [fg, setFg] = useState(PAGE_TEXT)
   const [bg, setBg] = useState(PAGE_BG)
   const pickerRatio = contrastRatio(fg, bg)
   const pickerBands = contrastBands(pickerRatio)
 
   return (
-    <div className="space-y-4">
+    <div data-testid="contrast-tester" data-viewbook-id={viewbookId} className="space-y-4">
       <div>
         <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
           Contrast checker
         </h3>
         <p className="text-sm text-gray-600">
-          Contrast ratios for this theme&rsquo;s real color pairings, against WCAG AA/AAA.
+          Contrast ratios for this theme&rsquo;s real color pairings, against WCAG AA.
         </p>
       </div>
 

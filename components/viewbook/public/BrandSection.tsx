@@ -2,7 +2,7 @@
 // typography specimens in the actual heading/body fonts, and the operator's
 // design-philosophy narrative. v1 palette = the three theme colors.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
-import { FONT_CATALOG } from '@/lib/viewbook/theme'
+import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
 import { ContrastTester } from './ContrastTester'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
@@ -43,8 +43,8 @@ export function BrandSection({
   token: string
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
-  const headingFamily = FONT_CATALOG[data.theme.headingFont]?.family ?? 'Inter'
-  const bodyFamily = FONT_CATALOG[data.theme.bodyFont]?.family ?? 'Inter'
+  const headingFamily = FONT_MANIFEST[data.theme.headingFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
+  const bodyFamily = FONT_MANIFEST[data.theme.bodyFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
   return (
     <SectionShell
       section={section}
@@ -86,7 +86,7 @@ export function BrandSection({
         </div>
       </div>
 
-      <ContrastTester theme={data.theme} />
+      <ContrastTester viewbookId={data.viewbookId} theme={data.theme} />
 
       {section.narrative && (
         <>
