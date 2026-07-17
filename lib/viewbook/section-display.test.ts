@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sectionDisplayMode, sectionStartsCollapsed, sectionLocksAutoReveal } from './section-display'
+import { sectionDisplayMode, sectionStartsCollapsed, sectionLocksAutoReveal, sectionInitiallyOpen } from './section-display'
 import type { PublicSection } from './public-types'
 const S = (o: Partial<PublicSection>): PublicSection => ({ sectionKey: 'data-source', state: 'active', doneAt: null, acknowledgedAt: null, introNote: null, narrative: null, ...o })
 
@@ -27,5 +27,26 @@ describe('sectionDisplayMode', () => {
     expect(sectionStartsCollapsed('done')).toBe(true); expect(sectionStartsCollapsed('ack-collapsed')).toBe(true)
     expect(sectionStartsCollapsed('always-open')).toBe(false); expect(sectionStartsCollapsed('normal')).toBe(false)
     expect(sectionLocksAutoReveal('always-open')).toBe(true); expect(sectionLocksAutoReveal('normal')).toBe(false)
+  })
+})
+
+describe('sectionInitiallyOpen', () => {
+  it('always-open sections are initially open', () => {
+    expect(sectionInitiallyOpen(S({ sectionKey: 'pc-intro' }), 'post-contract')).toBe(true)
+  })
+  it('done sections are collapsed', () => {
+    expect(sectionInitiallyOpen(S({ state: 'done' }), 'building')).toBe(false)
+  })
+  it('ack-collapsed sections are collapsed', () => {
+    expect(sectionInitiallyOpen(S({ sectionKey: 'data-source', acknowledgedAt: new Date() as any }), 'post-contract')).toBe(false)
+  })
+  it('Now Building: only milestones + materials open', () => {
+    expect(sectionInitiallyOpen(S({ sectionKey: 'milestones' }), 'building')).toBe(true)
+    expect(sectionInitiallyOpen(S({ sectionKey: 'materials' }), 'building')).toBe(true)
+    expect(sectionInitiallyOpen(S({ sectionKey: 'welcome' }), 'building')).toBe(false)
+    expect(sectionInitiallyOpen(S({ sectionKey: 'brand' }), 'building')).toBe(false)
+  })
+  it('other stages: non-collapsed sections are open', () => {
+    expect(sectionInitiallyOpen(S({ sectionKey: 'welcome' }), 'kickoff')).toBe(true)
   })
 })
