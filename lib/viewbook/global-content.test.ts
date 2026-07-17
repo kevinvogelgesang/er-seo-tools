@@ -57,6 +57,26 @@ describe('validateGlobalContent', () => {
     expect(validateGlobalContent('team', fatRoster)).toBeNull()
     expect(validateGlobalContent('why', { blocks: [{ heading: 'h', body: 'a'.repeat(4097) }] })).toBeNull()
   })
+
+  it('accepts optional CSM metadata, canonicalizes email, and preserves legacy entries', () => {
+    const enriched = [{
+      name: 'Kevin', role: 'CSM', photo: null, blurb: 'Helps clients.',
+      isCsm: true, email: ' Kevin.Vogel@Example.COM ',
+    }]
+    expect(validateGlobalContent('team', enriched)).toEqual([{
+      ...enriched[0],
+      email: 'kevin.vogel@example.com',
+    }])
+    expect(validateGlobalContent('team', roster)).toEqual(roster)
+  })
+
+  it('rejects unknown roster keys and malformed optional CSM metadata', () => {
+    expect(validateGlobalContent('team', [{ ...roster[0], unknown: true }])).toBeNull()
+    expect(validateGlobalContent('team', [{ ...roster[0], isCsm: 'yes' }])).toBeNull()
+    for (const email of ['Name <name@example.com>', 'a@example.com,b@example.com', 'a @example.com', 'not-an-email']) {
+      expect(validateGlobalContent('team', [{ ...roster[0], email }])).toBeNull()
+    }
+  })
 })
 
 describe('put/get', () => {
@@ -68,6 +88,25 @@ describe('put/get', () => {
     expect(await getGlobalContent('team')).toBeNull()
     const all = await getAllGlobalContent()
     expect(Object.keys(all).sort()).toEqual([...GLOBAL_CONTENT_KEYS].sort())
+  })
+
+  it('persists and round-trips roster CSM metadata through the strict read validator', async () => {
+    await putGlobalContent('team', [{
+      ...roster[0],
+      isCsm: true,
+      email: 'KEVIN@EXAMPLE.COM',
+    }], OPERATOR)
+    expect(await getGlobalContent('team')).toEqual([{
+      ...roster[0],
+      isCsm: true,
+      email: 'kevin@example.com',
+    }])
+    const stored = await prisma.viewbookGlobalContent.findUniqueOrThrow({ where: { key: 'team' } })
+    expect(JSON.parse(stored.bodyJson)).toEqual([{
+      ...roster[0],
+      isCsm: true,
+      email: 'kevin@example.com',
+    }])
   })
 })
 

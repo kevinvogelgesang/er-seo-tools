@@ -12,6 +12,7 @@ import { syncVersionBumpAllStatement, syncVersionBumpAllWhere, syncVersionBumpSt
 
 import {
   GLOBAL_CONTENT_KEYS,
+  canonicalMailbox,
   type ContentBlocks,
   type GlobalContentKey,
   type TeamMember,
@@ -51,16 +52,29 @@ function validateTeam(raw: unknown): TeamMember[] | null {
   const seen = new Set<string>()
   for (const m of raw) {
     if (!isPlainObject(m)) return null
-    if (Object.keys(m).length !== 4) return null
-    const { name, role, photo, blurb } = m
+    const keys = Object.keys(m)
+    if (keys.length < 4 || keys.length > 6) return null
+    const known = new Set(['name', 'role', 'photo', 'blurb', 'isCsm', 'email'])
+    if (keys.some((key) => !known.has(key))) return null
+    const { name, role, photo, blurb, isCsm, email } = m
     if (typeof name !== 'string' || name.length === 0 || name.length > TEAM_CAPS.name) return null
     if (typeof role !== 'string' || role.length === 0 || role.length > TEAM_CAPS.role) return null
     if (photo !== null && (typeof photo !== 'string' || !ASSET_FILENAME_RE.test(photo))) return null
     if (typeof blurb !== 'string' || blurb.length > TEAM_CAPS.blurb) return null
+    if ('isCsm' in m && typeof isCsm !== 'boolean') return null
+    const canonicalEmail = 'email' in m ? canonicalMailbox(email) : null
+    if ('email' in m && canonicalEmail === null) return null
     // Unique names — the stable selector for photo attachment.
     if (seen.has(name)) return null
     seen.add(name)
-    out.push({ name, role, photo: photo as string | null, blurb })
+    out.push({
+      name,
+      role,
+      photo: photo as string | null,
+      blurb,
+      ...('isCsm' in m ? { isCsm: isCsm as boolean } : {}),
+      ...('email' in m ? { email: canonicalEmail as string } : {}),
+    })
   }
   return out
 }

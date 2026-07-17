@@ -23,6 +23,9 @@ export function registerStaleAuditResetHandler(): void {
       await import('@/lib/ada-audit/broken-link-recovery')
         .then((m) => m.recoverBrokenLinkVerifies())
         .catch((err) => console.warn('[stale-audit-reset] broken-link verify recovery failed:', (err as Error).message))
+      await import('@/lib/viewbook/email')
+        .then((m) => m.recoverViewbookEmailDeliveries())
+        .catch((err) => console.warn('[stale-audit-reset] viewbook email recovery failed:', (err as Error).message))
       // C12 D1: sweep expired content-audit retention windows (tight bounding).
       await import('@/lib/findings/retention')
         .then((m) => m.sweepExpiredContentAudit(new Date()))

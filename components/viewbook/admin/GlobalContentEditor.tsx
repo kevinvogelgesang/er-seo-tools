@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   GLOBAL_CONTENT_KEYS,
+  canonicalMailbox,
   type ContentBlocks,
   type GlobalContentKey,
   type TeamMember,
@@ -82,6 +83,16 @@ function TeamEditor({
     setMembers(members.map((m, j) => (j === i ? { ...m, ...patch } : m)))
   }
 
+  function rosterForSave(): TeamMember[] {
+    return members.map((member) => {
+      const rawEmail = member.email?.trim() ?? ''
+      const email = rawEmail ? canonicalMailbox(rawEmail) : null
+      if (rawEmail && !email) throw new Error('invalid_email')
+      const { email: _email, ...rest } = member
+      return { ...rest, ...(email ? { email } : {}) }
+    })
+  }
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-navy-border dark:bg-navy-card">
       <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-white/80">Meet the team</h2>
@@ -106,6 +117,23 @@ function TeamEditor({
               placeholder="One-line bio"
               className="min-w-48 flex-1 rounded border border-gray-300 bg-white px-2 py-1 dark:border-navy-border dark:bg-navy-card dark:text-white"
             />
+            <input
+              type="email"
+              value={m.email ?? ''}
+              onChange={(e) => set(i, { email: e.target.value })}
+              placeholder="Email"
+              aria-label={`Email for ${m.name || `member ${i + 1}`}`}
+              className="rounded border border-gray-300 bg-white px-2 py-1 dark:border-navy-border dark:bg-navy-card dark:text-white"
+            />
+            <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-white/60">
+              <input
+                type="checkbox"
+                checked={m.isCsm === true}
+                aria-label={`CSM ${m.name || `member ${i + 1}`}`}
+                onChange={(e) => set(i, { isCsm: e.target.checked })}
+              />
+              CSM
+            </label>
             <label className="text-xs text-gray-500 dark:text-white/50">
               photo{m.photo ? ' ✓' : ''}
               <input
@@ -147,7 +175,7 @@ function TeamEditor({
                 jsonFetch('/api/viewbook-content/team', {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: members }),
+                  body: JSON.stringify({ content: rosterForSave() }),
                 }),
               )
             }
@@ -160,6 +188,84 @@ function TeamEditor({
           Photos attach to a saved member by name — save the roster first, names must be unique.
         </p>
       </div>
+    </div>
+  )
+}
+
+export function CsmPicker({
+  viewbookId,
+  csmName,
+  onChanged,
+}: {
+  viewbookId: number
+  csmName: string | null
+  onChanged: () => void
+}) {
+  const [roster, setRoster] = useState<TeamMember[]>([])
+  const [selected, setSelected] = useState(csmName ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => setSelected(csmName ?? ''), [csmName])
+  useEffect(() => {
+    let active = true
+    void jsonFetch<{ content: unknown }>('/api/viewbook-content/team')
+      .then(({ content }) => {
+        if (active) setRoster(Array.isArray(content) ? content as TeamMember[] : [])
+      })
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : 'load_failed')
+      })
+    return () => { active = false }
+  }, [])
+
+  const choices = roster.filter((member) => member.isCsm === true)
+  // The stored csmName can go dangling (renamed/removed/unflagged CSM). If we
+  // forced the <select> value to '' in that case it would render as
+  // "Unassigned" already selected, so re-selecting "Unassigned" would be a
+  // no-op (same value -> no onChange) and the operator could never clear it.
+  // Render the stale name as its own distinct option instead, so switching to
+  // "Unassigned" is a real value change.
+  const isDangling = selected !== '' && !choices.some((member) => member.name === selected)
+
+  async function assign(value: string) {
+    const previous = selected
+    setSelected(value)
+    setBusy(true)
+    setError(null)
+    try {
+      await jsonFetch(`/api/viewbooks/${viewbookId}/csm`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csmName: value || null }),
+      })
+      onChanged()
+    } catch (err) {
+      setSelected(previous)
+      setError(err instanceof Error ? err.message : 'save_failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`viewbook-csm-${viewbookId}`} className="text-gray-700 dark:text-white/80">Assigned CSM</label>
+        <select
+          id={`viewbook-csm-${viewbookId}`}
+          aria-label="Assigned CSM"
+          value={selected}
+          disabled={busy}
+          onChange={(event) => void assign(event.target.value)}
+          className="rounded border border-gray-300 bg-white px-2 py-1 dark:border-navy-border dark:bg-navy-card dark:text-white disabled:opacity-60"
+        >
+          <option value="">Unassigned</option>
+          {isDangling && <option value={selected}>{`${selected} — no longer a CSM`}</option>}
+          {choices.map((member) => <option key={member.name} value={member.name}>{member.name}</option>)}
+        </select>
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
   )
 }

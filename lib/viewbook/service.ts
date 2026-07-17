@@ -15,6 +15,7 @@ import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
+import { logError } from '@/lib/log'
 import { CATALOG } from './catalog'
 import { DEFAULT_MILESTONES } from './milestones'
 import {
@@ -28,6 +29,9 @@ import { isViewbookStage, nextStage, prevStage, type ViewbookStage } from './sta
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { appendActivityStatements } from './activity'
 import { syncVersionBumpStatement, syncVersionBumpWhere } from './sync'
+import { enqueueViewbookEmail, stageChangeDeliveryStatements } from './email'
+import { canonicalMailbox, PRIMARY_CONTACT_EMAIL_DEFKEY } from './global-content-keys'
+import { getGlobalContent } from './global-content'
 
 export type ViewbookKind = 'new-build' | 'upgrade'
 
@@ -255,11 +259,43 @@ export async function moveViewbookStage(
 ): Promise<{ stage: ViewbookStage }> {
   if (direction !== 'forward' && direction !== 'back') throw new HttpError(400, 'invalid_direction')
   if (!isViewbookStage(expectedStage)) throw new HttpError(400, 'invalid_direction')
-  const vb = await prisma.viewbook.findUnique({ where: { id }, select: { id: true } })
+  const vb = await prisma.viewbook.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      clientNotifyJson: true,
+      teamMembers: { select: { email: true } },
+      fields: {
+        where: { defKey: PRIMARY_CONTACT_EMAIL_DEFKEY, archivedAt: null },
+        select: { value: true },
+        take: 1,
+      },
+    },
+  })
   if (!vb) throw new HttpError(404, 'not_found')
   const target = direction === 'forward' ? nextStage(expectedStage) : prevStage(expectedStage)
   if (!target) throw new HttpError(409, 'stage_conflict')
   const eventKey = crypto.randomUUID()
+  const allowed = new Set<string>()
+  for (const member of vb.teamMembers) {
+    const email = canonicalMailbox(member.email)
+    if (email) allowed.add(email)
+  }
+  const primaryEmail = canonicalMailbox(vb.fields[0]?.value)
+  if (primaryEmail) allowed.add(primaryEmail)
+  let requested: unknown = []
+  try {
+    requested = JSON.parse(vb.clientNotifyJson)
+  } catch {
+    requested = []
+  }
+  const recipients = direction === 'forward' && Array.isArray(requested)
+    ? [...new Set(requested.flatMap((raw) => {
+      const email = canonicalMailbox(raw)
+      return email && allowed.has(email) ? [email] : []
+    }))]
+    : []
+  const deliveryStatements = stageChangeDeliveryStatements({ viewbookId: id, eventKey, recipients })
   try {
     // Unconditional bump joins the array (mechanism a) — the expectedStage
     // compound-where update throws P2025 on the loser of a race, rolling the
@@ -268,6 +304,7 @@ export async function moveViewbookStage(
       syncVersionBumpStatement(id),
       prisma.viewbook.update({ where: { id, stage: expectedStage }, data: { stage: target } }),
       prisma.viewbookStageLog.create({ data: { viewbookId: id, eventKey, stage: target, direction, actor } }),
+      ...deliveryStatements,
       ...appendActivityStatements(id, 'stage-change', actor, `Moved to stage: ${target}`),
     ])
   } catch (err) {
@@ -276,7 +313,74 @@ export async function moveViewbookStage(
     }
     throw err
   }
+  if (recipients.length > 0) {
+    try {
+      const dedupKeys = recipients.map((recipient) => `vb-stage:${eventKey}:${recipient}`)
+      const deliveries = await prisma.viewbookEmailDelivery.findMany({
+        where: { dedupKey: { in: dedupKeys } },
+        select: { id: true },
+      })
+      for (const delivery of deliveries) {
+        void enqueueViewbookEmail(delivery.id).catch((err) => {
+          logError({ subsystem: 'viewbook', op: 'stage-email-enqueue', viewbookId: id, deliveryId: delivery.id }, err)
+        })
+      }
+    } catch (err) {
+      logError({ subsystem: 'viewbook', op: 'stage-email-select', viewbookId: id, eventKey }, err)
+    }
+  }
   return { stage: target }
+}
+
+export interface AssignViewbookCsmDeps {
+  beforeWrite?: () => Promise<void>
+}
+
+export async function assignViewbookCsm(
+  id: number,
+  csmName: string | null,
+  actor: string,
+  deps: AssignViewbookCsmDeps = {},
+): Promise<void> {
+  const viewbook = await prisma.viewbook.findUnique({
+    where: { id },
+    select: { csmName: true, client: { select: { archivedAt: true } } },
+  })
+  if (!viewbook) throw new HttpError(404, 'not_found')
+  if (viewbook.client.archivedAt) throw new HttpError(409, 'client_archived')
+
+  if (csmName !== null) {
+    const team = await getGlobalContent('team')
+    const valid = Array.isArray(team) && team.some((member) => member.isCsm === true && member.name === csmName)
+    if (!valid) throw new HttpError(400, 'invalid_csm')
+  }
+  if (viewbook.csmName === csmName) return
+
+  if (deps.beforeWrite) await deps.beforeWrite()
+
+  const predicate = Prisma.sql`EXISTS (
+    SELECT 1
+    FROM "Viewbook" AS "vb_csm"
+    JOIN "Client" AS "client_csm" ON "client_csm"."id" = "vb_csm"."clientId"
+    WHERE "vb_csm"."id" = ${id}
+      AND "client_csm"."archivedAt" IS NULL
+      AND "vb_csm"."csmName" IS NOT ${csmName}
+  )`
+  const now = Date.now()
+  const summary = csmName === null ? 'Cleared CSM assignment' : `Assigned CSM: ${csmName}`
+  await prisma.$transaction([
+    syncVersionBumpWhere(id, predicate),
+    prisma.$executeRaw`
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
+      SELECT ${id}, 'csm-assigned', ${actor}, ${summary}, ${now}
+      WHERE (${predicate})
+    `,
+    prisma.$executeRaw`
+      UPDATE "Viewbook"
+      SET "csmName" = ${csmName}, "updatedAt" = ${now}
+      WHERE "id" = ${id} AND (${predicate})
+    `,
+  ])
 }
 
 // ── Milestones ──────────────────────────────────────────────────────────────
