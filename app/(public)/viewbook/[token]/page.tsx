@@ -18,6 +18,8 @@ import { PcSetupSection } from '@/components/viewbook/public/PcSetupSection'
 import { PcInviteSection } from '@/components/viewbook/public/PcInviteSection'
 import { PcThanksSection } from '@/components/viewbook/public/PcThanksSection'
 import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
+import { loadOperatorViewbookData } from '@/lib/viewbook/operator-data'
+import { OperatorViewbookLayer } from '@/components/viewbook/public/OperatorLayer'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,13 +73,44 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
     }
   }
 
+  // Anonymous branch: the existing public shell, byte-shape unchanged — no
+  // operator loader call, no presentation provider/bar/wrapper, and no operator
+  // email or operator read model serialized into the payload (PR8 spec §10/§12).
+  if (operatorEmail == null) {
+    return (
+      <ViewbookShell
+        token={token}
+        data={data}
+        primarySections={data.primarySections}
+        carriedSections={data.carriedSections}
+        renderSection={renderSection}
+      />
+    )
+  }
+
+  // Operator branch: only a VERIFIED-email session reaches the SELECT-only
+  // operator read model, which the layer uses to wrap every section (incl.
+  // PR5's pc-*) via a render prop without editing any section component.
+  const operatorData = await loadOperatorViewbookData(data.viewbookId)
+  if (!operatorData) notFound()
+
   return (
-    <ViewbookShell
-      token={token}
-      data={data}
-      primarySections={data.primarySections}
-      carriedSections={data.carriedSections}
+    <OperatorViewbookLayer
+      viewbookId={data.viewbookId}
+      operatorEmail={operatorEmail}
+      stage={data.stage}
+      pcCompletedAt={operatorData.pcCompletedAt}
+      operatorData={operatorData}
       renderSection={renderSection}
+      renderViewbook={(operatorRenderSection) => (
+        <ViewbookShell
+          token={token}
+          data={data}
+          primarySections={data.primarySections}
+          carriedSections={data.carriedSections}
+          renderSection={operatorRenderSection}
+        />
+      )}
     />
   )
 }
