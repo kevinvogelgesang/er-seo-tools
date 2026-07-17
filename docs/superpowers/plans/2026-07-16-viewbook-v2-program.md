@@ -124,6 +124,6 @@ tracker gets a status-log line per merged wave (change-control ritual).
 - [x] Wave 1: PR1 merged (#195, merge a7f6b53, 2026-07-16 — gates 5735/5735 + build; Codex review P2 font-scope finding fixed)
 - [x] Wave 2: PR2 + PR4 merged (PR #196 `f533465` + PR #197 `1964ff7`, 2026-07-16 — final gates 5832/5832 + build; PR2 had two review-driven fix waves incl. an empirically-reproduced latch-deadlock Critical; PR4 Codex-implemented, Claude cross-reviewed, rebased + sync-integrated)
 - [x] Wave 3: PR6 + PR3 merged (PR #198 `8672a98` website-specifics + PR #199 `5017128` email+CSM, 2026-07-16 — disjoint lanes; PR6 gates 5852 + build, PR3 gates 5885 + build; PR6 Codex P2 dark-variants fixed; PR3 cross-review 2 Important + Codex 3 P2 fixed)
-- [ ] Wave 4: PR5 + PR8 merged
+- [x] Wave 4: PR5 + PR8 merged (PR #200 `5d5348c` post-contract stage + PR #201 `80fada9` ER inline layer, 2026-07-17 — NOT disjoint; PR5 merged first, PR8 rebased onto it + owns the two-branch page/session integration; PR5 gates 6055 + build, PR8 gates 6083 + build; PR5 Codex 5×P2 fixed; PR8 Codex caught a P1 the fable-substitute review missed — render closures across the Server→Client RSC boundary — fixed by server-composing the operator tree, + 3 P2 fixed)
 - [ ] Wave 5: PR7 merged
 - [ ] Prod deploy + spec-§13 verification pass
