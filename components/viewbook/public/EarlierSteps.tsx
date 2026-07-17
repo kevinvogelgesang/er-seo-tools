@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import { SECTION_TITLES } from './section-titles'
+import { DotStack } from './SectionAccents'
 
 export function EarlierSteps({
   sections,
@@ -19,7 +20,10 @@ export function EarlierSteps({
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-6">
-      <details className="rounded-xl border border-black/10 bg-white/60">
+      <details className="relative rounded-xl border border-black/10 bg-white/60">
+        {/* Decorative-only stacked-dot column (Task 10) — a quiet visual
+            marker for the collapsed archive, never load-bearing. */}
+        <DotStack className="absolute -left-1 top-3 hidden sm:block" />
         <summary className="cursor-pointer px-5 py-4 text-sm font-bold text-black/60">
           Earlier steps
         </summary>

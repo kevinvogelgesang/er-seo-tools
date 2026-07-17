@@ -22,6 +22,7 @@ import {
   sectionLocksAutoReveal,
 } from '@/lib/viewbook/section-display'
 import { SectionReveal } from './SectionReveal'
+import { CornerBracket, TickDivider } from './SectionAccents'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -88,6 +89,9 @@ export function SectionShell({
         className={`relative flex ${heroUrl ? 'min-h-[38vh]' : 'min-h-[30vh]'} items-end overflow-hidden`}
         style={{ background: 'var(--vb-primary)' }}
       >
+        {/* Decorative-only corner accent (Task 10) — subtle brand-tinted
+            geometry, never load-bearing for layout or a11y. */}
+        <CornerBracket className="absolute left-4 top-4" />
         {heroUrl && (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -108,6 +112,12 @@ export function SectionShell({
         >
           {title}
         </h2>
+      </div>
+
+      {/* Decorative-only hairline divider (Task 10) above the summary face —
+          purely visual rhythm between the header band and the reveal region. */}
+      <div className="mx-auto w-full max-w-5xl px-6 pt-5">
+        <TickDivider />
       </div>
 
       <SectionReveal
