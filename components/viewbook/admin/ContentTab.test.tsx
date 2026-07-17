@@ -63,7 +63,13 @@ describe('ContentTab welcome note', () => {
     const { textarea, save } = welcomeControls()
     fireEvent.change(textarea, { target: { value: 'New note' } })
     fireEvent.click(save)
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    // StrategyDocsCard (mounted alongside the welcome-note editor) also
+    // calls the shared fetch mock on mount for its own doc list — scope
+    // this wait to the welcome-note PATCH specifically rather than
+    // asserting a single total call.
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/1', expect.objectContaining({ method: 'PATCH' })),
+    )
 
     expect(lastCallFor('admin-content-welcome')).toBe(false)
   })
@@ -101,7 +107,15 @@ describe('ContentTab client-specific override row', () => {
     const textarea = row.getByPlaceholderText('Client-specific adjustments to the base plan (plain text)')
     fireEvent.change(textarea, { target: { value: 'Adjusted plan text' } })
     fireEvent.click(row.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    // StrategyDocsCard (mounted alongside the override editor) also calls
+    // the shared fetch mock on mount — scope this wait to the override PUT
+    // specifically rather than asserting a single total call.
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/viewbooks/1/overrides/${overrideKey}`,
+        expect.objectContaining({ method: 'PUT' }),
+      ),
+    )
 
     expect(lastCallFor(`admin-content-override-${overrideKey}`)).toBe(false)
   })

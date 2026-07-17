@@ -2,14 +2,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { KickoffNextButton } from './KickoffNextButton'
+import { __resetSyncRegistry, requestRefresh } from './useViewbookSync'
 
-const refresh = vi.fn()
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
+vi.mock('./useViewbookSync', async () => {
+  const actual = await vi.importActual<typeof import('./useViewbookSync')>('./useViewbookSync')
+  return { ...actual, requestRefresh: vi.fn() }
+})
 
 afterEach(() => {
   cleanup()
-  refresh.mockReset()
   vi.unstubAllGlobals()
+  vi.mocked(requestRefresh).mockClear()
+  __resetSyncRegistry()
 })
 
 describe('KickoffNextButton', () => {
@@ -27,6 +31,6 @@ describe('KickoffNextButton', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ direction: 'forward', expectedStage: 'kickoff' }),
     }))
-    await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledOnce())
   })
 })

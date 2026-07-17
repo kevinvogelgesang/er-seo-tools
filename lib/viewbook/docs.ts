@@ -2,6 +2,7 @@
 // row-create failure; deletes capture the filename before a scope-fenced row
 // delete and only touch disk when that delete wins.
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
 import {
@@ -10,6 +11,12 @@ import {
   saveViewbookDoc,
   sniffPdfType,
 } from './assets'
+import {
+  syncVersionBumpAllStatement,
+  syncVersionBumpAllWhere,
+  syncVersionBumpStatement,
+  syncVersionBumpWhere,
+} from './sync'
 
 export interface DocRow {
   id: number
@@ -74,7 +81,10 @@ export async function createViewbookDoc(input: {
   const { filename } = await saveViewbookDoc(scope, input.buf)
 
   try {
-    // PR2-rebase: adopt syncVersionBumpStatement here (all for global, scoped otherwise).
+    // Unconditional create — no prior-state fence needed (team-roster-create
+    // precedent in global-content.ts): the row create carries the bump
+    // alongside it, global docs bump every viewbook, owned docs bump only
+    // their own.
     const [created] = await prisma.$transaction([
       prisma.viewbookDoc.create({
         data: {
@@ -87,6 +97,9 @@ export async function createViewbookDoc(input: {
         },
         select: DOC_SELECT,
       }),
+      input.viewbookId == null
+        ? syncVersionBumpAllStatement()
+        : syncVersionBumpStatement(input.viewbookId),
     ])
     return created
   } catch (err) {
@@ -105,8 +118,15 @@ export async function deleteViewbookDoc(
   })
   if (!row) throw new HttpError(404, 'not_found')
 
-  // PR2-rebase: adopt syncVersionBumpStatement here (all for global, scoped otherwise).
-  const [deleted] = await prisma.$transaction([
+  // Predicated bump BEFORE the deleteMany (deleteContentOverride precedent):
+  // a cross-scope or already-lost-the-race delete matches neither predicate,
+  // so it bumps nothing.
+  const fence =
+    viewbookId == null
+      ? Prisma.sql`EXISTS (SELECT 1 FROM "ViewbookDoc" WHERE "id" = ${docId} AND "viewbookId" IS NULL)`
+      : Prisma.sql`EXISTS (SELECT 1 FROM "ViewbookDoc" WHERE "id" = ${docId} AND "viewbookId" = ${viewbookId})`
+  const [, deleted] = await prisma.$transaction([
+    viewbookId == null ? syncVersionBumpAllWhere(fence) : syncVersionBumpWhere(viewbookId, fence),
     prisma.viewbookDoc.deleteMany({ where: { id: docId, viewbookId } }),
   ])
   if (deleted.count === 0) throw new HttpError(404, 'not_found')

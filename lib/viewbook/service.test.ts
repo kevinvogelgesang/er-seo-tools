@@ -29,6 +29,11 @@ import { CATALOG } from './catalog'
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)])
 const OPERATOR = 'kevin@enrollmentresources.com'
+// Global ViewbookDoc rows (viewbookId: null) aren't reachable via the
+// client-cascade cleanup below — they're app-global rows the shared worker
+// DB otherwise accumulates across runs. Titles here are prefixed so afterAll
+// can scope its delete to exactly the rows this file created.
+const GLOBAL_DOC_TITLE_PREFIX = 'vb-svc-test-global-doc-'
 
 let assetsDir: string
 beforeEach(async () => {
@@ -41,6 +46,9 @@ afterEach(async () => {
 })
 afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: 'vb-test-' } } })
+  await prisma.viewbookDoc.deleteMany({
+    where: { viewbookId: null, title: { startsWith: GLOBAL_DOC_TITLE_PREFIX } },
+  })
 })
 
 async function mkClient(archived = false) {
@@ -347,7 +355,7 @@ describe('assets + delete lifecycle', () => {
     })
     const globalDoc = await createViewbookDoc({
       viewbookId: null,
-      title: 'Global',
+      title: `${GLOBAL_DOC_TITLE_PREFIX}${crypto.randomUUID()}`,
       buf: Buffer.from('%PDF-1.7\nglobal'),
       createdBy: OPERATOR,
     })
@@ -374,7 +382,7 @@ describe('assets + delete lifecycle', () => {
     })
     const globalDoc = await createViewbookDoc({
       viewbookId: null,
-      title: 'Cascade global survivor',
+      title: `${GLOBAL_DOC_TITLE_PREFIX}${crypto.randomUUID()}`,
       buf: Buffer.from('%PDF-1.7\nglobal survivor'),
       createdBy: OPERATOR,
     })

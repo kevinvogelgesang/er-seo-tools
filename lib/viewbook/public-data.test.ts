@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import { loadViewbookPublicData } from './public-data'
@@ -8,6 +8,20 @@ import { loadViewbookPublicData } from './public-data'
 async function makeClient() {
   return prisma.client.create({ data: { name: `vb-pub-${crypto.randomUUID()}` } })
 }
+
+// Global ViewbookDoc rows (viewbookId: null) aren't scoped to any client or
+// viewbook, so a plain client-cascade cleanup never reaches them — tag with
+// a distinctive title prefix so the assertion below can scope to exactly
+// this test's rows (never an exact whole-list equality, which would break
+// the moment another test/file's global doc coexists in the shared worker
+// DB) and afterAll can remove exactly what this file created.
+const GLOBAL_DOC_TITLE_PREFIX = 'vb-pub-test-global-doc-'
+
+afterAll(async () => {
+  await prisma.viewbookDoc.deleteMany({
+    where: { viewbookId: null, title: { startsWith: GLOBAL_DOC_TITLE_PREFIX } },
+  })
+})
 
 describe('loadViewbookPublicData', () => {
   it('returns null for unknown, revoked, and archived-client tokens', async () => {
@@ -64,17 +78,25 @@ describe('loadViewbookPublicData', () => {
   it('adds viewbook identity, CSM name, and ordered global/own docs to the public payload', async () => {
     const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
     await prisma.viewbook.update({ where: { id }, data: { csmName: 'Kevin' } })
+    const marker = crypto.randomUUID()
+    const globalSecondTitle = `${GLOBAL_DOC_TITLE_PREFIX}second-${marker}`
+    const globalFirstTitle = `${GLOBAL_DOC_TITLE_PREFIX}first-${marker}`
     await prisma.viewbookDoc.createMany({
       data: [
-        { viewbookId: null, title: 'Global second', filename: 'g2.pdf', sortOrder: 2, createdBy: 'op@er.com' },
-        { viewbookId: null, title: 'Global first', filename: 'g1.pdf', sortOrder: 1, createdBy: 'op@er.com' },
+        { viewbookId: null, title: globalSecondTitle, filename: 'g2.pdf', sortOrder: 2, createdBy: 'op@er.com' },
+        { viewbookId: null, title: globalFirstTitle, filename: 'g1.pdf', sortOrder: 1, createdBy: 'op@er.com' },
         { viewbookId: id, title: 'Own first', filename: 'o1.pdf', sortOrder: 1, createdBy: 'op@er.com' },
       ],
     })
     const data = await loadViewbookPublicData(token)
     expect(data?.viewbookId).toBe(id)
     expect(data?.csmName).toBe('Kevin')
-    expect(data?.docs.global.map((doc) => doc.title)).toEqual(['Global first', 'Global second'])
+    // Scoped to this test's own titles (never an exact whole-list equality —
+    // the shared worker DB may carry other tests'/files' global doc rows).
+    const ownGlobalTitles = data?.docs.global
+      .filter((doc) => doc.title.includes(marker))
+      .map((doc) => doc.title)
+    expect(ownGlobalTitles).toEqual([globalFirstTitle, globalSecondTitle])
     expect(data?.docs.own.map((doc) => doc.title)).toEqual(['Own first'])
   })
 

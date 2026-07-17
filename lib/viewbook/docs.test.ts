@@ -33,6 +33,10 @@ async function ownViewbook() {
   return createViewbook(client.id, 'upgrade', `${PREFIX}test`)
 }
 
+async function syncVersion(viewbookId: number): Promise<number> {
+  return (await prisma.viewbook.findUniqueOrThrow({ where: { id: viewbookId } })).syncVersion
+}
+
 function create(input: Partial<Parameters<typeof createViewbookDoc>[0]> = {}) {
   return createViewbookDoc({
     viewbookId: null,
@@ -88,5 +92,57 @@ describe('viewbook document service', () => {
     await expect(create({ viewbookId: 999_999_999 })).rejects.toBeTruthy()
     const entries = await readdir(assetsDir, { recursive: true }).catch(() => [])
     expect((entries as string[]).filter((entry) => String(entry).endsWith('.pdf'))).toHaveLength(0)
+  })
+
+  describe('syncVersion bumps', () => {
+    it('a global doc create bumps two independent viewbooks +1 each', async () => {
+      const a = await ownViewbook()
+      const b = await ownViewbook()
+      const [beforeA, beforeB] = await Promise.all([syncVersion(a.id), syncVersion(b.id)])
+      await create()
+      const [afterA, afterB] = await Promise.all([syncVersion(a.id), syncVersion(b.id)])
+      expect(afterA).toBe(beforeA + 1)
+      expect(afterB).toBe(beforeB + 1)
+    })
+
+    it('an owned doc create bumps only its own viewbook', async () => {
+      const owner = await ownViewbook()
+      const other = await ownViewbook()
+      const [beforeOwner, beforeOther] = await Promise.all([syncVersion(owner.id), syncVersion(other.id)])
+      await create({ viewbookId: owner.id })
+      const [afterOwner, afterOther] = await Promise.all([syncVersion(owner.id), syncVersion(other.id)])
+      expect(afterOwner).toBe(beforeOwner + 1)
+      expect(afterOther).toBe(beforeOther)
+    })
+
+    it('a successful owned delete bumps its own viewbook +1', async () => {
+      const { id } = await ownViewbook()
+      const own = await create({ viewbookId: id })
+      const before = await syncVersion(id)
+      await deleteViewbookDoc(own.id, id)
+      expect(await syncVersion(id)).toBe(before + 1)
+    })
+
+    it('a cross-scope delete attempt 404s and bumps nothing', async () => {
+      const owner = await ownViewbook()
+      const other = await ownViewbook()
+      const own = await create({ viewbookId: owner.id })
+      const [beforeOwner, beforeOther] = await Promise.all([syncVersion(owner.id), syncVersion(other.id)])
+      await expect(deleteViewbookDoc(own.id, other.id)).rejects.toMatchObject({ status: 404 })
+      const [afterOwner, afterOther] = await Promise.all([syncVersion(owner.id), syncVersion(other.id)])
+      expect(afterOwner).toBe(beforeOwner)
+      expect(afterOther).toBe(beforeOther)
+    })
+
+    it('a global delete bumps every viewbook +1', async () => {
+      const a = await ownViewbook()
+      const b = await ownViewbook()
+      const global = await create()
+      const [beforeA, beforeB] = await Promise.all([syncVersion(a.id), syncVersion(b.id)])
+      await deleteViewbookDoc(global.id, null)
+      const [afterA, afterB] = await Promise.all([syncVersion(a.id), syncVersion(b.id)])
+      expect(afterA).toBe(beforeA + 1)
+      expect(afterB).toBe(beforeB + 1)
+    })
   })
 })

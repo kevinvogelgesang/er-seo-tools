@@ -106,7 +106,6 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     docs,
     global,
     overrides,
-    // PR2-rebase: preserve syncVersion when adopting the live-sync payload.
   }
 }
 

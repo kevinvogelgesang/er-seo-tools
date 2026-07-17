@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { requestRefresh } from './useViewbookSync'
 
 export function KickoffNextButton({ viewbookId }: { viewbookId: number }) {
-  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -20,8 +19,7 @@ export function KickoffNextButton({ viewbookId }: { viewbookId: number }) {
       })
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) throw new Error(body.error || 'stage_update_failed')
-      // PR2-rebase: call the live-sync refresh seam here when available.
-      router.refresh()
+      requestRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'stage_update_failed')
     } finally {

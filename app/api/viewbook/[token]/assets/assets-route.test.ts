@@ -13,6 +13,11 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3
 const PDF = Buffer.from('%PDF-1.7\nasset route')
 
 let assetsDir: string
+// Global ViewbookDoc rows (viewbookId: null) aren't scoped to any client or
+// viewbook, so they aren't reachable by any per-test/per-client cleanup —
+// tag them with a distinctive createdBy so afterAll can remove exactly the
+// rows this file created from the shared worker DB.
+const GLOBAL_DOC_CREATED_BY = 'vb-assets-route-test'
 
 function call(token: string, filename: string) {
   const req = new NextRequest(`http://localhost/api/viewbook/${token}/assets/${filename}`)
@@ -27,6 +32,7 @@ beforeAll(async () => {
 afterAll(async () => {
   vi.unstubAllEnvs()
   await rm(assetsDir, { recursive: true, force: true })
+  await prisma.viewbookDoc.deleteMany({ where: { viewbookId: null, createdBy: GLOBAL_DOC_CREATED_BY } })
 })
 
 async function seedViewbookWithLogo() {
@@ -103,7 +109,7 @@ describe('GET /api/viewbook/[token]/assets/[filename]', () => {
     await prisma.viewbookDoc.createMany({
       data: [
         { viewbookId: id, title: 'Owned', filename: owned, sortOrder: 1, createdBy: 'test' },
-        { viewbookId: null, title: 'Global', filename: global, sortOrder: 1, createdBy: 'test' },
+        { viewbookId: null, title: 'Global', filename: global, sortOrder: 1, createdBy: GLOBAL_DOC_CREATED_BY },
       ],
     })
 
@@ -139,7 +145,7 @@ describe('GET /api/viewbook/[token]/assets/[filename]', () => {
     await prisma.viewbookDoc.createMany({
       data: [
         { viewbookId: id, title: 'Owned', filename, sortOrder: 1, createdBy: 'test' },
-        { viewbookId: null, title: 'Global', filename, sortOrder: 1, createdBy: 'test' },
+        { viewbookId: null, title: 'Global', filename, sortOrder: 1, createdBy: GLOBAL_DOC_CREATED_BY },
       ],
     })
     const res = await call(token, filename)
