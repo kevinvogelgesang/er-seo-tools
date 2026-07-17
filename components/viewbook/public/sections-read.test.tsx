@@ -119,22 +119,62 @@ describe('StrategySection', () => {
 
 describe('KickoffNextSection', () => {
   it('renders the operator CTA only during kickoff', () => {
+    const kickoff = base({ stage: 'kickoff', csmName: 'Kevin' })
+    const building = base({ stage: 'building', csmName: 'Kevin' })
     const { rerender } = render(
-      <KickoffNextSection isOperator stage="kickoff" csmName="Kevin" viewbookId={42} />,
+      <KickoffNextSection isOperator section={sec('kickoff-next')} data={kickoff} token="tok" />,
     )
     expect(screen.getByText('Ready for the next step?')).toBeDefined()
     expect(screen.getByRole('button')).toBeDefined()
-    rerender(<KickoffNextSection isOperator stage="building" csmName="Kevin" viewbookId={42} />)
+    rerender(<KickoffNextSection isOperator section={sec('kickoff-next')} data={building} token="tok" />)
     expect(screen.queryByText('Ready for the next step?')).toBeNull()
   })
 
   it('renders named and neutral client contact copy', () => {
+    const named = base({ stage: 'kickoff', csmName: 'Kevin' })
+    const neutral = base({ stage: 'kickoff', csmName: null })
     const { rerender } = render(
-      <KickoffNextSection isOperator={false} stage="kickoff" csmName="Kevin" viewbookId={42} />,
+      <KickoffNextSection isOperator={false} section={sec('kickoff-next')} data={named} token="tok" />,
     )
     expect(screen.getByText(/Reach out to Kevin/)).toBeDefined()
-    rerender(<KickoffNextSection isOperator={false} stage="kickoff" csmName={null} viewbookId={42} />)
+    rerender(<KickoffNextSection isOperator={false} section={sec('kickoff-next')} data={neutral} token="tok" />)
     expect(screen.getByText(/Reach out to your Enrollment Resources contact/)).toBeDefined()
+  })
+
+  it('honors the shared SectionShell contract: anchor id, done-state collapse, and introNote', () => {
+    const data = base({ stage: 'kickoff', csmName: 'Kevin' })
+
+    // Anchor id present for ProgressNav's #kickoff-next scroll target.
+    const { container, rerender } = render(
+      <KickoffNextSection isOperator section={sec('kickoff-next')} data={data} token="tok" />,
+    )
+    expect(container.querySelector('#kickoff-next')).not.toBeNull()
+
+    // introNote renders when set.
+    rerender(
+      <KickoffNextSection
+        isOperator
+        section={sec('kickoff-next', { introNote: 'One more thing before we move on.' })}
+        data={data}
+        token="tok"
+      />,
+    )
+    expect(screen.getByText('One more thing before we move on.')).toBeDefined()
+
+    // done-state renders the collapsed <details> shell variant, not the
+    // expanded full-viewport layout.
+    rerender(
+      <KickoffNextSection
+        isOperator
+        section={sec('kickoff-next', { state: 'done', doneAt: '2026-07-16T00:00:00.000Z' })}
+        data={data}
+        token="tok"
+      />,
+    )
+    const details = container.querySelector('details')
+    expect(details).not.toBeNull()
+    expect(details?.hasAttribute('open')).toBe(false)
+    expect(screen.getByText('Next Steps')).toBeDefined()
   })
 })
 

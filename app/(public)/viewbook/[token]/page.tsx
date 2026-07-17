@@ -50,14 +50,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
       case 'materials':
         return <MaterialsSection {...props} />
       case 'kickoff-next':
-        return (
-          <KickoffNextSection
-            isOperator={operatorEmail != null}
-            stage={data.stage}
-            csmName={data.csmName}
-            viewbookId={data.viewbookId}
-          />
-        )
+        return <KickoffNextSection {...props} isOperator={operatorEmail != null} />
       default:
         return null
     }
