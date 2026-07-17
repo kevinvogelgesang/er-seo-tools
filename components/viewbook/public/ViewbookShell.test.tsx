@@ -246,6 +246,36 @@ describe('ViewbookShell footer whitespace (Task 9)', () => {
 // be gated to the `building` stage (a data-exposure requirement: Q&A values
 // never serialize into stages where that content isn't the searchable
 // focus).
+// Codex-review fix P2-1: nested TOC/search anchor targets (building-stage
+// field/category/milestone/doc ids) must clear the sticky nav + sticky
+// section header, same as the section root does via its own inline
+// scrollMarginTop. jsdom has no layout engine and cannot compute a
+// stylesheet-derived scroll-margin, so this is a STRUCTURAL guard only: it
+// asserts ViewbookShell emits a scoped `<style>` rule targeting
+// `[data-vb-theme-root] [id]` that references `--vb-sticky-offset` (the same
+// CSS var the theme root sets and StickyOffsetProbe measures). The real
+// pixel-accurate offset is verified at the browser integration gate, not
+// here.
+describe('ViewbookShell nested-anchor scroll offset (Task P2-1)', () => {
+  it('emits a scoped [data-vb-theme-root] [id] scroll-margin-top rule keyed to --vb-sticky-offset', () => {
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ primarySections: [sec('welcome')] })}
+        primarySections={[sec('welcome')]}
+        carriedSections={[]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+    const styles = Array.from(container.querySelectorAll('style'))
+    const rule = styles.find((el) => el.textContent?.includes('[data-vb-theme-root] [id]'))
+    expect(rule).toBeDefined()
+    expect(rule!.textContent).toContain('scroll-margin-top')
+    expect(rule!.textContent).toContain('--vb-sticky-offset')
+  })
+})
+
 describe('ViewbookShell TOC rail wiring', () => {
   it('building-stage data renders TOC entries and a verbose search box', () => {
     const { container } = render(

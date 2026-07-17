@@ -56,6 +56,19 @@ export function ViewbookShell({
       } as CSSProperties}
     >
       <ThemeStyle theme={data.theme} />
+      {/* Codex-review fix P2-1: nested TOC/search targets (building-stage
+          field/category/milestone/doc anchors) live INSIDE a section, not on
+          the section root, so SectionShell's own `scrollMarginTop` (spec §)
+          never covers them — scrollIntoView lands them under the sticky nav +
+          sticky section header. This scoped rule gives EVERY id'd element in
+          the viewbook the same scroll-margin, uniformly, without touching
+          SectionShell: `--vb-sticky-offset` is a CSS custom property set on
+          this theme-root node (above) and inherits to every descendant, so it
+          resolves correctly here too. `scroll-margin-top` is inert on an
+          element unless that element is itself a scroll target, so applying
+          it broadly to `[id]` is layout-safe — it complements, not replaces,
+          the section's own inline scrollMarginTop. */}
+      <style>{`[data-vb-theme-root] [id] { scroll-margin-top: calc(var(--vb-sticky-offset, 64px) + 12px); }`}</style>
       <ViewbookSyncClient token={token} initialVersion={data.syncVersion} />
       {/* Mounted EXACTLY ONCE here — ViewbookShell renders in both the
           anonymous and operator branches (the operator branch passes this

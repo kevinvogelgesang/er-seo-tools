@@ -161,9 +161,8 @@ export function TocRail({
   const activate = useCallback((item: { sectionKey: SectionKey; anchor: string }) => {
     navigateToAnchor(item.sectionKey, item.anchor)
     // Desktop rail defaults open and stays open on navigation — only the
-    // hamburger trigger (or Escape / genuine focus-out) collapses it. The
-    // mobile bottom-sheet still closes after navigating, since it covers
-    // the viewport.
+    // hamburger trigger (or Escape) collapses it. The mobile bottom-sheet
+    // still closes after navigating, since it covers the viewport.
     setSheetOpen(false)
   }, [])
 
@@ -322,20 +321,13 @@ export function TocRail({
         data-vb-toc-nav
         data-vb-open={open ? 'true' : 'false'}
         aria-label="Section navigation"
-        onMouseEnter={() => setOpen(true)}
-        // Collapse on mouse-leave ONLY when focus is outside the rail. The 40px
-        // collapsed container clips the focused search input / nav labels, so
-        // collapsing while a control inside still holds focus makes keyboard
-        // typing/nav unusable. A genuine focus-out (blur to outside) fires
-        // onBlur below, which collapses it then.
-        onMouseLeave={() => {
-          if (!railRef.current?.contains(document.activeElement)) setOpen(false)
-        }}
-        onBlur={(e) => {
-          // relatedTarget = where focus is going; null/outside the rail → close.
-          const next = e.relatedTarget as Node | null
-          if (!next || !railRef.current?.contains(next)) setOpen(false)
-        }}
+        // Hamburger-persistent (codex-review P2-3, Kevin's decision): open/
+        // close state is owned SOLELY by the hamburger trigger below (and
+        // Escape). No onMouseEnter/onMouseLeave/onBlur here — the rail must
+        // NOT auto-open on hover or auto-collapse on mouse-leave/blur; moving
+        // the mouse in and out of the rail is a no-op for `open`. The inner
+        // onFocus below is kept as a focus-safety net (see there), not a
+        // hover/blur behavior.
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.preventDefault()
@@ -361,6 +353,12 @@ export function TocRail({
           </span>
         </button>
         <div
+          // Focus-safety, not hover behavior: if the rail was hamburger-
+          // collapsed (40px) and a user tabs a focusable control inside it
+          // (e.g. from the trigger into the list), force it open so the
+          // focused control isn't clipped by the collapsed width. This does
+          // NOT re-introduce hover/blur-driven state — mouse in/out and
+          // blur-out no longer touch `open` at all.
           onFocus={() => setOpen(true)}
           className="rounded-xl border border-black/10 bg-white/95 p-2 shadow-lg backdrop-blur"
           style={{
