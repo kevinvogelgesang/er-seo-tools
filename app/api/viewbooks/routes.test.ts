@@ -9,6 +9,7 @@ import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 import crypto from 'crypto'
+import sharp from 'sharp'
 import type { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { AUTH_COOKIE_NAME, createAuthCookieValue } from '@/lib/auth'
@@ -18,7 +19,9 @@ import { GET as listViewbooks, POST as createViewbookRoute } from './route'
 import { GET as getViewbook, PATCH as patchViewbook } from './[id]/route'
 import { POST as attachAsset } from './[id]/assets/route'
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)])
+// Real tiny PNG — the assets route decodes every upload via sharp now, so the
+// old "PNG magic + zero bytes" fake is correctly rejected as invalid_image.
+let PNG: Buffer
 
 let cookie: string
 let assetsDir: string
@@ -36,6 +39,9 @@ beforeAll(async () => {
     hd: 'enrollmentresources.com',
     name: 'Kevin',
   })}`
+  PNG = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+    .png()
+    .toBuffer()
 })
 afterAll(async () => {
   for (const [k, v] of Object.entries(savedEnv)) {
@@ -123,7 +129,7 @@ describe('viewbook admin routes', () => {
     )
     expect(res.status).toBe(200)
     const { theme } = await res.json()
-    expect(theme.logo).toMatch(/\.png$/)
+    expect(theme.logo).toMatch(/\.webp$/)
     const row = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
     expect(parseStoredTheme(row.themeJson).logo).toBe(theme.logo)
     expect(await readViewbookAsset(String(id), theme.logo)).not.toBeNull()
