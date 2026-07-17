@@ -143,6 +143,7 @@ describe('StickyOffsetProbe', () => {
   })
 
   it('disconnects both observers on unmount', async () => {
+    const moDisconnect = vi.spyOn(MutationObserver.prototype, 'disconnect')
     const { unmount } = render(
       <div>
         <div data-vb-theme-root="">
@@ -158,12 +159,6 @@ describe('StickyOffsetProbe', () => {
     expect(ro.disconnected).toBe(false)
     unmount()
     expect(ro.disconnected).toBe(true)
-  })
-
-  it('does not touch window/document outside effects (no throw on import in a non-browser-like pass)', () => {
-    // Guard: the component body itself must be safe to call with no DOM
-    // access other than inside useEffect. Rendering it at all (above tests)
-    // already proves this; this test just documents the SSR-safety intent.
-    expect(typeof StickyOffsetProbe).toBe('function')
+    expect(moDisconnect).toHaveBeenCalled()
   })
 })
