@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-17-sweep-error-triage-design.md` (Codex-reviewed, accept-with-fixes).
 
+**Plan review:** Codex-reviewed 2026-07-17 (accept-with-fixes, 7 fixes applied). Confirmations from that review: the frozen `broken-link-verify.characterization.test.ts` stays byte-identical (empty `HarvestedPageError` → mapper adds nothing, delete is a no-op); `pageFindingKey('dead_page', url)` cannot collide with another page finding at the same URL (type is part of the key); `pagesError` threads from `loadAuditForSnapshot` to both tool pairs. **One deviation (Task 5):** Codex suggested building a local-mode status seam; this plan instead SCOPES buckets 1/4 to runner-owned-navigation modes (prod=pagespeed) and documents `local` as a dev-only limitation (reasoned peer disagreement — flagged to Kevin).
+
 ## Global Constraints
 
 - **Gate-green before merge:** `npm run lint` (`tsc --noEmit`) + `npm test` (`DATABASE_URL="file:./local-dev.db" npm test`) + `npm run build`. PLUS `npm run smoke` (ADA pipeline is touched) — macOS: `export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` first.
@@ -209,23 +211,32 @@ export function classifyRunnerError(err: unknown): ClassifiedRunnerError {
 
 - [ ] **Step 2: Run → FAIL** (handler currently settles all throws).
 
-- [ ] **Step 3: Implement the acquire helper in `runner.ts`.** Add `import { classifyRunnerError } from './runner-errors'`. Add a helper near the top of the module:
+- [ ] **Step 3: Implement the acquire helper in `runner.ts`.** Add `import { classifyRunnerError } from './runner-errors'`. Add a helper near the top of the module (delay injectable so tests don't wait 750ms — Codex fix #3):
 
 ```ts
 // Bucket 3: one 750ms-delayed retry when the pool/Chrome refuses a page
 // (Target.createTarget/Target closed under load). Infrastructure ONLY.
-async function acquirePageWithRetry(): Promise<Page> {
+export async function acquirePageWithRetry(delayMs = 750): Promise<Page> {
   try {
     return await acquirePage()
   } catch (err) {
     if (classifyRunnerError(err).kind !== 'infrastructure') throw err
-    await new Promise((r) => setTimeout(r, 750))
-    return await acquirePage()
+    await new Promise((r) => setTimeout(r, delayMs))
+    return await acquirePage()   // second failure propagates
   }
 }
 ```
 
-Replace the initial `let page = await acquirePage()` (line 134) with `let page = await acquirePageWithRetry()`, and the in-nav re-acquire `page = await acquirePage()` (line 373) with `page = await acquirePageWithRetry()`. (Leave the `isTransientRunnerError` in-nav retry logic at 363-395 otherwise unchanged — it handles timeout/frame-detach/cert, a separate concern.)
+- [ ] **Step 3b: Fix double-release ownership (Codex fix #3).** Replace the initial `let page = await acquirePage()` (line 134) with `let page: Page | null = await acquirePageWithRetry()`, and make the `finally` (line ~526) release only a currently-owned page: `if (page) await releasePage(page).catch(() => {})`. In the in-nav retry (363-395), the current sequence `await releasePage(page).catch(()=>{}); page = await acquirePage()` MUST transfer ownership BEFORE the re-acquire so a throw there can't double-release:
+
+```ts
+        const old = page
+        page = null                       // ownership transferred out
+        await releasePage(old).catch(() => {})
+        page = await acquirePageWithRetry()   // if this throws, finally sees page=null
+```
+
+Everywhere `page` is used after this point stays non-null on the success path (the throw exits the function). Adjust the `Page`-typed locals so `page` is `Page | null` only where the flow allows null (or use a non-null assertion at the known-owned use sites — pick whichever keeps `tsc` clean). Leave the `isTransientRunnerError` predicate (timeout/frame-detach/cert) itself unchanged — only the release/acquire ownership handling changes.
 
 - [ ] **Step 4: Implement the handler rethrow in `site-audit-page.ts`.** Add `import { classifyRunnerError } from '@/lib/ada-audit/runner-errors'`. Change the catch (300-312):
 
@@ -245,7 +256,7 @@ Replace the initial `let page = await acquirePage()` (line 134) with `let page =
   }
 ```
 
-- [ ] **Step 5: Add a runner test** — in `runner.test.ts`, a unit test of `acquirePageWithRetry` behavior via the existing browser-pool mock: first `acquirePage` rejects with a Target error, second resolves → returns the page (one retry); first rejects with `HTTP 404` → rethrows immediately (no retry). If `acquirePageWithRetry` is not exported, test it through `runAxeAudit` with a mocked pool, or export it for testing.
+- [ ] **Step 5: Add runner tests** — in `runner.test.ts`, using the exported `acquirePageWithRetry(0)` (delay 0, no real wait) with the browser-pool mock: (a) first `acquirePage` rejects with a `Target.createTarget` error, second resolves → returns the page (one retry); (b) first rejects with `HTTP 404` → rethrows immediately (no retry). **Pool-stability failure test (Codex fix #3):** drive `runAxeAudit` so the in-nav retry fires and BOTH the release-then-reacquire re-acquire attempts fail — assert `releasePage` is called EXACTLY once for the old page (no double-release) and the function rejects. Spy on `acquirePage`/`releasePage` call counts.
 
 - [ ] **Step 6: Run both test files → PASS.**
 - [ ] **Step 7: Commit** — `git add lib/ada-audit/runner.ts lib/ada-audit/runner.test.ts lib/jobs/handlers/site-audit-page.ts lib/jobs/handlers/site-audit-page.test.ts && git commit -m "feat(sweep): B3 — one retry for transient Chrome acquire; handler rethrows infrastructure only"`
@@ -278,9 +289,9 @@ Replace the initial `let page = await acquirePage()` (line 134) with `let page =
                 // http/https flips), not just the originally requested URL.
                 const resolved = new URL(location, finalUrl).toString()
                 // No-progress loop guard: a redirect pointing at its own final
-                // URL (protocol-insensitive) is a genuine broken redirect.
-                const norm = (u: string) => u.replace(/^https?:/, 'norm:').replace(/\/$/, '')
-                if (norm(resolved) !== norm(finalUrl)) {
+                // URL is a genuine broken redirect. Use normalizeForRedirect
+                // (shared, port/case/fragment-correct) — NOT an inline regex.
+                if (normalizeForRedirect(resolved) !== normalizeForRedirect(finalUrl)) {
                   redirectedHolder.value = { finalUrl: resolved, rendered: false }
                   return
                 }
@@ -293,28 +304,26 @@ Replace the initial `let page = await acquirePage()` (line 134) with `let page =
           }
 ```
 
-(Note: keep the `norm()` rule consistent with `normalizeForRedirect` in `redirect-detect.ts` — if that helper is exportable and pure, prefer importing it over the inline `norm`. Verify at implementation time; do NOT call `detectRedirect` here — this is the terminal-3xx branch, not the 2xx detector.)
+**Codex fix #4:** reuse the EXPORTED `normalizeForRedirect` from `redirect-detect.ts` (it handles default ports, host case, trailing slash, fragment — an inline regex misses these and can misclassify a no-progress redirect). If `normalizeForRedirect` is not currently exported, export it (it is pure). Add `import { normalizeForRedirect } from './redirect-detect'` to `runner.ts`. Do NOT call `detectRedirect` here — this is the terminal-3xx branch, not the 2xx detector.
 
-- [ ] **Step 4: Run → PASS.** Also run the existing `redirect-detect.test.ts` to confirm no regression (the 2xx path is untouched).
-- [ ] **Step 5: Commit** — `git add lib/ada-audit/runner.ts lib/ada-audit/runner.test.ts && git commit -m "feat(sweep): B4 — Location-bearing 3xx classified redirected, not error"`
+- [ ] **Step 4: Add a normalization-equivalence test (Codex fix #4)** — a 301 whose `Location` differs from `finalUrl` ONLY by a default port (`:443`/`:80`), host case, trailing slash, or fragment must be treated as no-progress (throws), proving `normalizeForRedirect` is used (an inline regex would wrongly classify it `redirected`). Run → PASS. Also run `redirect-detect.test.ts` (2xx path untouched).
+- [ ] **Step 5: Commit** — `git add lib/ada-audit/runner.ts lib/ada-audit/runner.test.ts lib/ada-audit/redirect-detect.ts && git commit -m "feat(sweep): B4 — Location-bearing 3xx classified redirected, not error"`
 
 ---
 
-### Task 5: Provider-navigation-ownership verification (Codex fix #4)
+### Task 5: Scope buckets 1/4 to runner-owned-navigation modes (Codex fix #1 — firm decision)
 
 **Files:**
-- Test: `lib/ada-audit/runner.test.ts` (both-mode cases)
-- Modify (only if the verification finds a gap): `lib/ada-audit/runner.ts`
+- Test: `lib/ada-audit/runner.test.ts` (pagespeed-mode + local-mode assertions)
+- Doc: header comment in `runner.ts` documenting the scope
 
-**Context:** `attemptNavigation` (with the HTTP-status/3xx inspection) runs at `runner.ts:351` BEFORE the provider branch at `:397`, so the axe pass appears to own its own `page.goto` in BOTH `LIGHTHOUSE_PROVIDER=local` and `pagespeed`. This task PROVES it (or fixes it).
+**Firm decision (not verify-and-decide).** Codex confirmed: at `runner.ts:240` the `provider === 'local'` branch runs `runLighthouse` (Lighthouse owns navigation) and does NOT run `attemptNavigation`'s HTTP-status/3xx inspection. So buckets 1 (dead-page capture) and 4 (3xx reclassification) only observe status in **runner-owned-navigation modes**: `LIGHTHOUSE_PROVIDER=pagespeed` (prod, per `ecosystem.config.js`), `off`, and render-only (seoOnly). **This is the correct scope:** the weekly sweep runs only in prod (`pagespeed`), so the feature has full prod coverage. `LIGHTHOUSE_PROVIDER=local` is dev-only; buckets 1/4 are documented as not firing there, and a local-mode status seam is an explicit FUTURE follow-up (dev-only value, not built now).
 
-- [ ] **Step 1: Verify the branch.** Read `runner.ts` fully around 397-500 and any `provider === 'local'` branch. Confirm whether a 404/3xx is observed by `attemptNavigation` regardless of `getLighthouseProvider()`. Write findings as a comment in the test file.
+- [ ] **Step 1: Document the scope** — add a header comment in `runner.ts` near the provider branch (`:238-244`): buckets 1/4 status observation requires runner-owned navigation (pagespeed/off/render-only); `local` mode delegates navigation to Lighthouse and does not observe response status (dev-only limitation).
 
-- [ ] **Step 2: Write both-mode tests** — in `runner.test.ts`, run the 404 (→ throws `HTTP 404`) and the non-empty-chain 3xx (→ `redirected`, from Task 4) cases with the Lighthouse provider mocked to `'local'` AND to `'pagespeed'`. Assert identical status-observation behavior in both.
+- [ ] **Step 2: Write pagespeed-mode tests** — in `runner.test.ts`, with the provider mocked to `'pagespeed'`: the 404 case throws `HTTP 404` (Task 3/7 consume it) and the non-empty-chain 3xx case returns `redirected` (Task 4). Add ONE local-mode assertion documenting the limitation: with provider `'local'`, the runner takes the `runLighthouse` path and does NOT reach the 404/3xx `attemptNavigation` inspection (assert the local branch is entered — encodes the known limitation so a future change is deliberate).
 
-- [ ] **Step 3: Run → PASS.** If (and only if) local mode does NOT observe status, implement a provider-independent main-document status check before handing navigation to Lighthouse, and re-run. Otherwise this is a test-only task documenting the invariant.
-
-- [ ] **Step 4: Commit** — `git add lib/ada-audit/runner.ts lib/ada-audit/runner.test.ts && git commit -m "test(sweep): prove 404/3xx observation is provider-independent (local + pagespeed)"`
+- [ ] **Step 3: Run → PASS. Commit** — `git add lib/ada-audit/runner.ts lib/ada-audit/runner.test.ts && git commit -m "docs+test(sweep): scope B1/B4 status obs to runner-owned nav (pagespeed/off/render-only)"`
 
 ---
 
@@ -323,12 +332,13 @@ Replace the initial `let page = await acquirePage()` (line 134) with `let page =
 **Files:**
 - Modify: `prisma/schema.prisma` (new model + `SiteAudit.harvestedPageErrors` back-relation)
 - Create: `prisma/migrations/<timestamp>_harvested_page_error/migration.sql`
-- Modify: `lib/findings/retention.ts` (add `pruneHarvestedPageErrors`, call in `runCleanup` — mirror `pruneHarvestedLinks`)
+- Modify: `lib/findings/retention.ts` (add `pruneHarvestedPageErrors`, mirroring `pruneHarvestedLinks`)
+- Modify: `lib/cleanup.ts` (import `pruneHarvestedPageErrors` + add it to the `runCleanup` batch — Codex fix #5: this is the REAL call site, next to `pruneHarvestedLinks()`)
 - Modify: `lib/ada-audit/broken-link-recovery.ts` (add `HarvestedPageError` to the transient OR-set with the `crawlRuns:{none:{tool:'seo-parser'}}` fence)
 - Test: `lib/findings/retention.test.ts` (or the existing prune test file), `lib/ada-audit/broken-link-recovery.test.ts`
 
 **Interfaces:**
-- Produces: `HarvestedPageError` model `{ id, siteAuditId, siteAudit, url, statusCode, createdAt }`, `@@unique([siteAuditId, url])`, `@@index([siteAuditId])`, `onDelete: Cascade`; `pruneHarvestedPageErrors(now?: Date): Promise<number>`.
+- Produces: `HarvestedPageError` model `{ id, siteAuditId, siteAudit, url, statusCode, createdAt }`, `@@unique([siteAuditId, url])`, `@@index([siteAuditId])`, `onDelete: Cascade`; `pruneHarvestedPageErrors(now?: Date): Promise<void>` (matches `pruneHarvestedLinks`'s `Promise<void>` shape — no unused count).
 
 - [ ] **Step 1: Edit `prisma/schema.prisma`** — add:
 
@@ -366,11 +376,11 @@ Use the real `<timestamp>` in `YYYYMMDDHHMMSS` form, later than the newest exist
 
 - [ ] **Step 4: Write the failing prune test** — mirror `pruneHarvestedLinks`'s test: seed a `HarvestedPageError` row with `createdAt` 8 days ago + one 1 day ago; `pruneHarvestedPageErrors(now)` deletes only the old one. Run → FAIL.
 
-- [ ] **Step 5: Implement `pruneHarvestedPageErrors`** in `lib/findings/retention.ts`, copying the `pruneHarvestedLinks` shape (7-day window, `Date.now()`-based cutoff), and call it in `runCleanup` next to `pruneHarvestedLinks`. Run → PASS.
+- [ ] **Step 5: Implement `pruneHarvestedPageErrors`** in `lib/findings/retention.ts`, copying the `pruneHarvestedLinks` shape exactly (`(now: Date = new Date()): Promise<void>`, 7-day window). Then in `lib/cleanup.ts` add it to the retention import and to the `runCleanup` batch next to `pruneHarvestedLinks()` (Codex fix #5 — retention never runs unless it's called from `runCleanup`). Run → PASS.
 
 - [ ] **Step 6: Extend recovery** — in `broken-link-recovery.ts`, add a third `prisma.harvestedPageError.findMany({ where: { siteAudit: { crawlRuns: { none: { tool: 'seo-parser' } } } }, distinct: ['siteAuditId'], select: { siteAuditId: true } })` to the `Promise.all`, and union its ids into `pending`. Add a recovery test: a complete audit with only a `HarvestedPageError` row (no live-scan run, no verify job) gets a verifier re-enqueued; the same audit WITH a live-scan run does NOT. Run → PASS.
 
-- [ ] **Step 7: Commit** — `git add prisma/schema.prisma prisma/migrations lib/findings/retention.ts lib/findings/retention.test.ts lib/ada-audit/broken-link-recovery.ts lib/ada-audit/broken-link-recovery.test.ts && git commit -m "feat(sweep): B1a — HarvestedPageError table + prune + recovery"`
+- [ ] **Step 7: Commit** — `git add prisma/schema.prisma prisma/migrations lib/findings/retention.ts lib/cleanup.ts lib/findings/retention.test.ts lib/ada-audit/broken-link-recovery.ts lib/ada-audit/broken-link-recovery.test.ts && git commit -m "feat(sweep): B1a — HarvestedPageError table + prune + recovery"`
 
 ---
 
@@ -405,7 +415,24 @@ async function captureDeadPage(siteAuditId: string, url: string, err: unknown): 
   }
 }
 ```
-In the catch, after `if (settled) { await finalizeWarn(...) }`, insert `if (settled) await captureDeadPage(job.siteAuditId, job.url, err)` BEFORE the `return` (capture fenced to the winning settle, so a zombie attempt writes nothing). `Prisma` is already imported (`site-audit-page.ts:29`).
+In the catch (as rewritten in Task 3), capture must run **after** the winning `settlePage` but **BEFORE** `finalizeWarn` (Codex fix #2 — `finalizeWarn` can enqueue the live-scan verifier when this is the last page; capturing after it races the verifier, which could build a clean live run before the error row exists). Final catch body:
+
+```ts
+  } catch (err) {
+    if (classifyRunnerError(err).kind === 'infrastructure') throw err   // Task 3
+    const msg = err instanceof Error ? err.message : 'Audit failed'
+    const settled = await settlePage(
+      job, ['pagesError'],
+      { status: 'error', error: msg, completedAt: new Date() }, ['running'],
+    )
+    if (settled) {
+      await captureDeadPage(job.siteAuditId, job.url, err)   // BEFORE finalize (fix #2)
+      await finalizeWarn(job.siteAuditId, 'axe-error settle')
+    }
+    return
+  }
+```
+`Prisma` is already imported (`site-audit-page.ts:29`).
 
 - [ ] **Step 3: Run → PASS.**
 - [ ] **Step 4: Commit** — `git add lib/jobs/handlers/site-audit-page.ts lib/jobs/handlers/site-audit-page.test.ts && git commit -m "feat(sweep): B1b — capture 404/410 dead pages at settle"`
@@ -574,20 +601,21 @@ and extend the findings array (`:643`): `const findings: FindingInput[] = [...on
 
 **Files:**
 - Create: `components/site-audit/DeadPagesSection.tsx`
-- Modify: `components/ada-audit/SiteAuditResultsShell.tsx` (or the SEO-tab section stack file — locate where `BrokenLinksSection`/`OnPageSeoSection` are rendered; grep `BrokenLinksSection`)
+- Modify: `app/(app)/ada-audit/site/[id]/page.tsx` (authenticated SEO section stack — where `BrokenLinksSection`/`OnPageSeoSection` are composed; Codex fix #6)
+- Modify: `app/(public)/ada-audit/site/share/[token]/page.tsx` (share SEO section stack)
 - Test: `components/site-audit/DeadPagesSection.test.tsx`
 
-**Interfaces:** Consumes the live-scan run's `dead_page` findings (page-scope rows with `detail.statusCode`), filtered by `DEAD_PAGE_FINDING_TYPE`. Mirror `BrokenLinksSection`'s data-loading/prop shape.
+**Interfaces:** Consumes the live-scan run's `dead_page` findings (page-scope rows with `detail.statusCode`), filtered by `DEAD_PAGE_FINDING_TYPE`. Mirror `BrokenLinksSection`'s data-loading/prop shape. NOTE (Codex fix #6): `SiteAuditResultsShell` only receives already-composed slots — it does NOT own the section stack; wire the new section in the two `page.tsx` files above.
 
-- [ ] **Step 1: Locate the pattern** — read `components/site-audit/BrokenLinksSection.tsx` + how it's wired into the shell + share page. Match its props (findings list, `shareMode`, states not-scanned / none / findings).
+- [ ] **Step 1: Locate the pattern** — read `components/site-audit/BrokenLinksSection.tsx` + how it's composed into both `page.tsx` stacks. Match its props (findings list, `shareMode`, states not-scanned / none / findings).
 
 - [ ] **Step 2: Write the failing test** — `DeadPagesSection.test.tsx`: given `dead_page` findings, renders the URL list + status codes; given none, renders the clean/none state; dark-mode classes present. Run → FAIL.
 
 - [ ] **Step 3: Implement `DeadPagesSection.tsx`** — a server component mirroring `BrokenLinksSection` scoped to `DEAD_PAGE_FINDING_TYPE`; dark-mode `dark:` variants on every element; render each dead URL with its `detail.statusCode`. States: not-scanned (no live-scan run) / none (run but no dead_page findings) / list.
 
-- [ ] **Step 4: Wire into BOTH the authenticated SEO-tab stack AND the share-page stack** (share = server-loaded, token-validated, read-only — no cookie-gated fetch). Run the component test + a share-page render check → PASS.
+- [ ] **Step 4: Wire into BOTH `page.tsx` stacks** — `app/(app)/ada-audit/site/[id]/page.tsx` (authenticated) AND `app/(public)/ada-audit/site/share/[token]/page.tsx` (share = server-loaded, token-validated, read-only — no cookie-gated fetch), composing `DeadPagesSection` next to `BrokenLinksSection`. Run the component test + a share-page render check → PASS.
 
-- [ ] **Step 5: Commit** — `git add components/site-audit/DeadPagesSection.tsx components/site-audit/DeadPagesSection.test.tsx components/ada-audit/SiteAuditResultsShell.tsx && git commit -m "feat(sweep): B1e — DeadPagesSection on results + share SEO tab"`
+- [ ] **Step 5: Commit** — `git add components/site-audit/DeadPagesSection.tsx components/site-audit/DeadPagesSection.test.tsx "app/(app)/ada-audit/site/[id]/page.tsx" "app/(public)/ada-audit/site/share/[token]/page.tsx" && git commit -m "feat(sweep): B1e — DeadPagesSection on results + share SEO stacks"`
 
 ---
 
@@ -649,6 +677,8 @@ Add `import { findingUnit } from '@/lib/findings/finding-type-sets'`. Remove the
     state = 'partial'
   }
 ```
+
+- [ ] **Step 2b: Update ALL existing fixtures (Codex fix #7).** `pagesError` is a required field, so every existing `PairObservation` literal/factory in `classify.test.ts` and every `AuditLoad`/`ToolLoad`-derived observation fixture in `snapshot.test.ts` must add `pagesError: 0` or `tsc --noEmit` fails at the final gate. Grep: `grep -rn "runStatus\|attributionComplete" lib/sweep/*.test.ts` to find them all. Update each to keep existing assertions green (they were `comparable`/`first-baseline` with no page errors → `pagesError: 0` preserves that).
 
 - [ ] **Step 3: Write the failing snapshot test** — in `snapshot.test.ts`: a member whose loaded audit has `pagesError > 0` and an otherwise-complete run yields coverage `state:'partial'`, `reason:'pages-errored'` for both tools; a run with `runStatus:'partial'` and `pagesError:0` yields `reason:'coverage-capped'`; `discoveryCapped` still wins as `crawl-capped`. Run → FAIL.
 
