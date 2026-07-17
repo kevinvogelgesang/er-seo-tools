@@ -6,6 +6,7 @@ import {
   enqueueViewbookEmail,
   recoverViewbookEmailDeliveries,
   stageChangeDeliveryStatements,
+  teamInviteDeliveryStatement,
 } from './email'
 
 vi.mock('@/lib/jobs/queue', async (importOriginal) => {
@@ -61,6 +62,21 @@ describe('stageChangeDeliveryStatements', () => {
         dedupKey: `vb-stage:${eventKey}:two@example.com`, memberId: null, stageLogId: null,
       }),
     ])
+  })
+})
+
+describe('teamInviteDeliveryStatement', () => {
+  it('builds a single team-invite delivery row with the memberKey:ordinal dedupKey and null correlations', async () => {
+    const viewbook = await makeViewbook()
+    const memberKey = crypto.randomUUID()
+    const statement = teamInviteDeliveryStatement({
+      viewbookId: viewbook.id, memberKey, ordinal: 2, recipient: 'member@example.com',
+    })
+    const created = await statement
+    expect(created).toEqual(expect.objectContaining({
+      viewbookId: viewbook.id, kind: 'team-invite', recipient: 'member@example.com',
+      dedupKey: `vb-invite:${memberKey}:2`, memberId: null, stageLogId: null,
+    }))
   })
 })
 

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { Prisma, type ViewbookEmailDelivery } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { logError } from '@/lib/log'
 import { enqueueJob } from '@/lib/jobs/queue'
@@ -24,6 +24,29 @@ export function stageChangeDeliveryStatements(input: {
       memberId: null,
     },
   }))
+}
+
+// PR5: the simple (non-cap) team-invite delivery builder — a plain `.create`
+// PrismaPromise for tests / any caller that doesn't need the cap predicate.
+// The actual add/resend cores (lib/viewbook/team-members.ts) do NOT use this:
+// the ordinal + cap must be computed in SQL, so they build their own raw
+// `INSERT … SELECT … WHERE <cap predicate> … RETURNING "id"` statements.
+export function teamInviteDeliveryStatement(input: {
+  viewbookId: number
+  memberKey: string
+  ordinal: number
+  recipient: string
+}): Prisma.PrismaPromise<ViewbookEmailDelivery> {
+  return prisma.viewbookEmailDelivery.create({
+    data: {
+      viewbookId: input.viewbookId,
+      kind: 'team-invite',
+      recipient: input.recipient,
+      dedupKey: `vb-invite:${input.memberKey}:${input.ordinal}`,
+      memberId: null,
+      stageLogId: null,
+    },
+  })
 }
 
 // PR5: the pc-complete delivery INSERT is a RAW, conflict-safe statement —
