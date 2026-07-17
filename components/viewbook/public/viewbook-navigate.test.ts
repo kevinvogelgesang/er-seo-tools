@@ -66,4 +66,46 @@ describe('navigateToAnchor', () => {
     expect(outer.open).toBe(true)
     expect(target.classList.contains('vb-flash')).toBe(true)
   })
+
+  // Task 8 characterization: locks the load-bearing order documented in the
+  // header comment above — `vb:navigate` (which the Task-2 SectionReveal
+  // listener uses to force-open a collapsed region via `detail.sectionKey`)
+  // MUST fire synchronously, before the deferred (next-animation-frame)
+  // scrollIntoView call. If a collapsed region isn't opened before the
+  // scroll runs, the target has zero layout height and scrollIntoView lands
+  // on nothing. This test should PASS against current code — if it fails,
+  // the dispatch-before-scroll contract has regressed.
+  it('dispatches vb:navigate (with detail.sectionKey) BEFORE scrollIntoView runs', async () => {
+    const order: string[] = []
+    let capturedDetail: { sectionKey?: string; anchor?: string } | null = null
+
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent').mockImplementation((event: Event) => {
+      if (event.type === 'vb:navigate') {
+        order.push('dispatch')
+        capturedDetail = (event as CustomEvent).detail as { sectionKey?: string; anchor?: string }
+      }
+      return true
+    })
+
+    const el = document.createElement('div')
+    el.id = 'vb-section-order-check'
+    el.scrollIntoView = vi.fn(() => {
+      order.push('scroll')
+    })
+    document.body.appendChild(el)
+
+    navigateToAnchor('strategy', '#vb-section-order-check')
+
+    // The dispatch is synchronous — it must have already happened, and the
+    // scroll must NOT have happened yet (it's deferred to the next frame).
+    expect(order).toEqual(['dispatch'])
+    expect(capturedDetail).toEqual({ sectionKey: 'strategy', anchor: '#vb-section-order-check' })
+
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    // Non-vacuous order check: scroll ran, and strictly after dispatch.
+    expect(order).toEqual(['dispatch', 'scroll'])
+
+    dispatchSpy.mockRestore()
+  })
 })
