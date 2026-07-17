@@ -891,6 +891,7 @@ model Viewbook {
   stageLogs       ViewbookStageLog[]
   emailDeliveries ViewbookEmailDelivery[]
   docs            ViewbookDoc[]
+  assessmentContent ViewbookAssessmentContent?
 }
 
 model ViewbookSection {
@@ -1082,4 +1083,27 @@ model ViewbookDoc {
   createdBy  String
   createdAt  DateTime  @default(now())
   @@index([viewbookId, sortOrder])
+}
+
+model ViewbookAssessmentContent {
+  id                Int      @id @default(autoincrement())
+  viewbookId        Int      @unique
+  viewbook          Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  generalNotesHtml  String? // sanitized HTML, plain-text-safe subset
+  userBehaviourHtml String? // sanitized HTML
+  updatedAt         DateTime @updatedAt
+  updatedBy         String? // operator email
+  images            ViewbookAssessmentImage[]
+}
+
+model ViewbookAssessmentImage {
+  id        Int                       @id @default(autoincrement())
+  contentId Int
+  content   ViewbookAssessmentContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  filename  String // matches ASSET_FILENAME_RE
+  sortOrder Int                       @default(0)
+  createdBy String? // operator email
+  createdAt DateTime                  @default(now())
+
+  @@index([contentId, sortOrder])
 }
