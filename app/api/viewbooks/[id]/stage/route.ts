@@ -18,5 +18,6 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   const expectedStage = typeof body.expectedStage === 'string' && isViewbookStage(body.expectedStage)
     ? body.expectedStage : null
   if (!direction || !expectedStage) return NextResponse.json({ error: 'invalid_direction' }, { status: 400 })
-  return NextResponse.json(await moveViewbookStage(id, direction, expectedStage, operatorEmail))
+  const force = body.force === true
+  return NextResponse.json(await moveViewbookStage(id, direction, expectedStage, operatorEmail, force))
 })

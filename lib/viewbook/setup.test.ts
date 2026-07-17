@@ -212,7 +212,12 @@ describe('moveViewbookStage recipient resolution (post-refactor regression)', ()
     const ctx = await mkViewbook()
     await prisma.viewbook.update({
       where: { id: ctx.viewbook.id },
-      data: { clientNotifyJson: JSON.stringify(['member@example.com', 'primary@example.com', 'stranger@example.com']) },
+      // pcCompletedAt stamped: this test is about recipient-resolution
+      // behavior, not the Task 6 ack-to-stage forward fence.
+      data: {
+        pcCompletedAt: new Date(),
+        clientNotifyJson: JSON.stringify(['member@example.com', 'primary@example.com', 'stranger@example.com']),
+      },
     })
     await addMember(ctx.viewbook.id, 'member@example.com')
     await setPrimaryContact(ctx.viewbook.id, 'PRIMARY@EXAMPLE.COM')

@@ -153,4 +153,36 @@ describe('POST /api/viewbooks/:id/stage', () => {
     )
     expect(res.status).toBe(409)
   })
+
+  // Task 6: force + the ack-to-stage forward fence.
+  it('409 ack_incomplete advancing out of post-contract without force', async () => {
+    const { id } = await mkViewbook()
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract' } })
+    const res = await moveStage(
+      req(`/api/viewbooks/${id}/stage`, {
+        method: 'POST',
+        body: JSON.stringify({ direction: 'forward', expectedStage: 'post-contract' }),
+      }),
+      params({ id: String(id) }),
+    )
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('ack_incomplete')
+  })
+
+  it('parses and threads body.force through to moveViewbookStage, bypassing the fence', async () => {
+    const { id } = await mkViewbook()
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract' } })
+    const res = await moveStage(
+      req(`/api/viewbooks/${id}/stage`, {
+        method: 'POST',
+        body: JSON.stringify({ direction: 'forward', expectedStage: 'post-contract', force: true }),
+      }),
+      params({ id: String(id) }),
+    )
+    expect(res.status).toBe(200)
+    const { stage } = await res.json()
+    expect(stage).toBe('kickoff')
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.pcCompletedAt).not.toBeNull()
+  })
 })

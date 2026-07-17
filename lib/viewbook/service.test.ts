@@ -423,7 +423,9 @@ describe('moveViewbookStage', () => {
   it('moves forward and logs (with eventKey)', async () => {
     const client = await mkClient()
     const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
-    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract' } })
+    // pcCompletedAt stamped: this test is about forward-move mechanics, not
+    // the Task 6 ack-to-stage fence (covered separately below).
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract', pcCompletedAt: new Date() } })
     const before = await syncVersion(id)
     const res = await moveViewbookStage(id, 'forward', 'post-contract', 'op@er.com')
     expect(res.stage).toBe('kickoff')
@@ -479,7 +481,13 @@ describe('moveViewbookStage', () => {
     const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
     await prisma.viewbook.update({
       where: { id },
-      data: { stage: 'post-contract', clientNotifyJson: JSON.stringify(['member@example.com', 'primary@example.com']) },
+      // pcCompletedAt stamped: this test is about recipient/delivery routing,
+      // not the Task 6 ack-to-stage fence (covered separately below).
+      data: {
+        stage: 'post-contract',
+        pcCompletedAt: new Date(),
+        clientNotifyJson: JSON.stringify(['member@example.com', 'primary@example.com']),
+      },
     })
     await prisma.viewbookTeamMember.create({
       data: { viewbookId: id, memberKey: crypto.randomUUID(), name: 'Member', email: 'member@example.com', addedBy: OPERATOR },
@@ -557,6 +565,123 @@ describe('moveViewbookStage', () => {
     })
     await expect(moveViewbookStage(id, 'forward', 'kickoff', OPERATOR)).rejects.toMatchObject({ code: 'stage_conflict' })
     expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id } })).toBe(0)
+  })
+})
+
+// Task 6: force + the ack-to-stage forward fence.
+describe('moveViewbookStage force + ack-to-stage forward fence', () => {
+  it('409s ack_incomplete when advancing out of post-contract with pcCompletedAt null and no force; no stage change, no bump, no deliveries', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract' } })
+    const before = await syncVersion(id)
+
+    await expect(moveViewbookStage(id, 'forward', 'post-contract', OPERATOR)).rejects.toMatchObject({
+      status: 409,
+      code: 'ack_incomplete',
+    })
+
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.stage).toBe('post-contract')
+    expect(vb.pcCompletedAt).toBeNull()
+    expect(await syncVersion(id)).toBe(before)
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id } })).toBe(0)
+  })
+
+  it('force advances out of post-contract: stamps pcCompletedAt, creates + enqueues one pc-complete delivery, still fires normal stage-change deliveries, one bump total', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({
+      where: { id },
+      data: { stage: 'post-contract', clientNotifyJson: JSON.stringify(['member@example.com']) },
+    })
+    await prisma.viewbookTeamMember.create({
+      data: { viewbookId: id, memberKey: crypto.randomUUID(), name: 'Member', email: 'member@example.com', addedBy: OPERATOR },
+    })
+    const before = await syncVersion(id)
+
+    const res = await moveViewbookStage(id, 'forward', 'post-contract', OPERATOR, true)
+    expect(res.stage).toBe('kickoff')
+
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.stage).toBe('kickoff')
+    expect(vb.pcCompletedAt).not.toBeNull()
+    expect(await syncVersion(id)).toBe(before + 1) // force stamp + stage flip = ONE bump
+
+    const pcComplete = await prisma.viewbookEmailDelivery.findMany({ where: { viewbookId: id, kind: 'pc-complete' } })
+    expect(pcComplete).toHaveLength(1)
+    expect(pcComplete[0]).toMatchObject({ dedupKey: `vb-pc-complete:${id}`, sentAt: null, suppressedAt: null })
+
+    const stageChange = await prisma.viewbookEmailDelivery.findMany({ where: { viewbookId: id, kind: 'stage-change' } })
+    expect(stageChange).toHaveLength(1)
+    expect(stageChange[0].recipient).toBe('member@example.com')
+
+    await vi.waitFor(async () => {
+      const jobs = await prisma.job.findMany({
+        where: { type: VIEWBOOK_EMAIL_JOB_TYPE, dedupKey: `viewbook-email:${pcComplete[0].id}` },
+      })
+      expect(jobs).toHaveLength(1)
+    })
+  })
+
+  it('force is safe against a pre-existing pc-complete delivery row: pcCompletedAt still gets stamped, no duplicate row, no throw (ON CONFLICT DO NOTHING)', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract' } })
+    // Simulate a stranded delivery row from a race with the ack path (Task
+    // 2) — pcCompletedAt is STILL null, but the dedupKey row already exists.
+    await prisma.viewbookEmailDelivery.create({
+      data: { viewbookId: id, kind: 'pc-complete', recipient: 'someone@example.com', dedupKey: `vb-pc-complete:${id}` },
+    })
+
+    const res = await moveViewbookStage(id, 'forward', 'post-contract', OPERATOR, true)
+    expect(res.stage).toBe('kickoff')
+
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.pcCompletedAt).not.toBeNull()
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id, kind: 'pc-complete' } })).toBe(1)
+  })
+
+  it('pcCompletedAt already set (e.g. natural ack completion): forward move advances normally without force, no additional pc-complete delivery', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'post-contract', pcCompletedAt: new Date() } })
+    await prisma.viewbookEmailDelivery.create({
+      data: { viewbookId: id, kind: 'pc-complete', recipient: 'someone@example.com', dedupKey: `vb-pc-complete:${id}` },
+    })
+
+    const res = await moveViewbookStage(id, 'forward', 'post-contract', OPERATOR)
+    expect(res.stage).toBe('kickoff')
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id, kind: 'pc-complete' } })).toBe(1)
+  })
+
+  it('the fence never blocks a back-move, even with pcCompletedAt null', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
+    const res = await moveViewbookStage(id, 'back', 'kickoff', OPERATOR)
+    expect(res.stage).toBe('post-contract')
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id, kind: 'pc-complete' } })).toBe(0)
+  })
+
+  it('the fence never blocks a forward move whose expectedStage is not post-contract, even with pcCompletedAt null', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
+    const res = await moveViewbookStage(id, 'forward', 'kickoff', OPERATOR)
+    expect(res.stage).toBe('website-specifics')
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id } })).pcCompletedAt).toBeNull()
+  })
+
+  it('force on a non-post-contract forward is a harmless no-op: advances, but stamps nothing and creates no pc-complete delivery', async () => {
+    const client = await mkClient()
+    const { id } = await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'kickoff' } })
+    const res = await moveViewbookStage(id, 'forward', 'kickoff', OPERATOR, true)
+    expect(res.stage).toBe('website-specifics')
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb.pcCompletedAt).toBeNull()
+    expect(await prisma.viewbookEmailDelivery.count({ where: { viewbookId: id, kind: 'pc-complete' } })).toBe(0)
   })
 })
 
