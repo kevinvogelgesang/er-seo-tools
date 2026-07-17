@@ -112,7 +112,7 @@ Program-level status lives in this doc's checklist (below). The roadmap
 tracker gets a status-log line per merged wave (change-control ritual).
 
 - [x] Wave 1: PR1 merged (#195, merge a7f6b53, 2026-07-16 — gates 5735/5735 + build; Codex review P2 font-scope finding fixed)
-- [ ] Wave 2: PR2 + PR4 merged
+- [x] Wave 2: PR2 + PR4 merged (PR #196 `f533465` + PR #197 `1964ff7`, 2026-07-16 — final gates 5832/5832 + build; PR2 had two review-driven fix waves incl. an empirically-reproduced latch-deadlock Critical; PR4 Codex-implemented, Claude cross-reviewed, rebased + sync-integrated)
 - [ ] Wave 3: PR6 + PR3 merged
 - [ ] Wave 4: PR5 + PR8 merged
 - [ ] Wave 5: PR7 merged
