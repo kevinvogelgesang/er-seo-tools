@@ -3,6 +3,8 @@
 // 0.179 luminance crossover). Read is exactly as strict as write —
 // parseStoredTheme degrades to DEFAULT_THEME, never throws.
 
+import { relativeLuminance } from './contrast'
+
 export const SECTION_KEYS = [
   'welcome',
   'milestones',
@@ -120,13 +122,10 @@ export function parseStoredTheme(json: string): ViewbookTheme {
   }
 }
 
-// WCAG relative luminance; 0.179 is the crossover where black and white text
-// have equal contrast ratio against the background.
+// WCAG relative luminance via the shared contrast primitive (spec §9 — one impl,
+// not two). 0.179 is the crossover where black and white text have equal
+// contrast ratio against the background. Output is unchanged from the prior
+// inlined 0.03928-threshold form for all byte-quantized #rrggbb inputs.
 export function onThemeColorText(hex: string): '#ffffff' | '#111111' {
-  const channel = (i: number): number => {
-    const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-  }
-  const luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2)
-  return luminance > 0.179 ? '#111111' : '#ffffff'
+  return relativeLuminance(hex) > 0.179 ? '#111111' : '#ffffff'
 }

@@ -7,6 +7,7 @@ import {
   DEFAULT_THEME,
   FONT_CATALOG,
 } from './theme'
+import { relativeLuminance } from './contrast'
 
 const good = {
   primary: '#122033',
@@ -67,5 +68,23 @@ describe('validateViewbookTheme', () => {
     expect(onThemeColorText('#5a5a5a')).toBe('#ffffff')
     expect(onThemeColorText('#122033')).toBe('#ffffff')
     expect(onThemeColorText('#f5f0e6')).toBe('#111111')
+  })
+})
+
+describe('onThemeColorText (post-contrast.ts refactor)', () => {
+  it('picks dark text on light bg, white text on dark bg', () => {
+    expect(onThemeColorText('#ffffff')).toBe('#111111')
+    expect(onThemeColorText('#000000')).toBe('#ffffff')
+    expect(onThemeColorText('#122033')).toBe('#ffffff') // DEFAULT_THEME.primary
+    expect(onThemeColorText('#c99334')).toBe('#111111') // DEFAULT_THEME.tertiary
+  })
+  it('crossover is at luminance 0.179 using the shared luminance fn', () => {
+    // Deterministic boundary (Codex fix): #757575 ≈ 0.178 luminance → white text
+    // (below crossover); #767676 ≈ 0.181 → dark text (above). These are exact
+    // 8-bit greys straddling 0.179; no "adjust if flaky" — they are the gate.
+    expect(onThemeColorText('#757575')).toBe('#ffffff')
+    expect(onThemeColorText('#767676')).toBe('#111111')
+    expect(relativeLuminance('#757575')).toBeLessThan(0.179)
+    expect(relativeLuminance('#767676')).toBeGreaterThan(0.179)
   })
 })

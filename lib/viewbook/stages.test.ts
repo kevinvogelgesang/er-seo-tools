@@ -27,8 +27,11 @@ describe('stage catalog', () => {
       expect(primary.filter((k) => carried.includes(k))).toEqual([])
     }
   })
-  it('lineups contain only keys with shipped renderers (PR4 deliberately unpins kickoff-next)', () => {
-    const shipped = ['welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials', 'kickoff-next']
+  it('lineups contain only keys with shipped renderers (PR4 deliberately unpins kickoff-next; PR6 adds ws-intro)', () => {
+    const shipped = [
+      'welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials',
+      'kickoff-next', 'ws-intro',
+    ]
     for (const stage of VIEWBOOK_STAGES) {
       const { primary, carried } = STAGE_LINEUPS[stage]
       for (const k of [...primary, ...carried]) expect(shipped).toContain(k)
@@ -36,6 +39,9 @@ describe('stage catalog', () => {
   })
   it('kickoff renders kickoff-next last in the primary lineup', () => {
     expect(STAGE_LINEUPS.kickoff.primary).toEqual(['welcome', 'milestones', 'strategy', 'kickoff-next'])
+  })
+  it('website-specifics renders ws-intro first in the primary lineup (PR6)', () => {
+    expect(STAGE_LINEUPS['website-specifics'].primary).toEqual(['ws-intro', 'brand', 'assessment'])
   })
   it('building primary preserves the v1 order', () => {
     expect(STAGE_LINEUPS.building.primary).toEqual([
