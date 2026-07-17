@@ -1,6 +1,18 @@
 // Tiny shared helpers for the viewbook admin routes.
 
+import type { NextRequest } from 'next/server'
 import { HttpError } from '@/lib/api/errors'
+
+// Reject an oversize (or missing/non-numeric) declared Content-Length BEFORE
+// the route buffers the body (request.formData() itself buffers). Callers
+// pass their own cap plus multipart boundary slack — the doc routes and the
+// image routes have distinct byte ceilings (MAX_DOC_BYTES vs MAX_ASSET_BYTES).
+export function requireBoundedContentLength(request: NextRequest, maxBytes: number): void {
+  const raw = request.headers.get('content-length')
+  if (!raw || !/^[0-9]+$/.test(raw) || Number(raw) > maxBytes) {
+    throw new HttpError(413, 'payload_too_large')
+  }
+}
 
 // Strict positive-int id parse; anything else is an indistinguishable 404.
 export function parseId(raw: string): number {

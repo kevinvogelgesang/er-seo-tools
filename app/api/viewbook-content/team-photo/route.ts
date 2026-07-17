@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
-import { fileBufferFromForm } from '@/lib/viewbook/route-utils'
+import { MAX_ASSET_BYTES } from '@/lib/viewbook/assets'
+import { fileBufferFromForm, requireBoundedContentLength } from '@/lib/viewbook/route-utils'
 import { attachTeamPhoto } from '@/lib/viewbook/global-content'
 
 export const dynamic = 'force-dynamic'
+const MAX_MULTIPART_BYTES = MAX_ASSET_BYTES + 64 * 1024
 
 /**
  * POST /api/viewbook-content/team-photo — one atomic multipart update:
@@ -14,6 +16,7 @@ export const dynamic = 'force-dynamic'
  */
 export const POST = withRoute(async (request: NextRequest) => {
   const operator = await requireOperatorEmail(request)
+  requireBoundedContentLength(request, MAX_MULTIPART_BYTES)
   let form: FormData
   try {
     form = await request.formData()
@@ -22,7 +25,7 @@ export const POST = withRoute(async (request: NextRequest) => {
   }
   const memberName = form.get('memberName')
   if (typeof memberName !== 'string' || !memberName) throw new HttpError(400, 'invalid_upload')
-  const buf = await fileBufferFromForm(form)
+  const buf = await fileBufferFromForm(form, MAX_ASSET_BYTES)
   const filename = await attachTeamPhoto(memberName, buf, operator)
   return NextResponse.json({ filename })
 })

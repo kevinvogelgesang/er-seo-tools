@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
-import { fileBufferFromForm, parseId } from '@/lib/viewbook/route-utils'
+import { MAX_ASSET_BYTES } from '@/lib/viewbook/assets'
+import { fileBufferFromForm, parseId, requireBoundedContentLength } from '@/lib/viewbook/route-utils'
 import { attachSectionHero, attachViewbookLogo } from '@/lib/viewbook/service'
 
 export const dynamic = 'force-dynamic'
+const MAX_MULTIPART_BYTES = MAX_ASSET_BYTES + 64 * 1024
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -17,13 +19,14 @@ type RouteParams = { params: Promise<{ id: string }> }
 export const POST = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const id = parseId((await params).id)
+  requireBoundedContentLength(request, MAX_MULTIPART_BYTES)
   let form: FormData
   try {
     form = await request.formData()
   } catch {
     throw new HttpError(400, 'invalid_upload')
   }
-  const buf = await fileBufferFromForm(form)
+  const buf = await fileBufferFromForm(form, MAX_ASSET_BYTES)
   const kind = form.get('kind')
   if (kind === 'logo') {
     return NextResponse.json({ theme: await attachViewbookLogo(id, buf) })
