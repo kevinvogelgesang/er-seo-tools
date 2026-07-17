@@ -29,20 +29,24 @@ const section: PublicSection = {
 }
 const data = {
   clientName: 'Acme',
+  displayName: 'Acme',
   kind: 'upgrade',
   welcomeNote: null,
   dataLockedAt: null,
   theme: DEFAULT_THEME,
   stage: 'building',
   stageLabel: 'Now Building',
+  pcCompletedAt: null,
+  clientNotifyJson: [],
+  teamMembers: [],
   primarySections: [],
   carriedSections: [],
   fieldCategories: [],
   milestones: [],
   materials: [],
-  global: { team: null, blocks: {} },
+  global: { team: null, pcIntro: null, blocks: {} },
   overrides: {},
-} as ViewbookPublicData
+} as unknown as ViewbookPublicData
 
 const full: AssessmentData = {
   domain: 'acme.edu',

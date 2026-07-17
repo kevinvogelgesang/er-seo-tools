@@ -1,11 +1,15 @@
 // Data Source (spec §8): Q&A grouped by catalog category, read-only in PR2.
-// PR3 owns this file next: inline editing, autosave, propose-a-change.
+// PR3 owned inline editing, autosave, propose-a-change. PR5 Task 7 adds a
+// post-contract intro line + the shared ack action — data-source is one of
+// the three ackable sections (lib/viewbook/ack.ts's ACKABLE_SECTION_KEYS) and
+// sits in the post-contract primary flow.
 import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { FieldEditor } from './FieldEditor'
 import { AmendmentForm } from './AmendmentForm'
+import { AckButton } from './AckButton'
 
 const CATEGORY_LABELS: Record<string, string> = {
   school: 'Your school',
@@ -98,6 +102,11 @@ export function DataSourceSection({
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
     >
+      {data.stage === 'post-contract' && (
+        <p className="text-black/60">
+          Fill in what you can before the kickoff call — you can always add more later.
+        </p>
+      )}
       {data.dataLockedAt && (
         <div
           className="rounded-lg px-4 py-3 text-sm font-medium"
@@ -125,6 +134,9 @@ export function DataSourceSection({
           </div>
         </details>
       ))}
+      {data.stage === 'post-contract' && (
+        <AckButton token={token} sectionKey="data-source" acknowledgedAt={section.acknowledgedAt} />
+      )}
     </SectionShell>
   )
 }

@@ -29,9 +29,16 @@ import { isViewbookStage, nextStage, prevStage, type ViewbookStage } from './sta
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { appendActivityStatements } from './activity'
 import { syncVersionBumpStatement, syncVersionBumpWhere } from './sync'
-import { enqueueViewbookEmail, stageChangeDeliveryStatements } from './email'
-import { canonicalMailbox, PRIMARY_CONTACT_EMAIL_DEFKEY } from './global-content-keys'
+import {
+  enqueueViewbookEmail,
+  pcCompleteDeliveryInsert,
+  resolvePcCompleteRecipient,
+  stageChangeDeliveryStatements,
+} from './email'
+import { canonicalMailbox } from './global-content-keys'
 import { getGlobalContent } from './global-content'
+import { ACKABLE_SECTION_KEYS, buildPcCompletion } from './ack'
+import { resolveAllowedNotifyRecipients } from './notify-recipients'
 
 export type ViewbookKind = 'new-build' | 'upgrade'
 
@@ -56,8 +63,9 @@ export async function createViewbook(
         kind,
         token,
         createdBy,
-        // PR1: explicit until PR5 ships the post-contract UI (spec fix 2)
-        stage: 'building',
+        // PR5 Task 7: post-contract is the first stage a new viewbook enters
+        // (spec fix 2) — the pc-* sections now have shipped renderers.
+        stage: 'post-contract',
         sections: {
           create: SECTION_KEYS.map((sectionKey) => ({
             sectionKey,
@@ -108,6 +116,7 @@ export async function listViewbooks() {
     token: r.token,
     revoked: r.revokedAt != null,
     stage: r.stage,
+    pcCompletedAt: r.pcCompletedAt,
     currentMilestone: r.milestones[0]?.title ?? null,
     activityCount: r._count.activities,
     dataLockedAt: r.dataLockedAt,
@@ -199,11 +208,28 @@ export async function setSectionState(
         where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },
         data: { state, doneAt: state === 'done' ? new Date() : null },
       })
+    // Hiding the last unacknowledged ackable section can satisfy the
+    // post-contract completion predicate WITHOUT another ack (Codex fix 3,
+    // PR5 spec §4) — run the SAME shared completion builder as the ack
+    // path, with no `acknowledgedAt=now` extra gate (no ack happened here).
+    // The section-state UPDATE above must precede the completion gate in
+    // the array so a just-hidden section is already excluded from the
+    // "unacked ackable" predicate. Only ackable keys can ever satisfy the
+    // gate, so resolving the recipient for any other section-key hide would
+    // be wasted work — skip it entirely.
+    const isAckableHide = state === 'hidden' && (ACKABLE_SECTION_KEYS as readonly string[]).includes(sectionKey)
+    const completion = isAckableHide
+      ? buildPcCompletion({ viewbookId: id, recipient: await resolvePcCompleteRecipient(id), now: Date.now() })
+      : null
     // Unconditional bump joins the array (mechanism a) — the compound-where
     // update throws P2025 on an unknown section key, rolling the bump back.
-    await prisma.$transaction(state === 'done'
-      ? [syncVersionBumpStatement(id), update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
-      : [syncVersionBumpStatement(id), update])
+    const statements = completion
+      ? [syncVersionBumpStatement(id), update, ...completion.statements]
+      : state === 'done'
+        ? [syncVersionBumpStatement(id), update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
+        : [syncVersionBumpStatement(id), update]
+    const results = await prisma.$transaction(statements)
+    if (completion) await completion.enqueueIfCompleted(results[results.length - 1] as number)
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
       throw new HttpError(404, 'not_found')
@@ -256,33 +282,31 @@ export async function moveViewbookStage(
   direction: 'forward' | 'back',
   expectedStage: ViewbookStage,
   actor: string,
+  force = false,
 ): Promise<{ stage: ViewbookStage }> {
   if (direction !== 'forward' && direction !== 'back') throw new HttpError(400, 'invalid_direction')
   if (!isViewbookStage(expectedStage)) throw new HttpError(400, 'invalid_direction')
   const vb = await prisma.viewbook.findUnique({
     where: { id },
-    select: {
-      id: true,
-      clientNotifyJson: true,
-      teamMembers: { select: { email: true } },
-      fields: {
-        where: { defKey: PRIMARY_CONTACT_EMAIL_DEFKEY, archivedAt: null },
-        select: { value: true },
-        take: 1,
-      },
-    },
+    select: { id: true, clientNotifyJson: true, stage: true, pcCompletedAt: true },
   })
   if (!vb) throw new HttpError(404, 'not_found')
   const target = direction === 'forward' ? nextStage(expectedStage) : prevStage(expectedStage)
   if (!target) throw new HttpError(409, 'stage_conflict')
-  const eventKey = crypto.randomUUID()
-  const allowed = new Set<string>()
-  for (const member of vb.teamMembers) {
-    const email = canonicalMailbox(member.email)
-    if (email) allowed.add(email)
+
+  // PR5 Task 6: ack-to-stage forward fence — advancing OUT of post-contract
+  // requires every ackable section to be client-acknowledged (the shared
+  // buildPcCompletion gate in ack.ts stamps Viewbook.pcCompletedAt when that
+  // happens), unless the operator explicitly forces it below.
+  const isForwardOutOfPostContract = direction === 'forward' && expectedStage === 'post-contract'
+  if (isForwardOutOfPostContract && vb.pcCompletedAt == null && !force) {
+    throw new HttpError(409, 'ack_incomplete')
   }
-  const primaryEmail = canonicalMailbox(vb.fields[0]?.value)
-  if (primaryEmail) allowed.add(primaryEmail)
+
+  const eventKey = crypto.randomUUID()
+  // Shared allowed-set resolver (PR5 Task 4) — the SAME set setNotifyEmails
+  // (setup.ts) validates writes against, so the two surfaces can never drift.
+  const allowed = await resolveAllowedNotifyRecipients(id)
   let requested: unknown = []
   try {
     requested = JSON.parse(vb.clientNotifyJson)
@@ -296,12 +320,48 @@ export async function moveViewbookStage(
     }))]
     : []
   const deliveryStatements = stageChangeDeliveryStatements({ viewbookId: id, eventKey, recipients })
+
+  // Force-out-of-post-contract (Task 6): stamp pcCompletedAt + create the
+  // SAME pc-complete delivery the natural-ack path creates (Task 2's
+  // pcCompleteDeliveryInsert, ON CONFLICT("dedupKey") DO NOTHING — a
+  // concurrent/prior ack completion can never double-send). G is gated on the
+  // row's OWN stage/pcCompletedAt at commit time: a lost race, an
+  // already-completed viewbook, or force on a non-post-contract forward all
+  // make this a harmless 0-row no-op. These statements MUST run BEFORE the
+  // expectedStage stage-update below — G requires stage = expectedStage,
+  // which that update flips.
+  let forcePcCompleteGate: Prisma.Sql | null = null
+  if (isForwardOutOfPostContract && force) {
+    forcePcCompleteGate = Prisma.sql`
+      EXISTS (
+        SELECT 1 FROM "Viewbook" vfc
+        WHERE vfc."id" = ${id} AND vfc."stage" = ${expectedStage} AND vfc."pcCompletedAt" IS NULL
+      )
+    `
+  }
+  const forceNow = Date.now()
+  const forceStatements = forcePcCompleteGate
+    ? [
+        pcCompleteDeliveryInsert({
+          viewbookId: id,
+          recipient: await resolvePcCompleteRecipient(id),
+          predicate: forcePcCompleteGate,
+        }),
+        prisma.$executeRaw`
+          UPDATE "Viewbook" SET "pcCompletedAt" = ${forceNow}, "updatedAt" = ${forceNow}
+          WHERE "id" = ${id} AND (${forcePcCompleteGate})
+        `,
+      ]
+    : []
+
+  let results: unknown[]
   try {
     // Unconditional bump joins the array (mechanism a) — the expectedStage
     // compound-where update throws P2025 on the loser of a race, rolling the
-    // bump back with the log + activity rows.
-    await prisma.$transaction([
+    // bump back with the log + activity rows (and the force stamp, if any).
+    results = await prisma.$transaction([
       syncVersionBumpStatement(id),
+      ...forceStatements,
       prisma.viewbook.update({ where: { id, stage: expectedStage }, data: { stage: target } }),
       prisma.viewbookStageLog.create({ data: { viewbookId: id, eventKey, stage: target, direction, actor } }),
       ...deliveryStatements,
@@ -313,6 +373,28 @@ export async function moveViewbookStage(
     }
     throw err
   }
+
+  if (forceStatements.length > 0) {
+    // Index 2: [0]=bump, [1]=force pc-complete delivery insert, [2]=force
+    // pcCompletedAt update — forceStatements is always exactly these two.
+    const pcCompletedAtCount = results[2] as number
+    if (pcCompletedAtCount === 1) {
+      try {
+        const delivery = await prisma.viewbookEmailDelivery.findUnique({
+          where: { dedupKey: `vb-pc-complete:${id}` },
+          select: { id: true },
+        })
+        if (delivery) {
+          void enqueueViewbookEmail(delivery.id).catch((err) => {
+            logError({ subsystem: 'viewbook', op: 'pc-complete-enqueue', viewbookId: id }, err)
+          })
+        }
+      } catch (err) {
+        logError({ subsystem: 'viewbook', op: 'pc-complete-select', viewbookId: id }, err)
+      }
+    }
+  }
+
   if (recipients.length > 0) {
     try {
       const dedupKeys = recipients.map((recipient) => `vb-stage:${eventKey}:${recipient}`)

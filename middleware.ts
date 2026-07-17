@@ -77,6 +77,13 @@ export function isPublicPath(pathname: string): boolean {
   if (/^\/api\/viewbook\/[^/]+\/materials$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/answers$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/sync$/.test(pathname)) return true
+  // v2 PR5: post-contract-stage public writes (ack/team-members/setup). Same
+  // anchoring discipline — single-segment, no '/api/viewbook/' prefix. The
+  // ack-RESET route (/api/viewbooks/[id]/ack/[sectionKey]) is the admin
+  // namespace and stays cookie-gated by omission — no entry here.
+  if (/^\/api\/viewbook\/[^/]+\/ack$/.test(pathname)) return true
+  if (/^\/api\/viewbook\/[^/]+\/team-members$/.test(pathname)) return true
+  if (/^\/api\/viewbook\/[^/]+\/setup$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 

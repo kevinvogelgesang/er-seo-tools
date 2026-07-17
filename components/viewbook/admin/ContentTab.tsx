@@ -5,7 +5,7 @@
 
 import { useState } from 'react'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
-import { GLOBAL_CONTENT_KEYS } from '@/lib/viewbook/global-content-keys'
+import { OVERRIDE_ELIGIBLE_KEYS } from '@/lib/viewbook/global-content-keys'
 import { jsonFetch } from './viewbook-admin-shared'
 import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 import { StrategyDocsCard } from './StrategyDocsCard'
@@ -120,7 +120,7 @@ export function ContentTab({
 
       <div className="space-y-3">
         <h3 className="font-semibold text-gray-700 dark:text-white/80">Client-specific strategy adjustments (&ldquo;your plan&rdquo;)</h3>
-        {GLOBAL_CONTENT_KEYS.filter((k) => k !== 'team').map((key) => (
+        {OVERRIDE_ELIGIBLE_KEYS.map((key) => (
           <OverrideRowEditor
             key={key}
             viewbookId={viewbookId}

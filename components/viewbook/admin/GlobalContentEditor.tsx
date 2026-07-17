@@ -15,7 +15,7 @@ import {
 import { jsonFetch } from './viewbook-admin-shared'
 import { StrategyDocsCard } from './StrategyDocsCard'
 
-const BLOCK_KEYS = GLOBAL_CONTENT_KEYS.filter((k) => k !== 'team')
+const BLOCK_KEYS = GLOBAL_CONTENT_KEYS.filter((k) => k !== 'team' && k !== 'pc-intro')
 
 export function GlobalContentEditor() {
   const [content, setContent] = useState<Partial<Record<GlobalContentKey, unknown>>>({})
@@ -62,6 +62,7 @@ export function GlobalContentEditor() {
       {flash && <p className="text-sm text-teal-600 dark:text-teal-400">Saved {flash}.</p>}
       <StrategyDocsCard />
       <TeamEditor roster={(content.team as TeamMember[] | null) ?? []} run={run} />
+      <PcIntroEditor value={(content['pc-intro'] as string | null) ?? ''} run={run} />
       {BLOCK_KEYS.map((key) => (
         <BlocksEditor key={key} contentKey={key} value={(content[key] as ContentBlocks | null) ?? { blocks: [] }} run={run} />
       ))}
@@ -266,6 +267,50 @@ export function CsmPicker({
         </select>
       </div>
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  )
+}
+
+// PR5: the post-contract welcome hero — a single bounded string, not a
+// heading/body block list (see lib/viewbook/global-content.ts validatePcIntro).
+function PcIntroEditor({
+  value,
+  run,
+}: {
+  value: string
+  run: (label: string, fn: () => Promise<unknown>) => Promise<void>
+}) {
+  const [text, setText] = useState(value)
+  useEffect(() => setText(value), [value])
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-navy-border dark:bg-navy-card">
+      <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-white/80">
+        Post-contract welcome (pc-intro)
+      </h2>
+      <div className="space-y-3 text-sm">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={3}
+          placeholder="Welcome! Let's get your account set up..."
+          className="w-full rounded border border-gray-300 bg-white p-2 dark:border-navy-border dark:bg-navy-card dark:text-white"
+        />
+        <button
+          onClick={() =>
+            void run('pc-intro', () =>
+              jsonFetch('/api/viewbook-content/pc-intro', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: text }),
+              }),
+            )
+          }
+          className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700"
+        >
+          Save
+        </button>
+      </div>
     </div>
   )
 }

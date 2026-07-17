@@ -12,6 +12,7 @@ import { syncVersionBumpAllStatement, syncVersionBumpAllWhere, syncVersionBumpSt
 
 import {
   GLOBAL_CONTENT_KEYS,
+  OVERRIDE_ELIGIBLE_KEYS,
   canonicalMailbox,
   type ContentBlocks,
   type GlobalContentKey,
@@ -24,6 +25,7 @@ export type { ContentBlocks, GlobalContentKey, TeamMember }
 const TEAM_CAPS = { members: 20, name: 120, role: 160, blurb: 2048 }
 const BLOCK_CAPS = { blocks: 20, heading: 200, body: 4096 }
 const OVERRIDE_BODY_CAP = 4096
+const PC_INTRO_CAP = 2000
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
@@ -33,6 +35,16 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 function isKnownKey(key: string): key is GlobalContentKey {
   return (GLOBAL_CONTENT_KEYS as readonly string[]).includes(key)
+}
+
+// Overrides only make sense for the heading/body block keys (Codex fix — the
+// per-viewbook "your plan" surface): 'team' has its own roster editor and
+// 'pc-intro' renders ONLY from `data.global.pcIntro` (PcIntroSection), so an
+// override on either key would upsert successfully with NO effect on what
+// renders — a dead/misleading control. Reject it here rather than accept a
+// write nothing reads.
+function isOverrideEligibleKey(key: string): key is GlobalContentKey {
+  return (OVERRIDE_ELIGIBLE_KEYS as readonly string[]).includes(key)
 }
 
 // Shared fence for both team-roster writers below (putTeamRoster,
@@ -93,9 +105,19 @@ function validateBlocks(raw: unknown): ContentBlocks | null {
   return { blocks }
 }
 
-export function validateGlobalContent(key: string, raw: unknown): TeamMember[] | ContentBlocks | null {
+// PR5: pc-intro is a single bounded plain-text string (the post-contract
+// welcome hero), not a heading/body block list — read exactly as strict as
+// write, same as every other key here.
+function validatePcIntro(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > PC_INTRO_CAP) return null
+  return raw
+}
+
+export function validateGlobalContent(key: string, raw: unknown): TeamMember[] | ContentBlocks | string | null {
   if (!isKnownKey(key)) return null
-  return key === 'team' ? validateTeam(raw) : validateBlocks(raw)
+  if (key === 'team') return validateTeam(raw)
+  if (key === 'pc-intro') return validatePcIntro(raw)
+  return validateBlocks(raw)
 }
 
 export async function putGlobalContent(key: string, raw: unknown, updatedBy: string): Promise<void> {
@@ -165,7 +187,7 @@ async function putTeamRoster(incoming: TeamMember[], updatedBy: string): Promise
   if (orphaned.length > 0) await deleteViewbookAssets('global', orphaned)
 }
 
-export async function getGlobalContent(key: GlobalContentKey): Promise<TeamMember[] | ContentBlocks | null> {
+export async function getGlobalContent(key: GlobalContentKey): Promise<TeamMember[] | ContentBlocks | string | null> {
   const row = await prisma.viewbookGlobalContent.findUnique({ where: { key } })
   if (!row) return null
   try {
@@ -175,8 +197,8 @@ export async function getGlobalContent(key: GlobalContentKey): Promise<TeamMembe
   }
 }
 
-export async function getAllGlobalContent(): Promise<Record<GlobalContentKey, TeamMember[] | ContentBlocks | null>> {
-  const out = {} as Record<GlobalContentKey, TeamMember[] | ContentBlocks | null>
+export async function getAllGlobalContent(): Promise<Record<GlobalContentKey, TeamMember[] | ContentBlocks | string | null>> {
+  const out = {} as Record<GlobalContentKey, TeamMember[] | ContentBlocks | string | null>
   for (const key of GLOBAL_CONTENT_KEYS) {
     out[key] = await getGlobalContent(key)
   }
@@ -251,7 +273,7 @@ export async function putContentOverride(
   body: string,
   updatedBy: string,
 ): Promise<void> {
-  if (!isKnownKey(contentKey)) throw new HttpError(400, 'invalid_content')
+  if (!isOverrideEligibleKey(contentKey)) throw new HttpError(400, 'invalid_content')
   if (typeof body !== 'string' || body.length === 0 || body.length > OVERRIDE_BODY_CAP) {
     throw new HttpError(400, 'invalid_content')
   }

@@ -13,6 +13,10 @@ import { AssessmentSection } from '@/components/viewbook/public/AssessmentSectio
 import { StrategySection } from '@/components/viewbook/public/StrategySection'
 import { MaterialsSection } from '@/components/viewbook/public/MaterialsSection'
 import { KickoffNextSection } from '@/components/viewbook/public/KickoffNextSection'
+import { PcIntroSection } from '@/components/viewbook/public/PcIntroSection'
+import { PcSetupSection } from '@/components/viewbook/public/PcSetupSection'
+import { PcInviteSection } from '@/components/viewbook/public/PcInviteSection'
+import { PcThanksSection } from '@/components/viewbook/public/PcThanksSection'
 import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
 
 export const dynamic = 'force-dynamic'
@@ -54,6 +58,14 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
         return <KickoffNextSection {...props} isOperator={operatorEmail != null} />
       case 'ws-intro':
         return <WsIntroSection {...props} />
+      case 'pc-intro':
+        return <PcIntroSection {...props} />
+      case 'pc-setup':
+        return <PcSetupSection {...props} />
+      case 'pc-invite':
+        return <PcInviteSection {...props} />
+      case 'pc-thanks':
+        return <PcThanksSection {...props} />
       default:
         return null
     }

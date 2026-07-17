@@ -29,7 +29,11 @@ export function SectionShell({
   summary?: ReactNode
   children: ReactNode
 }) {
-  if (section.state === 'done') {
+  // PR5 Task 7 (Codex fix 10, spec §4 "collapses the section for everyone"):
+  // an acknowledged ackable section (pc-setup/pc-invite/data-source) collapses
+  // exactly like a 'done' section — same slim <details> face, body retained.
+  // Reset-ack (operator) clears acknowledgedAt and re-expands.
+  if (section.state === 'done' || section.acknowledgedAt != null) {
     return (
       <section id={section.sectionKey} className="mx-auto w-full max-w-5xl scroll-mt-14 px-6 py-4">
         <style>{`

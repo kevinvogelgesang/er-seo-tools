@@ -29,20 +29,37 @@ export const STAGE_LABELS: Record<ViewbookStage, string> = {
   building: 'Now Building',
 }
 
+// The org-basics fields pc-setup renders, in display order (PR5 spec §7).
+// Client-safe pure const — never renumber/rename; append-only like CATALOG.
+export const PC_SETUP_DEF_KEYS = [
+  'school-name',
+  'school-contact-name',
+  'school-contact-email',
+  'school-phone',
+  'school-website',
+] as const
+
 export interface StageLineup {
   primary: SectionKey[]
   carried: SectionKey[]
 }
 
 export const STAGE_LINEUPS: Record<ViewbookStage, StageLineup> = {
-  'post-contract': { primary: ['data-source'], carried: [] },
-  kickoff: { primary: ['welcome', 'milestones', 'strategy', 'kickoff-next'], carried: ['data-source'] },
+  // PR5 Task 7 activation: the four pc-* keys now have shipped renderers.
+  'post-contract': {
+    primary: ['pc-intro', 'pc-setup', 'pc-invite', 'data-source', 'pc-thanks'],
+    carried: [],
+  },
+  kickoff: {
+    primary: ['welcome', 'milestones', 'strategy', 'kickoff-next'],
+    carried: ['pc-setup', 'pc-invite', 'data-source'],
+  },
   'website-specifics': {
     primary: ['ws-intro', 'brand', 'assessment'],
-    carried: ['welcome', 'milestones', 'strategy', 'data-source'],
+    carried: ['welcome', 'milestones', 'strategy', 'pc-setup', 'pc-invite', 'data-source'],
   },
   building: {
     primary: ['welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials'],
-    carried: [],
+    carried: ['pc-setup', 'pc-invite'],
   },
 }

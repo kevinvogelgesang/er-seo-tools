@@ -1,8 +1,21 @@
 // Client-safe global-content key constants + body types (the server store in
 // global-content.ts imports these; client components import ONLY this file).
 
-export const GLOBAL_CONTENT_KEYS = ['team', 'process', 'why', 'seo-base', 'geo-base', 'eeat-base'] as const
+// 'pc-intro' (PR5) is a plain bounded string, unlike the roster ('team') or
+// heading/body blocks (everything else) — see validateGlobalContent.
+export const GLOBAL_CONTENT_KEYS = ['team', 'process', 'why', 'seo-base', 'geo-base', 'eeat-base', 'pc-intro'] as const
 export type GlobalContentKey = (typeof GLOBAL_CONTENT_KEYS)[number]
+
+// Per-viewbook "your plan" content overrides (ContentTab.tsx / putContentOverride
+// in global-content.ts) only make sense for the heading/body block keys: 'team'
+// has its own roster editor (never an override target) and 'pc-intro' is read
+// ONLY from `data.global.pcIntro` (PcIntroSection) — an override on either key
+// would upsert successfully but have NO rendering effect, a dead/misleading
+// control. ONE shared list so the admin UI filter and the write-path
+// validation can never drift apart.
+export const OVERRIDE_ELIGIBLE_KEYS = GLOBAL_CONTENT_KEYS.filter(
+  (key): key is Exclude<GlobalContentKey, 'team' | 'pc-intro'> => key !== 'team' && key !== 'pc-intro',
+)
 
 export interface TeamMember {
   name: string

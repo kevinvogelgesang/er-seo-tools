@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { SECTION_KEYS } from './theme'
+import { CATALOG } from './catalog'
 import {
-  VIEWBOOK_STAGES, isViewbookStage, nextStage, prevStage, STAGE_LINEUPS,
+  VIEWBOOK_STAGES, isViewbookStage, nextStage, prevStage, STAGE_LINEUPS, PC_SETUP_DEF_KEYS,
 } from './stages'
 
 describe('stage catalog', () => {
@@ -27,10 +28,11 @@ describe('stage catalog', () => {
       expect(primary.filter((k) => carried.includes(k))).toEqual([])
     }
   })
-  it('lineups contain only keys with shipped renderers (PR4 deliberately unpins kickoff-next; PR6 adds ws-intro)', () => {
+  it('lineups contain only keys with shipped renderers (PR4 deliberately unpins kickoff-next; PR6 adds ws-intro; PR5 Task 7 deliberately unpins pc-intro/pc-setup/pc-invite/pc-thanks)', () => {
     const shipped = [
       'welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials',
       'kickoff-next', 'ws-intro',
+      'pc-intro', 'pc-setup', 'pc-invite', 'pc-thanks',
     ]
     for (const stage of VIEWBOOK_STAGES) {
       const { primary, carried } = STAGE_LINEUPS[stage]
@@ -47,5 +49,29 @@ describe('stage catalog', () => {
     expect(STAGE_LINEUPS.building.primary).toEqual([
       'welcome', 'milestones', 'data-source', 'brand', 'assessment', 'strategy', 'materials',
     ])
+  })
+
+  it('post-contract primary is the five pc-* + data-source keys in order (PR5 Task 7)', () => {
+    expect(STAGE_LINEUPS['post-contract']).toEqual({
+      primary: ['pc-intro', 'pc-setup', 'pc-invite', 'data-source', 'pc-thanks'],
+      carried: [],
+    })
+  })
+  it('pc-setup and pc-invite are carried into every later stage (PR5 Task 7)', () => {
+    expect(STAGE_LINEUPS.kickoff.carried).toEqual(['pc-setup', 'pc-invite', 'data-source'])
+    expect(STAGE_LINEUPS['website-specifics'].carried).toEqual([
+      'welcome', 'milestones', 'strategy', 'pc-setup', 'pc-invite', 'data-source',
+    ])
+    expect(STAGE_LINEUPS.building.carried).toEqual(['pc-setup', 'pc-invite'])
+  })
+})
+
+describe('PC_SETUP_DEF_KEYS (PR5)', () => {
+  it('is the 5 org-basics defKeys in display order, each resolving in CATALOG', () => {
+    expect(PC_SETUP_DEF_KEYS).toEqual([
+      'school-name', 'school-contact-name', 'school-contact-email', 'school-phone', 'school-website',
+    ])
+    const catalogKeys = new Set(CATALOG.map((e) => e.defKey))
+    for (const key of PC_SETUP_DEF_KEYS) expect(catalogKeys.has(key)).toBe(true)
   })
 })

@@ -13,6 +13,7 @@ import {
   putContentOverride,
   deleteContentOverride,
 } from './global-content'
+import { OVERRIDE_ELIGIBLE_KEYS } from './global-content-keys'
 import { readViewbookAsset } from './assets'
 import { createViewbook } from './service'
 import crypto from 'crypto'
@@ -76,6 +77,22 @@ describe('validateGlobalContent', () => {
     for (const email of ['Name <name@example.com>', 'a@example.com,b@example.com', 'a @example.com', 'not-an-email']) {
       expect(validateGlobalContent('team', [{ ...roster[0], email }])).toBeNull()
     }
+  })
+})
+
+describe('pc-intro global text key (PR5)', () => {
+  it('accepts a bounded non-empty string; rejects empty, non-string, and oversize', () => {
+    expect(validateGlobalContent('pc-intro', 'Welcome to your viewbook!')).toBe('Welcome to your viewbook!')
+    expect(validateGlobalContent('pc-intro', '')).toBeNull()
+    expect(validateGlobalContent('pc-intro', 123)).toBeNull()
+    expect(validateGlobalContent('pc-intro', ['not a string'])).toBeNull()
+    expect(validateGlobalContent('pc-intro', 'a'.repeat(2001))).toBeNull()
+  })
+
+  it('round-trips through put/get; absent reads null (additive)', async () => {
+    expect(await getGlobalContent('pc-intro')).toBeNull()
+    await putGlobalContent('pc-intro', 'Welcome aboard — let’s get your account set up.', OPERATOR)
+    expect(await getGlobalContent('pc-intro')).toBe('Welcome aboard — let’s get your account set up.')
   })
 })
 
@@ -256,5 +273,29 @@ describe('content overrides', () => {
     expect(rows[0].body).toBe('Your plan v2.')
     await expect(putContentOverride(id, 'nope', 'x', OPERATOR)).rejects.toMatchObject({ code: 'invalid_content' })
     await expect(putContentOverride(id, 'seo-base', 'a'.repeat(4097), OPERATOR)).rejects.toMatchObject({ code: 'invalid_content' })
+  })
+
+  // Codex PR5 fix-wave finding 5: 'pc-intro' is a real GLOBAL_CONTENT_KEYS
+  // member (PcIntroEditor / validateGlobalContent both handle it), but
+  // PcIntroSection reads ONLY `data.global.pcIntro` — never a per-viewbook
+  // override. Accepting a pc-intro override would 200 a write with no
+  // rendering effect, so the write path must reject it even though it's a
+  // known global-content key.
+  it('rejects a pc-intro override — a known global-content key with no per-viewbook rendering path', async () => {
+    const c = await prisma.client.create({ data: { name: `vb-test-${crypto.randomUUID()}` } })
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+
+    await expect(putContentOverride(id, 'pc-intro', 'Welcome!', OPERATOR)).rejects.toMatchObject({ code: 'invalid_content' })
+    expect(await prisma.viewbookContentOverride.findMany({ where: { viewbookId: id, contentKey: 'pc-intro' } })).toHaveLength(0)
+  })
+
+  it('OVERRIDE_ELIGIBLE_KEYS excludes team and pc-intro — the ONE source both ContentTab and putContentOverride read', () => {
+    expect(OVERRIDE_ELIGIBLE_KEYS).not.toContain('team')
+    expect(OVERRIDE_ELIGIBLE_KEYS).not.toContain('pc-intro')
+    // Every non-team/pc-intro global key stays override-eligible.
+    for (const key of GLOBAL_CONTENT_KEYS) {
+      if (key === 'team' || key === 'pc-intro') continue
+      expect(OVERRIDE_ELIGIBLE_KEYS).toContain(key)
+    }
   })
 })

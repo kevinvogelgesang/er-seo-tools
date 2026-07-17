@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
-import { isViewbookStage, STAGE_LABELS } from '@/lib/viewbook/stages'
+import { isViewbookStage, nextStage, prevStage, STAGE_LABELS } from '@/lib/viewbook/stages'
 import { jsonFetch, publicViewbookUrl, type ViewbookDetail } from './viewbook-admin-shared'
 import { ThemeEditor } from './ThemeEditor'
 import { ContentTab } from './ContentTab'
@@ -125,11 +125,44 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   )
 }
 
-function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => void }) {
+// Task 6: narrower than the full ViewbookDetail (DataSourceTab precedent) so
+// tests can construct a minimal viewbook without every editor's fields.
+export interface SettingsTabViewbook {
+  id: number
+  kind: string
+  notifyEmail: string | null
+  stage: string
+  pcCompletedAt: string | null
+  csmName: string | null
+  sections: { sectionKey: string; state: string }[]
+}
+
+export function SettingsTab({ vb, onChanged }: { vb: SettingsTabViewbook; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const { focused, onFocus, onBlur } = useFocusWithin()
+
+  const currentStage = isViewbookStage(vb.stage) ? vb.stage : null
+  const nextStageValue = currentStage ? nextStage(currentStage) : null
+  const prevStageValue = currentStage ? prevStage(currentStage) : null
+
+  function moveStage(direction: 'forward' | 'back', force = false) {
+    return jsonFetch(`/api/viewbooks/${vb.id}/stage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction, expectedStage: vb.stage, ...(force ? { force: true } : {}) }),
+    })
+  }
+
+  function handleAdvance() {
+    if (currentStage === 'post-contract' && !vb.pcCompletedAt) {
+      if (!window.confirm('Acknowledgments incomplete — advance anyway?')) return
+      void run('Stage move', () => moveStage('forward', true))
+      return
+    }
+    void run('Stage move', () => moveStage('forward'))
+  }
 
   // Final-review fix (P1): `notifyEmail` used to be seeded ONCE from
   // `vb.notifyEmail` and dirty was computed directly against the raw prop —
@@ -162,9 +195,27 @@ function SettingsTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => v
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
       {flash && <p className="text-teal-600 dark:text-teal-400">{flash} done.</p>}
 
-      <p className="text-gray-700 dark:text-white/80">
-        Project stage: <span className="font-medium">{isViewbookStage(vb.stage) ? STAGE_LABELS[vb.stage] : vb.stage}</span>
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-gray-700 dark:text-white/80">
+          Project stage: <span className="font-medium">{isViewbookStage(vb.stage) ? STAGE_LABELS[vb.stage] : vb.stage}</span>
+        </p>
+        <button
+          type="button"
+          disabled={busy || !prevStageValue}
+          onClick={() => void run('Stage move', () => moveStage('back'))}
+          className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-navy-border dark:text-white/80 dark:hover:bg-white/5"
+        >
+          Roll back
+        </button>
+        <button
+          type="button"
+          disabled={busy || !nextStageValue}
+          onClick={handleAdvance}
+          className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-navy-border dark:text-white/80 dark:hover:bg-white/5"
+        >
+          Advance
+        </button>
+      </div>
 
       <CsmPicker viewbookId={vb.id} csmName={vb.csmName} onChanged={onChanged} />
 
