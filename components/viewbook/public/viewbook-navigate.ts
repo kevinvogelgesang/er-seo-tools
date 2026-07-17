@@ -37,7 +37,11 @@ export function navigateToAnchor(sectionKey: SectionKey, anchor: string): void {
   const run = () => {
     let target: Element | null = null
     try {
-      target = document.querySelector(anchor)
+      // `document.getElementById` takes the id verbatim (dots included) — no
+      // CSS-escaping needed. `querySelector` is reserved for non-`#` selectors;
+      // used on a `#vb-doc-<filename>` anchor it would parse a `.webp`/`.pdf`
+      // suffix as a class selector and silently return null.
+      target = anchor.startsWith('#') ? document.getElementById(anchor.slice(1)) : document.querySelector(anchor)
     } catch {
       target = null
     }
