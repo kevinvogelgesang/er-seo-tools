@@ -1,7 +1,29 @@
 # HANDOFF — Viewbook UX Pass
 
-**Status (2026-07-17):** Spec + plans written and Codex-reviewed (both accept-with-fixes,
-all applied). Ready to START WAVE 1. Nothing implemented yet.
+**Status (2026-07-17):** **WAVE 1 MERGED to local `main`** (not pushed/deployed).
+Lane 1 (Claude, Reading Experience) + Lane 2 (Codex, Operator Editing UX) both
+built, per-task + whole-branch reviewed, cross-reviewed, gate-green, and merged
+(`7318e21` L1, `1aac182` L2). **Automated post-Wave-1 integration gate GREEN**
+(tsc + lint + 6231 tests + build on merged main). **Remaining before Wave 2:**
+(1) the MANUAL browser check below; (2) Kevin's push/deploy call; (3) cut the
+Wave-2 plans (Lane 3 brief + Lane 4 plan) from MERGED code.
+
+## Wave 1 — what landed
+- **Lane 1:** sticky state-only section headers (kills the blink bug — observer removed), `StickyOffsetProbe` + `--vb-sticky-offset` chrome, `data-vb-theme-root` seam, TOC rail left/default-open/**hamburger-persistent**, nav scroll offset for section + nested anchors, footer-whitespace regression guard (root cause = the removed observer's doc-shrink), admin name → public page in new tab. Codex cross-review: 4 P2, all resolved (theme-preview collapse, revoked→404 link, nested-anchor offset, TOC hover→hamburger-persistent per Kevin).
+- **Lane 2 (Codex):** save-less autosave (serialized in-flight + generation guard + `stale_version` retain-draft/explicit-resolve), live-theme store + `ThemeDraftWriter`, live-draft contrast, AA-only bands, searchable checked-in Google-Fonts manifest (keys-only), operator panels open by default. Claude opus cross-review: READY TO MERGE (2 Minor follow-ups: color-edit+upload race, an impure setter smell). Codex ran clean start→finish (never usage-out).
+- Codex deficiencies + sandbox issues (for Kevin to resolve) logged at `.superpowers/sdd/codex-lane2-deficiencies.md`.
+
+## MANUAL browser check (do before opening Wave 2 — jsdom can't verify these)
+Run the dev app, open a viewbook (operator mode + a public/presentation view):
+- [ ] (a) **Live theme colour** — drag an operator colour; `--vb-*` update live before save.
+- [ ] (b) **Live font** — change a font in the searchable picker; the `<link>` swaps live.
+- [ ] (c) **Presentation-mode offset** — toggle presentation (operator bar hidden); sticky section headers re-pin with no overlap/gap (the `--vb-operator-bar-height`→0 path).
+- [ ] (d) **Sticky + no blink** — scroll the Data Source (tall) section: NO flicker; headers pin under the nav; next section pushes the previous header up.
+- [ ] (e) **Footer whitespace** (Task 9 deferred) — advance to Now Building, return to Getting Started; no blank band below the footer (edit + presentation modes).
+- [ ] (f) **Nested-anchor offset** (P2-1) — building-stage TOC child / search hit lands the target BELOW the sticky chrome, fully visible (not tucked under the header).
+- [ ] (g) **Hamburger-persistent TOC** (P2-3) — rail starts open; only the hamburger collapses/expands it; mouse-leave no longer collapses it.
+
+Worktrees `.claude/worktrees/viewbook-l1` + `viewbook-l2` are KEPT until this manual check passes (remove with `git worktree remove` after).
 
 ## Docs (read in this order)
 - Spec: `docs/superpowers/specs/2026-07-17-viewbook-ux-pass-design.md`
