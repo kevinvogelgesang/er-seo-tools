@@ -169,6 +169,78 @@ describe('ViewbookShell sticky chrome (Task 5)', () => {
   })
 })
 
+// Task 9: footer-whitespace regression guard.
+//
+// ROOT CAUSE (confirmed, resolved by Task 2 / commit daf4477): the deleted
+// scroll-collapse IntersectionObserver called setExpanded(false) as a section
+// scrolled out of view, driving `.vb-reveal` to `grid-template-rows: 0fr` and
+// dynamically SHRINKING in-flow document height while the viewport scroll
+// offset stayed put — leaving a blank band below the <footer>. Worst on stage
+// round-trips, which surface more done/acked (collapse-eligible) sections for
+// the observer to shrink as you scroll. Body visibility is now STATE-ONLY:
+// collapsed sections render at their correct (short) height from first paint
+// and never shrink under scroll, so no post-footer gap can open.
+//
+// jsdom has no layout engine, so this cannot assert pixels. Instead it guards
+// the residual-free STRUCTURE the fix depends on: the <footer> is the last
+// in-flow (box-generating) child of the theme root. Everything React renders
+// after it — the TocRail island — must be either a <style> (no box) or
+// position:fixed (out of flow, zero document height). This fails, non-
+// vacuously, if a future change (a) inserts any in-flow element below the
+// footer [the classic "post-footer island" whitespace regression] or (b)
+// makes the TocRail root static/sticky so it would add flow height under the
+// footer. The following-sibling set is asserted NON-EMPTY (TocRail really does
+// render after the footer) so the guard cannot pass by there being nothing to
+// check.
+describe('ViewbookShell footer whitespace (Task 9)', () => {
+  function isOutOfFlow(el: Element): boolean {
+    // Tailwind `fixed` (jsdom applies no stylesheet, so check the class token)
+    // OR an explicit inline position:fixed. A <style> element generates no box.
+    return (
+      el.tagName === 'STYLE' ||
+      el.classList.contains('fixed') ||
+      (el as HTMLElement).style?.position === 'fixed'
+    )
+  }
+
+  it('footer is the last in-flow child of the theme root — nothing in-flow renders below it', () => {
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({
+          stage: 'building',
+          primarySections: [sec('milestones'), sec('materials')],
+          carriedSections: [sec('welcome'), sec('strategy')],
+        })}
+        primarySections={[sec('milestones'), sec('materials')]}
+        carriedSections={[sec('welcome'), sec('strategy')]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+    const themeRoot = container.querySelector<HTMLElement>('[data-vb-theme-root]')
+    expect(themeRoot).not.toBeNull()
+
+    const footer = themeRoot!.querySelector<HTMLElement>(':scope > footer')
+    expect(footer).not.toBeNull()
+
+    // Everything the shell renders after the footer, at the theme-root level.
+    const after: Element[] = []
+    for (let el = footer!.nextElementSibling; el; el = el.nextElementSibling) {
+      after.push(el)
+    }
+
+    // Non-vacuous: the TocRail island really does render after the footer.
+    expect(after.length).toBeGreaterThan(0)
+
+    // …and every one of those trailing elements is out of flow (adds no
+    // document height below the footer). A single in-flow element here is the
+    // footer-whitespace regression.
+    const inFlowBelowFooter = after.filter((el) => !isOutOfFlow(el))
+    expect(inFlowBelowFooter).toEqual([])
+  })
+})
+
 // Task 11: ViewbookShell mounts TocRail (a 'use client' leaf) with
 // server-built indexes — the search index (and the rail's verbose mode) MUST
 // be gated to the `building` stage (a data-exposure requirement: Q&A values
