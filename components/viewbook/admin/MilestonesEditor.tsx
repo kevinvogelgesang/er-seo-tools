@@ -1,6 +1,16 @@
 'use client'
 
 import { useState } from 'react'
+import {
+  ViewbookEditorStatus,
+  editorDestructiveBtnClass,
+  editorInputClass,
+  editorLabelClass,
+  editorPrimaryBtnClass,
+  editorSecondaryBtnClass,
+  editorTextareaClass,
+} from '@/components/viewbook/editor'
+import { StatusPill, type Tone } from '@/components/ui/StatusPill'
 import { jsonFetch } from './viewbook-admin-shared'
 import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
@@ -12,6 +22,12 @@ interface MilestoneRow {
   sortOrder: number
   status: string
   targetDate: string | null
+}
+
+function milestoneStatus(status: string): { label: string; tone: Tone } {
+  if (status === 'done') return { label: 'Done', tone: 'success' }
+  if (status === 'current') return { label: 'Current', tone: 'running' }
+  return { label: 'Upcoming', tone: 'neutral' }
 }
 
 export function MilestonesEditor({
@@ -50,26 +66,102 @@ export function MilestonesEditor({
   const nextOrder = Math.max(0, ...milestones.map((m) => m.sortOrder)) + 1
 
   return (
-    <div className="space-y-4 text-sm" onFocus={onFocus} onBlur={onBlur}>
-      {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
-      <ol className="space-y-2">
-        {milestones.map((m) => (
+    <div className="space-y-5 text-sm" onFocus={onFocus} onBlur={onBlur}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold text-navy dark:text-white">Milestones</h2>
+          <p className="mt-1 text-xs text-gray-500 dark:text-white/55">Manage the ordered timeline shown in the client viewbook.</p>
+        </div>
+        <ViewbookEditorStatus state={error ? 'error' : busy ? 'saving' : 'idle'} message={error} />
+      </div>
+
+      {milestones.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-navy-border dark:bg-navy-deep/40">
+          <p className="font-display text-sm font-semibold text-navy dark:text-white">No milestones yet</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-white/55">Add the first milestone below to begin the client timeline.</p>
+        </div>
+      ) : (
+        <ol className="space-y-3">
+          {milestones.map((m) => (
           <li
             key={m.id}
-            className="flex flex-wrap items-center gap-2 rounded border border-gray-200 p-2 dark:border-navy-border"
+            className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-navy-border dark:bg-navy-card"
           >
-            <span
-              className={
-                m.status === 'current'
-                  ? 'rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-800 dark:bg-teal-500/20 dark:text-teal-300'
-                  : m.status === 'done'
-                    ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800 dark:bg-green-500/20 dark:text-green-300'
-                    : 'rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-white/10 dark:text-white/60'
-              }
-            >
-              {m.status}
-            </span>
-            {editingId === m.id ? (
+            <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
+              <span className="inline-flex w-fit shrink-0 items-center rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600 dark:bg-white/10 dark:text-white/60">Order {m.sortOrder}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="truncate font-display text-base font-bold text-navy dark:text-white">{m.title}</h3>
+                  <StatusPill label={milestoneStatus(m.status).label} tone={milestoneStatus(m.status).tone} />
+                  {m.targetDate && (
+                    <span className="text-xs font-medium text-gray-500 dark:text-white/50">
+                      Due {new Date(m.targetDate).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                {m.blurb && <p className="mt-1 text-sm text-gray-500 dark:text-white/55">{m.blurb}</p>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                {editingId !== m.id && (
+                  <button
+                    type="button"
+                    aria-label={`Edit ${m.title}`}
+                    onClick={() => setEditingId(m.id)}
+                    className={`${editorPrimaryBtnClass} !min-h-8 px-2.5 py-1 text-xs`}
+                  >
+                    Edit
+                  </button>
+                )}
+                {m.status !== 'current' && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run(() =>
+                        jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'current' }),
+                        }),
+                      )
+                    }
+                    className={`${editorSecondaryBtnClass} !min-h-8 px-2.5 py-1 text-xs`}
+                  >
+                    Make current
+                  </button>
+                )}
+                {m.status !== 'done' && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run(() =>
+                        jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'done' }),
+                        }),
+                      )
+                    }
+                    className={`${editorSecondaryBtnClass} !min-h-8 px-2.5 py-1 text-xs`}
+                  >
+                    Mark done
+                  </button>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Delete ${m.title}`}
+                  onClick={() => {
+                    if (!window.confirm(`Delete “${m.title}”?`)) return
+                    void run(() =>
+                      jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, { method: 'DELETE' }),
+                    )
+                  }}
+                  className={`${editorDestructiveBtnClass} !min-h-8 px-2.5 py-1 text-xs`}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+            {editingId === m.id && (
               <EditFields
                 milestone={m}
                 onCancel={() => setEditingId(null)}
@@ -84,92 +176,43 @@ export function MilestonesEditor({
                   })
                 }
               />
-            ) : (
-              <>
-                <span className="font-medium text-gray-900 dark:text-white">{m.title}</span>
-                {m.blurb && <span className="text-gray-500 dark:text-white/50">{m.blurb}</span>}
-                {m.targetDate && (
-                  <span className="text-xs text-gray-400 dark:text-white/40">
-                    due {new Date(m.targetDate).toLocaleDateString()}
-                  </span>
-                )}
-              </>
             )}
-            <span className="ml-auto flex gap-2">
-              {editingId !== m.id && (
-                <button onClick={() => setEditingId(m.id)} className="text-xs text-gray-600 underline dark:text-white/60">
-                  Edit
-                </button>
-              )}
-              {m.status !== 'current' && (
-                <button
-                  onClick={() =>
-                    void run(() =>
-                      jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ status: 'current' }),
-                      }),
-                    )
-                  }
-                  className="text-xs text-teal-700 underline dark:text-teal-400"
-                >
-                  Make current
-                </button>
-              )}
-              {m.status !== 'done' && (
-                <button
-                  onClick={() =>
-                    void run(() =>
-                      jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ status: 'done' }),
-                      }),
-                    )
-                  }
-                  className="text-xs text-green-700 underline dark:text-green-400"
-                >
-                  Mark done
-                </button>
-              )}
-              <button
-                onClick={() =>
-                  void run(() =>
-                    jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, { method: 'DELETE' }),
-                  )
-                }
-                className="text-xs text-red-600 underline dark:text-red-400"
-              >
-                Delete
-              </button>
-            </span>
           </li>
-        ))}
-      </ol>
-      <div className="flex gap-2">
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="New milestone title"
-          className="rounded border border-gray-300 bg-white px-2 py-1 dark:border-navy-border dark:bg-navy-card dark:text-white"
-        />
-        <button
-          onClick={() =>
-            void run(async () => {
-              await jsonFetch(`/api/viewbooks/${viewbookId}/milestones`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, sortOrder: nextOrder }),
+          ))}
+        </ol>
+      )}
+
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-navy-border dark:bg-navy-deep/40">
+        <h3 className="font-display text-sm font-bold text-navy dark:text-white">Add milestone</h3>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className={`min-w-0 flex-1 ${editorLabelClass}`}>
+            New milestone title
+            <input
+              aria-label="New milestone title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Homepage creative review"
+              className={`mt-1 ${editorInputClass}`}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() =>
+              void run(async () => {
+                await jsonFetch(`/api/viewbooks/${viewbookId}/milestones`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ title, sortOrder: nextOrder }),
+                })
+                setTitle('')
               })
-              setTitle('')
-            })
-          }
-          disabled={!title}
-          className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700 disabled:opacity-50"
-        >
-          Add milestone
-        </button>
+            }
+            disabled={!title}
+            className={editorPrimaryBtnClass}
+          >
+            Add milestone
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -209,60 +252,91 @@ function EditFields({
   useEditorActivity(`admin-milestone-edit-${milestone.id}`, dirty || focused)
 
   return (
-    <span className="flex flex-wrap items-center gap-1" onFocus={onFocus} onBlur={onBlur}>
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        aria-label="Title"
-        className="w-36 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-navy-border dark:bg-navy-card dark:text-white"
-      />
-      <input
-        value={blurb}
-        onChange={(e) => setBlurb(e.target.value)}
-        placeholder="Blurb"
-        aria-label="Blurb"
-        className="w-52 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-navy-border dark:bg-navy-card dark:text-white"
-      />
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="Description"
-        aria-label="Description"
-        maxLength={2000}
-        rows={2}
-        className="w-52 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-navy-border dark:bg-navy-card dark:text-white"
-      />
-      <input
-        value={sortOrder}
-        onChange={(e) => setSortOrder(e.target.value)}
-        aria-label="Order"
-        className="w-12 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-navy-border dark:bg-navy-card dark:text-white"
-      />
-      <input
-        type="date"
-        value={targetDate}
-        onChange={(e) => setTargetDate(e.target.value)}
-        aria-label="Target date"
-        className="rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-navy-border dark:bg-navy-card dark:text-white"
-      />
-      <button
-        onClick={() =>
-          onSave({
-            title,
-            blurb: blurb || null,
-            description: description || null,
-            sortOrder: parseInt(sortOrder, 10) || milestone.sortOrder,
-            targetDate: targetDate || null,
-          })
-        }
-        disabled={!title}
-        className="rounded bg-teal-600 px-2 py-0.5 text-xs text-white hover:bg-teal-700 disabled:opacity-50"
-      >
-        Save
-      </button>
-      <button onClick={onCancel} className="text-xs text-gray-500 underline dark:text-white/50">
-        Cancel
-      </button>
-    </span>
+    <div className="border-t border-gray-200 bg-gray-50/70 p-4 dark:border-navy-border dark:bg-navy-deep/40" onFocus={onFocus} onBlur={onBlur}>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <label className={`lg:col-span-2 ${editorLabelClass}`}>
+          Title
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            aria-label="Title"
+            className={`mt-1 ${editorInputClass}`}
+          />
+        </label>
+        <label className={editorLabelClass}>
+          Status
+          <select aria-label="Status" value={milestone.status} disabled className={`mt-1 ${editorInputClass}`}>
+            <option value="upcoming">Upcoming</option>
+            <option value="current">Current</option>
+            <option value="done">Done</option>
+          </select>
+          <span className="mt-1 block text-[11px] font-normal text-gray-500 dark:text-white/50">Use the status actions above.</span>
+        </label>
+        <label className={editorLabelClass}>
+          Target date
+          <input
+            type="date"
+            value={targetDate}
+            onChange={(e) => setTargetDate(e.target.value)}
+            aria-label="Target date"
+            className={`mt-1 ${editorInputClass}`}
+          />
+        </label>
+        <label className={`sm:col-span-2 lg:col-span-3 ${editorLabelClass}`}>
+          Secondary blurb
+          <input
+            value={blurb}
+            onChange={(e) => setBlurb(e.target.value)}
+            placeholder="Short supporting line"
+            aria-label="Blurb"
+            className={`mt-1 ${editorInputClass}`}
+          />
+        </label>
+        <label className={editorLabelClass}>
+          Order
+          <input
+            type="number"
+            min="1"
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+            aria-label="Order"
+            className={`mt-1 ${editorInputClass}`}
+          />
+        </label>
+        <label className={`sm:col-span-2 lg:col-span-4 ${editorLabelClass}`}>
+          Description
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Longer milestone context shown in the viewbook"
+            aria-label="Description"
+            maxLength={2000}
+            rows={4}
+            className={`mt-1 ${editorTextareaClass}`}
+          />
+        </label>
+      </div>
+      <div role="group" aria-label="Milestone edit actions" className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4 dark:border-navy-border">
+        <button type="button" onClick={onCancel} className={editorSecondaryBtnClass}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onSave({
+              title,
+              blurb: blurb || null,
+              description: description || null,
+              sortOrder: parseInt(sortOrder, 10) || milestone.sortOrder,
+              targetDate: targetDate || null,
+            })
+          }
+          disabled={!title}
+          className={editorPrimaryBtnClass}
+        >
+          Save
+        </button>
+      </div>
+    </div>
   )
 }

@@ -3,6 +3,12 @@
 // Viewbook editor shell: Theme · Content · Data Source · Milestones · Feedback · Activity · Settings.
 
 import { useCallback, useEffect, useState } from 'react'
+import {
+  editorDestructiveBtnClass,
+  editorPrimaryBtnClass,
+  editorSecondaryBtnClass,
+} from '@/components/viewbook/editor'
+import { StatusPill } from '@/components/ui/StatusPill'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
 import { isViewbookStage, nextStage, prevStage, STAGE_LABELS } from '@/lib/viewbook/stages'
 import { jsonFetch, publicViewbookUrl, type ViewbookDetail } from './viewbook-admin-shared'
@@ -53,82 +59,117 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   })
 
   if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-  if (!vb) return <p className="text-sm text-gray-400">Loading…</p>
+  if (!vb) return <p className="text-sm text-gray-400 dark:text-white/45">Loading…</p>
 
   const threads = vb.milestones.flatMap((m) => m.reviewLinks.map((l) => ({
     reviewLinkId: l.id,
     label: `${m.title} — ${l.label}`,
     feedback: l.feedback,
   })))
+  const feedbackCount = threads.reduce((count, thread) => count + thread.feedback.length, 0)
+  const tabKey = tab.toLowerCase().replaceAll(' ', '-')
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-          {vb.revokedAt ? (
-            <span>{vb.client.name}</span>
-          ) : (
-            <a href={publicViewbookUrl(vb.token)} target="_blank" rel="noopener" className="hover:underline">
-              {vb.client.name}
+    <div className="space-y-5 font-body">
+      <header className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card sm:flex sm:items-center sm:justify-between sm:gap-5">
+        <div className="min-w-0">
+          <h1 className="truncate font-display text-xl font-bold text-navy dark:text-white">{vb.client.name}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <StatusPill label={vb.kind} tone="neutral" />
+            <StatusPill label={isViewbookStage(vb.stage) ? STAGE_LABELS[vb.stage] : vb.stage} tone="running" />
+            <StatusPill label={vb.revokedAt ? 'Link revoked' : 'Link active'} tone={vb.revokedAt ? 'error' : 'success'} />
+          </div>
+        </div>
+        {!vb.revokedAt && (
+          <div aria-label="Public view actions" className="mt-4 flex flex-wrap items-center gap-2 sm:mt-0 sm:justify-end">
+            <a
+              href={publicViewbookUrl(vb.token)}
+              target="_blank"
+              rel="noopener"
+              className={editorPrimaryBtnClass}
+            >
+              Open public view
+              <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} className="ml-1.5 h-3.5 w-3.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 5h7v7M15 5 7 13M5 7v8h8" />
+              </svg>
             </a>
-          )}
-        </h1>
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-white/10 dark:text-white/60">
-          {vb.kind}
-        </span>
-        {vb.revokedAt ? (
-          <span className="text-xs font-medium text-red-600 dark:text-red-400">link revoked</span>
-        ) : (
-          <button
-            onClick={async () => {
-              await navigator.clipboard.writeText(publicViewbookUrl(vb.token))
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1500)
-            }}
-            className="text-xs text-teal-700 underline dark:text-teal-400"
-          >
-            {copied ? 'Copied!' : 'Copy public link'}
-          </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await navigator.clipboard.writeText(publicViewbookUrl(vb.token))
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1500)
+              }}
+              className={editorSecondaryBtnClass}
+            >
+              {copied ? 'Copied!' : 'Copy link'}
+            </button>
+          </div>
         )}
-      </div>
+      </header>
 
-      <nav className="flex gap-1 border-b border-gray-200 dark:border-navy-border">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={
-              tab === t
-                ? 'border-b-2 border-teal-600 px-3 py-2 text-sm font-semibold text-teal-700 dark:text-teal-400'
-                : 'px-3 py-2 text-sm text-gray-500 hover:text-gray-800 dark:text-white/50 dark:hover:text-white'
-            }
-          >
-            {t}
-          </button>
-        ))}
+      <nav aria-label="Viewbook editor navigation" className="overflow-x-auto pb-1">
+        <div role="tablist" aria-label="Viewbook editor sections" className="flex min-w-max items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-navy-light">
+          {TABS.map((t) => {
+            const selected = tab === t
+            const key = t.toLowerCase().replaceAll(' ', '-')
+            return (
+              <button
+                key={t}
+                id={`viewbook-tab-${key}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`viewbook-panel-${key}`}
+                onClick={() => setTab(t)}
+                className={`${t === 'Settings' ? 'ml-2 border-l border-gray-300 pl-4 dark:border-navy-border' : ''} rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                  selected
+                    ? 'bg-white text-navy shadow-sm dark:bg-navy-card dark:text-white'
+                    : 'text-gray-500 hover:bg-white/60 hover:text-navy dark:text-white/50 dark:hover:bg-navy-card/60 dark:hover:text-white'
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  {t}
+                  {t === 'Feedback' && feedbackCount > 0 && (
+                    <span aria-label={`${feedbackCount} feedback items`} className="inline-flex min-w-5 items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">
+                      {feedbackCount}
+                    </span>
+                  )}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </nav>
 
-      {tab === 'Theme' && (
-        <ThemeEditor viewbookId={vb.id} theme={vb.theme} onSaved={() => void load()} />
-      )}
-      {tab === 'Content' && (
-        <ContentTab
-          viewbookId={vb.id}
-          welcomeNote={vb.welcomeNote}
-          sections={vb.sections}
-          overrides={vb.contentOverrides}
-          onChanged={() => void load()}
-        />
-      )}
-      {tab === 'Data Source' && (
-        <DataSourceTab key={vb.id} viewbook={vb} onChanged={() => void load()} />
-      )}
-      {tab === 'Milestones' && (
-        <MilestonesEditor viewbookId={vb.id} milestones={vb.milestones} onChanged={() => void load()} />
-      )}
-      {tab === 'Feedback' && <FeedbackTab key={vb.id} viewbookId={vb.id} threads={threads} />}
-      {tab === 'Activity' && <ActivityFeed viewbookId={vb.id} />}
-      {tab === 'Settings' && <SettingsTab vb={vb} onChanged={() => void load()} />}
+      <div
+        id={`viewbook-panel-${tabKey}`}
+        role="tabpanel"
+        aria-labelledby={`viewbook-tab-${tabKey}`}
+        className={tab === 'Settings' ? 'rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-navy-border dark:bg-navy-deep/30' : ''}
+      >
+        {tab === 'Theme' && (
+          <ThemeEditor viewbookId={vb.id} theme={vb.theme} onSaved={() => void load()} />
+        )}
+        {tab === 'Content' && (
+          <ContentTab
+            viewbookId={vb.id}
+            welcomeNote={vb.welcomeNote}
+            sections={vb.sections}
+            overrides={vb.contentOverrides}
+            onChanged={() => void load()}
+          />
+        )}
+        {tab === 'Data Source' && (
+          <DataSourceTab key={vb.id} viewbook={vb} onChanged={() => void load()} />
+        )}
+        {tab === 'Milestones' && (
+          <MilestonesEditor viewbookId={vb.id} milestones={vb.milestones} onChanged={() => void load()} />
+        )}
+        {tab === 'Feedback' && <FeedbackTab key={vb.id} viewbookId={vb.id} threads={threads} />}
+        {tab === 'Activity' && <ActivityFeed viewbookId={vb.id} />}
+        {tab === 'Settings' && <SettingsTab vb={vb} onChanged={() => void load()} />}
+      </div>
     </div>
   )
 }
@@ -306,40 +347,47 @@ export function SettingsTab({ vb, onChanged }: { vb: SettingsTabViewbook; onChan
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => void run('Question sync', () => jsonFetch(`/api/viewbooks/${vb.id}/sync-questions`, { method: 'POST' }))}
-          className="rounded border border-gray-300 px-3 py-1 text-gray-700 hover:bg-gray-50 dark:border-navy-border dark:text-white/80 dark:hover:bg-white/5"
+          className={editorSecondaryBtnClass}
         >
           Sync new questions
         </button>
         <button
           onClick={() => void run('Token rotation', () => jsonFetch(`/api/viewbooks/${vb.id}/token`, { method: 'POST' }))}
-          className="rounded border border-gray-300 px-3 py-1 text-gray-700 hover:bg-gray-50 dark:border-navy-border dark:text-white/80 dark:hover:bg-white/5"
+          className={editorSecondaryBtnClass}
         >
           Rotate link
         </button>
-        <button
-          onClick={() => {
-            if (confirm('Revoke the public link? The client loses access until you rotate.')) {
-              void run('Revocation', () => jsonFetch(`/api/viewbooks/${vb.id}/token`, { method: 'DELETE' }))
-            }
-          }}
-          className="rounded border border-amber-400 px-3 py-1 text-amber-700 hover:bg-amber-50 dark:border-amber-500/40 dark:text-amber-400 dark:hover:bg-amber-500/10"
-        >
-          Revoke link
-        </button>
-        <button
-          onClick={() => {
-            if (confirm('Delete this viewbook and all its data? This cannot be undone.')) {
-              void run('Delete', async () => {
-                await jsonFetch(`/api/viewbooks/${vb.id}`, { method: 'DELETE' })
-                window.location.href = '/viewbooks'
-              })
-            }
-          }}
-          className="rounded border border-red-400 px-3 py-1 text-red-600 hover:bg-red-50 dark:border-red-500/40 dark:text-red-400 dark:hover:bg-red-500/10"
-        >
-          Delete viewbook
-        </button>
       </div>
+
+      <section role="region" aria-labelledby="viewbook-danger-zone" className="rounded-xl border border-red-200 bg-red-50/60 p-4 dark:border-red-500/30 dark:bg-red-500/10">
+        <h3 id="viewbook-danger-zone" className="font-display font-bold text-red-800 dark:text-red-300">Danger zone</h3>
+        <p className="mt-1 text-xs text-red-700/80 dark:text-red-300/75">These actions interrupt client access or permanently remove this viewbook.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              if (confirm('Revoke the public link? The client loses access until you rotate.')) {
+                void run('Revocation', () => jsonFetch(`/api/viewbooks/${vb.id}/token`, { method: 'DELETE' }))
+              }
+            }}
+            className="inline-flex min-h-9 items-center justify-center rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30 focus-visible:ring-offset-2 disabled:opacity-50 dark:border-amber-500/40 dark:bg-navy-card dark:text-amber-300 dark:hover:bg-amber-500/10 dark:focus-visible:ring-offset-navy-card"
+          >
+            Revoke link
+          </button>
+          <button
+            onClick={() => {
+              if (confirm('Delete this viewbook and all its data? This cannot be undone.')) {
+                void run('Delete', async () => {
+                  await jsonFetch(`/api/viewbooks/${vb.id}`, { method: 'DELETE' })
+                  window.location.href = '/viewbooks'
+                })
+              }
+            }}
+            className={editorDestructiveBtnClass}
+          >
+            Delete viewbook
+          </button>
+        </div>
+      </section>
     </div>
   )
 }

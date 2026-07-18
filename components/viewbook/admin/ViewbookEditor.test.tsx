@@ -8,7 +8,7 @@
 // no jest-dom.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ViewbookEditor, SettingsTab, type SettingsTabViewbook } from './ViewbookEditor'
 import { publicViewbookUrl } from './viewbook-admin-shared'
 import { __resetSyncRegistry } from '@/components/viewbook/public/useViewbookSync'
@@ -124,12 +124,19 @@ describe('SettingsTab stage-move buttons', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalled())
     expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7/stage', expect.objectContaining({ method: 'POST' }))
   })
+
+  it('visually separates irreversible settings in a labeled danger zone', () => {
+    stubFetch()
+    render(<SettingsTab vb={mkVb()} onChanged={vi.fn()} />)
+
+    const dangerZone = screen.getByRole('region', { name: 'Danger zone' })
+    expect(within(dangerZone).getByRole('button', { name: 'Revoke link' })).toBeTruthy()
+    expect(within(dangerZone).getByRole('button', { name: 'Delete viewbook' })).toBeTruthy()
+    expect(dangerZone.getAttribute('class')).toContain('dark:')
+  })
 })
 
-// Task 10: the header title (client name) opens the public viewbook page in
-// a new tab. Renders the FULL ViewbookEditor (not just SettingsTab) since the
-// header lives in the outer component.
-describe('ViewbookEditor header', () => {
+describe('ViewbookEditor shell', () => {
   function jsonResponse(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
   }
@@ -166,39 +173,86 @@ describe('ViewbookEditor header', () => {
     }
   }
 
+  async function renderEditor(viewbook = mkFullViewbook()) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ viewbook })),
+    )
+    await act(async () => {
+      render(<ViewbookEditor viewbookId={3} />)
+    })
+  }
+
   afterEach(() => {
     cleanup()
     vi.unstubAllGlobals()
     __resetSyncRegistry()
   })
 
-  it('renders the client name in the header as a new-tab link to the public viewbook page', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => jsonResponse({ viewbook: mkFullViewbook() })),
-    )
-    await act(async () => {
-      render(<ViewbookEditor viewbookId={3} />)
-    })
-    const heading = await screen.findByRole('heading', { name: 'Acme College' })
-    const anchor = heading.tagName === 'A' ? heading : heading.querySelector('a')
-    expect(anchor).toBeTruthy()
+  it('renders a compact masthead with metadata and grouped public-view actions', async () => {
+    await renderEditor()
+
+    expect(await screen.findByRole('heading', { name: 'Acme College' })).toBeTruthy()
+    expect(screen.getByText('upgrade')).toBeTruthy()
+    expect(screen.getByText('Kickoff')).toBeTruthy()
+    expect(screen.getByText('Link active')).toBeTruthy()
+    const anchor = screen.getByRole('link', { name: 'Open public view' })
     expect(anchor?.getAttribute('href')).toBe(publicViewbookUrl('tok-abc'))
     expect(anchor?.getAttribute('target')).toBe('_blank')
     expect(anchor?.getAttribute('rel') ?? '').toContain('noopener')
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy()
   })
 
-  it('renders the client name in the header as plain text (no link) when the public link is revoked', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => jsonResponse({ viewbook: mkFullViewbook({ revokedAt: '2026-07-01T00:00:00.000Z' }) })),
-    )
-    await act(async () => {
-      render(<ViewbookEditor viewbookId={3} />)
-    })
-    const heading = await screen.findByRole('heading', { name: 'Acme College' })
-    const anchor = heading.tagName === 'A' ? heading : heading.querySelector('a')
-    expect(anchor).toBeNull()
-    expect(screen.getByText(/link revoked/i)).toBeTruthy()
+  it('copies the public URL from the secondary masthead action', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    await renderEditor()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(publicViewbookUrl('tok-abc')))
+    expect(screen.getByRole('button', { name: 'Copied!' })).toBeTruthy()
+  })
+
+  it('shows revoked link state without public-view actions', async () => {
+    await renderEditor(mkFullViewbook({ revokedAt: '2026-07-01T00:00:00.000Z' }))
+
+    expect(await screen.findByRole('heading', { name: 'Acme College' })).toBeTruthy()
+    expect(screen.getByText('Link revoked')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Open public view' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull()
+  })
+
+  it('uses accessible segmented tabs, separates Settings, and badges Feedback from loaded threads', async () => {
+    const feedback = [
+      { id: 1, body: 'First', authorName: null, authorKind: 'client', createdAt: '2026-07-01T00:00:00.000Z', resolvedAt: null, resolvedBy: null },
+      { id: 2, body: 'Second', authorName: null, authorKind: 'client', createdAt: '2026-07-02T00:00:00.000Z', resolvedAt: null, resolvedBy: null },
+    ]
+    await renderEditor(mkFullViewbook({
+      milestones: [{
+        id: 4,
+        title: 'Launch',
+        blurb: null,
+        description: null,
+        sortOrder: 1,
+        status: 'current',
+        targetDate: null,
+        reviewLinks: [{ id: 8, label: 'Homepage', url: 'https://example.com', kind: 'mockup', feedback }],
+      }],
+    }))
+
+    const tablist = await screen.findByRole('tablist', { name: 'Viewbook editor sections' })
+    const tabs = within(tablist).getAllByRole('tab')
+    expect(tabs).toHaveLength(7)
+    const themeTab = within(tablist).getByRole('tab', { name: 'Theme' })
+    const feedbackTab = within(tablist).getByRole('tab', { name: /Feedback/ })
+    const settingsTab = within(tablist).getByRole('tab', { name: 'Settings' })
+    expect(themeTab.getAttribute('aria-selected')).toBe('true')
+    expect(feedbackTab.textContent).toContain('2')
+    expect(settingsTab.getAttribute('class')).toContain('border-l')
+
+    fireEvent.click(feedbackTab)
+    expect(feedbackTab.getAttribute('aria-selected')).toBe('true')
+    expect(themeTab.getAttribute('aria-selected')).toBe('false')
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(feedbackTab.id)
   })
 })
