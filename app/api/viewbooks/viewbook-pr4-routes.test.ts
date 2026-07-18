@@ -8,6 +8,8 @@ import { POST as createReviewLink } from './[id]/milestones/[milestoneId]/review
 import { DELETE as deleteReviewLink } from './[id]/review-links/[reviewLinkId]/route'
 import { POST as resolveFeedback } from './[id]/feedback/[feedbackId]/resolve/route'
 import { GET as getActivity } from './[id]/activity/route'
+import { POST as createMilestoneRoute } from './[id]/milestones/route'
+import { PATCH as updateMilestoneRoute } from './[id]/milestones/[milestoneId]/route'
 
 let cookie: string
 const savedEnv: Record<string, string | undefined> = {}
@@ -127,5 +129,46 @@ describe('viewbook PR4 operator routes', () => {
     const page = await first.json()
     expect(page.items).toHaveLength(2)
     expect(page.nextCursor).toBeTypeOf('number')
+  })
+})
+
+describe('milestone description threading (Task 3)', () => {
+  it('POST /milestones threads description into the created row', async () => {
+    const vb = await mkViewbook()
+    const res = await createMilestoneRoute(
+      req(`/api/viewbooks/${vb.id}/milestones`, {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Detail phase', sortOrder: 20, description: 'Extra detail copy.' }),
+      }),
+      params({ id: String(vb.id) }),
+    )
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.milestone.description).toBe('Extra detail copy.')
+  })
+
+  it('PATCH /milestones/:id threads description; an over-cap value 400s', async () => {
+    const vb = await mkViewbook()
+    const ok = await updateMilestoneRoute(
+      req(`/api/viewbooks/${vb.id}/milestones/${vb.milestone.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ description: 'Updated description' }),
+      }),
+      params({ id: String(vb.id), milestoneId: String(vb.milestone.id) }),
+    )
+    expect(ok.status).toBe(200)
+    const okBody = await ok.json()
+    expect(okBody.milestone.description).toBe('Updated description')
+
+    const before = await syncVersion(vb.id)
+    const bad = await updateMilestoneRoute(
+      req(`/api/viewbooks/${vb.id}/milestones/${vb.milestone.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ description: 'x'.repeat(2001) }),
+      }),
+      params({ id: String(vb.id), milestoneId: String(vb.milestone.id) }),
+    )
+    expect(bad.status).toBe(400)
+    expect(await syncVersion(vb.id)).toBe(before)
   })
 })

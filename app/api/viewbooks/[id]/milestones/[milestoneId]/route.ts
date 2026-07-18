@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 
 type RouteParams = { params: Promise<{ id: string; milestoneId: string }> }
 
-/** PATCH /api/viewbooks/:id/milestones/:milestoneId — title/blurb/order/date/status. */
+/** PATCH /api/viewbooks/:id/milestones/:milestoneId — title/blurb/description/order/date/status. */
 export const PATCH = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const { id: rawId, milestoneId: rawMid } = await params
@@ -24,6 +24,9 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
     patch.title = body.title
   }
   if ('blurb' in body) patch.blurb = typeof body.blurb === 'string' ? body.blurb : null
+  // Passed through as-is (not coerced to null on a bad type) — the service
+  // validates description's type/length and 400s otherwise.
+  if ('description' in body) patch.description = body.description as string | null | undefined
   if ('sortOrder' in body) {
     if (typeof body.sortOrder !== 'number') throw new HttpError(400, 'invalid_milestone')
     patch.sortOrder = body.sortOrder

@@ -18,7 +18,7 @@ function parseTargetDate(raw: unknown): Date | null {
   return d
 }
 
-/** POST /api/viewbooks/:id/milestones — { title, blurb?, sortOrder, targetDate?, current? }. */
+/** POST /api/viewbooks/:id/milestones — { title, blurb?, description?, sortOrder, targetDate?, current? }. */
 export const POST = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const id = parseId((await params).id)
@@ -31,6 +31,9 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
     {
       title: body.title,
       blurb: typeof body.blurb === 'string' ? body.blurb : null,
+      // Passed through as-is (not coerced to null on a bad type) — the
+      // service validates description's type/length and 400s otherwise.
+      description: body.description as string | null | undefined,
       sortOrder: body.sortOrder,
       targetDate: parseTargetDate(body.targetDate),
     },

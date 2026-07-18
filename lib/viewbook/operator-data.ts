@@ -37,6 +37,7 @@ export interface OperatorMilestoneData {
   id: number
   title: string
   blurb: string | null
+  description: string | null
   sortOrder: number
   status: string
   targetDate: string | null
@@ -155,6 +156,7 @@ export async function loadOperatorViewbookData(viewbookId: number): Promise<Oper
       id: milestone.id,
       title: milestone.title,
       blurb: milestone.blurb,
+      description: milestone.description,
       sortOrder: milestone.sortOrder,
       status: milestone.status,
       targetDate: iso(milestone.targetDate),
