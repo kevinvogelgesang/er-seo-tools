@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, cleanup, act } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { SectionReveal } from './SectionReveal'
 
 // Sticky-header rewrite (blink-bug fix): body visibility is STATE-ONLY. No
@@ -33,39 +32,32 @@ describe('SectionReveal (state-only)', () => {
     expect(ioSpy).not.toHaveBeenCalled()
   })
 
-  it('collapsed section: toggle button reflects state and controls the region', async () => {
-    const user = userEvent.setup()
-    const { getByRole, getByTestId } = render(
+  it('toggle disabled: initiallyOpen={false} renders no button and an expanded, non-inert region', () => {
+    const { queryByRole, getByTestId } = render(
       <SectionReveal regionId="r" title="Data Source" alwaysOpen={false} initiallyOpen={false}>
         body
       </SectionReveal>,
     )
-    const btn = getByRole('button')
-    expect(btn.getAttribute('aria-expanded')).toBe('false')
-    expect(btn.getAttribute('aria-controls')).toBe('r')
-    expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('false')
-    // Collapsed region is inert + aria-hidden.
-    expect(getByTestId('vb-region').hasAttribute('inert')).toBe(true)
-    expect(getByTestId('vb-region').getAttribute('aria-hidden')).toBe('true')
+    // The per-section toggle is hidden while SECTION_TOGGLE_ENABLED=false — no
+    // button, no [aria-controls] element pointing at the region.
+    expect(queryByRole('button')).toBeNull()
+    expect(document.querySelector('[aria-controls]')).toBeNull()
 
-    await user.click(btn)
-    expect(btn.getAttribute('aria-expanded')).toBe('true')
-    expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('true')
-    // Expanded region is neither inert nor aria-hidden.
-    expect(getByTestId('vb-region').hasAttribute('inert')).toBe(false)
-    expect(getByTestId('vb-region').hasAttribute('aria-hidden')).toBe(false)
-
-    await user.click(btn)
-    expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('false')
+    const region = getByTestId('vb-region')
+    expect(region.getAttribute('data-vb-expanded')).toBe('true')
+    // With no toggle to reopen it, the region must never start collapsed —
+    // neither inert nor aria-hidden.
+    expect(region.hasAttribute('inert')).toBe(false)
+    expect(region.hasAttribute('aria-hidden')).toBe(false)
   })
 
-  it('initiallyOpen seeds the expanded state at mount', () => {
-    const { getByRole, getByTestId } = render(
-      <SectionReveal regionId="r" title="Data Source" alwaysOpen={false} initiallyOpen>
+  it('initiallyOpen has no effect while the toggle is disabled — the region is expanded even when initiallyOpen={false}', () => {
+    const { queryByRole, getByTestId } = render(
+      <SectionReveal regionId="r" title="Data Source" alwaysOpen={false} initiallyOpen={false}>
         body
       </SectionReveal>,
     )
-    expect(getByRole('button').getAttribute('aria-expanded')).toBe('true')
+    expect(queryByRole('button')).toBeNull()
     expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('true')
   })
 
@@ -79,25 +71,32 @@ describe('SectionReveal (state-only)', () => {
     expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('true')
   })
 
-  it('vb:navigate with a matching sectionKey force-opens a collapsed section', () => {
+  it('vb:navigate with a matching sectionKey is a harmless no-op — the section is already expanded', () => {
     const { getByTestId } = render(
       <SectionReveal regionId="r" sectionKey="pc-setup" title="Setup" alwaysOpen={false} initiallyOpen={false}>
         body
       </SectionReveal>,
     )
-    expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('false')
-    act(() => window.dispatchEvent(new CustomEvent('vb:navigate', { detail: { sectionKey: 'pc-setup', anchor: '#pc-setup' } })))
+    expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('true')
+    // The listener is still wired (no-op) — dispatching must not throw.
+    expect(() =>
+      act(() =>
+        window.dispatchEvent(
+          new CustomEvent('vb:navigate', { detail: { sectionKey: 'pc-setup', anchor: '#pc-setup' } }),
+        ),
+      ),
+    ).not.toThrow()
     expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('true')
   })
 
-  it('vb:navigate for a different section does not open this one', () => {
+  it('vb:navigate for a different section is also a no-op — the region stays expanded (always-open invariant)', () => {
     const { getByTestId } = render(
       <SectionReveal regionId="r" sectionKey="pc-setup" title="Setup" alwaysOpen={false} initiallyOpen={false}>
         body
       </SectionReveal>,
     )
     act(() => window.dispatchEvent(new CustomEvent('vb:navigate', { detail: { sectionKey: 'brand', anchor: '#brand' } })))
-    expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('false')
+    expect(getByTestId('vb-region').getAttribute('data-vb-expanded')).toBe('true')
   })
 
   it('initial-load hash force-opens the owning section', () => {

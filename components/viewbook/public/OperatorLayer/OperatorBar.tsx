@@ -65,9 +65,9 @@ export function OperatorBar({
       id="vb-operator-bar"
       data-operator-bar
       aria-label="Viewbook editing controls"
-      className="sticky top-0 z-50 border-b border-black/10 bg-white/95 px-4 py-2 text-sm text-black shadow-sm backdrop-blur"
+      className="sticky top-0 z-50 border-b border-black/10 bg-white/95 py-2 text-sm text-black shadow-sm backdrop-blur"
     >
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3">
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6">
         <span className="font-semibold">ER editing</span>
         <span className="rounded-full bg-teal-50 px-2.5 py-1 font-medium text-teal-800">{STAGE_LABELS[stage]}</span>
         <span className="text-xs text-black/45">{operatorEmail}</span>
@@ -91,7 +91,7 @@ export function OperatorBar({
           <PresentationToggle />
         </div>
       </div>
-      {error && <p role="alert" className="mx-auto mt-1 max-w-6xl text-xs font-medium text-red-700">{error}</p>}
+      {error && <p role="alert" className="mx-auto mt-1 max-w-5xl px-6 text-xs font-medium text-red-700">{error}</p>}
     </aside>
   )
 }

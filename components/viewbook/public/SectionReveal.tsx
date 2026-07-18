@@ -25,6 +25,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { SectionKey } from '@/lib/viewbook/theme'
 
+// Per-section "Show/Hide details" toggle is HIDDEN for now (Kevin, 2026-07-17)
+// — kept in code, not removed. While disabled, every section renders EXPANDED
+// (there is no toggle to reopen a collapsed one, so nothing must start
+// collapsed). Flip back to `true` to restore the per-section collapse toggle
+// and the stage-driven initial-open policy.
+const SECTION_TOGGLE_ENABLED = false
+
 export function SectionReveal({
   sectionKey,
   regionId,
@@ -43,8 +50,12 @@ export function SectionReveal({
   children: ReactNode
 }) {
   // always-open sections are permanently expanded; otherwise seed from the
-  // pure stage-driven policy. No scroll/observer ever mutates this.
-  const [expanded, setExpanded] = useState(alwaysOpen || initiallyOpen)
+  // pure stage-driven policy. No scroll/observer ever mutates this. While the
+  // toggle is disabled, ALWAYS start expanded (no control exists to reopen a
+  // collapsed section).
+  const [expanded, setExpanded] = useState(
+    SECTION_TOGGLE_ENABLED ? alwaysOpen || initiallyOpen : true,
+  )
 
   // Deliberate-open channels: a `vb:navigate` CustomEvent targeting this section
   // (ProgressNav / TOC clicks) AND the initial `location.hash` on mount. Both
@@ -101,7 +112,7 @@ export function SectionReveal({
             </div>
             {summary && <div className="mt-1 min-w-0 text-base text-black/60">{summary}</div>}
           </div>
-          {!alwaysOpen && (
+          {SECTION_TOGGLE_ENABLED && !alwaysOpen && (
             <button
               type="button"
               aria-expanded={expanded}

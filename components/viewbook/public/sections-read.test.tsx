@@ -183,7 +183,7 @@ describe('KickoffNextSection', () => {
     expect(screen.getByText(/Reach out to your Enrollment Resources contact/)).toBeDefined()
   })
 
-  it('honors the shared SectionShell contract: anchor id, done-state collapse, and introNote', () => {
+  it('honors the shared SectionShell contract: anchor id, done-state stays expanded (toggle disabled), and introNote', () => {
     const data = base({ stage: 'kickoff', csmName: 'Kevin' })
 
     // Anchor id present for ProgressNav's #kickoff-next scroll target.
@@ -203,11 +203,11 @@ describe('KickoffNextSection', () => {
     )
     expect(screen.getByText('One more thing before we move on.')).toBeDefined()
 
-    // done-state mounts as the v2 collapsed reveal region (data-vb-expanded
-    // false — SectionReveal seeds `expanded` from `initiallyOpen`/`alwaysOpen`,
-    // so a done section is asserted via a fresh mount as collapsed, not a
-    // rerender from the expanded normal state above). Body retained in the DOM,
-    // title (header band) still visible.
+    // done-state mounts as the v2 reveal region, but with the per-section
+    // toggle disabled (SECTION_TOGGLE_ENABLED = false) it renders EXPANDED
+    // like every other section — there is no control left to reopen a
+    // collapsed one, so nothing may start collapsed. Body retained in the
+    // DOM, title (header band) still visible.
     cleanup()
     const { container: doneContainer } = render(
       <KickoffNextSection
@@ -219,7 +219,7 @@ describe('KickoffNextSection', () => {
     )
     const region = doneContainer.querySelector('[role="region"]')
     expect(region).not.toBeNull()
-    expect(region?.getAttribute('data-vb-expanded')).toBe('false')
+    expect(region?.getAttribute('data-vb-expanded')).toBe('true')
     expect(screen.getByText(/Completed/)).toBeDefined()
     // Title now appears twice — header band + the generic summary face's
     // eyebrow (PR7 Task 6) — so this is no longer a single-match assertion.

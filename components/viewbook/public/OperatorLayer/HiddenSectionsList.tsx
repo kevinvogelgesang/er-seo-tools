@@ -18,8 +18,8 @@ export function HiddenSectionsList({
   if (hidden.length === 0) return null
 
   return (
-    <aside data-operator-hidden-sections className="border-b border-amber-900/15 bg-amber-50 px-4 py-3 text-black">
-      <div className="mx-auto max-w-6xl">
+    <aside data-operator-hidden-sections className="border-b border-amber-900/15 bg-amber-50 py-3 text-black">
+      <div className="mx-auto w-full max-w-5xl px-6">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-amber-900">Hidden sections</h2>
         <div className="mt-2 space-y-2">
           {hidden.map((section) => (

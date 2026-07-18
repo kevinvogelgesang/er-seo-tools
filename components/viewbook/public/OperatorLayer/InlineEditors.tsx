@@ -582,14 +582,17 @@ function OperatorFieldRow({
 }
 
 export function InlineSectionEditors({ viewbookId, section, operatorData }: { viewbookId: number; section: OperatorSectionData; operatorData: OperatorViewbookData }) {
+  // Centre the inline editors to the section reading column (max-w-5xl) with a
+  // little vertical breathing room, so ER editing UI matches the width of the
+  // regularly visible section content.
   return (
-    <>
+    <div className="mx-auto w-full max-w-5xl space-y-3 px-6 py-3">
       <SectionTextInlineEditor viewbookId={viewbookId} section={section} />
       {section.sectionKey === 'welcome' && <WelcomeNoteInlineEditor viewbookId={viewbookId} welcomeNote={operatorData.welcomeNote} />}
       {section.sectionKey === 'milestones' && <MilestoneQuickEditor viewbookId={viewbookId} milestones={operatorData.milestones} />}
       {section.sectionKey === 'brand' && <ThemeInlineEditor viewbookId={viewbookId} theme={operatorData.theme} />}
       {section.sectionKey === 'strategy' && <DocsInlineEditor viewbookId={viewbookId} docs={operatorData.docs} />}
       {section.sectionKey === 'data-source' && <DataSourceInlineEditor viewbookId={viewbookId} fields={operatorData.fields} dataLockedAt={operatorData.dataLockedAt} />}
-    </>
+    </div>
   )
 }
