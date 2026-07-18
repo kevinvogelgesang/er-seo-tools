@@ -6,17 +6,42 @@
 // flow + sync.ts's predicate-sharing contract):
 // - `assessmentPredicate(viewbookId)` is the ONE self-contained EXISTS
 //   predicate proving the viewbook exists AND its client is not archived.
-//   Every mutation's `syncVersionBumpWhere` rides this same predicate; the
-//   deleteMany domain write expresses the equivalent condition via a typed
-//   nested relation filter (Prisma can't add extra WHERE clauses to an
-//   `upsert`, so those writes are additionally guarded by an upfront
-//   `assertViewbookActive` check — the same discipline `assignViewbookCsm`/
-//   `createMilestone` use in service.ts).
+//   Every mutation's `syncVersionBumpWhere` rides this same predicate.
+// - **The domain write itself is fenced on this predicate, not just the
+//   bump.** `assignViewbookCsm` in service.ts is the correct precedent to
+//   match — it re-expresses the guard on its raw `UPDATE "Viewbook" ... WHERE
+//   "id" = ? AND (predicate)` statement, not only on the bump. (An earlier
+//   version of this file's comment claimed the upfront `assertViewbookActive`
+//   check + an unconditional typed `upsert` "matched" that precedent — it
+//   didn't: a client archived in the gap between the check and the
+//   transaction let the upsert commit while only the bump silently no-opped,
+//   i.e. content could land on an archived viewbook with a stale
+//   syncVersion. That gap is closed here.) Prisma's typed `upsert` can't take
+//   an extra WHERE, so both writers below use a single guarded raw-SQL
+//   statement: `INSERT ... SELECT ... WHERE (predicate) ON CONFLICT(...) DO
+//   UPDATE SET ...`. **Verified empirically against this SQLite build**
+//   (see `docs/superpowers/sdd/task-4-report.md`): when the guard is false
+//   the SELECT yields zero candidate rows, so SQLite never attempts the
+//   INSERT and the ON CONFLICT/DO UPDATE branch is therefore never reached
+//   either — one statement fences BOTH the create and the update path of the
+//   upsert. Exact guarantee: if the viewbook's client is archived (or the
+//   viewbook itself is gone) at transaction time, the domain write affects
+//   zero rows in the SAME atomic transaction as the (also zero-row) bump —
+//   never a partial state where content lands but the version doesn't move.
+//   Both writers check the affected-row count and throw 409 `client_archived`
+//   rather than returning as if the write had landed (an upfront
+//   `assertViewbookActive` call stays as a fast-fail for the common
+//   already-archived-at-call-time case; the raw-SQL guard is what actually
+//   makes the write atomic against a race in the gap — an optional
+//   `deps.beforeWrite` hook exists solely so tests can land a race in that
+//   gap, mirroring `AssignViewbookCsmDeps` in service.ts).
 // - `addAssessmentImage` CANNOT read a freshly-created content row's id
 //   between array-txn statements (interactive transactions are banned
-//   repo-wide), so the image is created via the upsert's NESTED `images:
-//   { create: … }` on both the `create` and `update` branches — never a
-//   separate statement referencing a prior statement's id.
+//   repo-wide), so the image insert re-derives the contentId via `SELECT
+//   "id" FROM "ViewbookAssessmentContent" WHERE "viewbookId" = ? AND
+//   (predicate)` — guarded the same way, independently of statement 1, so a
+//   content row that already existed before the race window still blocks
+//   the image insert if the guard fails at write time.
 // - Reads re-sanitize both HTML bodies before returning (defense against a
 //   sanitizer-version change since the row was written).
 
@@ -27,6 +52,15 @@ import { sanitizeRichText } from '@/lib/richtext/sanitize'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { syncVersionBumpWhere } from './sync'
 import type { PublicAssessmentImage, PublicAssessmentNotes } from './public-types'
+
+// Test-only race seam (mirrors `AssignViewbookCsmDeps` in service.ts): a hook
+// invoked after the upfront `assertViewbookActive` check but before the
+// guarded transaction, so a test can archive the client (or, for
+// `addAssessmentImage`, do so AFTER the file is already saved) to prove the
+// raw-SQL guard — not just the upfront check — is what closes the race.
+export interface AssessmentWriteDeps {
+  beforeWrite?: () => Promise<void>
+}
 
 export type AssessmentNoteField = 'general' | 'userBehaviour'
 
@@ -87,6 +121,7 @@ export async function setAssessmentNote(
   field: AssessmentNoteField,
   html: string,
   actor: string,
+  deps: AssessmentWriteDeps = {},
 ): Promise<void> {
   if (typeof html !== 'string') throw new HttpError(400, 'invalid_html')
   if (!(field in FIELD_COLUMN)) throw new HttpError(400, 'invalid_field')
@@ -95,22 +130,41 @@ export async function setAssessmentNote(
 
   const sanitized = sanitizeRichText(html)
   const column = FIELD_COLUMN[field]
+  // `column` is always one of the two hardcoded FIELD_COLUMN values (never
+  // derived from request input beyond the `field in FIELD_COLUMN` check
+  // above) — safe to splice as a raw SQL identifier.
+  const columnIdent = Prisma.raw(`"${column}"`)
   const predicate = assessmentPredicate(viewbookId)
+  const now = Date.now()
 
-  await prisma.$transaction([
-    prisma.viewbookAssessmentContent.upsert({
-      where: { viewbookId },
-      create: { viewbookId, [column]: sanitized, updatedBy: actor },
-      update: { [column]: sanitized, updatedBy: actor },
-    }),
+  if (deps.beforeWrite) await deps.beforeWrite()
+
+  const [writeCount] = await prisma.$transaction([
+    // Single guarded upsert — see the file-header comment for why this one
+    // statement fences both the create and the update path.
+    prisma.$executeRaw`
+      INSERT INTO "ViewbookAssessmentContent" ("viewbookId", ${columnIdent}, "updatedAt", "updatedBy")
+      SELECT ${viewbookId}, ${sanitized}, ${now}, ${actor}
+      WHERE (${predicate})
+      ON CONFLICT("viewbookId") DO UPDATE SET
+        ${columnIdent} = excluded.${columnIdent},
+        "updatedAt" = excluded."updatedAt",
+        "updatedBy" = excluded."updatedBy"
+    `,
     syncVersionBumpWhere(viewbookId, predicate),
   ])
+
+  // The guard failed at write time (archived/deleted in the gap since the
+  // upfront check) — the write no-op'd atomically. Throw rather than return
+  // as if it had landed.
+  if (writeCount === 0) throw new HttpError(409, 'client_archived')
 }
 
 export async function addAssessmentImage(
   viewbookId: number,
   buf: Buffer,
   actor: string,
+  deps: AssessmentWriteDeps = {},
 ): Promise<{ filename: string }> {
   await assertViewbookActive(viewbookId)
 
@@ -124,25 +178,43 @@ export async function addAssessmentImage(
     })
     const sortOrder = (max._max.sortOrder ?? 0) + 1
     const predicate = assessmentPredicate(viewbookId)
+    const now = Date.now()
 
-    await prisma.$transaction([
-      // Nested create is the ONLY way to attach an image row to a
-      // possibly-just-created content row inside an array-form txn — there
-      // is no freshly-minted content id available to a second statement.
-      prisma.viewbookAssessmentContent.upsert({
-        where: { viewbookId },
-        create: {
-          viewbookId,
-          updatedBy: actor,
-          images: { create: { filename, sortOrder, createdBy: actor } },
-        },
-        update: {
-          updatedBy: actor,
-          images: { create: { filename, sortOrder, createdBy: actor } },
-        },
-      }),
+    if (deps.beforeWrite) await deps.beforeWrite()
+
+    const [, imageInsertCount] = await prisma.$transaction([
+      // (1) Ensure the content row exists, guarded the same way as (2) — see
+      // the file-header comment for why this one statement fences both the
+      // create and the update path.
+      prisma.$executeRaw`
+        INSERT INTO "ViewbookAssessmentContent" ("viewbookId", "updatedAt", "updatedBy")
+        SELECT ${viewbookId}, ${now}, ${actor}
+        WHERE (${predicate})
+        ON CONFLICT("viewbookId") DO UPDATE SET
+          "updatedAt" = excluded."updatedAt",
+          "updatedBy" = excluded."updatedBy"
+      `,
+      // (2) Re-derive the contentId via SELECT rather than reusing a prior
+      // statement's freshly-minted id (interactive transactions are banned
+      // repo-wide). Guarded INDEPENDENTLY of (1): a content row that already
+      // existed before this call still blocks the image insert if the guard
+      // fails at write time — (1) alone no-opping isn't sufficient, since a
+      // pre-existing row would otherwise let (2) attach an image to it.
+      prisma.$executeRaw`
+        INSERT INTO "ViewbookAssessmentImage" ("contentId", "filename", "sortOrder", "createdBy", "createdAt")
+        SELECT "id", ${filename}, ${sortOrder}, ${actor}, ${now}
+        FROM "ViewbookAssessmentContent"
+        WHERE "viewbookId" = ${viewbookId} AND (${predicate})
+      `,
       syncVersionBumpWhere(viewbookId, predicate),
     ])
+
+    // The guard failed at write time (archived/deleted in the gap since the
+    // upfront check, or since the file was saved) — no image row was
+    // inserted. Throw so the outer catch deletes the orphaned file instead
+    // of returning a filename that was never persisted.
+    if (imageInsertCount === 0) throw new HttpError(409, 'client_archived')
+
     return { filename }
   } catch (err) {
     await deleteViewbookAssets(scope, [filename])

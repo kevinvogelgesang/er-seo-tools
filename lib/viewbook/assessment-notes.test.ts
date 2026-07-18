@@ -99,6 +99,28 @@ describe('setAssessmentNote / loadAssessmentNotes', () => {
     expect(await loadAssessmentNotes(id)).toBeNull()
   })
 
+  it('closes the TOCTOU: an archive that lands after the upfront check still no-ops the write (not a silent success)', async () => {
+    // The upfront `assertViewbookActive` check passes (client is active at
+    // call time); `beforeWrite` then archives the client in the gap before
+    // the guarded transaction runs. If the domain write were only fenced by
+    // the upfront check (the bug this fixes), the note would land with a
+    // stale syncVersion and the caller would see success. Fenced correctly,
+    // the raw-SQL guard makes the write itself no-op and the call throws.
+    const { id, clientId } = await ownViewbook()
+    const before = await syncVersion(id)
+
+    await expect(
+      setAssessmentNote(id, 'general', '<p>raced</p>', 'op@er.com', {
+        beforeWrite: async () => {
+          await archiveClient(clientId)
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    expect(await loadAssessmentNotes(id)).toBeNull()
+    expect(await syncVersion(id)).toBe(before)
+  })
+
   it('returns null for a viewbook with no content row yet', async () => {
     const { id } = await ownViewbook()
     expect(await loadAssessmentNotes(id)).toBeNull()
@@ -150,10 +172,39 @@ describe('addAssessmentImage / deleteAssessmentImage', () => {
     expect(notes?.userBehaviourImages.map((img) => img.filename)).toEqual(expectedOrder)
   })
 
-  it('cleans up the written file when the image row create fails', async () => {
-    await expect(addAssessmentImage(999_999_999, PNG_1PX, 'op@er.com')).rejects.toBeTruthy()
+  it('404s on a missing viewbook before any file is written', async () => {
+    await expect(addAssessmentImage(999_999_999, PNG_1PX, 'op@er.com')).rejects.toMatchObject({ status: 404 })
     const entries = await readdir(assetsDir, { recursive: true }).catch(() => [])
     expect((entries as string[]).filter((entry) => String(entry).endsWith('.webp'))).toHaveLength(0)
+  })
+
+  it('cleans up the written file when the DB write fails AFTER the file is already saved', async () => {
+    // The old version of this test called addAssessmentImage(999_999_999, …),
+    // which 404s at the upfront `assertViewbookActive` check BEFORE
+    // saveViewbookAsset ever runs — no file is written, so the catch-block
+    // cleanup path is never exercised; the test passed even with the
+    // `deleteViewbookAssets` call deleted. This version proves the REAL
+    // post-file-write failure path: the upfront check passes (the viewbook
+    // is valid and active), the file gets written to disk, and only THEN
+    // does `beforeWrite` archive the client — landing the race in the gap
+    // the guarded raw-SQL INSERT closes. The image insert affects zero rows,
+    // the function throws 409, and the catch block must delete the
+    // already-saved file. Removing the `deleteViewbookAssets(scope,
+    // [filename])` call in the catch (or removing the imageInsertCount===0
+    // throw) leaves the orphaned .webp file on disk and this test fails.
+    const { id, clientId } = await ownViewbook()
+
+    await expect(
+      addAssessmentImage(id, PNG_1PX, 'op@er.com', {
+        beforeWrite: async () => {
+          await archiveClient(clientId)
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    const entries = await readdir(assetsDir, { recursive: true }).catch(() => [])
+    expect((entries as string[]).filter((entry) => String(entry).endsWith('.webp'))).toHaveLength(0)
+    expect(await loadAssessmentNotes(id)).toBeNull()
   })
 
   it('409s and writes no file when the client is archived', async () => {
