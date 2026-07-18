@@ -60,6 +60,67 @@ async function clickAndRead(name: string, row: OperatorSectionData) {
 }
 
 describe('SectionQuickControls', () => {
+  it('renders a readable title, dark-aware neutral rail, and semantic state pills', () => {
+    const { container } = render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+        pcCompletedAt={null}
+      />,
+    )
+    const rail = container.querySelector('[data-operator-section-controls]')
+    expect(screen.getByText('Editing section')).toBeTruthy()
+    expect(screen.getByText('Set Up Your Viewbook')).toBeTruthy()
+    expect(screen.queryByText('pc-setup')).toBeNull()
+    expect(screen.getByText('Visible')).toBeTruthy()
+    expect(screen.getByText('Acknowledged')).toBeTruthy()
+    expect(rail?.getAttribute('class')).toContain('border-gray-200')
+    expect(rail?.getAttribute('class')).toContain('dark:bg-navy-deep/95')
+  })
+
+  it('renders hidden and complete states with semantic pills', () => {
+    render(<SectionQuickControls viewbookId={8} section={section({ state: 'hidden' })} pcCompletedAt={null} />)
+    expect(screen.getByText('Hidden')).toBeTruthy()
+    cleanup()
+    render(<SectionQuickControls viewbookId={8} section={section({ state: 'done' })} pcCompletedAt={null} />)
+    expect(screen.getByText('Complete')).toBeTruthy()
+  })
+
+  it('supports a compact embedded variant without the full-width rail chrome', () => {
+    const { container } = render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'strategy', state: 'hidden' })}
+        pcCompletedAt={null}
+        variant="embedded"
+      />,
+    )
+    const controls = container.querySelector('[data-operator-section-controls]')
+    expect(controls?.getAttribute('data-operator-section-controls-variant')).toBe('embedded')
+    expect(controls?.getAttribute('class')).not.toContain('border-y')
+    expect(screen.getByText('SEO, GEO & E-E-A-T Strategy')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Show' })).toBeTruthy()
+  })
+
+  it('shows live busy feedback and disables the entire action group during a mutation', async () => {
+    let resolveFetch!: (value: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve })))
+    render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+        pcCompletedAt={null}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    expect(await screen.findByText('Updating section…')).toBeTruthy()
+    for (const button of screen.getAllByRole('button')) expect((button as HTMLButtonElement).disabled).toBe(true)
+
+    resolveFetch(ok())
+    await waitFor(() => expect(screen.queryByText('Updating section…')).toBeNull())
+  })
+
   it('hides and shows through the section PATCH contract', async () => {
     let [url, init] = await clickAndRead('Hide', section())
     expect(url).toBe('/api/viewbooks/8/sections/data-source')
@@ -95,6 +156,15 @@ describe('SectionQuickControls', () => {
   it('shows Reset ack only for acknowledged ackable sections', () => {
     render(<SectionQuickControls viewbookId={8} section={section()} pcCompletedAt={null} />)
     expect(screen.queryByRole('button', { name: 'Reset ack' })).toBeNull()
+    cleanup()
+    render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+        pcCompletedAt={null}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Reset ack' }).getAttribute('class')).toContain('dark:bg-amber-500/10')
     cleanup()
     render(
       <SectionQuickControls

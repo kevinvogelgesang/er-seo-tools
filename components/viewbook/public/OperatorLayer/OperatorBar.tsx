@@ -1,6 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { ThemeToggle } from '@/components/ThemeToggle'
+import { editorPrimaryBtnClass, editorSecondaryBtnClass } from '@/components/viewbook/editor'
+import { StatusPill } from '@/components/ui/StatusPill'
 import { nextStage, prevStage, STAGE_LABELS, type ViewbookStage } from '@/lib/viewbook/stages'
 import { PresentationToggle } from '../PresentationToggle'
 import { requestRefresh, useEditorActivity } from '../useViewbookSync'
@@ -65,18 +68,22 @@ export function OperatorBar({
       id="vb-operator-bar"
       data-operator-bar
       aria-label="Viewbook editing controls"
-      className="sticky top-0 z-50 border-b border-black/10 bg-white/95 py-2 text-sm text-black shadow-sm backdrop-blur"
+      className="sticky top-0 z-50 border-b border-gray-200 bg-white/90 font-body text-sm text-navy shadow-sm backdrop-blur-md dark:border-navy-border dark:bg-navy-deep/90 dark:text-white"
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6">
-        <span className="font-semibold">ER editing</span>
-        <span className="rounded-full bg-teal-50 px-2.5 py-1 font-medium text-teal-800">{STAGE_LABELS[stage]}</span>
-        <span className="text-xs text-black/45">{operatorEmail}</span>
-        <div className="ml-auto flex items-center gap-2">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 px-4 py-2.5 sm:px-6 md:flex-row md:items-center">
+        <div className="flex min-h-9 min-w-0 items-center gap-2.5">
+          <span data-operator-status-dot aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-teal-500 shadow-[0_0_0_3px_rgba(20,184,166,0.15)] dark:bg-teal-400" />
+          <span className="shrink-0 font-display font-bold">ER editing</span>
+          <StatusPill label={STAGE_LABELS[stage]} tone="running" />
+          <span className="min-w-0 truncate text-xs text-gray-500 dark:text-white/55">{operatorEmail}</span>
+        </div>
+        <div className="flex min-h-9 w-full flex-wrap items-center gap-2 md:ml-auto md:w-auto md:justify-end">
+          {busy && <span role="status" aria-live="polite" className="mr-auto text-xs font-medium text-teal-700 dark:text-teal-300 md:mr-0">Updating stage…</span>}
           <button
             type="button"
             disabled={busy || prevStage(stage) === null}
             onClick={() => void move('back')}
-            className="rounded border border-black/15 bg-white px-3 py-1.5 font-medium text-black/70 disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+            className={editorSecondaryBtnClass}
           >
             Roll back
           </button>
@@ -84,14 +91,19 @@ export function OperatorBar({
             type="button"
             disabled={busy || nextStage(stage) === null}
             onClick={() => void move('forward')}
-            className="rounded bg-teal-700 px-3 py-1.5 font-semibold text-white disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2"
+            className={editorPrimaryBtnClass}
           >
-            {busy ? 'Updating…' : 'Advance'}
+            Advance
           </button>
           <PresentationToggle />
+          <ThemeToggle />
         </div>
       </div>
-      {error && <p role="alert" className="mx-auto mt-1 max-w-5xl px-6 text-xs font-medium text-red-700">{error}</p>}
+      {error && (
+        <div role="alert" className="border-t border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+          <p className="mx-auto max-w-5xl px-4 py-2 text-xs font-medium sm:px-6">{error}</p>
+        </div>
+      )}
     </aside>
   )
 }

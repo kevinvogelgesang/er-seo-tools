@@ -3,6 +3,18 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { CATALOG_CATEGORIES } from '@/lib/viewbook/catalog'
 import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
+import {
+  ViewbookEditorPanel,
+  ViewbookEditorStatus,
+  editorDestructiveBtnClass,
+  editorInputClass,
+  editorLabelClass,
+  editorPrimaryBtnClass,
+  editorSecondaryBtnClass,
+  editorTextareaClass,
+  editorWellClass,
+} from '@/components/viewbook/editor'
+import { StatusPill } from '@/components/ui/StatusPill'
 
 export interface AdminViewbookField {
   id: number
@@ -51,6 +63,15 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleString()
 }
 
+function readableCategory(category: string): string {
+  return category.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function countLabel(count: number, singular: string): string {
+  const plural = singular === 'category' ? 'categories' : `${singular}s`
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
 async function requestJson(url: string, init: RequestInit): Promise<{ response: Response; body: Record<string, any> }> {
   const response = await fetch(url, init)
   const body = await response.json().catch(() => ({}))
@@ -76,15 +97,18 @@ export function DataSourceTab({
     setLockedBy(viewbook.dataLockedBy)
   }, [viewbook.dataLockedAt, viewbook.dataLockedBy])
 
+  const activeFields = useMemo(() => fields.filter((field) => !field.archivedAt), [fields])
+  const archivedFields = useMemo(() => fields.filter((field) => field.archivedAt), [fields])
   const groups = useMemo(() => {
     const grouped = new Map<string, AdminViewbookField[]>()
-    for (const field of fields) {
+    for (const field of activeFields) {
       const rows = grouped.get(field.category) ?? []
       rows.push(field)
       grouped.set(field.category, rows)
     }
     return [...grouped.entries()]
-  }, [fields])
+  }, [activeFields])
+  const amendmentCount = activeFields.reduce((total, field) => total + field.amendments.length, 0)
 
   function replaceField(field: AdminViewbookField) {
     setFields((current) => current.map((item) => item.id === field.id ? field : item))
@@ -108,47 +132,107 @@ export function DataSourceTab({
   }
 
   return (
-    <div className="space-y-5 text-sm">
-      {error && <p role="alert" className="text-red-600 dark:text-red-400">{error}</p>}
+    <div className="space-y-5 font-body text-sm">
       {lockedAt ? (
-        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-teal-900 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-200">
-          Locked by {lockedBy ?? 'operator'} on {formatDate(lockedAt)}. Baseline changes are recorded as amendments.
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-500/30 dark:bg-teal-500/10">
+          <div className="flex items-start gap-3">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="mt-0.5 h-5 w-5 shrink-0 text-teal-700 dark:text-teal-300">
+              <rect x="5" y="10" width="14" height="10" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill label="Locked baseline" tone="success" />
+                <p className="font-semibold text-teal-950 dark:text-teal-100">Locked by {lockedBy ?? 'operator'} on {formatDate(lockedAt)}</p>
+              </div>
+              <p className="mt-1 text-xs text-teal-800 dark:text-teal-200/80">Future baseline changes are recorded as amendments, preserving the approved answer below.</p>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
-          <p className="text-amber-900 dark:text-amber-200">Answers remain editable until you lock in the baseline.</p>
-          <button
-            disabled={locking}
-            onClick={() => void lock()}
-            className="rounded bg-amber-600 px-4 py-2 font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-          >
-            {locking ? 'Locking…' : 'Lock in'}
-          </button>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300">
+                <path d="M12 9v4m0 4h.01M10.3 4.3 2.7 18a2 2 0 0 0 1.75 3h15.1a2 2 0 0 0 1.75-3L13.7 4.3a2 2 0 0 0-3.4 0Z" />
+              </svg>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusPill label="Open" tone="warning" />
+                  <p className="font-semibold text-amber-950 dark:text-amber-100">Baseline answers are still editable</p>
+                </div>
+                <p className="mt-1 text-xs text-amber-800 dark:text-amber-200/80">Lock the Data Source once the client has approved these answers. Locking cannot be undone here.</p>
+              </div>
+            </div>
+            <button disabled={locking} onClick={() => void lock()} className={editorPrimaryBtnClass}>
+              {locking ? 'Locking…' : 'Lock in'}
+            </button>
+          </div>
         </div>
       )}
+
+      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
+
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          countLabel(activeFields.length, 'active field'),
+          countLabel(groups.length, 'category'),
+          countLabel(amendmentCount, 'amendment'),
+          lockedAt ? 'Locked' : 'Open',
+        ].map((value, index) => (
+          <div key={`${value}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-navy-border dark:bg-navy-deep/40">
+            <dt className="sr-only">{['Fields', 'Categories', 'Amendments', 'State'][index]}</dt>
+            <dd className="font-semibold text-navy dark:text-white">{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="space-y-4">
+        {groups.map(([category, rows]) => (
+          <section key={category} className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 dark:border-navy-border dark:bg-navy-deep/30">
+            <div className="mb-3 flex items-center justify-between gap-3 px-1">
+              <h3 className="font-display text-base font-bold text-navy dark:text-white">{readableCategory(category)}</h3>
+              <StatusPill label={countLabel(rows.length, 'field')} tone="neutral" />
+            </div>
+            <div className="space-y-3">
+              {rows.map((field) => (
+                <AdminFieldCard
+                  key={field.id}
+                  viewbookId={viewbook.id}
+                  field={field}
+                  lockedAt={lockedAt}
+                  onUpdated={(next) => {
+                    replaceField(next)
+                    onChanged()
+                  }}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+        {activeFields.length === 0 && (
+          <div className="rounded-xl border border-dashed border-gray-300 p-6 text-center text-gray-500 dark:border-navy-border dark:text-white/55">No active Data Source fields.</div>
+        )}
+      </div>
 
       <CustomFieldForm viewbookId={viewbook.id} onCreated={(field) => {
         setFields((current) => [...current, field])
         onChanged()
       }} />
 
-      {groups.map(([category, rows]) => (
-        <section key={category} className="space-y-3">
-          <h3 className="text-base font-bold capitalize text-gray-900 dark:text-white">{category.replaceAll('-', ' ')}</h3>
-          {rows.map((field) => (
-            <AdminFieldCard
-              key={field.id}
-              viewbookId={viewbook.id}
-              field={field}
-              lockedAt={lockedAt}
-              onUpdated={(next) => {
-                replaceField(next)
-                onChanged()
-              }}
-            />
-          ))}
-        </section>
-      ))}
+      {archivedFields.length > 0 && (
+        <ViewbookEditorPanel
+          title="Archived fields"
+          description="Removed from active Data Source work."
+          status={<StatusPill label={countLabel(archivedFields.length, 'field')} tone="neutral" />}
+        >
+          <div className="space-y-3 opacity-75">
+            {archivedFields.map((field) => (
+              <AdminFieldCard key={field.id} viewbookId={viewbook.id} field={field} lockedAt={lockedAt} onUpdated={replaceField} />
+            ))}
+          </div>
+        </ViewbookEditorPanel>
+      )}
     </div>
   )
 }
@@ -165,10 +249,9 @@ function CustomFieldForm({
   const [category, setCategory] = useState<(typeof CATALOG_CATEGORIES)[number]>('school')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const { focused, onFocus, onBlur } = useFocusWithin()
 
-  // PR2 Task 6: active while a new-field label is drafted, mid-submit, or
-  // focus remains within this form.
   useEditorActivity('admin-new-field', label.trim() !== '' || busy || focused)
 
   async function submit(event: FormEvent) {
@@ -191,36 +274,37 @@ function CustomFieldForm({
     }
   }
 
+  const forceOpen = label.trim() !== '' || busy || error !== null
   return (
-    <form
-      onSubmit={submit}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      className="rounded-xl border border-gray-200 bg-white p-4 dark:border-navy-border dark:bg-navy-card"
+    <ViewbookEditorPanel
+      title="Add custom field"
+      description="Create a client-specific question outside the standard catalog."
+      open={forceOpen || open}
+      onOpenChange={setOpen}
+      status={<ViewbookEditorStatus state={error ? 'error' : busy ? 'saving' : label.trim() ? 'dirty' : 'idle'} message={error} />}
     >
-      <h3 className="font-semibold text-gray-900 dark:text-white">Add custom field</h3>
-      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
-        <input
-          aria-label="Custom field label"
-          required
-          maxLength={200}
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-          placeholder="Question label"
-          className="rounded border border-gray-300 bg-white px-3 py-2 dark:border-navy-border dark:bg-navy-light dark:text-white"
-        />
-        <select value={fieldType} onChange={(event) => setFieldType(event.target.value as typeof fieldType)} className="rounded border border-gray-300 bg-white px-3 py-2 dark:border-navy-border dark:bg-navy-light dark:text-white">
-          {FIELD_TYPES.map((type) => <option key={type}>{type}</option>)}
-        </select>
-        <select value={category} onChange={(event) => setCategory(event.target.value as typeof category)} className="rounded border border-gray-300 bg-white px-3 py-2 dark:border-navy-border dark:bg-navy-light dark:text-white">
-          {CATALOG_CATEGORIES.map((item) => <option key={item}>{item}</option>)}
-        </select>
-        <button disabled={busy || !label.trim()} className="rounded bg-teal-600 px-4 py-2 font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
-          {busy ? 'Adding…' : 'Add field'}
-        </button>
-      </div>
-      {error && <p role="alert" className="mt-2 text-red-600 dark:text-red-400">{error}</p>}
-    </form>
+      <form onSubmit={submit} onFocus={onFocus} onBlur={onBlur} className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className={editorLabelClass}>
+            Label
+            <input aria-label="Custom field label" required maxLength={200} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Question label" className={`mt-1 ${editorInputClass}`} />
+          </label>
+          <label className={editorLabelClass}>
+            Field type
+            <select aria-label="Custom field type" value={fieldType} onChange={(event) => setFieldType(event.target.value as typeof fieldType)} className={`mt-1 ${editorInputClass}`}>
+              {FIELD_TYPES.map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+          <label className={editorLabelClass}>
+            Category
+            <select aria-label="Custom field category" value={category} onChange={(event) => setCategory(event.target.value as typeof category)} className={`mt-1 ${editorInputClass}`}>
+              {CATALOG_CATEGORIES.map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+        </div>
+        <button disabled={busy || !label.trim()} className={editorSecondaryBtnClass}>{busy ? 'Adding…' : 'Add field'}</button>
+      </form>
+    </ViewbookEditorPanel>
   )
 }
 
@@ -240,18 +324,14 @@ function AdminFieldCard({
   const [amendment, setAmendment] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [conflict, setConflict] = useState<{ serverValue: string | null; serverVersion: number } | null>(null)
   const { focused, onFocus, onBlur } = useFocusWithin()
 
   useEffect(() => {
-    setDraft(displayValue(field))
+    if (!conflict) setDraft(displayValue(field))
     setLabel(field.label)
-  }, [field])
+  }, [field, conflict])
 
-  // PR2 Task 6 (Codex wave-2 fix 6): active while the value/label/amendment
-  // draft differs from the loaded field, a save is in flight, or focus
-  // remains within this card — this is what keeps the admin editor's
-  // background poll from calling load() (which would reset the effect
-  // above) while an operator is mid-edit.
   const dirty = draft !== displayValue(field) || label !== field.label || amendment.trim() !== ''
   useEditorActivity(`admin-field-${field.id}`, dirty || busy || focused)
 
@@ -271,12 +351,17 @@ function AdminFieldCard({
       if (response.status === 409 && body.current) {
         const next = { ...field, value: body.current.value, version: body.current.version }
         onUpdated(next)
-        setDraft(displayValue(next))
-        setMessage(body.error === 'stale_version' ? 'A newer answer was loaded.' : 'This baseline is locked.')
+        if (body.error === 'stale_version') {
+          setConflict({ serverValue: body.current.value, serverVersion: body.current.version })
+        } else {
+          setDraft(displayValue(next))
+          setMessage('This baseline is locked.')
+        }
         return
       }
       if (!response.ok) throw new Error(body.error || 'save_failed')
       onUpdated({ ...field, ...body.field })
+      setConflict(null)
       setMessage('Saved')
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'save_failed')
@@ -342,60 +427,93 @@ function AdminFieldCard({
     }
   }
 
-  const inputClass = 'w-full rounded border border-gray-300 bg-white px-3 py-2 dark:border-navy-border dark:bg-navy-light dark:text-white'
+  const fieldState = field.archivedAt ? 'Archived' : lockedBaseline ? 'Locked baseline' : lockedAt ? 'Editable after lock' : 'Editable baseline'
+  const fieldTone = field.archivedAt ? 'neutral' : lockedBaseline ? 'success' : 'running'
+  const editorStatus = conflict ? 'conflict' : busy ? 'saving' : message === 'Saved' || message === 'Label saved' || message === 'Amendment recorded' ? 'saved' : dirty ? 'dirty' : 'idle'
+
   return (
-    <article
-      onFocus={onFocus}
-      onBlur={onBlur}
-      className={`rounded-xl border p-4 ${field.archivedAt ? 'border-gray-200 bg-gray-100 opacity-60 dark:border-navy-border dark:bg-navy-light' : 'border-gray-200 bg-white dark:border-navy-border dark:bg-navy-card'}`}
-    >
+    <article onFocus={onFocus} onBlur={onBlur} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {field.defKey === null && !field.archivedAt ? (
-            <div className="flex gap-2">
-              <input aria-label={`Label for ${field.label}`} value={label} onChange={(event) => setLabel(event.target.value)} maxLength={200} className={inputClass} />
-              <button disabled={busy || !label.trim() || label === field.label} onClick={() => void saveLabel()} className="rounded border border-gray-300 px-3 py-2 text-gray-700 disabled:opacity-40 dark:border-navy-border dark:text-white/80">Save label</button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <label className={`min-w-0 flex-1 ${editorLabelClass}`}>
+                Field label
+                <input aria-label={`Label for ${field.label}`} value={label} onChange={(event) => setLabel(event.target.value)} maxLength={200} className={`mt-1 ${editorInputClass}`} />
+              </label>
+              <button disabled={busy || !label.trim() || label === field.label} onClick={() => void saveLabel()} className={`self-end ${editorSecondaryBtnClass}`}>Save label</button>
             </div>
-          ) : <h4 className="font-semibold text-gray-900 dark:text-white">{field.label}</h4>}
-          <p className="mt-1 text-xs text-gray-500 dark:text-white/50">
-            {field.fieldType} · version {field.version}
-            {lockedAt && !lockedBaseline && !field.archivedAt ? ' · added after lock-in' : ''}
-            {field.archivedAt ? ` · archived ${formatDate(field.archivedAt)}` : ''}
-          </p>
+          ) : <h4 className="font-display font-semibold text-navy dark:text-white">{field.label}</h4>}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <StatusPill label={fieldState} tone={fieldTone} />
+            <span className="text-xs text-gray-500 dark:text-white/50">{readableCategory(field.category)} · {field.fieldType} · version {field.version}</span>
+            {field.archivedAt && <span className="text-xs text-gray-500 dark:text-white/50">Archived {formatDate(field.archivedAt)}</span>}
+          </div>
         </div>
-        {!field.archivedAt && <button disabled={busy} onClick={() => void archive()} className="text-xs font-semibold text-red-600 dark:text-red-400">Archive</button>}
+        <div className="flex items-center gap-2">
+          <ViewbookEditorStatus state={editorStatus} message={conflict ? 'Version conflict' : message && !['Saved', 'Label saved', 'Amendment recorded'].includes(message) ? message : undefined} />
+          {!field.archivedAt && <button disabled={busy} onClick={() => void archive()} className={editorDestructiveBtnClass}>Archive</button>}
+        </div>
       </div>
 
       {editable && (
-        <div className="mt-3 space-y-2">
-          <label className="block text-xs font-medium text-gray-600 dark:text-white/60">
+        <div className={`mt-4 space-y-3 ${editorWellClass}`}>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-white/50">Editable baseline answer</p>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-white/50">Saved directly until this field becomes part of a locked baseline.</p>
+          </div>
+          <label className={editorLabelClass}>
             Value for {field.label}
             {field.fieldType === 'text'
-              ? <input value={draft} onChange={(event) => setDraft(event.target.value)} className={`mt-1 ${inputClass}`} />
-              : <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} className={`mt-1 ${inputClass}`} />}
+              ? <input value={draft} onChange={(event) => setDraft(event.target.value)} className={`mt-1 ${editorInputClass}`} />
+              : <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} className={`mt-1 ${editorTextareaClass}`} />}
           </label>
-          <button disabled={busy} onClick={() => void saveValue()} className="rounded bg-teal-600 px-3 py-1.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50" aria-label={`Save ${field.label}`}>Save answer</button>
+          {conflict && (
+            <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">Your draft was kept</p>
+                  <p className="mt-1 text-xs text-amber-800 dark:text-amber-200/80">The saved answer changed to version {conflict.serverVersion}. Review your draft, then retry to save it against the latest version.</p>
+                </div>
+                <button type="button" disabled={busy} onClick={() => void saveValue()} aria-label={`Retry saving ${field.label}`} className={editorSecondaryBtnClass}>Retry</button>
+              </div>
+            </div>
+          )}
+          {!conflict && <button disabled={busy} onClick={() => void saveValue()} className={editorPrimaryBtnClass} aria-label={`Save ${field.label}`}>Save answer</button>}
         </div>
       )}
 
       {lockedBaseline && !field.archivedAt && (
-        <form onSubmit={propose} className="mt-3 space-y-2 rounded-lg bg-gray-50 p-3 dark:bg-navy-light">
-          <p className="whitespace-pre-wrap text-gray-800 dark:text-white/90">{displayValue(field) || 'Not provided yet'}</p>
-          <label className="block text-xs font-medium text-gray-600 dark:text-white/60">
-            Operator amendment
-            <textarea required value={amendment} onChange={(event) => setAmendment(event.target.value)} rows={3} className={`mt-1 ${inputClass}`} />
-          </label>
-          <button disabled={busy || !amendment.trim()} className="rounded border border-teal-600 px-3 py-1.5 font-semibold text-teal-700 disabled:opacity-50 dark:text-teal-300">Record amendment</button>
-        </form>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+          <div className={editorWellClass}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-white/50">Locked baseline value</p>
+            <p className="mt-2 whitespace-pre-wrap text-navy dark:text-white/90">{displayValue(field) || 'Not provided yet'}</p>
+          </div>
+          <form onSubmit={propose} className={editorWellClass}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-white/50">Amendment draft</p>
+            <label className={`mt-2 ${editorLabelClass}`}>
+              Operator amendment for {field.label}
+              <textarea required value={amendment} onChange={(event) => setAmendment(event.target.value)} rows={3} className={`mt-1 ${editorTextareaClass}`} />
+            </label>
+            <button disabled={busy || !amendment.trim()} className={`mt-3 ${editorSecondaryBtnClass}`}>Record amendment</button>
+          </form>
+        </div>
       )}
 
-      {field.amendments.length > 0 && <div className="mt-3 space-y-2">
-        {field.amendments.map((item) => <div key={item.id} className="border-l-4 border-teal-500 pl-3">
-          <p className="whitespace-pre-wrap text-gray-800 dark:text-white/90">{item.value}</p>
-          <p className="text-xs text-gray-500 dark:text-white/50">{formatDate(item.createdAt)} · {item.author}</p>
-        </div>)}
-      </div>}
-      {message && <p aria-live="polite" className="mt-2 text-xs text-gray-600 dark:text-white/60">{message}</p>}
+      {field.amendments.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-white/50">Amendment history</p>
+          <ol className="mt-2 space-y-3 border-l border-teal-300 pl-4 dark:border-teal-500/40">
+            {field.amendments.map((item) => (
+              <li key={item.id} className="relative">
+                <span aria-hidden="true" className="absolute -left-[1.2rem] top-1 h-2 w-2 rounded-full bg-teal-500 ring-4 ring-white dark:ring-navy-card" />
+                <p className="whitespace-pre-wrap text-navy dark:text-white/90">{item.value}</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-white/50">{formatDate(item.createdAt)} · {item.author}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </article>
   )
 }

@@ -45,8 +45,9 @@ describe('OperatorSectionWrapper', () => {
     )
     expect(screen.getByText('Real public section')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Hide' })).toBeTruthy()
-    expect(screen.getByText('Edit welcome note')).toBeTruthy()
-    expect(container.innerHTML.includes('dark' + ':')).toBe(false)
+    expect(screen.getByRole('button', { name: /welcome note/i })).toBeTruthy()
+    expect(container.innerHTML.includes('dark' + ':')).toBe(true)
+    expect(container.querySelector('[data-operator-section-wrapper]')?.getAttribute('class')).toBeNull()
   })
 
   it('renders children only when told the viewer is not an operator', () => {

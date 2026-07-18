@@ -86,18 +86,19 @@ describe('OperatorViewbookLayer', () => {
     expect(screen.getByText('Public welcome')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Hide' })).toBeTruthy()
     expect(screen.getByText('Hidden sections')).toBeTruthy()
-    expect(screen.getByText('strategy')).toBeTruthy()
+    expect(screen.getByText('SEO, GEO & E-E-A-T Strategy')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Show' })).toBeTruthy()
-    expect(container.innerHTML.includes('dark' + ':')).toBe(false)
+    expect(container.innerHTML.includes('dark' + ':')).toBe(true)
   })
 
   it('renders public content but no operator layer when persisted presentation mode is ON', async () => {
     stored = 'true'
     const { container } = renderLayer()
-    expect(await screen.findByRole('button', { name: 'Show editing controls' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Return to editing' })).toBeTruthy()
     expect(screen.getByText('Public welcome')).toBeTruthy()
     expect(container.querySelector('[data-operator-bar]')).toBeNull()
     expect(container.querySelector('[data-operator-section-wrapper]')).toBeNull()
     expect(screen.queryByText('Hidden sections')).toBeNull()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
   })
 })

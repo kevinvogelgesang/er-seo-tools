@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { editorSecondaryBtnClass } from '@/components/viewbook/editor'
 
 const STORAGE_KEY = 'vb-presentation-mode'
 
@@ -70,12 +71,16 @@ export function PresentationToggle() {
     return (
       <button
         type="button"
-        aria-label="Show editing controls"
+        aria-label="Return to editing"
         aria-pressed="true"
         onClick={toggle}
-        className="fixed bottom-3 right-3 z-50 rounded-full border border-black/15 bg-white/90 px-2.5 py-1.5 text-xs font-medium text-black/60 shadow-sm backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2"
+        style={{
+          bottom: 'max(1rem, env(safe-area-inset-bottom))',
+          left: 'max(1rem, env(safe-area-inset-left))',
+        }}
+        className="fixed bottom-4 left-4 z-50 rounded-full border border-gray-200 bg-white/95 px-4 py-2.5 font-body text-sm font-semibold text-navy shadow-xl backdrop-blur-md transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50 focus-visible:ring-offset-2 dark:border-navy-border dark:bg-navy-card/95 dark:text-white dark:hover:bg-navy-light dark:focus-visible:ring-offset-navy-deep"
       >
-        Edit
+        Return to editing
       </button>
     )
   }
@@ -83,12 +88,12 @@ export function PresentationToggle() {
   return (
     <button
       type="button"
-      aria-label="Presentation mode"
+      aria-label="Preview as client"
       aria-pressed="false"
       onClick={toggle}
-      className="rounded-full border border-black/15 bg-white px-3 py-1.5 text-xs font-semibold text-black/65 hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2"
+      className={`${editorSecondaryBtnClass} shrink-0 whitespace-nowrap`}
     >
-      Presentation mode
+      Preview as client
     </button>
   )
 }
