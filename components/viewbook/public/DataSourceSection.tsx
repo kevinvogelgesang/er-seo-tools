@@ -43,37 +43,58 @@ function ListValue({ value }: { value: string }) {
   )
 }
 
-function FieldValue({ field }: { field: PublicField }) {
+function FieldValue({ field, muted = false }: { field: PublicField; muted?: boolean }) {
   if (field.value == null || field.value === '') return <p className="text-black/35">Not provided yet</p>
-  if (field.fieldType === 'list') return <ListValue value={field.value} />
-  return <p className="whitespace-pre-line">{field.value}</p>
+  if (field.fieldType === 'list') {
+    return <div className={muted ? 'text-black/45' : undefined}><ListValue value={field.value} /></div>
+  }
+  return <p className={`whitespace-pre-line ${muted ? 'text-black/45' : ''}`}>{field.value}</p>
 }
 
 function FieldRow({ field, token, dataLockedAt }: { field: PublicField; token: string; dataLockedAt: string | null }) {
   const lockedBaseline = dataLockedAt !== null
     && new Date(field.createdAt).getTime() <= new Date(dataLockedAt).getTime()
   return (
-    <div id={fieldAnchor(field.id).slice(1)} className="px-5 py-3">
-      <p className="text-sm font-semibold text-black/60">{field.label}</p>
-      {lockedBaseline ? <FieldValue field={field} /> : <FieldEditor token={token} field={field} />}
-      {dataLockedAt && !lockedBaseline && field.isCustom && (
-        <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--vb-primary)' }}>Added after lock-in · still editable</p>
-      )}
-      {field.valueUpdatedAt && (
-        <p className="mt-1 text-xs text-black/40">
-          Last updated by {who(field.valueUpdatedBy)} on {fmtDate(field.valueUpdatedAt)}
-        </p>
-      )}
-      {field.amendments.map((a) => (
-        <div key={a.id} className="mt-2 border-l-4 pl-3" style={{ borderColor: 'var(--vb-tertiary)' }}>
-          {field.fieldType === 'list' ? <ListValue value={a.value} /> : <p className="whitespace-pre-line">{a.value}</p>}
-          <p className="text-xs text-black/40">
-            changed on {fmtDate(a.createdAt)} by {who(a.author)}
-          </p>
+    <div
+      id={fieldAnchor(field.id).slice(1)}
+      data-vb-locked={lockedBaseline}
+      className={`px-5 py-3 ${lockedBaseline ? 'bg-black/[0.04] text-black/50' : ''}`}
+    >
+      <div data-vb-locked-content={lockedBaseline} aria-disabled={lockedBaseline || undefined}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className={`text-sm font-semibold ${lockedBaseline ? 'text-black/45' : 'text-black/60'}`}>{field.label}</p>
+          {lockedBaseline && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-black/[0.06] px-2 py-0.5 text-xs font-semibold text-black/45">
+              <span aria-hidden>🔒</span>
+              <span>Locked baseline</span>
+            </span>
+          )}
         </div>
-      ))}
+        {lockedBaseline ? <FieldValue field={field} muted /> : <FieldEditor token={token} field={field} />}
+        {dataLockedAt && !lockedBaseline && field.isCustom && (
+          <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--vb-primary)' }}>Added after lock-in · still editable</p>
+        )}
+        {field.valueUpdatedAt && (
+          <p className="mt-1 text-xs text-black/40">
+            Last updated by {who(field.valueUpdatedBy)} on {fmtDate(field.valueUpdatedAt)}
+          </p>
+        )}
+        {field.amendments.map((a) => (
+          <div key={a.id} className="mt-2 border-l-4 pl-3" style={{ borderColor: 'var(--vb-tertiary)' }}>
+            {field.fieldType === 'list' ? <ListValue value={a.value} /> : <p className="whitespace-pre-line">{a.value}</p>}
+            <p className="text-xs text-black/40">
+              changed on {fmtDate(a.createdAt)} by {who(a.author)}
+            </p>
+          </div>
+        ))}
+      </div>
       {lockedBaseline && (
-        <AmendmentForm token={token} fieldId={field.id} fieldType={field.fieldType} label={field.label} />
+        <details className="mt-3 rounded-lg border border-black/10 bg-white/60 px-3 py-2 text-black/70">
+          <summary className="cursor-pointer text-sm font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vb-secondary)]">
+            Propose a change
+          </summary>
+          <AmendmentForm token={token} fieldId={field.id} fieldType={field.fieldType} label={field.label} />
+        </details>
       )}
     </div>
   )

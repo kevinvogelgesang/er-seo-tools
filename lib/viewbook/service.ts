@@ -37,7 +37,6 @@ import {
 } from './email'
 import { canonicalMailbox } from './global-content-keys'
 import { getGlobalContent } from './global-content'
-import { ACKABLE_SECTION_KEYS, buildPcCompletion } from './ack'
 import { resolveAllowedNotifyRecipients } from './notify-recipients'
 
 export type ViewbookKind = 'new-build' | 'upgrade'
@@ -208,28 +207,12 @@ export async function setSectionState(
         where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },
         data: { state, doneAt: state === 'done' ? new Date() : null },
       })
-    // Hiding the last unacknowledged ackable section can satisfy the
-    // post-contract completion predicate WITHOUT another ack (Codex fix 3,
-    // PR5 spec §4) — run the SAME shared completion builder as the ack
-    // path, with no `acknowledgedAt=now` extra gate (no ack happened here).
-    // The section-state UPDATE above must precede the completion gate in
-    // the array so a just-hidden section is already excluded from the
-    // "unacked ackable" predicate. Only ackable keys can ever satisfy the
-    // gate, so resolving the recipient for any other section-key hide would
-    // be wasted work — skip it entirely.
-    const isAckableHide = state === 'hidden' && (ACKABLE_SECTION_KEYS as readonly string[]).includes(sectionKey)
-    const completion = isAckableHide
-      ? buildPcCompletion({ viewbookId: id, recipient: await resolvePcCompleteRecipient(id), now: Date.now() })
-      : null
     // Unconditional bump joins the array (mechanism a) — the compound-where
     // update throws P2025 on an unknown section key, rolling the bump back.
-    const statements = completion
-      ? [syncVersionBumpStatement(id), update, ...completion.statements]
-      : state === 'done'
-        ? [syncVersionBumpStatement(id), update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
-        : [syncVersionBumpStatement(id), update]
-    const results = await prisma.$transaction(statements)
-    if (completion) await completion.enqueueIfCompleted(results[results.length - 1] as number)
+    const statements = state === 'done'
+      ? [syncVersionBumpStatement(id), update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
+      : [syncVersionBumpStatement(id), update]
+    await prisma.$transaction(statements)
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
       throw new HttpError(404, 'not_found')
