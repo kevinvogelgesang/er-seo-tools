@@ -1,6 +1,8 @@
 # HANDOFF — Viewbook UX Pass
 
-**Status (2026-07-17):** **WAVE 1 MERGED to local `main`** (not pushed/deployed).
+**Status (2026-07-17):** **WAVE 1 SHIPPED** — merged to `main`, pushed, **deployed to prod** (migration-free; PM2 online, 0 restarts, `/api/health` 200). Manual browser check (below) is now a post-deploy prod spot-check. **WAVE 2 (Lane 3 Codex + Lane 4 Claude) starting** — plans being cut from merged code.
+
+_(prior: WAVE 1 MERGED to local `main`.)_
 Lane 1 (Claude, Reading Experience) + Lane 2 (Codex, Operator Editing UX) both
 built, per-task + whole-branch reviewed, cross-reviewed, gate-green, and merged
 (`7318e21` L1, `1aac182` L2). **Automated post-Wave-1 integration gate GREEN**
