@@ -92,13 +92,14 @@ export function buildSearchIndex(data: ViewbookPublicData): SearchEntry[] {
 
   if (isVisible(data, 'milestones')) {
     for (const m of data.milestones) {
+      const haystack = [m.title, m.blurb, m.description].filter((v): v is string => Boolean(v)).join(' ')
       entries.push({
         id: `milestone:${m.id}`,
         kind: 'milestone',
         label: m.title,
         sectionKey: 'milestones',
         anchor: milestoneAnchor(m.id),
-        haystack: m.blurb ? `${m.title} ${m.blurb}` : m.title,
+        haystack,
       })
     }
   }

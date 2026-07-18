@@ -284,6 +284,38 @@ describe('milestone promotion', () => {
     await deleteMilestone(a.id, own.id)
     expect(await syncVersion(a.id)).toBe(before + 1)
   })
+
+  it('updateMilestone persists a description', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const kickoff = await prisma.viewbookMilestone.findFirstOrThrow({ where: { viewbookId: id, title: 'Kickoff' } })
+    await updateMilestone(id, kickoff.id, { description: 'Longer milestone detail text.' })
+    const row = await prisma.viewbookMilestone.findUniqueOrThrow({ where: { id: kickoff.id } })
+    expect(row.description).toBe('Longer milestone detail text.')
+  })
+
+  it('an over-cap description is rejected with 400 invalid_description; no write, no bump', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const kickoff = await prisma.viewbookMilestone.findFirstOrThrow({ where: { viewbookId: id, title: 'Kickoff' } })
+    const before = await syncVersion(id)
+    const tooLong = 'x'.repeat(2001)
+    await expect(updateMilestone(id, kickoff.id, { description: tooLong })).rejects.toMatchObject({
+      status: 400,
+      code: 'invalid_description',
+    })
+    expect(await syncVersion(id)).toBe(before) // rejected before the transaction — no bump
+    const row = await prisma.viewbookMilestone.findUniqueOrThrow({ where: { id: kickoff.id } })
+    expect(row.description).toBeNull() // and no write
+  })
+
+  it('createMilestone accepts a description', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const m = await createMilestone(id, { title: 'With detail', sortOrder: 10, description: 'Detail text' })
+    const row = await prisma.viewbookMilestone.findUniqueOrThrow({ where: { id: m.id } })
+    expect(row.description).toBe('Detail text')
+  })
 })
 
 describe('syncCatalogQuestions', () => {

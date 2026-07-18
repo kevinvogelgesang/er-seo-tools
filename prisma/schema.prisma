@@ -948,6 +948,7 @@ model ViewbookMilestone {
   viewbook    Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   title       String
   blurb       String?
+  description String?
   sortOrder   Int
   status      String    @default("upcoming") // 'upcoming' | 'current' | 'done'
   targetDate  DateTime?
@@ -985,7 +986,7 @@ model ViewbookFeedback {
 }
 
 model ViewbookGlobalContent {
-  key       String   @id // 'team' | 'process' | 'why' | 'seo-base' | 'geo-base' | 'eeat-base'
+  key       String   @id // 'team' | 'process' | 'why' | 'seo-base' | 'geo-base' | 'eeat-base' | 'pc-intro' | 'process-milestones'
   bodyJson  String // typed per key: team = roster array; others = heading/paragraph blocks
   updatedBy String
   updatedAt DateTime @updatedAt

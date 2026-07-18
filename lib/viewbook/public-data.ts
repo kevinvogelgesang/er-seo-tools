@@ -222,6 +222,7 @@ async function loadMilestones(viewbookId: number): Promise<PublicMilestone[]> {
     id: m.id,
     title: m.title,
     blurb: m.blurb,
+    description: m.description,
     status: m.status,
     targetDate: iso(m.targetDate),
     doneAt: iso(m.doneAt),

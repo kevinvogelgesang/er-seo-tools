@@ -8,6 +8,7 @@ interface MilestoneRow {
   id: number
   title: string
   blurb: string | null
+  description: string | null
   sortOrder: number
   status: string
   targetDate: string | null
@@ -180,11 +181,18 @@ function EditFields({
   onCancel,
 }: {
   milestone: MilestoneRow
-  onSave: (patch: { title: string; blurb: string | null; sortOrder: number; targetDate: string | null }) => void
+  onSave: (patch: {
+    title: string
+    blurb: string | null
+    description: string | null
+    sortOrder: number
+    targetDate: string | null
+  }) => void
   onCancel: () => void
 }) {
   const [title, setTitle] = useState(milestone.title)
   const [blurb, setBlurb] = useState(milestone.blurb ?? '')
+  const [description, setDescription] = useState(milestone.description ?? '')
   const [sortOrder, setSortOrder] = useState(String(milestone.sortOrder))
   const [targetDate, setTargetDate] = useState(milestone.targetDate ? milestone.targetDate.slice(0, 10) : '')
   const { focused, onFocus, onBlur } = useFocusWithin()
@@ -195,6 +203,7 @@ function EditFields({
   const dirty =
     title !== milestone.title ||
     blurb !== (milestone.blurb ?? '') ||
+    description !== (milestone.description ?? '') ||
     sortOrder !== String(milestone.sortOrder) ||
     targetDate !== (milestone.targetDate ? milestone.targetDate.slice(0, 10) : '')
   useEditorActivity(`admin-milestone-edit-${milestone.id}`, dirty || focused)
@@ -212,6 +221,15 @@ function EditFields({
         onChange={(e) => setBlurb(e.target.value)}
         placeholder="Blurb"
         aria-label="Blurb"
+        className="w-52 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-navy-border dark:bg-navy-card dark:text-white"
+      />
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description"
+        aria-label="Description"
+        maxLength={2000}
+        rows={2}
         className="w-52 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-navy-border dark:bg-navy-card dark:text-white"
       />
       <input
@@ -232,6 +250,7 @@ function EditFields({
           onSave({
             title,
             blurb: blurb || null,
+            description: description || null,
             sortOrder: parseInt(sortOrder, 10) || milestone.sortOrder,
             targetDate: targetDate || null,
           })

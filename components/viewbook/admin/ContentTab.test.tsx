@@ -97,7 +97,7 @@ describe('ContentTab client-specific override row', () => {
     render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: '' }]} onChanged={vi.fn()} />)
 
     // Open this row's <details> directly (not exercising the click-to-open
-    // UX — that's not what this test is about). All five override rows
+    // UX — that's not what this test is about). All six override rows
     // share identical placeholder/button text, so every subsequent query is
     // scoped to THIS row via `within`.
     const details = screen.getByText(overrideKey).closest('details') as HTMLDetailsElement

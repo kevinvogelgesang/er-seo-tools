@@ -3,7 +3,16 @@
 
 // 'pc-intro' (PR5) is a plain bounded string, unlike the roster ('team') or
 // heading/body blocks (everything else) — see validateGlobalContent.
-export const GLOBAL_CONTENT_KEYS = ['team', 'process', 'why', 'seo-base', 'geo-base', 'eeat-base', 'pc-intro'] as const
+export const GLOBAL_CONTENT_KEYS = [
+  'team',
+  'process',
+  'why',
+  'seo-base',
+  'geo-base',
+  'eeat-base',
+  'pc-intro',
+  'process-milestones',
+] as const
 export type GlobalContentKey = (typeof GLOBAL_CONTENT_KEYS)[number]
 
 // Per-viewbook "your plan" content overrides (ContentTab.tsx / putContentOverride

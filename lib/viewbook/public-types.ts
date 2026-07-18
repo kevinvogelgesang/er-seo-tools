@@ -65,6 +65,7 @@ export interface PublicMilestone {
   id: number
   title: string
   blurb: string | null
+  description: string | null
   status: string // 'upcoming' | 'current' | 'done'
   targetDate: string | null
   doneAt: string | null

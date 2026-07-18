@@ -52,6 +52,7 @@ export interface ViewbookDetail {
     id: number
     title: string
     blurb: string | null
+    description: string | null
     sortOrder: number
     status: string
     targetDate: string | null

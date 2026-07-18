@@ -21,7 +21,7 @@ const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
 } as unknown as ViewbookPublicData)
 
 const milestone = (over: Partial<PublicMilestone> = {}): PublicMilestone => ({
-  id: 1, title: 'Design', blurb: 'Designs take shape.', status: 'upcoming',
+  id: 1, title: 'Design', blurb: 'Designs take shape.', description: null, status: 'upcoming',
   targetDate: null, doneAt: null, reviewLinks: [], ...over,
 })
 
@@ -93,6 +93,89 @@ describe('MilestonesSection', () => {
       />,
     )
     expect(screen.queryByText(/reviews will appear here/i)).toBeNull()
+  })
+
+  it('renders a vertical list — no horizontal-scroll wrapper, no fixed-width cards', () => {
+    const data = base({
+      milestones: [
+        milestone({ id: 1, title: 'Kickoff', status: 'done' }),
+        milestone({ id: 2, title: 'Design', status: 'current' }),
+      ],
+    })
+    const { container } = render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    const cards = container.querySelectorAll('[id^="vb-milestone-"]')
+    expect(cards.length).toBe(2)
+    for (const card of cards) {
+      expect(card.className).not.toContain('min-w-56')
+      expect(card.className).not.toContain('overflow-x-auto')
+      const wrapper = card.parentElement!
+      expect(wrapper.className).not.toContain('overflow-x-auto')
+    }
+  })
+
+  it('renders a milestone description under the blurb', () => {
+    const data = base({
+      milestones: [
+        milestone({ id: 1, title: 'Design', status: 'current', description: 'Detailed design notes go here.' }),
+      ],
+    })
+    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    expect(screen.getByText('Detailed design notes go here.')).toBeDefined()
+  })
+
+  it('omits the description paragraph when null', () => {
+    const data = base({
+      milestones: [milestone({ id: 1, title: 'Design', status: 'current', description: null })],
+    })
+    const { container } = render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    expect(container.querySelector('[id="vb-milestone-1"] p.whitespace-pre-line')).toBeNull()
+  })
+
+  describe('process-milestones info block', () => {
+    const oneMilestone = [milestone({ id: 1, title: 'Kickoff', status: 'current' })]
+
+    it('renders the global default blocks when no override is set', () => {
+      const data = base({
+        milestones: oneMilestone,
+        global: {
+          team: null, pcIntro: null,
+          blocks: { 'process-milestones': { blocks: [{ heading: 'How it works', body: 'Our standard process.' }] } },
+        },
+      })
+      render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      expect(screen.getByText('How it works')).toBeDefined()
+      expect(screen.getByText('Our standard process.')).toBeDefined()
+    })
+
+    it('renders the override text when no global default is set', () => {
+      const data = base({
+        milestones: oneMilestone,
+        overrides: { 'process-milestones': 'Your custom timeline plan.' },
+      })
+      render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      expect(screen.getByText('Your custom timeline plan.')).toBeDefined()
+    })
+
+    it('renders both the default blocks AND the appended override when both are present', () => {
+      const data = base({
+        milestones: oneMilestone,
+        global: {
+          team: null, pcIntro: null,
+          blocks: { 'process-milestones': { blocks: [{ heading: 'How it works', body: 'Our standard process.' }] } },
+        },
+        overrides: { 'process-milestones': 'Your custom timeline plan.' },
+      })
+      render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      expect(screen.getByText('How it works')).toBeDefined()
+      expect(screen.getByText('Our standard process.')).toBeDefined()
+      expect(screen.getByText('Your custom timeline plan.')).toBeDefined()
+    })
+
+    it('renders no info-block heading when both blocks and override are empty', () => {
+      const data = base({ milestones: oneMilestone })
+      const { container } = render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      expect(container.querySelector('#vb-process-milestones-info')).toBeNull()
+    })
   })
 })
 

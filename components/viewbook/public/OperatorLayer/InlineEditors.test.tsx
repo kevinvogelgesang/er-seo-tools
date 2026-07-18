@@ -69,6 +69,7 @@ const milestone: OperatorMilestoneData = {
   id: 4,
   title: 'Old milestone',
   blurb: null,
+  description: null,
   sortOrder: 1,
   status: 'upcoming',
   targetDate: null,
@@ -135,13 +136,14 @@ describe('light-only operator inline editors', () => {
     fireEvent.change(screen.getByLabelText('Milestone title'), { target: { value: 'Launch' } })
     fireEvent.change(screen.getByLabelText('Milestone status'), { target: { value: 'current' } })
     fireEvent.change(screen.getByLabelText('Milestone target date'), { target: { value: '2026-08-01' } })
+    fireEvent.change(screen.getByLabelText('Milestone description'), { target: { value: 'New description' } })
     expect(hasActiveEditorActivity()).toBe(true)
     expect(screen.queryByRole('button', { name: 'Save milestone' })).toBeNull()
     await advanceAutosave()
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock.mock.calls[0][0]).toBe('/api/viewbooks/12/milestones/4')
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-      title: 'Launch', status: 'current', targetDate: '2026-08-01',
+      title: 'Launch', status: 'current', targetDate: '2026-08-01', description: 'New description',
     })
     expectLightOnly(container)
   })

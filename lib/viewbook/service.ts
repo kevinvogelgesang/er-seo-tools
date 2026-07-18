@@ -452,13 +452,22 @@ export async function assignViewbookCsm(
 
 const MILESTONE_STATUSES = ['upcoming', 'current', 'done'] as const
 type MilestoneStatus = (typeof MILESTONE_STATUSES)[number]
+const MILESTONE_DESCRIPTION_CAP = 2000
+
+function validateMilestoneDescription(description: string | null | undefined): void {
+  if (description == null) return
+  if (typeof description !== 'string' || description.length > MILESTONE_DESCRIPTION_CAP) {
+    throw new HttpError(400, 'invalid_description')
+  }
+}
 
 export async function createMilestone(
   viewbookId: number,
-  data: { title: string; blurb?: string | null; sortOrder: number; targetDate?: Date | null },
+  data: { title: string; blurb?: string | null; sortOrder: number; targetDate?: Date | null; description?: string | null },
   opts: { current?: boolean } = {},
 ) {
   if (!data.title || data.title.length > 200) throw new HttpError(400, 'invalid_milestone')
+  validateMilestoneDescription(data.description)
   const vb = await prisma.viewbook.findUnique({ where: { id: viewbookId }, select: { id: true } })
   if (!vb) throw new HttpError(404, 'not_found')
   if (opts.current) {
@@ -471,7 +480,7 @@ export async function createMilestone(
         data: { status: 'upcoming' },
       }),
       prisma.viewbookMilestone.create({
-        data: { viewbookId, title: data.title, blurb: data.blurb ?? null, sortOrder: data.sortOrder, targetDate: data.targetDate ?? null, status: 'current' },
+        data: { viewbookId, title: data.title, blurb: data.blurb ?? null, sortOrder: data.sortOrder, targetDate: data.targetDate ?? null, description: data.description ?? null, status: 'current' },
       }),
     ])
     return created
@@ -479,7 +488,7 @@ export async function createMilestone(
   const [, created] = await prisma.$transaction([
     syncVersionBumpWhere(viewbookId, Prisma.sql`EXISTS (SELECT 1 FROM "Viewbook" WHERE "id" = ${viewbookId})`),
     prisma.viewbookMilestone.create({
-      data: { viewbookId, title: data.title, blurb: data.blurb ?? null, sortOrder: data.sortOrder, targetDate: data.targetDate ?? null },
+      data: { viewbookId, title: data.title, blurb: data.blurb ?? null, sortOrder: data.sortOrder, targetDate: data.targetDate ?? null, description: data.description ?? null },
     }),
   ])
   return created
@@ -488,7 +497,7 @@ export async function createMilestone(
 export async function updateMilestone(
   viewbookId: number,
   milestoneId: number,
-  patch: { title?: string; blurb?: string | null; sortOrder?: number; targetDate?: Date | null; status?: MilestoneStatus },
+  patch: { title?: string; blurb?: string | null; sortOrder?: number; targetDate?: Date | null; status?: MilestoneStatus; description?: string | null },
 ) {
   const data: Record<string, unknown> = {}
   if (patch.title !== undefined) {
@@ -502,6 +511,10 @@ export async function updateMilestone(
     if (!MILESTONE_STATUSES.includes(patch.status)) throw new HttpError(400, 'invalid_milestone')
     data.status = patch.status
     data.doneAt = patch.status === 'done' ? new Date() : null
+  }
+  if ('description' in patch) {
+    validateMilestoneDescription(patch.description)
+    data.description = patch.description ?? null
   }
   if (Object.keys(data).length === 0) throw new HttpError(400, 'invalid_milestone')
 

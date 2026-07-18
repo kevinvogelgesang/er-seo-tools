@@ -1,7 +1,7 @@
 'use client'
 
-// Welcome note, per-section intro/narrative text, and per-client "your plan"
-// content overrides.
+// Welcome note, per-section intro/narrative text, and per-client content
+// overrides (strategy adjustments, process/milestones, etc.).
 
 import { useState } from 'react'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
@@ -119,7 +119,7 @@ export function ContentTab({
       </div>
 
       <div className="space-y-3">
-        <h3 className="font-semibold text-gray-700 dark:text-white/80">Client-specific strategy adjustments (&ldquo;your plan&rdquo;)</h3>
+        <h3 className="font-semibold text-gray-700 dark:text-white/80">Client-specific content overrides</h3>
         {OVERRIDE_ELIGIBLE_KEYS.map((key) => (
           <OverrideRowEditor
             key={key}
