@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { CsmPicker, GlobalContentEditor } from './GlobalContentEditor'
 
 afterEach(() => {
@@ -18,6 +18,26 @@ const roster = [
 ]
 
 describe('GlobalContentEditor roster CSM fields', () => {
+  it('identifies global impact and renders responsive team section cards', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/viewbook-docs') return jsonResponse({ docs: [] })
+      if (url === '/api/viewbook-content/team') return jsonResponse({ content: roster })
+      if (url === '/api/viewbook-content/pc-intro') return jsonResponse({ content: '' })
+      if (url.startsWith('/api/viewbook-content/')) return jsonResponse({ content: { blocks: [] } })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(<GlobalContentEditor />)
+
+    expect(await screen.findByText('Affects every viewbook')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Meet the team' })).toBeTruthy()
+    const member = container.querySelector('[data-team-member]') as HTMLElement
+    expect(member).not.toBeNull()
+    expect(member.className).toContain('sm:grid-cols-')
+    expect(screen.getByRole('heading', { name: 'Post-contract welcome' })).toBeTruthy()
+  })
+
   it('renders email/isCsm controls and canonicalizes the roster payload before saving', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -57,6 +77,31 @@ describe('GlobalContentEditor roster CSM fields', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save roster' }))
     expect(await screen.findByText('invalid_email')).toBeDefined()
     expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/viewbook-content/team' && init?.method === 'PUT')).toBe(false)
+  })
+
+  it('saves post-contract welcome content with the unchanged PUT body', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/viewbook-docs') return jsonResponse({ docs: [] })
+      if (url === '/api/viewbook-content/pc-intro' && init?.method === 'PUT') return jsonResponse({ ok: true })
+      if (url === '/api/viewbook-content/team') return jsonResponse({ content: roster })
+      if (url === '/api/viewbook-content/pc-intro') return jsonResponse({ content: 'Original welcome' })
+      if (url.startsWith('/api/viewbook-content/')) return jsonResponse({ content: { blocks: [] } })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<GlobalContentEditor />)
+
+    const textarea = await screen.findByLabelText('Post-contract welcome')
+    fireEvent.change(textarea, { target: { value: 'Updated welcome' } })
+    const card = within(screen.getByRole('heading', { name: 'Post-contract welcome' }).closest('section') as HTMLElement)
+    fireEvent.click(card.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/viewbook-content/pc-intro', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Updated welcome' }),
+    }))
   })
 })
 

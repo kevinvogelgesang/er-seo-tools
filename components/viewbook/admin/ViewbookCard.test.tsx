@@ -15,6 +15,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   token: 'tok-123',
   revoked: false,
   currentMilestone: 'Design',
+  stage: 'building',
   activityCount: 0,
   dataLockedAt: null,
   createdAt: '2026-07-01T00:00:00.000Z',
@@ -47,7 +48,12 @@ describe('ViewbookCard', () => {
     })
     const link = screen.getByRole('link', { name: /open editor/i })
     expect(link.getAttribute('href')).toBe('/viewbooks/5')
+    expect(link.className).toContain('bg-teal-600')
     expect(screen.getByText(/copy public link/i)).toBeTruthy()
+    expect(screen.getByText('Upgrade')).toBeTruthy()
+    expect(screen.getByText('Now Building')).toBeTruthy()
+    expect(screen.getByText('Data open')).toBeTruthy()
+    expect(screen.getByText('Link active')).toBeTruthy()
   })
 
   it('renders the client name as a new-tab link to the public viewbook page', async () => {
@@ -70,7 +76,7 @@ describe('ViewbookCard', () => {
     })
     expect(screen.queryByRole('link', { name: 'Acme College' })).toBeNull()
     expect(screen.getByText('Acme College')).toBeTruthy()
-    expect(screen.getByText(/link revoked/i)).toBeTruthy()
+    expect(screen.getByText('Link revoked')).toBeTruthy()
   })
 
   it('creates a viewbook via POST {clientId, kind} when none exists', async () => {

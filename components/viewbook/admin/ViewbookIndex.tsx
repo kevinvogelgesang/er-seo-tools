@@ -4,11 +4,17 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { jsonFetch, publicViewbookUrl, type ViewbookListRow } from './viewbook-admin-shared'
 import { isViewbookStage, STAGE_LABELS } from '@/lib/viewbook/stages'
+import { StatusPill } from '@/components/ui/StatusPill'
+import { editorInputClass, editorPrimaryBtnClass, editorSecondaryBtnClass } from '@/components/viewbook/editor'
 
 interface ClientRow {
   id: number
   name: string
   archivedAt: string | null
+}
+
+function kindLabel(kind: string): string {
+  return kind.split('-').map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(' ')
 }
 
 export function ViewbookIndex() {
@@ -28,15 +34,13 @@ export function ViewbookIndex() {
       ])
       setRows(viewbooks)
       const list = Array.isArray(clientsRes) ? clientsRes : clientsRes.clients
-      setClients((list ?? []).filter((c) => !c.archivedAt))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'load_failed')
+      setClients((list ?? []).filter((client) => !client.archivedAt))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'load_failed')
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useEffect(() => { void load() }, [load])
 
   async function create() {
     if (!clientId) return
@@ -50,8 +54,8 @@ export function ViewbookIndex() {
       })
       setClientId('')
       await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'create_failed')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'create_failed')
     } finally {
       setBusy(false)
     }
@@ -63,111 +67,81 @@ export function ViewbookIndex() {
     setTimeout(() => setCopiedId(null), 1500)
   }
 
-  const existing = new Set((rows ?? []).map((r) => r.clientName))
+  const existing = new Set((rows ?? []).map((row) => row.clientName))
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-navy-border dark:bg-navy-card">
-        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-white/80">Create a viewbook</h2>
-        {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-navy-border dark:bg-navy-card dark:text-white"
-            aria-label="Client"
-          >
+    <div className="space-y-6 font-body">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
+        <div>
+          <h2 className="font-display text-base font-bold text-navy dark:text-white">Create a viewbook</h2>
+          <p className="mt-1 text-xs text-gray-500 dark:text-white/55">Start a client workspace using the appropriate project type.</p>
+        </div>
+        {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(140px,auto)_auto]">
+          <select value={clientId} onChange={(event) => setClientId(event.target.value)} className={editorInputClass} aria-label="Client">
             <option value="">Select client…</option>
-            {clients
-              .filter((c) => !existing.has(c.name))
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+            {clients.filter((client) => !existing.has(client.name)).map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
           </select>
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as 'new-build' | 'upgrade')}
-            className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-navy-border dark:bg-navy-card dark:text-white"
-            aria-label="Kind"
-          >
+          <select value={kind} onChange={(event) => setKind(event.target.value as 'new-build' | 'upgrade')} className={editorInputClass} aria-label="Kind">
             <option value="new-build">New build</option>
             <option value="upgrade">Upgrade</option>
           </select>
-          <button
-            onClick={() => void create()}
-            disabled={busy || !clientId}
-            className="rounded bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-          >
-            {busy ? 'Creating…' : 'Create viewbook'}
-          </button>
+          <button type="button" onClick={() => void create()} disabled={busy || !clientId} className={editorPrimaryBtnClass}>{busy ? 'Creating…' : 'Create viewbook'}</button>
         </div>
-      </div>
+      </section>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-navy-border dark:bg-navy-card">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-navy-border dark:bg-navy-card">
+        <table className="min-w-[980px] w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-navy-border dark:text-white/50">
-              <th className="px-4 py-2">Client</th>
-              <th className="px-4 py-2">Kind</th>
-              <th className="px-4 py-2">Project stage</th>
-              <th className="px-4 py-2">Current milestone</th>
-              <th className="px-4 py-2">Data lock</th>
-              <th className="px-4 py-2">Link</th>
-              <th className="px-4 py-2" />
+            <tr className="border-b border-gray-200 bg-gray-50/80 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-navy-border dark:bg-navy-deep/40 dark:text-white/50">
+              <th className="px-4 py-3">Client</th>
+              <th className="px-4 py-3">Kind</th>
+              <th className="px-4 py-3">Project stage</th>
+              <th className="px-4 py-3">Current milestone</th>
+              <th className="px-4 py-3">Data</th>
+              <th className="px-4 py-3">Public link</th>
+              <th className="px-4 py-3"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {rows === null ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">Loading…</td>
-              </tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 dark:text-white/40">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">No viewbooks yet.</td>
-              </tr>
-            ) : (
-              rows.map((r) => (
-                <tr key={r.id} className="border-b border-gray-100 last:border-0 dark:border-navy-border/50">
-                  <td className="px-4 py-2 font-medium text-gray-900 dark:text-white">
-                    {r.revoked ? (
-                      <span>{r.clientName}</span>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-white/55">No viewbooks yet.</td></tr>
+            ) : rows.map((row) => (
+              <tr
+                key={row.id}
+                className={`border-b border-gray-100 transition-colors last:border-0 hover:bg-gray-50 dark:border-navy-border/50 dark:hover:bg-navy-light/55 ${row.revoked ? 'bg-red-50/30 dark:bg-red-500/5' : row.clientArchived ? 'bg-amber-50/30 dark:bg-amber-500/5' : ''}`}
+              >
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {row.revoked ? (
+                      <span className="font-semibold text-navy dark:text-white">{row.clientName}</span>
                     ) : (
-                      <a href={publicViewbookUrl(r.token)} target="_blank" rel="noopener" className="hover:underline">
-                        {r.clientName}
-                      </a>
+                      <a href={publicViewbookUrl(row.token)} target="_blank" rel="noopener" className="font-semibold text-navy hover:text-teal-700 hover:underline dark:text-white dark:hover:text-teal-300">{row.clientName}</a>
                     )}
-                    {r.clientArchived && <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">archived</span>}
-                  </td>
-                  <td className="px-4 py-2 text-gray-600 dark:text-white/70">{r.kind}</td>
-                  <td className="px-4 py-2">
-                    <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800 dark:bg-teal-500/10 dark:text-teal-400">
-                      {isViewbookStage(r.stage) ? STAGE_LABELS[r.stage] : r.stage}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-gray-600 dark:text-white/70">{r.currentMilestone ?? '—'}</td>
-                  <td className="px-4 py-2 text-gray-600 dark:text-white/70">{r.dataLockedAt ? 'Locked' : 'Open'}</td>
-                  <td className="px-4 py-2">
-                    {r.revoked ? (
-                      <span className="text-xs text-red-600 dark:text-red-400">revoked</span>
-                    ) : (
-                      <button
-                        onClick={() => void copyLink(r)}
-                        className="text-xs text-teal-700 underline hover:text-teal-900 dark:text-teal-400"
-                      >
-                        {copiedId === r.id ? 'Copied!' : 'Copy link'}
+                    {row.clientArchived && <StatusPill label="Archived client" tone="warning" />}
+                  </div>
+                </td>
+                <td className="px-4 py-3"><StatusPill label={kindLabel(row.kind)} tone="neutral" /></td>
+                <td className="px-4 py-3"><StatusPill label={isViewbookStage(row.stage) ? STAGE_LABELS[row.stage] : row.stage} tone="running" /></td>
+                <td className="px-4 py-3 text-gray-600 dark:text-white/70">{row.currentMilestone ?? '—'}</td>
+                <td className="px-4 py-3"><StatusPill label={row.dataLockedAt ? 'Locked' : 'Open'} tone={row.dataLockedAt ? 'warning' : 'success'} /></td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill label={row.revoked ? 'Link revoked' : 'Link active'} tone={row.revoked ? 'error' : 'success'} />
+                    {!row.revoked && (
+                      <button type="button" onClick={() => void copyLink(row)} className="text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">
+                        {copiedId === row.id ? 'Copied!' : 'Copy link'}
                       </button>
                     )}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <Link href={`/viewbooks/${r.id}`} className="text-xs font-medium text-teal-700 hover:underline dark:text-teal-400">
-                      Open editor →
-                    </Link>
-                  </td>
-                </tr>
-              ))
-            )}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Link href={`/viewbooks/${row.id}`} className={`${editorPrimaryBtnClass} min-h-8 whitespace-nowrap px-2.5 py-1 text-xs`}>Open editor</Link>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
