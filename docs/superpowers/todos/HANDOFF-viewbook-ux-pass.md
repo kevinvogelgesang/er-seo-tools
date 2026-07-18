@@ -1,8 +1,14 @@
 # HANDOFF — Viewbook UX Pass
 
-**Status (2026-07-17):** **WAVE 1 SHIPPED** — merged to `main`, pushed, **deployed to prod** (migration-free; PM2 online, 0 restarts, `/api/health` 200). Manual browser check (below) is now a post-deploy prod spot-check. **WAVE 2 (Lane 3 Codex + Lane 4 Claude) starting** — plans being cut from merged code.
+**Status (2026-07-17): PROGRAM COMPLETE — ALL 4 LANES SHIPPED.**
+- **Wave 1** (Lane 1 reading-experience + Lane 2 operator-editing): merged (`7318e21`/`1aac182`), deployed (migration-free).
+- **Wave 2** (Lane 3 stage-flow + Lane 4 rich-text/assessment): merged (`bbe6651`/`f4e14ff`), deployed with the additive `ViewbookAssessmentContent`/`Image` migration (`20260717231842`). Post-Wave-2 integration gate green (tsc/lint, 6335 tests, build, migration fresh+upgrade); prod PM2 online, 0 restarts, `/api/health` 200.
+- Both Codex lanes ran clean start→finish (never usage-out). All lanes per-task + whole-branch + cross-reviewed; every Codex review finding fixed.
+- Docs archived to `docs/superpowers/archive/{specs,plans}/`. Codex deficiencies/sandbox log: `.superpowers/sdd/codex-lane2-deficiencies.md` (sandbox network-access fix still pending Kevin).
 
-_(prior: WAVE 1 MERGED to local `main`.)_
+**STILL OUTSTANDING (Kevin):** the MANUAL browser check below was NOT performed pre-deploy (both waves shipped on green automated gates + jsdom limits) — do it as a prod spot-check. And the deferred **version-control spec** (spec §14) is the natural next program.
+
+_(prior: WAVE 1/2 build + deploy history.)_
 Lane 1 (Claude, Reading Experience) + Lane 2 (Codex, Operator Editing UX) both
 built, per-task + whole-branch reviewed, cross-reviewed, gate-green, and merged
 (`7318e21` L1, `1aac182` L2). **Automated post-Wave-1 integration gate GREEN**
