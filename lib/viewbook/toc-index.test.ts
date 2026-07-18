@@ -146,6 +146,17 @@ describe('buildSearchIndex', () => {
     expect(milestone.haystack).toContain('Intro meeting with the team')
   })
 
+  it('includes the milestone description in the haystack so a description-only match is found', () => {
+    const data = buildFixture()
+    data.milestones = [
+      { id: 201, title: 'Kickoff call', blurb: 'Intro meeting with the team', description: 'Bring your laptop and questions.', status: 'current', targetDate: null, doneAt: null, reviewLinks: [] } as any,
+    ]
+    const index = buildSearchIndex(data)
+    const milestone = index.find((e) => e.kind === 'milestone')!
+    expect(milestone.haystack).toContain('Bring your laptop and questions.')
+    expect(searchViewbook(index, 'laptop').some((e) => e.id === 'milestone:201')).toBe(true)
+  })
+
   it('emits material entries anchored at the material id', () => {
     const index = buildSearchIndex(buildFixture())
     const material = index.find((e) => e.kind === 'material')!

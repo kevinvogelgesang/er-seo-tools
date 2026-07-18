@@ -45,7 +45,7 @@ function StageCard({ m }: { m: PublicMilestone }) {
   return (
     <div
       id={milestoneAnchor(m.id).slice(1)}
-      className={`min-w-56 flex-1 rounded-xl border bg-white p-4 shadow-sm ${
+      className={`w-full rounded-xl border bg-white p-4 shadow-sm ${
         m.status === 'current' ? 'border-2' : 'border-black/10'
       }`}
       style={m.status === 'current' ? { borderColor: 'var(--vb-secondary)' } : undefined}
@@ -65,6 +65,7 @@ function StageCard({ m }: { m: PublicMilestone }) {
         </span>
       )}
       {m.blurb && <p className="mt-2 text-sm text-black/70">{m.blurb}</p>}
+      {m.description && <p className="mt-2 text-sm text-black/70 whitespace-pre-line">{m.description}</p>}
       {m.targetDate && m.status !== 'done' && (
         <p className="mt-2 text-xs text-black/50">Target: {fmtDate(m.targetDate)}</p>
       )}
@@ -88,6 +89,9 @@ export function MilestonesSection({
   const withLinks = data.milestones.filter((m) => m.reviewLinks.length > 0)
   const current = data.milestones.find((m) => m.status === 'current')
   const { done, total } = milestoneProgress(data.milestones)
+  const infoBlocks = data.global.blocks['process-milestones']?.blocks ?? []
+  const infoOverride = data.overrides['process-milestones']
+  const hasInfo = infoBlocks.length > 0 || Boolean(infoOverride)
   return (
     <SectionShell
       section={section}
@@ -102,7 +106,29 @@ export function MilestonesSection({
         />
       }
     >
-      <div className="flex gap-4 overflow-x-auto pb-2">
+      {hasInfo && (
+        <div id="vb-process-milestones-info" className="space-y-4">
+          {infoBlocks.map((b, i) => (
+            <div key={i} className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">
+              {b.heading && <p className="font-bold">{b.heading}</p>}
+              <p className="mt-1 whitespace-pre-line text-black/80">{b.body}</p>
+            </div>
+          ))}
+          {infoOverride && (
+            <div className="rounded-xl border-l-4 bg-white p-5 shadow-sm" style={{ borderColor: 'var(--vb-tertiary)' }}>
+              <span
+                className="mb-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold"
+                style={{ background: 'var(--vb-tertiary)', color: 'var(--vb-on-tertiary)' }}
+              >
+                Your plan
+              </span>
+              <p className="whitespace-pre-line text-black/80">{infoOverride}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3">
         {data.milestones.map((m) => (
           <StageCard key={m.id} m={m} />
         ))}
