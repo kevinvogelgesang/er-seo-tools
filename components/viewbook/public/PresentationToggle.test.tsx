@@ -42,20 +42,25 @@ afterEach(() => {
 describe('PresentationToggle', () => {
   it('initializes OFF without rendering operator chrome before storage is read', async () => {
     render(<Harness />)
-    const toggle = await screen.findByRole('button', { name: 'Presentation mode' })
+    const toggle = await screen.findByRole('button', { name: 'Preview as client' })
     expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    expect(toggle.getAttribute('class')).toContain('dark:bg-navy-card')
     expect(screen.getByTestId('operator-chrome')).toBeTruthy()
   })
 
   it('toggles presentation mode, persists it, and leaves a re-enable affordance', async () => {
     render(<Harness />)
-    const toggle = await screen.findByRole('button', { name: 'Presentation mode' })
+    const toggle = await screen.findByRole('button', { name: 'Preview as client' })
     fireEvent.click(toggle)
 
     await waitFor(() => expect(screen.queryByTestId('operator-chrome')).toBeNull())
     expect(localStorage.getItem('vb-presentation-mode')).toBe('true')
-    const restore = screen.getByRole('button', { name: 'Show editing controls' })
+    const restore = screen.getByRole('button', { name: 'Return to editing' })
     expect(restore.getAttribute('aria-pressed')).toBe('true')
+    expect(restore.getAttribute('class')).toContain('bottom-4')
+    expect(restore.getAttribute('class')).toContain('left-4')
+    expect(restore.getAttribute('class')).not.toContain('right-')
+    expect(restore.getAttribute('class')).toContain('dark:bg-navy-card/95')
 
     fireEvent.click(restore)
     await screen.findByTestId('operator-chrome')
@@ -67,7 +72,7 @@ describe('PresentationToggle', () => {
     render(<Harness />)
 
     expect(screen.queryByTestId('operator-chrome')).toBeNull()
-    const restore = await screen.findByRole('button', { name: 'Show editing controls' })
+    const restore = await screen.findByRole('button', { name: 'Return to editing' })
     expect(screen.queryByTestId('operator-chrome')).toBeNull()
     expect(restore.getAttribute('aria-pressed')).toBe('true')
   })

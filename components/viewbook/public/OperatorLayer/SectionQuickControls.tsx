@@ -1,6 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { editorSecondaryBtnClass } from '@/components/viewbook/editor'
+import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
+import { StatusPill, type Tone } from '@/components/ui/StatusPill'
 import type { OperatorSectionData } from '@/lib/viewbook/operator-data'
 import { requestRefresh, useEditorActivity, useFocusWithin } from '../useViewbookSync'
 import { operatorRequest } from './operator-api'
@@ -20,10 +23,12 @@ export function SectionQuickControls({
   viewbookId,
   section,
   pcCompletedAt,
+  variant = 'rail',
 }: {
   viewbookId: number
   section: OperatorSectionData
   pcCompletedAt: string | null
+  variant?: 'rail' | 'embedded'
 }) {
   const [state, setState] = useState(section.state)
   const [acknowledgedAt, setAcknowledgedAt] = useState(section.acknowledgedAt)
@@ -76,46 +81,71 @@ export function SectionQuickControls({
   }
 
   const doneable = sectionSupportsDone(section.sectionKey)
+  const statePill: { label: string; tone: Tone } = state === 'hidden'
+    ? { label: 'Hidden', tone: 'warning' }
+    : state === 'done'
+      ? { label: 'Complete', tone: 'success' }
+      : { label: 'Visible', tone: 'neutral' }
+  const embedded = variant === 'embedded'
   return (
     <div
       data-operator-section-controls={section.sectionKey}
+      data-operator-section-controls-variant={variant}
       onFocus={focus.onFocus}
       onBlur={focus.onBlur}
-      className="border-y border-teal-800/15 bg-teal-50 text-xs text-teal-950"
+      className={embedded
+        ? 'w-full font-body text-xs text-navy dark:text-white'
+        : 'border-y border-gray-200 bg-gray-50/95 font-body text-xs text-navy dark:border-navy-border dark:bg-navy-deep/95 dark:text-white'}
     >
       {/* Content centred to the section reading column (max-w-5xl) so the ER
           controls line up with the regularly visible section content. */}
-      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 px-6 py-2">
-      <span className="font-semibold">ER · {section.sectionKey}</span>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void setSectionState(state === 'hidden' ? 'active' : 'hidden')}
-        className="rounded border border-teal-900/20 bg-white px-2 py-1 font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-      >
-        {state === 'hidden' ? 'Show' : 'Hide'}
-      </button>
-      {doneable && state !== 'hidden' && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void setSectionState(state === 'done' ? 'active' : 'done')}
-          className="rounded border border-teal-900/20 bg-white px-2 py-1 font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-        >
-          {state === 'done' ? 'Reopen' : 'Mark done'}
-        </button>
-      )}
-      {sectionSupportsAck(section.sectionKey) && acknowledgedAt && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void resetAck()}
-          className="rounded border border-amber-700/25 bg-amber-50 px-2 py-1 font-medium text-amber-900 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
-        >
-          Reset ack
-        </button>
-      )}
-      {error && <span role="alert" className="font-medium text-red-700">{error}</span>}
+      <div className={embedded
+        ? 'flex w-full flex-wrap items-center gap-2 p-3'
+        : 'mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 px-6 py-2.5'}>
+        <div className="mr-auto min-w-0 flex-1">
+          {!embedded && <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-500 dark:text-white/45">Editing section</span>}
+          <span className="block truncate font-display text-sm font-semibold text-navy dark:text-white">{SECTION_TITLES[section.sectionKey]}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusPill label={statePill.label} tone={statePill.tone} />
+          {acknowledgedAt && <StatusPill label="Acknowledged" tone="success" />}
+        </div>
+        {busy && <span role="status" aria-live="polite" className="text-xs font-medium text-teal-700 dark:text-teal-300">Updating section…</span>}
+        <div role="group" aria-label={`${SECTION_TITLES[section.sectionKey]} actions`} className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void setSectionState(state === 'hidden' ? 'active' : 'hidden')}
+            className={editorSecondaryBtnClass}
+          >
+            {state === 'hidden' ? 'Show' : 'Hide'}
+          </button>
+          {doneable && state !== 'hidden' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void setSectionState(state === 'done' ? 'active' : 'done')}
+              className={editorSecondaryBtnClass}
+            >
+              {state === 'done' ? 'Reopen' : 'Mark done'}
+            </button>
+          )}
+          {sectionSupportsAck(section.sectionKey) && acknowledgedAt && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void resetAck()}
+              className="inline-flex min-h-9 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/15 dark:focus-visible:ring-offset-navy-card"
+            >
+              Reset ack
+            </button>
+          )}
+        </div>
+        {error && (
+          <span role="alert" className="rounded-lg bg-red-50 px-2.5 py-1.5 font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300">
+            {error}
+          </span>
+        )}
       </div>
     </div>
   )
