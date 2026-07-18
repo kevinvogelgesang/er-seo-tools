@@ -136,6 +136,7 @@ function MilestoneRow({ viewbookId, milestone }: { viewbookId: number; milestone
     title: milestone.title,
     status: milestone.status,
     targetDate: milestone.targetDate?.slice(0, 10) ?? '',
+    description: milestone.description ?? '',
   }
   const focus = useFocusWithin()
   const { draft, setDraft, dirty, commit } = useBaselineSync(server, focus.focused, (a, b) => JSON.stringify(a) === JSON.stringify(b))
@@ -149,7 +150,12 @@ function MilestoneRow({ viewbookId, milestone }: { viewbookId: number; milestone
       await operatorRequest(`/api/viewbooks/${viewbookId}/milestones/${milestone.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: value.title, status: value.status, targetDate: value.targetDate || null }),
+        body: JSON.stringify({
+          title: value.title,
+          status: value.status,
+          targetDate: value.targetDate || null,
+          description: value.description || null,
+        }),
       })
       return value
     },
@@ -165,6 +171,14 @@ function MilestoneRow({ viewbookId, milestone }: { viewbookId: number; milestone
         <option value="done">done</option>
       </select>
       <input aria-label="Milestone target date" type="date" value={draft.targetDate} onChange={(event) => setDraft({ ...draft, targetDate: event.target.value })} className={inputClass} />
+      <textarea
+        aria-label="Milestone description"
+        rows={2}
+        maxLength={2000}
+        value={draft.description}
+        onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+        className={`sm:col-span-3 ${inputClass}`}
+      />
       {autosave.saving && <p aria-live="polite" className="text-xs text-black/50 sm:col-span-3">Saving…</p>}
       {autosave.error && <p role="alert" className="text-xs text-red-700 sm:col-span-3">{autosave.error}</p>}
     </div>
