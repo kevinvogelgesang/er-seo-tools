@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { normalizeClientDomains, InvalidDomainError } from '@/lib/security/domain-validation';
 import { collectClientViewbookAssetSnapshot } from '@/lib/viewbook/service';
+import { collectAssessmentImageSnapshot } from '@/lib/viewbook/assessment-notes';
 import { deleteViewbookAssets } from '@/lib/viewbook/assets';
 
 export const dynamic = 'force-dynamic';
@@ -139,11 +140,19 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'archive_first' }, { status: 409 });
     }
     // Viewbook asset files are NOT covered by the DB cascade — snapshot the
-    // filenames BEFORE the delete, best-effort remove them after.
+    // filenames BEFORE the delete, best-effort remove them after. Theme/doc
+    // filenames come from collectClientViewbookAssetSnapshot (service.ts);
+    // assessment-image filenames (Task 4, a separate transient table
+    // service.ts doesn't own) come from collectAssessmentImageSnapshot here —
+    // both key off the same client's viewbook, so they merge under one scope.
     const viewbookAssets = await collectClientViewbookAssetSnapshot(clientId);
+    const assessmentImages = await collectAssessmentImageSnapshot(clientId);
     await prisma.client.delete({ where: { id: clientId } });
     if (viewbookAssets) {
-      await deleteViewbookAssets(String(viewbookAssets.viewbookId), viewbookAssets.filenames);
+      await deleteViewbookAssets(String(viewbookAssets.viewbookId), [
+        ...viewbookAssets.filenames,
+        ...(assessmentImages?.filenames ?? []),
+      ]);
     }
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

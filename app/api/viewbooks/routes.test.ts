@@ -15,8 +15,9 @@ import { prisma } from '@/lib/db'
 import { AUTH_COOKIE_NAME, createAuthCookieValue } from '@/lib/auth'
 import { MAX_ASSET_BYTES, readViewbookAsset } from '@/lib/viewbook/assets'
 import { parseStoredTheme } from '@/lib/viewbook/theme'
+import { addAssessmentImage } from '@/lib/viewbook/assessment-notes'
 import { GET as listViewbooks, POST as createViewbookRoute } from './route'
-import { GET as getViewbook, PATCH as patchViewbook } from './[id]/route'
+import { GET as getViewbook, PATCH as patchViewbook, DELETE as deleteViewbookRoute } from './[id]/route'
 import { POST as attachAsset } from './[id]/assets/route'
 
 // Real tiny PNG — the assets route decodes every upload via sharp now, so the
@@ -182,5 +183,46 @@ describe('viewbook admin routes', () => {
       params({ id: String(id) }),
     )
     expect(res.status).toBe(413)
+  })
+
+  it('DELETE /api/viewbooks/:id: removes theme + assessment-image asset files (Task 9)', async () => {
+    const { id } = await mkViewbook()
+    const form = new FormData()
+    form.set('kind', 'logo')
+    form.set('file', new File([PNG], 'logo.png', { type: 'image/png' }))
+    const attachRes = await attachAsset(
+      req(`/api/viewbooks/${id}/assets`, {
+        method: 'POST',
+        headers: { 'content-length': String(PNG.length + 1024) },
+        body: form,
+      }),
+      params({ id: String(id) }),
+    )
+    expect(attachRes.status).toBe(200)
+    const { theme } = await attachRes.json()
+
+    const img = await addAssessmentImage(id, PNG, 'kevin@enrollmentresources.com')
+
+    expect(await readViewbookAsset(String(id), theme.logo)).not.toBeNull()
+    expect(await readViewbookAsset(String(id), img.filename)).not.toBeNull()
+
+    const del = await deleteViewbookRoute(req(`/api/viewbooks/${id}`, { method: 'DELETE' }), params({ id: String(id) }))
+    expect(del.status).toBe(200)
+
+    expect(await prisma.viewbook.findUnique({ where: { id } })).toBeNull()
+    // theme file (deleteViewbook/service.ts's existing coverage) AND the
+    // assessment-image file (this task's route-owned snapshot) are both gone.
+    expect(await readViewbookAsset(String(id), theme.logo)).toBeNull()
+    expect(await readViewbookAsset(String(id), img.filename)).toBeNull()
+  })
+
+  it('DELETE /api/viewbooks/:id: 401 without a session', async () => {
+    const { id } = await mkViewbook()
+    const res = await deleteViewbookRoute(
+      req(`/api/viewbooks/${id}`, { method: 'DELETE', auth: false }),
+      params({ id: String(id) }),
+    )
+    expect(res.status).toBe(401)
+    expect(await prisma.viewbook.findUnique({ where: { id } })).not.toBeNull()
   })
 })
