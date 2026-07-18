@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/db'
 import { loadAssessmentData } from './assessment'
+import { setAssessmentNote } from './assessment-notes'
 
 const clientIds: number[] = []
 const auditIds: string[] = []
@@ -84,13 +85,28 @@ describe('loadAssessmentData', () => {
     expect(await loadAssessmentData(randomUUID())).toBeNull()
   })
 
-  it('returns null when the client has no reportable audit', async () => {
+  it('resolves the token but returns a null assessment when the client has no reportable audit', async () => {
     const c = await mkClient()
     const vb = await mkViewbook(c.id)
     await mkAudit(c.id, { seoOnly: true }) // seoOnly excluded
     await mkAudit(c.id, { status: 'error' }) // not complete
     await mkAudit(c.id, { liveScan: null }) // no seo-parser run
-    expect(await loadAssessmentData(vb.token)).toBeNull()
+    const load = await loadAssessmentData(vb.token)
+    expect(load).not.toBeNull()
+    expect(load!.viewbookId).toBe(vb.id)
+    expect(load!.assessment).toBeNull()
+    expect(load!.notes).toBeNull() // no content row authored yet
+  })
+
+  it('returns operator notes even when no reportable audit exists', async () => {
+    const c = await mkClient()
+    const vb = await mkViewbook(c.id)
+    await setAssessmentNote(vb.id, 'general', '<p>Heads up before the scan.</p>', 'op@er.com')
+    const load = await loadAssessmentData(vb.token)
+    expect(load).not.toBeNull()
+    expect(load!.assessment).toBeNull()
+    expect(load!.notes).not.toBeNull()
+    expect(load!.notes!.generalNotesHtml).toContain('Heads up before the scan.')
   })
 
   it('builds the full payload from the newest reportable audit', async () => {
@@ -113,7 +129,10 @@ describe('loadAssessmentData', () => {
         { type: 'duplicate_title', count: 2 },
       ] },
     })
-    const data = await loadAssessmentData(vb.token)
+    await setAssessmentNote(vb.id, 'userBehaviour', '<p>Visitors bounce fast.</p>', 'op@er.com')
+    const load = await loadAssessmentData(vb.token)
+    expect(load).not.toBeNull()
+    const data = load!.assessment
     expect(data).not.toBeNull()
     expect(data!.domain).toBe('acme.edu')
     expect(data!.adaScore).toBe(82) // newest reportable, not the June audit
@@ -129,13 +148,15 @@ describe('loadAssessmentData', () => {
     // <3 lighthouse rows → rollup null, homepage null
     expect(data!.performance).toBeNull()
     expect(data!.homepage).toBeNull()
+    // notes ride alongside the audit payload after one token validation
+    expect(load!.notes!.userBehaviourHtml).toContain('Visitors bounce fast.')
   })
 
   it('marks a placeholder live-scan run seoUnavailable with no seo issues', async () => {
     const c = await mkClient()
     const vb = await mkViewbook(c.id)
     await mkAudit(c.id, { liveScan: { placeholder: true } })
-    const data = await loadAssessmentData(vb.token)
+    const data = (await loadAssessmentData(vb.token))!.assessment
     expect(data).not.toBeNull()
     expect(data!.seoUnavailable).toBe(true)
     expect(data!.seoScore).toBeNull()
@@ -147,7 +168,7 @@ describe('loadAssessmentData', () => {
     const c = await mkClient()
     const vb = await mkViewbook(c.id)
     await mkAudit(c.id, { summary: '{not json', liveScan: {} })
-    const data = await loadAssessmentData(vb.token)
+    const data = (await loadAssessmentData(vb.token))!.assessment
     expect(data).not.toBeNull()
     // No CrawlPage/Violation rows in this fixture → buildSummaryFromFindings
     // yields no commonIssues → empty patterns, not a throw.
@@ -162,7 +183,7 @@ describe('loadAssessmentData', () => {
       { type: 'hreflang_conflict', count: 99 }, // not in the curated sets
       { type: 'thin_content', count: 0 }, // zero-count
     ] } })
-    const data = await loadAssessmentData(vb.token)
+    const data = (await loadAssessmentData(vb.token))!.assessment
     expect(data!.seoIssues).toEqual([{ label: 'Missing title', count: 3, unit: 'pages' }])
   })
 
@@ -181,7 +202,7 @@ describe('loadAssessmentData', () => {
     await mkAudit(c.id, { domain: 'two.edu', completedAt: new Date('2026-07-03T00:00:00Z'), adaScore: 55 })
     const other = await mkClient('other.edu')
     await mkAudit(other.id, { domain: 'other.edu', completedAt: new Date('2026-07-10T00:00:00Z'), adaScore: 99 })
-    const data = await loadAssessmentData(vb.token)
+    const data = (await loadAssessmentData(vb.token))!.assessment
     expect(data!.domain).toBe('two.edu') // newest for THIS client, audited domain displayed
     expect(data!.adaScore).toBe(55) // the other client's newer audit never leaks
   })
@@ -202,7 +223,7 @@ describe('loadAssessmentData', () => {
         { url: 'https://acme.edu/b', status: 'complete', siteAuditId: audit.id, lighthouseSummary: lh(40, 4000) },
       ],
     })
-    const data = await loadAssessmentData(vb.token)
+    const data = (await loadAssessmentData(vb.token))!.assessment
     expect(data!.performance).not.toBeNull()
     expect(data!.performance!.measuredPages).toBe(3)
     expect(data!.homepage).not.toBeNull()

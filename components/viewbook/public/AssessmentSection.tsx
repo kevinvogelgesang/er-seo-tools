@@ -3,14 +3,18 @@
 // state) so the frozen ViewbookPublicData contract stays untouched. Same
 // props as the retired AssessmentPlaceholder — the page swap was one import.
 // Honest labels only: Lighthouse LAB data, no compliance or CWV-pass claims.
-import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { ReactNode } from 'react'
+import type { PublicSection, ViewbookPublicData, PublicAssessmentNotes } from '@/lib/viewbook/public-types'
 import { loadAssessmentData } from '@/lib/viewbook/assessment'
 import type { AssessmentData } from '@/lib/viewbook/assessment'
+import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
+import { RichTextRenderer } from '@/components/richtext/RichTextRenderer'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { Tooltip } from './Tooltip'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
+import { AssessmentNotesEditors } from './AssessmentNotesEditors'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -20,6 +24,17 @@ function fmtDate(iso: string): string {
 
 function seconds(ms: number): string {
   return `${Math.round(ms / 100) / 10} s`
+}
+
+// D12: Cumulative Layout Shift is a small unitless ratio — always show two
+// decimals so 0.2 doesn't read as a coarser number than 0.02. Scores stay
+// `/100` and LCP stays 1-decimal seconds (unchanged).
+function cls(x: number): string {
+  return Number(x).toFixed(2)
+}
+
+function hasHtml(html: string | null | undefined): boolean {
+  return typeof html === 'string' && html.trim().length > 0
 }
 
 function ScoreTile({ label, score, note }: { label: string; score: number | null; note?: string }) {
@@ -39,7 +54,15 @@ function ScoreTile({ label, score, note }: { label: string; score: number | null
   )
 }
 
-function AssessmentBody({ assessment, narrative }: { assessment: AssessmentData; narrative: string | null }) {
+function AssessmentBody({
+  assessment,
+  narrative,
+  notesSlot,
+}: {
+  assessment: AssessmentData
+  narrative: string | null
+  notesSlot: ReactNode
+}) {
   const impactWord: Record<string, string> = {
     critical: 'critical', serious: 'serious', moderate: 'moderate', minor: 'minor',
   }
@@ -103,7 +126,7 @@ function AssessmentBody({ assessment, narrative }: { assessment: AssessmentData;
               <p className="text-sm font-semibold text-black/60">Homepage</p>
               <p className="mt-1">
                 Performance {assessment.homepage.performance}/100 · Largest paint {seconds(assessment.homepage.lcpMs)} ·
-                Layout shift {assessment.homepage.cls} · Blocking time {assessment.homepage.tbtMs} ms
+                Layout shift {cls(assessment.homepage.cls)} · Blocking time {assessment.homepage.tbtMs} ms
               </p>
             </div>
           )}
@@ -114,7 +137,7 @@ function AssessmentBody({ assessment, narrative }: { assessment: AssessmentData;
               </p>
               <p className="mt-1">
                 Median performance {assessment.performance.medianPerformance}/100 · p75 largest paint{' '}
-                {seconds(assessment.performance.p75LcpMs)} · p75 layout shift {assessment.performance.p75Cls} · p75
+                {seconds(assessment.performance.p75LcpMs)} · p75 layout shift {cls(assessment.performance.p75Cls)} · p75
                 blocking time {assessment.performance.p75TbtMs} ms
               </p>
             </div>
@@ -131,8 +154,88 @@ function AssessmentBody({ assessment, narrative }: { assessment: AssessmentData;
         </div>
       )}
 
+      {notesSlot}
+
       {assessment.completedAt && (
         <p className="text-sm text-black/40">Scanned {fmtDate(assessment.completedAt)}</p>
+      )}
+    </>
+  )
+}
+
+// The two operator-authored blocks (General notes + User Behaviour). For a
+// public viewer they render read-only sanitized HTML (via RichTextRenderer,
+// which re-sanitizes) plus the user-behaviour image gallery served through
+// the token'd public assets route (images are NEVER embedded in the HTML).
+// For a signed-in operator the whole block is the autosaving editor leaf. An
+// empty note-set for a public viewer renders NOTHING — no bare headers leak.
+function AssessmentNotesBlocks({
+  notes,
+  operatorEmail,
+  viewbookId,
+  token,
+}: {
+  notes: PublicAssessmentNotes | null
+  operatorEmail: string | null
+  viewbookId: number
+  token: string
+}) {
+  const generalHtml = notes?.generalNotesHtml ?? null
+  const userBehaviourHtml = notes?.userBehaviourHtml ?? null
+  const images = notes?.userBehaviourImages ?? []
+
+  if (operatorEmail != null) {
+    return (
+      <AssessmentNotesEditors
+        viewbookId={viewbookId}
+        token={token}
+        generalHtml={generalHtml ?? ''}
+        userBehaviourHtml={userBehaviourHtml ?? ''}
+        images={images}
+      />
+    )
+  }
+
+  const showGeneral = hasHtml(generalHtml)
+  const showBehaviour = hasHtml(userBehaviourHtml) || images.length > 0
+  if (!showGeneral && !showBehaviour) return null
+
+  return (
+    <>
+      {showGeneral && (
+        <div>
+          <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
+            General notes
+          </h3>
+          <div className="mt-2">
+            <RichTextRenderer html={generalHtml as string} />
+          </div>
+        </div>
+      )}
+      {showBehaviour && (
+        <div>
+          <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
+            User Behaviour
+          </h3>
+          {hasHtml(userBehaviourHtml) && (
+            <div className="mt-2">
+              <RichTextRenderer html={userBehaviourHtml as string} />
+            </div>
+          )}
+          {images.length > 0 && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {images.map((img) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={img.id}
+                  src={publicAssetUrl(token, img.filename)}
+                  alt=""
+                  className="w-full rounded-lg border border-black/10"
+                />
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </>
   )
@@ -147,7 +250,26 @@ export async function AssessmentSection({
   data: ViewbookPublicData
   token: string
 }) {
-  const assessment = await loadAssessmentData(token)
+  const [load, operatorEmail] = await Promise.all([
+    loadAssessmentData(token),
+    getOperatorEmailForPublicPage(),
+  ])
+  const assessment = load?.assessment ?? null
+  const notes = load?.notes ?? null
+  const viewbookId = load?.viewbookId ?? null
+
+  // Notes render even without a reportable audit; they need the viewbook id
+  // (from the same single token validation) to address the operator routes.
+  const notesSlot =
+    viewbookId != null ? (
+      <AssessmentNotesBlocks
+        notes={notes}
+        operatorEmail={operatorEmail}
+        viewbookId={viewbookId}
+        token={token}
+      />
+    ) : null
+
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const summaryHeadline = assessment
     ? `Snapshot of ${assessment.domain} · ${assessment.pagesAudited} pages audited`
@@ -161,11 +283,14 @@ export async function AssessmentSection({
       summary={<SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={summaryHeadline} />}
     >
       {assessment ? (
-        <AssessmentBody assessment={assessment} narrative={section.narrative} />
+        <AssessmentBody assessment={assessment} narrative={section.narrative} notesSlot={notesSlot} />
       ) : (
-        <p className="text-black/60">
-          Your first site scan is coming soon — we&apos;ll publish your current-site assessment here.
-        </p>
+        <>
+          <p className="text-black/60">
+            Your first site scan is coming soon — we&apos;ll publish your current-site assessment here.
+          </p>
+          {notesSlot}
+        </>
       )}
     </SectionShell>
   )
