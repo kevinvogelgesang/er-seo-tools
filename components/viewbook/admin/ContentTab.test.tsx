@@ -31,15 +31,18 @@ function lastCallFor(id: string): boolean | undefined {
   return [...calls].reverse().find(([callId]) => callId === id)?.[1]
 }
 
-// The "Welcome note" <label> isn't programmatically associated to its
-// <textarea> (no htmlFor/id, no nesting), so getByLabelText can't resolve
-// it — locate the textarea via the label's sibling instead, scoped to the
-// label's own wrapper div (every SectionTextRow/OverrideRowEditor row also
-// renders a plain textarea+"Save" button with overlapping text/roles).
 function welcomeControls(): { textarea: HTMLTextAreaElement; save: HTMLElement } {
-  const label = screen.getByText('Welcome note')
-  const row = within(label.parentElement as HTMLElement)
-  return { textarea: row.getByRole('textbox') as HTMLTextAreaElement, save: row.getByRole('button', { name: 'Save' }) }
+  const textarea = screen.getByLabelText('Welcome note') as HTMLTextAreaElement
+  const row = within(textarea.closest('[data-content-editor]') as HTMLElement)
+  return { textarea, save: row.getByRole('button', { name: 'Save welcome note' }) }
+}
+
+function openPanel(name: RegExp): ReturnType<typeof within> {
+  const trigger = screen.getByRole('button', { name })
+  fireEvent.click(trigger)
+  const body = document.getElementById(trigger.getAttribute('aria-controls') as string) as HTMLElement
+  expect(body.hidden).toBe(false)
+  return within(body)
 }
 
 describe('ContentTab welcome note', () => {
@@ -96,13 +99,7 @@ describe('ContentTab client-specific override row', () => {
     vi.stubGlobal('fetch', fetchMock)
     render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: '' }]} onChanged={vi.fn()} />)
 
-    // Open this row's <details> directly (not exercising the click-to-open
-    // UX — that's not what this test is about). All six override rows
-    // share identical placeholder/button text, so every subsequent query is
-    // scoped to THIS row via `within`.
-    const details = screen.getByText(overrideKey).closest('details') as HTMLDetailsElement
-    details.open = true
-    const row = within(details)
+    const row = openPanel(/^Process Client-specific content Using global content$/)
 
     const textarea = row.getByPlaceholderText('Client-specific adjustments to the base plan (plain text)')
     fireEvent.change(textarea, { target: { value: 'Adjusted plan text' } })
@@ -120,6 +117,21 @@ describe('ContentTab client-specific override row', () => {
     expect(lastCallFor(`admin-content-override-${overrideKey}`)).toBe(false)
   })
 
+  it('removes an existing override with the unchanged DELETE request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: 'Existing copy' }]} onChanged={vi.fn()} />)
+    const row = openPanel(/^Process Client-specific content Client override$/)
+
+    fireEvent.click(row.getByRole('button', { name: 'Remove override' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `/api/viewbooks/1/overrides/${overrideKey}`,
+      { method: 'DELETE' },
+    ))
+    expect(lastCallFor(`admin-content-override-${overrideKey}`)).toBe(false)
+  })
+
   // Codex PR5 fix-wave finding 5: 'pc-intro' is BOTH a SECTION_KEYS member
   // (its own "Section intros & narratives" row, unconditionally rendered
   // above) AND a GLOBAL_CONTENT_KEYS member (its own GlobalContentEditor
@@ -129,6 +141,21 @@ describe('ContentTab client-specific override row', () => {
   // (the section-intro row), never a second time as an override row.
   it('does not render pc-intro a second time as a per-viewbook override row', () => {
     render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[]} onChanged={vi.fn()} />)
-    expect(screen.getAllByText('pc-intro')).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /^Welcome Section copy/ })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /pc-intro.*Using global content/ })).toBeNull()
+  })
+
+  it('orders the authoring areas and identifies global versus overridden content', () => {
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: 'Existing copy' }]} onChanged={vi.fn()} />)
+
+    expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      'Strategy PDFs',
+      'Welcome',
+      'Section copy',
+      'Client overrides',
+    ])
+    expect(screen.getByRole('button', { name: /Process.*Client override/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Why it matters.*Using global content/ })).toBeTruthy()
+    expect(document.querySelector('details')).toBeNull()
   })
 })

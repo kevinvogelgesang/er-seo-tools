@@ -23,6 +23,9 @@ describe('StrategyDocsCard', () => {
     expect(screen.getByText('Client extra')).toBeDefined()
     expect(screen.getByText('Global playbooks')).toBeDefined()
     expect(screen.getByText('This viewbook')).toBeDefined()
+    expect(screen.getByText('Global', { selector: '[data-document-source]' })).toBeDefined()
+    expect(screen.getByText('Viewbook', { selector: '[data-document-source]' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: 'Upload a PDF' })).toBeDefined()
   })
 
   it('surfaces an upload API error in the card', async () => {
@@ -32,12 +35,35 @@ describe('StrategyDocsCard', () => {
     vi.stubGlobal('fetch', fetchMock)
     render(<StrategyDocsCard />)
     await screen.findByText('No strategy PDFs yet.')
-    fireEvent.change(screen.getByLabelText('PDF title'), { target: { value: 'Big guide' } })
-    fireEvent.change(screen.getByLabelText('PDF file'), {
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Big guide' } })
+    fireEvent.change(screen.getByLabelText('File'), {
       target: { files: [new File(['%PDF-test'], 'big.pdf', { type: 'application/pdf' })] },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Upload PDF' }))
     expect(await screen.findByText('payload_too_large')).toBeDefined()
+  })
+
+  it('uploads the unchanged multipart fields and reloads the list', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ docs: [] }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ docs: [{ ...globalDoc, title: 'New guide' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<StrategyDocsCard />)
+    await screen.findByText('No strategy PDFs yet.')
+    const file = new File(['%PDF-test'], 'guide.pdf', { type: 'application/pdf' })
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: ' New guide ' } })
+    fireEvent.change(screen.getByLabelText('Blurb'), { target: { value: ' Short summary ' } })
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload PDF' }))
+
+    await screen.findByText('New guide')
+    const uploadCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(uploadCall?.[0]).toBe('/api/viewbook-docs')
+    const body = uploadCall?.[1]?.body as FormData
+    expect(body.get('title')).toBe('New guide')
+    expect(body.get('blurb')).toBe('Short summary')
+    expect(body.get('file')).toBe(file)
   })
 
   it('confirms and deletes an owned document, then reloads the list', async () => {
