@@ -76,33 +76,44 @@ export function SectionReveal({
       {/* Compact STICKY header bar (§4.3): pins under the top nav at
           `--vb-sticky-offset`; the next section's header pushes it up via
           standard CSS sticky stacking — no JS. It IS the toggle for non-
-          always-open sections (the old "Show/hide details" button is gone).
-          always-open sections render a non-interactive heading. */}
+          always-open sections. It carries the section title as a SHRUNK H2
+          (~H3 size) so a pinned bar names its section. The outer div spans
+          full width with a brand-tinted accent background (opaque — also
+          keeps body content from showing through when pinned) that visually
+          groups this header strip apart from the section body; the inner div
+          centres the content to the 5xl column. The accent MUST match the
+          TickDivider strip's background in SectionShell. */}
       <div
-        className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-4"
-        style={{ position: 'sticky', top: 'var(--vb-sticky-offset, 0px)', zIndex: 30, background: '#fafafa' }}
+        style={{
+          position: 'sticky',
+          top: 'var(--vb-sticky-offset, 0px)',
+          zIndex: 30,
+          background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)',
+        }}
       >
-        <div className="min-w-0 flex-1">
-          <div
-            className="text-sm font-semibold uppercase tracking-wide text-black/45"
-            style={{ fontFamily: 'var(--vb-heading-font)' }}
-          >
-            {title}
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-3">
+          <div className="min-w-0 flex-1">
+            <div
+              className="text-xl font-bold tracking-tight text-black/80 sm:text-2xl"
+              style={{ fontFamily: 'var(--vb-heading-font)' }}
+            >
+              {title}
+            </div>
+            {summary && <div className="mt-1 min-w-0 text-base text-black/60">{summary}</div>}
           </div>
-          {summary && <div className="mt-1 min-w-0 text-lg">{summary}</div>}
+          {!alwaysOpen && (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-controls={regionId}
+              onClick={() => setExpanded((v) => !v)}
+              className="ml-auto shrink-0 rounded-full border border-black/15 px-4 py-1.5 text-sm font-semibold text-black/70 transition-colors hover:bg-black/5"
+              style={{ fontFamily: 'var(--vb-heading-font)' }}
+            >
+              {expanded ? 'Hide details' : 'Show details'}
+            </button>
+          )}
         </div>
-        {!alwaysOpen && (
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-controls={regionId}
-            onClick={() => setExpanded((v) => !v)}
-            className="ml-auto shrink-0 rounded-full border border-black/15 px-4 py-1.5 text-sm font-semibold text-black/70 transition-colors hover:bg-black/5"
-            style={{ fontFamily: 'var(--vb-heading-font)' }}
-          >
-            {expanded ? 'Hide details' : 'Show details'}
-          </button>
-        )}
       </div>
 
       <div
