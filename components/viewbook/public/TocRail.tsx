@@ -31,6 +31,12 @@ import { searchViewbook } from '@/lib/viewbook/toc-index'
 import type { SectionKey } from '@/lib/viewbook/theme'
 import { navigateToAnchor } from './viewbook-navigate'
 
+// Desktop rail: permanently expanded (Kevin, 2026-07-17). The hamburger
+// collapse toggle + Escape-collapse are gated off so the rail stays open on
+// desktop; flip this back to `true` to restore the collapsible hamburger rail.
+// (Mobile keeps its FAB + bottom-sheet regardless.)
+const DESKTOP_RAIL_COLLAPSIBLE = false
+
 // A flattened nav item — top-level section entries plus (verbose) their
 // category sub-entries, in DOM order, so the roving-tabindex list is a single
 // linear sequence.
@@ -330,39 +336,46 @@ export function TocRail({
         // hover/blur behavior.
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
-            e.preventDefault()
-            collapse(triggerRef)
+            // Escape only collapses when the rail is collapsible; on the
+            // permanently-expanded desktop rail there is nothing to collapse.
+            if (DESKTOP_RAIL_COLLAPSIBLE) {
+              e.preventDefault()
+              collapse(triggerRef)
+            }
           } else {
             onListKeyDown(e)
           }
         }}
         className="fixed left-3 top-1/2 z-40 -translate-y-1/2"
       >
-        <button
-          type="button"
-          ref={triggerRef}
-          data-vb-toc-trigger
-          aria-label="Table of contents"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          className="mb-1 mr-auto flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white/90 shadow-sm"
-          style={{ color: 'var(--vb-primary)' }}
-        >
-          <span aria-hidden className="text-sm font-bold">
-            ☰
-          </span>
-        </button>
+        {DESKTOP_RAIL_COLLAPSIBLE && (
+          <button
+            type="button"
+            ref={triggerRef}
+            data-vb-toc-trigger
+            aria-label="Table of contents"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="mb-1 mr-auto flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white/90 shadow-sm"
+            style={{ color: 'var(--vb-primary)' }}
+          >
+            <span aria-hidden className="text-sm font-bold">
+              ☰
+            </span>
+          </button>
+        )}
         <div
           // Focus-safety, not hover behavior: if the rail was hamburger-
           // collapsed (40px) and a user tabs a focusable control inside it
           // (e.g. from the trigger into the list), force it open so the
           // focused control isn't clipped by the collapsed width. This does
           // NOT re-introduce hover/blur-driven state — mouse in/out and
-          // blur-out no longer touch `open` at all.
+          // blur-out no longer touch `open` at all. Inert when the rail is
+          // permanently expanded (always open).
           onFocus={() => setOpen(true)}
           className="rounded-xl border border-black/10 bg-white/95 p-2 shadow-lg backdrop-blur"
           style={{
-            width: open ? 240 : 40,
+            width: DESKTOP_RAIL_COLLAPSIBLE ? (open ? 240 : 40) : 240,
             transition: 'width 200ms ease',
             overflow: 'hidden',
           }}

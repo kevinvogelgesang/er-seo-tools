@@ -81,8 +81,11 @@ export function SectionQuickControls({
       data-operator-section-controls={section.sectionKey}
       onFocus={focus.onFocus}
       onBlur={focus.onBlur}
-      className="flex flex-wrap items-center gap-2 border-y border-teal-800/15 bg-teal-50 px-4 py-2 text-xs text-teal-950"
+      className="border-y border-teal-800/15 bg-teal-50 text-xs text-teal-950"
     >
+      {/* Content centred to the section reading column (max-w-5xl) so the ER
+          controls line up with the regularly visible section content. */}
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 px-6 py-2">
       <span className="font-semibold">ER · {section.sectionKey}</span>
       <button
         type="button"
@@ -113,6 +116,7 @@ export function SectionQuickControls({
         </button>
       )}
       {error && <span role="alert" className="font-medium text-red-700">{error}</span>}
+      </div>
     </div>
   )
 }

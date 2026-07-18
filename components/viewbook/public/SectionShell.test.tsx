@@ -42,13 +42,12 @@ describe('SectionShell', () => {
     const region = container.querySelector('[role="region"]')
     expect(region?.getAttribute('data-vb-expanded')).toBe('true')
     expect(region?.getAttribute('aria-label')).toBe('Brand Guidelines')
-    // Toggle button wired to the region.
-    const toggle = container.querySelector('button[aria-expanded]')
-    expect(toggle).not.toBeNull()
-    expect(toggle?.getAttribute('aria-controls')).toBe(region?.getAttribute('id'))
+    // The per-section toggle is disabled (SECTION_TOGGLE_ENABLED = false) — no
+    // button rendered for any section, always-open or not.
+    expect(container.querySelector('button[aria-expanded]')).toBeNull()
   })
 
-  it('renders a done section as a collapsed reveal region with the completion date, body retained', () => {
+  it('renders a done section as an expanded reveal region (toggle disabled) with the completion date, body retained', () => {
     const { container } = render(
       <SectionShell
         section={section({ state: 'done', doneAt: '2026-07-01T00:00:00.000Z' })}
@@ -61,13 +60,15 @@ describe('SectionShell', () => {
     )
     const region = container.querySelector('[role="region"]')
     expect(region).not.toBeNull()
-    expect(region?.getAttribute('data-vb-expanded')).toBe('false')
+    // SECTION_TOGGLE_ENABLED = false ⇒ every section renders expanded, even a
+    // "done" one that would otherwise start collapsed.
+    expect(region?.getAttribute('data-vb-expanded')).toBe('true')
     expect(screen.getByText(/Completed/)).toBeDefined()
-    // Body always retained in the DOM (collapsed, not removed).
+    // Body always retained in the DOM.
     expect(screen.getByText('Body')).toBeDefined()
   })
 
-  it('collapses an acknowledged post-contract section (state active, no doneAt) like a done section — PR5 Task 7', () => {
+  it('renders an acknowledged post-contract section (state active, no doneAt) expanded, like every other section — PR5 Task 7', () => {
     const { container } = render(
       <SectionShell
         section={section({ acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
@@ -80,7 +81,7 @@ describe('SectionShell', () => {
     )
     const region = container.querySelector('[role="region"]')
     expect(region).not.toBeNull()
-    expect(region?.getAttribute('data-vb-expanded')).toBe('false')
+    expect(region?.getAttribute('data-vb-expanded')).toBe('true')
     expect(screen.getByText('Body')).toBeDefined()
     // No doneAt on this section — the "Completed" date line must not appear.
     expect(screen.queryByText(/Completed/)).toBeNull()
