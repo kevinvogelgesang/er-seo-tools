@@ -6,6 +6,8 @@
 
 # testing
 /coverage
+# Vitest cache (relocated off node_modules/.vite for worktree/sandbox writability)
+/.vitest-cache/
 
 # next.js
 /.next/

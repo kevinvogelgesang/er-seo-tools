@@ -1,18 +1,28 @@
 import type { Metadata } from 'next'
-import { Barlow, Source_Sans_3 } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import { ThemeProvider } from '@/components/ThemeProvider'
 
-const barlow = Barlow({
-  subsets: ['latin'],
-  weight: ['400', '600', '700', '800'],
+// Self-hosted (latin subset) instead of next/font/google so `next build` needs
+// no outbound network — Google Fonts fetch-at-build broke every offline build
+// (Codex sandbox + any airgapped build). Files under app/fonts/ are the latin
+// gstatic subsets for exactly the weights used below.
+const barlow = localFont({
+  src: [
+    { path: './fonts/barlow-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/barlow-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/barlow-700.woff2', weight: '700', style: 'normal' },
+    { path: './fonts/barlow-800.woff2', weight: '800', style: 'normal' },
+  ],
   variable: '--font-barlow',
   display: 'swap',
 })
 
-const sourceSans = Source_Sans_3({
-  subsets: ['latin'],
-  weight: ['400', '600'],
+const sourceSans = localFont({
+  src: [
+    { path: './fonts/source-sans-3-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/source-sans-3-600.woff2', weight: '600', style: 'normal' },
+  ],
   variable: '--font-source-sans',
   display: 'swap',
 })
