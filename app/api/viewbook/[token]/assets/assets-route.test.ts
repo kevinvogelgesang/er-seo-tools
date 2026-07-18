@@ -24,6 +24,31 @@ function call(token: string, filename: string) {
   return GET(req, { params: Promise.resolve({ token, filename }) })
 }
 
+// Full 404 envelope (plan-review fix 8): status + parsed body + every header,
+// so "identical to a bad token" means byte-identical, not just status===404.
+async function envelope(res: Response) {
+  return {
+    status: res.status,
+    body: await res.json(),
+    headers: Object.fromEntries(res.headers.entries()),
+  }
+}
+
+async function seedAssessmentImage(viewbookId: number, filenameOverride?: string) {
+  const content = await prisma.viewbookAssessmentContent.upsert({
+    where: { viewbookId },
+    create: { viewbookId },
+    update: {},
+  })
+  const filename = filenameOverride ?? `${crypto.randomUUID()}.webp`
+  await prisma.viewbookAssessmentImage.create({
+    data: { contentId: content.id, filename, sortOrder: 1, createdBy: 'test' },
+  })
+  await mkdir(path.join(assetsDir, String(viewbookId)), { recursive: true })
+  await writeFile(path.join(assetsDir, String(viewbookId), filename), PNG)
+  return filename
+}
+
 beforeAll(async () => {
   assetsDir = await mkdtemp(path.join(tmpdir(), 'vb-assets-'))
   vi.stubEnv('VIEWBOOK_ASSETS_DIR', assetsDir)
@@ -173,4 +198,46 @@ describe('GET /api/viewbook/[token]/assets/[filename]', () => {
     const res = await call(token, logo)
     expect(res.status).toBe(404)
   })
+})
+
+// Task 6: assessment-image allowlist branch (viewbook-scoped only — never global).
+describe('GET /api/viewbook/[token]/assets/[filename] — assessment images', () => {
+  it('serves an allowlisted assessment image for its own viewbook', async () => {
+    const { id, token } = await seedViewbookWithLogo()
+    const filename = await seedAssessmentImage(id)
+    const res = await call(token, filename)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('image/webp')
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600')
+  })
+
+  it(
+    '404s a bad/expired token, a cross-viewbook assessment image, a traversal ' +
+      'shape, and an unallowlisted filename with the IDENTICAL envelope (plan-review fix 8)',
+    async () => {
+      const a = await seedViewbookWithLogo()
+      const b = await seedViewbookWithLogo()
+      const bImage = await seedAssessmentImage(b.id)
+
+      // Baseline: bad/expired token.
+      const baseline = await envelope(await call('unknown-token', bImage))
+      expect(baseline.status).toBe(404)
+      expect(baseline.body).toEqual({ error: 'not_found' })
+
+      // b's assessment image exists on disk and is allowlisted on b — but
+      // requested via a's token: cross-viewbook curation must 404 the same way.
+      const crossViewbook = await envelope(await call(a.token, bImage))
+
+      // Path-traversal-shaped filename.
+      const traversal = await envelope(await call(a.token, '..%2F' + String(b.id) + '%2F' + bImage))
+
+      // A plausible-looking but never-allowlisted filename.
+      const unallowlisted = await envelope(await call(a.token, `${crypto.randomUUID()}.webp`))
+
+      for (const env of [crossViewbook, traversal, unallowlisted]) {
+        expect(env).toEqual(baseline)
+      }
+    },
+  )
 })

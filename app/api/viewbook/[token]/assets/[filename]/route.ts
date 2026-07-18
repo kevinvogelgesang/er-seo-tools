@@ -1,10 +1,15 @@
 // Public token-gated theme-asset serving (spec §6/§7). Authorization is an
-// ALLOWLIST, C14 curated-set precedent: the token's own themeJson filenames
-// (viewbook scope) or the global team-roster photo set (global scope). A
-// guessed filename under an owned viewbook still 404s. Every failure — bad
-// token, revoked, archived client, non-allowlisted name, traversal shape,
-// missing file — is the SAME 404 (no oracle). Non-ENOENT fs errors rethrow
-// into withRoute as 500 (operational visibility, C14 hero precedent).
+// ALLOWLIST, C14 curated-set precedent: the token's own themeJson filenames,
+// viewbookDoc rows, and assessment images (all viewbook scope), or the global
+// team-roster photo set (global scope). Assessment images are NEVER
+// global-scoped — they are Lane 4 Task 4 operator uploads owned by exactly
+// one viewbook's ViewbookAssessmentContent, so the lookup is fenced on
+// `content: { viewbookId: vb.id }` and can only ever match the token's own
+// viewbook. A guessed filename under an owned viewbook still 404s. Every
+// failure — bad token, revoked, archived client, non-allowlisted name,
+// cross-viewbook name, traversal shape, missing file — is the SAME 404 (no
+// oracle). Non-ENOENT fs errors rethrow into withRoute as 500 (operational
+// visibility, C14 hero precedent).
 import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
@@ -42,11 +47,19 @@ export const GET = withRoute(
       if (doc) {
         asset = await readViewbookAsset(doc.viewbookId == null ? 'global' : String(doc.viewbookId), filename)
       } else {
-        const roster = await getGlobalContent('team')
-        const photos = new Set(
-          (Array.isArray(roster) ? roster : []).map((m) => m.photo).filter((p): p is string => p != null),
-        )
-        if (photos.has(filename)) asset = await readViewbookAsset('global', filename)
+        const assessmentImage = await prisma.viewbookAssessmentImage.findFirst({
+          where: { filename, content: { viewbookId: vb.id } },
+          select: { filename: true },
+        })
+        if (assessmentImage) {
+          asset = await readViewbookAsset(String(vb.id), filename)
+        } else {
+          const roster = await getGlobalContent('team')
+          const photos = new Set(
+            (Array.isArray(roster) ? roster : []).map((m) => m.photo).filter((p): p is string => p != null),
+          )
+          if (photos.has(filename)) asset = await readViewbookAsset('global', filename)
+        }
       }
     }
     if (!asset) return notFoundRes()
