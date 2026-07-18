@@ -4,6 +4,11 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // Keep Vitest's cache in the project root, NOT the default node_modules/.vite.
+  // In a git worktree, node_modules is a symlink to the main checkout and lands
+  // outside a codex workspace-write sandbox's writable root — writing the cache
+  // there throws EPERM. A project-root dir is always inside the writable root.
+  cacheDir: resolve(new URL('.', import.meta.url).pathname, '.vitest-cache'),
   test: {
     environment: 'node',
     globals: false,

@@ -72,6 +72,32 @@ git worktree add .claude/worktrees/<feature-slug> -b feat/<feature-slug>
 - **Announce in your reply to Kevin**: which worktree, which branch, which files
   — one line. That is how the human stays the router across both harnesses.
 
+## Launching Codex so it can self-verify
+
+Launch a Codex tandem lane with a **network-enabled** workspace-write sandbox so
+it can run the FULL gate set (test + build) itself. The default sandbox blocks
+loopback listeners and outbound DNS, which left Codex unable to run `npm test`
+cleanly or `npm run build` at all:
+
+```bash
+codex exec -m gpt-5.6-sol -c model_reasoning_effort="high" \
+  -s workspace-write -c sandbox_workspace_write.network_access=true
+```
+
+- `network_access=true` is what unblocks the 4 loopback SSRF tests in
+  `lib/security/safe-url.test.ts` (they bind `127.0.0.1`); without it Codex
+  reports them as false failures. Keep the flag on the invocation rather than
+  globally in `~/.codex/config.toml`, so your other (potentially untrusted)
+  Codex projects keep the strict default. Flip it globally — a
+  `[sandbox_workspace_write]` table with `network_access = true` — only if you
+  want it always-on everywhere.
+- The Vitest cache is already relocated off `node_modules/.vite` (a worktree's
+  symlinked `node_modules` sits outside the sandbox's writable root), and the
+  app's fonts are self-hosted (no build-time Google Fonts fetch) — so with
+  network on, both gates run offline-clean. No `--cache=false` needed.
+- Codex still cannot `git commit`/`push` (the worktree's `.git` file points
+  outside the sandbox) — the Claude-commits-after-review relay stands.
+
 ## Adapt to the situation
 
 The operating model is not fixed — read the state and fit it:
