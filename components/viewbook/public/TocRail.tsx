@@ -345,7 +345,7 @@ export function TocRail({
           aria-label="Table of contents"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
-          className="mb-1 ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white/90 shadow-sm"
+          className="mb-1 mr-auto flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white/90 shadow-sm"
           style={{ color: 'var(--vb-primary)' }}
         >
           <span aria-hidden className="text-sm font-bold">

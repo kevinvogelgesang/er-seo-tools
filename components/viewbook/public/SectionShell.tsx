@@ -122,10 +122,15 @@ export function SectionShell({
         </h2>
       </div>
 
-      {/* Decorative-only hairline divider (Task 10) above the summary face —
-          purely visual rhythm between the header band and the reveal region. */}
-      <div className="mx-auto w-full max-w-5xl px-6 pt-5">
-        <TickDivider />
+      {/* Decorative hairline divider — the top of the section HEADER STRIP.
+          Full-width brand-tinted accent background (matching the sticky bar in
+          SectionReveal) so the divider + title/summary/toggle read as one
+          header block, visually distinct from the section body below. The
+          accent literal MUST match SectionReveal's sticky-bar background. */}
+      <div style={{ background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)' }}>
+        <div className="mx-auto w-full max-w-5xl px-6 pt-5 pb-1">
+          <TickDivider />
+        </div>
       </div>
 
       <SectionReveal
