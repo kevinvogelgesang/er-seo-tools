@@ -1,7 +1,7 @@
 # Viewbook — Process & Milestones expansion — Design
 
 **Date:** 2026-07-17
-**Status:** brainstorming-approved (Kevin answered the 4 shaping questions); pending Codex spec review
+**Status:** Codex-reviewed (accept-with-named-fixes ×8, all applied 2026-07-17); ready for implementation plan
 **Base:** viewbook shipped (v1 + v2 + UX pass, all on main)
 
 ## 1. What this is
@@ -40,33 +40,49 @@ behind `process`/`why`/`seo-base`/`geo-base`/`eeat-base`). Add ONE new key:
   **override-eligible** (`OVERRIDE_ELIGIBLE_KEYS` derives from the same list) and
   validated as heading/body **`ContentBlocks`** (`validateGlobalContent` →
   `validateBlocks`, the default branch — no validator change).
-- **Everything else is automatic** (verified): `GlobalContentEditor` iterates
-  `BLOCK_KEYS = GLOBAL_CONTENT_KEYS.filter(k ≠ team, pc-intro)` → the **global
-  default editor** (admin `/viewbooks/settings`) gains a Blocks editor for it;
-  `ContentTab` iterates `OVERRIDE_ELIGIBLE_KEYS` → the **per-viewbook override**
-  editor gains a row; `public-data.ts` loads all `GLOBAL_CONTENT_KEYS` into
-  `data.global.blocks[key]` and per-viewbook `data.overrides[key]`; the content
-  write route validates via `isKnownKey` (the same list). Admin editors show the
-  **raw key** (as they do for `seo-base` etc.) — acceptable, ER-facing; a
-  friendly-label map is out of scope.
+- **Most wiring is automatic** (verified — Codex fix 2): `GlobalContentEditor`
+  iterates `BLOCK_KEYS = GLOBAL_CONTENT_KEYS.filter(k ≠ team, pc-intro)` → the
+  **global default editor** (admin `/viewbooks/settings`) gains a Blocks editor
+  for it; `ContentTab` iterates `OVERRIDE_ELIGIBLE_KEYS` → the **per-viewbook
+  override** editor gains a row; `public-data.ts` loads all `GLOBAL_CONTENT_KEYS`
+  into `data.global.blocks[key]` and per-viewbook `data.overrides[key]`;
+  `validateGlobalContent` falls to `validateBlocks` (default branch); the content
+  write + override routes validate via the shared key lists. No count assertion
+  breaks (verified).
+- **NON-automatic bits to fix explicitly (Codex fix 2):** ContentTab groups
+  override rows under a **strategy-specific heading** ("Client-specific strategy
+  adjustments / 'your plan'"); generalize that heading + any strategy-specific
+  placeholder copy so a non-strategy key reads correctly (e.g. "Client-specific
+  content overrides"). Update the stale "all five override rows" comment and the
+  enumerated-key comment in `prisma/schema.prisma` (~:987). Add EXPLICIT
+  enumeration tests that `process-milestones` appears in `BLOCK_KEYS`,
+  `OVERRIDE_ELIGIBLE_KEYS`, and is loaded into `data.global.blocks`/`data.overrides`.
+- Admin editors show the **raw key** (as for `seo-base` etc.) — acceptable,
+  ER-facing; a friendly-label map is out of scope.
 - **No migration** for this key — global content is the existing
   `ViewbookGlobalContent` table (upsert-by-key) + existing override storage.
 
 ### 3b. Render the info area in Process & Milestones
 
-In `MilestonesSection.tsx`, above the milestone list, render the block **with
-the per-viewbook override applied**, mirroring `StrategySection`'s resolve:
+In `MilestonesSection.tsx`, above the milestone list, render the block
+**mirroring `StrategySection` EXACTLY** (Codex fix 1):
 
 ```
 const blocks = data.global.blocks['process-milestones']?.blocks ?? []
 const override = data.overrides['process-milestones']
 ```
 
-Render `override` (per-viewbook text) when present, else the global `blocks`
-(shared default), using the same `<Blocks>` presentation used by Strategy/Welcome.
-Render nothing when both are empty (no empty heading leak). This also makes the
-`process-milestones` override **live** (Strategy already applies overrides; the
-new render follows that correct pattern, unlike Welcome's global-only `process`).
+**Semantics = APPEND, not replace (Codex fix 1):** the platform override model
+(`putContentOverride`, single bounded string) is additive — `StrategySection`
+renders the global `blocks` (shared default) AND, when present, the per-viewbook
+`override` text appended below. Reusing "the existing block system" (Kevin's
+choice) therefore means **append**: the shared default always shows; the
+per-viewbook override adds client-specific text beneath it. Match Strategy's
+rendering exactly. **Welcome's `Blocks` is a PRIVATE component (Codex fix 1)** —
+replicate Strategy's block+override rendering inline (or extract a shared leaf if
+cleaner), do NOT import Welcome's `Blocks`. Render nothing when BOTH the default
+blocks and the override are empty (no empty-heading leak). Tests: global-only,
+override-only, both-present, both-empty.
 
 The info area renders in **every stage** the section appears (kickoff / building /
 carried) — it is section context, above the timeline; it does not touch the
@@ -86,43 +102,72 @@ preserved so TOC/nav still targets each milestone.
 
 Additive, nullable — mirrors existing `ViewbookMilestone` string fields (`blurb`).
 
-- **Schema:** `prisma/schema.prisma` `ViewbookMilestone.description String?`
-  (nullable, additive). New migration `2026071x…_viewbook_milestone_description`
-  (pick an `HHMMSS` greater than any same-day migration; verify at
-  execution + before merge). Applies clean fresh + on the current DB; no backfill.
+- **Schema (Codex fix 7):** `prisma/schema.prisma` `ViewbookMilestone.description
+  String?` (nullable, additive). Migration SQL exactly `ALTER TABLE
+  "ViewbookMilestone" ADD COLUMN "description" TEXT;`. Pick a full timestamp
+  STRICTLY AFTER the current latest `20260717231842_viewbook_assessment_content`
+  (recheck immediately before merge). Plan runs `prisma migrate dev` (generates
+  client) + verifies BOTH fresh-DB full-chain apply AND pre-migration→upgraded
+  apply on a copy of the current DB. No backfill.
 - **Public type:** `PublicMilestone.description: string | null` (`public-types.ts`),
-  threaded in the milestone serializer in `public-data.ts` (alongside `blurb`).
-- **Operator edit:** add a `description` textarea to the milestone editor — the
-  inline `MilestoneQuickEditor` (`OperatorLayer/InlineEditors.tsx`) and, if it
-  edits the same fields, the admin `MilestonesEditor`. Persist via the existing
-  milestone update route/service (extend its accepted body with `description`,
-  bounded length, validated like `blurb`). Rides the existing `syncVersion` bump
-  (no new bump path). Array-form `$transaction` only.
+  threaded in the milestone serializer `loadMilestones` in `public-data.ts:210`
+  (alongside `blurb`).
+- **Exact write path + REAL validation (Codex fix 3):** the update path is
+  `app/api/viewbooks/[id]/milestones/[milestoneId]/route.ts` → `updateMilestone`
+  in `service.ts:488`; creation is `createMilestone` (`service.ts:474`). NOTE:
+  `blurb` currently has NO length validation, so "validate like blurb" is wrong —
+  ADD real validation for `description`: accept only `string | null`, enforce a
+  **2000-char cap** (longer than the short `blurb`), reject over-cap with 400 and
+  **no `syncVersion` bump**. Extend BOTH `updateMilestone` AND `createMilestone`
+  (+ their routes) to accept `description`. Rides the existing milestone
+  `syncVersion` bump; array-form `$transaction` only.
+- **Operator edit (Codex fix 4 — both editors, not "if"):** add a `description`
+  textarea to BOTH the inline `MilestoneQuickEditor` (`OperatorLayer/InlineEditors.tsx`)
+  AND the admin `MilestonesEditor.tsx` (it edits milestone fields). Update the
+  admin milestone type `ViewbookDetail.milestones` in
+  `components/viewbook/admin/viewbook-admin-shared.ts` + `operator-data.ts`.
 - **Render:** in the new vertical row (3c), show `description` under `blurb`.
+- **Search (Codex fix 5):** the new visible `description` joins the milestone
+  search haystack in `toc-index.ts:93` (building-stage search indexes title +
+  blurb today) — add `description`, with a test.
 
-## 4. File touch set
+## 4. File touch set (exact, Codex-reviewed)
 
 - `lib/viewbook/global-content-keys.ts` — add `'process-milestones'` key.
-- `components/viewbook/public/MilestonesSection.tsx` — vertical list + info block (override-aware) + description render.
+- `components/viewbook/public/MilestonesSection.tsx` — vertical list + info block (global default + appended override, mirror StrategySection) + `description` render.
+- `components/viewbook/public/StrategySection.tsx` — READ-ONLY reference for the block+override rendering (replicate; do not import Welcome's private `Blocks`).
 - `lib/viewbook/public-types.ts` — `PublicMilestone.description`.
-- `lib/viewbook/public-data.ts` — thread milestone `description` (serializer).
+- `lib/viewbook/public-data.ts` — thread milestone `description` in `loadMilestones` (:210).
 - `lib/viewbook/operator-data.ts` — milestone `description` in operator data.
+- `components/viewbook/admin/viewbook-admin-shared.ts` — `ViewbookDetail.milestones` type gains `description` (Codex fix 4).
 - `components/viewbook/public/OperatorLayer/InlineEditors.tsx` — `description` field in `MilestoneQuickEditor`.
-- `prisma/schema.prisma` + migration — `ViewbookMilestone.description`.
-- The milestone update route/service (`app/api/viewbooks/[id]/milestones/**` or the milestones service) — accept + validate `description`.
+- `components/viewbook/admin/MilestonesEditor.tsx` — `description` field (Codex fix 4).
+- `components/viewbook/admin/ContentTab.tsx` — generalize the strategy-specific override group heading/placeholder + stale "five rows" comment (Codex fix 2).
+- `lib/viewbook/toc-index.ts` — add `description` to the milestone search haystack (:93, Codex fix 5).
+- `lib/viewbook/service.ts` — `updateMilestone` (:488) + `createMilestone` (:474) accept + validate `description` (2000 cap, string|null); the milestone routes (`app/api/viewbooks/[id]/milestones/route.ts` + `.../[milestoneId]/route.ts`) thread it. **`service.ts` IS this feature's to edit** (no concurrent lane owns it — the other live session is `sweep-error-triage`, disjoint).
+- `prisma/schema.prisma` + new migration — `ViewbookMilestone.description` + the enumerated-key comment (~:987).
 - Tests for each.
 
 **Not touched:** `WelcomeSection.tsx` (its `process` block), the Review &
-feedback block, `service.ts` ONLY if the milestone update lives elsewhere (use
-the existing milestone write path; if it's in `service.ts`, that's this feature's
-to edit — no concurrent lane owns it now).
+feedback block.
 
-## 5. Testing
+## 4a. Public-share + operator visibility (Codex fix 6 — intended)
 
-- Global-content: `process-milestones` validates as blocks; write route accepts it; global editor + override tab enumerate it (covered by their existing key-driven tests — extend the count/fixture).
-- MilestonesSection: info block renders the global default; a per-viewbook override replaces it; both-empty → no heading; the milestone list is a vertical stack (no `overflow-x-auto`); each milestone renders its `description`.
-- Milestone `description`: round-trips through the operator editor + update route (bounded length); serializer surfaces it on `PublicMilestone`; migration applies fresh + upgraded.
-- Repo invariants: array-form `$transaction`, no jest-dom, per-worker test DB.
+The token page renders the SAME `MilestonesSection` for BOTH anonymous clients
+and authenticated operators, so the info block AND per-milestone descriptions are
+**client-visible** in kickoff, website-specifics (carried), and building — this
+is DESIRED (it is client-facing viewbook content, like the milestone titles).
+The inline `MilestoneQuickEditor` mounts ONLY on the verified-operator branch
+(operator-gated); the separate admin Milestones tab (`MilestonesEditor`) remains
+the other supported edit surface. Nothing here is operator-only leaked to clients.
+
+## 5. Testing (Codex fix 8)
+
+- Global-content: `process-milestones` validates as blocks; write + override routes accept it; EXPLICIT enumeration tests that it appears in `BLOCK_KEYS`, `OVERRIDE_ELIGIBLE_KEYS`, and `data.global.blocks`/`data.overrides`.
+- MilestonesSection: info block renders global-default-only, override-only, both-present (default THEN appended override), both-empty → no heading. **New structural regression test:** the milestone container is a VERTICAL stack and the cards no longer carry `overflow-x-auto`/`min-w-56` (NOTE: no existing test asserts those classes today — this is a NEW guard, nothing to "update"). Each milestone renders its `description`.
+- Milestone `description`: round-trips through `updateMilestone` + `createMilestone` and their routes; an over-2000-char write is rejected 400 with NO `syncVersion` bump; serializer surfaces it on `PublicMilestone`; both the inline `MilestoneQuickEditor` AND admin `MilestonesEditor` payloads include it; `toc-index` search matches on `description`.
+- Migration applies clean on a FRESH DB (full chain) AND on an upgraded copy of the current DB.
+- Repo invariants: array-form `$transaction([...])` only; `syncVersion` bump on the mutation; **serial tests against `DATABASE_URL="file:./local-dev.db"`** (the repo convention); NO jest-dom matchers.
 
 ## 6. Non-goals
 
