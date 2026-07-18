@@ -1,22 +1,36 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
-import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
-import type { AssessmentData } from '@/lib/viewbook/assessment'
+import type { PublicSection, ViewbookPublicData, PublicAssessmentNotes } from '@/lib/viewbook/public-types'
+import type { AssessmentData, AssessmentLoad } from '@/lib/viewbook/assessment'
 
 // vi.mock factories are HOISTED — a plain `const` here is a temporal-dead-zone
 // ReferenceError. vi.hoisted lifts the mock fn definition alongside the factory.
-const { loadAssessmentData } = vi.hoisted(() => ({
-  loadAssessmentData: vi.fn<(token: string) => Promise<AssessmentData | null>>(),
+const { loadAssessmentData, getOperatorEmailForPublicPage } = vi.hoisted(() => ({
+  loadAssessmentData: vi.fn<(token: string) => Promise<AssessmentLoad | null>>(),
+  getOperatorEmailForPublicPage: vi.fn<() => Promise<string | null>>(),
 }))
 vi.mock('@/lib/viewbook/assessment', () => ({ loadAssessmentData }))
+vi.mock('@/lib/viewbook/public-session', () => ({ getOperatorEmailForPublicPage }))
+// Stub the client editor leaf — its hook wiring is covered by its own suite;
+// here we only assert the operator branch mounts it.
+vi.mock('./AssessmentNotesEditors', () => ({
+  AssessmentNotesEditors: (props: { viewbookId: number }) => (
+    <div data-testid="notes-editors">editors:{props.viewbookId}</div>
+  ),
+}))
 
 import { AssessmentSection } from './AssessmentSection'
+
+beforeEach(() => {
+  getOperatorEmailForPublicPage.mockResolvedValue(null) // public viewer by default
+})
 
 afterEach(() => {
   cleanup()
   loadAssessmentData.mockReset()
+  getOperatorEmailForPublicPage.mockReset()
 })
 
 const section: PublicSection = {
@@ -62,6 +76,16 @@ const full: AssessmentData = {
   homepage: null,
 }
 
+const EMPTY_NOTES: PublicAssessmentNotes = {
+  generalNotesHtml: null,
+  userBehaviourHtml: null,
+  userBehaviourImages: [],
+}
+
+function load(over: Partial<AssessmentLoad> = {}): AssessmentLoad {
+  return { viewbookId: 1, assessment: full, notes: null, ...over }
+}
+
 // Async server component: call it as a function, render the resolved JSX.
 async function renderSection() {
   render(await AssessmentSection({ section, data, token: 'tok' }))
@@ -69,13 +93,13 @@ async function renderSection() {
 
 describe('AssessmentSection', () => {
   it('renders the coming-soon state when no assessment loads', async () => {
-    loadAssessmentData.mockResolvedValue(null)
+    loadAssessmentData.mockResolvedValue(load({ assessment: null }))
     await renderSection()
     expect(screen.getByText(/first site scan is coming soon/i)).toBeDefined()
   })
 
   it('renders scores, patterns, seo issues, and narrative', async () => {
-    loadAssessmentData.mockResolvedValue(full)
+    loadAssessmentData.mockResolvedValue(load())
     await renderSection()
     expect(screen.getAllByText(/82/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/74/).length).toBeGreaterThan(0)
@@ -88,44 +112,138 @@ describe('AssessmentSection', () => {
   })
 
   it('never renders a literal 0 for an unavailable SEO score', async () => {
-    loadAssessmentData.mockResolvedValue({ ...full, seoScore: null, seoUnavailable: true, seoIssues: [] })
+    loadAssessmentData.mockResolvedValue(load({ assessment: { ...full, seoScore: null, seoUnavailable: true, seoIssues: [] } }))
     await renderSection()
     expect(screen.getByText(/SEO details unavailable/i)).toBeDefined()
   })
 
   it('handles a null ADA score without rendering null/100 or 0', async () => {
-    loadAssessmentData.mockResolvedValue({ ...full, adaScore: null, adaPatterns: [] })
+    loadAssessmentData.mockResolvedValue(load({ assessment: { ...full, adaScore: null, adaPatterns: [] } }))
     await renderSection()
     expect(screen.getByText(/Accessibility details unavailable/i)).toBeDefined()
     expect(screen.queryByText(/null\s*\/\s*100/)).toBeNull()
   })
 
   it('renders the p75 lab rollup when performance data exists', async () => {
-    loadAssessmentData.mockResolvedValue({
-      ...full,
-      performance: {
-        measuredPages: 3,
-        medianPerformance: 60,
-        p75LcpMs: 2500,
-        p75Cls: 0.05,
-        p75TbtMs: 150,
-        pctPassing: 100,
-        scoreBuckets: { good: 1, fair: 1, poor: 1 },
-        worstPages: [{ url: 'https://acme.edu/b', performance: 40 }],
+    loadAssessmentData.mockResolvedValue(load({
+      assessment: {
+        ...full,
+        performance: {
+          measuredPages: 3,
+          medianPerformance: 60,
+          p75LcpMs: 2500,
+          p75Cls: 0.05,
+          p75TbtMs: 150,
+          pctPassing: 100,
+          scoreBuckets: { good: 1, fair: 1, poor: 1 },
+          worstPages: [{ url: 'https://acme.edu/b', performance: 40 }],
+        },
+        homepage: {
+          performance: 95,
+          lcpMs: 1800,
+          cls: 0.05,
+          tbtMs: 150,
+          lcpStatus: 'pass',
+          clsStatus: 'pass',
+          tbtStatus: 'pass',
+        },
       },
-      homepage: {
-        performance: 95,
-        lcpMs: 1800,
-        cls: 0.05,
-        tbtMs: 150,
-        lcpStatus: 'pass',
-        clsStatus: 'pass',
-        tbtStatus: 'pass',
-      },
-    })
+    }))
     await renderSection()
     expect(screen.getByText(/Lighthouse lab test/i)).toBeDefined()
     expect(screen.getByText(/3 pages measured/i)).toBeDefined()
     expect(screen.getAllByText(/2\.5\s*s/).length).toBeGreaterThan(0) // p75 LCP as seconds
+  })
+
+  it('renders CLS to exactly two decimals at both interpolation spots (D12)', async () => {
+    loadAssessmentData.mockResolvedValue(load({
+      assessment: {
+        ...full,
+        performance: {
+          measuredPages: 3,
+          medianPerformance: 60,
+          p75LcpMs: 2500,
+          p75Cls: 0.2, // must render as 0.20, not 0.2
+          p75TbtMs: 150,
+          pctPassing: 100,
+          scoreBuckets: { good: 1, fair: 1, poor: 1 },
+          worstPages: [],
+        },
+        homepage: {
+          performance: 95,
+          lcpMs: 1800,
+          cls: 0.02, // must render as 0.02
+          tbtMs: 150,
+          lcpStatus: 'pass',
+          clsStatus: 'pass',
+          tbtStatus: 'pass',
+        },
+      },
+    }))
+    await renderSection()
+    expect(screen.getByText(/Layout shift 0\.02\b/)).toBeDefined()
+    expect(screen.getByText(/p75 layout shift 0\.20\b/)).toBeDefined()
+  })
+
+  it('renders sanitized note HTML + user-behaviour images for a public viewer', async () => {
+    const notes: PublicAssessmentNotes = {
+      generalNotesHtml: '<p>General guidance text.</p>',
+      userBehaviourHtml: '<p>Visitors bounce fast.</p>',
+      userBehaviourImages: [{ id: 5, filename: 'heat.png', sortOrder: 0 }],
+    }
+    loadAssessmentData.mockResolvedValue(load({ notes }))
+    await renderSection()
+    expect(screen.getByText('General notes')).toBeDefined()
+    expect(screen.getByText(/General guidance text\./)).toBeDefined()
+    expect(screen.getByText('User Behaviour')).toBeDefined()
+    expect(screen.getByText(/Visitors bounce fast\./)).toBeDefined()
+    const img = document.querySelector('img[src="/api/viewbook/tok/assets/heat.png"]')
+    expect(img).not.toBeNull()
+  })
+
+  it('leaks no empty note headers to a public viewer with empty notes', async () => {
+    loadAssessmentData.mockResolvedValue(load({ notes: EMPTY_NOTES }))
+    await renderSection()
+    expect(screen.queryByText('General notes')).toBeNull()
+    expect(screen.queryByText('User Behaviour')).toBeNull()
+    expect(screen.queryByTestId('notes-editors')).toBeNull()
+  })
+
+  // codex-review P2: a cleared contentEditable region sanitizes to
+  // break-only markup (`<br />`, `<p><br /></p>`) rather than an empty
+  // string. Legacy/already-stored rows may still carry that shape even
+  // after setAssessmentNote started normalizing new writes — hasHtml must
+  // treat it as empty too, not just a fresh `''`.
+  it('leaks no empty note headers when stored notes are break-only markup, not a plain empty string', async () => {
+    const notes: PublicAssessmentNotes = {
+      generalNotesHtml: '<br />',
+      userBehaviourHtml: '<p><br /></p>',
+      userBehaviourImages: [],
+    }
+    loadAssessmentData.mockResolvedValue(load({ notes }))
+    await renderSection()
+    expect(screen.queryByText('General notes')).toBeNull()
+    expect(screen.queryByText('User Behaviour')).toBeNull()
+  })
+
+  it('still renders the User Behaviour heading + gallery when only images exist (no text body)', async () => {
+    const notes: PublicAssessmentNotes = {
+      generalNotesHtml: null,
+      userBehaviourHtml: '<p><br /></p>',
+      userBehaviourImages: [{ id: 5, filename: 'heat.png', sortOrder: 0 }],
+    }
+    loadAssessmentData.mockResolvedValue(load({ notes }))
+    await renderSection()
+    expect(screen.queryByText('General notes')).toBeNull()
+    expect(screen.getByText('User Behaviour')).toBeDefined()
+    const img = document.querySelector('img[src="/api/viewbook/tok/assets/heat.png"]')
+    expect(img).not.toBeNull()
+  })
+
+  it('mounts the operator editor leaf when an operator is signed in', async () => {
+    getOperatorEmailForPublicPage.mockResolvedValue('op@er.com')
+    loadAssessmentData.mockResolvedValue(load({ notes: EMPTY_NOTES }))
+    await renderSection()
+    expect(screen.getByTestId('notes-editors')).toBeDefined()
   })
 })

@@ -17,6 +17,8 @@ import {
   ONPAGE_FINDING_LABELS, BROKEN_FINDING_LABELS,
   ONPAGE_FINDING_TYPE_SET, BROKEN_FINDING_TYPE_SET,
 } from '@/lib/findings/finding-type-sets'
+import { loadAssessmentNotes } from '@/lib/viewbook/assessment-notes'
+import type { PublicAssessmentNotes } from '@/lib/viewbook/public-types'
 import type { SiteAuditSummary } from '@/lib/ada-audit/types'
 import type { LighthouseSummary } from '@/lib/ada-audit/lighthouse-types'
 
@@ -51,6 +53,20 @@ export interface AssessmentData {
   homepage: HomepageCwv | null
 }
 
+// Plan-review fix 1: `loadAssessmentData` validates the token ONCE, then
+// returns the (nullable) audit-derived payload alongside the
+// operator-authored notes. `notes` is loaded independently of the audit —
+// present even when no reportable audit exists (a client can render General
+// notes / User Behaviour before their first scan). The outer result is null
+// ONLY when the token itself can't resolve a viewbook (unknown/revoked/
+// archived — a controlled 404, no logging). Kept decoupled from the frozen
+// `ViewbookPublicData` contract, mirroring `AssessmentData` itself.
+export interface AssessmentLoad {
+  viewbookId: number
+  assessment: AssessmentData | null
+  notes: PublicAssessmentNotes | null
+}
+
 function unitFor(type: string): AssessmentSeoIssue['unit'] {
   if (type.startsWith('broken_')) return 'targets'
   if (type.startsWith('duplicate_')) return 'groups'
@@ -66,84 +82,108 @@ function parseJson<T>(raw: string | null): T | null {
   }
 }
 
-export async function loadAssessmentData(token: string): Promise<AssessmentData | null> {
+export async function loadAssessmentData(token: string): Promise<AssessmentLoad | null> {
+  let viewbookId: number
+  let clientId: number
   try {
     const vb = await requireViewbookToken(token)
-
-    const audit = await prisma.siteAudit.findFirst({
-      where: {
-        clientId: vb.clientId,
-        status: 'complete',
-        seoOnly: false,
-        crawlRuns: { some: { tool: 'seo-parser' } },
-      },
-      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
-    })
-    if (!audit) return null
-
-    const runs = await prisma.crawlRun.findMany({
-      where: { siteAuditId: audit.id },
-      select: {
-        tool: true,
-        source: true,
-        score: true,
-        findings: { where: { scope: 'run' }, select: { type: true, count: true } },
-      },
-    })
-    const adaRun = runs.find((r) => r.tool === 'ada-audit') ?? null
-    const seoRun = runs.find((r) => r.tool === 'seo-parser') ?? null
-    const seoUnavailable = seoRun != null && isPlaceholderRun(seoRun)
-
-    const seoIssues = seoRun && !seoUnavailable
-      ? seoRun.findings
-          .filter((f) => f.count > 0 && (ONPAGE_FINDING_TYPE_SET.has(f.type) || BROKEN_FINDING_TYPE_SET.has(f.type)))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, MAX_SEO_ISSUES)
-          .map((f) => ({
-            label: ONPAGE_FINDING_LABELS[f.type] ?? BROKEN_FINDING_LABELS[f.type] ?? f.type,
-            count: f.count,
-            unit: unitFor(f.type),
-          }))
-      : []
-
-    let summary = parseJson<SiteAuditSummary>(audit.summary)
-    if (!summary) summary = await buildSummaryFromFindings(audit.id)
-    const adaPatterns = [...(summary?.commonIssues ?? [])]
-      .sort((a, b) =>
-        (IMPACT_RANK[b.impact] ?? 0) - (IMPACT_RANK[a.impact] ?? 0) || b.affectedPagesCount - a.affectedPagesCount,
-      )
-      .slice(0, MAX_ADA_PATTERNS)
-      .map((c) => ({
-        help: c.help,
-        impact: c.impact,
-        affectedPagesCount: c.affectedPagesCount,
-        totalPagesScanned: c.totalPagesScanned,
-      }))
-
-    const lhRows = (
-      await prisma.adaAudit.findMany({
-        where: { siteAuditId: audit.id, lighthouseSummary: { not: null } },
-        select: { id: true, url: true, lighthouseSummary: true },
-      })
-    )
-      .map((r) => ({ id: r.id, url: r.url, summary: parseJson<LighthouseSummary>(r.lighthouseSummary) }))
-      .filter((r): r is { id: string; url: string; summary: LighthouseSummary } => r.summary != null)
-
-    return {
-      domain: audit.domain,
-      completedAt: audit.completedAt?.toISOString() ?? null,
-      standardTested: standardLabel(audit.wcagLevel),
-      pagesAudited: audit.pagesComplete,
-      adaScore: adaRun?.score ?? null,
-      seoScore: seoUnavailable ? null : seoRun?.score ?? null,
-      seoUnavailable,
-      adaPatterns,
-      seoIssues,
-      performance: aggregatePerformance(lhRows),
-      homepage: pickHomepageCwv(lhRows, audit.domain),
-    }
+    viewbookId = vb.id
+    clientId = vb.clientId
   } catch (err) {
+    // Controlled token 404s (unknown/revoked/archived) return null WITHOUT
+    // operational logging — same fault-soft contract as before.
     if (!(err instanceof HttpError)) logError({ subsystem: 'viewbook', op: 'assessment-load' }, err)
     return null
+  }
+
+  // Both blocks are INDEPENDENTLY fault-isolated: a failure deriving the audit
+  // payload must not suppress the operator-authored notes (and vice versa).
+  // Notes are attempted even when there is no reportable audit.
+  const [assessment, notes] = await Promise.all([
+    loadAssessmentPayload(clientId).catch((err) => {
+      logError({ subsystem: 'viewbook', op: 'assessment-load' }, err)
+      return null
+    }),
+    loadAssessmentNotes(viewbookId).catch((err) => {
+      logError({ subsystem: 'viewbook', op: 'assessment-notes-load' }, err)
+      return null
+    }),
+  ])
+
+  return { viewbookId, assessment, notes }
+}
+
+async function loadAssessmentPayload(clientId: number): Promise<AssessmentData | null> {
+  const audit = await prisma.siteAudit.findFirst({
+    where: {
+      clientId,
+      status: 'complete',
+      seoOnly: false,
+      crawlRuns: { some: { tool: 'seo-parser' } },
+    },
+    orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+  })
+  if (!audit) return null
+
+  const runs = await prisma.crawlRun.findMany({
+    where: { siteAuditId: audit.id },
+    select: {
+      tool: true,
+      source: true,
+      score: true,
+      findings: { where: { scope: 'run' }, select: { type: true, count: true } },
+    },
+  })
+  const adaRun = runs.find((r) => r.tool === 'ada-audit') ?? null
+  const seoRun = runs.find((r) => r.tool === 'seo-parser') ?? null
+  const seoUnavailable = seoRun != null && isPlaceholderRun(seoRun)
+
+  const seoIssues = seoRun && !seoUnavailable
+    ? seoRun.findings
+        .filter((f) => f.count > 0 && (ONPAGE_FINDING_TYPE_SET.has(f.type) || BROKEN_FINDING_TYPE_SET.has(f.type)))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, MAX_SEO_ISSUES)
+        .map((f) => ({
+          label: ONPAGE_FINDING_LABELS[f.type] ?? BROKEN_FINDING_LABELS[f.type] ?? f.type,
+          count: f.count,
+          unit: unitFor(f.type),
+        }))
+    : []
+
+  let summary = parseJson<SiteAuditSummary>(audit.summary)
+  if (!summary) summary = await buildSummaryFromFindings(audit.id)
+  const adaPatterns = [...(summary?.commonIssues ?? [])]
+    .sort((a, b) =>
+      (IMPACT_RANK[b.impact] ?? 0) - (IMPACT_RANK[a.impact] ?? 0) || b.affectedPagesCount - a.affectedPagesCount,
+    )
+    .slice(0, MAX_ADA_PATTERNS)
+    .map((c) => ({
+      help: c.help,
+      impact: c.impact,
+      affectedPagesCount: c.affectedPagesCount,
+      totalPagesScanned: c.totalPagesScanned,
+    }))
+
+  const lhRows = (
+    await prisma.adaAudit.findMany({
+      where: { siteAuditId: audit.id, lighthouseSummary: { not: null } },
+      select: { id: true, url: true, lighthouseSummary: true },
+    })
+  )
+    .map((r) => ({ id: r.id, url: r.url, summary: parseJson<LighthouseSummary>(r.lighthouseSummary) }))
+    .filter((r): r is { id: string; url: string; summary: LighthouseSummary } => r.summary != null)
+
+  return {
+    domain: audit.domain,
+    completedAt: audit.completedAt?.toISOString() ?? null,
+    standardTested: standardLabel(audit.wcagLevel),
+    pagesAudited: audit.pagesComplete,
+    adaScore: adaRun?.score ?? null,
+    seoScore: seoUnavailable ? null : seoRun?.score ?? null,
+    seoUnavailable,
+    adaPatterns,
+    seoIssues,
+    performance: aggregatePerformance(lhRows),
+    homepage: pickHomepageCwv(lhRows, audit.domain),
   }
 }

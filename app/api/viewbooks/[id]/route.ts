@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
 import { HttpError } from '@/lib/api/errors'
+import { prisma } from '@/lib/db'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
+import { deleteViewbookAssets } from '@/lib/viewbook/assets'
 import {
   deleteViewbook,
   getViewbookAdmin,
@@ -49,6 +51,18 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
 export const DELETE = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const id = parseId((await params).id)
+  // deleteViewbook (service.ts, off-limits here) snapshots only theme + doc
+  // filenames — it doesn't know about the assessment-image table (Task 4).
+  // Snapshot those filenames BEFORE the delete (cascade would otherwise leak
+  // the files), remove them AFTER the delete succeeds — same
+  // snapshot-before/files-after pattern as the client-delete route.
+  const assessmentImages = await prisma.viewbookAssessmentImage.findMany({
+    where: { content: { viewbookId: id } },
+    select: { filename: true },
+  })
   await deleteViewbook(id)
+  if (assessmentImages.length > 0) {
+    await deleteViewbookAssets(String(id), assessmentImages.map((img) => img.filename))
+  }
   return NextResponse.json({ ok: true })
 })

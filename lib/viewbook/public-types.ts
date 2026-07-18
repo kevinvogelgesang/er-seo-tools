@@ -108,6 +108,23 @@ export interface PublicDocRow {
   sortOrder: number
 }
 
+// Task 4 (Lane 4): assessment-tab rich-text notes + user-behaviour image
+// gallery. Deliberately SEPARATE from `ViewbookPublicData` — mirrors how
+// `AssessmentData` (assessment.ts) lives outside the frozen public-payload
+// contract; these are consumed by their own loader (assessment-notes.ts),
+// not folded into the big page fetch.
+export interface PublicAssessmentImage {
+  id: number
+  filename: string
+  sortOrder: number
+}
+
+export interface PublicAssessmentNotes {
+  generalNotesHtml: string | null
+  userBehaviourHtml: string | null
+  userBehaviourImages: PublicAssessmentImage[]
+}
+
 export interface ViewbookPublicData {
   viewbookId: number
   clientName: string

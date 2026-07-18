@@ -1,11 +1,42 @@
 // B5 client soft-archive semantics: PATCH {archived}, DELETE gate, GET filter.
-import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { mkdtemp, rm } from 'fs/promises'
+import { tmpdir } from 'os'
+import path from 'path'
+import crypto from 'crypto'
+import sharp from 'sharp'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
+import { readViewbookAsset } from '@/lib/viewbook/assets'
+import { createViewbook, attachViewbookLogo } from '@/lib/viewbook/service'
+import { addAssessmentImage } from '@/lib/viewbook/assessment-notes'
 import { PATCH, DELETE } from './route'
 import { GET as LIST } from '../route'
 
 const PREFIX = '__clarch__'
+
+// Task 9: viewbook asset-file cleanup on client delete needs a real disk
+// scope (VIEWBOOK_ASSETS_DIR) — the service.test.ts/assessment-notes.test.ts
+// pattern (tmp dir per test, torn down after).
+let assetsDir: string
+beforeEach(async () => {
+  assetsDir = await mkdtemp(path.join(tmpdir(), 'clarch-vb-'))
+  process.env.VIEWBOOK_ASSETS_DIR = assetsDir
+})
+afterEach(async () => {
+  delete process.env.VIEWBOOK_ASSETS_DIR
+  await rm(assetsDir, { recursive: true, force: true })
+})
+
+let PNG: Buffer
+async function png(): Promise<Buffer> {
+  if (!PNG) {
+    PNG = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .png()
+      .toBuffer()
+  }
+  return PNG
+}
 
 const routeParams = (id: number) => ({ params: Promise.resolve({ id: String(id) }) })
 
@@ -82,6 +113,25 @@ describe('DELETE /api/clients/:id archive gate', () => {
 
   it('404s for an unknown client', async () => {
     expect((await DELETE(jsonReq('DELETE', {}), routeParams(99999999))).status).toBe(404)
+  })
+
+  it('removes theme + assessment-image asset files (Task 9)', async () => {
+    const c = await makeClient('assets')
+    const { id: viewbookId } = await createViewbook(c.id, 'upgrade', 'op@er.com')
+    const theme = await attachViewbookLogo(viewbookId, await png())
+    const img = await addAssessmentImage(viewbookId, await png(), 'op@er.com')
+
+    // both files exist before delete
+    expect(await readViewbookAsset(String(viewbookId), theme.logo as string)).not.toBeNull()
+    expect(await readViewbookAsset(String(viewbookId), img.filename)).not.toBeNull()
+
+    await prisma.client.update({ where: { id: c.id }, data: { archivedAt: new Date() } })
+    const res = await DELETE(jsonReq('DELETE', {}), routeParams(c.id))
+    expect(res.status).toBe(200)
+
+    // theme file (existing coverage) AND the new assessment-image file are both gone
+    expect(await readViewbookAsset(String(viewbookId), theme.logo as string)).toBeNull()
+    expect(await readViewbookAsset(String(viewbookId), img.filename)).toBeNull()
   })
 })
 
