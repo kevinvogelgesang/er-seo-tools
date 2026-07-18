@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type {
   OperatorFieldData,
@@ -388,10 +388,15 @@ describe('operator inline editors', () => {
     expect(screen.getByRole('button', { name: /Brand Guidelines copy/ })).toBeTruthy()
     sectionRender.unmount()
 
-    render(<MilestoneQuickEditor viewbookId={12} milestones={[milestone]} />)
+    const secondMilestone = { ...milestone, id: 5, title: 'Second milestone', sortOrder: 2 }
+    render(<MilestoneQuickEditor viewbookId={12} milestones={[milestone, secondMilestone]} />)
     openPanel('Process & Milestones')
     expect(screen.getAllByText('Upcoming').length).toBeGreaterThan(0)
-    const status = screen.getByLabelText('Milestone status') as HTMLSelectElement
+    const firstGroup = screen.getByRole('group', { name: 'Old milestone' })
+    const secondGroup = screen.getByRole('group', { name: 'Second milestone' })
+    expect(within(firstGroup).getByLabelText('Milestone title')).toBeTruthy()
+    expect(within(secondGroup).getByLabelText('Milestone title')).toBeTruthy()
+    const status = within(firstGroup).getByLabelText('Milestone status') as HTMLSelectElement
     expect(status.querySelector('option[value="upcoming"]')?.textContent).toBe('Upcoming')
     expect(status.querySelector('option[value="current"]')?.textContent).toBe('Current')
     expect(status.querySelector('option[value="done"]')?.textContent).toBe('Done')

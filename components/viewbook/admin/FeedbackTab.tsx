@@ -22,6 +22,15 @@ function formatDate(value: string | Date): string {
   return new Date(value).toLocaleString()
 }
 
+function feedbackAuthor(item: { authorName: string | null; authorKind: string }): string {
+  return item.authorName ?? item.authorKind
+}
+
+function resolveLabel(item: { body: string; authorName: string | null; authorKind: string }): string {
+  const snippet = item.body.replace(/\s+/g, ' ').trim().slice(0, 80)
+  return `Resolve feedback from ${feedbackAuthor(item)}: ${snippet}`
+}
+
 export function FeedbackTab({ viewbookId, threads }: { viewbookId: number; threads: AdminFeedbackThread[] }) {
   const [rows, setRows] = useState(threads)
   const [busyId, setBusyId] = useState<number | null>(null)
@@ -58,6 +67,7 @@ export function FeedbackTab({ viewbookId, threads }: { viewbookId: number; threa
   const feedback = rows.flatMap((thread) => thread.feedback.map((item) => ({ ...item, threadLabel: thread.label })))
   const open = feedback.filter((item) => !item.resolvedAt)
   const resolved = feedback.filter((item) => item.resolvedAt)
+  const busyFeedback = feedback.find((item) => item.id === busyId)
 
   function renderItem(item: (typeof feedback)[number]) {
     return (
@@ -81,6 +91,7 @@ export function FeedbackTab({ viewbookId, threads }: { viewbookId: number; threa
           ) : (
             <button
               type="button"
+              aria-label={resolveLabel(item)}
               disabled={busyId === item.id}
               onClick={() => void resolve(item.id, item.body)}
               className={editorSecondaryBtnClass}
@@ -95,6 +106,9 @@ export function FeedbackTab({ viewbookId, threads }: { viewbookId: number; threa
 
   return (
     <div className="space-y-6 font-body">
+      <div role="status" aria-live="polite" className="sr-only">
+        {busyFeedback ? `Resolving feedback from ${feedbackAuthor(busyFeedback)}…` : ''}
+      </div>
       {error && (
         <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           Could not resolve feedback: {error}. Your feedback remains open; try again.

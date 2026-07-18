@@ -2,7 +2,7 @@
 
 // Viewbook editor shell: Theme · Content · Data Source · Milestones · Feedback · Activity · Settings.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import {
   editorDestructiveBtnClass,
   editorPrimaryBtnClass,
@@ -25,6 +25,7 @@ const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Acti
 
 export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>('Theme')
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [vb, setVb] = useState<ViewbookDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -69,6 +70,23 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
   const feedbackCount = threads.reduce((count, thread) => count + thread.feedback.length, 0)
   const tabKey = tab.toLowerCase().replaceAll(' ', '-')
 
+  function selectTabAt(index: number) {
+    const nextTab = TABS[index]
+    setTab(nextTab)
+    tabRefs.current[index]?.focus()
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | null = null
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % TABS.length
+    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + TABS.length) % TABS.length
+    if (event.key === 'Home') nextIndex = 0
+    if (event.key === 'End') nextIndex = TABS.length - 1
+    if (nextIndex === null) return
+    event.preventDefault()
+    selectTabAt(nextIndex)
+  }
+
   return (
     <div className="space-y-5 font-body">
       <header className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card sm:flex sm:items-center sm:justify-between sm:gap-5">
@@ -110,18 +128,21 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
 
       <nav aria-label="Viewbook editor navigation" className="overflow-x-auto pb-1">
         <div role="tablist" aria-label="Viewbook editor sections" className="flex min-w-max items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-navy-light">
-          {TABS.map((t) => {
+          {TABS.map((t, index) => {
             const selected = tab === t
             const key = t.toLowerCase().replaceAll(' ', '-')
             return (
               <button
                 key={t}
                 id={`viewbook-tab-${key}`}
+                ref={(node) => { tabRefs.current[index] = node }}
                 type="button"
                 role="tab"
                 aria-selected={selected}
-                aria-controls={`viewbook-panel-${key}`}
+                aria-controls={selected ? 'viewbook-editor-panel' : undefined}
+                tabIndex={selected ? 0 : -1}
                 onClick={() => setTab(t)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
                 className={`${t === 'Settings' ? 'ml-2 border-l border-gray-300 pl-4 dark:border-navy-border' : ''} rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
                   selected
                     ? 'bg-white text-navy shadow-sm dark:bg-navy-card dark:text-white'
@@ -143,9 +164,10 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
       </nav>
 
       <div
-        id={`viewbook-panel-${tabKey}`}
+        id="viewbook-editor-panel"
         role="tabpanel"
         aria-labelledby={`viewbook-tab-${tabKey}`}
+        tabIndex={0}
         className={tab === 'Settings' ? 'rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-navy-border dark:bg-navy-deep/30' : ''}
       >
         {tab === 'Theme' && (

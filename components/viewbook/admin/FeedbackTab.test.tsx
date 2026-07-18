@@ -7,9 +7,13 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('FeedbackTab', () => {
   it('resolves an item through the ownership-fenced operator route', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
+    const response = {
       ok: true, json: async () => ({ feedback: { id: 4, resolvedAt: new Date().toISOString(), resolvedBy: 'operator@example.com' } }),
-    })
+    }
+    let releaseRequest!: () => void
+    const fetchMock = vi.fn(() => new Promise<typeof response>((resolve) => {
+      releaseRequest = () => resolve(response)
+    }))
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('confirm', vi.fn(() => true))
     render(<FeedbackTab viewbookId={9} threads={[{
@@ -19,7 +23,9 @@ describe('FeedbackTab', () => {
     }]} />)
     expect(screen.getByText('1 open')).toBeTruthy()
     expect(screen.getByText('0 resolved')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve feedback from Alex: Please revise' }))
+    expect(screen.getByRole('status').textContent).toContain('Resolving feedback from Alex')
+    releaseRequest()
     await waitFor(() => expect(screen.getByText('Resolved by operator@example.com')).toBeTruthy())
     expect(screen.getByText('0 open')).toBeTruthy()
     expect(screen.getByText('1 resolved')).toBeTruthy()
@@ -37,7 +43,7 @@ describe('FeedbackTab', () => {
       }],
     }]} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve feedback from Alex: Please revise' }))
     expect(fetchMock).not.toHaveBeenCalled()
     expect(screen.getByText('1 open')).toBeTruthy()
   })
@@ -51,9 +57,9 @@ describe('FeedbackTab', () => {
       }],
     }]} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve feedback from Alex: Please revise' }))
     expect((await screen.findByRole('alert')).textContent).toContain('resolve_failed')
-    expect(screen.getByRole('button', { name: 'Resolve' }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Resolve feedback from Alex: Please revise' }).hasAttribute('disabled')).toBe(false)
     expect(screen.getByText('1 open')).toBeTruthy()
   })
 

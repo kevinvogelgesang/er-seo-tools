@@ -176,7 +176,12 @@ describe('ViewbookEditor shell', () => {
   async function renderEditor(viewbook = mkFullViewbook()) {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse({ viewbook })),
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/viewbooks/3/docs') {
+          return jsonResponse({ docs: { global: [], own: [] } })
+        }
+        return jsonResponse({ viewbook })
+      }),
     )
     await act(async () => {
       render(<ViewbookEditor viewbookId={3} />)
@@ -247,12 +252,56 @@ describe('ViewbookEditor shell', () => {
     const feedbackTab = within(tablist).getByRole('tab', { name: /Feedback/ })
     const settingsTab = within(tablist).getByRole('tab', { name: 'Settings' })
     expect(themeTab.getAttribute('aria-selected')).toBe('true')
+    expect(themeTab.tabIndex).toBe(0)
+    expect(feedbackTab.tabIndex).toBe(-1)
     expect(feedbackTab.textContent).toContain('2')
     expect(settingsTab.getAttribute('class')).toContain('border-l')
 
     fireEvent.click(feedbackTab)
     expect(feedbackTab.getAttribute('aria-selected')).toBe('true')
+    expect(feedbackTab.tabIndex).toBe(0)
     expect(themeTab.getAttribute('aria-selected')).toBe('false')
-    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(feedbackTab.id)
+    expect(themeTab.hasAttribute('aria-controls')).toBe(false)
+    const tabpanel = screen.getByRole('tabpanel')
+    expect(tabpanel.id).toBe('viewbook-editor-panel')
+    expect(tabpanel.getAttribute('aria-labelledby')).toBe(feedbackTab.id)
+    expect(tabpanel.tabIndex).toBe(0)
+    expect(feedbackTab.getAttribute('aria-controls')).toBe(tabpanel.id)
+  })
+
+  it('supports roving focus and selection with Arrow, Home, and End keys', async () => {
+    await renderEditor()
+
+    const tablist = await screen.findByRole('tablist', { name: 'Viewbook editor sections' })
+    const themeTab = within(tablist).getByRole('tab', { name: 'Theme' })
+    const contentTab = within(tablist).getByRole('tab', { name: 'Content' })
+    const settingsTab = within(tablist).getByRole('tab', { name: 'Settings' })
+
+    themeTab.focus()
+    fireEvent.keyDown(themeTab, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(contentTab)
+    expect(contentTab.getAttribute('aria-selected')).toBe('true')
+    expect(contentTab.tabIndex).toBe(0)
+    expect(themeTab.tabIndex).toBe(-1)
+    expect(contentTab.getAttribute('aria-controls')).toBe('viewbook-editor-panel')
+    expect(themeTab.hasAttribute('aria-controls')).toBe(false)
+
+    fireEvent.keyDown(contentTab, { key: 'End' })
+    expect(document.activeElement).toBe(settingsTab)
+    expect(settingsTab.getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.keyDown(settingsTab, { key: 'Home' })
+    expect(document.activeElement).toBe(themeTab)
+    expect(themeTab.getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.keyDown(themeTab, { key: 'ArrowLeft' })
+    expect(document.activeElement).toBe(settingsTab)
+    expect(settingsTab.getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.keyDown(settingsTab, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(themeTab)
+    expect(themeTab.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(themeTab.id)
   })
 })

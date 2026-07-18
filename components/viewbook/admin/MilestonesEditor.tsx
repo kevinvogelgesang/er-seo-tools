@@ -115,6 +115,7 @@ export function MilestonesEditor({
                 {m.status !== 'current' && (
                   <button
                     type="button"
+                    aria-label={`Make ${m.title} current`}
                     onClick={() =>
                       void run(() =>
                         jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, {
@@ -132,6 +133,7 @@ export function MilestonesEditor({
                 {m.status !== 'done' && (
                   <button
                     type="button"
+                    aria-label={`Mark ${m.title} done`}
                     onClick={() =>
                       void run(() =>
                         jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${m.id}`, {

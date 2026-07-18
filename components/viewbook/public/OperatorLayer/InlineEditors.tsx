@@ -314,15 +314,18 @@ function MilestoneRow({
   const statusLabel = draft.status === 'done' ? 'Done' : draft.status === 'current' ? 'Current' : 'Upcoming'
   const statusTone: Tone = draft.status === 'done' ? 'success' : draft.status === 'current' ? 'running' : 'neutral'
   const editStatus = visualStatus({ dirty, busy: autosave.saving, error: autosave.error })
+  const headingId = `operator-milestone-${milestone.id}-heading`
 
   return (
     <div
+      role="group"
+      aria-labelledby={headingId}
       className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-navy-border dark:bg-navy-card"
       onFocus={focus.onFocus}
       onBlur={(event) => { focus.onBlur(event); autosave.flushOnBlur(event) }}
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-navy-border">
-        <h3 className="mr-auto min-w-0 truncate font-display text-sm font-semibold text-navy dark:text-white">{draft.title || 'Untitled milestone'}</h3>
+        <h3 id={headingId} className="mr-auto min-w-0 truncate font-display text-sm font-semibold text-navy dark:text-white">{draft.title || 'Untitled milestone'}</h3>
         <StatusPill label={statusLabel} tone={statusTone} />
         <ViewbookEditorStatus state={editStatus.state} message={editStatus.message} />
       </div>

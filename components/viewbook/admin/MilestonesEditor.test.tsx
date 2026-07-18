@@ -52,6 +52,8 @@ describe('MilestonesEditor', () => {
     expect(screen.getByText('Kickoff blurb')).toBeTruthy()
     expect(screen.getByText(/Due/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Edit Launch' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Make Launch current' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Mark Launch done' })).toBeTruthy()
     expect(container.innerHTML.includes('dark' + ':')).toBe(true)
   })
 
@@ -123,7 +125,7 @@ describe('MilestonesEditor', () => {
     vi.stubGlobal('fetch', fetchMock)
     render(<MilestonesEditor viewbookId={12} milestones={[milestone]} onChanged={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Make current' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Make Launch current' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
     expect(fetchMock.mock.calls[0][0]).toBe('/api/viewbooks/12/milestones/4')
