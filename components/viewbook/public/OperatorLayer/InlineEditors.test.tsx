@@ -52,8 +52,17 @@ function expectActive(prefix: string) {
   expect(vi.mocked(useEditorActivity).mock.calls.some(([id, active]) => id.startsWith(prefix) && active)).toBe(true)
 }
 
-function expectLightOnly(container: HTMLElement) {
-  expect(container.innerHTML.includes('dark' + ':')).toBe(false)
+function expectDarkModeTokens(container: HTMLElement) {
+  expect(container.innerHTML.includes('dark' + ':')).toBe(true)
+}
+
+function openPanel(name: string | RegExp) {
+  const matcher = typeof name === 'string'
+    ? new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    : name
+  const trigger = screen.getByRole('button', { name: matcher })
+  if (trigger.getAttribute('aria-expanded') === 'false') fireEvent.click(trigger)
+  return trigger
 }
 
 const section: OperatorSectionData = {
@@ -92,7 +101,7 @@ const field: OperatorFieldData = {
   amendments: [],
 }
 
-describe('light-only operator inline editors', () => {
+describe('operator inline editors', () => {
   it('autosaves the welcome note after the trailing debounce with no save button', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn().mockResolvedValue(ok())
@@ -106,7 +115,7 @@ describe('light-only operator inline editors', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock.mock.calls[0][0]).toBe('/api/viewbooks/12')
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ welcomeNote: 'New note' })
-    expectLightOnly(container)
+    expectDarkModeTokens(container)
   })
 
   it('autosaves section intro/narrative together with no save button', async () => {
@@ -125,7 +134,7 @@ describe('light-only operator inline editors', () => {
       introNote: 'New intro',
       narrative: 'New narrative',
     })
-    expectLightOnly(container)
+    expectDarkModeTokens(container)
   })
 
   it('autosaves milestone values through one PATCH with no save button', async () => {
@@ -145,7 +154,7 @@ describe('light-only operator inline editors', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       title: 'Launch', status: 'current', targetDate: '2026-08-01', description: 'New description',
     })
-    expectLightOnly(container)
+    expectDarkModeTokens(container)
   })
 
   it('autosaves the theme through the existing PATCH with no save button', async () => {
@@ -160,7 +169,7 @@ describe('light-only operator inline editors', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock.mock.calls[0][0]).toBe('/api/viewbooks/12')
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).theme.primary).toBe('#abcdef')
-    expectLightOnly(container)
+    expectDarkModeTokens(container)
   })
 
   it('searches the manifest-backed font choices while preserving key values', () => {
@@ -173,6 +182,20 @@ describe('light-only operator inline editors', () => {
 
     expect(headingSelect.querySelector('option[value="dm-serif-display"]')?.textContent).toBe('DM Serif Display')
     expect(headingSelect.querySelector('option[value="roboto"]')).toBeNull()
+  })
+
+  it('groups theme controls and uses a mounted disclosure for section hero assets', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<ThemeInlineEditor viewbookId={12} theme={DEFAULT_THEME} />)
+
+    openPanel('Viewbook theme')
+    expect(screen.getByRole('heading', { name: 'Colors' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Assets' })).toBeTruthy()
+    const heroTrigger = screen.getByRole('button', { name: /Section hero images/ })
+    expect(heroTrigger.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByLabelText('Hero image for Brand Guidelines')).toBeTruthy()
+    expect(document.querySelector('details')).toBeNull()
   })
 
   it('mounts the live writer and previews theme changes on the agreed fixture markers', () => {
@@ -217,6 +240,7 @@ describe('light-only operator inline editors', () => {
     const fetchMock = vi.fn().mockResolvedValue(ok({ doc }, 201))
     vi.stubGlobal('fetch', fetchMock)
     const { container } = render(<DocsInlineEditor viewbookId={12} docs={{ global: [], own: [] }} />)
+    openPanel('Strategy PDFs')
     fireEvent.change(screen.getByLabelText('PDF title'), { target: { value: 'New guide' } })
     fireEvent.change(screen.getByLabelText('PDF file'), {
       target: { files: [new File(['%PDF-test'], 'guide.pdf', { type: 'application/pdf' })] },
@@ -227,7 +251,24 @@ describe('light-only operator inline editors', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/viewbooks/12/docs')
     expect(fetchMock.mock.calls[0][1].method).toBe('POST')
     expect(fetchMock.mock.calls[0][1].body).toBeInstanceOf(FormData)
-    expectLightOnly(container)
+    expectDarkModeTokens(container)
+  })
+
+  it('separates global playbooks from viewbook-specific strategy PDFs', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<DocsInlineEditor
+      viewbookId={12}
+      docs={{
+        global: [{ id: 1, title: 'Global guide', blurb: 'Shared reference', filename: 'global.pdf', sortOrder: 1 }],
+        own: [{ id: 2, title: 'Client guide', blurb: 'Client reference', filename: 'client.pdf', sortOrder: 1 }],
+      }}
+    />)
+
+    openPanel('Strategy PDFs')
+    expect(screen.getByRole('heading', { name: 'Global playbooks' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'This viewbook' })).toBeTruthy()
+    expect(screen.getByText('Managed globally')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Delete Client guide' })).toBeTruthy()
   })
 
   it('keeps add-field explicit but autosaves an unlocked answer', async () => {
@@ -239,6 +280,8 @@ describe('light-only operator inline editors', () => {
     const { container } = render(
       <DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} />,
     )
+    openPanel('Data Source')
+    openPanel('Add custom field')
     fireEvent.change(screen.getByLabelText('Custom field label'), { target: { value: 'New question' } })
     expectActive('operator-new-field')
     fireEvent.click(screen.getByRole('button', { name: 'Add field' }))
@@ -254,7 +297,20 @@ describe('light-only operator inline editors', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[1][0]).toBe('/api/viewbooks/12/fields/7')
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ value: 'New answer', expectedVersion: 2 })
-    expectLightOnly(container)
+    expectDarkModeTokens(container)
+  })
+
+  it('shows open data context and field metadata before the secondary custom-field form', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} />)
+
+    openPanel('Data Source')
+    expect(screen.getByText('Open for direct editing')).toBeTruthy()
+    expect(screen.getByText('School motto')).toBeTruthy()
+    expect(screen.getAllByText('Text').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('School').length).toBeGreaterThan(0)
+    expect(screen.getByText('Version 2')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Add custom field/ }).getAttribute('aria-expanded')).toBe('false')
   })
 
   it('retains the local answer and pauses after stale_version until an explicit retry uses the adopted version', async () => {
@@ -264,13 +320,15 @@ describe('light-only operator inline editors', () => {
       .mockResolvedValueOnce(ok({ field: { ...field, value: 'Newer answer', version: 6 } }))
     vi.stubGlobal('fetch', fetchMock)
     render(<DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} />)
+    openPanel('Data Source')
 
     fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'My answer' } })
     await advanceAutosave()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ value: 'My answer', expectedVersion: 2 })
 
-    expect(screen.getByText('A newer answer exists. Your draft was kept.')).toBeTruthy()
+    expect(screen.getByText('Your draft was kept')).toBeTruthy()
+    expect(screen.getByText('A newer answer exists. Retry to save against the latest version.')).toBeTruthy()
     expect((screen.getByLabelText('Answer for School motto') as HTMLInputElement).value).toBe('My answer')
     await advanceAutosave(5000)
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -288,6 +346,7 @@ describe('light-only operator inline editors', () => {
     const fetchMock = vi.fn().mockResolvedValue(ok({ amendment }))
     vi.stubGlobal('fetch', fetchMock)
     render(<DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt="2026-07-17T00:00:00.000Z" />)
+    openPanel('Data Source')
 
     fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'Proposal' } })
     await advanceAutosave(5000)
@@ -301,8 +360,40 @@ describe('light-only operator inline editors', () => {
     })
   })
 
-  it('opens operator edit panels by default', () => {
+  it('defaults disclosures collapsed while keeping editor children mounted', () => {
     render(<WelcomeNoteInlineEditor viewbookId={12} welcomeNote="Old note" />)
-    expect(document.querySelector('details[data-operator-inline-editor]')?.hasAttribute('open')).toBe(true)
+    const trigger = screen.getByRole('button', { name: /Welcome note/ })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('region', { hidden: true }).hasAttribute('hidden')).toBe(true)
+    expect(screen.getByLabelText('Welcome note')).toBeTruthy()
+    expect(document.querySelector('details[data-operator-inline-editor]')).toBeNull()
+  })
+
+  it('keeps a dirty panel open when the operator tries to collapse it', () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok()))
+    render(<WelcomeNoteInlineEditor viewbookId={12} welcomeNote="Old note" />)
+
+    const trigger = screen.getByRole('button', { name: /Welcome note/ })
+    fireEvent.change(screen.getByLabelText('Welcome note'), { target: { value: 'Unsaved note' } })
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('Unsaved')).toBeTruthy()
+
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('uses readable section titles and human-readable milestone status labels', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const sectionRender = render(<SectionTextInlineEditor viewbookId={12} section={section} />)
+    expect(screen.getByRole('button', { name: /Brand Guidelines copy/ })).toBeTruthy()
+    sectionRender.unmount()
+
+    render(<MilestoneQuickEditor viewbookId={12} milestones={[milestone]} />)
+    openPanel('Process & Milestones')
+    expect(screen.getAllByText('Upcoming').length).toBeGreaterThan(0)
+    const status = screen.getByLabelText('Milestone status') as HTMLSelectElement
+    expect(status.querySelector('option[value="upcoming"]')?.textContent).toBe('Upcoming')
+    expect(status.querySelector('option[value="current"]')?.textContent).toBe('Current')
+    expect(status.querySelector('option[value="done"]')?.textContent).toBe('Done')
   })
 })
