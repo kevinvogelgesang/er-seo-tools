@@ -948,6 +948,7 @@ model ViewbookMilestone {
   viewbook    Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   title       String
   blurb       String?
+  description String?
   sortOrder   Int
   status      String    @default("upcoming") // 'upcoming' | 'current' | 'done'
   targetDate  DateTime?
