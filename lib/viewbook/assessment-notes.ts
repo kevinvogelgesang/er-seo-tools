@@ -48,7 +48,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
-import { sanitizeRichText } from '@/lib/richtext/sanitize'
+import { isBlankRichText, sanitizeRichText } from '@/lib/richtext/sanitize'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { syncVersionBumpWhere } from './sync'
 import type { PublicAssessmentImage, PublicAssessmentNotes } from './public-types'
@@ -128,7 +128,13 @@ export async function setAssessmentNote(
 
   await assertViewbookActive(viewbookId)
 
+  // codex-review P2: a cleared contentEditable region sanitizes to
+  // break-only markup (`<br />`, `<p><br /></p>`) rather than `''` — store
+  // clean-empty instead, so the public page's `hasHtml` check (and any
+  // other reader) never has to special-case break-only HTML that made it
+  // into the column before this normalization existed at write time.
   const sanitized = sanitizeRichText(html)
+  const normalized = isBlankRichText(sanitized) ? '' : sanitized
   const column = FIELD_COLUMN[field]
   // `column` is always one of the two hardcoded FIELD_COLUMN values (never
   // derived from request input beyond the `field in FIELD_COLUMN` check
@@ -144,7 +150,7 @@ export async function setAssessmentNote(
     // statement fences both the create and the update path.
     prisma.$executeRaw`
       INSERT INTO "ViewbookAssessmentContent" ("viewbookId", ${columnIdent}, "updatedAt", "updatedBy")
-      SELECT ${viewbookId}, ${sanitized}, ${now}, ${actor}
+      SELECT ${viewbookId}, ${normalized}, ${now}, ${actor}
       WHERE (${predicate})
       ON CONFLICT("viewbookId") DO UPDATE SET
         ${columnIdent} = excluded.${columnIdent},

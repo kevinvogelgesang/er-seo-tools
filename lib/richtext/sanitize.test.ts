@@ -78,4 +78,38 @@ describe('sanitizeRichText', () => {
     expect(sanitizeRichText(42 as unknown as string)).toBe('');
     expect(sanitizeRichText({} as unknown as string)).toBe('');
   });
+
+  // codex-review P1: Chromium's execCommand emits <b>/<i>/<div>, none of
+  // which were previously allowlisted — bold/italic vanished, and <div>
+  // blocks were discarded WITHOUT a separator, concatenating adjacent
+  // lines. transformTags maps these onto the allowlisted equivalents.
+  it('maps <b> to <strong>', () => {
+    expect(sanitizeRichText('<b>x</b>')).toBe('<strong>x</strong>');
+  });
+
+  it('maps <i> to <em>', () => {
+    expect(sanitizeRichText('<i>x</i>')).toBe('<em>x</em>');
+  });
+
+  it('maps a <div> line break to a <p> block, never concatenating adjacent lines', () => {
+    const result = sanitizeRichText('first<div>second</div>');
+    expect(result).toBe('first<p>second</p>');
+    expect(result).not.toBe('firstsecond');
+    expect(result).toContain('first');
+    expect(result).toContain('second');
+  });
+
+  it('maps multiple <div> lines to separate <p> blocks', () => {
+    expect(sanitizeRichText('<div>one</div><div>two</div>')).toBe('<p>one</p><p>two</p>');
+  });
+
+  it('still strips <script> and attributes on a <b>/<div>-bearing payload', () => {
+    expect(sanitizeRichText('<b onclick="evil()">bold</b><script>alert(1)</script><div>next</div>')).toBe(
+      '<strong>bold</strong><p>next</p>'
+    );
+  });
+
+  it('still strips <a href> even after the div->p transform', () => {
+    expect(sanitizeRichText('<div>go <a href="https://evil.example">here</a></div>')).toBe('<p>go here</p>');
+  });
 });

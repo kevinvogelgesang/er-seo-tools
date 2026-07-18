@@ -27,6 +27,16 @@ afterEach(() => {
 })
 
 describe('RichTextEditor', () => {
+  // codex-review P1: force tag-based <b>/<i>/<u> (not <span style>, which
+  // the strict sanitizer would discard) and <p> paragraphs (not the bare
+  // <div> Enter creates) at editor init — belt-and-suspenders with
+  // sanitize.ts's transformTags.
+  it('initializes styleWithCSS(false) and defaultParagraphSeparator(p) on mount', () => {
+    render(<RichTextEditor value="<p>x</p>" onChange={vi.fn()} ariaLabel="Notes" />)
+    expect(document.execCommand).toHaveBeenCalledWith('styleWithCSS', false, false)
+    expect(document.execCommand).toHaveBeenCalledWith('defaultParagraphSeparator', false, 'p')
+  })
+
   it('renders a labeled toolbar and an aria-labeled contentEditable region', () => {
     render(<RichTextEditor value="<p>hi</p>" onChange={vi.fn()} ariaLabel="Assessment notes" />)
     expect(screen.getByRole('toolbar', { name: 'Text formatting' })).not.toBeNull()

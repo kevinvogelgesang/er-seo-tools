@@ -125,6 +125,45 @@ describe('setAssessmentNote / loadAssessmentNotes', () => {
     const { id } = await ownViewbook()
     expect(await loadAssessmentNotes(id)).toBeNull()
   })
+
+  // codex-review P2: a cleared contentEditable region sanitizes to
+  // break-only markup (`<br />`, `<p><br /></p>`), not `''`. Without
+  // write-time normalization, that markup would round-trip through
+  // `hasHtml`'s naive `.trim().length > 0` check as "populated" and leak
+  // an empty "General notes"/"User Behaviour" heading on the public page.
+  it.each(['<br>', '<div><br></div>', '<p></p>', '   '])(
+    'normalizes break-only/empty input %j to a stored empty string',
+    async (breakOnly) => {
+      const { id } = await ownViewbook()
+      await setAssessmentNote(id, 'general', breakOnly, 'op@er.com')
+
+      const raw = await prisma.viewbookAssessmentContent.findUniqueOrThrow({ where: { viewbookId: id } })
+      expect(raw.generalNotesHtml).toBe('')
+
+      const notes = await loadAssessmentNotes(id)
+      expect(notes?.generalNotesHtml).toBe('')
+    },
+  )
+
+  it('still persists a real note intact alongside the break-only normalization', async () => {
+    const { id } = await ownViewbook()
+    await setAssessmentNote(id, 'general', '<p>Real content here.</p>', 'op@er.com')
+
+    const raw = await prisma.viewbookAssessmentContent.findUniqueOrThrow({ where: { viewbookId: id } })
+    expect(raw.generalNotesHtml).toBe('<p>Real content here.</p>')
+
+    const notes = await loadAssessmentNotes(id)
+    expect(notes?.generalNotesHtml).toBe('<p>Real content here.</p>')
+  })
+
+  it('overwrites a previously real note with break-only input back to empty', async () => {
+    const { id } = await ownViewbook()
+    await setAssessmentNote(id, 'general', '<p>Will be cleared.</p>', 'op@er.com')
+    await setAssessmentNote(id, 'general', '<div><br></div>', 'op@er.com')
+
+    const notes = await loadAssessmentNotes(id)
+    expect(notes?.generalNotesHtml).toBe('')
+  })
 })
 
 describe('addAssessmentImage / deleteAssessmentImage', () => {

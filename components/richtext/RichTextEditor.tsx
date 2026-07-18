@@ -45,10 +45,14 @@ const TOOLBAR_ACTIONS: Array<{ label: string; ariaLabel: string; command: string
 // test suite) don't implement it at all — calling it throws a TypeError
 // rather than no-op'ing. Guard so those environments degrade to
 // "formatting is a no-op, onChange still fires" instead of crashing.
-function runExecCommand(command: string, value?: string): void {
+function runExecCommand(command: string, value?: string | boolean): void {
   if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return
   try {
-    document.execCommand(command, false, value)
+    // `execCommand`'s TS signature types the third arg as `string`, but a
+    // couple of commands we init with below (`styleWithCSS`) are
+    // browser-documented to take a boolean — real implementations coerce
+    // it either way, so this is a widening cast, not a behavior change.
+    document.execCommand(command, false, value as string | undefined)
   } catch {
     // See above — environments without a real execCommand implementation.
   }
@@ -85,6 +89,23 @@ export function RichTextEditor({
       lastEmittedRef.current = value
     }
   }, [value])
+
+  // codex-review P1, belt-and-suspenders with sanitize.ts's transformTags:
+  // by default Chromium's execCommand formats bold/italic/underline as
+  // `<span style="font-weight:bold">` (styleWithCSS ON) and separates lines
+  // with a bare `<div>` — the span never survives the strict
+  // no-attributes sanitizer (it would be discarded, taking the formatting
+  // with it, unlike the `<b>`/`<i>` tags the transform rescues), and the
+  // sanitizer must special-case `<div>` at all. Forcing tag-based styling
+  // and `<p>` paragraphs at the DOM-editing layer means the HTML this
+  // editor emits already matches the allowlist's intent. Mount-once (not
+  // in the seeding effect above, which re-runs per external `value`
+  // change) — `runExecCommand` no-ops safely in jsdom, which doesn't
+  // implement `execCommand` at all.
+  useEffect(() => {
+    runExecCommand('styleWithCSS', false)
+    runExecCommand('defaultParagraphSeparator', 'p')
+  }, [])
 
   function emitChange() {
     const el = editorRef.current

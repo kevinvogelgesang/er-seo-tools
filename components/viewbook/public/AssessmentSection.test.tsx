@@ -209,6 +209,37 @@ describe('AssessmentSection', () => {
     expect(screen.queryByTestId('notes-editors')).toBeNull()
   })
 
+  // codex-review P2: a cleared contentEditable region sanitizes to
+  // break-only markup (`<br />`, `<p><br /></p>`) rather than an empty
+  // string. Legacy/already-stored rows may still carry that shape even
+  // after setAssessmentNote started normalizing new writes — hasHtml must
+  // treat it as empty too, not just a fresh `''`.
+  it('leaks no empty note headers when stored notes are break-only markup, not a plain empty string', async () => {
+    const notes: PublicAssessmentNotes = {
+      generalNotesHtml: '<br />',
+      userBehaviourHtml: '<p><br /></p>',
+      userBehaviourImages: [],
+    }
+    loadAssessmentData.mockResolvedValue(load({ notes }))
+    await renderSection()
+    expect(screen.queryByText('General notes')).toBeNull()
+    expect(screen.queryByText('User Behaviour')).toBeNull()
+  })
+
+  it('still renders the User Behaviour heading + gallery when only images exist (no text body)', async () => {
+    const notes: PublicAssessmentNotes = {
+      generalNotesHtml: null,
+      userBehaviourHtml: '<p><br /></p>',
+      userBehaviourImages: [{ id: 5, filename: 'heat.png', sortOrder: 0 }],
+    }
+    loadAssessmentData.mockResolvedValue(load({ notes }))
+    await renderSection()
+    expect(screen.queryByText('General notes')).toBeNull()
+    expect(screen.getByText('User Behaviour')).toBeDefined()
+    const img = document.querySelector('img[src="/api/viewbook/tok/assets/heat.png"]')
+    expect(img).not.toBeNull()
+  })
+
   it('mounts the operator editor leaf when an operator is signed in', async () => {
     getOperatorEmailForPublicPage.mockResolvedValue('op@er.com')
     loadAssessmentData.mockResolvedValue(load({ notes: EMPTY_NOTES }))

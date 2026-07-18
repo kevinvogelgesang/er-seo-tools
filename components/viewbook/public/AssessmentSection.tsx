@@ -9,6 +9,7 @@ import { loadAssessmentData } from '@/lib/viewbook/assessment'
 import type { AssessmentData } from '@/lib/viewbook/assessment'
 import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
 import { RichTextRenderer } from '@/components/richtext/RichTextRenderer'
+import { isBlankRichText } from '@/lib/richtext/sanitize'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -33,8 +34,17 @@ function cls(x: number): string {
   return Number(x).toFixed(2)
 }
 
+// codex-review P2: a cleared contentEditable region can sanitize to
+// break-only markup (`<br />`, `<p><br /></p>`) — `.trim().length > 0`
+// treats that as "populated" and leaks an empty "General notes"/"User
+// Behaviour" heading with nothing under it. `isBlankRichText` strips tags
+// (and `&nbsp;`) before checking for real text, so this also protects
+// legacy/already-stored rows written before `setAssessmentNote` started
+// normalizing break-only input to `''` at write time. Does not affect the
+// User Behaviour image-gallery check below, which is a separate `images`
+// array, not this text-body check.
 function hasHtml(html: string | null | undefined): boolean {
-  return typeof html === 'string' && html.trim().length > 0
+  return typeof html === 'string' && !isBlankRichText(html)
 }
 
 function ScoreTile({ label, score, note }: { label: string; score: number | null; note?: string }) {
