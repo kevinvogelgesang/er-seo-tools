@@ -49,6 +49,14 @@ html.dark .dot-grid {
   background-size: 24px 24px;
 }
 
+/* Operator-only canvas fit. Preview-as-client removes the document attribute,
+   so the exact public canvas is never narrowed. */
+@media (min-width: 1024px) {
+  html[data-vb-canvas-fit] [data-vb-theme-root] {
+    width: calc(100% - 24rem);
+  }
+}
+
 /* Scroll-triggered fade-up for tool cards */
 @keyframes fadeUpIn {
   from {

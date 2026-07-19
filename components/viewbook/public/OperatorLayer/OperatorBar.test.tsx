@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { PresentationModeProvider } from '../PresentationToggle'
+import { renderToString } from 'react-dom/server'
+import { PresentationModeProvider, PresentationToggle } from '../PresentationToggle'
 import { requestRefresh } from '../useViewbookSync'
 import { OperatorBar } from './OperatorBar'
 
@@ -32,6 +33,28 @@ function response(body: unknown, status = 200) {
 }
 
 describe('OperatorBar', () => {
+  it('renders no operator bar before presentation mode initializes or while presenting', async () => {
+    const preInitHtml = renderToString(
+      <PresentationModeProvider>
+        <OperatorBar viewbookId={42} operatorEmail="operator@example.com" stage="kickoff" pcCompletedAt={null} />
+      </PresentationModeProvider>,
+    )
+    expect(preInitHtml).not.toContain('vb-operator-bar')
+
+    vi.stubGlobal('localStorage', {
+      getItem: () => 'true',
+      setItem: vi.fn(),
+    })
+    const { container } = render(
+      <PresentationModeProvider>
+        <OperatorBar viewbookId={42} operatorEmail="operator@example.com" stage="kickoff" pcCompletedAt={null} />
+        <PresentationToggle />
+      </PresentationModeProvider>,
+    )
+    await screen.findByRole('button', { name: 'Return to editing' })
+    expect(container.querySelector('#vb-operator-bar')).toBeNull()
+  })
+
   it('renders app-styled metadata, stage, theme, presentation, and stage controls', async () => {
     const { container } = render(
       <PresentationModeProvider>
@@ -51,6 +74,10 @@ describe('OperatorBar', () => {
     expect(screen.getByRole('button', { name: 'Preview as client' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Toggle ER theme' })).toBeTruthy()
     expect(container.querySelector('[data-operator-status-dot]')).toBeTruthy()
+    expect(container.querySelectorAll('#vb-operator-bar')).toHaveLength(1)
+    expect(container.querySelector('[data-vb-section-outline]')).toBeNull()
+    expect(container.querySelector('[data-vb-inspector-panes]')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^(hide|show|mark done|reopen|reset acknowledgment)$/i })).toBeNull()
   })
 
   it('shows a live busy status and disables stage actions during a mutation', async () => {
