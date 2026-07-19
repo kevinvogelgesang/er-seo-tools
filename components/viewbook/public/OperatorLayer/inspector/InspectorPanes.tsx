@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
 import type { OperatorViewbookData } from '@/lib/viewbook/operator-data'
 import type { SectionKey } from '@/lib/viewbook/theme'
 import { InlineSectionEditors } from '../InlineEditors'
@@ -60,8 +61,18 @@ export function InspectorPanes({ viewbookId, operatorData }: InspectorPanesProps
   const seededKey = canvasOrder.find((key) => eligibleKeys.has(key)) ?? null
   const activeKey = selectedKey && eligibleKeys.has(selectedKey) ? selectedKey : seededKey
 
+  const activeTitle = activeKey ? SECTION_TITLES[activeKey] : null
+
   return (
     <div role="region" aria-label="Section editors" data-vb-inspector-panes>
+      {/* Matches the outline's "Sections" heading; the active section name below
+          it makes the Edit region distinct + tells you what you're editing. */}
+      <div className="sticky top-0 z-[1] border-b border-gray-200 bg-gray-50/95 px-4 py-3 backdrop-blur-sm dark:border-navy-border dark:bg-navy-card/80">
+        <h2 className="font-display text-sm font-semibold text-navy dark:text-white">Edit</h2>
+        <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-white/55">
+          {activeTitle ?? 'Select a section'}
+        </p>
+      </div>
       {activeKey === null && (
         <p data-vb-inspector-empty className="px-4 py-6 font-body text-sm text-gray-500 dark:text-white/55">
           Select a section to edit.
