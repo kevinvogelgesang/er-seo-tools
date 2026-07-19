@@ -26,15 +26,18 @@ export const SECTION_KEYS = [
 
 export type SectionKey = (typeof SECTION_KEYS)[number]
 
-// Server-enforced collapse allowlist — the ONE home shared by the operator
-// Collapse control (SectionQuickControls) and the server (service.setSectionState).
-// A collapsed section renders ONLY its hero band on the public view; its body
-// (intro + content) is suppressed. Collapse is available on the SAME set as
-// Mark-done — every section EXCEPT the framing bookends pc-intro / pc-thanks
-// (Kevin's call, 2026-07-19: parity with Hide/Mark-done; collapsing a client-
-// interactive section is a deliberate, reversible operator choice). This module
-// is client-safe (no server imports), so both the client control and the server
-// service import it without pulling client-only code.
+// Server-enforced collapse allowlist — the ONE home of which sections may
+// carry a shared collapse (consumed by lib/viewbook/collapse.ts's
+// setSectionCollapsedShared; the old operator-only Collapse control and
+// service.setSectionState call sites were retired when 'collapsed' state was
+// replaced by ViewbookSection.collapsedShared). A collapsed section renders
+// ONLY its hero band on the public view; its body (intro + content) is
+// suppressed. Collapse is available on the SAME set as Mark-done — every
+// section EXCEPT the framing bookends pc-intro / pc-thanks (Kevin's call,
+// 2026-07-19: parity with Hide/Mark-done; collapsing a client-interactive
+// section is a deliberate, reversible choice). This module is client-safe (no
+// server imports), so both client code and the server service import it
+// without pulling client-only code.
 export const COLLAPSE_EXCLUDED_SECTION_KEYS: ReadonlySet<string> = new Set([
   'pc-intro',
   'pc-thanks',

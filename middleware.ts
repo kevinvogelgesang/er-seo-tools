@@ -84,6 +84,8 @@ export function isPublicPath(pathname: string): boolean {
   if (/^\/api\/viewbook\/[^/]+\/ack$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/team-members$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/setup$/.test(pathname)) return true
+  // v2 PR2: viewer-facing shared section collapse. Same anchoring discipline.
+  if (/^\/api\/viewbook\/[^/]+\/collapse$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 

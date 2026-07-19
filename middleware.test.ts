@@ -177,6 +177,19 @@ describe('isPublicPath — client viewbook post-contract public writes (PR5 Task
     expect(isPublicPath('/api/viewbook/tok/team-membersx')).toBe(false);
     expect(isPublicPath('/api/viewbook/tok/setupx')).toBe(false);
   });
+});
+
+describe('isPublicPath — client viewbook shared collapse (PR2)', () => {
+  it('collapse is public, anchored single-segment', () => {
+    expect(isPublicPath('/api/viewbook/tok/collapse')).toBe(true);
+  });
+
+  it('deeper/near-match paths are NOT public (anchoring proof)', () => {
+    expect(isPublicPath('/api/viewbook/tok/collapse/extra')).toBe(false);
+    expect(isPublicPath('/api/viewbook/tok/collapsex')).toBe(false);
+    // admin API stays cookie-gated
+    expect(isPublicPath('/api/viewbooks/3/collapse')).toBe(false);
+  });
 
   it('the ack-reset admin route stays cookie-gated (no matcher added)', () => {
     expect(isPublicPath('/api/viewbooks/3/ack/pc-setup')).toBe(false);
