@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CollapsibleSection } from './CollapsibleSection'
 import { collapseKey } from './useCollapseState'
+import { requestRefresh } from './useViewbookSync'
+
+vi.mock('./useViewbookSync', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./useViewbookSync')>()
+  return { ...actual, requestRefresh: vi.fn() }
+})
 
 let stored = new Map<string, string>()
 
@@ -15,6 +21,7 @@ beforeEach(() => {
     clear: () => stored.clear(),
   })
   window.location.hash = ''
+  vi.mocked(requestRefresh).mockClear()
 })
 
 afterEach(() => {
@@ -73,6 +80,8 @@ describe('CollapsibleSection', () => {
     const region = document.getElementById('vb-region-brand')
     expect(region?.hasAttribute('hidden')).toBe(false)
     expect(stored.get(collapseKey(1, 'brand'))).toBe('expanded')
+    // Personal expand has nothing shared to refresh — no house-convention nudge.
+    expect(requestRefresh).not.toHaveBeenCalled()
   })
 
   it('client collapse: POSTs {collapsed:true}, clears override, optimistic collapse; restores override on failure', async () => {
@@ -95,9 +104,31 @@ describe('CollapsibleSection', () => {
     const region = document.getElementById('vb-region-brand')
     expect(region?.hasAttribute('hidden')).toBe(false)
     expect(stored.get(collapseKey(1, 'brand'))).toBe('expanded')
+    // A failed write is not a "successful shared write" — no latch, no nudge.
+    expect(requestRefresh).not.toHaveBeenCalled()
   })
 
-  it('operator expand: POSTs {collapsed:false}', async () => {
+  it('client collapse HOLDS after settle — does not revert while collapsedShared is still stale (Codex FIX-9 regression)', async () => {
+    const fetchSpy = vi.fn(async () => jsonOk())
+    vi.stubGlobal('fetch', fetchSpy)
+    render(<Harness collapsedShared={false} isOperator={false} />)
+
+    const collapseBtn = screen.getByRole('button', { name: 'Collapse for everyone' })
+    await act(async () => {
+      fireEvent.click(collapseBtn)
+    })
+
+    // The write succeeded and endPending() reran the reconcile effect, but
+    // the harness's collapsedShared prop is UNCHANGED (still false) — exactly
+    // the pre-refresh window. Pre-fix this reverted to expanded; the region
+    // must stay collapsed until the real prop catches up.
+    const region = document.getElementById('vb-region-brand')
+    expect(region?.hasAttribute('hidden')).toBe(true)
+    expect(region?.getAttribute('aria-hidden')).toBe('true')
+    expect(requestRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('operator expand HOLDS after settle — does not revert while collapsedShared is still stale (Codex FIX-9 regression)', async () => {
     const fetchSpy = vi.fn(async () => jsonOk())
     vi.stubGlobal('fetch', fetchSpy)
     render(<Harness collapsedShared isOperator />)
@@ -110,11 +141,33 @@ describe('CollapsibleSection', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [, init] = fetchSpy.mock.calls[0]
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ sectionKey: 'brand', collapsed: false })
-    // Note: this harness's `collapsedShared` prop is static (a real page
-    // re-renders with the fresh value via the sync poll), so once the write
-    // settles the reconcile effect correctly falls back to the stale prop
-    // (FIX-5) rather than pinning the optimistic view — asserting DOM
-    // visibility here would test the harness, not the island.
+
+    // collapsedShared is still true (the harness prop is unchanged) — pre-fix
+    // this reverted to collapsed; it must stay expanded until the poll's
+    // eventual page refresh brings the real prop in line.
+    const region = document.getElementById('vb-region-brand')
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(requestRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('latch clears once collapsedShared catches up — a genuinely later shared change still applies', async () => {
+    const fetchSpy = vi.fn(async () => jsonOk())
+    vi.stubGlobal('fetch', fetchSpy)
+    const { rerender } = render(<Harness collapsedShared={false} isOperator={false} />)
+
+    const collapseBtn = screen.getByRole('button', { name: 'Collapse for everyone' })
+    await act(async () => {
+      fireEvent.click(collapseBtn)
+    })
+    expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(true)
+
+    // The sync poll refreshes the page — collapsedShared now matches what we wrote.
+    rerender(<Harness collapsedShared isOperator={false} />)
+    expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(true)
+
+    // A genuinely NEW shared change (e.g. someone else re-expands it) applies normally.
+    rerender(<Harness collapsedShared={false} isOperator={false} />)
+    expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(false)
   })
 
   it('affordance accessible name is actor-specific (just for you / visible to everyone)', () => {
@@ -182,5 +235,6 @@ describe('CollapsibleSection', () => {
     })
     expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(true)
     expect(fetchSpy).not.toHaveBeenCalled()
+    expect(requestRefresh).not.toHaveBeenCalled()
   })
 })

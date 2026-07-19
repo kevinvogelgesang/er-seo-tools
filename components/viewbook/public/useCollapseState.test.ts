@@ -143,4 +143,120 @@ describe('useCollapseState', () => {
       expect(result.current.beginPending()).toBe(false)
     })
   })
+
+  // FIX-9: markAwaitingShared latches a successful shared write so the
+  // reconcile effect holds it instead of reverting to the still-stale
+  // collapsedShared prop the instant endPending() reruns the effect.
+
+  it('client collapse: markAwaitingShared(true) holds collapsed after endPending even though the prop is still stale', () => {
+    const { result, rerender } = renderHook(
+      (props: { collapsedShared: boolean }) =>
+        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
+      { initialProps: { collapsedShared: false } },
+    )
+    expect(result.current.collapsed).toBe(false)
+
+    act(() => {
+      expect(result.current.beginPending()).toBe(true)
+    })
+    act(() => {
+      result.current.setCollapsedOptimistic(true)
+      result.current.clearPersonalOverride()
+      result.current.markAwaitingShared(true) // the write succeeded
+    })
+    act(() => {
+      result.current.endPending() // reruns the reconcile effect — prop is STILL false
+    })
+
+    // This is the regression: pre-fix, this asserted false (reverted).
+    expect(result.current.collapsed).toBe(true)
+
+    // Re-rendering with the SAME stale prop must not revert it either.
+    rerender({ collapsedShared: false })
+    expect(result.current.collapsed).toBe(true)
+  })
+
+  it('operator expand: markAwaitingShared(false) holds expanded after endPending even though the prop is still stale', () => {
+    const { result, rerender } = renderHook(
+      (props: { collapsedShared: boolean }) =>
+        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
+      { initialProps: { collapsedShared: true } },
+    )
+    expect(result.current.collapsed).toBe(true)
+
+    act(() => {
+      expect(result.current.beginPending()).toBe(true)
+    })
+    act(() => {
+      result.current.setCollapsedOptimistic(false)
+      result.current.markAwaitingShared(false) // the write succeeded
+    })
+    act(() => {
+      result.current.endPending() // reruns the reconcile effect — prop is STILL true
+    })
+
+    // This is the regression: pre-fix, this asserted true (reverted).
+    expect(result.current.collapsed).toBe(false)
+
+    rerender({ collapsedShared: true })
+    expect(result.current.collapsed).toBe(false)
+  })
+
+  it('latch clears once collapsedShared catches up to the awaited value, then normal reconciliation resumes', () => {
+    const { result, rerender } = renderHook(
+      (props: { collapsedShared: boolean }) =>
+        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
+      { initialProps: { collapsedShared: false } },
+    )
+
+    act(() => {
+      expect(result.current.beginPending()).toBe(true)
+    })
+    act(() => {
+      result.current.setCollapsedOptimistic(true)
+      result.current.clearPersonalOverride()
+      result.current.markAwaitingShared(true)
+    })
+    act(() => {
+      result.current.endPending()
+    })
+    expect(result.current.collapsed).toBe(true)
+
+    // The poll catches up: prop now matches the written value.
+    rerender({ collapsedShared: true })
+    expect(result.current.collapsed).toBe(true)
+
+    // A genuinely NEW shared change (someone else re-expanded it) now
+    // applies normally — the latch is clear, this is not a revert.
+    rerender({ collapsedShared: false })
+    expect(result.current.collapsed).toBe(false)
+  })
+
+  it('a personal expanded override always wins and clears the latch outright', () => {
+    const { result, rerender } = renderHook(
+      (props: { collapsedShared: boolean }) =>
+        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
+      { initialProps: { collapsedShared: false } },
+    )
+
+    act(() => {
+      expect(result.current.beginPending()).toBe(true)
+    })
+    act(() => {
+      result.current.setCollapsedOptimistic(true)
+      result.current.clearPersonalOverride()
+      result.current.markAwaitingShared(true)
+    })
+    // A personal expand lands (e.g. vb:navigate) before endPending.
+    act(() => {
+      result.current.forceExpandedLocal()
+    })
+    act(() => {
+      result.current.endPending()
+    })
+    expect(result.current.collapsed).toBe(false) // override wins over the latch
+
+    rerender({ collapsedShared: false })
+    expect(result.current.collapsed).toBe(false)
+  })
 })

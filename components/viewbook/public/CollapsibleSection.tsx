@@ -18,10 +18,19 @@
 // This island does NOT emit `data-operator-section` — OperatorSectionWrapper
 // (rendered OUTSIDE every section component, server-side in the page) already
 // owns that single scroll-spy marker (Codex FIX-8).
+//
+// Codex FIX-9: every shared write that SUCCEEDS calls markAwaitingShared()
+// (latches the just-written value so useCollapseState's reconcile effect
+// holds it rather than snapping back to the still-stale collapsedShared prop
+// the instant endPending() reruns it) AND requestRefresh() (the house
+// convention — see SectionQuickControls — that nudges useViewbookSync's poll
+// so the real prop catches up sooner, shrinking the latched window). Personal
+// client expand writes neither: no fetch, nothing shared to refresh.
 import { useEffect, type ReactNode } from 'react'
 import { CollapseAffordance } from './CollapseAffordance'
 import type { CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
 import { useCollapseState } from './useCollapseState'
+import { requestRefresh } from './useViewbookSync'
 
 export function CollapsibleSection({
   viewbookId,
@@ -58,6 +67,7 @@ export function CollapsibleSection({
     clearPersonalOverride,
     restorePersonalOverride,
     setCollapsedOptimistic,
+    markAwaitingShared,
   } = useCollapseState({ viewbookId, sectionKey, collapsedShared })
 
   useEffect(() => {
@@ -90,6 +100,12 @@ export function CollapsibleSection({
     const prevOverride = clearPersonalOverride() // snapshot for rollback (FIX-6)
     try {
       if (!(await writeShared(true))) throw new Error('collapse_failed')
+      // FIX-9: latch the written value so the reconcile effect holds this
+      // collapsed view instead of reverting to the still-stale prop the
+      // instant endPending() reruns it, and nudge the shared poller so the
+      // real prop catches up sooner.
+      markAwaitingShared(true)
+      requestRefresh()
     } catch {
       setCollapsedOptimistic(false)
       restorePersonalOverride(prevOverride) // restore localStorage too
@@ -112,6 +128,9 @@ export function CollapsibleSection({
     try {
       if (!(await writeShared(false))) throw new Error('expand_failed')
       clearPersonalOverride()
+      // FIX-9: see onCollapse — latch + nudge the poller on success only.
+      markAwaitingShared(false)
+      requestRefresh()
     } catch {
       setCollapsedOptimistic(true)
     } finally {
