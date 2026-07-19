@@ -20,10 +20,19 @@ function cookieFromHeader(header: string, name: string): string | null {
   return null
 }
 
-export async function requireOperatorEmail(request: Request): Promise<string> {
+// Non-throwing core: null means "no verified operator identity", used where a
+// route wants to know operator status WITHOUT gating the whole request on it
+// (e.g. an anonymous-writable public route that additionally unlocks a
+// stricter action for verified operators).
+export async function resolveOperatorEmail(request: Request): Promise<string | null> {
   if (isAuthBypassedInDev()) return 'dev@localhost'
   const value = cookieFromHeader(request.headers.get('cookie') ?? '', AUTH_COOKIE_NAME)
   const session = await getAuthSession(value)
-  if (!session?.email) throw new HttpError(401, 'auth_required')
-  return session.email
+  return session?.email ?? null
+}
+
+export async function requireOperatorEmail(request: Request): Promise<string> {
+  const email = await resolveOperatorEmail(request)
+  if (!email) throw new HttpError(401, 'auth_required')
+  return email
 }
