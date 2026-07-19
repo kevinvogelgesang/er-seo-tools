@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, act } from '@testing-library/react'
+import { useEffect } from 'react'
 import { SelectionProvider, useSelectionContext } from './SelectionContext'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
@@ -54,5 +55,20 @@ describe('SelectionContext', () => {
     expect(screen.getByTestId('kind').textContent).toBe('manual-nav')
     act(() => { vi.advanceTimersByTime(4000) })
     expect(screen.getByTestId('kind').textContent).toBe('none')
+  })
+
+  // Regression: re-pinning the SAME key+kind must be idempotent so calling
+  // select() from a render-driven effect (the activity bridge) settles instead
+  // of looping (new pin object → provider re-render → effect re-runs → …).
+  it('select() from an effect that re-selects the same key+kind settles without a render loop', () => {
+    function LoopProbe() {
+      const s = useSelectionContext()
+      // Runs on EVERY render; only stable if select() stops re-pinning an
+      // already-identical pin. An unguarded select would exceed the update depth.
+      useEffect(() => { s.select('brand', 'focus') })
+      return <span data-testid="loop-sel">{s.selectedKey ?? 'none'}</span>
+    }
+    render(<SelectionProvider><LoopProbe /></SelectionProvider>)
+    expect(screen.getByTestId('loop-sel').textContent).toBe('brand')
   })
 })

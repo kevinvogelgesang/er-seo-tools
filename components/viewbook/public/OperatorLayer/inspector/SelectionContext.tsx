@@ -55,7 +55,11 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     const cur = pinRef.current
     // A HARD pin on a DIFFERENT section fails closed.
     if (cur && cur.kind === 'activity' && cur.key !== key) return false
-    setPinBoth({ key, kind })
+    // Only replace the pin when it actually changes. Re-pinning the SAME
+    // key+kind must NOT produce a new object: the activity bridge calls
+    // select() from an effect that depends on this provider's context value,
+    // so a fresh identical pin would re-render → re-run the effect → loop.
+    if (!cur || cur.key !== key || cur.kind !== kind) setPinBoth({ key, kind })
     setSelectedKey(key)
     if (group) setSelectedGroup(group)
     clearTimer()
