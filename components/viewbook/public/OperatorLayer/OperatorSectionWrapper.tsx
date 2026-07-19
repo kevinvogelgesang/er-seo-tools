@@ -1,26 +1,15 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import type { OperatorSectionData, OperatorViewbookData } from '@/lib/viewbook/operator-data'
 import type { SectionKey } from '@/lib/viewbook/theme'
 import { usePresentationMode } from '../PresentationToggle'
-import { SectionQuickControls } from './SectionQuickControls'
 
 export function OperatorSectionWrapper({
   sectionKey,
-  viewbookId,
-  section,
-  pcCompletedAt,
   isOperator = true,
   children,
 }: {
   sectionKey: SectionKey
-  viewbookId: number
-  section: OperatorSectionData
-  // `operatorData` is still passed by page.tsx (PR4 removes it from the type);
-  // PR3 no longer reads it here — the editors moved to InspectorPanes.
-  operatorData: OperatorViewbookData
-  pcCompletedAt: string | null
   isOperator?: boolean
   children: ReactNode
 }) {
@@ -33,13 +22,13 @@ export function OperatorSectionWrapper({
   const { initialized, presenting } = usePresentationMode()
   if (!isOperator || !initialized || presenting) return <>{children}</>
 
-  // `data-operator-section` is the scroll-spy target boundary (useSectionSelection
-  // reads it + `dataset.operatorSection`). The inline editors moved to
-  // InspectorPanes — the canvas section now only carries quick controls + the
-  // real public section, no below-section editor sandwich.
+  // PR4: boundary-only. `data-operator-section` is the scroll-spy target
+  // boundary (useSectionSelection reads it + `dataset.operatorSection`). The
+  // status controls moved into the inspector pane's Status group (the single
+  // mutation owner); the inline editors already moved to InspectorPanes. The
+  // canvas section now carries ONLY the boundary + the real public section.
   return (
     <div data-operator-section-wrapper={sectionKey} data-operator-section={sectionKey}>
-      <SectionQuickControls viewbookId={viewbookId} section={section} pcCompletedAt={pcCompletedAt} />
       {children}
     </div>
   )

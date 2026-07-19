@@ -1,21 +1,27 @@
 // @vitest-environment jsdom
 import crypto from 'crypto'
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { prisma } from '@/lib/db'
 import type { OperatorSectionData } from '@/lib/viewbook/operator-data'
+import type { SectionKey } from '@/lib/viewbook/theme'
 import { ACKABLE_SECTION_KEYS, acknowledgeSection } from '@/lib/viewbook/ack'
 import { loadViewbookPublicData } from '@/lib/viewbook/public-data'
 import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { buildTocIndex } from '@/lib/viewbook/toc-index'
+import { navigateToAnchor } from '@/components/viewbook/public/viewbook-navigate'
 import { requestRefresh } from '../useViewbookSync'
+import { SelectionProvider } from './inspector/SelectionContext'
+import { SectionActivityProvider, useSectionActivityContext } from './inspector/useSectionActivity'
 import { SectionQuickControls } from './SectionQuickControls'
 
 vi.mock('../useViewbookSync', async () => {
   const actual = await vi.importActual<typeof import('../useViewbookSync')>('../useViewbookSync')
   return { ...actual, requestRefresh: vi.fn() }
 })
+
+vi.mock('@/components/viewbook/public/viewbook-navigate', () => ({ navigateToAnchor: vi.fn() }))
 
 vi.mock('@/lib/jobs/queue', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/jobs/queue')>()
@@ -28,10 +34,18 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: INTEGRATION_PREFIX } } })
 })
 
+// The Reset-ack DELETE is now confirm-gated (fix #12). Default the confirm to
+// accept so the existing happy-path assertions still exercise the mutation; the
+// CANCEL-path test overrides this stub to reject.
+beforeEach(() => {
+  vi.stubGlobal('confirm', () => true)
+})
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.mocked(requestRefresh).mockClear()
+  vi.mocked(navigateToAnchor).mockClear()
 })
 
 function section(overrides: Partial<OperatorSectionData> = {}): OperatorSectionData {
@@ -229,5 +243,100 @@ describe('SectionQuickControls', () => {
       <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'pc-thanks' })} pcCompletedAt={null} />,
     )
     expect(container.querySelector('[data-operator-section-controls]')).toBeNull()
+  })
+
+  // Fix #12: the ack reset is destructive — a cancelled confirm must fire nothing.
+  it('does NOT fire the ack DELETE when the Reset-ack confirm is cancelled', () => {
+    const fetchMock = vi.fn().mockResolvedValue(ok())
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('confirm', () => false)
+    render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+        pcCompletedAt={null}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reset ack' }))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(requestRefresh).not.toHaveBeenCalled()
+    // The acknowledged pill is untouched — the optimistic clear never ran.
+    expect(screen.getByText('Acknowledged')).toBeTruthy()
+  })
+
+  // Fix #10: a status mutation must pin THIS section in the Context-Lens
+  // per-section activity registry (so the outline/pane follow it).
+  it('reports per-section activity while a Hide mutation is in flight', async () => {
+    let resolveFetch!: (value: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve })))
+
+    function ActivityProbe({ sectionKey }: { sectionKey: SectionKey }) {
+      const activity = useSectionActivityContext()
+      return <span data-testid="activity">{activity.anyActive(sectionKey) ? 'active' : 'idle'}</span>
+    }
+
+    render(
+      <SelectionProvider>
+        <SectionActivityProvider>
+          <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy' })} pcCompletedAt={null} />
+          <ActivityProbe sectionKey="strategy" />
+        </SectionActivityProvider>
+      </SelectionProvider>,
+    )
+    expect(screen.getByTestId('activity').textContent).toBe('idle')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    await waitFor(() => expect(screen.getByTestId('activity').textContent).toBe('active'))
+
+    resolveFetch(ok())
+    await waitFor(() => expect(screen.getByTestId('activity').textContent).toBe('idle'))
+  })
+
+  // Fix #11: post-Show navigation fires ONCE, only after the refreshed prop
+  // state flips hidden→active (i.e. the section is back in the canvas), never
+  // while still hidden, and never twice.
+  it('navigates to the section anchor only after a Show refresh flips state hidden→active', () => {
+    const { rerender } = render(
+      <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'hidden' })} pcCompletedAt={null} />,
+    )
+    expect(navigateToAnchor).not.toHaveBeenCalled()
+
+    // The optimistic Show + refresh lands: the parent re-renders this pane with
+    // the now-active section prop.
+    rerender(
+      <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'active' })} pcCompletedAt={null} />,
+    )
+    expect(navigateToAnchor).toHaveBeenCalledWith('strategy', '#strategy')
+    expect(navigateToAnchor).toHaveBeenCalledTimes(1)
+
+    // A subsequent unrelated re-render (still active) does not re-fire.
+    rerender(
+      <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'active' })} pcCompletedAt={null} />,
+    )
+    expect(navigateToAnchor).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT navigate on a static hidden render (no false Show)', () => {
+    const { rerender } = render(
+      <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'hidden' })} pcCompletedAt={null} />,
+    )
+    rerender(
+      <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'hidden' })} pcCompletedAt={null} />,
+    )
+    expect(navigateToAnchor).not.toHaveBeenCalled()
+  })
+
+  // Single-owner recovery flow: a hidden section's pane exposes the ONE Show
+  // controller (embedded variant), reachable after the outline selects it.
+  it('exposes a Show control for a hidden section in the embedded pane variant (single owner)', () => {
+    render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'strategy', state: 'hidden' })}
+        pcCompletedAt={null}
+        variant="embedded"
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Show' })).toBeTruthy()
   })
 })

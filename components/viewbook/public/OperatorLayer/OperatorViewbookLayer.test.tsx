@@ -66,13 +66,7 @@ function renderLayer() {
       operatorData={operatorData}
     >
       <main>
-        <OperatorSectionWrapper
-          sectionKey="welcome"
-          viewbookId={22}
-          section={operatorData.sections[0]}
-          operatorData={operatorData}
-          pcCompletedAt={null}
-        >
+        <OperatorSectionWrapper sectionKey="welcome">
           <div>Public welcome</div>
         </OperatorSectionWrapper>
       </main>
@@ -81,14 +75,16 @@ function renderLayer() {
 }
 
 describe('OperatorViewbookLayer', () => {
-  it('integrates the bar, wrapped section controls, and hidden-section restore list', async () => {
+  it('integrates the bar + inspector, and NO longer renders the retired HiddenSectionsList (PR4)', async () => {
     const { container } = renderLayer()
     expect(await screen.findByText('ER editing')).toBeTruthy()
     expect(screen.getByText('Public welcome')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Hide' })).toBeTruthy()
-    expect(screen.getByText('Hidden sections')).toBeTruthy()
-    expect(screen.getByText('SEO, GEO & E-E-A-T Strategy')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Show' })).toBeTruthy()
+    // PR4: the amber "Hidden sections" recovery surface is retired — recovery
+    // now lives in the outline → pane Status group (the ONE Show controller).
+    expect(container.querySelector('[data-operator-hidden-sections]')).toBeNull()
+    expect(screen.queryByText('Hidden sections')).toBeNull()
+    // The inspector (outline + panes) is present in edit mode.
+    expect(container.querySelector('[data-vb-inspector]')).toBeTruthy()
     expect(container.innerHTML.includes('dark' + ':')).toBe(true)
   })
 

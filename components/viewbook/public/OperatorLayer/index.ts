@@ -2,7 +2,6 @@ export { OperatorViewbookLayer, type OperatorViewbookLayerProps } from './Operat
 export { OperatorBar } from './OperatorBar'
 export { OperatorSectionWrapper } from './OperatorSectionWrapper'
 export { SectionQuickControls } from './SectionQuickControls'
-export { HiddenSectionsList } from './HiddenSectionsList'
 export {
   DataSourceInlineEditor,
   DocsInlineEditor,
