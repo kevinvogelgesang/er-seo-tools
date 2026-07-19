@@ -199,8 +199,8 @@ describe('sections', () => {
     expect(s.state).toBe('collapsed')
     expect(s.doneAt).toBeNull()
 
-    // Excluded keys reject with a 400 before any write, leaving state untouched.
-    for (const excluded of ['pc-setup', 'data-source', 'milestones', 'materials', 'pc-intro'] as const) {
+    // Only the framing bookends reject collapse with a 400 before any write.
+    for (const excluded of ['pc-intro', 'pc-thanks'] as const) {
       const before = await syncVersion(id)
       await expect(setSectionState(id, excluded, 'collapsed', OPERATOR)).rejects.toMatchObject({ code: 'invalid_section' })
       expect(await syncVersion(id)).toBe(before)
