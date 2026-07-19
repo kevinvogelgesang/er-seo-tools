@@ -104,10 +104,12 @@ export function DataSourceSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const { answered, total } = answeredProgress(data.fieldCategories)
@@ -118,6 +120,11 @@ export function DataSourceSection({
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow="Data Source" headline={`${answered} of ${total} answered`} />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       {data.stage === 'post-contract' && (
         <p className="text-black/60">

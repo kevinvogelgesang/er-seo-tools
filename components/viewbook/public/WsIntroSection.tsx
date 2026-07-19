@@ -20,10 +20,12 @@ export function WsIntroSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   // The lineup already gates rendering to the 'website-specifics' stage —
   // this is a defensive belt-and-suspenders check, mirroring KickoffNextSection.
@@ -37,6 +39,11 @@ export function WsIntroSection({
       title={SECTION_TITLES['ws-intro']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['ws-intro']} headline={sectionStatusLabel(section)} />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>{LEAD}</p>
     </SectionShell>

@@ -37,10 +37,12 @@ export function BrandSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const headingFamily = FONT_MANIFEST[data.theme.headingFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
@@ -52,6 +54,11 @@ export function BrandSection({
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<BrandSwatchesSummary />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
         Palette

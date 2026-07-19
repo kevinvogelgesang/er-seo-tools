@@ -40,7 +40,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
   if (!data) notFound()
 
   const baseRenderSection = (section: PublicSection): ReactNode => {
-    const props = { section, data, token }
+    const props = { section, data, token, isOperator: operatorEmail != null }
     switch (section.sectionKey) {
       case 'welcome':
         return <WelcomeSection {...props} />
@@ -57,7 +57,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
       case 'materials':
         return <MaterialsSection {...props} />
       case 'kickoff-next':
-        return <KickoffNextSection {...props} isOperator={operatorEmail != null} />
+        return <KickoffNextSection {...props} />
       case 'ws-intro':
         return <WsIntroSection {...props} />
       case 'pc-intro':

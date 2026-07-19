@@ -33,6 +33,11 @@ export function KickoffNextSection({
       summary={
         <SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={sectionStatusLabel(section)} />
       }
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       {isOperator ? (
         <KickoffNextCta viewbookId={data.viewbookId} csmName={data.csmName} />

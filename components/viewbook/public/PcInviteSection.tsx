@@ -19,10 +19,12 @@ export function PcInviteSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes['pc-invite']
   const members = data.teamMembers
@@ -41,6 +43,11 @@ export function PcInviteSection({
           chip={`${total} added`}
         />
       }
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       <div className="space-y-4">
         <p className="text-sm text-black/60">

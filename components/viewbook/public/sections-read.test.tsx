@@ -218,7 +218,11 @@ describe('KickoffNextSection', () => {
         token="tok"
       />,
     )
-    const region = doneContainer.querySelector('[role="region"]')
+    // PR3: SectionShell now nests TWO role="region" elements (the outer
+    // viewer-collapse region owned by CollapsibleSection + SectionReveal's own
+    // inner toggle region) — target SectionReveal's specifically via its
+    // data-testid, matching SectionReveal.test.tsx's own convention.
+    const region = doneContainer.querySelector('[data-testid="vb-region"]')
     expect(region).not.toBeNull()
     expect(region?.getAttribute('data-vb-expanded')).toBe('true')
     expect(screen.getByText(/Completed/)).toBeDefined()
