@@ -11,6 +11,7 @@ import { StatusPill } from '@/components/ui/StatusPill'
 const SAMPLE_SECTION: PublicSection = {
   sectionKey: 'brand',
   state: 'active',
+  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: 'A short operator intro note looks like this.',

@@ -10,7 +10,8 @@ const iso = (value: Date | null): string | null => value?.toISOString() ?? null
 
 export interface OperatorSectionData {
   sectionKey: SectionKey
-  state: 'hidden' | 'active' | 'done' | 'collapsed'
+  state: 'hidden' | 'active' | 'done'
+  collapsedShared: boolean
   doneAt: string | null
   acknowledgedAt: string | null
   introNote: string | null
@@ -126,7 +127,8 @@ export async function loadOperatorViewbookData(viewbookId: number): Promise<Oper
     theme: parseStoredTheme(viewbook.themeJson),
     sections: viewbook.sections.map((section) => ({
       sectionKey: section.sectionKey as SectionKey,
-      state: section.state === 'hidden' || section.state === 'done' || section.state === 'collapsed' ? section.state : 'active',
+      state: section.state === 'hidden' || section.state === 'done' ? section.state : 'active',
+      collapsedShared: section.collapsedShared,
       doneAt: iso(section.doneAt),
       acknowledgedAt: iso(section.acknowledgedAt),
       introNote: section.introNote,

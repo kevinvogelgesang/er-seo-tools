@@ -30,6 +30,7 @@ afterEach(() => {
 const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
   sectionKey,
   state: 'active',
+  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,

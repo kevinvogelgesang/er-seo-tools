@@ -187,28 +187,17 @@ describe('sections', () => {
     expect(await syncVersion(id)).toBe(beforeInvalid)
   })
 
-  it('collapse is allowed on a collapsible content section; rejected on excluded keys', async () => {
+  it('rejects the retired "collapsed" state', async () => {
     const c = await mkClient()
     const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
-
-    // A collapsible operator-authored content section succeeds and persists.
-    await setSectionState(id, 'strategy', 'collapsed', OPERATOR)
-    const s = await prisma.viewbookSection.findUniqueOrThrow({
+    const before = await syncVersion(id)
+    await expect(setSectionState(id, 'strategy', 'collapsed' as never, OPERATOR))
+      .rejects.toMatchObject({ status: 400, code: 'invalid_section' })
+    expect(await syncVersion(id)).toBe(before)
+    const row = await prisma.viewbookSection.findUniqueOrThrow({
       where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: 'strategy' } },
     })
-    expect(s.state).toBe('collapsed')
-    expect(s.doneAt).toBeNull()
-
-    // Only the framing bookends reject collapse with a 400 before any write.
-    for (const excluded of ['pc-intro', 'pc-thanks'] as const) {
-      const before = await syncVersion(id)
-      await expect(setSectionState(id, excluded, 'collapsed', OPERATOR)).rejects.toMatchObject({ code: 'invalid_section' })
-      expect(await syncVersion(id)).toBe(before)
-      const row = await prisma.viewbookSection.findUniqueOrThrow({
-        where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: excluded } },
-      })
-      expect(row.state).not.toBe('collapsed')
-    }
+    expect(row.state).not.toBe('collapsed')
   })
 })
 

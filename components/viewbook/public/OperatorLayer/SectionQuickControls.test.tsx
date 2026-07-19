@@ -53,6 +53,7 @@ function section(overrides: Partial<OperatorSectionData> = {}): OperatorSectionD
   return {
     sectionKey: 'data-source',
     state: 'active',
+    collapsedShared: false,
     doneAt: null,
     acknowledgedAt: null,
     introNote: null,
@@ -158,50 +159,19 @@ describe('SectionQuickControls', () => {
     expect(JSON.parse(init.body)).toEqual({ state: 'active' })
   })
 
-  it('collapses to hero and expands back through the section PATCH contract', async () => {
-    // strategy is collapsible (everything except the pc-intro/pc-thanks bookends).
-    let [url, init] = await clickAndRead('Collapse', section({ sectionKey: 'strategy' }))
-    expect(url).toBe('/api/viewbooks/8/sections/strategy')
-    expect(init.method).toBe('PATCH')
-    expect(JSON.parse(init.body)).toEqual({ state: 'collapsed' })
-    cleanup()
-    vi.unstubAllGlobals()
-
-    ;[, init] = await clickAndRead('Expand', section({ sectionKey: 'strategy', state: 'collapsed' }))
-    expect(JSON.parse(init.body)).toEqual({ state: 'active' })
-  })
-
-  it('renders a collapsed section with a Collapsed pill and an Expand button', () => {
-    render(<SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'collapsed' })} pcCompletedAt={null} />)
-    expect(screen.getByText('Collapsed')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Expand' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
-  })
-
-  it('exposes a Collapse control on every non-bookend section (incl. previously-excluded)', () => {
-    for (const sectionKey of ['data-source', 'pc-setup', 'milestones', 'materials', 'welcome'] as const) {
+  // PR1 (viewbook viewer-collapse): 'collapsed' is retired from the state
+  // enum (now the orthogonal collapsedShared boolean, lib/viewbook/collapse.ts
+  // PR2) — the operator Collapse/Expand controls that used to PATCH
+  // state:'collapsed' are gone; PR3 replaces them with the in-hero viewer
+  // control. No section (bookend or otherwise) exposes a Collapse/Expand
+  // button here any more.
+  it('never exposes a Collapse or Expand control, on any section', () => {
+    for (const sectionKey of ['data-source', 'pc-setup', 'milestones', 'materials', 'welcome', 'strategy', 'pc-intro'] as const) {
       render(<SectionQuickControls viewbookId={8} section={section({ sectionKey })} pcCompletedAt={null} />)
-      expect(screen.getByRole('button', { name: 'Collapse' })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
       cleanup()
     }
-  })
-
-  it('never exposes a Collapse control on pc-intro or pc-thanks', () => {
-    render(<SectionQuickControls viewbookId={8} section={section({ sectionKey: 'pc-intro' })} pcCompletedAt={null} />)
-    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
-    cleanup()
-
-    // pc-thanks only renders its controls once the completion stamp exists.
-    render(
-      <SectionQuickControls
-        viewbookId={8}
-        section={section({ sectionKey: 'pc-thanks' })}
-        pcCompletedAt="2026-07-16T00:00:00.000Z"
-      />,
-    )
-    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
   })
 
   it('resets an acknowledged ackable section with DELETE', async () => {

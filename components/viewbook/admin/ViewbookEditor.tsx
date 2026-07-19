@@ -360,7 +360,6 @@ export function SettingsTab({ vb, onChanged }: { vb: SettingsTabViewbook; onChan
                 <option value="active">active</option>
                 <option value="hidden">hidden</option>
                 <option value="done">done ✓</option>
-                <option value="collapsed">collapsed (hero only)</option>
               </select>
             </div>
           )

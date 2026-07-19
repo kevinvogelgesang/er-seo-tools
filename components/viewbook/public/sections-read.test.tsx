@@ -17,6 +17,7 @@ afterEach(cleanup)
 const sec = (sectionKey: PublicSection['sectionKey'], over: Partial<PublicSection> = {}): PublicSection => ({
   sectionKey,
   state: 'active',
+  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,

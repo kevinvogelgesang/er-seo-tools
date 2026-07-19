@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sectionDisplayMode, sectionInitiallyOpen } from './section-display'
 import type { PublicSection } from './public-types'
-const S = (o: Partial<PublicSection>): PublicSection => ({ sectionKey: 'data-source', state: 'active', doneAt: null, acknowledgedAt: null, introNote: null, narrative: null, ...o })
+const S = (o: Partial<PublicSection>): PublicSection => ({ sectionKey: 'data-source', state: 'active', collapsedShared: false, doneAt: null, acknowledgedAt: null, introNote: null, narrative: null, ...o })
 
 describe('sectionDisplayMode', () => {
   it('pc-intro is always-open in every stage', () => {
@@ -25,18 +25,13 @@ describe('sectionDisplayMode', () => {
   it('normal otherwise', () => {
     expect(sectionDisplayMode(S({}), 'building')).toBe('normal')
   })
-  it('collapsed → hero-collapsed in every stage', () => {
-    for (const st of ['post-contract','kickoff','website-specifics','building'] as const)
-      expect(sectionDisplayMode(S({ sectionKey: 'strategy', state: 'collapsed' }), st)).toBe('hero-collapsed')
-  })
-  it('hero-collapsed wins over done, ack, and always-open', () => {
-    // over done
-    expect(sectionDisplayMode(S({ sectionKey: 'strategy', state: 'collapsed', doneAt: 'x' }), 'building')).toBe('hero-collapsed')
-    // over ack (post-contract, where ack would otherwise collapse)
-    expect(sectionDisplayMode(S({ sectionKey: 'strategy', state: 'collapsed', acknowledgedAt: 'x' }), 'post-contract')).toBe('hero-collapsed')
-    // over always-open (pc-intro can't be collapsed in practice, but the state
-    // check must still take precedence in the pure function)
-    expect(sectionDisplayMode(S({ sectionKey: 'pc-intro', state: 'collapsed' }), 'kickoff')).toBe('hero-collapsed')
+  // 'collapsed' is retired from state (PR1) — collapsedShared is orthogonal to
+  // sectionDisplayMode and does not affect its return value; the mode is
+  // unaffected regardless of collapsedShared.
+  it('collapsedShared does not change the display mode', () => {
+    for (const st of ['post-contract', 'kickoff', 'website-specifics', 'building'] as const) {
+      expect(sectionDisplayMode(S({ sectionKey: 'strategy', collapsedShared: true }), st)).toBe('normal')
+    }
   })
 })
 

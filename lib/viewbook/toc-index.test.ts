@@ -14,6 +14,7 @@ function section(sectionKey: string, overrides: Partial<Record<string, unknown>>
   return {
     sectionKey,
     state: 'active',
+    collapsedShared: false,
     doneAt: null,
     acknowledgedAt: null,
     introNote: null,
@@ -116,7 +117,7 @@ describe('buildTocIndex', () => {
     const data = buildFixture()
     // data-source is collapsed → only its hero band renders, so its Data Source
     // field-category children must not produce dead TOC anchors.
-    ;(data.primarySections as any[]).find((s) => s.sectionKey === 'data-source').state = 'collapsed'
+    ;(data.primarySections as any[]).find((s) => s.sectionKey === 'data-source').collapsedShared = true
     const toc = buildTocIndex(data)
     const dataSource = toc.find((t) => t.sectionKey === 'data-source')
     expect(dataSource).toBeDefined() // top-level hero anchor is kept
@@ -189,7 +190,7 @@ describe('buildSearchIndex', () => {
     const data = buildFixture()
     // Collapse data-source (nested qa) and materials (nested material rows).
     for (const key of ['data-source', 'materials']) {
-      ;(data.primarySections as any[]).find((s) => s.sectionKey === key).state = 'collapsed'
+      ;(data.primarySections as any[]).find((s) => s.sectionKey === key).collapsedShared = true
     }
     const index = buildSearchIndex(data)
     // Top-level section entries survive (the hero band still renders).
