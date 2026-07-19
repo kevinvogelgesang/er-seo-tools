@@ -7,8 +7,12 @@ import type {
   OperatorMilestoneData,
   OperatorSectionData,
 } from '@/lib/viewbook/operator-data'
+import type { ReactNode } from 'react'
+import type { SectionKey } from '@/lib/viewbook/theme'
 import { hasActiveEditorActivity, requestRefresh, useEditorActivity } from '../useViewbookSync'
 import { __resetThemeDraftStore } from './theme-store'
+import { SelectionProvider } from './inspector/SelectionContext'
+import { SectionActivityProvider, useSectionActivityContext } from './inspector/useSectionActivity'
 import {
   DataSourceInlineEditor,
   DocsInlineEditor,
@@ -400,5 +404,118 @@ describe('operator inline editors', () => {
     expect(status.querySelector('option[value="upcoming"]')?.textContent).toBe('Upcoming')
     expect(status.querySelector('option[value="current"]')?.textContent).toBe('Current')
     expect(status.querySelector('option[value="done"]')?.textContent).toBe('Done')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR3 Steps 1–2: each controller reports its own {dirty,busy,conflict,focused}
+// to the per-section activity registry (additive to, and independent of, the
+// existing useEditorActivity/useAutosave sync registry — C4). The two
+// aggregators roll up their child rows AND must release a dirty/paused child's
+// entry on unmount (Codex fix #8 — else a permanent hard pin).
+// ---------------------------------------------------------------------------
+
+function Providers({ children }: { children: ReactNode }) {
+  return <SelectionProvider><SectionActivityProvider>{children}</SectionActivityProvider></SelectionProvider>
+}
+
+function AggReadout({ sectionKey }: { sectionKey: SectionKey }) {
+  const reg = useSectionActivityContext()
+  const a = reg.aggregateFor(sectionKey)
+  return <span data-testid="agg">{[a.dirty, a.busy, a.conflict, a.focused].map(String).join(',')}</span>
+}
+
+function agg(): { dirty: boolean; busy: boolean; conflict: boolean; focused: boolean } {
+  const [dirty, busy, conflict, focused] = screen.getByTestId('agg').textContent!.split(',').map((v) => v === 'true')
+  return { dirty, busy, conflict, focused }
+}
+
+describe('operator inline editors — section-activity reporting', () => {
+  it('welcome editor reports focus and dirty (and reaches idle) under the welcome key', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<Providers><WelcomeNoteInlineEditor viewbookId={12} welcomeNote="Old note" /><AggReadout sectionKey="welcome" /></Providers>)
+    expect(agg()).toEqual({ dirty: false, busy: false, conflict: false, focused: false })
+    const textarea = screen.getByLabelText('Welcome note')
+    act(() => { textarea.focus() })
+    expect(agg().focused).toBe(true)
+    fireEvent.change(textarea, { target: { value: 'Changed note' } })
+    expect(agg().dirty).toBe(true)
+    act(() => { textarea.blur() })
+    expect(agg().focused).toBe(false)
+  })
+
+  it('section-copy editor reports under its own section key', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<Providers><SectionTextInlineEditor viewbookId={12} section={section} /><AggReadout sectionKey="brand" /></Providers>)
+    const intro = screen.getByLabelText('Intro for brand')
+    act(() => { intro.focus() })
+    expect(agg().focused).toBe(true)
+    fireEvent.change(intro, { target: { value: 'New intro' } })
+    expect(agg().dirty).toBe(true)
+  })
+
+  it('theme editor reports under the brand section', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<Providers><ThemeInlineEditor viewbookId={12} theme={DEFAULT_THEME} /><AggReadout sectionKey="brand" /></Providers>)
+    const color = screen.getByLabelText('primary color')
+    act(() => { color.focus() })
+    expect(agg().focused).toBe(true)
+    fireEvent.change(color, { target: { value: '#abcdef' } })
+    expect(agg().dirty).toBe(true)
+  })
+
+  it('docs editor reports under the strategy section', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<Providers><DocsInlineEditor viewbookId={12} docs={{ global: [], own: [] }} /><AggReadout sectionKey="strategy" /></Providers>)
+    openPanel('Strategy PDFs')
+    const title = screen.getByLabelText('PDF title')
+    act(() => { title.focus() })
+    expect(agg().focused).toBe(true)
+    fireEvent.change(title, { target: { value: 'New guide' } })
+    expect(agg().dirty).toBe(true)
+  })
+
+  it('milestone aggregator rolls up a dirty child AND releases it when the child unmounts', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    function Harness({ withRow }: { withRow: boolean }) {
+      return (
+        <Providers>
+          <MilestoneQuickEditor viewbookId={12} milestones={withRow ? [milestone] : []} />
+          <AggReadout sectionKey="milestones" />
+        </Providers>
+      )
+    }
+    const { rerender } = render(<Harness withRow={true} />)
+    openPanel('Process & Milestones')
+    fireEvent.change(screen.getByLabelText('Milestone title'), { target: { value: 'Changed milestone' } })
+    expect(agg().dirty).toBe(true)
+    // A refresh drops the dirty row: its aggregate entry MUST be removed on
+    // unmount, or the milestones section stays dirty forever → permanent pin.
+    act(() => { rerender(<Harness withRow={false} />) })
+    expect(agg().dirty).toBe(false)
+  })
+
+  it('data-source aggregator surfaces a field pause as section conflict until an explicit retry clears it', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ error: 'stale_version', current: { value: 'Server answer', version: 5 } }, 409))
+      .mockResolvedValueOnce(ok({ field: { ...field, value: 'My answer', version: 6 } }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<Providers><DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} /><AggReadout sectionKey="data-source" /></Providers>)
+    openPanel('Data Source')
+
+    fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'My answer' } })
+    await advanceAutosave()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(agg().conflict).toBe(true)
+
+    // The pause holds the conflict — a quiet interval must NOT clear it.
+    await advanceAutosave(5000)
+    expect(agg().conflict).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry my answer for School motto' }))
+    await advanceAutosave(0)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(agg().conflict).toBe(false)
   })
 })

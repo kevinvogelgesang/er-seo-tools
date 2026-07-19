@@ -4,14 +4,12 @@ import type { ReactNode } from 'react'
 import type { OperatorSectionData, OperatorViewbookData } from '@/lib/viewbook/operator-data'
 import type { SectionKey } from '@/lib/viewbook/theme'
 import { usePresentationMode } from '../PresentationToggle'
-import { InlineSectionEditors } from './InlineEditors'
 import { SectionQuickControls } from './SectionQuickControls'
 
 export function OperatorSectionWrapper({
   sectionKey,
   viewbookId,
   section,
-  operatorData,
   pcCompletedAt,
   isOperator = true,
   children,
@@ -19,6 +17,8 @@ export function OperatorSectionWrapper({
   sectionKey: SectionKey
   viewbookId: number
   section: OperatorSectionData
+  // `operatorData` is still passed by page.tsx (PR4 removes it from the type);
+  // PR3 no longer reads it here — the editors moved to InspectorPanes.
   operatorData: OperatorViewbookData
   pcCompletedAt: string | null
   isOperator?: boolean
@@ -33,11 +33,14 @@ export function OperatorSectionWrapper({
   const { initialized, presenting } = usePresentationMode()
   if (!isOperator || !initialized || presenting) return <>{children}</>
 
+  // `data-operator-section` is the scroll-spy target boundary (useSectionSelection
+  // reads it + `dataset.operatorSection`). The inline editors moved to
+  // InspectorPanes — the canvas section now only carries quick controls + the
+  // real public section, no below-section editor sandwich.
   return (
-    <div data-operator-section-wrapper={sectionKey}>
+    <div data-operator-section-wrapper={sectionKey} data-operator-section={sectionKey}>
       <SectionQuickControls viewbookId={viewbookId} section={section} pcCompletedAt={pcCompletedAt} />
       {children}
-      <InlineSectionEditors viewbookId={viewbookId} section={section} operatorData={operatorData} />
     </div>
   )
 }

@@ -33,6 +33,7 @@ import {
   useFocusWithin,
 } from '../useViewbookSync'
 import { OperatorRequestError, operatorRequest } from './operator-api'
+import { useReportSectionActivity } from './inspector/useSectionActivity'
 import { ThemeDraftWriter } from './ThemeDraftWriter'
 import { commitThemeDraft, getCommittedTheme, initializeThemeDraft, setThemeDraft } from './theme-store'
 
@@ -68,11 +69,24 @@ function useAggregatePanelActivity() {
       return { ...current, [key]: next }
     })
   }, [])
+  // Codex fix #8: a child row that unmounts while dirty/paused (e.g. a refresh
+  // drops it) must be removed, or its lingering entry keeps the section
+  // aggregate dirty/conflict forever → a permanent hard pin that fail-closes
+  // every OTHER section. Idempotent; a no-op when the key is already gone.
+  const remove = useCallback((key: string) => {
+    setItems((current) => {
+      if (!(key in current)) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }, [])
   const values = Object.values(items)
   const conflict = values.some((item) => item.conflict)
   const error = values.find((item) => item.error)?.error ?? null
   return {
     report,
+    remove,
     activity: {
       dirty: values.some((item) => item.dirty),
       busy: values.some((item) => item.busy),
@@ -140,6 +154,9 @@ export function WelcomeNoteInlineEditor({ viewbookId, welcomeNote }: { viewbookI
   })
 
   const activity = { dirty, busy: autosave.saving, error: autosave.error }
+  useReportSectionActivity('welcome', 'operator-welcome-note', {
+    dirty, busy: autosave.saving, conflict: false, focused: focus.focused,
+  })
 
   return (
     <EditorPanel
@@ -199,6 +216,9 @@ export function SectionTextInlineEditor({ viewbookId, section }: { viewbookId: n
   })
 
   const activity = { dirty, busy: autosave.saving, error: autosave.error }
+  useReportSectionActivity(section.sectionKey, `operator-section-text-${section.sectionKey}`, {
+    dirty, busy: autosave.saving, conflict: false, focused: focus.focused,
+  })
   const sectionTitle = SECTION_TITLES[section.sectionKey]
 
   return (
@@ -247,24 +267,34 @@ export function SectionTextInlineEditor({ viewbookId, section }: { viewbookId: n
 
 export function MilestoneQuickEditor({ viewbookId, milestones }: { viewbookId: number; milestones: OperatorMilestoneData[] }) {
   const aggregate = useAggregatePanelActivity()
+  const focus = useFocusWithin()
+  useReportSectionActivity('milestones', 'operator-milestones-agg', {
+    dirty: aggregate.activity.dirty,
+    busy: aggregate.activity.busy,
+    conflict: !!aggregate.activity.conflict,
+    focused: focus.focused,
+  })
   return (
-    <EditorPanel
-      title="Process & Milestones"
-      description="Update existing milestones shown on the client timeline."
-      activity={aggregate.activity}
-    >
-      <div className="space-y-3">
-        {milestones.map((milestone) => (
-          <MilestoneRow
-            key={milestone.id}
-            viewbookId={viewbookId}
-            milestone={milestone}
-            reportActivity={aggregate.report}
-          />
-        ))}
-        {milestones.length === 0 && <p className="text-sm text-gray-500 dark:text-white/55">No milestones yet.</p>}
-      </div>
-    </EditorPanel>
+    <div onFocus={focus.onFocus} onBlur={focus.onBlur}>
+      <EditorPanel
+        title="Process & Milestones"
+        description="Update existing milestones shown on the client timeline."
+        activity={aggregate.activity}
+      >
+        <div className="space-y-3">
+          {milestones.map((milestone) => (
+            <MilestoneRow
+              key={milestone.id}
+              viewbookId={viewbookId}
+              milestone={milestone}
+              reportActivity={aggregate.report}
+              removeActivity={aggregate.remove}
+            />
+          ))}
+          {milestones.length === 0 && <p className="text-sm text-gray-500 dark:text-white/55">No milestones yet.</p>}
+        </div>
+      </EditorPanel>
+    </div>
   )
 }
 
@@ -272,10 +302,12 @@ function MilestoneRow({
   viewbookId,
   milestone,
   reportActivity,
+  removeActivity,
 }: {
   viewbookId: number
   milestone: OperatorMilestoneData
   reportActivity: (key: string, activity: PanelActivity) => void
+  removeActivity: (key: string) => void
 }) {
   const server = {
     title: milestone.title,
@@ -310,6 +342,12 @@ function MilestoneRow({
   useEffect(() => {
     reportActivity(String(milestone.id), { dirty, busy: autosave.saving, error: autosave.error })
   }, [autosave.error, autosave.saving, dirty, milestone.id, reportActivity])
+
+  // Latest-ref cleanup (mirrors useReportSectionActivity): drop this row's
+  // aggregate entry on unmount WITHOUT churning on every activity bump.
+  const removeRef = useRef(removeActivity)
+  removeRef.current = removeActivity
+  useEffect(() => () => removeRef.current(String(milestone.id)), [milestone.id])
 
   const statusLabel = draft.status === 'done' ? 'Done' : draft.status === 'current' ? 'Current' : 'Upcoming'
   const statusTone: Tone = draft.status === 'done' ? 'success' : draft.status === 'current' ? 'running' : 'neutral'
@@ -462,6 +500,9 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
 
   const error = uploadError || autosave.error
   const activity = { dirty, busy: busy || autosave.saving, error }
+  useReportSectionActivity('brand', 'operator-theme', {
+    dirty, busy: busy || autosave.saving, conflict: false, focused: focus.focused,
+  })
 
   return (
     <EditorPanel
@@ -607,6 +648,9 @@ export function DocsInlineEditor({ viewbookId, docs }: { viewbookId: number; doc
   }
 
   const activity = { dirty, busy, error }
+  useReportSectionActivity('strategy', 'operator-docs', {
+    dirty, busy, conflict: false, focused: focus.focused,
+  })
 
   function docRow(doc: PublicDocRow, source: 'Global' | 'Viewbook') {
     return (
@@ -709,9 +753,17 @@ function humanize(value: string): string {
 export function DataSourceInlineEditor({ viewbookId, fields, dataLockedAt }: { viewbookId: number; fields: OperatorFieldData[]; dataLockedAt: string | null }) {
   const [rows, setRows] = useState(fields)
   const aggregate = useAggregatePanelActivity()
+  const focus = useFocusWithin()
+  useReportSectionActivity('data-source', 'operator-data-source-agg', {
+    dirty: aggregate.activity.dirty,
+    busy: aggregate.activity.busy,
+    conflict: !!aggregate.activity.conflict,
+    focused: focus.focused,
+  })
   useEffect(() => setRows(fields), [fields])
   const activeRows = rows.filter((field) => !field.archivedAt)
   return (
+    <div onFocus={focus.onFocus} onBlur={focus.onBlur}>
     <EditorPanel
       title="Data Source"
       description="Review client answers, amendments, and custom fields."
@@ -740,6 +792,7 @@ export function DataSourceInlineEditor({ viewbookId, fields, dataLockedAt }: { v
               dataLockedAt={dataLockedAt}
               onUpdated={(next) => setRows((current) => current.map((item) => item.id === next.id ? next : item))}
               reportActivity={aggregate.report}
+              removeActivity={aggregate.remove}
             />
           ))}
           {activeRows.length === 0 && <p className="text-sm text-gray-500 dark:text-white/55">No data-source fields yet.</p>}
@@ -748,9 +801,11 @@ export function DataSourceInlineEditor({ viewbookId, fields, dataLockedAt }: { v
           viewbookId={viewbookId}
           onCreated={(field) => setRows((current) => [...current, field])}
           reportActivity={aggregate.report}
+          removeActivity={aggregate.remove}
         />
       </div>
     </EditorPanel>
+    </div>
   )
 }
 
@@ -758,10 +813,12 @@ function CustomFieldForm({
   viewbookId,
   onCreated,
   reportActivity,
+  removeActivity,
 }: {
   viewbookId: number
   onCreated: (field: OperatorFieldData) => void
   reportActivity: (key: string, activity: PanelActivity) => void
+  removeActivity: (key: string) => void
 }) {
   const [label, setLabel] = useState('')
   const [fieldType, setFieldType] = useState<(typeof FIELD_TYPES)[number]>('text')
@@ -775,6 +832,10 @@ function CustomFieldForm({
   useEffect(() => {
     reportActivity('new-field', { dirty, busy, error })
   }, [busy, dirty, error, reportActivity])
+
+  const removeRef = useRef(removeActivity)
+  removeRef.current = removeActivity
+  useEffect(() => () => removeRef.current('new-field'), [])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -829,12 +890,14 @@ function OperatorFieldRow({
   dataLockedAt,
   onUpdated,
   reportActivity,
+  removeActivity,
 }: {
   viewbookId: number
   field: OperatorFieldData
   dataLockedAt: string | null
   onUpdated: (field: OperatorFieldData) => void
   reportActivity: (key: string, activity: PanelActivity) => void
+  removeActivity: (key: string) => void
 }) {
   const [draft, setDraft] = useState(() => displayFieldValue(field))
   const [baseline, setBaseline] = useState(() => ({
@@ -910,6 +973,12 @@ function OperatorFieldRow({
   useEffect(() => {
     reportActivity(`field-${field.id}`, activity)
   }, [activity.busy, activity.conflict, activity.dirty, activity.error, field.id, reportActivity])
+
+  // Latest-ref unmount cleanup — a dirty/paused row dropped by a refresh must
+  // release its aggregate entry, or the section stays conflict/dirty forever.
+  const removeRef = useRef(removeActivity)
+  removeRef.current = removeActivity
+  useEffect(() => () => removeRef.current(`field-${field.id}`), [field.id])
 
   async function recordAmendment() {
     if (!lockedBaseline) return
@@ -1010,14 +1079,35 @@ export function InlineSectionEditors({ viewbookId, section, operatorData }: { vi
   // Centre the inline editors to the section reading column (max-w-5xl) with a
   // little vertical breathing room, so ER editing UI matches the width of the
   // regularly visible section content.
+  //
+  // Intent-group DOM contract (Codex fix #7): controllers are wrapped in stable
+  // `data-vb-inspector-group` regions so PR2's hidden-row `select(key,…,group)`
+  // and PR4's group chrome have a durable seam. `content` and `status` are
+  // ALWAYS mounted; the section-specific group (assets/documents/data) mounts
+  // only for its owning section. `status` is an empty placeholder PR4 fills.
   return (
     <div className="mx-auto w-full max-w-5xl space-y-3 px-4 py-3 font-body sm:px-6">
-      <SectionTextInlineEditor viewbookId={viewbookId} section={section} />
-      {section.sectionKey === 'welcome' && <WelcomeNoteInlineEditor viewbookId={viewbookId} welcomeNote={operatorData.welcomeNote} />}
-      {section.sectionKey === 'milestones' && <MilestoneQuickEditor viewbookId={viewbookId} milestones={operatorData.milestones} />}
-      {section.sectionKey === 'brand' && <ThemeInlineEditor viewbookId={viewbookId} theme={operatorData.theme} />}
-      {section.sectionKey === 'strategy' && <DocsInlineEditor viewbookId={viewbookId} docs={operatorData.docs} />}
-      {section.sectionKey === 'data-source' && <DataSourceInlineEditor viewbookId={viewbookId} fields={operatorData.fields} dataLockedAt={operatorData.dataLockedAt} />}
+      <div data-vb-inspector-group="content" className="space-y-3">
+        <SectionTextInlineEditor viewbookId={viewbookId} section={section} />
+        {section.sectionKey === 'welcome' && <WelcomeNoteInlineEditor viewbookId={viewbookId} welcomeNote={operatorData.welcomeNote} />}
+        {section.sectionKey === 'milestones' && <MilestoneQuickEditor viewbookId={viewbookId} milestones={operatorData.milestones} />}
+      </div>
+      {section.sectionKey === 'brand' && (
+        <div data-vb-inspector-group="assets" className="space-y-3">
+          <ThemeInlineEditor viewbookId={viewbookId} theme={operatorData.theme} />
+        </div>
+      )}
+      {section.sectionKey === 'strategy' && (
+        <div data-vb-inspector-group="documents" className="space-y-3">
+          <DocsInlineEditor viewbookId={viewbookId} docs={operatorData.docs} />
+        </div>
+      )}
+      {section.sectionKey === 'data-source' && (
+        <div data-vb-inspector-group="data" className="space-y-3">
+          <DataSourceInlineEditor viewbookId={viewbookId} fields={operatorData.fields} dataLockedAt={operatorData.dataLockedAt} />
+        </div>
+      )}
+      <div data-vb-inspector-group="status" />
     </div>
   )
 }
