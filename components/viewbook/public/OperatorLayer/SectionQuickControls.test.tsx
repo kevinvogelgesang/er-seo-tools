@@ -12,7 +12,7 @@ import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { buildTocIndex } from '@/lib/viewbook/toc-index'
 import { navigateToAnchor } from '@/components/viewbook/public/viewbook-navigate'
 import { __resetSyncRegistry, hasActiveEditorActivity, requestRefresh } from '../useViewbookSync'
-import { SelectionProvider } from './inspector/SelectionContext'
+import { SelectionProvider, useSelectionContext, type SelectionState } from './inspector/SelectionContext'
 import { SectionActivityProvider, useSectionActivityContext } from './inspector/useSectionActivity'
 import { SectionQuickControls } from './SectionQuickControls'
 
@@ -344,6 +344,74 @@ describe('SectionQuickControls', () => {
 
     resolveFetch(ok())
     await waitFor(() => expect(screen.getByTestId('activity').textContent).toBe('idle'))
+  })
+
+  // PR5 Task 1 regression: a discrete mutation button that unmounts itself
+  // while still focused (Reset-ack: the button disappears the moment
+  // acknowledgedAt optimistically clears) must NOT strand a hard activity pin
+  // on its section forever. Before the fix, `useReportSectionActivity` reported
+  // `focused: focus.focused`, which stuck `true` past the unmount (no blur ever
+  // fires for a removed element) -> a PERMANENT hard pin -> every other
+  // section's `select()` fails closed. This asserts the full lifecycle: pinned
+  // while busy, released once the mutation settles even though the focused
+  // button unmounted, and a DIFFERENT section becomes selectable again.
+  it('a discrete mutation pins its section while busy, releases after settle even when the focused button unmounts, then a different section is selectable', async () => {
+    let resolveFetch!: (value: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve })))
+
+    let latestSelect: SelectionState['select'] = () => false
+    function SelectProbe() {
+      const selection = useSelectionContext()
+      latestSelect = selection.select
+      return null
+    }
+    function ActivityProbe({ sectionKey }: { sectionKey: SectionKey }) {
+      const activity = useSectionActivityContext()
+      const agg = activity.aggregateFor(sectionKey)
+      return (
+        <span data-testid={`activity-${sectionKey}`}>
+          {JSON.stringify({ busy: agg.busy, any: activity.anyActive(sectionKey) })}
+        </span>
+      )
+    }
+
+    render(
+      <SelectionProvider>
+        <SectionActivityProvider>
+          <SectionQuickControls
+            viewbookId={8}
+            section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+            pcCompletedAt={null}
+          />
+          <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy' })} pcCompletedAt={null} />
+          <ActivityProbe sectionKey="pc-setup" />
+          <SelectProbe />
+        </SectionActivityProvider>
+      </SelectionProvider>,
+    )
+
+    const readActivity = (sectionKey: string) =>
+      JSON.parse(screen.getByTestId(`activity-${sectionKey}`).textContent!) as { busy: boolean; any: boolean }
+
+    const resetBtn = screen.getByRole('button', { name: 'Reset ack' })
+    fireEvent.focusIn(resetBtn) // operator focuses the control before clicking
+    fireEvent.click(resetBtn)
+
+    // (1) While the DELETE is in flight, pc-setup IS pinned (busy).
+    await waitFor(() => expect(readActivity('pc-setup').busy).toBe(true))
+    expect(readActivity('pc-setup').any).toBe(true)
+
+    resolveFetch(ok())
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledOnce())
+    // The Reset-ack button has unmounted (optimistic acknowledgedAt -> null)
+    // while still focused.
+    expect(screen.queryByRole('button', { name: 'Reset ack' })).toBeNull()
+
+    // (2) The pin releases even though the focused button unmounted.
+    await waitFor(() => expect(readActivity('pc-setup').any).toBe(false))
+
+    // (3) A different section is now selectable -- not fails-closed.
+    expect(latestSelect('strategy')).toBe(true)
   })
 
   // Fix #11: post-Show navigation fires ONCE, only after the refreshed prop
