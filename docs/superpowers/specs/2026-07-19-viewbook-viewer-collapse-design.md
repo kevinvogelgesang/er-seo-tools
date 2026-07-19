@@ -81,23 +81,53 @@ model ViewbookSection {
 ```
 
 ### Migration (`npx prisma migrate dev --name viewbook_collapsed_shared`)
-Additive column **plus** a data backfill so no shipped state is lost:
+Additive column **plus** a data backfill so no shipped state is lost. Production
+stops the app before `prisma migrate deploy` runs, so there is **no old-process
+write race** (Codex FIX-COLLAPSE-MIGRATION). The backfill must (a) set
+`updatedAt` explicitly (raw SQL bypasses `@updatedAt`), and (b) bump
+`syncVersion` + `updatedAt` on every affected **parent** `Viewbook` so browsers
+already open at deploy time refetch and pick up the new render path:
 ```sql
 ALTER TABLE "ViewbookSection" ADD COLUMN "collapsedShared" BOOLEAN NOT NULL DEFAULT false;
-UPDATE "ViewbookSection" SET "collapsedShared" = true, "state" = 'active' WHERE "state" = 'collapsed';
+UPDATE "ViewbookSection"
+  SET "collapsedShared" = true, "state" = 'active', "updatedAt" = <now-ms>
+  WHERE "state" = 'collapsed';
+UPDATE "Viewbook"
+  SET "syncVersion" = "syncVersion" + 1, "updatedAt" = <now-ms>
+  WHERE "id" IN (SELECT DISTINCT "viewbookId" FROM "ViewbookSection" WHERE "collapsedShared" = true);
 ```
-After this, `state` only ever holds `hidden | active | done`. The
-`'collapsed'` value is retired from the enum everywhere (§5).
+(Prisma migration SQL can't bind `Date.now()`; the migration writes a literal
+epoch-ms constant stamped when the migration file is authored — acceptable for a
+one-shot backfill.) After this, `state` only ever holds `hidden | active | done`.
+The `'collapsed'` value is retired from the enum everywhere (§5). **No
+expansion-regression window** — see the revised PR ordering (§11): the same PR
+that runs this migration also teaches the renderer to honor `collapsedShared`.
 
 ## 4. Two-layer collapse semantics
 
-**Effective collapse for a viewer** = `personalOverride ?? collapsedShared`,
-where `personalOverride ∈ {'collapsed','expanded', absent}` in localStorage.
+**The personal override is one-valued: `'expanded'` or absent.** There is no
+`'collapsed'` localStorage value (it would have no writer — Codex
+FIX-COLLAPSE-RECONCILIATION). Effective collapse for a viewer:
+
+```
+effectiveCollapsed = (personalOverride === 'expanded') ? false : collapsedShared
+```
 
 | Actor            | Collapse action                                   | Expand action                                        |
 |------------------|---------------------------------------------------|------------------------------------------------------|
 | Anonymous client | server write `collapsedShared=true` + **clear** local override | set local override `='expanded'` (no server write)   |
 | Operator         | server write `collapsedShared=true` + clear local override      | server write `collapsedShared=false` + clear local override |
+
+**Definition of "everyone" (resolves the FIX-1 contradiction, simpler branch):**
+`collapsedShared` is the collapse state seen by **every viewer who has not set a
+personal `expanded` override**. A viewer's personal expand is sticky — it persists
+across shared collapses. So "collapsing sets it for everyone" means *everyone
+without their own expand override*; the override-holder is the deliberate
+exception. This is Kevin's literal model. (An alternative — a per-section
+`collapseRevision` that invalidates a stale personal expand whenever a **new**
+shared collapse occurs, so a deliberate re-collapse re-tidies for everyone — is
+noted here as a possible refinement Kevin can request at review; the default is the
+simpler sticky-override model, no extra column.)
 
 Rationale for the operator asymmetry (**Kevin-approved 2026-07-19**): Kevin's rule
 ("expand is personal") gives clients no path to un-collapse a section for everyone,
@@ -106,42 +136,73 @@ separate operator button (Kevin wants the buttons *removed*), the **operator's h
 chevron is the shared-reset path** — it writes `collapsedShared` in both directions.
 Clients remain collapse-shared / expand-personal.
 
-- localStorage key: `vb:collapse:<viewbookId>:<sectionKey>` → `'collapsed' | 'expanded'`.
-  Mirrors the existing `vb-presentation-mode` localStorage pattern
-  (`PresentationToggle.tsx`).
+- localStorage key: `vb:collapse:<viewbookId>:<sectionKey>` → `'expanded'` (present)
+  or the key is **removed** (absent). Mirrors the existing `vb-presentation-mode`
+  localStorage pattern (`PresentationToggle.tsx`).
 - **Clear-on-collapse** matters: if a client had `override='expanded'` and then clicks
-  collapse, we must clear their override, else `override ?? shared` would keep showing
-  expanded and the click would appear to do nothing.
-- When a refetch delivers a new `collapsedShared`, viewers **with** an override keep it;
-  viewers **without** one follow the new shared value.
+  collapse, we must remove the override, else the click would appear to do nothing.
+- **Reconciliation effect (FIX-1):** `router.refresh()` / a sync-refetch preserves
+  the client island's `useState`, so `useState(collapsedShared)` only covers first
+  hydration. The island runs an effect that re-derives `effectiveCollapsed` whenever
+  the `collapsedShared` prop changes — **guarded off while a write this island issued
+  is still pending** (so a refetch mid-write doesn't clobber the optimistic state).
+  Viewers **with** an `expanded` override keep it; viewers **without** follow the new
+  shared value.
+- **Concurrency (FIX-2):** concurrent operator-expand (`collapsedShared=false`) and
+  anonymous-collapse (`collapsedShared=true`) are **last-commit-wins** at the DB; each
+  viewer converges via the sync-refetch. Explicitly accepted; no locking.
 
 ## 5. Server: retire `'collapsed'` state + shared-collapse write
 
-### Retire the enum value
-Remove `'collapsed'` from: `setSectionState` union + validation
-(`lib/viewbook/service.ts`), `OperatorSectionData.state` / `PublicSection.state`
-unions, `operator-data.ts` + `public-data.ts` mappings, `section-display.ts`
-(`hero-collapsed` mode deleted), `SectionOutline` STATE_PILLS. `PublicSection` and
-`OperatorSectionData` gain `collapsedShared: boolean`.
+### Retire the enum value — full audit (FIX-COLLAPSE-MIGRATION)
+Remove/adjust `'collapsed'` in **all** of:
+- `lib/viewbook/service.ts` — `setSectionState` union + validation (drop
+  `'collapsed'`, drop the `sectionSupportsCollapse` collapse branch).
+- `lib/viewbook/operator-data.ts` — `OperatorSectionData.state` union + row mapping;
+  add `collapsedShared: boolean`.
+- `lib/viewbook/public-data.ts` — `toPublic` mapping (line ~72 `s.state === 'collapsed'`
+  branch) + add `collapsedShared`.
+- `lib/viewbook/public-types.ts` — `PublicSection.state` union + add `collapsedShared`.
+- `lib/viewbook/section-display.ts` — delete the `hero-collapsed` mode.
+- `components/viewbook/public/OperatorLayer/inspector/SectionOutline.tsx` — STATE_PILLS
+  "Collapsed" pill.
+- `components/viewbook/public/OperatorLayer/SectionQuickControls.tsx` — Collapse/Expand
+  buttons + `state === 'collapsed'` branch (§10).
+- `app/api/viewbooks/[id]/sections/[sectionKey]/route.ts` — operator PATCH validator.
+- `components/viewbook/admin/ViewbookEditor.tsx` — any section-state dropdown/option.
+- `lib/viewbook/toc-index.ts` — any `collapsed`-aware branch.
+- All fixtures/tests + code comments referencing the `'collapsed'` state.
+
+`PublicSection` and `OperatorSectionData` gain `collapsedShared: boolean`.
 
 ### New public route: `POST /api/viewbook/[token]/collapse`
-Body `{ sectionKey: string, collapsed: boolean }`. Preflight chain identical to the
-ack route (load-bearing order): `requireSameSite` → `requireJsonContentType` →
-`requireViewbookToken` → `checkWriteThrottle` → `readBoundedJson` (small cap) → core.
+Body `{ sectionKey: string, collapsed: boolean }`. Preflight chain in the ack-route
+order: `requireSameSite` → `requireJsonContentType` → `requireViewbookToken` →
+`checkWriteThrottle` → `readBoundedJson` (small cap) → core.
+
+- **Dedicated throttle bucket (FIX-COLLAPSE-THROTTLE):** collapse uses its own keyed
+  bucket, `checkWriteThrottle(\`collapse:${token}\`)`, so cosmetic collapse spam can't
+  starve the shared ack/material/setup bucket. (Confirm `checkWriteThrottle` accepts a
+  key arg during plan; if not, add one.)
+- **Operator auth (FIX-COLLAPSE-AUTH-FENCE):** resolve operator status
+  **request-scoped** inside the route (a `requireOperatorEmail`-style read of the auth
+  cookie in the handler, not page-ambient state), pass `isOperator` to the core. The
+  core throws `403 operator_required` when `collapsed === false && !isOperator`. An
+  anonymous caller can therefore never set `collapsed:false` — pinned by route + core
+  tests.
 
 Core (`setSectionCollapsedShared(viewbook, token, { sectionKey, collapsed, isOperator })`
 in a new `lib/viewbook/collapse.ts`):
-- Validate `sectionKey` is a real key and `sectionSupportsCollapse(sectionKey)` (still
+- Validate `sectionKey` is real and `sectionSupportsCollapse(sectionKey)` (still
   excludes `pc-intro`/`pc-thanks`); else `400 invalid_section`.
-- **Authorization:** `collapsed === false` (shared-expand) requires a verified
-  operator. The route resolves operator status via `getOperatorEmailForPublicPage()`
-  and passes `isOperator`; the core throws `403 operator_required` when
-  `!collapsed && !isOperator`. `collapsed === true` is allowed for any token-holder.
-- Idempotent set: array-form `$transaction` — an `UPDATE ... SET collapsedShared=?,
-  updatedAt=? WHERE viewbookId=? AND sectionKey=?` plus a **fence-shared**
-  `syncVersionBumpWhere` predicated on the row actually changing value (so a no-op
-  set bumps nothing, matching the ack replay contract). Raw SQL sets `updatedAt`
-  manually (`Date.now()`), per the array-form-only rule.
+- **Full self-contained commit predicate (FIX-COLLAPSE-AUTH-FENCE):** the array-form
+  `$transaction` UPDATE's `WHERE` reasserts, in one self-contained predicate, that the
+  token is current + not revoked, the client is not archived, the section is
+  visible/collapse-allowed, **and** `collapsedShared` actually changes value. The
+  `syncVersionBumpWhere` companion carries the **same** predicate and is placed before
+  the UPDATE (the established fence-sharing pattern). Assert matching row counts; a
+  no-op set bumps nothing (ack replay contract). Raw SQL stamps `updatedAt` with
+  `Date.now()`.
 - Response `200 { collapsedShared }`, `Cache-Control: no-store`.
 
 Middleware: `/api/viewbook/[token]/*` is already public; no new matcher needed —
@@ -159,17 +220,35 @@ preserving the Wave-4 P1 invariant.
 Island behavior:
 - `collapsed` state seeds from the `collapsedShared` prop at mount (SSR and first
   client render agree → **no flash for the common no-override case**). A mount effect
-  reads localStorage; if an override exists it wins. Viewers *with* an override may
-  see one paint before the flip — acceptable, cosmetic; an anti-FOUC inline script is
-  explicitly out of scope.
+  reads localStorage; if an `expanded` override exists it wins. Viewers *with* an
+  override may see one paint before the flip — acceptable, cosmetic; an anti-FOUC
+  inline script is explicitly out of scope.
+- **Prop reconciliation effect (FIX-1):** a second effect re-derives
+  `effectiveCollapsed` whenever the `collapsedShared` prop changes on refetch, guarded
+  off while this island's own write is pending (see §4).
 - Always renders the hero band (image + overlay + title + **done check**, §7/§8) and
   the body; collapse only toggles visibility, so there is no server/client structural
   mismatch.
 - **Collapsed:** shrunken hero (§8) + the chosen affordance; header strip + body
-  hidden (reuse `SectionReveal`'s inert/`aria-hidden`/grid-rows clipping so clipped
-  content leaves the tab order + a11y tree).
+  hidden. Reuse `SectionReveal`'s `inert` + `aria-hidden` + grid-rows clipping so
+  clipped content leaves the tab order + a11y tree, **plus the repo's older-browser
+  visibility fallback** (a `visibility:hidden`/`display` guard for engines that don't
+  honor `inert`) so controls can never remain tabbable while collapsed
+  (FIX-COLLAPSE-NAVIGATION-A11Y).
 - **Expanded:** full hero + `TickDivider` strip + `SectionReveal` body + a "Collapse"
   control in the strip.
+- **`vb:navigate` force-open (FIX-COLLAPSE-NAVIGATION-A11Y):** the server-built
+  TOC/search cannot know a viewer's local override, so its nested anchors are **always
+  emitted**. The island listens for the `vb:navigate` CustomEvent (and the initial
+  `location.hash`) targeting its `sectionKey`; on match it force-expands **then**
+  scrolls — otherwise a personally-collapsed section a viewer navigates to would stay
+  hidden. (Same channel `SectionReveal` already honors.) A `vb:navigate` force-open is
+  a local view change only; it does **not** write `collapsedShared`.
+- **Actor-specific affordance copy (FIX-ACTOR-AFFORDANCE):** the expand affordance's
+  accessible name reflects scope — operator: "Expand (visible to everyone)"; client:
+  "Expand (just for you)". The collapse control is "Collapse for everyone" for both
+  actors (collapse is always shared). Controls are **disabled/serialized while a POST
+  is pending**.
 - Click handlers implement the §4 table. Server writes go to `POST
   /api/viewbook/[token]/collapse` via the existing public fetch helper; on success the
   sync poll propagates `collapsedShared` to other tabs. Optimistic local flip with
@@ -193,15 +272,22 @@ model Viewbook {
   heroOverlayStrength Int   @default(55)      // 0..100
 }
 ```
-- Validated + clamped server-side in `PATCH /api/viewbooks/[id]`
-  (`app/api/viewbooks/[id]/route.ts`): affordance ∈ the literal set (else 400);
-  overlay clamped to `[0,100]`.
+- **One shared sanitizer (FIX-PRESENTATION-CONFIG):** a single client-safe
+  read/write helper (e.g. `parsePresentationConfig` next to the theme kit) owns the
+  defaults + validation for both fields — `affordance ∈ {'bar','pill','chevron'}`
+  (else default), `heroOverlayStrength` must be a **finite integer** before clamping
+  to `[0,100]` (reject `NaN`/`Infinity`/non-number → 400, don't silently coerce). Read
+  is exactly as strict as write (the repo convention). `PATCH /api/viewbooks/[id]`
+  updates both settings **atomically** and bumps `syncVersion` **exactly once**.
 - Flowed into `ViewbookPublicData` and `OperatorViewbookData` (loaders), then into
   `SectionShell` props.
-- **Overlay consumption:** `SectionShell` sets a CSS var (e.g.
-  `--vb-hero-overlay: <0..1>`) and the hero gradient interpolates its stops from it,
-  so low = image reads through, high = brand color dominates. The same var drives the
-  collapsed hero (satisfying "gradient adjusted so imagery isn't just hard color").
+- **Overlay consumption + minimum scrim (FIX-PRESENTATION-CONFIG):** `SectionShell`
+  sets a CSS var (e.g. `--vb-hero-overlay: <0..1>`) and the hero gradient interpolates
+  its stops from it, so low = image reads through, high = brand color dominates. The
+  same var drives the collapsed hero. **A non-configurable minimum scrim floor** is
+  applied under the title/done-check band so `heroOverlayStrength=0` can never render
+  `--vb-on-primary` text illegibly over arbitrary photography — the slider varies the
+  overlay *above* that floor, never below it.
 - **UI:** a dropdown (affordance) + a range slider (overlay) in `ViewbookEditor`
   near `ThemeEditor`, saved via `PATCH /api/viewbooks/[id]`, existing `onSaved`
   reload. A tiny live preview swatch is nice-to-have, not required.
@@ -241,7 +327,13 @@ registry and deliberately registers `busy` alone there.
 low-value for these draft-less discrete controls; content editors (which have real
 drafts) keep their own dirty/focus reporting. Removing the operator Collapse/Expand
 buttons (§5/§10) also eliminates one unmount trigger, but the busy-only fix is the
-root-cause repair and covers Reset-ack too.
+root-cause repair and covers Reset-ack too. Codex (FIX-INSPECTOR-DISCRETE-PIN)
+confirms this is the correct root-cause repair, not masking.
+
+**Regression test (must assert all three):** while `busy=true` the section IS
+pinned; after the write settles the pin **releases even when the focused button
+unmounts** (the Reset-ack / label-swap case); and a **different** section can then be
+selected (`SelectionContext.select(other)` returns `true`).
 
 ## 10. Operator control cleanup
 
@@ -254,40 +346,65 @@ but is optional.
 
 ## 11. PR decomposition
 
-1. **Schema + retire enum value.** Migration + backfill; `collapsedShared` on the
-   models; remove `'collapsed'` from every state union / mapping / display path;
-   `PublicSection`/`OperatorSectionData` gain `collapsedShared`. Gates green.
+**Ordering constraint (FIX-COLLAPSE-MIGRATION):** the migration converts
+`state='collapsed'` → `active`, so the SAME PR that runs the migration **must** teach
+the renderer to honor `collapsedShared` — otherwise every previously-collapsed
+section expands for the window between that deploy and a later render PR. PR1 below
+therefore bundles the migration with a **transitional server-only renderer** (hero
+band only when `collapsedShared`, preserving today's affordance-less look); PR3 then
+layers the interactive viewer control + affordances on top.
+
+1. **Schema + retire enum value + transitional renderer.** Migration + backfill
+   (updatedAt + parent syncVersion bump); `collapsedShared` on the models + loaders;
+   full `'collapsed'` retirement audit (§5 list); `SectionShell` renders hero-only
+   when `collapsedShared` (server-only, no viewer control yet — no expansion
+   regression). Gates green.
 2. **Shared-collapse write.** `lib/viewbook/collapse.ts` +
-   `POST /api/viewbook/[token]/collapse` (operator-gated expand, sync bump,
-   idempotent). Route + service tests.
+   `POST /api/viewbook/[token]/collapse` (dedicated throttle bucket, request-scoped
+   operator gate on shared-expand, full self-contained commit predicate shared by
+   update + sync bump, idempotent). Route + service tests.
 3. **`CollapsibleSection` island + `SectionShell` restructure.** Three affordances,
-   overlay var, done-check-on-hero, personal override, optimistic write, sync
-   reconcile. Component tests.
-4. **Options-page config.** `collapseAffordance` + `heroOverlayStrength` columns,
-   `PATCH /api/viewbooks/[id]` validation/clamp, loader plumbing, editor UI.
-5. **Inspector focus-pin bugfix** + operator button removal.
+   actor-specific accessible names, overlay var + min-scrim floor, done-check-on-hero
+   + retained body badge, personal `expanded` override, prop-reconciliation effect,
+   `vb:navigate` force-open, optimistic write, disable-while-pending. Component tests.
+4. **Options-page config.** `collapseAffordance` + `heroOverlayStrength` columns, one
+   shared sanitizer, `PATCH /api/viewbooks/[id]` atomic dual-update + single
+   syncVersion bump, loader plumbing, editor UI.
+5. **Inspector focus-pin bugfix** (busy-only, with the three-assertion regression) +
+   operator Collapse/Expand button removal (§10).
 
 Each PR is independently shippable and passes `tsc --noEmit` + vitest +
-`npm run build`. PRs 1→3 are ordered (3 depends on 1's props and 2's route); 4 and 5
-are independent and can land in any order relative to 3.
+`npm run build`. PRs 1→3 are ordered (3 depends on 1's props/renderer and 2's route);
+4 and 5 are independent and can land in any order relative to 3.
 
 ## 12. Testing
 
 - **Service (`collapse.ts`):** shared set true/false; operator-gate on expand
-  (`403 operator_required` for anonymous `collapsed:false`); allowlist rejection for
-  bookends; idempotent no-op does not bump syncVersion; value-change does.
-- **Route:** preflight chain (same-site, content-type, throttle, bounded body),
-  token validation, operator vs anonymous.
-- **`CollapsibleSection`:** effective = override ?? shared; client collapse writes +
-  clears override; client expand is local-only (no fetch); operator expand fetches
-  `collapsed:false`; affordance variants render + are labeled/accessible; done check
-  shows collapsed and expanded.
+  (`403 operator_required` for anonymous `collapsed:false` — pinned test);
+  allowlist rejection for bookends; idempotent no-op does not bump syncVersion;
+  value-change does; commit predicate rejects a revoked-token / archived-client /
+  hidden-section write (row count 0, no bump).
+- **Route:** preflight chain (same-site, content-type, **dedicated `collapse:${token}`
+  throttle bucket** — collapse spam does not consume the shared ack bucket), token
+  validation, operator vs anonymous (anonymous `collapsed:false` → 403).
+- **`CollapsibleSection`:** effective = (`override==='expanded'`) ? expanded : shared;
+  client collapse writes + **clears** override; client expand is local-only (no
+  fetch); operator expand fetches `collapsed:false`; **prop-reconciliation** — a new
+  `collapsedShared` prop flips an override-less viewer but not an override-holder, and
+  is suppressed while a write is pending; **`vb:navigate`** force-expands a
+  personally-collapsed section; affordance variants render with actor-specific
+  accessible names; controls disabled while pending; done check shows collapsed and
+  expanded.
 - **Migration/backfill:** a fixture row at `state='collapsed'` becomes
-  `state='active', collapsedShared=true`.
-- **Config route:** affordance enum rejection; overlay clamp.
-- **Inspector regression:** after a `SectionQuickControls` mutation that unmounts a
-  focused button, `SelectionContext.select()` on a *different* section succeeds (the
-  pin releases). This is the guard against re-introducing the wedge.
+  `state='active', collapsedShared=true` with `updatedAt` set and the parent
+  `Viewbook.syncVersion` bumped.
+- **Config sanitizer/route:** affordance enum rejection; non-finite overlay rejected
+  (not coerced); overlay clamp `[0,100]`; atomic dual-update bumps syncVersion once;
+  `heroOverlayStrength=0` still renders the minimum scrim (title/done-check legible).
+- **Inspector regression (three assertions, §9):** pinned while `busy=true`; pin
+  releases after settlement even when the focused button unmounts; a *different*
+  section is then selectable (`select(other)` returns `true`). The guard against
+  re-introducing the wedge.
 
 ## 13. Risks & mitigations
 
