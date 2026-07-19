@@ -44,6 +44,10 @@ export function SectionShell({
   children: ReactNode
 }) {
   const mode = sectionDisplayMode(section, stage)
+  // Operator "collapse to hero" (state === 'collapsed'): the client sees ONLY
+  // the brand hero band below — the section header strip (TickDivider) and the
+  // entire detail body (intro note + content) are not rendered.
+  const heroOnly = mode === 'hero-collapsed'
   const alwaysOpen = mode === 'always-open'
   const initiallyOpen = sectionInitiallyOpen(section, stage)
   // Server component → cannot useId; the region anchor is derived from the
@@ -126,28 +130,33 @@ export function SectionShell({
           Full-width brand-tinted accent background (matching the sticky bar in
           SectionReveal) so the divider + title/summary/toggle read as one
           header block, visually distinct from the section body below. The
-          accent literal MUST match SectionReveal's sticky-bar background. */}
-      <div style={{ background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)' }}>
-        <div className="mx-auto w-full max-w-5xl px-6 pt-5 pb-1">
-          <TickDivider />
+          accent literal MUST match SectionReveal's sticky-bar background.
+          Suppressed entirely when hero-collapsed — only the hero band shows. */}
+      {!heroOnly && (
+        <div style={{ background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)' }}>
+          <div className="mx-auto w-full max-w-5xl px-6 pt-5 pb-1">
+            <TickDivider />
+          </div>
         </div>
-      </div>
+      )}
 
-      <SectionReveal
-        sectionKey={section.sectionKey}
-        regionId={regionId}
-        title={title}
-        summary={summaryFace}
-        alwaysOpen={alwaysOpen}
-        initiallyOpen={initiallyOpen}
-      >
-        {section.introNote && (
-          <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
-            {section.introNote}
-          </p>
-        )}
-        {children}
-      </SectionReveal>
+      {!heroOnly && (
+        <SectionReveal
+          sectionKey={section.sectionKey}
+          regionId={regionId}
+          title={title}
+          summary={summaryFace}
+          alwaysOpen={alwaysOpen}
+          initiallyOpen={initiallyOpen}
+        >
+          {section.introNote && (
+            <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
+              {section.introNote}
+            </p>
+          )}
+          {children}
+        </SectionReveal>
+      )}
     </section>
   )
 }

@@ -21,6 +21,13 @@ export function sectionSupportsAck(sectionKey: string): boolean {
   return ACKABLE.has(sectionKey)
 }
 
+// Collapse-to-hero is available on the same sections as Mark-done (everything
+// except pc-intro/pc-thanks) — those two are the framing bookends and have no
+// meaningful body-only-hidden state.
+export function sectionSupportsCollapse(sectionKey: string): boolean {
+  return sectionSupportsDone(sectionKey)
+}
+
 export function SectionQuickControls({
   viewbookId,
   section,
@@ -121,11 +128,14 @@ export function SectionQuickControls({
   }
 
   const doneable = sectionSupportsDone(section.sectionKey)
+  const collapsible = sectionSupportsCollapse(section.sectionKey)
   const statePill: { label: string; tone: Tone } = state === 'hidden'
     ? { label: 'Hidden', tone: 'warning' }
     : state === 'done'
       ? { label: 'Complete', tone: 'success' }
-      : { label: 'Visible', tone: 'neutral' }
+      : state === 'collapsed'
+        ? { label: 'Collapsed', tone: 'warning' }
+        : { label: 'Visible', tone: 'neutral' }
   const embedded = variant === 'embedded'
   return (
     <div
@@ -168,6 +178,16 @@ export function SectionQuickControls({
               className={editorSecondaryBtnClass}
             >
               {state === 'done' ? 'Reopen' : 'Mark done'}
+            </button>
+          )}
+          {collapsible && state !== 'hidden' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void setSectionState(state === 'collapsed' ? 'active' : 'collapsed')}
+              className={editorSecondaryBtnClass}
+            >
+              {state === 'collapsed' ? 'Expand' : 'Collapse'}
             </button>
           )}
           {sectionSupportsAck(section.sectionKey) && acknowledgedAt && (

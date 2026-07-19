@@ -18,7 +18,7 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
   const body = requireJsonObject(await parseJsonBody<Record<string, unknown>>(request))
   let handled = false
   if ('state' in body) {
-    if (body.state !== 'hidden' && body.state !== 'active' && body.state !== 'done') {
+    if (body.state !== 'hidden' && body.state !== 'active' && body.state !== 'done' && body.state !== 'collapsed') {
       throw new HttpError(400, 'invalid_section')
     }
     await setSectionState(id, sectionKey, body.state, operator)

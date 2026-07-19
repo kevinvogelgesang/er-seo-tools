@@ -197,11 +197,11 @@ export async function revokeViewbook(id: number): Promise<void> {
 export async function setSectionState(
   id: number,
   sectionKey: string,
-  state: 'hidden' | 'active' | 'done',
+  state: 'hidden' | 'active' | 'done' | 'collapsed',
   actor: string,
 ): Promise<void> {
   assertSectionKey(sectionKey)
-  if (!['hidden', 'active', 'done'].includes(state)) throw new HttpError(400, 'invalid_section')
+  if (!['hidden', 'active', 'done', 'collapsed'].includes(state)) throw new HttpError(400, 'invalid_section')
   try {
     const update = prisma.viewbookSection.update({
         where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },

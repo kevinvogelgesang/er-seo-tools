@@ -69,7 +69,7 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
   )
   const toPublic = (s: (typeof sectionRows)[number]): PublicSection => ({
     sectionKey: s.sectionKey as PublicSection['sectionKey'],
-    state: s.state === 'done' ? 'done' : 'active',
+    state: s.state === 'done' ? 'done' : s.state === 'collapsed' ? 'collapsed' : 'active',
     doneAt: iso(s.doneAt),
     acknowledgedAt: iso(s.acknowledgedAt),
     introNote: s.introNote,

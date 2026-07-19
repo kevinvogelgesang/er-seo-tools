@@ -158,6 +158,43 @@ describe('SectionQuickControls', () => {
     expect(JSON.parse(init.body)).toEqual({ state: 'active' })
   })
 
+  it('collapses to hero and expands back through the section PATCH contract', async () => {
+    let [url, init] = await clickAndRead('Collapse', section())
+    expect(url).toBe('/api/viewbooks/8/sections/data-source')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body)).toEqual({ state: 'collapsed' })
+    cleanup()
+    vi.unstubAllGlobals()
+
+    ;[, init] = await clickAndRead('Expand', section({ state: 'collapsed' }))
+    expect(JSON.parse(init.body)).toEqual({ state: 'active' })
+  })
+
+  it('renders a collapsed section with a Collapsed pill and an Expand button', () => {
+    render(<SectionQuickControls viewbookId={8} section={section({ state: 'collapsed' })} pcCompletedAt={null} />)
+    expect(screen.getByText('Collapsed')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+  })
+
+  it('never exposes a Collapse control on pc-intro or pc-thanks', () => {
+    render(<SectionQuickControls viewbookId={8} section={section({ sectionKey: 'pc-intro' })} pcCompletedAt={null} />)
+    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
+    cleanup()
+
+    // pc-thanks only renders its controls once the completion stamp exists.
+    render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'pc-thanks' })}
+        pcCompletedAt="2026-07-16T00:00:00.000Z"
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
+  })
+
   it('resets an acknowledged ackable section with DELETE', async () => {
     const [url, init] = await clickAndRead(
       'Reset ack',

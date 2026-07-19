@@ -10,7 +10,7 @@ import type { ViewbookStage } from './stages'
 
 export interface PublicSection {
   sectionKey: SectionKey
-  state: 'active' | 'done'
+  state: 'active' | 'done' | 'collapsed'
   doneAt: string | null
   acknowledgedAt: string | null
   introNote: string | null

@@ -12,7 +12,7 @@ export type OutlineGroup = 'primary' | 'carried' | 'future'
 export interface OutlineRow {
   sectionKey: SectionKey
   title: string
-  state: 'active' | 'hidden' | 'done'
+  state: 'active' | 'hidden' | 'done' | 'collapsed'
   acknowledged: boolean
   group: OutlineGroup
 }
@@ -69,6 +69,7 @@ const STATE_PILLS: Record<OutlineRow['state'], { label: string; tone: Tone }> = 
   active: { label: 'Visible', tone: 'neutral' },
   hidden: { label: 'Hidden', tone: 'warning' },
   done: { label: 'Complete', tone: 'success' },
+  collapsed: { label: 'Collapsed', tone: 'warning' },
 }
 
 export function SectionOutline({ operatorData, stage, pcCompletedAt }: SectionOutlineProps) {
