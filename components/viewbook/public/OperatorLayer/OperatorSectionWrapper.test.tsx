@@ -31,7 +31,7 @@ const operatorData: OperatorViewbookData = {
 }
 
 describe('OperatorSectionWrapper', () => {
-  it('renders the real section plus quick controls and inline editors for an operator', () => {
+  it('renders the real section, quick controls, and a scroll-spy target — but no below-section editors', () => {
     const { container } = render(
       <OperatorSectionWrapper
         sectionKey="welcome"
@@ -45,7 +45,11 @@ describe('OperatorSectionWrapper', () => {
     )
     expect(screen.getByText('Real public section')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Hide' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /welcome note/i })).toBeTruthy()
+    // Scroll-spy target boundary (useSectionSelection reads [data-operator-section]).
+    expect(container.querySelector('[data-operator-section="welcome"]')).toBeTruthy()
+    // Inline editors moved to InspectorPanes — no editor chrome below the section.
+    expect(container.querySelector('[data-operator-inline-editor]')).toBeNull()
+    expect(screen.queryByRole('button', { name: /welcome note/i })).toBeNull()
     expect(container.innerHTML.includes('dark' + ':')).toBe(true)
     expect(container.querySelector('[data-operator-section-wrapper]')?.getAttribute('class')).toBeNull()
   })
