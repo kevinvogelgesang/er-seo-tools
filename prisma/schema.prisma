@@ -900,6 +900,7 @@ model ViewbookSection {
   viewbook   Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   sectionKey String // 'welcome' | 'milestones' | 'data-source' | 'brand' | 'assessment' | 'strategy' | 'materials'
   state      String    @default("active") // 'hidden' | 'active' | 'done'
+  collapsedShared Boolean @default(false) // viewer-facing shared collapse default (orthogonal to state)
   doneAt     DateTime?
   introNote  String? // operator-written per-client intro (plain text)
   narrative  String? // assessment narrative / brand philosophy prose (plain text)
