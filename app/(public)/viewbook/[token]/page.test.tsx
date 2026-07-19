@@ -42,6 +42,9 @@ const OPERATOR_MARKERS = [
   'data-operator-section-controls',
   'data-operator-hidden-sections',
   'data-operator-inline-editor',
+  'data-vb-inspector',
+  'data-vb-section-outline',
+  'data-vb-inspector-panes',
 ]
 
 function publicData() {

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { OperatorViewbookData } from '@/lib/viewbook/operator-data'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import { OperatorViewbookLayer } from './OperatorViewbookLayer'
 import { OperatorSectionWrapper } from './OperatorSectionWrapper'
+import { useSelectionContext } from './inspector'
 
 const visible: PublicSection = {
   sectionKey: 'welcome',
@@ -100,5 +101,45 @@ describe('OperatorViewbookLayer', () => {
     expect(container.querySelector('[data-operator-section-wrapper]')).toBeNull()
     expect(screen.queryByText('Hidden sections')).toBeNull()
     expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('renders the inspector rail in edit mode', async () => {
+    const { container } = renderLayer()
+    await screen.findByText('ER editing')
+    expect(container.querySelector('[data-vb-inspector]')).toBeTruthy()
+  })
+
+  it('renders NO inspector while presenting, but the providers still wrap children', async () => {
+    stored = 'true'
+    const { container } = renderLayer()
+    await screen.findByRole('button', { name: 'Return to editing' })
+    expect(container.querySelector('[data-vb-inspector]')).toBeNull()
+  })
+
+  it('providers remain available to children while presenting', async () => {
+    stored = 'true'
+    function SelectionProbe() {
+      const s = useSelectionContext()
+      return (
+        <button onClick={() => s.select('brand', 'manual-nav')} data-testid="probe">
+          {s.selectedKey ?? 'none'}
+        </button>
+      )
+    }
+    render(
+      <OperatorViewbookLayer
+        viewbookId={22}
+        operatorEmail="operator@example.com"
+        stage="kickoff"
+        pcCompletedAt={null}
+        operatorData={operatorData}
+      >
+        <SelectionProbe />
+      </OperatorViewbookLayer>,
+    )
+    const probe = await screen.findByTestId('probe')
+    expect(probe.textContent).toBe('none')
+    act(() => probe.click())
+    expect(probe.textContent).toBe('brand') // real provider present despite presentation mode
   })
 })
