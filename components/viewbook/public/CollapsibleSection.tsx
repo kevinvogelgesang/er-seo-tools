@@ -124,7 +124,11 @@ export function CollapsibleSection({
   return (
     <div>
       {collapsed ? (
-        <>
+        // The whole shrunken hero is a click target (not just the affordance
+        // button) — a plain (non-semantic) onClick on this wrapper, with the
+        // REAL accessible control being the CollapseAffordance button inside
+        // (which stops propagation so one click doesn't double-invoke).
+        <div className="relative cursor-pointer" onClick={onExpand}>
           {heroCollapsed}
           <CollapseAffordance
             kind={affordance}
@@ -133,7 +137,7 @@ export function CollapsibleSection({
             onExpand={onExpand}
             disabled={pending}
           />
-        </>
+        </div>
       ) : (
         <div className="relative">
           {heroExpanded}

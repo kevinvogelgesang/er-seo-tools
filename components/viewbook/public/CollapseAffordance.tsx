@@ -6,6 +6,7 @@
 // presentation differs. `accessibleName` is actor-specific text supplied by
 // the caller (CollapsibleSection) — "Expand (just for you)" for a client
 // viewer vs "Expand (visible to everyone)" for an operator (FIX-ACTOR-AFFORDANCE).
+import type { MouseEvent } from 'react'
 import type { CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
 
 export function CollapseAffordance({
@@ -26,7 +27,14 @@ export function CollapseAffordance({
     'aria-controls': regionId,
     'aria-label': accessibleName,
     disabled,
-    onClick: onExpand,
+    // stopPropagation: this button is nested inside CollapsibleSection's
+    // whole-hero click-anywhere-to-expand wrapper (SectionShell composes
+    // heroCollapsed inside it) — without this, one click would bubble and
+    // invoke onExpand a second time.
+    onClick: (e: MouseEvent) => {
+      e.stopPropagation()
+      onExpand()
+    },
     type: 'button' as const,
   }
 
