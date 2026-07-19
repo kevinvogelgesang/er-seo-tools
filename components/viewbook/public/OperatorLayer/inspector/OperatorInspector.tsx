@@ -48,8 +48,11 @@ export function OperatorInspector({ viewbookId, operatorData, pcCompletedAt, sta
           <span>{collapsed ? 'Open inspector' : 'Inspector'}</span>
         </button>
       </div>
-      <div data-vb-inspector-body hidden={collapsed} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex justify-end border-b border-gray-200 px-4 py-3 dark:border-navy-border">
+      {/* Body splits into two independently-scrolling halves (~50/50): the
+          section outline on top and a permanently-sized Edit region below, so
+          the editor always gets half the rail regardless of outline length. */}
+      <div data-vb-inspector-body hidden={collapsed} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 justify-end border-b border-gray-200 px-4 py-2.5 dark:border-navy-border">
           <button
             type="button"
             aria-label="Canvas fit"
@@ -60,8 +63,12 @@ export function OperatorInspector({ viewbookId, operatorData, pcCompletedAt, sta
             Fit canvas
           </button>
         </div>
-        <SectionOutline operatorData={operatorData} stage={stage} pcCompletedAt={pcCompletedAt} viewbookId={viewbookId} />
-        <InspectorPanes viewbookId={viewbookId} operatorData={operatorData} />
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <SectionOutline operatorData={operatorData} stage={stage} pcCompletedAt={pcCompletedAt} viewbookId={viewbookId} />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden border-t-2 border-gray-200 bg-gray-50/70 dark:border-navy-border dark:bg-navy-card/40">
+          <InspectorPanes viewbookId={viewbookId} operatorData={operatorData} />
+        </div>
       </div>
     </aside>
   )

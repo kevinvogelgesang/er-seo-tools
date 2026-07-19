@@ -420,7 +420,7 @@ function OperatorFontPicker({
   ))
 
   return (
-    <div className={`${editorWellClass} min-w-56 space-y-3`}>
+    <div className={`${editorWellClass} min-w-0 space-y-3`}>
       <label className={editorLabelClass}>
         Search {kind.toLocaleLowerCase()} fonts
         <input
@@ -516,7 +516,7 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
         <section aria-labelledby="operator-theme-colors">
           <h3 id="operator-theme-colors" className="font-display text-sm font-bold text-navy dark:text-white">Colors</h3>
           <p className="mt-1 text-xs text-gray-500 dark:text-white/55">These accents update across the client view as you work.</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="mt-3 grid gap-2">
             {COLOR_FIELDS.map((field) => (
               <label key={field} className={`${editorWellClass} flex items-center gap-3 text-sm font-medium text-navy dark:text-white/80`}>
                 <input
@@ -537,7 +537,7 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
 
         <section aria-labelledby="operator-theme-typography">
           <h3 id="operator-theme-typography" className="font-display text-sm font-bold text-navy dark:text-white">Typography</h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-3">
             <OperatorFontPicker kind="Heading" value={draft.headingFont} onChange={(headingFont) => setDraft({ ...draft, headingFont })} />
             <OperatorFontPicker kind="Body" value={draft.bodyFont} onChange={(bodyFont) => setDraft({ ...draft, bodyFont })} />
           </div>
@@ -570,7 +570,7 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
               description="Optional imagery for individual client sections."
               defaultOpen={false}
             >
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
                 {SECTION_KEYS.map((sectionKey) => (
                   <label key={sectionKey} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-navy-border dark:bg-navy-card">
                     <span className="mb-2 flex items-center justify-between gap-2">
