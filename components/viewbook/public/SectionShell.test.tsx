@@ -9,6 +9,7 @@ afterEach(cleanup)
 const section = (over: Partial<PublicSection> = {}): PublicSection => ({
   sectionKey: 'brand',
   state: 'active',
+  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,
@@ -87,10 +88,10 @@ describe('SectionShell', () => {
     expect(screen.queryByText(/Completed/)).toBeNull()
   })
 
-  it('renders a collapsed section as hero-only — title shows, body (intro + children) suppressed', () => {
+  it('renders hero-only when collapsedShared is true (body + header strip suppressed)', () => {
     const { container } = render(
       <SectionShell
-        section={section({ state: 'collapsed', introNote: 'A note' })}
+        section={section({ collapsedShared: true, introNote: 'A note' })}
         title="Brand Guidelines"
         heroUrl={null}
         stage="building"
@@ -101,9 +102,10 @@ describe('SectionShell', () => {
     )
     // The hero band + title still render (the section anchor is preserved).
     expect(document.getElementById('brand')).not.toBeNull()
-    expect(screen.getByText('Brand Guidelines')).toBeDefined()
+    expect(screen.getByRole('heading', { name: 'Brand Guidelines' })).toBeDefined() // hero title present
     // The entire detail body is gone: no reveal region, no intro note, no
     // children, no summary face.
+    expect(screen.queryByTestId('vb-region')).toBeNull() // body region not rendered
     expect(container.querySelector('[role="region"]')).toBeNull()
     expect(screen.queryByText('A note')).toBeNull()
     expect(screen.queryByText('Body')).toBeNull()

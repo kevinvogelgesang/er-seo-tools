@@ -15,6 +15,12 @@
 //   normal                  → open per the stage policy, click-toggle only
 //   done / ack-collapsed    → start collapsed, celebratory summary face, open
 //                             on deliberate toggle or vb:navigate
+//
+// collapsedShared (PublicSection, orthogonal to the modes above, PR1
+// transitional renderer): when true, the section renders HERO-ONLY — the
+// header strip + entire detail body (regardless of display mode) are
+// suppressed. Server-only for now; PR2 adds the write path, PR3 the
+// interactive viewer control + personal override.
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
@@ -44,10 +50,11 @@ export function SectionShell({
   children: ReactNode
 }) {
   const mode = sectionDisplayMode(section, stage)
-  // Operator "collapse to hero" (state === 'collapsed'): the client sees ONLY
-  // the brand hero band below — the section header strip (TickDivider) and the
-  // entire detail body (intro note + content) are not rendered.
-  const heroOnly = mode === 'hero-collapsed'
+  // Shared collapse-to-hero (collapsedShared, PR1 transitional renderer): the
+  // client sees ONLY the brand hero band below — the section header strip
+  // (TickDivider) and the entire detail body (intro note + content) are not
+  // rendered. Server-only for now; PR3 adds the interactive viewer control.
+  const heroOnly = section.collapsedShared
   const alwaysOpen = mode === 'always-open'
   const initiallyOpen = sectionInitiallyOpen(section, stage)
   // Server component → cannot useId; the region anchor is derived from the
@@ -131,7 +138,7 @@ export function SectionShell({
           SectionReveal) so the divider + title/summary/toggle read as one
           header block, visually distinct from the section body below. The
           accent literal MUST match SectionReveal's sticky-bar background.
-          Suppressed entirely when hero-collapsed — only the hero band shows. */}
+          Suppressed entirely when collapsedShared — only the hero band shows. */}
       {!heroOnly && (
         <div style={{ background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)' }}>
           <div className="mx-auto w-full max-w-5xl px-6 pt-5 pb-1">
