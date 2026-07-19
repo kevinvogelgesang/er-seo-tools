@@ -112,6 +112,17 @@ describe('buildTocIndex', () => {
     expect(kickoffDataSource?.children).toBeUndefined()
   })
 
+  it('keeps a collapsed section top-level entry but omits its child anchors (hero-only renders)', () => {
+    const data = buildFixture()
+    // data-source is collapsed → only its hero band renders, so its Data Source
+    // field-category children must not produce dead TOC anchors.
+    ;(data.primarySections as any[]).find((s) => s.sectionKey === 'data-source').state = 'collapsed'
+    const toc = buildTocIndex(data)
+    const dataSource = toc.find((t) => t.sectionKey === 'data-source')
+    expect(dataSource).toBeDefined() // top-level hero anchor is kept
+    expect(dataSource!.children).toBeUndefined() // nested anchors omitted
+  })
+
   it('falls back to the raw category key when no label is registered', () => {
     const data = buildFixture()
     data.fieldCategories = [{ category: 'made-up-category', fields: [] }]
@@ -172,6 +183,21 @@ describe('buildSearchIndex', () => {
     expect(doc.anchor).toBe('#vb-doc-brand-guide.pdf')
     expect(doc.sectionKey).toBe('strategy')
     expect(doc.haystack).toContain('How to use our brand')
+  })
+
+  it('keeps a collapsed section entry but omits its nested content entries (no dead anchors)', () => {
+    const data = buildFixture()
+    // Collapse data-source (nested qa) and materials (nested material rows).
+    for (const key of ['data-source', 'materials']) {
+      ;(data.primarySections as any[]).find((s) => s.sectionKey === key).state = 'collapsed'
+    }
+    const index = buildSearchIndex(data)
+    // Top-level section entries survive (the hero band still renders).
+    expect(index.some((e) => e.kind === 'section' && e.sectionKey === 'data-source')).toBe(true)
+    expect(index.some((e) => e.kind === 'section' && e.sectionKey === 'materials')).toBe(true)
+    // Nested content of the collapsed sections is suppressed.
+    expect(index.some((e) => e.kind === 'qa')).toBe(false)
+    expect(index.some((e) => e.kind === 'material')).toBe(false)
   })
 
   it('excludes content belonging to a section that is not in the visible lineup', () => {

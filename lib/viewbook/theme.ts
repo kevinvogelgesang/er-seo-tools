@@ -26,6 +26,33 @@ export const SECTION_KEYS = [
 
 export type SectionKey = (typeof SECTION_KEYS)[number]
 
+// Server-enforced collapse allowlist — the ONE home shared by the operator
+// Collapse control (SectionQuickControls) and the server (service.setSectionState).
+// A collapsed section renders ONLY its hero band on the public view; its body
+// (intro + content) is suppressed. Excluded from collapse:
+//   - the framing bookends: pc-intro, pc-thanks
+//   - client-INTERACTIVE sections whose forms the client must reach:
+//       pc-setup / pc-invite / data-source (client form intake + acknowledgment),
+//       milestones (client review-link feedback → insertClientFeedback),
+//       materials (client link submission → insertClientMaterial)
+// Everything else — operator-authored read-only content (welcome, brand,
+// assessment, strategy, kickoff-next, ws-intro) — stays collapsible.
+// This module is client-safe (no server imports), so both the client control
+// and the server service import it without pulling client-only code.
+export const COLLAPSE_EXCLUDED_SECTION_KEYS: ReadonlySet<string> = new Set([
+  'pc-intro',
+  'pc-thanks',
+  'pc-setup',
+  'pc-invite',
+  'data-source',
+  'milestones',
+  'materials',
+])
+
+export function sectionSupportsCollapse(sectionKey: string): boolean {
+  return !COLLAPSE_EXCLUDED_SECTION_KEYS.has(sectionKey)
+}
+
 export interface ViewbookTheme {
   primary: string
   secondary: string

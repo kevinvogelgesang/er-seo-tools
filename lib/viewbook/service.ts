@@ -20,6 +20,7 @@ import { CATALOG } from './catalog'
 import { DEFAULT_MILESTONES } from './milestones'
 import {
   SECTION_KEYS,
+  sectionSupportsCollapse,
   type SectionKey,
   type ViewbookTheme,
   parseStoredTheme,
@@ -202,6 +203,9 @@ export async function setSectionState(
 ): Promise<void> {
   assertSectionKey(sectionKey)
   if (!['hidden', 'active', 'done', 'collapsed'].includes(state)) throw new HttpError(400, 'invalid_section')
+  // Server-enforced collapse allowlist (shared with the operator control) — the
+  // framing bookends + client-interactive sections may never be collapsed.
+  if (state === 'collapsed' && !sectionSupportsCollapse(sectionKey)) throw new HttpError(400, 'invalid_section')
   try {
     const update = prisma.viewbookSection.update({
         where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },

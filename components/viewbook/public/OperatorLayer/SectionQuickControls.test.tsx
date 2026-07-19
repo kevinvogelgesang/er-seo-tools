@@ -159,22 +159,32 @@ describe('SectionQuickControls', () => {
   })
 
   it('collapses to hero and expands back through the section PATCH contract', async () => {
-    let [url, init] = await clickAndRead('Collapse', section())
-    expect(url).toBe('/api/viewbooks/8/sections/data-source')
+    // strategy is a collapsible operator-authored content section (data-source
+    // is on the excluded allowlist and never shows a Collapse control).
+    let [url, init] = await clickAndRead('Collapse', section({ sectionKey: 'strategy' }))
+    expect(url).toBe('/api/viewbooks/8/sections/strategy')
     expect(init.method).toBe('PATCH')
     expect(JSON.parse(init.body)).toEqual({ state: 'collapsed' })
     cleanup()
     vi.unstubAllGlobals()
 
-    ;[, init] = await clickAndRead('Expand', section({ state: 'collapsed' }))
+    ;[, init] = await clickAndRead('Expand', section({ sectionKey: 'strategy', state: 'collapsed' }))
     expect(JSON.parse(init.body)).toEqual({ state: 'active' })
   })
 
   it('renders a collapsed section with a Collapsed pill and an Expand button', () => {
-    render(<SectionQuickControls viewbookId={8} section={section({ state: 'collapsed' })} pcCompletedAt={null} />)
+    render(<SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'collapsed' })} pcCompletedAt={null} />)
     expect(screen.getByText('Collapsed')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Expand' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+  })
+
+  it('never exposes a Collapse control on excluded (client-interactive) sections', () => {
+    for (const sectionKey of ['data-source', 'pc-setup', 'milestones', 'materials'] as const) {
+      render(<SectionQuickControls viewbookId={8} section={section({ sectionKey })} pcCompletedAt={null} />)
+      expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+      cleanup()
+    }
   })
 
   it('never exposes a Collapse control on pc-intro or pc-thanks', () => {
