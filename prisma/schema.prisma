@@ -878,6 +878,8 @@ model Viewbook {
   csmName          String?
   clientNotifyJson String    @default("[]")
   pcCompletedAt    DateTime?
+  collapseAffordance  String @default("bar")  // 'bar' | 'pill' | 'chevron' (presentation config, PR4)
+  heroOverlayStrength Int    @default(55)      // 0..100 hero overlay opacity
   createdBy       String? // operator email
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
