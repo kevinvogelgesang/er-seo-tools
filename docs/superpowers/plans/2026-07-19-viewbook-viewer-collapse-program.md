@@ -12,13 +12,13 @@
 
 | PR | File | Deliverable | Depends on |
 |----|------|-------------|------------|
-| 1 | `2026-07-19-viewbook-viewer-collapse-pr1.md` | Schema + migration/backfill + `'collapsed'`-enum retirement + **transitional server renderer** (hero-only when `collapsedShared`) | — |
-| 2 | `2026-07-19-viewbook-viewer-collapse-pr2.md` | `lib/viewbook/collapse.ts` + `POST /api/viewbook/[token]/collapse` (dedicated throttle, request-scoped operator gate, self-contained commit predicate) | PR1 |
-| 3 | `2026-07-19-viewbook-viewer-collapse-pr3.md` | `CollapsibleSection` client island + `SectionShell` restructure (3 affordances, overlay var + min scrim, done-on-hero + body badge, personal override, reconciliation effect, `vb:navigate`, disable-while-pending) | PR1, PR2 |
-| 4 | `2026-07-19-viewbook-viewer-collapse-pr4.md` | Options-page config: `collapseAffordance` + `heroOverlayStrength` columns, shared sanitizer, atomic `PATCH /api/viewbooks/[id]`, editor UI | PR1 |
-| 5 | `2026-07-19-viewbook-viewer-collapse-pr5.md` | Inspector focus-pin bugfix (busy-only) + operator Collapse/Expand button removal | — (independent) |
+| 1 | `…-pr1.md` | Schema + migration/backfill + `'collapsed'`-enum retirement + **transitional server renderer** (hero-only when `collapsedShared`) | — |
+| 2 | `…-pr2.md` | `lib/viewbook/collapse.ts` + `POST /api/viewbook/[token]/collapse` (dedicated throttle, request-scoped operator gate, token-in-predicate commit fence) | PR1 |
+| 4 | `…-pr4.md` | **Owns `presentation-config.ts` in full** (types+consts+defaults+reader+sanitizer) + `collapseAffordance`/`heroOverlayStrength` columns + atomic `PATCH /api/viewbooks/[id]` + `PresentationEditor` UI | PR1 |
+| 3 | `…-pr3.md` | `CollapsibleSection` client island + `SectionShell` restructure (3 affordances, concrete overlay stops + min scrim, done-on-hero + body badge, personal override, reconciliation, `vb:navigate`, disable-while-pending) | PR1, PR2, **PR4** |
+| 5 | `…-pr5.md` | Inspector focus-pin bugfix (busy-only) + operator Collapse/Expand button removal | — (independent) |
 
-Ordering: 1 → 2 → 3. PR4 depends only on PR1. PR5 is independent. Land 1,2,3 in order; 4 and 5 any time after their deps.
+**Ordering (Codex FIX-PR3-PR4-CONFIG-OWNERSHIP): `PR1 → (PR2 + PR4) → PR3`, PR5 independent.** PR4 owns `lib/viewbook/presentation-config.ts` entirely (type + `COLLAPSE_AFFORDANCES` + `PRESENTATION_DEFAULTS` + `parsePresentationPatch` + `readPresentationConfig`); PR3 imports the type + consts from it and consumes PR4's `SectionShell`-config plumbing, so PR3 lands LAST. (This reverses the earlier PR3-creates-the-type-file plan — PR3 no longer creates `presentation-config.ts`.)
 
 ## Global Constraints
 

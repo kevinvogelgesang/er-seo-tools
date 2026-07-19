@@ -71,11 +71,12 @@ git commit -m "refactor(viewbook): extract non-throwing resolveOperatorEmail"
 - Test: `lib/viewbook/collapse.test.ts`
 
 **Interfaces:**
-- Consumes: `sectionSupportsCollapse` (`lib/viewbook/theme.ts`), `syncVersionBumpWhere` (`lib/viewbook/sync.ts`), `prisma`.
-- Produces:
+- Consumes: `assertSectionKey` + `sectionSupportsCollapse` (`lib/viewbook/theme.ts` / `service.ts` — use whichever exports `assertSectionKey`), `syncVersionBumpWhere` (`lib/viewbook/sync.ts`), `prisma`.
+- Produces (the `token` is REQUIRED and enters the commit predicate — Codex FIX-PR2-COMMIT-FENCE-AND-RESULT):
   ```ts
   export async function setSectionCollapsedShared(
     viewbook: { id: number },
+    token: string,
     input: { sectionKey: string; collapsed: boolean; isOperator: boolean },
   ): Promise<{ collapsedShared: boolean }>
   ```
@@ -102,36 +103,36 @@ describe('setSectionCollapsedShared', () => {
   it('any caller can set collapsed=true; bumps syncVersion', async () => {
     const vb = await mkViewbook()
     const before = await sync(vb.id)
-    const r = await setSectionCollapsedShared(vb, { sectionKey: 'brand', collapsed: true, isOperator: false })
+    const r = await setSectionCollapsedShared(vb, vb.token, { sectionKey: 'brand', collapsed: true, isOperator: false })
     expect(r.collapsedShared).toBe(true)
     expect(await sync(vb.id)).toBe(before + 1)
   })
 
   it('anonymous collapsed=false is rejected 403 operator_required', async () => {
     const vb = await mkViewbook()
-    await setSectionCollapsedShared(vb, { sectionKey: 'brand', collapsed: true, isOperator: false })
-    await expect(setSectionCollapsedShared(vb, { sectionKey: 'brand', collapsed: false, isOperator: false }))
+    await setSectionCollapsedShared(vb, vb.token, { sectionKey: 'brand', collapsed: true, isOperator: false })
+    await expect(setSectionCollapsedShared(vb, vb.token, { sectionKey: 'brand', collapsed: false, isOperator: false }))
       .rejects.toMatchObject({ status: 403, code: 'operator_required' })
   })
 
   it('operator collapsed=false succeeds', async () => {
     const vb = await mkViewbook()
-    await setSectionCollapsedShared(vb, { sectionKey: 'brand', collapsed: true, isOperator: false })
-    const r = await setSectionCollapsedShared(vb, { sectionKey: 'brand', collapsed: false, isOperator: true })
+    await setSectionCollapsedShared(vb, vb.token, { sectionKey: 'brand', collapsed: true, isOperator: false })
+    const r = await setSectionCollapsedShared(vb, vb.token, { sectionKey: 'brand', collapsed: false, isOperator: true })
     expect(r.collapsedShared).toBe(false)
   })
 
   it('bookend sections cannot be collapsed (400)', async () => {
     const vb = await mkViewbook()
-    await expect(setSectionCollapsedShared(vb, { sectionKey: 'pc-intro', collapsed: true, isOperator: true }))
+    await expect(setSectionCollapsedShared(vb, vb.token, { sectionKey: 'pc-intro', collapsed: true, isOperator: true }))
       .rejects.toMatchObject({ status: 400 })
   })
 
   it('idempotent no-op set does NOT bump syncVersion', async () => {
     const vb = await mkViewbook()
-    await setSectionCollapsedShared(vb, { sectionKey: 'brand', collapsed: true, isOperator: false })
+    await setSectionCollapsedShared(vb, vb.token, { sectionKey: 'brand', collapsed: true, isOperator: false })
     const before = await sync(vb.id)
-    await setSectionCollapsedShared(vb, { sectionKey: 'brand', collapsed: true, isOperator: false })
+    await setSectionCollapsedShared(vb, vb.token, { sectionKey: 'brand', collapsed: true, isOperator: false })
     expect(await sync(vb.id)).toBe(before) // value unchanged → no bump
   })
 })
@@ -146,23 +147,26 @@ import 'server-only'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
-import { sectionSupportsCollapse } from './theme'
+import { sectionSupportsCollapse, SECTION_KEYS } from './theme'
 import { syncVersionBumpWhere } from './sync'
 
 export async function setSectionCollapsedShared(
   viewbook: { id: number },
+  token: string,
   input: { sectionKey: string; collapsed: boolean; isOperator: boolean },
 ): Promise<{ collapsedShared: boolean }> {
   const { sectionKey, collapsed, isOperator } = input
+  // Validate against REAL section keys — sectionSupportsCollapse only excludes
+  // the bookends, so an arbitrary string would otherwise pass (Codex FIX-3).
+  if (!(SECTION_KEYS as readonly string[]).includes(sectionKey)) throw new HttpError(400, 'invalid_section')
   if (!sectionSupportsCollapse(sectionKey)) throw new HttpError(400, 'invalid_section')
   // Shared-EXPAND (collapsed=false) is operator-only. Shared-COLLAPSE is open to any token-holder.
   if (!collapsed && !isOperator) throw new HttpError(403, 'operator_required')
 
   const now = Date.now()
-  // Self-contained commit predicate: the section exists, is NOT hidden, is
-  // collapse-eligible (enforced above), the parent book is live + not revoked,
-  // the client is not archived, AND the value actually changes. Reused verbatim
-  // by the sync bump so a no-op/blocked write bumps nothing.
+  // Self-contained commit predicate: matches this book BY TOKEN (current, not
+  // revoked), client not archived, section present + not hidden + collapse-
+  // eligible, AND the value actually changes. Reused verbatim by the sync bump.
   const predicate = Prisma.sql`
     EXISTS (
       SELECT 1 FROM "ViewbookSection" s
@@ -172,6 +176,7 @@ export async function setSectionCollapsedShared(
         AND s."sectionKey" = ${sectionKey}
         AND s."state" <> 'hidden'
         AND s."collapsedShared" <> ${collapsed}
+        AND v."token" = ${token}
         AND v."revokedAt" IS NULL
         AND c."archivedAt" IS NULL
     )`
@@ -184,18 +189,34 @@ export async function setSectionCollapsedShared(
         AND ${predicate}`
 
   // Fence-shared bump placed BEFORE the update (companion-statement pattern).
-  const [, changed] = await prisma.$transaction([
+  const [bumped, changed] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, predicate),
     update,
   ])
-  // `changed` is the UPDATE's affected-row count. 0 = no-op (already at value)
-  // or blocked by the predicate — either way the state is `collapsed`.
-  void changed
+
+  // Inspect BOTH counts (Codex FIX-3):
+  //  - 1/1 → real change, success.
+  //  - mismatched (1/0 or 0/1) → invariant violation, throw.
+  //  - 0/0 → no-op: either already at the requested value (honest replay) OR
+  //          blocked by the predicate (revoked/archived/hidden/rotated token).
+  //          Re-read to tell them apart — only return success when the persisted
+  //          value already equals the request; anything else is 409/blocked.
+  if (bumped !== changed) throw new HttpError(500, 'collapse_invariant')
+  if (changed === 0) {
+    const row = await prisma.viewbookSection.findUnique({
+      where: { viewbookId_sectionKey: { viewbookId: viewbook.id, sectionKey } },
+      select: { collapsedShared: true, state: true },
+    })
+    if (!row || row.state === 'hidden' || row.collapsedShared !== collapsed) {
+      throw new HttpError(409, 'collapse_blocked') // never fabricate a 200
+    }
+    // else: genuine idempotent replay — value already what caller asked for.
+  }
   return { collapsedShared: collapsed }
 }
 ```
 
-Note: `Client` has `archivedAt` (confirm column name against schema during impl; the ack/robots layers use the same archived-client guard). If `sectionSupportsCollapse` currently lives imported in `service.ts` only, it is exported from `theme.ts` — import from there.
+Notes: confirm `Client.archivedAt` + `SECTION_KEYS` export names against the code during impl (the ack/robots layers use the same archived-client guard; `SECTION_KEYS` lives in `theme.ts`). The 0/0 re-read still can't observe a rotated/revoked token if the row value coincidentally matches — that's acceptable (the value IS what was asked and the token check already ran in `requireViewbookToken` preflight); the predicate's `v."token"` guard is the TOCTOU fence for the WRITE itself.
 
 - [ ] **Step 3: Run + gate + commit.**
 
@@ -218,16 +239,21 @@ git commit -m "feat(viewbook): setSectionCollapsedShared service (fenced, operat
 - Consumes: `requireViewbookToken`, `resolveOperatorEmail`, the preflight guards, `setSectionCollapsedShared`.
 - Produces: `POST` handler → `200 { collapsedShared }`.
 
-- [ ] **Step 1: Failing route tests.**
+- [ ] **Step 1: Failing route tests** (Codex FIX-PR2-ROUTE-CONTRACT-COVERAGE — full contract):
 
 ```ts
 // mirror app/api/viewbook/[token]/ack route test setup (same-site header, JSON content-type)
-it('anonymous collapsed=true → 200 collapsedShared:true', async () => { /* POST, assert body */ })
-it('anonymous collapsed=false → 403 operator_required', async () => { /* no auth cookie */ })
-it('operator collapsed=false → 200 collapsedShared:false', async () => { /* auth cookie */ })
-it('uses the collapse:<token> throttle bucket (does not consume the ack bucket)', async () => {
-  // fire >throttle-limit collapse POSTs, then assert an ack POST for the same token still succeeds
-})
+it('anonymous collapsed=true → 200 collapsedShared:true', async () => {})
+it('anonymous collapsed=false → 403 operator_required', async () => {})
+it('operator collapsed=false → 200 collapsedShared:false', async () => {})
+it('missing same-site header → rejected', async () => {})
+it('wrong content-type → rejected', async () => {})
+it('invalid/unknown token → 404', async () => {})
+it('rotated token (old value) → 404', async () => {})
+it('unknown sectionKey → 400 invalid_section', async () => {})
+it('hidden section → 409 collapse_blocked (and NO sync bump)', async () => {})
+it('revoked viewbook / archived client → blocked (and NO sync bump)', async () => {})
+it('uses the collapse:<token> throttle bucket (an ack POST for the same token still succeeds after collapse spam)', async () => {})
 ```
 
 Run: FAIL (route missing).
@@ -263,9 +289,12 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   const token = (await params).token
   const viewbook = await requireViewbookToken(token)
   checkWriteThrottle(`collapse:${token}`) // dedicated bucket — never starves ack/materials/setup
-  const isOperator = (await resolveOperatorEmail(request)) != null
+  // Parse the bounded body BEFORE resolving optional operator status (Codex FIX-4:
+  // preserve the documented preflight order; operator resolution is additive and
+  // must never weaken token authorization).
   const input = parseInput(await readBoundedJson(request, BODY_CAP_BYTES))
-  const result = await setSectionCollapsedShared(viewbook, { ...input, isOperator })
+  const isOperator = (await resolveOperatorEmail(request)) != null
+  const result = await setSectionCollapsedShared(viewbook, token, { ...input, isOperator })
   return NextResponse.json(result, { status: 200, headers: { 'Cache-Control': 'no-store' } })
 })
 ```

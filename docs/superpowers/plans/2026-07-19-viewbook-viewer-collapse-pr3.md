@@ -22,10 +22,15 @@
   export function useCollapseState(args: {
     viewbookId: number; sectionKey: string; collapsedShared: boolean;
   }): {
-    collapsed: boolean;           // effective, for rendering
-    setPersonalExpanded(): void;  // client expand: localStorage override='expanded'
-    clearPersonalOverride(): void;// on any collapse: remove the key
-    pendingRef: React.MutableRefObject<boolean>; // guards prop-reconciliation while a write is in flight
+    collapsed: boolean;                 // effective, for rendering
+    pending: boolean;                   // a write this island issued is in flight
+    beginPending(): boolean;            // synchronous guard: false if already pending (caller aborts)
+    endPending(): void;                 // clears pending → reconcile effect reruns with latest prop
+    setPersonalExpanded(): void;        // client expand: localStorage override='expanded' (persisted)
+    forceExpandedLocal(): void;         // vb:navigate: expand in-memory only, NOT persisted
+    clearPersonalOverride(): 'expanded' | null; // remove key, RETURN prior value (for rollback)
+    restorePersonalOverride(prev: 'expanded' | null): void; // rollback on failed collapse
+    setCollapsedOptimistic(next: boolean): void; // optimistic view flip
   }
   ```
 - localStorage key helper `collapseKey(viewbookId, sectionKey) = \`vb:collapse:${viewbookId}:${sectionKey}\``.
@@ -33,17 +38,22 @@
 - [ ] **Step 1: Failing tests** (jsdom; stub localStorage like `PresentationToggle.test.tsx`):
 
 ```ts
-it('effective = collapsedShared when no override', () => { /* renderHook, collapsedShared:true → collapsed true */ })
-it('personal expanded override wins over shared collapse', () => { /* set override, collapsed=false */ })
-it('clearPersonalOverride removes the key so shared applies again', () => { /* … */ })
-it('a changed collapsedShared prop flips an override-less viewer', () => { /* rerender with new prop */ })
-it('a changed collapsedShared prop does NOT flip an override-holder', () => { /* override present */ })
-it('prop change is ignored while pendingRef.current is true', () => { /* set pending, rerender, no flip */ })
+it('effective = collapsedShared when no override', () => {})
+it('personal expanded override wins over shared collapse', () => {})
+it('clearPersonalOverride removes the key AND returns the prior value', () => {})
+it('restorePersonalOverride re-persists the prior value', () => {})
+it('a changed collapsedShared prop flips an override-less viewer', () => {})
+it('a changed collapsedShared prop does NOT flip an override-holder', () => {})
+it('prop change while pending is deferred, then APPLIED on endPending (not dropped)', () => {
+  // begin pending; rerender with new collapsedShared (no flip); endPending() → latest prop applies
+})
+it('forceExpandedLocal expands without writing localStorage (survives rerender, not reload)', () => {})
+it('beginPending returns false if already pending', () => {})
 ```
 
 Run: FAIL.
 
-- [ ] **Step 2: Implement.**
+- [ ] **Step 2: Implement.** Pending is STATE (not just a ref) so clearing it reruns the reconcile effect and applies any prop that arrived mid-flight (Codex FIX-5). `beginPending` uses a ref for a synchronous double-fire guard (rendered `disabled` doesn't serialize two pre-commit events). `forceExpandedLocal` sets the in-memory override only (Codex FIX-6).
 
 ```ts
 'use client'
@@ -60,41 +70,60 @@ export function useCollapseState({ viewbookId, sectionKey, collapsedShared }: {
   viewbookId: number; sectionKey: string; collapsedShared: boolean;
 }) {
   const key = collapseKey(viewbookId, sectionKey)
-  // SSR-safe seed: shared default (no window read in the initializer).
-  const [collapsed, setCollapsed] = useState(collapsedShared)
-  const pendingRef = useRef(false)
-  const overrideRef = useRef<'expanded' | null>(null)
+  const [collapsed, setCollapsed] = useState(collapsedShared) // SSR-safe seed, no window read
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)          // synchronous double-fire guard
+  const overrideRef = useRef<'expanded' | null>(null) // in-memory truth (persisted OR nav-forced)
 
-  // Mount: read the personal override; override wins.
-  useEffect(() => {
+  useEffect(() => { // mount: read persisted override; override wins
     overrideRef.current = readOverride(key)
     setCollapsed(overrideRef.current === 'expanded' ? false : collapsedShared)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
-  // Reconcile a refetched shared prop — unless a write we issued is pending,
-  // and never overriding a personal expand.
+  // Reconcile whenever the shared prop changes OR pending clears — suppressed
+  // while pending; personal expand always wins. Depending on `pending` is what
+  // makes a mid-flight prop apply on settle instead of being dropped (FIX-5).
   useEffect(() => {
-    if (pendingRef.current) return
+    if (pending) return
     setCollapsed(overrideRef.current === 'expanded' ? false : collapsedShared)
-  }, [collapsedShared])
+  }, [collapsedShared, pending])
+
+  const beginPending = useCallback(() => {
+    if (pendingRef.current) return false
+    pendingRef.current = true; setPending(true); return true
+  }, [])
+  const endPending = useCallback(() => { pendingRef.current = false; setPending(false) }, [])
 
   const setPersonalExpanded = useCallback(() => {
     try { localStorage.setItem(key, 'expanded') } catch {}
-    overrideRef.current = 'expanded'
-    setCollapsed(false)
+    overrideRef.current = 'expanded'; setCollapsed(false)
   }, [key])
 
-  const clearPersonalOverride = useCallback(() => {
+  const forceExpandedLocal = useCallback(() => { // vb:navigate — NOT persisted
+    overrideRef.current = 'expanded'; setCollapsed(false)
+  }, [])
+
+  const clearPersonalOverride = useCallback((): 'expanded' | null => {
+    const prev = overrideRef.current
     try { localStorage.removeItem(key) } catch {}
     overrideRef.current = null
+    return prev
   }, [key])
 
-  return { collapsed, setPersonalExpanded, clearPersonalOverride, pendingRef, setCollapsed }
+  const restorePersonalOverride = useCallback((prev: 'expanded' | null) => {
+    overrideRef.current = prev
+    try { prev ? localStorage.setItem(key, prev) : localStorage.removeItem(key) } catch {}
+  }, [key])
+
+  const setCollapsedOptimistic = useCallback((next: boolean) => setCollapsed(next), [])
+
+  return {
+    collapsed, pending, beginPending, endPending,
+    setPersonalExpanded, forceExpandedLocal, clearPersonalOverride, restorePersonalOverride, setCollapsedOptimistic,
+  }
 }
 ```
-
-(Expose `setCollapsed` too — the island uses it for the optimistic collapse flip.)
 
 - [ ] **Step 3: Run + commit.** `npx vitest run components/viewbook/public/useCollapseState.test.ts` → PASS; `tsc` → 0.
 
@@ -105,21 +134,15 @@ git commit -m "feat(viewbook): useCollapseState (personal override + reconciliat
 
 ---
 
-### Task 2: `CollapseAffordanceKind` home + `CollapseAffordance` presentational component (3 variants)
+### Task 2: `CollapseAffordance` presentational component (3 variants)
 
 **Files:**
-- Create: `lib/viewbook/presentation-config.ts` (type + const ONLY here in PR3; PR4 adds the sanitizer functions to the same file)
 - Create: `components/viewbook/public/CollapseAffordance.tsx`
 - Test: `components/viewbook/public/CollapseAffordance.test.tsx`
 
 **Interfaces:**
-- Produces (`lib/viewbook/presentation-config.ts` — the ONE home of the affordance type, client-safe, no server imports):
-  ```ts
-  export const COLLAPSE_AFFORDANCES = ['bar', 'pill', 'chevron'] as const
-  export type CollapseAffordanceKind = (typeof COLLAPSE_AFFORDANCES)[number]
-  export const PRESENTATION_DEFAULTS = { collapseAffordance: 'bar' as CollapseAffordanceKind, heroOverlayStrength: 55 }
-  ```
-- Produces (`CollapseAffordance.tsx`, importing the type from `presentation-config.ts`):
+- Consumes: `CollapseAffordanceKind` from `@/lib/viewbook/presentation-config` (**created and owned by PR4** — PR3 depends on PR4, per the reordered map). Never redeclare the type.
+- Produces (`CollapseAffordance.tsx`):
   ```ts
   export function CollapseAffordance(props: {
     kind: CollapseAffordanceKind; regionId: string; accessibleName: string;
@@ -127,8 +150,6 @@ git commit -m "feat(viewbook): useCollapseState (personal override + reconciliat
   }): JSX.Element
   ```
 - `accessibleName` is actor-specific text supplied by the island (FIX-ACTOR-AFFORDANCE).
-
-- [ ] **Step 0: Create `lib/viewbook/presentation-config.ts`** with exactly the `COLLAPSE_AFFORDANCES` / `CollapseAffordanceKind` / `PRESENTATION_DEFAULTS` exports above (no functions yet — PR4 Task 2 adds `parsePresentationPatch`/`readPresentationConfig` to this same file). `CollapseAffordance.tsx` and `CollapsibleSection.tsx` import `CollapseAffordanceKind` from here — never redeclare it.
 
 - [ ] **Step 1: Failing tests.**
 
@@ -194,120 +215,131 @@ git commit -m "feat(viewbook): CollapseAffordance (bar/pill/chevron, labeled + a
 
 **Interfaces:**
 - Consumes: `useCollapseState`, `CollapseAffordance`, PR2's route.
-- Produces (client island; ALL props serializable, body passed as `children` node):
+- Produces (client island; ALL props serializable, hero/body passed as server-rendered `ReactNode`s):
   ```ts
   export function CollapsibleSection(props: {
     viewbookId: number; token: string; sectionKey: string;
     collapsedShared: boolean; isOperator: boolean;
     affordance: CollapseAffordanceKind;
-    hero: ReactNode;      // server-rendered hero band (image+overlay+title+done check)
+    heroExpanded: ReactNode;  // full hero (image+overlay+title+done check) + header-strip collapse control
     heroCollapsed: ReactNode; // shrunken hero variant
-    body: ReactNode;      // server-rendered header strip + SectionReveal body
+    body: ReactNode;          // SectionReveal body — ALWAYS rendered, hidden when collapsed
     regionId: string;
+    previewMode?: boolean;    // ThemePreview: no POSTs
   }): JSX.Element
   ```
 
 - [ ] **Step 1: Failing tests.**
 
 ```ts
-it('renders collapsed (heroCollapsed + affordance, no body) when effective collapsed', () => { /* collapsedShared:true, no override */ })
-it('client expand: localStorage override set, body shown, NO fetch', async () => {
+it('collapsed: shows heroCollapsed + affordance; region present but hidden+inert', () => {
+  // collapsedShared:true, no override → region exists (aria-controls target) with hidden/inert set
+})
+it('client expand: localStorage override set, region shown, NO fetch', async () => {
   const fetchSpy = vi.spyOn(global, 'fetch')
-  // click expand as non-operator → override written, fetch NOT called with /collapse
+  // non-operator expand → override written, fetch NOT called
 })
-it('client collapse: POSTs {collapsed:true}, clears override, optimistic collapse', async () => { /* assert fetch body */ })
-it('operator expand: POSTs {collapsed:false} (shared)', async () => { /* isOperator, assert fetch body */ })
-it('affordance accessible name is actor-specific', () => {
-  // isOperator=false → "Expand (just for you)"; isOperator=true → "Expand (visible to everyone)"
-})
-it('controls disabled while a write is pending', async () => { /* slow fetch, button disabled mid-flight */ })
-it('vb:navigate for this sectionKey force-expands even when collapsed', () => {
-  // dispatch window CustomEvent('vb:navigate',{detail:{sectionKey}}), assert body shown, no fetch, no override write
-})
+it('client collapse: POSTs {collapsed:true}, clears override, optimistic collapse; restores override on failure', async () => {})
+it('operator expand: POSTs {collapsed:false}', async () => {})
+it('affordance accessible name is actor-specific (just for you / visible to everyone)', () => {})
+it('controls disabled while pending; a second collapse click mid-flight is a no-op (beginPending guard)', async () => {})
+it('vb:navigate force-expands via forceExpandedLocal — region shown, NO fetch, NO localStorage write', () => {})
+it('previewMode flips visuals but NEVER calls fetch', async () => {})
 ```
 
 Run: FAIL.
 
-- [ ] **Step 2: Implement.** Core behavior:
+- [ ] **Step 2: Implement.** ALWAYS render the controlled region (Codex FIX-7); collapse toggles `hidden`/`inert`/`aria-hidden`, never DOM presence, so `aria-controls` always resolves. Do NOT add `data-operator-section` here — `OperatorSectionWrapper` already owns the outer section marker (Codex FIX-8); this island renders a plain wrapper. `vb:navigate` uses `forceExpandedLocal` (non-persisted). Collapse snapshots + restores the override on failure.
 
 ```tsx
 'use client'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { CollapseAffordance } from './CollapseAffordance'
 import type { CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
 import { useCollapseState } from './useCollapseState'
 
 export function CollapsibleSection({
-  viewbookId, token, sectionKey, collapsedShared, isOperator, affordance, hero, heroCollapsed, body, regionId,
-}: { /* …types above… */ }) {
-  const { collapsed, setCollapsed, setPersonalExpanded, clearPersonalOverride, pendingRef } =
-    useCollapseState({ viewbookId, sectionKey, collapsedShared })
-  const [busy, setBusy] = useState(false)
+  viewbookId, token, sectionKey, collapsedShared, isOperator, affordance,
+  heroExpanded, heroCollapsed, body, regionId, previewMode = false,
+}: {
+  viewbookId: number; token: string; sectionKey: string; collapsedShared: boolean;
+  isOperator: boolean; affordance: CollapseAffordanceKind;
+  heroExpanded: ReactNode; heroCollapsed: ReactNode; body: ReactNode; regionId: string;
+  previewMode?: boolean; // ThemePreview: render collapsed/expanded visuals but NEVER POST (FIX-8)
+}) {
+  const {
+    collapsed, pending, beginPending, endPending,
+    setPersonalExpanded, forceExpandedLocal, clearPersonalOverride, restorePersonalOverride, setCollapsedOptimistic,
+  } = useCollapseState({ viewbookId, sectionKey, collapsedShared })
 
-  // vb:navigate force-open (local view only; never writes shared)
-  useEffect(() => {
+  useEffect(() => { // vb:navigate / hash → force-open (in-memory, not persisted)
     function onNav(e: Event) {
       const d = (e as CustomEvent).detail as { sectionKey?: string } | null
-      if (d?.sectionKey === sectionKey) setPersonalExpanded() // local expand + scroll handled by nav util
+      if (d?.sectionKey === sectionKey) forceExpandedLocal()
     }
     window.addEventListener('vb:navigate', onNav)
-    if (window.location.hash === `#${sectionKey}`) setPersonalExpanded()
+    if (window.location.hash === `#${sectionKey}`) forceExpandedLocal()
     return () => window.removeEventListener('vb:navigate', onNav)
-  }, [sectionKey, setPersonalExpanded])
+  }, [sectionKey, forceExpandedLocal])
 
-  async function writeShared(nextCollapsed: boolean) {
-    setBusy(true); pendingRef.current = true
-    try {
-      const res = await fetch(`/api/viewbook/${token}/collapse`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sectionKey, collapsed: nextCollapsed }),
-      })
-      if (!res.ok) throw new Error(String(res.status))
-    } finally { setBusy(false); pendingRef.current = false }
+  async function writeShared(nextCollapsed: boolean): Promise<boolean> {
+    const res = await fetch(`/api/viewbook/${token}/collapse`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sectionKey, collapsed: nextCollapsed }),
+    })
+    return res.ok
   }
 
   async function onCollapse() {
-    setCollapsed(true); clearPersonalOverride()  // optimistic + clear personal
-    try { await writeShared(true) } catch { /* revert */ setCollapsed(false) }
+    if (previewMode) { setCollapsedOptimistic(true); return }
+    if (!beginPending()) return               // synchronous double-fire guard (FIX-5)
+    setCollapsedOptimistic(true)
+    const prevOverride = clearPersonalOverride() // snapshot for rollback (FIX-6)
+    try {
+      if (!(await writeShared(true))) throw new Error('collapse_failed')
+    } catch {
+      setCollapsedOptimistic(false); restorePersonalOverride(prevOverride) // restore localStorage too
+    } finally { endPending() }
   }
+
   async function onExpand() {
-    if (isOperator) {
-      setCollapsed(false)
-      try { await writeShared(false); clearPersonalOverride() } catch { setCollapsed(true) }
-    } else {
-      setPersonalExpanded() // personal only, no fetch
-    }
+    if (previewMode) { setCollapsedOptimistic(false); return }
+    if (!isOperator) { setPersonalExpanded(); return } // client expand = personal, no fetch
+    if (!beginPending()) return
+    setCollapsedOptimistic(false)
+    try {
+      if (!(await writeShared(false))) throw new Error('expand_failed')
+      clearPersonalOverride()
+    } catch { setCollapsedOptimistic(true) }
+    finally { endPending() }
   }
 
   const expandName = isOperator ? 'Expand (visible to everyone)' : 'Expand (just for you)'
-  if (collapsed) {
-    return (
-      <section id={sectionKey} data-operator-section={sectionKey}>
-        {heroCollapsed}
-        <CollapseAffordance kind={affordance} regionId={regionId} accessibleName={expandName} onExpand={onExpand} disabled={busy} />
-      </section>
-    )
-  }
   return (
-    <section id={sectionKey} data-operator-section={sectionKey}>
-      {hero}
-      {/* Collapse control lives in the header strip inside `body`; wire it via a
-          context or a render-prop. Simplest: render a "Collapse for everyone"
-          button here above the body, disabled={busy}, onClick={onCollapse}. */}
-      <button type="button" onClick={onCollapse} disabled={busy}
-        className="mx-auto flex w-full max-w-5xl items-center gap-2 px-6 pt-3 text-sm font-semibold text-black/60 hover:text-black/80 disabled:opacity-50">
-        <span aria-hidden>▴</span> Collapse for everyone
-      </button>
-      {body}
-    </section>
+    <div>
+      {collapsed ? (
+        <>
+          {heroCollapsed}
+          <CollapseAffordance kind={affordance} regionId={regionId} accessibleName={expandName} onExpand={onExpand} disabled={pending} />
+        </>
+      ) : (
+        heroExpanded /* the expanded hero includes the header-strip "Collapse for everyone" control — see Task 4 */
+      )}
+      {/* Region ALWAYS present; hidden+inert while collapsed so aria-controls resolves (FIX-7). */}
+      <div id={regionId} role="region" aria-hidden={collapsed ? true : undefined} inert={collapsed}
+           hidden={collapsed} style={collapsed ? { display: 'none' } : undefined}>
+        {body}
+      </div>
+    </div>
   )
 }
 ```
 
 Notes for the implementer:
-- The `data-operator-section` attribute must stay on the outer `<section>` in BOTH branches so the inspector scroll-spy (`useSectionSelection`) keeps working.
-- The collapsed body is NOT rendered here (structural simplification — the transitional PR1 render already hides it). Because the body is absent while collapsed, the `inert`/`aria-hidden`/older-browser-visibility concern (FIX-7) is moot in this branch. `vb:navigate` sets the personal expand which re-renders the body branch, satisfying "navigate → open."
-- Keep this island free of any function-prop crossing the RSC boundary: `hero`, `heroCollapsed`, `body` are server-rendered nodes; the rest are scalars.
+- The expanded "Collapse for everyone" control lives in the header-strip (Task 4 wires `onCollapse` into it via a small context or by rendering the control in this island above `body` — keep it in the real header-strip layout with `aria-expanded="true"` + `aria-controls={regionId}`). Do NOT invent a second `data-operator-section`.
+- `heroExpanded`/`heroCollapsed`/`body` are server-rendered nodes; no function prop crosses the RSC boundary. `onCollapse`/`onExpand` are client-side within this island.
+- `previewMode` (ThemePreview) flips visuals locally and NEVER calls `writeShared` (FIX-8).
+- `inert` (React 19 boolean) + `aria-hidden` + `display:none` are the tab-order/a11y guard incl. older engines (FIX-7).
 
 - [ ] **Step 3: Run + commit.** vitest → PASS; tsc → 0.
 
@@ -332,34 +364,44 @@ git commit -m "feat(viewbook): CollapsibleSection island (viewer collapse/expand
 - [ ] **Step 1: Update tests.**
 
 ```ts
-it('renders the large done-check on the hero when state==="done" (collapsed AND expanded)', () => { /* both branches */ })
-it('retains the body "Completed {date}" badge when expanded and done', () => { /* summary face present */ })
-it('applies --vb-hero-overlay from heroOverlayStrength with the minimum scrim floor', () => {
-  // heroOverlayStrength=0 → the style var resolves but a min-scrim layer is present
-})
-it('collapsed section still exposes data-operator-section for the scroll-spy', () => { /* … */ })
+it('renders the large done-check on the hero when state==="done" (collapsed AND expanded)', () => {})
+it('retains the body "Completed {date}" badge when expanded and done', () => {})
+it('computes concrete gradient stops from heroOverlayStrength (0→15%/60%, 100→60%/85%) — no calc(var()*%)', () => {})
+it('always renders the minimum scrim layer, even at heroOverlayStrength=0', () => {})
+it('does NOT emit its own data-operator-section (OperatorSectionWrapper owns it)', () => {})
+it('bookend sections (pc-intro/pc-thanks) render with NO collapse affordance/control', () => {})
 ```
 
 Run: FAIL.
 
 - [ ] **Step 2: Implement.**
-  - Add props `affordance: CollapseAffordanceKind = 'bar'`, `overlayStrength: number = 55`, `isOperator: boolean`, `viewbookId: number`, `token: string` to `SectionShell`.
-  - Build TWO hero nodes: `hero` (full, `min-h-[38vh]`) and `heroCollapsed` (shrunken, `min-h-[150px]`, title stepped down). Both share the image + overlay + big done-check.
-  - **Done-check on hero:** when `section.state === 'done'`, render the badge (reuse the `vb-done-badge` class + `vb-pop` keyframes) sized `h-11 w-11 text-lg` in the hero's top-right (`absolute right-4 top-4 z-[2]`). Keep the existing body summary-face badge (with `Completed {date}`) unchanged — it shows when expanded.
-  - **Overlay + min scrim:** set `style={{ ['--vb-hero-overlay' as string]: String(clamp01(overlayStrength/100)) }}` on the hero container; the gradient div becomes:
+  - Add props to `SectionShell`: `affordance: CollapseAffordanceKind`, `overlayStrength: number`, `isOperator: boolean`, `viewbookId: number`, `token: string`, `previewMode?: boolean`. (PR4 owns `presentation-config`; these are real props now — no defaults needed since PR3 lands after PR4.)
+  - **Concrete overlay stops computed in TS (Codex FIX-9 — NO `calc()` with `var()*%`, unsupported on the project's older targets).** In the server component:
+    ```ts
+    function clamp01(n: number) { return Math.max(0, Math.min(1, n)) }
+    const t = clamp01((Number.isFinite(overlayStrength) ? overlayStrength : 55) / 100)
+    const brandStop = Math.round(15 + t * 45)     // 15%..60%
+    const fadeStop = Math.round(60 + t * 25)      // 60%..85%
+    ```
+    then use literal percentages in the gradient (no `var()` arithmetic):
     ```tsx
     <div aria-hidden className="absolute inset-0" style={{
-      background: `linear-gradient(to top,
-        var(--vb-primary) calc(15% + var(--vb-hero-overlay) * 45%),
-        transparent calc(60% + var(--vb-hero-overlay) * 25%))`,
+      background: `linear-gradient(to top, var(--vb-primary) ${brandStop}%, transparent ${fadeStop}%)`,
     }} />
+    {/* non-configurable MINIMUM title scrim (Codex FIX-PRESENTATION-CONFIG) — always present so
+        overlayStrength=0 can't render on-primary text illegibly over a photo */}
     <div aria-hidden className="absolute inset-x-0 bottom-0 h-2/5" style={{
       background: 'linear-gradient(to top, color-mix(in srgb, var(--vb-primary) 55%, transparent), transparent)',
-    }} /> {/* non-configurable minimum title scrim (FIX-6) */}
+    }} />
     ```
-  - Wrap the whole thing: SectionShell (server) computes `regionId`, `summaryFace`, both hero nodes, and the body node (the existing `!heroOnly` TickDivider strip + SectionReveal), then returns `<CollapsibleSection … hero={hero} heroCollapsed={heroCollapsed} body={bodyNode} />`. Remove the old `heroOnly`/`{!heroOnly && …}` server gate — collapse is now the island's job.
+    Test the concrete stops (0 → 15/60, 100 → 60/85) and that the scrim layer exists at overlayStrength=0.
+  - Build TWO hero nodes sharing image + overlay + big done-check: `heroExpanded` (full, `min-h-[38vh]`, includes the header-strip "Collapse for everyone" control with `aria-expanded="true"` + `aria-controls={regionId}` wired to the island's `onCollapse`) and `heroCollapsed` (shrunken `min-h-[150px]`, title stepped down, positioned wrapper so the whole hero is pointer-clickable to expand).
+  - **Done-check on hero:** when `section.state === 'done'`, render `vb-done-badge` (+ `vb-pop` keyframes) `h-11 w-11 text-lg` at `absolute right-4 top-4 z-[2]`. Keep the existing body summary-face "Completed {date}" badge unchanged (shows when expanded).
+  - **Bookend gate (FIX-8):** for `pc-intro`/`pc-thanks` (`!sectionSupportsCollapse(sectionKey)`) render the section WITHOUT collapse — no affordance, no collapse control, body always shown. Simplest: SectionShell returns the plain hero + body (today's layout) for bookends, and only wraps collapsible sections in `CollapsibleSection`.
+  - Wrap: SectionShell (server) computes `regionId`, `summaryFace`, both hero nodes, the body node (TickDivider strip + SectionReveal), then returns `<CollapsibleSection heroExpanded={…} heroCollapsed={…} body={bodyNode} regionId={regionId} … />`. Remove the old `heroOnly`/`{!heroOnly && …}` server gate — collapse is the island's job. Do NOT add `data-operator-section` (OperatorSectionWrapper owns it — FIX-8).
 
-- [ ] **Step 3: Thread props from the page.** In `app/(public)/viewbook/[token]/page.tsx`, pass `viewbookId`, `token`, `isOperator` (`operatorEmail != null`), and (PR4) `affordance`/`overlayStrength` from `data` into the section renderers → SectionShell. For PR3, default affordance/overlay in SectionShell so the page compiles before PR4 lands.
+- [ ] **Step 3: Thread props through ALL section components (Codex FIX-8 — enumerate; the page cannot pass them automatically).** SectionShell is rendered inside each of the 13 section components. Add `affordance`, `overlayStrength`, `isOperator`, `viewbookId`, `token` to each SectionShell call. `token` + `data` (→ `data.viewbookId`, `data.collapseAffordance`, `data.heroOverlayStrength`) are already in each section component's props; add `isOperator` to the shared `props` object in `app/(public)/viewbook/[token]/page.tsx` (`isOperator: operatorEmail != null`) and thread it. The 13 components: `WelcomeSection`, `MilestonesSection`, `DataSourceSection`, `BrandSection`, `AssessmentSection`, `StrategySection`, `MaterialsSection`, `KickoffNextSection`, `WsIntroSection`, `PcIntroSection`, `PcSetupSection`, `PcInviteSection`, `PcThanksSection`. (Prefer a single shared prop-passthrough: extend the `props` object once and spread it, so this is one edit per component, not five.)
+  - **ThemePreview (FIX-8):** `components/viewbook/admin/ThemePreview.tsx` renders `SectionShell` for the admin preview — pass `previewMode` so the island never issues public collapse POSTs, and supply placeholder `viewbookId/token/isOperator`. Its `SAMPLE_SECTION` gets `collapsedShared:false` (also required by PR1's type change).
 
 - [ ] **Step 4: Run + gate + commit.**
 
@@ -374,7 +416,9 @@ git commit -m "feat(viewbook): hero done-check + overlay + delegate collapse to 
 
 ## PR3 self-check
 - Effective = override ?? shared; client expand local (no fetch), client collapse + operator both write; operator expand writes shared-false.
-- Prop reconciliation flips override-less viewers on refetch, suppressed while pending.
-- `vb:navigate` force-opens a collapsed section; `data-operator-section` preserved for scroll-spy.
-- Done-check on hero (collapsed + expanded) + body badge retained; overlay var + min scrim.
-- No function prop crosses the RSC boundary. Gates green incl. build.
+- Prop reconciliation flips override-less viewers on refetch, suppressed while pending AND applied on `endPending` (not dropped — FIX-5).
+- Collapse failure restores localStorage override (FIX-6); `vb:navigate` uses `forceExpandedLocal` (non-persisted).
+- Region ALWAYS rendered (hidden+inert when collapsed) so `aria-controls` resolves (FIX-7); no duplicate `data-operator-section` (FIX-8).
+- Concrete overlay stops in TS, no `calc(var()*%)`; minimum scrim always present (FIX-9).
+- Bookends render with no collapse; ThemePreview `previewMode` never POSTs.
+- Done-check on hero (collapsed + expanded) + body badge retained. No function prop crosses the RSC boundary. Gates green incl. build.

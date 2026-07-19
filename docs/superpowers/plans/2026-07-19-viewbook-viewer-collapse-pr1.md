@@ -55,37 +55,44 @@ UPDATE "Viewbook"
 Run: `npx prisma migrate dev` (applies the edited migration, regenerates the client)
 Expected: "Database is now in sync", client regenerated (the `ViewbookSection` type now has `collapsedShared`).
 
-- [ ] **Step 5: Write the backfill characterization test** (DB-backed). **Fixture pattern:** viewbook tests define a LOCAL `mkViewbook()` helper at the top of the file — there is no shared `test-helpers` module. Mirror `lib/viewbook/ack.test.ts:20`: it `prisma.client.create`s a uniquely-named client, calls `createViewbook(...)` (from `./service`), and returns the row (`{ id, token, … }`). Copy that helper into this test file.
+- [ ] **Step 5: Write a REAL backfill-proof test** (Codex FIX-PR1-REAL-MIGRATION-PROOF). The test DB already has the migration applied, so seed a pre-normalized row via **raw SQL** (bypassing the retired validator), run the EXACT backfill UPDATE statements the migration uses, and assert the transformation + the syncVersion side-effect. **Fixture pattern:** define a LOCAL `mkViewbook()` — there is no shared `test-helpers` module; mirror `lib/viewbook/ack.test.ts:20` (`prisma.client.create` + `createViewbook(...)`). Confirm `createViewbook`'s real signature during impl — it takes `createdBy` (see FIX-2), e.g. `createViewbook(clientId, 'new-build', 'op@x')`.
 
 ```ts
 // lib/viewbook/collapsed-shared-migration.test.ts
 import { describe, it, expect } from 'vitest'
+import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
-import crypto from 'crypto'
 
 async function mkViewbook() {
   const client = await prisma.client.create({ data: { name: `vbtest-${crypto.randomUUID()}` } })
-  return createViewbook(client.id, 'new-build') // match createViewbook's real signature during impl
+  return createViewbook(client.id, 'new-build', 'op@x') // match the REAL signature (incl. createdBy)
 }
 
-describe('collapsedShared backfill semantics', () => {
-  it('a section written as collapsed reads active + collapsedShared=true', async () => {
-    const vb = await mkViewbook()
-    await prisma.viewbookSection.update({
-      where: { viewbookId_sectionKey: { viewbookId: vb.id, sectionKey: 'brand' } },
-      data: { collapsedShared: true, state: 'active' },
-    })
-    const row = await prisma.viewbookSection.findUniqueOrThrow({
-      where: { viewbookId_sectionKey: { viewbookId: vb.id, sectionKey: 'brand' } },
-    })
+describe('collapsed→collapsedShared backfill', () => {
+  it('normalizes a state=collapsed row and bumps only the affected parent', async () => {
+    const affected = await mkViewbook()
+    const untouched = await mkViewbook()
+    // seed a legacy collapsed row via raw SQL (the writer path no longer allows 'collapsed')
+    await prisma.$executeRaw`UPDATE "ViewbookSection" SET "state" = 'collapsed', "updatedAt" = 1 WHERE "viewbookId" = ${affected.id} AND "sectionKey" = 'brand'`
+    const beforeAffected = (await prisma.viewbook.findUniqueOrThrow({ where: { id: affected.id } })).syncVersion
+    const beforeUntouched = (await prisma.viewbook.findUniqueOrThrow({ where: { id: untouched.id } })).syncVersion
+    const now = Date.now()
+    // run the migration's backfill statements verbatim
+    await prisma.$executeRaw`UPDATE "ViewbookSection" SET "collapsedShared" = true, "state" = 'active', "updatedAt" = ${now} WHERE "state" = 'collapsed'`
+    await prisma.$executeRaw`UPDATE "Viewbook" SET "syncVersion" = "syncVersion" + 1, "updatedAt" = ${now} WHERE "id" IN (SELECT DISTINCT "viewbookId" FROM "ViewbookSection" WHERE "collapsedShared" = true)`
+
+    const row = await prisma.viewbookSection.findUniqueOrThrow({ where: { viewbookId_sectionKey: { viewbookId: affected.id, sectionKey: 'brand' } } })
     expect(row.state).toBe('active')
     expect(row.collapsedShared).toBe(true)
+    expect(Number(row.updatedAt)).toBe(now) // updatedAt advanced from the seeded 1
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id: affected.id } })).syncVersion).toBe(beforeAffected + 1)
+    expect((await prisma.viewbook.findUniqueOrThrow({ where: { id: untouched.id } })).syncVersion).toBe(beforeUntouched) // unaffected parent unchanged
   })
 })
 ```
 
-(Confirm `createViewbook`'s real signature/return in `service.ts` during implementation; adjust the helper to match — do not invent a new harness.)
+(`updatedAt` is stored as integer ms; `Number(row.updatedAt)` — adjust if Prisma returns a Date for this column. This test also proves other viewbooks in the DB with pre-existing `collapsedShared=true` sections don't spuriously fail the "only affected bump" assertion — scope the untouched assertion to the two rows this test created.)
 
 - [ ] **Step 6: Run + commit.**
 
@@ -98,6 +105,8 @@ git commit -m "feat(viewbook): add ViewbookSection.collapsedShared + backfill mi
 ```
 
 ---
+
+> **Combined gate (Codex FIX-PR1-RETIREMENT-ORDER-AND-FIXTURES):** Tasks 2, 3, and 4 must be treated as ONE tsc-green unit — removing `'hero-collapsed'` from the `SectionDisplayMode` union (Task 2) before `SectionShell` stops comparing against it (Task 4) is an impossible-literal error that fails `tsc`. Do the edits in 2→3→4 order but run the `tsc`/vitest gate + commit only after Task 4. Interim commits are fine ONLY if tsc happens to pass; otherwise hold the commit to the Task 4 gate.
 
 ### Task 2: Types + read-model plumbing (`collapsedShared` in, `'collapsed'` state out)
 
@@ -244,10 +253,15 @@ Remove the now-unused `sectionSupportsCollapse` import from `service.ts` (it mov
 
 - [ ] **Step 4: `SectionOutline.tsx`** — change `OutlineRow.state` union (line ~15) to `'active' | 'hidden' | 'done'`, delete the `collapsed:` entry from `STATE_PILLS` (line ~72). If a `collapsedShared` hint pill is wanted it is optional and deferred to PR3; do NOT add it here.
 
-- [ ] **Step 5: `toc-index.ts` + fixtures** — grep and clear the last references:
+- [ ] **Step 5: `toc-index.ts` + fixtures + `createViewbook` arity** — grep and clear the last references:
 
 Run: `grep -rn "'collapsed'\|\"collapsed\"\|hero-collapsed" lib components app --include=*.ts --include=*.tsx | grep -iv "collapsedShared\|collapse.ts\|CollapsibleSection"`
-Fix each hit: fixtures that seed `state:'collapsed'` become `state:'active', collapsedShared:true`; any `'collapsed'`-aware branch in `toc-index.ts` is removed (a section is in the TOC when visible, independent of collapse).
+Fix each hit (Codex FIX-PR1-RETIREMENT-ORDER-AND-FIXTURES):
+  - Fixtures seeding `state:'collapsed'` → `state:'active', collapsedShared:true`.
+  - **Every** `PublicSection` / `OperatorSectionData` test fixture and mock object now needs the new required `collapsedShared` field — add `collapsedShared:false` to each (tests are excluded from the tsc gate, so these WON'T be caught by `tsc --noEmit` — grep them out explicitly): `grep -rn "state: *'\(active\|done\|hidden\)'" --include=*.test.ts* lib components app`.
+  - `components/viewbook/admin/ThemePreview.tsx` `SAMPLE_SECTION` — add `collapsedShared:false`.
+  - Any `'collapsed'`-aware branch in `toc-index.ts` removed (a section is in the TOC when visible, independent of collapse).
+  - **`createViewbook(...)` call sites:** its real signature includes `createdBy` — any test helper calling it with two args will silently mis-call (tests skip tsc). Grep `grep -rn "createViewbook(" --include=*.test.ts lib components app` and confirm each passes `createdBy`.
 
 - [ ] **Step 6: Gate + commit (Task 2 + Task 3 together).**
 

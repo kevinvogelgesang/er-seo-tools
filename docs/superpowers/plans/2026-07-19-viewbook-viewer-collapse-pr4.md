@@ -40,30 +40,31 @@ git commit -m "feat(viewbook): add collapseAffordance + heroOverlayStrength colu
 
 ---
 
-### Task 2: Shared sanitizer (add functions to the existing config module)
+### Task 2: The full `presentation-config` module (types + consts + defaults + sanitizer)
 
 **Files:**
-- Modify: `lib/viewbook/presentation-config.ts` — **created in PR3** with `COLLAPSE_AFFORDANCES` / `CollapseAffordanceKind` / `PRESENTATION_DEFAULTS`. This task ADDS the two functions; do NOT redeclare the const/type. (If PR4 lands before PR3, create the file with all of it here instead.)
+- Create: `lib/viewbook/presentation-config.ts` — **PR4 OWNS this file entirely** (Codex FIX-PR3-PR4-CONFIG-OWNERSHIP). PR3 imports `CollapseAffordanceKind`/`COLLAPSE_AFFORDANCES` from here, so this must land before PR3.
 - Test: `lib/viewbook/presentation-config.test.ts`
 
 **Interfaces:**
-- Consumes: the existing `COLLAPSE_AFFORDANCES` / `CollapseAffordanceKind` / `PRESENTATION_DEFAULTS`.
-- Produces:
+- Produces (the ONE home of the affordance type; client-safe):
   ```ts
-  // strict write-parse: returns a clean patch or throws HttpError(400)
-  export function parsePresentationPatch(raw: Record<string, unknown>): Partial<{ collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number }>
-  // read-normalize: never throws, degrades to defaults
-  export function readPresentationConfig(row: { collapseAffordance: string; heroOverlayStrength: number }): { collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number }
+  export const COLLAPSE_AFFORDANCES = ['bar','pill','chevron'] as const
+  export type CollapseAffordanceKind = (typeof COLLAPSE_AFFORDANCES)[number]
+  export const PRESENTATION_DEFAULTS = { collapseAffordance: 'bar' as CollapseAffordanceKind, heroOverlayStrength: 55 }
+  export function parsePresentationPatch(raw: Record<string, unknown>): Partial<{ collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number }> // strict; throws HttpError(400)
+  export function readPresentationConfig(row: { collapseAffordance: string; heroOverlayStrength: number }): { collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number } // never throws
   ```
-- Client-safe **except** the `HttpError` import in `parsePresentationPatch` — `@/lib/api/errors` is import-safe on the client (no server-only deps), same as other viewbook client-safe validators. Confirm during impl; if not, split the throw into the route.
+- `@/lib/api/errors` (`HttpError`) is import-safe on the client (no server-only deps), matching other viewbook client-safe validators. Confirm during impl; if not, throw in the route instead.
 
 - [ ] **Step 1: Failing tests.**
 
 ```ts
 it('rejects an unknown affordance (400)', () => { expect(() => parsePresentationPatch({ collapseAffordance: 'zzz' })).toThrow() })
-it('rejects a non-finite overlay (400, not coerced)', () => {
+it('rejects a non-integer / non-finite overlay (400, not coerced)', () => {
   expect(() => parsePresentationPatch({ heroOverlayStrength: Number.NaN })).toThrow()
   expect(() => parsePresentationPatch({ heroOverlayStrength: 'high' })).toThrow()
+  expect(() => parsePresentationPatch({ heroOverlayStrength: 12.5 })).toThrow() // Number.isInteger gate
 })
 it('clamps a valid overlay into [0,100]', () => {
   expect(parsePresentationPatch({ heroOverlayStrength: 250 })).toEqual({ heroOverlayStrength: 100 })
@@ -79,10 +80,10 @@ Run: FAIL.
 - [ ] **Step 2: Implement.**
 
 ```ts
-// ADD to the existing lib/viewbook/presentation-config.ts (PR3 created the const/type/defaults).
 import { HttpError } from '@/lib/api/errors'
-// COLLAPSE_AFFORDANCES, CollapseAffordanceKind, PRESENTATION_DEFAULTS are already
-// declared at the top of this file (PR3) — do NOT redeclare them.
+export const COLLAPSE_AFFORDANCES = ['bar', 'pill', 'chevron'] as const
+export type CollapseAffordanceKind = (typeof COLLAPSE_AFFORDANCES)[number]
+export const PRESENTATION_DEFAULTS = { collapseAffordance: 'bar' as CollapseAffordanceKind, heroOverlayStrength: 55 }
 
 function isAffordance(v: unknown): v is CollapseAffordanceKind {
   return typeof v === 'string' && (COLLAPSE_AFFORDANCES as readonly string[]).includes(v)
@@ -96,8 +97,9 @@ export function parsePresentationPatch(raw: Record<string, unknown>) {
   }
   if ('heroOverlayStrength' in raw) {
     const n = raw.heroOverlayStrength
-    if (typeof n !== 'number' || !Number.isFinite(n)) throw new HttpError(400, 'invalid_overlay')
-    patch.heroOverlayStrength = Math.max(0, Math.min(100, Math.round(n)))
+    // Require a FINITE INTEGER before clamping (Codex FIX-10) — reject 12.5, NaN, "high".
+    if (typeof n !== 'number' || !Number.isInteger(n)) throw new HttpError(400, 'invalid_overlay')
+    patch.heroOverlayStrength = Math.max(0, Math.min(100, n))
   }
   return patch
 }
@@ -192,61 +194,84 @@ git commit -m "feat(viewbook): PATCH presentation config (atomic, single sync bu
 
 ---
 
-### Task 4: Options-page editor UI
+### Task 4: Options-page editor UI (dedicated `PresentationEditor`)
 
 **Files:**
-- Modify: `components/viewbook/admin/ViewbookEditor.tsx` (near the `ThemeEditor` render)
-- Modify: the admin detail type (`ViewbookDetail`) to carry the two fields (from `GET /api/viewbooks/[id]`)
-- Test: `components/viewbook/admin/ViewbookEditor.test.tsx` (extend)
+- Create: `components/viewbook/admin/PresentationEditor.tsx` (a self-contained card, NOT inline in `ViewbookEditor` — Codex FIX-10: `run` lives in one component and `load` in the parent, so an inline sketch can't compile in either)
+- Modify: `components/viewbook/admin/ViewbookEditor.tsx` (render `<PresentationEditor viewbookId={vb.id} config={…} onSaved={() => void load()} />` near `<ThemeEditor … onSaved={…} />`)
+- Modify: `components/viewbook/admin/viewbook-admin-shared.ts` — add `collapseAffordance: string; heroOverlayStrength: number` to `ViewbookDetail` (the type behind `vb`, populated by `getViewbookAdmin`)
+- Test: `components/viewbook/admin/PresentationEditor.test.tsx`
 
 **Interfaces:**
-- Consumes: `PATCH /api/viewbooks/[id]` presentation branch, `COLLAPSE_AFFORDANCES`.
-- Produces: a "Presentation" card with an affordance `<select>` + an overlay range `<input type="range" min=0 max=100>`, saving via `jsonFetch(PATCH)` then the existing `onSaved()` reload.
+- Consumes: `PATCH /api/viewbooks/[id]` presentation branch, `COLLAPSE_AFFORDANCES` + `CollapseAffordanceKind` from `presentation-config`, `jsonFetch`.
+- Produces: `PresentationEditor({ viewbookId, config, onSaved })` — mirrors `ThemeEditor`'s self-contained pattern (owns its own save state + calls `onSaved` after a successful PATCH; the parent `load()` is passed AS `onSaved`).
 
-- [ ] **Step 1: Failing test.**
+- [ ] **Step 1: Failing tests.**
 
 ```ts
-it('changing the affordance select PATCHes collapseAffordance', async () => {
-  // render editor, change select to 'pill', assert jsonFetch called with body {collapseAffordance:'pill'}
-})
+it('changing the affordance select PATCHes {collapseAffordance} then calls onSaved', async () => {})
+it('the overlay slider is controlled and PATCHes {heroOverlayStrength} on blur AND on keyboard commit (Enter / arrow+blur), not only pointer release', async () => {})
 ```
 
 Run: FAIL.
 
-- [ ] **Step 2: Implement** a small `PresentationCard` block inside `ViewbookEditor` (follow the existing `run('...', () => jsonFetch(...))` pattern used for other PATCHes at lines ~299/326):
+- [ ] **Step 2: Implement `PresentationEditor.tsx`.** Controlled slider (local `useState` seeded from `config.heroOverlayStrength`), committing on `onBlur` and `onKeyUp` (Enter) as well as pointer release — never only `onPointerUp` (keyboard users must be able to save; Codex FIX-10). `heroOverlayStrength` is sent as an integer (`Math.round` the slider value client-side too, matching the server's `Number.isInteger` gate).
 
 ```tsx
-// affordance select
-<select value={vb.collapseAffordance}
-  onChange={(e) => void run('Presentation', () => jsonFetch(`/api/viewbooks/${vb.id}`, {
-    method: 'PATCH', body: JSON.stringify({ collapseAffordance: e.target.value }),
-  }).then(() => load()))}>
-  {COLLAPSE_AFFORDANCES.map(a => <option key={a} value={a}>{a}</option>)}
-</select>
-// overlay range (commit onChange or onPointerUp to avoid a PATCH per pixel — debounce/commit-on-release)
-<input type="range" min={0} max={100} defaultValue={vb.heroOverlayStrength}
-  onPointerUp={(e) => void run('Presentation', () => jsonFetch(`/api/viewbooks/${vb.id}`, {
-    method: 'PATCH', body: JSON.stringify({ heroOverlayStrength: Number((e.target as HTMLInputElement).value) }),
-  }).then(() => load()))} />
+'use client'
+import { useState } from 'react'
+import { jsonFetch } from '@/components/viewbook/admin/viewbook-admin-shared' // or the shared fetch util's real path
+import { COLLAPSE_AFFORDANCES, type CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
+
+export function PresentationEditor({ viewbookId, config, onSaved }: {
+  viewbookId: number
+  config: { collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number }
+  onSaved: () => void
+}) {
+  const [overlay, setOverlay] = useState(config.heroOverlayStrength)
+  const [busy, setBusy] = useState(false)
+  async function save(patch: Record<string, unknown>) {
+    setBusy(true)
+    try { await jsonFetch(`/api/viewbooks/${viewbookId}`, { method: 'PATCH', body: JSON.stringify(patch) }); onSaved() }
+    finally { setBusy(false) }
+  }
+  return (
+    <div className="rounded-lg border border-gray-200 p-4 dark:border-navy-border">
+      <label className="block text-sm font-semibold">Collapse affordance</label>
+      <select disabled={busy} defaultValue={config.collapseAffordance}
+        onChange={(e) => void save({ collapseAffordance: e.target.value })}
+        className="mt-1 rounded border px-2 py-1 dark:bg-navy-deep dark:border-navy-border">
+        {COLLAPSE_AFFORDANCES.map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+      <label className="mt-4 block text-sm font-semibold">Hero overlay strength: {overlay}</label>
+      <input type="range" min={0} max={100} value={overlay} disabled={busy}
+        onChange={(e) => setOverlay(Math.round(Number(e.target.value)))}
+        onBlur={() => void save({ heroOverlayStrength: overlay })}
+        onKeyUp={(e) => { if (e.key === 'Enter') void save({ heroOverlayStrength: overlay }) }} />
+    </div>
+  )
+}
 ```
 
-Use `dark:` variants + the existing editor label styling. Ensure `ViewbookDetail` (the type behind `vb`) includes `collapseAffordance: string; heroOverlayStrength: number` (from `getViewbookAdmin`).
+(Confirm `jsonFetch`'s real import path during impl.) In `ViewbookEditor.tsx`, pass `config={readPresentationConfig(vb)}` (or the raw two fields) + `onSaved={() => void load()}`.
 
-- [ ] **Step 3: Thread config into the public render.** Now that PR3's SectionShell accepts `affordance`/`overlayStrength`, pass the real values from `data.collapseAffordance` / `data.heroOverlayStrength` in `app/(public)/viewbook/[token]/page.tsx` (replacing PR3's defaults).
+- [ ] **Step 2b:** `viewbook-admin-shared.ts` — add the two fields to `ViewbookDetail`, and ensure `getViewbookAdmin` (`service.ts`) selects/returns them.
+
+- [ ] **Step 3: (public render wiring lives in PR3.)** PR4 lands before PR3, so `data.collapseAffordance` / `data.heroOverlayStrength` are available in the payload; PR3 Task 4 Step 3 threads them into `SectionShell`. Nothing to do here beyond confirming the two fields are on `ViewbookPublicData` (Task 3 Step 4).
 
 - [ ] **Step 4: Run + gate + commit.**
 
 Run: `npx vitest run components/viewbook app/api/viewbooks lib/viewbook` → PASS; tsc → 0; `npm run build` → OK.
 
 ```bash
-git add components/viewbook/admin/ViewbookEditor.tsx components/viewbook/admin/ViewbookEditor.test.tsx "app/(public)/viewbook/[token]/page.tsx"
-git commit -m "feat(viewbook): options-page presentation controls (affordance + overlay)"
+git add components/viewbook/admin/PresentationEditor.tsx components/viewbook/admin/PresentationEditor.test.tsx components/viewbook/admin/ViewbookEditor.tsx components/viewbook/admin/viewbook-admin-shared.ts lib/viewbook/service.ts
+git commit -m "feat(viewbook): options-page PresentationEditor (affordance + overlay)"
 ```
 
 ---
 
 ## PR4 self-check
-- Columns (not themeJson); one sanitizer (strict write, degrading read); finite-int check before clamp.
+- Columns (not themeJson); one sanitizer (strict write, degrading read); `Number.isInteger` check before clamp.
 - Atomic dual-update + single sync bump; PATCH 400s on bad input.
-- Overlay range commits on release (not per-pixel PATCH). Public render consumes real config.
-- `CollapseAffordanceKind` has ONE home (`presentation-config.ts`); PR3 imports it. Gates green incl. build.
+- Dedicated `PresentationEditor` (compiles — `run`/`load` not split across components); controlled slider saves on blur + keyboard, not only pointer release; `ViewbookDetail` carries the two fields.
+- `presentation-config.ts` fully owned here; PR3 imports the type/consts. Gates green incl. build.
