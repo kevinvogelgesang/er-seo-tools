@@ -55,17 +55,25 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     const cur = pinRef.current
     // A HARD pin on a DIFFERENT section fails closed.
     if (cur && cur.kind === 'activity' && cur.key !== key) return false
-    // Only replace the pin when it actually changes. Re-pinning the SAME
-    // key+kind must NOT produce a new object: the activity bridge calls
-    // select() from an effect that depends on this provider's context value,
-    // so a fresh identical pin would re-render → re-run the effect → loop.
-    if (!cur || cur.key !== key || cur.kind !== kind) setPinBoth({ key, kind })
+    // A HARD pin on the SAME section is never downgraded by a weaker
+    // (manual-nav) select: keep the hard pin and do NOT arm the soft-release
+    // timer, so e.g. an outline click on the section being actively edited
+    // can't drop its pin and let scroll-spy swap the pane away mid-edit. Focus
+    // still moves to it below.
+    const keepHard = !!cur && cur.kind === 'activity' && cur.key === key && kind === 'manual-nav'
+    if (!keepHard) {
+      // Only replace the pin when it actually changes. Re-pinning the SAME
+      // key+kind must NOT produce a new object: the activity bridge calls
+      // select() from an effect that depends on this provider's context value,
+      // so a fresh identical pin would re-render → re-run the effect → loop.
+      if (!cur || cur.key !== key || cur.kind !== kind) setPinBoth({ key, kind })
+      clearTimer()
+      if (kind === 'manual-nav') {
+        timer.current = setTimeout(() => release(key, 'manual-nav'), MANUAL_NAV_PIN_MS)
+      }
+    }
     setSelectedKey(key)
     if (group) setSelectedGroup(group)
-    clearTimer()
-    if (kind === 'manual-nav') {
-      timer.current = setTimeout(() => release(key, 'manual-nav'), MANUAL_NAV_PIN_MS)
-    }
     return true
   }, [release])
 

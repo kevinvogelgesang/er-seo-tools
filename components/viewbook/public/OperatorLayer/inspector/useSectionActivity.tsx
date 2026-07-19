@@ -69,7 +69,9 @@ export function useReportSectionActivity(sectionKey: SectionKey, editorId: strin
   useEffect(() => {
     if (activity.anyActive(sectionKey)) selection.select(sectionKey, 'focus')
     else selection.release(sectionKey, 'activity')
-  }, [activity, activity.version, sectionKey, selection])
+    // `activity` identity already changes on every version bump (its useMemo
+    // depends on version), so it alone captures aggregate changes.
+  }, [activity, sectionKey, selection])
   // Remove ONLY on unmount (or when the section/editor identity changes). This
   // must NOT depend on `activity`: its identity changes on every version bump,
   // so a cleanup keyed on it would remove the entry on each bump while the

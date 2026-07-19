@@ -76,4 +76,28 @@ describe('useReportSectionActivity bridge', () => {
     act(() => { rerender(<Harness brandActive={false} />) })
     expect(screen.getByTestId('pinned-key').textContent).toBe('null')
   })
+
+  // Regression (M3): unmounting a reporting consumer must fire remove() so the
+  // section's aggregate returns to idle — the exact path whose missing/looping
+  // cleanup previously caused an OOM.
+  it('removes the section entry on unmount', () => {
+    function RegistryProbe() {
+      const reg = useSectionActivityContext()
+      return <span data-testid="reg-active">{String(reg.anyActive('brand'))}</span>
+    }
+    function Harness({ mounted }: { mounted: boolean }) {
+      return (
+        <SelectionProvider>
+          <SectionActivityProvider>
+            {mounted ? <BridgeProbe sectionKey="brand" active={true} /> : null}
+            <RegistryProbe />
+          </SectionActivityProvider>
+        </SelectionProvider>
+      )
+    }
+    const { rerender } = render(<Harness mounted={true} />)
+    expect(screen.getByTestId('reg-active').textContent).toBe('true')
+    act(() => { rerender(<Harness mounted={false} />) })
+    expect(screen.getByTestId('reg-active').textContent).toBe('false') // entry removed on unmount
+  })
 })

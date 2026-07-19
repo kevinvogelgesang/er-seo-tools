@@ -15,6 +15,7 @@ function Probe() {
       <button onClick={() => s.select('brand', 'dirty')}>hard-brand</button>
       <button onClick={() => { const ok = s.select('welcome', 'focus'); (globalThis as any).__ok = ok }}>hard-welcome</button>
       <button onClick={() => s.select('milestones', 'manual-nav')}>nav-milestones</button>
+      <button onClick={() => s.select('brand', 'manual-nav')}>nav-brand</button>
       <button onClick={() => s.release('brand', 'activity')}>rel-brand-activity</button>
       <button onClick={() => s.release('brand', 'manual-nav')}>rel-brand-wrongkind</button>
     </div>
@@ -55,6 +56,21 @@ describe('SelectionContext', () => {
     expect(screen.getByTestId('kind').textContent).toBe('manual-nav')
     act(() => { vi.advanceTimersByTime(4000) })
     expect(screen.getByTestId('kind').textContent).toBe('none')
+  })
+
+  // Regression (M1): a weaker manual-nav select on the section that already
+  // holds a HARD activity pin must NOT downgrade it — an outline click on the
+  // actively-edited section can't drop its pin, even after the soft timeout.
+  it('does not downgrade a same-section hard pin on a manual-nav select', () => {
+    vi.useFakeTimers()
+    render(<SelectionProvider><Probe /></SelectionProvider>)
+    act(() => { screen.getByText('hard-brand').click() })
+    expect(screen.getByTestId('kind').textContent).toBe('activity')
+    act(() => { screen.getByText('nav-brand').click() })
+    expect(screen.getByTestId('kind').textContent).toBe('activity') // still hard, not downgraded
+    act(() => { vi.advanceTimersByTime(4000) })
+    expect(screen.getByTestId('kind').textContent).toBe('activity') // no soft-release armed
+    expect(screen.getByTestId('sel').textContent).toBe('brand')
   })
 
   // Regression: re-pinning the SAME key+kind must be idempotent so calling
