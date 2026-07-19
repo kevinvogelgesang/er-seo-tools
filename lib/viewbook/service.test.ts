@@ -20,6 +20,7 @@ import {
   attachViewbookLogo,
   updateViewbookTheme,
   updateViewbookSettings,
+  updateViewbookPresentation,
   collectClientViewbookAssetSnapshot,
   moveViewbookStage,
   assignViewbookCsm,
@@ -156,6 +157,38 @@ describe('updateViewbookSettings', () => {
     expect(await syncVersion(id)).toBe(afterWelcome)
     await updateViewbookSettings(id, { kind: 'new-build' })
     expect(await syncVersion(id)).toBe(afterWelcome + 1)
+  })
+})
+
+describe('updateViewbookPresentation', () => {
+  it('writes both fields + bumps syncVersion once', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const before = await syncVersion(id)
+    await updateViewbookPresentation(id, { collapseAffordance: 'pill', heroOverlayStrength: 20 })
+    const row = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(row.collapseAffordance).toBe('pill')
+    expect(row.heroOverlayStrength).toBe(20)
+    expect(row.syncVersion).toBe(before + 1)
+  })
+
+  it('writes a single-field patch and bumps once', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const before = await syncVersion(id)
+    await updateViewbookPresentation(id, { heroOverlayStrength: 5 })
+    const row = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(row.collapseAffordance).toBe('bar') // unchanged default
+    expect(row.heroOverlayStrength).toBe(5)
+    expect(row.syncVersion).toBe(before + 1)
+  })
+
+  it('an empty patch is a no-op (no bump, no write)', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const before = await syncVersion(id)
+    await updateViewbookPresentation(id, {})
+    expect(await syncVersion(id)).toBe(before)
   })
 })
 

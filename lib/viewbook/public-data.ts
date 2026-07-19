@@ -10,6 +10,7 @@ import { HttpError } from '@/lib/api/errors'
 import { logError } from '@/lib/log'
 import { requireViewbookToken } from './route-auth'
 import { parseStoredTheme } from './theme'
+import { readPresentationConfig } from './presentation-config'
 import { CATALOG_CATEGORIES } from './catalog'
 import { isViewbookStage, STAGE_LABELS, STAGE_LINEUPS, type ViewbookStage } from './stages'
 import { getGlobalContent } from './global-content'
@@ -128,6 +129,7 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     docs,
     global,
     overrides,
+    ...readPresentationConfig(vb),
   }
 }
 

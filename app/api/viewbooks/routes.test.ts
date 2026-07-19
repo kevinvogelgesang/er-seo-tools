@@ -119,6 +119,42 @@ describe('viewbook admin routes', () => {
     expect(viewbook.fields.length).toBeGreaterThan(0)
   })
 
+  it('PATCH /api/viewbooks/:id: presentation branch — bad affordance/overlay 400, happy path persists + syncVersion bumps', async () => {
+    const { id } = await mkViewbook()
+
+    const badAffordance = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ collapseAffordance: 'zzz' }) }),
+      params({ id: String(id) }),
+    )
+    expect(badAffordance.status).toBe(400)
+    expect((await badAffordance.json()).error).toBe('invalid_affordance')
+
+    const badOverlay = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ heroOverlayStrength: 12.5 }) }),
+      params({ id: String(id) }),
+    )
+    expect(badOverlay.status).toBe(400)
+    expect((await badOverlay.json()).error).toBe('invalid_overlay')
+
+    const before = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    const beforeSync = (await before.json()).viewbook.syncVersion as number
+
+    const happy = await patchViewbook(
+      req(`/api/viewbooks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ collapseAffordance: 'pill', heroOverlayStrength: 250 }),
+      }),
+      params({ id: String(id) }),
+    )
+    expect(happy.status).toBe(200)
+
+    const after = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    const { viewbook } = await after.json()
+    expect(viewbook.collapseAffordance).toBe('pill')
+    expect(viewbook.heroOverlayStrength).toBe(100) // clamped from 250
+    expect(viewbook.syncVersion).toBe(beforeSync + 1)
+  })
+
   it('POST /api/viewbooks/:id/assets: multipart logo attach stamps theme + file readable', async () => {
     const { id } = await mkViewbook()
     const form = new FormData()

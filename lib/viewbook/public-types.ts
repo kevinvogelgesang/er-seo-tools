@@ -7,6 +7,7 @@
 import type { SectionKey, ViewbookTheme } from './theme'
 import type { ContentBlocks, GlobalContentKey, TeamMember } from './global-content-keys'
 import type { ViewbookStage } from './stages'
+import type { CollapseAffordanceKind } from './presentation-config'
 
 export interface PublicSection {
   sectionKey: SectionKey
@@ -150,4 +151,6 @@ export interface ViewbookPublicData {
   docs: { global: PublicDocRow[]; own: PublicDocRow[] }
   global: PublicGlobalContent
   overrides: Partial<Record<GlobalContentKey, string>>
+  collapseAffordance: CollapseAffordanceKind // PR4 presentation config; PR3 threads into SectionShell
+  heroOverlayStrength: number // 0..100
 }

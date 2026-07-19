@@ -184,6 +184,22 @@ export async function updateViewbookSettings(
   await mustUpdateViewbook(id, data, { bump })
 }
 
+// PR4: atomic dual-column update (collapse affordance + hero overlay) with a
+// single syncVersion bump — rendered presentation config, so it bumps like
+// theme/welcomeNote (mustUpdateViewbook precedent). An empty patch is a
+// deliberate no-op (route only calls this when parsePresentationPatch
+// yielded at least one key).
+export async function updateViewbookPresentation(
+  id: number,
+  patch: Partial<{ collapseAffordance: string; heroOverlayStrength: number }>,
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return
+  await prisma.$transaction([
+    syncVersionBumpStatement(id),
+    prisma.viewbook.update({ where: { id }, data: patch }),
+  ])
+}
+
 export async function rotateViewbookToken(id: number): Promise<{ token: string }> {
   const token = crypto.randomUUID()
   await mustUpdateViewbook(id, { token, revokedAt: null })
