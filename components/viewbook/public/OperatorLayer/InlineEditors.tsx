@@ -34,6 +34,7 @@ import {
 } from '../useViewbookSync'
 import { OperatorRequestError, operatorRequest } from './operator-api'
 import { useReportSectionActivity } from './inspector/useSectionActivity'
+import { SectionQuickControls } from './SectionQuickControls'
 import { ThemeDraftWriter } from './ThemeDraftWriter'
 import { commitThemeDraft, getCommittedTheme, initializeThemeDraft, setThemeDraft } from './theme-store'
 
@@ -1107,7 +1108,17 @@ export function InlineSectionEditors({ viewbookId, section, operatorData }: { vi
           <DataSourceInlineEditor viewbookId={viewbookId} fields={operatorData.fields} dataLockedAt={operatorData.dataLockedAt} />
         </div>
       )}
-      <div data-vb-inspector-group="status" />
+      <div data-vb-inspector-group="status">
+        {/* PR4: the ONE Status mutation owner. Show/Hide/Mark-done/Reset-ack
+            live in the section's pane — no rail, no HiddenSectionsList; the
+            outline row selects this pane's Status group. */}
+        <SectionQuickControls
+          viewbookId={viewbookId}
+          section={section}
+          pcCompletedAt={operatorData.pcCompletedAt}
+          variant="embedded"
+        />
+      </div>
     </div>
   )
 }

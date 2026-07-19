@@ -105,13 +105,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
     const rendered = baseRenderSection(section)
     if (!operatorSection) return rendered
     return (
-      <OperatorSectionWrapper
-        sectionKey={operatorSection.sectionKey}
-        viewbookId={data.viewbookId}
-        section={operatorSection}
-        operatorData={operatorData}
-        pcCompletedAt={operatorData.pcCompletedAt}
-      >
+      <OperatorSectionWrapper sectionKey={operatorSection.sectionKey}>
         {rendered}
       </OperatorSectionWrapper>
     )

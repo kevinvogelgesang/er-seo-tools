@@ -4,7 +4,6 @@ import type { ReactNode } from 'react'
 import type { OperatorViewbookData } from '@/lib/viewbook/operator-data'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
 import { PresentationModeProvider, PresentationToggle, usePresentationMode } from '../PresentationToggle'
-import { HiddenSectionsList } from './HiddenSectionsList'
 import { OperatorBar } from './OperatorBar'
 import { OperatorInspector, SectionActivityProvider, SelectionProvider } from './inspector'
 
@@ -68,8 +67,10 @@ function OperatorViewbookLayerContent({
               stage={stage}
               pcCompletedAt={pcCompletedAt}
             />
-            <HiddenSectionsList viewbookId={viewbookId} operatorData={operatorData} pcCompletedAt={pcCompletedAt} />
-            {/* Codex fix #8: inspector AFTER the bar but BEFORE children — keyboard/DOM order */}
+            {/* PR4: HiddenSectionsList retired — hidden-section recovery now
+                lives in the outline (select) → pane Status group (the ONE
+                Show controller). Codex fix #8: inspector AFTER the bar but
+                BEFORE children — keyboard/DOM order. */}
             <OperatorInspector
               viewbookId={viewbookId}
               operatorData={operatorData}

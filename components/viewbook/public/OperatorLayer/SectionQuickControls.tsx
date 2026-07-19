@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { editorSecondaryBtnClass } from '@/components/viewbook/editor'
 import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
 import { StatusPill, type Tone } from '@/components/ui/StatusPill'
 import type { OperatorSectionData } from '@/lib/viewbook/operator-data'
+import { navigateToAnchor } from '@/components/viewbook/public/viewbook-navigate'
 import { requestRefresh, useEditorActivity, useFocusWithin } from '../useViewbookSync'
+import { useReportSectionActivity } from './inspector/useSectionActivity'
 import { operatorRequest } from './operator-api'
 
 const ACKABLE = new Set(['pc-setup', 'pc-invite', 'data-source'])
@@ -35,10 +37,34 @@ export function SectionQuickControls({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const focus = useFocusWithin()
+  // C4: keep the page-global editor-activity registration untouched.
   useEditorActivity(`operator-section-controls-${section.sectionKey}`, busy || focus.focused)
+  // Fix #10: ALSO report to the Context-Lens per-section activity registry so a
+  // status mutation / focus pins THIS section's pane in the inspector.
+  useReportSectionActivity(section.sectionKey, `operator-section-controls-${section.sectionKey}`, {
+    dirty: false,
+    busy,
+    conflict: false,
+    focused: focus.focused,
+  })
 
   useEffect(() => setState(section.state), [section.state])
   useEffect(() => setAcknowledgedAt(section.acknowledgedAt), [section.acknowledgedAt])
+
+  // Fix #11: post-Show navigation. When the refreshed `section.state` prop
+  // transitions hidden → active (i.e. a Show landed and the operator read model
+  // reloaded the now-visible section into the canvas), scroll to its anchor
+  // ONCE. navigateToAnchor no-ops if the canvas target isn't mounted yet — that
+  // is fine, no mount-watcher. Keyed on the PROP so we fire after the refresh,
+  // never on the optimistic local flip (canvas node isn't there yet then).
+  const prevPropState = useRef(section.state)
+  useEffect(() => {
+    const prev = prevPropState.current
+    prevPropState.current = section.state
+    if (prev === 'hidden' && section.state === 'active') {
+      navigateToAnchor(section.sectionKey, `#${section.sectionKey}`)
+    }
+  }, [section.state, section.sectionKey])
 
   // The thanks card does not exist as an actionable state before the
   // completion stamp. In particular, do not expose an inert Hide control.
@@ -65,6 +91,11 @@ export function SectionQuickControls({
   }
 
   async function resetAck() {
+    // Fix #12: a real confirm gate before the destructive DELETE — mirrors the
+    // force-advance confirm pattern (OperatorBar). CANCEL must fire nothing.
+    if (typeof window !== 'undefined' && !window.confirm(
+      `Reset the client's acknowledgment of "${SECTION_TITLES[section.sectionKey]}"? They'll be asked to acknowledge it again.`,
+    )) return
     const previous = acknowledgedAt
     setAcknowledgedAt(null)
     setBusy(true)
