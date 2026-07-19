@@ -56,11 +56,14 @@ beforeEach(() => {
   } as DOMRect)
 })
 
+const PUBLISHED_PROPS = ['--vb-progress-nav-height', '--vb-operator-bar-height', '--vb-sticky-offset']
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   delete (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver
   document.body.innerHTML = ''
+  for (const prop of PUBLISHED_PROPS) document.documentElement.style.removeProperty(prop)
 })
 
 describe('StickyOffsetProbe', () => {
@@ -139,6 +142,24 @@ describe('StickyOffsetProbe', () => {
     await waitFor(() => {
       expect(root.style.getPropertyValue('--vb-operator-bar-height')).toBe('0px')
       expect(root.style.getPropertyValue('--vb-sticky-offset')).toBe('64px')
+    })
+  })
+
+  it('publishes the sticky offset to BOTH the theme root and document.documentElement', async () => {
+    document.body.innerHTML = '<div data-vb-theme-root><div id="vb-progress-nav"></div></div>'
+    const nav = document.getElementById('vb-progress-nav')!
+    vi.spyOn(nav, 'getBoundingClientRect').mockReturnValue({ height: 40 } as DOMRect)
+    const themeRoot = document.querySelector('[data-vb-theme-root]') as HTMLElement
+    for (const prop of PUBLISHED_PROPS) {
+      document.documentElement.style.removeProperty(prop)
+      themeRoot.style.removeProperty(prop)
+    }
+
+    render(<StickyOffsetProbe />)
+
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--vb-sticky-offset')).toBe('40px')
+      expect(themeRoot.style.getPropertyValue('--vb-sticky-offset')).toBe('40px')
     })
   })
 

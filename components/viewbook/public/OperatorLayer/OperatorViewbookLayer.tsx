@@ -6,6 +6,7 @@ import type { ViewbookStage } from '@/lib/viewbook/stages'
 import { PresentationModeProvider, PresentationToggle, usePresentationMode } from '../PresentationToggle'
 import { HiddenSectionsList } from './HiddenSectionsList'
 import { OperatorBar } from './OperatorBar'
+import { OperatorInspector, SectionActivityProvider, SelectionProvider } from './inspector'
 
 // Server→Client boundary contract (Codex PR8 review, P1): every prop here is
 // SERIALIZABLE. The section tree is composed SERVER-SIDE in page.tsx (the
@@ -40,30 +41,45 @@ function OperatorViewbookLayerContent({
 }: OperatorViewbookLayerProps) {
   const { initialized, presenting } = usePresentationMode()
 
-  // Before localStorage has been read, OR in presentation mode, render the
-  // pre-composed public tree only. Every OperatorSectionWrapper INSIDE
-  // `children` reads the same presentation flag and self-hides its controls,
-  // so the tree looks anonymous; the toggle stays available to return to
-  // editing (it renders null until `initialized`, matching the old flow).
-  if (!initialized || presenting) {
-    return (
-      <>
-        {children}
-        <PresentationToggle />
-      </>
-    )
-  }
-
+  // Context Lens providers (SelectionProvider/SectionActivityProvider) are
+  // mounted OUTSIDE the visual presentation gate below: they must wrap BOTH
+  // branches so hooks are called unconditionally and children can consume the
+  // contexts even while presenting (spec C1/C3, Codex fix #11). Only the
+  // operator chrome branch renders anything that reads/writes them right now.
   return (
-    <div data-operator-viewbook-layer>
-      <OperatorBar
-        viewbookId={viewbookId}
-        operatorEmail={operatorEmail}
-        stage={stage}
-        pcCompletedAt={pcCompletedAt}
-      />
-      <HiddenSectionsList viewbookId={viewbookId} operatorData={operatorData} pcCompletedAt={pcCompletedAt} />
-      {children}
-    </div>
+    <SelectionProvider>
+      <SectionActivityProvider>
+        {!initialized || presenting ? (
+          // Before localStorage has been read, OR in presentation mode, render
+          // the pre-composed public tree only. Every OperatorSectionWrapper
+          // INSIDE `children` reads the same presentation flag and self-hides
+          // its controls, so the tree looks anonymous; the toggle stays
+          // available to return to editing (it renders null until
+          // `initialized`, matching the old flow).
+          <>
+            {children}
+            <PresentationToggle />
+          </>
+        ) : (
+          <div data-operator-viewbook-layer>
+            <OperatorBar
+              viewbookId={viewbookId}
+              operatorEmail={operatorEmail}
+              stage={stage}
+              pcCompletedAt={pcCompletedAt}
+            />
+            <HiddenSectionsList viewbookId={viewbookId} operatorData={operatorData} pcCompletedAt={pcCompletedAt} />
+            {/* Codex fix #8: inspector AFTER the bar but BEFORE children — keyboard/DOM order */}
+            <OperatorInspector
+              viewbookId={viewbookId}
+              operatorData={operatorData}
+              pcCompletedAt={pcCompletedAt}
+              stage={stage}
+            />
+            {children}
+          </div>
+        )}
+      </SectionActivityProvider>
+    </SelectionProvider>
   )
 }

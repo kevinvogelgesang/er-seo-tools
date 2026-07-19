@@ -5,12 +5,14 @@
 // A `'use client'` measurement leaf, no props, mounted EXACTLY ONCE by
 // `ViewbookShell` (Task 5). It measures the top chrome — the `#vb-progress-
 // nav` bar and, when the operator presentation-mode chrome is showing, the
-// `#vb-operator-bar` — and publishes three CSS custom properties onto the
-// nearest `[data-vb-theme-root]` element (falling back to
-// `document.documentElement` when that marker is absent) so sticky section
-// headers (`SectionReveal`) and scroll-margin anchors (`SectionShell`) can
-// pin/scroll beneath a responsive, possibly two-tier, top nav without either
-// side hardcoding a pixel height:
+// `#vb-operator-bar` — and publishes three CSS custom properties onto BOTH
+// the nearest `[data-vb-theme-root]` element AND `document.documentElement`
+// (deduped when the theme root IS documentElement, i.e. no marker present),
+// so sticky section headers (`SectionReveal`) and scroll-margin anchors
+// (`SectionShell`) inside the theme root, AND operator chrome mounted
+// OUTSIDE it (e.g. the Context Lens inspector), can all pin/scroll beneath a
+// responsive, possibly two-tier, top nav without any side hardcoding a pixel
+// height:
 //   --vb-progress-nav-height  the progress nav's measured height
 //   --vb-operator-bar-height  the operator bar's measured height, or 0px when absent
 //   --vb-sticky-offset        the sum of the two
@@ -49,10 +51,18 @@ export function StickyOffsetProbe() {
       const navEl = document.getElementById(PROGRESS_NAV_ID)
       const navHeight = measuredHeight(navEl)
       const operatorHeight = measuredHeight(operatorEl)
-      const root = resolveThemeRoot()
-      root.style.setProperty('--vb-progress-nav-height', `${navHeight}px`)
-      root.style.setProperty('--vb-operator-bar-height', `${operatorHeight}px`)
-      root.style.setProperty('--vb-sticky-offset', `${navHeight + operatorHeight}px`)
+      const sticky = navHeight + operatorHeight
+      // Publish to BOTH the nearest theme root (existing SectionReveal/
+      // SectionShell consumers) AND document.documentElement, so operator
+      // chrome mounted OUTSIDE the theme root (the Context Lens inspector)
+      // inherits the offset. CSS vars resolve once — the theme root simply
+      // overrides the inherited doc-root value, never double-applied.
+      const targets = new Set<HTMLElement>([resolveThemeRoot(), document.documentElement])
+      for (const root of targets) {
+        root.style.setProperty('--vb-progress-nav-height', `${navHeight}px`)
+        root.style.setProperty('--vb-operator-bar-height', `${operatorHeight}px`)
+        root.style.setProperty('--vb-sticky-offset', `${sticky}px`)
+      }
     }
 
     // Initial measurement — independent of whether/when the observers below
