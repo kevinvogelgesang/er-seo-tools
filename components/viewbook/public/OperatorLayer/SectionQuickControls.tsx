@@ -5,6 +5,7 @@ import { editorSecondaryBtnClass } from '@/components/viewbook/editor'
 import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
 import { StatusPill, type Tone } from '@/components/ui/StatusPill'
 import type { OperatorSectionData } from '@/lib/viewbook/operator-data'
+import { sectionSupportsCollapse } from '@/lib/viewbook/theme'
 import { navigateToAnchor } from '@/components/viewbook/public/viewbook-navigate'
 import { requestRefresh, useEditorActivity, useFocusWithin } from '../useViewbookSync'
 import { useReportSectionActivity } from './inspector/useSectionActivity'
@@ -20,6 +21,11 @@ export function sectionSupportsDone(sectionKey: string): boolean {
 export function sectionSupportsAck(sectionKey: string): boolean {
   return ACKABLE.has(sectionKey)
 }
+
+// Collapse-to-hero uses the ONE server-enforced allowlist in lib/viewbook/theme
+// (framing bookends + client-interactive sections are excluded). Re-exported so
+// existing consumers/tests keep importing it from here.
+export { sectionSupportsCollapse }
 
 export function SectionQuickControls({
   viewbookId,
@@ -121,11 +127,14 @@ export function SectionQuickControls({
   }
 
   const doneable = sectionSupportsDone(section.sectionKey)
+  const collapsible = sectionSupportsCollapse(section.sectionKey)
   const statePill: { label: string; tone: Tone } = state === 'hidden'
     ? { label: 'Hidden', tone: 'warning' }
     : state === 'done'
       ? { label: 'Complete', tone: 'success' }
-      : { label: 'Visible', tone: 'neutral' }
+      : state === 'collapsed'
+        ? { label: 'Collapsed', tone: 'warning' }
+        : { label: 'Visible', tone: 'neutral' }
   const embedded = variant === 'embedded'
   return (
     <div
@@ -168,6 +177,26 @@ export function SectionQuickControls({
               className={editorSecondaryBtnClass}
             >
               {state === 'done' ? 'Reopen' : 'Mark done'}
+            </button>
+          )}
+          {state === 'collapsed' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void setSectionState('active')}
+              className={editorSecondaryBtnClass}
+            >
+              Expand
+            </button>
+          )}
+          {collapsible && state !== 'hidden' && state !== 'collapsed' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void setSectionState('collapsed')}
+              className={editorSecondaryBtnClass}
+            >
+              Collapse
             </button>
           )}
           {sectionSupportsAck(section.sectionKey) && acknowledgedAt && (

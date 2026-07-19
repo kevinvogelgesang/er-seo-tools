@@ -25,6 +25,19 @@ describe('sectionDisplayMode', () => {
   it('normal otherwise', () => {
     expect(sectionDisplayMode(S({}), 'building')).toBe('normal')
   })
+  it('collapsed → hero-collapsed in every stage', () => {
+    for (const st of ['post-contract','kickoff','website-specifics','building'] as const)
+      expect(sectionDisplayMode(S({ sectionKey: 'strategy', state: 'collapsed' }), st)).toBe('hero-collapsed')
+  })
+  it('hero-collapsed wins over done, ack, and always-open', () => {
+    // over done
+    expect(sectionDisplayMode(S({ sectionKey: 'strategy', state: 'collapsed', doneAt: 'x' }), 'building')).toBe('hero-collapsed')
+    // over ack (post-contract, where ack would otherwise collapse)
+    expect(sectionDisplayMode(S({ sectionKey: 'strategy', state: 'collapsed', acknowledgedAt: 'x' }), 'post-contract')).toBe('hero-collapsed')
+    // over always-open (pc-intro can't be collapsed in practice, but the state
+    // check must still take precedence in the pure function)
+    expect(sectionDisplayMode(S({ sectionKey: 'pc-intro', state: 'collapsed' }), 'kickoff')).toBe('hero-collapsed')
+  })
 })
 
 describe('sectionInitiallyOpen', () => {

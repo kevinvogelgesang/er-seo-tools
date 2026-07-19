@@ -39,7 +39,10 @@ export function buildTocIndex(data: ViewbookPublicData): TocEntry[] {
       done: section.state === 'done',
       acked: section.acknowledgedAt != null,
     }
-    if (data.stage === 'building' && section.sectionKey === 'data-source') {
+    // A collapsed section renders ONLY its hero band — the top-level entry above
+    // still anchors to that hero, but its nested content (Data Source field
+    // categories) does not render, so never emit dead child TOC anchors for it.
+    if (data.stage === 'building' && section.sectionKey === 'data-source' && section.state !== 'collapsed') {
       entry.children = data.fieldCategories.map((c) => ({
         label: CATEGORY_LABELS[c.category] ?? c.category,
         anchor: categoryAnchor(c.category),
@@ -49,11 +52,14 @@ export function buildTocIndex(data: ViewbookPublicData): TocEntry[] {
   })
 }
 
+// A section's NESTED content (Q&A, milestones, materials, docs) is indexed only
+// when the section is present in the current stage's lineup AND not collapsed. A
+// collapsed section renders ONLY its hero band, so its nested content is not on
+// the page — indexing it would produce dead search anchors. The top-level
+// section entry (its hero) is still emitted in buildSearchIndex below.
 function isVisible(data: ViewbookPublicData, key: SectionKey): boolean {
-  return (
-    data.primarySections.some((s) => s.sectionKey === key)
-    || data.carriedSections.some((s) => s.sectionKey === key)
-  )
+  const section = [...data.primarySections, ...data.carriedSections].find((s) => s.sectionKey === key)
+  return section != null && section.state !== 'collapsed'
 }
 
 // buildSearchIndex emits entries ONLY for content belonging to a section

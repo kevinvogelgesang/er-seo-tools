@@ -87,6 +87,29 @@ describe('SectionShell', () => {
     expect(screen.queryByText(/Completed/)).toBeNull()
   })
 
+  it('renders a collapsed section as hero-only — title shows, body (intro + children) suppressed', () => {
+    const { container } = render(
+      <SectionShell
+        section={section({ state: 'collapsed', introNote: 'A note' })}
+        title="Brand Guidelines"
+        heroUrl={null}
+        stage="building"
+        summary={<span>3 colors locked in</span>}
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    // The hero band + title still render (the section anchor is preserved).
+    expect(document.getElementById('brand')).not.toBeNull()
+    expect(screen.getByText('Brand Guidelines')).toBeDefined()
+    // The entire detail body is gone: no reveal region, no intro note, no
+    // children, no summary face.
+    expect(container.querySelector('[role="region"]')).toBeNull()
+    expect(screen.queryByText('A note')).toBeNull()
+    expect(screen.queryByText('Body')).toBeNull()
+    expect(screen.queryByText('3 colors locked in')).toBeNull()
+  })
+
   it('always-open (pc-intro) renders expanded with no toggle', () => {
     const { container } = render(
       <SectionShell
