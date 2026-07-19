@@ -45,6 +45,9 @@ const OPERATOR_MARKERS = [
   'data-vb-inspector',
   'data-vb-section-outline',
   'data-vb-inspector-panes',
+  // PR6: re-assert the section BOUNDARY marker never leaks into the anonymous
+  // render either (the scroll-spy target the operator layer wraps sections in).
+  'data-operator-section',
 ]
 
 function publicData() {
