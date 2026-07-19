@@ -37,8 +37,17 @@ export function SectionQuickControls({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const focus = useFocusWithin()
-  // C4: keep the page-global editor-activity registration untouched.
-  useEditorActivity(`operator-section-controls-${section.sectionKey}`, busy || focus.focused)
+  // These status controls are DISCRETE mutations (Show/Hide/Mark done/Reset ack)
+  // with no draft to protect — so their SYNC-registry activity is `busy` ONLY,
+  // never `busy || focus.focused`. Registering focus here wedged the shared
+  // refresher: a status button stays focused after a click (and Reset-ack
+  // UNMOUNTS its own focused button, so the container onBlur never fires and
+  // focus sticks true forever) → the page-global registry never returns to idle
+  // → the deferred requestRefresh() never flushes → the mutation "needs a
+  // reload" and blocks every later reset. `busy` alone still holds the refresh
+  // across the in-flight write. (The per-section pinning registry below keeps
+  // `focused` — that's a separate concern and safely releases on unmount.)
+  useEditorActivity(`operator-section-controls-${section.sectionKey}`, busy)
   // Fix #10: ALSO report to the Context-Lens per-section activity registry so a
   // status mutation / focus pins THIS section's pane in the inspector.
   useReportSectionActivity(section.sectionKey, `operator-section-controls-${section.sectionKey}`, {

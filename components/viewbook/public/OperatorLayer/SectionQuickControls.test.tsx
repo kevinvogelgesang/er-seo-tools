@@ -11,7 +11,7 @@ import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { buildTocIndex } from '@/lib/viewbook/toc-index'
 import { navigateToAnchor } from '@/components/viewbook/public/viewbook-navigate'
-import { requestRefresh } from '../useViewbookSync'
+import { __resetSyncRegistry, hasActiveEditorActivity, requestRefresh } from '../useViewbookSync'
 import { SelectionProvider } from './inspector/SelectionContext'
 import { SectionActivityProvider, useSectionActivityContext } from './inspector/useSectionActivity'
 import { SectionQuickControls } from './SectionQuickControls'
@@ -46,6 +46,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.mocked(requestRefresh).mockClear()
   vi.mocked(navigateToAnchor).mockClear()
+  __resetSyncRegistry()
 })
 
 function section(overrides: Partial<OperatorSectionData> = {}): OperatorSectionData {
@@ -165,6 +166,43 @@ describe('SectionQuickControls', () => {
     expect(url).toBe('/api/viewbooks/8/ack/pc-setup')
     expect(init.method).toBe('DELETE')
     expect(requestRefresh).toHaveBeenCalledOnce()
+  })
+
+  // Regression: the status controls are discrete mutations with no draft to
+  // protect, so merely HOLDING focus must not register shared editor activity.
+  // Before the fix they registered `busy || focus.focused`; because Reset-ack
+  // unmounts its own focused button (acknowledgedAt → null), the container's
+  // onBlur never fires, focus.focused sticks true, the shared refresher stays
+  // non-idle forever, and the deferred requestRefresh() never lands — the reset
+  // "needs a reload" and blocks every later reset (page-global registry).
+  it('does not wedge the shared refresher merely by holding focus on the controls', () => {
+    render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+        pcCompletedAt={null}
+      />,
+    )
+    fireEvent.focusIn(screen.getByRole('button', { name: 'Reset ack' }))
+    expect(hasActiveEditorActivity()).toBe(false)
+  })
+
+  it('leaves the shared refresher idle after an ack reset so the refresh lands without a reload', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok()))
+    render(
+      <SectionQuickControls
+        viewbookId={8}
+        section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+        pcCompletedAt={null}
+      />,
+    )
+    const resetBtn = screen.getByRole('button', { name: 'Reset ack' })
+    fireEvent.focusIn(resetBtn) // operator focuses the control before clicking
+    fireEvent.click(resetBtn)
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledOnce())
+    // The Reset-ack button has unmounted (optimistic acknowledgedAt → null) while
+    // focused; the registry MUST still return to idle so the held refresh flushes.
+    await waitFor(() => expect(hasActiveEditorActivity()).toBe(false))
   })
 
   it('shows Reset ack only for acknowledged ackable sections', () => {
