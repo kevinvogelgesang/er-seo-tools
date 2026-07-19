@@ -5,7 +5,6 @@ import { editorSecondaryBtnClass } from '@/components/viewbook/editor'
 import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
 import { StatusPill, type Tone } from '@/components/ui/StatusPill'
 import type { OperatorSectionData } from '@/lib/viewbook/operator-data'
-import { sectionSupportsCollapse } from '@/lib/viewbook/theme'
 import { navigateToAnchor } from '@/components/viewbook/public/viewbook-navigate'
 import { requestRefresh, useEditorActivity, useFocusWithin } from '../useViewbookSync'
 import { useReportSectionActivity } from './inspector/useSectionActivity'
@@ -21,11 +20,6 @@ export function sectionSupportsDone(sectionKey: string): boolean {
 export function sectionSupportsAck(sectionKey: string): boolean {
   return ACKABLE.has(sectionKey)
 }
-
-// Collapse-to-hero uses the ONE server-enforced allowlist in lib/viewbook/theme
-// (framing bookends + client-interactive sections are excluded). Re-exported so
-// existing consumers/tests keep importing it from here.
-export { sectionSupportsCollapse }
 
 export function SectionQuickControls({
   viewbookId,
@@ -51,16 +45,27 @@ export function SectionQuickControls({
   // focus sticks true forever) → the page-global registry never returns to idle
   // → the deferred requestRefresh() never flushes → the mutation "needs a
   // reload" and blocks every later reset. `busy` alone still holds the refresh
-  // across the in-flight write. (The per-section pinning registry below keeps
-  // `focused` — that's a separate concern and safely releases on unmount.)
+  // across the in-flight write. (PR5: the per-section pinning registry below
+  // had the SAME bug via a hard activity pin — see its comment — and is now
+  // busy-only too.)
   useEditorActivity(`operator-section-controls-${section.sectionKey}`, busy)
   // Fix #10: ALSO report to the Context-Lens per-section activity registry so a
-  // status mutation / focus pins THIS section's pane in the inspector.
+  // status mutation pins THIS section's pane in the inspector.
+  //
+  // PR5 Task 1: report busy-only here too (NOT `focus.focused`). A discrete
+  // mutation button (e.g. Reset-ack) can unmount itself while still focused —
+  // the label swap/control disappears on settle before any blur ever fires —
+  // which strands `focus.focused=true` forever. Because this registry backs a
+  // HARD (`kind: 'activity'`) selection pin, that stranded `true` becomes a
+  // PERMANENT pin on this section: `SelectionContext.select()` fails closed for
+  // every other section until a full page reload. Busy-only means the pin
+  // releases the instant the mutation settles, exactly like the sync registry
+  // above.
   useReportSectionActivity(section.sectionKey, `operator-section-controls-${section.sectionKey}`, {
     dirty: false,
     busy,
     conflict: false,
-    focused: focus.focused,
+    focused: false,
   })
 
   useEffect(() => setState(section.state), [section.state])
@@ -127,14 +132,11 @@ export function SectionQuickControls({
   }
 
   const doneable = sectionSupportsDone(section.sectionKey)
-  const collapsible = sectionSupportsCollapse(section.sectionKey)
   const statePill: { label: string; tone: Tone } = state === 'hidden'
     ? { label: 'Hidden', tone: 'warning' }
     : state === 'done'
       ? { label: 'Complete', tone: 'success' }
-      : state === 'collapsed'
-        ? { label: 'Collapsed', tone: 'warning' }
-        : { label: 'Visible', tone: 'neutral' }
+      : { label: 'Visible', tone: 'neutral' }
   const embedded = variant === 'embedded'
   return (
     <div
@@ -177,26 +179,6 @@ export function SectionQuickControls({
               className={editorSecondaryBtnClass}
             >
               {state === 'done' ? 'Reopen' : 'Mark done'}
-            </button>
-          )}
-          {state === 'collapsed' && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void setSectionState('active')}
-              className={editorSecondaryBtnClass}
-            >
-              Expand
-            </button>
-          )}
-          {collapsible && state !== 'hidden' && state !== 'collapsed' && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void setSectionState('collapsed')}
-              className={editorSecondaryBtnClass}
-            >
-              Collapse
             </button>
           )}
           {sectionSupportsAck(section.sectionKey) && acknowledgedAt && (

@@ -13,6 +13,8 @@ import { SECTION_KEYS } from '@/lib/viewbook/theme'
 import { isViewbookStage, nextStage, prevStage, STAGE_LABELS } from '@/lib/viewbook/stages'
 import { jsonFetch, publicViewbookUrl, type ViewbookDetail } from './viewbook-admin-shared'
 import { ThemeEditor } from './ThemeEditor'
+import { PresentationEditor } from './PresentationEditor'
+import { readPresentationConfig } from '@/lib/viewbook/presentation-config'
 import { ContentTab } from './ContentTab'
 import { MilestonesEditor } from './MilestonesEditor'
 import { FeedbackTab } from './FeedbackTab'
@@ -171,7 +173,14 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
         className={tab === 'Settings' ? 'rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-navy-border dark:bg-navy-deep/30' : ''}
       >
         {tab === 'Theme' && (
-          <ThemeEditor viewbookId={vb.id} theme={vb.theme} onSaved={() => void load()} />
+          <div className="space-y-5">
+            <ThemeEditor viewbookId={vb.id} theme={vb.theme} onSaved={() => void load()} />
+            <PresentationEditor
+              viewbookId={vb.id}
+              config={readPresentationConfig(vb)}
+              onSaved={() => void load()}
+            />
+          </div>
         )}
         {tab === 'Content' && (
           <ContentTab
@@ -360,7 +369,6 @@ export function SettingsTab({ vb, onChanged }: { vb: SettingsTabViewbook; onChan
                 <option value="active">active</option>
                 <option value="hidden">hidden</option>
                 <option value="done">done ✓</option>
-                <option value="collapsed">collapsed (hero only)</option>
               </select>
             </div>
           )

@@ -30,10 +30,12 @@ export function MaterialsSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const n = data.materials.length
@@ -51,6 +53,11 @@ export function MaterialsSection({
           chip={requested > 0 ? `${requested} requested` : undefined}
         />
       }
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       {data.materials.length === 0 ? (
         <p className="text-black/50">No materials yet — links you share with us will appear here.</p>

@@ -17,10 +17,12 @@ export function PcIntroSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   // Defensive belt-and-suspenders gate — 'pc-intro' only ever appears in the
   // post-contract primary lineup, never carried.
@@ -34,6 +36,11 @@ export function PcIntroSection({
       title={SECTION_TITLES['pc-intro']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['pc-intro']} headline={sectionStatusLabel(section)} />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>
         {data.global.pcIntro || FALLBACK_INTRO}

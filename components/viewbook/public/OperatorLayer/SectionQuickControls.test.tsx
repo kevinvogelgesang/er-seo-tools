@@ -12,7 +12,7 @@ import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { buildTocIndex } from '@/lib/viewbook/toc-index'
 import { navigateToAnchor } from '@/components/viewbook/public/viewbook-navigate'
 import { __resetSyncRegistry, hasActiveEditorActivity, requestRefresh } from '../useViewbookSync'
-import { SelectionProvider } from './inspector/SelectionContext'
+import { SelectionProvider, useSelectionContext, type SelectionState } from './inspector/SelectionContext'
 import { SectionActivityProvider, useSectionActivityContext } from './inspector/useSectionActivity'
 import { SectionQuickControls } from './SectionQuickControls'
 
@@ -53,6 +53,7 @@ function section(overrides: Partial<OperatorSectionData> = {}): OperatorSectionD
   return {
     sectionKey: 'data-source',
     state: 'active',
+    collapsedShared: false,
     doneAt: null,
     acknowledgedAt: null,
     introNote: null,
@@ -158,50 +159,19 @@ describe('SectionQuickControls', () => {
     expect(JSON.parse(init.body)).toEqual({ state: 'active' })
   })
 
-  it('collapses to hero and expands back through the section PATCH contract', async () => {
-    // strategy is collapsible (everything except the pc-intro/pc-thanks bookends).
-    let [url, init] = await clickAndRead('Collapse', section({ sectionKey: 'strategy' }))
-    expect(url).toBe('/api/viewbooks/8/sections/strategy')
-    expect(init.method).toBe('PATCH')
-    expect(JSON.parse(init.body)).toEqual({ state: 'collapsed' })
-    cleanup()
-    vi.unstubAllGlobals()
-
-    ;[, init] = await clickAndRead('Expand', section({ sectionKey: 'strategy', state: 'collapsed' }))
-    expect(JSON.parse(init.body)).toEqual({ state: 'active' })
-  })
-
-  it('renders a collapsed section with a Collapsed pill and an Expand button', () => {
-    render(<SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy', state: 'collapsed' })} pcCompletedAt={null} />)
-    expect(screen.getByText('Collapsed')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Expand' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
-  })
-
-  it('exposes a Collapse control on every non-bookend section (incl. previously-excluded)', () => {
-    for (const sectionKey of ['data-source', 'pc-setup', 'milestones', 'materials', 'welcome'] as const) {
+  // PR1 (viewbook viewer-collapse): 'collapsed' is retired from the state
+  // enum (now the orthogonal collapsedShared boolean, lib/viewbook/collapse.ts
+  // PR2) — the operator Collapse/Expand controls that used to PATCH
+  // state:'collapsed' are gone; PR3 replaces them with the in-hero viewer
+  // control. No section (bookend or otherwise) exposes a Collapse/Expand
+  // button here any more.
+  it('never exposes a Collapse or Expand control, on any section', () => {
+    for (const sectionKey of ['data-source', 'pc-setup', 'milestones', 'materials', 'welcome', 'strategy', 'pc-intro'] as const) {
       render(<SectionQuickControls viewbookId={8} section={section({ sectionKey })} pcCompletedAt={null} />)
-      expect(screen.getByRole('button', { name: 'Collapse' })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
       cleanup()
     }
-  })
-
-  it('never exposes a Collapse control on pc-intro or pc-thanks', () => {
-    render(<SectionQuickControls viewbookId={8} section={section({ sectionKey: 'pc-intro' })} pcCompletedAt={null} />)
-    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
-    cleanup()
-
-    // pc-thanks only renders its controls once the completion stamp exists.
-    render(
-      <SectionQuickControls
-        viewbookId={8}
-        section={section({ sectionKey: 'pc-thanks' })}
-        pcCompletedAt="2026-07-16T00:00:00.000Z"
-      />,
-    )
-    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
   })
 
   it('resets an acknowledged ackable section with DELETE', async () => {
@@ -374,6 +344,74 @@ describe('SectionQuickControls', () => {
 
     resolveFetch(ok())
     await waitFor(() => expect(screen.getByTestId('activity').textContent).toBe('idle'))
+  })
+
+  // PR5 Task 1 regression: a discrete mutation button that unmounts itself
+  // while still focused (Reset-ack: the button disappears the moment
+  // acknowledgedAt optimistically clears) must NOT strand a hard activity pin
+  // on its section forever. Before the fix, `useReportSectionActivity` reported
+  // `focused: focus.focused`, which stuck `true` past the unmount (no blur ever
+  // fires for a removed element) -> a PERMANENT hard pin -> every other
+  // section's `select()` fails closed. This asserts the full lifecycle: pinned
+  // while busy, released once the mutation settles even though the focused
+  // button unmounted, and a DIFFERENT section becomes selectable again.
+  it('a discrete mutation pins its section while busy, releases after settle even when the focused button unmounts, then a different section is selectable', async () => {
+    let resolveFetch!: (value: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve })))
+
+    let latestSelect: SelectionState['select'] = () => false
+    function SelectProbe() {
+      const selection = useSelectionContext()
+      latestSelect = selection.select
+      return null
+    }
+    function ActivityProbe({ sectionKey }: { sectionKey: SectionKey }) {
+      const activity = useSectionActivityContext()
+      const agg = activity.aggregateFor(sectionKey)
+      return (
+        <span data-testid={`activity-${sectionKey}`}>
+          {JSON.stringify({ busy: agg.busy, any: activity.anyActive(sectionKey) })}
+        </span>
+      )
+    }
+
+    render(
+      <SelectionProvider>
+        <SectionActivityProvider>
+          <SectionQuickControls
+            viewbookId={8}
+            section={section({ sectionKey: 'pc-setup', acknowledgedAt: '2026-07-16T00:00:00.000Z' })}
+            pcCompletedAt={null}
+          />
+          <SectionQuickControls viewbookId={8} section={section({ sectionKey: 'strategy' })} pcCompletedAt={null} />
+          <ActivityProbe sectionKey="pc-setup" />
+          <SelectProbe />
+        </SectionActivityProvider>
+      </SelectionProvider>,
+    )
+
+    const readActivity = (sectionKey: string) =>
+      JSON.parse(screen.getByTestId(`activity-${sectionKey}`).textContent!) as { busy: boolean; any: boolean }
+
+    const resetBtn = screen.getByRole('button', { name: 'Reset ack' })
+    fireEvent.focusIn(resetBtn) // operator focuses the control before clicking
+    fireEvent.click(resetBtn)
+
+    // (1) While the DELETE is in flight, pc-setup IS pinned (busy).
+    await waitFor(() => expect(readActivity('pc-setup').busy).toBe(true))
+    expect(readActivity('pc-setup').any).toBe(true)
+
+    resolveFetch(ok())
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledOnce())
+    // The Reset-ack button has unmounted (optimistic acknowledgedAt -> null)
+    // while still focused.
+    expect(screen.queryByRole('button', { name: 'Reset ack' })).toBeNull()
+
+    // (2) The pin releases even though the focused button unmounted.
+    await waitFor(() => expect(readActivity('pc-setup').any).toBe(false))
+
+    // (3) A different section is now selectable -- not fails-closed.
+    expect(latestSelect('strategy')).toBe(true)
   })
 
   // Fix #11: post-Show navigation fires ONCE, only after the refreshed prop

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { requireOperatorEmail } from './operator'
+import { requireOperatorEmail, resolveOperatorEmail } from './operator'
 import { AUTH_COOKIE_NAME, createAuthCookieValue } from '@/lib/auth'
 import { HttpError } from '@/lib/api/errors'
 
@@ -43,5 +43,35 @@ describe('requireOperatorEmail', () => {
       headers: new Headers({ cookie: `${AUTH_COOKIE_NAME}=${cookie}` }),
     })
     expect(await requireOperatorEmail(req)).toBe('kevin@enrollmentresources.com')
+  })
+})
+
+describe('resolveOperatorEmail', () => {
+  it('returns null for a request with no auth cookie (never throws)', async () => {
+    const req = new Request('https://x/api', { headers: {} })
+    await expect(resolveOperatorEmail(req)).resolves.toBeNull()
+  })
+
+  it('returns null for a garbage cookie or a session without email (never throws)', async () => {
+    for (const headers of [
+      new Headers({ cookie: `${AUTH_COOKIE_NAME}=garbage` }),
+      new Headers({ cookie: `${AUTH_COOKIE_NAME}=${await createAuthCookieValue({ sub: 'x', email: null, hd: null, name: 'Break Glass' })}` }),
+    ]) {
+      const req = new Request('http://localhost/api/viewbooks', { headers })
+      await expect(resolveOperatorEmail(req)).resolves.toBeNull()
+    }
+  })
+
+  it('returns the verified session email', async () => {
+    const cookie = await createAuthCookieValue({
+      sub: 'google:1',
+      email: 'kevin@enrollmentresources.com',
+      hd: 'enrollmentresources.com',
+      name: 'Kevin',
+    })
+    const req = new Request('http://localhost/api/viewbooks', {
+      headers: new Headers({ cookie: `${AUTH_COOKIE_NAME}=${cookie}` }),
+    })
+    expect(await resolveOperatorEmail(req)).toBe('kevin@enrollmentresources.com')
   })
 })

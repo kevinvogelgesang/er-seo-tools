@@ -53,10 +53,12 @@ export function PcSetupSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes['pc-setup']
   const fields = orderedSetupFields(data)
@@ -68,6 +70,11 @@ export function PcSetupSection({
       title={SECTION_TITLES['pc-setup']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['pc-setup']} headline={sectionStatusLabel(section)} />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       <div className="space-y-4">
         {fields.map((field) => (

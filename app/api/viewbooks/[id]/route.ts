@@ -6,9 +6,11 @@ import { prisma } from '@/lib/db'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { deleteViewbookAssets } from '@/lib/viewbook/assets'
+import { parsePresentationPatch } from '@/lib/viewbook/presentation-config'
 import {
   deleteViewbook,
   getViewbookAdmin,
+  updateViewbookPresentation,
   updateViewbookSettings,
   updateViewbookTheme,
   type ViewbookKind,
@@ -41,6 +43,11 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
   if ('kind' in body) settings.kind = body.kind as ViewbookKind
   if (Object.keys(settings).length > 0) {
     await updateViewbookSettings(id, settings)
+    handled = true
+  }
+  const presentation = parsePresentationPatch(body) // throws 400 on bad input
+  if (Object.keys(presentation).length > 0) {
+    await updateViewbookPresentation(id, presentation)
     handled = true
   }
   if (!handled) throw new HttpError(400, 'invalid_request')

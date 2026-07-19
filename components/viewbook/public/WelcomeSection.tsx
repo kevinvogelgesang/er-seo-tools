@@ -32,10 +32,12 @@ export function WelcomeSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const { team, blocks } = data.global
@@ -53,6 +55,11 @@ export function WelcomeSection({
           headline={data.welcomeNote?.trim() ? data.welcomeNote : sectionStatusLabel(section)}
         />
       }
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       {blocks.why?.blocks?.length ? <Blocks blocks={blocks.why.blocks} /> : <Placeholder what="Our story" />}
 

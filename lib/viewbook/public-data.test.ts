@@ -53,6 +53,20 @@ describe('loadViewbookPublicData', () => {
     expect(data!.carriedSections.map((s) => s.sectionKey)).toEqual(['pc-setup', 'pc-invite'])
   })
 
+  it('maps collapsedShared through and never emits a "collapsed" state', async () => {
+    const client = await makeClient()
+    const { id, token } = await createViewbook(client.id, 'upgrade', 'op@er.com')
+    await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // 'brand' is in the building lineup
+    await prisma.viewbookSection.update({
+      where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: 'brand' } },
+      data: { collapsedShared: true },
+    })
+    const data = await loadViewbookPublicData(token)
+    const brand = [...data!.primarySections, ...data!.carriedSections].find((s) => s.sectionKey === 'brand')!
+    expect(brand.collapsedShared).toBe(true)
+    expect(brand.state).not.toBe('collapsed') // 'collapsed' is retired
+  })
+
   it('resolves the building lineup: v1 sections primary, pc-setup+pc-invite carried', async () => {
     const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
     await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // creation default is post-contract
@@ -337,6 +351,7 @@ describe('gatePcThanks (PR5 pure gate)', () => {
   const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
     sectionKey,
     state: 'active',
+    collapsedShared: false,
     doneAt: null,
     acknowledgedAt: null,
     introNote: null,

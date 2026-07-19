@@ -10,6 +10,7 @@ import { HttpError } from '@/lib/api/errors'
 import { logError } from '@/lib/log'
 import { requireViewbookToken } from './route-auth'
 import { parseStoredTheme } from './theme'
+import { readPresentationConfig } from './presentation-config'
 import { CATALOG_CATEGORIES } from './catalog'
 import { isViewbookStage, STAGE_LABELS, STAGE_LINEUPS, type ViewbookStage } from './stages'
 import { getGlobalContent } from './global-content'
@@ -69,7 +70,8 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
   )
   const toPublic = (s: (typeof sectionRows)[number]): PublicSection => ({
     sectionKey: s.sectionKey as PublicSection['sectionKey'],
-    state: s.state === 'done' ? 'done' : s.state === 'collapsed' ? 'collapsed' : 'active',
+    state: s.state === 'done' ? 'done' : 'active',
+    collapsedShared: s.collapsedShared,
     doneAt: iso(s.doneAt),
     acknowledgedAt: iso(s.acknowledgedAt),
     introNote: s.introNote,
@@ -127,6 +129,7 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     docs,
     global,
     overrides,
+    ...readPresentationConfig(vb),
   }
 }
 

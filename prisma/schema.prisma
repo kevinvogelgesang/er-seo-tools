@@ -878,6 +878,8 @@ model Viewbook {
   csmName          String?
   clientNotifyJson String    @default("[]")
   pcCompletedAt    DateTime?
+  collapseAffordance  String @default("bar")  // 'bar' | 'pill' | 'chevron' (presentation config, PR4)
+  heroOverlayStrength Int    @default(55)      // 0..100 hero overlay opacity
   createdBy       String? // operator email
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -900,6 +902,7 @@ model ViewbookSection {
   viewbook   Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   sectionKey String // 'welcome' | 'milestones' | 'data-source' | 'brand' | 'assessment' | 'strategy' | 'materials'
   state      String    @default("active") // 'hidden' | 'active' | 'done'
+  collapsedShared Boolean @default(false) // viewer-facing shared collapse default (orthogonal to state)
   doneAt     DateTime?
   introNote  String? // operator-written per-client intro (plain text)
   narrative  String? // assessment narrative / brand philosophy prose (plain text)

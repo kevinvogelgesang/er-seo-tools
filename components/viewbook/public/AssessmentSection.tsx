@@ -255,10 +255,12 @@ export async function AssessmentSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const [load, operatorEmail] = await Promise.all([
     loadAssessmentData(token),
@@ -291,6 +293,11 @@ export async function AssessmentSection({
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={summaryHeadline} />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       {assessment ? (
         <AssessmentBody assessment={assessment} narrative={section.narrative} notesSlot={notesSlot} />

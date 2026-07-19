@@ -80,10 +80,12 @@ export function MilestonesSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const withLinks = data.milestones.filter((m) => m.reviewLinks.length > 0)
@@ -105,6 +107,11 @@ export function MilestonesSection({
           chip={current ? current.title : undefined}
         />
       }
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       {hasInfo && (
         <div id="vb-process-milestones-info" className="space-y-4">

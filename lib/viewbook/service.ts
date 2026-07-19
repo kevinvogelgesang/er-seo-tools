@@ -20,7 +20,6 @@ import { CATALOG } from './catalog'
 import { DEFAULT_MILESTONES } from './milestones'
 import {
   SECTION_KEYS,
-  sectionSupportsCollapse,
   type SectionKey,
   type ViewbookTheme,
   parseStoredTheme,
@@ -185,6 +184,22 @@ export async function updateViewbookSettings(
   await mustUpdateViewbook(id, data, { bump })
 }
 
+// PR4: atomic dual-column update (collapse affordance + hero overlay) with a
+// single syncVersion bump — rendered presentation config, so it bumps like
+// theme/welcomeNote (mustUpdateViewbook precedent). An empty patch is a
+// deliberate no-op (route only calls this when parsePresentationPatch
+// yielded at least one key).
+export async function updateViewbookPresentation(
+  id: number,
+  patch: Partial<{ collapseAffordance: string; heroOverlayStrength: number }>,
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return
+  await prisma.$transaction([
+    syncVersionBumpStatement(id),
+    prisma.viewbook.update({ where: { id }, data: patch }),
+  ])
+}
+
 export async function rotateViewbookToken(id: number): Promise<{ token: string }> {
   const token = crypto.randomUUID()
   await mustUpdateViewbook(id, { token, revokedAt: null })
@@ -198,14 +213,12 @@ export async function revokeViewbook(id: number): Promise<void> {
 export async function setSectionState(
   id: number,
   sectionKey: string,
-  state: 'hidden' | 'active' | 'done' | 'collapsed',
+  state: 'hidden' | 'active' | 'done',
   actor: string,
 ): Promise<void> {
   assertSectionKey(sectionKey)
-  if (!['hidden', 'active', 'done', 'collapsed'].includes(state)) throw new HttpError(400, 'invalid_section')
-  // Server-enforced collapse allowlist (shared with the operator control) — the
-  // framing bookends + client-interactive sections may never be collapsed.
-  if (state === 'collapsed' && !sectionSupportsCollapse(sectionKey)) throw new HttpError(400, 'invalid_section')
+  if (!['hidden', 'active', 'done'].includes(state)) throw new HttpError(400, 'invalid_section')
+  // (collapse is no longer a state — see lib/viewbook/collapse.ts, PR2)
   try {
     const update = prisma.viewbookSection.update({
         where: { viewbookId_sectionKey: { viewbookId: id, sectionKey } },

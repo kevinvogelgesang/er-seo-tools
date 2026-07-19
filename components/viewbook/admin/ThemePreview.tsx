@@ -4,6 +4,7 @@
 // light-only and uses the same public SectionShell + brand variables clients see.
 import type { ViewbookTheme } from '@/lib/viewbook/theme'
 import type { PublicSection } from '@/lib/viewbook/public-types'
+import { PRESENTATION_DEFAULTS } from '@/lib/viewbook/presentation-config'
 import { SectionShell } from '@/components/viewbook/public/SectionShell'
 import { ThemeStyle, themeCssVars } from '@/components/viewbook/public/ThemeStyle'
 import { StatusPill } from '@/components/ui/StatusPill'
@@ -11,11 +12,18 @@ import { StatusPill } from '@/components/ui/StatusPill'
 const SAMPLE_SECTION: PublicSection = {
   sectionKey: 'brand',
   state: 'active',
+  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: 'A short operator intro note looks like this.',
   narrative: null,
 }
+
+// Placeholder identity for the bounded admin preview canvas — this is not a
+// real viewbook, so viewbookId/token are inert placeholders and previewMode
+// guarantees CollapsibleSection never issues a public collapse POST.
+const PREVIEW_VIEWBOOK_ID = 0
+const PREVIEW_TOKEN = 'theme-preview'
 
 export function ThemePreview({
   theme,
@@ -52,7 +60,18 @@ export function ThemePreview({
               {clientName} — viewbook preview
             </div>
             <div style={{ fontFamily: 'var(--vb-body-font)' }}>
-              <SectionShell section={SAMPLE_SECTION} title="Brand Guidelines" heroUrl={null} stage="kickoff">
+              <SectionShell
+                section={SAMPLE_SECTION}
+                title="Brand Guidelines"
+                heroUrl={null}
+                stage="kickoff"
+                affordance={PRESENTATION_DEFAULTS.collapseAffordance}
+                overlayStrength={PRESENTATION_DEFAULTS.heroOverlayStrength}
+                isOperator={false}
+                viewbookId={PREVIEW_VIEWBOOK_ID}
+                token={PREVIEW_TOKEN}
+                previewMode
+              >
                 <p className="text-black/80">
                   Body copy renders in the selected body font. Headers use the heading font on the brand
                   primary band above.

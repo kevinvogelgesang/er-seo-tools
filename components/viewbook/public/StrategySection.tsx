@@ -19,10 +19,12 @@ export function StrategySection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const docs = [...data.docs.global, ...data.docs.own]
@@ -37,6 +39,11 @@ export function StrategySection({
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow="Strategy" headline={`${n} document${n === 1 ? '' : 's'}`} />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       {docs.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">

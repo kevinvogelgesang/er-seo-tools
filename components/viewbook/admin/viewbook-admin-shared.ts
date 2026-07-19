@@ -46,6 +46,8 @@ export interface ViewbookDetail {
   csmName: string | null
   syncVersion: number // PR2 live sync: poll /sync and refetch when it advances
   theme: ViewbookTheme
+  collapseAffordance: string // 'bar' | 'pill' | 'chevron' (presentation config, PR4)
+  heroOverlayStrength: number // 0..100
   client: { name: string; archivedAt: string | null }
   sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]
   milestones: {

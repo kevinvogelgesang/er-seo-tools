@@ -16,10 +16,12 @@ export function PcThanksSection({
   section,
   data,
   token,
+  isOperator = false,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  isOperator?: boolean
 }) {
   if (!data.pcCompletedAt) return null
   const hero = data.theme.sectionHeroes['pc-thanks']
@@ -31,6 +33,11 @@ export function PcThanksSection({
       title={SECTION_TITLES['pc-thanks']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['pc-thanks']} headline={sectionStatusLabel(section)} />}
+      affordance={data.collapseAffordance}
+      overlayStrength={data.heroOverlayStrength}
+      isOperator={isOperator}
+      viewbookId={data.viewbookId}
+      token={token}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>{THANK_YOU_COPY}</p>
     </SectionShell>
