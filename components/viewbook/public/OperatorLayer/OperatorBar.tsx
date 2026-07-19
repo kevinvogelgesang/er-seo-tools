@@ -5,7 +5,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { editorPrimaryBtnClass, editorSecondaryBtnClass } from '@/components/viewbook/editor'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { nextStage, prevStage, STAGE_LABELS, type ViewbookStage } from '@/lib/viewbook/stages'
-import { PresentationToggle } from '../PresentationToggle'
+import { PresentationToggle, usePresentationMode } from '../PresentationToggle'
 import { requestRefresh, useEditorActivity } from '../useViewbookSync'
 import { OperatorRequestError, operatorRequest } from './operator-api'
 
@@ -22,6 +22,7 @@ export function OperatorBar({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { initialized, presenting } = usePresentationMode()
   useEditorActivity('operator-stage-controls', busy)
 
   async function postMove(direction: 'forward' | 'back', force = false) {
@@ -62,6 +63,8 @@ export function OperatorBar({
       setBusy(false)
     }
   }
+
+  if (!initialized || presenting) return null
 
   return (
     <aside
