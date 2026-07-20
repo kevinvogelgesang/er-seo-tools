@@ -78,7 +78,10 @@ export function SeverityChip({ severity, severityChanged }: {
  * STALE · LAST OBSERVED <date>. First-observation groups (delta null,
  * changeState 'new') render a bare NEW with no delta claim.
  */
-export function ChangeChip({ group }: { group: IssueGroup }) {
+// `hideStreak` — on a MANUAL snapshot the streak was counted against the last
+// SCHEDULED sweep (a mid-week diff), so "N SWEEPS" would misread as consecutive
+// weeks. Suppress the count there; the change state itself stays honest.
+export function ChangeChip({ group, hideStreak = false }: { group: IssueGroup; hideStreak?: boolean }) {
   const unit = UNIT_LABEL[group.unit]
   switch (group.changeState) {
     case 'new':
@@ -98,7 +101,7 @@ export function ChangeChip({ group }: { group: IssueGroup }) {
         />
       )
     case 'detected':
-      return <Chip label={`DETECTED ${group.streak} SWEEPS`} tone="gray" />
+      return <Chip label={hideStreak ? 'DETECTED' : `DETECTED ${group.streak} SWEEPS`} tone="gray" />
     case 'stale':
       return <Chip label={`STALE · LAST OBSERVED ${formatShortDate(group.lastObservedAt)}`} tone="amber" />
     default:

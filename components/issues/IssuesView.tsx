@@ -144,7 +144,7 @@ function SegmentGroup({ children }: { children: React.ReactNode }) {
 // Table
 // ---------------------------------------------------------------------------
 
-function IssueRow({ group, stale }: { group: IssueGroup; stale?: boolean }) {
+function IssueRow({ group, stale, hideStreak }: { group: IssueGroup; stale?: boolean; hideStreak?: boolean }) {
   return (
     <tr className={`border-b border-gray-100 dark:border-navy-border ${stale ? 'opacity-60' : ''}`}>
       <td className="w-1 p-0">
@@ -167,7 +167,7 @@ function IssueRow({ group, stale }: { group: IssueGroup; stale?: boolean }) {
       </td>
       <td className="py-2.5 pr-3 align-top">
         <div className="flex flex-wrap items-center gap-1">
-          <ChangeChip group={group} />
+          <ChangeChip group={group} hideStreak={hideStreak} />
           {!stale && <CoverageChip coverageState={group.coverageState} />}
         </div>
       </td>
@@ -234,6 +234,9 @@ export function IssuesView({ payload }: { payload: IssuesPayload }) {
   }
 
   const { sweep } = payload
+  // On a manual snapshot the streak was counted against the last SCHEDULED
+  // sweep (a mid-week diff), so suppress the "N SWEEPS" consecutive-week label.
+  const hideStreak = sweep.origin === 'manual'
 
   return (
     <div className="space-y-6">
@@ -259,7 +262,7 @@ export function IssuesView({ payload }: { payload: IssuesPayload }) {
                     <span className="text-gray-300 dark:text-white/30">—</span>
                     <span className="text-xs text-navy dark:text-white truncate">{g.title}</span>
                     <SeverityChip severity={g.severity} severityChanged={g.severityChanged} />
-                    <ChangeChip group={g} />
+                    <ChangeChip group={g} hideStreak={hideStreak} />
                     <CoverageChip coverageState={g.coverageState} />
                   </div>
                   <div className="mt-0.5 text-[11px] text-gray-400 dark:text-white/40">
@@ -338,10 +341,10 @@ export function IssuesView({ payload }: { payload: IssuesPayload }) {
             </thead>
             <tbody>
               {visibleGroups.map((g, i) => (
-                <IssueRow key={`g-${g.clientId}-${g.tool}-${g.type}-${i}`} group={g} />
+                <IssueRow key={`g-${g.clientId}-${g.tool}-${g.type}-${i}`} group={g} hideStreak={hideStreak} />
               ))}
               {visibleStale.map((g, i) => (
-                <IssueRow key={`s-${g.clientId}-${g.tool}-${g.type}-${i}`} group={g} stale />
+                <IssueRow key={`s-${g.clientId}-${g.tool}-${g.type}-${i}`} group={g} stale hideStreak={hideStreak} />
               ))}
             </tbody>
           </table>
@@ -410,9 +413,13 @@ function Header({ sweep }: { sweep?: NonNullable<IssuesPayload['sweep']> }) {
         <h1 className="text-2xl font-heading font-bold text-navy dark:text-white">Current Scan Issues</h1>
         {sweep ? (
           <p className="mt-1 text-[13px] font-body text-navy/50 dark:text-white/50">
-            {sweep.startedAt && <>Sweep started {formatShortDate(sweep.startedAt)} · </>}
+            <span className="font-semibold text-navy/70 dark:text-white/70">
+              {sweep.origin === 'manual' ? 'Manual refresh' : 'Weekly sweep'}
+            </span>{' · '}
+            {sweep.startedAt && <>started {formatShortDate(sweep.startedAt)} · </>}
             snapshot {formatShortDate(sweep.snapshotAt)} · {sweep.totals.scanned}/{sweep.totals.expected} scanned,{' '}
-            {sweep.totals.comparableDomains} comparable · <DeltaInline delta={sweep.totals.delta} />
+            {sweep.totals.comparableDomains} comparable ·{' '}
+            <DeltaInline delta={sweep.totals.delta} origin={sweep.origin} />
           </p>
         ) : (
           <p className="mt-1 text-[13px] font-body text-navy/50 dark:text-white/50">
@@ -427,11 +434,13 @@ function Header({ sweep }: { sweep?: NonNullable<IssuesPayload['sweep']> }) {
   )
 }
 
-function DeltaInline({ delta }: { delta: number | null }) {
-  if (delta == null) return <span>no prior week</span>
-  if (delta === 0) return <span>no change vs last week</span>
+function DeltaInline({ delta, origin }: { delta: number | null; origin?: 'scheduled' | 'manual' }) {
+  // A manual snapshot diffs against the most recent SCHEDULED (Sunday) sweep.
+  const vs = origin === 'manual' ? 'vs last Sunday' : 'vs last week'
+  if (delta == null) return <span>{origin === 'manual' ? 'no prior sweep' : 'no prior week'}</span>
+  if (delta === 0) return <span>no change {vs}</span>
   const down = delta < 0
-  return <span>{down ? '▼' : '▲'} {Math.abs(delta)} vs last week</span>
+  return <span>{down ? '▼' : '▲'} {Math.abs(delta)} {vs}</span>
 }
 
 function InProgressBanner() {

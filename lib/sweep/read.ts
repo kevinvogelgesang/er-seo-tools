@@ -13,13 +13,14 @@
 // ever need to look for a valid snapshot" without an unbounded table scan.
 
 import { prisma } from '@/lib/db'
-import { parseSnapshot, type IssueGroup, type PairCoverage, type SweepSnapshot } from './types'
+import { asSweepOrigin, parseSnapshot, type IssueGroup, type PairCoverage, type SweepOrigin, type SweepSnapshot } from './types'
 
 export interface IssuesPayload {
   sweep: {
     scheduledFor: string
     startedAt: string | null
     snapshotAt: string
+    origin: SweepOrigin
     totals: SweepSnapshot['totals']
   } | null
   inProgress: boolean // a newer sweep exists without a snapshot
@@ -44,11 +45,11 @@ export async function loadIssuesPayload(): Promise<IssuesPayload> {
   const rows = await prisma.weeklySweep.findMany({
     orderBy: { scheduledFor: 'desc' },
     take: SCAN_LIMIT,
-    select: { scheduledFor: true, startedAt: true, snapshotJson: true },
+    select: { scheduledFor: true, startedAt: true, snapshotJson: true, origin: true },
   })
 
   let inProgress = false
-  let served: { scheduledFor: Date; startedAt: Date | null } | null = null
+  let served: { scheduledFor: Date; startedAt: Date | null; origin: SweepOrigin } | null = null
   let snapshot: SweepSnapshot | null = null
 
   for (const row of rows) {
@@ -60,7 +61,7 @@ export async function loadIssuesPayload(): Promise<IssuesPayload> {
     }
     const parsed = parseSnapshot(row.snapshotJson)
     if (parsed) {
-      served = { scheduledFor: row.scheduledFor, startedAt: row.startedAt }
+      served = { scheduledFor: row.scheduledFor, startedAt: row.startedAt, origin: asSweepOrigin(row.origin) }
       snapshot = parsed
       break
     }
@@ -76,6 +77,7 @@ export async function loadIssuesPayload(): Promise<IssuesPayload> {
       scheduledFor: served.scheduledFor.toISOString(),
       startedAt: served.startedAt ? served.startedAt.toISOString() : null,
       snapshotAt: snapshot.snapshotAt,
+      origin: served.origin,
       totals: snapshot.totals,
     },
     inProgress,
