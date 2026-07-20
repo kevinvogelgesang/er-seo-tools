@@ -67,6 +67,16 @@
 // transition outright. This task does NOT touch hero rendering — that's a
 // later task.
 //
+// Sticky-header regression fix (2026-07-19, post-#217): `.vb-body-inner` must
+// clip with `overflow: clip`, NEVER `overflow: hidden`. `hidden` makes this
+// wrapper a scroll container, which hijacks SectionReveal's
+// `position: sticky` header inside the body — the header stops pinning
+// against the viewport and instead gets pushed `--vb-sticky-offset` down
+// INSIDE its own section (a gap opens under the TickDivider strip and the
+// header paints OVER the first rows of body content). `clip` clips the
+// collapsing content identically for the grid-rows animation but does not
+// create a scroll container, so sticky keeps resolving against the viewport.
+//
 // Task 8 (2026-07-19, docs/superpowers/sdd/task-8-brief.md): the hero itself
 // gets the same cross-fade treatment. Both `heroCollapsed` and `heroExpanded`
 // are now rendered SIMULTANEOUSLY, stacked absolutely inside a `.vb-hero-
@@ -193,7 +203,7 @@ export function CollapsibleSection({
       <style>{`
         .vb-collapsible .vb-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="collapsed"] .vb-body{grid-template-rows:0fr}
-        .vb-collapsible .vb-body-inner{overflow:hidden;min-height:0}
+        .vb-collapsible .vb-body-inner{overflow:clip;min-height:0}
         .vb-collapsible .vb-body-lift{opacity:1;transform:none;transition:opacity calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),transform calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="collapsed"] .vb-body-lift{opacity:0;transform:translateY(20px)}
         .vb-collapsible .vb-hero-stage{position:relative;display:block;width:100%;overflow:hidden;height:82px;transition:height calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
