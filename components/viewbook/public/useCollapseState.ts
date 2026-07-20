@@ -1,167 +1,92 @@
 'use client'
 
-// PR3 Task 1: the personal-override + reconciliation reducer backing
-// CollapsibleSection. Effective collapse = (override === 'expanded') ? false
-// : collapsedShared — a personal expand always wins over the shared default,
-// and the personal override is one-valued (localStorage holds 'expanded' or
-// the key is absent — never 'collapsed').
+// Viewbook collapse state — 2026-07-19 revision, PURELY LOCAL / per-machine.
+// See docs/superpowers/specs/2026-07-19-viewbook-collapse-local-revision.md.
+// The prior shared/server model (personal-override-over-shared-default,
+// pending/latch/awaiting-shared reconciliation, requestRefresh nudges) is
+// retired — none of that machinery has a reason to exist once the server is
+// out of the loop.
 //
-// `pending` is STATE (not just a ref): the reconcile effect depends on
-// [collapsedShared, pending] so a `collapsedShared` prop that arrives WHILE a
-// write is in flight is not dropped — it applies the instant `endPending()`
-// clears pending and the effect reruns (Codex FIX-5). `beginPending` uses a
-// separate ref for a SYNCHRONOUS double-fire guard (two pre-commit click
-// events can land before React re-renders `disabled`).
-//
-// `forceExpandedLocal` (vb:navigate) sets the in-memory override WITHOUT
-// touching localStorage (Codex FIX-6) — a forced-open section must not
-// silently become "expanded forever" after a random anchor/hash visit.
-//
-// `awaitingSharedRef` (Codex FIX-9 — the post-write revert bug): the island
-// calls `markAwaitingShared(next)` immediately after a SUCCESSFUL shared
-// write. The reconcile effect then HOLDS the just-written optimistic value
-// until `collapsedShared` itself catches up to `next` (via the sync poll's
-// eventual page refresh) instead of snapping back to the still-stale prop
-// the instant `endPending()` reruns the effect. A personal `expanded`
-// override still always wins and clears the latch outright — an in-memory
-// or persisted personal expand is never something a shared write should
-// hold the view away from.
-import { useCallback, useEffect, useRef, useState } from 'react'
+// Effective state lives ENTIRELY in localStorage, per (viewbookId,
+// sectionKey):
+//   - stored value is 'expanded' | 'collapsed' | absent.
+//   - absent ⇒ default COLLAPSED — every collapsible section starts
+//     collapsed on a fresh machine/browser (SectionShell excludes the two
+//     bookend sections from this entirely — they never collapse).
+// expand()/collapse() persist the choice (unless previewMode, which never
+// touches localStorage — ThemePreview only ever renders visuals, it is not a
+// real viewbook). forceExpand() is an EPHEMERAL, never-persisted override
+// used by vb:navigate/#hash force-open, so landing on a shared link can't
+// silently flip this viewer's stored preference for next time.
+import { useCallback, useEffect, useState } from 'react'
 
 export function collapseKey(viewbookId: number, sectionKey: string): string {
   return `vb:collapse:${viewbookId}:${sectionKey}`
 }
 
-function readOverride(key: string): 'expanded' | null {
+function readStored(key: string): 'expanded' | 'collapsed' | null {
   try {
-    return localStorage.getItem(key) === 'expanded' ? 'expanded' : null
+    const v = localStorage.getItem(key)
+    return v === 'expanded' || v === 'collapsed' ? v : null
   } catch {
     return null
+  }
+}
+
+function writeStored(key: string, value: 'expanded' | 'collapsed'): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // localStorage unavailable (private mode etc) — in-memory state still applies.
   }
 }
 
 export function useCollapseState({
   viewbookId,
   sectionKey,
-  collapsedShared,
+  previewMode = false,
 }: {
   viewbookId: number
   sectionKey: string
-  collapsedShared: boolean
+  previewMode?: boolean
 }) {
   const key = collapseKey(viewbookId, sectionKey)
-  // SSR-safe seed: no window/localStorage read during the initial render, so
-  // server and first client paint agree (matches SectionReveal's convention).
-  const [collapsed, setCollapsed] = useState(collapsedShared)
-  const [pending, setPending] = useState(false)
-  const pendingRef = useRef(false) // synchronous double-fire guard
-  const overrideRef = useRef<'expanded' | null>(null) // in-memory truth (persisted OR nav-forced)
-  const awaitingSharedRef = useRef<boolean | null>(null) // FIX-9: value latched by a successful shared write
+  // SSR-safe seed: default COLLAPSED on both the server and the first client
+  // paint (no window/localStorage read during render) — the mount effect
+  // below reconciles to the real stored value (or the default) immediately
+  // after, matching every other island's hydration-safe convention.
+  const [collapsed, setCollapsed] = useState(true)
 
   useEffect(() => {
-    // Mount: read the persisted override; a personal expand wins immediately.
-    overrideRef.current = readOverride(key)
-    setCollapsed(overrideRef.current === 'expanded' ? false : collapsedShared)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-
-  useEffect(() => {
-    // Reconcile whenever the shared prop changes OR pending clears —
-    // suppressed while pending so an optimistic view isn't clobbered by a
-    // stale prop mid-flight; depending on `pending` is what applies a prop
-    // that arrived WHILE pending once endPending() clears it (FIX-5).
-    if (pending) return
-    if (overrideRef.current === 'expanded') {
-      // A personal expand always wins, and outranks any latched shared write.
-      awaitingSharedRef.current = null
+    // ThemePreview isn't a real viewbook — it must always render fully open
+    // (the admin is previewing brand colors/fonts in the body) and must
+    // never depend on whatever this browser happens to have stored under
+    // the placeholder preview key.
+    if (previewMode) {
       setCollapsed(false)
       return
     }
-    if (awaitingSharedRef.current !== null) {
-      if (collapsedShared !== awaitingSharedRef.current) {
-        // FIX-9: hold the just-written optimistic value — collapsedShared is
-        // still the pre-write prop (the poll hasn't refreshed it yet). Do NOT
-        // fall through to setCollapsed(collapsedShared), which would revert.
-        return
-      }
-      // The prop has caught up to what we wrote — clear the latch and resume
-      // ordinary reconciliation (falls through below).
-      awaitingSharedRef.current = null
-    }
-    setCollapsed(collapsedShared)
-  }, [collapsedShared, pending])
+    const stored = readStored(key)
+    setCollapsed(stored === null ? true : stored === 'collapsed')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, previewMode])
 
-  const beginPending = useCallback((): boolean => {
-    if (pendingRef.current) return false
-    pendingRef.current = true
-    setPending(true)
-    return true
-  }, [])
-
-  const endPending = useCallback(() => {
-    pendingRef.current = false
-    setPending(false)
-  }, [])
-
-  const setPersonalExpanded = useCallback(() => {
-    try {
-      localStorage.setItem(key, 'expanded')
-    } catch {
-      // localStorage unavailable (private mode etc) — in-memory override still applies.
-    }
-    overrideRef.current = 'expanded'
+  const expand = useCallback(() => {
     setCollapsed(false)
-  }, [key])
+    if (!previewMode) writeStored(key, 'expanded')
+  }, [key, previewMode])
 
-  const forceExpandedLocal = useCallback(() => {
-    // vb:navigate — expand in-memory only, NEVER persisted.
-    overrideRef.current = 'expanded'
+  const collapse = useCallback(() => {
+    setCollapsed(true)
+    if (!previewMode) writeStored(key, 'collapsed')
+  }, [key, previewMode])
+
+  // vb:navigate (TOC/inspector clicks) / initial #hash — force this section
+  // open right now WITHOUT persisting, so a one-off inbound link never
+  // rewrites this viewer's stored preference.
+  const forceExpand = useCallback(() => {
     setCollapsed(false)
   }, [])
 
-  const clearPersonalOverride = useCallback((): 'expanded' | null => {
-    const prev = overrideRef.current
-    try {
-      localStorage.removeItem(key)
-    } catch {
-      // ignore
-    }
-    overrideRef.current = null
-    return prev
-  }, [key])
-
-  const restorePersonalOverride = useCallback(
-    (prev: 'expanded' | null) => {
-      overrideRef.current = prev
-      try {
-        if (prev) localStorage.setItem(key, prev)
-        else localStorage.removeItem(key)
-      } catch {
-        // ignore
-      }
-    },
-    [key],
-  )
-
-  const setCollapsedOptimistic = useCallback((next: boolean) => setCollapsed(next), [])
-
-  // FIX-9: the island calls this immediately after a shared write SUCCEEDS
-  // (never on failure/rollback) so the reconcile effect holds `next` instead
-  // of reverting to the still-stale `collapsedShared` prop.
-  const markAwaitingShared = useCallback((next: boolean) => {
-    awaitingSharedRef.current = next
-  }, [])
-
-  return {
-    collapsed,
-    pending,
-    beginPending,
-    endPending,
-    setPersonalExpanded,
-    forceExpandedLocal,
-    clearPersonalOverride,
-    restorePersonalOverride,
-    setCollapsedOptimistic,
-    markAwaitingShared,
-  }
+  return { collapsed, expand, collapse, forceExpand }
 }

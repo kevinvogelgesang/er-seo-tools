@@ -84,7 +84,11 @@ export function isPublicPath(pathname: string): boolean {
   if (/^\/api\/viewbook\/[^/]+\/ack$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/team-members$/.test(pathname)) return true
   if (/^\/api\/viewbook\/[^/]+\/setup$/.test(pathname)) return true
-  // v2 PR2: viewer-facing shared section collapse. Same anchoring discipline.
+  // DORMANT (2026-07-19): no longer called by the client — collapse is now
+  // purely local (localStorage); see docs/superpowers/specs/2026-07-19-
+  // viewbook-collapse-local-revision.md. Matcher kept so the (unused) route
+  // stays reachable/functional. v2 PR2: viewer-facing shared section
+  // collapse. Same anchoring discipline.
   if (/^\/api\/viewbook\/[^/]+\/collapse$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }

@@ -1,16 +1,22 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
-import { describe, it, expect, afterEach } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicField, PublicFieldCategory, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { PcSetupSection } from './PcSetupSection'
+import { stubAllSectionsExpanded } from './test-support/stub-expanded-storage'
 
-afterEach(cleanup)
+// This section is collapse-eligible (2026-07-19 revision, default collapsed)
+// — its body content is what these tests assert on, so render it expanded.
+beforeEach(stubAllSectionsExpanded)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const section: PublicSection = {
   sectionKey: 'pc-setup',
   state: 'active',
-  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,

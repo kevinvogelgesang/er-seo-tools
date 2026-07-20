@@ -53,7 +53,6 @@ function section(overrides: Partial<OperatorSectionData> = {}): OperatorSectionD
   return {
     sectionKey: 'data-source',
     state: 'active',
-    collapsedShared: false,
     doneAt: null,
     acknowledgedAt: null,
     introNote: null,
@@ -160,11 +159,12 @@ describe('SectionQuickControls', () => {
   })
 
   // PR1 (viewbook viewer-collapse): 'collapsed' is retired from the state
-  // enum (now the orthogonal collapsedShared boolean, lib/viewbook/collapse.ts
-  // PR2) — the operator Collapse/Expand controls that used to PATCH
-  // state:'collapsed' are gone; PR3 replaces them with the in-hero viewer
-  // control. No section (bookend or otherwise) exposes a Collapse/Expand
-  // button here any more.
+  // enum. Shared collapse (the orthogonal collapsedShared boolean,
+  // lib/viewbook/collapse.ts PR2) went DORMANT in the 2026-07-19 local-only
+  // revision — the operator Collapse/Expand controls that used to PATCH
+  // state:'collapsed' are gone; the viewer's in-hero control is now purely
+  // local (localStorage), never a PATCH. No section (bookend or otherwise)
+  // exposes a Collapse/Expand button here any more.
   it('never exposes a Collapse or Expand control, on any section', () => {
     for (const sectionKey of ['data-source', 'pc-setup', 'milestones', 'materials', 'welcome', 'strategy', 'pc-intro'] as const) {
       render(<SectionQuickControls viewbookId={8} section={section({ sectionKey })} pcCompletedAt={null} />)

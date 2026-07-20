@@ -10,7 +10,6 @@ afterEach(cleanup)
 const baseSection: PublicSection = {
   sectionKey: 'ws-intro',
   state: 'active',
-  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,

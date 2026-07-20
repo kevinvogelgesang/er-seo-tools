@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { WelcomeSection } from './WelcomeSection'
@@ -9,15 +9,22 @@ import { StrategySection } from './StrategySection'
 import { MaterialsSection } from './MaterialsSection'
 import { MilestonesSection } from './MilestonesSection'
 import { KickoffNextSection } from './KickoffNextSection'
+import { stubAllSectionsExpanded } from './test-support/stub-expanded-storage'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
-afterEach(cleanup)
+// These sections are collapse-eligible (2026-07-19 revision, default
+// collapsed) — their body content is what these tests assert on, so render
+// them expanded.
+beforeEach(stubAllSectionsExpanded)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const sec = (sectionKey: PublicSection['sectionKey'], over: Partial<PublicSection> = {}): PublicSection => ({
   sectionKey,
   state: 'active',
-  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,

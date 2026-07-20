@@ -12,7 +12,6 @@ import type { CollapseAffordanceKind } from './presentation-config'
 export interface PublicSection {
   sectionKey: SectionKey
   state: 'active' | 'done'
-  collapsedShared: boolean
   doneAt: string | null
   acknowledgedAt: string | null
   introNote: string | null

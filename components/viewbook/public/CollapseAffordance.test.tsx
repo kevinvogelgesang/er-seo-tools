@@ -1,58 +1,34 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
 import { CollapseAffordance } from './CollapseAffordance'
 
 afterEach(cleanup)
 
 describe('CollapseAffordance', () => {
-  it.each(['bar', 'pill', 'chevron'] as const)(
-    '%s renders a button with the accessible name + aria-controls',
-    (kind) => {
-      render(
-        <CollapseAffordance
-          kind={kind}
-          regionId="r1"
-          accessibleName="Expand (just for you)"
-          onExpand={() => {}}
-          disabled={false}
-        />,
-      )
-      const btn = screen.getByRole('button', { name: 'Expand (just for you)' })
-      expect(btn.getAttribute('aria-controls')).toBe('r1')
-      expect(btn.getAttribute('aria-expanded')).toBe('false')
-    },
-  )
-
-  it('bar and pill show a visible label; chevron is icon-only with aria-label', () => {
-    const { unmount: unmountBar } = render(
-      <CollapseAffordance kind="bar" regionId="r1" accessibleName="Expand for everyone" onExpand={() => {}} disabled={false} />,
-    )
-    expect(screen.getByText('Expand for everyone')).toBeDefined()
-    unmountBar()
-
-    const { unmount: unmountPill } = render(
-      <CollapseAffordance kind="pill" regionId="r1" accessibleName="Expand for everyone" onExpand={() => {}} disabled={false} />,
-    )
-    expect(screen.getByText('Expand for everyone')).toBeDefined()
-    unmountPill()
-
-    render(
-      <CollapseAffordance kind="chevron" regionId="r1" accessibleName="Expand for everyone" onExpand={() => {}} disabled={false} />,
-    )
-    // No visible text node for the label — only the aria-label carries it.
-    expect(screen.queryByText('Expand for everyone')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Expand for everyone' })).toBeDefined()
+  it('chevron (default) renders a decorative SVG icon with no visible "Expand" label', () => {
+    const { container } = render(<CollapseAffordance kind="chevron" />)
+    expect(screen.queryByText('Expand')).toBeNull()
+    expect(container.querySelector('svg')).not.toBeNull()
   })
 
-  it('disabled prevents onExpand', () => {
-    const onExpand = vi.fn()
-    render(
-      <CollapseAffordance kind="bar" regionId="r1" accessibleName="Expand" onExpand={onExpand} disabled />,
-    )
-    const btn = screen.getByRole('button', { name: 'Expand' }) as HTMLButtonElement
-    expect(btn.disabled).toBe(true)
-    fireEvent.click(btn)
-    expect(onExpand).not.toHaveBeenCalled()
+  it('pill renders a visible "Expand" label + SVG chevron', () => {
+    const { container } = render(<CollapseAffordance kind="pill" />)
+    expect(screen.getByText('Expand')).toBeDefined()
+    expect(container.querySelector('svg')).not.toBeNull()
+  })
+
+  it('both variants are decorative (aria-hidden) — the enclosing button owns the accessible name/state', () => {
+    const { container: chevronContainer } = render(<CollapseAffordance kind="chevron" />)
+    expect(chevronContainer.firstElementChild?.getAttribute('aria-hidden')).toBe('true')
+
+    const { container: pillContainer } = render(<CollapseAffordance kind="pill" />)
+    expect(pillContainer.firstElementChild?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('renders no button/link of its own (not a separate interactive element)', () => {
+    const { container } = render(<CollapseAffordance kind="chevron" />)
+    expect(container.querySelector('button')).toBeNull()
+    expect(container.querySelector('a')).toBeNull()
   })
 })

@@ -178,7 +178,7 @@ describe('updateViewbookPresentation', () => {
     const before = await syncVersion(id)
     await updateViewbookPresentation(id, { heroOverlayStrength: 5 })
     const row = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
-    expect(row.collapseAffordance).toBe('bar') // unchanged default
+    expect(row.collapseAffordance).toBe('chevron') // unchanged default
     expect(row.heroOverlayStrength).toBe(5)
     expect(row.syncVersion).toBe(before + 1)
   })

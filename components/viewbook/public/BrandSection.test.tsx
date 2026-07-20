@@ -10,7 +10,6 @@ afterEach(cleanup)
 const section: PublicSection = {
   sectionKey: 'brand',
   state: 'active',
-  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,

@@ -16,7 +16,7 @@ function section(
   state: OperatorSectionData['state'] = 'active',
   acknowledgedAt: string | null = null,
 ): OperatorSectionData {
-  return { sectionKey, state, collapsedShared: false, doneAt: null, acknowledgedAt, introNote: null, narrative: null }
+  return { sectionKey, state, doneAt: null, acknowledgedAt, introNote: null, narrative: null }
 }
 
 function operatorData(sections: OperatorSectionData[]): OperatorViewbookData {

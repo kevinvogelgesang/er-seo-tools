@@ -30,7 +30,7 @@ const baseOD: OperatorViewbookData = {
 }
 function od(partial: Partial<OperatorViewbookData>): OperatorViewbookData { return { ...baseOD, ...partial } }
 function sec(sectionKey: SectionKey): OperatorSectionData {
-  return { sectionKey, state: 'active', collapsedShared: false, doneAt: null, acknowledgedAt: null, introNote: null, narrative: null }
+  return { sectionKey, state: 'active', doneAt: null, acknowledgedAt: null, introNote: null, narrative: null }
 }
 
 // Canvas scroll-spy targets — order here is the LINEUP/DOM order (may differ

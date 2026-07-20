@@ -20,243 +20,84 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('useCollapseState', () => {
-  it('effective = collapsedShared when no override', () => {
-    const { result } = renderHook(() =>
-      useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: true }),
-    )
+describe('useCollapseState — local-only, default collapsed', () => {
+  it('defaults to collapsed on a fresh machine (no stored value)', () => {
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
     expect(result.current.collapsed).toBe(true)
   })
 
-  it('personal expanded override wins over shared collapse', () => {
+  it('a stored "expanded" value starts expanded', () => {
     stored.set(collapseKey(1, 'brand'), 'expanded')
-    const { result } = renderHook(() =>
-      useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: true }),
-    )
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
     expect(result.current.collapsed).toBe(false)
   })
 
-  it('clearPersonalOverride removes the key AND returns the prior value', () => {
-    stored.set(collapseKey(1, 'brand'), 'expanded')
-    const { result } = renderHook(() =>
-      useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: true }),
-    )
-    let prior: 'expanded' | null = null
-    act(() => {
-      prior = result.current.clearPersonalOverride()
-    })
-    expect(prior).toBe('expanded')
-    expect(stored.has(collapseKey(1, 'brand'))).toBe(false)
+  it('a stored "collapsed" value starts collapsed (explicit, same as absent)', () => {
+    stored.set(collapseKey(1, 'brand'), 'collapsed')
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
+    expect(result.current.collapsed).toBe(true)
   })
 
-  it('restorePersonalOverride re-persists the prior value', () => {
-    const { result } = renderHook(() =>
-      useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: false }),
-    )
-    act(() => {
-      result.current.restorePersonalOverride('expanded')
-    })
+  it('an unrecognized stored value is treated as absent (default collapsed)', () => {
+    stored.set(collapseKey(1, 'brand'), 'garbage')
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
+    expect(result.current.collapsed).toBe(true)
+  })
+
+  it('expand() flips state and persists "expanded" to localStorage', () => {
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
+    expect(result.current.collapsed).toBe(true)
+    act(() => result.current.expand())
+    expect(result.current.collapsed).toBe(false)
     expect(stored.get(collapseKey(1, 'brand'))).toBe('expanded')
+  })
 
-    act(() => {
-      result.current.restorePersonalOverride(null)
-    })
+  it('collapse() flips state and persists "collapsed" (overwriting a prior "expanded")', () => {
+    stored.set(collapseKey(1, 'brand'), 'expanded')
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
+    expect(result.current.collapsed).toBe(false)
+    act(() => result.current.collapse())
+    expect(result.current.collapsed).toBe(true)
+    expect(stored.get(collapseKey(1, 'brand'))).toBe('collapsed')
+  })
+
+  it('keys are scoped per (viewbookId, sectionKey) — toggling one section never touches another', () => {
+    const brand = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
+    const assessment = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'assessment' }))
+    act(() => brand.result.current.expand())
+    expect(brand.result.current.collapsed).toBe(false)
+    expect(assessment.result.current.collapsed).toBe(true)
+    expect(stored.has(collapseKey(1, 'assessment'))).toBe(false)
+  })
+
+  it('previewMode: expand()/collapse() update in-memory state but NEVER write localStorage', () => {
+    const { result } = renderHook(() =>
+      useCollapseState({ viewbookId: 0, sectionKey: 'brand', previewMode: true }),
+    )
+    act(() => result.current.expand())
+    expect(result.current.collapsed).toBe(false)
+    act(() => result.current.collapse())
+    expect(result.current.collapsed).toBe(true)
+    expect(stored.size).toBe(0)
+  })
+
+  it('previewMode always starts expanded, ignoring any real stored value under that key', () => {
+    stored.set(collapseKey(0, 'brand'), 'collapsed')
+    const { result } = renderHook(() =>
+      useCollapseState({ viewbookId: 0, sectionKey: 'brand', previewMode: true }),
+    )
+    expect(result.current.collapsed).toBe(false)
+  })
+
+  it('forceExpand() expands WITHOUT persisting (vb:navigate/#hash force-open)', () => {
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
+    expect(result.current.collapsed).toBe(true)
+    act(() => result.current.forceExpand())
+    expect(result.current.collapsed).toBe(false)
     expect(stored.has(collapseKey(1, 'brand'))).toBe(false)
   })
 
-  it('a changed collapsedShared prop flips an override-less viewer', () => {
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: false } },
-    )
-    expect(result.current.collapsed).toBe(false)
-    rerender({ collapsedShared: true })
-    expect(result.current.collapsed).toBe(true)
-  })
-
-  it('a changed collapsedShared prop does NOT flip an override-holder', () => {
-    stored.set(collapseKey(1, 'brand'), 'expanded')
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: true } },
-    )
-    expect(result.current.collapsed).toBe(false) // override wins over the initial shared:true
-    rerender({ collapsedShared: false })
-    // Still expanded — the override still wins even though shared flipped.
-    expect(result.current.collapsed).toBe(false)
-  })
-
-  it('prop change while pending is deferred, then APPLIED on endPending (not dropped)', () => {
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: false } },
-    )
-    expect(result.current.collapsed).toBe(false)
-
-    act(() => {
-      expect(result.current.beginPending()).toBe(true)
-    })
-    expect(result.current.pending).toBe(true)
-
-    // The shared prop changes mid-flight — must NOT flip the view yet.
-    rerender({ collapsedShared: true })
-    expect(result.current.collapsed).toBe(false)
-
-    act(() => {
-      result.current.endPending()
-    })
-    // Now that pending cleared, the latest prop applies.
-    expect(result.current.pending).toBe(false)
-    expect(result.current.collapsed).toBe(true)
-  })
-
-  it('forceExpandedLocal expands without writing localStorage (survives rerender, not reload)', () => {
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: true } },
-    )
-    expect(result.current.collapsed).toBe(true)
-
-    act(() => {
-      result.current.forceExpandedLocal()
-    })
-    expect(result.current.collapsed).toBe(false)
-    expect(stored.has(collapseKey(1, 'brand'))).toBe(false) // never persisted
-
-    // Survives a rerender with the same shared prop (in-memory override held).
-    rerender({ collapsedShared: true })
-    expect(result.current.collapsed).toBe(false)
-  })
-
-  it('beginPending returns false if already pending', () => {
-    const { result } = renderHook(() =>
-      useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: false }),
-    )
-    act(() => {
-      expect(result.current.beginPending()).toBe(true)
-    })
-    act(() => {
-      expect(result.current.beginPending()).toBe(false)
-    })
-  })
-
-  // FIX-9: markAwaitingShared latches a successful shared write so the
-  // reconcile effect holds it instead of reverting to the still-stale
-  // collapsedShared prop the instant endPending() reruns the effect.
-
-  it('client collapse: markAwaitingShared(true) holds collapsed after endPending even though the prop is still stale', () => {
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: false } },
-    )
-    expect(result.current.collapsed).toBe(false)
-
-    act(() => {
-      expect(result.current.beginPending()).toBe(true)
-    })
-    act(() => {
-      result.current.setCollapsedOptimistic(true)
-      result.current.clearPersonalOverride()
-      result.current.markAwaitingShared(true) // the write succeeded
-    })
-    act(() => {
-      result.current.endPending() // reruns the reconcile effect — prop is STILL false
-    })
-
-    // This is the regression: pre-fix, this asserted false (reverted).
-    expect(result.current.collapsed).toBe(true)
-
-    // Re-rendering with the SAME stale prop must not revert it either.
-    rerender({ collapsedShared: false })
-    expect(result.current.collapsed).toBe(true)
-  })
-
-  it('operator expand: markAwaitingShared(false) holds expanded after endPending even though the prop is still stale', () => {
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: true } },
-    )
-    expect(result.current.collapsed).toBe(true)
-
-    act(() => {
-      expect(result.current.beginPending()).toBe(true)
-    })
-    act(() => {
-      result.current.setCollapsedOptimistic(false)
-      result.current.markAwaitingShared(false) // the write succeeded
-    })
-    act(() => {
-      result.current.endPending() // reruns the reconcile effect — prop is STILL true
-    })
-
-    // This is the regression: pre-fix, this asserted true (reverted).
-    expect(result.current.collapsed).toBe(false)
-
-    rerender({ collapsedShared: true })
-    expect(result.current.collapsed).toBe(false)
-  })
-
-  it('latch clears once collapsedShared catches up to the awaited value, then normal reconciliation resumes', () => {
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: false } },
-    )
-
-    act(() => {
-      expect(result.current.beginPending()).toBe(true)
-    })
-    act(() => {
-      result.current.setCollapsedOptimistic(true)
-      result.current.clearPersonalOverride()
-      result.current.markAwaitingShared(true)
-    })
-    act(() => {
-      result.current.endPending()
-    })
-    expect(result.current.collapsed).toBe(true)
-
-    // The poll catches up: prop now matches the written value.
-    rerender({ collapsedShared: true })
-    expect(result.current.collapsed).toBe(true)
-
-    // A genuinely NEW shared change (someone else re-expanded it) now
-    // applies normally — the latch is clear, this is not a revert.
-    rerender({ collapsedShared: false })
-    expect(result.current.collapsed).toBe(false)
-  })
-
-  it('a personal expanded override always wins and clears the latch outright', () => {
-    const { result, rerender } = renderHook(
-      (props: { collapsedShared: boolean }) =>
-        useCollapseState({ viewbookId: 1, sectionKey: 'brand', collapsedShared: props.collapsedShared }),
-      { initialProps: { collapsedShared: false } },
-    )
-
-    act(() => {
-      expect(result.current.beginPending()).toBe(true)
-    })
-    act(() => {
-      result.current.setCollapsedOptimistic(true)
-      result.current.clearPersonalOverride()
-      result.current.markAwaitingShared(true)
-    })
-    // A personal expand lands (e.g. vb:navigate) before endPending.
-    act(() => {
-      result.current.forceExpandedLocal()
-    })
-    act(() => {
-      result.current.endPending()
-    })
-    expect(result.current.collapsed).toBe(false) // override wins over the latch
-
-    rerender({ collapsedShared: false })
-    expect(result.current.collapsed).toBe(false)
+  it('collapseKey builds the documented localStorage key shape', () => {
+    expect(collapseKey(42, 'materials')).toBe('vb:collapse:42:materials')
   })
 })
