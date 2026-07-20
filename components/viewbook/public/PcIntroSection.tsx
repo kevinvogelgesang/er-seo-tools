@@ -41,6 +41,7 @@ export function PcIntroSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      autoRevealMs={data.stage === 'post-contract' ? data.firstLoadDelayMs : undefined}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>
         {data.global.pcIntro || FALLBACK_INTRO}

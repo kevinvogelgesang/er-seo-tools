@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CollapsibleSection } from './CollapsibleSection'
 import { collapseKey } from './useCollapseState'
+import { welcomeRevealedKey } from './useWelcomeAutoReveal'
 
 let stored = new Map<string, string>()
 
@@ -319,5 +320,82 @@ describe('CollapsibleSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
     expect(screen.getByTestId('hero-expanded')).toBeDefined()
     expect(stored.size).toBe(0)
+  })
+
+  // Task 13 (docs/superpowers/sdd/task-13-brief.md): wires
+  // `useWelcomeAutoReveal` through this component. `autoRevealMs` gates BOTH
+  // whether the hook is armed (`enabled: autoRevealMs != null`) AND whether
+  // this component's own consume() call sites (button click, vb:navigate/
+  // hash force-expand) touch the shared `vb:welcome-revealed:<id>` flag at
+  // all — critical because that flag is VIEWBOOK-scoped, not section-scoped,
+  // and every section renders this same component (see file banner /
+  // Codex bug-fix note in the brief).
+  describe('Task 13: welcome auto-reveal wiring', () => {
+    it('autoRevealMs=0 with no stored flag: auto-expands after a frame and writes the welcome flag', () => {
+      let rafCallback: FrameRequestCallback | null = null
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        rafCallback = cb
+        return 1
+      })
+      const { container } = render(<Harness autoRevealMs={0} />)
+      const root = container.querySelector('.vb-collapsible')
+      expect(root?.getAttribute('data-vb-state')).toBe('collapsed')
+      expect(stored.has(welcomeRevealedKey(1))).toBe(false)
+
+      act(() => {
+        rafCallback?.(0)
+      })
+
+      expect(root?.getAttribute('data-vb-state')).toBe('expanded')
+      expect(stored.get(welcomeRevealedKey(1))).toBe('1')
+    })
+
+    it('autoRevealMs=undefined: never auto-expands, and clicking the button does NOT write the welcome flag', () => {
+      const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+      const { container } = render(<Harness autoRevealMs={undefined} />)
+      // The hook is disabled entirely (enabled: autoRevealMs != null → false)
+      // — it never arms a rAF/timer in the first place.
+      expect(rafSpy).not.toHaveBeenCalled()
+
+      const root = container.querySelector('.vb-collapsible')
+      expect(root?.getAttribute('data-vb-state')).toBe('collapsed')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+
+      // Ordinary click still expands (unrelated to auto-reveal) — but this
+      // is NOT the welcome section, so its click must never write the
+      // viewbook-scoped welcome flag.
+      expect(root?.getAttribute('data-vb-state')).toBe('expanded')
+      expect(stored.has(welcomeRevealedKey(1))).toBe(false)
+    })
+
+    it('autoRevealMs=undefined: an initial #hash force-expand does NOT write the welcome flag either', () => {
+      window.location.hash = '#brand'
+      render(<Harness autoRevealMs={undefined} sectionKey="brand" />)
+      expect(document.getElementById('vb-region-brand')?.getAttribute('aria-hidden')).toBeNull()
+      expect(stored.has(welcomeRevealedKey(1))).toBe(false)
+    })
+
+    it('autoRevealMs=0 (the welcome section): clicking the button before the frame fires calls consume() — writes the flag and cancels the pending auto-reveal', () => {
+      let rafCallback: FrameRequestCallback | null = null
+      const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame')
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        rafCallback = cb
+        return 5
+      })
+      render(<Harness autoRevealMs={0} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+
+      expect(stored.get(welcomeRevealedKey(1))).toBe('1')
+      expect(cancelSpy).toHaveBeenCalledWith(5)
+
+      // The (leaked, mocked) rAF callback firing afterward must be inert —
+      // fire() re-reads the flag and bails (same guarantee as
+      // useWelcomeAutoReveal's own test suite).
+      act(() => {
+        rafCallback?.(0)
+      })
+    })
   })
 })

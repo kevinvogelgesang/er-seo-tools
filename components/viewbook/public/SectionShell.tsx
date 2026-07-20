@@ -115,6 +115,7 @@ export function SectionShell({
   overlayStrength,
   viewbookId,
   previewMode = false,
+  autoRevealMs,
 }: {
   section: PublicSection
   title: string
@@ -128,6 +129,11 @@ export function SectionShell({
   viewbookId: number
   token: string // vestigial — no longer needed by the (now purely local) collapse control; kept so existing callers need no changes
   previewMode?: boolean
+  // Task 13: forwarded to CollapsibleSection untouched. Only PcIntroSection
+  // (the welcome/pc-intro section) ever passes a defined value — see
+  // CollapsibleSection.tsx's prop banner for why every other caller must
+  // leave this `undefined`.
+  autoRevealMs?: number
 }) {
   const mode = sectionDisplayMode(section, stage)
   const alwaysOpen = mode === 'always-open'
@@ -412,6 +418,7 @@ export function SectionShell({
           }
           regionId={regionId}
           previewMode={previewMode}
+          autoRevealMs={autoRevealMs}
         />
       ) : (
         // Dormant path: as of 2026-07-19 welcome-auto-reveal no section key

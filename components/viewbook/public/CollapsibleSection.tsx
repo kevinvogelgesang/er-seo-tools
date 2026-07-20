@@ -83,6 +83,7 @@
 // shared plane isn't supported by the current hero-prop shape.
 import { useEffect, type ReactNode } from 'react'
 import { useCollapseState } from './useCollapseState'
+import { useWelcomeAutoReveal } from './useWelcomeAutoReveal'
 import { scrollToSectionAfterReveal } from './viewbook-navigate'
 
 export function CollapsibleSection({
@@ -95,6 +96,7 @@ export function CollapsibleSection({
   body,
   regionId,
   previewMode = false,
+  autoRevealMs,
 }: {
   viewbookId: number
   sectionKey: string
@@ -105,10 +107,31 @@ export function CollapsibleSection({
   body: ReactNode // SectionReveal body — ALWAYS rendered, hidden when collapsed
   regionId: string
   previewMode?: boolean // ThemePreview: render visuals but NEVER touch localStorage
+  // Task 13 (docs/superpowers/sdd/task-13-brief.md): set ONLY by the welcome
+  // (pc-intro) section — every other caller omits this, leaving it
+  // `undefined`. `useWelcomeAutoReveal`'s `enabled` is gated on `autoRevealMs
+  // != null`, and this component's own `consume()` call sites (button click,
+  // vb:navigate/hash force-expand) are gated the SAME way. This is
+  // deliberate and load-bearing: `welcomeRevealedKey` is a single
+  // VIEWBOOK-scoped localStorage flag (not per-section), and EVERY section
+  // renders this component — an ungated consume() call would let clicking or
+  // deep-linking to ANY section permanently suppress the real welcome
+  // auto-reveal for this device.
+  autoRevealMs?: number
 }) {
-  const { collapsed, expand, collapse, forceExpand } = useCollapseState({
+  const { collapsed, expand, collapse, forceExpand, ready } = useCollapseState({
     viewbookId,
     sectionKey,
+    previewMode,
+  })
+
+  const { consume } = useWelcomeAutoReveal({
+    viewbookId,
+    enabled: autoRevealMs != null,
+    ready,
+    collapsed,
+    expand,
+    delayMs: autoRevealMs ?? 0,
     previewMode,
   })
 
@@ -118,7 +141,14 @@ export function CollapsibleSection({
     // dispatcher (navigateToAnchor), not here.
     function onNav(e: Event) {
       const detail = (e as CustomEvent).detail as { sectionKey?: string } | null
-      if (detail?.sectionKey === sectionKey) forceExpand()
+      if (detail?.sectionKey === sectionKey) {
+        // Task 13: cancel the welcome's own pending auto-reveal BEFORE
+        // force-expanding it — gated to the welcome section only (see the
+        // `autoRevealMs` prop banner above); every other section's nav
+        // force-expand must never touch the shared welcome flag.
+        if (autoRevealMs != null) consume()
+        forceExpand()
+      }
     }
     window.addEventListener('vb:navigate', onNav)
     // Initial #hash-on-mount → force-open AND scroll once the reveal (if any)
@@ -133,11 +163,12 @@ export function CollapsibleSection({
     // DOM state — collapsed here means a reveal transition is about to
     // start, and the helper waits for it before scrolling.
     if (window.location.hash === `#${sectionKey}`) {
+      if (autoRevealMs != null) consume()
       forceExpand()
       scrollToSectionAfterReveal(sectionKey)
     }
     return () => window.removeEventListener('vb:navigate', onNav)
-  }, [sectionKey, forceExpand])
+  }, [sectionKey, forceExpand, autoRevealMs, consume])
 
   return (
     <div
@@ -192,7 +223,15 @@ export function CollapsibleSection({
           type="button"
           aria-expanded={!collapsed}
           aria-controls={regionId}
-          onClick={collapsed ? expand : collapse}
+          onClick={() => {
+            // Task 13 (Codex fix 4): a deliberate click always consumes the
+            // welcome's own one-shot auto-reveal FIRST — gated to the
+            // welcome section only (see the `autoRevealMs` prop banner
+            // above), so every other section's click never touches the
+            // shared, viewbook-scoped welcome flag.
+            if (autoRevealMs != null) consume()
+            ;(collapsed ? expand : collapse)()
+          }}
           className="group block w-full appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2"
         >
           {/* Task 8: BOTH faces render, stacked — the inactive one is
