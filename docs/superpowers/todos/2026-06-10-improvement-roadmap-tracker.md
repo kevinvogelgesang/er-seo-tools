@@ -958,6 +958,36 @@ decisions in the umbrella spec are settled — don't re-litigate.
 
 ## Status log
 
+- 2026-07-20 (**SF-retirement Phase 2 — under-expansion fix: L2 rendered-DOM adaptive discovery SHIPPED + DEPLOYED; worst-case memory-verify Kevin-gated**) —
+  Built L2, the JS-blind fix (the long pole). New `lib/ada-audit/seo/rendered-crawl.ts` (`fetchPageLinksViaBrowser` +
+  bounded `buildProbeTargets`): the raw-HTTP crawl runs first (unchanged) → its output = `knownUrls`; a
+  novelty-based probe renders the homepage + ≤2 shallow hubs via `acquirePage`, and if ≥`HYBRID_RENDER_PROBE_MIN_NOVEL`
+  (5) admissible URLs are novel vs the raw crawl, a bounded rendered BFS (`hybridCrawl` with `knownKeys` dedup-not-fetched,
+  candidates through the normal robots/trap filters, novel-hub priority) expands from those seeds; raw+rendered merge by
+  coverage-normalized key with fixed precedence (`mergeCrawlResults`). Memory: `BROWSER_POOL_SIZE`≤4 unchanged,
+  `HYBRID_RENDER_CONCURRENCY`=2, discovery runs before page fan-out (worst case render(2)+standalone(2)=full pool);
+  ONE absolute discovery deadline across seed-resolution+raw+probe+rendered; **cancellable `acquirePage`** (no slot leak
+  past the deadline); shared SSRF guard (`browser-request-guard.ts`) aborts off-domain main-frame redirect before render +
+  blocks image/media/font/stylesheet + caps anchors. v2 `discoverySourcesJson` on rendered provenance (readers v2-tolerant);
+  `status:'running'` added to both discovery persist guards (spec F5). **Codex P0 plan review** (accept-with-fixes, 6 applied)
+  **+ P1 diff review** (initially "block — must fix": 4 unbounded-await-holds-a-Chrome-slot findings — bounded `page.evaluate`,
+  post-acquire nav recompute + raced body read, detached-handler try/catch, global deadline before robots + call-site
+  deadline-race for the frozen raw fetches — all fixed → **cleared to merge**). Gates: tsc clean · **6784 tests** (the one
+  failing run was a pre-existing viewbook-editor parallel-run flake, 12/12 in isolation ×3, zero L2-file overlap) · build ok.
+  8 build commits + 3 fix commits. **PR #238 merged + DEPLOYED, then a MERGE-SLIP caught at post-merge verify:** #238 merged the
+  pre-fix remote tip `1f68339` (the 3 Codex-P1 fix commits were committed locally but NOT pushed before `gh pr merge` — `gh pr
+  merge` merges the REMOTE branch state, not the local working tree). The gap surfaced when `git checkout origin/main` reverted
+  the fixed files → verified origin/main lacked `raceDeadline`/`eval-timeout`. Remediated: pushed the fixes, **PR #239 merged
+  (origin/main 6ed4672) + RE-DEPLOYED** — prod source confirmed to carry all 4 fixes (`/api/health` 200, PM2 online 0 restarts,
+  491 MB, box 2935 MB available). LESSON: always `git push` the branch immediately before `gh pr merge`, and post-merge verify
+  the merged tip actually contains the intended commits. **REMAINING before L2 acceptance:** the Codex-F1-mandated worst-case
+  **process-tree RSS drill** (render-discovery WHILE 2 standalone ADA audits run; peak tree RSS <2200 MB / ≥1400 MB free /
+  0 restarts) — **Kevin-gated**: needs a UI-auth cookie (no autonomous cookie) or sign-off to deliberately stress the
+  memory-scarred prod box to its 4-Chrome ceiling; runbook in the handoff. **L2 residual re-measure** (cambria/glow/nuvani/
+  brownson/federico → policy-filtered residual <5%) lands from the Mon 2026-07-27 sweep (record in the parity log). Spec:
+  `../specs/2026-07-20-hybrid-discovery-under-expansion-design.md` §L2 · L2 plan: `../plans/2026-07-20-hybrid-discovery-L2-rendered-crawl.md`.
+  **STILL OPEN:** L3 (bound adaptivity for large raw-HTML sites: healthcarecareer/soma/beal; own plan).
+
 - 2026-07-20 (**SF-retirement Phase 2 — hybrid-crawler under-expansion fix: L1 SHIPPED + DEPLOYED + PROD-VERIFIED; L2/L3 planned**) —
   Picked up the single buildable code item the retirement bar gates on. **Prod diagnosis (29-domain probe)
   overturned the handoff's "frontier/depth tuning" framing:** the blocked clients split into (1) **JS-blind
