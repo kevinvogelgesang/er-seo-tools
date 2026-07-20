@@ -332,6 +332,24 @@ describe('CollapsibleSection', () => {
     expect(screen.getByRole('button', { name: 'Brand & Identity' })).toBeDefined()
   })
 
+  it('previewMode: an expand click NEVER scrolls (the admin page must not yank to the preview canvas)', () => {
+    const wrapper = document.createElement('section')
+    wrapper.id = 'brand'
+    document.body.appendChild(wrapper)
+    wrapper.scrollIntoView = vi.fn()
+
+    render(<Harness previewMode />, { container: wrapper })
+    const btn = screen.getByRole('button', { name: 'Brand & Identity' })
+
+    // previewMode starts expanded — collapse, then expand again.
+    fireEvent.click(btn)
+    fireEvent.click(btn)
+    expect(screen.getByTestId('hero-expanded')).toBeDefined()
+    expect(wrapper.scrollIntoView).not.toHaveBeenCalled()
+
+    wrapper.remove()
+  })
+
   it('previewMode: clicking toggles visuals but NEVER writes localStorage', () => {
     render(<Harness previewMode />)
     // previewMode starts expanded (ThemePreview always shows the open hero).

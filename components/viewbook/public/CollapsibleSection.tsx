@@ -172,13 +172,15 @@ export function CollapsibleSection({
     // the helper's own "already revealed?" check below reads the PRE-update
     // DOM state — collapsed here means a reveal transition is about to
     // start, and the helper waits for it before scrolling.
-    if (window.location.hash === `#${sectionKey}`) {
+    // Never in previewMode (2026-07-20): an admin-page hash must not
+    // force-expand/scroll the ThemePreview's sample section.
+    if (!previewMode && window.location.hash === `#${sectionKey}`) {
       if (autoRevealMs != null) consume()
       forceExpand()
       scrollToSectionAfterReveal(sectionKey)
     }
     return () => window.removeEventListener('vb:navigate', onNav)
-  }, [sectionKey, forceExpand, autoRevealMs, consume])
+  }, [sectionKey, forceExpand, autoRevealMs, consume, previewMode])
 
   return (
     <div
@@ -304,7 +306,10 @@ export function CollapsibleSection({
               // auto-reveal and the vb:navigate force-expand must never
               // yank the user's scroll position from here (nav has its own
               // after-reveal scroll in viewbook-navigate.ts).
-              scrollSectionToTop(sectionKey)
+              // NEVER in previewMode (2026-07-20): the admin ThemePreview's
+              // sample section carries the same `id={sectionKey}` anchor, so
+              // this scroll would yank the ADMIN page to the preview canvas.
+              if (!previewMode) scrollSectionToTop(sectionKey)
             } else {
               collapse()
             }
