@@ -47,12 +47,14 @@ describe('readPresentationConfig', () => {
     expect(
       readPresentationConfig({
         collapseAffordance: 'pill',
+        collapseMorph: 'bloom',
         heroOverlayStrength: 20,
         revealDurationScale: 1.2,
         firstLoadDelayMs: 1500,
       }),
     ).toEqual({
       collapseAffordance: 'pill',
+      collapseMorph: 'bloom',
       heroOverlayStrength: 20,
       revealDurationScale: 1.2,
       firstLoadDelayMs: 1500,
@@ -70,6 +72,24 @@ describe('readPresentationConfig', () => {
 
   it('never throws', () => {
     expect(() => readPresentationConfig({ collapseAffordance: 123 as unknown as string, heroOverlayStrength: 'x' as unknown as number })).not.toThrow()
+  })
+})
+
+describe('collapseMorph', () => {
+  it('write: rejects an unknown morph (400)', () => {
+    expect(() => parsePresentationPatch({ collapseMorph: 'wobble' })).toThrow()
+    expect(() => parsePresentationPatch({ collapseMorph: 7 })).toThrow()
+  })
+
+  it('write: accepts every member verbatim', () => {
+    for (const m of ['spread', 'bloom', 'clip', 'pop']) {
+      expect(parsePresentationPatch({ collapseMorph: m })).toEqual({ collapseMorph: m })
+    }
+  })
+
+  it('read: degrades a corrupt/absent stored morph to the default (no data migration)', () => {
+    expect(readPresentationConfig({ collapseAffordance: 'chevron', collapseMorph: 'garbage', heroOverlayStrength: 55 }).collapseMorph).toBe('spread')
+    expect(readPresentationConfig({ collapseAffordance: 'chevron', heroOverlayStrength: 55 }).collapseMorph).toBe('spread')
   })
 })
 

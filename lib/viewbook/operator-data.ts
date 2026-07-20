@@ -5,7 +5,7 @@ import { canonicalMailbox } from './global-content-keys'
 import type { PublicDocRow } from './public-types'
 import type { SectionKey, ViewbookTheme } from './theme'
 import { parseStoredTheme } from './theme'
-import { readPresentationConfig, type CollapseAffordanceKind } from './presentation-config'
+import { readPresentationConfig, type CollapseAffordanceKind, type CollapseMorphKind } from './presentation-config'
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null
 
@@ -67,6 +67,7 @@ export interface OperatorViewbookData {
   clientNotifyEmails: string[]
   teamMembers: OperatorTeamMemberData[]
   collapseAffordance: CollapseAffordanceKind
+  collapseMorph: CollapseMorphKind
   heroOverlayStrength: number
   revealDurationScale: number
   firstLoadDelayMs: number
@@ -104,6 +105,7 @@ export async function loadOperatorViewbookData(viewbookId: number): Promise<Oper
         clientNotifyJson: true,
         pcCompletedAt: true,
         collapseAffordance: true,
+        collapseMorph: true,
         heroOverlayStrength: true,
         revealDurationScale: true,
         firstLoadDelayMs: true,

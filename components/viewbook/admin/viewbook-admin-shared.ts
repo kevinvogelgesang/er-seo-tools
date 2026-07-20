@@ -57,6 +57,7 @@ export interface ViewbookDetail {
   syncVersion: number // PR2 live sync: poll /sync and refetch when it advances
   theme: ViewbookTheme
   collapseAffordance: string // 'pill' | 'chevron' (presentation config, PR4; 'bar' dropped 2026-07-19)
+  collapseMorph: string // 'spread' | 'bloom' | 'clip' | 'pop' — collapse↔hero morph treatment
   heroOverlayStrength: number // 0..100
   revealDurationScale: number // 0.4..1.6, per-viewbook reveal-animation pacing multiplier
   firstLoadDelayMs: number // 0..6000, delay before the welcome auto-reveal fires on first load

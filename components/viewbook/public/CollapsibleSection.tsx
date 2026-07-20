@@ -224,14 +224,50 @@ export function CollapsibleSection({
         .vb-collapsible .vb-hero-face--expanded{opacity:0}
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--expanded{opacity:1}
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--collapsed{opacity:0}
-        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-body,.vb-collapsible .vb-body-lift,.vb-collapsible .vb-hero-stage,.vb-collapsible .vb-hero-face{transition:none}}
+
+        /* ---- morph variants (presentation config collapseMorph) ----
+           Keyed off data-vb-morph on ViewbookShell's theme root (one
+           ancestor attribute, no per-section prop). The rules above ARE the
+           'spread' default — an absent/unknown attribute changes nothing.
+
+           bloom: height leads, width/radius bloom a beat later; collapsing
+           reverses the beats (width tucks first, height settles). */
+        [data-vb-morph="bloom"] .vb-collapsible .vb-hero-stage{transition:height calc(620ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),margin calc(500ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1) calc(150ms*var(--vb-reveal-scale,1)),border-radius calc(500ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1) calc(150ms*var(--vb-reveal-scale,1)),box-shadow calc(400ms*var(--vb-reveal-scale,1)) ease calc(150ms*var(--vb-reveal-scale,1)),transform calc(150ms*var(--vb-reveal-scale,1)) ease}
+        [data-vb-morph="bloom"] .vb-collapsible[data-vb-state="collapsed"] .vb-hero-stage{transition:margin calc(440ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),border-radius calc(440ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),box-shadow calc(300ms*var(--vb-reveal-scale,1)) ease,height calc(540ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1) calc(90ms*var(--vb-reveal-scale,1)),transform calc(150ms*var(--vb-reveal-scale,1)) ease}
+        [data-vb-morph="bloom"] .vb-collapsible .vb-hero-face{transition:opacity calc(420ms*var(--vb-reveal-scale,1)) ease calc(120ms*var(--vb-reveal-scale,1))}
+
+        /* pop: spread geometry on a snappier clock — height overshoots and
+           settles, the image lands with a stronger zoom punch. */
+        [data-vb-morph="pop"] .vb-collapsible .vb-hero-stage{transition:height calc(480ms*var(--vb-reveal-scale,1)) cubic-bezier(.3,1.45,.45,1),margin calc(420ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),border-radius calc(420ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),box-shadow calc(200ms*var(--vb-reveal-scale,1)) ease,transform calc(150ms*var(--vb-reveal-scale,1)) ease}
+        [data-vb-morph="pop"] .vb-collapsible .vb-hero-face{transition:opacity calc(300ms*var(--vb-reveal-scale,1)) ease}
+        [data-vb-morph="pop"] .vb-collapsible .vb-hero-img{transform:scale(1.14);transition:transform calc(900ms*var(--vb-reveal-scale,1)) cubic-bezier(.2,1.3,.4,1)}
+        [data-vb-morph="pop"] .vb-collapsible[data-vb-state="expanded"] .vb-hero-img{transform:scale(1)}
+
+        /* clip: the hero is laid out full-bleed the whole time; a rounded
+           window (the card) opens outward to reveal it — nothing stretches.
+           Stage margins/radius/shadow are OFF (the clip owns the card look;
+           a shadow would be clipped away, an accepted trade-off). The
+           collapsed face tracks the window via an animating inset so its
+           accent bar/wash hug the visible card edges. Collapsed stage is
+           82px (74px card + the 4px insets) for flow-height parity. */
+        [data-vb-morph="clip"] .vb-collapsible .vb-hero-stage{margin:0;border-radius:0;box-shadow:none;height:82px;clip-path:inset(4px max(1.5rem,calc((100% - 61rem)/2)) round 12px);transition:height calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),clip-path calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),transform calc(150ms*var(--vb-reveal-scale,1)) ease}
+        [data-vb-morph="clip"] .vb-collapsible[data-vb-state="collapsed"] .group:hover .vb-hero-stage{box-shadow:none}
+        [data-vb-morph="clip"] .vb-collapsible[data-vb-state="expanded"] .vb-hero-stage{height:clamp(240px,38svh,560px);clip-path:inset(0px 0rem round 0px)}
+        [data-vb-morph="clip"] .vb-collapsible[data-vb-hero="none"][data-vb-state="expanded"] .vb-hero-stage{height:clamp(180px,30svh,420px)}
+        [data-vb-morph="clip"] .vb-collapsible .vb-hero-face--collapsed{inset:4px max(1.5rem,calc((100% - 61rem)/2));width:auto;height:auto;transition:inset calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),opacity calc(320ms*var(--vb-reveal-scale,1)) ease}
+        [data-vb-morph="clip"] .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--collapsed{inset:0px 0rem}
+
+        /* Reduced-motion: !important is REQUIRED here — the [data-vb-morph]
+           variant rules above out-specify these plain selectors, and a
+           media query adds no specificity of its own. */
+        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-body,.vb-collapsible .vb-body-lift,.vb-collapsible .vb-hero-stage,.vb-collapsible .vb-hero-face{transition:none!important}}
         .vb-collapsible .vb-hero-img{transform:scale(1.06);transform-origin:60% 40%;transition:transform calc(1100ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-img{transform:scale(1)}
         .vb-collapsible .vb-hero-eyebrow{opacity:0;transform:translateY(6px);transition:opacity calc(600ms*var(--vb-reveal-scale,1)) ease,transform calc(600ms*var(--vb-reveal-scale,1)) ease}
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-eyebrow{opacity:1;transform:none}
         .vb-collapsible .vb-hero-rule{transform:scaleX(0);transform-origin:left center;transition:transform calc(700ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-rule{transform:scaleX(1)}
-        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-hero-img,.vb-collapsible .vb-hero-eyebrow,.vb-collapsible .vb-hero-rule{transition:none;transform:none;opacity:1}}
+        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-hero-img,.vb-collapsible .vb-hero-eyebrow,.vb-collapsible .vb-hero-rule{transition:none!important;transform:none!important;opacity:1!important}}
       `}</style>
       {/* APG Accordion: the heading WRAPS the button (not the reverse) — see
           the file banner. `id={sectionKey}` scroll anchor stays on the outer

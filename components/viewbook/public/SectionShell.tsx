@@ -237,7 +237,15 @@ export function SectionShell({
           }}
         />
         <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: 'var(--vb-secondary)' }} />
-        <span className="relative z-[3] flex w-full min-w-0 items-center gap-2.5 px-5">
+        {/* Text-pinning fix (2026-07-19): the row content sits in the SAME
+            centered `max-w-5xl px-6` column as the expanded hero's cluster.
+            Without the column cap, this line filled the stage edge-to-edge —
+            so as the stage spread to full-bleed, the fading-out title slid
+            all the way toward the viewport edge ("shoots off to the side",
+            worst at slow reveal paces). Capped + centered, the title holds
+            its x-position on BOTH faces through the whole morph; collapsed,
+            the column ≥ card width so nothing visibly changes. */}
+        <span className="relative z-[3] mx-auto flex w-full min-w-0 max-w-5xl items-center gap-2.5 px-6">
           {/* Plain <span> — this row only renders inside CollapsibleSection's
               <button>, which is itself wrapped in the real <h2> (see
               CollapsibleSection.tsx). A <button> may not contain a heading. */}

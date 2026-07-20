@@ -31,7 +31,7 @@ export function KickoffNextSection({
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={
-        <SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={sectionStatusLabel(section)} />
+        <SummaryStat headline={sectionStatusLabel(section)} />
       }
       affordance={data.collapseAffordance}
       overlayStrength={data.heroOverlayStrength}

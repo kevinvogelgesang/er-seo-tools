@@ -38,7 +38,7 @@ export function WsIntroSection({
       stage={data.stage}
       title={SECTION_TITLES['ws-intro']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={<SummaryStat eyebrow={SECTION_TITLES['ws-intro']} headline={sectionStatusLabel(section)} />}
+      summary={<SummaryStat headline={sectionStatusLabel(section)} />}
       affordance={data.collapseAffordance}
       overlayStrength={data.heroOverlayStrength}
       isOperator={isOperator}
