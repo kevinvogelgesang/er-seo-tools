@@ -84,6 +84,7 @@ export interface ViewbookDetail {
         createdAt: string
         resolvedAt: string | null
         resolvedBy: string | null
+        images: { filename: string }[]
       }[]
     }[]
   }[]

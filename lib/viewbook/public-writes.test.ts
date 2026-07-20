@@ -45,6 +45,49 @@ describe('insertClientFeedback syncVersion bump', () => {
     expect(await syncVersion(ctx.viewbook.id)).toBe(afterFirst)
   })
 
+  it('attaches screenshot rows atomically and replays as a no-op with the same images', async () => {
+    const ctx = await mkViewbook()
+    const input = {
+      reviewLinkId: ctx.reviewLink.id,
+      body: 'See the attached screenshots',
+      authorName: null,
+      clientMutationId: mutationId(),
+      images: ['11111111-1111-4111-8111-111111111111.webp', '22222222-2222-4222-8222-222222222222.webp'],
+    }
+    const first = await insertClientFeedback(ctx.viewbook, ctx.token, input)
+    expect(first.replayed).toBe(false)
+    expect(first.images).toEqual(input.images)
+    const rows = await prisma.viewbookFeedbackImage.findMany({
+      where: { feedbackId: first.feedback.id },
+      orderBy: { sortOrder: 'asc' },
+    })
+    expect(rows.map((r) => r.filename)).toEqual(input.images)
+
+    // Replay: the (feedbackId, sortOrder) fence must not duplicate or reorder.
+    const replay = await insertClientFeedback(ctx.viewbook, ctx.token, input)
+    expect(replay.replayed).toBe(true)
+    expect(replay.images).toEqual(input.images)
+    expect(await prisma.viewbookFeedbackImage.count({ where: { feedbackId: first.feedback.id } })).toBe(2)
+  })
+
+  it('attaches no image rows when the feedback insert is fenced out', async () => {
+    const ctx = await mkViewbook()
+    await prisma.viewbookSection.updateMany({
+      where: { viewbookId: ctx.viewbook.id, sectionKey: 'milestones' },
+      data: { state: 'hidden' },
+    })
+    await expect(insertClientFeedback(ctx.viewbook, ctx.token, {
+      reviewLinkId: ctx.reviewLink.id,
+      body: 'Should not land',
+      authorName: null,
+      clientMutationId: mutationId(),
+      images: ['33333333-3333-4333-8333-333333333333.webp'],
+    })).rejects.toMatchObject({ status: 404, code: 'not_found' })
+    expect(await prisma.viewbookFeedbackImage.count({
+      where: { filename: '33333333-3333-4333-8333-333333333333.webp' },
+    })).toBe(0)
+  })
+
   it('does not bump on a fenced failure (feedback on a hidden milestones section)', async () => {
     const ctx = await mkViewbook()
     await prisma.viewbookSection.updateMany({

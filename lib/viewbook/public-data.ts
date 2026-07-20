@@ -229,7 +229,12 @@ async function loadMilestones(viewbookId: number): Promise<PublicMilestone[]> {
     include: {
       reviewLinks: {
         orderBy: { id: 'asc' },
-        include: { feedback: { orderBy: { id: 'asc' } } },
+        include: {
+          feedback: {
+            orderBy: { id: 'asc' },
+            include: { images: { orderBy: { sortOrder: 'asc' }, select: { filename: true } } },
+          },
+        },
       },
     },
   })
@@ -253,6 +258,7 @@ async function loadMilestones(viewbookId: number): Promise<PublicMilestone[]> {
         authorKind: f.authorKind,
         resolvedAt: iso(f.resolvedAt),
         createdAt: f.createdAt.toISOString(),
+        images: f.images.map((img) => img.filename),
       })),
     })),
   }))

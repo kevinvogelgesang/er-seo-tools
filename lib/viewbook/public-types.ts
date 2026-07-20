@@ -52,6 +52,7 @@ export interface PublicFeedback {
   authorKind: string // 'client' | 'operator'
   resolvedAt: string | null
   createdAt: string
+  images: string[] // asset filenames under this viewbook's scope
 }
 
 export interface PublicReviewLink {

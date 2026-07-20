@@ -130,7 +130,14 @@ export async function getViewbookAdmin(id: number) {
       client: { select: { name: true, archivedAt: true } },
       sections: { orderBy: { id: 'asc' } },
       fields: { orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }], include: { amendments: true } },
-      milestones: { orderBy: { sortOrder: 'asc' }, include: { reviewLinks: { include: { feedback: true } } } },
+      milestones: {
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          reviewLinks: {
+            include: { feedback: { include: { images: { orderBy: { sortOrder: 'asc' }, select: { filename: true } } } } },
+          },
+        },
+      },
       contentOverrides: true,
       materialLinks: { orderBy: { id: 'asc' } },
     },
@@ -693,15 +700,27 @@ function diffThemeFilenames(before: ViewbookTheme, after: ViewbookTheme): string
 
 // ── Delete lifecycle ────────────────────────────────────────────────────────
 
+// Feedback screenshots live as scoped asset files referenced only by
+// ViewbookFeedbackImage rows (cascade-deleted with the viewbook) — snapshot
+// their filenames BEFORE the delete or the files leak.
+function feedbackImageFilenames(viewbookId: number): Promise<{ filename: string }[]> {
+  return prisma.viewbookFeedbackImage.findMany({
+    where: { feedback: { reviewLink: { milestone: { viewbookId } } } },
+    select: { filename: true },
+  })
+}
+
 export async function deleteViewbook(id: number): Promise<void> {
   const vb = await prisma.viewbook.findUnique({
     where: { id },
     select: { themeJson: true, docs: { select: { filename: true } } },
   })
   if (!vb) throw new HttpError(404, 'not_found')
+  const feedbackImages = await feedbackImageFilenames(id)
   const snapshot = [
     ...themeFilenames(parseStoredTheme(vb.themeJson)),
     ...vb.docs.map((doc) => doc.filename),
+    ...feedbackImages.map((img) => img.filename),
   ]
   await prisma.viewbook.delete({ where: { id } })
   await deleteViewbookAssets(String(id), snapshot)
@@ -717,11 +736,13 @@ export async function collectClientViewbookAssetSnapshot(
     select: { id: true, themeJson: true, docs: { select: { filename: true } } },
   })
   if (!vb) return null
+  const feedbackImages = await feedbackImageFilenames(vb.id)
   return {
     viewbookId: vb.id,
     filenames: [
       ...themeFilenames(parseStoredTheme(vb.themeJson)),
       ...vb.docs.map((doc) => doc.filename),
+      ...feedbackImages.map((img) => img.filename),
     ],
   }
 }

@@ -987,8 +987,21 @@ model ViewbookFeedback {
   resolvedAt       DateTime?
   resolvedBy       String? // operator email
   createdAt        DateTime           @default(now())
+  images           ViewbookFeedbackImage[]
 
   @@index([reviewLinkId, id])
+}
+
+model ViewbookFeedbackImage {
+  id         Int              @id @default(autoincrement())
+  feedbackId Int
+  feedback   ViewbookFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  filename   String // ASSET_FILENAME_RE webp under the viewbook's asset scope
+  sortOrder  Int              @default(0)
+  createdAt  DateTime         @default(now())
+
+  @@unique([feedbackId, sortOrder]) // idempotent attach fence (retry re-attach targets a slot)
+  @@index([feedbackId, sortOrder])
 }
 
 model ViewbookGlobalContent {
