@@ -7,6 +7,7 @@ import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 import { hybridCrawl, type CrawlBounds, type CrawlSource, type FetchedPage } from './seo/hybrid-crawl'
 import { parseRobots, type RobotsRules } from '@/lib/seo-fetch/robots-match'
 import { extractSitemapUrls } from '@/lib/seo-fetch/robots-parse'
+import { isExcludedCrawlPath } from './crawl-exclude'
 import { sameDomain } from './link-harvest'
 import { parsePositiveInt } from '@/lib/jobs/config'
 import {
@@ -168,6 +169,7 @@ async function shallowCrawl(base: string, normDomain: string): Promise<string[]>
       // Validate it's a proper URL and belongs to the same domain
       const parsed = new URL(absolute)
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue
+      if (isExcludedCrawlPath(absolute)) continue
       if (isSameDomain(absolute, normDomain)) {
         resolved.push(absolute)
       }
@@ -251,7 +253,7 @@ async function resolveSeedsReal(
   }
 
   // 5. Filter to same domain, deduplicate, apply hard cap
-  const deduped = dedupeUrls(allPageUrls.filter((u) => isSameDomain(u, normDomain)))
+  const deduped = dedupeUrls(allPageUrls.filter((u) => isSameDomain(u, normDomain) && !isExcludedCrawlPath(u)))
   const filtered = deduped.slice(0, HARD_CAP)
 
   if (filtered.length === 0) {

@@ -37,6 +37,14 @@ describe('classifyTargets', () => {
     expect(targets).toHaveLength(300)
     expect(truncated).toBe(true)
   })
+  it('drops cdn-cgi email-protection links', () => {
+    const { targets } = classifyTargets(['/cdn-cgi/l/email-protection', '/about'], [], 'example.com', base, 300)
+    expect(targets).not.toContainEqual({
+      targetUrl: 'https://www.example.com/cdn-cgi/l/email-protection',
+      kind: 'internal-link',
+    })
+    expect(targets).toContainEqual({ targetUrl: 'https://www.example.com/about', kind: 'internal-link' })
+  })
 })
 
 it('harvestLinks returns targets + truncated + pageSeo from one evaluate', async () => {

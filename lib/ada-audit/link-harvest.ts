@@ -5,6 +5,7 @@
 // (pure, unit-testable) resolves/normalizes/classifies them. Same-domain is
 // exact-host + www-insensitive in v1 (subdomains are external — documented).
 import type { Page } from 'puppeteer-core'
+import { isExcludedCrawlPath } from './crawl-exclude'
 import { parseSeoFromDocument, type RawPageSeo } from './seo/parse-seo-dom'
 
 export type HarvestedTargetKind = 'internal-link' | 'image' | 'external-link'
@@ -31,7 +32,9 @@ export function normalizeLinkTarget(raw: string, base: string): string | null {
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
   u.hash = ''
   u.hostname = u.hostname.toLowerCase()
-  return u.toString()
+  const out = u.toString()
+  if (isExcludedCrawlPath(out)) return null
+  return out
 }
 
 /**

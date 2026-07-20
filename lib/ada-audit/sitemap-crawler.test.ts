@@ -445,6 +445,36 @@ describe('discoverPages SSRF protections', () => {
     expect(requestedUrls).not.toContain('https://other.test/sitemap.xml')
   })
 
+  it('filters cdn-cgi URLs from sitemap discovery', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://example.com/robots.txt') {
+        return new Response('', { status: 404 })
+      }
+      if (url === 'https://example.com/sitemap.xml') {
+        return new Response(`
+          <urlset>
+            <url><loc>https://example.com/page</loc></url>
+            <url><loc>https://example.com/cdn-cgi/l/email-protection</loc></url>
+          </urlset>
+        `, {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    safeFetchMock.mockImplementation(async (url: string | URL) => {
+      const response = await fetchMock(url.toString())
+      return { response, url: url.toString(), redirects: [] }
+    })
+
+    await expect(discoverPages('example.com')).resolves.toEqual({
+      urls: ['https://example.com/page'],
+      mode: 'sitemap',
+      capped: false,
+    })
+  })
+
   it('does not fetch off-domain child sitemaps from sitemap indexes', async () => {
     const requestedUrls: string[] = []
     const fetchMock = vi.fn(async (url: string) => {
