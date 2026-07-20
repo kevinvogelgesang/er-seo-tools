@@ -2,6 +2,15 @@ import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
 import { getBrowserEgressLaunchArgs, requireBrowserEgressGuardConfig } from './browser-egress'
 
+/** Thrown by acquirePage when its abort signal fires before a slot is granted.
+ *  Callers treat this as "the discovery deadline passed" — no slot is leaked. */
+export class AcquireAbortedError extends Error {
+  constructor() {
+    super('acquirePage aborted before a slot was granted')
+    this.name = 'AcquireAbortedError'
+  }
+}
+
 const CHROME_EXECUTABLE = process.env.CHROME_EXECUTABLE ?? '/usr/bin/google-chrome'
 const POOL_SIZE = parsePositiveInt(process.env.BROWSER_POOL_SIZE, 2)
 const MAX_OLD_SPACE = parsePositiveInt(process.env.CHROME_MAX_OLD_SPACE, 512)
@@ -110,11 +119,42 @@ function maybeArmIdleTimer(): void {
   }
 }
 
-export async function acquirePage(): Promise<Page> {
+export async function acquirePage(opts?: { signal?: AbortSignal }): Promise<Page> {
+  const signal = opts?.signal
+  if (signal?.aborted) throw new AcquireAbortedError()
   cancelIdleTimer()
   while (draining || slots === 0) {
-    await new Promise<void>((resolve) => waiters.push(resolve))
+    let wake!: () => void
+    const parked = new Promise<void>((resolve) => { wake = resolve; waiters.push(wake) })
+    if (signal) {
+      let onAbort!: () => void
+      const aborted = new Promise<never>((_, reject) => {
+        onAbort = () => {
+          const i = waiters.indexOf(wake)
+          if (i >= 0) waiters.splice(i, 1) // never took a slot — drop our own waiter
+          reject(new AcquireAbortedError())
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+      })
+      try {
+        await Promise.race([parked, aborted])
+      } catch (err) {
+        // Aborted while parked. A concurrent notifyWaiters() may have already
+        // resolved `parked` and spliced our waiter — re-notify so that wake
+        // credit is not lost to a waiter that is now bailing out.
+        notifyWaiters()
+        throw err
+      } finally {
+        signal.removeEventListener('abort', onAbort)
+      }
+    } else {
+      await parked
+    }
   }
+  // Codex fix 3: a waiter can be woken by notify-all AND aborted in the same
+  // tick. Re-check the signal AFTER exiting the park loop so a raced abort can
+  // never be granted a slot.
+  if (signal?.aborted) throw new AcquireAbortedError()
   slots--
   pagesServed++
   // Gate at ACQUIRE time, not just release: if the threshold is reached
