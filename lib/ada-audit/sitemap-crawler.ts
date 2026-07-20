@@ -47,11 +47,35 @@ const RENDER_FLOOR_MS = 15_000 // below this remaining budget, skip the rendered
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
-async function fetchHtml(url: string): Promise<string | null> {
+// Codex F2: the frozen lib/seo-fetch primitives take no signal/timeout param, so
+// enforce the global discovery deadline at the CALL SITE — stop WAITING for a
+// raw fetch once the deadline passes (the underlying request holds no Chrome
+// slot and dies on its own internal timeout). `fallback` is the abandon value.
+async function raceDeadline<T>(p: Promise<T>, deadlineMs: number | undefined, fallback: T): Promise<T> {
+  if (deadlineMs === undefined) return p
+  const remaining = deadlineMs - Date.now()
+  if (remaining <= 0) { void p.catch(() => {}); return fallback }
+  const TIMED_OUT = Symbol('deadline')
+  let t: ReturnType<typeof setTimeout> | undefined
+  const timed = new Promise<typeof TIMED_OUT>((res) => { t = setTimeout(() => res(TIMED_OUT), remaining) })
+  ;(t as unknown as { unref?: () => void } | undefined)?.unref?.()
   try {
+    const r = await Promise.race([p, timed])
+    if (r === TIMED_OUT) { void p.catch(() => {}); return fallback }
+    return r as T
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+async function fetchHtml(url: string, deadlineMs?: number): Promise<string | null> {
+  try {
+    // Clamp this (locally-owned) fetch's timeout to the remaining deadline (Codex F2).
+    const budget = deadlineMs !== undefined ? Math.min(FETCH_TIMEOUT, Math.max(0, deadlineMs - Date.now())) : FETCH_TIMEOUT
+    if (budget <= 0) return null
     const { response: res } = await safeFetch(url, {
       headers: { 'User-Agent': SEO_FETCH_USER_AGENT, Accept: 'text/html,*/*' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      signal: AbortSignal.timeout(budget),
     })
     if (!res.ok) return null
     const ct = res.headers.get('content-type') ?? ''
@@ -63,10 +87,15 @@ async function fetchHtml(url: string): Promise<string | null> {
   }
 }
 
-/** Single robots.txt fetch — returns the raw body, or '' on any failure. */
-async function fetchRobotsRaw(base: string): Promise<string> {
-  const r = await fetchRobotsTxt(base)
-  return r.ok ? r.text : ''
+/** Single robots.txt fetch — returns the raw body, or '' on any failure.
+ *  Deadline-raced (Codex F2): past the deadline, abandon the wait → '' (proceed
+ *  with no robots rather than overrun the global discovery budget). */
+async function fetchRobotsRaw(base: string, deadlineMs?: number): Promise<string> {
+  // Top-guard BEFORE starting the fetch (Codex): the promise arg to raceDeadline
+  // is evaluated eagerly, so without this a new robots request could start after
+  // expiry. Mirrors fetchSitemapXml's top guard.
+  if (deadlineMs !== undefined && Date.now() >= deadlineMs) return ''
+  return raceDeadline(fetchRobotsTxt(base).then((r) => (r.ok ? r.text : '')), deadlineMs, '')
 }
 
 /**
@@ -77,8 +106,18 @@ async function fetchRobotsRaw(base: string): Promise<string> {
  * (Codex plan #1, blocker).
  */
 async function fetchSitemapXml(url: string, deadlineMs?: number): Promise<string | null> {
-  const direct = await fetchSitemapXmlDirect(url)
-  if (direct.ok && direct.text.length > 0) return direct.text
+  // Codex F2: short-circuit past the deadline. This guards BOTH the candidate
+  // loop AND the sitemap-index children (this same fn is the injected child
+  // fetcher), so seed resolution never starts new fetches after expiry.
+  if (deadlineMs !== undefined && Date.now() >= deadlineMs) return null
+  // Deadline-race the direct fetch too (Codex F2) — a raw fetch started just
+  // before expiry must not run past the budget while we wait on it.
+  const directText = await raceDeadline(
+    fetchSitemapXmlDirect(url).then((d) => (d.ok && d.text.length > 0 ? d.text : null)),
+    deadlineMs,
+    null,
+  )
+  if (directText) return directText
   return await fetchSitemapViaBrowser(url, deadlineMs) // deadline-aware browser fallback (Codex fix 1)
 }
 
@@ -158,8 +197,9 @@ function dedupeUrls(urls: string[]): string[] {
  * Fetches the homepage and extracts all same-domain <a href> links.
  * Uses a simple regex — acceptable for a shallow one-page crawl.
  */
-async function shallowCrawl(base: string, normDomain: string): Promise<string[]> {
-  const html = await fetchHtml(base)
+async function shallowCrawl(base: string, normDomain: string, deadlineMs?: number): Promise<string[]> {
+  if (deadlineMs !== undefined && Date.now() >= deadlineMs) return [] // Codex F2: no fetch past the deadline
+  const html = await fetchHtml(base, deadlineMs)
   if (!html) return []
 
   const hrefPattern = /<a[^>]+href=["']([^"']+)["']/gi
@@ -258,7 +298,7 @@ async function resolveSeedsReal(
 
   // 4. If no sitemap yielded pages, fall back to shallow crawl
   if (allPageUrls.length === 0) {
-    const crawledPages = await shallowCrawl(base, normDomain)
+    const crawledPages = await shallowCrawl(base, normDomain, deadlineMs)
     if (crawledPages.length === 0) {
       throw new Error(
         `No sitemap found on ${normDomain} (tried direct + browser fetch on all candidates) and shallow crawl found 0 pages`
@@ -312,17 +352,18 @@ export interface DiscoverResult {
  */
 export async function discoverPagesWithDeps(
   domain: string,
-  opts: { hybrid?: boolean; seeds?: string[]; timeBudgetMs?: number },
+  opts: { hybrid?: boolean; seeds?: string[]; timeBudgetMs?: number; deadlineMs?: number },
   deps: DiscoverDeps,
 ): Promise<DiscoverResult> {
   const normDomain = normaliseDomain(domain)
   const host = normDomain
 
   // ONE global deadline (Codex fix 1) — computed BEFORE seed resolution. The
-  // job budget is the OVERALL ceiling; HY_TIME_BUDGET is only the raw pass's
-  // sub-budget. Threaded into resolveSeeds so its browser-sitemap fallback can
-  // neither wait for a pool slot nor navigate past it.
-  const deadlineMs = deps.now() + (opts.timeBudgetMs ?? HY_TIME_BUDGET())
+  // real entrypoint (discoverPages) supplies opts.deadlineMs stamped BEFORE the
+  // robots fetch (Codex F2), so robots + every seed-resolution fetch is inside
+  // the budget; the test seam computes it here. Job budget is the OVERALL
+  // ceiling; HY_TIME_BUDGET is only the raw pass's sub-budget.
+  const deadlineMs = opts.deadlineMs ?? (deps.now() + (opts.timeBudgetMs ?? HY_TIME_BUDGET()))
 
   // Resolve seeds: provided (pre-discovered) or via sitemap/shallow.
   let seedMode: 'sitemap' | 'shallow-crawl'
@@ -491,13 +532,18 @@ export async function discoverPages(
   const normDomain = normaliseDomain(domain)
   const base = `https://${normDomain}`
 
+  // Codex F2: stamp the ONE global deadline HERE — before the robots fetch — so
+  // robots + every seed-resolution fetch is inside the budget, not just the
+  // hybrid crawl. Threaded into discoverPagesWithDeps via opts.deadlineMs.
+  const deadlineMs = Date.now() + (opts.timeBudgetMs ?? HY_TIME_BUDGET())
+
   // SSRF check on the domain itself before any fetch — must precede the
   // robots.txt fetch, not just the sitemap-candidate fetches, so a request
   // to a private/internal domain never reaches the network at all.
   await assertSafeHttpUrl(base)
 
-  const robotsText = await fetchRobotsRaw(base) // single robots fetch
-  return discoverPagesWithDeps(domain, opts, {
+  const robotsText = await fetchRobotsRaw(base, deadlineMs) // single robots fetch, deadline-raced
+  return discoverPagesWithDeps(domain, { ...opts, deadlineMs }, {
     resolveSeeds: (d, deadlineMs) => resolveSeedsReal(d, robotsText, deadlineMs),
     fetchPageLinks: (u) => fetchPageLinks(u, normDomain),
     fetchPageLinksRendered: (u, deadlineMs) => fetchPageLinksViaBrowser(u, normDomain, deadlineMs),

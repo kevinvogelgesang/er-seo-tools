@@ -56,6 +56,16 @@ describe('fetchPageLinksViaBrowser', () => {
     expect(d.acquirePage).not.toHaveBeenCalled()
   })
 
+  it('returns null and releases the page when page.evaluate exceeds the deadline (Codex F1)', async () => {
+    vi.mocked(assertSafeHttpUrl).mockResolvedValue(undefined as never)
+    const page = fakePage('https://x.com/', [])
+    page.evaluate = vi.fn(() => new Promise(() => {})) as never // never resolves → must be bounded by the deadline
+    const d = deps(page) // now() === 0
+    const r = await fetchPageLinksViaBrowser('https://x.com/', 'x.com', 40, d) // 40ms deadline
+    expect(r).toBeNull()
+    expect(d.releasePage).toHaveBeenCalledTimes(1)
+  })
+
   it('caps returned anchors at HYBRID_RENDER_MAX_ANCHORS_PER_PAGE', async () => {
     process.env.HYBRID_RENDER_MAX_ANCHORS_PER_PAGE = '2'
     vi.mocked(assertSafeHttpUrl).mockResolvedValue(undefined as never)

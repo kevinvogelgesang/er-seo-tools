@@ -62,10 +62,28 @@ export async function fetchPageLinksViaBrowser(
     if (!sameDomain(finalHost, auditedHost.toLowerCase())) return null
     const settleTimeout = Math.min(SETTLE_TIMEOUT_MS, Math.max(0, deadlineMs - deps.now()))
     if (settleTimeout > 0) await postLoadSettle(page, { timeout: settleTimeout })
+    // Codex F1: page.evaluate has no built-in timeout — a hung page would hold
+    // the pool slot forever (finally can't release until it resolves). Race it
+    // against the remaining deadline; on timeout return null so finally closes
+    // the page, and consume the late rejection the close triggers.
+    const evalRemaining = Math.max(0, deadlineMs - deps.now())
+    if (evalRemaining <= 0) return null
     const cap = RENDER_MAX_ANCHORS()
-    const hrefs = (await page.evaluate(
+    const evalPromise = page.evaluate(
       `(() => Array.from(document.querySelectorAll('a[href]')).slice(0, ${cap}).map(a => a.href))()`,
-    )) as unknown
+    ) as Promise<unknown>
+    evalPromise.catch(() => {}) // swallow a late rejection when the page is closed on timeout
+    const TIMED_OUT = Symbol('eval-timeout')
+    let evalTimer: ReturnType<typeof setTimeout> | undefined
+    const timed = new Promise<typeof TIMED_OUT>((resolve) => { evalTimer = setTimeout(() => resolve(TIMED_OUT), evalRemaining) })
+    ;(evalTimer as unknown as { unref?: () => void } | undefined)?.unref?.()
+    let hrefs: unknown
+    try {
+      hrefs = await Promise.race([evalPromise, timed])
+    } finally {
+      clearTimeout(evalTimer)
+    }
+    if (hrefs === TIMED_OUT) return null // evaluate exceeded the deadline — finally releases the page
     return { links: Array.isArray(hrefs) ? (hrefs as string[]) : [], finalUrl }
   } catch {
     return null
