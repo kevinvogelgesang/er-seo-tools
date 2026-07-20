@@ -235,6 +235,51 @@ describe('CollapsibleSection', () => {
     expect(stored.has(collapseKey(1, 'brand'))).toBe(false)
   })
 
+  // Task 10 (docs/superpowers/sdd/task-10-brief.md): the initial-#hash path
+  // now routes through the SAME animation-aware `scrollToSectionAfterReveal`
+  // helper as `vb:navigate` (see viewbook-navigate.test.ts for the detailed
+  // wait-vs-immediate coverage) instead of relying on the browser's native
+  // (pre-React, single-shot) hash scroll. This is an end-to-end wiring check:
+  // a fresh mount is default-collapsed, so `#brand` must NOT scroll
+  // synchronously — it waits for the hero-stage reveal (in jsdom, which runs
+  // no real CSS transitions, that means the computed-duration timeout
+  // fallback) before scrolling.
+  it('an initial #hash on a fresh (collapsed) mount does not scroll synchronously, but does scroll once the reveal wait elapses', () => {
+    vi.useFakeTimers()
+    window.location.hash = '#brand'
+    // The real DOM has `<section id={sectionKey}>` OUTSIDE this component
+    // (SectionShell) — reproduce that wrapper here, since
+    // scrollToSectionAfterReveal resolves the scroll target and the
+    // `.vb-collapsible`/`.vb-hero-stage` wait-source via
+    // `document.getElementById(sectionKey)`.
+    const wrapper = document.createElement('section')
+    wrapper.id = 'brand'
+    document.body.appendChild(wrapper)
+    wrapper.scrollIntoView = vi.fn()
+
+    render(<Harness />, { container: wrapper })
+
+    const stage = wrapper.querySelector('.vb-hero-stage') as HTMLElement
+    // forceExpand() ran synchronously in the mount effect (before the
+    // scrollToSectionAfterReveal call in the same effect body), but React's
+    // resulting re-render is deferred — the helper's own "already revealed?"
+    // read happens against the PRE-update DOM, so it correctly sees
+    // "collapsed" and sets up the wait, even though by the time render()
+    // returns (after act() flushes the effect's state update) the DOM below
+    // already shows "expanded".
+    expect(stage.closest('.vb-collapsible')?.getAttribute('data-vb-state')).toBe('expanded')
+    expect(wrapper.scrollIntoView).not.toHaveBeenCalled()
+
+    // jsdom runs no real CSS transitions, so no transitionend ever fires —
+    // this exercises the computed-duration/default timeout fallback.
+    vi.advanceTimersByTime(1000)
+    expect(wrapper.scrollIntoView).toHaveBeenCalledTimes(1)
+
+    // Manually-appended wrapper (not RTL's own default container) — remove
+    // it so it doesn't leak an id="brand" node into later tests in this file.
+    wrapper.remove()
+  })
+
   it('Task 8: BOTH data-vb-face="collapsed" and data-vb-face="expanded" nodes exist in the DOM simultaneously (the cross-fade stage)', () => {
     const { container } = render(<Harness />)
     expect(container.querySelector('[data-vb-face="collapsed"]')).not.toBeNull()

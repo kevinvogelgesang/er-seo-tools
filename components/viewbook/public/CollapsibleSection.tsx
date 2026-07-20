@@ -83,6 +83,7 @@
 // shared plane isn't supported by the current hero-prop shape.
 import { useEffect, type ReactNode } from 'react'
 import { useCollapseState } from './useCollapseState'
+import { scrollToSectionAfterReveal } from './viewbook-navigate'
 
 export function CollapsibleSection({
   viewbookId,
@@ -112,14 +113,29 @@ export function CollapsibleSection({
   })
 
   useEffect(() => {
-    // vb:navigate (TOC/inspector clicks) / initial #hash → force-open,
-    // in-memory only — never persisted (see useCollapseState).
+    // vb:navigate (TOC/inspector clicks) → force-open, in-memory only — never
+    // persisted (see useCollapseState). The scroll itself is driven by the
+    // dispatcher (navigateToAnchor), not here.
     function onNav(e: Event) {
       const detail = (e as CustomEvent).detail as { sectionKey?: string } | null
       if (detail?.sectionKey === sectionKey) forceExpand()
     }
     window.addEventListener('vb:navigate', onNav)
-    if (window.location.hash === `#${sectionKey}`) forceExpand()
+    // Initial #hash-on-mount → force-open AND scroll once the reveal (if any)
+    // finishes. Task 10: previously this only force-expanded and relied on
+    // the browser's native initial-hash scroll — which fires once, before
+    // React mounts/expands anything, and lands on a since-resized (or, for a
+    // fresh-machine default-collapsed section, since-EXPANDED) box. Routing
+    // through the shared helper (used identically by the vb:navigate path in
+    // viewbook-navigate.ts) makes this deep-link case animation-aware too:
+    // `forceExpand()` is called first (synchronously, in the same tick) so
+    // the helper's own "already revealed?" check below reads the PRE-update
+    // DOM state — collapsed here means a reveal transition is about to
+    // start, and the helper waits for it before scrolling.
+    if (window.location.hash === `#${sectionKey}`) {
+      forceExpand()
+      scrollToSectionAfterReveal(sectionKey)
+    }
     return () => window.removeEventListener('vb:navigate', onNav)
   }, [sectionKey, forceExpand])
 
