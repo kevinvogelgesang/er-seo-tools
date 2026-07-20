@@ -56,14 +56,20 @@ const MAX_SCOPE_DIRS_PER_SWEEP = 2000
 
 // The COMPLETE referenced-filename union for one viewbook scope: theme
 // (logo + section heroes) ∪ owned ViewbookDoc filenames ∪
-// ViewbookAssessmentImage filenames. A viewbook that no longer exists (fully
-// deleted, cascade already ran) yields an empty theme contribution — that is
-// correct: every leftover file in its scope directory is genuinely orphaned.
+// ViewbookAssessmentImage filenames ∪ ViewbookFeedbackImage filenames
+// (feedback screenshots live in the same scope dir and outlive the 24-hour
+// grace). A viewbook that no longer exists (fully deleted, cascade already
+// ran) yields an empty theme contribution — that is correct: every leftover
+// file in its scope directory is genuinely orphaned.
 async function loadReferencedFilenames(viewbookId: number): Promise<Set<string>> {
-  const [viewbook, docs, images] = await Promise.all([
+  const [viewbook, docs, images, feedbackImages] = await Promise.all([
     prisma.viewbook.findUnique({ where: { id: viewbookId }, select: { themeJson: true } }),
     prisma.viewbookDoc.findMany({ where: { viewbookId }, select: { filename: true } }),
     prisma.viewbookAssessmentImage.findMany({ where: { content: { viewbookId } }, select: { filename: true } }),
+    prisma.viewbookFeedbackImage.findMany({
+      where: { feedback: { reviewLink: { milestone: { viewbookId } } } },
+      select: { filename: true },
+    }),
   ])
 
   const referenced = new Set<string>()
@@ -74,6 +80,7 @@ async function loadReferencedFilenames(viewbookId: number): Promise<Set<string>>
   }
   for (const doc of docs) referenced.add(doc.filename)
   for (const img of images) referenced.add(img.filename)
+  for (const img of feedbackImages) referenced.add(img.filename)
   return referenced
 }
 

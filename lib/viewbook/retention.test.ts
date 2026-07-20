@@ -97,6 +97,28 @@ describe('pruneOrphanedViewbookAssetFiles', () => {
     expect(await scopeFiles(vb.id)).toEqual(['assess-image-ref.webp', 'owned-doc-ref.pdf', 'theme-logo-ref.webp'])
   })
 
+  it('preserves feedback screenshot files referenced by ViewbookFeedbackImage rows', async () => {
+    const vb = await makeViewbook()
+    const milestone = await prisma.viewbookMilestone.findFirstOrThrow({ where: { viewbookId: vb.id } })
+    const reviewLink = await prisma.viewbookReviewLink.create({
+      data: { milestoneId: milestone.id, label: 'Homepage', url: 'https://example.com', kind: 'live', createdBy: 'op@example.com' },
+    })
+    const feedback = await prisma.viewbookFeedback.create({
+      data: { reviewLinkId: reviewLink.id, body: 'See screenshot', authorKind: 'client' },
+    })
+    await prisma.viewbookFeedbackImage.create({
+      data: { feedbackId: feedback.id, filename: 'feedback-shot-ref.webp', sortOrder: 0 },
+    })
+
+    await writeScopeFile(vb.id, 'feedback-shot-ref.webp', OLD_MTIME)
+    await writeScopeFile(vb.id, 'orphan-old.webp', OLD_MTIME)
+
+    const deleted = await pruneOrphanedViewbookAssetFiles(NOW)
+
+    expect(deleted).toBe(1)
+    expect(await scopeFiles(vb.id)).toEqual(['feedback-shot-ref.webp'])
+  })
+
   it('preserves a brand-new orphan inside the grace period (write-vs-DB-create race guard)', async () => {
     const vb = await makeViewbook()
     await writeScopeFile(vb.id, 'orphan-new.webp', NEW_MTIME)
