@@ -91,6 +91,10 @@ async function fetchHtml(url: string, deadlineMs?: number): Promise<string | nul
  *  Deadline-raced (Codex F2): past the deadline, abandon the wait → '' (proceed
  *  with no robots rather than overrun the global discovery budget). */
 async function fetchRobotsRaw(base: string, deadlineMs?: number): Promise<string> {
+  // Top-guard BEFORE starting the fetch (Codex): the promise arg to raceDeadline
+  // is evaluated eagerly, so without this a new robots request could start after
+  // expiry. Mirrors fetchSitemapXml's top guard.
+  if (deadlineMs !== undefined && Date.now() >= deadlineMs) return ''
   return raceDeadline(fetchRobotsTxt(base).then((r) => (r.ok ? r.text : '')), deadlineMs, '')
 }
 
