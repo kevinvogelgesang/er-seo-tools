@@ -126,3 +126,76 @@ describe('hybridCrawl', () => {
     expect(r.addedByCrawl).toBe(1)
   })
 })
+
+import { hybridCrawl as hc2, admissibleLink, mergeCrawlResults, type CrawlResult } from './hybrid-crawl'
+
+describe('hybridCrawl L2 opts', () => {
+  const graph2 = (g: Record<string, string[]>) => {
+    let clock = 0
+    return { now: () => (clock += 10), async fetchPageLinks(u: string) { return u in g ? { links: g[u], finalUrl: u } : null } }
+  }
+  it('knownKeys are deduped-not-fetched: a discovered link already in knownKeys is not added', async () => {
+    const deps = graph2({ 'https://x.com/': ['https://x.com/a', 'https://x.com/known'], 'https://x.com/a': [] })
+    const known = new Set(['https://x.com/known'])
+    const r = await hc2([{ url: 'https://x.com/', source: 'rendered' }], 'x.com', B(), deps, { disallow: [], allow: [] }, { knownKeys: known, linkedSource: 'rendered-linked' })
+    expect(r.urls).toContain('https://x.com/a')
+    expect(r.urls).not.toContain('https://x.com/known') // already known ⇒ skipped
+    expect(r.sources['https://x.com/a']).toBe('rendered-linked')
+  })
+  it('a Disallow-ed rendered link is dropped (candidates go through robots)', async () => {
+    const deps = graph2({ 'https://x.com/': ['https://x.com/ok', 'https://x.com/admin/x'], 'https://x.com/ok': [] })
+    const r = await hc2([{ url: 'https://x.com/', source: 'rendered' }], 'x.com', B(), deps, { disallow: ['/admin/'], allow: [] }, { linkedSource: 'rendered-linked' })
+    expect(r.urls).toContain('https://x.com/ok')
+    expect(r.urls).not.toContain('https://x.com/admin/x')
+  })
+  it('prioritizeShallowFrontier fetches shallower novel hubs first under a fetch cap', async () => {
+    const deps = graph2({
+      'https://x.com/': ['https://x.com/deep/a/b', 'https://x.com/hub'],
+      'https://x.com/hub': ['https://x.com/hubchild'], 'https://x.com/deep/a/b': ['https://x.com/deepchild'],
+    })
+    const r = await hc2([{ url: 'https://x.com/', source: 'rendered' }], 'x.com', B({ maxFetches: 2, concurrency: 1 }), deps, { disallow: [], allow: [] }, { linkedSource: 'rendered-linked', prioritizeShallowFrontier: true })
+    expect(r.urls).toContain('https://x.com/hubchild')     // /hub was fetched (shallower)
+    expect(r.urls).not.toContain('https://x.com/deepchild')// /deep/a/b was not
+  })
+})
+
+describe('admissibleLink', () => {
+  const robots = { disallow: ['/admin/'], allow: [] }
+  it('accepts a same-host content page', () => {
+    expect(admissibleLink('https://x.com/programs', 'x.com', robots, 12)).toBe(true)
+  })
+  it('rejects off-host, non-page, over-segment, and Disallow-ed', () => {
+    expect(admissibleLink('https://evil.com/a', 'x.com', robots, 12)).toBe(false)
+    expect(admissibleLink('https://x.com/a.pdf', 'x.com', robots, 12)).toBe(false)
+    expect(admissibleLink('https://x.com/a/b/c/d', 'x.com', robots, 3)).toBe(false)
+    expect(admissibleLink('https://x.com/admin/secret', 'x.com', robots, 12)).toBe(false)
+  })
+})
+
+const R = (urls: string[], sources: Record<string, string>): CrawlResult => ({
+  urls, sources: sources as never, sitemapCount: 0, addedByCrawl: 0, fetches: 0, stoppedBy: 'exhausted',
+})
+
+describe('mergeCrawlResults', () => {
+  it('unions novel rendered URLs after raw, preserving raw order', () => {
+    const raw = R(['https://x.com/a'], { 'https://x.com/a': 'sitemap' })
+    const rendered = R(['https://x.com/b'], { 'https://x.com/b': 'rendered-linked' })
+    const m = mergeCrawlResults(raw, rendered, 1000)
+    expect(m.urls).toEqual(['https://x.com/a', 'https://x.com/b'])
+    expect(m.sources['https://x.com/b']).toBe('rendered-linked')
+  })
+  it('dedups by coverage key and keeps the raw fetch URL + higher-precedence label', () => {
+    const raw = R(['https://x.com/a'], { 'https://x.com/a': 'linked' })
+    const rendered = R(['https://x.com/a/'], { 'https://x.com/a': 'rendered' }) // same coverage key
+    const m = mergeCrawlResults(raw, rendered, 1000)
+    expect(m.urls).toEqual(['https://x.com/a'])       // raw fetch URL kept
+    expect(m.sources['https://x.com/a']).toBe('rendered') // rendered(2) > linked(1) ⇒ upgraded label
+  })
+  it('slices the merged set to hardCap and prunes orphaned sources', () => {
+    const raw = R(['https://x.com/a', 'https://x.com/b'], { 'https://x.com/a': 'sitemap', 'https://x.com/b': 'sitemap' })
+    const rendered = R(['https://x.com/c'], { 'https://x.com/c': 'rendered-linked' })
+    const m = mergeCrawlResults(raw, rendered, 2)
+    expect(m.urls).toEqual(['https://x.com/a', 'https://x.com/b'])
+    expect(m.sources['https://x.com/c']).toBeUndefined() // pruned — not in the sliced set
+  })
+})

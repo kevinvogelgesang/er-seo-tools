@@ -1,6 +1,7 @@
-import type { HTTPRequest, Page } from 'puppeteer-core'
+import type { Page } from 'puppeteer-core'
 import { acquirePage, releasePage } from './browser-pool'
 import { assertSafeHttpUrl } from '../security/safe-url'
+import { installBrowserRequestGuard } from './browser-request-guard'
 
 const FETCH_TIMEOUT = 20_000
 const MAX_XML_BYTES = 5_000_000
@@ -13,35 +14,37 @@ const SITEMAP_ROOT_RE = /^\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)?<(urls
  * defense — the runner's interception is per-runAxeAudit() and not inherited.
  * Returns null on any failure; caller surfaces.
  */
-export async function fetchSitemapViaBrowser(url: string): Promise<string | null> {
+export async function fetchSitemapViaBrowser(url: string, deadlineMs?: number): Promise<string | null> {
   try {
     await assertSafeHttpUrl(url)
   } catch {
     return null
   }
 
+  // Codex fix 1: when a discovery deadline is supplied, the browser sitemap
+  // fallback can neither wait for a pool slot nor navigate past it.
+  const now = () => Date.now()
+  if (deadlineMs !== undefined && now() >= deadlineMs) return null
+  const timeout = deadlineMs !== undefined ? Math.min(FETCH_TIMEOUT, Math.max(0, deadlineMs - now())) : FETCH_TIMEOUT
+  if (timeout <= 0) return null
+
+  const controller = new AbortController()
+  const timer = deadlineMs !== undefined ? setTimeout(() => controller.abort(), Math.max(0, deadlineMs - now())) : null
+  ;(timer as unknown as { unref?: () => void } | null)?.unref?.()
+
   let page: Page | undefined
   try {
-    page = await acquirePage()
-    page.setDefaultNavigationTimeout(FETCH_TIMEOUT)
+    page = await acquirePage(deadlineMs !== undefined ? { signal: controller.signal } : undefined)
+  } catch {
+    if (timer) clearTimeout(timer)
+    return null // AcquireAbortedError (deadline) or launch failure — no slot leaked
+  }
+  try {
+    page.setDefaultNavigationTimeout(timeout)
 
-    await page.setRequestInterception(true)
-    page.on('request', (request: HTTPRequest) => {
-      void (async () => {
-        try {
-          await assertSafeHttpUrl(request.url())
-          if (!request.isInterceptResolutionHandled()) {
-            await request.continue()
-          }
-        } catch {
-          if (!request.isInterceptResolutionHandled()) {
-            await request.abort('blockedbyclient').catch(() => {})
-          }
-        }
-      })()
-    })
+    await installBrowserRequestGuard(page) // no opts ⇒ SSRF-only, byte-identical to the old inline guard
 
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: FETCH_TIMEOUT })
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout })
     if (!response || !response.ok()) return null
 
     const text = await response.text().catch(() => null)
@@ -52,6 +55,7 @@ export async function fetchSitemapViaBrowser(url: string): Promise<string | null
   } catch {
     return null
   } finally {
+    if (timer) clearTimeout(timer)
     if (page) await releasePage(page).catch(() => {})
   }
 }

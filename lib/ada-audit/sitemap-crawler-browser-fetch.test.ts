@@ -131,6 +131,8 @@ describe('fetchSitemapViaBrowser', () => {
 
     const fakeReq = {
       url: () => unsafeRedirect,
+      resourceType: () => 'document',
+      isNavigationRequest: () => true,
       isInterceptResolutionHandled: () => false,
       continue: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn().mockResolvedValue(undefined),

@@ -158,3 +158,42 @@ describe('getPoolState (A4)', () => {
     expect(pool.getPoolState().inUse).toBe(0)
   })
 })
+
+describe('browser-pool cancellable acquire (Codex fix 3)', () => {
+  beforeEach(() => { launchCount = 0; launchMock.mockClear(); vi.useRealTimers() })
+
+  it('an already-aborted signal rejects without taking a slot', async () => {
+    const pool = await loadPool({ pool: '2' })
+    const ac = new AbortController(); ac.abort()
+    await expect(pool.acquirePage({ signal: ac.signal })).rejects.toBeInstanceOf(pool.AcquireAbortedError)
+    expect(pool.getPoolState().free).toBe(2) // no slot consumed
+  })
+
+  it('aborting a parked waiter frees no slot and does not block later acquirers', async () => {
+    const pool = await loadPool({ pool: '1', recycle: '999' })
+    const p1 = await pool.acquirePage()               // pool now full (1 slot)
+    const ac = new AbortController()
+    const parked = pool.acquirePage({ signal: ac.signal })
+    const rejected = expect(parked).rejects.toBeInstanceOf(pool.AcquireAbortedError)
+    ac.abort()
+    await rejected
+    await pool.releasePage(p1)                          // frees the slot
+    const p2 = await pool.acquirePage()                 // must proceed — no leak from the aborted waiter
+    expect(p2).toBeTruthy()
+    expect(pool.getPoolState().inUse).toBe(1)
+  })
+
+  it('a waiter woken by a release but aborted in the same tick does NOT get a slot', async () => {
+    const pool = await loadPool({ pool: '1', recycle: '999' })
+    const p1 = await pool.acquirePage()                 // pool full
+    const ac = new AbortController()
+    const parked = pool.acquirePage({ signal: ac.signal })
+    const rejected = expect(parked).rejects.toBeInstanceOf(pool.AcquireAbortedError)
+    // Release (wakes the parked waiter) and abort in the same microtask turn.
+    void pool.releasePage(p1)
+    ac.abort()
+    await rejected
+    expect(pool.getPoolState().free).toBe(1)            // freed slot NOT consumed by the aborted waiter
+    expect(pool.getPoolState().pagesServed).toBe(1)     // only p1 ever served
+  })
+})

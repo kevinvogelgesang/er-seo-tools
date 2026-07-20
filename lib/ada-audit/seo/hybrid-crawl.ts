@@ -21,14 +21,19 @@ import { normalizeLinkTarget, sameDomain } from '../link-harvest'
 import { normalizeCoverageUrl, NON_PAGE_EXT } from './discovery-coverage'
 import { isAllowed, type RobotsRules } from '@/lib/seo-fetch/robots-match'
 
-export type CrawlSource = 'sitemap' | 'seed' | 'shallow' | 'linked'
+export type CrawlSource = 'sitemap' | 'seed' | 'shallow' | 'linked' | 'rendered' | 'rendered-linked'
 export interface FetchedPage { links: string[]; finalUrl: string }
 export interface CrawlDeps { fetchPageLinks(url: string): Promise<FetchedPage | null>; now(): number }
 export interface CrawlBounds {
   maxDepth: number; maxAdded: number; maxFetches: number; timeBudgetMs: number; hardCap: number
   maxQueryVariantsPerPath: number; maxPathSegments: number; concurrency: number
 }
-export interface CrawlSeed { url: string; source: 'sitemap' | 'seed' | 'shallow' }
+export interface CrawlSeed { url: string; source: 'sitemap' | 'seed' | 'shallow' | 'rendered' }
+export interface HybridCrawlOpts {
+  knownKeys?: Set<string>             // coverage-normalized keys already known (raw pass) — dedup only, never fetched
+  linkedSource?: CrawlSource          // source label for BFS-discovered links (default 'linked')
+  prioritizeShallowFrontier?: boolean // order each depth's frontier by ascending path-segment count (novel-hub priority)
+}
 export interface CrawlResult {
   urls: string[]
   sources: Record<string, CrawlSource>
@@ -38,7 +43,9 @@ export interface CrawlResult {
   stoppedBy: 'depth' | 'maxAdded' | 'maxFetches' | 'timeBudget' | 'hardCap' | 'exhausted'
 }
 
-const PRECEDENCE: Record<CrawlSource, number> = { sitemap: 3, seed: 2, shallow: 1, linked: 0 }
+const PRECEDENCE: Record<CrawlSource, number> = {
+  sitemap: 5, seed: 4, shallow: 3, rendered: 2, linked: 1, 'rendered-linked': 0,
+}
 
 function isNonPage(normalized: string): boolean {
   try { return NON_PAGE_EXT.test(new URL(normalized).pathname) } catch { return false }
@@ -50,11 +57,28 @@ function segmentCount(normalized: string): number {
   try { return new URL(normalized).pathname.split('/').filter(Boolean).length } catch { return 0 }
 }
 
+/** The BFS link-admission filter, shared with the L2 probe so probe admission
+ *  == crawl admission (Codex F3). `resolved` is the real (fetchable) URL. */
+export function admissibleLink(resolved: string, host: string, robots: RobotsRules, maxPathSegments: number): boolean {
+  const key = normalizeCoverageUrl(resolved)
+  let h: string
+  try { h = new URL(key).hostname.toLowerCase() } catch { return false }
+  if (!sameDomain(h, host)) return false
+  if (isNonPage(key)) return false
+  if (segmentCount(key) > maxPathSegments) return false
+  let pn: string
+  try { pn = new URL(resolved).pathname } catch { return false } // robots matches the REAL path
+  return isAllowed(pn, robots)
+}
+
 export async function hybridCrawl(
   seeds: CrawlSeed[], auditedHost: string, bounds: CrawlBounds, deps: CrawlDeps, robots: RobotsRules,
+  opts: HybridCrawlOpts = {},
 ): Promise<CrawlResult> {
   const start = deps.now()
   const host = auditedHost.toLowerCase()
+  const linkedSource: CrawlSource = opts.linkedSource ?? 'linked'
+  const known = opts.knownKeys
   const sources: Record<string, CrawlSource> = {}
   const order: string[] = []            // coverage-normalized KEYS in frontier order
   const fetchUrlOf = new Map<string, string>()  // key → resolved FETCH url (real url to request / emit)
@@ -77,7 +101,7 @@ export async function hybridCrawl(
     order.push(key)
     fetchUrlOf.set(key, fetchUrl)
     depthOf.set(key, depth)
-    if (source === 'linked') addedByCrawl++
+    if (source === 'linked' || source === 'rendered-linked') addedByCrawl++
     else sitemapCount++
     return true
   }
@@ -96,8 +120,14 @@ export async function hybridCrawl(
   // Frontier = accepted URLs at the current depth not yet fetched.
   let depth = 0
   outer: while (depth < bounds.maxDepth) {
-    const frontier = order.filter((u) => depthOf.get(u) === depth)
+    let frontier = order.filter((u) => depthOf.get(u) === depth)
     if (frontier.length === 0) break
+    if (opts.prioritizeShallowFrontier) {
+      // Novel-hub priority (Codex F2): under a fetch cap, fetch shallower hubs
+      // first. Stable — ties break on insertion order.
+      const idx = new Map(order.map((u, i) => [u, i] as const))
+      frontier = [...frontier].sort((a, b) => (segmentCount(a) - segmentCount(b)) || (idx.get(a)! - idx.get(b)!))
+    }
     for (let i = 0; i < frontier.length; i += bounds.concurrency) {
       if (deps.now() - start >= bounds.timeBudgetMs) { stoppedBy = 'timeBudget'; break outer }
       if (fetches >= bounds.maxFetches) { stoppedBy = 'maxFetches'; break outer }
@@ -116,19 +146,11 @@ export async function hybridCrawl(
           const resolved = normalizeLinkTarget(raw, page.finalUrl)  // Codex #8: resolve vs final URL (the FETCH url)
           if (!resolved) continue
           const key = normalizeCoverageUrl(resolved)                // dedup/sources KEY
-          let h: string
-          try { h = new URL(key).hostname.toLowerCase() } catch { continue }
-          if (!sameDomain(h, host)) continue
-          if (isNonPage(key)) continue
-          if (segmentCount(key) > bounds.maxPathSegments) continue
-          // robots must match the REAL resolved path — a trailing slash is
-          // significant to Disallow patterns (`^/admin/` ≠ `/admin`), and
-          // normalizeCoverageUrl STRIPS non-root trailing slashes, so matching
-          // the coverage `key` here would let a Disallow:/admin/ target through.
-          // (isNonPage/segmentCount are trailing-slash-insensitive → key is fine.)
-          let pn: string
-          try { pn = new URL(resolved).pathname } catch { continue }
-          if (!isAllowed(pn, robots)) continue
+          if (known?.has(key)) continue                             // L2: dedup-not-fetched (raw pass already has it)
+          // admissibleLink centralizes same-domain + non-page + segment + robots
+          // (robots matches the REAL resolved path, which normalizeCoverageUrl's
+          // trailing-slash stripping would otherwise mask — see admissibleLink).
+          if (!admissibleLink(resolved, host, robots, bounds.maxPathSegments)) continue
           const pk = pathKey(key)
           const seenVariants = queryVariants.get(pk) ?? 0
           if (seenVariants >= bounds.maxQueryVariantsPerPath) continue
@@ -136,7 +158,7 @@ export async function hybridCrawl(
           if (addedByCrawl >= bounds.maxAdded) { stoppedBy = 'maxAdded'; break outer }
           if (order.length >= bounds.hardCap) { stoppedBy = 'hardCap'; break outer }
           queryVariants.set(pk, seenVariants + 1)
-          accept(key, resolved, 'linked', depth + 1)     // fetchUrl = the resolved real url
+          accept(key, resolved, linkedSource, depth + 1) // fetchUrl = the resolved real url
         }
       }
     }
@@ -151,4 +173,33 @@ export async function hybridCrawl(
   // Emit the REAL fetch urls (keys map 1:1 to fetchUrls), sliced to hardCap.
   const urls = order.slice(0, bounds.hardCap).map((k) => fetchUrlOf.get(k)!)
   return { urls, sources, sitemapCount, addedByCrawl, fetches, stoppedBy }
+}
+
+/** Union raw + rendered discovery by coverage-normalized key. Raw runs first and
+ *  keeps its fetch URL on a key collision; the source LABEL upgrades to the
+ *  higher-precedence value. Sliced to hardCap by the same normalized-key op used
+ *  for discoveredUrls, so `sources` and `urls` stay 1:1 (Codex F2/F5). */
+export function mergeCrawlResults(
+  raw: CrawlResult, rendered: CrawlResult, hardCap: number,
+): { urls: string[]; sources: Record<string, CrawlSource> } {
+  const sources: Record<string, CrawlSource> = { ...raw.sources }
+  const fetchUrlByKey = new Map<string, string>()
+  const order: string[] = []
+  for (const u of raw.urls) {
+    const k = normalizeCoverageUrl(u)
+    if (!fetchUrlByKey.has(k)) { fetchUrlByKey.set(k, u); order.push(k) }
+  }
+  for (const u of rendered.urls) {
+    const key = normalizeCoverageUrl(u)
+    const cand = rendered.sources[key] ?? 'rendered-linked'
+    if (!fetchUrlByKey.has(key)) {
+      sources[key] = cand; fetchUrlByKey.set(key, u); order.push(key)
+    } else if (PRECEDENCE[cand] > PRECEDENCE[sources[key]]) {
+      sources[key] = cand // upgrade label only; keep raw's fetch URL
+    }
+  }
+  const slicedKeys = order.slice(0, hardCap)
+  const keep = new Set(slicedKeys)
+  for (const k of Object.keys(sources)) if (!keep.has(k)) delete sources[k]
+  return { urls: slicedKeys.map((k) => fetchUrlByKey.get(k)!), sources }
 }

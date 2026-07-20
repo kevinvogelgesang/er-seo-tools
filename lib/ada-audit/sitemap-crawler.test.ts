@@ -638,7 +638,7 @@ describe('discoverPages browser fallback', () => {
       mode: 'sitemap',
       capped: false,
     })
-    expect(fetchSitemapViaBrowser).toHaveBeenCalledWith('https://example.com/sitemap.xml')
+    expect(fetchSitemapViaBrowser).toHaveBeenCalledWith('https://example.com/sitemap.xml', expect.any(Number)) // + deadlineMs (L2)
   })
 
   it('mock-seam canary: delegated fetches still route through the safeFetch mock (Codex plan #7)', async () => {
@@ -746,5 +746,155 @@ describe('discoverPages hybrid', () => {
       if (orig === undefined) delete process.env.HYBRID_CRAWL_TIME_BUDGET_MS
       else process.env.HYBRID_CRAWL_TIME_BUDGET_MS = orig
     }
+  })
+})
+
+describe('discoverPages rendered pass (L2)', () => {
+  const rawGraph: Record<string, { links: string[]; finalUrl: string } | null> = {
+    'https://x.com/': { links: [], finalUrl: 'https://x.com/' },
+  }
+  const renderedGraph: Record<string, { links: string[]; finalUrl: string }> = {
+    'https://x.com/': { links: ['https://x.com/education', 'https://x.com/healthcare'], finalUrl: 'https://x.com/' },
+    'https://x.com/education': { links: [], finalUrl: 'https://x.com/education' },
+    'https://x.com/healthcare': { links: [], finalUrl: 'https://x.com/healthcare' },
+  }
+
+  it('triggers on ≥ N novel admissible rendered URLs and merges them in', async () => {
+    process.env.HYBRID_RENDER_PROBE_MIN_NOVEL = '2'
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => rawGraph[u] ?? null,
+      fetchPageLinksRendered: async (u) => renderedGraph[u] ?? null,
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage?.renderProbe).toBe('triggered')
+    expect(r.urls).toEqual(expect.arrayContaining(['https://x.com/education', 'https://x.com/healthcare']))
+    expect(r.coverage?.renderedAdded).toBeGreaterThanOrEqual(2)
+    delete process.env.HYBRID_RENDER_PROBE_MIN_NOVEL
+  })
+
+  it('records no-delta (and does not merge) when the probe finds too few novel URLs', async () => {
+    process.env.HYBRID_RENDER_PROBE_MIN_NOVEL = '5'
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => rawGraph[u] ?? null,
+      fetchPageLinksRendered: async (u) => renderedGraph[u] ?? null,
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage?.renderProbe).toBe('no-delta')
+    expect(r.urls).not.toContain('https://x.com/education')
+    delete process.env.HYBRID_RENDER_PROBE_MIN_NOVEL
+  })
+
+  it('records probe failure distinctly from no-delta when every probe render fails', async () => {
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => rawGraph[u] ?? null,
+      fetchPageLinksRendered: async () => null,
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage?.renderProbe).toBe('failed')
+  })
+
+  it('drops a Disallow-ed rendered candidate (candidates go through robots)', async () => {
+    process.env.HYBRID_RENDER_PROBE_MIN_NOVEL = '1'
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => rawGraph[u] ?? null,
+      fetchPageLinksRendered: async (u) => (u === 'https://x.com/'
+        ? { links: ['https://x.com/ok', 'https://x.com/admin/x'], finalUrl: 'https://x.com/' }
+        : { links: [], finalUrl: u }),
+      now: () => 0, robots: { disallow: ['/admin/'], allow: [] },
+    })
+    expect(r.urls).toContain('https://x.com/ok')
+    expect(r.urls).not.toContain('https://x.com/admin/x')
+    delete process.env.HYBRID_RENDER_PROBE_MIN_NOVEL
+  })
+
+  it('skips the rendered pass and records hardCapPrefull when raw already fills HARD_CAP', async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => `https://x.com/p${i}`)
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: full, mode: 'sitemap', capped: false }),
+      fetchPageLinks: async () => null,
+      fetchPageLinksRendered: async () => { throw new Error('rendered pass must not run when hardCap-prefull') },
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage?.renderStoppedBy).toBe('hardCapPrefull')
+  })
+
+  it('rendered pass is inert when no renderer dep is provided (regression: existing raw-only hybrid)', async () => {
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => rawGraph[u] ?? null,
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage?.renderProbe).toBe('skipped')
+  })
+
+  it('triggers via a shallow-hub probe when the homepage is SSR-empty (SSR-home/CSR-deep, Codex fix 5)', async () => {
+    process.env.HYBRID_RENDER_PROBE_MIN_NOVEL = '2'
+    const raw: Record<string, { links: string[]; finalUrl: string } | null> = {
+      'https://x.com/': { links: [], finalUrl: 'https://x.com/' },
+      'https://x.com/programs': { links: [], finalUrl: 'https://x.com/programs' },
+    }
+    const rendered: Record<string, { links: string[]; finalUrl: string }> = {
+      'https://x.com/': { links: [], finalUrl: 'https://x.com/' },
+      'https://x.com/programs': { links: ['https://x.com/nursing', 'https://x.com/welding'], finalUrl: 'https://x.com/programs' },
+      'https://x.com/nursing': { links: [], finalUrl: 'https://x.com/nursing' },
+      'https://x.com/welding': { links: [], finalUrl: 'https://x.com/welding' },
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/', 'https://x.com/programs'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => raw[u] ?? null,
+      fetchPageLinksRendered: async (u) => rendered[u] ?? null,
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage?.renderProbe).toBe('triggered')
+    expect(r.urls).toEqual(expect.arrayContaining(['https://x.com/nursing', 'https://x.com/welding']))
+    delete process.env.HYBRID_RENDER_PROBE_MIN_NOVEL
+  })
+
+  it('never passes the full raw known set to the rendered fetcher — only home + ≤maxHubs (Codex fix 5 spy)', async () => {
+    process.env.HYBRID_RENDER_PROBE_MAX_HUBS = '1'
+    process.env.HYBRID_RENDER_PROBE_MIN_NOVEL = '99'
+    const known = ['https://x.com/', ...Array.from({ length: 20 }, (_, i) => `https://x.com/p${i}`)]
+    const rendered = vi.fn(async (u: string) => ({ links: [], finalUrl: u }))
+    await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: known, mode: 'sitemap', capped: false }),
+      fetchPageLinks: async () => ({ links: [], finalUrl: 'https://x.com/' }),
+      fetchPageLinksRendered: rendered,
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(rendered.mock.calls.length).toBeLessThanOrEqual(2)
+    delete process.env.HYBRID_RENDER_PROBE_MAX_HUBS
+    delete process.env.HYBRID_RENDER_PROBE_MIN_NOVEL
+  })
+
+  it('does no probe/render work when the deadline is already spent at seed resolution (Codex fix 1)', async () => {
+    const rendered = vi.fn(async () => null)
+    await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 0 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async () => null,
+      fetchPageLinksRendered: rendered,
+      now: () => 1000, robots: { disallow: [], allow: [] },
+    })
+    expect(rendered).not.toHaveBeenCalled()
+  })
+
+  it('renderedFetches counts ACTUAL renders — the probed homepage reused as a BFS seed is not double-counted (Codex fix 4)', async () => {
+    process.env.HYBRID_RENDER_PROBE_MIN_NOVEL = '1'
+    const rendered = vi.fn(async (u: string) => (u === 'https://x.com/'
+      ? { links: ['https://x.com/a'], finalUrl: 'https://x.com/' }
+      : { links: [], finalUrl: u }))
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true, timeBudgetMs: 60_000 }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async () => ({ links: [], finalUrl: 'https://x.com/' }),
+      fetchPageLinksRendered: rendered,
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage?.renderProbe).toBe('triggered')
+    expect(rendered.mock.calls.length).toBe(2)
+    expect(r.coverage?.renderedFetches).toBe(2)
+    delete process.env.HYBRID_RENDER_PROBE_MIN_NOVEL
   })
 })
