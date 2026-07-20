@@ -144,13 +144,46 @@ export function __resetSyncRegistry(): void {
 
 export function useFocusWithin(): {
   focused: boolean
-  onFocus: () => void
+  onFocus: (event: FocusEvent<HTMLElement>) => void
   onBlur: (event: FocusEvent<HTMLElement>) => void
 } {
   const [focused, setFocused] = useState(false)
+  // The container the focus was observed inside — captured from onFocus's
+  // currentTarget (the element the handler is attached to), so callers need
+  // no ref plumbing. Used by the watchdog below.
+  const containerRef = useRef<HTMLElement | null>(null)
+
+  // Watchdog (2026-07-19 stuck-latch fix): Chrome drops focus to <body>
+  // WITHOUT firing a blur event when the focused element becomes disabled —
+  // the standard submit-button pattern (`disabled={busy}`) does exactly that
+  // on every successful save. With no blur, `focused` stayed latched true,
+  // the editor registry never went idle, and every requestRefresh() was held
+  // forever — "added a material link but it never appears until a manual
+  // reload" (repro: MaterialLinkForm submit via mouse click). While focused,
+  // poll document.activeElement once a second and clear the latch when focus
+  // has genuinely left (or the container itself is gone).
+  useEffect(() => {
+    if (!focused) return
+    const timer = setInterval(() => {
+      const container = containerRef.current
+      const active = typeof document !== 'undefined' ? document.activeElement : null
+      const stillInside =
+        container != null &&
+        container.isConnected &&
+        active != null &&
+        active !== document.body &&
+        container.contains(active)
+      if (!stillInside) setFocused(false)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [focused])
+
   return {
     focused,
-    onFocus: () => setFocused(true),
+    onFocus: (event: FocusEvent<HTMLElement>) => {
+      containerRef.current = event.currentTarget
+      setFocused(true)
+    },
     onBlur: (event: FocusEvent<HTMLElement>) => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
         setFocused(false)

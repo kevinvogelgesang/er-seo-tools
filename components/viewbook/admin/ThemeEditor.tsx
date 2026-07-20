@@ -8,6 +8,7 @@ import { ThemePreview } from './ThemePreview'
 import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
 import {
+  HexColorInput,
   ViewbookEditorPanel,
   ViewbookEditorStatus,
   editorInputClass,
@@ -161,19 +162,16 @@ export function ThemeEditor({
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               {COLOR_FIELDS.map((field) => (
-                <label key={field} data-color-control className={`${editorWellClass} flex items-center gap-3 text-sm font-medium text-navy dark:text-white/80`}>
-                  <input
-                    type="color"
+                <div key={field} data-color-control className={`${editorWellClass} flex flex-col gap-2 text-sm font-medium text-navy dark:text-white/80`}>
+                  <span className="capitalize">{field}</span>
+                  <HexColorInput
+                    label={field}
                     value={draft[field]}
-                    onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
-                    aria-label={`${field} color`}
-                    className="h-12 w-16 shrink-0 cursor-pointer rounded-lg border border-gray-300 bg-white p-1 dark:border-navy-border dark:bg-navy-light"
+                    onChange={(next) => setDraft({ ...draft, [field]: next })}
+                    swatchClassName="h-10 w-12 shrink-0 cursor-pointer rounded-lg border border-gray-300 bg-white p-1 dark:border-navy-border dark:bg-navy-light"
+                    fieldClassName="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2 py-1.5 font-mono text-xs uppercase text-navy dark:border-navy-border dark:bg-navy-light dark:text-white"
                   />
-                  <span className="min-w-0">
-                    <span className="block capitalize">{field}</span>
-                    <code className="mt-0.5 block text-xs font-normal text-gray-500 dark:text-white/55">{draft[field].toUpperCase()}</code>
-                  </span>
-                </label>
+                </div>
               ))}
             </div>
           </section>

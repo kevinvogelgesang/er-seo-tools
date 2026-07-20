@@ -34,6 +34,13 @@ function cls(x: number): string {
   return Number(x).toFixed(2)
 }
 
+// Raw Lighthouse scores and blocking-time ms arrive as long floats
+// (87.33333…, 123.45678…) — trim to at most 2 decimals for display (a whole
+// number stays a whole number; never padded with trailing zeros).
+function num2(x: number): string {
+  return String(Math.round(Number(x) * 100) / 100)
+}
+
 // codex-review P2: a cleared contentEditable region can sanitize to
 // break-only markup (`<br />`, `<p><br /></p>`) — `.trim().length > 0`
 // treats that as "populated" and leaks an empty "General notes"/"User
@@ -135,8 +142,8 @@ function AssessmentBody({
             <div className="mt-3 rounded-lg border border-black/10 bg-white px-4 py-3 shadow-sm">
               <p className="text-sm font-semibold text-black/60">Homepage</p>
               <p className="mt-1">
-                Performance {assessment.homepage.performance}/100 · Largest paint {seconds(assessment.homepage.lcpMs)} ·
-                Layout shift {cls(assessment.homepage.cls)} · Blocking time {assessment.homepage.tbtMs} ms
+                Performance {num2(assessment.homepage.performance)}/100 · Largest paint {seconds(assessment.homepage.lcpMs)} ·
+                Layout shift {cls(assessment.homepage.cls)} · Blocking time {num2(assessment.homepage.tbtMs)} ms
               </p>
             </div>
           )}
@@ -146,9 +153,9 @@ function AssessmentBody({
                 Site-wide · {assessment.performance.measuredPages} pages measured
               </p>
               <p className="mt-1">
-                Median performance {assessment.performance.medianPerformance}/100 · p75 largest paint{' '}
+                Median performance {num2(assessment.performance.medianPerformance)}/100 · p75 largest paint{' '}
                 {seconds(assessment.performance.p75LcpMs)} · p75 layout shift {cls(assessment.performance.p75Cls)} · p75
-                blocking time {assessment.performance.p75TbtMs} ms
+                blocking time {num2(assessment.performance.p75TbtMs)} ms
               </p>
             </div>
           )}
