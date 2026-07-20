@@ -146,6 +146,22 @@ Schedule tick is hardcoded 60 s (`lib/jobs/worker.ts:244`), not env-configurable
 
 Applies only to `seoIntent` site audits (hybrid discovery: sitemap-seeded crawl that follows same-domain links); non-seoIntent audits are unaffected.
 
+### L2 rendered-DOM adaptive discovery (`HYBRID_RENDER_*`)
+
+For JS-rendered-navigation sites the raw-HTTP crawl sees 0 same-host links; a bounded headless-Chrome probe + BFS follows the rendered DOM. Runs BEFORE this audit's page jobs fan out, so worst-case pool use is render-discovery (2) + a standalone ADA audit (2) = the full 4-slot pool — never above. `BROWSER_POOL_SIZE` stays ≤ 4.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `HYBRID_RENDER_MAX_DEPTH` | 2 | Rendered BFS hop limit from the publisher seeds. |
+| `HYBRID_RENDER_MAX_FETCHES` | 40 | Max total browser renders in the rendered pass. |
+| `HYBRID_RENDER_MAX_ADDED` | 300 | Max URLs added by the rendered pass. |
+| `HYBRID_RENDER_CONCURRENCY` | 2 | Concurrent renders (≤ pool size 4 — do not raise past pool headroom). |
+| `HYBRID_RENDER_PROBE_MIN_NOVEL` | 5 | Novel admissible rendered URLs (vs the raw crawl) needed to trigger the rendered BFS. |
+| `HYBRID_RENDER_PROBE_MAX_HUBS` | 2 | Probe = homepage + this many shallow known hubs. |
+| `HYBRID_RENDER_MAX_ANCHORS_PER_PAGE` | 1500 | Per-render `<a href>` cap (`rendered-crawl.ts`). |
+
+The whole rendered pass shares ONE absolute discovery deadline with the raw crawl + seed resolution (`opts.timeBudgetMs ?? HYBRID_CRAWL_TIME_BUDGET_MS`); a cancellable `acquirePage` guarantees no pool slot leaks past it. Also `seoIntent`-only.
+
 ### Retention / upload / analytics
 
 | Var | Purpose | Code default | Prod | Read site |
