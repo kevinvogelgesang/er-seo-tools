@@ -206,6 +206,11 @@ runSweepFanout(
 1. `upsert` the `WeeklySweep` row by `scheduledFor: slot`
    (`create: { scheduledFor, origin, startedAt: now }`, `update: {}` — origin
    set only on create; idempotent whether or not the route pre-created it).
+   **[Codex F1] After the upsert, assert `sweep.origin === input.origin`** and
+   throw on mismatch. `update: {}` would otherwise let a scheduled fan-out
+   silently adopt a pre-created manual row that shares the same `scheduledFor`
+   (and vice-versa). Origin is never overwritten; a cross-origin slot collision
+   is a hard error, not a merge.
 2. Freeze cohort if `membershipJson` null (`buildCohort` over
    `client.findMany({ archivedAt: null })`; fenced first publish
    `updateMany({ where: { membershipJson: null } })`; corrupt-non-null → throw).
@@ -219,7 +224,10 @@ runSweepFanout(
 - `client-sweep` handler: `{ slot: job.scheduledFor, origin:'scheduled',
   requestedBy:'sweep', scheduleId: <system-client-sweep id> }` — **behavior
   byte-identical to today** (this is a pure extraction; the scheduled path must
-  not change).
+  not change). **[Codex F2]** the `system-client-sweep` lookup + missing-schedule
+  throw stay in the **scheduled wrapper** (`client-sweep.ts:30`), which resolves
+  the id and passes it in; `runSweepFanout` never does schedule resolution. A
+  characterization test pins the scheduled queue args + membership JSON.
 - `manual-sweep` handler: `{ slot: payload.scheduledFor, origin:'manual',
   requestedBy:'manual-sweep', scheduleId: null }`.
 
@@ -246,39 +254,57 @@ always runs.
 **Behavior:**
 1. Load candidate rows: `origin='manual' AND snapshotJson IS NULL AND
    fanoutCompletedAt IS NOT NULL` (bounded; normally 0 or 1).
-2. For each: parse membership; compute **drained** =
-   *every non-skipped member is settled*, where a member is **settled** when its
-   `siteAudit` is terminal (`complete`/`error`/`failed`) **and**, if `complete`,
-   a `CrawlRun{ tool:'seo-parser' }` row exists for it (real live-scan **or**
-   the exhausted placeholder — guaranteed to appear eventually by the
-   broken-link-verify recovery/placeholder machinery). Skipped members
-   (`skipped-archived`/`skipped-delisted`) don't block drain.
-   Members with `siteAuditId: null` that aren't skipped (pending/error/
-   invalid-domain) count as settled-failed for drain purposes (they will never
-   produce a run — same as the digest treating them as `failed` coverage).
-3. **Max-wait cap:** if not drained but
-   `now − (startedAt ?? createdAt) > MANUAL_SWEEP_MAX_WAIT_MS`
-   (default **6h**, env-overridable), compute **anyway** with whatever exists
-   (mirrors the digest snapshotting whatever's there at its fixed slot). Log a
-   `logError`-level note when this fires (an ops signal that a manual cohort
-   didn't fully drain).
+2. For each: parse membership; compute **drained** = *every non-skipped member is
+   settled*. A member is **settled** when:
+   - **[Codex D1]** its `siteAudit.status` is terminal — one of
+     `complete | error | cancelled`. (`SiteAudit` has **no `failed`** status —
+     verified against `schema.prisma`; the finalizer/recovery flip to
+     `complete`/`error`. `pending`/`running`/`pdfs-running`/`lighthouse-running`
+     are non-terminal → not settled.) **AND**
+   - **[Codex D2]** if `complete` **and the audit is a full profile (`¬seoOnly`,
+     which every manual-sweep audit is)**, **BOTH** `CrawlRun{tool:'ada-audit'}`
+     **and** `CrawlRun{tool:'seo-parser'}` exist for it. The ADA findings write
+     **and** the live-scan (`seo-parser`) build are BOTH fire-and-forget *after*
+     the parent flips `complete`; requiring the SEO run alone would let the
+     advancer publish **false failed/stale ADA coverage** during the ADA
+     dual-write window. An exhausted `seo-parser` placeholder counts as the SEO
+     run (→ correct `partial` SEO coverage, never a false resolved claim).
+   - **[Codex D3]** members with `siteAuditId: null`: `skipped-archived` /
+     `skipped-delisted` are **out of cohort** (never block drain, emit no
+     coverage — matches `computeSweepSnapshot`'s member handling);
+     `invalid-domain` / `skipped-conflict` / sealed-`error` settle as
+     **failed** (they will never produce a run). A residual **`pending`** member
+     after `fanoutCompletedAt` is an **invariant violation** → it blocks drain
+     and is `logError`-logged, until the max-wait cap forces a compute.
+3. **[Codex D4] Max-wait cap:** anchor to `fanoutCompletedAt` (not `startedAt`):
+   if not drained but `now − fanoutCompletedAt > MANUAL_SWEEP_MAX_WAIT_MS`
+   (default **13h**, matching the scheduled fan-out→digest window; env-overridable
+   — 6h was too short for a globally serialized full cohort), compute **anyway**
+   with whatever exists (mirrors the digest snapshotting whatever's there at its
+   fixed slot). `logError` when this fires (ops signal: a manual cohort didn't
+   fully drain).
 4. When (drained || max-wait): `previous =
    loadPreviousScheduledSnapshot(sweep.scheduledFor)`;
    `snapshot = computeSweepSnapshot(sweep, previous, now)`;
    `publishSweepSnapshot(sweep.id, snapshot)`. **Never** send email.
    `publishSweepSnapshot` is already race-safe (fenced `updateMany where
-   snapshotJson null`), so concurrent advancer ticks can't double-publish.
-5. Fault isolation: one bad candidate row is caught + logged; it must not stop
-   the others or the rest of `stale-audit-reset`.
+   snapshotJson null`) — safe to call from a scheduled advancer that could tick
+   while other audits still finalize, **but only because D2 closes the ADA
+   dual-write race** (an early publish before both runs exist would freeze wrong
+   coverage; D2 prevents the advancer from declaring drain until both runs land).
+5. **[Codex D5]** Batch/deduplicate the status + run-existence reads **by
+   `siteAuditId`** (shared-domain members collapse to one audit — read each once).
+6. Fault isolation: one bad candidate row is caught + logged; it must not stop
+   the others. The advancer is invoked from `stale-audit-reset` through a
+   **caught dynamic import** so an advancement failure never fails audit recovery.
 
-> **Why fold into `stale-audit-reset` rather than a self-chaining poll job.**
-> `runAfter` would allow a self-re-enqueuing poll (~2 min latency), but it needs
-> a crash-window recovery re-seed and careful dedup (a same-`dedupKey` re-enqueue
-> would be swallowed while the current poll is `running`). Folding a bounded
-> indexed query into the existing 10-min maintenance job is simpler, needs **no**
-> new schedule, and is crash-safe by construction. A manual full-cohort scan
-> takes many minutes; ≤10 min added latency after the *last* audit finishes is
-> negligible. (Alternative recorded for Codex to weigh.)
+> **[Codex D5] Why fold into `stale-audit-reset` rather than a self-chaining poll
+> job.** Confirmed the maintenance-advancer is preferable. `runAfter` self-poll
+> needs a crash-window recovery re-seed and careful dedup (a same-`dedupKey`
+> re-enqueue is swallowed while the current poll is `running`). A bounded, guarded
+> indexed query in the existing 10-min job needs **no** new schedule and is
+> crash-safe by construction. ≤10 min added latency after the *last* audit
+> finishes is negligible for a multi-minute full-cohort scan.
 
 ### 5.4 `loadPreviousScheduledSnapshot(before: Date)` — manual baseline (new)
 
@@ -286,22 +312,46 @@ always runs.
 
 ```ts
 export async function loadPreviousScheduledSnapshot(before: Date): Promise<SweepSnapshot | null> {
-  const row = await prisma.weeklySweep.findFirst({
+  // [Codex B1] bounded ordered scan, return the newest VALID parsed scheduled
+  // snapshot — mirror read.ts's corrupt-newest fall-through, don't discard a
+  // valid conservative baseline just because the newest row is corrupt.
+  const rows = await prisma.weeklySweep.findMany({
     where: { origin: 'scheduled', snapshotJson: { not: null }, scheduledFor: { lt: before } },
     orderBy: { scheduledFor: 'desc' },
+    take: SCAN_LIMIT,               // same bound read.ts uses
+    select: { snapshotJson: true },
   })
-  return parseSnapshot(row?.snapshotJson ?? null)
+  for (const r of rows) {
+    const parsed = parseSnapshot(r.snapshotJson)
+    if (parsed) return parsed
+  }
+  return null
 }
 ```
 
 - Implements **D2**: the most recent *scheduled* snapshot strictly before the
   manual run's `scheduledFor`. Multiple mid-week manual runs (Wed, Fri) both
   resolve to the **same** last Sunday → consistent "resolved since Sunday".
-- Corrupt newest scheduled snapshot: `parseSnapshot` returns null → the manual
-  snapshot renders as first-baseline-ish (no false diff). (Acceptable; matches
-  the "corrupt → no claims" posture elsewhere. A fall-through to the next-older
-  valid scheduled row is a possible refinement — Codex call.)
-- **`loadPreviousSnapshot` (the −7d scheduled/email resolver) is untouched.**
+- **[Codex B1]** corrupt-newest → fall through to the next-older valid scheduled
+  snapshot (bounded scan), matching `read.ts`. Null only when no valid scheduled
+  snapshot exists before `before` → the manual snapshot renders first-baseline
+  (no false diff).
+- **[Codex B2] Streak semantics.** `computeSweepSnapshot` threads `previous`
+  consistently through `baselinePairs`, `buildIssueGroups`, AND the totals delta
+  — so coverage/new/resolved/delta are all correct against the scheduled
+  baseline. BUT `buildIssueGroups` **increments** the predecessor streak for
+  `detected`/unchanged groups (`streak = priorKey.streak + 1`), which on a
+  Wednesday manual snapshot would read as "another consecutive **week**" — false.
+  Because a manual snapshot is **never a predecessor** for anything (non-goal
+  §2), the streak value is only ever *displayed*, never consumed as a baseline.
+  **Fix: suppress the consecutive-week streak label on `/issues` when
+  `origin='manual'`** (the streak count across a mid-week diff is meaningless).
+  This keeps `buildIssueGroups` untouched (still the ONE home) and is honest.
+  *(Alternative recorded: a `streakMode:'carry'` param on `buildIssueGroups` that
+  carries `priorKey.streak` instead of +1 for manual — heavier, deferred unless
+  the UI needs a non-zero streak value.)*
+- **`loadPreviousSnapshot` (the −7d scheduled/email resolver) is untouched**
+  except the E1 `origin:'scheduled'` filter (§7).
 
 ### 5.5 Route: repurposed `POST /api/site-audit/bulk-queue`
 
@@ -314,8 +364,12 @@ export async function loadPreviousScheduledSnapshot(before: Date): Promise<Sweep
      (`origin='manual', snapshotJson=null`) → `409 manual_sweep_in_progress`
      (the partial unique index is the hard backstop for the race).
   2. `create WeeklySweep{ origin:'manual', scheduledFor: now, startedAt: now }`
-     (gives the immediate in-progress banner; the create also trips the partial
-     index on a concurrent double-click → caught → 409).
+     (gives the immediate in-progress banner). **[Codex U2] Map P2002 precisely:**
+     on a create failure, re-query the in-flight manual predicate — if an
+     in-flight manual row exists → `409 manual_sweep_in_progress`; if instead the
+     violation is a bare `scheduledFor` collision (astronomically rare
+     same-ms double-fire) → retry with a fresh `now`; any other unique violation
+     → propagate (never mislabel as `manual_sweep_in_progress`).
   3. `enqueueJob({ type:'manual-sweep', payload:{ scheduledFor: now.toISOString() },
      dedupKey:'manual-sweep:'+now, groupKey:'manual-sweep:'+now })`.
      If enqueue fails, delete the just-created row (or leave it — the advancer's
@@ -353,38 +407,87 @@ export async function loadPreviousScheduledSnapshot(before: Date): Promise<Sweep
   `snapshotJson=null` and `scheduledFor` > last Sunday sets `inProgress=true`,
   so `/issues` shows the banner during the manual scan while still serving the
   last valid (Sunday) snapshot. **Reuses existing behavior; no new banner logic.**
+- **[Codex B2] Suppress the consecutive-week streak label** on `/issues` when
+  the served snapshot's `origin='manual'` (a streak counted against the Sunday
+  baseline is not a "week"). Origin-aware render only; the underlying
+  `IssueGroup.streak` value is left as-is in the JSON (never consumed as a
+  baseline since manual snapshots are not predecessors).
 
 ### 5.8 Retention: manual-sweep audits + rows
 
-- **Manual-sweep audits** (`requestedBy:'manual-sweep'`, `scheduleId: null`).
-  `scheduleId: null` deliberately keeps them **out of the scheduled-sweep
-  keep-latest-2-per-(schedule,domain) pool** — otherwise frequent manual sweeps
-  could prune a Sunday audit before the Monday digest reads it and corrupt the
-  Sunday snapshot. New pass **`pruneManualSweepAudits()`** in `runCleanup`: keep
-  the latest 2 completed per (client,domain) among `requestedBy='manual-sweep'`
-  audits and delete older ones past a TTL, **guarded** so it never deletes an
-  audit still referenced by a manual `WeeklySweep` whose `snapshotJson` is null.
+- **[Codex R1] Manual-sweep audits** (`requestedBy:'manual-sweep'`,
+  `scheduleId: null`). `scheduleId: null` deliberately keeps them **out of the
+  scheduled-sweep keep-latest-2-per-(schedule,domain) pool**
+  (`pruneScheduledSiteAudits`) — otherwise frequent manual sweeps could prune a
+  Sunday audit before the Monday digest reads it and corrupt the Sunday snapshot.
+  New pass **`pruneManualSweepAudits()`** in `runCleanup`: keep the latest 2
+  completed per (client,domain) among `requestedBy='manual-sweep'` audits, delete
+  older past TTL, **guarded** so it never deletes an audit ID referenced by any
+  manual `WeeklySweep` whose `snapshotJson` is null (unsnapshotted membership).
   (Findings survive via `CrawlRun` SetNull; `/issues` reads frozen
-  `snapshotJson`, so pruning underlying audits never affects served history.)
-- **Manual `WeeklySweep` rows** participate in the existing
-  `pruneWeeklySweeps()` (keep newest 26 snapshotted + delete dead
-  snapshot-and-digest-null rows past 14d). A manual row is snapshotted (counts
-  toward the 26) or, if it died before compute, is "dead"
-  (`snapshotJson` null AND `digestSentAt` null) → swept at 14d. **Verify** the
-  dead-row rule doesn't strand a manual row: a manual row never sets
-  `digestSentAt`, so a stuck manual row (snapshot null) is "dead" by definition
-  and swept at 14d — acceptable backstop. No change needed to `pruneWeeklySweeps`,
-  but add a test.
+  `snapshotJson`.)
+- **[Codex R3] Reuse the artifact-cleanup seam.** `pruneManualSweepAudits` must
+  delete the audit's report PDF + hero screenshot through the SAME cleanup path
+  `pruneScheduledSiteAudits` uses (report/hero file removal), not a bare row
+  delete — else it orphans files.
+- **[Codex R2] Partition `pruneWeeklySweeps` retention by origin.** The current
+  global newest-26-snapshotted rule (`retention.ts:30`) would let frequent
+  **manual** snapshots evict the **scheduled** Sunday rows — which
+  `loadPreviousScheduledSnapshot` (§5.4) AND the −7d email baseline (§7) both
+  depend on. Fix: keep **newest 26 *scheduled*** snapshotted rows as an
+  independent pool, PLUS a separately-bounded manual-snapshot history (e.g.
+  `WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP`, default a small number — manual snapshots
+  are transient refreshes, not long-term history). At minimum the newest ~2
+  scheduled rows must be protected from manual eviction. The dead-row rule
+  (snapshot AND `digestSentAt` both null, 14d) is **correct as-is** for manual: a
+  healthy manual row has non-null `snapshotJson` (safe); only a genuinely-dead
+  manual row (never snapshotted, never sent) matches → swept at 14d. Add tests
+  for both the origin-partitioned keep and the dead-manual-row sweep.
 
 ---
+
+### 5.9 Recovery, exhaustion & attribution (Codex-flagged omissions)
+
+- **[Codex] Orphan recovery (mandatory).** A crash between the route's row-create
+  and the `manual-sweep` enqueue bypasses the route's `try/catch` (§5.5 step 3
+  delete-on-failure only covers a *caught* enqueue failure). Add a real recovery
+  pass — in `recoverQueue()` (boot) **and** the `stale-audit-reset` job (10 min):
+  a manual `WeeklySweep` with `membershipJson = null` (fan-out never ran) **and**
+  no active `manual-sweep` job for its slot, older than a small threshold →
+  **re-enqueue** the `manual-sweep` job for that slot (idempotent — the fan-out
+  fence handles a double). This is the same self-healing pattern as
+  `recoverBrokenLinkVerifies`.
+- **[Codex] `manual-sweep.onExhausted`.** Without it, a row with non-null
+  membership + enqueue errors + null `fanoutCompletedAt` (fan-out exhausted all
+  attempts) would sit `snapshotJson=null` forever → the **partial unique index
+  blocks ALL future manual sweeps** until the 14-day dead-row sweep. Add an
+  `onExhausted` hook that **seals the row for partial advancement**: stamp
+  `fanoutCompletedAt` (so the advancer computes a snapshot from whatever members
+  *did* enqueue — failed members settle as `failed` coverage per D3) OR, if no
+  member enqueued at all, **delete the row** to free the in-flight slot. Log
+  either way. This mirrors the `broken-link-verify` `onExhausted` →
+  `ensureExhaustedPlaceholder` terminality discipline.
+- **[Codex] In-progress banner recovery.** The two failures above also leave
+  `/issues` showing `inProgress` indefinitely (a newer manual row with null
+  snapshot). The recovery + `onExhausted` above clear it (row gets a snapshot or
+  is deleted). Add a test asserting recovery clears the stuck `inProgress`.
+- **[Codex] `requestedBy` attribution.** `requestedBy:'manual-sweep'` is a
+  **machine-origin marker** (like the scheduled sweep's `'sweep'`): these audits
+  display as the machine actor and are **excluded from any operator's "Mine"
+  recents filter**. This is intentional and consistent with the weekly sweep —
+  a manual sweep is a global system artifact, not a personal scan. **Documented
+  choice** (not preserving per-operator attribution in v1; the operator who
+  triggered it is not surfaced on the individual audits). Revisit only if Kevin
+  wants "who ran the manual refresh" visible.
 
 ## 6. Config / env
 
 | Env | Default | Purpose |
 |---|---|---|
-| `MANUAL_SWEEP_MAX_WAIT_MS` | `21600000` (6h) | Cap after which the advancer computes a manual snapshot even if the cohort hasn't fully drained (mirrors the digest's fixed-slot behavior). |
+| `MANUAL_SWEEP_MAX_WAIT_MS` | `46800000` (**13h**) | Cap (anchored to `fanoutCompletedAt`, [Codex D4]) after which the advancer computes a manual snapshot even if the cohort hasn't fully drained — matches the scheduled fan-out→digest window; mirrors the digest's compute-whatever-exists behavior. |
 | `MANUAL_SWEEP_AUDIT_KEEP` | `2` | Per-(client,domain) keep count for `pruneManualSweepAudits`. |
 | `MANUAL_SWEEP_AUDIT_TTL_MS` | `1209600000` (14d) | TTL before older manual-sweep audits are pruned. |
+| `WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP` | `4` | [Codex R2] Independent keep count for manual `WeeklySweep` snapshot rows, so manual refreshes never evict the scheduled-Sunday history the baselines depend on. |
 
 All optional-with-default (call-time reads, never boot fail-fast). Follow the
 `lib/*-config` env-home convention if a config module is warranted, else read
@@ -398,12 +501,17 @@ inline with documented defaults.
   `findUnique({ where: { scheduledFor: sweepSlot } })`. A manual row's
   `scheduledFor` is the trigger `now`, which is not a Monday-01:00 slot → the
   digest never matches a manual row. **Confirmed by construction.**
-- **Harden:** change the digest's lookup to
-  `findFirst({ where: { scheduledFor: sweepSlot, origin: 'scheduled' } })` so an
-  impossible collision could still never send a manual snapshot as the Monday
-  email. Same for `loadPreviousSnapshot` (the −7d email baseline): filter
-  `origin: 'scheduled'`. These are defensive one-liners; the scheduled path stays
-  behaviorally identical for all real inputs.
+- **[Codex E1] Harden BOTH scheduled lookups:** the digest's exact-slot row
+  → `findFirst({ where: { scheduledFor: sweepSlot, origin: 'scheduled' } })`, AND
+  `loadPreviousSnapshot` (the −7d email baseline) → filter `origin: 'scheduled'`.
+  Together with **never enqueuing `sweep-digest` for a manual row** (manual has no
+  digest job — §3), this fully isolates the Monday email. Defensive one-liners;
+  the scheduled path stays behaviorally identical for all real inputs.
+- **[Codex E2] Retention dependency:** origin filters alone don't help if
+  frequent manual snapshots have already **evicted** the scheduled row the email
+  baseline needs — this is exactly why `pruneWeeklySweeps` must be
+  origin-partitioned (§5.8 R2). Email isolation = origin filters **+**
+  origin-partitioned retention, together.
 
 ---
 
@@ -416,11 +524,28 @@ sets; array-form `$transaction` only; DateTime = INTEGER ms in raw SQL.
   snapshotted row before `before`; ignores manual rows; ignores unsnapshotted;
   corrupt-newest → null (or fall-through, per §5.4 decision).
 - **`advanceManualSweeps`** (integration, DB): (a) not-drained → no publish;
-  (b) drained (all members complete + seo-parser run) → publishes with the
-  scheduled baseline, no email; (c) max-wait exceeded while not drained →
-  publishes anyway + logs; (d) already-snapshotted candidate → no-op;
-  (e) skipped-archived/delisted members don't block drain; (f) fault isolation
-  (one corrupt row doesn't stop others).
+  (b) drained (all members `complete` + **both** ada-audit AND seo-parser runs
+  [D2]) → publishes with the scheduled baseline, no email; (b2) a `complete`
+  member with only the seo-parser run (ADA run not yet written) → **not** drained
+  [D2]; (c) max-wait (anchored to `fanoutCompletedAt` [D4]) exceeded while not
+  drained → publishes anyway + logs; (d) already-snapshotted candidate → no-op;
+  (e) skipped-archived/delisted members don't block drain; (e2) `invalid-domain`/
+  `skipped-conflict`/`error` members settle failed, a residual `pending` blocks
+  until max-wait [D3]; (f) fault isolation (one corrupt row doesn't stop others);
+  (g) terminal set is `complete|error|cancelled` — a `running` member is not
+  settled [D1]; (h) shared-domain members read the same audit once [D5]; (i) an
+  exhausted seo-parser placeholder counts as the SEO run → partial coverage.
+- **`manual-sweep.onExhausted`** (integration): a fan-out that exhausts attempts
+  seals the row (`fanoutCompletedAt` stamped for partial advancement) or deletes
+  it when nothing enqueued — the in-flight slot is freed, no 14-day block.
+- **Orphan recovery** (integration): a manual row with `membershipJson=null` and
+  no active `manual-sweep` job → recovery re-enqueues the fan-out; a stuck
+  `inProgress` on `/issues` is cleared after recovery/onExhausted.
+- **`pruneWeeklySweeps` origin partition** [R2] (DB): many manual snapshots do
+  NOT evict the newest scheduled rows; scheduled keep-26 + manual keep-N are
+  independent; a dead manual row (snapshot+digest null) swept at 14d.
+- **Streak suppression** [B2] (unit/component): a manual-origin snapshot's
+  `/issues` render hides the consecutive-week streak label.
 - **`runSweepFanout` extraction** (characterization): the **scheduled** path
   produces byte-identical membership/fan-out to pre-refactor `client-sweep`
   (freeze once, revalidate, shared-domain collapse, `fanoutCompletedAt` gate).
@@ -448,11 +573,16 @@ sets; array-form `$transaction` only; DateTime = INTEGER ms in raw SQL.
 ## 9. Migration
 
 - Hand-authored SQL migration, timestamp **later than `20260720160000`** and
-  later than any viewbook-lane migration merged before this ships (re-check at
-  build time; use e.g. `20260721000000_manual_sweep_origin`).
+  later than any viewbook-lane migration merged before this ships (**[Codex]
+  re-check at build time**; use e.g. `20260721000000_manual_sweep_origin`).
 - Contents: `ALTER TABLE "WeeklySweep" ADD COLUMN "origin" TEXT NOT NULL DEFAULT
   'scheduled';` + the partial unique index (§4.2). SQLite: `ADD COLUMN` with a
   constant default is safe; existing rows get `'scheduled'`.
+- **[Codex] After editing `schema.prisma` (add `origin`), regenerate the Prisma
+  client** (`npx prisma generate` / the `migrate dev` flow does this locally) so
+  the typed client knows the column. Test: existing rows default to `'scheduled'`;
+  BOTH unique constraints (`scheduledFor` @unique + the partial in-flight index)
+  are exercised.
 - Applied in prod via `prisma migrate deploy` in the deploy command.
 
 ---
@@ -465,8 +595,10 @@ sets; array-form `$transaction` only; DateTime = INTEGER ms in raw SQL.
 | Manual sweep prunes a Sunday audit before the Monday digest reads it | Manual audits carry `scheduleId: null` → separate retention pool (§5.8); `pruneManualSweepAudits` guards in-flight references. |
 | A manual cohort never fully drains (an audit hangs) | `MANUAL_SWEEP_MAX_WAIT_MS` cap → compute with whatever's there + log (mirrors digest). |
 | Double-click / concurrent manual sweeps | Partial unique index (hard) + 409 (friendly). |
-| Manual snapshot leaks into the Monday email | Digest resolves by exact Sunday slot **and** `origin='scheduled'` (§7). |
-| Stranded manual row blocks all future manual sweeps (partial index) | Delete row on enqueue failure; dead-row sweep at 14d; recovery re-enqueue for `membershipJson=null` orphans. |
+| Manual snapshot leaks into the Monday email | Digest resolves by exact Sunday slot **and** `origin='scheduled'`; −7d baseline `origin='scheduled'`; no digest job for manual (§7 E1). |
+| Manual snapshots evict the scheduled Sunday rows the email/baseline need [E2/R2] | `pruneWeeklySweeps` partitioned by origin — scheduled keep-26 + manual keep-N independent (§5.8). |
+| Advancer publishes false ADA coverage before the ADA run lands [D2] | Drain requires BOTH ada-audit AND seo-parser runs on a complete full audit before publish (§5.3). |
+| Stranded manual row blocks all future manual sweeps (partial index) | Delete row on caught enqueue failure; `manual-sweep.onExhausted` seals/deletes; recovery re-enqueue for `membershipJson=null` orphans; dead-row sweep at 14d (§5.9). |
 | Cost: full ADA+SEO cohort on demand (heavy) | It's operator-initiated + one-in-flight; same cost profile as the weekly sweep. Copy warns it's a full scan. |
 
 ---
