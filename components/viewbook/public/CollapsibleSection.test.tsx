@@ -28,6 +28,12 @@ afterEach(() => {
 // contains the title as visible text; this harness mirrors that shape
 // (rather than the old opaque "Hero expanded"/"Hero collapsed" strings) so
 // `getByRole('button', { name: title })` still resolves correctly.
+//
+// Fixtures use <span> (not <div>) — the button may only contain phrasing
+// content (see SectionShell.tsx's banner on the round-2 a11y fix); a <div>
+// fixture would silently pass in jsdom/RTL (which doesn't enforce HTML
+// content-model validity) while misrepresenting what real hero markup looks
+// like inside the button.
 function Harness(props: Partial<Parameters<typeof CollapsibleSection>[0]> = {}) {
   const title = props.title ?? 'Brand & Identity'
   return (
@@ -35,9 +41,9 @@ function Harness(props: Partial<Parameters<typeof CollapsibleSection>[0]> = {}) 
       viewbookId={1}
       sectionKey="brand"
       title={title}
-      heroExpanded={<div data-testid="hero-expanded">{title}</div>}
-      heroCollapsed={<div data-testid="hero-collapsed">{title}</div>}
-      body={<div data-testid="body">Body content</div>}
+      heroExpanded={<span data-testid="hero-expanded">{title}</span>}
+      heroCollapsed={<span data-testid="hero-collapsed">{title}</span>}
+      body={<span data-testid="body">Body content</span>}
       regionId="vb-region-brand"
       {...props}
     />
@@ -45,19 +51,54 @@ function Harness(props: Partial<Parameters<typeof CollapsibleSection>[0]> = {}) 
 }
 
 describe('CollapsibleSection', () => {
-  it('defaults to collapsed on a fresh machine: shows heroCollapsed, region hidden+inert', () => {
-    render(<Harness />)
+  it('defaults to collapsed on a fresh machine: shows heroCollapsed, region MOUNTED but aria-hidden+inert, root data-vb-state="collapsed"', () => {
+    const { container } = render(<Harness />)
     expect(screen.getByTestId('hero-collapsed')).toBeDefined()
     expect(screen.queryByTestId('hero-expanded')).toBeNull()
 
     const region = document.getElementById('vb-region-brand')
     expect(region).not.toBeNull()
-    expect(region?.hasAttribute('hidden')).toBe(true)
+    // Task 7: the region is never `hidden`/`display:none` (that would kill
+    // the grid-rows transition) — it stays mounted, guarded by aria-hidden
+    // + inert instead.
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(region?.style.display).not.toBe('none')
     expect(region?.getAttribute('aria-hidden')).toBe('true')
+
+    const root = container.querySelector('.vb-collapsible')
+    expect(root?.getAttribute('data-vb-state')).toBe('collapsed')
 
     const btn = screen.getByRole('button', { name: 'Brand & Identity' })
     expect(btn.getAttribute('aria-controls')).toBe('vb-region-brand')
     expect(btn.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('the region div is present in the DOM in BOTH collapsed and expanded states (mounted-region truth, not a display:none toggle)', () => {
+    render(<Harness />)
+    // Collapsed (default): present, mounted, not display:none, not hidden.
+    let region = document.getElementById('vb-region-brand')
+    expect(region).not.toBeNull()
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(region?.style.display).not.toBe('none')
+    expect(screen.getByTestId('body')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+
+    // Expanded: still present (same node identity — never removed/remounted).
+    region = document.getElementById('vb-region-brand')
+    expect(region).not.toBeNull()
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(region?.style.display).not.toBe('none')
+    expect(screen.getByTestId('body')).toBeDefined()
+  })
+
+  it('root data-vb-state flips from "collapsed" to "expanded" when the button is clicked', () => {
+    const { container } = render(<Harness />)
+    const root = container.querySelector('.vb-collapsible')
+    expect(root?.getAttribute('data-vb-state')).toBe('collapsed')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+    expect(root?.getAttribute('data-vb-state')).toBe('expanded')
   })
 
   it('APG Accordion structure: the <button> does NOT contain a heading, and the section heading (same accessible name) WRAPS the button', () => {
@@ -90,11 +131,13 @@ describe('CollapsibleSection', () => {
 
   it('a stored "expanded" value starts expanded', () => {
     stored.set(collapseKey(1, 'brand'), 'expanded')
-    render(<Harness />)
+    const { container } = render(<Harness />)
     expect(screen.getByTestId('hero-expanded')).toBeDefined()
     expect(screen.queryByTestId('hero-collapsed')).toBeNull()
     const region = document.getElementById('vb-region-brand')
     expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(region?.getAttribute('aria-hidden')).toBeNull()
+    expect(container.querySelector('.vb-collapsible')?.getAttribute('data-vb-state')).toBe('expanded')
     expect(screen.getByRole('button', { name: 'Brand & Identity' }).getAttribute('aria-expanded')).toBe('true')
   })
 
@@ -107,6 +150,7 @@ describe('CollapsibleSection', () => {
     const region = document.getElementById('vb-region-brand')
     expect(region?.hasAttribute('hidden')).toBe(false)
     expect(region?.getAttribute('aria-hidden')).toBeNull()
+    expect(region?.hasAttribute('inert')).toBe(false)
     expect(stored.get(collapseKey(1, 'brand'))).toBe('expanded')
   })
 
@@ -118,8 +162,27 @@ describe('CollapsibleSection', () => {
 
     expect(screen.getByTestId('hero-collapsed')).toBeDefined()
     const region = document.getElementById('vb-region-brand')
-    expect(region?.hasAttribute('hidden')).toBe(true)
+    // Never `hidden` (see Task 7 banner) — collapsed is conveyed by
+    // aria-hidden/inert (asserted below) plus the CSS-driven grid collapse.
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(region?.getAttribute('aria-hidden')).toBe('true')
+    expect(region?.hasAttribute('inert')).toBe(true)
     expect(stored.get(collapseKey(1, 'brand'))).toBe('collapsed')
+  })
+
+  it('inert and aria-hidden are present ONLY when collapsed', () => {
+    render(<Harness />)
+    const region = document.getElementById('vb-region-brand')!
+    expect(region.hasAttribute('inert')).toBe(true)
+    expect(region.getAttribute('aria-hidden')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+    expect(region.hasAttribute('inert')).toBe(false)
+    expect(region.getAttribute('aria-hidden')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+    expect(region.hasAttribute('inert')).toBe(true)
+    expect(region.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('the body is never a collapse target — it is not wrapped by the toggle button', () => {
@@ -142,13 +205,13 @@ describe('CollapsibleSection', () => {
 
   it('vb:navigate with a matching sectionKey force-expands WITHOUT writing localStorage', async () => {
     render(<Harness />)
-    expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(true)
+    expect(document.getElementById('vb-region-brand')?.getAttribute('aria-hidden')).toBe('true')
 
     await act(async () => {
       window.dispatchEvent(new CustomEvent('vb:navigate', { detail: { sectionKey: 'brand' } }))
     })
 
-    expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(false)
+    expect(document.getElementById('vb-region-brand')?.getAttribute('aria-hidden')).toBeNull()
     expect(stored.has(collapseKey(1, 'brand'))).toBe(false)
   })
 
@@ -157,13 +220,13 @@ describe('CollapsibleSection', () => {
     await act(async () => {
       window.dispatchEvent(new CustomEvent('vb:navigate', { detail: { sectionKey: 'assessment' } }))
     })
-    expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(true)
+    expect(document.getElementById('vb-region-brand')?.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('an initial #hash matching the section force-expands on mount', () => {
     window.location.hash = '#brand'
     render(<Harness />)
-    expect(document.getElementById('vb-region-brand')?.hasAttribute('hidden')).toBe(false)
+    expect(document.getElementById('vb-region-brand')?.getAttribute('aria-hidden')).toBeNull()
     expect(stored.has(collapseKey(1, 'brand'))).toBe(false)
   })
 

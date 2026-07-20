@@ -161,11 +161,13 @@ describe('SectionShell', () => {
     expect(document.getElementById('brand')).not.toBeNull()
     const heading = screen.getByRole('heading', { name: 'Brand Guidelines' })
     expect(heading.tagName).toBe('H2')
-    // The outer viewer-collapse region exists but is hidden — content is
-    // still IN THE DOM (not suppressed server-side), just not visible.
+    // The outer viewer-collapse region exists but is aria-hidden+inert — the
+    // Task 7 body-reveal animation requires it to stay MOUNTED (never
+    // `hidden`/`display:none`, which would freeze the grid-rows transition),
+    // so collapsed-vs-expanded is conveyed by aria-hidden/inert instead.
     const outer = document.getElementById('vb-region-brand')
     expect(outer).not.toBeNull()
-    expect(outer?.hasAttribute('hidden')).toBe(true)
+    expect(outer?.hasAttribute('hidden')).toBe(false)
     expect(outer?.getAttribute('aria-hidden')).toBe('true')
     expect(screen.getByText('A note')).toBeDefined()
     expect(screen.getByText('Body')).toBeDefined()
@@ -203,13 +205,14 @@ describe('SectionShell', () => {
         <p>Body</p>
       </SectionShell>,
     )
-    // The outer viewer-collapse region is a real landmark, present but
-    // hidden while collapsed (default on a fresh machine) — same shape as
-    // every other collapsible section.
+    // The outer viewer-collapse region is a real landmark, present and
+    // MOUNTED but aria-hidden+inert while collapsed (default on a fresh
+    // machine) — same shape as every other collapsible section.
     const region = document.getElementById('vb-region-pc-intro')
     expect(region).not.toBeNull()
     expect(region?.getAttribute('role')).toBe('region')
-    expect(region?.hasAttribute('hidden')).toBe(true)
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(region?.getAttribute('aria-hidden')).toBe('true')
     const btn = screen.getByRole('button', { name: 'Welcome' })
     expect(btn.getAttribute('aria-controls')).toBe('vb-region-pc-intro')
     expect(btn.getAttribute('aria-expanded')).toBe('false')
@@ -267,7 +270,9 @@ describe('SectionShell PR3 restructure', () => {
     )
     // The compact row's small done-check.
     expect(collapsedContainer.querySelector('.vb-done-badge')).not.toBeNull()
-    expect(document.getElementById('vb-region-assessment')?.hasAttribute('hidden')).toBe(true)
+    // Mounted (not `hidden`) but aria-hidden while collapsed — see Task 7.
+    expect(document.getElementById('vb-region-assessment')?.hasAttribute('hidden')).toBe(false)
+    expect(document.getElementById('vb-region-assessment')?.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('retains the body "Completed {date}" badge when done, independent of the outer collapse default', () => {
