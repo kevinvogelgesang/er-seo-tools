@@ -561,3 +561,126 @@ before (the clean discovery instrument is `discoveryCoverageJson`, not raw page-
   variance) is essentially in hand for the fleet. What remains is Kevin's judgment call on the bar
   (proposed N=8 consecutive weekly runs) + the analytics-independence and dashboards-default-to-live
   criteria — process/decision items, not measurement gaps.
+
+---
+
+## 🎯 2026-07-20 — SF RETIREMENT BAR **SET** (Kevin's judgment call — Phase 7 knobs locked)
+
+The DATA side of Phase 7 is over-satisfied (above). This section locks the four owner-policy knobs
+the roadmap explicitly reserves to Kevin ("Kevin sets the final bar"). **These numbers are now the
+falsifiable retirement gate** — they supersede the "proposed N=8" placeholder in the campaign skill's
+Phase 7 and annotate the roadmap §4 gate.
+
+### The bar (all must hold to demote SF-as-CRAWLER, fleet-wide)
+
+| # | Knob | **Locked value** | Rationale |
+|---|---|---|---|
+| 1 | **N — consecutive stable weekly sweeps** | **N = 8** | Roadmap default. Each = a full-fleet `wcag21aa`+seoIntent weekly sweep that, for the client, is **QUALIFYING**: non-null score + **NO recovery-path rescue** (no `stale-audit-reset` / `recoverBrokenLinkVerifies` intervention on that audit) + **"stable timing/score"** (see objective def below) + meets #2. A client's streak counts **only qualifying sweeps**; a non-qualifying sweep resets it to 0. Fleet streak = 2 as of cycle 4 (2026-07-20) **for the clients that already meet #2** — 0 for the under-expanders (they fail #2, so no qualifying sweep yet). |
+| 2 | **Discovery-coverage threshold** | **`residualMiss` ≤ 5%, strict** (per run, per in-scope client) | The 95% end of the roadmap's "90–95% of known pages" range. **No coverage-level capped/blocked escape** — an in-scope client must genuinely reach ≤5% residual on the run. Because #1 counts only sweeps that also meet #2, an under-expander's N=8 clock **starts after** the crawler fix lands (see consequence below). *(Sub-decision Kevin can relax later: whether ≤5% must hold on ALL 8 qualifying sweeps, as written here, or only on the exit sweep. Default = all 8.)* |
+| 3 | **Scope** | **Fleet-wide** | SF stays routine for the ENTIRE fleet until EVERY in-scope client clears #1 and #2. Not per-client-rolling. |
+| 4 | **Analytics coupling** | **Split gate** | This bar governs SF-as-**crawler** only. SF-as-**keyword-joiner** (SEMrush/DataForSEO) retirement is a SEPARATE gate, deferred until DataForSEO gets prod creds (KS-2 layer built but dark). Roadmap §4 bullet 6 (analytics independent) is REMOVED from the crawler gate and tracked separately. |
+
+**Objective "stable timing/score" (criterion #1), so the streak is mechanically reproducible:** a
+qualifying sweep's live score is within **±3** of the client's previous qualifying sweep, OR any larger
+move is explained by a recorded site change or a labeled formula-version break (`comparabilityBreak`);
+AND the sweep's `broken-link-verify` job completed within its normal window (no 15-min verify-timeout
+`partial`-by-timeout, no recovery rescue). "Stable" is NOT eyeballed.
+
+### In-scope cohort vs. standing carve-outs (so the fleet-wide bar is satisfiable)
+
+The retirement cohort = **indexable client production domains**. A domain is carved out (keeps SF
+regardless, per the roadmap's standing *"Keep SF deliberately for … any client whose live run is
+low-confidence / blocked / capped"* clause) **only by an OBJECTIVE, recorded predicate** — never by
+hand-wave. This is NOT a coverage escape hatch (#2 stays strict for in-scope clients); a carved-out
+domain is simply not in the retirement cohort. **Carve-out predicate (auditable):**
+
+- `scoreLiveSeo === null` on the run (noindex / login-walled / `indexableScored===0` / <50% observed
+  coverage — the builder's own unscoreable conditions), OR
+- `SiteAudit.discoveryCapped === true` (the 1000-page cap bit), OR
+- a **manually flagged** blocked domain with the blocking evidence recorded in the cohort ledger
+  (below) — e.g. a WAF/CDN block on the VPS crawler, an auth wall, a mid-window migration.
+
+**Frozen in-scope cohort ledger (OPEN action — a prerequisite to first evaluating the gate):** freeze,
+in this log, the enumerated list of all ~29 sweep-cohort domains with, per domain: latest `residualMiss`,
+`scoreLiveSeo` (null?), `discoveryCapped`, and **in-scope vs carved-out + the objective reason**. Entry/
+re-entry rule: a domain that leaves carve-out (e.g. block clears) enters as a fresh in-scope client with
+streak 0. Without this ledger the fleet-wide gate cannot be mechanically evaluated. (Build it from a
+read-only prod probe — the cohort membership is not yet frozen as of this bar-set.)
+
+**Carve-out examples — evidence required, NOT pre-granted:**
+- **The canary** `proway.erstaging.site` — noindex by design → `scoreLiveSeo === null` always → meets the
+  predicate. A plumbing probe, not a client. Carved out.
+- **`healthcarecareercollege.edu` is NOT auto-excluded.** It produced a **non-null** live score (76,
+  byte-identical across cycles 3–4), so it does NOT meet the predicate. Its 92.2% *sitemapMiss* is
+  intrinsic, not a crawl failure — but its `residualMiss` has not been recorded here. Treat it as
+  **in-scope**: if its `residualMiss` > 5% it is simply another failing client that blocks the fleet-wide
+  gate (like the under-expanders), UNLESS the PR #227 triage resolves to a recorded manual block. Do not
+  drop it from the cohort on the sitemapMiss number alone.
+
+### ⚠ Consequence of Kevin's fleet-wide + ≤5%-strict choice (flagged deliberately)
+
+Under fleet-wide scope, the **~6 INDEXABLE under-expanding clients** from cycle 4 currently **FAIL #2**
+and therefore **BLOCK the whole-fleet gate**:
+
+| Client | cycle-4 residualMiss | why it fails ≤5% |
+|---|---|---|
+| discovery | 41% | 1287-page site — hybrid frontier overruns/under-covers |
+| cambria | 19.5% | sitemap-mode fallback — crawler declined to expand |
+| brownson | 18.1% | hybrid but under-expands |
+| federico | 14.5% | hybrid but under-expands |
+| glow | 12.9% | sitemap-mode fallback — crawler declined to expand |
+| nuvani | 11.5% | sitemap-mode fallback — crawler declined to expand |
+
+**Therefore the hybrid-crawler frontier/depth under-expansion follow-up — previously logged as a
+"candidate increment" — is now promoted to a HARD RETIREMENT PREREQUISITE.** It must land and drive
+these 6 to ≤5% residual before the fleet-wide bar can clear. (Frontier-overrun on `discovery` and
+no-expansion on `glow`/`cambria`/`nuvani` are distinct failure modes the increment must both address.)
+
+### Gate criteria status against the locked bar
+
+**MET (do not re-litigate):**
+- ✅ Broken-link verification **shipped** (C6). *(NOTE: this is the "shipped" half of the roadmap gate
+  only — the SF false-positive-rate half is OPEN below.)*
+- ✅ Documented, explainable **SF-vs-live variance** — on the **11 SF-paired domains** (6 detailed in
+  cycle 4), every deviation explained, no open bug hunt. *(Distinct from the 29-client figure, which is
+  live-vs-live reproducibility — see next.)*
+- ✅ **Live-vs-live reproducibility** — 29 clients, cycles 3→4, 26/29 byte-identical. Strong Phase-7
+  stability evidence (this is NOT the SF-parity cohort; the two datasets are separate).
+- ✅ Miss-rate verdict / Phase 2 discovery — hybrid crawler (Increment 2) shipped + prod-verified.
+
+**OPEN (what actually gates retirement now — larger than the first draft implied):**
+1. **(Passive, per-client) N = 8 qualifying-sweep streak.** Clients already at ≤5% are at 2/8. The
+   under-expanders are at 0/8 (they fail #2 until fixed). Record each sweep's per-client qualifying status
+   (score / recovery-rescue / stability / coverage) here.
+2. **(ACTIVE / BLOCKING) hybrid-crawler under-expansion fix** → drive the 6 indexable under-expanders
+   (+ possibly healthcare) to ≤5%. **This is the next buildable code item the bar gates on** (Phase 2
+   frontier/depth tuning — full change-control cycle). Fleet-wide + per-run ≤5% makes this the long pole.
+3. **(BLOCKING, code) anchor-text capture** — the roadmap's 2026-07-06 note requires anchor-text capture
+   *before* the Phase-7 gate. Today `HarvestedLink` stores only source/target/kind and the live pipeline
+   emits none of the three anchor findings. Either build it (change-control cycle) or Kevin explicitly
+   supersedes that prerequisite (recorded). Until then: OPEN.
+4. **(BLOCKING, code) graph-signal labeling + consumer acceptance.** NOT met — `brief.service.ts` output
+   still says "Orphaned pages" and plain "inlinks" without the required "ER audited-set authority"
+   qualification. Needs the labeling change AND consumer (brief/pillar) sign-off. Hard OPEN, not soft.
+5. **(BLOCKING, evidence) broken-link false-positive rate.** The roadmap gate wants the verifier's FP rate
+   "low enough that analysts act on findings unreviewed." Not yet measured — the parity log explicitly notes
+   SF/live broken-link counts aren't directly comparable and records no target-level FP audit. OPEN.
+6. **(Decision + CODE, at-retirement) §4 #7 "dashboards/roadmap/Teamwork default to live".** Selector-backed
+   surfaces flip via `pickCanonicalSeo` (fresh SF ≤30 d wins today; stop routine SF uploads → live becomes
+   canonical by absence). BUT the `srt_` SEO roadmap + `qct_` Teamwork push are still `Session`-bound (read
+   `Session.result`) — **live-source roadmap/Teamwork generation does not exist yet**. So closing #7 is
+   partly implementation work, not merely a config flip.
+
+**Realistic clear date — NOT ~2026-08-31.** The passive N=8 streak for the already-clean clients would
+finish ≈ run #8 (2026-08-31), but the gate is fleet-wide and multiple BLOCKING code items remain
+(under-expansion fix, anchor-text, graph labeling — each a change-control cycle). Because an under-expander's
+qualifying streak only starts *after* its coverage reaches ≤5%, the fleet clears roughly at **(latest
+blocking-fix ship date) + 8 clean weekly sweeps**, not +1. The long pole is the code, not the calendar.
+
+**Rollback triggers (automatic — SF returns to routine, no debate):** repeated low-confidence/null-score
+runs, **`residualMiss` regressing above 5% (discovery coverage below 95%)**, verifier false-positive spike,
+or a client site migration/redesign.
+
+**Keep SF forever for:** discovery sweeps, migrations, staging/pre-launch QA, competitor & ad-hoc/list
+crawls, custom XPath extraction, and any blocked/capped/low-confidence client — this is the *deliberate
+fallback*, not a gate failure.

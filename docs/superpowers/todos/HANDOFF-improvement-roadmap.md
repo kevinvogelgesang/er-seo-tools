@@ -1,12 +1,12 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-20 (**SF-PARITY CAMPAIGN cycles 3 & 4 RECORDED
-(autonomous, read-only prod measurement) — the parity dataset is now
-self-generating via the weekly sweep; Phase-1 gate over-satisfied fleet-wide;
-the cycle-2→3 score drop root-caused to the C19 recalibration (not a bug).
-NEXT: Kevin sets the retirement bar; the remaining buildable code item is the
-C12 topic-overlap ONNX child-process embed-worker follow-up.**) ·
-**Updated by:** the SF-parity cycle-3/4 measurement session.
+**Last updated:** 2026-07-20 (**SF-RETIREMENT PHASE-7 RETIREMENT BAR SET by Kevin**
+— N=8 qualifying weekly sweeps / discovery `residualMiss` ≤ 5% strict / fleet-wide /
+split crawler-vs-keyword-joiner gate. Codex correctness review reclassified 3
+over-marked criteria → OPEN and corrected the fleet-wide/coverage interaction.
+**NEXT (recommended): the hybrid-crawler under-expansion fix** — the single
+buildable code item the bar now gates on; C12 topic-overlap is the independent
+alternative.) · **Updated by:** the SF-retirement-bar decision session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -14,42 +14,58 @@ C12 topic-overlap ONNX child-process embed-worker follow-up.**) ·
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. STATE (2026-07-20): the SF-PARITY
-CAMPAIGN advanced — cycles 3 & 4 recorded autonomously (read-only prod
-measurement, NO scans triggered). The weekly-sweep infra (deployed 2026-07-16)
-now GENERATES parity data: two full-cohort seoIntent sweeps completed (2026-07-16
-= cycle 3, 2026-07-20 = cycle 4), each ~29 client domains (up from the hand-run
-7). Recorded in docs/superpowers/todos/2026-07-05-sf-live-parity-log.md
-(§ 2026-07-20). Key results: 11 SF-vs-live parity pairs; the systematic cycle-2→3
-live-score drop (e.g. bidwell 88→71 with byte-IDENTICAL inputs) is fully
-explained by the C19 SEO recalibration (PRs #143/#144, deployed 2026-07-10 —
-steeper curve knees + a new broken-links factor), a cross-formula-version
-comparability break NOT a regression; 26/29 live scores byte-identical across the
-two sweeps (strong Phase-7 reproducibility evidence); sitemap miss-rate median
-≈19% with the hybrid crawler closing 17/29 clients to <5% residual;
-topicOverlapJson absent on all 232 live runs (C12 kill-switch confirmed OFF).
-Phase-1 parity gate is over-satisfied fleet-wide. (Also already shipped this
-week: manual full-cohort sweep → /issues PR #231, sweep error triage PR #227 —
-both deployed, behavioral prod-verifies still open below.)
+Continue the er-seo-tools improvement roadmap. STATE (2026-07-20): the SF-RETIREMENT
+CAMPAIGN's Phase-7 RETIREMENT BAR IS NOW SET (Kevin's judgment call, this session).
+The SF-parity data gate was over-satisfied (cycles 1–4; the weekly sweep now
+self-generates parity data — 11 SF-vs-live pairs + 29-client live-vs-live 26/29
+reproducibility), so the campaign moved from measurement to Kevin locking the four
+Phase-7 policy knobs:
+  • N = 8 consecutive QUALIFYING weekly seoIntent sweeps per client (non-null score,
+    no recovery-path rescue, stable ±3/timing, AND meets coverage).
+  • Discovery coverage residualMiss ≤ 5% STRICT, per run (no capped/blocked escape).
+  • Scope FLEET-WIDE (SF stays routine until the whole in-scope fleet clears).
+  • SPLIT gate: this retires SF-as-CRAWLER; SF-as-KEYWORD-JOINER (DataForSEO) is a
+    separate, deferred gate.
+The decision + Codex-reviewed criteria mapping live in
+docs/superpowers/todos/2026-07-05-sf-live-parity-log.md → "🎯 2026-07-20 — SF
+RETIREMENT BAR SET"; the campaign skill Phase 7 + roadmap §4 are annotated.
+Codex (gpt-5.6-sol, extend) reclassified 3 criteria I'd over-marked MET → OPEN
+(graph-signal "ER authority" labeling — brief still says "Orphaned pages";
+broken-link false-positive-rate never measured; anchor-text capture — a roadmap
+pre-Phase-7 prerequisite, still unbuilt), corrected the fleet-wide/per-run-coverage
+interaction (an under-expander's N=8 clock starts only AFTER its coverage reaches
+≤5%), and stopped an unsupported pre-exclusion of healthcarecareercollege.edu
+(non-null score 76 → in-scope). NET: the gate is further from clearing than the raw
+data suggested — the long pole is CODE, not the calendar.
 
-Your job THIS session: pick up the next roadmap item. The SF-parity DATA gate is
-essentially met, so the campaign now needs Kevin's judgment (the retirement bar)
-+ the cookie-gated prod-verifies, NOT more measurement. The one remaining
-BUILDABLE code item is:
+Your job THIS session: pick up the next roadmap item. The whole roadmap is otherwise
+[x]. Two buildable code tracks exist; ask Kevin which (or take the recommended one):
 
-  C12 TOPIC-OVERLAP RE-ENABLE — the ONNX child-process embed-worker follow-up
-  (VERIFIER_TOPIC_OVERLAP_ENABLED is DEFAULT OFF; re-enabling needs the ONNX
+  (A, RECOMMENDED) HYBRID-CRAWLER UNDER-EXPANSION FIX — the single code item the bar
+  Kevin just set now GATES ON. Under fleet-wide + ≤5%-strict, 6 INDEXABLE clients
+  currently block the whole-fleet gate: discovery (41% residual — 1287-page frontier
+  overrun), cambria (19.5%), brownson (18.1%), federico (14.5%), glow (12.9%), nuvani
+  (11.5%) — glow/cambria/nuvani are sitemap-mode "crawler declined to expand". This is
+  Phase 2 (hybrid discovery) frontier/depth tuning: extend the capped same-domain BFS
+  in lib/ada-audit/sitemap-crawler.ts + the discovery/coverage path so these close to
+  ≤5% residual. Memory-sensitive (BROWSER_POOL_SIZE stays ≤4; the 2026-06-22 build-OOM
+  + the 2026-07-16 verifier crash-loop are the scars). Full brainstorm→spec(Codex)→
+  plan(Codex)→TDD→gate loop on its OWN worktree; discoveryCoverageJson is the falsifiable
+  before/after number. START by invoking er-seo-tools-sf-retirement-campaign (Phase 2/3).
+
+  (B, alternative) C12 TOPIC-OVERLAP RE-ENABLE — the ONNX child-process embed-worker
+  follow-up (VERIFIER_TOPIC_OVERLAP_ENABLED is DEFAULT OFF; re-enabling needs the ONNX
   memory work first: a child-process embed worker / dispose fencing / chunk-size
-  benchmark — see CLAUDE.md broken-link-verify note + the 2026-07-16 status-log
-  entry's recorded follow-ups). This is real memory-sensitive verifier infra (the
-  2026-07-16 crash-loop incident is the cautionary tale) → run the FULL
-  brainstorm→spec(Codex)→plan(Codex)→TDD→gate loop on its OWN worktree, and treat
-  the RSS guard + characterization test as hard constraints.
+  benchmark — see CLAUDE.md broken-link-verify note + the 2026-07-16 status-log entry).
+  Independent of the retirement bar. Real memory-sensitive verifier infra (the
+  2026-07-16 crash-loop is the cautionary tale) → same full loop, RSS guard +
+  broken-link-verify.characterization.test.ts FROZEN as hard constraints.
 
-  Alternatively, ask Kevin whether to (a) set the SF retirement bar now (the data
-  is in hand), (b) take the C12 topic-overlap build, or (c) pick another item —
-  the roadmap is otherwise all [x]. START by invoking the
-  `er-seo-tools-sf-retirement-campaign` skill for campaign state either way.
+  Smaller OPEN items feeding the bar (not full features): (c) FREEZE THE IN-SCOPE COHORT
+  LEDGER — a read-only prod probe enumerating all ~29 sweep domains with per-domain
+  residualMiss / scoreLiveSeo-null? / discoveryCapped + in-scope-vs-carved-out + reason
+  (the fleet-wide gate can't be evaluated without it); (d) anchor-text capture; (e)
+  graph-signal "ER authority" relabel in brief.service.ts; (f) broken-link FP-rate audit.
 
 FIRST STEPS:
   1. Multi-agent pre-flight (invoke er-seo-tools-multi-agent-coordination): git
@@ -65,24 +81,24 @@ FIRST STEPS:
 
 TWO OPEN BEHAVIORAL PROD-VERIFICATIONS (non-blocking; both need a UI-triggered
 authed session — no autonomous prod session has Kevin's cookie):
-  (a) MANUAL SWEEP (this session): click "Queue all clients" in the authed UI →
-      confirm a WeeklySweep(origin='manual') row is created + a manual-sweep job
-      runs → after the cohort's audits finish, /issues shows the manual snapshot
-      (origin label "Manual refresh", streak label suppressed, delta "vs last
-      Sunday") with NO email sent, and the Monday digest still reflects the
-      Sunday scheduled sweep. The partial index enforces one-in-flight (a second
-      "Queue all" while one runs → 409). Compute-on-drain latency ≤10 min after
-      the LAST audit finishes (folded into stale-audit-reset).
-  (b) SWEEP ERROR TRIAGE (prior session, PR #227): scan a 404-bearing client
-      (e.g. healthcarecareercollege.edu) → no /cdn-cgi/ in the audited set, a
-      dead_page finding + DeadPagesSection render, null CrawlPage.statusCode,
-      'pages-errored' coverage reason. The Mon 2026-07-27 sweep auto-exercises
-      the sweep-side unit-map/label changes for BOTH features.
+  (a) MANUAL SWEEP: click "Queue all clients" in the authed UI → confirm a
+      WeeklySweep(origin='manual') row + a manual-sweep job → after the cohort's
+      audits finish, /issues shows the manual snapshot (origin label "Manual
+      refresh", streak label suppressed, delta "vs last Sunday") with NO email
+      sent, and the Monday digest still reflects the Sunday scheduled sweep. The
+      partial index enforces one-in-flight (a second "Queue all" while one runs →
+      409). Compute-on-drain latency ≤10 min after the LAST audit finishes.
+  (b) SWEEP ERROR TRIAGE (PR #227): scan a 404-bearing client (e.g.
+      healthcarecareercollege.edu) → no /cdn-cgi/ in the audited set, a dead_page
+      finding + DeadPagesSection render, null CrawlPage.statusCode, 'pages-errored'
+      coverage reason. The Mon 2026-07-27 sweep auto-exercises the sweep-side
+      unit-map/label changes for BOTH features.
 
 KEVIN QUESTIONS STILL OUTSTANDING (non-blocking): (a) proway.erstaging.site
-(staging) in the weekly sweep cohort as client 31 — intentional? (b) sales
-MethodExplainer beside the SEO-unavailable note (copy call). (c) D3 optional
-page-count glance on the next real audit.
+(staging) in the weekly sweep cohort — intentional? (also carved out of the
+retirement cohort by the noindex→score:null predicate). (b) sales MethodExplainer
+beside the SEO-unavailable note (copy call). (c) D3 optional page-count glance on
+the next real audit.
 
 WORKTREE SETUP GOTCHAS (a fresh worktree is NOT self-contained):
 - `.env`/`.env.local` are gitignored → copy `.env` from the main checkout into
@@ -94,6 +110,8 @@ WORKTREE SETUP GOTCHAS (a fresh worktree is NOT self-contained):
 - `npx prisma generate` writes into the SHARED node_modules/.prisma (symlinked);
   it reflects YOUR worktree schema. Low-risk while other lanes touch disjoint
   models, but re-generate from the right schema if in doubt.
+- A DOCS-ONLY lane (like the bar-set session) needs none of the above — no
+  node_modules/.env/prisma; just edit markdown, branch, PR, merge (no deploy).
 
 PROD ACCESS: source .claude/ops-secrets.local.sh (gitignored). Live DB path
 file:/home/seo/data/seo-tools/db.sqlite. NO sqlite3 CLI on the server — prod DB
@@ -104,7 +122,7 @@ conversation.
 
 CODEX MODEL: budget-gated — gpt-5.6-sol when the 5h window has >25% remaining
 (5h used <75%), else gpt-5.6-terra; both high effort. This session used sol-high
-throughout (5h ~64-68% used). Spec/plan review = P0 (always route); pre-merge
+(5h ~71% used). Spec/plan/decision-doc review = P0 (always route); pre-merge
 `codex exec review` of risky diffs (jobs/findings/schema/auth/recovery) = P1,
 run network-enabled so the sandbox build/test pass works:
   codex exec review --base origin/main -c model='"gpt-5.6-sol"' \
@@ -125,14 +143,10 @@ GOTCHAS:
 - logError takes a RECORD context, never a string: logError({subsystem,scope}, err).
 - Env ints via parsePositiveInt(process.env.X, fallback) from @/lib/jobs/config
   (never Number(env)||fallback — accepts negatives).
-- Tests that create an unsnapshotted manual WeeklySweep MUST clear it in
-  beforeEach — the partial unique index makes a leftover row fail the next
-  test's create (test-isolation lesson from this session).
 - Never weaken safeFetch/SSRF guards. lib/seo-fetch is FROZEN — consume only.
 - Tests self-provision per-worker SQLite DBs, run PARALLEL; save/restore any env
   a suite sets. A far-future slot range per test file avoids scheduledFor
-  @unique collisions across sweep suites (retention +60y, digest/client-sweep
-  +10y, read +70y — mind the day-offset span when adding a case).
+  @unique collisions across sweep suites.
 - Never git add -A/-u at repo root. No backticks in Bash -m commit messages.
 - UI: dark: variants on every element + the mounted-guard hydration pattern (for
   CLIENT components; server-rendered sections need none).
@@ -147,30 +161,23 @@ clipboard flow.
 ## Current state (one paragraph)
 
 Roadmap spine complete: A1-A8, B-series, C-series through **C21 (weekly client
-sweep — DEPLOYED + TEST-PROVEN 2026-07-16)**, D0-D7 all [x]; D6 FROZEN [x]. The
-**Sweep Error Triage** shipped 2026-07-20 (PR #227, deployed; behavioral
-live-scan verification still open — see prod-verify (b) above). The **Manual
-full-cohort sweep → /issues** feature shipped 2026-07-20 (PR #231, deployed):
-"Queue all clients" now runs a full ADA+SEO sweep-equivalent over every
-registered domain, freezes a `WeeklySweep(origin='manual')` row, and refreshes
-`/issues` silently on drain (no email); it takes precedence over the last
-scheduled sweep, while the Monday support email stays the Sunday scheduled digest
-(both the digest exact-slot lookup and the −7d baseline hardened to
-`origin='scheduled'`). Reused the existing WeeklySweep/computeSweepSnapshot layer
-verbatim (Kevin's hard constraint); the only schema change is additive
-`WeeklySweep.origin` + a partial one-in-flight-manual unique index. Built via the
-full brainstorm→spec(Codex ×15)→plan(Codex ×14)→12-task TDD→Codex branch-review
-(×2 P2) loop; gates green (738 files / 6727 passing, 1 pre-existing KS-2 flake);
-deploy health verified, behavioral verification open (see prod-verify (a) above).
-The **SF-parity campaign** then advanced 2026-07-20 (autonomous, read-only): the
-weekly sweep now auto-generates parity data, so cycles 3 & 4 (29 clients each)
-were recorded from prod without triggering any scan. The cycle-2→3 live-score
-drop was root-caused to the C19 recalibration (not a regression); 26/29 scores
-reproduced across the two sweeps; the Phase-1 parity gate is over-satisfied
-fleet-wide. See `2026-07-05-sf-live-parity-log.md` § 2026-07-20.
-**NEXT:** the SF-parity DATA gate is essentially met, so what remains is Kevin's
-retirement-bar judgment + the cookie-gated prod-verifies (C6 hybrid-discovery
-Increment 2; the manual-sweep + sweep-error-triage behavioral checks). The one
-remaining buildable code item is the **C12 topic-overlap re-enable** (the ONNX
-child-process embed-worker follow-up — `VERIFIER_TOPIC_OVERLAP_ENABLED` is OFF
-until the ONNX memory work lands).
+sweep — DEPLOYED + TEST-PROVEN 2026-07-16)**, D0-D7 all [x]; D6 FROZEN [x]. Shipped
+this week and deployed (behavioral prod-verifies still open — see (a)/(b) in the
+paste-in prompt): **Sweep Error Triage** (PR #227) and **Manual full-cohort sweep →
+/issues** (PR #231). The **SF-parity campaign** advanced 2026-07-20 (autonomous,
+read-only): the weekly sweep now auto-generates parity data (cycles 3 & 4, 29 clients
+each), the cycle-2→3 live-score drop was root-caused to the C19 recalibration (not a
+regression), 26/29 scores reproduced across the two sweeps, and the Phase-1 parity
+gate is over-satisfied. **This session set the Phase-7 RETIREMENT BAR** (Kevin's four
+locked knobs: N=8 / residualMiss ≤ 5% strict / fleet-wide / split crawler-vs-joiner
+gate), routed the decision doc through Codex for a correctness review (extend — 3
+over-marked criteria moved to OPEN, fleet-wide/coverage interaction corrected, an
+unsupported healthcare pre-exclusion removed), and recorded it in the parity log +
+campaign skill Phase 7 + roadmap §4 + this handoff. Docs-only, branch
+`docs/sf-retirement-bar`, no deploy. **NEXT:** with the bar set, the campaign's next
+*buildable* item is the **hybrid-crawler under-expansion fix** (6 indexable clients
+>5% residual now block the fleet-wide gate — recommended), with **C12 topic-overlap
+re-enable** as the independent alternative; smaller feeder items are the frozen
+in-scope cohort ledger, anchor-text capture, graph-signal relabeling, and the
+broken-link false-positive-rate audit. See `2026-07-05-sf-live-parity-log.md` →
+`🎯 2026-07-20 — SF RETIREMENT BAR SET`.
