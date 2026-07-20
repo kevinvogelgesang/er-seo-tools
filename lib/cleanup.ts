@@ -6,6 +6,7 @@ import { SCREENSHOTS_DIR } from '@/lib/ada-audit/screenshot-helpers';
 import { cleanOldTerminalJobs } from '@/lib/jobs/retention';
 import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo, pruneHarvestedPageErrors, sweepExpiredContentAudit } from '@/lib/findings/retention';
 import { pruneScheduledSiteAudits } from '@/lib/ada-audit/scheduled-retention'
+import { pruneManualSweepAudits } from '@/lib/ada-audit/manual-sweep-retention'
 import { pruneSeoReports } from '@/lib/seo-report-retention';
 import { pruneGscSnapshots, pruneKeywordVolumeCache, pruneKeywordStrategySessions } from '@/lib/keywords/retention';
 import { sweepStaleReservations } from '@/lib/keywords/strategy-volume-ledger';
@@ -38,6 +39,7 @@ export async function runCleanup(): Promise<void> {
     cleanOldTerminalJobs(),
     pruneArchivedBlobs(),
     pruneScheduledSiteAudits(),
+    pruneManualSweepAudits(),
     pruneHarvestedLinks(),
     pruneHarvestedPageSeo(),
     pruneHarvestedPageErrors(),
