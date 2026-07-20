@@ -14,7 +14,7 @@
 // (vb:navigate / TOC clicks) and CollapsibleSection's initial-#hash mount
 // path route through.
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { navigateToAnchor, scrollToSectionAfterReveal } from './viewbook-navigate'
+import { navigateToAnchor, scrollSectionToTop, scrollToSectionAfterReveal } from './viewbook-navigate'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -284,5 +284,60 @@ describe('scrollToSectionAfterReveal', () => {
     scrollToSectionAfterReveal('brand', { anchor: '#brand', onScrolled })
 
     expect(onScrolled).toHaveBeenCalledWith(section)
+  })
+})
+
+describe('scrollSectionToTop (2026-07-20 destination-chasing rework)', () => {
+  // Simulates a real scrolling document: window.scrollTo mutates a virtual
+  // scrollY, and the section's rect.top is its document position minus the
+  // current scroll — exactly the relationship the chase relies on.
+  function buildScrollWorld(initialDocTop: number) {
+    const world = { docTop: initialDocTop }
+    const { section } = buildSection('brand', 'expanded')
+    Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 800, writable: true, configurable: true })
+    Object.defineProperty(document.documentElement, 'scrollHeight', { value: 5000, configurable: true })
+    const scrollTo = vi.fn((_x: number, y: number) => {
+      ;(window as unknown as { scrollY: number }).scrollY = y
+    })
+    vi.stubGlobal('scrollTo', scrollTo)
+    section.getBoundingClientRect = () =>
+      ({ top: world.docTop - window.scrollY, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    return { world, section, scrollTo }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('converges on the section top even when the destination MOVES mid-scroll (a neighboring collapse shrinking the page)', () => {
+    vi.useFakeTimers()
+    const { world } = buildScrollWorld(500)
+
+    scrollSectionToTop('brand')
+    vi.advanceTimersByTime(200) // chase under way toward 500
+    // The section above finishes collapsing: this section's document
+    // position jumps UP by 300px — the exact failure mode of the old
+    // one-shot scrollIntoView, whose destination was frozen at call time.
+    world.docTop = 200
+    vi.advanceTimersByTime(2000) // chase settles
+
+    expect(Math.round(window.scrollY)).toBe(200)
+  })
+
+  it('any user input (wheel) cancels the chase immediately', () => {
+    vi.useFakeTimers()
+    const { scrollTo } = buildScrollWorld(500)
+
+    scrollSectionToTop('brand')
+    vi.advanceTimersByTime(100)
+    const scrolledBefore = window.scrollY
+    expect(scrolledBefore).toBeGreaterThan(0)
+    window.dispatchEvent(new Event('wheel'))
+    const callsAtCancel = scrollTo.mock.calls.length
+    vi.advanceTimersByTime(2000)
+
+    expect(scrollTo.mock.calls.length).toBe(callsAtCancel)
+    expect(window.scrollY).toBe(scrolledBefore)
   })
 })

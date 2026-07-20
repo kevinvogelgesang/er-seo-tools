@@ -210,32 +210,113 @@ export function scrollToSectionAfterReveal(sectionKey: string, options: ScrollTo
   fallbackTimer = setTimeout(finish, heroStageDurationMs(stageEl))
 }
 
-// Deliberate click-to-expand scroll (2026-07-19): smooth-scroll the SECTION
-// TOP to the viewport top IN PARALLEL with the expand animation, so the hero
-// rests at the top of the page as it morphs (the theme root's
-// `[id]{scroll-margin-top:calc(var(--vb-sticky-offset)+12px)}` rule accounts
-// for the sticky header). This deliberately does NOT wait for the reveal the
-// way `scrollToSectionAfterReveal` does — that wait exists because TOC/hash
-// anchors can live INSIDE the expanding region, where the target's position
-// keeps moving until the transition settles. A section's OWN top never moves
-// during its own expansion (only content BELOW it shifts), so scrolling
-// immediately is stable and reads as one gesture with the morph.
+// Deliberate click-to-expand scroll (2026-07-19; reworked 2026-07-20):
+// bring the SECTION TOP to the viewport top IN PARALLEL with the expand
+// animation, so the hero rests at the top of the page as it morphs (the
+// theme root's `[id]{scroll-margin-top:calc(var(--vb-sticky-offset)+12px)}`
+// rule is honored by reading the computed scroll-margin-top).
+//
+// 2026-07-20 rework (Kevin: "the scroll only fires once"): the original
+// one-shot `scrollIntoView({behavior:'smooth'})` computes its destination
+// ONCE at call time. The first expansion of a session has nothing else
+// animating, so it landed — but every later expansion typically follows the
+// PREVIOUS section's collapse, whose 600ms shrink is still contracting the
+// page ABOVE the target while the smooth scroll runs, leaving the fixed
+// destination stale by hundreds of px (the old comment's "a section's own
+// top never moves during its own expansion" ignored the neighbor animating
+// above it). Replaced with a per-frame destination-CHASING scroll: each
+// frame recomputes the section top's live document position and eases the
+// scroll toward it, converging exactly no matter what is expanding or
+// collapsing around it. Any user input (wheel/touch/pointer/key) cancels
+// the chase immediately — never fight the user.
+const CHASE_GAIN = 0.22 // per-frame exponential approach factor
+const CHASE_MIN_MS = 700 // keep chasing through the ~600ms hero-stage morph
+const CHASE_MAX_MS = 1400
+const CHASE_SETTLE_PX = 1
+const CHASE_INTERRUPT_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
+
+let activeChaseCancel: (() => void) | null = null
+
 export function scrollSectionToTop(sectionKey: string): void {
-  if (typeof document === 'undefined') return
+  if (typeof document === 'undefined' || typeof window === 'undefined') return
   let target: HTMLElement | null = null
   try {
     target = document.getElementById(sectionKey)
   } catch {
     return
   }
-  if (!target || typeof target.scrollIntoView !== 'function') return
-  try {
-    target.scrollIntoView(
-      prefersReducedMotion() ? { block: 'start' } : { behavior: 'smooth', block: 'start' },
-    )
-  } catch {
-    // jsdom / partial impls — non-fatal.
+  if (!target) return
+  const el = target
+
+  activeChaseCancel?.()
+
+  // The LIVE destination: section top in document coordinates minus its
+  // computed scroll-margin-top, clamped to the scrollable range.
+  const destination = (): number => {
+    let margin = 0
+    try {
+      margin = parseFloat(window.getComputedStyle(el).scrollMarginTop) || 0
+    } catch {
+      // stripped test env — treat as 0.
+    }
+    const doc = document.documentElement
+    const maxTop = Math.max(0, (doc ? doc.scrollHeight : 0) - window.innerHeight)
+    const raw = window.scrollY + el.getBoundingClientRect().top - margin
+    return Math.max(0, Math.min(maxTop, raw))
   }
+
+  const jumpTo = (top: number) => {
+    try {
+      window.scrollTo(0, top)
+    } catch {
+      // jsdom / partial impls — non-fatal.
+    }
+  }
+
+  if (prefersReducedMotion()) {
+    // Instant jump now + ONE corrective jump once the reveal settles (the
+    // hero-stage height morph is not media-gated, so layout still shifts).
+    jumpTo(destination())
+    const timer = setTimeout(() => {
+      if (activeChaseCancel === cancelReduced) activeChaseCancel = null
+      jumpTo(destination())
+    }, DEFAULT_REVEAL_FALLBACK_MS)
+    const cancelReduced = () => {
+      clearTimeout(timer)
+      if (activeChaseCancel === cancelReduced) activeChaseCancel = null
+    }
+    activeChaseCancel = cancelReduced
+    return
+  }
+
+  const startedAt = Date.now()
+  let raf = 0
+  let cancelled = false
+  const cancel = () => {
+    if (cancelled) return
+    cancelled = true
+    if (raf) cancelAnimationFrame(raf)
+    for (const evt of CHASE_INTERRUPT_EVENTS) window.removeEventListener(evt, cancel)
+    if (activeChaseCancel === cancel) activeChaseCancel = null
+  }
+  for (const evt of CHASE_INTERRUPT_EVENTS) window.addEventListener(evt, cancel, { passive: true })
+  activeChaseCancel = cancel
+
+  const step = () => {
+    if (cancelled) return
+    const current = window.scrollY
+    const dest = destination()
+    const delta = dest - current
+    const elapsed = Date.now() - startedAt
+    if ((Math.abs(delta) <= CHASE_SETTLE_PX && elapsed >= CHASE_MIN_MS) || elapsed >= CHASE_MAX_MS) {
+      jumpTo(dest)
+      cancel()
+      return
+    }
+    jumpTo(current + delta * CHASE_GAIN)
+    raf = requestAnimationFrame(step)
+  }
+  raf = requestAnimationFrame(step)
 }
 
 export function navigateToAnchor(sectionKey: SectionKey, anchor: string): void {
