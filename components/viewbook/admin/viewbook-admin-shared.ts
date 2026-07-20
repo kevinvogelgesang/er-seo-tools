@@ -10,6 +10,16 @@ export function publicViewbookUrl(token: string): string {
   return `${base}/viewbook/${token}`
 }
 
+// Reveal-pace presets for PresentationEditor's operator control (PR1 Task
+// 5) — labels map to `revealDurationScale` multipliers (0.4..1.6, higher =
+// slower). Kept here alongside the other admin-shared metadata.
+export const REVEAL_PACE_PRESETS = [
+  { label: 'Grand', v: 1.4 },
+  { label: 'Standard', v: 1.0 },
+  { label: 'Brisk', v: 0.7 },
+  { label: 'Snappy', v: 0.5 },
+] as const
+
 export async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   const body = (await res.json().catch(() => ({}))) as T & { error?: string }
@@ -48,6 +58,8 @@ export interface ViewbookDetail {
   theme: ViewbookTheme
   collapseAffordance: string // 'pill' | 'chevron' (presentation config, PR4; 'bar' dropped 2026-07-19)
   heroOverlayStrength: number // 0..100
+  revealDurationScale: number // 0.4..1.6, per-viewbook reveal-animation pacing multiplier
+  firstLoadDelayMs: number // 0..6000, delay before the welcome auto-reveal fires on first load
   client: { name: string; archivedAt: string | null }
   sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]
   milestones: {

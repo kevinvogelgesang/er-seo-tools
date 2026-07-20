@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePresentationPatch, readPresentationConfig } from './presentation-config'
+import { parsePresentationPatch, readPresentationConfig, PRESENTATION_DEFAULTS } from './presentation-config'
 
 describe('parsePresentationPatch', () => {
   it('rejects an unknown affordance (400)', () => {
@@ -44,9 +44,18 @@ describe('readPresentationConfig', () => {
   })
 
   it('passes through a valid stored row unchanged', () => {
-    expect(readPresentationConfig({ collapseAffordance: 'pill', heroOverlayStrength: 20 })).toEqual({
+    expect(
+      readPresentationConfig({
+        collapseAffordance: 'pill',
+        heroOverlayStrength: 20,
+        revealDurationScale: 1.2,
+        firstLoadDelayMs: 1500,
+      }),
+    ).toEqual({
       collapseAffordance: 'pill',
       heroOverlayStrength: 20,
+      revealDurationScale: 1.2,
+      firstLoadDelayMs: 1500,
     })
   })
 
@@ -61,5 +70,38 @@ describe('readPresentationConfig', () => {
 
   it('never throws', () => {
     expect(() => readPresentationConfig({ collapseAffordance: 123 as unknown as string, heroOverlayStrength: 'x' as unknown as number })).not.toThrow()
+  })
+})
+
+const ROW = { collapseAffordance: 'chevron', heroOverlayStrength: 55, revealDurationScale: 1.0, firstLoadDelayMs: 3000 }
+describe('revealDurationScale', () => {
+  it('write: accepts + clamps finite', () => {
+    expect(parsePresentationPatch({ revealDurationScale: 1.4 })).toEqual({ revealDurationScale: 1.4 })
+    expect(parsePresentationPatch({ revealDurationScale: 5 })).toEqual({ revealDurationScale: 1.6 })
+    expect(parsePresentationPatch({ revealDurationScale: 0.1 })).toEqual({ revealDurationScale: 0.4 })
+  })
+  it('write: rejects non-finite/non-number', () => {
+    expect(() => parsePresentationPatch({ revealDurationScale: 'x' })).toThrow()
+    expect(() => parsePresentationPatch({ revealDurationScale: NaN })).toThrow()
+    expect(() => parsePresentationPatch({ revealDurationScale: Infinity })).toThrow()
+  })
+  it('read: clamps finite-out-of-range, defaults on malformed', () => {
+    expect(readPresentationConfig({ ...ROW, revealDurationScale: 9 }).revealDurationScale).toBe(1.6)
+    expect(readPresentationConfig({ ...ROW, revealDurationScale: NaN }).revealDurationScale).toBe(1.0)
+  })
+})
+describe('firstLoadDelayMs', () => {
+  it('write: accepts int + clamps', () => {
+    expect(parsePresentationPatch({ firstLoadDelayMs: 2000 })).toEqual({ firstLoadDelayMs: 2000 })
+    expect(parsePresentationPatch({ firstLoadDelayMs: 99999 })).toEqual({ firstLoadDelayMs: 6000 })
+    expect(parsePresentationPatch({ firstLoadDelayMs: -5 })).toEqual({ firstLoadDelayMs: 0 })
+  })
+  it('write: rejects non-integer/non-finite', () => {
+    expect(() => parsePresentationPatch({ firstLoadDelayMs: 12.5 })).toThrow()
+    expect(() => parsePresentationPatch({ firstLoadDelayMs: 'soon' })).toThrow()
+  })
+  it('defaults present', () => {
+    expect(PRESENTATION_DEFAULTS.revealDurationScale).toBe(1.0)
+    expect(PRESENTATION_DEFAULTS.firstLoadDelayMs).toBe(3000)
   })
 })

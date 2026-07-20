@@ -190,6 +190,17 @@ describe('updateViewbookPresentation', () => {
     await updateViewbookPresentation(id, {})
     expect(await syncVersion(id)).toBe(before)
   })
+
+  it('writes revealDurationScale + firstLoadDelayMs and bumps syncVersion once (Task 3)', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+    const before = await syncVersion(id)
+    await updateViewbookPresentation(id, { revealDurationScale: 0.7, firstLoadDelayMs: 5000 })
+    const row = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(row.revealDurationScale).toBe(0.7)
+    expect(row.firstLoadDelayMs).toBe(5000)
+    expect(row.syncVersion).toBe(before + 1)
+  })
 })
 
 describe('sections', () => {

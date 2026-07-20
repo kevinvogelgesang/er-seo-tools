@@ -880,6 +880,8 @@ model Viewbook {
   pcCompletedAt    DateTime?
   collapseAffordance  String @default("chevron")  // 'pill' | 'chevron' (presentation config, PR4; 'bar' dropped 2026-07-19 — a legacy 'bar' row still degrades to the default at read time, see readPresentationConfig)
   heroOverlayStrength Int    @default(55)      // 0..100 hero overlay opacity
+  revealDurationScale Float @default(1.0)  // 0.4..1.6 animation DURATION multiplier (higher = slower); presentation config
+  firstLoadDelayMs    Int   @default(3000) // 0..6000 ms before the welcome auto-expands on first device load
   createdBy       String? // operator email
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

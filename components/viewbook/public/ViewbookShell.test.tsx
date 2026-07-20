@@ -276,6 +276,26 @@ describe('ViewbookShell nested-anchor scroll offset (Task P2-1)', () => {
   })
 })
 
+// Task 4: --vb-reveal-scale is injected on the theme root so later tasks'
+// CSS (reveal-animation durations) can read `var(--vb-reveal-scale, 1)`.
+describe('ViewbookShell reveal-scale CSS var (Task 4)', () => {
+  it('sets --vb-reveal-scale from data.revealDurationScale', () => {
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ primarySections: [sec('welcome')], revealDurationScale: 0.7 })}
+        primarySections={[sec('welcome')]}
+        carriedSections={[]}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+    const themeRoot = container.querySelector<HTMLElement>('[data-vb-theme-root]')
+    expect(themeRoot).not.toBeNull()
+    expect(themeRoot!.style.getPropertyValue('--vb-reveal-scale')).toBe('0.7')
+  })
+})
+
 describe('ViewbookShell TOC rail wiring', () => {
   it('building-stage data renders TOC entries and a verbose search box', () => {
     const { container } = render(

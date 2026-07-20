@@ -53,6 +53,7 @@ export function ViewbookShell({
         // the real chrome height. Plain, non-!important — Lane 2's
         // live-theme store overrides this same property on this same node.
         '--vb-sticky-offset': '64px',
+        '--vb-reveal-scale': String(data.revealDurationScale),
       } as CSSProperties}
     >
       <ThemeStyle theme={data.theme} />

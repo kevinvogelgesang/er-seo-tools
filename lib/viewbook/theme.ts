@@ -36,16 +36,16 @@ export type SectionKey = (typeof SECTION_KEYS)[number]
 // of the full hero, but its body (intro + content) is ALWAYS still rendered
 // in the DOM — just hidden + inert, never suppressed/removed — so TOC/search
 // indexing and deep links keep working regardless of collapse state.
-// Collapse is available on the SAME set as Mark-done — every section EXCEPT
-// the framing bookends pc-intro / pc-thanks (Kevin's call, 2026-07-19: parity
-// with Hide/Mark-done; collapsing a client-interactive section is a
-// deliberate, reversible choice). This module is client-safe (no server
-// imports), so both client code and the server service import it without
-// pulling client-only code.
-export const COLLAPSE_EXCLUDED_SECTION_KEYS: ReadonlySet<string> = new Set([
-  'pc-intro',
-  'pc-thanks',
-])
+// All sections are collapsible as of 2026-07-19 (welcome-auto-reveal): the
+// framing bookends pc-intro / pc-thanks no longer carve themselves out of
+// collapse (Kevin's call — the welcome-auto-reveal work replaces the
+// permanently-open bookend model with default-collapsed + an auto-reveal-once
+// pass for pc-intro). The constant + `sectionSupportsCollapse` helper are
+// RETAINED (now trivially empty/always-true) for a future carve-out or as a
+// dormant path, rather than deleting the seam. This module is client-safe (no
+// server imports), so both client code and the server service import it
+// without pulling client-only code.
+export const COLLAPSE_EXCLUDED_SECTION_KEYS: ReadonlySet<string> = new Set<string>()
 
 export function sectionSupportsCollapse(sectionKey: string): boolean {
   return !COLLAPSE_EXCLUDED_SECTION_KEYS.has(sectionKey)

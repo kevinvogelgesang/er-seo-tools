@@ -68,6 +68,8 @@ export interface OperatorViewbookData {
   teamMembers: OperatorTeamMemberData[]
   collapseAffordance: CollapseAffordanceKind
   heroOverlayStrength: number
+  revealDurationScale: number
+  firstLoadDelayMs: number
 }
 
 function parseClientNotifyEmails(raw: string): string[] {
@@ -103,6 +105,8 @@ export async function loadOperatorViewbookData(viewbookId: number): Promise<Oper
         pcCompletedAt: true,
         collapseAffordance: true,
         heroOverlayStrength: true,
+        revealDurationScale: true,
+        firstLoadDelayMs: true,
         // Explicit select (Fix 4, post-review): EXCLUDES the dormant
         // `collapsedShared` column so it can never round-trip onto the
         // operator-facing OperatorSectionData payload — nothing reads it.

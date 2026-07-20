@@ -11,8 +11,9 @@
 // sectionKey):
 //   - stored value is 'expanded' | 'collapsed' | absent.
 //   - absent ⇒ default COLLAPSED — every collapsible section starts
-//     collapsed on a fresh machine/browser (SectionShell excludes the two
-//     bookend sections from this entirely — they never collapse).
+//     collapsed on a fresh machine/browser. All sections are collapsible now
+//     (2026-07-19 welcome-auto-reveal) — the two bookend sections (pc-intro/
+//     pc-thanks) are no longer excluded; the guard excludes nothing now.
 // expand()/collapse() persist the choice (unless previewMode, which never
 // touches localStorage — ThemePreview only ever renders visuals, it is not a
 // real viewbook). forceExpand() is an EPHEMERAL, never-persisted override
@@ -56,6 +57,18 @@ export function useCollapseState({
   // below reconciles to the real stored value (or the default) immediately
   // after, matching every other island's hydration-safe convention.
   const [collapsed, setCollapsed] = useState(true)
+  // Task 11 (2026-07-19, docs/superpowers/sdd/task-11-brief.md): key-scoped
+  // `ready` flag for a later auto-reveal hook that needs to wait until the
+  // localStorage reconciliation below has actually run before it acts on
+  // `collapsed`. Tracking the KEY (not a plain boolean) that was last
+  // reconciled — rather than a bare `reconciled` boolean — means a reused/
+  // re-keyed component (viewbookId/sectionKey changes without unmounting)
+  // can't expose a stale `ready=true` for the OLD key's state; `ready` drops
+  // back to false the instant `key` changes and stays false until the effect
+  // below reconciles for the NEW key. Deliberately NOT an `interacted` flag —
+  // Codex rejected folding interaction-tracking into this generic hook (see
+  // file banner); a later auto-reveal hook owns its own one-shot consumption.
+  const [reconciledKey, setReconciledKey] = useState<string | null>(null)
 
   useEffect(() => {
     // ThemePreview isn't a real viewbook — it must always render fully open
@@ -64,12 +77,16 @@ export function useCollapseState({
     // the placeholder preview key.
     if (previewMode) {
       setCollapsed(false)
+      setReconciledKey(key)
       return
     }
     const stored = readStored(key)
     setCollapsed(stored === null ? true : stored === 'collapsed')
+    setReconciledKey(key)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, previewMode])
+
+  const ready = reconciledKey === key
 
   const expand = useCallback(() => {
     setCollapsed(false)
@@ -88,5 +105,5 @@ export function useCollapseState({
     setCollapsed(false)
   }, [])
 
-  return { collapsed, expand, collapse, forceExpand }
+  return { collapsed, expand, collapse, forceExpand, ready }
 }

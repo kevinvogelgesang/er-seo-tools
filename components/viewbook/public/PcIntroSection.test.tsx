@@ -1,11 +1,27 @@
 // @vitest-environment jsdom
-import { render, screen, cleanup } from '@testing-library/react'
-import { describe, it, expect, afterEach } from 'vitest'
+import { act, render, screen, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { PcIntroSection } from './PcIntroSection'
+import { welcomeRevealedKey } from './useWelcomeAutoReveal'
 
-afterEach(cleanup)
+let stored = new Map<string, string>()
+
+beforeEach(() => {
+  stored = new Map()
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+    clear: () => stored.clear(),
+  })
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const baseSection: PublicSection = {
   sectionKey: 'pc-intro',
@@ -64,9 +80,61 @@ describe('PcIntroSection', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('never collapses and has no ack action in the normal (unacknowledged) case', () => {
+  it('renders as a collapsible section (compact row + expand control), not a permanently-open hero (2026-07-19 welcome-auto-reveal)', () => {
     const { container } = render(<PcIntroSection section={{ ...baseSection }} data={data()} token="t" />)
     expect(container.querySelector('details')).toBeNull()
-    expect(container.querySelector('button')).toBeNull()
+    // Default-collapsed on a fresh machine (no seeded localStorage) — same
+    // compact-row + expand-control shape as every other section now that
+    // pc-intro is no longer excluded from collapse.
+    const btn = container.querySelector('button')
+    expect(btn).not.toBeNull()
+    expect(btn?.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('[role="region"]')).not.toBeNull()
+  })
+
+  // Task 13 (docs/superpowers/sdd/task-13-brief.md): real seam test proving
+  // `PcIntroSection → SectionShell → CollapsibleSection` prop threading for
+  // `autoRevealMs`. PcIntroSection is the ONLY caller that ever passes a
+  // defined `autoRevealMs` (`data.stage === 'post-contract' ? data.
+  // firstLoadDelayMs : undefined`).
+  describe('Task 13: welcome auto-reveal prop threading', () => {
+    it('post-contract + firstLoadDelayMs=0 reaches the CollapsibleSection island and auto-expands', () => {
+      let rafCallback: FrameRequestCallback | null = null
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        rafCallback = cb
+        return 1
+      })
+      const { container } = render(
+        <PcIntroSection
+          section={{ ...baseSection }}
+          data={data({ stage: 'post-contract', firstLoadDelayMs: 0, viewbookId: 7 })}
+          token="t"
+        />,
+      )
+      const root = container.querySelector('.vb-collapsible')
+      expect(root?.getAttribute('data-vb-state')).toBe('collapsed')
+      expect(rafCallback).not.toBeNull()
+
+      act(() => {
+        rafCallback?.(0)
+      })
+
+      expect(root?.getAttribute('data-vb-state')).toBe('expanded')
+      expect(stored.get(welcomeRevealedKey(7))).toBe('1')
+    })
+
+    it('stage !== post-contract: firstLoadDelayMs=0 never reaches the island (component returns null, no auto-reveal wiring at all)', () => {
+      const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+      const { container } = render(
+        <PcIntroSection
+          section={{ ...baseSection }}
+          data={data({ stage: 'building', firstLoadDelayMs: 0, viewbookId: 7 })}
+          token="t"
+        />,
+      )
+      expect(container.firstChild).toBeNull()
+      expect(rafSpy).not.toHaveBeenCalled()
+      expect(stored.has(welcomeRevealedKey(7))).toBe(false)
+    })
   })
 })

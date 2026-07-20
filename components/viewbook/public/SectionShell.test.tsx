@@ -161,11 +161,13 @@ describe('SectionShell', () => {
     expect(document.getElementById('brand')).not.toBeNull()
     const heading = screen.getByRole('heading', { name: 'Brand Guidelines' })
     expect(heading.tagName).toBe('H2')
-    // The outer viewer-collapse region exists but is hidden — content is
-    // still IN THE DOM (not suppressed server-side), just not visible.
+    // The outer viewer-collapse region exists but is aria-hidden+inert — the
+    // Task 7 body-reveal animation requires it to stay MOUNTED (never
+    // `hidden`/`display:none`, which would freeze the grid-rows transition),
+    // so collapsed-vs-expanded is conveyed by aria-hidden/inert instead.
     const outer = document.getElementById('vb-region-brand')
     expect(outer).not.toBeNull()
-    expect(outer?.hasAttribute('hidden')).toBe(true)
+    expect(outer?.hasAttribute('hidden')).toBe(false)
     expect(outer?.getAttribute('aria-hidden')).toBe('true')
     expect(screen.getByText('A note')).toBeDefined()
     expect(screen.getByText('Body')).toBeDefined()
@@ -191,7 +193,33 @@ describe('SectionShell', () => {
     expect(btn.innerHTML).toContain('py-1')
   })
 
-  it('always-open (pc-intro) renders expanded with no toggle and NO collapse affordance/control', () => {
+  it('pc-intro (bookend) is collapsible like any other section — defaults to collapsed with a compact row + expand control (2026-07-19 welcome-auto-reveal)', () => {
+    render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'pc-intro' })}
+        title="Welcome"
+        heroUrl={null}
+        stage="post-contract"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    // The outer viewer-collapse region is a real landmark, present and
+    // MOUNTED but aria-hidden+inert while collapsed (default on a fresh
+    // machine) — same shape as every other collapsible section.
+    const region = document.getElementById('vb-region-pc-intro')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('role')).toBe('region')
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    expect(region?.getAttribute('aria-hidden')).toBe('true')
+    const btn = screen.getByRole('button', { name: 'Welcome' })
+    expect(btn.getAttribute('aria-controls')).toBe('vb-region-pc-intro')
+    expect(btn.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('pc-intro (bookend) renders expanded with the region visible when locally expanded', () => {
+    expandSection('pc-intro')
     render(
       <SectionShell
         {...baseProps}
@@ -204,8 +232,57 @@ describe('SectionShell', () => {
       </SectionShell>,
     )
     const region = document.getElementById('vb-region-pc-intro')
-    expect(region?.getAttribute('data-vb-expanded')).toBe('true')
-    expect(document.querySelector('button')).toBeNull()
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    const btn = screen.getByRole('button', { name: 'Welcome' })
+    expect(btn.getAttribute('aria-expanded')).toBe('true')
+  })
+})
+
+describe('SectionShell Task 8 hero stage', () => {
+  it('threads hasHeroImage from heroUrl: sets data-vb-hero="none" on the root only when there is no hero image (the stage-height CSS hook)', () => {
+    const { container: noImage } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl={null}
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(noImage.querySelector('.vb-collapsible')?.getAttribute('data-vb-hero')).toBe('none')
+    cleanup()
+
+    const { container: withImage } = render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'brand2' })}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(withImage.querySelector('.vb-collapsible')?.getAttribute('data-vb-hero')).toBeNull()
+  })
+
+  it('renders both hero faces (compact row + expanded hero markup) inside the button, stacked in the stage', () => {
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl={null}
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const btn = screen.getByRole('button', { name: 'Brand Guidelines' })
+    expect(btn.querySelector('[data-vb-face="collapsed"]')).not.toBeNull()
+    expect(btn.querySelector('[data-vb-face="expanded"]')).not.toBeNull()
   })
 })
 
@@ -241,7 +318,9 @@ describe('SectionShell PR3 restructure', () => {
     )
     // The compact row's small done-check.
     expect(collapsedContainer.querySelector('.vb-done-badge')).not.toBeNull()
-    expect(document.getElementById('vb-region-assessment')?.hasAttribute('hidden')).toBe(true)
+    // Mounted (not `hidden`) but aria-hidden while collapsed — see Task 7.
+    expect(document.getElementById('vb-region-assessment')?.hasAttribute('hidden')).toBe(false)
+    expect(document.getElementById('vb-region-assessment')?.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('retains the body "Completed {date}" badge when done, independent of the outer collapse default', () => {
@@ -343,7 +422,7 @@ describe('SectionShell PR3 restructure', () => {
     expect(container.querySelector('[data-operator-section]')).toBeNull()
   })
 
-  it('bookend sections (pc-intro/pc-thanks) render with NO collapse affordance/control', () => {
+  it('bookend sections (pc-intro/pc-thanks) render WITH a collapse affordance/control, like any other section (2026-07-19 welcome-auto-reveal)', () => {
     for (const key of ['pc-intro', 'pc-thanks'] as const) {
       const { container, unmount } = render(
         <SectionShell
@@ -356,9 +435,104 @@ describe('SectionShell PR3 restructure', () => {
           <p>Body</p>
         </SectionShell>,
       )
-      expect(container.querySelector('button')).toBeNull()
+      const btn = container.querySelector('button')
+      expect(btn).not.toBeNull()
+      expect(btn?.getAttribute('aria-expanded')).toBe('false')
+      expect(container.querySelector('[role="region"]')).not.toBeNull()
       unmount()
     }
+  })
+})
+
+describe('SectionShell Task 9 hero flourishes', () => {
+  it('pc-intro expanded hero contains the locked eyebrow copy', () => {
+    expandSection('pc-intro')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'pc-intro' })}
+        title="Welcome"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="post-contract"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const eyebrow = container.querySelector('.vb-hero-eyebrow')
+    expect(eyebrow).not.toBeNull()
+    expect(eyebrow?.textContent).toBe('A note from your team')
+  })
+
+  it('a non-pc-intro section renders NO eyebrow (rule + Ken-Burns only)', () => {
+    expandSection('brand')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(container.querySelector('.vb-hero-eyebrow')).toBeNull()
+  })
+
+  it('the eyebrow and rule are aria-hidden so they never leak into the button accessible name', () => {
+    expandSection('pc-intro')
+    render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'pc-intro' })}
+        title="Welcome"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="post-contract"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const eyebrow = document.querySelector('.vb-hero-eyebrow')
+    const rule = document.querySelector('.vb-hero-rule')
+    expect(eyebrow?.getAttribute('aria-hidden')).toBe('true')
+    expect(rule?.getAttribute('aria-hidden')).toBe('true')
+    // The button's accessible name must still be exactly the title — the
+    // eyebrow (name-from-content excludes aria-hidden subtrees) must not leak.
+    const btn = screen.getByRole('button', { name: 'Welcome' })
+    expect(btn).toBeDefined()
+  })
+
+  it('the hero image carries the vb-hero-img Ken-Burns hook', () => {
+    expandSection('brand')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const img = container.querySelector('.vb-hero-face--expanded img.vb-hero-img')
+    expect(img).not.toBeNull()
+  })
+
+  it('the gold rule renders in every collapsible section (bookend and normal alike)', () => {
+    expandSection('brand')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(container.querySelector('.vb-hero-rule')).not.toBeNull()
   })
 })
 

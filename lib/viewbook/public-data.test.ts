@@ -342,6 +342,25 @@ describe('loadViewbookPublicData', () => {
   // rehydrate the original method for tests that run after it in the same
   // file — pre-existing flakiness, not something this PR's tests should mask
   // by reordering around it.
+  it('surfaces revealDurationScale + firstLoadDelayMs, clamping out-of-range values and defaulting omitted ones (Task 3)', async () => {
+    const { id, token } = await createViewbook((await makeClient()).id, 'upgrade', 'op@er.com')
+    // Creation default (no explicit values set yet): PRESENTATION_DEFAULTS.
+    let data = await loadViewbookPublicData(token)
+    expect(data!.revealDurationScale).toBe(1.0)
+    expect(data!.firstLoadDelayMs).toBe(3000)
+
+    await prisma.viewbook.update({ where: { id }, data: { revealDurationScale: 1.4, firstLoadDelayMs: 2000 } })
+    data = await loadViewbookPublicData(token)
+    expect(data!.revealDurationScale).toBe(1.4)
+    expect(data!.firstLoadDelayMs).toBe(2000)
+
+    // Out-of-range values clamp to the readPresentationConfig bounds.
+    await prisma.viewbook.update({ where: { id }, data: { revealDurationScale: 9, firstLoadDelayMs: -500 } })
+    data = await loadViewbookPublicData(token)
+    expect(data!.revealDurationScale).toBe(1.6)
+    expect(data!.firstLoadDelayMs).toBe(0)
+  })
+
   it('rethrows operational failures from token validation instead of masking them as 404 (Codex plan-fix 1)', async () => {
     const spy = vi
       .spyOn(prisma.viewbook, 'findUnique')
