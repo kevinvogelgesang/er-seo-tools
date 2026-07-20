@@ -341,3 +341,45 @@ describe('scrollSectionToTop (2026-07-20 destination-chasing rework)', () => {
     expect(window.scrollY).toBe(scrolledBefore)
   })
 })
+
+describe('scrollSectionToTop morph-speed sync (2026-07-20 second pass)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("runs on the hero stage's OWN computed transition-duration — a faster morph means a faster scroll", () => {
+    vi.useFakeTimers()
+    const { section } = buildSection('brand', 'expanded')
+    Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 800, writable: true, configurable: true })
+    Object.defineProperty(document.documentElement, 'scrollHeight', { value: 5000, configurable: true })
+    const scrollTo = vi.fn((_x: number, y: number) => {
+      ;(window as unknown as { scrollY: number }).scrollY = y
+    })
+    vi.stubGlobal('scrollTo', scrollTo)
+    section.getBoundingClientRect = () =>
+      ({ top: 500 - window.scrollY, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    // A 300ms morph (e.g. fast reveal pace) — jsdom returns '' for computed
+    // transition-duration, so mock it; scrollMarginTop stays parseable-empty.
+    const realGCS = window.getComputedStyle.bind(window)
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
+      const style = realGCS(el)
+      return new Proxy(style, {
+        get(t, prop) {
+          if (prop === 'transitionDuration') return '300ms'
+          if (prop === 'scrollMarginTop') return '0px'
+          return Reflect.get(t, prop)
+        },
+      }) as CSSStyleDeclaration
+    })
+
+    scrollSectionToTop('brand')
+    // Well before a 700ms default would have finished, the 300ms-synced
+    // scroll has already landed and (after the 200ms grace) stopped.
+    vi.advanceTimersByTime(600)
+    expect(Math.round(window.scrollY)).toBe(500)
+    const callsAtStop = scrollTo.mock.calls.length
+    vi.advanceTimersByTime(1000)
+    expect(scrollTo.mock.calls.length).toBe(callsAtStop)
+  })
+})

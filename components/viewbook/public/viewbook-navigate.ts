@@ -229,11 +229,41 @@ export function scrollToSectionAfterReveal(sectionKey: string, options: ScrollTo
 // scroll toward it, converging exactly no matter what is expanding or
 // collapsing around it. Any user input (wheel/touch/pointer/key) cancels
 // the chase immediately — never fight the user.
-const CHASE_GAIN = 0.22 // per-frame exponential approach factor
-const CHASE_MIN_MS = 700 // keep chasing through the ~600ms hero-stage morph
-const CHASE_MAX_MS = 1400
-const CHASE_SETTLE_PX = 1
+//
+// 2026-07-20 (second pass, Kevin: "make it match the expand speed"): the
+// scroll is now driven on the SAME clock and easing curve as the hero-stage
+// morph itself — duration read from the stage's computed transition-duration
+// (which already resolves the per-viewbook `--vb-reveal-scale`), progress
+// mapped through the stage's own `cubic-bezier(.16,1,.3,1)`. The scroll and
+// the expansion start together, move together, and land together; a short
+// post-morph grace keeps snapping to the live destination so a neighbor
+// animation finishing late can't leave the rest position stale.
 const CHASE_INTERRUPT_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
+const POST_MORPH_TRACK_MS = 200
+
+// Evaluates the y of a CSS cubic-bezier(x1,y1,x2,y2) timing function at
+// progress x∈[0,1] — bisection on the x polynomial (monotone in x by the CSS
+// constraint 0≤x1,x2≤1), then the y polynomial at the solved parameter.
+function cssCubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number) => number {
+  const bx = (t: number) => 3 * x1 * t * (1 - t) * (1 - t) + 3 * x2 * t * t * (1 - t) + t * t * t
+  const by = (t: number) => 3 * y1 * t * (1 - t) * (1 - t) + 3 * y2 * t * t * (1 - t) + t * t * t
+  return (x: number) => {
+    if (x <= 0) return 0
+    if (x >= 1) return 1
+    let lo = 0
+    let hi = 1
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2
+      if (bx(mid) < x) lo = mid
+      else hi = mid
+    }
+    return by((lo + hi) / 2)
+  }
+}
+
+// The hero stage's own reveal curve — keep in lockstep with the
+// `cubic-bezier(.16,1,.3,1)` in CollapsibleSection's `.vb-hero-stage` CSS.
+const HERO_MORPH_EASE = cssCubicBezier(0.16, 1, 0.3, 1)
 
 let activeChaseCancel: (() => void) | null = null
 
@@ -289,7 +319,14 @@ export function scrollSectionToTop(sectionKey: string): void {
     return
   }
 
+  // Match the expand speed exactly: same duration source as the morph
+  // (computed transition-duration on this section's own hero stage — the
+  // per-viewbook reveal-pace scale is already resolved into it), same curve.
+  const hero = findHeroStage(sectionKey)
+  const durationMs = hero ? heroStageDurationMs(hero.stage) : DEFAULT_REVEAL_FALLBACK_MS
+
   const startedAt = Date.now()
+  const startY = window.scrollY
   let raf = 0
   let cancelled = false
   const cancel = () => {
@@ -304,16 +341,24 @@ export function scrollSectionToTop(sectionKey: string): void {
 
   const step = () => {
     if (cancelled) return
-    const current = window.scrollY
-    const dest = destination()
-    const delta = dest - current
     const elapsed = Date.now() - startedAt
-    if ((Math.abs(delta) <= CHASE_SETTLE_PX && elapsed >= CHASE_MIN_MS) || elapsed >= CHASE_MAX_MS) {
+    const dest = destination()
+    if (elapsed >= durationMs) {
+      // Morph finished: rest exactly on the (still live) destination, then
+      // keep snapping through a short grace so a neighbor animation ending
+      // late can't strand the rest position.
       jumpTo(dest)
-      cancel()
-      return
+      if (elapsed >= durationMs + POST_MORPH_TRACK_MS) {
+        cancel()
+        return
+      }
+    } else {
+      // Progress on the morph's own curve toward the LIVE destination: the
+      // remaining fraction of the journey shrinks exactly as the stage's
+      // height transition does, so scroll and expansion land together.
+      const eased = HERO_MORPH_EASE(elapsed / durationMs)
+      jumpTo(dest - (dest - startY) * (1 - eased))
     }
-    jumpTo(current + delta * CHASE_GAIN)
     raf = requestAnimationFrame(step)
   }
   raf = requestAnimationFrame(step)
