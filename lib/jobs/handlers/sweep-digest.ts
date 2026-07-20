@@ -46,7 +46,9 @@ export async function runSweepDigest(digestSlot: Date, deps: SweepDigestDeps = r
   const sweepSlot = new Date(digestSlot)
   sweepSlot.setHours(SWEEP_SLOT_HOUR, 0, 0, 0)
 
-  const sweep = await prisma.weeklySweep.findUnique({ where: { scheduledFor: sweepSlot } })
+  // origin='scheduled' — never resolve (or email) a manual snapshot that somehow
+  // shares the exact Monday-01:00 slot. The Monday email is Sunday-sweep-only.
+  const sweep = await prisma.weeklySweep.findFirst({ where: { scheduledFor: sweepSlot, origin: 'scheduled' } })
   if (!sweep) {
     // A sweep that never fired is an ops signal, not a retryable error.
     logError(
