@@ -160,6 +160,30 @@ describe('CollapsibleSection', () => {
     expect(stored.get(collapseKey(1, 'brand'))).toBe('expanded')
   })
 
+  it('a deliberate expand click smooth-scrolls its own section to the top; a collapse click does not', () => {
+    // The real DOM has `<section id={sectionKey}>` OUTSIDE this component
+    // (SectionShell) — scrollSectionToTop resolves the scroll target via
+    // `document.getElementById(sectionKey)`, so reproduce that wrapper.
+    const wrapper = document.createElement('section')
+    wrapper.id = 'brand'
+    document.body.appendChild(wrapper)
+    wrapper.scrollIntoView = vi.fn()
+
+    render(<Harness />, { container: wrapper })
+    const btn = screen.getByRole('button', { name: 'Brand & Identity' })
+
+    // Expand: scrolls (parallel with the morph — see CollapsibleSection's
+    // onClick comment).
+    fireEvent.click(btn)
+    expect(wrapper.scrollIntoView).toHaveBeenCalledTimes(1)
+
+    // Collapse: never scrolls.
+    fireEvent.click(btn)
+    expect(wrapper.scrollIntoView).toHaveBeenCalledTimes(1)
+
+    wrapper.remove()
+  })
+
   it('clicking the expanded hero collapses it and persists "collapsed"', () => {
     stored.set(collapseKey(1, 'brand'), 'expanded')
     render(<Harness />)

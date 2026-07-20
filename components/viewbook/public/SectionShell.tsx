@@ -245,7 +245,12 @@ export function SectionShell({
             worst at slow reveal paces). Capped + centered, the title holds
             its x-position on BOTH faces through the whole morph; collapsed,
             the column ≥ card width so nothing visibly changes. */}
-        <span className="relative z-[3] mx-auto flex w-full min-w-0 max-w-5xl items-center gap-2.5 px-6">
+        {/* `vb-row-content`: the row TEXT fades on its own fast clock
+            (CollapsibleSection CSS) — on expand it vanishes almost
+            immediately instead of lingering over the incoming hero title,
+            while the face's bg/wash keep the slower crossfade for visual
+            continuity. */}
+        <span className="vb-row-content relative z-[3] mx-auto flex w-full min-w-0 max-w-5xl items-center gap-2.5 px-6">
           {/* Plain <span> — this row only renders inside CollapsibleSection's
               <button>, which is itself wrapped in the real <h2> (see
               CollapsibleSection.tsx). A <button> may not contain a heading. */}
