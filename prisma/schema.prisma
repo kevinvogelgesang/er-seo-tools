@@ -197,6 +197,7 @@ model SiteAudit {
   crawlRuns        CrawlRun[]
   harvestedLinks   HarvestedLink[]
   harvestedPageSeo HarvestedPageSeo[]
+  harvestedPageErrors HarvestedPageError[]
 
   @@index([createdAt])
   @@index([status])
@@ -445,6 +446,23 @@ model HarvestedLink {
 
   @@index([siteAuditId])
   @@index([siteAuditId, targetUrl])
+}
+
+// sweep-error-triage Bucket 1: transient record of audited URLs that returned a
+// provably-dead HTTP status (404/410) during the ADA site audit. Captured at
+// page-settle; read by the broken-link-verify builder which emits a `dead_page`
+// finding on the live-scan run, then deletes these rows. A 7-day sweep backstops
+// audits whose build never ran. Scaffolding, not a durable store.
+model HarvestedPageError {
+  id          String    @id @default(cuid())
+  siteAuditId String
+  siteAudit   SiteAudit @relation(fields: [siteAuditId], references: [id], onDelete: Cascade)
+  url         String // normalizeFindingUrl-normalized requested audited URL
+  statusCode  Int // 404 | 410
+  createdAt   DateTime  @default(now())
+
+  @@unique([siteAuditId, url]) // a retry's re-insert is a harmless no-op
+  @@index([siteAuditId])
 }
 
 // C6 Phase 2: transient per-page on-page SEO signals captured during the ADA
