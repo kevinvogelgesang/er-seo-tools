@@ -79,6 +79,7 @@ export interface ToolLoad {
 /** Everything computeSweepSnapshot needs about one SiteAudit (loaded once). */
 export interface AuditLoad {
   discoveryCapped: boolean
+  pagesError: number // SiteAudit.pagesError — shared by both tool pairs
   ada: ToolLoad
   seo: ToolLoad
 }
@@ -188,7 +189,7 @@ async function loadSeoTool(runId: string | null, runStatus: string | null): Prom
 
 export async function loadAuditForSnapshot(siteAuditId: string): Promise<AuditLoad> {
   const [audit, adaRun, seoRun] = await Promise.all([
-    prisma.siteAudit.findUnique({ where: { id: siteAuditId }, select: { discoveryCapped: true } }),
+    prisma.siteAudit.findUnique({ where: { id: siteAuditId }, select: { discoveryCapped: true, pagesError: true } }),
     prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } },
       select: { id: true, status: true },
@@ -202,7 +203,7 @@ export async function loadAuditForSnapshot(siteAuditId: string): Promise<AuditLo
     loadAdaTool(adaRun?.id ?? null, adaRun?.status ?? null),
     loadSeoTool(seoRun?.id ?? null, seoRun?.status ?? null),
   ])
-  return { discoveryCapped: audit?.discoveryCapped === true, ada, seo }
+  return { discoveryCapped: audit?.discoveryCapped === true, pagesError: audit?.pagesError ?? 0, ada, seo }
 }
 
 const defaultDeps: SnapshotDeps = { loadAudit: loadAuditForSnapshot }
@@ -236,8 +237,9 @@ function reasonFor(state: CoverageState, obs: PairObservation): string | null {
   if (state === 'failed') return 'run-missing'
   if (state === 'partial') {
     if (obs.discoveryCapped) return 'crawl-capped'
-    if (obs.runStatus === 'partial') return 'timed-out'
-    return 'attribution-incomplete'
+    if (obs.pagesError > 0) return 'pages-errored' // retires the false 'timed-out'
+    if (!obs.attributionComplete) return 'attribution-incomplete'
+    return 'coverage-capped' // runStatus 'partial' with no pagesError (verifier-capped)
   }
   return null
 }
@@ -308,6 +310,7 @@ export async function computeSweepSnapshot(
         runStatus: tl.runStatus,
         discoveryCapped: load.discoveryCapped,
         attributionComplete: tl.attributionComplete,
+        pagesError: load.pagesError,
       }
       const baselineAvailable = baselinePairs.has(pairKey(m.clientId, m.domain, tool))
       const { state } = classifyCoverage(obs, baselineAvailable)

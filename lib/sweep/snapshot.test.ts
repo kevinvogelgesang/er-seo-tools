@@ -63,7 +63,7 @@ function tool(partial: Partial<ToolLoad> = {}): ToolLoad {
 }
 
 function auditLoad(partial: Partial<AuditLoad> = {}): AuditLoad {
-  return { discoveryCapped: false, ada: tool(), seo: tool(), ...partial }
+  return { discoveryCapped: false, pagesError: 0, ada: tool(), seo: tool(), ...partial }
 }
 
 function depsFrom(map: Record<string, AuditLoad>): SnapshotDeps {
@@ -364,6 +364,56 @@ describe('computeSweepSnapshot — change states', () => {
     expect(snap.groups.map((g) => g.type).sort()).toEqual(['crit', 'note'])
     expect(snap.totals.actionable).toBe(1)
     expect(snap.shortlist.map((s) => s.type)).toEqual(['crit'])
+  })
+})
+
+describe('computeSweepSnapshot — coverage reasons (pagesError label fix)', () => {
+  it('pagesError>0 on an otherwise-complete audit → both tools partial, reason "pages-errored"', async () => {
+    const m = membership([member(1, 'a.edu', 'aud-1')])
+    const deps = depsFrom({
+      'aud-1': auditLoad({
+        pagesError: 3,
+        ada: tool({ runStatus: 'complete', groups: [] }),
+        seo: tool({ runStatus: 'complete', groups: [] }),
+      }),
+    })
+    const snap = await computeSweepSnapshot(sweepOf(m), null, NOW, deps)
+    for (const tool of ['ada-audit', 'seo-parser'] as const) {
+      const cov = snap.coverage.find((c) => c.tool === tool)
+      expect(cov?.state).toBe('partial')
+      expect(cov?.reason).toBe('pages-errored')
+    }
+  })
+
+  it('runStatus "partial" with pagesError 0 → reason "coverage-capped" (not the retired "timed-out")', async () => {
+    const m = membership([member(1, 'a.edu', 'aud-1')])
+    const deps = depsFrom({
+      'aud-1': auditLoad({
+        pagesError: 0,
+        ada: tool({ runStatus: 'complete', groups: [] }),
+        seo: tool({ runStatus: 'partial', groups: [] }),
+      }),
+    })
+    const snap = await computeSweepSnapshot(sweepOf(m), null, NOW, deps)
+    const seoCov = snap.coverage.find((c) => c.tool === 'seo-parser')
+    expect(seoCov?.state).toBe('partial')
+    expect(seoCov?.reason).toBe('coverage-capped')
+    // No coverage row anywhere still reads the retired label.
+    expect(snap.coverage.every((c) => c.reason !== 'timed-out')).toBe(true)
+  })
+
+  it('discoveryCapped wins over pagesError → reason "crawl-capped"', async () => {
+    const m = membership([member(1, 'a.edu', 'aud-1')])
+    const deps = depsFrom({
+      'aud-1': auditLoad({
+        discoveryCapped: true,
+        pagesError: 5,
+        ada: tool({ runStatus: 'complete', groups: [] }),
+        seo: tool({ runStatus: 'complete', groups: [] }),
+      }),
+    })
+    const snap = await computeSweepSnapshot(sweepOf(m), null, NOW, deps)
+    expect(snap.coverage.find((c) => c.tool === 'ada-audit')?.reason).toBe('crawl-capped')
   })
 })
 

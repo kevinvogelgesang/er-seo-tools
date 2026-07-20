@@ -20,6 +20,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('failed')
@@ -31,6 +32,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: true,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('partial')
@@ -42,6 +44,7 @@ describe('classifyCoverage', () => {
         runStatus: 'partial',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('partial')
@@ -53,6 +56,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: false,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('partial')
@@ -64,9 +68,33 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: null as any, // legacy null case
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('partial')
+    })
+
+    it('pagesError>0 with an otherwise-complete run -> partial (was comparable)', () => {
+      const current: PairObservation = {
+        runPresent: true,
+        runStatus: 'complete',
+        discoveryCapped: false,
+        attributionComplete: true,
+        pagesError: 3,
+      }
+      // baselineAvailable true — would classify comparable without the pagesError cause.
+      expect(classifyCoverage(current, true).state).toBe('partial')
+    })
+
+    it('pagesError===0 with an otherwise-complete run stays comparable', () => {
+      const current: PairObservation = {
+        runPresent: true,
+        runStatus: 'complete',
+        discoveryCapped: false,
+        attributionComplete: true,
+        pagesError: 0,
+      }
+      expect(classifyCoverage(current, true).state).toBe('comparable')
     })
 
     it('runPresent && !baselineAvailable && healthy -> first-baseline', () => {
@@ -75,6 +103,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('first-baseline')
@@ -95,6 +124,7 @@ describe('classifyCoverage', () => {
         runStatus: 'partial',
         discoveryCapped: false,
         attributionComplete: true, // vacuous truth: [].every(...) === true
+        pagesError: 0,
       }
       const result = classifyCoverage(current, true)
       expect(result.state).toBe('partial')
@@ -106,6 +136,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, true)
       expect(result.state).toBe('comparable')
@@ -126,6 +157,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: true,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('partial')
@@ -138,6 +170,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('first-baseline')
@@ -161,6 +194,7 @@ describe('classifyCoverage', () => {
         runStatus: 'partial',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.baselineAvailable).toBe(false)
@@ -172,6 +206,7 @@ describe('classifyCoverage', () => {
         runStatus: 'partial',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, true)
       expect(result.baselineAvailable).toBe(true)
@@ -183,6 +218,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.baselineAvailable).toBe(false)
@@ -196,6 +232,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, true)
       expect(result.baselineAvailable).toBe(true)
@@ -208,6 +245,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.baselineAvailable).toBe(false)
@@ -221,6 +259,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, true)
       expect(result.baselineAvailable).toBe(true)
@@ -235,6 +274,7 @@ describe('classifyCoverage', () => {
         runStatus: 'partial',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, true)
       expect(result.state).toBe('partial')
@@ -247,6 +287,7 @@ describe('classifyCoverage', () => {
         runStatus: 'complete',
         discoveryCapped: false,
         attributionComplete: true,
+        pagesError: 0,
       }
       const result = classifyCoverage(current, false)
       expect(result.state).toBe('first-baseline')
