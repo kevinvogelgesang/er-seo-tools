@@ -160,27 +160,34 @@ describe('CollapsibleSection', () => {
     expect(stored.get(collapseKey(1, 'brand'))).toBe('expanded')
   })
 
-  it('a deliberate expand click smooth-scrolls its own section to the top; a collapse click does not', () => {
+  it('a deliberate expand click starts the destination-chasing scroll; a collapse click does not', () => {
     // The real DOM has `<section id={sectionKey}>` OUTSIDE this component
     // (SectionShell) — scrollSectionToTop resolves the scroll target via
     // `document.getElementById(sectionKey)`, so reproduce that wrapper.
+    vi.useFakeTimers()
     const wrapper = document.createElement('section')
     wrapper.id = 'brand'
     document.body.appendChild(wrapper)
-    wrapper.scrollIntoView = vi.fn()
+    const scrollTo = vi.fn()
+    vi.stubGlobal('scrollTo', scrollTo)
 
     render(<Harness />, { container: wrapper })
     const btn = screen.getByRole('button', { name: 'Brand & Identity' })
 
-    // Expand: scrolls (parallel with the morph — see CollapsibleSection's
-    // onClick comment).
+    // Expand: the chase runs on animation frames (2026-07-20 rework — a
+    // one-shot scrollIntoView went stale whenever a neighboring collapse was
+    // still animating; see viewbook-navigate.ts).
     fireEvent.click(btn)
-    expect(wrapper.scrollIntoView).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(2000) // chase runs to its settle/cap and stops
+    expect(scrollTo).toHaveBeenCalled()
+    const callsAfterExpand = scrollTo.mock.calls.length
 
     // Collapse: never scrolls.
     fireEvent.click(btn)
-    expect(wrapper.scrollIntoView).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(2000)
+    expect(scrollTo.mock.calls.length).toBe(callsAfterExpand)
 
+    vi.unstubAllGlobals()
     wrapper.remove()
   })
 
@@ -333,10 +340,13 @@ describe('CollapsibleSection', () => {
   })
 
   it('previewMode: an expand click NEVER scrolls (the admin page must not yank to the preview canvas)', () => {
+    vi.useFakeTimers()
     const wrapper = document.createElement('section')
     wrapper.id = 'brand'
     document.body.appendChild(wrapper)
     wrapper.scrollIntoView = vi.fn()
+    const scrollTo = vi.fn()
+    vi.stubGlobal('scrollTo', scrollTo)
 
     render(<Harness previewMode />, { container: wrapper })
     const btn = screen.getByRole('button', { name: 'Brand & Identity' })
@@ -344,9 +354,12 @@ describe('CollapsibleSection', () => {
     // previewMode starts expanded — collapse, then expand again.
     fireEvent.click(btn)
     fireEvent.click(btn)
+    vi.advanceTimersByTime(2000)
     expect(screen.getByTestId('hero-expanded')).toBeDefined()
     expect(wrapper.scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTo).not.toHaveBeenCalled()
 
+    vi.unstubAllGlobals()
     wrapper.remove()
   })
 
