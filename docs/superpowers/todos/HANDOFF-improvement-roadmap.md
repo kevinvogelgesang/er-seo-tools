@@ -1,9 +1,12 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-20 (**Manual full-cohort sweep → /issues IMPLEMENTED +
-MERGED (PR #231) + DEPLOYED (migration `20260721000000_manual_sweep_origin`
-applied, PM2 online 0 restarts). NEXT: the SF-parity campaign + the two
-campaign-gated `[~]` items.**) · **Updated by:** the manual-sweep implementation session.
+**Last updated:** 2026-07-20 (**SF-PARITY CAMPAIGN cycles 3 & 4 RECORDED
+(autonomous, read-only prod measurement) — the parity dataset is now
+self-generating via the weekly sweep; Phase-1 gate over-satisfied fleet-wide;
+the cycle-2→3 score drop root-caused to the C19 recalibration (not a bug).
+NEXT: Kevin sets the retirement bar; the remaining buildable code item is the
+C12 topic-overlap ONNX child-process embed-worker follow-up.**) ·
+**Updated by:** the SF-parity cycle-3/4 measurement session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -11,29 +14,42 @@ campaign-gated `[~]` items.**) · **Updated by:** the manual-sweep implementatio
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. STATE (2026-07-20): the MANUAL
-FULL-COHORT SWEEP → /issues feature shipped — implemented (12 TDD tasks), merged
-(PR #231 `a4685d5`), deployed (migration 20260721000000_manual_sweep_origin
-applied, PM2 online 0 restarts, clean boot, HTTP 307). "Queue all clients" now
-runs a true full ADA+SEO sweep of every registered domain, freezes a
-WeeklySweep(origin='manual') row, and refreshes /issues silently (NO email) on
-drain; the Monday support email stays the Sunday scheduled digest. Reused the
-existing WeeklySweep/computeSweepSnapshot layer (only additive schema =
-WeeklySweep.origin + a partial in-flight-manual unique index).
+Continue the er-seo-tools improvement roadmap. STATE (2026-07-20): the SF-PARITY
+CAMPAIGN advanced — cycles 3 & 4 recorded autonomously (read-only prod
+measurement, NO scans triggered). The weekly-sweep infra (deployed 2026-07-16)
+now GENERATES parity data: two full-cohort seoIntent sweeps completed (2026-07-16
+= cycle 3, 2026-07-20 = cycle 4), each ~29 client domains (up from the hand-run
+7). Recorded in docs/superpowers/todos/2026-07-05-sf-live-parity-log.md
+(§ 2026-07-20). Key results: 11 SF-vs-live parity pairs; the systematic cycle-2→3
+live-score drop (e.g. bidwell 88→71 with byte-IDENTICAL inputs) is fully
+explained by the C19 SEO recalibration (PRs #143/#144, deployed 2026-07-10 —
+steeper curve knees + a new broken-links factor), a cross-formula-version
+comparability break NOT a regression; 26/29 live scores byte-identical across the
+two sweeps (strong Phase-7 reproducibility evidence); sitemap miss-rate median
+≈19% with the hybrid crawler closing 17/29 clients to <5% residual;
+topicOverlapJson absent on all 232 live runs (C12 kill-switch confirmed OFF).
+Phase-1 parity gate is over-satisfied fleet-wide. (Also already shipped this
+week: manual full-cohort sweep → /issues PR #231, sweep error triage PR #227 —
+both deployed, behavioral prod-verifies still open below.)
 
-Your job THIS session: pick up the next roadmap item —
+Your job THIS session: pick up the next roadmap item. The SF-parity DATA gate is
+essentially met, so the campaign now needs Kevin's judgment (the retirement bar)
++ the cookie-gated prod-verifies, NOT more measurement. The one remaining
+BUILDABLE code item is:
 
-  THE SF-PARITY CAMPAIGN (er-seo-tools-sf-retirement-campaign) + the two
-  campaign-gated [~] items: (1) C6 hybrid-discovery Increment 2 PROD-VERIFY
-  (needs an authed seoIntent audit on a high-miss client, Kevin's er_auth
-  cookie); (2) C12 tier promotions (topic-overlap ONNX re-enable is gated on
-  the child-process embed-worker follow-up — see CLAUDE.md broken-link-verify
-  note). START by invoking the `er-seo-tools-sf-retirement-campaign` skill — it
-  owns the campaign's state, parity method, and next concrete step. If that
-  campaign is a research/parity task rather than a code feature, follow its
-  methodology (measure SF-vs-live parity per client, log the numbers); if it
-  surfaces a concrete build, run the full brainstorm→spec→plan→TDD loop on its
-  own branch/worktree.
+  C12 TOPIC-OVERLAP RE-ENABLE — the ONNX child-process embed-worker follow-up
+  (VERIFIER_TOPIC_OVERLAP_ENABLED is DEFAULT OFF; re-enabling needs the ONNX
+  memory work first: a child-process embed worker / dispose fencing / chunk-size
+  benchmark — see CLAUDE.md broken-link-verify note + the 2026-07-16 status-log
+  entry's recorded follow-ups). This is real memory-sensitive verifier infra (the
+  2026-07-16 crash-loop incident is the cautionary tale) → run the FULL
+  brainstorm→spec(Codex)→plan(Codex)→TDD→gate loop on its OWN worktree, and treat
+  the RSS guard + characterization test as hard constraints.
+
+  Alternatively, ask Kevin whether to (a) set the SF retirement bar now (the data
+  is in hand), (b) take the C12 topic-overlap build, or (c) pick another item —
+  the roadmap is otherwise all [x]. START by invoking the
+  `er-seo-tools-sf-retirement-campaign` skill for campaign state either way.
 
 FIRST STEPS:
   1. Multi-agent pre-flight (invoke er-seo-tools-multi-agent-coordination): git
@@ -146,6 +162,15 @@ verbatim (Kevin's hard constraint); the only schema change is additive
 full brainstorm→spec(Codex ×15)→plan(Codex ×14)→12-task TDD→Codex branch-review
 (×2 P2) loop; gates green (738 files / 6727 passing, 1 pre-existing KS-2 flake);
 deploy health verified, behavioral verification open (see prod-verify (a) above).
-**NEXT: the SF-parity campaign (`er-seo-tools-sf-retirement-campaign`) + the two
-campaign-gated `[~]` items — C6 hybrid-discovery Increment 2 prod-verify, and
-C12 tier promotions.**
+The **SF-parity campaign** then advanced 2026-07-20 (autonomous, read-only): the
+weekly sweep now auto-generates parity data, so cycles 3 & 4 (29 clients each)
+were recorded from prod without triggering any scan. The cycle-2→3 live-score
+drop was root-caused to the C19 recalibration (not a regression); 26/29 scores
+reproduced across the two sweeps; the Phase-1 parity gate is over-satisfied
+fleet-wide. See `2026-07-05-sf-live-parity-log.md` § 2026-07-20.
+**NEXT:** the SF-parity DATA gate is essentially met, so what remains is Kevin's
+retirement-bar judgment + the cookie-gated prod-verifies (C6 hybrid-discovery
+Increment 2; the manual-sweep + sweep-error-triage behavioral checks). The one
+remaining buildable code item is the **C12 topic-overlap re-enable** (the ONNX
+child-process embed-worker follow-up — `VERIFIER_TOPIC_OVERLAP_ENABLED` is OFF
+until the ONNX memory work lands).
