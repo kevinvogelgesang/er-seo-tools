@@ -217,6 +217,14 @@ const EXPECTED_DISCOVERY_COVERAGE = {
   sample: EXPECTED_ALL_UNIQUE_INTERNAL_TARGETS.map((targetUrl) => ({ targetUrl, sourcePageUrls: [HUB] })),
   sitemapMissRate: null, sitemapApplicable: false, residualMissRate: null, residualApplicable: false,
   hybridCapped: false,
+  // L1 additive re-pin (2026-07-20): all pre-existing fields above are byte-identical,
+  // which proves the shared normalizeCoverageUrl (the crawl KEY) was NOT changed.
+  residualMissRateRaw: null,
+  nonContentExcludedCount: 0,
+  excludedByReason: { param: 0, malformed: 0, pagination: 0, taxonomy: 0, thankyou: 0, account: 0 },
+  excludedSampleByReason: {},
+  baselineExcludedCount: 0,
+  baselineExcludedByReason: { pagination: 0, taxonomy: 0, thankyou: 0, account: 0, nonpage: 0 },
 }
 
 const EXPECTED_CONTENT_SIMILARITY = {
