@@ -59,6 +59,14 @@
 // the title span (every decorative span is aria-hidden), which is what lets
 // CollapsibleSection derive the button's accessible name from content
 // instead of an aria-label (see CollapsibleSection.tsx).
+//
+// Task 8 (2026-07-19, docs/superpowers/sdd/task-8-brief.md): CollapsibleSection
+// now renders BOTH `heroExpanded` and `heroCollapsed` simultaneously, stacked
+// in a cross-fading `.vb-hero-stage` that owns the animated height — so
+// `buildExpandedHero`'s root no longer sets its own `min-h-[38vh]`/
+// `min-h-[30vh]`/`overflow-hidden` (the stage clips + sizes it; the stage
+// picks the 38svh-vs-30svh clamp via `hasHeroImage`, threaded here from
+// `heroUrl != null`). `buildCompactRow`'s own ~74px sizing is untouched.
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
@@ -235,7 +243,6 @@ export function SectionShell({
   // the bottom-left (nothing flung to the corners) — the whole band is the
   // collapse trigger, owned by CollapsibleSection's click wrapper.
   function buildExpandedHero(): ReactNode {
-    const heightClass = heroUrl ? 'min-h-[38vh]' : 'min-h-[30vh]'
     // Collapsible sections render inside CollapsibleSection's <button>, which
     // is wrapped in the real <h2> there (a <button> may not contain a
     // heading) — so the title here is a plain <span>. A collapse-ineligible
@@ -252,7 +259,11 @@ export function SectionShell({
       // (`flex`) or absolute positioning (CSS forces block regardless of the
       // element's default).
       <span
-        className={`relative flex ${heightClass} items-end overflow-hidden`}
+        // Task 8 (docs/superpowers/sdd/task-8-brief.md): height is now owned
+        // by CollapsibleSection's `.vb-hero-stage` (which also supplies the
+        // absolute containing block for this hero's own `absolute inset-0`
+        // decorative layers) — no `min-h-*`/`overflow-hidden` here anymore.
+        className="relative flex h-full items-end"
         style={{ background: 'var(--vb-primary)' }}
       >
         {/* Decorative-only corner accent (Task 10) — subtle brand-tinted
@@ -367,6 +378,7 @@ export function SectionShell({
           title={title}
           heroExpanded={buildExpandedHero()}
           heroCollapsed={buildCompactRow()}
+          hasHeroImage={heroUrl != null}
           body={
             <>
               {headerStrip}

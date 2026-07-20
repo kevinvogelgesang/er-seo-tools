@@ -66,6 +66,21 @@
 // without touching the calc() literals; `prefers-reduced-motion` disables the
 // transition outright. This task does NOT touch hero rendering — that's a
 // later task.
+//
+// Task 8 (2026-07-19, docs/superpowers/sdd/task-8-brief.md): the hero itself
+// gets the same cross-fade treatment. Both `heroCollapsed` and `heroExpanded`
+// are now rendered SIMULTANEOUSLY, stacked absolutely inside a `.vb-hero-
+// stage` whose height animates between the collapsed-row height and the
+// expanded-hero clamp, with each face opacity-crossfading in/out via
+// `.vb-hero-face`. The inactive face is `aria-hidden` (not display:none —
+// same "keep it mounted, hide it from AT" pattern as the body region above)
+// so the button's accessible name still resolves to the ONE visible title
+// (name-from-content excludes aria-hidden subtrees). `hasHeroImage` (threaded
+// from SectionShell, which owns `heroUrl`) sets `data-vb-hero="none"` on the
+// root for image-less sections so the CSS can key the shorter 30svh clamp
+// instead of 38svh — preserving the pre-Task-8 no-image sizing. Two `<img>`
+// nodes (one per face) is an accepted non-goal — hoisting the image to a
+// shared plane isn't supported by the current hero-prop shape.
 import { useEffect, type ReactNode } from 'react'
 import { useCollapseState } from './useCollapseState'
 
@@ -75,6 +90,7 @@ export function CollapsibleSection({
   title,
   heroExpanded,
   heroCollapsed,
+  hasHeroImage = true,
   body,
   regionId,
   previewMode = false,
@@ -84,6 +100,7 @@ export function CollapsibleSection({
   title: string
   heroExpanded: ReactNode // full hero (image+overlay+title+done-check+collapse cue)
   heroCollapsed: ReactNode // compact accordion row (image+wash+accent+title+done-check+affordance)
+  hasHeroImage?: boolean // false → shorter stage clamp (mirrors the pre-Task-8 no-image hero height)
   body: ReactNode // SectionReveal body — ALWAYS rendered, hidden when collapsed
   regionId: string
   previewMode?: boolean // ThemePreview: render visuals but NEVER touch localStorage
@@ -107,21 +124,39 @@ export function CollapsibleSection({
   }, [sectionKey, forceExpand])
 
   return (
-    <div data-vb-state={collapsed ? 'collapsed' : 'expanded'} className="vb-collapsible">
+    <div
+      data-vb-state={collapsed ? 'collapsed' : 'expanded'}
+      data-vb-hero={hasHeroImage ? undefined : 'none'}
+      className="vb-collapsible"
+    >
       {/* Scoped animation for the body reveal. grid-template-rows 1fr↔0fr on
           a single-row grid is the standard "animate to auto height" trick —
           unlike max-height it needs no guessed cap. The inner opacity+
           translateY lift is purely cosmetic polish on top of that. Every
           duration scales off `--vb-reveal-scale` (default 1) so a caller can
           speed up/slow down/freeze the animation globally without editing
-          the calc() literals here. */}
+          the calc() literals here.
+
+          The hero stage (Task 8) mirrors that pattern one level up: both
+          hero faces stay mounted, stacked via `.vb-hero-face{position:
+          absolute;inset:0}` inside a `.vb-hero-stage` that owns the
+          animated height (82px collapsed row ↔ the expanded clamp — 30svh
+          for image-less heroes via `[data-vb-hero="none"]`, 38svh
+          otherwise), with the faces themselves opacity-crossfading. */}
       <style>{`
         .vb-collapsible .vb-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="collapsed"] .vb-body{grid-template-rows:0fr}
         .vb-collapsible .vb-body-inner{overflow:hidden;min-height:0}
         .vb-collapsible .vb-body-lift{opacity:1;transform:none;transition:opacity calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),transform calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="collapsed"] .vb-body-lift{opacity:0;transform:translateY(20px)}
-        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-body,.vb-collapsible .vb-body-lift{transition:none}}
+        .vb-collapsible .vb-hero-stage{position:relative;display:block;width:100%;overflow:hidden;height:82px;transition:height calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
+        .vb-collapsible[data-vb-state="expanded"] .vb-hero-stage{height:clamp(240px,38svh,560px)}
+        .vb-collapsible[data-vb-hero="none"][data-vb-state="expanded"] .vb-hero-stage{height:clamp(180px,30svh,420px)}
+        .vb-collapsible .vb-hero-face{position:absolute;inset:0;width:100%;height:100%;display:block;transition:opacity calc(400ms*var(--vb-reveal-scale,1)) ease}
+        .vb-collapsible .vb-hero-face--expanded{opacity:0}
+        .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--expanded{opacity:1}
+        .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--collapsed{opacity:0}
+        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-body,.vb-collapsible .vb-body-lift,.vb-collapsible .vb-hero-stage,.vb-collapsible .vb-hero-face{transition:none}}
       `}</style>
       {/* APG Accordion: the heading WRAPS the button (not the reverse) — see
           the file banner. `id={sectionKey}` scroll anchor stays on the outer
@@ -137,7 +172,26 @@ export function CollapsibleSection({
           onClick={collapsed ? expand : collapse}
           className="group block w-full appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2"
         >
-          {collapsed ? heroCollapsed : heroExpanded}
+          {/* Task 8: BOTH faces render, stacked — the inactive one is
+              aria-hidden (never removed) so the cross-fade has something to
+              animate between and the button keeps exactly one accessible
+              name (name-from-content skips aria-hidden subtrees). */}
+          <span className="vb-hero-stage">
+            <span
+              className="vb-hero-face vb-hero-face--collapsed"
+              data-vb-face="collapsed"
+              aria-hidden={collapsed ? undefined : true}
+            >
+              {heroCollapsed}
+            </span>
+            <span
+              className="vb-hero-face vb-hero-face--expanded"
+              data-vb-face="expanded"
+              aria-hidden={collapsed ? true : undefined}
+            >
+              {heroExpanded}
+            </span>
+          </span>
         </button>
       </h2>
       {/* Region ALWAYS mounted (never `hidden`/`display:none` — those would

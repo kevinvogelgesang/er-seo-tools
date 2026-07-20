@@ -53,8 +53,11 @@ function Harness(props: Partial<Parameters<typeof CollapsibleSection>[0]> = {}) 
 describe('CollapsibleSection', () => {
   it('defaults to collapsed on a fresh machine: shows heroCollapsed, region MOUNTED but aria-hidden+inert, root data-vb-state="collapsed"', () => {
     const { container } = render(<Harness />)
+    // Task 8: both hero faces stay MOUNTED (stacked in the cross-fade stage)
+    // — the inactive face is aria-hidden, not absent from the DOM.
     expect(screen.getByTestId('hero-collapsed')).toBeDefined()
-    expect(screen.queryByTestId('hero-expanded')).toBeNull()
+    expect(screen.getByTestId('hero-collapsed').closest('[data-vb-face]')?.getAttribute('aria-hidden')).toBeNull()
+    expect(screen.getByTestId('hero-expanded').closest('[data-vb-face]')?.getAttribute('aria-hidden')).toBe('true')
 
     const region = document.getElementById('vb-region-brand')
     expect(region).not.toBeNull()
@@ -132,8 +135,10 @@ describe('CollapsibleSection', () => {
   it('a stored "expanded" value starts expanded', () => {
     stored.set(collapseKey(1, 'brand'), 'expanded')
     const { container } = render(<Harness />)
+    // Task 8: both faces stay mounted — collapsed face is the one aria-hidden now.
     expect(screen.getByTestId('hero-expanded')).toBeDefined()
-    expect(screen.queryByTestId('hero-collapsed')).toBeNull()
+    expect(screen.getByTestId('hero-expanded').closest('[data-vb-face]')?.getAttribute('aria-hidden')).toBeNull()
+    expect(screen.getByTestId('hero-collapsed').closest('[data-vb-face]')?.getAttribute('aria-hidden')).toBe('true')
     const region = document.getElementById('vb-region-brand')
     expect(region?.hasAttribute('hidden')).toBe(false)
     expect(region?.getAttribute('aria-hidden')).toBeNull()
@@ -228,6 +233,33 @@ describe('CollapsibleSection', () => {
     render(<Harness />)
     expect(document.getElementById('vb-region-brand')?.getAttribute('aria-hidden')).toBeNull()
     expect(stored.has(collapseKey(1, 'brand'))).toBe(false)
+  })
+
+  it('Task 8: BOTH data-vb-face="collapsed" and data-vb-face="expanded" nodes exist in the DOM simultaneously (the cross-fade stage)', () => {
+    const { container } = render(<Harness />)
+    expect(container.querySelector('[data-vb-face="collapsed"]')).not.toBeNull()
+    expect(container.querySelector('[data-vb-face="expanded"]')).not.toBeNull()
+  })
+
+  it('Task 8: the inactive face is aria-hidden — collapsed (default): expanded face hidden; after toggling: collapsed face hidden', () => {
+    const { container } = render(<Harness />)
+    const collapsedFace = container.querySelector('[data-vb-face="collapsed"]')
+    const expandedFace = container.querySelector('[data-vb-face="expanded"]')
+    expect(collapsedFace?.getAttribute('aria-hidden')).toBeNull()
+    expect(expandedFace?.getAttribute('aria-hidden')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+    expect(collapsedFace?.getAttribute('aria-hidden')).toBe('true')
+    expect(expandedFace?.getAttribute('aria-hidden')).toBeNull()
+  })
+
+  it('Task 8: with both faces rendering, the button still resolves to exactly ONE accessible name (name-from-content skips the aria-hidden face)', () => {
+    render(<Harness />)
+    // Would throw if more than one match / the name were duplicated.
+    expect(screen.getByRole('button', { name: 'Brand & Identity' })).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brand & Identity' }))
+    expect(screen.getByRole('button', { name: 'Brand & Identity' })).toBeDefined()
   })
 
   it('previewMode: clicking toggles visuals but NEVER writes localStorage', () => {

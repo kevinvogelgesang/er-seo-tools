@@ -238,6 +238,54 @@ describe('SectionShell', () => {
   })
 })
 
+describe('SectionShell Task 8 hero stage', () => {
+  it('threads hasHeroImage from heroUrl: sets data-vb-hero="none" on the root only when there is no hero image (the stage-height CSS hook)', () => {
+    const { container: noImage } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl={null}
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(noImage.querySelector('.vb-collapsible')?.getAttribute('data-vb-hero')).toBe('none')
+    cleanup()
+
+    const { container: withImage } = render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'brand2' })}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(withImage.querySelector('.vb-collapsible')?.getAttribute('data-vb-hero')).toBeNull()
+  })
+
+  it('renders both hero faces (compact row + expanded hero markup) inside the button, stacked in the stage', () => {
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl={null}
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const btn = screen.getByRole('button', { name: 'Brand Guidelines' })
+    expect(btn.querySelector('[data-vb-face="collapsed"]')).not.toBeNull()
+    expect(btn.querySelector('[data-vb-face="expanded"]')).not.toBeNull()
+  })
+})
+
 describe('SectionShell PR3 restructure', () => {
   it('renders the done-check on the hero in BOTH the default-collapsed compact row and the (locally-expanded) hero', () => {
     expandSection()
