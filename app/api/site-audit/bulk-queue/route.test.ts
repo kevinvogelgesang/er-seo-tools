@@ -1,172 +1,30 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest'
-import { NextRequest } from 'next/server'
+// app/api/site-audit/bulk-queue/route.test.ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { prisma } from '@/lib/db'
 
-const req = () =>
-  new NextRequest('http://localhost/api/site-audit/bulk-queue', { method: 'POST' })
-
-// Mock prisma.client.findMany so the route operates on a known seed set.
-// Mock queueSiteAuditRequest so we don't touch the real queue.
-vi.mock('@/lib/db', () => ({
-  prisma: {
-    client: { findMany: vi.fn() },
-  },
-}))
-vi.mock('@/lib/ada-audit/queue-request', () => ({
-  queueSiteAuditRequest: vi.fn(),
-}))
-
-const { prisma } = await import('@/lib/db')
-const { queueSiteAuditRequest } = await import('@/lib/ada-audit/queue-request')
-const { createAuthCookieValue, AUTH_COOKIE_NAME, OPERATOR_NAME_COOKIE_NAME } = await import('@/lib/auth')
-const { POST } = await import('./route')
-
-// C15: signed-cookie tests run against an explicit secret so signing and
-// verification are hermetic regardless of the invoking shell's env.
-const ORIG_SECRET = process.env.APP_AUTH_SECRET
-beforeAll(() => { process.env.APP_AUTH_SECRET = 'test-auth-secret' })
-afterAll(() => {
-  if (ORIG_SECRET === undefined) delete process.env.APP_AUTH_SECRET
-  else process.env.APP_AUTH_SECRET = ORIG_SECRET
-})
-
-beforeEach(() => {
-  vi.mocked(prisma.client.findMany).mockReset()
-  vi.mocked(queueSiteAuditRequest).mockReset()
-})
-
-function reqWithCookies(opts: { session?: string; operator?: string }) {
-  const headers = new Headers()
-  const cookies: string[] = []
-  if (opts.session) cookies.push(`${AUTH_COOKIE_NAME}=${opts.session}`)
-  if (opts.operator) cookies.push(`${OPERATOR_NAME_COOKIE_NAME}=${opts.operator}`)
-  if (cookies.length) headers.set('cookie', cookies.join('; '))
-  return new NextRequest('http://localhost/api/site-audit/bulk-queue', { method: 'POST', headers })
-}
-
-describe('POST /api/site-audit/bulk-queue', () => {
-  it('returns 400 missing_domains when at least one client has no domain', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'With Domain', domains: JSON.stringify(['ok.example']) },
-      { id: 2, name: 'No Domain', domains: '[]' },
-    ] as never)
-
-    const res = await POST(req())
-    expect(res.status).toBe(400)
-    const json = await res.json() as { error: string; clientsWithoutDomains: { id: number; name: string }[] }
-    expect(json.error).toBe('missing_domains')
-    expect(json.clientsWithoutDomains.map((c) => c.name)).toEqual(['No Domain'])
-    // Pre-check failure → no queue attempts
-    expect(queueSiteAuditRequest).not.toHaveBeenCalled()
+describe('POST /api/site-audit/bulk-queue (manual sweep)', () => {
+  beforeEach(async () => {
+    await prisma.job.deleteMany({ where: { type: 'manual-sweep' } })
+    await prisma.weeklySweep.deleteMany({})
   })
 
-  it('queues all clients when all have domains', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
-      { id: 2, name: 'B', domains: JSON.stringify(['b.example']) },
-    ] as never)
-    vi.mocked(queueSiteAuditRequest)
-      .mockResolvedValueOnce({ kind: 'queued', id: 'audit-1' })
-      .mockResolvedValueOnce({ kind: 'queued', id: 'audit-2' })
-
-    const res = await POST(req())
+  it('creates a manual WeeklySweep row and enqueues manual-sweep', async () => {
+    const { POST } = await import('./route')
+    const res = await POST(new Request('http://x/api/site-audit/bulk-queue', { method: 'POST' }) as never)
     expect(res.status).toBe(200)
-    const json = await res.json() as { queued: { clientId: number; auditId: string }[]; skipped: unknown[] }
-    expect(json.queued).toEqual([
-      { clientId: 1, auditId: 'audit-1' },
-      { clientId: 2, auditId: 'audit-2' },
-    ])
-    expect(json.skipped).toEqual([])
+    const body = (await res.json()) as { started: boolean; scheduledFor: string }
+    expect(body.started).toBe(true)
+    const row = await prisma.weeklySweep.findUnique({ where: { scheduledFor: new Date(body.scheduledFor) } })
+    expect(row?.origin).toBe('manual')
+    const job = await prisma.job.findFirst({ where: { type: 'manual-sweep' } })
+    expect(job).not.toBeNull()
   })
 
-  it('marks duplicates as skipped without failing the whole batch', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'Dup', domains: JSON.stringify(['dup.example']) },
-      { id: 2, name: 'Fresh', domains: JSON.stringify(['fresh.example']) },
-    ] as never)
-    vi.mocked(queueSiteAuditRequest)
-      .mockResolvedValueOnce({ kind: 'duplicate', existingId: 'existing-audit-id' })
-      .mockResolvedValueOnce({ kind: 'queued', id: 'audit-2' })
-
-    const res = await POST(req())
-    expect(res.status).toBe(200)
-    const json = await res.json() as { queued: { clientId: number; auditId: string }[]; skipped: { clientId: number; reason: string }[] }
-    expect(json.queued).toEqual([{ clientId: 2, auditId: 'audit-2' }])
-    expect(json.skipped).toEqual([
-      expect.objectContaining({ clientId: 1, reason: expect.stringContaining('already') }),
-    ])
-  })
-
-  it('forwards er-operator-name cookie as requestedBy to queueSiteAuditRequest', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
-    ] as never)
-    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
-
-    const reqWithCookie = new NextRequest('http://localhost/api/site-audit/bulk-queue', { method: 'POST' })
-    reqWithCookie.cookies.set('er-operator-name', 'Kevin')
-
-    const res = await POST(reqWithCookie)
-    expect(res.status).toBe(200)
-    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ requestedBy: 'Kevin' }),
-    )
-  })
-
-  it('passes requestedBy=null when cookie is absent', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
-    ] as never)
-    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
-
-    const res = await POST(req())
-    expect(res.status).toBe(200)
-    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ requestedBy: null }),
-    )
-  })
-
-  it('treats clients with whitespace-only domain entries as missing-domain', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'Whitespace', domains: JSON.stringify(['   ', '']) },
-    ] as never)
-    const res = await POST(req())
-    expect(res.status).toBe(400)
-    const json = await res.json() as { clientsWithoutDomains: { id: number }[] }
-    expect(json.clientsWithoutDomains.map((c) => c.id)).toEqual([1])
-  })
-})
-
-describe('POST /api/site-audit/bulk-queue — requestedBy attribution (C15)', () => {
-  it('passes the verified session name to every queue request, beating a stale legacy cookie', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
-    ] as never)
-    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
-
-    const session = await createAuthCookieValue({ sub: 'google:1', email: 'kevin@enrollmentresources.com', hd: 'enrollmentresources.com', name: 'Kevin Vogelgesang' })
-    const res = await POST(reqWithCookies({ session, operator: 'Stale Old Name' }))
-    expect(res.status).toBe(200)
-    expect(queueSiteAuditRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ requestedBy: 'Kevin Vogelgesang' }),
-    )
-  })
-
-  it('falls back to the sanitized legacy cookie without a session, and null with neither', async () => {
-    vi.mocked(prisma.client.findMany).mockResolvedValue([
-      { id: 1, name: 'A', domains: JSON.stringify(['a.example']) },
-    ] as never)
-    vi.mocked(queueSiteAuditRequest).mockResolvedValue({ kind: 'queued', id: 'audit-1' })
-
-    const legacyRes = await POST(reqWithCookies({ operator: '  Kevin  ' }))
-    expect(legacyRes.status).toBe(200)
-    expect(queueSiteAuditRequest).toHaveBeenLastCalledWith(
-      expect.objectContaining({ requestedBy: 'Kevin' }),
-    )
-
-    const anonRes = await POST(reqWithCookies({}))
-    expect(anonRes.status).toBe(200)
-    expect(queueSiteAuditRequest).toHaveBeenLastCalledWith(
-      expect.objectContaining({ requestedBy: null }),
-    )
+  it('returns 409 when a manual sweep is already in flight', async () => {
+    await prisma.weeklySweep.create({ data: { scheduledFor: new Date('2030-06-01T10:00:00Z'), origin: 'manual' } })
+    const { POST } = await import('./route')
+    const res = await POST(new Request('http://x', { method: 'POST' }) as never)
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { error: string }).error).toBe('manual_sweep_in_progress')
   })
 })

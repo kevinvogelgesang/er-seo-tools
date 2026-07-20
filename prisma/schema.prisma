@@ -605,6 +605,7 @@ model Schedule {
 model WeeklySweep {
   id                Int       @id @default(autoincrement())
   scheduledFor      DateTime  @unique
+  origin            String    @default("scheduled")   // 'scheduled' | 'manual' — manual = on-demand "Queue all" sweep
   startedAt         DateTime?
   membershipJson    String?
   fanoutCompletedAt DateTime?

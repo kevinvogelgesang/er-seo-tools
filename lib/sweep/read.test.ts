@@ -111,11 +111,12 @@ function mkSnapshot(overrides: Partial<SweepSnapshot> = {}): SweepSnapshot {
 
 async function seed(
   slot: Date,
-  opts: { snapshotJson?: string | null; startedAt?: Date | null } = {},
+  opts: { snapshotJson?: string | null; startedAt?: Date | null; origin?: 'scheduled' | 'manual' } = {},
 ): Promise<void> {
   await prisma.weeklySweep.create({
     data: {
       scheduledFor: slot,
+      origin: opts.origin ?? 'scheduled',
       startedAt: opts.startedAt ?? null,
       snapshotJson: opts.snapshotJson ?? null,
       snapshotAt: opts.snapshotJson ? slot : null,
@@ -128,6 +129,18 @@ afterAll(async () => {
 })
 
 describe('loadIssuesPayload', () => {
+  it('serves the newest snapshot of ANY origin and reports its origin (manual after scheduled)', async () => {
+    const sched = nextSlot()
+    await seed(sched, { snapshotJson: JSON.stringify(mkSnapshot()), startedAt: sched, origin: 'scheduled' })
+    const manual = nextSlot() // strictly newer
+    await seed(manual, { snapshotJson: JSON.stringify(mkSnapshot()), startedAt: manual, origin: 'manual' })
+
+    const payload = await loadIssuesPayload()
+    expect(payload.sweep?.origin).toBe('manual')
+    expect(payload.sweep?.scheduledFor).toBe(manual.toISOString())
+    expect(payload.inProgress).toBe(false)
+  })
+
   it('serves the newest VALID snapshot and reports inProgress when a strictly newer null-snapshot row exists', async () => {
     const served = nextSlot()
     const snapshot = mkSnapshot({

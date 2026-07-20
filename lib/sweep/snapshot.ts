@@ -487,9 +487,36 @@ export async function publishSweepSnapshot(sweepId: number, snapshot: SweepSnaps
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const PREV_SCHEDULED_SCAN_LIMIT = 10
 
+/**
+ * The email/scheduled −7d baseline. Filtered origin='scheduled' so a manual
+ * snapshot could never be mistaken for the previous week's scheduled sweep even
+ * if one somehow shared the exact slot.
+ */
 export async function loadPreviousSnapshot(scheduledFor: Date): Promise<SweepSnapshot | null> {
   const prevSlot = new Date(scheduledFor.getTime() - WEEK_MS)
-  const row = await prisma.weeklySweep.findUnique({ where: { scheduledFor: prevSlot } })
+  const row = await prisma.weeklySweep.findFirst({ where: { scheduledFor: prevSlot, origin: 'scheduled' } })
   return parseSnapshot(row?.snapshotJson ?? null)
+}
+
+/**
+ * The MANUAL-snapshot baseline (spec §5.4 / D2): the most recent SCHEDULED
+ * snapshot strictly before `before`. Mid-week manual runs each diff against the
+ * same last Sunday → "resolved since Sunday". Bounded ordered scan with a
+ * corrupt-newest fall-through (mirrors read.ts) — a corrupt newest scheduled
+ * snapshot must not discard a valid conservative baseline.
+ */
+export async function loadPreviousScheduledSnapshot(before: Date): Promise<SweepSnapshot | null> {
+  const rows = await prisma.weeklySweep.findMany({
+    where: { origin: 'scheduled', snapshotJson: { not: null }, scheduledFor: { lt: before } },
+    orderBy: { scheduledFor: 'desc' },
+    take: PREV_SCHEDULED_SCAN_LIMIT,
+    select: { snapshotJson: true },
+  })
+  for (const r of rows) {
+    const parsed = parseSnapshot(r.snapshotJson)
+    if (parsed) return parsed
+  }
+  return null
 }

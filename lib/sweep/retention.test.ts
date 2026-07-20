@@ -112,4 +112,41 @@ describe('pruneWeeklySweeps', () => {
 
     expect(await exists(sentOld)).toBe(true)
   })
+
+  it('origin-partitioned: many manual snapshots do NOT evict scheduled rows', async () => {
+    const now = anchor()
+    now.setDate(now.getDate() + 200) // distinct day range, clear of the other tests' spans
+
+    // 2 scheduled snapshotted rows (well inside the scheduled keep-26).
+    const sched1 = dateAt(now, 40 * DAY_MS)
+    const sched2 = dateAt(now, 41 * DAY_MS)
+    for (const d of [sched1, sched2]) {
+      seededSlots.push(d)
+      await prisma.weeklySweep.create({ data: { scheduledFor: d, origin: 'scheduled', snapshotJson: '{"v":1}' } })
+    }
+
+    // 10 manual snapshotted rows — keep only the newest 4 (default), and never
+    // touch the scheduled rows.
+    const manualDates: Date[] = []
+    for (let i = 1; i <= 10; i++) {
+      const d = dateAt(now, i * DAY_MS)
+      manualDates.push(d)
+      seededSlots.push(d)
+      await prisma.weeklySweep.create({ data: { scheduledFor: d, origin: 'manual', snapshotJson: '{"v":1}' } })
+    }
+
+    await pruneWeeklySweeps(now)
+
+    // Both scheduled rows survive.
+    expect(await exists(sched1)).toBe(true)
+    expect(await exists(sched2)).toBe(true)
+    // Exactly the newest 4 manual rows survive (offsets 1..4).
+    const survivingManual = await prisma.weeklySweep.findMany({
+      where: { scheduledFor: { in: manualDates } },
+      select: { scheduledFor: true },
+    })
+    expect(survivingManual).toHaveLength(4)
+    for (let i = 1; i <= 4; i++) expect(await exists(manualDates[i - 1])).toBe(true)
+    for (let i = 5; i <= 10; i++) expect(await exists(manualDates[i - 1])).toBe(false)
+  })
 })

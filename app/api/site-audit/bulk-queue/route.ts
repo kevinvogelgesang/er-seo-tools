@@ -1,74 +1,71 @@
 // app/api/site-audit/bulk-queue/route.ts
 //
-// "Queue all clients" — POSTed by the Clients section bulk button.
-// Pre-flight: if ANY client has zero domains, refuse with 400 + the offending
-// list so the operator can fix the data before queueing anything. Per-client
-// duplicates (already in flight) are collected in the response's `skipped`
-// list, not propagated as failures.
+// "Queue all clients" — repurposed (2026-07-20) into a MANUAL full-cohort sweep:
+// freezes a WeeklySweep(origin='manual') row and enqueues the manual-sweep
+// fan-out (full ADA+SEO of every registered client domain). Refreshes /issues
+// silently on drain (no email). Domainless clients are skipped by buildCohort
+// (no hard 400 anymore). Cookie-gated by global middleware.
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
-import { queueSiteAuditRequest } from '@/lib/ada-audit/queue-request'
-import { OPERATOR_NAME_COOKIE_NAME, AUTH_COOKIE_NAME, getOperatorLabel } from '@/lib/auth'
+import { withRoute } from '@/lib/api/with-route'
+import { HttpError } from '@/lib/api/errors'
+import { enqueueJob } from '@/lib/jobs/queue'
+import { MANUAL_SWEEP_JOB_TYPE } from '@/lib/jobs/handlers/manual-sweep'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST(request: NextRequest) {
-  // C15: SSO-aware attribution — the verified session identity wins over the
-  // legacy er-operator-name cookie (which Google SSO never sets).
-  const requestedBy = await getOperatorLabel(
-    request.cookies.get(AUTH_COOKIE_NAME)?.value,
-    request.cookies.get(OPERATOR_NAME_COOKIE_NAME)?.value,
-  )
-
-  const clients = await prisma.client.findMany({
-    where: { archivedAt: null },
-    orderBy: { name: 'asc' },
-    select: { id: true, name: true, domains: true },
-  })
-
-  // Pre-check: any client without a domain triggers a hard 400 with the list.
-  const clientsWithoutDomains: { id: number; name: string }[] = []
-  const eligible: { id: number; name: string; firstDomain: string }[] = []
-  for (const c of clients) {
-    let domains: string[] = []
-    try { domains = JSON.parse(c.domains) } catch { /* keep [] */ }
-    const firstDomain = domains.find((d) => typeof d === 'string' && d.trim() !== '')
-    if (!firstDomain) {
-      clientsWithoutDomains.push({ id: c.id, name: c.name })
-    } else {
-      eligible.push({ id: c.id, name: c.name, firstDomain })
-    }
-  }
-
-  if (clientsWithoutDomains.length > 0) {
-    return NextResponse.json(
-      { error: 'missing_domains', clientsWithoutDomains },
-      { status: 400 },
-    )
-  }
-
-  const queued: { clientId: number; auditId: string }[] = []
-  const skipped: { clientId: number; reason: string }[] = []
-
-  // Sequential rather than Promise.all so the open-batch logic and the
-  // partial unique index don't see a thundering herd. ~30 clients is fast
-  // enough sequentially.
-  for (const c of eligible) {
-    const result = await queueSiteAuditRequest({
-      domain: c.firstDomain,
-      clientId: c.id,
-      wcagLevel: 'wcag21aa',
-      requestedBy,
-    })
-    if (result.kind === 'queued') {
-      queued.push({ clientId: c.id, auditId: result.id })
-    } else if (result.kind === 'duplicate') {
-      skipped.push({ clientId: c.id, reason: `already queued or running (audit ${result.existingId})` })
-    } else {
-      skipped.push({ clientId: c.id, reason: result.reason })
-    }
-  }
-
-  return NextResponse.json({ queued, skipped })
+function isP2002(err: unknown): err is Prisma.PrismaClientKnownRequestError {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
 }
+
+async function inFlightManual() {
+  return prisma.weeklySweep.findFirst({ where: { origin: 'manual', snapshotJson: null }, select: { id: true } })
+}
+
+export const POST = withRoute(async () => {
+  if (await inFlightManual()) throw new HttpError(409, 'manual_sweep_in_progress')
+
+  // Create the manual slot row. Deterministic retry slots from ONE base
+  // (baseMs+attempt) — two immediate new Date() can repeat the same ms. On the
+  // partial-index P2002, 409 iff an in-flight manual row exists; on a bare
+  // scheduledFor ms-collision, retry; if both retries collide with NO in-flight
+  // manual row, RETHROW the last P2002 (never a false 409).
+  const baseMs = Date.now()
+  let row: { id: number; scheduledFor: Date } | null = null
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt < 3 && !row; attempt++) {
+    const slot = new Date(baseMs + attempt)
+    try {
+      row = await prisma.weeklySweep.create({
+        data: { scheduledFor: slot, origin: 'manual', startedAt: slot },
+        select: { id: true, scheduledFor: true },
+      })
+    } catch (err) {
+      if (!isP2002(err)) throw err
+      lastErr = err
+      if (await inFlightManual()) throw new HttpError(409, 'manual_sweep_in_progress')
+      // else a bare scheduledFor collision — loop retries with baseMs+attempt.
+    }
+  }
+  if (!row) throw lastErr ?? new HttpError(500, 'manual_sweep_create_failed')
+
+  const iso = row.scheduledFor.toISOString()
+  try {
+    await enqueueJob({
+      type: MANUAL_SWEEP_JOB_TYPE,
+      payload: { scheduledFor: iso },
+      dedupKey: `manual-sweep:${iso}`,
+      groupKey: `manual-sweep:${iso}`,
+    })
+  } catch (err) {
+    // Enqueue failed — delete the just-created row so the partial index doesn't
+    // block future manual sweeps. (A crash BEFORE this line is covered by
+    // recoverManualSweeps, which waits out a grace period.)
+    await prisma.weeklySweep.deleteMany({ where: { id: row.id, snapshotJson: null, membershipJson: null } })
+    throw err
+  }
+
+  return NextResponse.json({ started: true, scheduledFor: iso })
+})

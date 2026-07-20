@@ -228,12 +228,6 @@ export default function ClientsAuditSummary() {
     )
   }
 
-  const clientsById = useMemo(() => {
-    const m = new Map<number, string>()
-    for (const c of data ?? []) m.set(c.clientId, c.clientName)
-    return m
-  }, [data])
-
   const eligibleCount = (data ?? []).filter((c) => c.firstDomain).length
 
   const trailing = (
@@ -354,9 +348,8 @@ export default function ClientsAuditSummary() {
     <BulkQueueModal
       open={bulkModalOpen}
       eligibleCount={eligibleCount}
-      clientsById={clientsById}
       onClose={() => setBulkModalOpen(false)}
-      onConfirmed={() => { void fetchClients(false) }}
+      onStarted={() => { void fetchClients(false) }}
     />
     </>
   )

@@ -57,6 +57,7 @@ function makePayload(overrides: Partial<IssuesPayload> = {}): IssuesPayload {
       scheduledFor: '2026-07-12T00:00:00.000Z',
       startedAt: '2026-07-12T01:00:00.000Z',
       snapshotAt: '2026-07-12T02:00:00.000Z',
+      origin: 'scheduled',
       totals: makeTotals(),
     },
     inProgress: false,
@@ -183,5 +184,19 @@ describe('IssuesView', () => {
   it('shows an in-progress banner when payload.inProgress is set', () => {
     render(<IssuesView payload={makePayload({ inProgress: true })} />)
     expect(screen.getByText(/in progress/i)).toBeTruthy()
+  })
+
+  it('shows the "N SWEEPS" streak label on a scheduled snapshot', () => {
+    const detected = makeGroup({ changeState: 'detected', streak: 3, severity: 'critical' })
+    render(<IssuesView payload={makePayload({ sweep: { scheduledFor: 'x', startedAt: null, snapshotAt: 'y', origin: 'scheduled', totals: makeTotals() }, groups: [detected] })} />)
+    expect(screen.getByText(/DETECTED 3 SWEEPS/i)).toBeTruthy()
+  })
+
+  it('suppresses the consecutive-week streak label on a MANUAL snapshot', () => {
+    const detected = makeGroup({ changeState: 'detected', streak: 3, severity: 'critical' })
+    render(<IssuesView payload={makePayload({ sweep: { scheduledFor: 'x', startedAt: null, snapshotAt: 'y', origin: 'manual', totals: makeTotals() }, groups: [detected] })} />)
+    expect(screen.queryByText(/3 SWEEPS/i)).toBeNull()
+    expect(screen.getAllByText(/DETECTED/i).length).toBeGreaterThan(0)
+    expect(screen.getByText('Manual refresh')).toBeTruthy()
   })
 })

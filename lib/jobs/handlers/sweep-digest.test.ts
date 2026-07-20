@@ -134,6 +134,21 @@ describe('runSweepDigest', () => {
     expect(send.calls).toHaveLength(0)
   })
 
+  it('never resolves/sends a MANUAL row sharing the exact Monday slot (email isolation)', async () => {
+    const slot = nextSweepSlot()
+    // A manual snapshot pinned to the exact 01:00 sweep slot (pathological — a
+    // real manual scheduledFor is the click time, not 01:00). The digest must
+    // filter origin='scheduled' and find nothing → no send, manual row untouched.
+    await prisma.weeklySweep.create({
+      data: { scheduledFor: slot, origin: 'manual', startedAt: new Date(), snapshotJson: JSON.stringify(mkSnapshot(9)) },
+    })
+    const send = makeSend()
+    await expect(runSweepDigest(digestSlotFor(slot), { send: send.fn, now })).resolves.toBeUndefined()
+    expect(send.calls).toHaveLength(0)
+    const row = await prisma.weeklySweep.findUniqueOrThrow({ where: { scheduledFor: slot } })
+    expect(row.digestSentAt).toBeNull()
+  })
+
   it('computes + publishes the snapshot when snapshotJson is null, then sends the winner', async () => {
     const slot = nextSweepSlot()
     const membership: SweepMembership = {

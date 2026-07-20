@@ -23,6 +23,10 @@ export function registerStaleAuditResetHandler(): void {
       await import('@/lib/ada-audit/broken-link-recovery')
         .then((m) => m.recoverBrokenLinkVerifies())
         .catch((err) => console.warn('[stale-audit-reset] broken-link verify recovery failed:', (err as Error).message))
+      // Manual sweep: recover stranded fan-outs, then compute-on-drain snapshots.
+      await import('@/lib/sweep/advance')
+        .then((m) => Promise.all([m.recoverManualSweeps(new Date()), m.advanceManualSweeps(new Date())]))
+        .catch((err) => console.warn('[stale-audit-reset] manual-sweep advance/recover failed:', (err as Error).message))
       await import('@/lib/viewbook/email')
         .then((m) => m.recoverViewbookEmailDeliveries())
         .catch((err) => console.warn('[stale-audit-reset] viewbook email recovery failed:', (err as Error).message))
