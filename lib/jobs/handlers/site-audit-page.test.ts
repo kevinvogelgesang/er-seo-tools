@@ -132,6 +132,24 @@ describe('jobs/handlers/site-audit-page', () => {
     expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
   })
 
+  it('B1: a 404 throw settles error AND records a HarvestedPageError row (statusCode 404)', async () => {
+    vi.mocked(runAxeAudit).mockRejectedValue(new Error('HTTP 404 — Not Found'))
+    const { site, child, payload } = await seed('dead-404')
+    await expect(runSiteAuditPageJob(payload)).resolves.toBeUndefined()
+    expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('error')
+    const rows = await prisma.harvestedPageError.findMany({ where: { siteAuditId: site.id } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].statusCode).toBe(404)
+  })
+
+  it('B1: a 500 throw settles error but writes NO HarvestedPageError row', async () => {
+    vi.mocked(runAxeAudit).mockRejectedValue(new Error('HTTP 500 — Internal Server Error'))
+    const { site, child, payload } = await seed('err-500')
+    await runSiteAuditPageJob(payload)
+    expect((await prisma.adaAudit.findUnique({ where: { id: child.id } }))?.status).toBe('error')
+    expect(await prisma.harvestedPageError.count({ where: { siteAuditId: site.id } })).toBe(0)
+  })
+
   it('B3: an INFRASTRUCTURE throw rethrows (no settle) so the durable queue retries', async () => {
     vi.mocked(runAxeAudit).mockRejectedValue(new Error('Protocol error (Target.createTarget): ...'))
     const { site, child, payload } = await seed('infra-err')

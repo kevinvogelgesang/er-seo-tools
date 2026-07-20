@@ -248,6 +248,26 @@ async function finalizeWarn(siteAuditId: string, context: string): Promise<void>
   }
 }
 
+// sweep-error-triage Bucket 1: record a provably-dead audited URL (HTTP 404/410)
+// as a transient HarvestedPageError so the live-scan builder can emit a
+// `dead_page` finding. Additive — the child still settles `error`/`pagesError++`.
+// Called only AFTER a winning settle and BEFORE finalizeWarn (finalize can
+// enqueue the verifier, which must not race a clean build before this row lands).
+async function captureDeadPage(siteAuditId: string, url: string, err: unknown): Promise<void> {
+  const c = classifyRunnerError(err)
+  if (c.kind !== 'http-status' || (c.status !== 404 && c.status !== 410)) return
+  try {
+    await prisma.harvestedPageError.create({
+      data: { siteAuditId, url: normalizeFindingUrl(url), statusCode: c.status },
+    })
+  } catch (e) {
+    // P2002 (a retry re-inserting the same (siteAuditId,url)) is harmless.
+    if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+      console.error('[dead-page] capture failed', siteAuditId, url, e)
+    }
+  }
+}
+
 export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
   const job = assertSiteAuditPagePayload(payload)
 
@@ -313,7 +333,13 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
       { status: 'error', error: msg, completedAt: new Date() },
       ['running'],
     )
-    if (settled) await finalizeWarn(job.siteAuditId, 'axe-error settle')
+    if (settled) {
+      // Capture BEFORE finalize (Codex fix #2): finalizeWarn can enqueue the
+      // live-scan verifier when this is the last page, which would otherwise
+      // race a clean build before the dead-page row exists.
+      await captureDeadPage(job.siteAuditId, job.url, err)
+      await finalizeWarn(job.siteAuditId, 'axe-error settle')
+    }
     return
   }
 
