@@ -8,7 +8,8 @@
 // and loadPreviousSnapshot are genuinely DB-backed over the shared dev DB with
 // owned-prefix cleanup (children deleted before parents).
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import * as log from '@/lib/log'
 import { prisma } from '@/lib/db'
 import type { WeeklySweep } from '@prisma/client'
 import {
@@ -544,6 +545,29 @@ describe('loadAuditForSnapshot (real DB)', () => {
     expect(load.seo.groups.find((g) => g.type === 'missing_title')?.unit).toBe('pages')
     expect(load.seo.groups.find((g) => g.type === 'thin_content')?.unit).toBe('pages')
     expect(load.seo.groups.find((g) => g.type === 'some_future_type')?.unit).toBe('groups')
+  })
+
+  it('B5: validation + dead_page types map via findingUnit with NO sweep_unmapped_issue_unit logError', async () => {
+    const spy = vi.spyOn(log, 'logError').mockImplementation(() => {})
+    try {
+      const said = await seedSiteAudit()
+      await seedAdaRun(said, [])
+      await seedSeoRun(said, [
+        { type: 'redirect_chain', severity: 'warning', count: 4, affectedComplete: true },
+        { type: 'canonical_external_unverified', severity: 'notice', count: 2, affectedComplete: true },
+        { type: 'dead_page', severity: 'warning', count: 3, affectedComplete: true },
+      ])
+      const load = await loadAuditForSnapshot(said)
+      expect(load.seo.groups.find((g) => g.type === 'redirect_chain')?.unit).toBe('pages')
+      expect(load.seo.groups.find((g) => g.type === 'canonical_external_unverified')?.unit).toBe('targets')
+      expect(load.seo.groups.find((g) => g.type === 'dead_page')?.unit).toBe('pages')
+      const unmapped = spy.mock.calls.filter(
+        (c) => (c[0] as { event?: string } | undefined)?.event === 'sweep_unmapped_issue_unit',
+      )
+      expect(unmapped).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('late-completing audit: ADA run present, SEO run missing → seo failed, ada classified', async () => {

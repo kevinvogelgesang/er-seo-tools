@@ -66,3 +66,56 @@ export const BROKEN_FINDING_LABELS: Readonly<Record<string, string>> = brokenLab
 
 export const DEAD_PAGE_FINDING_TYPE = 'dead_page' as const
 export const DEAD_PAGE_FINDING_LABEL = 'Dead pages (404/410)'
+
+// ---------------------------------------------------------------------------
+// Sweep issue-unit map (the ONE home — sweep-error-triage Bucket 5).
+// `IssueUnit` is the sweep snapshot's per-group counting noun. This client-safe
+// lookup returns the unit for every KNOWN finding type; `null` means "unknown"
+// and the caller (snapshot.ts) logs it + falls back to 'groups'. Keeping the
+// type→unit knowledge here prevents the drift bucket 5 was about (validation
+// types silently falling through to the fallback).
+// ---------------------------------------------------------------------------
+export type IssueUnit = 'pages' | 'targets' | 'groups'
+
+// Duplicate on-page types count DUPLICATE GROUPS (SF pageTitles.parser semantics);
+// missing/thin count PAGES.
+const DUPLICATE_ONPAGE_TYPES: ReadonlySet<string> = new Set([
+  'duplicate_title',
+  'duplicate_meta_description',
+  'duplicate_h1',
+])
+const MISSING_THIN_ONPAGE_TYPES: ReadonlySet<string> = new Set([
+  'missing_title',
+  'missing_meta_description',
+  'missing_h1',
+  'thin_content',
+])
+
+// Validation types: page-derived (run count = distinct affected pages) vs
+// external-unverified notices (run count = distinct external targets).
+const VALIDATION_PAGE_TYPES: ReadonlySet<string> = new Set([
+  'canonical_broken',
+  'canonical_redirect',
+  'redirect_chain',
+  'redirect_loop',
+  'hreflang_broken',
+  'hreflang_no_return',
+  'hreflang_missing_self',
+  'hreflang_missing_x_default',
+  'hreflang_invalid_code',
+])
+const VALIDATION_TARGET_TYPES: ReadonlySet<string> = new Set([
+  'canonical_external_unverified',
+  'hreflang_external_unverified',
+])
+
+export function findingUnit(tool: 'ada-audit' | 'seo-parser', type: string): IssueUnit | null {
+  if (tool === 'ada-audit') return 'pages' // all axe rule types are page-scoped
+  if (BROKEN_FINDING_TYPE_SET.has(type)) return 'targets'
+  if (DUPLICATE_ONPAGE_TYPES.has(type)) return 'groups'
+  if (MISSING_THIN_ONPAGE_TYPES.has(type)) return 'pages'
+  if (VALIDATION_PAGE_TYPES.has(type)) return 'pages'
+  if (VALIDATION_TARGET_TYPES.has(type)) return 'targets'
+  if (type === DEAD_PAGE_FINDING_TYPE) return 'pages'
+  return null
+}

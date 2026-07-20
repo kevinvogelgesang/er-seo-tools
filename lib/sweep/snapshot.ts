@@ -35,6 +35,7 @@ import { prisma } from '@/lib/db'
 import { logError } from '@/lib/log'
 import { classifyCoverage, type PairObservation } from './classify'
 import { buildIssueGroups, type RawGroup } from './issue-groups'
+import { findingUnit } from '@/lib/findings/finding-type-sets'
 import {
   parseMembership,
   parseSnapshot,
@@ -98,15 +99,12 @@ function toSeverity(raw: string): Severity {
 // Unit map (exhaustive, Codex plan-fix #15)
 // ---------------------------------------------------------------------------
 
-const TARGET_TYPES = new Set(['broken_internal_links', 'broken_images', 'broken_external_links'])
-const GROUP_TYPES = new Set(['duplicate_title', 'duplicate_meta_description', 'duplicate_h1'])
-const PAGE_ONPAGE_TYPES = new Set(['missing_title', 'missing_h1', 'missing_meta_description', 'thin_content'])
-
 function unitForType(tool: SweepTool, type: string): IssueUnit {
-  if (tool === 'ada-audit') return 'pages' // all axe rule types are page-scoped
-  if (TARGET_TYPES.has(type)) return 'targets'
-  if (GROUP_TYPES.has(type)) return 'groups'
-  if (PAGE_ONPAGE_TYPES.has(type)) return 'pages'
+  // The type→unit knowledge lives in ONE place (finding-type-sets.findingUnit)
+  // so the on-page/broken/validation/dead_page maps can't drift from the
+  // results-page sections. `null` = genuinely unknown future type.
+  const unit = findingUnit(tool, type)
+  if (unit) return unit
   // Unknown future type — never a silent guess.
   logError(
     { event: 'sweep_unmapped_issue_unit', tool, type },

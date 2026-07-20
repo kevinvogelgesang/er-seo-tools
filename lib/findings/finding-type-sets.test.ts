@@ -17,6 +17,7 @@ import {
   BROKEN_FINDING_LABELS,
   DEAD_PAGE_FINDING_TYPE,
   DEAD_PAGE_FINDING_LABEL,
+  findingUnit,
 } from './finding-type-sets'
 
 describe('finding-type-sets', () => {
@@ -69,5 +70,43 @@ describe('finding-type-sets', () => {
   it('registers the dead-page finding type and display label', () => {
     expect(DEAD_PAGE_FINDING_TYPE).toBe('dead_page')
     expect(DEAD_PAGE_FINDING_LABEL).toBe('Dead pages (404/410)')
+  })
+})
+
+describe('findingUnit', () => {
+  it('maps ADA rule types to pages', () => {
+    expect(findingUnit('ada-audit', 'image-alt')).toBe('pages')
+    expect(findingUnit('ada-audit', 'color-contrast')).toBe('pages')
+  })
+
+  it('maps broken types to targets, duplicate on-page to groups, missing/thin to pages', () => {
+    expect(findingUnit('seo-parser', 'broken_internal_links')).toBe('targets')
+    expect(findingUnit('seo-parser', 'broken_images')).toBe('targets')
+    expect(findingUnit('seo-parser', 'broken_external_links')).toBe('targets')
+    expect(findingUnit('seo-parser', 'duplicate_title')).toBe('groups')
+    expect(findingUnit('seo-parser', 'duplicate_meta_description')).toBe('groups')
+    expect(findingUnit('seo-parser', 'duplicate_h1')).toBe('groups')
+    expect(findingUnit('seo-parser', 'missing_title')).toBe('pages')
+    expect(findingUnit('seo-parser', 'thin_content')).toBe('pages')
+  })
+
+  it('maps all 9 page-derived validation types to pages and the 2 external-unverified to targets', () => {
+    for (const t of [
+      'canonical_broken', 'canonical_redirect', 'redirect_chain', 'redirect_loop',
+      'hreflang_broken', 'hreflang_no_return', 'hreflang_missing_self',
+      'hreflang_missing_x_default', 'hreflang_invalid_code',
+    ]) {
+      expect(findingUnit('seo-parser', t)).toBe('pages')
+    }
+    expect(findingUnit('seo-parser', 'canonical_external_unverified')).toBe('targets')
+    expect(findingUnit('seo-parser', 'hreflang_external_unverified')).toBe('targets')
+  })
+
+  it('maps dead_page to pages', () => {
+    expect(findingUnit('seo-parser', 'dead_page')).toBe('pages')
+  })
+
+  it('returns null for an unknown type (caller logs + falls back)', () => {
+    expect(findingUnit('seo-parser', 'totally_unknown')).toBeNull()
   })
 })
