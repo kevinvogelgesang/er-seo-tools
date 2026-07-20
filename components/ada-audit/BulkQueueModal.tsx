@@ -3,36 +3,22 @@
 import { useState } from 'react'
 import Link from 'next/link'
 
-interface ClientWithoutDomain {
-  id: number
-  name: string
-}
-
-interface QueuedEntry {
-  clientId: number
-  auditId: string
-}
-
-interface SkippedEntry {
-  clientId: number
-  reason: string
-}
-
 interface Props {
   open: boolean
   eligibleCount: number
-  clientsById: Map<number, string>  // clientId → name, for skip-list display
   onClose: () => void
-  onConfirmed: (queued: QueuedEntry[], skipped: SkippedEntry[]) => void
+  /** Called after a sweep is successfully started (parent may refresh its view). */
+  onStarted?: () => void
 }
 
 type Phase =
   | { kind: 'confirm' }
-  | { kind: 'missing'; clients: ClientWithoutDomain[] }
   | { kind: 'running' }
-  | { kind: 'done'; queued: QueuedEntry[]; skipped: SkippedEntry[] }
+  | { kind: 'started' }
+  | { kind: 'already-running' }
+  | { kind: 'error'; message: string }
 
-export default function BulkQueueModal({ open, eligibleCount, clientsById, onClose, onConfirmed }: Props) {
+export default function BulkQueueModal({ open, eligibleCount, onClose, onStarted }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'confirm' })
 
   if (!open) return null
@@ -41,20 +27,18 @@ export default function BulkQueueModal({ open, eligibleCount, clientsById, onClo
     setPhase({ kind: 'running' })
     try {
       const res = await fetch('/api/site-audit/bulk-queue', { method: 'POST' })
-      if (res.status === 400) {
-        const body = await res.json() as { clientsWithoutDomains?: ClientWithoutDomain[] }
-        setPhase({ kind: 'missing', clients: body.clientsWithoutDomains ?? [] })
-        return
-      }
       if (res.ok) {
-        const body = await res.json() as { queued: QueuedEntry[]; skipped: SkippedEntry[] }
-        setPhase({ kind: 'done', queued: body.queued, skipped: body.skipped })
-        onConfirmed(body.queued, body.skipped)
+        setPhase({ kind: 'started' })
+        onStarted?.()
         return
       }
-      setPhase({ kind: 'done', queued: [], skipped: [{ clientId: -1, reason: `Server error (HTTP ${res.status})` }] })
+      if (res.status === 409) {
+        setPhase({ kind: 'already-running' })
+        return
+      }
+      setPhase({ kind: 'error', message: `Server error (HTTP ${res.status})` })
     } catch (e) {
-      setPhase({ kind: 'done', queued: [], skipped: [{ clientId: -1, reason: (e as Error).message }] })
+      setPhase({ kind: 'error', message: (e as Error).message })
     }
   }
 
@@ -71,56 +55,50 @@ export default function BulkQueueModal({ open, eligibleCount, clientsById, onClo
       >
         <div className="px-6 py-4 border-b border-gray-100 dark:border-navy-border">
           <h2 className="font-display font-bold text-[17px] text-navy dark:text-white">
-            {phase.kind === 'confirm' && 'Queue all clients'}
-            {phase.kind === 'missing' && 'Missing domains'}
-            {phase.kind === 'running' && 'Queueing…'}
-            {phase.kind === 'done' && 'Queue results'}
+            {phase.kind === 'confirm' && 'Scan all clients & refresh Issues'}
+            {phase.kind === 'running' && 'Starting sweep…'}
+            {phase.kind === 'started' && 'Sweep started'}
+            {phase.kind === 'already-running' && 'Already running'}
+            {phase.kind === 'error' && 'Something went wrong'}
           </h2>
         </div>
 
         <div className="p-6 space-y-3">
           {phase.kind === 'confirm' && (
-            <p className="font-body text-[13px] text-navy dark:text-white">
-              Queue audits for <strong>{eligibleCount}</strong> clients? Each audit runs with wcag21aa.
-            </p>
-          )}
-
-          {phase.kind === 'missing' && (
             <>
               <p className="font-body text-[13px] text-navy dark:text-white">
-                These clients have no domain configured. Add a domain for each, then try again.
+                Run a full <strong>Accessibility + SEO</strong> scan of every registered domain across your{' '}
+                <strong>{eligibleCount}</strong> clients, then refresh the{' '}
+                <Link href="/issues" className="text-orange hover:underline">Issues</Link> page with the results.
               </p>
-              <ul className="space-y-1">
-                {phase.clients.map((c) => (
-                  <li key={c.id} className="text-[13px] font-body text-navy dark:text-white">
-                    <Link href="/clients/manage" className="text-orange hover:underline">{c.name}</Link>
-                  </li>
-                ))}
-              </ul>
+              <p className="font-body text-[12px] text-navy/60 dark:text-white/60">
+                This is a full sweep — it can take a while, and it does <strong>not</strong> send an email. The Monday
+                digest still reflects the Sunday scheduled sweep. Issues updates automatically once the scans finish.
+              </p>
             </>
           )}
 
           {phase.kind === 'running' && (
-            <p className="font-body text-[13px] text-navy/60 dark:text-white/60">
-              Queueing audits sequentially…
+            <p className="font-body text-[13px] text-navy/60 dark:text-white/60">Freezing the cohort and queueing audits…</p>
+          )}
+
+          {phase.kind === 'started' && (
+            <p className="font-body text-[13px] text-navy dark:text-white">
+              The sweep is running. The{' '}
+              <Link href="/issues" className="text-orange hover:underline">Issues</Link> page will update automatically
+              when the scans finish (typically within a few minutes to an hour, depending on fleet size).
             </p>
           )}
 
-          {phase.kind === 'done' && (
-            <>
-              <p className="font-body text-[13px] text-navy dark:text-white">
-                Queued <strong>{phase.queued.length}</strong>, skipped <strong>{phase.skipped.length}</strong>.
-              </p>
-              {phase.skipped.length > 0 && (
-                <ul className="space-y-1 text-[12px] font-body text-navy/70 dark:text-white/70">
-                  {phase.skipped.map((s, i) => (
-                    <li key={i}>
-                      <span className="font-semibold">{clientsById.get(s.clientId) ?? `client #${s.clientId}`}:</span> {s.reason}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
+          {phase.kind === 'already-running' && (
+            <p className="font-body text-[13px] text-navy dark:text-white">
+              A manual refresh is already running. Wait for it to finish, then check the{' '}
+              <Link href="/issues" className="text-orange hover:underline">Issues</Link> page.
+            </p>
+          )}
+
+          {phase.kind === 'error' && (
+            <p className="font-body text-[13px] text-red-600 dark:text-red-400">{phase.message}</p>
           )}
         </div>
 
@@ -130,15 +108,16 @@ export default function BulkQueueModal({ open, eligibleCount, clientsById, onClo
             onClick={close}
             className="text-[12px] font-body text-navy/70 dark:text-white/70 hover:text-orange"
           >
-            {phase.kind === 'done' || phase.kind === 'missing' ? 'Close' : 'Cancel'}
+            {phase.kind === 'confirm' ? 'Cancel' : 'Close'}
           </button>
           {phase.kind === 'confirm' && (
             <button
               type="button"
               onClick={submit}
-              className="text-[12px] font-body font-semibold text-white bg-orange hover:bg-orange/90 rounded-md px-3 py-1.5"
+              disabled={eligibleCount === 0}
+              className="text-[12px] font-body font-semibold text-white bg-orange hover:bg-orange/90 disabled:opacity-50 rounded-md px-3 py-1.5"
             >
-              Queue {eligibleCount} audits
+              Start sweep
             </button>
           )}
         </div>
