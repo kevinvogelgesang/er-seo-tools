@@ -5,7 +5,7 @@ import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
 import type { CatalogFont, CatalogSearchResult } from '@/lib/viewbook/font-catalog'
 import { SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import { jsonFetch } from './viewbook-admin-shared'
-import { ThemePreview } from './ThemePreview'
+import { ThemePreview, type ThemePreviewPresentation } from './ThemePreview'
 import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
 import {
@@ -233,10 +233,14 @@ export function ThemeEditor({
   viewbookId,
   theme,
   onSaved,
+  token = null,
+  presentation,
 }: {
   viewbookId: number
   theme: ViewbookTheme
   onSaved: (theme: ViewbookTheme) => void
+  token?: string | null
+  presentation?: ThemePreviewPresentation
 }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -396,7 +400,7 @@ export function ThemeEditor({
         </div>
 
         <div data-testid="theme-editor-preview-block" className="min-w-0 max-w-full">
-          <ThemePreview theme={draft} />
+          <ThemePreview theme={draft} token={token} presentation={presentation} />
         </div>
       </div>
     </div>
