@@ -89,7 +89,13 @@ describe('SectionShell', () => {
     // IS present since this section is (locally) expanded.
     expect(screen.queryByText('Show details')).toBeNull()
     expect(screen.queryByText('Hide details')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Collapse Brand Guidelines' })).toBeDefined()
+    const btn = screen.getByRole('button', { name: 'Brand Guidelines' })
+    expect(btn).toBeDefined()
+    expect(btn.getAttribute('aria-expanded')).toBe('true')
+    // APG Accordion: the button must never contain a heading — the heading
+    // wraps the button instead (see the "defaults to COLLAPSED" test below
+    // for the full ancestor assertion).
+    expect(btn.querySelector('h1,h2,h3,h4,h5,h6')).toBeNull()
   })
 
   it('renders a done section with the completion date, body retained (SectionReveal is independent of the outer collapse default)', () => {
@@ -151,7 +157,8 @@ describe('SectionShell', () => {
     // The compact row still renders the title as a heading — the section
     // anchor + heading structure is preserved whether collapsed or expanded.
     expect(document.getElementById('brand')).not.toBeNull()
-    expect(screen.getByRole('heading', { name: 'Brand Guidelines' })).toBeDefined()
+    const heading = screen.getByRole('heading', { name: 'Brand Guidelines' })
+    expect(heading.tagName).toBe('H2')
     // The outer viewer-collapse region exists but is hidden — content is
     // still IN THE DOM (not suppressed server-side), just not visible.
     const outer = document.getElementById('vb-region-brand')
@@ -161,9 +168,13 @@ describe('SectionShell', () => {
     expect(screen.getByText('A note')).toBeDefined()
     expect(screen.getByText('Body')).toBeDefined()
     // The whole-row control targets the outer region.
-    const btn = screen.getByRole('button', { name: 'Expand Brand Guidelines' })
+    const btn = screen.getByRole('button', { name: 'Brand Guidelines' })
     expect(btn.getAttribute('aria-controls')).toBe('vb-region-brand')
     expect(btn.getAttribute('aria-expanded')).toBe('false')
+    // APG Accordion pattern (post-review a11y fix): the heading WRAPS the
+    // button — never the reverse. A <button> may not contain a block <h2>.
+    expect(heading.contains(btn)).toBe(true)
+    expect(btn.querySelector('h1,h2,h3,h4,h5,h6')).toBeNull()
   })
 
   it('always-open (pc-intro) renders expanded with no toggle and NO collapse affordance/control', () => {

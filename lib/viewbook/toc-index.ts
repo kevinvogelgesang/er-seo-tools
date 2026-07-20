@@ -39,10 +39,14 @@ export function buildTocIndex(data: ViewbookPublicData): TocEntry[] {
       done: section.state === 'done',
       acked: section.acknowledgedAt != null,
     }
-    // A collapsed section renders ONLY its hero band — the top-level entry above
-    // still anchors to that hero, but its nested content (Data Source field
-    // categories) does not render, so never emit dead child TOC anchors for it.
-    if (data.stage === 'building' && section.sectionKey === 'data-source' && !section.collapsedShared) {
+    // 2026-07-19 collapse local-only revision: `collapsedShared` is DORMANT —
+    // the viewer-facing collapse-to-hero state now lives entirely in
+    // localStorage (lib/viewbook/theme.ts), so a section's body (incl.
+    // Data Source field categories) is ALWAYS rendered in the DOM (hidden +
+    // inert while collapsed, never removed). Nested content is therefore
+    // always TOC/search-visible regardless of any stored `collapsedShared`
+    // value on the row.
+    if (data.stage === 'building' && section.sectionKey === 'data-source') {
       entry.children = data.fieldCategories.map((c) => ({
         label: CATEGORY_LABELS[c.category] ?? c.category,
         anchor: categoryAnchor(c.category),
@@ -52,14 +56,15 @@ export function buildTocIndex(data: ViewbookPublicData): TocEntry[] {
   })
 }
 
-// A section's NESTED content (Q&A, milestones, materials, docs) is indexed only
-// when the section is present in the current stage's lineup AND not collapsed. A
-// collapsed section renders ONLY its hero band, so its nested content is not on
-// the page — indexing it would produce dead search anchors. The top-level
-// section entry (its hero) is still emitted in buildSearchIndex below.
+// A section's NESTED content (Q&A, milestones, materials, docs) is indexed
+// when the section is present in the current stage's lineup. 2026-07-19
+// collapse local-only revision: `collapsedShared` is DORMANT — collapse is
+// purely a per-viewer localStorage preference, and a collapsed section's body
+// is always present in the DOM (hidden + inert, never removed), so its
+// nested content stays TOC/search-visible regardless of collapse state.
 function isVisible(data: ViewbookPublicData, key: SectionKey): boolean {
   const section = [...data.primarySections, ...data.carriedSections].find((s) => s.sectionKey === key)
-  return section != null && !section.collapsedShared
+  return section != null
 }
 
 // buildSearchIndex emits entries ONLY for content belonging to a section

@@ -113,15 +113,13 @@ describe('buildTocIndex', () => {
     expect(kickoffDataSource?.children).toBeUndefined()
   })
 
-  it('keeps a collapsed section top-level entry but omits its child anchors (hero-only renders)', () => {
+  it('still contributes its child anchors when collapsedShared:true — that column is DORMANT (2026-07-19 local-only collapse revision, viewer collapse is a per-machine localStorage preference and never removes the body from the DOM)', () => {
     const data = buildFixture()
-    // data-source is collapsed → only its hero band renders, so its Data Source
-    // field-category children must not produce dead TOC anchors.
     ;(data.primarySections as any[]).find((s) => s.sectionKey === 'data-source').collapsedShared = true
     const toc = buildTocIndex(data)
     const dataSource = toc.find((t) => t.sectionKey === 'data-source')
-    expect(dataSource).toBeDefined() // top-level hero anchor is kept
-    expect(dataSource!.children).toBeUndefined() // nested anchors omitted
+    expect(dataSource).toBeDefined()
+    expect(dataSource!.children).toEqual([{ label: 'Your school', anchor: '#vb-cat-school' }])
   })
 
   it('falls back to the raw category key when no label is registered', () => {
@@ -186,19 +184,20 @@ describe('buildSearchIndex', () => {
     expect(doc.haystack).toContain('How to use our brand')
   })
 
-  it('keeps a collapsed section entry but omits its nested content entries (no dead anchors)', () => {
+  it('still contributes nested content entries when collapsedShared:true — that column is DORMANT and no longer gates visibility (2026-07-19 local-only collapse revision)', () => {
     const data = buildFixture()
-    // Collapse data-source (nested qa) and materials (nested material rows).
+    // A prod row could carry collapsedShared:true from #215's now-retired
+    // shared-collapse window; the local-only model must not treat that as
+    // "hide this section's content from search forever".
     for (const key of ['data-source', 'materials']) {
       ;(data.primarySections as any[]).find((s) => s.sectionKey === key).collapsedShared = true
     }
     const index = buildSearchIndex(data)
-    // Top-level section entries survive (the hero band still renders).
     expect(index.some((e) => e.kind === 'section' && e.sectionKey === 'data-source')).toBe(true)
     expect(index.some((e) => e.kind === 'section' && e.sectionKey === 'materials')).toBe(true)
-    // Nested content of the collapsed sections is suppressed.
-    expect(index.some((e) => e.kind === 'qa')).toBe(false)
-    expect(index.some((e) => e.kind === 'material')).toBe(false)
+    // Nested content is STILL indexed — the gating on collapsedShared is gone.
+    expect(index.some((e) => e.kind === 'qa')).toBe(true)
+    expect(index.some((e) => e.kind === 'material')).toBe(true)
   })
 
   it('excludes content belonging to a section that is not in the visible lineup', () => {

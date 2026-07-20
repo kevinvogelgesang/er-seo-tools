@@ -26,18 +26,22 @@ export const SECTION_KEYS = [
 
 export type SectionKey = (typeof SECTION_KEYS)[number]
 
-// Server-enforced collapse allowlist — the ONE home of which sections may
-// carry a shared collapse (consumed by lib/viewbook/collapse.ts's
-// setSectionCollapsedShared; the old operator-only Collapse control and
-// service.setSectionState call sites were retired when 'collapsed' state was
-// replaced by ViewbookSection.collapsedShared). A collapsed section renders
-// ONLY its hero band on the public view; its body (intro + content) is
-// suppressed. Collapse is available on the SAME set as Mark-done — every
-// section EXCEPT the framing bookends pc-intro / pc-thanks (Kevin's call,
-// 2026-07-19: parity with Hide/Mark-done; collapsing a client-interactive
-// section is a deliberate, reversible choice). This module is client-safe (no
-// server imports), so both client code and the server service import it
-// without pulling client-only code.
+// Collapse-eligibility allowlist — the ONE home of which sections may render
+// a collapse-to-hero control. 2026-07-19 collapse local-only revision
+// (docs/superpowers/specs/2026-07-19-viewbook-collapse-local-revision.md):
+// collapse is now PURELY a per-viewer localStorage preference (see
+// components/viewbook/public/useCollapseState.ts) — there is no more shared/
+// server collapse state (`ViewbookSection.collapsedShared` is DORMANT, never
+// read by SectionShell). A collapsed section's compact row is shown in place
+// of the full hero, but its body (intro + content) is ALWAYS still rendered
+// in the DOM — just hidden + inert, never suppressed/removed — so TOC/search
+// indexing and deep links keep working regardless of collapse state.
+// Collapse is available on the SAME set as Mark-done — every section EXCEPT
+// the framing bookends pc-intro / pc-thanks (Kevin's call, 2026-07-19: parity
+// with Hide/Mark-done; collapsing a client-interactive section is a
+// deliberate, reversible choice). This module is client-safe (no server
+// imports), so both client code and the server service import it without
+// pulling client-only code.
 export const COLLAPSE_EXCLUDED_SECTION_KEYS: ReadonlySet<string> = new Set([
   'pc-intro',
   'pc-thanks',

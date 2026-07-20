@@ -12,6 +12,23 @@
 // plumbing needed) that toggles collapse state. The body below is NEVER a
 // collapse target, so its links/content stay clickable.
 //
+// Post-review a11y fix (2026-07-19): a <button> may not validly contain a
+// block heading, so the section's <h2> title used to live INSIDE the button
+// (SectionShell built it that way) — invalid HTML that strips heading-role
+// from AT heading navigation. This now follows the W3C ARIA APG Accordion
+// pattern: the heading WRAPS the button instead
+// (https://www.w3.org/WAI/ARIA/apg/patterns/accordion/) — `<h2><button
+// aria-expanded aria-controls>…hero content, incl. the title as a plain
+// <span>…</button></h2>`. `aria-expanded` already conveys open/closed to AT,
+// so the button's accessible name is just the title (`aria-label={title}`,
+// decoupled from the decorative aria-hidden layers inside) — no "Expand"/
+// "Collapse" verb prefix needed (the reference APG example doesn't use one
+// either). The wrapping <h2> ALSO gets `aria-label={title}` directly — an
+// ancestor's "name from content" is not guaranteed to adopt a descendant
+// button's own aria-label (implementation-dependent name-computation
+// recursion), so both elements declare the SAME name explicitly rather than
+// relying on one to derive it from the other.
+//
 // The controlled region is ALWAYS rendered (collapse toggles hidden/inert,
 // never DOM presence) so `aria-controls` always resolves to a real element
 // regardless of collapsed state.
@@ -61,16 +78,21 @@ export function CollapsibleSection({
 
   return (
     <div>
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        aria-controls={regionId}
-        aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
-        onClick={collapsed ? expand : collapse}
-        className="group block w-full appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2"
-      >
-        {collapsed ? heroCollapsed : heroExpanded}
-      </button>
+      {/* APG Accordion: the heading WRAPS the button (not the reverse) — see
+          the file banner. `id={sectionKey}` scroll anchor stays on the outer
+          <section> in SectionShell, unaffected by this h2. */}
+      <h2 aria-label={title}>
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          aria-controls={regionId}
+          aria-label={title}
+          onClick={collapsed ? expand : collapse}
+          className="group block w-full appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2"
+        >
+          {collapsed ? heroCollapsed : heroExpanded}
+        </button>
+      </h2>
       {/* Region ALWAYS present; hidden+inert while collapsed so aria-controls
           resolves. `inert` (React 19 boolean) + aria-hidden + display:none is
           the tab-order/a11y guard incl. older engines. */}

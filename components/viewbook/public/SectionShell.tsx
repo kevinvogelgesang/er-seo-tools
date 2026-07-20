@@ -26,6 +26,16 @@
 // prisma/schema.prisma). Two bookend sections (pc-intro / pc-thanks) are
 // collapse-INELIGIBLE (`sectionSupportsCollapse`) and render the plain hero +
 // body with NO affordance/control at all — never wrapped in CollapsibleSection.
+//
+// Post-review a11y fix (2026-07-19): a <button> may not validly contain a
+// block heading. `buildExpandedHero`/`buildCompactRow` used to render the
+// section title as an <h2> INSIDE the hero markup that CollapsibleSection
+// then wrapped in a <button> — invalid nesting. The title is now always built
+// as a plain <span> here; CollapsibleSection supplies the real <h2> WRAPPING
+// its <button> for collapsible sections (APG Accordion pattern). Bookend
+// sections (pc-intro/pc-thanks) have no button at all, so buildExpandedHero
+// renders the title as a real <h2> for them instead — `collapsible` picks
+// the tag.
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
@@ -167,12 +177,15 @@ export function SectionShell({
           />
           <div aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: 'var(--vb-secondary)' }} />
           <div className="relative z-[3] flex w-full min-w-0 items-center gap-2.5 px-5">
-            <h2
+            {/* Plain <span> — this row only renders inside CollapsibleSection's
+                <button>, which is itself wrapped in the real <h2> (see
+                CollapsibleSection.tsx). A <button> may not contain a heading. */}
+            <span
               className="min-w-0 truncate text-xl font-extrabold tracking-tight sm:text-2xl"
               style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
             >
               {title}
-            </h2>
+            </span>
             {done && <DoneBadge size="row" />}
             <CollapseAffordance kind={affordance} />
           </div>
@@ -187,6 +200,12 @@ export function SectionShell({
   // collapse trigger, owned by CollapsibleSection's click wrapper.
   function buildExpandedHero(): ReactNode {
     const heightClass = heroUrl ? 'min-h-[38vh]' : 'min-h-[30vh]'
+    // Collapsible sections render inside CollapsibleSection's <button>, which
+    // is wrapped in the real <h2> there (a <button> may not contain a
+    // heading) — so the title here is a plain <span>. Bookend sections
+    // (pc-intro/pc-thanks, collapsible=false) render this hero directly with
+    // no button at all, so THEY need the real heading here.
+    const TitleTag = collapsible ? 'span' : 'h2'
     return (
       <div
         className={`relative flex ${heightClass} items-end overflow-hidden`}
@@ -220,12 +239,12 @@ export function SectionShell({
         {/* Bottom-left cluster: title + done-check + a decorative up-chevron
             collapse cue, grouped together — collapsible sections only. */}
         <div className="relative z-[3] mx-auto flex w-full max-w-5xl min-w-0 items-center gap-3 px-6 pb-6">
-          <h2
+          <TitleTag
             className="min-w-0 truncate text-3xl font-extrabold tracking-tight sm:text-5xl"
             style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
           >
             {title}
-          </h2>
+          </TitleTag>
           {done && <DoneBadge size="hero" />}
           {collapsible && (
             <span
