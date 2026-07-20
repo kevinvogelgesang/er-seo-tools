@@ -26,6 +26,8 @@ export function ProgressNav({
   team: TeamMember[] | null | undefined
 }) {
   const steps = stageSteps(stage)
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.state === 'current'))
+  const currentStep = steps[currentIndex]
   const chip = resolveCsmChip(team, csmName)
 
   return (
@@ -52,31 +54,38 @@ export function ProgressNav({
           </span>
         </div>
 
-        <ol className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
-          {steps.map((step, i) => (
-            <li key={step.key} className="flex items-center gap-2">
-              {i > 0 ? (
-                <span aria-hidden="true" style={{ color: 'var(--vb-on-primary)', opacity: 0.4 }}>
-                  /
-                </span>
-              ) : null}
+        {/* One stage at a time (2026-07-20 header refactor): eyebrow with the
+            step count, the CURRENT stage label, and a slim progress bar —
+            replaces the full inline stepper. */}
+        <div aria-label={`Stage ${currentIndex + 1} of ${steps.length}: ${currentStep.label}`}>
+          <p
+            className="text-[10px] font-semibold uppercase tracking-[0.14em]"
+            style={{ color: 'var(--vb-on-primary)', opacity: 0.65 }}
+          >
+            Stage {currentIndex + 1} of {steps.length}
+          </p>
+          <div className="mt-0.5 flex items-center gap-2">
+            <span
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: 'var(--vb-on-primary)' }}
+            >
+              {currentStep.label}
+            </span>
+            <span
+              aria-hidden="true"
+              className="flex h-1 w-20 overflow-hidden rounded-full"
+              style={{ background: 'color-mix(in srgb, var(--vb-on-primary) 25%, transparent)' }}
+            >
               <span
-                data-state={step.state}
+                className="h-full rounded-full transition-[width]"
                 style={{
-                  color: 'var(--vb-on-primary)',
-                  opacity: step.state === 'upcoming' ? 0.5 : 1,
-                  paddingBottom: 2,
-                  borderBottom:
-                    step.state === 'current'
-                      ? '2px solid var(--vb-tertiary)'
-                      : '2px solid transparent',
+                  width: `${((currentIndex + 1) / steps.length) * 100}%`,
+                  background: 'var(--vb-tertiary)',
                 }}
-              >
-                {step.label}
-              </span>
-            </li>
-          ))}
-        </ol>
+              />
+            </span>
+          </div>
+        </div>
 
         {chip ? (
           <div className="ml-auto flex items-center gap-2">
@@ -89,6 +98,11 @@ export function ProgressNav({
               />
             ) : null}
             <div className="text-xs leading-tight" style={{ color: 'var(--vb-on-primary)' }}>
+              {/* Context eyebrow (2026-07-20): a bare name + email read as
+                  stranded info — say who this person is to the client. */}
+              <div className="text-[9px] font-semibold uppercase tracking-[0.14em] opacity-65">
+                Your ER contact
+              </div>
               <div className="font-semibold">{chip.name}</div>
               {chip.email ? (
                 <a

@@ -86,14 +86,14 @@ export function PresentationEditor({
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
+    <div className="min-w-0 max-w-full rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
       <h2 className="font-display text-base font-bold text-navy dark:text-white">Section collapse</h2>
       <p className="mt-1 text-xs text-gray-500 dark:text-white/55">
         Controls how a collapsed section's expand affordance appears and how strong the hero overlay reads over photos.
       </p>
       {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
 
-      <label className={`mt-4 block ${editorLabelClass}`}>
+      <label className={`mt-4 block min-w-0 ${editorLabelClass}`}>
         Collapse affordance
         <select
           disabled={busy}
@@ -109,7 +109,7 @@ export function PresentationEditor({
         </select>
       </label>
 
-      <label className={`mt-4 block ${editorLabelClass}`}>
+      <label className={`mt-4 block min-w-0 ${editorLabelClass}`}>
         Expand animation
         <select
           disabled={busy}
@@ -125,7 +125,7 @@ export function PresentationEditor({
         </select>
       </label>
 
-      <label className={`mt-4 block ${editorLabelClass}`}>
+      <label className={`mt-4 block min-w-0 ${editorLabelClass}`}>
         Hero overlay strength: {overlay}
         <input
           type="range"
@@ -157,7 +157,7 @@ export function PresentationEditor({
             </button>
           ))}
         </div>
-        <label className={`mt-2 block ${editorLabelClass}`}>
+        <label className={`mt-2 block min-w-0 ${editorLabelClass}`}>
           Reveal pace: {pace}x
           <input
             type="range"
@@ -180,7 +180,7 @@ export function PresentationEditor({
         </label>
       </div>
 
-      <label className={`mt-4 block ${editorLabelClass}`}>
+      <label className={`mt-4 block min-w-0 ${editorLabelClass}`}>
         First-load delay (welcome): {(delayMs / 1000).toFixed(2)}s
         <input
           type="range"

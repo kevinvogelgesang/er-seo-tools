@@ -69,7 +69,11 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
     label: `${m.title} — ${l.label}`,
     feedback: l.feedback,
   })))
-  const feedbackCount = threads.reduce((count, thread) => count + thread.feedback.length, 0)
+  // Badge = UNRESOLVED feedback only: resolving an item clears its notification.
+  const feedbackCount = threads.reduce(
+    (count, thread) => count + thread.feedback.filter((item) => !item.resolvedAt).length,
+    0,
+  )
   const tabKey = tab.toLowerCase().replaceAll(' ', '-')
 
   function selectTabAt(index: number) {
@@ -154,7 +158,7 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
                 <span className="inline-flex items-center gap-1.5">
                   {t}
                   {t === 'Feedback' && feedbackCount > 0 && (
-                    <span aria-label={`${feedbackCount} feedback items`} className="inline-flex min-w-5 items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">
+                    <span aria-label={`${feedbackCount} open feedback items`} className="inline-flex min-w-5 items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">
                       {feedbackCount}
                     </span>
                   )}
@@ -197,7 +201,7 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
         {tab === 'Milestones' && (
           <MilestonesEditor viewbookId={vb.id} milestones={vb.milestones} onChanged={() => void load()} />
         )}
-        {tab === 'Feedback' && <FeedbackTab key={vb.id} viewbookId={vb.id} threads={threads} />}
+        {tab === 'Feedback' && <FeedbackTab key={vb.id} viewbookId={vb.id} token={vb.token} threads={threads} />}
         {tab === 'Activity' && <ActivityFeed viewbookId={vb.id} />}
         {tab === 'Settings' && <SettingsTab vb={vb} onChanged={() => void load()} />}
       </div>

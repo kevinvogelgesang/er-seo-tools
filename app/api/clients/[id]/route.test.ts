@@ -119,6 +119,10 @@ describe('DELETE /api/clients/:id archive gate', () => {
     const c = await makeClient('assets')
     const { id: viewbookId } = await createViewbook(c.id, 'upgrade', 'op@er.com')
     const theme = await attachViewbookLogo(viewbookId, await png())
+    await prisma.viewbook.update({
+      where: { id: viewbookId },
+      data: { themeJson: JSON.stringify({ ...theme, headingFont: 'abril-fatface' }) },
+    })
     const img = await addAssessmentImage(viewbookId, await png(), 'op@er.com')
 
     // both files exist before delete

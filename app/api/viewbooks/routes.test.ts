@@ -119,6 +119,35 @@ describe('viewbook admin routes', () => {
     expect(viewbook.fields.length).toBeGreaterThan(0)
   })
 
+  it('PATCH/GET/assets preserve a catalog-only font through unchanged service internals', async () => {
+    const { id } = await mkViewbook()
+    const theme = {
+      primary: '#122033', secondary: '#1D7F7F', tertiary: '#C99334',
+      headingFont: 'abril-fatface', bodyFont: 'inter', logo: null, sectionHeroes: {},
+    }
+    const patched = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ theme }) }),
+      params({ id: String(id) }),
+    )
+    expect(patched.status).toBe(200)
+    expect((await patched.json()).theme.headingFont).toBe('abril-fatface')
+
+    const detail = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    expect((await detail.json()).viewbook.theme.headingFont).toBe('abril-fatface')
+
+    const form = new FormData()
+    form.set('kind', 'logo')
+    form.set('file', new File([PNG], 'logo.png', { type: 'image/png' }))
+    const attached = await attachAsset(
+      req(`/api/viewbooks/${id}/assets`, {
+        method: 'POST', headers: { 'content-length': String(PNG.length + 1024) }, body: form,
+      }),
+      params({ id: String(id) }),
+    )
+    expect(attached.status).toBe(200)
+    expect((await attached.json()).theme.headingFont).toBe('abril-fatface')
+  })
+
   it('PATCH /api/viewbooks/:id: presentation branch — bad affordance/overlay 400, happy path persists + syncVersion bumps', async () => {
     const { id } = await mkViewbook()
 

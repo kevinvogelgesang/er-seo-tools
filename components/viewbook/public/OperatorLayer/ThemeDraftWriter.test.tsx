@@ -27,6 +27,24 @@ function fixture() {
 }
 
 describe('ThemeDraftWriter', () => {
+  it('preserves server-resolved catalog fonts on initial write and cleanup', () => {
+    const { root, link } = fixture()
+    const theme = { ...DEFAULT_THEME, headingFont: 'abril-fatface' }
+    const resolvedFonts = {
+      href: 'https://fonts.googleapis.com/css2?family=Abril+Fatface:wght@400&family=Inter:wght@400;600;700;800&display=swap',
+      heading: { key: 'abril-fatface', family: 'Abril Fatface', gfQuery: 'family=Abril+Fatface:wght@400' },
+      body: { key: 'inter', family: 'Inter', gfQuery: 'family=Inter:wght@400;600;700;800' },
+    }
+    const view = render(<ThemeDraftWriter viewbookId={12} theme={theme} resolvedFonts={resolvedFonts} />)
+    expect(root.style.getPropertyValue('--vb-heading-font')).toContain('Abril Fatface')
+    expect(link.getAttribute('href')).toBe(resolvedFonts.href)
+
+    act(() => setThemeDraft(12, { primary: '#ffffff' }))
+    expect(root.style.getPropertyValue('--vb-heading-font')).toContain('Abril Fatface')
+    view.unmount()
+    expect(root.style.getPropertyValue('--vb-heading-font')).toContain('Abril Fatface')
+  })
+
   it('writes live canonical variables and the manifest-backed font href onto fixture markers', () => {
     const { root, link } = fixture()
     render(<ThemeDraftWriter viewbookId={12} theme={DEFAULT_THEME} />)

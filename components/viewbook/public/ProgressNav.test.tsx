@@ -41,7 +41,7 @@ describe('ProgressNav', () => {
     expect(container.querySelector('a[href^="mailto:"]')).toBeNull()
   })
 
-  it('marks the current stage in the 4-step stepper', () => {
+  it('shows ONLY the current stage with a step-count eyebrow (2026-07-20 refactor)', () => {
     const { container } = render(
       <ProgressNav
         token="tok"
@@ -52,14 +52,25 @@ describe('ProgressNav', () => {
         team={null}
       />,
     )
-    const current = container.querySelector('[data-state="current"]')
-    expect(current).not.toBeNull()
-    expect(current!.textContent).toBe('Website Specifics')
+    expect(container.textContent).toContain('Stage 3 of 4')
+    expect(container.textContent).toContain('Website Specifics')
+    // The other stage labels are NOT rendered — one stage at a time.
+    expect(container.textContent).not.toContain('Kickoff')
+    expect(container.textContent).not.toContain('Now Building')
+  })
 
-    const states = Array.from(container.querySelectorAll('[data-state]')).map(
-      (el) => el.getAttribute('data-state'),
+  it('labels the CSM chip with a context eyebrow', () => {
+    const { container } = render(
+      <ProgressNav
+        token="tok"
+        displayName="Acme"
+        logoUrl={null}
+        stage="kickoff"
+        csmName="Pat"
+        team={team}
+      />,
     )
-    expect(states).toEqual(['done', 'done', 'current', 'upcoming'])
+    expect(container.textContent).toContain('Your ER contact')
   })
 
   it('renders no section anchor dots', () => {

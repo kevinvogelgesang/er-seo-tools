@@ -28,6 +28,9 @@ export interface ClientFeedbackInput {
   body: string
   authorName: string | null
   clientMutationId: string
+  /** Server-generated asset filenames already saved under this viewbook's
+   * scope (route saves files BEFORE the row — docs.ts precedent). Max 3. */
+  images?: string[]
 }
 
 export interface ClientMaterialInput {
@@ -36,12 +39,21 @@ export interface ClientMaterialInput {
   clientMutationId: string
 }
 
+async function attachedImageFilenames(feedbackId: number): Promise<string[]> {
+  const rows = await prisma.viewbookFeedbackImage.findMany({
+    where: { feedbackId },
+    orderBy: { sortOrder: 'asc' },
+    select: { filename: true },
+  })
+  return rows.map((row) => row.filename)
+}
+
 export async function insertClientFeedback(
   viewbook: Viewbook,
   token: string,
   input: ClientFeedbackInput,
   hooks: MutationHooks = {},
-): Promise<{ feedback: ViewbookFeedback; replayed: boolean }> {
+): Promise<{ feedback: ViewbookFeedback; images: string[]; replayed: boolean }> {
   await hooks.beforeCommit?.()
   const now = Date.now()
   const summary = `Client feedback: ${input.body.trim().slice(0, 120)}`
@@ -62,6 +74,19 @@ export async function insertClientFeedback(
         AND (SELECT COUNT(*) FROM "ViewbookFeedback" f2 WHERE f2."reviewLinkId" = r."id") < ${FEEDBACK_CAP}
     )
   `
+  // Image attach statements ride the SAME transaction, AFTER the feedback
+  // INSERT (sequential within one array-form txn): each resolves the feedback
+  // id via the clientMutationId subselect, so a fence-failed feedback insert
+  // attaches nothing. The (feedbackId, sortOrder) unique + ON CONFLICT makes a
+  // replayed request a no-op (the original attempt attached atomically).
+  const imageFilenames = (input.images ?? []).slice(0, 3)
+  const imageStatements = imageFilenames.map((filename, index) => prisma.$executeRaw`
+    INSERT INTO "ViewbookFeedbackImage" ("feedbackId", "filename", "sortOrder", "createdAt")
+    SELECT f."id", ${filename}, ${index}, ${now}
+    FROM "ViewbookFeedback" f
+    WHERE f."clientMutationId" = ${input.clientMutationId}
+    ON CONFLICT("feedbackId", "sortOrder") DO NOTHING
+  `)
   const [, activityCount, insertCount] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, activityPredicate),
     prisma.$executeRaw`
@@ -84,13 +109,12 @@ export async function insertClientFeedback(
       )
       ON CONFLICT("clientMutationId") DO NOTHING
     `,
+    ...imageStatements,
   ])
 
   if (insertCount === 1 && activityCount === 1) {
-    return {
-      feedback: await prisma.viewbookFeedback.findUniqueOrThrow({ where: { clientMutationId: input.clientMutationId } }),
-      replayed: false,
-    }
+    const feedback = await prisma.viewbookFeedback.findUniqueOrThrow({ where: { clientMutationId: input.clientMutationId } })
+    return { feedback, images: await attachedImageFilenames(feedback.id), replayed: false }
   }
   const replay = await prisma.viewbookFeedback.findFirst({
     where: {
@@ -104,7 +128,7 @@ export async function insertClientFeedback(
       },
     },
   })
-  if (replay) return { feedback: replay, replayed: true }
+  if (replay) return { feedback: replay, images: await attachedImageFilenames(replay.id), replayed: true }
 
   await requireViewbookToken(token)
   const target = await prisma.viewbookReviewLink.findFirst({

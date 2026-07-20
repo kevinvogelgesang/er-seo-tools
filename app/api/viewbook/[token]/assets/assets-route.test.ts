@@ -76,7 +76,12 @@ async function seedViewbookWithLogo() {
 
 describe('GET /api/viewbook/[token]/assets/[filename]', () => {
   it('serves an allowlisted theme asset with mime + nosniff', async () => {
-    const { token, logo } = await seedViewbookWithLogo()
+    const { id, token, logo } = await seedViewbookWithLogo()
+    const row = await prisma.viewbook.findUniqueOrThrow({ where: { id }, select: { themeJson: true } })
+    await prisma.viewbook.update({
+      where: { id },
+      data: { themeJson: JSON.stringify({ ...JSON.parse(row.themeJson), headingFont: 'abril-fatface' }) },
+    })
     const res = await call(token, logo)
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('image/png')
@@ -197,6 +202,47 @@ describe('GET /api/viewbook/[token]/assets/[filename]', () => {
     await prisma.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } })
     const res = await call(token, logo)
     expect(res.status).toBe(404)
+  })
+})
+
+// Feedback screenshots (2026-07-20): same viewbook-fenced allowlist shape as
+// assessment images, resolved through the reviewLink→milestone chain.
+async function seedFeedbackImage(viewbookId: number) {
+  const milestone = await prisma.viewbookMilestone.findFirstOrThrow({ where: { viewbookId } })
+  const reviewLink = await prisma.viewbookReviewLink.create({
+    data: { milestoneId: milestone.id, label: 'Homepage', url: 'https://example.com', kind: 'live', createdBy: 'test' },
+  })
+  const feedback = await prisma.viewbookFeedback.create({
+    data: { reviewLinkId: reviewLink.id, body: 'See screenshot', authorKind: 'client' },
+  })
+  const filename = `${crypto.randomUUID()}.webp`
+  await prisma.viewbookFeedbackImage.create({
+    data: { feedbackId: feedback.id, filename, sortOrder: 0 },
+  })
+  await mkdir(path.join(assetsDir, String(viewbookId)), { recursive: true })
+  await writeFile(path.join(assetsDir, String(viewbookId), filename), PNG)
+  return filename
+}
+
+describe('GET /api/viewbook/[token]/assets/[filename] — feedback screenshots', () => {
+  it('serves an allowlisted feedback screenshot for its own viewbook', async () => {
+    const { id, token } = await seedViewbookWithLogo()
+    const filename = await seedFeedbackImage(id)
+    const res = await call(token, filename)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('image/webp')
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  })
+
+  it('404s a cross-viewbook feedback screenshot with the identical envelope', async () => {
+    const a = await seedViewbookWithLogo()
+    const b = await seedViewbookWithLogo()
+    const bImage = await seedFeedbackImage(b.id)
+
+    const baseline = await envelope(await call('unknown-token', bImage))
+    expect(baseline.status).toBe(404)
+    const crossViewbook = await envelope(await call(a.token, bImage))
+    expect(crossViewbook).toEqual(baseline)
   })
 })
 

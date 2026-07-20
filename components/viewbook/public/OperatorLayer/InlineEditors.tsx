@@ -24,6 +24,7 @@ import type {
   OperatorViewbookData,
 } from '@/lib/viewbook/operator-data'
 import type { PublicDocRow } from '@/lib/viewbook/public-types'
+import type { ResolvedThemeFont, ResolvedThemeFonts } from '@/lib/viewbook/resolved-theme-fonts'
 import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
 import { SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import {
@@ -408,17 +409,23 @@ const fileInputClass = 'block w-full text-xs text-gray-600 file:mr-3 file:rounde
 function OperatorFontPicker({
   kind,
   value,
+  resolvedFont,
   onChange,
 }: {
   kind: 'Heading' | 'Body'
   value: string
+  resolvedFont?: ResolvedThemeFont
   onChange: (key: string) => void
 }) {
   const [search, setSearch] = useState('')
   const query = search.trim().toLocaleLowerCase()
-  const options = Object.entries(FONT_MANIFEST).filter(([key, font]) => (
+  const manifestOptions = Object.entries(FONT_MANIFEST).filter(([key, font]) => (
     key === value || !query || `${font.family} ${key}`.toLocaleLowerCase().includes(query)
   ))
+  const currentCatalogOption = resolvedFont?.key === value && !(value in FONT_MANIFEST)
+    ? [[value, { family: resolvedFont.family }]] as const
+    : []
+  const options = [...currentCatalogOption, ...manifestOptions]
 
   return (
     <div className={`${editorWellClass} min-w-0 space-y-3`}>
@@ -447,7 +454,15 @@ function OperatorFontPicker({
   )
 }
 
-export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; theme: ViewbookTheme }) {
+export function ThemeInlineEditor({
+  viewbookId,
+  theme,
+  resolvedFonts,
+}: {
+  viewbookId: number
+  theme: ViewbookTheme
+  resolvedFonts?: ResolvedThemeFonts
+}) {
   const [busy, setBusy] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const focus = useFocusWithin()
@@ -512,7 +527,7 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
       description="Brand the live client view with colors, type, and imagery."
       activity={activity}
     >
-      <ThemeDraftWriter viewbookId={viewbookId} theme={theme} />
+      <ThemeDraftWriter viewbookId={viewbookId} theme={theme} resolvedFonts={resolvedFonts} />
       <div className="space-y-6" onFocus={focus.onFocus} onBlur={(event) => { focus.onBlur(event); autosave.flushOnBlur(event) }}>
         <section aria-labelledby="operator-theme-colors">
           <h3 id="operator-theme-colors" className="font-display text-sm font-bold text-navy dark:text-white">Colors</h3>
@@ -536,8 +551,8 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
         <section aria-labelledby="operator-theme-typography">
           <h3 id="operator-theme-typography" className="font-display text-sm font-bold text-navy dark:text-white">Typography</h3>
           <div className="mt-3 grid gap-3">
-            <OperatorFontPicker kind="Heading" value={draft.headingFont} onChange={(headingFont) => setDraft({ ...draft, headingFont })} />
-            <OperatorFontPicker kind="Body" value={draft.bodyFont} onChange={(bodyFont) => setDraft({ ...draft, bodyFont })} />
+            <OperatorFontPicker kind="Heading" value={draft.headingFont} resolvedFont={resolvedFonts?.heading} onChange={(headingFont) => setDraft({ ...draft, headingFont })} />
+            <OperatorFontPicker kind="Body" value={draft.bodyFont} resolvedFont={resolvedFonts?.body} onChange={(bodyFont) => setDraft({ ...draft, bodyFont })} />
           </div>
         </section>
 
@@ -1093,7 +1108,7 @@ export function InlineSectionEditors({ viewbookId, section, operatorData }: { vi
       </div>
       {section.sectionKey === 'brand' && (
         <div data-vb-inspector-group="assets" className="space-y-3">
-          <ThemeInlineEditor viewbookId={viewbookId} theme={operatorData.theme} />
+          <ThemeInlineEditor viewbookId={viewbookId} theme={operatorData.theme} resolvedFonts={operatorData.resolvedThemeFonts} />
         </div>
       )}
       {section.sectionKey === 'strategy' && (

@@ -33,7 +33,8 @@ import path from 'path'
 import { prisma } from '@/lib/db'
 import { logError, logger } from '@/lib/log'
 import { deleteViewbookAssets, viewbookAssetsDir, DOC_FILENAME_RE } from './assets'
-import { ASSET_FILENAME_RE, parseStoredTheme } from './theme'
+import { ASSET_FILENAME_RE } from './theme'
+import { parseStoredThemeWide } from './theme-server'
 
 export const VIEWBOOK_ACTIVITY_RETENTION_MS = 180 * 24 * 60 * 60 * 1000
 
@@ -55,24 +56,31 @@ const MAX_SCOPE_DIRS_PER_SWEEP = 2000
 
 // The COMPLETE referenced-filename union for one viewbook scope: theme
 // (logo + section heroes) ∪ owned ViewbookDoc filenames ∪
-// ViewbookAssessmentImage filenames. A viewbook that no longer exists (fully
-// deleted, cascade already ran) yields an empty theme contribution — that is
-// correct: every leftover file in its scope directory is genuinely orphaned.
+// ViewbookAssessmentImage filenames ∪ ViewbookFeedbackImage filenames
+// (feedback screenshots live in the same scope dir and outlive the 24-hour
+// grace). A viewbook that no longer exists (fully deleted, cascade already
+// ran) yields an empty theme contribution — that is correct: every leftover
+// file in its scope directory is genuinely orphaned.
 async function loadReferencedFilenames(viewbookId: number): Promise<Set<string>> {
-  const [viewbook, docs, images] = await Promise.all([
+  const [viewbook, docs, images, feedbackImages] = await Promise.all([
     prisma.viewbook.findUnique({ where: { id: viewbookId }, select: { themeJson: true } }),
     prisma.viewbookDoc.findMany({ where: { viewbookId }, select: { filename: true } }),
     prisma.viewbookAssessmentImage.findMany({ where: { content: { viewbookId } }, select: { filename: true } }),
+    prisma.viewbookFeedbackImage.findMany({
+      where: { feedback: { reviewLink: { milestone: { viewbookId } } } },
+      select: { filename: true },
+    }),
   ])
 
   const referenced = new Set<string>()
   if (viewbook) {
-    const theme = parseStoredTheme(viewbook.themeJson)
+    const theme = parseStoredThemeWide(viewbook.themeJson)
     if (theme.logo) referenced.add(theme.logo)
     for (const hero of Object.values(theme.sectionHeroes)) referenced.add(hero)
   }
   for (const doc of docs) referenced.add(doc.filename)
   for (const img of images) referenced.add(img.filename)
+  for (const img of feedbackImages) referenced.add(img.filename)
   return referenced
 }
 

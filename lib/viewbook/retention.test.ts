@@ -76,7 +76,7 @@ describe('pruneOrphanedViewbookAssetFiles', () => {
 
     await prisma.viewbook.update({
       where: { id: vb.id },
-      data: { themeJson: JSON.stringify({ ...DEFAULT_THEME, logo: 'theme-logo-ref.webp' }) },
+      data: { themeJson: JSON.stringify({ ...DEFAULT_THEME, headingFont: 'abril-fatface', logo: 'theme-logo-ref.webp' }) },
     })
     await prisma.viewbookDoc.create({
       data: { viewbookId: vb.id, title: 'Doc', filename: 'owned-doc-ref.pdf', sortOrder: 1, createdBy: 'op@example.com' },
@@ -95,6 +95,28 @@ describe('pruneOrphanedViewbookAssetFiles', () => {
 
     expect(deleted).toBe(1)
     expect(await scopeFiles(vb.id)).toEqual(['assess-image-ref.webp', 'owned-doc-ref.pdf', 'theme-logo-ref.webp'])
+  })
+
+  it('preserves feedback screenshot files referenced by ViewbookFeedbackImage rows', async () => {
+    const vb = await makeViewbook()
+    const milestone = await prisma.viewbookMilestone.findFirstOrThrow({ where: { viewbookId: vb.id } })
+    const reviewLink = await prisma.viewbookReviewLink.create({
+      data: { milestoneId: milestone.id, label: 'Homepage', url: 'https://example.com', kind: 'live', createdBy: 'op@example.com' },
+    })
+    const feedback = await prisma.viewbookFeedback.create({
+      data: { reviewLinkId: reviewLink.id, body: 'See screenshot', authorKind: 'client' },
+    })
+    await prisma.viewbookFeedbackImage.create({
+      data: { feedbackId: feedback.id, filename: 'feedback-shot-ref.webp', sortOrder: 0 },
+    })
+
+    await writeScopeFile(vb.id, 'feedback-shot-ref.webp', OLD_MTIME)
+    await writeScopeFile(vb.id, 'orphan-old.webp', OLD_MTIME)
+
+    const deleted = await pruneOrphanedViewbookAssetFiles(NOW)
+
+    expect(deleted).toBe(1)
+    expect(await scopeFiles(vb.id)).toEqual(['feedback-shot-ref.webp'])
   })
 
   it('preserves a brand-new orphan inside the grace period (write-vs-DB-create race guard)', async () => {

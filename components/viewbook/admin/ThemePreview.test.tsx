@@ -57,4 +57,11 @@ describe('ThemePreview', () => {
       .join(' ')
     expect(canvasClasses).not.toContain('dark:')
   })
+
+  it('contains horizontal overflow and gives the wider canvas more vertical room', () => {
+    const { container } = render(<ThemePreview theme={DEFAULT_THEME} />)
+    expect(screen.getByTestId('theme-preview-frame').className).toContain('max-w-full')
+    expect([...container.querySelectorAll('[class]')].some((node) => node.className.includes('max-h-[680px]'))).toBe(true)
+    expect(container.querySelector('.overflow-x-hidden')).not.toBeNull()
+  })
 })

@@ -1,11 +1,12 @@
 // Public token-gated theme-asset serving (spec §6/§7). Authorization is an
 // ALLOWLIST, C14 curated-set precedent: the token's own themeJson filenames,
-// viewbookDoc rows, and assessment images (all viewbook scope), or the global
-// team-roster photo set (global scope). Assessment images are NEVER
-// global-scoped — they are Lane 4 Task 4 operator uploads owned by exactly
-// one viewbook's ViewbookAssessmentContent, so the lookup is fenced on
-// `content: { viewbookId: vb.id }` and can only ever match the token's own
-// viewbook. A guessed filename under an owned viewbook still 404s. Every
+// viewbookDoc rows, assessment images, and feedback screenshots (all viewbook
+// scope), or the global team-roster photo set (global scope). Assessment
+// images and feedback screenshots are NEVER global-scoped — both lookups are
+// fenced on the token's own viewbook (assessment via
+// `content: { viewbookId: vb.id }`, feedback via the
+// reviewLink→milestone→viewbookId chain) and can only ever match the token's
+// own viewbook. A guessed filename under an owned viewbook still 404s. Every
 // failure — bad token, revoked, archived client, non-allowlisted name,
 // cross-viewbook name, traversal shape, missing file — is the SAME 404 (no
 // oracle). Non-ENOENT fs errors rethrow into withRoute as 500 (operational
@@ -14,7 +15,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { readViewbookAsset } from '@/lib/viewbook/assets'
-import { parseStoredTheme } from '@/lib/viewbook/theme'
+import { parseStoredThemeWide } from '@/lib/viewbook/theme-server'
 import { getGlobalContent } from '@/lib/viewbook/global-content'
 import { prisma } from '@/lib/db'
 
@@ -26,7 +27,7 @@ export const GET = withRoute(
     // Throws HttpError(404) on invalid/revoked/archived — withRoute maps it.
     const vb = await requireViewbookToken(token)
 
-    const theme = parseStoredTheme(vb.themeJson)
+    const theme = parseStoredThemeWide(vb.themeJson)
     const themeFiles = new Set(
       [theme.logo, ...Object.values(theme.sectionHeroes)].filter((f): f is string => f != null),
     )
@@ -54,11 +55,19 @@ export const GET = withRoute(
         if (assessmentImage) {
           asset = await readViewbookAsset(String(vb.id), filename)
         } else {
-          const roster = await getGlobalContent('team')
-          const photos = new Set(
-            (Array.isArray(roster) ? roster : []).map((m) => m.photo).filter((p): p is string => p != null),
-          )
-          if (photos.has(filename)) asset = await readViewbookAsset('global', filename)
+          const feedbackImage = await prisma.viewbookFeedbackImage.findFirst({
+            where: { filename, feedback: { reviewLink: { milestone: { viewbookId: vb.id } } } },
+            select: { filename: true },
+          })
+          if (feedbackImage) {
+            asset = await readViewbookAsset(String(vb.id), filename)
+          } else {
+            const roster = await getGlobalContent('team')
+            const photos = new Set(
+              (Array.isArray(roster) ? roster : []).map((m) => m.photo).filter((p): p is string => p != null),
+            )
+            if (photos.has(filename)) asset = await readViewbookAsset('global', filename)
+          }
         }
       }
     }

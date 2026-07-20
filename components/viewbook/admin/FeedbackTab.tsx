@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { editorSecondaryBtnClass } from '@/components/viewbook/editor'
+import { FeedbackScreenshots } from '@/components/viewbook/public/FeedbackScreenshots'
+import { publicAssetUrl } from '@/components/viewbook/public/ThemeStyle'
 
 export interface AdminFeedbackThread {
   reviewLinkId: number
@@ -15,6 +17,7 @@ export interface AdminFeedbackThread {
     createdAt: string | Date
     resolvedAt: string | Date | null
     resolvedBy: string | null
+    images?: Array<{ filename: string }>
   }>
 }
 
@@ -31,7 +34,7 @@ function resolveLabel(item: { body: string; authorName: string | null; authorKin
   return `Resolve feedback from ${feedbackAuthor(item)}: ${snippet}`
 }
 
-export function FeedbackTab({ viewbookId, threads }: { viewbookId: number; threads: AdminFeedbackThread[] }) {
+export function FeedbackTab({ viewbookId, token, threads }: { viewbookId: number; token: string; threads: AdminFeedbackThread[] }) {
   const [rows, setRows] = useState(threads)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -79,6 +82,13 @@ export function FeedbackTab({ viewbookId, threads }: { viewbookId: number; threa
               <span className="text-xs text-gray-500 dark:text-white/55">{formatDate(item.createdAt)}</span>
             </div>
             <p className="mt-2 whitespace-pre-wrap text-sm text-navy dark:text-white/90">{item.body}</p>
+            {(item.images?.length ?? 0) > 0 && (
+              <FeedbackScreenshots
+                admin
+                filenames={(item.images ?? []).map((img) => img.filename)}
+                hrefFor={(filename) => publicAssetUrl(token, filename)}
+              />
+            )}
             <p className="mt-2 text-xs text-gray-500 dark:text-white/55">
               From {item.authorName ? `${item.authorName} (as reported)` : item.authorKind}
             </p>

@@ -22,6 +22,7 @@ vi.mock('@/components/viewbook/public/useViewbookSync', async () => {
 
 afterEach(() => {
   cleanup()
+  document.head.querySelectorAll('[data-vb-admin-font-key]').forEach((node) => node.remove())
   vi.unstubAllGlobals()
   vi.mocked(useEditorActivity).mockClear()
   __resetSyncRegistry()
@@ -33,11 +34,12 @@ function lastCallFor(id: string): boolean | undefined {
 }
 
 describe('ThemeEditor', () => {
-  it('groups controls into cards beside a sticky bounded preview and replaces native details', () => {
+  it('stacks controls above a full-width bounded preview and replaces native details', () => {
     const { container } = render(<ThemeEditor viewbookId={1} theme={DEFAULT_THEME} onSaved={vi.fn()} />)
 
     const layout = screen.getByTestId('theme-editor-layout')
-    expect(layout.className).toContain('lg:grid-cols-')
+    expect(layout.className).toContain('space-y-')
+    expect(layout.className).not.toContain('grid-cols-')
     expect(screen.getByRole('heading', { name: 'Colors' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Logo' })).toBeTruthy()
@@ -51,23 +53,57 @@ describe('ThemeEditor', () => {
     expect((within(primaryControl).getByLabelText('primary hex code') as HTMLInputElement).value).toBe('#122033')
     expect((screen.getByLabelText('primary color') as HTMLInputElement).className).toContain('h-10')
 
-    const previewColumn = screen.getByTestId('theme-editor-preview-column')
-    expect(previewColumn.className).toContain('lg:sticky')
+    const previewBlock = screen.getByTestId('theme-editor-preview-block')
+    expect(previewBlock.className).not.toContain('sticky')
+    expect(layout.lastElementChild).toBe(previewBlock)
     const heroTrigger = screen.getByRole('button', { name: /Hero assets/ })
     expect(heroTrigger.getAttribute('aria-expanded')).toBe('false')
     expect(screen.getByLabelText('Hero image for Brand Guidelines')).toBeTruthy()
     expect(container.querySelector('details')).toBeNull()
   })
 
-  it('offers searchable manifest-backed font choices in the admin editor', () => {
+  it('loads the full catalog lazily and keyboard-selects a visible combobox result', async () => {
     render(<ThemeEditor viewbookId={1} theme={DEFAULT_THEME} onSaved={vi.fn()} />)
-    const bodySelect = screen.getByLabelText('Body font') as HTMLSelectElement
-    expect(bodySelect.querySelector('option[value="roboto"]')).not.toBeNull()
+    const input = screen.getByRole('combobox', { name: 'Search heading fonts' })
+    expect(input.getAttribute('aria-expanded')).toBe('false')
 
-    fireEvent.change(screen.getByLabelText('Search body fonts'), { target: { value: 'garamond' } })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'abril fatface' } })
+    const option = await screen.findByRole('option', { name: 'Abril Fatface' })
+    expect(input.getAttribute('aria-controls')).toBeTruthy()
+    expect(input.getAttribute('aria-autocomplete')).toBe('list')
+    expect(option.getAttribute('aria-selected')).toBe('false')
 
-    expect(bodySelect.querySelector('option[value="eb-garamond"]')?.textContent).toBe('EB Garamond')
-    expect(bodySelect.querySelector('option[value="roboto"]')).toBeNull()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input.getAttribute('aria-activedescendant')).toBe(option.id)
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(await screen.findByText('Selected: Abril Fatface')).toBeTruthy()
+    expect(screen.getByText('A confident viewbook heading').getAttribute('style')).toContain('Abril Fatface')
+  })
+
+  it('labels a catalog-only initial value, caps broad results, and dedupes its stylesheet', async () => {
+    render(
+      <ThemeEditor
+        viewbookId={1}
+        theme={{ ...DEFAULT_THEME, headingFont: 'abril-fatface' }}
+        onSaved={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Selected: Abril Fatface')).toBeTruthy()
+    expect(screen.getByText('A confident viewbook heading').getAttribute('style')).toContain('Abril Fatface')
+
+    const input = screen.getByRole('combobox', { name: 'Search heading fonts' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'sans' } })
+    expect(await screen.findByText(/Showing 50 of \d+ fonts/)).toBeTruthy()
+    fireEvent.change(input, { target: { value: 'abril fatface' } })
+    const option = await screen.findByRole('option', { name: 'Abril Fatface' })
+    fireEvent.mouseEnter(option)
+    fireEvent.mouseEnter(option)
+    expect(document.head.querySelectorAll('link[data-vb-admin-font-key="abril-fatface"]')).toHaveLength(1)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('adopts a newer theme prop from a background reload while idle (does not stay dirty forever)', () => {
@@ -151,10 +187,13 @@ describe('ThemeEditor', () => {
     expect(heroBody.get('file')).toBe(heroFile)
   })
 
-  it('reflects unsaved color and font drafts in the live preview', () => {
+  it('reflects unsaved color and font drafts in the live preview', async () => {
     render(<ThemeEditor viewbookId={1} theme={DEFAULT_THEME} onSaved={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('primary color'), { target: { value: '#123456' } })
-    fireEvent.change(screen.getByLabelText('Heading font'), { target: { value: 'playfair-display' } })
+    const headingSearch = screen.getByRole('combobox', { name: 'Search heading fonts' })
+    fireEvent.focus(headingSearch)
+    fireEvent.change(headingSearch, { target: { value: 'playfair display' } })
+    fireEvent.click(await screen.findByRole('option', { name: 'Playfair Display' }))
 
     const canvas = screen.getByTestId('theme-preview-canvas')
     expect(canvas.style.getPropertyValue('--vb-primary')).toBe('#123456')

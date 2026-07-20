@@ -20,6 +20,7 @@
 // searchable focus; buildSearchIndex is only ever called when building.
 import type { CSSProperties, ReactNode } from 'react'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { ResolvedThemeFonts } from '@/lib/viewbook/resolved-theme-fonts'
 import { buildSearchIndex, buildTocIndex } from '@/lib/viewbook/toc-index'
 import { ProgressNav } from './ProgressNav'
 import { EarlierSteps } from './EarlierSteps'
@@ -34,12 +35,14 @@ export function ViewbookShell({
   primarySections,
   carriedSections,
   renderSection,
+  resolvedFonts,
 }: {
   token: string
   data: ViewbookPublicData
   primarySections: PublicSection[]
   carriedSections: PublicSection[]
   renderSection: (s: PublicSection) => ReactNode
+  resolvedFonts?: ResolvedThemeFonts
 }) {
   const logoUrl = data.theme.logo ? publicAssetUrl(token, data.theme.logo) : null
   return (
@@ -51,7 +54,7 @@ export function ViewbookShell({
       data-vb-morph={data.collapseMorph}
       className="min-h-screen bg-[#fafafa] text-[#1a1a1a]"
       style={{
-        ...themeCssVars(data.theme),
+        ...themeCssVars(data.theme, resolvedFonts),
         // Pre-hydration fallback (matches the operator-bar-less common
         // case) so sticky pinning is sane before StickyOffsetProbe measures
         // the real chrome height. Plain, non-!important — Lane 2's
@@ -60,7 +63,7 @@ export function ViewbookShell({
         '--vb-reveal-scale': String(data.revealDurationScale),
       } as CSSProperties}
     >
-      <ThemeStyle theme={data.theme} />
+      <ThemeStyle theme={data.theme} resolvedFonts={resolvedFonts} />
       {/* Codex-review fix P2-1: nested TOC/search targets (building-stage
           field/category/milestone/doc anchors) live INSIDE a section, not on
           the section root, so SectionShell's own `scrollMarginTop` (spec §)
