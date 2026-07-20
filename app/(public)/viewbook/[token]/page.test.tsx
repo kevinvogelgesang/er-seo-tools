@@ -73,7 +73,7 @@ function publicData() {
     docs: [],
     overrides: {},
     global: {},
-    theme: { primary: '#122033', secondary: '#334155', tertiary: '#c99334', headingFont: 'Georgia', bodyFont: 'Georgia', logo: null, sectionHeroes: {} },
+    theme: { primary: '#122033', secondary: '#334155', tertiary: '#c99334', headingFont: 'abril-fatface', bodyFont: 'inter', logo: null, sectionHeroes: {} },
   } as unknown as Awaited<ReturnType<typeof loadViewbookPublicData>>
 }
 
@@ -91,6 +91,7 @@ describe('ViewbookPage anonymous vs operator branch (spec §13)', () => {
     expect(isValidElement(el)).toBe(true)
     // The plain shell, not the operator layer.
     expect((el as { type: unknown }).type).toBe(ViewbookShell)
+    expect((el as { props: { resolvedFonts: { heading: { family: string } } } }).props.resolvedFonts.heading.family).toBe('Abril Fatface')
     // The load-bearing no-leak guarantee: operator data is never even fetched.
     expect(loadOperatorViewbookData).not.toHaveBeenCalled()
 
@@ -125,5 +126,6 @@ describe('ViewbookPage anonymous vs operator branch (spec §13)', () => {
       expect(typeof value, `prop "${key}" must not be a function`).not.toBe('function')
     }
     expect(isValidElement(props.children)).toBe(true)
+    expect((props.children as { props: { resolvedFonts: { heading: { family: string } } } }).props.resolvedFonts.heading.family).toBe('Abril Fatface')
   })
 })

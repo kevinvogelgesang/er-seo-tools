@@ -50,4 +50,20 @@ describe('BrandSection', () => {
     render(<BrandSection section={section} data={{ ...data, viewbookId: 42 }} token="tok" />)
     expect(screen.getByTestId('contrast-tester').getAttribute('data-viewbook-id')).toBe('42')
   })
+
+  it('shows server-resolved catalog family names', () => {
+    render(
+      <BrandSection
+        section={section}
+        data={{ ...data, theme: { ...DEFAULT_THEME, headingFont: 'abril-fatface' } }}
+        token="tok"
+        resolvedFonts={{
+          href: 'https://fonts.googleapis.com/css2?family=Abril+Fatface:wght@400&display=swap',
+          heading: { key: 'abril-fatface', family: 'Abril Fatface', gfQuery: 'family=Abril+Fatface:wght@400' },
+          body: { key: 'inter', family: 'Inter', gfQuery: 'family=Inter:wght@400;600;700;800' },
+        }}
+      />,
+    )
+    expect(screen.getByText('Headings — Abril Fatface')).toBeTruthy()
+  })
 })

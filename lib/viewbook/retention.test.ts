@@ -76,7 +76,7 @@ describe('pruneOrphanedViewbookAssetFiles', () => {
 
     await prisma.viewbook.update({
       where: { id: vb.id },
-      data: { themeJson: JSON.stringify({ ...DEFAULT_THEME, logo: 'theme-logo-ref.webp' }) },
+      data: { themeJson: JSON.stringify({ ...DEFAULT_THEME, headingFont: 'abril-fatface', logo: 'theme-logo-ref.webp' }) },
     })
     await prisma.viewbookDoc.create({
       data: { viewbookId: vb.id, title: 'Doc', filename: 'owned-doc-ref.pdf', sortOrder: 1, createdBy: 'op@example.com' },

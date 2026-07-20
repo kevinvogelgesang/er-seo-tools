@@ -29,6 +29,12 @@ const viewbook = {
   }],
 }
 
+function expandCategory(label = 'Your school') {
+  const trigger = screen.getByRole('button', { name: new RegExp(label) })
+  if (trigger.getAttribute('aria-expanded') === 'false') fireEvent.click(trigger)
+  return trigger
+}
+
 describe('DataSourceTab', () => {
   it('keeps a stale draft and retries it against the current server version', async () => {
     const fetchMock = vi.fn()
@@ -44,6 +50,7 @@ describe('DataSourceTab', () => {
       })
     vi.stubGlobal('fetch', fetchMock)
     render(<DataSourceTab viewbook={viewbook} onChanged={vi.fn()} />)
+    expandCategory()
     fireEvent.change(screen.getByLabelText('Value for School name'), { target: { value: 'Overwrite' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save School name' }))
     await screen.findByText('Your draft was kept')
@@ -103,8 +110,8 @@ describe('DataSourceTab', () => {
     expect(screen.getByText('2 categories')).toBeTruthy()
     expect(screen.getByText('1 amendment')).toBeTruthy()
     expect(within(screen.getByText('State').parentElement as HTMLElement).getByText('Open')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'School' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Programs' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Your school/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Programs/ })).toBeTruthy()
 
     const archivedTrigger = screen.getByRole('button', { name: /Archived fields/ })
     expect(archivedTrigger.getAttribute('aria-expanded')).toBe('false')
@@ -133,6 +140,7 @@ describe('DataSourceTab', () => {
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('crypto', { randomUUID: () => 'mutation-123' })
     render(<DataSourceTab viewbook={lockedViewbook} onChanged={vi.fn()} />)
+    expandCategory()
 
     expect(screen.getByText('Locked baseline value')).toBeTruthy()
     expect(screen.getByText('Amendment draft')).toBeTruthy()
@@ -144,5 +152,36 @@ describe('DataSourceTab', () => {
       method: 'PATCH',
       body: JSON.stringify({ mode: 'amend', value: 'New amendment', clientMutationId: 'mutation-123' }),
     })))
+  })
+
+  it('orders and labels catalog categories before alphabetized unknowns, collapsed with answer counts', () => {
+    const field = viewbook.fields[0]
+    const categorized = {
+      ...viewbook,
+      fields: [
+        { ...field, id: 20, category: 'z-custom', label: 'Z custom', value: 'yes' },
+        { ...field, id: 21, category: 'programs', label: 'Program', value: '   ' },
+        { ...field, id: 22, category: 'crm-leads', label: 'CRM', value: null },
+        { ...field, id: 23, category: 'school', label: 'School', value: 'Answered' },
+        { ...field, id: 24, category: 'school', label: 'School blank', value: '' },
+        { ...field, id: 25, category: 'a-custom', label: 'A custom', value: 'answered' },
+      ],
+    }
+    render(<DataSourceTab viewbook={categorized} onChanged={vi.fn()} />)
+
+    const categoryTriggers = screen.getAllByRole('button').filter((button) => button.hasAttribute('aria-controls'))
+      .filter((button) => /Your school|Programs|CRM & leads|A Custom|Z Custom/.test(button.textContent ?? ''))
+    expect(categoryTriggers.map((button) => button.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Your school2 fields · 1 answered',
+      'Programs1 field · 1 answered',
+      'CRM & leads1 field · 0 answered',
+      'A Custom1 field · 1 answered',
+      'Z Custom1 field · 1 answered',
+    ])
+    for (const trigger of categoryTriggers) expect(trigger.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(categoryTriggers[0])
+    expect(categoryTriggers[0].getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('School blank')).toBeTruthy()
   })
 })

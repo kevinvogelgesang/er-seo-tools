@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { normalizeClientDomains, InvalidDomainError } from '@/lib/security/domain-validation';
 import { collectClientViewbookAssetSnapshot } from '@/lib/viewbook/service';
+import '@/lib/viewbook/theme-server';
 import { collectAssessmentImageSnapshot } from '@/lib/viewbook/assessment-notes';
 import { deleteViewbookAssets } from '@/lib/viewbook/assets';
 

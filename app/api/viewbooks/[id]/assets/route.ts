@@ -4,6 +4,7 @@ import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { MAX_ASSET_BYTES } from '@/lib/viewbook/assets'
 import { fileBufferFromForm, parseId, requireBoundedContentLength } from '@/lib/viewbook/route-utils'
+import '@/lib/viewbook/theme-server'
 import { attachSectionHero, attachViewbookLogo } from '@/lib/viewbook/service'
 
 export const dynamic = 'force-dynamic'

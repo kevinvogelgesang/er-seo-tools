@@ -9,7 +9,7 @@ import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
 import { logError } from '@/lib/log'
 import { requireViewbookToken } from './route-auth'
-import { parseStoredTheme } from './theme'
+import { parseStoredThemeWide } from './theme-server'
 import { readPresentationConfig } from './presentation-config'
 import { CATALOG_CATEGORIES } from './catalog'
 import { isViewbookStage, STAGE_LABELS, STAGE_LINEUPS, type ViewbookStage } from './stages'
@@ -126,7 +126,7 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     kind: vb.kind,
     welcomeNote: vb.welcomeNote,
     dataLockedAt: iso(vb.dataLockedAt),
-    theme: parseStoredTheme(vb.themeJson),
+    theme: parseStoredThemeWide(vb.themeJson),
     stage,
     stageLabel: STAGE_LABELS[stage],
     syncVersion: vb.syncVersion,

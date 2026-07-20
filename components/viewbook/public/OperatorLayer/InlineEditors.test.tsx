@@ -188,6 +188,25 @@ describe('operator inline editors', () => {
     expect(headingSelect.querySelector('option[value="roboto"]')).toBeNull()
   })
 
+  it('preserves a server-resolved catalog-only current font without loading the catalog', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const theme = { ...DEFAULT_THEME, headingFont: 'abril-fatface' }
+    render(
+      <ThemeInlineEditor
+        viewbookId={12}
+        theme={theme}
+        resolvedFonts={{
+          href: 'https://fonts.googleapis.com/css2?family=Abril+Fatface:wght@400&family=Inter:wght@400;600;700;800&display=swap',
+          heading: { key: 'abril-fatface', family: 'Abril Fatface', gfQuery: 'family=Abril+Fatface:wght@400' },
+          body: { key: 'inter', family: 'Inter', gfQuery: 'family=Inter:wght@400;600;700;800' },
+        }}
+      />,
+    )
+    const select = screen.getByLabelText('Heading font') as HTMLSelectElement
+    expect(select.value).toBe('abril-fatface')
+    expect(select.querySelector('option[value="abril-fatface"]')?.textContent).toBe('Abril Fatface')
+  })
+
   it('groups theme controls and uses a mounted disclosure for section hero assets', () => {
     vi.stubGlobal('fetch', vi.fn())
     render(<ThemeInlineEditor viewbookId={12} theme={DEFAULT_THEME} />)

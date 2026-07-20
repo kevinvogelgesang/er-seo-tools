@@ -76,7 +76,12 @@ async function seedViewbookWithLogo() {
 
 describe('GET /api/viewbook/[token]/assets/[filename]', () => {
   it('serves an allowlisted theme asset with mime + nosniff', async () => {
-    const { token, logo } = await seedViewbookWithLogo()
+    const { id, token, logo } = await seedViewbookWithLogo()
+    const row = await prisma.viewbook.findUniqueOrThrow({ where: { id }, select: { themeJson: true } })
+    await prisma.viewbook.update({
+      where: { id },
+      data: { themeJson: JSON.stringify({ ...JSON.parse(row.themeJson), headingFont: 'abril-fatface' }) },
+    })
     const res = await call(token, logo)
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('image/png')

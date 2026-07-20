@@ -45,6 +45,17 @@ describe('themeCssVars', () => {
     expect(vars['--vb-on-primary']).toBe('#ffffff')
     expect(vars['--vb-on-tertiary']).toBe('#111111')
   })
+  it('uses server-resolved catalog metadata without importing the full catalog here', () => {
+    const theme = { ...DEFAULT_THEME, headingFont: 'abril-fatface' }
+    const resolved = {
+      href: 'https://fonts.googleapis.com/css2?family=Abril+Fatface:wght@400&family=Inter:wght@400;600;700;800&display=swap',
+      heading: { key: 'abril-fatface', family: 'Abril Fatface', gfQuery: 'family=Abril+Fatface:wght@400' },
+      body: { key: 'inter', family: 'Inter', gfQuery: 'family=Inter:wght@400;600;700;800' },
+    }
+    const vars = themeCssVars(theme, resolved) as Record<string, string>
+    expect(vars['--vb-heading-font']).toBe("'Abril Fatface', sans-serif")
+    expect(fontsHref(theme, resolved)).toBe(resolved.href)
+  })
 })
 
 describe('ThemeStyle', () => {

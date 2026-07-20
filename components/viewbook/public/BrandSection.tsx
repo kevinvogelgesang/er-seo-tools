@@ -2,6 +2,7 @@
 // typography specimens in the actual heading/body fonts, and the operator's
 // design-philosophy narrative. v1 palette = the three theme colors.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { ResolvedThemeFonts } from '@/lib/viewbook/resolved-theme-fonts'
 import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
 import { ContrastTester } from './ContrastTester'
 import { SectionShell } from './SectionShell'
@@ -38,15 +39,21 @@ export function BrandSection({
   data,
   token,
   isOperator = false,
+  resolvedFonts,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  resolvedFonts?: ResolvedThemeFonts
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
-  const headingFamily = FONT_MANIFEST[data.theme.headingFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
-  const bodyFamily = FONT_MANIFEST[data.theme.bodyFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
+  const headingFamily = resolvedFonts?.heading.key === data.theme.headingFont
+    ? resolvedFonts.heading.family
+    : FONT_MANIFEST[data.theme.headingFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
+  const bodyFamily = resolvedFonts?.body.key === data.theme.bodyFont
+    ? resolvedFonts.body.family
+    : FONT_MANIFEST[data.theme.bodyFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
   return (
     <SectionShell
       section={section}

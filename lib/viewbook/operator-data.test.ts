@@ -21,7 +21,7 @@ describe('loadOperatorViewbookData', () => {
     const client = await prisma.client.create({ data: { name: `${PREFIX}${crypto.randomUUID()}` } })
     const created = await createViewbook(client.id, 'upgrade', 'operator@example.com')
     const pcCompletedAt = new Date('2026-07-16T12:00:00.000Z')
-    const theme = { ...DEFAULT_THEME, primary: '#123456' }
+    const theme = { ...DEFAULT_THEME, primary: '#123456', headingFont: 'abril-fatface' }
     await prisma.viewbook.update({
       where: { id: created.id },
       data: {
@@ -63,6 +63,8 @@ describe('loadOperatorViewbookData', () => {
     expect(data).not.toBeNull()
     expect(data?.welcomeNote).toBe('Welcome from ER')
     expect(data?.theme.primary).toBe('#123456')
+    expect(data?.theme.headingFont).toBe('abril-fatface')
+    expect(data?.resolvedThemeFonts.heading.family).toBe('Abril Fatface')
     expect(data?.pcCompletedAt).toBe(pcCompletedAt.toISOString())
     expect(data?.clientNotifyEmails).toEqual(['client@example.com'])
     expect(data?.sections.find((section) => section.sectionKey === 'strategy')).toMatchObject({
