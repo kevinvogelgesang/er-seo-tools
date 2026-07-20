@@ -188,9 +188,16 @@ describe('SectionShell', () => {
     expect(heading.hasAttribute('aria-label')).toBe(false)
     // The controlled region is a NAMED landmark (Fix 1, post-review).
     expect(outer?.getAttribute('aria-label')).toBe('Brand Guidelines')
-    // The compact row's OWN outer wrapper carries the ~8px stacked-row gap
-    // (Fix 5, post-review) — lives inside the button, not the region.
-    expect(btn.innerHTML).toContain('py-1')
+    // Spread-morph revision (2026-07-19): the compact row carries NO card
+    // chrome of its own any more — the gutter column, `py-1` row gap,
+    // radius, and shadow all live on CollapsibleSection's `.vb-hero-stage`
+    // (the animated element), so the card geometry can morph into the hero
+    // footprint. The COLLAPSED face is plain fill-the-stage content (the
+    // expanded face legitimately keeps its own `max-w-5xl` content column).
+    const collapsedFace = btn.querySelector('[data-vb-face="collapsed"]') as HTMLElement
+    expect(collapsedFace.innerHTML).not.toContain('py-1')
+    expect(collapsedFace.innerHTML).not.toContain('max-w-5xl')
+    expect(collapsedFace.innerHTML).not.toContain('rounded-xl')
   })
 
   it('pc-intro (bookend) is collapsible like any other section — defaults to collapsed with a compact row + expand control (2026-07-19 welcome-auto-reveal)', () => {

@@ -194,20 +194,31 @@ export function CollapsibleSection({
           speed up/slow down/freeze the animation globally without editing
           the calc() literals here.
 
-          The hero stage (Task 8) mirrors that pattern one level up: both
-          hero faces stay mounted, stacked via `.vb-hero-face{position:
-          absolute;inset:0}` inside a `.vb-hero-stage` that owns the
-          animated height (82px collapsed row ↔ the expanded clamp — 30svh
-          for image-less heroes via `[data-vb-hero="none"]`, 38svh
-          otherwise), with the faces themselves opacity-crossfading. */}
+          The hero stage (Task 8, reshaped by the 2026-07-19 spread morph):
+          both hero faces stay mounted, stacked via `.vb-hero-face{position:
+          absolute;inset:0}` inside a `.vb-hero-stage` that owns ALL the
+          animated geometry. Collapsed, the stage IS the compact accordion
+          card — 74px tall, gutter margins `max(1.5rem,(100% − 61rem)/2)`
+          (byte-equivalent to the old `max-w-5xl px-6` wrapper column:
+          64rem cap − 1.5rem padding each side), 4px stacked-row margin-block
+          (the old `py-1` gap), 12px radius + shadow. Expanded, every one of
+          those morphs to the full-bleed hero footprint (margin 0, radius 0,
+          no shadow, the 38svh/30svh clamp) on ONE shared 600ms curve — the
+          card visibly SPREADS into the hero instead of a narrow rounded row
+          cross-fading against a full-width band (the pre-morph width pop).
+          The faces still opacity-crossfade inside; buildCompactRow no longer
+          carries any of the card chrome (stage owns it — see SectionShell).
+          The collapsed-row hover lift lives here too (translate + deeper
+          shadow, collapsed state only, its own fast timings). */}
       <style>{`
         .vb-collapsible .vb-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="collapsed"] .vb-body{grid-template-rows:0fr}
         .vb-collapsible .vb-body-inner{overflow:clip;min-height:0}
         .vb-collapsible .vb-body-lift{opacity:1;transform:none;transition:opacity calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),transform calc(520ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="collapsed"] .vb-body-lift{opacity:0;transform:translateY(20px)}
-        .vb-collapsible .vb-hero-stage{position:relative;display:block;width:100%;overflow:hidden;height:82px;transition:height calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
-        .vb-collapsible[data-vb-state="expanded"] .vb-hero-stage{height:clamp(240px,38svh,560px)}
+        .vb-collapsible .vb-hero-stage{position:relative;display:block;overflow:hidden;height:74px;margin:4px max(1.5rem,calc((100% - 61rem)/2));border-radius:12px;box-shadow:0 1px 3px rgba(10,20,35,0.3);transition:height calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),margin calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),border-radius calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),box-shadow calc(200ms*var(--vb-reveal-scale,1)) ease,transform calc(150ms*var(--vb-reveal-scale,1)) ease}
+        .vb-collapsible[data-vb-state="collapsed"] .group:hover .vb-hero-stage{transform:translateY(-2px);box-shadow:0 10px 15px -3px rgba(10,20,35,0.25),0 4px 6px -4px rgba(10,20,35,0.25)}
+        .vb-collapsible[data-vb-state="expanded"] .vb-hero-stage{height:clamp(240px,38svh,560px);margin:0;border-radius:0;box-shadow:none}
         .vb-collapsible[data-vb-hero="none"][data-vb-state="expanded"] .vb-hero-stage{height:clamp(180px,30svh,420px)}
         .vb-collapsible .vb-hero-face{position:absolute;inset:0;width:100%;height:100%;display:block;transition:opacity calc(400ms*var(--vb-reveal-scale,1)) ease}
         .vb-collapsible .vb-hero-face--expanded{opacity:0}
