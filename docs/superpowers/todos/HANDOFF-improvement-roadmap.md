@@ -1,9 +1,9 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-20 (**Sweep Error Triage IMPLEMENTED + MERGED (PR #227)
-+ DEPLOYED (migration applied, PM2 healthy). NEXT: Kevin's new feature — a manual
-full-cohort scan takes precedence over the weekly sweep on `/issues`.**) ·
-**Updated by:** the sweep-error-triage implementation session.
+**Last updated:** 2026-07-20 (**Manual full-cohort sweep → /issues IMPLEMENTED +
+MERGED (PR #231) + DEPLOYED (migration `20260721000000_manual_sweep_origin`
+applied, PM2 online 0 restarts). NEXT: the SF-parity campaign + the two
+campaign-gated `[~]` items.**) · **Updated by:** the manual-sweep implementation session.
 **Rule:** whoever completes (or meaningfully advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -11,110 +11,115 @@ full-cohort scan takes precedence over the weekly sweep on `/issues`.**) ·
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. STATE (2026-07-20): the SWEEP
-ERROR TRIAGE shipped — implemented (12 TDD tasks), merged (PR #227), deployed
-(migration 20260720160000_harvested_page_error applied, PM2 online 0 restarts).
-Your job THIS session: the NEW feature Kevin set as next priority —
+Continue the er-seo-tools improvement roadmap. STATE (2026-07-20): the MANUAL
+FULL-COHORT SWEEP → /issues feature shipped — implemented (12 TDD tasks), merged
+(PR #231 `a4685d5`), deployed (migration 20260721000000_manual_sweep_origin
+applied, PM2 online 0 restarts, clean boot, HTTP 307). "Queue all clients" now
+runs a true full ADA+SEO sweep of every registered domain, freezes a
+WeeklySweep(origin='manual') row, and refreshes /issues silently (NO email) on
+drain; the Monday support email stays the Sunday scheduled digest. Reused the
+existing WeeklySweep/computeSweepSnapshot layer (only additive schema =
+WeeklySweep.origin + a partial in-flight-manual unique index).
 
-  A completed MANUAL full-cohort client scan ("queue all") takes precedence over
-  the most recent weekly sweep on the /issues page, IF it completed after that
-  sweep. Manual queue-alls update /issues SILENTLY (NO email). The Monday support
-  email always stays the SUNDAY SCHEDULED sweep's digest.
+Your job THIS session: pick up the next roadmap item —
 
-Kevin's scenario: Sun sweep -> Mon email = Sun sweep. Wed queue-all -> /issues
-updates (no email). Fri queue-all -> /issues updates (no email). Sun sweep ->
-Mon email = that Sun sweep.
-
-THIS IS A NEW FEATURE -> full pipeline: brainstorm -> spec -> plan -> Codex review
--> TDD build, on its OWN branch/lane (NOT folded into anything). Per Kevin's
-standing instruction, run brainstorm->spec->plan ungated (notify him with the file
-path as each lands; he stops the flow himself). Take an isolated worktree
-(.claude/worktrees/<slug>) after the multi-agent pre-flight.
-
-KEVIN'S DESIGN LEAN (approved 2026-07-20, confirm in brainstorm):
-  - A manual full-cohort run produces a WeeklySweep-like snapshot row tagged
-    origin:'manual' (same cohort-freeze + computeSweepSnapshot). HARD CONSTRAINT
-    (Kevin): REUSE the existing findings/sweep snapshot layer — NO separate
-    handoff/token/export path.
-  - /issues serves the NEWEST snapshot of ANY origin (manual or scheduled).
-  - The sweep-digest job already resolves the SUNDAY sweep by exact-slot lookup,
-    so scoping the Monday email to the scheduled sweep is natural — it ignores
-    manual snapshots by construction. Verify this holds.
-  - OPEN DECISION for the brainstorm: the change-state/streak BASELINE for a
-    manual snapshot on /issues. issue-groups.ts today diffs the strict -7d
-    predecessor SWEEP (Sunday-to-Sunday, right for the email). Kevin's lean:
-    /issues diffs a manual snapshot vs the most recent SCHEDULED sweep (mid-week
-    fixes read as "resolved since Sunday"); the email keeps strict Sun-to-Sun.
-
-KEY FACTS TO GROUND THE SPEC (verify in code — lib/sweep + lib/jobs):
-  - Today ONLY the `client-sweep` fan-out job creates a WeeklySweep row; a manual
-    "queue all" currently makes NO snapshot. So this feature = give a manual
-    full-cohort run a snapshot that /issues can serve.
-  - WeeklySweep.scheduledFor is @unique (the slot key). A manual snapshot needs
-    its own identity that doesn't collide with the Sunday slot.
-  - system-client-sweep (weekly:1@01:00 UTC) + system-sweep-digest (weekly:1@14:00
-    UTC) in lib/jobs/system-schedules.ts. Digest resolves the sweep by the digest
-    job's OWN scheduledFor with setHours(1,0,0,0) server-local.
-  - /issues + GET /api/issues serve the newest VALID snapshot (read.ts).
-  - The C21 spec/plan are in docs/superpowers/archive/ (weekly-client-sweep-*).
+  THE SF-PARITY CAMPAIGN (er-seo-tools-sf-retirement-campaign) + the two
+  campaign-gated [~] items: (1) C6 hybrid-discovery Increment 2 PROD-VERIFY
+  (needs an authed seoIntent audit on a high-miss client, Kevin's er_auth
+  cookie); (2) C12 tier promotions (topic-overlap ONNX re-enable is gated on
+  the child-process embed-worker follow-up — see CLAUDE.md broken-link-verify
+  note). START by invoking the `er-seo-tools-sf-retirement-campaign` skill — it
+  owns the campaign's state, parity method, and next concrete step. If that
+  campaign is a research/parity task rather than a code feature, follow its
+  methodology (measure SF-vs-live parity per client, log the numbers); if it
+  surfaces a concrete build, run the full brainstorm→spec→plan→TDD loop on its
+  own branch/worktree.
 
 FIRST STEPS:
-  1. Multi-agent pre-flight (er-seo-tools-multi-agent-coordination): git worktree
-     list; viewbook lanes (vb-*) move fast + touch schema.prisma — if your feature
-     needs a schema change, region-check for disjointness (they only touch the
-     Viewbook/ViewbookSection models). Take your own worktree.
-  2. Confirm prod healthy (source .claude/ops-secrets.local.sh; pm2 restarts ~0).
-  3. superpowers:brainstorming FIRST (it's a new feature). Then spec (Codex
-     review) -> plan (Codex review) -> TDD build, gate-green, PR, merge, deploy,
-     prod-verify, tracker+handoff ritual.
+  1. Multi-agent pre-flight (invoke er-seo-tools-multi-agent-coordination): git
+     worktree list; other Claude/Codex sessions may share this checkout; the
+     viewbook (vb-*) lanes move fast + touch schema.prisma but only the
+     Viewbook/ViewbookSection models. Take your OWN worktree for any feature work.
+  2. Confirm prod healthy (source .claude/ops-secrets.local.sh; ssh $PROD_SSH
+     pm2 status → seo-tools online, restarts ~0).
+  3. Invoke er-seo-tools-sf-retirement-campaign (and, for a new code feature,
+     superpowers:brainstorming FIRST). Then spec (Codex review) → plan (Codex
+     review) → TDD build, gate-green, PR, merge, deploy, prod-verify,
+     tracker+handoff ritual.
 
-LOOSE END from the triage (do opportunistically, not blocking): the triage's
-BEHAVIORAL prod verification is still open — deploy health was verified, but the
-full live-scan check (scan a 404-bearing client e.g. healthcarecareercollege.edu
--> confirm no /cdn-cgi/ in the audited set, a dead_page finding + DeadPagesSection
-render, null CrawlPage.statusCode, and 'pages-errored' coverage reason) needs a
-UI-triggered client scan (no autonomous prod session exists to trigger it). Next
-week's sweep (Mon 2026-07-27) auto-exercises the sweep-side unit-map/label changes.
-
-AFTER THIS FEATURE: the SF-parity campaign (er-seo-tools-sf-retirement-campaign)
-+ the two campaign-gated [~] items (C6 hybrid-discovery Increment 2; C12 tier
-promotions).
+TWO OPEN BEHAVIORAL PROD-VERIFICATIONS (non-blocking; both need a UI-triggered
+authed session — no autonomous prod session has Kevin's cookie):
+  (a) MANUAL SWEEP (this session): click "Queue all clients" in the authed UI →
+      confirm a WeeklySweep(origin='manual') row is created + a manual-sweep job
+      runs → after the cohort's audits finish, /issues shows the manual snapshot
+      (origin label "Manual refresh", streak label suppressed, delta "vs last
+      Sunday") with NO email sent, and the Monday digest still reflects the
+      Sunday scheduled sweep. The partial index enforces one-in-flight (a second
+      "Queue all" while one runs → 409). Compute-on-drain latency ≤10 min after
+      the LAST audit finishes (folded into stale-audit-reset).
+  (b) SWEEP ERROR TRIAGE (prior session, PR #227): scan a 404-bearing client
+      (e.g. healthcarecareercollege.edu) → no /cdn-cgi/ in the audited set, a
+      dead_page finding + DeadPagesSection render, null CrawlPage.statusCode,
+      'pages-errored' coverage reason. The Mon 2026-07-27 sweep auto-exercises
+      the sweep-side unit-map/label changes for BOTH features.
 
 KEVIN QUESTIONS STILL OUTSTANDING (non-blocking): (a) proway.erstaging.site
 (staging) in the weekly sweep cohort as client 31 — intentional? (b) sales
 MethodExplainer beside the SEO-unavailable note (copy call). (c) D3 optional
 page-count glance on the next real audit.
 
-WORKTREE + SMOKE GOTCHA (learned this session): `npm run smoke` from a worktree
-fails at the single-page audit with ENOENT node_modules/axe-core/axe.min.js —
-the runner uses a LITERAL path.join(process.cwd(),'node_modules/...') AXE_PATH
-that doesn't resolve upward. Fix: `ln -s ../../../node_modules node_modules` in
-the worktree first (gitignored; tsc/test/build don't need it, only the runtime).
+WORKTREE SETUP GOTCHAS (a fresh worktree is NOT self-contained):
+- `.env`/`.env.local` are gitignored → copy `.env` from the main checkout into
+  the worktree so `prisma migrate deploy`/`generate` and the dev server have a
+  DATABASE_URL. (Do NOT copy `.env.local` — it points at the prod DB path.)
+- `npm run smoke` needs `ln -s ../../../node_modules node_modules` in the
+  worktree (the runner's absolute AXE_PATH doesn't resolve upward). tsc/test/
+  build work via the node_modules symlink too — create it early.
+- `npx prisma generate` writes into the SHARED node_modules/.prisma (symlinked);
+  it reflects YOUR worktree schema. Low-risk while other lanes touch disjoint
+  models, but re-generate from the right schema if in doubt.
 
-PROD ACCESS: source .claude/ops-secrets.local.sh (gitignored). Live paths
-/home/seo/... NO sqlite3 CLI on the server — prod DB probes via node + the app's
-PrismaClient from $APP_HOME. Gate policy: read-only inspection + gate-green
-deploy + pm2 restart autonomous; destructive ops Kevin-gated per conversation.
+PROD ACCESS: source .claude/ops-secrets.local.sh (gitignored). Live DB path
+file:/home/seo/data/seo-tools/db.sqlite. NO sqlite3 CLI on the server — prod DB
+probes via node + the app's PrismaClient (write the script to a temp file + scp;
+inline ssh quoting mangles nested quotes). Gate policy: read-only inspection +
+gate-green deploy + pm2 restart AUTONOMOUS; destructive ops Kevin-gated per
+conversation.
 
-CODEX MODEL: budget-gated — gpt-5.6-sol when 5h window >25% remaining, else
-gpt-5.6-terra; both high effort. This session used terra-high throughout (the
-prior session ended ~93% into the 5h window). Launch tandem lanes network-enabled
-so Codex can self-verify: codex exec -m gpt-5.6-terra -c model_reasoning_effort=
-"high" -s workspace-write -c sandbox_workspace_write.network_access=true. Codex
-CANNOT commit (worktree .git is outside its sandbox) — Claude-commits-after-review.
+CODEX MODEL: budget-gated — gpt-5.6-sol when the 5h window has >25% remaining
+(5h used <75%), else gpt-5.6-terra; both high effort. This session used sol-high
+throughout (5h ~64-68% used). Spec/plan review = P0 (always route); pre-merge
+`codex exec review` of risky diffs (jobs/findings/schema/auth/recovery) = P1,
+run network-enabled so the sandbox build/test pass works:
+  codex exec review --base origin/main -c model='"gpt-5.6-sol"' \
+    -c model_reasoning_effort='"high"' \
+    -c sandbox_workspace_write.network_access=true
+Codex CANNOT commit (worktree .git outside its sandbox) — Claude commits after review.
 
 GOTCHAS:
-- Local gates are the ONLY type-check gate. Schema changes are hand-authored
-  migration SQL (pick a ts LATER than any live lane's migrations); array-form
-  $transaction ONLY; DateTime columns are INTEGER ms in raw SQL.
+- Local gates are the ONLY type-check gate (npm run lint = tsc; npm test =
+  vitest; npm run build = next build WITH the build-heap cap — never bare
+  `npx next build`). Schema changes are hand-authored migration SQL (pick a ts
+  LATER than any live lane's migrations, re-check `ls prisma/migrations | tail`
+  at build time); array-form $transaction ONLY; DateTime columns are INTEGER ms
+  in raw SQL; Prisma partial indexes live in migration SQL only (schema.prisma
+  can't express them).
 - New cookie-gated routes need NO middleware change; public needs anchored
   matchers + middleware.test.ts.
+- logError takes a RECORD context, never a string: logError({subsystem,scope}, err).
+- Env ints via parsePositiveInt(process.env.X, fallback) from @/lib/jobs/config
+  (never Number(env)||fallback — accepts negatives).
+- Tests that create an unsnapshotted manual WeeklySweep MUST clear it in
+  beforeEach — the partial unique index makes a leftover row fail the next
+  test's create (test-isolation lesson from this session).
 - Never weaken safeFetch/SSRF guards. lib/seo-fetch is FROZEN — consume only.
 - Tests self-provision per-worker SQLite DBs, run PARALLEL; save/restore any env
-  a suite sets.
+  a suite sets. A far-future slot range per test file avoids scheduledFor
+  @unique collisions across sweep suites (retention +60y, digest/client-sweep
+  +10y, read +70y — mind the day-offset span when adding a case).
 - Never git add -A/-u at repo root. No backticks in Bash -m commit messages.
 - UI: dark: variants on every element + the mounted-guard hydration pattern (for
-  CLIENT components; server-rendered sections like BrokenLinksSection need none).
+  CLIENT components; server-rendered sections need none).
 - broken-link-verify.characterization.test.ts is FROZEN byte-identical.
 
 STANDING GATE: NO AI API — all AI stays the pat_/srt_/krt_/kst_/cat_/qct_
@@ -127,17 +132,20 @@ clipboard flow.
 
 Roadmap spine complete: A1-A8, B-series, C-series through **C21 (weekly client
 sweep — DEPLOYED + TEST-PROVEN 2026-07-16)**, D0-D7 all [x]; D6 FROZEN [x]. The
-**Sweep Error Triage** (Kevin's follow-up from the first-sweep report) is
-**SHIPPED** (2026-07-20): all 12 TDD tasks implemented in a Claude+Codex tandem,
-merged as PR #227, deployed (migration `20260720160000_harvested_page_error`
-applied, PM2 online 0 restarts). It filters `/cdn-cgi/` noise, retries transient
-Chrome acquires, reclassifies Location-bearing 3xx as redirected, surfaces dead
-404/410 audited URLs as `dead_page` findings (transient `HarvestedPageError`
-table → builder → `DeadPagesSection` on results + share), completes the sweep
-unit map via `findingUnit`, and makes `pagesError>0` an honest `pages-errored`
-partial cause. Deploy health verified; the full behavioral live-scan verification
-is the one open loose end (needs a UI-triggered client scan). **NEXT (Kevin-set):
-a manual full-cohort scan takes precedence over the sweep on `/issues`** (silent,
-no email; reuse the WeeklySweep snapshot layer) — its own brainstorm→spec→plan.
-After that: the SF-parity campaign + the two campaign-gated [~] items (C6
-hybrid-discovery Increment 2; C12 tier promotions).
+**Sweep Error Triage** shipped 2026-07-20 (PR #227, deployed; behavioral
+live-scan verification still open — see prod-verify (b) above). The **Manual
+full-cohort sweep → /issues** feature shipped 2026-07-20 (PR #231, deployed):
+"Queue all clients" now runs a full ADA+SEO sweep-equivalent over every
+registered domain, freezes a `WeeklySweep(origin='manual')` row, and refreshes
+`/issues` silently on drain (no email); it takes precedence over the last
+scheduled sweep, while the Monday support email stays the Sunday scheduled digest
+(both the digest exact-slot lookup and the −7d baseline hardened to
+`origin='scheduled'`). Reused the existing WeeklySweep/computeSweepSnapshot layer
+verbatim (Kevin's hard constraint); the only schema change is additive
+`WeeklySweep.origin` + a partial one-in-flight-manual unique index. Built via the
+full brainstorm→spec(Codex ×15)→plan(Codex ×14)→12-task TDD→Codex branch-review
+(×2 P2) loop; gates green (738 files / 6727 passing, 1 pre-existing KS-2 flake);
+deploy health verified, behavioral verification open (see prod-verify (a) above).
+**NEXT: the SF-parity campaign (`er-seo-tools-sf-retirement-campaign`) + the two
+campaign-gated `[~]` items — C6 hybrid-discovery Increment 2 prod-verify, and
+C12 tier promotions.**
