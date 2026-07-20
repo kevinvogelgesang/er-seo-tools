@@ -94,7 +94,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { useCollapseState } from './useCollapseState'
 import { useWelcomeAutoReveal } from './useWelcomeAutoReveal'
-import { scrollToSectionAfterReveal } from './viewbook-navigate'
+import { scrollSectionToTop, scrollToSectionAfterReveal } from './viewbook-navigate'
 
 export function CollapsibleSection({
   viewbookId,
@@ -257,10 +257,19 @@ export function CollapsibleSection({
         [data-vb-morph="clip"] .vb-collapsible .vb-hero-face--collapsed{inset:4px max(1.5rem,calc((100% - 61rem)/2));width:auto;height:auto;transition:inset calc(600ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1),opacity calc(320ms*var(--vb-reveal-scale,1)) ease}
         [data-vb-morph="clip"] .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--collapsed{inset:0px 0rem}
 
+        /* Row TEXT fades on its own fast clock, independent of the face
+           crossfade (which keeps the bg/wash continuity): on expand it
+           vanishes in ~120ms so it never lingers over the incoming hero
+           title; on collapse it returns after a short delay, once the hero
+           title is mostly gone. Placed AFTER the morph variant blocks so it
+           applies uniformly under every morph. */
+        .vb-collapsible .vb-row-content{opacity:1;transition:opacity calc(220ms*var(--vb-reveal-scale,1)) ease calc(180ms*var(--vb-reveal-scale,1))}
+        .vb-collapsible[data-vb-state="expanded"] .vb-row-content{opacity:0;transition:opacity calc(120ms*var(--vb-reveal-scale,1)) ease}
+
         /* Reduced-motion: !important is REQUIRED here — the [data-vb-morph]
            variant rules above out-specify these plain selectors, and a
            media query adds no specificity of its own. */
-        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-body,.vb-collapsible .vb-body-lift,.vb-collapsible .vb-hero-stage,.vb-collapsible .vb-hero-face{transition:none!important}}
+        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-body,.vb-collapsible .vb-body-lift,.vb-collapsible .vb-hero-stage,.vb-collapsible .vb-hero-face,.vb-collapsible .vb-row-content{transition:none!important}}
         .vb-collapsible .vb-hero-img{transform:scale(1.06);transform-origin:60% 40%;transition:transform calc(1100ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-img{transform:scale(1)}
         .vb-collapsible .vb-hero-eyebrow{opacity:0;transform:translateY(6px);transition:opacity calc(600ms*var(--vb-reveal-scale,1)) ease,transform calc(600ms*var(--vb-reveal-scale,1)) ease}
@@ -287,7 +296,18 @@ export function CollapsibleSection({
             // above), so every other section's click never touches the
             // shared, viewbook-scoped welcome flag.
             if (autoRevealMs != null) consume()
-            ;(collapsed ? expand : collapse)()
+            if (collapsed) {
+              expand()
+              // Deliberate expand rides a parallel smooth scroll that rests
+              // the hero at the top of the viewport (sticky header accounted
+              // for via scroll-margin). CLICK-ONLY on purpose: the welcome
+              // auto-reveal and the vb:navigate force-expand must never
+              // yank the user's scroll position from here (nav has its own
+              // after-reveal scroll in viewbook-navigate.ts).
+              scrollSectionToTop(sectionKey)
+            } else {
+              collapse()
+            }
           }}
           className="group block w-full appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2"
         >

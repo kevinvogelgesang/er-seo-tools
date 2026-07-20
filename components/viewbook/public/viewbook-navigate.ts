@@ -210,6 +210,34 @@ export function scrollToSectionAfterReveal(sectionKey: string, options: ScrollTo
   fallbackTimer = setTimeout(finish, heroStageDurationMs(stageEl))
 }
 
+// Deliberate click-to-expand scroll (2026-07-19): smooth-scroll the SECTION
+// TOP to the viewport top IN PARALLEL with the expand animation, so the hero
+// rests at the top of the page as it morphs (the theme root's
+// `[id]{scroll-margin-top:calc(var(--vb-sticky-offset)+12px)}` rule accounts
+// for the sticky header). This deliberately does NOT wait for the reveal the
+// way `scrollToSectionAfterReveal` does — that wait exists because TOC/hash
+// anchors can live INSIDE the expanding region, where the target's position
+// keeps moving until the transition settles. A section's OWN top never moves
+// during its own expansion (only content BELOW it shifts), so scrolling
+// immediately is stable and reads as one gesture with the morph.
+export function scrollSectionToTop(sectionKey: string): void {
+  if (typeof document === 'undefined') return
+  let target: HTMLElement | null = null
+  try {
+    target = document.getElementById(sectionKey)
+  } catch {
+    return
+  }
+  if (!target || typeof target.scrollIntoView !== 'function') return
+  try {
+    target.scrollIntoView(
+      prefersReducedMotion() ? { block: 'start' } : { behavior: 'smooth', block: 'start' },
+    )
+  } catch {
+    // jsdom / partial impls — non-fatal.
+  }
+}
+
 export function navigateToAnchor(sectionKey: SectionKey, anchor: string): void {
   if (typeof window === 'undefined') return
 
