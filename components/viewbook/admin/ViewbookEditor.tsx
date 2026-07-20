@@ -178,7 +178,13 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
       >
         {tab === 'Theme' && (
           <div className="space-y-5">
-            <ThemeEditor viewbookId={vb.id} theme={vb.theme} onSaved={() => void load()} />
+            <ThemeEditor
+              viewbookId={vb.id}
+              theme={vb.theme}
+              onSaved={() => void load()}
+              token={vb.revokedAt ? null : vb.token}
+              presentation={readPresentationConfig(vb)}
+            />
             <PresentationEditor
               viewbookId={vb.id}
               config={readPresentationConfig(vb)}

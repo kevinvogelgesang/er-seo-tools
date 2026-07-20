@@ -58,10 +58,35 @@ describe('ThemePreview', () => {
     expect(canvasClasses).not.toContain('dark:')
   })
 
-  it('contains horizontal overflow and gives the wider canvas more vertical room', () => {
+  it('contains horizontal overflow and grows to fit — no height cap or inner scroll (2026-07-20)', () => {
     const { container } = render(<ThemePreview theme={DEFAULT_THEME} />)
     expect(screen.getByTestId('theme-preview-frame').className).toContain('max-w-full')
-    expect([...container.querySelectorAll('[class]')].some((node) => node.className.includes('max-h-[680px]'))).toBe(true)
+    const classes = [...container.querySelectorAll('[class]')].map((node) => node.className).join(' ')
+    expect(classes).not.toContain('max-h-')
+    expect(classes).not.toContain('overflow-y-auto')
     expect(container.querySelector('.overflow-x-hidden')).not.toBeNull()
+  })
+
+  it('renders the brand hero at the saved overlay strength when a token is provided', () => {
+    const theme = { ...DEFAULT_THEME, sectionHeroes: { ...DEFAULT_THEME.sectionHeroes, brand: 'brand-hero.webp' } }
+    const { container } = render(
+      <ThemePreview
+        theme={theme}
+        token="real-token"
+        presentation={{ collapseAffordance: 'chevron', collapseMorph: 'spread', heroOverlayStrength: 63 }}
+      />,
+    )
+    const html = container.innerHTML
+    expect(html).toContain('/api/viewbook/real-token/assets/brand-hero.webp')
+  })
+
+  it('falls back to the first uploaded hero when brand has none, and to no hero without a token', () => {
+    const theme = { ...DEFAULT_THEME, sectionHeroes: { ...DEFAULT_THEME.sectionHeroes, welcome: 'welcome-hero.webp' } }
+    const withToken = render(<ThemePreview theme={theme} token="tok" />)
+    expect(withToken.container.innerHTML).toContain('/api/viewbook/tok/assets/welcome-hero.webp')
+    withToken.unmount()
+
+    const withoutToken = render(<ThemePreview theme={theme} />)
+    expect(withoutToken.container.innerHTML).not.toContain('welcome-hero.webp')
   })
 })

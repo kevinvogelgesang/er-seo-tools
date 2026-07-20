@@ -8,8 +8,10 @@ import { isAllowedFont } from '@/lib/viewbook/font-manifest'
 import type { ResolvedThemeFonts } from '@/lib/viewbook/resolved-theme-fonts'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import { PRESENTATION_DEFAULTS } from '@/lib/viewbook/presentation-config'
+import type { CollapseAffordanceKind, CollapseMorphKind } from '@/lib/viewbook/presentation-config'
+import { SECTION_KEYS } from '@/lib/viewbook/theme'
 import { SectionShell } from '@/components/viewbook/public/SectionShell'
-import { ThemeStyle, themeCssVars } from '@/components/viewbook/public/ThemeStyle'
+import { ThemeStyle, themeCssVars, publicAssetUrl } from '@/components/viewbook/public/ThemeStyle'
 import { StatusPill } from '@/components/ui/StatusPill'
 
 const SAMPLE_SECTION: PublicSection = {
@@ -27,14 +29,42 @@ const SAMPLE_SECTION: PublicSection = {
 const PREVIEW_VIEWBOOK_ID = 0
 const PREVIEW_TOKEN = 'theme-preview'
 
+// The hero the sample section shows: brand's own hero first (the preview's
+// sample section IS 'brand'), else the first uploaded hero in section order —
+// tuning the overlay-strength lever is impossible against a bare gradient
+// (2026-07-20 Kevin fix). Null when nothing is uploaded (pre-change look).
+function previewHeroFilename(theme: ViewbookTheme): string | null {
+  if (theme.sectionHeroes.brand) return theme.sectionHeroes.brand
+  for (const key of SECTION_KEYS) {
+    const hero = theme.sectionHeroes[key]
+    if (hero) return hero
+  }
+  return null
+}
+
+export interface ThemePreviewPresentation {
+  collapseAffordance: CollapseAffordanceKind
+  collapseMorph: CollapseMorphKind
+  heroOverlayStrength: number
+}
+
 export function ThemePreview({
   theme,
   clientName = 'Your Client',
+  token = null,
+  presentation = PRESENTATION_DEFAULTS,
 }: {
   theme: ViewbookTheme
   clientName?: string
+  // Real viewbook token for asset URLs; null (tests/no viewbook) renders no hero.
+  token?: string | null
+  // The viewbook's SAVED presentation config so the overlay-strength lever is
+  // visible in the preview; defaults keep prior callers/tests working.
+  presentation?: ThemePreviewPresentation
 }) {
   const [resolvedFonts, setResolvedFonts] = useState<ResolvedThemeFonts | undefined>()
+  const heroFilename = previewHeroFilename(theme)
+  const heroUrl = token && heroFilename ? publicAssetUrl(token, heroFilename) : null
 
   useEffect(() => {
     if (isAllowedFont(theme.headingFont) && isAllowedFont(theme.bodyFont)) {
@@ -68,13 +98,15 @@ export function ThemePreview({
         <StatusPill label="Client view · light" tone="neutral" />
       </div>
       <div className="min-w-0 max-w-full overflow-x-hidden bg-gray-100 p-3 dark:bg-navy-deep/55">
-        <div className="max-h-[680px] min-w-0 max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-inner dark:border-navy-border">
+        {/* No height cap / inner scroll (2026-07-20 Kevin fix): the canvas
+            grows to fit the sample section so the whole preview is visible. */}
+        <div className="min-w-0 max-w-full overflow-x-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-navy-border">
           <div
             data-testid="theme-preview-canvas"
             // Morph CSS keys off an ancestor data-vb-morph (ViewbookShell's
             // theme root on the public page) — the preview canvas stamps the
             // default so the sample section still animates sanely here.
-            data-vb-morph={PRESENTATION_DEFAULTS.collapseMorph}
+            data-vb-morph={presentation.collapseMorph}
             className="isolate min-w-0 max-w-full overflow-x-hidden bg-[#fafafa] text-[#1a1a1a]"
             style={{ ...themeCssVars(theme, resolvedFonts), colorScheme: 'light' }}
           >
@@ -93,10 +125,10 @@ export function ThemePreview({
               <SectionShell
                 section={SAMPLE_SECTION}
                 title="Brand Guidelines"
-                heroUrl={null}
+                heroUrl={heroUrl}
                 stage="kickoff"
-                affordance={PRESENTATION_DEFAULTS.collapseAffordance}
-                overlayStrength={PRESENTATION_DEFAULTS.heroOverlayStrength}
+                affordance={presentation.collapseAffordance}
+                overlayStrength={presentation.heroOverlayStrength}
                 isOperator={false}
                 viewbookId={PREVIEW_VIEWBOOK_ID}
                 token={PREVIEW_TOKEN}
