@@ -5,6 +5,7 @@ import {
   ViewbookEditorPanel,
   ViewbookEditorStatus,
   editorDestructiveBtnClass,
+  HexColorInput,
   editorInputClass,
   editorLabelClass,
   editorPrimaryBtnClass,
@@ -518,19 +519,16 @@ export function ThemeInlineEditor({ viewbookId, theme }: { viewbookId: number; t
           <p className="mt-1 text-xs text-gray-500 dark:text-white/55">These accents update across the client view as you work.</p>
           <div className="mt-3 grid gap-2">
             {COLOR_FIELDS.map((field) => (
-              <label key={field} className={`${editorWellClass} flex items-center gap-3 text-sm font-medium text-navy dark:text-white/80`}>
-                <input
-                  type="color"
-                  aria-label={`${field} color`}
+              <div key={field} className={`${editorWellClass} flex flex-col gap-1.5 text-sm font-medium text-navy dark:text-white/80`}>
+                <span className="capitalize">{field}</span>
+                <HexColorInput
+                  label={field}
                   value={draft[field]}
-                  onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
-                  className="h-11 w-14 shrink-0 cursor-pointer rounded-lg border border-gray-300 bg-white p-1 dark:border-navy-border dark:bg-navy-light"
+                  onChange={(next) => setDraft({ ...draft, [field]: next })}
+                  swatchClassName="h-9 w-12 shrink-0 cursor-pointer rounded-lg border border-gray-300 bg-white p-1 dark:border-navy-border dark:bg-navy-light"
+                  fieldClassName="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2 py-1 font-mono text-xs uppercase text-navy dark:border-navy-border dark:bg-navy-light dark:text-white"
                 />
-                <span className="min-w-0">
-                  <span className="block capitalize">{field}</span>
-                  <code className="text-xs font-normal text-gray-500 dark:text-white/55">{draft[field].toUpperCase()}</code>
-                </span>
-              </label>
+              </div>
             ))}
           </div>
         </section>

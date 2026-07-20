@@ -57,15 +57,21 @@ export function GlobalContentEditor() {
 
   useEffect(() => { void load() }, [load])
 
-  async function run(label: string, fn: () => Promise<unknown>) {
+  // Returns success so a caller can show BUTTON-LOCAL feedback — the page-top
+  // flash/error banners sit above the fold and are invisible when saving from
+  // a card scrolled further down ("Save roster doesn't seem to work",
+  // 2026-07-19); the banner stays for users who ARE at the top.
+  async function run(label: string, fn: () => Promise<unknown>): Promise<boolean> {
     setError(null)
     try {
       await fn()
       setFlash(label)
-      setTimeout(() => setFlash(null), 1500)
+      setTimeout(() => setFlash(null), 4000)
       await load()
+      return true
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'save_failed')
+      return false
     }
   }
 
@@ -97,9 +103,13 @@ function TeamEditor({
   run,
 }: {
   roster: TeamMember[]
-  run: (label: string, fn: () => Promise<unknown>) => Promise<void>
+  run: (label: string, fn: () => Promise<unknown>) => Promise<boolean>
 }) {
   const [members, setMembers] = useState<TeamMember[]>(roster)
+  // Button-local save state (2026-07-19): the shared flash banner renders at
+  // the top of a long page — invisible from this card. The button itself
+  // narrates Saving… → Saved ✓ / Save failed.
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   useEffect(() => setMembers(roster), [roster])
 
   function set(index: number, patch: Partial<TeamMember>) {
@@ -184,15 +194,27 @@ function TeamEditor({
           <button type="button" onClick={() => setMembers([...members, { name: '', role: '', photo: null, blurb: '' }])} className={editorSecondaryBtnClass}>Add member</button>
           <button
             type="button"
-            onClick={() => void run('team roster', () => jsonFetch('/api/viewbook-content/team', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content: rosterForSave() }),
-            }))}
+            disabled={saveState === 'saving'}
+            onClick={() => {
+              setSaveState('saving')
+              void run('team roster', () => jsonFetch('/api/viewbook-content/team', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: rosterForSave() }),
+              })).then((ok) => {
+                setSaveState(ok ? 'saved' : 'failed')
+                setTimeout(() => setSaveState('idle'), 4000)
+              })
+            }}
             className={editorPrimaryBtnClass}
           >
-            Save roster
+            {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : saveState === 'failed' ? 'Save failed — retry' : 'Save roster'}
           </button>
+          {saveState === 'failed' && (
+            <span role="alert" className="self-center text-xs font-semibold text-red-700 dark:text-red-300">
+              See the error at the top of the page.
+            </span>
+          )}
         </div>
         <p className="text-xs text-gray-500 dark:text-white/45">Photos attach to a saved member by name — save the roster first, and keep names unique.</p>
       </div>
@@ -264,7 +286,7 @@ function PcIntroEditor({
   run,
 }: {
   value: string
-  run: (label: string, fn: () => Promise<unknown>) => Promise<void>
+  run: (label: string, fn: () => Promise<unknown>) => Promise<boolean>
 }) {
   const [text, setText] = useState(value)
   useEffect(() => setText(value), [value])
@@ -304,7 +326,7 @@ function BlocksEditor({
 }: {
   contentKey: GlobalContentKey
   value: ContentBlocks
-  run: (label: string, fn: () => Promise<unknown>) => Promise<void>
+  run: (label: string, fn: () => Promise<unknown>) => Promise<boolean>
 }) {
   const [blocks, setBlocks] = useState(value.blocks)
   useEffect(() => setBlocks(value.blocks), [value.blocks])

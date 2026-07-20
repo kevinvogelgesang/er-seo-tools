@@ -6,7 +6,10 @@ export const metadata: Metadata = { title: 'Client Viewbooks' }
 
 export default function ViewbooksPage() {
   return (
-    <div className="max-w-5xl mx-auto px-6 py-10 space-y-6">
+    // max-w-6xl (2026-07-19 table-formatting fix): the index table needs
+    // ~980px of columns; the old max-w-5xl column left only ~976px, forcing
+    // a permanent horizontal scrollbar that clipped the Actions column.
+    <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
       <header className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-heading font-bold text-navy dark:text-white">Client Viewbooks</h1>

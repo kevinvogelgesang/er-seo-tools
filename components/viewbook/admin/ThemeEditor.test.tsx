@@ -44,9 +44,12 @@ describe('ThemeEditor', () => {
     expect(screen.getByRole('group', { name: 'Heading typography' })).toBeTruthy()
     expect(screen.getByRole('group', { name: 'Body typography' })).toBeTruthy()
 
+    // 2026-07-19 hex-first color entry: the hex echo is an EDITABLE text
+    // field (HexColorInput) — type/paste an exact brand code; the native
+    // swatch stays for visual picking.
     const primaryControl = screen.getByLabelText('primary color').closest('[data-color-control]') as HTMLElement
-    expect(within(primaryControl).getByText('#122033')).toBeTruthy()
-    expect((screen.getByLabelText('primary color') as HTMLInputElement).className).toContain('h-12')
+    expect((within(primaryControl).getByLabelText('primary hex code') as HTMLInputElement).value).toBe('#122033')
+    expect((screen.getByLabelText('primary color') as HTMLInputElement).className).toContain('h-10')
 
     const previewColumn = screen.getByTestId('theme-editor-preview-column')
     expect(previewColumn.className).toContain('lg:sticky')

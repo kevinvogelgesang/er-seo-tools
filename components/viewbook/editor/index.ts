@@ -1,3 +1,4 @@
+export { HexColorInput } from './HexColorInput'
 export { ViewbookEditorPanel, type ViewbookEditorPanelProps } from './ViewbookEditorPanel'
 export {
   ViewbookEditorStatus,

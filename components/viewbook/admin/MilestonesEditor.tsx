@@ -14,6 +14,13 @@ import { StatusPill, type Tone } from '@/components/ui/StatusPill'
 import { jsonFetch } from './viewbook-admin-shared'
 import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 
+interface ReviewLinkRow {
+  id: number
+  label: string
+  url: string
+  kind: string // 'mockup' | 'live'
+}
+
 interface MilestoneRow {
   id: number
   title: string
@@ -22,6 +29,12 @@ interface MilestoneRow {
   sortOrder: number
   status: string
   targetDate: string | null
+  // getViewbookAdmin has ALWAYS included reviewLinks on each milestone — this
+  // editor just never declared (or rendered) them. 2026-07-19: review links
+  // are now managed here, closing the loop with the public page's
+  // "Review & feedback" region (which had no operator-side creation UI at
+  // all — the POST/DELETE routes existed with zero frontend callers).
+  reviewLinks: ReviewLinkRow[]
 }
 
 function milestoneStatus(status: string): { label: string; tone: Tone } {
@@ -163,6 +176,7 @@ export function MilestonesEditor({
                 </button>
               </div>
             </div>
+            <ReviewLinksBlock viewbookId={viewbookId} milestone={m} busy={busy} run={run} />
             {editingId === m.id && (
               <EditFields
                 milestone={m}
@@ -339,6 +353,129 @@ function EditFields({
           Save
         </button>
       </div>
+    </div>
+  )
+}
+
+// 2026-07-19: per-milestone review-link management — the operator side of the
+// public page's "Review & feedback" region. Collapsed to a summary line when
+// the milestone has no links; the add form posts to the (previously
+// caller-less) review-links route and the parent's onChanged() reload brings
+// the new row back. Deleting a link cascades its feedback thread — confirm.
+function ReviewLinksBlock({
+  viewbookId,
+  milestone,
+  busy,
+  run,
+}: {
+  viewbookId: number
+  milestone: MilestoneRow
+  busy: boolean
+  run: (fn: () => Promise<unknown>) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [label, setLabel] = useState('')
+  const [url, setUrl] = useState('')
+  const [kind, setKind] = useState<'mockup' | 'live'>('mockup')
+  const links = milestone.reviewLinks ?? []
+
+  return (
+    <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-3 dark:border-navy-border/50 dark:bg-navy-deep/25">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-white/45">
+          Review links
+        </span>
+        <StatusPill label={`${links.length}`} tone={links.length > 0 ? 'running' : 'neutral'} />
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300"
+        >
+          {open ? 'Hide' : links.length > 0 ? 'Manage' : 'Add review link'}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-3 space-y-3">
+          {links.length > 0 && (
+            <ul className="space-y-2">
+              {links.map((link) => (
+                <li key={link.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-navy-border dark:bg-navy-card">
+                  <StatusPill label={link.kind === 'live' ? 'Live site' : 'Mockup'} tone={link.kind === 'live' ? 'success' : 'neutral'} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-navy dark:text-white">{link.label}</span>
+                    <a href={link.url} target="_blank" rel="noopener" className="block truncate text-xs text-teal-700 hover:underline dark:text-teal-300">{link.url}</a>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Delete review link ${link.label}`}
+                    onClick={() => {
+                      if (!window.confirm(`Delete review link “${link.label}”? Its feedback thread is deleted with it.`)) return
+                      void run(() => jsonFetch(`/api/viewbooks/${viewbookId}/review-links/${link.id}`, { method: 'DELETE' }))
+                    }}
+                    className={`${editorDestructiveBtnClass} !min-h-7 px-2 py-0.5 text-xs`}
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <label className={`min-w-0 flex-1 ${editorLabelClass}`}>
+              Label
+              <input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Homepage mockup"
+                className={`mt-1 ${editorInputClass}`}
+              />
+            </label>
+            <label className={`min-w-0 flex-[2] ${editorLabelClass}`}>
+              HTTPS URL
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://…"
+                className={`mt-1 ${editorInputClass}`}
+              />
+            </label>
+            <label className={editorLabelClass}>
+              Kind
+              <select
+                value={kind}
+                onChange={(e) => setKind(e.target.value === 'live' ? 'live' : 'mockup')}
+                className={`mt-1 ${editorInputClass}`}
+              >
+                <option value="mockup">Mockup</option>
+                <option value="live">Live site</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={busy || !label.trim() || !url.trim()}
+              onClick={() =>
+                void run(async () => {
+                  await jsonFetch(`/api/viewbooks/${viewbookId}/milestones/${milestone.id}/review-links`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: label.trim(), url: url.trim(), kind }),
+                  })
+                  setLabel('')
+                  setUrl('')
+                })
+              }
+              className={editorPrimaryBtnClass}
+            >
+              Add link
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-white/45">
+            Review links appear in the client viewbook&apos;s “Review &amp; feedback” area with a comment thread for each.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

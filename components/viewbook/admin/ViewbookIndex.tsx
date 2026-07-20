@@ -94,13 +94,13 @@ export function ViewbookIndex() {
         <table className="min-w-[980px] w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/80 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-navy-border dark:bg-navy-deep/40 dark:text-white/50">
-              <th className="px-4 py-3">Client</th>
-              <th className="px-4 py-3">Kind</th>
-              <th className="px-4 py-3">Project stage</th>
-              <th className="px-4 py-3">Current milestone</th>
-              <th className="px-4 py-3">Data</th>
-              <th className="px-4 py-3">Public link</th>
-              <th className="px-4 py-3"><span className="sr-only">Actions</span></th>
+              <th className="px-4 py-3 align-middle">Client</th>
+              <th className="px-4 py-3 align-middle">Kind</th>
+              <th className="px-4 py-3 align-middle">Project stage</th>
+              <th className="px-4 py-3 align-middle">Current milestone</th>
+              <th className="px-4 py-3 align-middle">Data</th>
+              <th className="px-4 py-3 align-middle">Public link</th>
+              <th className="px-4 py-3 align-middle"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -113,7 +113,7 @@ export function ViewbookIndex() {
                 key={row.id}
                 className={`border-b border-gray-100 transition-colors last:border-0 hover:bg-gray-50 dark:border-navy-border/50 dark:hover:bg-navy-light/55 ${row.revoked ? 'bg-red-50/30 dark:bg-red-500/5' : row.clientArchived ? 'bg-amber-50/30 dark:bg-amber-500/5' : ''}`}
               >
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 align-middle">
                   <div className="flex flex-wrap items-center gap-2">
                     {row.revoked ? (
                       <span className="font-semibold text-navy dark:text-white">{row.clientName}</span>
@@ -123,11 +123,11 @@ export function ViewbookIndex() {
                     {row.clientArchived && <StatusPill label="Archived client" tone="warning" />}
                   </div>
                 </td>
-                <td className="px-4 py-3"><StatusPill label={kindLabel(row.kind)} tone="neutral" /></td>
-                <td className="px-4 py-3"><StatusPill label={isViewbookStage(row.stage) ? STAGE_LABELS[row.stage] : row.stage} tone="running" /></td>
-                <td className="px-4 py-3 text-gray-600 dark:text-white/70">{row.currentMilestone ?? '—'}</td>
-                <td className="px-4 py-3"><StatusPill label={row.dataLockedAt ? 'Locked' : 'Open'} tone={row.dataLockedAt ? 'warning' : 'success'} /></td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 align-middle"><StatusPill label={kindLabel(row.kind)} tone="neutral" /></td>
+                <td className="px-4 py-3 align-middle"><StatusPill label={isViewbookStage(row.stage) ? STAGE_LABELS[row.stage] : row.stage} tone="running" /></td>
+                <td className="px-4 py-3 align-middle text-gray-600 dark:text-white/70">{row.currentMilestone ?? '—'}</td>
+                <td className="px-4 py-3 align-middle"><StatusPill label={row.dataLockedAt ? 'Locked' : 'Open'} tone={row.dataLockedAt ? 'warning' : 'success'} /></td>
+                <td className="px-4 py-3 align-middle">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusPill label={row.revoked ? 'Link revoked' : 'Link active'} tone={row.revoked ? 'error' : 'success'} />
                     {!row.revoked && (
@@ -137,7 +137,7 @@ export function ViewbookIndex() {
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 align-middle text-right">
                   <Link href={`/viewbooks/${row.id}`} className={`${editorPrimaryBtnClass} min-h-8 whitespace-nowrap px-2.5 py-1 text-xs`}>Open editor</Link>
                 </td>
               </tr>
