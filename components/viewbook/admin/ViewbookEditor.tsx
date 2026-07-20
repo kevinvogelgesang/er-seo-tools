@@ -176,22 +176,7 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
         tabIndex={0}
         className={tab === 'Settings' ? 'rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-navy-border dark:bg-navy-deep/30' : ''}
       >
-        {tab === 'Theme' && (
-          <div className="space-y-5">
-            <ThemeEditor
-              viewbookId={vb.id}
-              theme={vb.theme}
-              onSaved={() => void load()}
-              token={vb.revokedAt ? null : vb.token}
-              presentation={readPresentationConfig(vb)}
-            />
-            <PresentationEditor
-              viewbookId={vb.id}
-              config={readPresentationConfig(vb)}
-              onSaved={() => void load()}
-            />
-          </div>
-        )}
+        {tab === 'Theme' && <ThemeTab vb={vb} onChanged={() => void load()} />}
         {tab === 'Content' && (
           <ContentTab
             viewbookId={vb.id}
@@ -211,6 +196,35 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
         {tab === 'Activity' && <ActivityFeed viewbookId={vb.id} />}
         {tab === 'Settings' && <SettingsTab vb={vb} onChanged={() => void load()} />}
       </div>
+    </div>
+  )
+}
+
+// Theme tab wrapper: owns the LIVE overlay-strength preview value so the
+// client preview tracks the slider WHILE dragging (2026-07-20 fix — the
+// range input never blurs on mouseup, so the commit-on-blur save alone left
+// the preview looking dead). The DRAGGED value overrides only the preview;
+// the saved config still comes from the loaded viewbook row.
+function ThemeTab({ vb, onChanged }: { vb: ViewbookDetail; onChanged: () => void }) {
+  const [overlayPreview, setOverlayPreview] = useState<number | null>(null)
+  const saved = readPresentationConfig(vb)
+  const presentation =
+    overlayPreview == null ? saved : { ...saved, heroOverlayStrength: overlayPreview }
+  return (
+    <div className="space-y-5">
+      <ThemeEditor
+        viewbookId={vb.id}
+        theme={vb.theme}
+        onSaved={onChanged}
+        token={vb.revokedAt ? null : vb.token}
+        presentation={presentation}
+      />
+      <PresentationEditor
+        viewbookId={vb.id}
+        config={saved}
+        onSaved={onChanged}
+        onOverlayPreview={setOverlayPreview}
+      />
     </div>
   )
 }

@@ -168,10 +168,22 @@ export function SectionShell({
   // heroOverlayStrength in [0,100] → t in [0,1] drives BOTH the expanded
   // hero's vertical brand fade AND the compact row's horizontal brand wash —
   // one operator control, two looks.
+  //
+  // Full-range remap (2026-07-20, Kevin): strength 0 now means NO overlay at
+  // all — untinted photo, no configurable fade, no minimum scrim (the old
+  // floor made 0 ≈ "gradient starts just above text"). 100 keeps the previous
+  // maximum look. Three coordinated channels scale with t: the hero image's
+  // own opacity (1 → 0.4 — the old hard-coded opacity-40 is the max end),
+  // the configurable fade layer's opacity (0 → 1, stops unchanged), and the
+  // minimum title scrim's alpha (0 → 55%, full by strength 50). Title
+  // legibility at very low strengths is the operator's call by design.
   const t = clamp01((Number.isFinite(overlayStrength) ? overlayStrength : 55) / 100)
   const brandStop = Math.round(15 + t * 45)
   const fadeStop = Math.round(60 + t * 25)
   const rowWashStop = Math.round(t * 100)
+  const heroImgOpacity = Math.round((1 - 0.6 * t) * 100) / 100
+  const overlayOpacity = Math.round(t * 100) / 100
+  const scrimAlpha = Math.round(55 * clamp01(t * 2))
 
   // The summary FACE composes the celebratory badge (done/ack) with the
   // section's own summary band. `undefined` when neither is present, so
@@ -218,7 +230,8 @@ export function SectionShell({
       >
         {heroUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
+          // Same strength-scaled opacity channel as the expanded hero (2026-07-20).
+          <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: heroImgOpacity }} />
         )}
         {/* Brand wash: color-mix() over a SOLID var(--vb-primary) base
             (painted on this span's own `style.background` above) — if
@@ -305,27 +318,33 @@ export function SectionShell({
             <img
               src={heroUrl}
               alt=""
-              className="vb-hero-img absolute inset-0 h-full w-full object-cover opacity-40"
+              className="vb-hero-img absolute inset-0 h-full w-full object-cover"
+              style={{ opacity: heroImgOpacity }}
             />
             {/* Configurable brand-primary bottom fade (PR4 heroOverlayStrength)
                 keeps the on-primary headline on effectively-primary pixels —
-                concrete percentage stops, no calc(var()*%) arithmetic. */}
+                concrete percentage stops, no calc(var()*%) arithmetic. Layer
+                opacity scales with strength so 0 renders nothing. */}
             <span
               aria-hidden
               className="absolute inset-0"
-              style={{ background: `linear-gradient(to top, var(--vb-primary) ${brandStop}%, transparent ${fadeStop}%)` }}
+              style={{
+                opacity: overlayOpacity,
+                background: `linear-gradient(to top, var(--vb-primary) ${brandStop}%, transparent ${fadeStop}%)`,
+              }}
             />
           </>
         )}
-        {/* Non-configurable MINIMUM title scrim (Codex FIX-PRESENTATION-CONFIG)
-            — always present so overlayStrength=0 can't render on-primary text
-            illegibly over a photo. color-mix() over the solid var(--vb-primary)
-            base painted on this span above — same unsupported-fallback
-            reasoning as the compact row's wash (Fix 5, post-review). */}
+        {/* MINIMUM title scrim — full 55% alpha by strength 50, scaling to
+            NOTHING at strength 0 (2026-07-20 full-range remap: 0 must mean no
+            gradient at all; legibility at low strengths is the operator's
+            call). color-mix() over the solid var(--vb-primary) base painted
+            on this span above — same unsupported-fallback reasoning as the
+            compact row's wash (Fix 5, post-review). */}
         <span
           aria-hidden
           className="absolute inset-x-0 bottom-0 h-2/5"
-          style={{ background: 'linear-gradient(to top, color-mix(in srgb, var(--vb-primary) 55%, transparent), transparent)' }}
+          style={{ background: `linear-gradient(to top, color-mix(in srgb, var(--vb-primary) ${scrimAlpha}%, transparent), transparent)` }}
         />
         {/* Bottom-left cluster: eyebrow (pc-intro only) + a drawing gold rule
             + title + done-check + a decorative up-chevron collapse cue,

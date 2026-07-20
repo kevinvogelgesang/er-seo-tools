@@ -347,7 +347,7 @@ describe('SectionShell PR3 restructure', () => {
     expect(screen.getByText(/Completed July 1, 2026/)).toBeDefined()
   })
 
-  it('computes concrete gradient stops from heroOverlayStrength on the EXPANDED hero (0→15%/60%, 100→60%/85%) — no calc(var()*%)', () => {
+  it('full-range overlay (2026-07-20): 0 renders NO overlay at all (untinted photo), 100 keeps the previous max look — no calc(var()*%)', () => {
     expandSection()
     const { container: at0 } = render(
       <SectionShell
@@ -361,7 +361,12 @@ describe('SectionShell PR3 restructure', () => {
         <p>Body</p>
       </SectionShell>,
     )
-    expect(at0.innerHTML).toContain('linear-gradient(to top, var(--vb-primary) 15%, transparent 60%)')
+    // Configurable fade layer fully transparent, hero image untinted, and the
+    // minimum title scrim scaled to 0% alpha — strength 0 = no gradient at all.
+    expect(at0.innerHTML).toContain('opacity: 0; background: linear-gradient(to top, var(--vb-primary) 15%, transparent 60%)')
+    expect(at0.innerHTML).toContain('color-mix(in srgb, var(--vb-primary) 0%, transparent)')
+    const img0 = at0.querySelector('.vb-hero-img') as HTMLElement
+    expect(img0.style.opacity).toBe('1')
     expect(at0.innerHTML).not.toContain('calc(var(--vb-overlay')
     cleanup()
 
@@ -378,7 +383,10 @@ describe('SectionShell PR3 restructure', () => {
         <p>Body</p>
       </SectionShell>,
     )
-    expect(at100.innerHTML).toContain('linear-gradient(to top, var(--vb-primary) 60%, transparent 85%)')
+    expect(at100.innerHTML).toContain('opacity: 1; background: linear-gradient(to top, var(--vb-primary) 60%, transparent 85%)')
+    expect(at100.innerHTML).toContain('color-mix(in srgb, var(--vb-primary) 55%, transparent)')
+    const img100 = at100.querySelector('.vb-hero-img') as HTMLElement
+    expect(img100.style.opacity).toBe('0.4')
   })
 
   it('the compact collapsed row uses a HORIZONTAL brand wash driven by the same overlayStrength control', () => {
@@ -399,9 +407,25 @@ describe('SectionShell PR3 restructure', () => {
     expect(container.innerHTML).toContain('color-mix(in srgb, var(--vb-primary) 100%, transparent) 80%')
   })
 
-  it('always renders the minimum scrim layer on the expanded hero, even at heroOverlayStrength=0', () => {
+  it('minimum scrim scales with strength: full 55% alpha by strength 50, gone at 0 (2026-07-20 full-range remap)', () => {
     expandSection()
-    const { container } = render(
+    const { container: at50 } = render(
+      <SectionShell
+        {...baseProps}
+        overlayStrength={50}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl={null}
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(at50.innerHTML).toContain('color-mix(in srgb, var(--vb-primary) 55%, transparent)')
+    cleanup()
+
+    expandSection()
+    const { container: at0 } = render(
       <SectionShell
         {...baseProps}
         overlayStrength={0}
@@ -413,7 +437,8 @@ describe('SectionShell PR3 restructure', () => {
         <p>Body</p>
       </SectionShell>,
     )
-    expect(container.innerHTML).toContain('color-mix(in srgb, var(--vb-primary) 55%, transparent)')
+    expect(at0.innerHTML).toContain('color-mix(in srgb, var(--vb-primary) 0%, transparent)')
+    expect(at0.innerHTML).not.toContain('color-mix(in srgb, var(--vb-primary) 55%, transparent)')
   })
 
   it('does NOT emit its own data-operator-section (OperatorSectionWrapper owns it)', () => {

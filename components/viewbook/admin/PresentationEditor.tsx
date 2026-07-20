@@ -30,6 +30,7 @@ export function PresentationEditor({
   viewbookId,
   config,
   onSaved,
+  onOverlayPreview,
 }: {
   viewbookId: number
   config: {
@@ -40,6 +41,9 @@ export function PresentationEditor({
     firstLoadDelayMs: number
   }
   onSaved: () => void
+  // Fired on EVERY overlay-slider change (drag included) so the parent can
+  // live-update the client preview; the PATCH still commits on blur/Enter.
+  onOverlayPreview?: (value: number) => void
 }) {
   // Controlled sliders seeded from the config prop — the affordance <select>
   // stays uncontrolled (defaultValue) since it commits immediately on
@@ -133,7 +137,11 @@ export function PresentationEditor({
           max={100}
           value={overlay}
           disabled={busy}
-          onChange={(e) => setOverlay(Math.round(Number(e.target.value)))}
+          onChange={(e) => {
+            const value = Math.round(Number(e.target.value))
+            setOverlay(value)
+            onOverlayPreview?.(value)
+          }}
           onBlur={commitOverlay}
           onKeyUp={(e) => {
             if (e.key === 'Enter') commitOverlay()
