@@ -47,11 +47,35 @@ const RENDER_FLOOR_MS = 15_000 // below this remaining budget, skip the rendered
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
-async function fetchHtml(url: string): Promise<string | null> {
+// Codex F2: the frozen lib/seo-fetch primitives take no signal/timeout param, so
+// enforce the global discovery deadline at the CALL SITE — stop WAITING for a
+// raw fetch once the deadline passes (the underlying request holds no Chrome
+// slot and dies on its own internal timeout). `fallback` is the abandon value.
+async function raceDeadline<T>(p: Promise<T>, deadlineMs: number | undefined, fallback: T): Promise<T> {
+  if (deadlineMs === undefined) return p
+  const remaining = deadlineMs - Date.now()
+  if (remaining <= 0) { void p.catch(() => {}); return fallback }
+  const TIMED_OUT = Symbol('deadline')
+  let t: ReturnType<typeof setTimeout> | undefined
+  const timed = new Promise<typeof TIMED_OUT>((res) => { t = setTimeout(() => res(TIMED_OUT), remaining) })
+  ;(t as unknown as { unref?: () => void } | undefined)?.unref?.()
   try {
+    const r = await Promise.race([p, timed])
+    if (r === TIMED_OUT) { void p.catch(() => {}); return fallback }
+    return r as T
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+async function fetchHtml(url: string, deadlineMs?: number): Promise<string | null> {
+  try {
+    // Clamp this (locally-owned) fetch's timeout to the remaining deadline (Codex F2).
+    const budget = deadlineMs !== undefined ? Math.min(FETCH_TIMEOUT, Math.max(0, deadlineMs - Date.now())) : FETCH_TIMEOUT
+    if (budget <= 0) return null
     const { response: res } = await safeFetch(url, {
       headers: { 'User-Agent': SEO_FETCH_USER_AGENT, Accept: 'text/html,*/*' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      signal: AbortSignal.timeout(budget),
     })
     if (!res.ok) return null
     const ct = res.headers.get('content-type') ?? ''
@@ -63,10 +87,11 @@ async function fetchHtml(url: string): Promise<string | null> {
   }
 }
 
-/** Single robots.txt fetch — returns the raw body, or '' on any failure. */
-async function fetchRobotsRaw(base: string): Promise<string> {
-  const r = await fetchRobotsTxt(base)
-  return r.ok ? r.text : ''
+/** Single robots.txt fetch — returns the raw body, or '' on any failure.
+ *  Deadline-raced (Codex F2): past the deadline, abandon the wait → '' (proceed
+ *  with no robots rather than overrun the global discovery budget). */
+async function fetchRobotsRaw(base: string, deadlineMs?: number): Promise<string> {
+  return raceDeadline(fetchRobotsTxt(base).then((r) => (r.ok ? r.text : '')), deadlineMs, '')
 }
 
 /**
@@ -81,8 +106,14 @@ async function fetchSitemapXml(url: string, deadlineMs?: number): Promise<string
   // loop AND the sitemap-index children (this same fn is the injected child
   // fetcher), so seed resolution never starts new fetches after expiry.
   if (deadlineMs !== undefined && Date.now() >= deadlineMs) return null
-  const direct = await fetchSitemapXmlDirect(url)
-  if (direct.ok && direct.text.length > 0) return direct.text
+  // Deadline-race the direct fetch too (Codex F2) — a raw fetch started just
+  // before expiry must not run past the budget while we wait on it.
+  const directText = await raceDeadline(
+    fetchSitemapXmlDirect(url).then((d) => (d.ok && d.text.length > 0 ? d.text : null)),
+    deadlineMs,
+    null,
+  )
+  if (directText) return directText
   return await fetchSitemapViaBrowser(url, deadlineMs) // deadline-aware browser fallback (Codex fix 1)
 }
 
@@ -164,7 +195,7 @@ function dedupeUrls(urls: string[]): string[] {
  */
 async function shallowCrawl(base: string, normDomain: string, deadlineMs?: number): Promise<string[]> {
   if (deadlineMs !== undefined && Date.now() >= deadlineMs) return [] // Codex F2: no fetch past the deadline
-  const html = await fetchHtml(base)
+  const html = await fetchHtml(base, deadlineMs)
   if (!html) return []
 
   const hrefPattern = /<a[^>]+href=["']([^"']+)["']/gi
@@ -507,7 +538,7 @@ export async function discoverPages(
   // to a private/internal domain never reaches the network at all.
   await assertSafeHttpUrl(base)
 
-  const robotsText = await fetchRobotsRaw(base) // single robots fetch
+  const robotsText = await fetchRobotsRaw(base, deadlineMs) // single robots fetch, deadline-raced
   return discoverPagesWithDeps(domain, { ...opts, deadlineMs }, {
     resolveSeeds: (d, deadlineMs) => resolveSeedsReal(d, robotsText, deadlineMs),
     fetchPageLinks: (u) => fetchPageLinks(u, normDomain),
