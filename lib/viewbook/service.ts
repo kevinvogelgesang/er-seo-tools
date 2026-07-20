@@ -191,7 +191,12 @@ export async function updateViewbookSettings(
 // yielded at least one key).
 export async function updateViewbookPresentation(
   id: number,
-  patch: Partial<{ collapseAffordance: string; heroOverlayStrength: number }>,
+  patch: Partial<{
+    collapseAffordance: string
+    heroOverlayStrength: number
+    revealDurationScale: number
+    firstLoadDelayMs: number
+  }>,
 ): Promise<void> {
   if (Object.keys(patch).length === 0) return
   await prisma.$transaction([

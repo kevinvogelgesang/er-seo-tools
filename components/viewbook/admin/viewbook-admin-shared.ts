@@ -48,6 +48,8 @@ export interface ViewbookDetail {
   theme: ViewbookTheme
   collapseAffordance: string // 'pill' | 'chevron' (presentation config, PR4; 'bar' dropped 2026-07-19)
   heroOverlayStrength: number // 0..100
+  revealDurationScale: number // 0.4..1.6, per-viewbook reveal-animation pacing multiplier
+  firstLoadDelayMs: number // 0..6000, delay before the welcome auto-reveal fires on first load
   client: { name: string; archivedAt: string | null }
   sections: { sectionKey: string; state: string; introNote: string | null; narrative: string | null }[]
   milestones: {

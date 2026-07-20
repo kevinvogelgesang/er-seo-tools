@@ -155,6 +155,42 @@ describe('viewbook admin routes', () => {
     expect(viewbook.syncVersion).toBe(beforeSync + 1)
   })
 
+  it('PATCH /api/viewbooks/:id: revealDurationScale/firstLoadDelayMs branch (Task 3) — bad type 400, happy path persists + one syncVersion bump', async () => {
+    const { id } = await mkViewbook()
+
+    const badScale = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ revealDurationScale: 'x' }) }),
+      params({ id: String(id) }),
+    )
+    expect(badScale.status).toBe(400)
+    expect((await badScale.json()).error).toBe('invalid_reveal_scale')
+
+    const badDelay = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ firstLoadDelayMs: 12.5 }) }),
+      params({ id: String(id) }),
+    )
+    expect(badDelay.status).toBe(400)
+    expect((await badDelay.json()).error).toBe('invalid_first_load_delay')
+
+    const before = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    const beforeSync = (await before.json()).viewbook.syncVersion as number
+
+    const happy = await patchViewbook(
+      req(`/api/viewbooks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ revealDurationScale: 1.4, firstLoadDelayMs: 2000 }),
+      }),
+      params({ id: String(id) }),
+    )
+    expect(happy.status).toBe(200)
+
+    const after = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    const { viewbook } = await after.json()
+    expect(viewbook.revealDurationScale).toBe(1.4)
+    expect(viewbook.firstLoadDelayMs).toBe(2000)
+    expect(viewbook.syncVersion).toBe(beforeSync + 1)
+  })
+
   it('POST /api/viewbooks/:id/assets: multipart logo attach stamps theme + file readable', async () => {
     const { id } = await mkViewbook()
     const form = new FormData()

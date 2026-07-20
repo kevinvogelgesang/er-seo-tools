@@ -152,4 +152,6 @@ export interface ViewbookPublicData {
   overrides: Partial<Record<GlobalContentKey, string>>
   collapseAffordance: CollapseAffordanceKind // PR4 presentation config; PR3 threads into SectionShell
   heroOverlayStrength: number // 0..100
+  revealDurationScale: number // 0.4..1.6, per-viewbook reveal-animation pacing multiplier
+  firstLoadDelayMs: number // 0..6000, delay before the welcome auto-reveal fires on first load
 }
