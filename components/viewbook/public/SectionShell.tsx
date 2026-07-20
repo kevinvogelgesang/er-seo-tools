@@ -66,7 +66,15 @@
 // `buildExpandedHero`'s root no longer sets its own `min-h-[38vh]`/
 // `min-h-[30vh]`/`overflow-hidden` (the stage clips + sizes it; the stage
 // picks the 38svh-vs-30svh clamp via `hasHeroImage`, threaded here from
-// `heroUrl != null`). `buildCompactRow`'s own ~74px sizing is untouched.
+// `heroUrl != null`).
+//
+// Spread-morph revision (2026-07-19, follow-up to #217): `buildCompactRow`
+// no longer carries ANY of the compact-card chrome either — the gutter
+// column, 74px height, `py-1` row gap, radius, shadow, and hover lift all
+// moved onto `.vb-hero-stage` in CollapsibleSection (collapsed state), so
+// the card's width/corners/height morph into the full-bleed hero footprint
+// on one curve instead of cross-fading across a width jump. Both faces are
+// now plain fill-the-stage content.
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
@@ -196,49 +204,51 @@ export function SectionShell({
   // class CollapsibleSection puts on its click wrapper.
   function buildCompactRow(): ReactNode {
     return (
-      // `block` explicit (span defaults inline; `mx-auto` needs a block box).
-      // `py-1` (Fix 5, post-review): the ~8px gap between stacked compact rows
-      // (matches the approved mockup's `gap:8px`) — collapsed-row-only, since
-      // buildExpandedHero never renders this wrapper.
-      <span className="mx-auto block w-full max-w-5xl px-6 py-1">
+      // Spread-morph revision (2026-07-19): ALL card chrome — the centered
+      // `max-w-5xl px-6` gutter column, the `py-1` stacked-row gap (Fix 5),
+      // the 74px height, radius, shadow, hover lift — moved OFF this markup
+      // onto CollapsibleSection's `.vb-hero-stage`, the element whose
+      // geometry animates. That's what lets the collapsed card visibly
+      // SPREAD into the full-bleed hero (width/radius/height morph on one
+      // curve) instead of cross-fading across a width jump. This face just
+      // fills the stage; the stage rounds + clips it.
+      <span
+        className="relative flex h-full w-full items-center"
+        style={{ background: 'var(--vb-primary)' }}
+      >
+        {heroUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
+        )}
+        {/* Brand wash: color-mix() over a SOLID var(--vb-primary) base
+            (painted on this span's own `style.background` above) — if
+            color-mix is unsupported, this whole `background` declaration
+            fails to parse and the wash simply doesn't render, leaving the
+            solid primary underneath fully readable (Fix 5, post-review).
+            color-mix is already used elsewhere in shipped viewbook code
+            under the same browserslist targets (ProgressNav, SectionReveal,
+            EarlierSteps, TocRail) — kept here for consistency rather than
+            forked to a gradient-layered fallback. */}
         <span
-          className="relative flex min-h-[74px] items-center overflow-hidden rounded-xl shadow-sm transition-all duration-150 group-hover:-translate-y-0.5 group-hover:shadow-lg"
-          style={{ background: 'var(--vb-primary)' }}
-        >
-          {heroUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
-          )}
-          {/* Brand wash: color-mix() over a SOLID var(--vb-primary) base
-              (painted on this span's own `style.background` above) — if
-              color-mix is unsupported, this whole `background` declaration
-              fails to parse and the wash simply doesn't render, leaving the
-              solid primary underneath fully readable (Fix 5, post-review).
-              color-mix is already used elsewhere in shipped viewbook code
-              under the same browserslist targets (ProgressNav, SectionReveal,
-              EarlierSteps, TocRail) — kept here for consistency rather than
-              forked to a gradient-layered fallback. */}
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            background: `linear-gradient(to right, var(--vb-primary) 8%, color-mix(in srgb, var(--vb-primary) ${rowWashStop}%, transparent) 80%)`,
+          }}
+        />
+        <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: 'var(--vb-secondary)' }} />
+        <span className="relative z-[3] flex w-full min-w-0 items-center gap-2.5 px-5">
+          {/* Plain <span> — this row only renders inside CollapsibleSection's
+              <button>, which is itself wrapped in the real <h2> (see
+              CollapsibleSection.tsx). A <button> may not contain a heading. */}
           <span
-            aria-hidden
-            className="absolute inset-0"
-            style={{
-              background: `linear-gradient(to right, var(--vb-primary) 8%, color-mix(in srgb, var(--vb-primary) ${rowWashStop}%, transparent) 80%)`,
-            }}
-          />
-          <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: 'var(--vb-secondary)' }} />
-          <span className="relative z-[3] flex w-full min-w-0 items-center gap-2.5 px-5">
-            {/* Plain <span> — this row only renders inside CollapsibleSection's
-                <button>, which is itself wrapped in the real <h2> (see
-                CollapsibleSection.tsx). A <button> may not contain a heading. */}
-            <span
-              className="min-w-0 truncate text-xl font-extrabold tracking-tight sm:text-2xl"
-              style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
-            >
-              {title}
-            </span>
-            {done && <DoneBadge size="row" />}
-            <CollapseAffordance kind={affordance} />
+            className="min-w-0 truncate text-xl font-extrabold tracking-tight sm:text-2xl"
+            style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
+          >
+            {title}
           </span>
+          {done && <DoneBadge size="row" />}
+          <CollapseAffordance kind={affordance} />
         </span>
       </span>
     )
