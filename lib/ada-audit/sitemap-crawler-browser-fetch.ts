@@ -1,6 +1,7 @@
-import type { HTTPRequest, Page } from 'puppeteer-core'
+import type { Page } from 'puppeteer-core'
 import { acquirePage, releasePage } from './browser-pool'
 import { assertSafeHttpUrl } from '../security/safe-url'
+import { installBrowserRequestGuard } from './browser-request-guard'
 
 const FETCH_TIMEOUT = 20_000
 const MAX_XML_BYTES = 5_000_000
@@ -25,21 +26,7 @@ export async function fetchSitemapViaBrowser(url: string): Promise<string | null
     page = await acquirePage()
     page.setDefaultNavigationTimeout(FETCH_TIMEOUT)
 
-    await page.setRequestInterception(true)
-    page.on('request', (request: HTTPRequest) => {
-      void (async () => {
-        try {
-          await assertSafeHttpUrl(request.url())
-          if (!request.isInterceptResolutionHandled()) {
-            await request.continue()
-          }
-        } catch {
-          if (!request.isInterceptResolutionHandled()) {
-            await request.abort('blockedbyclient').catch(() => {})
-          }
-        }
-      })()
-    })
+    await installBrowserRequestGuard(page) // no opts ⇒ SSRF-only, byte-identical to the old inline guard
 
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: FETCH_TIMEOUT })
     if (!response || !response.ok()) return null
