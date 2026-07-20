@@ -101,3 +101,75 @@ describe('useCollapseState — local-only, default collapsed', () => {
     expect(collapseKey(42, 'materials')).toBe('vb:collapse:42:materials')
   })
 })
+
+describe('useCollapseState — ready flag (Task 11, key-scoped)', () => {
+  // Records every `ready` value the hook produces across renders, so we can
+  // observe the pre-effect value (false) as well as the post-effect,
+  // settled value (true) from a single renderHook call — `renderHook` flushes
+  // effects (wrapped in act) before returning, so `result.current` alone only
+  // ever shows the FINAL settled value.
+  function recordReady(states: boolean[]) {
+    return (props: { viewbookId: number; sectionKey: string; previewMode?: boolean }) => {
+      const result = useCollapseState(props)
+      states.push(result.ready)
+      return result
+    }
+  }
+
+  it('is false on first render, true after the mount effect reconciles', () => {
+    const states: boolean[] = []
+    const { result } = renderHook(recordReady(states), {
+      initialProps: { viewbookId: 1, sectionKey: 'brand' },
+    })
+    expect(states[0]).toBe(false)
+    expect(result.current.ready).toBe(true)
+  })
+
+  it('is false on first render, true after reconciling, in previewMode too', () => {
+    const states: boolean[] = []
+    const { result } = renderHook(recordReady(states), {
+      initialProps: { viewbookId: 0, sectionKey: 'brand', previewMode: true },
+    })
+    expect(states[0]).toBe(false)
+    expect(result.current.ready).toBe(true)
+  })
+
+  it('returns to false when the key (sectionKey) changes, until the effect re-reconciles for the new key', () => {
+    const states: boolean[] = []
+    const { result, rerender } = renderHook(recordReady(states), {
+      initialProps: { viewbookId: 1, sectionKey: 'brand' },
+    })
+    expect(result.current.ready).toBe(true)
+
+    states.length = 0
+    rerender({ viewbookId: 1, sectionKey: 'materials' })
+    // Immediately after the key changes, `ready` must reflect the NEW key —
+    // the stale `reconciledKey` from 'brand' no longer matches, so a reused/
+    // re-keyed component can never expose a stale ready=true for data that
+    // belongs to the OLD key.
+    expect(states[0]).toBe(false)
+    expect(result.current.ready).toBe(true)
+  })
+
+  it('returns to false when the key (viewbookId) changes, until the effect re-reconciles for the new key', () => {
+    const states: boolean[] = []
+    const { result, rerender } = renderHook(recordReady(states), {
+      initialProps: { viewbookId: 1, sectionKey: 'brand' },
+    })
+    expect(result.current.ready).toBe(true)
+
+    states.length = 0
+    rerender({ viewbookId: 2, sectionKey: 'brand' })
+    expect(states[0]).toBe(false)
+    expect(result.current.ready).toBe(true)
+  })
+
+  it('collapsed/expand/localStorage behavior is unaffected by the ready flag', () => {
+    const { result } = renderHook(() => useCollapseState({ viewbookId: 1, sectionKey: 'brand' }))
+    expect(result.current.collapsed).toBe(true)
+    expect(result.current.ready).toBe(true)
+    act(() => result.current.expand())
+    expect(result.current.collapsed).toBe(false)
+    expect(stored.get(collapseKey(1, 'brand'))).toBe('expanded')
+  })
+})
