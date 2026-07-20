@@ -22,8 +22,10 @@ docs/superpowers/specs/2026-07-20-hybrid-discovery-under-expansion-design.md.
   L2 = JS-blind crawler (rendered-DOM adaptive discovery) → DONE (PR #238), memory-verify pending.
   L3 = bound hits (large raw-HTML sites: healthcarecareer/soma/beal) → YOUR JOB.
 
-DONE — L2 (rendered-DOM adaptive discovery): PR #238 merged (origin/main 1065965),
-deployed, health-verified (/api/health 200, 0 restarts, 489MB). Raw-HTTP crawl runs
+DONE — L2 (rendered-DOM adaptive discovery): PR #238 (code) + PR #239 (Codex-P1 fixes
+that a merge-slip left out of #238 — always push before gh pr merge; verify the merged
+tip) → origin/main 6ed4672, deployed, health-verified (/api/health 200, 0 restarts, 491MB;
+prod source confirmed carrying all 4 fixes). Raw-HTTP crawl runs
 first (unchanged) → its output = knownUrls; a novelty-based probe renders homepage + ≤2
 shallow hubs; if ≥HYBRID_RENDER_PROBE_MIN_NOVEL (5) admissible URLs are novel, a bounded
 rendered BFS (hybridCrawl w/ knownKeys dedup-not-fetched, candidates through robots/trap

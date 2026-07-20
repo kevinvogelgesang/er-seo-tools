@@ -974,8 +974,13 @@ decisions in the umbrella spec are settled — don't re-litigate.
   post-acquire nav recompute + raced body read, detached-handler try/catch, global deadline before robots + call-site
   deadline-race for the frozen raw fetches — all fixed → **cleared to merge**). Gates: tsc clean · **6784 tests** (the one
   failing run was a pre-existing viewbook-editor parallel-run flake, 12/12 in isolation ×3, zero L2-file overlap) · build ok.
-  8 build commits + 3 fix commits. **PR #238 merged (origin/main 1065965) + DEPLOYED** (no migration; PM2 online 0 restarts,
-  `/api/health` 200, 489 MB, box 2935 MB available). **REMAINING before L2 acceptance:** the Codex-F1-mandated worst-case
+  8 build commits + 3 fix commits. **PR #238 merged + DEPLOYED, then a MERGE-SLIP caught at post-merge verify:** #238 merged the
+  pre-fix remote tip `1f68339` (the 3 Codex-P1 fix commits were committed locally but NOT pushed before `gh pr merge` — `gh pr
+  merge` merges the REMOTE branch state, not the local working tree). The gap surfaced when `git checkout origin/main` reverted
+  the fixed files → verified origin/main lacked `raceDeadline`/`eval-timeout`. Remediated: pushed the fixes, **PR #239 merged
+  (origin/main 6ed4672) + RE-DEPLOYED** — prod source confirmed to carry all 4 fixes (`/api/health` 200, PM2 online 0 restarts,
+  491 MB, box 2935 MB available). LESSON: always `git push` the branch immediately before `gh pr merge`, and post-merge verify
+  the merged tip actually contains the intended commits. **REMAINING before L2 acceptance:** the Codex-F1-mandated worst-case
   **process-tree RSS drill** (render-discovery WHILE 2 standalone ADA audits run; peak tree RSS <2200 MB / ≥1400 MB free /
   0 restarts) — **Kevin-gated**: needs a UI-auth cookie (no autonomous cookie) or sign-off to deliberately stress the
   memory-scarred prod box to its 4-Chrome ceiling; runbook in the handoff. **L2 residual re-measure** (cambria/glow/nuvani/
