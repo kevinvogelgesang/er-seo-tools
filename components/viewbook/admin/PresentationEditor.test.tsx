@@ -8,7 +8,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const CONFIG = { collapseAffordance: 'chevron' as const, heroOverlayStrength: 55 }
+const CONFIG = {
+  collapseAffordance: 'chevron' as const,
+  heroOverlayStrength: 55,
+  revealDurationScale: 1.0,
+  firstLoadDelayMs: 3000,
+}
 
 describe('PresentationEditor', () => {
   it('changing the affordance select PATCHes {collapseAffordance} then calls onSaved', async () => {
@@ -83,7 +88,12 @@ describe('PresentationEditor', () => {
       }),
     )
     vi.stubGlobal('fetch', fetchMock)
-    render(<PresentationEditor viewbookId={7} config={{ collapseAffordance: 'chevron', heroOverlayStrength: 10 }} onSaved={vi.fn()} />)
+    render(
+      <PresentationEditor
+        viewbookId={7}
+        config={{ collapseAffordance: 'chevron', heroOverlayStrength: 10, revealDurationScale: 1.0, firstLoadDelayMs: 3000 }}
+        onSaved={vi.fn()}
+      />)
 
     const select = screen.getByLabelText('Collapse affordance') as HTMLSelectElement
     expect(select.value).toBe('chevron')
@@ -93,5 +103,88 @@ describe('PresentationEditor', () => {
 
     resolveFetch({ ok: true, json: async () => ({ ok: true }) })
     await waitFor(() => expect(select.disabled).toBe(false))
+  })
+
+  it('clicking the "Brisk" reveal-pace preset PATCHes {revealDurationScale: 0.7} immediately', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const onSaved = vi.fn()
+    render(<PresentationEditor viewbookId={7} config={CONFIG} onSaved={onSaved} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brisk' }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7', {
+      method: 'PATCH',
+      body: JSON.stringify({ revealDurationScale: 0.7 }),
+    })
+  })
+
+  it('the reveal-pace slider is controlled and PATCHes {revealDurationScale} only on blur/Enter, never mid-drag', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const onSaved = vi.fn()
+    render(<PresentationEditor viewbookId={7} config={CONFIG} onSaved={onSaved} />)
+
+    const slider = screen.getByLabelText(/Reveal pace/) as HTMLInputElement
+    expect(slider.value).toBe('1') // controlled, seeded from config's revealDurationScale
+
+    // Dragging (change events with no blur/Enter yet) must NOT save.
+    fireEvent.change(slider, { target: { value: '1.2' } })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(slider.value).toBe('1.2')
+
+    fireEvent.blur(slider)
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7', {
+      method: 'PATCH',
+      body: JSON.stringify({ revealDurationScale: 1.2 }),
+    })
+
+    fetchMock.mockClear()
+    onSaved.mockClear()
+
+    fireEvent.change(slider, { target: { value: '0.55' } })
+    expect(fetchMock).not.toHaveBeenCalled()
+    fireEvent.keyUp(slider, { key: 'Enter' })
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7', {
+      method: 'PATCH',
+      body: JSON.stringify({ revealDurationScale: 0.55 }),
+    })
+  })
+
+  it('the first-load delay slider is controlled and PATCHes {firstLoadDelayMs} only on blur/Enter, never mid-drag', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const onSaved = vi.fn()
+    render(<PresentationEditor viewbookId={7} config={CONFIG} onSaved={onSaved} />)
+
+    const slider = screen.getByLabelText(/First-load delay/) as HTMLInputElement
+    expect(slider.value).toBe('3000') // controlled, seeded from config's firstLoadDelayMs
+
+    // Dragging must NOT save mid-drag.
+    fireEvent.change(slider, { target: { value: '4500' } })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(slider.value).toBe('4500')
+
+    fireEvent.blur(slider)
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7', {
+      method: 'PATCH',
+      body: JSON.stringify({ firstLoadDelayMs: 4500 }),
+    })
+
+    fetchMock.mockClear()
+    onSaved.mockClear()
+
+    fireEvent.change(slider, { target: { value: '0' } })
+    expect(fetchMock).not.toHaveBeenCalled()
+    fireEvent.keyUp(slider, { key: 'Enter' })
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7', {
+      method: 'PATCH',
+      body: JSON.stringify({ firstLoadDelayMs: 0 }),
+    })
   })
 })

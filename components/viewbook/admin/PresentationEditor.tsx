@@ -8,7 +8,7 @@
 // onSaved.
 
 import { useState } from 'react'
-import { jsonFetch } from './viewbook-admin-shared'
+import { jsonFetch, REVEAL_PACE_PRESETS } from './viewbook-admin-shared'
 import { COLLAPSE_AFFORDANCES, type CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
 import { editorInputClass, editorLabelClass } from '@/components/viewbook/editor'
 
@@ -18,13 +18,22 @@ export function PresentationEditor({
   onSaved,
 }: {
   viewbookId: number
-  config: { collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number }
+  config: {
+    collapseAffordance: CollapseAffordanceKind
+    heroOverlayStrength: number
+    revealDurationScale: number
+    firstLoadDelayMs: number
+  }
   onSaved: () => void
 }) {
-  // Controlled slider seeded from the config prop — the affordance <select>
+  // Controlled sliders seeded from the config prop — the affordance <select>
   // stays uncontrolled (defaultValue) since it commits immediately on
   // change, same as ThemeEditor's font <select>s.
   const [overlay, setOverlay] = useState(config.heroOverlayStrength)
+  // Task 5 (Codex fix 7): local state on drag, PATCH only on blur/Enter/
+  // preset-click — never on every drag/change event.
+  const [pace, setPace] = useState(config.revealDurationScale)
+  const [delayMs, setDelayMs] = useState(config.firstLoadDelayMs)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -45,6 +54,20 @@ export function PresentationEditor({
     // Send an INTEGER (Math.round already applied on every change below) —
     // matches the server's Number.isInteger gate.
     void save({ heroOverlayStrength: overlay })
+  }
+
+  function selectPacePreset(v: number) {
+    // Preset buttons commit immediately (not gated behind blur/Enter).
+    setPace(v)
+    void save({ revealDurationScale: v })
+  }
+
+  function commitPace() {
+    void save({ revealDurationScale: pace })
+  }
+
+  function commitDelay() {
+    void save({ firstLoadDelayMs: delayMs })
   }
 
   return (
@@ -83,6 +106,62 @@ export function PresentationEditor({
           onBlur={commitOverlay}
           onKeyUp={(e) => {
             if (e.key === 'Enter') commitOverlay()
+          }}
+          className="mt-2 block w-full"
+        />
+      </label>
+
+      <div className="mt-4">
+        <span className={editorLabelClass}>Reveal pace</span>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {REVEAL_PACE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              disabled={busy}
+              onClick={() => selectPacePreset(preset.v)}
+              className="rounded-full border border-gray-300 px-2.5 py-1 text-xs font-medium text-navy hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-navy-border dark:text-white dark:hover:bg-navy-light"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <label className={`mt-2 block ${editorLabelClass}`}>
+          Reveal pace: {pace}x
+          <input
+            type="range"
+            min={0.4}
+            max={1.6}
+            step={0.05}
+            value={pace}
+            disabled={busy}
+            onChange={(e) => setPace(Number(e.target.value))}
+            onBlur={commitPace}
+            onKeyUp={(e) => {
+              if (e.key === 'Enter') commitPace()
+            }}
+            className="mt-2 block w-full"
+          />
+          <div className="mt-1 flex justify-between text-[10px] text-gray-400 dark:text-white/40">
+            <span>Faster</span>
+            <span>Slower</span>
+          </div>
+        </label>
+      </div>
+
+      <label className={`mt-4 block ${editorLabelClass}`}>
+        First-load delay (welcome): {(delayMs / 1000).toFixed(2)}s
+        <input
+          type="range"
+          min={0}
+          max={6000}
+          step={250}
+          value={delayMs}
+          disabled={busy}
+          onChange={(e) => setDelayMs(Number(e.target.value))}
+          onBlur={commitDelay}
+          onKeyUp={(e) => {
+            if (e.key === 'Enter') commitDelay()
           }}
           className="mt-2 block w-full"
         />
