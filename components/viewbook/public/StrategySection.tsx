@@ -38,7 +38,7 @@ export function StrategySection({
       stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={<SummaryStat eyebrow="Strategy" headline={`${n} document${n === 1 ? '' : 's'}`} />}
+      summary={<SummaryStat headline={`${n} document${n === 1 ? '' : 's'}`} />}
       affordance={data.collapseAffordance}
       overlayStrength={data.heroOverlayStrength}
       isOperator={isOperator}

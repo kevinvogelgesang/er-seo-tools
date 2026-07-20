@@ -32,7 +32,7 @@ export function PcThanksSection({
       stage={data.stage}
       title={SECTION_TITLES['pc-thanks']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={<SummaryStat eyebrow={SECTION_TITLES['pc-thanks']} headline={sectionStatusLabel(section)} />}
+      summary={<SummaryStat headline={sectionStatusLabel(section)} />}
       affordance={data.collapseAffordance}
       overlayStrength={data.heroOverlayStrength}
       isOperator={isOperator}

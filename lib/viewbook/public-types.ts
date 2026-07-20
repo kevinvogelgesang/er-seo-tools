@@ -7,7 +7,7 @@
 import type { SectionKey, ViewbookTheme } from './theme'
 import type { ContentBlocks, GlobalContentKey, TeamMember } from './global-content-keys'
 import type { ViewbookStage } from './stages'
-import type { CollapseAffordanceKind } from './presentation-config'
+import type { CollapseAffordanceKind, CollapseMorphKind } from './presentation-config'
 
 export interface PublicSection {
   sectionKey: SectionKey
@@ -151,6 +151,7 @@ export interface ViewbookPublicData {
   global: PublicGlobalContent
   overrides: Partial<Record<GlobalContentKey, string>>
   collapseAffordance: CollapseAffordanceKind // PR4 presentation config; PR3 threads into SectionShell
+  collapseMorph: CollapseMorphKind // collapse↔hero morph treatment; stamped as data-vb-morph on ViewbookShell's theme root
   heroOverlayStrength: number // 0..100
   revealDurationScale: number // 0.4..1.6, per-viewbook reveal-animation pacing multiplier
   firstLoadDelayMs: number // 0..6000, delay before the welcome auto-reveal fires on first load

@@ -9,7 +9,21 @@
 
 import { useState } from 'react'
 import { jsonFetch, REVEAL_PACE_PRESETS } from './viewbook-admin-shared'
-import { COLLAPSE_AFFORDANCES, type CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
+import {
+  COLLAPSE_AFFORDANCES,
+  COLLAPSE_MORPHS,
+  type CollapseAffordanceKind,
+  type CollapseMorphKind,
+} from '@/lib/viewbook/presentation-config'
+
+// Operator-facing labels for the collapse↔hero morph treatments (the value
+// strings are the stored enum; see presentation-config.ts for what each does).
+const MORPH_LABELS: Record<CollapseMorphKind, string> = {
+  spread: 'Spread — one smooth morph (default)',
+  bloom: 'Bloom — grows tall, then spreads wide',
+  clip: 'Clip — a window opens over the full hero',
+  pop: 'Pop — snappy spring with overshoot',
+}
 import { editorInputClass, editorLabelClass } from '@/components/viewbook/editor'
 
 export function PresentationEditor({
@@ -20,6 +34,7 @@ export function PresentationEditor({
   viewbookId: number
   config: {
     collapseAffordance: CollapseAffordanceKind
+    collapseMorph: CollapseMorphKind
     heroOverlayStrength: number
     revealDurationScale: number
     firstLoadDelayMs: number
@@ -89,6 +104,22 @@ export function PresentationEditor({
           {COLLAPSE_AFFORDANCES.map((a) => (
             <option key={a} value={a}>
               {a}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className={`mt-4 block ${editorLabelClass}`}>
+        Expand animation
+        <select
+          disabled={busy}
+          defaultValue={config.collapseMorph}
+          onChange={(e) => void save({ collapseMorph: e.target.value })}
+          className={`mt-1 ${editorInputClass}`}
+        >
+          {COLLAPSE_MORPHS.map((m) => (
+            <option key={m} value={m}>
+              {MORPH_LABELS[m]}
             </option>
           ))}
         </select>

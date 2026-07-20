@@ -51,7 +51,6 @@ export function WelcomeSection({
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={
         <SummaryStat
-          eyebrow={SECTION_TITLES[section.sectionKey]}
           headline={data.welcomeNote?.trim() ? data.welcomeNote : sectionStatusLabel(section)}
         />
       }

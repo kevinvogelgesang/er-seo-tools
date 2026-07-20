@@ -102,7 +102,6 @@ export function MilestonesSection({
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={
         <SummaryStat
-          eyebrow="Milestones"
           headline={`${done} of ${total} complete`}
           chip={current ? current.title : undefined}
         />

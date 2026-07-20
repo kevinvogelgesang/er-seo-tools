@@ -44,6 +44,10 @@ export function ThemePreview({
         <div className="max-h-[620px] overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-inner dark:border-navy-border">
           <div
             data-testid="theme-preview-canvas"
+            // Morph CSS keys off an ancestor data-vb-morph (ViewbookShell's
+            // theme root on the public page) — the preview canvas stamps the
+            // default so the sample section still animates sanely here.
+            data-vb-morph={PRESENTATION_DEFAULTS.collapseMorph}
             className="isolate bg-[#fafafa] text-[#1a1a1a]"
             style={{ ...themeCssVars(theme), colorScheme: 'light' }}
           >

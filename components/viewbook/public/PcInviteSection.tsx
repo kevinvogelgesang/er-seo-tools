@@ -38,7 +38,6 @@ export function PcInviteSection({
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={
         <SummaryStat
-          eyebrow="Team Invites"
           headline={`${invited} invite${invited === 1 ? '' : 's'} requested`}
           chip={`${total} added`}
         />

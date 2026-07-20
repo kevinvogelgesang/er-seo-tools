@@ -292,7 +292,7 @@ export async function AssessmentSection({
       stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={<SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={summaryHeadline} />}
+      summary={<SummaryStat headline={summaryHeadline} />}
       affordance={data.collapseAffordance}
       overlayStrength={data.heroOverlayStrength}
       isOperator={isOperator}

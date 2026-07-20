@@ -48,7 +48,6 @@ export function MaterialsSection({
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={
         <SummaryStat
-          eyebrow="Materials"
           headline={`${n} link${n === 1 ? '' : 's'}`}
           chip={requested > 0 ? `${requested} requested` : undefined}
         />

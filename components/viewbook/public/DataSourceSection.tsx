@@ -119,7 +119,7 @@ export function DataSourceSection({
       stage={data.stage}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
-      summary={<SummaryStat eyebrow="Data Source" headline={`${answered} of ${total} answered`} />}
+      summary={<SummaryStat headline={`${answered} of ${total} answered`} />}
       affordance={data.collapseAffordance}
       overlayStrength={data.heroOverlayStrength}
       isOperator={isOperator}

@@ -193,6 +193,7 @@ export async function updateViewbookPresentation(
   id: number,
   patch: Partial<{
     collapseAffordance: string
+    collapseMorph: string
     heroOverlayStrength: number
     revealDurationScale: number
     firstLoadDelayMs: number

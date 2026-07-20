@@ -16,8 +16,22 @@ import { HttpError } from '@/lib/api/errors'
 export const COLLAPSE_AFFORDANCES = ['chevron', 'pill'] as const
 export type CollapseAffordanceKind = (typeof COLLAPSE_AFFORDANCES)[number]
 
+// 2026-07-19 spread-morph follow-up: how a collapsed card animates into the
+// full-bleed hero. All four ship the SAME geometry endpoints (compact gutter
+// card ↔ hero footprint) — only the choreography differs:
+//   spread — everything morphs on one shared curve (the PR #219 default)
+//   bloom  — height leads, width blooms a beat later (reverse on collapse)
+//   clip   — a rounded window opens over the full-size hero; nothing stretches
+//   pop    — spread geometry on a snappier, overshooting spring
+// CSS variants live in CollapsibleSection keyed off `data-vb-morph` stamped
+// on ViewbookShell's theme root; an unknown stored value degrades to the
+// default at read time (same no-migration contract as the affordance).
+export const COLLAPSE_MORPHS = ['spread', 'bloom', 'clip', 'pop'] as const
+export type CollapseMorphKind = (typeof COLLAPSE_MORPHS)[number]
+
 export const PRESENTATION_DEFAULTS = {
   collapseAffordance: 'chevron' as CollapseAffordanceKind,
+  collapseMorph: 'spread' as CollapseMorphKind,
   heroOverlayStrength: 55,
   revealDurationScale: 1.0,
   firstLoadDelayMs: 3000,
@@ -36,16 +50,22 @@ function isAffordance(v: unknown): v is CollapseAffordanceKind {
   return typeof v === 'string' && (COLLAPSE_AFFORDANCES as readonly string[]).includes(v)
 }
 
+function isMorph(v: unknown): v is CollapseMorphKind {
+  return typeof v === 'string' && (COLLAPSE_MORPHS as readonly string[]).includes(v)
+}
+
 export function parsePresentationPatch(
   raw: Record<string, unknown>,
 ): Partial<{
   collapseAffordance: CollapseAffordanceKind
+  collapseMorph: CollapseMorphKind
   heroOverlayStrength: number
   revealDurationScale: number
   firstLoadDelayMs: number
 }> {
   const patch: Partial<{
     collapseAffordance: CollapseAffordanceKind
+    collapseMorph: CollapseMorphKind
     heroOverlayStrength: number
     revealDurationScale: number
     firstLoadDelayMs: number
@@ -53,6 +73,10 @@ export function parsePresentationPatch(
   if ('collapseAffordance' in raw) {
     if (!isAffordance(raw.collapseAffordance)) throw new HttpError(400, 'invalid_affordance')
     patch.collapseAffordance = raw.collapseAffordance
+  }
+  if ('collapseMorph' in raw) {
+    if (!isMorph(raw.collapseMorph)) throw new HttpError(400, 'invalid_morph')
+    patch.collapseMorph = raw.collapseMorph
   }
   if ('heroOverlayStrength' in raw) {
     const n = raw.heroOverlayStrength
@@ -75,11 +99,13 @@ export function parsePresentationPatch(
 
 export function readPresentationConfig(row: {
   collapseAffordance: string
+  collapseMorph?: string
   heroOverlayStrength: number
   revealDurationScale?: number
   firstLoadDelayMs?: number
 }): {
   collapseAffordance: CollapseAffordanceKind
+  collapseMorph: CollapseMorphKind
   heroOverlayStrength: number
   revealDurationScale: number
   firstLoadDelayMs: number
@@ -88,6 +114,7 @@ export function readPresentationConfig(row: {
     collapseAffordance: isAffordance(row.collapseAffordance)
       ? row.collapseAffordance
       : PRESENTATION_DEFAULTS.collapseAffordance,
+    collapseMorph: isMorph(row.collapseMorph) ? row.collapseMorph : PRESENTATION_DEFAULTS.collapseMorph,
     heroOverlayStrength: Number.isFinite(row.heroOverlayStrength)
       ? Math.max(0, Math.min(100, Math.round(row.heroOverlayStrength)))
       : PRESENTATION_DEFAULTS.heroOverlayStrength,

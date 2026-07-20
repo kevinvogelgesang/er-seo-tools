@@ -45,6 +45,10 @@ export function ViewbookShell({
   return (
     <div
       data-vb-theme-root
+      // Collapse↔hero morph treatment (presentation config): CSS variants in
+      // CollapsibleSection key off this SINGLE ancestor attribute — no
+      // per-section prop threading.
+      data-vb-morph={data.collapseMorph}
       className="min-h-screen bg-[#fafafa] text-[#1a1a1a]"
       style={{
         ...themeCssVars(data.theme),

@@ -102,16 +102,20 @@ export function SectionReveal({
           background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)',
         }}
       >
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-3">
-          <div className="min-w-0 flex-1">
-            <div
-              className="text-xl font-bold tracking-tight text-black/80 sm:text-2xl"
-              style={{ fontFamily: 'var(--vb-heading-font)' }}
-            >
-              {title}
-            </div>
-            {summary && <div className="mt-1 min-w-0 text-base text-black/60">{summary}</div>}
+        {/* One-line bar (2026-07-19 de-dup): title left, summary/status
+            right. The summary used to render UNDER the title as a second
+            stacked line whose SummaryStat eyebrow repeated the title — the
+            welcome section read "Welcome / Welcome / In progress". `ml-auto`
+            keeps the summary right-pinned; flex-wrap drops it to its own
+            line on narrow screens. */}
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-1 px-6 py-3">
+          <div
+            className="min-w-0 text-xl font-bold tracking-tight text-black/80 sm:text-2xl"
+            style={{ fontFamily: 'var(--vb-heading-font)' }}
+          >
+            {title}
           </div>
+          {summary && <div className="ml-auto min-w-0">{summary}</div>}
           {SECTION_TOGGLE_ENABLED && !alwaysOpen && (
             <button
               type="button"
