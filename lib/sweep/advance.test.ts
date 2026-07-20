@@ -186,4 +186,25 @@ describe('recoverManualSweeps', () => {
     await recoverManualSweeps(new Date(created.getTime() + 10 * 60_000))
     expect(await prisma.weeklySweep.count({ where: { origin: 'manual' } })).toBe(1)
   })
+
+  it('abandons a PARTIALLY-FROZEN (membership non-null, fanoutCompletedAt null) row with a terminal job [F1]', async () => {
+    const created = new Date('2031-04-05T10:00:00Z')
+    const iso = created.toISOString()
+    await prisma.weeklySweep.create({
+      data: {
+        scheduledFor: created,
+        origin: 'manual',
+        createdAt: created,
+        fanoutCompletedAt: null,
+        membershipJson: JSON.stringify({
+          v: 1,
+          expectedCount: 1,
+          members: [{ clientId: 1, clientName: 'A', domain: 'a.edu', siteAuditId: 'sa1', outcome: 'enqueued' }],
+        }),
+      },
+    })
+    await prisma.job.create({ data: { type: 'manual-sweep', groupKey: `manual-sweep:${iso}`, status: 'error', payload: '{}' } })
+    await recoverManualSweeps(new Date(created.getTime() + 10 * 60_000))
+    expect(await prisma.weeklySweep.count({ where: { origin: 'manual' } })).toBe(0) // freed the slot
+  })
 })

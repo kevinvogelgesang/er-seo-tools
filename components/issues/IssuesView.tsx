@@ -63,25 +63,29 @@ function Tile({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-function DeltaNote({ delta }: { delta: number | null }) {
-  if (delta == null) return <span className="text-xs text-gray-400 dark:text-white/40">no prior week to compare</span>
-  if (delta === 0) return <span className="text-xs text-gray-500 dark:text-white/50">no change vs last week</span>
+function DeltaNote({ delta, origin }: { delta: number | null; origin?: 'scheduled' | 'manual' }) {
+  // A manual snapshot diffs against the most recent SCHEDULED (Sunday) sweep.
+  const vs = origin === 'manual' ? 'vs last Sunday' : 'vs last week'
+  if (delta == null) {
+    return <span className="text-xs text-gray-400 dark:text-white/40">{origin === 'manual' ? 'no prior sweep to compare' : 'no prior week to compare'}</span>
+  }
+  if (delta === 0) return <span className="text-xs text-gray-500 dark:text-white/50">no change {vs}</span>
   const down = delta < 0
   return (
     <span className={`text-xs font-semibold ${down ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-      {down ? '▼' : '▲'} {Math.abs(delta)} vs last week
+      {down ? '▼' : '▲'} {Math.abs(delta)} {vs}
     </span>
   )
 }
 
 type SweepTotals = NonNullable<IssuesPayload['sweep']>['totals']
 
-function SummaryTiles({ totals }: { totals: SweepTotals }) {
+function SummaryTiles({ totals, origin }: { totals: SweepTotals; origin?: 'scheduled' | 'manual' }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       <Tile label="Actionable groups observed">
         <div className="text-2xl font-bold text-navy dark:text-white tabular-nums">{totals.actionable}</div>
-        <div className="mt-0.5"><DeltaNote delta={totals.delta} /></div>
+        <div className="mt-0.5"><DeltaNote delta={totals.delta} origin={origin} /></div>
         <div className="mt-1 text-[11px] text-gray-400 dark:text-white/40">
           across {totals.comparablePairs} comparable domain/tool observations
         </div>
@@ -243,7 +247,7 @@ export function IssuesView({ payload }: { payload: IssuesPayload }) {
       <Header sweep={sweep} />
       {payload.inProgress && <InProgressBanner />}
 
-      <SummaryTiles totals={sweep.totals} />
+      <SummaryTiles totals={sweep.totals} origin={sweep.origin} />
 
       {/* Shortlist */}
       {payload.shortlist.length > 0 && (
@@ -428,7 +432,9 @@ function Header({ sweep }: { sweep?: NonNullable<IssuesPayload['sweep']> }) {
         )}
       </div>
       <p className="text-[11px] text-gray-400 dark:text-white/40 max-w-[220px] text-right">
-        A digest of this snapshot emails every Monday at 7:00 AM Pacific to support@.
+        {sweep?.origin === 'manual'
+          ? 'Manually refreshed — no email sent. The Monday 7:00 AM Pacific digest reflects the Sunday scheduled sweep.'
+          : 'A digest of this snapshot emails every Monday at 7:00 AM Pacific to support@.'}
       </p>
     </header>
   )

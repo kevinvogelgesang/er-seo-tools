@@ -147,19 +147,26 @@ export async function advanceManualSweeps(now: Date = new Date()): Promise<void>
 }
 
 /**
- * Recover a manual fan-out stranded by a crash BETWEEN the route's row-create
- * and enqueue: membership never frozen. Guards:
- *  - GRACE: ignore rows younger than RECOVERY_GRACE_MS (still inside the route window).
- *  - Query ALL jobs for the group (any status), not just active. Re-enqueue ONLY
- *    when NO job row ever landed. If a TERMINAL job exists (the handler ran and
- *    failed/exhausted), do NOT re-enqueue forever — abandon the membership-null
- *    row (fenced delete) to free the slot.
+ * Recover a manual fan-out stranded before it completed — the row is in-flight
+ * (snapshotJson null) but `fanoutCompletedAt` is null, so `advanceManualSweeps`
+ * will NEVER pick it up. This covers BOTH crash windows:
+ *   (a) crash between the route's row-create and enqueue (membershipJson null),
+ *   (b) crash after the final job errored but before onExhausted deleted the row
+ *       (membershipJson partially frozen). [Codex F1]
+ * Guards:
+ *  - GRACE: ignore rows younger than RECOVERY_GRACE_MS (still inside the route
+ *    window, or a fan-out legitimately mid-flight).
+ *  - Query ALL jobs for the group (any status), not just active. NO job ever →
+ *    re-enqueue (a fresh fan-out; or resume a partially-frozen cohort, which
+ *    reprocesses only pending/error members — idempotent). TERMINAL job → the
+ *    handler ran and gave up; do NOT re-enqueue forever — abandon (fenced delete)
+ *    to free the one-in-flight-manual slot. ACTIVE job → leave it alone.
  */
 export async function recoverManualSweeps(now: Date = new Date()): Promise<void> {
   try {
     const graceCutoff = new Date(now.getTime() - RECOVERY_GRACE_MS)
     const stranded = await prisma.weeklySweep.findMany({
-      where: { origin: 'manual', snapshotJson: null, membershipJson: null, createdAt: { lt: graceCutoff } },
+      where: { origin: 'manual', snapshotJson: null, fanoutCompletedAt: null, createdAt: { lt: graceCutoff } },
       select: { id: true, scheduledFor: true },
     })
     for (const s of stranded) {
@@ -169,7 +176,7 @@ export async function recoverManualSweeps(now: Date = new Date()): Promise<void>
         select: { id: true, status: true },
       })
       if (!anyJob) {
-        // True crash-before-enqueue — re-enqueue the fan-out.
+        // No job ever landed (crash-before-enqueue) OR resume a partial fan-out.
         await enqueueJob({
           type: MANUAL_SWEEP_JOB_TYPE,
           payload: { scheduledFor: iso },
@@ -177,10 +184,10 @@ export async function recoverManualSweeps(now: Date = new Date()): Promise<void>
           groupKey: `manual-sweep:${iso}`,
         })
       } else if (anyJob.status === 'error' || anyJob.status === 'cancelled' || anyJob.status === 'complete') {
-        // A terminal job ran but membership is still null — abandon rather than
-        // re-enqueue forever.
+        // A terminal job ran but the fan-out never completed — abandon rather
+        // than re-enqueue forever (regardless of whether membership was frozen).
         await prisma.weeklySweep.deleteMany({
-          where: { id: s.id, origin: 'manual', snapshotJson: null, membershipJson: null },
+          where: { id: s.id, origin: 'manual', snapshotJson: null, fanoutCompletedAt: null },
         })
       }
       // active job (queued/running) → leave it alone.
