@@ -256,6 +256,15 @@ export async function runAxeAudit(
     }
 
     // ── Phase 1: navigation owned by either Lighthouse or us ─────────────
+    // SCOPE NOTE (sweep-error-triage Buckets 1 & 4): HTTP-status observation —
+    // the 404/410 dead-page capture (B1) and the Location-bearing-3xx redirect
+    // reclassification (B4) — lives inside `attemptNavigation`, which ONLY runs
+    // in runner-owned-navigation modes: LIGHTHOUSE_PROVIDER=pagespeed (prod, per
+    // ecosystem.config.js), =off, and render-only (seoOnly). Under =local,
+    // Lighthouse owns page.goto (below) and the runner never inspects response
+    // status, so B1/B4 do NOT fire there. This is CORRECT for the weekly sweep
+    // (prod = pagespeed → full coverage); `local` is dev-only and a local-mode
+    // status seam is a deliberate FUTURE follow-up, not a bug.
     const provider = getLighthouseProvider()
 
     if (provider === 'local' && !options?.renderOnly) {

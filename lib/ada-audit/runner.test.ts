@@ -45,6 +45,8 @@ vi.mock('@/lib/ada-audit/pdf-discovery', () => ({
 }))
 
 const { acquirePage, releasePage } = await import('@/lib/ada-audit/browser-pool')
+const { getLighthouseProvider } = await import('@/lib/ada-audit/lighthouse-provider')
+const { runLighthouse } = await import('@/lib/ada-audit/lighthouse-runner')
 const { gotoWithRetryOn5xx } = await import('@/lib/ada-audit/page-load')
 const { harvestLinks } = await import('@/lib/ada-audit/link-harvest')
 const { harvestPdfLinks } = await import('@/lib/ada-audit/pdf-discovery')
@@ -214,5 +216,39 @@ describe('B4 — Location-bearing 3xx classified redirected', () => {
     await expect(
       runAxeAudit('https://site.edu/x', 'wcag21aa', undefined, { auditId: 'a1' }),
     ).rejects.toThrow(/HTTP 301/)
+  })
+})
+
+describe('B1/B4 scope — status observation only in runner-owned-nav modes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(acquirePage as ReturnType<typeof vi.fn>).mockResolvedValue(makePage())
+  })
+
+  it('pagespeed mode (prod): a non-2xx surfaces as an HTTP-status throw (feeds B1 capture)', async () => {
+    vi.mocked(getLighthouseProvider).mockReturnValue('pagespeed')
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: () => 404,
+      ok: () => false,
+      statusText: () => 'Not Found',
+      headers: () => ({}),
+      url: () => 'https://site.edu/gone',
+      request: () => ({ redirectChain: () => [] }),
+    })
+    await expect(
+      runAxeAudit('https://site.edu/gone', 'wcag21aa', undefined, { auditId: 'a1', siteAudit: true }),
+    ).rejects.toThrow(/HTTP 404/)
+  })
+
+  it('local mode delegates nav to Lighthouse — status inspection (B1/B4) does NOT run (documented dev-only limitation)', async () => {
+    vi.mocked(getLighthouseProvider).mockReturnValue('local')
+    ;(runLighthouse as ReturnType<typeof vi.fn>).mockResolvedValue({ summary: { performanceScore: 90 }, error: null })
+    // gotoWithRetryOn5xx WOULD throw HTTP 404 if the status-inspection path ran —
+    // but local mode never calls it (Lighthouse owns navigation).
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('HTTP 404 — should never be consulted'))
+    // The later axe pass fails on the fake page; we only assert the nav ownership.
+    await runAxeAudit('https://site.edu/', 'wcag21aa', undefined, { auditId: 'a1' }).catch(() => {})
+    expect(runLighthouse).toHaveBeenCalled()
+    expect(gotoWithRetryOn5xx).not.toHaveBeenCalled()
   })
 })
