@@ -37,6 +37,13 @@ export interface DiscoveryCoverage {
   residualMissRate: number | null
   residualApplicable: boolean
   hybridCapped: boolean
+  // L1 additions — policy-filter transparency (numerator + baseline sides)
+  residualMissRateRaw: number | null
+  nonContentExcludedCount: number
+  excludedByReason: Record<'param' | 'malformed' | 'pagination' | 'taxonomy' | 'thankyou' | 'account', number>
+  excludedSampleByReason: Partial<Record<string, string[]>>
+  baselineExcludedCount: number
+  baselineExcludedByReason: Record<'pagination' | 'taxonomy' | 'thankyou' | 'account' | 'nonpage', number>
 }
 
 const SAMPLE_CAP = 50
@@ -77,6 +84,56 @@ export function normalizeCoverageUrl(url: string): string {
   return out
 }
 
+// Coverage-local content normalization layered ON TOP of the shared
+// normalizeCoverageUrl (which stays the crawl's dedup KEY and must not change).
+// Removes tracking params beyond utm_* and trims trailing whitespace so a
+// tracking variant / broken-nbsp URL collapses onto its real page. L1.
+const EXTRA_TRACKING_PARAMS = [
+  'lead_src', 'gclid', 'gad', 'gbraid', 'wbraid', 'fbclid',
+  'msclkid', 'yclid', 'mc_cid', 'mc_eid', '_ga',
+]
+
+export function contentNormalize(url: string): string {
+  const base = normalizeCoverageUrl(url)
+  let u: URL
+  try {
+    u = new URL(base)
+  } catch {
+    return base
+  }
+  for (const p of EXTRA_TRACKING_PARAMS) u.searchParams.delete(p)
+  u.pathname = u.pathname.replace(/(?:%C2%A0|%20|\s)+$/i, '')
+  if (u.pathname === '') u.pathname = '/'
+  if (u.pathname !== '/') u.pathname = u.pathname.replace(/\/+$/, '')
+  let out = u.toString()
+  if (u.pathname === '/' && !u.search) out = out.replace(/\/$/, '')
+  return out
+}
+
+export type ExclusionReason = 'pagination' | 'taxonomy' | 'thankyou' | 'account'
+
+// Policy filter (L1): well-known non-content URL shapes. NOTE (honesty):
+// taxonomy / pagination are NOT categorically non-content — they can be
+// indexable landing pages. This is a policy choice (Kevin, 2026-07-20),
+// surfaced per-reason and never claimed as "identifies indexable content".
+// Precedence: pagination > taxonomy > account > thankyou.
+export function classifyExclusion(normalizedUrl: string): ExclusionReason | null {
+  let pathname: string
+  try {
+    pathname = new URL(normalizedUrl).pathname
+  } catch {
+    return null
+  }
+  if (/\/page\/\d+\/?$/.test(pathname)) return 'pagination'
+  const segs = pathname.split('/').filter(Boolean)
+  const first = segs[0]?.toLowerCase()
+  if (first === 'category' || first === 'tag' || first === 'author') return 'taxonomy'
+  if (first === 'my-account') return 'account'
+  const last = (segs[segs.length - 1] ?? '').toLowerCase()
+  if (/^(?:thank-you|thank_you)(?:-.*)?$/.test(last) || /-thank-you$/.test(last)) return 'thankyou'
+  return null
+}
+
 function isNonPage(normalizedUrl: string): boolean {
   try {
     return NON_PAGE_EXT.test(new URL(normalizedUrl).pathname)
@@ -88,45 +145,99 @@ function isNonPage(normalizedUrl: string): boolean {
 export function computeDiscoveryCoverage(input: DiscoveryCoverageInput): DiscoveryCoverage {
   const { discoveredUrls, internalLinks, discoveryMode, discoveryCapped, sitemapBaseline, sitemapCapped } = input
 
-  const fullBaseline = new Set(discoveredUrls.map(normalizeCoverageUrl))
+  const isContent = (normalized: string) => !isNonPage(normalized) && classifyExclusion(normalized) === null
+  const missAgainst = (baseSet: Set<string>, linkedSet: Set<string>): number => {
+    let off = 0
+    for (const t of linkedSet) if (!baseSet.has(t)) off++
+    const denom = baseSet.size + off
+    return denom === 0 ? 0 : off / denom
+  }
+  const collapseReason = (rawUrl: string): 'param' | 'malformed' => {
+    try {
+      const u = new URL(rawUrl)
+      if (/(?:%C2%A0|%20)$/i.test(u.pathname) || /\s$/.test(decodeURIComponent(u.pathname))) return 'malformed'
+    } catch { /* fall through */ }
+    return 'param'
+  }
 
-  // linked set (normalized page targets, non-pages excluded) built once
-  const linked = new Set<string>()
-  const offSourcesFull = new Map<string, Set<string>>()
+  // ── RAW sets (pre-L1: shared normalizer, isNonPage only) → residualMissRateRaw ──
+  const rawBaseline = new Set(discoveredUrls.map(normalizeCoverageUrl))
+  const rawLinked = new Set<string>()
   for (const link of internalLinks) {
     const target = normalizeCoverageUrl(link.targetUrl)
     if (isNonPage(target)) continue
+    rawLinked.add(target)
+  }
+
+  // ── FILTERED sets (contentNormalize + content-only) → the gate ──
+  const fullBaseline = new Set<string>()
+  for (const u of discoveredUrls) {
+    const n = contentNormalize(u)
+    if (isContent(n)) fullBaseline.add(n)
+  }
+  const linked = new Set<string>()
+  const offSourcesFull = new Map<string, Set<string>>()
+  for (const link of internalLinks) {
+    const target = contentNormalize(link.targetUrl)
+    if (!isContent(target)) continue
     linked.add(target)
     if (!fullBaseline.has(target)) {
       let s = offSourcesFull.get(target)
       if (!s) { s = new Set<string>(); offSourcesFull.set(target, s) }
-      s.add(normalizeCoverageUrl(link.sourcePageUrl))
+      s.add(contentNormalize(link.sourcePageUrl))
     }
   }
+  const sitemapSet = Array.isArray(sitemapBaseline)
+    ? new Set(sitemapBaseline!.map(contentNormalize).filter(isContent)) : null
 
-  const missAgainst = (base: Set<string>): number => {
-    const off = new Set<string>()
-    for (const t of linked) if (!base.has(t)) off.add(t)
-    const denom = base.size + off.size
-    return denom === 0 ? 0 : off.size / denom
+  // ── Numerator attribution: raw off-baseline URLs no longer counted as filtered misses ──
+  const excludedByReason = { param: 0, malformed: 0, pagination: 0, taxonomy: 0, thankyou: 0, account: 0 }
+  const excludedSampleByReason: Record<string, string[]> = {}
+  const noteNum = (reason: keyof typeof excludedByReason, url: string) => {
+    excludedByReason[reason]++
+    const arr = excludedSampleByReason[reason] ?? (excludedSampleByReason[reason] = [])
+    if (arr.length < 3) arr.push(url)
   }
+  const survivors = new Set<string>()
+  const rawOff = [...rawLinked].filter((t) => !rawBaseline.has(t)).sort()
+  for (const t of rawOff) {
+    const cn = contentNormalize(t)
+    const pat = classifyExclusion(cn)
+    if (pat) { noteNum(pat, t); continue }
+    if (isNonPage(cn)) { noteNum('malformed', t); continue }
+    if (fullBaseline.has(cn)) { noteNum(collapseReason(t), t); continue }
+    if (survivors.has(cn)) { noteNum(collapseReason(t), t); continue }
+    survivors.add(cn)
+  }
+  const nonContentExcludedCount = Object.values(excludedByReason).reduce((a, b) => a + b, 0)
+
+  // ── Baseline attribution: distinct raw baseline URLs removed from the denominator ──
+  const baselineExcludedByReason = { pagination: 0, taxonomy: 0, thankyou: 0, account: 0, nonpage: 0 }
+  const baselineExcludedUrls = new Set<string>()
+  for (const rb of rawBaseline) {
+    const cn = contentNormalize(rb)
+    const pat = classifyExclusion(cn)
+    if (pat) { baselineExcludedByReason[pat]++; baselineExcludedUrls.add(rb); continue }
+    if (isNonPage(cn)) { baselineExcludedByReason.nonpage++; baselineExcludedUrls.add(rb) }
+  }
+  const baselineExcludedCount = baselineExcludedUrls.size
 
   const discoveredCount = fullBaseline.size
   const linkedInternalCount = linked.size
   const offBaselineCount = offSourcesFull.size
 
-  // Legacy fields: unchanged semantics (diff vs the FULL baseline, gated on the old rule).
+  // Legacy fields (now filtered): diff vs the FULL filtered baseline, gated on the old rule.
   const applicable = discoveryMode === 'sitemap' && discoveryCapped === false
-  const missRate = applicable ? missAgainst(fullBaseline) : null
+  const missRate = applicable ? missAgainst(fullBaseline, linked) : null
 
-  // Hybrid dual rates.
+  // Hybrid dual rates (filtered) + raw residual companion.
   const hybridCapped = discoveryCapped === true
   const hasSitemapBaseline = Array.isArray(sitemapBaseline)
-  const sitemapSet = hasSitemapBaseline ? new Set(sitemapBaseline!.map(normalizeCoverageUrl)) : null
   const sitemapApplicable = hasSitemapBaseline && sitemapCapped !== true
-  const sitemapMissRate = sitemapApplicable ? missAgainst(sitemapSet!) : (hasSitemapBaseline ? null : missRate)
+  const sitemapMissRate = sitemapApplicable ? missAgainst(sitemapSet!, linked) : (hasSitemapBaseline ? null : missRate)
   const residualApplicable = hasSitemapBaseline && !hybridCapped
-  const residualMissRate = residualApplicable ? missAgainst(fullBaseline) : null
+  const residualMissRate = residualApplicable ? missAgainst(fullBaseline, linked) : null
+  const residualMissRateRaw = residualApplicable ? missAgainst(rawBaseline, rawLinked) : null
 
   const sample: DiscoveryCoverageSampleEntry[] = [...offSourcesFull.keys()]
     .sort()
@@ -150,5 +261,11 @@ export function computeDiscoveryCoverage(input: DiscoveryCoverageInput): Discove
     residualMissRate,
     residualApplicable,
     hybridCapped,
+    residualMissRateRaw,
+    nonContentExcludedCount,
+    excludedByReason,
+    excludedSampleByReason,
+    baselineExcludedCount,
+    baselineExcludedByReason,
   }
 }

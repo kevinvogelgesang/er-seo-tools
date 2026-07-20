@@ -684,3 +684,71 @@ or a client site migration/redesign.
 **Keep SF forever for:** discovery sweeps, migrations, staging/pre-launch QA, competitor & ad-hoc/list
 crawls, custom XPath extraction, and any blocked/capped/low-confidence client — this is the *deliberate
 fallback*, not a gate failure.
+
+---
+
+## 🔧 2026-07-20 — Hybrid-discovery under-expansion fix (L1 shipped; L2/L3 planned)
+
+**Trigger:** the retirement bar (≤5% residualMiss STRICT, fleet-wide) now GATES on discovery
+coverage. A fresh 29-domain prod probe showed ~11 domains still exceed 5% residual.
+
+**Diagnosis (empirical, prod probe 2026-07-20 — see spec `2026-07-20-hybrid-discovery-under-expansion-design.md`):**
+1. **Raw-HTTP crawler is JS-blind** — cambria/glow/nuvani/brownson/federico nav is client-rendered;
+   raw HTML has 0 same-host `<a href>` (verified: 60–120KB HTML, 0 links). BFS tuning cannot help
+   these; the missed pages (cambria `/education`, glow `/course/*`, nuvani `/locations/*`) are
+   rendered-DOM-only. → **L2** (rendered-DOM adaptive discovery).
+2. **Bound hits** — discovery (maxFetches@400, 623+ pages), soma (maxFetches@400), healthcarecareer
+   (maxAdded@300), beal (timeBudget). → **L3** (bound adaptivity; Beal is time-bound, needs the
+   deadline reuse, not cap raises).
+3. **Metric noise** — much of "residual" is tracking-param dupes, `%C2%A0`, pagination, taxonomy,
+   thank-you, account URLs. → **L1** (this ship).
+
+### 29-domain raw-residual ledger (2026-07-20, `discoveryCoverageJson.residualMissRate`, pre-L1)
+
+Worst-first, active clients' latest seoIntent live-scan. (`added` = pages the crawler expanded beyond
+the sitemap; `stoppedBy` from `discoverySourcesJson`.)
+
+| domain | resMiss | added | stoppedBy | class |
+|---|---|---|---|---|
+| discoverycommunitycollege.com | 40.8% | 3 | maxFetches | JS-blind + bound |
+| cambriacollege.ca | 19.5% | 0 | exhausted | JS-blind |
+| brownson.edu | 18.1% | 1 | exhausted | JS-blind |
+| healthcarecareercollege.edu | 14.9% | 300 | maxAdded | bound |
+| federico.edu | 14.5% | 1 | exhausted | JS-blind |
+| glowcollegecanada.ca | 12.9% | 0 | exhausted | JS-blind |
+| nuvani.edu | 11.5% | 0 | exhausted | JS-blind |
+| soma.edu | 9.7% | 160 | maxFetches | bound + pagination noise |
+| ccbst.ca | 7.6% | 1 | exhausted | JS-blind |
+| canadiancollege-hst.com | 7.5% | 10 | exhausted | mixed |
+| beal.edu | 6.9% | 18 | timeBudget | bound (time) |
+| prowayhairschool.com | 6.5% | 4 | exhausted | mixed |
+| (17 more ≤5%) | ≤5% | — | — | already passing |
+
+### L1 — policy-filtered coverage metric (SHIPPED this session)
+
+`residualMissRate` is now **policy-filtered** (the gate); `residualMissRateRaw` retains the pre-L1
+number above. Two-sided attribution (`excludedByReason` numerator + `baselineExcludedByReason`
+denominator + `nonContentExcludedCount`/`baselineExcludedCount`) fully reconciles the raw→filtered delta.
+
+**Policy filter (fuller, Kevin 2026-07-20):**
+- **Tracking params stripped** (beyond utm_*): `lead_src, gclid, gad, gbraid, wbraid, fbclid, msclkid,
+  yclid, mc_cid, mc_eid, _ga`. Functional params (`position, page, s, p, id, paged`) NEVER stripped.
+- **Malformed:** trailing `%C2%A0` / `%20` / whitespace trimmed off the pathname (collapses onto the real page).
+- **Non-content patterns excluded** from both numerator and denominator: pagination `/page/N`,
+  WP taxonomy first-segment `category|tag|author`, `/thank-you*` confirmations, `/my-account/*`.
+
+**Honesty caveats (Codex-reviewed):**
+- "**policy-filtered**", never "identifies indexable content" — taxonomy/pagination CAN be indexable
+  landing pages; this is a policy choice, surfaced per-reason with the raw number retained.
+- **Fuller ≠ exhaustive.** Known false-negatives intentionally NOT caught (documented, not silently
+  "content"): `/blog/category/news` (taxonomy not at segment 0), `?paged=2` (query-form pagination),
+  `/thankyou` (no hyphen), `/thank_you_application`, `/thank-you/application` (not last segment).
+- `residualMissRateRaw ≥ residualMissRate` is **NOT** an invariant — filtering both sides can make the
+  filtered rate *rise* when the denominator loses more than the numerator (e.g. a taxonomy-heavy sitemap).
+
+**Re-baseline:** authoritative filtered per-domain numbers land from the **next weekly sweep** after L1
+deploys (coverage is recomputed there). Do NOT record sample-derived pre-deploy filtered residuals as
+recomputed values — the stored `sample` is capped at 50 off-baseline URLs and cannot reconstruct baseline
+exclusions; any pre-deploy figure is a **directional estimate only**.
+
+**Still open:** L2 (rendered-DOM discovery — the JS-blind fix, own plan) + L3 (bound adaptivity, own plan).
