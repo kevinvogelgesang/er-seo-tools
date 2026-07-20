@@ -273,7 +273,11 @@ export function SectionShell({
         {heroUrl && (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
+            <img
+              src={heroUrl}
+              alt=""
+              className="vb-hero-img absolute inset-0 h-full w-full object-cover opacity-40"
+            />
             {/* Configurable brand-primary bottom fade (PR4 heroOverlayStrength)
                 keeps the on-primary headline on effectively-primary pixels —
                 concrete percentage stops, no calc(var()*%) arithmetic. */}
@@ -294,34 +298,55 @@ export function SectionShell({
           className="absolute inset-x-0 bottom-0 h-2/5"
           style={{ background: 'linear-gradient(to top, color-mix(in srgb, var(--vb-primary) 55%, transparent), transparent)' }}
         />
-        {/* Bottom-left cluster: title + done-check + a decorative up-chevron
-            collapse cue, grouped together — collapsible sections only. */}
-        <span className="relative z-[3] mx-auto flex w-full max-w-5xl min-w-0 items-center gap-3 px-6 pb-6">
-          <TitleTag
-            className="min-w-0 truncate text-3xl font-extrabold tracking-tight sm:text-5xl"
-            style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
-          >
-            {title}
-          </TitleTag>
-          {done && <DoneBadge size="hero" />}
-          {collapsible && (
+        {/* Bottom-left cluster: eyebrow (pc-intro only) + a drawing gold rule
+            + title + done-check + a decorative up-chevron collapse cue,
+            grouped together — collapsible sections only. Task 9 (cinematic
+            hero flourishes): both the eyebrow and rule are `aria-hidden` —
+            neither may alter the button's accessible name, which must stay
+            exactly the section title (name-from-content skips aria-hidden
+            subtrees). */}
+        <span className="relative z-[3] mx-auto flex w-full max-w-5xl min-w-0 flex-col gap-2 px-6 pb-6">
+          {section.sectionKey === 'pc-intro' && (
             <span
               aria-hidden
-              className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-white/10 text-white transition-colors group-hover:bg-white/20"
+              className="vb-hero-eyebrow block text-xs font-bold tracking-[0.2em] uppercase"
+              style={{ color: 'var(--vb-on-primary)' }}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={3}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-4 w-4"
-              >
-                <polyline points="6 15 12 9 18 15" />
-              </svg>
+              A note from your team
             </span>
           )}
+          <span
+            aria-hidden
+            className="vb-hero-rule block h-0.5 w-16"
+            style={{ background: 'var(--vb-tertiary)' }}
+          />
+          <span className="flex min-w-0 items-center gap-3">
+            <TitleTag
+              className="min-w-0 truncate text-3xl font-extrabold tracking-tight sm:text-5xl"
+              style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
+            >
+              {title}
+            </TitleTag>
+            {done && <DoneBadge size="hero" />}
+            {collapsible && (
+              <span
+                aria-hidden
+                className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-white/10 text-white transition-colors group-hover:bg-white/20"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                >
+                  <polyline points="6 15 12 9 18 15" />
+                </svg>
+              </span>
+            )}
+          </span>
         </span>
       </span>
     )

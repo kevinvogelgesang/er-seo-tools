@@ -444,6 +444,98 @@ describe('SectionShell PR3 restructure', () => {
   })
 })
 
+describe('SectionShell Task 9 hero flourishes', () => {
+  it('pc-intro expanded hero contains the locked eyebrow copy', () => {
+    expandSection('pc-intro')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'pc-intro' })}
+        title="Welcome"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="post-contract"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const eyebrow = container.querySelector('.vb-hero-eyebrow')
+    expect(eyebrow).not.toBeNull()
+    expect(eyebrow?.textContent).toBe('A note from your team')
+  })
+
+  it('a non-pc-intro section renders NO eyebrow (rule + Ken-Burns only)', () => {
+    expandSection('brand')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(container.querySelector('.vb-hero-eyebrow')).toBeNull()
+  })
+
+  it('the eyebrow and rule are aria-hidden so they never leak into the button accessible name', () => {
+    expandSection('pc-intro')
+    render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'pc-intro' })}
+        title="Welcome"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="post-contract"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const eyebrow = document.querySelector('.vb-hero-eyebrow')
+    const rule = document.querySelector('.vb-hero-rule')
+    expect(eyebrow?.getAttribute('aria-hidden')).toBe('true')
+    expect(rule?.getAttribute('aria-hidden')).toBe('true')
+    // The button's accessible name must still be exactly the title — the
+    // eyebrow (name-from-content excludes aria-hidden subtrees) must not leak.
+    const btn = screen.getByRole('button', { name: 'Welcome' })
+    expect(btn).toBeDefined()
+  })
+
+  it('the hero image carries the vb-hero-img Ken-Burns hook', () => {
+    expandSection('brand')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    const img = container.querySelector('.vb-hero-face--expanded img.vb-hero-img')
+    expect(img).not.toBeNull()
+  })
+
+  it('the gold rule renders in every collapsible section (bookend and normal alike)', () => {
+    expandSection('brand')
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/api/viewbook/tok/assets/hero.png"
+        stage="building"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    expect(container.querySelector('.vb-hero-rule')).not.toBeNull()
+  })
+})
+
 describe('SectionShell PR5 polish', () => {
   it('animates the done badge with a reduced-motion override', () => {
     const { container } = render(

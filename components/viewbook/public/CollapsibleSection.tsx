@@ -157,6 +157,13 @@ export function CollapsibleSection({
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--expanded{opacity:1}
         .vb-collapsible[data-vb-state="expanded"] .vb-hero-face--collapsed{opacity:0}
         @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-body,.vb-collapsible .vb-body-lift,.vb-collapsible .vb-hero-stage,.vb-collapsible .vb-hero-face{transition:none}}
+        .vb-collapsible .vb-hero-img{transform:scale(1.06);transform-origin:60% 40%;transition:transform calc(1100ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
+        .vb-collapsible[data-vb-state="expanded"] .vb-hero-img{transform:scale(1)}
+        .vb-collapsible .vb-hero-eyebrow{opacity:0;transform:translateY(6px);transition:opacity calc(600ms*var(--vb-reveal-scale,1)) ease,transform calc(600ms*var(--vb-reveal-scale,1)) ease}
+        .vb-collapsible[data-vb-state="expanded"] .vb-hero-eyebrow{opacity:1;transform:none}
+        .vb-collapsible .vb-hero-rule{transform:scaleX(0);transform-origin:left center;transition:transform calc(700ms*var(--vb-reveal-scale,1)) cubic-bezier(.16,1,.3,1)}
+        .vb-collapsible[data-vb-state="expanded"] .vb-hero-rule{transform:scaleX(1)}
+        @media (prefers-reduced-motion:reduce){.vb-collapsible .vb-hero-img,.vb-collapsible .vb-hero-eyebrow,.vb-collapsible .vb-hero-rule{transition:none;transform:none;opacity:1}}
       `}</style>
       {/* APG Accordion: the heading WRAPS the button (not the reverse) — see
           the file banner. `id={sectionKey}` scroll anchor stays on the outer
