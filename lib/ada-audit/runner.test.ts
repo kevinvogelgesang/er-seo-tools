@@ -15,6 +15,16 @@ vi.mock('@/lib/ada-audit/browser-pool', () => ({
 }))
 vi.mock('@/lib/security/safe-url', () => ({
   assertSafeHttpUrl: vi.fn(async (input: string | URL) => new URL(String(input))),
+  // classifyRunnerError (imported transitively via runner-errors) does an
+  // `instanceof SafeUrlError` check — the mock must export a real constructor
+  // or the instanceof throws "right-hand side is not callable".
+  SafeUrlError: class SafeUrlError extends Error {
+    reason: string
+    constructor(message: string, reason = 'policy') {
+      super(message)
+      this.reason = reason
+    }
+  },
 }))
 vi.mock('@/lib/ada-audit/lighthouse-provider', () => ({
   getLighthouseProvider: vi.fn(() => 'off'),
@@ -35,10 +45,12 @@ vi.mock('@/lib/ada-audit/pdf-discovery', () => ({
 }))
 
 const { acquirePage, releasePage } = await import('@/lib/ada-audit/browser-pool')
+const { getLighthouseProvider } = await import('@/lib/ada-audit/lighthouse-provider')
+const { runLighthouse } = await import('@/lib/ada-audit/lighthouse-runner')
 const { gotoWithRetryOn5xx } = await import('@/lib/ada-audit/page-load')
 const { harvestLinks } = await import('@/lib/ada-audit/link-harvest')
 const { harvestPdfLinks } = await import('@/lib/ada-audit/pdf-discovery')
-const { runAxeAudit } = await import('./runner')
+const { runAxeAudit, acquirePageWithRetry } = await import('./runner')
 
 function makeResponse() {
   return {
@@ -100,5 +112,143 @@ describe('runAxeAudit renderOnly', () => {
     expect(harvestLinks).toHaveBeenCalledTimes(1)
     // Page released exactly once (finally).
     expect(releasePage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('B3 — acquirePageWithRetry + pool-stability', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('retries ONCE on an infrastructure acquire failure, then succeeds', async () => {
+    const page = makePage()
+    ;(acquirePage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('Protocol error (Target.createTarget): ...'))
+      .mockResolvedValueOnce(page)
+    const got = await acquirePageWithRetry(0)
+    expect(got).toBe(page)
+    expect(acquirePage).toHaveBeenCalledTimes(2)
+  })
+
+  it('rethrows a non-infrastructure acquire failure immediately (no retry)', async () => {
+    ;(acquirePage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('HTTP 404 — gone'))
+    await expect(acquirePageWithRetry(0)).rejects.toThrow(/HTTP 404/)
+    expect(acquirePage).toHaveBeenCalledTimes(1)
+  })
+
+  it('in-nav retry whose re-acquire fails twice releases the old page EXACTLY once (no double-release)', async () => {
+    vi.useFakeTimers()
+    try {
+      ;(acquirePage as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(makePage()) // initial acquire → old page
+        .mockRejectedValue(new Error('Protocol error (Target.createTarget): ...')) // both re-acquire attempts fail
+      // Force the in-nav transient-retry path.
+      ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Navigating frame was detached'))
+      const promise = runAxeAudit('https://example.edu/', 'wcag21aa', undefined, { auditId: 'a1' })
+      const rejects = expect(promise).rejects.toThrow(/Target\.createTarget/)
+      await vi.advanceTimersByTimeAsync(2000) // drain the 750ms in-nav re-acquire delay
+      await rejects
+      // Old page released once (before re-acquire); finally does NOT release again.
+      expect(releasePage).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('B4 — Location-bearing 3xx classified redirected', () => {
+  function redirectResponse(opts: { status?: number; location: string | null; url: string; chain?: unknown[] }) {
+    return {
+      status: () => opts.status ?? 301,
+      ok: () => false,
+      statusText: () => 'Moved Permanently',
+      headers: () => (opts.location != null ? { location: opts.location } : {}),
+      url: () => opts.url,
+      request: () => ({ redirectChain: () => opts.chain ?? [] }),
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(acquirePage as ReturnType<typeof vi.fn>).mockResolvedValue(makePage())
+  })
+
+  it('NON-EMPTY redirect chain + Location → redirected (not thrown)', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: 'https://site.edu/final/', url: 'http://site.edu/', chain: [{}] }),
+    )
+    const res = await runAxeAudit('http://site.edu/', 'wcag21aa', undefined, { auditId: 'a1' })
+    expect(res.kind).toBe('redirected')
+    if (res.kind === 'redirected') expect(res.finalUrl).toBe('https://site.edu/final/')
+  })
+
+  it('relative Location resolves against the FINAL response url (mid-chain flip)', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: '/landing', url: 'https://www.site.edu/old', chain: [{}] }),
+    )
+    const res = await runAxeAudit('http://site.edu/old', 'wcag21aa', undefined, { auditId: 'a1' })
+    expect(res.kind).toBe('redirected')
+    if (res.kind === 'redirected') expect(res.finalUrl).toBe('https://www.site.edu/landing')
+  })
+
+  it('no-progress loop (Location === final URL) → throws', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: 'https://site.edu/x', url: 'https://site.edu/x', chain: [{}] }),
+    )
+    await expect(
+      runAxeAudit('https://site.edu/x', 'wcag21aa', undefined, { auditId: 'a1' }),
+    ).rejects.toThrow(/HTTP 301/)
+  })
+
+  it('no Location header → throws', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: null, url: 'https://site.edu/x', chain: [{}] }),
+    )
+    await expect(
+      runAxeAudit('https://site.edu/x', 'wcag21aa', undefined, { auditId: 'a1' }),
+    ).rejects.toThrow(/no Location header/)
+  })
+
+  it('Location differing only by trailing slash + fragment → no-progress throw (proves normalizeForRedirect, not a regex)', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: 'https://site.edu/x/#frag', url: 'https://site.edu/x', chain: [{}] }),
+    )
+    await expect(
+      runAxeAudit('https://site.edu/x', 'wcag21aa', undefined, { auditId: 'a1' }),
+    ).rejects.toThrow(/HTTP 301/)
+  })
+})
+
+describe('B1/B4 scope — status observation only in runner-owned-nav modes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(acquirePage as ReturnType<typeof vi.fn>).mockResolvedValue(makePage())
+  })
+
+  it('pagespeed mode (prod): a non-2xx surfaces as an HTTP-status throw (feeds B1 capture)', async () => {
+    vi.mocked(getLighthouseProvider).mockReturnValue('pagespeed')
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: () => 404,
+      ok: () => false,
+      statusText: () => 'Not Found',
+      headers: () => ({}),
+      url: () => 'https://site.edu/gone',
+      request: () => ({ redirectChain: () => [] }),
+    })
+    await expect(
+      runAxeAudit('https://site.edu/gone', 'wcag21aa', undefined, { auditId: 'a1', siteAudit: true }),
+    ).rejects.toThrow(/HTTP 404/)
+  })
+
+  it('local mode delegates nav to Lighthouse — status inspection (B1/B4) does NOT run (documented dev-only limitation)', async () => {
+    vi.mocked(getLighthouseProvider).mockReturnValue('local')
+    ;(runLighthouse as ReturnType<typeof vi.fn>).mockResolvedValue({ summary: { performanceScore: 90 }, error: null })
+    // gotoWithRetryOn5xx WOULD throw HTTP 404 if the status-inspection path ran —
+    // but local mode never calls it (Lighthouse owns navigation).
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('HTTP 404 — should never be consulted'))
+    // The later axe pass fails on the fake page; we only assert the nav ownership.
+    await runAxeAudit('https://site.edu/', 'wcag21aa', undefined, { auditId: 'a1' }).catch(() => {})
+    expect(runLighthouse).toHaveBeenCalled()
+    expect(gotoWithRetryOn5xx).not.toHaveBeenCalled()
   })
 })

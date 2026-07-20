@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/db'
 import { deleteAuditArtifacts } from '@/lib/ada-audit/screenshot-helpers'
-import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo, sweepExpiredContentAudit, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
+import { pruneArchivedBlobs, pruneHarvestedLinks, pruneHarvestedPageSeo, pruneHarvestedPageErrors, sweepExpiredContentAudit, ARCHIVE_WINDOW_MS, PRUNE_ACTIVATED } from './retention'
 
 // Artifact deletion is mocked — retention tests must never touch the
 // uploads/screenshots filesystem.
@@ -343,6 +343,37 @@ describe('pruneHarvestedPageSeo', () => {
     await pruneHarvestedPageSeo(NOW)
 
     const remaining = await prisma.harvestedPageSeo.findMany({
+      where: { siteAuditId: sa.id },
+      select: { id: true },
+    })
+    expect(remaining.map((r) => r.id)).toEqual([freshRow.id])
+  })
+})
+
+describe('pruneHarvestedPageErrors', () => {
+  beforeEach(clearTestState)
+  afterEach(async () => {
+    await prisma.harvestedPageError.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
+    await clearTestState()
+  })
+
+  it('deletes rows older than 7 days only', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    const oldRow = await prisma.harvestedPageError.create({
+      data: { siteAuditId: sa.id, url: `https://${DOMAIN}/gone`, statusCode: 404 },
+    })
+    const freshRow = await prisma.harvestedPageError.create({
+      data: { siteAuditId: sa.id, url: `https://${DOMAIN}/still-gone`, statusCode: 410 },
+    })
+    await prisma.harvestedPageError.update({
+      where: { id: oldRow.id },
+      data: { createdAt: new Date(NOW.getTime() - 8 * DAY_MS) },
+    })
+    await prisma.harvestedPageError.update({ where: { id: freshRow.id }, data: { createdAt: NOW } })
+
+    await pruneHarvestedPageErrors(NOW)
+
+    const remaining = await prisma.harvestedPageError.findMany({
       where: { siteAuditId: sa.id },
       select: { id: true },
     })

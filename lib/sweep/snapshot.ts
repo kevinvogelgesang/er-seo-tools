@@ -35,6 +35,7 @@ import { prisma } from '@/lib/db'
 import { logError } from '@/lib/log'
 import { classifyCoverage, type PairObservation } from './classify'
 import { buildIssueGroups, type RawGroup } from './issue-groups'
+import { findingUnit } from '@/lib/findings/finding-type-sets'
 import {
   parseMembership,
   parseSnapshot,
@@ -78,6 +79,7 @@ export interface ToolLoad {
 /** Everything computeSweepSnapshot needs about one SiteAudit (loaded once). */
 export interface AuditLoad {
   discoveryCapped: boolean
+  pagesError: number // SiteAudit.pagesError — shared by both tool pairs
   ada: ToolLoad
   seo: ToolLoad
 }
@@ -98,15 +100,12 @@ function toSeverity(raw: string): Severity {
 // Unit map (exhaustive, Codex plan-fix #15)
 // ---------------------------------------------------------------------------
 
-const TARGET_TYPES = new Set(['broken_internal_links', 'broken_images', 'broken_external_links'])
-const GROUP_TYPES = new Set(['duplicate_title', 'duplicate_meta_description', 'duplicate_h1'])
-const PAGE_ONPAGE_TYPES = new Set(['missing_title', 'missing_h1', 'missing_meta_description', 'thin_content'])
-
 function unitForType(tool: SweepTool, type: string): IssueUnit {
-  if (tool === 'ada-audit') return 'pages' // all axe rule types are page-scoped
-  if (TARGET_TYPES.has(type)) return 'targets'
-  if (GROUP_TYPES.has(type)) return 'groups'
-  if (PAGE_ONPAGE_TYPES.has(type)) return 'pages'
+  // The type→unit knowledge lives in ONE place (finding-type-sets.findingUnit)
+  // so the on-page/broken/validation/dead_page maps can't drift from the
+  // results-page sections. `null` = genuinely unknown future type.
+  const unit = findingUnit(tool, type)
+  if (unit) return unit
   // Unknown future type — never a silent guess.
   logError(
     { event: 'sweep_unmapped_issue_unit', tool, type },
@@ -190,7 +189,7 @@ async function loadSeoTool(runId: string | null, runStatus: string | null): Prom
 
 export async function loadAuditForSnapshot(siteAuditId: string): Promise<AuditLoad> {
   const [audit, adaRun, seoRun] = await Promise.all([
-    prisma.siteAudit.findUnique({ where: { id: siteAuditId }, select: { discoveryCapped: true } }),
+    prisma.siteAudit.findUnique({ where: { id: siteAuditId }, select: { discoveryCapped: true, pagesError: true } }),
     prisma.crawlRun.findUnique({
       where: { siteAuditId_tool: { siteAuditId, tool: 'ada-audit' } },
       select: { id: true, status: true },
@@ -204,7 +203,7 @@ export async function loadAuditForSnapshot(siteAuditId: string): Promise<AuditLo
     loadAdaTool(adaRun?.id ?? null, adaRun?.status ?? null),
     loadSeoTool(seoRun?.id ?? null, seoRun?.status ?? null),
   ])
-  return { discoveryCapped: audit?.discoveryCapped === true, ada, seo }
+  return { discoveryCapped: audit?.discoveryCapped === true, pagesError: audit?.pagesError ?? 0, ada, seo }
 }
 
 const defaultDeps: SnapshotDeps = { loadAudit: loadAuditForSnapshot }
@@ -238,8 +237,9 @@ function reasonFor(state: CoverageState, obs: PairObservation): string | null {
   if (state === 'failed') return 'run-missing'
   if (state === 'partial') {
     if (obs.discoveryCapped) return 'crawl-capped'
-    if (obs.runStatus === 'partial') return 'timed-out'
-    return 'attribution-incomplete'
+    if (obs.pagesError > 0) return 'pages-errored' // retires the false 'timed-out'
+    if (!obs.attributionComplete) return 'attribution-incomplete'
+    return 'coverage-capped' // runStatus 'partial' with no pagesError (verifier-capped)
   }
   return null
 }
@@ -310,6 +310,7 @@ export async function computeSweepSnapshot(
         runStatus: tl.runStatus,
         discoveryCapped: load.discoveryCapped,
         attributionComplete: tl.attributionComplete,
+        pagesError: load.pagesError,
       }
       const baselineAvailable = baselinePairs.has(pairKey(m.clientId, m.domain, tool))
       const { state } = classifyCoverage(obs, baselineAvailable)

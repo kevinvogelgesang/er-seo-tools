@@ -18,6 +18,7 @@ import { prisma } from '@/lib/db'
 import { writeFindingsRun } from '@/lib/findings/writer'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 import { mapBrokenLinkFindings, type BrokenTarget } from '@/lib/findings/broken-link-mapper'
+import { mapDeadPageFindings } from '@/lib/findings/dead-page-mapper'
 import { mapOnPageSeoFindings, type OnPageSeoRow } from '@/lib/findings/onpage-seo-mapper'
 import type { CrawlPageInput, FindingInput, FindingsBundle } from '@/lib/findings/types'
 import { randomUUID } from 'crypto'
@@ -328,6 +329,10 @@ export async function runBrokenLinkVerify(
       loginLike: true, title: true, h1: true, metaDescription: true, wordCount: true, schemaCount: true,
       canonicalUrl: true, detailsJson: true, contentTruncated: true,
     },
+  })
+  const deadPageRows = await prisma.harvestedPageError.findMany({
+    where: { siteAuditId: job.siteAuditId },
+    select: { url: true, statusCode: true },
   })
 
   const auditedHost = (site.domain ?? job.domain ?? '').toLowerCase()
@@ -640,7 +645,18 @@ export async function runBrokenLinkVerify(
     : mapValidationFindings(validationRows, internalPairs, cache, {
       runId, ensurePage, auditedHost, affectedComplete: !capped && !cappedValidation && !internalBudgetHit,
     })
-  const findings: FindingInput[] = [...onPageFindings, ...brokenFindings, ...externalFindings, ...validationFindings]
+  const deadPageFindings = mapDeadPageFindings(deadPageRows, {
+    runId,
+    ensurePage,
+    affectedComplete: true,
+  })
+  const findings: FindingInput[] = [
+    ...onPageFindings,
+    ...brokenFindings,
+    ...externalFindings,
+    ...validationFindings,
+    ...deadPageFindings,
+  ]
 
   // C6 Phase 3: live SEO score from the on-page signals (pure scorer).
   const runCounts = new Map(
@@ -913,6 +929,7 @@ export async function runBrokenLinkVerify(
   // here -- it carries contentText for the retention window and is DELETEd at
   // expiry by sweepExpiredContentAudit (retention.ts).
   await prisma.harvestedLink.deleteMany({ where: { siteAuditId: job.siteAuditId } })
+  await prisma.harvestedPageError.deleteMany({ where: { siteAuditId: job.siteAuditId } })
   console.log(
     `[broken-link-verify] ${job.siteAuditId}: checked ${checked}, broken ${broken.length}, unconfirmed ${unconfirmed}, external checked ${externalChecked}, external broken ${externalBroken.length}, external unconfirmed ${externalUnconfirmed}, on-page rows ${seoRows.length}, internalBudgetHit ${internalBudgetHit} (${cache.size}/${allToResolve.length} resolved)`,
   )

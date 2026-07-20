@@ -146,6 +146,17 @@ export async function pruneHarvestedPageSeo(now: Date = new Date()): Promise<voi
 }
 
 /**
+ * sweep-error-triage Bucket 1: delete stale HarvestedPageError scaffolding. The
+ * live-scan builder deletes its own rows on success; this backstops audits whose
+ * build never ran. Reuses the 7-day HARVEST_RETENTION_MS window. Runs in runCleanup().
+ */
+export async function pruneHarvestedPageErrors(now: Date = new Date()): Promise<void> {
+  const cutoff = new Date(now.getTime() - HARVEST_RETENTION_MS)
+  const { count } = await prisma.harvestedPageError.deleteMany({ where: { createdAt: { lt: cutoff } } })
+  if (count > 0) console.log(`[findings] pruned ${count} stale HarvestedPageError row(s)`)
+}
+
+/**
  * C12 D1: DELETE retained HarvestedPageSeo rows once their audit's retention
  * window has elapsed. Only non-null contentAuditRetainUntil rows are swept
  * (the stamp is written only after a successful live-scan run), so stranded

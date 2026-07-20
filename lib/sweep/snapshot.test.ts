@@ -8,7 +8,8 @@
 // and loadPreviousSnapshot are genuinely DB-backed over the shared dev DB with
 // owned-prefix cleanup (children deleted before parents).
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import * as log from '@/lib/log'
 import { prisma } from '@/lib/db'
 import type { WeeklySweep } from '@prisma/client'
 import {
@@ -62,7 +63,7 @@ function tool(partial: Partial<ToolLoad> = {}): ToolLoad {
 }
 
 function auditLoad(partial: Partial<AuditLoad> = {}): AuditLoad {
-  return { discoveryCapped: false, ada: tool(), seo: tool(), ...partial }
+  return { discoveryCapped: false, pagesError: 0, ada: tool(), seo: tool(), ...partial }
 }
 
 function depsFrom(map: Record<string, AuditLoad>): SnapshotDeps {
@@ -366,6 +367,56 @@ describe('computeSweepSnapshot — change states', () => {
   })
 })
 
+describe('computeSweepSnapshot — coverage reasons (pagesError label fix)', () => {
+  it('pagesError>0 on an otherwise-complete audit → both tools partial, reason "pages-errored"', async () => {
+    const m = membership([member(1, 'a.edu', 'aud-1')])
+    const deps = depsFrom({
+      'aud-1': auditLoad({
+        pagesError: 3,
+        ada: tool({ runStatus: 'complete', groups: [] }),
+        seo: tool({ runStatus: 'complete', groups: [] }),
+      }),
+    })
+    const snap = await computeSweepSnapshot(sweepOf(m), null, NOW, deps)
+    for (const tool of ['ada-audit', 'seo-parser'] as const) {
+      const cov = snap.coverage.find((c) => c.tool === tool)
+      expect(cov?.state).toBe('partial')
+      expect(cov?.reason).toBe('pages-errored')
+    }
+  })
+
+  it('runStatus "partial" with pagesError 0 → reason "coverage-capped" (not the retired "timed-out")', async () => {
+    const m = membership([member(1, 'a.edu', 'aud-1')])
+    const deps = depsFrom({
+      'aud-1': auditLoad({
+        pagesError: 0,
+        ada: tool({ runStatus: 'complete', groups: [] }),
+        seo: tool({ runStatus: 'partial', groups: [] }),
+      }),
+    })
+    const snap = await computeSweepSnapshot(sweepOf(m), null, NOW, deps)
+    const seoCov = snap.coverage.find((c) => c.tool === 'seo-parser')
+    expect(seoCov?.state).toBe('partial')
+    expect(seoCov?.reason).toBe('coverage-capped')
+    // No coverage row anywhere still reads the retired label.
+    expect(snap.coverage.every((c) => c.reason !== 'timed-out')).toBe(true)
+  })
+
+  it('discoveryCapped wins over pagesError → reason "crawl-capped"', async () => {
+    const m = membership([member(1, 'a.edu', 'aud-1')])
+    const deps = depsFrom({
+      'aud-1': auditLoad({
+        discoveryCapped: true,
+        pagesError: 5,
+        ada: tool({ runStatus: 'complete', groups: [] }),
+        seo: tool({ runStatus: 'complete', groups: [] }),
+      }),
+    })
+    const snap = await computeSweepSnapshot(sweepOf(m), null, NOW, deps)
+    expect(snap.coverage.find((c) => c.tool === 'ada-audit')?.reason).toBe('crawl-capped')
+  })
+})
+
 describe('computeSweepSnapshot — totals + shortlist rank', () => {
   it('domain rollup = worst tool state; scanned/expected honest', async () => {
     const m = membership([
@@ -544,6 +595,29 @@ describe('loadAuditForSnapshot (real DB)', () => {
     expect(load.seo.groups.find((g) => g.type === 'missing_title')?.unit).toBe('pages')
     expect(load.seo.groups.find((g) => g.type === 'thin_content')?.unit).toBe('pages')
     expect(load.seo.groups.find((g) => g.type === 'some_future_type')?.unit).toBe('groups')
+  })
+
+  it('B5: validation + dead_page types map via findingUnit with NO sweep_unmapped_issue_unit logError', async () => {
+    const spy = vi.spyOn(log, 'logError').mockImplementation(() => {})
+    try {
+      const said = await seedSiteAudit()
+      await seedAdaRun(said, [])
+      await seedSeoRun(said, [
+        { type: 'redirect_chain', severity: 'warning', count: 4, affectedComplete: true },
+        { type: 'canonical_external_unverified', severity: 'notice', count: 2, affectedComplete: true },
+        { type: 'dead_page', severity: 'warning', count: 3, affectedComplete: true },
+      ])
+      const load = await loadAuditForSnapshot(said)
+      expect(load.seo.groups.find((g) => g.type === 'redirect_chain')?.unit).toBe('pages')
+      expect(load.seo.groups.find((g) => g.type === 'canonical_external_unverified')?.unit).toBe('targets')
+      expect(load.seo.groups.find((g) => g.type === 'dead_page')?.unit).toBe('pages')
+      const unmapped = spy.mock.calls.filter(
+        (c) => (c[0] as { event?: string } | undefined)?.event === 'sweep_unmapped_issue_unit',
+      )
+      expect(unmapped).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('late-completing audit: ADA run present, SEO run missing → seo failed, ada classified', async () => {

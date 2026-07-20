@@ -12,6 +12,7 @@ async function clean() {
   await prisma.crawlRun.deleteMany({ where: { domain: DOMAIN } })
   await prisma.harvestedLink.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
   await prisma.harvestedPageSeo.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
+  await prisma.harvestedPageError.deleteMany({ where: { siteAudit: { domain: DOMAIN } } })
   await prisma.siteAudit.deleteMany({ where: { domain: DOMAIN } })
 }
 beforeEach(clean)
@@ -61,6 +62,30 @@ describe('recoverBrokenLinkVerifies', () => {
     expect(n).toBeGreaterThanOrEqual(1)
     const job = await prisma.job.findFirst({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })
     expect(job).not.toBeNull()
+  })
+
+  it('B1: re-enqueues a dead-only audit that has only HarvestedPageError rows', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    await prisma.harvestedPageError.create({
+      data: { siteAuditId: sa.id, url: 'https://c6blr.example.com/gone', statusCode: 404 },
+    })
+    const n = await recoverBrokenLinkVerifies()
+    expect(n).toBeGreaterThanOrEqual(1)
+    const job = await prisma.job.findFirst({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })
+    expect(job).not.toBeNull()
+  })
+
+  it('B1: does NOT re-enqueue a dead-page audit whose live-scan run already committed', async () => {
+    const sa = await prisma.siteAudit.create({ data: { domain: DOMAIN, status: 'complete' } })
+    await prisma.harvestedPageError.create({
+      data: { siteAuditId: sa.id, url: 'https://c6blr.example.com/gone', statusCode: 410 },
+    })
+    await prisma.crawlRun.create({
+      data: { id: 'c6blr-dead-run', tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, status: 'complete', siteAuditId: sa.id, pagesTotal: 0 },
+    })
+    const before = await prisma.job.count({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })
+    await recoverBrokenLinkVerifies()
+    expect(await prisma.job.count({ where: { type: 'broken-link-verify', groupKey: `site-audit:${sa.id}` } })).toBe(before)
   })
 
   it('C11: recovery re-enqueues a complete zero-harvest seoOnly audit', async () => {

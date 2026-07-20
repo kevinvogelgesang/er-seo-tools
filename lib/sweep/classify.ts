@@ -10,6 +10,9 @@ export interface PairObservation {
   attributionComplete: boolean | null // Codex plan-fix #8: SEO run-scope groups need affectedComplete === true
   // (null = legacy/sample = INCOMPLETE); ADA page-scope rows are
   // complete by construction (the loader sets true for ada pairs)
+  pagesError: number // SiteAudit.pagesError — shared by both tool pairs of the audit
+  // (sweep-error-triage): >0 means some audited pages errored, so NEITHER tool's
+  // coverage is complete → a conservative 'partial' cause (never fewer/resolved).
 }
 
 /**
@@ -17,7 +20,7 @@ export interface PairObservation {
  *
  * Precedence (first match wins):
  * - null current OR !runPresent -> 'failed'
- * - capped / status 'partial' / !attributionComplete -> 'partial'
+ * - capped / status 'partial' / pagesError>0 / !attributionComplete -> 'partial'
  * - runPresent && !baselineAvailable -> 'first-baseline'
  * - else -> 'comparable'
  *
@@ -37,8 +40,13 @@ export function classifyCoverage(
   if (current === null || !current.runPresent) {
     state = 'failed'
   }
-  // Precedence 2: capped / status 'partial' / !attributionComplete -> 'partial'
-  else if (current.discoveryCapped || current.runStatus === 'partial' || !current.attributionComplete) {
+  // Precedence 2: capped / status 'partial' / pagesError>0 / !attributionComplete -> 'partial'
+  else if (
+    current.discoveryCapped ||
+    current.runStatus === 'partial' ||
+    current.pagesError > 0 ||
+    !current.attributionComplete
+  ) {
     state = 'partial'
   }
   // Precedence 3: runPresent && !baselineAvailable -> 'first-baseline'

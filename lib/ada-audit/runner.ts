@@ -11,7 +11,8 @@ import type { RawPageSeo } from './seo/parse-seo-dom'
 import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
 import { isTransientRunnerError } from './runner-retry'
-import { detectRedirect } from './redirect-detect'
+import { classifyRunnerError } from './runner-errors'
+import { detectRedirect, normalizeForRedirect } from './redirect-detect'
 import { trimAxeResultsForStorage } from './axe-trim'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
@@ -116,6 +117,20 @@ export type RunAxeResult =
       harvestedPageSeo: RawPageSeo | null
     }
 
+// Bucket 3: one fixed-delay retry when the pool/Chrome refuses a page
+// (Target.createTarget / Target closed under load). INFRASTRUCTURE ONLY — every
+// other acquire failure propagates unchanged. Covers BOTH the initial acquire
+// and the in-nav re-acquire. `delayMs` is injectable so tests don't wait.
+export async function acquirePageWithRetry(delayMs = 750): Promise<Page> {
+  try {
+    return await acquirePage()
+  } catch (err) {
+    if (classifyRunnerError(err).kind !== 'infrastructure') throw err
+    await new Promise((r) => setTimeout(r, delayMs))
+    return await acquirePage() // second failure propagates
+  }
+}
+
 export async function runAxeAudit(
   targetUrl: string,
   wcagLevel: string = 'wcag21aa',
@@ -131,7 +146,13 @@ export async function runAxeAudit(
   const parsed = await assertSafeHttpUrl(targetUrl)
 
   await progress(10, 'Launching browser…')
-  let page = await acquirePage()
+  let page = await acquirePageWithRetry()
+  // Ownership guard for the `finally` release. When the in-nav retry releases
+  // the failing page and then re-acquires, a throw from the re-acquire would
+  // otherwise leave `page` pointing at the already-released page and the finally
+  // would release it a SECOND time (corrupting a pool slot). We flip this false
+  // across the release→re-acquire window so the finally never double-releases.
+  let pageOwned = true
 
   let lighthouseSummary: LighthouseSummary | null = null
   let lighthouseError: string | null = null
@@ -235,6 +256,15 @@ export async function runAxeAudit(
     }
 
     // ── Phase 1: navigation owned by either Lighthouse or us ─────────────
+    // SCOPE NOTE (sweep-error-triage Buckets 1 & 4): HTTP-status observation —
+    // the 404/410 dead-page capture (B1) and the Location-bearing-3xx redirect
+    // reclassification (B4) — lives inside `attemptNavigation`, which ONLY runs
+    // in runner-owned-navigation modes: LIGHTHOUSE_PROVIDER=pagespeed (prod, per
+    // ecosystem.config.js), =off, and render-only (seoOnly). Under =local,
+    // Lighthouse owns page.goto (below) and the runner never inspects response
+    // status, so B1/B4 do NOT fire there. This is CORRECT for the weekly sweep
+    // (prod = pagespeed → full coverage); `local` is dev-only and a local-mode
+    // status seam is a deliberate FUTURE follow-up, not a bug.
     const provider = getLighthouseProvider()
 
     if (provider === 'local' && !options?.renderOnly) {
@@ -307,23 +337,32 @@ export async function runAxeAudit(
           if (status === 403) throw new Error(`HTTP 403 — This site is blocking automated scanners. Try adding your server IP to the site's allowlist, or contact the site owner.`)
           if (status === 401) throw new Error(`HTTP 401 — This page requires authentication. The scanner cannot access password-protected pages.`)
           if (status >= 300 && status < 400) {
+            // Bucket 4: ANY Location-bearing 3xx is a redirect, regardless of
+            // whether puppeteer already followed part of the chain. The old
+            // `chain.length === 0` gate wrongly threw "did not auto-follow" for
+            // non-empty chains (e.g. a mid-chain http→https flip). Record the
+            // target; the child settles `redirected`, `pagesRedirected++`.
             const finalUrl = response.url()
             const location = response.headers()['location'] ?? null
-            const chain = response.request().redirectChain()
-            // Puppeteer didn't auto-follow but a Location header is present —
-            // classify as a redirected page rather than an error. Resolve the
-            // Location against the requested URL so relative redirects work.
-            if (location && chain.length === 0) {
+            if (location) {
               try {
-                const resolved = new URL(location, parsed.toString()).toString()
-                redirectedHolder.value = { finalUrl: resolved, rendered: false }
-                return  // exit attemptNavigation — outer code checks redirectedHolder
+                // Resolve against the FINAL response URL (handles mid-chain
+                // http/https flips), not only the originally-requested URL.
+                const resolved = new URL(location, finalUrl).toString()
+                // No-progress loop guard: a redirect pointing at its own final
+                // URL is a genuine broken redirect. Use normalizeForRedirect
+                // (shared: default-port/host-case/trailing-slash/fragment
+                // insensitive) — NOT an inline regex that would miss those.
+                if (normalizeForRedirect(resolved) !== normalizeForRedirect(finalUrl)) {
+                  redirectedHolder.value = { finalUrl: resolved, rendered: false }
+                  return // exit attemptNavigation — outer code checks redirectedHolder
+                }
               } catch {
-                // Malformed Location — fall through to error path
+                /* malformed Location — fall through to error path */
               }
             }
             const detail = location
-              ? `Redirected to ${location} (final URL was ${finalUrl}); puppeteer did not auto-follow`
+              ? `Redirected to ${location} (final URL was ${finalUrl}); no forward progress`
               : `Server returned ${status} with no Location header (final URL: ${finalUrl})`
             throw new Error(`HTTP ${status} — ${detail}`)
           }
@@ -369,8 +408,13 @@ export async function runAxeAudit(
         // insufficient for `Navigating frame was detached` because Puppeteer's
         // frame tree may be in an unrecoverable state. A fresh page also clears
         // any half-applied request-interception state.
+        // Transfer ownership OUT before re-acquiring (Bucket 3): flip the guard
+        // false so that if `acquirePageWithRetry` below throws, the finally does
+        // not release this already-released page a second time.
+        pageOwned = false
         await releasePage(page).catch(() => {})
-        page = await acquirePage()
+        page = await acquirePageWithRetry()
+        pageOwned = true
 
         // Re-apply hardening from browser-pool (idempotent) and re-register the
         // request handler on the new page.
@@ -524,6 +568,6 @@ export async function runAxeAudit(
 
     return { kind: 'audited', axe: axe as StoredAxeResults, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo, heroScreenshotPng }
   } finally {
-    await releasePage(page)
+    if (pageOwned) await releasePage(page)
   }
 }

@@ -13,7 +13,7 @@ import { JOB_ACTIVE_STATUSES } from '@/lib/jobs/types'
 export async function recoverBrokenLinkVerifies(): Promise<number> {
   // Distinct siteAuditIds that still have EITHER transient table populated
   // (the verifier/builder deletes both only on success).
-  const [links, seo] = await Promise.all([
+  const [links, seo, deadPages] = await Promise.all([
     prisma.harvestedLink.findMany({ distinct: ['siteAuditId'], select: { siteAuditId: true } }),
     // C12 D1: HarvestedPageSeo now survives past a successful build (retained
     // for the content-audit window), so a populated row no longer means "the
@@ -25,8 +25,17 @@ export async function recoverBrokenLinkVerifies(): Promise<number> {
       where: { siteAudit: { crawlRuns: { none: { tool: 'seo-parser' } } } },
       distinct: ['siteAuditId'], select: { siteAuditId: true },
     }),
+    // sweep-error-triage Bucket 1: a dead-only audit (every page 404/410) can
+    // strand with ONLY HarvestedPageError rows. Same DB-level fence as
+    // HarvestedPageSeo — once the live-scan run commits, a surviving error row
+    // must NOT re-trigger scans (the run deletes them on success; the 7-d prune
+    // backstops orphans).
+    prisma.harvestedPageError.findMany({
+      where: { siteAudit: { crawlRuns: { none: { tool: 'seo-parser' } } } },
+      distinct: ['siteAuditId'], select: { siteAuditId: true },
+    }),
   ])
-  const pending = [...new Set([...links, ...seo].map((r) => r.siteAuditId))].map((siteAuditId) => ({ siteAuditId }))
+  const pending = [...new Set([...links, ...seo, ...deadPages].map((r) => r.siteAuditId))].map((siteAuditId) => ({ siteAuditId }))
   // C11: complete seoOnly audits can strand with ZERO transient rows — if every
   // page failed/redirected (or harvest returned null) and the process crashed
   // after 'complete' but before enqueueBrokenLinkVerify, nothing was written to
