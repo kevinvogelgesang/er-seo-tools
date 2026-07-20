@@ -2,7 +2,7 @@
 
 // The admin frame is dark-mode aware; the nested client canvas is deliberately
 // light-only and uses the same public SectionShell + brand variables clients see.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ViewbookTheme } from '@/lib/viewbook/theme'
 import { isAllowedFont } from '@/lib/viewbook/font-manifest'
 import type { ResolvedThemeFonts } from '@/lib/viewbook/resolved-theme-fonts'
@@ -66,6 +66,27 @@ export function ThemePreview({
   const heroFilename = previewHeroFilename(theme)
   const heroUrl = token && heroFilename ? publicAssetUrl(token, heroFilename) : null
 
+  // Static preview footprint (2026-07-20 Kevin fix): collapsing the sample
+  // section must not shrink the whole panel — the eye shouldn't track two
+  // simultaneous collapses. Lock the frame's min-height to the TALLEST canvas
+  // height observed (i.e. the expanded state), resetting only when the hero
+  // changes (a removed hero may legitimately shrink the footprint).
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const [lockedMinHeight, setLockedMinHeight] = useState(0)
+  useEffect(() => {
+    setLockedMinHeight(0)
+  }, [heroUrl])
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      const height = el.getBoundingClientRect().height
+      setLockedMinHeight((prev) => (height > prev ? Math.ceil(height) : prev))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [heroUrl])
+
   useEffect(() => {
     if (isAllowedFont(theme.headingFont) && isAllowedFont(theme.bodyFont)) {
       setResolvedFonts(undefined)
@@ -99,9 +120,14 @@ export function ThemePreview({
       </div>
       <div className="min-w-0 max-w-full overflow-x-hidden bg-gray-100 p-3 dark:bg-navy-deep/55">
         {/* No height cap / inner scroll (2026-07-20 Kevin fix): the canvas
-            grows to fit the sample section so the whole preview is visible. */}
-        <div className="min-w-0 max-w-full overflow-x-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-navy-border">
+            grows to fit the sample section so the whole preview is visible;
+            min-height locks to the tallest observed state (see above). */}
+        <div
+          className="min-w-0 max-w-full overflow-x-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-navy-border"
+          style={lockedMinHeight > 0 ? { minHeight: lockedMinHeight } : undefined}
+        >
           <div
+            ref={canvasRef}
             data-testid="theme-preview-canvas"
             // Morph CSS keys off an ancestor data-vb-morph (ViewbookShell's
             // theme root on the public page) — the preview canvas stamps the
